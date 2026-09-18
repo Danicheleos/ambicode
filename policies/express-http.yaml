@@ -1,0 +1,74 @@
+schemaVersion: 1
+id: express-http
+authority: inherited
+appliesTo:
+  - "**/*.router.ts"
+  - "**/*.routes.ts"
+  - "**/*.controller.ts"
+  - "**/*.validators.ts"
+activities: [review, task, plan]
+
+source:
+  location: >-
+    AMBICODE HTTP baseline, adapted from grahpt express-routing-and-controllers.
+    Separated from framework-version specifics: the authorization, validation,
+    and response-correctness concerns are carried over; the prescribed routing
+    layout and the specific validation library are not.
+  externalVersion: "express-v1"
+
+rules:
+  - id: authorization-on-scoped-routes
+    category: security
+    instruction: >-
+      A route nested under a parent resource must both receive the parent's
+      identifier and prove the caller is authorized for that specific parent
+      before reading or writing. An authenticated caller is not thereby
+      authorized for an arbitrary resource identifier.
+    check:
+      kind: reviewer
+      explanation: >-
+        Assessed from the changed route and the middleware it actually runs.
+        Report an unverifiable ownership check as a question, not as proof.
+
+  - id: runtime-request-validation
+    category: security
+    instruction: >-
+      Every request value a handler consumes is validated at runtime. A
+      TypeScript type documents the shape after validation; it does not perform
+      it.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed handler and its declared validation.
+
+  - id: single-response
+    category: correctness
+    instruction: >-
+      A handler sends one response and then stops. Continuing after a response
+      has been sent produces a second write or unattributed work.
+    check:
+      kind: reviewer
+      explanation: Visible in the changed control flow.
+
+  - id: security-middleware-order
+    category: security
+    instruction: >-
+      Do not weaken a configured allowlist or reorder sanitization, validation,
+      and permission middleware as a side effect of an unrelated change.
+    check:
+      kind: reviewer
+      explanation: Judged by comparing the changed order with the surrounding code.
+
+  - id: handler-responsibility
+    category: architecture
+    instruction: >-
+      A handler translates HTTP into an application call and maps the result
+      back. Query construction and persistence rules belong to the layer the
+      project has designated for them.
+    check:
+      kind: reviewer
+      explanation: >-
+        Assess against the project's declared structure; state the question when
+        none is declared.
+
+prompts: []
+commandPolicy: []

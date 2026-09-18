@@ -1,2 +1,7 @@
 plan
 research
+node_modules
+*.tsbuildinfo
+.ambicode/reviews
+eval-results.json
+.DS_Store

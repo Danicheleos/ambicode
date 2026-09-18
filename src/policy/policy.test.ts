@@ -1,0 +1,381 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import type { ProjectConfig } from '../contracts/config.ts';
+import { loadPacksForProject } from './load.ts';
+import { decisionFor, explainRefusal, resolvePolicy } from './resolve.ts';
+
+const BUILTIN_DIRECTORY = path.join(import.meta.dirname, '..', '..', 'policies');
+
+function project(overrides: Partial<ProjectConfig> = {}): ProjectConfig {
+  return {
+    id: 'web',
+    root: 'apps/web',
+    ecosystem: 'typescript',
+    packs: [],
+    policyFiles: [],
+    commands: { lint: null, unit: null, e2e: null },
+    checks: {},
+    ...overrides,
+  };
+}
+
+async function sandbox(t: { after(fn: () => unknown): void }): Promise<string> {
+  const directory = await mkdtemp(path.join(tmpdir(), 'ambicode-policy-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  return directory;
+}
+
+test('U03 built-in packs parse, keep authority and provenance, and qualify rule ids', async () => {
+  const { packs, diagnostics } = await loadPacksForProject({
+    project: project({ packs: ['builtin/common-quality'] }),
+    builtinDirectory: BUILTIN_DIRECTORY,
+    repositoryRoot: '/nowhere',
+  });
+
+  assert.deepEqual(diagnostics, []);
+  assert.equal(packs.length, 1);
+  assert.equal(packs[0]?.pack.authority, 'inherited');
+  assert.ok(packs[0]?.pack.source.location.includes('grahpt'));
+
+  const resolved = resolvePolicy({
+    activity: 'review',
+    project: project({ packs: ['builtin/common-quality'] }),
+    packs,
+    paths: ['apps/web/src/a.ts'],
+  });
+  assert.ok(resolved.rules.every((rule) => rule.qualifiedId.startsWith('common-quality/')));
+  assert.ok(resolved.rules.some((rule) => rule.qualifiedId === 'common-quality/reuse-before-reimplementing'));
+  assert.equal(resolved.prompts.length, 1);
+  assert.ok(resolved.prompts[0]?.absolutePath.endsWith('policies/prompts/review-smells.md'));
+});
+
+test('U26 every built-in pack loads and its referenced prompt files exist', async () => {
+  const ids = [
+    'common-quality', 'common-checks', 'python-quality',
+    'angular-components', 'angular-architecture', 'angular-state', 'angular-http', 'angular-style',
+    'express-http', 'express-persistence', 'express-errors', 'express-style',
+  ];
+  const { packs, diagnostics } = await loadPacksForProject({
+    project: project({
+      packs: ids.map((id) => `builtin/${id}`),
+      commands: { lint: null, unit: null, e2e: null },
+    }),
+    builtinDirectory: BUILTIN_DIRECTORY,
+    repositoryRoot: '/nowhere',
+  });
+  assert.deepEqual(diagnostics.map((d) => d.message), []);
+  assert.equal(packs.length, ids.length);
+});
+
+test('U03 a missing prompt file and an unknown command id are diagnosed, not ignored', async (t) => {
+  const directory = await sandbox(t);
+  const packDirectory = path.join(directory, '.ambicode', 'policies');
+  await mkdir(packDirectory, { recursive: true });
+  await writeFile(
+    path.join(packDirectory, 'broken.yaml'),
+    [
+      'schemaVersion: 1',
+      'id: broken',
+      'authority: team',
+      'appliesTo: ["**/*"]',
+      'activities: [review]',
+      'source: { location: "test" }',
+      'prompts: [{ stage: before-review, file: "./missing.md" }]',
+      'commandPolicy: [{ command: not-declared, action: run }]',
+    ].join('\n'),
+    'utf8',
+  );
+
+  const { packs, diagnostics } = await loadPacksForProject({
+    project: project({ policyFiles: ['.ambicode/policies/broken.yaml'] }),
+    builtinDirectory: BUILTIN_DIRECTORY,
+    repositoryRoot: directory,
+  });
+
+  assert.equal(packs.length, 1);
+  assert.ok(diagnostics.some((d) => d.code === 'path-missing'));
+  assert.ok(diagnostics.some((d) => d.code === 'pack-unknown-command'));
+});
+
+test('U03 an unsupported prompt stage is a configuration error', async (t) => {
+  const directory = await sandbox(t);
+  await mkdir(path.join(directory, '.ambicode', 'policies'), { recursive: true });
+  await writeFile(
+    path.join(directory, '.ambicode', 'policies', 'stage.yaml'),
+    [
+      'schemaVersion: 1',
+      'id: stage',
+      'authority: team',
+      'appliesTo: ["**/*"]',
+      'activities: [review]',
+      'source: { location: "test" }',
+      'prompts: [{ stage: whenever, file: "./x.md" }]',
+    ].join('\n'),
+    'utf8',
+  );
+
+  const { packs, diagnostics } = await loadPacksForProject({
+    project: project({ policyFiles: ['.ambicode/policies/stage.yaml'] }),
+    builtinDirectory: BUILTIN_DIRECTORY,
+    repositoryRoot: directory,
+  });
+  assert.equal(packs.length, 0);
+  assert.ok(diagnostics.some((d) => d.code === 'pack-invalid' && d.message.includes('prompts')));
+});
+
+test('U07 a prompt reference that leaves the pack directory through a link is rejected', async (t) => {
+  const directory = await sandbox(t);
+  const packDirectory = path.join(directory, '.ambicode', 'policies');
+  await mkdir(packDirectory, { recursive: true });
+  await writeFile(path.join(directory, 'outside.md'), 'secret guidance', 'utf8');
+  await symlink(path.join(directory, 'outside.md'), path.join(packDirectory, 'linked.md'));
+  await writeFile(
+    path.join(packDirectory, 'escape.yaml'),
+    [
+      'schemaVersion: 1',
+      'id: escape',
+      'authority: team',
+      'appliesTo: ["**/*"]',
+      'activities: [review]',
+      'source: { location: "test" }',
+      'prompts:',
+      '  - { stage: before-review, file: "./linked.md" }',
+      '  - { stage: before-review, file: "../../outside.md" }',
+    ].join('\n'),
+    'utf8',
+  );
+
+  const { packs, diagnostics } = await loadPacksForProject({
+    project: project({ policyFiles: ['.ambicode/policies/escape.yaml'] }),
+    builtinDirectory: BUILTIN_DIRECTORY,
+    repositoryRoot: directory,
+  });
+
+  assert.equal(packs[0]?.resolvedPrompts.length, 0);
+  assert.equal(diagnostics.filter((d) => d.code === 'path-escape').length, 2);
+});
+
+test('U04 command precedence is forbid over propose over run, and silence is not permission', async (t) => {
+  const directory = await sandbox(t);
+  const packDirectory = path.join(directory, '.ambicode', 'policies');
+  await mkdir(packDirectory, { recursive: true });
+  await writeFile(
+    path.join(packDirectory, 'orders.yaml'),
+    [
+      'schemaVersion: 1',
+      'id: orders-operations',
+      'authority: team',
+      'appliesTo: ["src/orders/**"]',
+      'activities: [review, task]',
+      'source: { location: "Project engineering policy: orders" }',
+      'commandPolicy:',
+      '  - { command: unit, action: forbid, reason: "Snapshots must not be rewritten here." }',
+      '  - { command: e2e, action: propose, reason: "Needs a running environment." }',
+    ].join('\n'),
+    'utf8',
+  );
+
+  const config = project({
+    packs: ['builtin/common-checks'],
+    policyFiles: ['.ambicode/policies/orders.yaml'],
+    commands: { lint: null, unit: null, e2e: null },
+  });
+  const { packs } = await loadPacksForProject({
+    project: config,
+    builtinDirectory: BUILTIN_DIRECTORY,
+    repositoryRoot: directory,
+  });
+
+  const resolved = resolvePolicy({
+    activity: 'review',
+    project: config,
+    packs,
+    paths: ['apps/web/src/orders/create.ts'],
+  });
+
+  // common-checks says run; the project pack says forbid. Forbid wins.
+  assert.equal(decisionFor(resolved, 'unit').action, 'forbid');
+  assert.equal(decisionFor(resolved, 'e2e').action, 'propose');
+  assert.equal(decisionFor(resolved, 'lint').action, 'run');
+  // A command nothing mentions is never run just because nothing forbade it.
+  assert.equal(decisionFor(resolved, 'architecture-report').action, 'undeclared');
+
+  assert.ok(explainRefusal(resolved, 'unit').includes('Snapshots must not be rewritten here.'));
+  assert.ok(explainRefusal(resolved, 'unit').includes('.ambicode/policies/orders.yaml'));
+});
+
+test('U04 a scoped pack does not apply to paths outside its globs', async (t) => {
+  const directory = await sandbox(t);
+  const packDirectory = path.join(directory, '.ambicode', 'policies');
+  await mkdir(packDirectory, { recursive: true });
+  await writeFile(
+    path.join(packDirectory, 'orders.yaml'),
+    [
+      'schemaVersion: 1',
+      'id: orders-operations',
+      'authority: team',
+      'appliesTo: ["src/orders/**"]',
+      'activities: [review]',
+      'source: { location: "test" }',
+      'commandPolicy: [{ command: unit, action: forbid }]',
+    ].join('\n'),
+    'utf8',
+  );
+
+  const config = project({
+    packs: ['builtin/common-checks'],
+    policyFiles: ['.ambicode/policies/orders.yaml'],
+  });
+  const { packs } = await loadPacksForProject({
+    project: config,
+    builtinDirectory: BUILTIN_DIRECTORY,
+    repositoryRoot: directory,
+  });
+
+  const elsewhere = resolvePolicy({
+    activity: 'review',
+    project: config,
+    packs,
+    paths: ['apps/web/src/billing/create.ts'],
+  });
+  assert.equal(decisionFor(elsewhere, 'unit').action, 'run');
+});
+
+test('U05 replacement is explicit and whole-pack, and an implicit duplicate fails', async (t) => {
+  const directory = await sandbox(t);
+  const packDirectory = path.join(directory, '.ambicode', 'policies');
+  await mkdir(packDirectory, { recursive: true });
+
+  const write = async (name: string, body: string[]): Promise<void> => {
+    await writeFile(path.join(packDirectory, name), body.join('\n'), 'utf8');
+  };
+
+  await write('replacement.yaml', [
+    'schemaVersion: 1',
+    'id: python-quality',
+    'authority: team',
+    'appliesTo: ["**/*.py"]',
+    'activities: [review]',
+    'source: { location: "Project policy: python" }',
+    'replaces: builtin/python-quality',
+    'rules:',
+    '  - id: only-rule',
+    '    category: correctness',
+    '    instruction: "The project owns this pack now."',
+    '    check: { kind: reviewer, explanation: "reviewer" }',
+  ]);
+  await write('duplicate.yaml', [
+    'schemaVersion: 1',
+    'id: python-quality',
+    'authority: team',
+    'appliesTo: ["**/*.py"]',
+    'activities: [review]',
+    'source: { location: "Accidental copy" }',
+  ]);
+
+  const replacing = project({
+    packs: ['builtin/python-quality'],
+    policyFiles: ['.ambicode/policies/replacement.yaml'],
+  });
+  const first = await loadPacksForProject({
+    project: replacing,
+    builtinDirectory: BUILTIN_DIRECTORY,
+    repositoryRoot: directory,
+  });
+  assert.deepEqual(first.diagnostics, []);
+  assert.equal(first.packs.length, 1);
+  assert.equal(first.packs[0]?.origin, 'project');
+  assert.equal(first.packs[0]?.replacedReference, 'builtin/python-quality');
+
+  const resolved = resolvePolicy({ activity: 'review', project: replacing, packs: first.packs, paths: [] });
+  // Whole-pack replacement: none of the built-in rules survive.
+  assert.deepEqual(resolved.rules.map((rule) => rule.qualifiedId), ['python-quality/only-rule']);
+  assert.equal(resolved.packs[0]?.replacedReference, 'builtin/python-quality');
+
+  const duplicating = project({
+    packs: ['builtin/python-quality'],
+    policyFiles: ['.ambicode/policies/duplicate.yaml'],
+  });
+  const second = await loadPacksForProject({
+    project: duplicating,
+    builtinDirectory: BUILTIN_DIRECTORY,
+    repositoryRoot: directory,
+  });
+  assert.ok(second.diagnostics.some((d) => d.code === 'pack-duplicate-id'));
+});
+
+test('U06 framework packs stay in their own scope', async () => {
+  const angular = project({
+    id: 'web',
+    root: 'apps/web',
+    packs: ['builtin/angular-components'],
+  });
+  const express = project({
+    id: 'api',
+    root: 'services/api',
+    packs: ['builtin/express-http'],
+  });
+
+  const angularPacks = await loadPacksForProject({
+    project: angular,
+    builtinDirectory: BUILTIN_DIRECTORY,
+    repositoryRoot: '/nowhere',
+  });
+  const expressPacks = await loadPacksForProject({
+    project: express,
+    builtinDirectory: BUILTIN_DIRECTORY,
+    repositoryRoot: '/nowhere',
+  });
+
+  // An Express controller in the API project must not pick up Angular rules,
+  // and a path belonging to the other project resolves to nothing here.
+  const angularResolved = resolvePolicy({
+    activity: 'review',
+    project: angular,
+    packs: angularPacks.packs,
+    paths: ['services/api/src/order.controller.ts'],
+  });
+  assert.deepEqual(angularResolved.rules, []);
+
+  const expressResolved = resolvePolicy({
+    activity: 'review',
+    project: express,
+    packs: expressPacks.packs,
+    paths: ['services/api/src/order.controller.ts'],
+  });
+  assert.ok(expressResolved.rules.every((rule) => rule.packId === 'express-http'));
+  assert.ok(expressResolved.rules.length > 0);
+});
+
+test('U06 activity filtering keeps read-only work out of check decisions', async () => {
+  const config = project({ packs: ['builtin/common-checks'] });
+  const { packs } = await loadPacksForProject({
+    project: config,
+    builtinDirectory: BUILTIN_DIRECTORY,
+    repositoryRoot: '/nowhere',
+  });
+
+  const review = resolvePolicy({ activity: 'review', project: config, packs, paths: ['apps/web/a.ts'] });
+  assert.equal(decisionFor(review, 'lint').action, 'run');
+
+  const investigate = resolvePolicy({ activity: 'investigate', project: config, packs, paths: ['apps/web/a.ts'] });
+  assert.equal(decisionFor(investigate, 'lint').action, 'undeclared');
+});
+
+test('U06 output ordering is deterministic and independent of declaration order', async () => {
+  const forward = project({ packs: ['builtin/common-quality', 'builtin/python-quality'] });
+  const reverse = project({ packs: ['builtin/python-quality', 'builtin/common-quality'] });
+
+  const a = await loadPacksForProject({ project: forward, builtinDirectory: BUILTIN_DIRECTORY, repositoryRoot: '/x' });
+  const b = await loadPacksForProject({ project: reverse, builtinDirectory: BUILTIN_DIRECTORY, repositoryRoot: '/x' });
+
+  const resolveWith = (config: ProjectConfig, packs: Awaited<ReturnType<typeof loadPacksForProject>>['packs']) =>
+    resolvePolicy({ activity: 'review', project: config, packs, paths: ['apps/web/a.py'] }).rules.map(
+      (rule) => rule.qualifiedId,
+    );
+
+  assert.deepEqual(resolveWith(forward, a.packs), resolveWith(reverse, b.packs));
+});

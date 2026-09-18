@@ -1,0 +1,67 @@
+schemaVersion: 1
+id: express-errors
+authority: inherited
+appliesTo:
+  - "**/*.ts"
+activities: [review, task, plan]
+
+source:
+  location: >-
+    AMBICODE service error baseline, adapted from grahpt
+    express-errors-and-logging. Carried over as safety and honesty concerns; the
+    project's own logger and error base class are honoured rather than replaced.
+  externalVersion: "express-v1"
+
+rules:
+  - id: classified-errors
+    category: correctness
+    instruction: >-
+      Raise a classified error carrying a stable machine-readable code, a safe
+      client-facing message, and a status, and let one place map it to a
+      response. Extend the project's existing error type rather than adding an
+      unrelated parallel one.
+    check:
+      kind: reviewer
+      explanation: Requires locating the project's existing error types in the snapshot.
+
+  - id: no-secret-exposure
+    category: security
+    instruction: >-
+      Never log or return credentials, tokens, authorization headers, raw
+      request bodies, stack traces, or an upstream provider's raw error payload.
+      A catch block is exactly where dumping the whole object is tempting.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed logging and response construction.
+
+  - id: use-the-configured-logger
+    category: workflow
+    instruction: >-
+      Log through the logger the project configured, once, where the failure is
+      handled. A bypassed logger means the line never reaches wherever logs are
+      collected.
+    check:
+      kind: reviewer
+      explanation: Requires identifying the project's configured logger.
+
+  - id: outbound-timeouts
+    category: correctness
+    instruction: >-
+      Give every outbound network call an explicit timeout and translate a
+      timeout or unavailability into a classified failure. Await asynchronous
+      work; an unhandled rejection is an unowned failure.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed call sites.
+
+  - id: no-synchronous-io-on-request-path
+    category: correctness
+    instruction: >-
+      Synchronous I/O on a request path blocks the event loop for every other
+      request in flight.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed request path.
+
+prompts: []
+commandPolicy: []

@@ -1,0 +1,57 @@
+schemaVersion: 1
+id: angular-http
+authority: inherited
+appliesTo:
+  - "**/*.service.ts"
+  - "**/*.interceptor.ts"
+activities: [review, task, plan]
+
+source:
+  location: >-
+    AMBICODE Angular baseline, adapted from grahpt angular-api-and-http. The
+    original's facade and API-layer structure is a project decision and is not
+    carried over as a rule; the error, validation, and duplicate-request
+    concerns are.
+  externalVersion: "angular-v1"
+
+rules:
+  - id: response-validation
+    category: security
+    instruction: >-
+      A response type parameter is a compile-time assertion. Narrow or validate
+      an untrusted response where it enters, before it reaches application state.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed boundary.
+
+  - id: error-semantics
+    category: correctness
+    instruction: >-
+      Return the failure to the caller or translate it into a typed, documented
+      result. A swallowed error combined with a success-shaped value leaves the
+      caller unable to tell what happened.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed error path.
+
+  - id: duplicate-requests
+    category: correctness
+    instruction: >-
+      Decide once whether a request is returned, shared, or promoted into state.
+      Several independent subscriptions to the same cold request issue it
+      several times.
+    check:
+      kind: reviewer
+      explanation: Requires tracing the subscribers present in the snapshot.
+
+  - id: cross-cutting-http-concerns
+    category: architecture
+    instruction: >-
+      Authentication, tracing, and shared headers belong in one interceptor
+      rather than copied into each endpoint.
+    check:
+      kind: reviewer
+      explanation: Requires locating the existing interceptor in the snapshot.
+
+prompts: []
+commandPolicy: []

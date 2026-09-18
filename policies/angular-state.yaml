@@ -1,0 +1,50 @@
+schemaVersion: 1
+id: angular-state
+authority: inherited
+appliesTo:
+  - "**/*.facade.ts"
+  - "**/*.service.ts"
+  - "**/*.store.ts"
+  - "**/*.component.ts"
+activities: [review, task, plan]
+
+source:
+  location: >-
+    AMBICODE Angular baseline, adapted from grahpt angular-state-and-data-flow.
+    The original's specific reactive-primitive and forms mandates depend on the
+    Angular version and on a project decision, so they are not carried over as
+    rules; the ownership and lifetime guidance is.
+  externalVersion: "angular-v1"
+
+rules:
+  - id: state-owner
+    category: architecture
+    instruction: >-
+      Every piece of shared state has one writer. Exposing a mutable subject or
+      writable signal outside its owner means any consumer can change it, and
+      the owner can no longer state an invariant about it.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed public surface.
+
+  - id: subscription-lifetime
+    category: correctness
+    instruction: >-
+      Every subscription has an owner and a bounded lifetime. A deliberate
+      fire-and-forget effect states how it handles its own failures.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed subscription sites.
+
+  - id: representation-conversions
+    category: code-style
+    instruction: >-
+      Convert between reactive representations at a deliberate boundary rather
+      than repeatedly along one path. Which primitives a project uses is its own
+      decision; the cost of converting back and forth is the finding here.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed data path.
+
+prompts: []
+commandPolicy: []

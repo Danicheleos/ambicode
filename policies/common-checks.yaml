@@ -1,0 +1,29 @@
+schemaVersion: 1
+id: common-checks
+authority: team
+appliesTo:
+  - "**/*"
+activities: [review, task]
+
+source:
+  location: "AMBICODE built-in: permission to run the project's own configured checks."
+
+rules: []
+prompts: []
+
+# Enabling this pack authorizes the project's configured lint, unit, and e2e
+# commands to run during review and task work. A command configured as null
+# stays unavailable regardless of the decision below, and a read-only activity
+# does not run these merely because the decision exists.
+commandPolicy:
+  - command: lint
+    action: run
+    reason: "The project's configured linter, scoped to changed files."
+  - command: unit
+    action: run
+    reason: "The project's configured unit tests, scoped to the affected selection."
+  - command: e2e
+    action: propose
+    reason: >-
+      An existing end-to-end command often starts services or depends on an
+      environment, so its scope is confirmed per run rather than assumed.

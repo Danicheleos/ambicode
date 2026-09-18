@@ -1,0 +1,48 @@
+schemaVersion: 1
+id: angular-style
+authority: inherited
+appliesTo:
+  - "**/*.ts"
+activities: [review, task]
+
+source:
+  location: >-
+    AMBICODE Angular baseline, adapted from grahpt angular-typescript-style.
+    The original's interface prefix, explicit access modifiers, member ordering,
+    and import grouping are optional approved style, so this pack defers to the
+    project's configured lint rules instead of restating them.
+  externalVersion: "angular-v1"
+
+rules:
+  - id: configured-style
+    category: code-style
+    instruction: >-
+      Follow the project's configured lint and formatting rules. AMBICODE does
+      not add a style opinion the project has not adopted, and review never runs
+      an autofix.
+    check:
+      kind: command
+      command: lint
+      explanation: The configured linter proves only the rules the project enabled.
+
+  - id: honest-types
+    category: correctness
+    instruction: >-
+      Use the narrowest honest type. `any`, a broad cast, or optional chaining
+      used in place of checking a value that can be absent moves the failure to
+      runtime without removing it.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed declarations.
+
+  - id: distinct-shapes
+    category: architecture
+    instruction: >-
+      Where transport, domain, and view shapes carry different invariants, map
+      between them explicitly instead of passing one through unrelated layers.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed data path.
+
+prompts: []
+commandPolicy: []

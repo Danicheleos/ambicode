@@ -1,0 +1,186 @@
+schemaVersion: 1
+id: common-quality
+authority: inherited
+appliesTo:
+  - "**/*"
+activities: [review, task, plan, investigate]
+
+source:
+  location: >-
+    AMBICODE common baseline, distilled from the grahpt common rule packs
+    (foundation, code craft, architecture, verification and reliability, reuse).
+  externalVersion: "common-v1"
+
+rules:
+  - id: need
+    category: architecture
+    instruction: >-
+      Build what the accepted requirement or an inherited obligation calls for.
+      Speculative branches, options, and migration hooks with no current caller
+      are unnecessary work until a requirement asks for them.
+    check:
+      kind: reviewer
+      explanation: >-
+        Assess against the stated requirement and the callers present in the
+        change. Absence of a caller is evidence; it is not proof on its own.
+
+  - id: cohesion
+    category: architecture
+    instruction: >-
+      Keep one reason to change per unit. Where a change adds an unrelated
+      responsibility to an existing unit, say which unit should own it instead.
+    check:
+      kind: reviewer
+      explanation: Judged from the responsibilities actually present in the changed unit.
+
+  - id: reuse-before-reimplementing
+    category: architecture
+    instruction: >-
+      Before adding a helper, look for an existing one, a framework API already
+      in use, or a language built-in that covers the case. A second
+      implementation of something the codebase already has is duplication. A
+      thin wrapper is not automatically wrong: a boundary adapter can be
+      justified even with one caller, so argue from the boundary it creates
+      rather than from the number of callers.
+    check:
+      kind: reviewer
+      explanation: >-
+        Requires finding the existing implementation in the snapshot. Report a
+        suspected duplicate as a question when the original cannot be located.
+
+  - id: unjustified-complexity
+    category: architecture
+    instruction: >-
+      Prefer the smallest clear solution for the case at hand. Generic
+      machinery, configuration surfaces, and optimizations need a demonstrated
+      need, measured or stated in the requirement.
+    check:
+      kind: reviewer
+      explanation: >-
+        Cite the specific complexity and what it costs a reader or caller. A
+        preference for a different structure is not a defect.
+
+  - id: explicit-surface
+    category: architecture
+    instruction: >-
+      Dependencies, control paths, absence cases, and side effects a caller must
+      know about belong in a typed API, a named operation, or an explicit
+      branch, not in a positional flag or an undocumented ordering requirement.
+    check:
+      kind: reviewer
+      explanation: Judged from the changed public surface and its callers.
+
+  - id: dead-surface
+    category: correctness
+    instruction: >-
+      Remove code, members, and work that the change leaves unreachable or
+      unused.
+    check:
+      kind: reviewer
+      explanation: >-
+        Only report a symbol as unused after searching the snapshot. Note when
+        the snapshot does not contain the whole repository.
+
+  - id: naming
+    category: code-style
+    instruction: >-
+      Use one clear domain term per concept and name booleans as the question
+      they answer. Leave formatting and casing to the project's configured
+      tools.
+    check:
+      kind: command
+      command: lint
+      explanation: >-
+        The configured linter proves only the conventions it implements;
+        everything else here is a reviewer judgement.
+
+  - id: effects
+    category: correctness
+    instruction: >-
+      Make mutation, subscriptions, and side effects locally visible and
+      bounded. Treat inputs as read-only unless the contract says otherwise.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed code and the lifetimes it creates.
+
+  - id: comment-reasons
+    category: code-style
+    instruction: >-
+      Comment the non-obvious reason, invariant, or constraint. A comment that
+      restates the syntax adds maintenance without adding information.
+    check:
+      kind: reviewer
+      explanation: Judged from the comments the change adds.
+
+  - id: error-honesty
+    category: correctness
+    instruction: >-
+      Distinguish an impossible invariant breach from an expected failure. Fail
+      fast for the first; handle the second at its owner. An empty catch, a
+      swallowed failure, or a success-shaped value returned after a failure
+      hides the outcome from the caller.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed error paths.
+
+  - id: ownership-and-direction
+    category: architecture
+    instruction: >-
+      Where a change crosses an ownership or dependency boundary, state which
+      unit owns the state and mutation, and keep the dependency direction the
+      project has declared. This rule asks the question; the concrete layering
+      comes from the project's own architecture policy.
+    check:
+      kind: reviewer
+      explanation: >-
+        Requires the project's declared structure. Without one, report the
+        boundary question rather than asserting a violation.
+
+  - id: data-boundary
+    category: security
+    instruction: >-
+      Validate untrusted data once where it enters, and map between transport,
+      domain, and presentation shapes explicitly when their invariants differ.
+      A static type is a compile-time assertion, not runtime validation.
+    check:
+      kind: reviewer
+      explanation: Assessed from the entry points the change adds or moves.
+
+  - id: test-behavior
+    category: correctness
+    instruction: >-
+      Test the observable outcome rather than private implementation, and add a
+      regression test at the fix point for a real defect.
+    check:
+      kind: command
+      command: unit
+      explanation: >-
+        The configured unit command proves only that the selected tests ran and
+        what they returned. Whether coverage is meaningful is a reviewer
+        judgement.
+
+  - id: test-determinism
+    category: correctness
+    instruction: >-
+      Control the clock, network, and ordering a test depends on. A test that
+      asserts a mock returns its own configured value proves nothing.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed tests.
+
+  - id: honest-gaps
+    category: workflow
+    instruction: >-
+      Record a genuine verification gap rather than describing coverage that
+      does not exist.
+    check:
+      kind: reviewer
+      explanation: >-
+        Compare the claims in the change description against the tests and
+        check evidence actually present.
+
+prompts:
+  - stage: before-review
+    file: "./prompts/review-smells.md"
+
+commandPolicy: []

@@ -1,0 +1,51 @@
+schemaVersion: 1
+id: angular-architecture
+authority: inherited
+appliesTo:
+  - "**/*.ts"
+activities: [review, task, plan]
+
+source:
+  location: >-
+    AMBICODE Angular baseline, adapted from grahpt angular-project-structure.
+    The original prescribed one folder layout, file-suffix scheme, selector
+    prefix policy, and feature-slice migration. Those are selectable conventions
+    rather than defects, so this pack asks whether the project's own convention
+    was followed instead of naming a particular one.
+  externalVersion: "angular-v1"
+
+rules:
+  - id: follow-declared-structure
+    category: architecture
+    instruction: >-
+      Place new files according to the structure the project already uses. Where
+      a change introduces a different grouping from its neighbours, that is a
+      decision to state, not a detail to leave implicit.
+    check:
+      kind: reviewer
+      explanation: >-
+        Compare against the surrounding directories present in the snapshot. A
+        pre-existing inconsistency elsewhere is context, not a new finding.
+
+  - id: shared-code-placement
+    category: architecture
+    instruction: >-
+      Code that carries a feature's domain knowledge belongs with that feature.
+      A shared or utility location is for context-free behaviour with more than
+      one demonstrated consumer.
+    check:
+      kind: reviewer
+      explanation: Requires identifying the actual consumers in the snapshot.
+
+  - id: no-unrequested-migration
+    category: workflow
+    instruction: >-
+      Approving a target structure does not authorize moving unrelated existing
+      code into it. Restructuring outside the change's stated scope belongs in
+      its own change.
+    check:
+      kind: reviewer
+      explanation: Judged from the stated scope against the files the change touches.
+
+prompts: []
+commandPolicy: []

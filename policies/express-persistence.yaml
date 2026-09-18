@@ -1,0 +1,70 @@
+schemaVersion: 1
+id: express-persistence
+authority: inherited
+appliesTo:
+  - "**/*.service.ts"
+  - "**/*.schema.ts"
+  - "**/*.model.ts"
+  - "**/models/**/*.ts"
+activities: [review, task, plan]
+
+source:
+  location: >-
+    AMBICODE persistence baseline, adapted from grahpt
+    express-services-and-persistence. The original's mandatory feature-slice
+    migration and its ORM-specific expectations are not carried over; the input
+    safety, pagination, and conflict concerns are.
+  externalVersion: "express-v1"
+
+rules:
+  - id: query-input-allowlist
+    category: security
+    instruction: >-
+      Never let client input choose a field name, an operator, a sort key, or an
+      unbounded page size. Allowlist them. Treat interpolating user input into a
+      query the same way as SQL injection, whatever the data store.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed query construction.
+
+  - id: bounded-reads
+    category: correctness
+    instruction: >-
+      A list query has an explicit maximum page size, and a read selects the
+      fields the response needs.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed query.
+
+  - id: write-conflict-behaviour
+    category: correctness
+    instruction: >-
+      A write that can race on a uniqueness constraint states its conflict or
+      idempotency behaviour, and translates a constraint violation into a typed
+      error rather than surfacing the store's own message.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed write path.
+
+  - id: client-controlled-shapes
+    category: security
+    instruction: >-
+      Model client-controlled data as explicit typed fields. An open map or blob
+      for client input hides validation and compatibility decisions rather than
+      removing them.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed schema or type.
+
+  - id: persistence-types-stay-internal
+    category: architecture
+    instruction: >-
+      A response should not expose a raw persistence document or a
+      persistence-only field. Which mapping layer performs the translation is
+      the project's decision.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed response shape.
+
+prompts: []
+commandPolicy: []
