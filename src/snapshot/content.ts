@@ -3,6 +3,7 @@ import { MAX_SNAPSHOT_FILE_BYTES } from '../config/defaults.ts';
 import type { Git } from '../git/git.ts';
 import type { FileSystem } from '../ports/filesystem.ts';
 import { contentHash } from '../util/hash.ts';
+import { isBinaryContent } from './exclusions.ts';
 
 /**
  * Where snapshot content comes from, and why it cannot change under the review.
@@ -11,8 +12,18 @@ import { contentHash } from '../util/hash.ts';
  */
 export type FileContent =
   | { kind: 'text'; text: string }
+  | { kind: 'binary' }
   | { kind: 'symlink' }
   | { kind: 'too-large'; bytes: number };
+
+/**
+ * Bytes are classified before they are decoded (doc 11): a binary file never
+ * becomes a string, and text in an unfamiliar extension stays reviewable.
+ */
+export async function classifyBytes(bytes: Uint8Array): Promise<FileContent> {
+  if (await isBinaryContent(bytes)) return { kind: 'binary' };
+  return { kind: 'text', text: new TextDecoder('utf-8').decode(bytes) };
+}
 
 export interface ContentSource {
   /** How these bytes are pinned, recorded in the review for the reader. */
@@ -31,8 +42,9 @@ export function revisionContent(git: Git, revision: string): ContentSource {
     async read(relativePath: string): Promise<FileContent | null> {
       const text = await git.showFile(revision, relativePath);
       if (text === null) return null;
-      const bytes = Buffer.byteLength(text, 'utf8');
-      return bytes > MAX_SNAPSHOT_FILE_BYTES ? { kind: 'too-large', bytes } : { kind: 'text', text };
+      const bytes = Buffer.from(text, 'utf8');
+      if (bytes.length > MAX_SNAPSHOT_FILE_BYTES) return { kind: 'too-large', bytes: bytes.length };
+      return await classifyBytes(bytes);
     },
     async list(directoryName: string): Promise<string[]> {
       const names = await git.listTree(revision, directoryName);
@@ -121,8 +133,10 @@ async function readWorkingFile(
     const stats = await fs.lstat(absolute);
     if (stats.isSymbolicLink()) return { kind: 'symlink' };
     if (!stats.isFile()) return null;
+    // The size guard runs first, so the read that follows is bounded; the bytes
+    // it returns decide text-or-binary before any of them are decoded.
     if (stats.size > MAX_SNAPSHOT_FILE_BYTES) return { kind: 'too-large', bytes: stats.size };
-    return { kind: 'text', text: await fs.readText(absolute) };
+    return await classifyBytes(await fs.readBytes(absolute));
   } catch {
     return null;
   }

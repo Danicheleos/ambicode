@@ -26,13 +26,38 @@ true on a localised machine.
 The reviewer runs as a separate `claude` process. These flags were confirmed
 present in `claude --help` on 2.1.272:
 
-`--print`, `--safe-mode`, `--restricted`, `--tools`, `--strict-mcp-config`,
-`--no-session-persistence`, `--permission-prompts none`, `--output-format json`,
-`--json-schema`, `--model`.
+`--print`, `--safe-mode`, `--restricted`, `--tools`, `--disallowedTools`,
+`--mcp-config`, `--strict-mcp-config`, `--no-session-persistence`,
+`--permission-prompts none`, `--output-format json`, `--json-schema`, `--model`.
+
+`ClaudeReviewer.assertIsolationAvailable` re-checks that list against the
+installed CLI before every review and refuses with
+`reviewer-isolation-unavailable` when one is gone. AMBICODE does not run a
+reviewer with less isolation than its result claims.
+
+The argument vector, as observed being handed to the process:
+
+```
+--print --safe-mode --restricted --strict-mcp-config --mcp-config {"mcpServers":{}}
+--tools Read,Grep,Glob
+--disallowedTools Bash,Write,Edit,NotebookEdit,WebFetch,WebSearch,Task,Agent
+--permission-prompts none --no-session-persistence --model <model>
+--output-format json --json-schema <schema>
+```
+
+The prompt goes over stdin, not in the argument vector: it is large and holds
+option-like text. The working directory is the sanitized snapshot; there is no
+`--add-dir`, so the product checkout is unreachable, and no provider credential
+is passed.
 
 A plugin-shipped agent file cannot express this isolation: per the plugin
 reference, plugin agents support neither `permissionMode` nor `mcpServers`.
 The separate process is therefore the design, not a workaround.
+
+The effective tool list and file boundary inside a live process are M10/M11,
+which are manual and still outstanding. What is recorded here is the argument
+vector and the capability probe, not a proof about a running reviewer. Managed
+policy can still impose behaviour that neither shows.
 
 ## Check runners
 
@@ -113,24 +138,42 @@ Recorded per plan/11. No new runtime dependency was added for these.
 
 | Capability | Component | Evidence |
 |---|---|---|
-| CLI arguments | Node 24 `util.parseArgs` | Strict mode, positionals, `multiple` for repeatable `--approve`, and `--` handled by the platform. Parsed once in `main` before `createRuntime`, so a rejected argument reaches no process or file (U27). |
+| CLI arguments | Node 24 `util.parseArgs` | Strict mode, positionals, `multiple` for repeatable `--approve` and `--requirement`, and `--` handled by the platform. Parsed once in `main` before `createRuntime`, so a rejected argument reaches no process or file (U27). Only `policy` declares `positionals`; every other command rejects an operand. |
 | Temporary directories | `FileSystem.temporaryDirectory` | The adapter owns the host location; no domain module calls `tmpdir()`. |
+| Process execution | `execa` behind `ProcessRunner` | See the dependency record below. |
+| Binary content | `isbinaryfile` on bytes | See the dependency record below. |
 
-`execa` and `isbinaryfile` are selected in plan/11 but not yet adopted; the
-custom process runner's byte accounting is a known defect recorded below.
+## Runtime dependencies
+
+Recorded per plan/11, "Dependency review evidence".
+
+| Package | Pinned | License | Upstream | Used by | Why not Node alone |
+|---|---|---|---|---|---|
+| `execa` | ^10.0.1 (10.0.1) | MIT | sindresorhus/execa | `src/ports/node-process-runner.ts` | Timeout with forceful descendant cleanup, `extendEnv: false`, normalized failure reporting, and a stable distinction between a spawn failure and a nonzero exit. The handwritten `child_process` version conflated them and counted output in UTF-16 code units. |
+| `isbinaryfile` | ^6.0.0 (6.0.0) | MIT | gjtorikian/isBinaryFile | `src/snapshot/exclusions.ts` | Content classification on bytes. The previous NUL-only check ran after decoding, which plan/11 rules out as the final decision. The extension list remains, as an early optimization only. |
+
+Both are MIT, bundled into `scripts/ambicode.mjs` by esbuild, and exercised
+through the built artifact (the smoke run below), not only through
+`node --test`. `npm audit --omit=dev` reports 0 vulnerabilities; that is
+supporting evidence, not a release decision on its own.
+
+`maxOutputBytes` is one combined retained-byte ceiling across stdout and stderr.
+Chunks are retained in arrival order, cut on a byte boundary, and decoded once
+at the end: a multibyte character split across two chunks survives, and one
+split by the ceiling is dropped rather than turned into U+FFFD. U29 covers all
+of that, plus exit, timeout, spawn failure and truncation staying distinct.
 
 ## Known defects
 
-| Defect | Consequence |
-|---|---|
-| `NodeProcessRunner` counts UTF-16 code units, not bytes | `maxOutputBytes` under-counts multibyte output: a 10-byte ceiling retained 20 UTF-8 bytes, and a truncation point can split a surrogate pair. Scheduled with the `execa` adoption before the reviewer and `glab` carry output through this runner. |
+None recorded.
 
 ## Not available in this environment
 
 | Capability | Consequence |
 |---|---|
 | `glab` | The GitLab provider (P1.5) cannot be verified here. |
-| Jira / Confluence MCP | Requirement retrieval (P1.4) cannot be verified here. |
-| Authorized model access | The 12 native eval cases and the adjudication rubric exist under `evals/` and load: `claude plugin eval . --scaffold --allow-tools Bash --max-cost-usd 0` reports 2 arms × 12 cases (72 runs) on 2.1.272, which is E01. No arm has been run, so E02 — one authorized smoke case with its trace inspected — is outstanding and no finding has been scored. |
+| Jira / Confluence MCP | Live requirement retrieval (M05) cannot be verified here. The normalization, provenance, failure and contradiction behaviour is unit-tested against fake evidence (U16); that is not a live-MCP test and is not reported as one. |
+| Authorized model access | The 12 native eval cases and the adjudication rubric exist under `evals/` and load: `claude plugin eval . --scaffold --allow-tools Bash --max-cost-usd 0` reports 2 arms × 12 cases (72 runs) on 2.1.272, and a deliberately malformed case is refused with its field errors. That is E01. No arm has been run, so E02 — one authorized smoke case with its trace inspected — is outstanding and no finding has been scored. |
+| A live reviewer call | `ambicode review` was exercised end to end through the built artifact against a **stub** `claude` on `PATH` that answers with a fixed envelope and makes no model call. That proves the process wiring, the argument vector, the stdin prompt, the snapshot working directory, and the validation of a fabricated location. It is not evidence about model output quality. |
 
 These are recorded as missing, not substituted with estimates.

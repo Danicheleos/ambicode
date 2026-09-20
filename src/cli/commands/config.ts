@@ -12,6 +12,8 @@ export interface ConfigOutput {
   review: AmbicodeConfig['review'];
   checks: AmbicodeConfig['checks'];
   page: AmbicodeConfig['page'];
+  /** The MCP server requirement retrieval is bound to, or null when unbound. */
+  requirements: AmbicodeConfig['requirements'];
   /** Limits that are not written into the file, so nobody has to guess them. */
   internalLimits: { snapshotFileBytes: number; snapshotTotalBytes: number };
   projects: {
@@ -37,6 +39,7 @@ export async function runConfig(runtime: Runtime): Promise<ConfigOutput> {
     review: config.review,
     checks: config.checks,
     page: config.page,
+    requirements: config.requirements,
     internalLimits: {
       snapshotFileBytes: MAX_SNAPSHOT_FILE_BYTES,
       snapshotTotalBytes: MAX_SNAPSHOT_TOTAL_BYTES,
@@ -82,6 +85,9 @@ export function renderConfig(output: ConfigOutput): string {
     'not configurable',
     `  snapshot file bytes   ${output.internalLimits.snapshotFileBytes}`,
     `  snapshot total bytes  ${output.internalLimits.snapshotTotalBytes}`,
+    '',
+    'requirements',
+    `  mcpServer           ${output.requirements.mcpServer ?? 'null (unbound — requirement-based review needs a bound server)'}`,
   ];
 
   for (const project of output.projects) {

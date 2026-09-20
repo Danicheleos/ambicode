@@ -1,3 +1,4 @@
+import { isBinaryFile } from 'isbinaryfile';
 import { matchesAnyGlob } from '../util/glob.ts';
 
 /**
@@ -90,9 +91,13 @@ export function pathExclusionReason(relativePath: string): ExclusionReason | nul
   return null;
 }
 
-/** A NUL byte in the first block is the same heuristic git itself uses. */
-export function looksBinary(contents: string): boolean {
-  return contents.slice(0, 8000).includes('\0');
+/**
+ * Content classification on bytes, before anything is decoded (doc 11). The
+ * extension list above is an early optimization; this is the decision, so text
+ * carrying an unfamiliar extension stays reviewable.
+ */
+export async function isBinaryContent(bytes: Uint8Array): Promise<boolean> {
+  return await isBinaryFile(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength));
 }
 
 export function describeExclusion(reason: ExclusionReason): string {

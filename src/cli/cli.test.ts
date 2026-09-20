@@ -5,14 +5,39 @@ import { BUNDLE_OPTIONS } from './commands/bundle.ts';
 import { CONFIG_OPTIONS } from './commands/config.ts';
 import { INIT_OPTIONS } from './commands/init.ts';
 import { POLICY_OPTIONS } from './commands/policy.ts';
+import { REVIEW_OPTIONS } from './commands/review.ts';
+import { SPECS as COMMAND_SPECS, USAGE } from './main.ts';
 import { isAmbicodeError } from '../util/errors.ts';
 
 const SPECS: Record<string, OptionSpec> = {
   init: INIT_OPTIONS,
   config: CONFIG_OPTIONS,
   policy: POLICY_OPTIONS,
+  review: REVIEW_OPTIONS,
   bundle: BUNDLE_OPTIONS,
 };
+
+/**
+ * The options each command block in the help text names. The help text is
+ * authored, so this is what keeps it from documenting an option the parser
+ * would reject (doc 11).
+ */
+function documentedOptions(): Map<string, string[]> {
+  const documented = new Map<string, string[]>();
+  let current: string | null = null;
+  for (const line of USAGE.split('\n')) {
+    const command = /^  ([a-z]+)(?: |$)/.exec(line);
+    if (command !== null) {
+      current = command[1] ?? null;
+      if (current !== null) documented.set(current, []);
+    }
+    if (current === null) continue;
+    for (const [, name] of line.matchAll(/(?:^|\s)--([a-z][a-z-]*)/g)) {
+      if (name !== undefined) documented.get(current)?.push(name);
+    }
+  }
+  return documented;
+}
 
 function failure(command: string, argv: readonly string[], spec: OptionSpec): { code: string; message: string } {
   try {
@@ -46,6 +71,55 @@ describe('U27 command line arguments', () => {
   it('offers --json on every command, so no command needs a second parse', () => {
     for (const [command, spec] of Object.entries(SPECS)) {
       assert.ok((spec.flags ?? []).includes('json'), `${command} must accept --json`);
+    }
+  });
+
+  it('accepts every option the help text documents', () => {
+    for (const [command, options] of documentedOptions()) {
+      const spec = COMMAND_SPECS[command];
+      assert.ok(spec !== undefined, `the help text documents "${command}", which is not a command`);
+      for (const option of options) {
+        const declared = [...(spec.values ?? []), ...(spec.repeated ?? []), ...(spec.flags ?? [])];
+        assert.ok(
+          declared.includes(option),
+          `"${command}" documents --${option} but does not accept it`,
+        );
+      }
+    }
+  });
+
+  it('rejects an operand on a command that takes none', () => {
+    for (const command of ['init', 'config', 'review', 'bundle', 'version']) {
+      const spec = COMMAND_SPECS[command];
+      assert.ok(spec !== undefined);
+      const error = failure(command, ['src/app.ts'], spec);
+      assert.equal(error.code, 'bad-argument');
+      assert.match(error.message, /takes no positional arguments/);
+    }
+    // Policy is the one command whose operands are data.
+    assert.deepEqual(parseArgs('policy', ['src/app.ts'], POLICY_OPTIONS).positionals, ['src/app.ts']);
+  });
+
+  it('collects repeatable requirement URLs in the order they were given', () => {
+    const args = parseArgs(
+      'review',
+      ['--requirement', 'https://example.atlassian.net/browse/A-1', '--requirement', 'https://example.atlassian.net/wiki/x', '--evidence', 'e.json'],
+      REVIEW_OPTIONS,
+    );
+    assert.deepEqual(args.all('requirement'), [
+      'https://example.atlassian.net/browse/A-1',
+      'https://example.atlassian.net/wiki/x',
+    ]);
+    assert.equal(args.value('evidence'), 'e.json');
+  });
+
+  it('has no flag that turns checks or the requirement mode off', () => {
+    // D03: the mode follows from whether a requirement URL was supplied.
+    for (const spec of Object.values(SPECS)) {
+      const declared = [...(spec.values ?? []), ...(spec.repeated ?? []), ...(spec.flags ?? [])];
+      for (const banned of ['quality-only', 'no-checks', 'skip-checks', 'no-review']) {
+        assert.ok(!declared.includes(banned), `--${banned} must not exist`);
+      }
     }
   });
 

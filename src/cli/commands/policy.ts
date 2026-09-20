@@ -11,7 +11,12 @@ import {
 import { AmbicodeError } from '../../util/errors.ts';
 import type { ParsedArgs } from '../args.ts';
 
-export const POLICY_OPTIONS = { values: ['project', 'activity'], flags: ['json'] } as const;
+export const POLICY_OPTIONS = {
+  values: ['project', 'activity'],
+  flags: ['json'],
+  // The one command whose operands are data: the paths policy is resolved for.
+  positionals: true,
+} as const;
 
 export interface PolicyOutput {
   command: 'policy';

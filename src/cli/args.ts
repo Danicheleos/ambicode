@@ -12,6 +12,8 @@ export interface OptionSpec {
   flags?: readonly string[];
   /** Value flags that may be repeated, collected in order. */
   repeated?: readonly string[];
+  /** Whether the command takes bare operands; a command that does not rejects them. */
+  positionals?: boolean;
 }
 
 export interface ParsedArgs {
@@ -44,6 +46,16 @@ export function parseArgs(command: string, argv: readonly string[], spec: Option
     });
   } catch (error) {
     throw badArgument(command, spec, error);
+  }
+
+  if (spec.positionals !== true && parsed.positionals.length > 0) {
+    throw new AmbicodeError('bad-argument', `"${command}" takes no positional arguments.`, {
+      field: command,
+      details: [
+        `Unexpected: ${parsed.positionals.map((value) => JSON.stringify(value)).join(', ')}.`,
+        'Only "policy" accepts paths as operands.',
+      ],
+    });
   }
 
   const values = parsed.values as Record<string, string | boolean | string[] | undefined>;

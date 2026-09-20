@@ -27,6 +27,8 @@ export interface Runtime {
   ids: IdSource;
   cwd: string;
   pluginRoot: string;
+  /** Read once here; nothing below this root touches `process.env` (doc 02). */
+  env: Readonly<Record<string, string | undefined>>;
 }
 
 export interface RuntimeOverrides {
@@ -36,17 +38,20 @@ export interface RuntimeOverrides {
   ids?: IdSource;
   cwd?: string;
   pluginRoot?: string;
+  env?: Readonly<Record<string, string | undefined>>;
 }
 
 export async function createRuntime(overrides: RuntimeOverrides = {}): Promise<Runtime> {
   const fs = overrides.fs ?? nodeFileSystem;
+  const env = overrides.env ?? process.env;
   return {
-    runner: overrides.runner ?? new NodeProcessRunner(),
+    runner: overrides.runner ?? new NodeProcessRunner(env),
     fs,
     clock: overrides.clock ?? systemClock,
     ids: overrides.ids ?? systemIds,
     cwd: overrides.cwd ?? process.cwd(),
-    pluginRoot: overrides.pluginRoot ?? (await resolvePluginRoot(fs)),
+    pluginRoot: overrides.pluginRoot ?? (await resolvePluginRoot(fs, env)),
+    env,
   };
 }
 

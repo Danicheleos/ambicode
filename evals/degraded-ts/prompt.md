@@ -1,6 +1,6 @@
 ---
 name: degraded-ts
-description: The uncertain affected-test set is stated as a verification gap, not a clean verdict.
+description: Working-tree review and verification of a TypeScript fixture with an uncertain affected-test set.
 tags: ["degraded-context", "typescript", "verification"]
 runs: 3
 max_turns: 30
@@ -8,6 +8,9 @@ timeout_seconds: 600
 allowed_tools: [Read, Glob, Grep, Bash, Skill]
 ---
 
-Review the uncommitted change in this repository and verify it against the project's own checks.
+Review the uncommitted change in the repository at `repo/` and verify it against
+the project's own checks.
 
-The repository is in `repo/`.
+`repo/` is the repository under review. Change into it with `cd repo` before
+running anything, and run every command from there; a command run anywhere else
+is not about this change.

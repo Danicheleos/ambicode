@@ -13,5 +13,10 @@ export type ReviewerInvocation =
   | { kind: 'error'; reason: string; detail: string; argv: readonly string[] };
 
 export interface Reviewer {
+  /**
+   * Refuses before anything is composed if the required isolation cannot be
+   * established. An implementation with nothing to prove may leave it out.
+   */
+  assertIsolationAvailable?(): Promise<void>;
   invoke(request: ReviewerRequest): Promise<ReviewerInvocation>;
 }

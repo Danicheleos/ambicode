@@ -41,9 +41,17 @@ export async function planInit(options: PlanInitOptions): Promise<InitPlan> {
   return existingRaw === null ? createFresh(options) : updateExisting(existingRaw, options);
 }
 
+/**
+ * The helper cannot see the session's MCP servers, so it states the binding it
+ * needs and the setup skill asks the user which server to use when more than
+ * one compatible one is connected (doc 03, P1.4).
+ */
+const MCP_BINDING_NOTICE =
+  'requirements.mcpServer is null: no Jira/Confluence MCP server is bound. Requirement-based review needs one named here. If more than one compatible server is connected, choose which of them this repository uses and write its name.';
+
 function createFresh(options: PlanInitOptions): InitPlan {
   const changes: string[] = [];
-  const notices: string[] = [options.baselineNotice];
+  const notices: string[] = [options.baselineNotice, MCP_BINDING_NOTICE];
 
   const projects = options.detected.map((detected) => {
     notices.push(...detected.notices.map((notice) => `${detected.id}: ${notice}`));
@@ -87,6 +95,11 @@ function updateExisting(existingRaw: string, options: PlanInitOptions): InitPlan
   const document = parseDocument(existingRaw);
   const changes: string[] = [];
   const notices: string[] = [];
+
+  const requirementsNode = document.get('requirements') as YAMLMap | undefined;
+  if (requirementsNode === undefined || requirementsNode.get('mcpServer') == null) {
+    notices.push(MCP_BINDING_NOTICE);
+  }
 
   const projectsNode = document.get('projects') as YAMLSeq | undefined;
   const existingRoots = new Map<string, YAMLMap>();

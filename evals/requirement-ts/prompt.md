@@ -1,6 +1,6 @@
 ---
 name: requirement-ts
-description: A finding that the implementation retries once, immediately, and discards the original error.
+description: Working-tree review of a TypeScript fixture against a supplied requirement.
 tags: ["requirement", "typescript"]
 runs: 3
 max_turns: 30
@@ -8,8 +8,13 @@ timeout_seconds: 600
 allowed_tools: [Read, Glob, Grep, Bash, Skill]
 ---
 
-Review the uncommitted change in this repository against this requirement:
+Review the uncommitted change in the repository at `repo/` against the
+requirement at https://example.atlassian.net/browse/SEND-14.
 
-> Outbound calls retry up to three times with exponential backoff, and give up with the original error.
+`repo/` is the repository under review. Change into it with `cd repo` before
+running anything, and run every command from there; a command run anywhere else
+is not about this change.
 
-The repository is in `repo/`.
+The requirement was retrieved already. Its evidence sits beside `repo/`, so
+from inside the repository it is `../requirement-evidence.json`. It is kept
+outside the repository deliberately: it is not part of the change under review.

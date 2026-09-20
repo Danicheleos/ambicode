@@ -8,8 +8,11 @@ import { AmbicodeError } from './errors.ts';
  * Code exports it, else an upward search, so the same code runs from `src/` and
  * from `scripts/` without a developer-specific absolute path.
  */
-export async function resolvePluginRoot(fs: FileSystem): Promise<string> {
-  const declared = process.env['CLAUDE_PLUGIN_ROOT'];
+export async function resolvePluginRoot(
+  fs: FileSystem,
+  env: Readonly<Record<string, string | undefined>>,
+): Promise<string> {
+  const declared = env['CLAUDE_PLUGIN_ROOT'];
   if (declared !== undefined && declared.trim() !== '') return path.resolve(declared);
 
   let directory = path.dirname(fileURLToPath(import.meta.url));

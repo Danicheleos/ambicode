@@ -39,8 +39,9 @@ export class Git {
       cwd: this.options.repositoryRoot,
       timeoutMs: GIT_TIMEOUT_MS,
       maxOutputBytes: GIT_MAX_OUTPUT_BYTES,
+      // Narrow overrides only: the process adapter merges them onto the base
+      // environment the composition root supplied (doc 02).
       env: {
-        ...process.env,
         GIT_OPTIONAL_LOCKS: '0',
         GIT_TERMINAL_PROMPT: '0',
         // git is translated. Pin the locale so diagnostics AMBICODE surfaces to

@@ -7,7 +7,6 @@ import { uniqueDirectories, type ContentSource } from './content.ts';
 import {
   describeExclusion,
   isUselessAsContext,
-  looksBinary,
   pathExclusionReason,
   type ExclusionReason,
 } from './exclusions.ts';
@@ -132,7 +131,7 @@ export async function planSnapshot(options: PlanSnapshotOptions): Promise<Snapsh
     if (contents.kind === 'too-large') {
       throw tooLargeToReview(target, contents.bytes, MAX_SNAPSHOT_FILE_BYTES, 'file');
     }
-    if (looksBinary(contents.text)) {
+    if (contents.kind === 'binary') {
       omit(target, 'binary-content');
       continue;
     }
@@ -162,7 +161,6 @@ export async function planSnapshot(options: PlanSnapshotOptions): Promise<Snapsh
         if (isUselessAsContext(sibling)) continue;
         const contents = await options.content.read(sibling);
         if (contents === null || contents.kind !== 'text') continue;
-        if (looksBinary(contents.text)) continue;
         const size = Buffer.byteLength(contents.text, 'utf8');
         if (size > MAX_SNAPSHOT_FILE_BYTES) continue;
         if (totalBytes + size > siblingCeiling) {

@@ -41,7 +41,7 @@ export class TempRepo {
       cwd: this.root,
       timeoutMs: 30_000,
       maxOutputBytes: 4 * 1024 * 1024,
-      env: { ...process.env, LC_ALL: 'C', LANG: 'C' } as Record<string, string>,
+      env: { LC_ALL: 'C', LANG: 'C' },
       ...(stdin === undefined ? {} : { stdin }),
     });
     if (outcome.kind !== 'exited' || outcome.exitCode !== 0) {

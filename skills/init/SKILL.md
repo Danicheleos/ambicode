@@ -48,6 +48,23 @@ which tests a change affects. Point the `argv` at `./node_modules/.bin/<tool>`.
 Either set `baseline` in the configuration or pass `--base <ref>` when reviewing
 a branch.
 
+**`requirements.mcpServer` is null.** Requirement-based review retrieves Jira and
+Confluence content through one bound MCP server, and the helper cannot see which
+servers this session has. Look at what is connected:
+
+- exactly one compatible Jira/Confluence server — offer to write its name;
+- more than one — **ask the user which one this repository should use**, then
+  write that name. Do not choose for them;
+- none — leave it null and say that requirement-based review is unavailable
+  until a server is connected. Quality review still works.
+
+The name goes under `requirements:` in `.ambicode/config.yaml`:
+
+```yaml
+requirements:
+  mcpServer: atlassian
+```
+
 **Nothing was detected at all.** One project covering the repository root is
 written with every command null. That is a working configuration; it simply has
 no checks yet.

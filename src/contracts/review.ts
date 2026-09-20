@@ -59,6 +59,19 @@ export const RequirementSource = z.strictObject({
 });
 export type RequirementSource = z.infer<typeof RequirementSource>;
 
+/**
+ * A contradiction between requirement sources. Code detects structural cases;
+ * the outer session declares the ones only a reader can see (doc 05). Either
+ * way the review stops before checks or the model (doc 02).
+ */
+export const RequirementConflict = z.strictObject({
+  summary: z.string().min(1),
+  /** Requirement source IDs that disagree. */
+  sourceIds: z.array(z.string().min(1)).min(2),
+  detectedBy: z.enum(['helper', 'session']),
+});
+export type RequirementConflict = z.infer<typeof RequirementConflict>;
+
 export const SelectedFile = z.strictObject({
   path: z.string().min(1),
   reason: z.string().min(1),
@@ -132,10 +145,45 @@ export const ReviewerOutput = z.strictObject({
 export type ReviewerOutput = z.infer<typeof ReviewerOutput>;
 
 export const ProvenanceEntry = z.strictObject({
-  kind: z.enum(['prompt', 'pack', 'config']),
+  kind: z.enum(['prompt', 'pack', 'config', 'requirement']),
   reference: z.string().min(1),
   contentHash: z.string().min(1),
 });
+export type ProvenanceEntry = z.infer<typeof ProvenanceEntry>;
+
+/** What the reviewer was measured against, so a refusal can be reproduced. */
+export const ReviewInputs = z.strictObject({
+  changedFiles: z.number().int().nonnegative(),
+  changedLines: z.number().int().nonnegative(),
+  patchBytes: z.number().int().nonnegative(),
+  snapshotBytes: z.number().int().nonnegative(),
+  contextBytes: z.number().int().nonnegative(),
+  limits: z.strictObject({
+    maxChangedFiles: z.number().int().positive(),
+    maxChangedLines: z.number().int().positive(),
+    maxContextBytes: z.number().int().positive(),
+    maxFindings: z.number().int().positive(),
+  }),
+});
+export type ReviewInputs = z.infer<typeof ReviewInputs>;
+
+/**
+ * The isolated reviewer invocation as it actually happened, including the case
+ * where it did not: `not-run` is a fact a reader needs, not an empty result.
+ */
+export const ReviewerRun = z.strictObject({
+  status: z.enum(['ok', 'not-run', 'failed']),
+  model: z.string().min(1),
+  timeoutSeconds: z.number().int().positive(),
+  /** Tool names the process was restricted to. */
+  tools: z.array(z.string()).default([]),
+  /** Isolation arguments the process was started with, for the record. */
+  isolation: z.array(z.string()).default([]),
+  /** Locations the validator refused, kept because a refusal is evidence. */
+  rejections: z.array(z.string()).default([]),
+  detail: z.string().nullable().default(null),
+});
+export type ReviewerRun = z.infer<typeof ReviewerRun>;
 
 export const ReviewResult = z.strictObject({
   schemaVersion: z.literal(REVIEW_SCHEMA_VERSION),
@@ -147,7 +195,10 @@ export const ReviewResult = z.strictObject({
   requirements: z.array(RequirementSource).default([]),
   /** Quality review means no requirement URLs were supplied (doc 02). */
   requirementMode: z.enum(['quality-review', 'requirement-based']),
+  requirementConflicts: z.array(RequirementConflict).default([]),
   provenance: z.array(ProvenanceEntry).default([]),
+  inputs: ReviewInputs,
+  reviewer: ReviewerRun.nullable().default(null),
   policySummary: z.strictObject({
     packs: z.array(z.string()).default([]),
     ruleIds: z.array(z.string()).default([]),

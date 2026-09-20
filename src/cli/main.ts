@@ -6,12 +6,13 @@ import { BUNDLE_OPTIONS, renderBundle, runBundle } from './commands/bundle.ts';
 import { CONFIG_OPTIONS, renderConfig, runConfig } from './commands/config.ts';
 import { INIT_OPTIONS, renderInit, runInit } from './commands/init.ts';
 import { POLICY_OPTIONS, renderPolicy, runPolicy } from './commands/policy.ts';
+import { REVIEW_OPTIONS, renderReview, runReview } from './commands/review.ts';
 
 /**
  * The helper the AMBICODE skills call. Every command prints a human summary or,
  * with `--json`, the same data structured, so the two cannot drift apart.
  */
-const USAGE = `ambicode <command> [options]
+export const USAGE = `ambicode <command> [options]
 
   init                    Detect projects and write .ambicode/config.yaml.
                             --dry-run    Report what would change, write nothing.
@@ -23,11 +24,27 @@ const USAGE = `ambicode <command> [options]
                             --project <id>
                             --activity <review|task|plan|investigate>
 
-  bundle                  Pin a review target, build an immutable snapshot, and
-                          run the affected checks. No model is invoked.
-                            --branch          Review the branch, not the working tree.
-                            --base <ref>      Baseline for --branch.
-                            --approve <key>   Authorize one proposed run; repeatable.
+  review                  The full review: pin the target, snapshot it, run the
+                          affected checks, and put the result to an isolated
+                          reviewer that can only read the snapshot.
+                            --branch              Review the branch, not the working tree.
+                            --base <ref>          Baseline for --branch.
+                            --requirement <url>   Jira or Confluence URL to judge the
+                                                  change against; repeatable. Without
+                                                  any, this is a quality review.
+                            --evidence <file>     The retrieved requirement evidence
+                                                  the reviewing session wrote. Required
+                                                  whenever --requirement is used.
+                            --approve <key>       Authorize one proposed run; repeatable.
+
+  bundle                  The evidence stage of "review" on its own: target,
+                          snapshot, requirements and checks, with no model
+                          invoked.
+                            --branch              Review the branch, not the working tree.
+                            --base <ref>          Baseline for --branch.
+                            --requirement <url>   Requirement URL; repeatable.
+                            --evidence <file>     The retrieved requirement evidence.
+                            --approve <key>       Authorize one proposed run; repeatable.
 
   version                 Print the helper and git versions.
 
@@ -68,10 +85,11 @@ export async function main(argv: readonly string[]): Promise<number> {
 const VERSION_OPTIONS = { flags: ['json'] } as const;
 
 /** Every command accepts `--json`; the rest of each spec is the command's own. */
-const SPECS: Record<string, OptionSpec | undefined> = {
+export const SPECS: Record<string, OptionSpec | undefined> = {
   init: INIT_OPTIONS,
   config: CONFIG_OPTIONS,
   policy: POLICY_OPTIONS,
+  review: REVIEW_OPTIONS,
   bundle: BUNDLE_OPTIONS,
   version: VERSION_OPTIONS,
 };
@@ -91,6 +109,10 @@ async function dispatch(command: string, args: ParsedArgs): Promise<Rendered> {
     case 'policy': {
       const output = await runPolicy(runtime, args);
       return { text: renderPolicy(output), data: output };
+    }
+    case 'review': {
+      const output = await runReview(runtime, args);
+      return { text: renderReview(output), data: output };
     }
     case 'bundle': {
       const output = await runBundle(runtime, args);
