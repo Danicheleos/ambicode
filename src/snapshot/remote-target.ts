@@ -1,4 +1,9 @@
-import type { RemoteDiscussion, RemoteTarget, ReviewProvider } from '../contracts/provider.ts';
+import type {
+  RemoteDiscussion,
+  RemoteTarget,
+  ReviewCoverage,
+  ReviewProvider,
+} from '../contracts/provider.ts';
 import { combineDiff } from '../git/diff.ts';
 import type { RawChange } from '../git/git.ts';
 import { AmbicodeError } from '../util/errors.ts';
@@ -29,6 +34,11 @@ export interface RemoteTargetResolution extends TargetResolution {
   discussions: RemoteDiscussion[];
   /** Everything the remote could not supply, carried into the review result. */
   omissions: string[];
+  /**
+   * Whether the delivered diff is the whole change. Structural, so the review
+   * status can refuse `complete` without matching omission wording.
+   */
+  coverage: ReviewCoverage;
 }
 
 export async function resolveMergeRequestTarget(
@@ -52,8 +62,10 @@ export async function resolveMergeRequestTarget(
     oldPath: file.oldPath,
     newPath: file.newPath,
     changeKind: file.changeKind,
-    oldMode: '',
-    newMode: '',
+    // GitLab's own modes, so a symlink or a type change is identified by what
+    // the remote recorded rather than guessed from the rebuilt patch.
+    oldMode: file.oldMode ?? '',
+    newMode: file.newMode ?? '',
   }));
   const files = combineDiff(changes, snapshot.patch).map((file, index) => ({
     ...file,
@@ -63,6 +75,7 @@ export async function resolveMergeRequestTarget(
   }));
 
   const omissions = [...snapshot.omissions];
+  const coverage = snapshot.coverage;
 
   const discussions: RemoteDiscussion[] = [];
   if (options.maxDiscussions > 0) {
@@ -89,7 +102,8 @@ export async function resolveMergeRequestTarget(
       const value = await snapshot.read(relativePath);
       if (value === null) return null;
       // `unavailable` is already recorded as an omission by the provider; the
-      // snapshot planner only needs to know it has no bytes.
+      // planner only needs to know it has no bytes. A symlink stays a symlink,
+      // so it is reported rather than mirrored as an ordinary text file.
       return value.kind === 'unavailable' ? null : value;
     },
     list: (directoryName: string) => snapshot.list(directoryName),
@@ -124,6 +138,7 @@ export async function resolveMergeRequestTarget(
     remote,
     discussions,
     omissions,
+    coverage,
   };
 }
 

@@ -17,14 +17,40 @@ export type ReviewStatus = z.infer<typeof ReviewStatus>;
 export const CheckStatus = z.enum(['passed', 'failed', 'skipped', 'timed-out', 'error']);
 export type CheckStatus = z.infer<typeof CheckStatus>;
 
+/**
+ * The publication state machine, declared once (doc 03 P1.6). Page, provider
+ * and persistence all read these names from here; none of them carries its own
+ * string union.
+ *
+ * `uncertain` is deliberately distinct from `failed-before-send`: a request
+ * that was rejected before GitLab could accept it may be retried, while one
+ * whose answer was lost may already have created the comment.
+ */
 export const PublicationState = z.enum([
+  /** Edited and saved locally; nothing was sent. */
+  'draft',
+  /** A send is in flight for this comment right now. */
+  'publishing',
+  /** GitLab confirmed the comment, and its note identity was recorded. */
   'published',
+  /** Reconciliation found this exact comment already on the merge request. */
   'already-published',
-  'failed',
+  /** Refused before GitLab could accept the request; nothing was created. */
+  'failed-before-send',
+  /** The answer was lost or unvalidatable; the comment may or may not exist. */
   'uncertain',
-  'not-sent',
+  /** The merge request moved, so this comment was not sent at its pinned position. */
+  'stale',
+  /** The human did not select this finding. */
+  'not-selected',
 ]);
 export type PublicationState = z.infer<typeof PublicationState>;
+
+/** States that mean the comment exists remotely and must never be sent again. */
+export const SETTLED_PUBLICATION_STATES: ReadonlySet<PublicationState> = new Set([
+  'published',
+  'already-published',
+]);
 
 export const Authority = z.enum(['team', 'observed', 'inherited']);
 export type Authority = z.infer<typeof Authority>;

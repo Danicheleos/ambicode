@@ -10,6 +10,7 @@ import { normalizeRelative } from '../util/paths.ts';
 import { adapterFor } from './adapters.ts';
 import { authorizeCommand, checkApprovalKey } from './authorize.ts';
 import { expandFiles, selectLintFiles, selectTestFiles, type ChangedPath, type Selection } from './select.ts';
+import { compareTrees, scanTree, summarizeMutations, type TreeEntry } from './workspace-diff.ts';
 
 /**
  * Executable checks for a merge request. The code under review is somebody
@@ -23,6 +24,9 @@ import { expandFiles, selectLintFiles, selectTestFiles, type ChangedPath, type S
 
 /** The container-local path the snapshot is copied into before anything runs. */
 const WORKSPACE = '/ambicode/work';
+
+/** Writable scratch for tools that insist on one, separate from the workspace. */
+const SCRATCH = '/tmp';
 
 /** An unprivileged uid/gid that exists nowhere as a real account. */
 const NON_ROOT = '65534:65534';
@@ -83,8 +87,8 @@ export async function runRemoteChecks(options: RemoteChecksOptions): Promise<Rem
     notes.push(availability.reason, 'No merge request check was executed, and none was run locally instead.');
   } else {
     notes.push(
-      `Executable checks ran inside ${image ?? ''}, as an unprivileged user with no network, no host mounts and no credentials.`,
-      'The container workspace is a disposable copy of the pinned snapshot. Anything a command wrote there was discarded and never fed back into the reviewed revision.',
+      `Executable checks ran inside ${image ?? ''}, as an unprivileged user with a read-only container root, no network, no host mounts and no credentials.`,
+      'The container workspace is a disposable volume holding a copy of the pinned snapshot. Anything a command wrote there was compared against the copy, reported, and then destroyed with the container.',
     );
   }
 
@@ -317,10 +321,14 @@ interface ExecuteOptions {
 }
 
 /**
- * Create, copy, start, inspect, discard. The snapshot is copied into the
- * container's own writable storage rather than mounted, so there is no writable
- * source mount to escape through and no path by which a command can reach the
- * developer's files at all.
+ * Create, copy, start, inspect, discard.
+ *
+ * The container root is read-only and the one writable place is a disposable
+ * volume mounted at the workspace: not a host bind mount, so there is no path
+ * by which a command can reach the developer's files at all. The pinned
+ * snapshot is copied into that volume during trusted setup, before the project
+ * command exists as a process, and `docker cp` without `--archive` gives the
+ * copied files to the configured non-root user rather than to a host uid.
  */
 async function executeInContainer(
   context: RunOneOptions,
@@ -344,6 +352,15 @@ async function executeInContainer(
     'ALL',
     '--security-opt',
     'no-new-privileges',
+    // Nothing in the image may be rewritten, so a command cannot persist
+    // anything outside the disposable workspace it is given.
+    '--read-only',
+    // An anonymous volume, not a bind mount: it exists only for this container
+    // and is destroyed with it.
+    '--mount',
+    `type=volume,dst=${WORKSPACE}`,
+    '--tmpfs',
+    `${SCRATCH}:rw,noexec,nosuid,nodev,size=64m`,
     '--pids-limit',
     String(limits.pids),
     '--memory',
@@ -352,8 +369,6 @@ async function executeInContainer(
     limits.cpus,
     '--workdir',
     workdir,
-    // No bind mounts of any kind: no source, no host home, no credentials, no
-    // docker socket. The snapshot arrives by copy, below.
     '--entrypoint',
     execute.commandArgv[0] ?? '',
     image,
@@ -383,10 +398,16 @@ async function executeInContainer(
 
   const containerId = created.stdout.trim();
   const started = options.clock.elapsed();
+  let inspectionDirectory: string | null = null;
+  // Held by reference so the `finally` block can add a cleanup failure to the
+  // result that is already on its way out, instead of replacing it.
+  let produced: CheckResult | null = null;
 
   try {
     const copied = await options.runner.run({
       // The trailing `/.` copies the directory's contents, not the directory.
+      // `--archive` is deliberately not passed: without it the copied files are
+      // owned by the container's configured user rather than by a host uid.
       argv: [executable, 'cp', `${options.snapshotFilesDirectory}/.`, `${containerId}:${WORKSPACE}`],
       cwd: options.reviewDirectory,
       timeoutMs: CONTAINER_ADMIN_TIMEOUT_MS,
@@ -394,7 +415,7 @@ async function executeInContainer(
       env: { kind: 'inherited' },
     });
     if (copied.kind !== 'exited' || copied.exitCode !== 0) {
-      return {
+      produced = {
         ...skipped(execute.checkId, entry.project.id, execute.check.command, execute.check.adapter, [
           `The pinned snapshot could not be copied into the container (${copied.kind}): ${firstLine(copied.stderr) || 'no diagnostic'}.`,
           'Nothing was run locally instead.',
@@ -403,7 +424,12 @@ async function executeInContainer(
         selectionComplete: execute.selection.complete,
         argv: execute.commandArgv,
       };
+      return produced;
     }
+
+    // The baseline is taken after setup and before the project command, from
+    // the exact bytes setup copied in. The copy is therefore never a mutation.
+    const baseline = await scanTree(options.fs, options.snapshotFilesDirectory);
 
     const run = await options.runner.run({
       argv: [executable, 'start', '--attach', containerId],
@@ -414,17 +440,29 @@ async function executeInContainer(
     });
     const durationMs = Math.round(options.clock.elapsed() - started);
 
-    const mutations = await observeMutations(options, executable, containerId);
+    inspectionDirectory = await options.fs.temporaryDirectory('ambicode-workspace-');
+    const observation = await observeMutations({
+      options,
+      executable,
+      containerId,
+      baseline,
+      inspectionDirectory,
+    });
+
     const limitations = [
       ...execute.selection.limitations,
       ...execute.adapterLimitations,
       'This check ran in the isolated container, not in your checkout, so its evidence describes the merge request revision and nothing local.',
       ...(run.truncated ? ['The captured output was truncated at the configured limit.'] : []),
-      ...(mutations.length === 0
-        ? []
-        : [
-            'The command changed files inside the disposable container workspace. Those writes were discarded and are not part of the reviewed revision.',
-          ]),
+      ...(observation.kind === 'unavailable'
+        ? [
+            `Whether the command changed its workspace could not be established (${observation.reason}). Treat this as unknown, not as "nothing was changed".`,
+          ]
+        : observation.mutations.length === 0
+          ? []
+          : [
+              'The command changed files inside the disposable container workspace. Those writes were discarded and are not part of the reviewed revision.',
+            ]),
     ];
 
     const outputRef = await captureOutput(
@@ -436,7 +474,7 @@ async function executeInContainer(
       run.stderr,
     );
 
-    return {
+    produced = {
       checkId: execute.checkId,
       projectId: entry.project.id,
       commandId: execute.check.command,
@@ -450,46 +488,103 @@ async function executeInContainer(
       exitCode: run.exitCode,
       outputRef,
       limitations,
-      mutations,
+      mutations: observation.kind === 'ok' ? observation.mutations : [],
     };
+    return produced;
   } finally {
-    // Disposable means disposed, including after a timeout.
-    await options.runner.run({
+    // Disposable means disposed, including after a timeout. `--volumes` takes
+    // the anonymous workspace volume with the container.
+    const removed = await options.runner.run({
       argv: [executable, 'rm', '--force', '--volumes', containerId],
       cwd: options.reviewDirectory,
       timeoutMs: CONTAINER_ADMIN_TIMEOUT_MS,
       maxOutputBytes: 65_536,
       env: { kind: 'inherited' },
     });
+    // A cleanup failure is added to the limitations rather than replacing the
+    // check's own outcome: the check still ran and its result still stands.
+    const note = (line: string): void => {
+      if (produced === null) return;
+      produced.limitations = [...produced.limitations, line];
+    };
+    if (removed.kind !== 'exited' || removed.exitCode !== 0) {
+      note(
+        `The isolated container ${containerId.slice(0, 12)} could not be removed (${removed.kind}): ${firstLine(removed.stderr) || 'no diagnostic'}. Remove it manually.`,
+      );
+    }
+    if (inspectionDirectory !== null) {
+      // Only AMBICODE's own temporary inspection copy is deleted here.
+      try {
+        await options.fs.remove(inspectionDirectory);
+      } catch (error) {
+        note(
+          `The temporary workspace inspection copy could not be deleted: ${error instanceof Error ? error.message : String(error)}.`,
+        );
+      }
+    }
   }
 }
 
+interface ObserveOptions {
+  options: RemoteChecksOptions;
+  executable: string;
+  containerId: string;
+  baseline: Awaited<ReturnType<typeof scanTree>>;
+  inspectionDirectory: string;
+}
+
+type MutationObservation =
+  | { kind: 'ok'; mutations: string[] }
+  | { kind: 'unavailable'; reason: string };
+
 /**
- * What the command wrote inside its disposable workspace, reported so a reader
- * knows the evidence came from a tree the command had modified. Nothing is fed
- * back: the container is destroyed immediately afterwards.
+ * What the command wrote inside its disposable workspace, compared against the
+ * baseline by content, type, path and executable bit. Nothing is fed back: the
+ * container and its volume are destroyed immediately afterwards.
+ *
+ * A failure to establish either side is reported as unavailable. Claiming "no
+ * mutation" because the inspection failed would be the one answer the evidence
+ * does not support.
  */
-async function observeMutations(
-  options: RemoteChecksOptions,
-  executable: string,
-  containerId: string,
-): Promise<string[]> {
-  const diff = await options.runner.run({
-    argv: [executable, 'diff', containerId],
-    cwd: options.reviewDirectory,
+async function observeMutations(observe: ObserveOptions): Promise<MutationObservation> {
+  if (observe.baseline.kind !== 'ok') {
+    return { kind: 'unavailable', reason: `the workspace baseline could not be read: ${observe.baseline.reason}` };
+  }
+
+  const copied = await observe.options.runner.run({
+    argv: [
+      observe.executable,
+      'cp',
+      `${observe.containerId}:${WORKSPACE}/.`,
+      observe.inspectionDirectory,
+    ],
+    cwd: observe.options.reviewDirectory,
     timeoutMs: CONTAINER_ADMIN_TIMEOUT_MS,
-    maxOutputBytes: 262_144,
+    maxOutputBytes: 65_536,
     env: { kind: 'inherited' },
   });
-  if (diff.kind !== 'exited' || diff.exitCode !== 0) return [];
+  if (copied.kind !== 'exited' || copied.exitCode !== 0) {
+    return {
+      kind: 'unavailable',
+      reason: `the workspace could not be copied out for inspection (${copied.kind}: ${firstLine(copied.stderr) || 'no diagnostic'})`,
+    };
+  }
 
-  return diff.stdout
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.startsWith('C ') || line.startsWith('A ') || line.startsWith('D '))
-    .filter((line) => line.slice(2).startsWith(WORKSPACE))
-    .slice(0, 50)
-    .map((line) => `${line} (inside the disposable container workspace)`);
+  const after = await scanTree(observe.options.fs, observe.inspectionDirectory);
+  if (after.kind !== 'ok') {
+    return { kind: 'unavailable', reason: `the workspace could not be inspected after the run: ${after.reason}` };
+  }
+
+  const mutations = compareTrees(
+    observe.baseline.entries as ReadonlyMap<string, TreeEntry>,
+    after.entries,
+  );
+  return {
+    kind: 'ok',
+    mutations: summarizeMutations(mutations).map(
+      (line) => `${line} (inside the disposable container workspace)`,
+    ),
+  };
 }
 
 function skipped(

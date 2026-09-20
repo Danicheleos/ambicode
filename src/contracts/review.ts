@@ -1,13 +1,6 @@
 import { z } from 'zod';
-import { RemoteDiscussion, RemoteTarget } from './provider.ts';
-import {
-  CheckStatus,
-  Confidence,
-  PublicationState,
-  ReviewStatus,
-  Risk,
-  TargetKind,
-} from './primitives.ts';
+import { COMPLETE_COVERAGE, RemoteDiscussion, RemoteTarget, ReviewCoverage } from './provider.ts';
+import { CheckStatus, Confidence, ReviewStatus, Risk, TargetKind } from './primitives.ts';
 
 /** Persisted review schemas (doc 02, "Shared contracts"). */
 
@@ -203,6 +196,12 @@ export const ReviewResult = z.strictObject({
   }),
   checks: z.array(CheckResult).default([]),
   /**
+   * Whether the reviewed change is structurally the whole change. A material
+   * gap — a file the remote did not deliver — makes the result `partial`, and
+   * the page says which files are missing (doc 03 P1.5 correction 2).
+   */
+  coverage: ReviewCoverage.default(COMPLETE_COVERAGE),
+  /**
    * Merge-request threads that already existed. Evidence for deduplication and
    * for later reconciliation; never proof that a defect was fixed (doc 03).
    */
@@ -226,24 +225,3 @@ export const ReviewResult = z.strictObject({
   statusReason: z.string().nullable().default(null),
 });
 export type ReviewResult = z.infer<typeof ReviewResult>;
-
-export const PublicationOutcome = z.strictObject({
-  findingId: z.string().min(1),
-  state: PublicationState,
-  discussionId: z.string().nullable().default(null),
-  discussionUrl: z.string().nullable().default(null),
-  message: z.string().nullable().default(null),
-  /** Text the human submitted, preserved verbatim for redisplay. */
-  body: z.string(),
-});
-export type PublicationOutcome = z.infer<typeof PublicationOutcome>;
-
-export const PublicationResult = z.strictObject({
-  reviewId: z.string().min(1),
-  submittedAt: z.string().min(1),
-  revisionAtSubmit: z.string().nullable(),
-  stopped: z.boolean(),
-  stoppedReason: z.string().nullable().default(null),
-  outcomes: z.array(PublicationOutcome).default([]),
-});
-export type PublicationResult = z.infer<typeof PublicationResult>;

@@ -2,6 +2,7 @@ import {
   providerUnsupported,
   type DiscussionListing,
   type FetchedSnapshot,
+  type ProviderIdentity,
   type ProviderOperation,
   type ProviderOutcome,
   type PublishedComment,
@@ -20,7 +21,7 @@ import {
  * not pass through a provider at all, so registering this one changes nothing
  * about it.
  *
- * Making GitHub work means implementing these five methods here and changing
+ * Making GitHub work means implementing these six methods here and changing
  * one line in the registry — not touching the reviewer, the snapshot, the
  * report or the page.
  */
@@ -55,6 +56,10 @@ export class GitHubProvider implements ReviewProvider {
 
   async getCurrentRevision(): Promise<ProviderOutcome<RemoteRevision>> {
     return this.unsupported('getCurrentRevision');
+  }
+
+  async getIdentity(): Promise<ProviderOutcome<ProviderIdentity>> {
+    return this.unsupported('getIdentity');
   }
 
   async listDiscussions(): Promise<ProviderOutcome<DiscussionListing>> {

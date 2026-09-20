@@ -229,6 +229,18 @@ describe('U18 pagination', () => {
     headSha: 'cccccccccccccccccccccccccccccccccccccccc',
   };
 
+  /** The merge request plus its version list, which the revision check reads. */
+  function revisionRunner(options: { mr: unknown; versions: unknown[] }): FakeProcessRunner {
+    const runner = new FakeProcessRunner();
+    runner.stub((argv) => /merge_requests\/42$/.test(argv.at(-1) ?? ''), {
+      stdout: JSON.stringify(options.mr),
+    });
+    runner.stub((argv) => (argv.at(-1) ?? '').includes('/versions?'), {
+      stdout: JSON.stringify(options.versions),
+    });
+    return runner;
+  }
+
   function discussion(id: string, body: string, resolved: boolean | null = null) {
     return {
       id,
@@ -348,36 +360,141 @@ describe('U18 pagination', () => {
     assert.equal(note.position?.newLine, 2);
   });
 
-  it('answers the current revision from the newest version and compares identity explicitly', async () => {
-    const runner = new FakeProcessRunner().stub(
-      (argv) => (argv.at(-1) ?? '').includes('/versions?'),
-      { stdout: JSON.stringify([version({ id: 6, head_commit_sha: 'd'.repeat(40) })]) },
-    );
+  it('answers the current revision only when the merge request and its newest collected version agree', async () => {
+    const runner = revisionRunner({
+      mr: mergeRequest({
+        sha: 'c'.repeat(40),
+        diff_refs: { base_sha: 'a'.repeat(40), start_sha: 'b'.repeat(40), head_sha: 'c'.repeat(40) },
+      }),
+      versions: [version()],
+    });
     const provider = new GitLabProvider({ runner, cwd: '/work' });
     const outcome = await provider.getCurrentRevision(target);
 
     assert.equal(outcome.kind, 'ok');
     if (outcome.kind !== 'ok') return;
+    assert.equal(outcome.value.state, 'current');
+    assert.equal(outcome.value.versionId, 5);
+    assert.equal(revisionMatches(target, outcome.value).same, true);
+  });
+
+  it('reports a moved head as stale, naming both revisions', async () => {
+    const moved = 'd'.repeat(40);
+    const runner = revisionRunner({
+      mr: mergeRequest({
+        sha: moved,
+        diff_refs: { base_sha: 'a'.repeat(40), start_sha: 'b'.repeat(40), head_sha: moved },
+      }),
+      versions: [version({ id: 6, head_commit_sha: moved })],
+    });
+    const provider = new GitLabProvider({ runner, cwd: '/work' });
+    const outcome = await provider.getCurrentRevision(target);
+
+    assert.equal(outcome.kind, 'ok');
+    if (outcome.kind !== 'ok') return;
+    assert.equal(outcome.value.state, 'stale');
     assert.equal(outcome.value.versionId, 6);
-    assert.equal(outcome.value.headSha, 'd'.repeat(40));
+    assert.equal(outcome.value.headSha, moved);
 
     const compared = revisionMatches(target, outcome.value);
     assert.equal(compared.same, false);
     if (compared.same) return;
-    assert.match(compared.differences.join('; '), /head cccccccccccc → dddddddddddd/);
-    assert.match(compared.differences.join('; '), /diff version 5 → 6/);
+    assert.match(compared.differences.join('; '), /head cccccccccccc \u2192 dddddddddddd/);
+    assert.match(compared.differences.join('; '), /diff version 5 \u2192 6/);
+  });
 
-    assert.equal(
-      revisionMatches(target, {
-        provider: 'gitlab',
-        host: target.host,
-        projectId: target.projectId,
-        mergeRequestIid: target.mergeRequestIid,
-        headSha: target.headSha,
-        versionId: target.versionId,
-      }).same,
-      true,
-    );
+  /**
+   * The race the P1.5 correction is about: a push has happened, so the merge
+   * request head has moved, but GitLab has not built the new diff version yet.
+   * The newest collected version is the one the review pinned, and every field
+   * an identity comparison looks at still matches it \u2014 which is exactly why
+   * "collecting" has to be its own answer rather than "current".
+   */
+  it('refuses to call the pinned version current while GitLab is still collecting a newer head', async () => {
+    const pushed = 'e'.repeat(40);
+    const runner = revisionRunner({
+      mr: mergeRequest({
+        sha: pushed,
+        diff_refs: { base_sha: 'a'.repeat(40), start_sha: 'b'.repeat(40), head_sha: pushed },
+      }),
+      // Still only the version the review pinned.
+      versions: [version()],
+    });
+    const provider = new GitLabProvider({ runner, cwd: '/work' });
+    const outcome = await provider.getCurrentRevision(target);
+
+    assert.equal(outcome.kind, 'ok');
+    if (outcome.kind !== 'ok') return;
+    assert.equal(outcome.value.state, 'collecting');
+    assert.equal(outcome.value.headSha, pushed);
+    assert.equal(outcome.value.collectedHeadSha, 'c'.repeat(40));
+    assert.match(outcome.value.reason ?? '', /has not collected the newest push yet/);
+    assert.equal(revisionMatches(target, outcome.value).same, false);
+  });
+
+  it('treats absent diff refs as still collecting, not as a match', async () => {
+    const runner = revisionRunner({
+      mr: mergeRequest({ sha: 'c'.repeat(40), diff_refs: null }),
+      versions: [version()],
+    });
+    const provider = new GitLabProvider({ runner, cwd: '/work' });
+    const outcome = await provider.getCurrentRevision(target);
+
+    assert.equal(outcome.kind, 'ok');
+    if (outcome.kind !== 'ok') return;
+    assert.equal(outcome.value.state, 'collecting');
+    assert.match(outcome.value.reason ?? '', /has not published current diff refs/);
+    assert.equal(revisionMatches(target, outcome.value).same, false);
+  });
+
+  it('reports a closed, merged or unreadable merge request as unavailable', async () => {
+    for (const state of ['closed', 'merged', 'locked']) {
+      const runner = revisionRunner({ mr: mergeRequest({ state }), versions: [version()] });
+      const outcome = await new GitLabProvider({ runner, cwd: '/work' }).getCurrentRevision(target);
+      assert.equal(outcome.kind === 'ok' ? outcome.value.state : null, 'unavailable', state);
+      assert.equal(outcome.kind === 'ok' ? revisionMatches(target, outcome.value).same : true, false);
+    }
+
+    const gone = new FakeProcessRunner().stub(() => true, { exitCode: 1, stderr: 'HTTP 404' });
+    const missing = await new GitLabProvider({ runner: gone, cwd: '/work' }).getCurrentRevision(target);
+    assert.equal(missing.kind === 'ok' ? missing.value.state : null, 'unavailable');
+
+    const truncated = new FakeProcessRunner().stub(() => true, { stdout: '{"iid":4', truncated: true });
+    const cut = await new GitLabProvider({ runner: truncated, cwd: '/work' }).getCurrentRevision(target);
+    assert.equal(cut.kind === 'ok' ? cut.value.state : null, 'unavailable');
+    assert.match(cut.kind === 'ok' ? (cut.value.reason ?? '') : '', /more output than AMBICODE reads/);
+  });
+
+  /**
+   * Correction 4: a ceiling is a ceiling. A server that answers with more items
+   * than the page size AMBICODE asked for must not slip past the limit because
+   * its page happened to be the last one.
+   */
+  it('never returns more than maxItems, even when one page carries more', async () => {
+    const sixty = Array.from({ length: 60 }, (_unused, index) => discussion(`d${index}`, 'x'));
+    const runner = pagedRunner([sixty]);
+    const provider = new GitLabProvider({ runner, cwd: '/work' });
+
+    const outcome = await provider.listDiscussions({ target, maxDiscussions: 50 });
+    assert.equal(outcome.kind, 'ok');
+    if (outcome.kind !== 'ok') return;
+    assert.equal(outcome.value.discussions.length, 50);
+    assert.equal(outcome.value.complete, false);
+    assert.match(outcome.value.omissions.join('\n'), /Older threads exist and were not shown/);
+  });
+
+  it('reports a complete listing as complete, so reconciliation may rely on it', async () => {
+    const runner = pagedRunner([[discussion('only', 'x')]]);
+    const provider = new GitLabProvider({ runner, cwd: '/work' });
+    const outcome = await provider.listDiscussions({
+      target,
+      maxDiscussions: Number.POSITIVE_INFINITY,
+    });
+
+    assert.equal(outcome.kind, 'ok');
+    if (outcome.kind !== 'ok') return;
+    assert.equal(outcome.value.complete, true);
+    assert.deepEqual(outcome.value.omissions, []);
   });
 });
 
@@ -516,6 +633,153 @@ describe('U18 fetching the pinned snapshot', () => {
     const content = await outcome.value.read('src/a.ts');
     assert.equal(content?.kind, 'unavailable');
     assert.match(outcome.value.omissions.join('\n'), /could not be read from contributor\/project/);
+  });
+
+  it('reports an aggregate cap as a material coverage gap, not as a complete review', async () => {
+    const runner = detailRunner(
+      [{ old_path: 'src/a.ts', new_path: 'src/a.ts', diff: MODIFIED_DIFF }],
+      { real_size: '12', state: 'overflow' },
+    );
+    const provider = new GitLabProvider({ runner, cwd: '/work' });
+    const outcome = await provider.fetchSnapshot({ target, includeSiblingContext: false });
+
+    assert.equal(outcome.kind, 'ok');
+    if (outcome.kind !== 'ok') return;
+    const coverage = outcome.value.coverage;
+    assert.equal(coverage.complete, false);
+    assert.equal(coverage.declaredFileCount, 12);
+    assert.equal(coverage.deliveredFileCount, 1);
+    assert.equal(coverage.versionState, 'overflow');
+    assert.deepEqual(
+      [...new Set(coverage.gaps.map((gap) => gap.kind))].sort(),
+      ['aggregate-cap', 'omitted-files'],
+    );
+    // The reader is told, not only the data model.
+    assert.match(outcome.value.omissions.join('\n'), /declares 12 changed file\(s\).*delivered 1/);
+  });
+
+  it('treats a without-files version as a coverage gap', async () => {
+    const runner = detailRunner([], { state: 'without_files', real_size: '4' });
+    const outcome = await new GitLabProvider({ runner, cwd: '/work' }).fetchSnapshot({
+      target,
+      includeSiblingContext: false,
+    });
+    assert.equal(outcome.kind, 'ok');
+    if (outcome.kind !== 'ok') return;
+    assert.equal(outcome.value.coverage.complete, false);
+    assert.ok(outcome.value.coverage.gaps.some((gap) => gap.kind === 'no-files'));
+    assert.ok(outcome.value.coverage.gaps.some((gap) => gap.kind === 'aggregate-cap'));
+  });
+
+  it('calls a fully delivered version complete', async () => {
+    const runner = detailRunner([{ old_path: 'src/a.ts', new_path: 'src/a.ts', diff: MODIFIED_DIFF }], {
+      real_size: '1',
+      state: 'collected',
+    });
+    const outcome = await new GitLabProvider({ runner, cwd: '/work' }).fetchSnapshot({
+      target,
+      includeSiblingContext: false,
+    });
+    assert.equal(outcome.kind === 'ok' ? outcome.value.coverage.complete : false, true);
+    assert.deepEqual(outcome.kind === 'ok' ? outcome.value.coverage.gaps : [{}], []);
+  });
+
+  /**
+   * Correction 5: an empty diff body is normal for a change that has no hunks.
+   * Calling it a truncation would turn every renamed file into a coverage gap.
+   */
+  it('accepts a pure rename with an empty diff as complete coverage', async () => {
+    const runner = detailRunner(
+      [
+        {
+          old_path: 'src/old-name.ts',
+          new_path: 'src/new-name.ts',
+          renamed_file: true,
+          a_mode: '100644',
+          b_mode: '100644',
+          diff: '',
+        },
+      ],
+      { real_size: '1', state: 'collected' },
+    );
+    const outcome = await new GitLabProvider({ runner, cwd: '/work' }).fetchSnapshot({
+      target,
+      includeSiblingContext: false,
+    });
+
+    assert.equal(outcome.kind, 'ok');
+    if (outcome.kind !== 'ok') return;
+    const [file] = outcome.value.files;
+    assert.ok(file);
+    assert.equal(file.changeKind, 'renamed');
+    assert.equal(file.incomplete, false);
+    assert.equal(file.incompleteReason, null);
+    assert.equal(outcome.value.coverage.complete, true);
+    assert.deepEqual(outcome.value.omissions, []);
+    assert.match(outcome.value.patch, /diff --git a\/src\/old-name\.ts b\/src\/new-name\.ts/);
+  });
+
+  it('identifies a symlink from its mode and never mirrors it as text', async () => {
+    const runner = detailRunner(
+      [
+        {
+          old_path: 'config/link',
+          new_path: 'config/link',
+          a_mode: '100644',
+          b_mode: '120000',
+          diff: '@@ -1 +1 @@\n-plain\n+../../../etc/passwd\n',
+        },
+      ],
+      { real_size: '1', state: 'collected' },
+    );
+    const outcome = await new GitLabProvider({ runner, cwd: '/work' }).fetchSnapshot({
+      target,
+      includeSiblingContext: false,
+    });
+
+    assert.equal(outcome.kind, 'ok');
+    if (outcome.kind !== 'ok') return;
+    const [file] = outcome.value.files;
+    assert.ok(file);
+    assert.equal(file.symlink, true);
+    // A mode change from a regular file to a symlink is a type change.
+    assert.equal(file.changeKind, 'type-changed');
+
+    // Reading it answers "symlink" without fetching anything, so the path it
+    // points at is never resolved and never followed out of the snapshot.
+    const content = await outcome.value.read('config/link');
+    assert.equal(content?.kind, 'symlink');
+    assert.ok(!runner.argvs().some((argv) => (argv.at(-1) ?? '').includes('repository/files')));
+  });
+
+  it('records a mode-only change with its old and new modes', async () => {
+    const runner = detailRunner(
+      [
+        {
+          old_path: 'scripts/run.sh',
+          new_path: 'scripts/run.sh',
+          a_mode: '100644',
+          b_mode: '100755',
+          diff: '',
+        },
+      ],
+      { real_size: '1', state: 'collected' },
+    );
+    const outcome = await new GitLabProvider({ runner, cwd: '/work' }).fetchSnapshot({
+      target,
+      includeSiblingContext: false,
+    });
+
+    assert.equal(outcome.kind, 'ok');
+    if (outcome.kind !== 'ok') return;
+    const [file] = outcome.value.files;
+    assert.ok(file);
+    assert.equal(file.oldMode, '100644');
+    assert.equal(file.newMode, '100755');
+    assert.equal(file.symlink, false);
+    assert.equal(file.incomplete, false);
+    assert.equal(outcome.value.coverage.complete, true);
+    assert.match(outcome.value.patch, /old mode 100644\nnew mode 100755/);
   });
 
   it('does not list sibling context when the caller did not ask for it', async () => {

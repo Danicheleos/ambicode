@@ -1,5 +1,6 @@
 import type { ReviewResult } from '../contracts/review.ts';
 import type { PendingApproval } from '../checks/run.ts';
+import { reopenCommand } from '../page/reopen.ts';
 
 /**
  * The four-part local report (doc 03, P1.4): what was reviewed, the findings,
@@ -53,6 +54,7 @@ function whatWasReviewed(options: ReportOptions): string[] {
       `(${describeInputSplit(result.inputs)}), limit ${result.inputs.limits.maxContextBytes}`,
     `   snapshot    ${options.snapshotDirectory}`,
     `   result      ${options.resultPath}`,
+    `   reopen      ${reopenCommand(result.reviewId)}`,
   ];
 
   if (result.reviewer !== null) {
@@ -160,6 +162,20 @@ function verification(options: ReportOptions): string[] {
 function uncovered(options: ReportOptions): string[] {
   const { result } = options;
   const lines = ['4. OMISSIONS, UNCERTAINTY AND UNAVAILABLE COVERAGE'];
+
+  // Structural gaps first: these are changes nobody reviewed, which is a
+  // different claim from "a check was skipped".
+  if (!result.coverage.complete) {
+    lines.push(
+      `   coverage    ${result.coverage.deliveredFileCount} file(s) delivered` +
+        (result.coverage.declaredFileCount === null
+          ? ''
+          : ` of ${result.coverage.declaredFileCount} declared`) +
+        (result.coverage.versionState === null ? '' : `, version state ${result.coverage.versionState}`),
+    );
+    for (const gap of result.coverage.gaps) lines.push(`   ! [${gap.kind}] ${gap.detail}`);
+  }
+
   for (const omission of result.omissions) lines.push(`   - ${omission}`);
   if (result.reviewer !== null) {
     for (const rejection of result.reviewer.rejections) lines.push(`   - ${rejection}`);

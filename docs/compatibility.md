@@ -316,6 +316,72 @@ through the built artifact (the smoke run below), not only through
 `node --test`. `npm audit --omit=dev` reports 0 vulnerabilities; that is
 supporting evidence, not a release decision on its own.
 
+### The `view` page's server stack
+
+| Package | Pinned | License | Upstream | Used by | Why not Node alone |
+|---|---|---|---|---|---|
+| `fastify` | ^5.12.5 | MIT | fastify/fastify | `src/page/server.ts` | Routing, request/reply lifecycle, `.inject()` for socket-free testing, and the plugin points every other row here hangs off. A handwritten `http.createServer` would need to reimplement all of that to get the same test surface. |
+| `@fastify/formbody` | ^8.0.2 | MIT | fastify/fastify-formbody | `src/page/server.ts` | Parses `application/x-www-form-urlencoded`, including repeated field names as arrays — used to detect a duplicate submission of the same field as an attack rather than silently taking the last value. |
+| `@fastify/cookie` | ^11.1.2 | MIT | fastify/fastify-cookie | `src/page/server.ts` | Signs and verifies the session cookie. AMBICODE never invents its own cookie signing. |
+| `@fastify/csrf-protection` | ^7.1.0 | MIT | fastify/csrf-protection | `src/page/server.ts` | A per-render token plus a cookie-held secret, checked on every state-changing request. AMBICODE supplies no CSRF algorithm of its own. |
+| `@fastify/helmet` | ^13.1.1 | MIT | fastify/fastify-helmet | `src/page/server.ts` | The full security-header set (CSP, `Referrer-Policy`, `X-Content-Type-Options`, frame protection) from one audited source rather than a hand-assembled header list that silently drifts from best practice. |
+| `@fastify/view` | ^11.1.1 | MIT | fastify/point-of-view | `src/page/server.ts` | Wires a template engine to `reply.view()` so a route hands the engine data, never a hand-built HTML string. |
+| `eta` | ^3.5.0 | MIT | eta-dev/eta | `templates/*.eta` | Escaped interpolation by default (`<%= %>`). AMBICODE writes no HTML-escaping function of its own; every hostile string in a review — a finding's text, a requirement title, an existing GitLab note — passes through Eta's escaping, not a bespoke one. |
+
+None of the seven has a transitive dependency outside the Fastify/`@fastify/*`
+family and `eta` itself; `npm audit` (below) covers the whole tree, not just
+these packages directly. All are bundled into `scripts/ambicode.mjs` by esbuild
+as ESM, and the bundle was run — not just unit-tested — end to end: see
+"The `view` page, exercised through the built artifact" below. A major-version
+bump to any of the seven is a deliberate upgrade, re-run through the same
+built-artifact smoke test before it ships, not an automatic `^` float in
+practice even though the ranges allow patch/minor movement.
+
+`npm audit` on the full tree (113 resolved packages: 84 prod, 30 dev, 26
+optional) reports **0 vulnerabilities** as of this writing. That is a snapshot,
+not a standing guarantee; a reachability assessment still matters more than the
+count — every one of the seven packages above is reachable only from
+`src/page/server.ts` and `templates/*.eta`, which run only when `ambicode view`
+is invoked, never during `review` or `bundle`.
+
+### The `view` page, exercised through the built artifact
+
+Beyond `node --test` (which uses Fastify's `.inject()` and a fake GitLab
+provider — U20 through U24), the built `scripts/ambicode.mjs` was run as a real
+process, listening on a real loopback socket, against a real filesystem-based
+review directory:
+
+- `ambicode view --review <id> --no-open` printed a well-formed capability URL,
+  correctly explained why the browser was not opened, and correctly enumerated
+  and left alone several dozen pre-existing unmarked `ambicode-snapshot-*`
+  temporary directories from earlier runs (no valid ownership marker, so none
+  were removed) — the cleanup-safety behaviour observed live, not only against
+  a synthetic fixture.
+- A `curl` GET to the printed URL returned `303`, the full expected CSP and
+  Helmet header set, a `Set-Cookie` with `HttpOnly; SameSite=Strict; Path=/`
+  and a bounded `Max-Age` and correctly **no** `Secure` flag (loopback plain
+  HTTP), and `no-store, no-cache, must-revalidate, private` caching headers.
+- A second `curl` GET to the same capability-bearing URL returned `403`: the
+  one-time capability cannot be replayed.
+- An authenticated `curl` GET carrying the session cookie rendered the review
+  page: the review id, three finding cards, a `select_<finding-id>` checkbox
+  for each finding with a saved position, no checkbox for the one without a
+  position, and hidden `_csrf`/`submissionId` fields.
+- A `curl` POST to `/publish` with the extracted CSRF token, the session and
+  CSRF cookies, a matching `Origin` header, one selected finding and an edited
+  comment body returned `303` (POST/Redirect/GET). The redirected page showed
+  that finding as `failed-before-send`, with the message "The account AMBICODE
+  would publish as could not be established (glab could not be started:
+  ... spawn glab ENOENT.)" — `glab` is not installed in this environment, and
+  the bundled artifact handled that absence as a graceful, typed outcome, not a
+  crash. The unselected findings correctly showed `not-selected`, and the
+  submitted draft text was preserved on redisplay.
+
+This is the "built-artifact server smoke test using loopback HTTP" and the
+Fastify/Eta ESM bundling check plan/11 requires; it is evidence that the seven
+packages above bundle and run correctly together, not evidence about a live
+GitLab account (see "Not available in this environment" below for that gap).
+
 `maxOutputBytes` is one combined retained-byte ceiling across stdout and stderr.
 Chunks are retained in arrival order, cut on a byte boundary, and decoded once
 at the end: a multibyte character split across two chunks survives, and one
@@ -360,10 +426,11 @@ None recorded.
 | Capability | Consequence |
 |---|---|
 | `glab` | The GitLab provider's live behaviour (M06) cannot be verified here. Its adapter is fully covered by fake `ProcessRunner` responses (U18), which is not the same claim. |
-| A GitLab sandbox project | M06, M07, M08 and M09 are pending: fetching a real merge request, publishing selected comments, reconciling a retry, and the stale-head case. Prerequisite: a private test GitLab project with a merge request carrying added, renamed and deleted lines, and an account authorized to comment on it. |
+| A GitLab sandbox project | M05–M09 are pending: fetching a real merge request, publishing selected comments through a real browser session, reconciling a retry, and the stale-head case. Prerequisite: a private test GitLab project with a merge request carrying added, renamed and deleted lines, and an account authorized to comment on it. |
 | A running container runtime | M06's executable-check portion and M10's isolation portion are pending. The Docker CLI is installed (28.0.4) but its daemon was not running, and no digest-pinned image is configured. Prerequisite: a running daemon plus a user-configured image pinned by digest. |
 | Jira / Confluence MCP | Live requirement retrieval (M05) cannot be verified here. The normalization, provenance, failure and contradiction behaviour is unit-tested against fake evidence (U16); that is not a live-MCP test and is not reported as one. |
 | Authorized model access | The 12 native eval cases and the adjudication rubric exist under `evals/` and load: `claude plugin eval . --scaffold --allow-tools Bash --max-cost-usd 0` reports 2 arms × 12 cases (72 runs) on 2.1.272, and a deliberately malformed case is refused with its field errors. That is E01. No arm has been run, so E02 — one authorized smoke case with its trace inspected — is outstanding and no finding has been scored. |
 | A live reviewer call | `ambicode review` was exercised end to end through the built artifact against a **stub** `claude` on `PATH` that answers with a fixed envelope and makes no model call. That proves the process wiring, the argument vector, the stdin prompt, the snapshot working directory, and the validation of a fabricated location. It is not evidence about model output quality. |
+| A real browser | M06 (reading the page's layout as rendered by a browser, not `curl`), M07 (editing two comments, selecting one, submitting), M08 (a repeated submission and an interrupted-then-reconciled one), M09 (submitting after the merge request's head has moved), M10 (hostile text and malformed local requests through a real browser) and M12 (idle expiry, reopening, and disabling/reinstalling the plugin) are pending. The page's behaviour for all of these is covered by Fastify-injection tests (U20–U24) against a fake GitLab provider, and the bootstrap/replay/authenticated-GET/publish-POST sequence was additionally run against the real built artifact over loopback HTTP (see "The `view` page, exercised through the built artifact" above) — neither substitutes for a person clicking through a real browser against a real merge request, which needs the GitLab sandbox row above plus a browser. |
 
 These are recorded as missing, not substituted with estimates.

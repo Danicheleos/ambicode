@@ -276,9 +276,124 @@ trimmed to fit: not the change, not a requirement. The one discretionary part is
 unchanged sibling context, which stops at the remaining budget and reports what
 it left out.
 
-## Nothing is published
+## Publishing selected comments
 
-None of these commands posts anything anywhere. The GitLab provider implements
-publication because the contract requires it, and no CLI command, skill or
-automatic path reaches it. Publication needs the local selection page and a
-human submitting the form; that is P1.6.
+`ambicode review` and `ambicode bundle` never publish anything by themselves.
+For a merge request review, the exact remote position of every finding that has
+one is derived while the pinned diff is still available and saved beside the
+result, in `.ambicode/reviews/<id>/publication-positions.json`. That position —
+provider, host, project, merge request, base/start/head SHAs, diff version id,
+path and line — is never recomputed later from the current branch or merge
+request. A finding without an exact position is shown but cannot be selected.
+
+The review's printed output always includes the exact command to reopen it:
+
+```sh
+ambicode view --review <review-id>
+```
+
+### `ambicode view`
+
+```sh
+ambicode view --review <review-id-or-path-to-result.json>
+ambicode view --review <review-id> --no-open
+```
+
+Starts a local page, bound only to `127.0.0.1` on a free port, holding the
+saved result, its positions, its drafts and its publication history. It prints
+the URL once, tries to open your default browser, and keeps serving either
+way — paste the URL yourself if the browser does not open. The page stays up
+until you press Ctrl-C, send a signal, or it idles out (`page.idleTimeoutSeconds`
+in configuration; requests reset the timer, so an open tab you're reading does
+not expire under you).
+
+A local or branch review opens the same way and reads the same way; it simply
+has no publish action, because there is no merge request to publish to.
+**GitHub is not supported for publication**, the same as it is not supported
+for review.
+
+Reopening never reuses anything from the previous run. A fresh one-time
+capability is put only in the printed URL; the page consumes it on the first
+request, issues its own session, and the capability cannot be used again — so
+a leaked terminal log or shell history entry is not a standing way in.
+
+### What the page shows
+
+Above the findings: the review id and status, whether it is a quality or a
+requirement-based review, the GitLab host/project/merge-request link, the
+pinned version and its SHAs, each requirement source and how it was retrieved,
+the check results and whether their selection was complete, any coverage gap
+GitLab did not deliver, ordinary omissions, a failed or empty reviewer state,
+and whether publication is currently available (it is not, for a stale,
+still-collecting, or non-merge-request review).
+
+Each finding is its own card: risk, confidence, category, path, line and side,
+the pinned excerpt, the explanation, the rules or requirements it cites, an
+editable multi-line proposed comment, and — only when the finding has an exact
+saved position and publication is available — an initially unchecked checkbox
+to select it. A finding that cannot be published shows the specific reason
+instead of a checkbox (no saved position, review is stale, and so on). Every
+checkbox starts unchecked in every new session; nothing is ever pre-selected.
+
+Hostile text anywhere in the review — a finding's explanation, a requirement
+title, an existing GitLab note — is escaped before it reaches the page. There
+is no script on the page, no client framework, no remote font or analytics
+call, and no browser-held credential; every render is a server-side template
+and every state change is an ordinary form POST.
+
+### Publishing
+
+Submitting the form authorizes publication — nothing else does. A GET, a
+rendered checkbox, a model's own output and a skill's own instructions are
+never enough by themselves. What you submit can only be which findings are
+selected and the edited text of their comments, plus the session's CSRF token;
+the target merge request, its host, project, SHAs and each comment's position
+come exclusively from the server's own saved state. A submitted field that
+tried to name any of those is rejected, not silently ignored.
+
+Before sending anything, the page asks GitLab for the merge request's current
+metadata and its most recently collected diff version, and compares that
+against what the review was pinned to. If the merge request has moved, is
+closed or merged, or GitLab has not finished collecting the version the pinned
+review used, nothing is sent, the reason is shown, and your edits are kept —
+you can copy them elsewhere or wait and retry. The same check runs again
+immediately before **every individual comment**, not just once at the start:
+if the merge request moves partway through a run of several comments, sending
+stops there. What was already sent is preserved as sent; what had not gone out
+yet is marked stale, not silently moved onto a new line.
+
+### If GitLab's answer is uncertain
+
+If a write to GitLab does not clearly succeed or fail — a network error, a
+timeout, an unparseable response — the page does not guess and does not retry
+automatically. It queries the merge request's discussions once, looking for
+its own hidden marker (the review id, the finding id and the position, none
+of it visible in the rendered comment). If the marker is found, posted by the
+identity AMBICODE is authenticated as, at the exact position: the comment is
+confirmed and no duplicate is ever posted, even from an edited retry. If it is
+not found, the finding stays `uncertain` and a later reopen reconciles it
+again, the same way, before offering another attempt. A network failure is
+never turned into a second, possibly duplicate, post.
+
+### What is saved, and what never is
+
+Under `.ambicode/reviews/<id>/`, already covered by the repository's
+`.gitignore`:
+
+- `publication-positions.json` — the derived, immutable positions.
+- `publication.json` — edited drafts, the selection and outcome of every
+  publication attempt, confirmed GitLab links, and stale/uncertain state.
+
+Never saved, anywhere: the one-time capability, the session id, the session or
+CSRF signing secret, or any GitLab or model credential. Reopening always
+starts a fresh capability and session; only the drafts and history persist.
+
+### Shutdown and cleanup
+
+On idle timeout, Ctrl-C or a signal, the page stops accepting requests, clears
+its in-memory sessions, and removes only its own ephemeral state — never the
+saved result, drafts or publication history, and never a file it did not
+create itself. A later `ambicode view` sweeps leftover AMBICODE temporary
+directories from a prior run that ended uncleanly, but only ones carrying
+AMBICODE's own ownership marker; anything else with a similar name is left
+alone and reported.

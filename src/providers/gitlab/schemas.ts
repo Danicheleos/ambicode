@@ -121,3 +121,10 @@ export const GitLabCreatedDiscussion = z.looseObject({
   id: z.string().min(1),
   notes: z.array(GitLabNote).default([]),
 });
+
+/** The account `glab` is authenticated as, for reconciliation identity checks. */
+export const GitLabUser = z.looseObject({
+  username: z.string().min(1),
+  name: z.string().default(''),
+});
+export type GitLabUser = z.infer<typeof GitLabUser>;

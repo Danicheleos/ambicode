@@ -1,7 +1,9 @@
 import path from 'node:path';
 import { MAX_SNAPSHOT_FILE_BYTES, MAX_SNAPSHOT_TOTAL_BYTES } from '../config/defaults.ts';
 import type { DiffFile } from '../git/diff.ts';
+import type { Clock } from '../ports/clock.ts';
 import type { FileSystem } from '../ports/filesystem.ts';
+import { markOwned } from '../page/cleanup.ts';
 import { AmbicodeError } from '../util/errors.ts';
 import { uniqueDirectories, type ContentSource } from './content.ts';
 import {
@@ -192,6 +194,7 @@ export async function writeSnapshot(
   fs: FileSystem,
   plan: SnapshotPlan,
   patch: string,
+  clock: Clock,
 ): Promise<Snapshot> {
   const directory = await fs.temporaryDirectory(SNAPSHOT_PREFIX);
   const filesDirectory = path.join(directory, 'files');
@@ -203,6 +206,9 @@ export async function writeSnapshot(
     await fs.writeText(destination, entry.text);
   }
 
+  // Marks the directory as AMBICODE's own, so a later sweep can delete it
+  // without deleting a temporary directory that belongs to something else.
+  await markOwned(fs, directory, 'snapshot', clock, process.pid);
   await fs.writeText(path.join(directory, 'changed.diff'), patch);
   await fs.writeText(path.join(directory, 'CHANGED-FILES.txt'), `${plan.changedPaths.join('\n')}\n`);
 
@@ -219,9 +225,10 @@ export async function writeSnapshot(
 export interface BuildSnapshotOptions extends PlanSnapshotOptions {
   fs: FileSystem;
   patch: string;
+  clock: Clock;
 }
 
 /** Plan and write in one step, for callers with no limit to enforce in between. */
 export async function buildSnapshot(options: BuildSnapshotOptions): Promise<Snapshot> {
-  return writeSnapshot(options.fs, await planSnapshot(options), options.patch);
+  return writeSnapshot(options.fs, await planSnapshot(options), options.patch, options.clock);
 }

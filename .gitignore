@@ -1,9 +1,36 @@
-plan
-research
-node_modules
+# Dependencies and generated build output
+/node_modules/
 *.tsbuildinfo
-.ambicode/reviews
-eval-results.json
-evals/results
-scripts/*
+/scripts/*
+/dist/
+/coverage/
+.cache/
+.tmp/
+tmp/
+.nyc_output/
+*.log
+
+# Python fixture/tool caches
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.venv/
+*.py[cod]
+
+# AMBICODE runtime and evaluation output
+/.ambicode/reviews/
+/evals/results/
+/eval-results.json
+
+# Local planning and research inputs
+/plan/
+/research/
+
+# Operating-system and editor metadata (at any depth)
 .DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~

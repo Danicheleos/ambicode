@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { systemClock } from '../ports/clock.ts';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -25,6 +26,7 @@ test('U09 a snapshot holds the reviewed bytes even after the working file change
   await repo.write('src/app.ts', 'export const value = 2; // changed after resolution\n');
 
   const snapshot = await buildSnapshot({
+    clock: systemClock,
     fs: nodeFileSystem,
     files: resolution.files,
     patch: resolution.patch,
@@ -65,6 +67,7 @@ test('U09 a branch snapshot reads committed content, not the dirty checkout', as
     baseRef: 'main',
   });
   const snapshot = await buildSnapshot({
+    clock: systemClock,
     fs: nodeFileSystem,
     files: resolution.files,
     patch: resolution.patch,
@@ -88,6 +91,7 @@ test('U09 a snapshot never contains the working .git directory', async (t) => {
 
   const resolution = await resolveWorkingTarget({ fs: nodeFileSystem, git: repo.git, repositoryRoot: repo.root });
   const snapshot = await buildSnapshot({
+    clock: systemClock,
     fs: nodeFileSystem,
     files: resolution.files,
     patch: resolution.patch,
@@ -159,6 +163,7 @@ test('U09 excluded content leaves the patch, not just the mirrored tree', async 
   assert.ok(reviewable.excluded.some((entry) => entry.path.includes('node_modules')));
 
   const snapshot = await buildSnapshot({
+    clock: systemClock,
     fs: nodeFileSystem,
     files: reviewable.files,
     patch: reviewable.patch,

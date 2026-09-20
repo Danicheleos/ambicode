@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AMBICODE &mdash; request refused</title>
+<link rel="stylesheet" href="/assets/page.css">
+</head>
+<body>
+<main>
+<section class="panel problem">
+<h1><%= it.title %></h1>
+<p><%= it.detail %></p>
+<p>Nothing was published. No credential or session value is shown on this page, deliberately.</p>
+<% if (it.reopen) { %>
+<p>Reopen the review from your terminal to get a fresh link:</p>
+<pre class="argv"><%= it.reopenCommand %></pre>
+<% } %>
+</section>
+</main>
+</body>
+</html>

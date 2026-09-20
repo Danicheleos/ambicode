@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AMBICODE review <%= it.reviewId %></title>
+<link rel="stylesheet" href="/assets/page.css">
+</head>
+<body>
+<main>
+
+<h1>Review <%= it.reviewId %></h1>
+
+<% if (it.errors.length > 0) { %>
+<section class="panel problem" role="alert">
+  <h2>This submission was not accepted</h2>
+  <ul>
+    <% it.errors.forEach(function (problem) { %><li><%= problem %></li><% }) %>
+  </ul>
+  <p>Your text and your selections are shown below exactly as you left them. Nothing was published.</p>
+</section>
+<% } %>
+
+<% if (it.lastSubmission !== null) { %>
+<section class="panel outcome">
+  <h2>Last submission</h2>
+  <p>Submitted <%= it.lastSubmission.submittedAt %>.</p>
+  <ul>
+    <li><%= it.lastSubmission.published %> published</li>
+    <li><%= it.lastSubmission.alreadyPublished %> already present on the merge request</li>
+    <li><%= it.lastSubmission.failed %> refused before anything was sent</li>
+    <li><%= it.lastSubmission.uncertain %> of uncertain delivery</li>
+    <li><%= it.lastSubmission.stale %> not sent because the revision moved</li>
+  </ul>
+  <% if (it.lastSubmission.stopped) { %>
+  <p class="problem-text">The run stopped: <%= it.lastSubmission.stoppedReason %></p>
+  <% } %>
+  <p>An uncertain comment is never re-sent automatically. Reconciliation runs again before any new submission.</p>
+</section>
+<% } %>
+
+<section class="panel">
+  <h2>What was reviewed</h2>
+  <dl>
+    <dt>Status</dt>
+    <dd><span class="tag status-<%= it.status %>"><%= it.status %></span>
+      <% if (it.statusReason !== null) { %><%= it.statusReason %><% } %></dd>
+    <dt>Mode</dt>
+    <dd><%= it.requirementMode %><% if (it.requirementMode === 'quality-review') { %> &mdash; this does not establish that the change does what any ticket asked for<% } %></dd>
+    <dt>Target</dt>
+    <dd><%= it.target.kind %> (<%= it.target.snapshotId %>)</dd>
+    <% if (it.target.remote !== null) { %>
+    <dt>Merge request</dt>
+    <dd>
+      <a href="<%= it.target.remote.webUrl %>" rel="noreferrer noopener"><%= it.target.remote.projectPath %> !<%= it.target.remote.mergeRequestIid %></a>
+      on <%= it.target.remote.host %> (<%= it.target.remote.provider %>)
+    </dd>
+    <dt>Pinned revision</dt>
+    <dd>
+      diff version <%= it.target.remote.versionId %>:
+      base <code><%= it.target.remote.baseSha %></code>,
+      start <code><%= it.target.remote.startSha %></code>,
+      head <code><%= it.target.remote.headSha %></code>
+    </dd>
+    <% } %>
+    <dt>Reviewer model</dt>
+    <dd><%= it.reviewModel %> (plugin <%= it.pluginVersion %>, created <%= it.createdAt %>)</dd>
+  </dl>
+  <% if (it.target.notes.length > 0) { %>
+  <ul class="notes">
+    <% it.target.notes.forEach(function (note) { %><li><%= note %></li><% }) %>
+  </ul>
+  <% } %>
+</section>
+
+<section class="panel">
+  <h2>Requirements and provenance</h2>
+  <% if (it.requirements.length === 0) { %>
+  <p>No requirement was supplied, so this is a quality review.</p>
+  <% } else { %>
+  <ul>
+    <% it.requirements.forEach(function (source) { %>
+    <li>
+      <a href="<%= source.url %>" rel="noreferrer noopener"><%= source.id %></a>
+      <% if (source.sourceVersion !== null) { %>@<%= source.sourceVersion %><% } %>
+      &mdash; <%= source.title %>
+      <span class="tag"><%= source.status %></span>
+      retrieved <%= source.retrievedAt %> via <%= source.retrievedVia %>
+      <% if (source.failureReason !== null) { %><span class="problem-text"><%= source.failureReason %></span><% } %>
+    </li>
+    <% }) %>
+  </ul>
+  <% } %>
+  <% if (it.provenance.length > 0) { %>
+  <details>
+    <summary><%= it.provenance.length %> content hash(es)</summary>
+    <ul class="provenance">
+      <% it.provenance.forEach(function (entry) { %>
+      <li><%= entry.kind %> <%= entry.reference %> <code><%= entry.contentHash %></code></li>
+      <% }) %>
+    </ul>
+  </details>
+  <% } %>
+</section>
+
+<section class="panel">
+  <h2>Checks and verification evidence</h2>
+  <% if (it.checks.length === 0) { %>
+  <p>No configured check covered this change. Nothing was verified by execution.</p>
+  <% } %>
+  <% it.checks.forEach(function (check) { %>
+  <article class="check">
+    <h3><%= check.projectId %>/<%= check.checkId %> <span class="tag status-<%= check.status %>"><%= check.status %></span></h3>
+    <p>
+      <%= check.selectedCount %> file(s) selected;
+      selection complete: <%= check.selectionComplete %><% if (check.exitCode !== null) { %>; exit <%= check.exitCode %><% } %>
+    </p>
+    <% if (check.argv !== '') { %><pre class="argv"><%= check.argv %></pre><% } %>
+    <% check.limitations.forEach(function (limitation) { %><p class="limitation"><%= limitation %></p><% }) %>
+    <% check.mutations.forEach(function (mutation) { %><p class="mutation"><%= mutation %></p><% }) %>
+  </article>
+  <% }) %>
+</section>
+
+<section class="panel <% if (!it.coverage.complete) { %>problem<% } %>">
+  <h2>Coverage</h2>
+  <% if (it.coverage.complete) { %>
+  <p>The whole pinned change was delivered and reviewed.</p>
+  <% } else { %>
+  <p class="problem-text">
+    This review does not cover the whole change.
+    <%= it.coverage.deliveredFileCount %> file(s) were delivered<% if (it.coverage.declaredFileCount !== null) { %>
+    of <%= it.coverage.declaredFileCount %> declared<% } %><% if (it.coverage.versionState !== null) { %>;
+    the remote reports the diff version state as <%= it.coverage.versionState %><% } %>.
+  </p>
+  <ul>
+    <% it.coverage.gaps.forEach(function (gap) { %>
+    <li><span class="tag"><%= gap.kind %></span> <%= gap.detail %></li>
+    <% }) %>
+  </ul>
+  <% } %>
+</section>
+
+<section class="panel">
+  <h2>Omissions and uncertainty</h2>
+  <% if (it.omissions.length === 0) { %>
+  <p>Nothing was recorded as omitted.</p>
+  <% } else { %>
+  <ul>
+    <% it.omissions.forEach(function (omission) { %><li><%= omission %></li><% }) %>
+  </ul>
+  <% } %>
+  <% if (it.reviewer !== null) { %>
+  <p>
+    Reviewer: <span class="tag status-<%= it.reviewer.status %>"><%= it.reviewer.status %></span>
+    model <%= it.reviewer.model %>, tools <%= it.reviewer.tools.join(', ') || '(none)' %>,
+    timeout <%= it.reviewer.timeoutSeconds %>s.
+  </p>
+  <% if (it.reviewer.detail !== null) { %><p class="problem-text"><%= it.reviewer.detail %></p><% } %>
+  <% it.reviewer.rejections.forEach(function (rejection) { %><p class="problem-text"><%= rejection %></p><% }) %>
+  <% } else { %>
+  <p>No reviewer was invoked for this result, so an empty finding list means nothing ran.</p>
+  <% } %>
+</section>
+
+<section class="panel">
+  <h2>Publication</h2>
+  <% if (it.publication.available) { %>
+  <p><%= it.publication.selectableCount %> finding(s) can be published to the merge request. Nothing is sent until you check a box and press Publish.</p>
+  <% } else { %>
+  <p class="problem-text"><%= it.publication.unavailableReason %></p>
+  <% } %>
+  <% if (it.publication.revisionState !== null) { %>
+  <p>Revision check: <span class="tag"><%= it.publication.revisionState %></span>
+    <% if (it.publication.revisionReason !== null) { %><%= it.publication.revisionReason %><% } %></p>
+  <% } %>
+</section>
+
+<h2>Findings</h2>
+
+<% if (it.findings.length === 0) { %>
+<section class="panel">
+  <% if (it.reviewer === null || it.reviewer.status !== 'ok') { %>
+  <p class="problem-text">The independent reviewer did not produce a validated result, so there is no finding list. This is not a clean review.</p>
+  <% } else { %>
+  <p>The reviewer identified no material issue within the scope and material it was given. That is not a proof that the change is correct.</p>
+  <% } %>
+</section>
+<% } else { %>
+
+<form method="post" action="/publish">
+  <input type="hidden" name="_csrf" value="<%= it.csrfToken %>">
+  <input type="hidden" name="submissionId" value="<%= it.submissionId %>">
+
+  <% it.findings.forEach(function (finding) { %>
+  <article class="finding" id="finding-<%= finding.id %>">
+    <header>
+      <span class="tag risk-<%= finding.risk %>"><%= finding.risk %></span>
+      <span class="tag">confidence <%= finding.confidence %></span>
+      <span class="tag"><%= finding.category %></span>
+      <span class="tag state-<%= finding.state %>"><%= finding.state %></span>
+      <code class="where"><%= finding.path %>:<%= finding.line %> (<%= finding.side %>)</code>
+    </header>
+
+    <pre class="excerpt"><%= finding.excerpt %></pre>
+    <p class="explanation"><%= finding.explanation %></p>
+
+    <% if (finding.ruleRefs.length > 0) { %><p class="refs">Rules: <%= finding.ruleRefs.join(', ') %></p><% } %>
+    <% if (finding.requirementRefs.length > 0) { %><p class="refs">Requirements: <%= finding.requirementRefs.join(', ') %></p><% } %>
+    <% finding.supporting.forEach(function (extra) { %>
+    <p class="refs">Also: <code><%= extra.path %>:<%= extra.line %> (<%= extra.side %>)</code></p>
+    <% }) %>
+
+    <label class="comment-label" for="body_<%= finding.id %>">Proposed comment</label>
+    <textarea id="body_<%= finding.id %>" name="body_<%= finding.id %>" rows="5" spellcheck="true"><%= finding.draft %></textarea>
+
+    <% if (finding.publishable) { %>
+    <label class="select-label">
+      <input type="checkbox" name="select_<%= finding.id %>" value="on"<% if (finding.selected) { %> checked<% } %>>
+      Publish this comment
+    </label>
+    <% } else { %>
+    <p class="not-publishable"><%= finding.notPublishableReason %></p>
+    <% } %>
+
+    <% if (finding.stateMessage !== null) { %><p class="state-message"><%= finding.stateMessage %></p><% } %>
+    <% if (finding.discussionUrl !== null) { %>
+    <p class="state-message">Published at <a href="<%= finding.discussionUrl %>" rel="noreferrer noopener"><%= finding.discussionUrl %></a></p>
+    <% } %>
+  </article>
+  <% }) %>
+
+  <% if (it.publication.available) { %>
+  <p class="submit-row">
+    <button type="submit">Publish the checked comments</button>
+    <span>Only the boxes you checked are sent, one at a time, at the pinned positions.</span>
+  </p>
+  <% } else { %>
+  <p class="not-publishable">There is no publication action for this review. <%= it.publication.unavailableReason %></p>
+  <% } %>
+</form>
+<% } %>
+
+<footer>
+  <p>This page is served from 127.0.0.1 by your own <code>ambicode view</code> process. It holds no GitLab, model or other credential, and it stops when you close it or it idles out.</p>
+</footer>
+</main>
+</body>
+</html>

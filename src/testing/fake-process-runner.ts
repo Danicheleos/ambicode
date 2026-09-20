@@ -4,6 +4,8 @@ export interface StubbedCall {
   /** Matched against the argument vector joined by a space. */
   match: (argv: readonly string[]) => boolean;
   outcome: Partial<ProcessOutcome>;
+  /** Lets a stub act, e.g. write the files a `docker cp` out would produce. */
+  handler?: (request: ProcessRequest) => Promise<Partial<ProcessOutcome>>;
 }
 
 /** Records every invocation so a test can assert what did and did not run. */
@@ -13,6 +15,15 @@ export class FakeProcessRunner implements ProcessRunner {
 
   stub(match: StubbedCall['match'], outcome: Partial<ProcessOutcome>): this {
     this.stubs.push({ match, outcome });
+    return this;
+  }
+
+  /** A stub that performs a side effect the real command would have had. */
+  stubEffect(
+    match: StubbedCall['match'],
+    handler: NonNullable<StubbedCall['handler']>,
+  ): this {
+    this.stubs.push({ match, outcome: {}, handler });
     return this;
   }
 
@@ -26,14 +37,15 @@ export class FakeProcessRunner implements ProcessRunner {
   async run(request: ProcessRequest): Promise<ProcessOutcome> {
     this.calls.push(request);
     const stub = this.stubs.find((candidate) => candidate.match(request.argv));
+    const produced = stub?.handler === undefined ? (stub?.outcome ?? {}) : await stub.handler(request);
     return {
-      kind: stub?.outcome.kind ?? 'exited',
-      exitCode: stub?.outcome.exitCode ?? 0,
-      stdout: stub?.outcome.stdout ?? '',
-      stderr: stub?.outcome.stderr ?? '',
-      truncated: stub?.outcome.truncated ?? false,
-      durationMs: stub?.outcome.durationMs ?? 1,
-      failure: stub?.outcome.failure ?? null,
+      kind: produced.kind ?? 'exited',
+      exitCode: produced.exitCode ?? 0,
+      stdout: produced.stdout ?? '',
+      stderr: produced.stderr ?? '',
+      truncated: produced.truncated ?? false,
+      durationMs: produced.durationMs ?? 1,
+      failure: produced.failure ?? null,
     };
   }
 

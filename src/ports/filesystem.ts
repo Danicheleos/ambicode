@@ -9,6 +9,7 @@ import {
   readFile,
   readdir,
   realpath,
+  rename,
   rm,
   stat,
   utimes,
@@ -39,9 +40,13 @@ export interface FileSystem {
   readText(absolutePath: string): Promise<string>;
   readBytes(absolutePath: string): Promise<Uint8Array>;
   writeText(absolutePath: string, contents: string): Promise<void>;
+  /** Same-directory rename, which is atomic; used to replace a file in place. */
+  rename(from: string, to: string): Promise<void>;
   mkdirp(absolutePath: string): Promise<void>;
   /** A new directory under the host's temporary location, which the adapter owns. */
   temporaryDirectory(prefix: string): Promise<string>;
+  /** Where those directories live, so an owned-only sweep can enumerate them. */
+  temporaryRoot(): string;
   remove(absolutePath: string): Promise<void>;
   copyFile(from: string, to: string): Promise<void>;
   stat(absolutePath: string): Promise<FileStats>;
@@ -58,10 +63,12 @@ export const nodeFileSystem: FileSystem = {
   readText: (absolutePath) => readFile(absolutePath, 'utf8'),
   readBytes: (absolutePath) => readFile(absolutePath),
   writeText: (absolutePath, contents) => writeFile(absolutePath, contents, 'utf8'),
+  rename: (from, to) => rename(from, to),
   mkdirp: async (absolutePath) => {
     await mkdir(absolutePath, { recursive: true });
   },
   temporaryDirectory: (prefix) => mkdtemp(path.join(tmpdir(), prefix)),
+  temporaryRoot: () => tmpdir(),
   remove: (absolutePath) => rm(absolutePath, { recursive: true, force: true }),
   copyFile: (from, to) => copyFile(from, to),
   stat: (absolutePath) => stat(absolutePath),

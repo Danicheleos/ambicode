@@ -7,6 +7,7 @@ import { INIT_OPTIONS, runInit } from '../cli/commands/init.ts';
 import { REVIEW_OPTIONS, runReview } from '../cli/commands/review.ts';
 import { createRuntime, type Runtime } from '../composition/root.ts';
 import type {
+  ProviderIdentity,
   DiscussionListing,
   FetchedSnapshot,
   ProviderOutcome,
@@ -86,7 +87,11 @@ class FakeGitLab implements ReviewProvider {
             newPath: 'src/orders.ts',
             changeKind: 'modified',
             binary: false,
+            oldMode: '100644',
+            newMode: '100644',
+            symlink: false,
             incomplete: false,
+            incompleteReason: null,
             patchSection: PATCH,
           },
         ],
@@ -95,6 +100,19 @@ class FakeGitLab implements ReviewProvider {
           relativePath === 'src/orders.ts' ? { kind: 'text', text: REMOTE_SOURCE } : null,
         list: async () => [],
         omissions: ['src/huge.ts: GitLab marked this file too large to deliver.'],
+        coverage: {
+          complete: false,
+          declaredFileCount: 2,
+          deliveredFileCount: 1,
+          versionState: 'collected',
+          gaps: [
+            {
+              kind: 'omitted-files',
+              path: null,
+              detail: 'GitLab declares 2 changed file(s) for the pinned version but delivered 1.',
+            },
+          ],
+        },
       },
     };
   }
@@ -104,14 +122,23 @@ class FakeGitLab implements ReviewProvider {
     return {
       kind: 'ok',
       value: {
+        state: 'current',
         provider: 'gitlab',
         host: REMOTE.host,
         projectId: REMOTE.projectId,
         mergeRequestIid: REMOTE.mergeRequestIid,
         headSha: REMOTE.headSha,
         versionId: REMOTE.versionId,
+        collectedHeadSha: REMOTE.headSha,
+        mergeRequestState: 'opened',
+        reason: null,
       },
     };
+  }
+
+  async getIdentity(): Promise<ProviderOutcome<ProviderIdentity>> {
+    this.calls.push('getIdentity');
+    return { kind: 'ok', value: { username: 'ambicode-bot', displayName: 'AMBICODE' } };
   }
 
   async listDiscussions(): Promise<ProviderOutcome<DiscussionListing>> {
@@ -122,6 +149,7 @@ class FakeGitLab implements ReviewProvider {
     return {
       kind: 'ok',
       value: {
+        complete: true,
         discussions: [
           {
             id: 'thread-1',
@@ -330,6 +358,58 @@ describe('U18 reviewing a merge request', () => {
     try {
       const output = await reviewMr(context.runtime, new FakeReviewer());
       assert.match(output.result.omissions.join('\n'), /src\/huge\.ts: GitLab marked this file too large/);
+      await nodeFileSystem.remove(output.snapshotDirectory);
+    } finally {
+      await context.dispose();
+    }
+  });
+
+  it('refuses to call a review complete while a delivered-file gap exists', async () => {
+    const context = await fixture();
+    try {
+      const output = await reviewMr(context.runtime, new FakeReviewer());
+      // The fake provider declares two changed files and delivers one.
+      assert.equal(output.result.coverage.complete, false);
+      assert.deepEqual(
+        output.result.coverage.gaps.map((gap) => gap.kind),
+        ['omitted-files'],
+      );
+      assert.equal(output.result.status, 'partial');
+      assert.match(output.result.statusReason ?? '', /missing 1 piece\(s\) of the change/);
+      await nodeFileSystem.remove(output.snapshotDirectory);
+    } finally {
+      await context.dispose();
+    }
+  });
+
+  it('saves an exact remote position for each finding while the pinned diff is in hand', async () => {
+    const context = await fixture();
+    try {
+      const output = await reviewMr(context.runtime, new FakeReviewer());
+      const saved = JSON.parse(
+        await nodeFileSystem.readText(
+          path.join(output.reviewDirectory, 'publication-positions.json'),
+        ),
+      ) as { positions: { findingId: string; position: Record<string, unknown>; digest: string }[] };
+
+      assert.equal(output.publishablePositions, saved.positions.length);
+      for (const entry of saved.positions) {
+        assert.equal(entry.position.headSha, REMOTE.headSha);
+        assert.equal(entry.position.baseSha, REMOTE.baseSha);
+        assert.match(entry.digest, /^sha256:/);
+      }
+      await nodeFileSystem.remove(output.snapshotDirectory);
+    } finally {
+      await context.dispose();
+    }
+  });
+
+  it('prints the exact command that reopens the review', async () => {
+    const context = await fixture();
+    try {
+      const output = await reviewMr(context.runtime, new FakeReviewer());
+      const report = await nodeFileSystem.readText(output.reportPath);
+      assert.match(report, new RegExp(`reopen\\s+ambicode view --review ${output.reviewId}`));
       await nodeFileSystem.remove(output.snapshotDirectory);
     } finally {
       await context.dispose();

@@ -7,6 +7,7 @@ import { CONFIG_OPTIONS, renderConfig, runConfig } from './commands/config.ts';
 import { INIT_OPTIONS, renderInit, runInit } from './commands/init.ts';
 import { POLICY_OPTIONS, renderPolicy, runPolicy } from './commands/policy.ts';
 import { REVIEW_OPTIONS, renderReview, runReview } from './commands/review.ts';
+import { VIEW_OPTIONS, renderView, runView, type ViewOutput } from './commands/view.ts';
 import { validateTargetArgs } from './target-option.ts';
 
 /**
@@ -53,13 +54,27 @@ export const USAGE = `ambicode <command> [options]
                             --evidence <file>     The retrieved requirement evidence.
                             --approve <key>       Authorize one proposed run; repeatable.
 
+  view                    Open a saved review in a local page on 127.0.0.1, to
+                          read it and, for a merge request review, select
+                          comments to publish. The link is printed and opened
+                          once; the page stops on Ctrl-C or when it idles out.
+                            --review <id|path>    The review id from the report, or
+                                                  the path of its saved result.json.
+                            --no-open             Print the URL without launching a
+                                                  browser.
+
   version                 Print the helper and git versions.
 
 Global:
   --json                  Emit structured output instead of text.
 `;
 
-type Rendered = { text: string; data: unknown };
+type Rendered = {
+  text: string;
+  data: unknown;
+  /** A command that keeps serving until this settles, e.g. the review page. */
+  wait?: { until: Promise<string>; stop: (reason: string) => Promise<void> };
+};
 
 export async function main(argv: readonly string[]): Promise<number> {
   const [command, ...rest] = argv;
@@ -87,6 +102,10 @@ export async function main(argv: readonly string[]): Promise<number> {
     process.stdout.write(
       args.flag('json') ? `${JSON.stringify(rendered.data, null, 2)}\n` : `${rendered.text}\n`,
     );
+    if (rendered.wait !== undefined) {
+      const reason = await serveUntilStopped(rendered.wait);
+      process.stdout.write(`The review page stopped: ${reason}.\n`);
+    }
     return 0;
   } catch (error) {
     return reportFailure(error);
@@ -102,6 +121,7 @@ export const SPECS: Record<string, OptionSpec | undefined> = {
   policy: POLICY_OPTIONS,
   review: REVIEW_OPTIONS,
   bundle: BUNDLE_OPTIONS,
+  view: VIEW_OPTIONS,
   version: VERSION_OPTIONS,
 };
 
@@ -134,6 +154,14 @@ async function dispatch(command: string, args: ParsedArgs): Promise<Rendered> {
       const output = await runBundle(runtime, args);
       return { text: renderBundle(output), data: output };
     }
+    case 'view': {
+      const output = await runView(runtime, args);
+      return {
+        text: renderView(output),
+        data: viewData(output),
+        wait: { until: output.stopped, stop: output.stop },
+      };
+    }
     default: {
       const output = await versionOutput(runtime);
       return { text: `${output.plugin}\n${output.git}\n${output.node}`, data: output };
@@ -141,6 +169,30 @@ async function dispatch(command: string, args: ParsedArgs): Promise<Rendered> {
   }
 }
 
+
+/** The page runs until it idles out, is stopped, or the operator signals it. */
+async function serveUntilStopped(wait: {
+  until: Promise<string>;
+  stop: (reason: string) => Promise<void>;
+}): Promise<string> {
+  const onSignal = (signal: NodeJS.Signals): void => {
+    void wait.stop(`received ${signal}`);
+  };
+  process.once('SIGINT', onSignal);
+  process.once('SIGTERM', onSignal);
+  try {
+    return await wait.until;
+  } finally {
+    process.off('SIGINT', onSignal);
+    process.off('SIGTERM', onSignal);
+  }
+}
+
+/** The promises and the stop handle are not serializable, and not data. */
+function viewData(output: ViewOutput): Record<string, unknown> {
+  const { stopped: _stopped, stop: _stop, ...data } = output;
+  return data;
+}
 
 async function versionOutput(
   runtime: Awaited<ReturnType<typeof createRuntime>>,

@@ -83,6 +83,24 @@ Report these when they appear:
 unsupported result. Do not translate it into a GitLab URL, and do not offer to
 review it remotely by another route; offer the local `--branch` review instead.
 
+### Publishing selected comments
+
+`ambicode review`'s output always includes the exact command to open the
+review for publication:
+
+```sh
+ambicode view --review <review-id>
+```
+
+After a merge request review, tell the user this command and offer to run it
+for them — it starts a local page on `127.0.0.1`, prints a URL, and opens it in
+their browser. Do not invent another slash skill for this: `ambicode view` is
+the one way to reach the selection page, for a merge request review and for a
+local or branch one alike (the latter two simply have nothing to publish).
+Nothing is ever published by the review or bundle commands themselves, and
+nothing is published by this skill either — only a human selecting comments
+and submitting the page's form does that.
+
 ## Requirements
 
 You hold the MCP connection. The helper does not, and never will: it has no

@@ -7,6 +7,8 @@ import { ClaudeReviewer, REVIEWER_TOOLS } from '../../review/claude-reviewer.ts'
 import { assembleBundle, writeBundleArtifacts, type ReviewBundle } from '../../review/bundle.ts';
 import { renderReport } from '../../review/report.ts';
 import { validateFindings } from '../../review/validate.ts';
+import { derivePositions } from '../../publication/positions.ts';
+import { ReviewStore } from '../../publication/store.ts';
 import type { ParsedArgs } from '../args.ts';
 import { resolveTargetOptions, TARGET_OPTIONS } from '../target-option.ts';
 
@@ -21,6 +23,8 @@ export interface ReviewOutput {
   reportPath: string;
   result: ReviewResult;
   pendingApprovals: PendingApproval[];
+  /** Findings with an exact remote position saved for later publication. */
+  publishablePositions: number;
 }
 
 export interface ReviewDependencies {
@@ -99,6 +103,10 @@ export async function runReview(
   applyStatus(bundle, reviewerOk);
 
   await writeBundleArtifacts(runtime, bundle);
+  // Positions are derived here, while the pinned diff is still in hand. After
+  // this the snapshot is disposable and the merge request may move; a position
+  // is never recomputed from either (doc 03 P1.6).
+  const positions = await persistPublicationPositions(runtime, bundle);
   const reportPath = path.join(bundle.reviewDirectory, 'report.txt');
   const report = renderReport({
     result: bundle.result,
@@ -117,7 +125,31 @@ export async function runReview(
     reportPath,
     result: bundle.result,
     pendingApprovals: bundle.pendingApprovals,
+    publishablePositions: positions,
   };
+}
+
+/**
+ * Writes the exact remote position of every publishable finding beside the
+ * result. Local and branch reviews have no remote, so there is nothing to
+ * derive and nothing is written.
+ */
+async function persistPublicationPositions(
+  runtime: Runtime,
+  bundle: ReviewBundle,
+): Promise<number> {
+  const remote = bundle.result.target.remote;
+  if (bundle.result.target.kind !== 'merge-request' || remote === null) return 0;
+
+  const derived = derivePositions({
+    reviewId: bundle.reviewId,
+    target: remote,
+    files: bundle.files,
+    findings: bundle.result.findings,
+    derivedAt: runtime.clock.now().toISOString(),
+  });
+  await new ReviewStore(runtime.fs, runtime.clock, bundle.reviewDirectory).writePositions(derived);
+  return derived.positions.length;
 }
 
 /**
@@ -138,6 +170,13 @@ function applyStatus(bundle: ReviewBundle, reviewerOk: boolean): void {
     (check) => check.status !== 'passed' || !check.selectionComplete,
   );
   const gaps = [
+    // A file the remote did not deliver is a change nobody reviewed, so the
+    // result may not be called complete however well everything else went.
+    ...(bundle.result.coverage.complete
+      ? []
+      : [
+          `the reviewed diff is missing ${bundle.result.coverage.gaps.length} piece(s) of the change that ${bundle.result.target.remote?.provider ?? 'the remote'} did not deliver`,
+        ]),
     ...(unverified.length > 0
       ? [`${unverified.length} check(s) did not pass or could not establish what they covered`]
       : []),

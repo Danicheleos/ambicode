@@ -135,6 +135,11 @@ export class GitLabApi {
    * collection (doc 03 P1.5): pages are requested until one comes back shorter
    * than the page size, and a failure on any page fails the whole listing
    * rather than returning a plausible prefix.
+   *
+   * `maxItems` is a hard ceiling on what is returned, whatever a page's size
+   * turns out to be: a page longer than the ceiling is cut to it and reported
+   * as capped, rather than handed back whole because it happened to be the
+   * last one (doc 03 P1.5 correction 4).
    */
   async collect<T>(
     request: ApiRequest,
@@ -159,11 +164,19 @@ export class GitLabApi {
       }
 
       items.push(...result.value);
-      // A final page that is short — including an empty one — ends the listing.
-      if (result.value.length < PAGE_SIZE) return { kind: 'ok', value: { items, capped: false, pages: page } };
-      if (items.length >= maxItems) {
+
+      // The ceiling is applied before the short-page test, so a server that
+      // answers with more items than were asked for is cut to the ceiling and
+      // reported as capped rather than returned in full.
+      if (items.length > maxItems) {
         return { kind: 'ok', value: { items: items.slice(0, maxItems), capped: true, pages: page } };
       }
+      // A final page that is short — including an empty one — ends the listing.
+      if (result.value.length < PAGE_SIZE) {
+        return { kind: 'ok', value: { items, capped: false, pages: page } };
+      }
+      // Exactly at the ceiling on a full page is ambiguous, so the next page is
+      // requested to learn whether anything was actually left behind.
       page += 1;
     }
   }

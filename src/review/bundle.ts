@@ -12,7 +12,7 @@ import {
 } from '../composition/root.ts';
 import type { ProjectConfig } from '../contracts/config.ts';
 import type { ResolvedPolicy } from '../contracts/policy.ts';
-import type { RemoteDiscussion } from '../contracts/provider.ts';
+import { COMPLETE_COVERAGE, type RemoteDiscussion } from '../contracts/provider.ts';
 import {
   REVIEW_SCHEMA_VERSION,
   type CheckResult,
@@ -115,6 +115,9 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
   const resolution = await resolveTarget(workspace, options);
   const discussions = 'discussions' in resolution ? resolution.discussions : [];
   const remoteOmissions = 'omissions' in resolution ? resolution.omissions : [];
+  // Structural coverage of the change. A local target is always complete: git
+  // delivers the whole diff or fails, so there is no aggregate cap to detect.
+  const coverage = 'coverage' in resolution ? resolution.coverage : COMPLETE_COVERAGE;
 
   // Vendored directories, build output and credential-shaped files leave the
   // review here: they are not mirrored, not put in the patch, and not counted
@@ -152,7 +155,7 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
     contextBudgetBytes: Math.max(0, limits.maxContextBytes - overheadBytes),
   });
 
-  const snapshot = await writeSnapshot(runtime.fs, plan, reviewable.patch);
+  const snapshot = await writeSnapshot(runtime.fs, plan, reviewable.patch, runtime.clock);
 
   const reviewId = runtime.ids.reviewId();
   const reviewDirectory = path.join(workspace.repositoryRoot, REVIEWS_DIR, reviewId);
@@ -201,6 +204,7 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
     reviewer: null,
     policySummary: summarizePolicy(policies),
     checks,
+    coverage,
     discussions,
     // Every change is listed, including the ones kept out: an omission the
     // reader cannot see is indistinguishable from a file that did not change.

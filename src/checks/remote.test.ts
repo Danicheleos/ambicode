@@ -140,14 +140,45 @@ describe('U18 remote executable checks', () => {
     assert.ok(!runner.argvs().some((argv) => argv[1] === 'pull' || argv[1] === 'build'));
   });
 
-  it('runs the command in a locked-down disposable container and never mounts the source', async (t) => {
-    const runner = new FakeProcessRunner()
+  /**
+   * Stands in for `docker cp <id>:/ambicode/work/. <dir>`: the fake runner
+   * writes the files the real command would have produced, so the mutation
+   * comparison runs against a real tree rather than against a parsed string.
+   */
+  function copyOut(files: Record<string, string>): (runner: FakeProcessRunner) => FakeProcessRunner {
+    return (runner) =>
+      runner.stubEffect(
+        (argv) => argv[1] === 'cp' && (argv[2] ?? '').includes(':/ambicode/work/.'),
+        async (request) => {
+          const destination = request.argv[3] ?? '';
+          for (const [relative, text] of Object.entries(files)) {
+            const absolute = path.join(destination, relative);
+            await nodeFileSystem.mkdirp(path.dirname(absolute));
+            await nodeFileSystem.writeText(absolute, text);
+          }
+          return {};
+        },
+      );
+  }
+
+  const SNAPSHOT_CONTENT = 'export const a = 1;\n';
+
+  function containerRunner(options: { removeFails?: boolean } = {}): FakeProcessRunner {
+    return new FakeProcessRunner()
       .stubArgv(['docker', 'image', 'inspect'], { stdout: 'sha256:abc\n' })
       .stubArgv(['docker', 'create'], { stdout: 'container-1\n' })
-      .stubArgv(['docker', 'cp'], {})
       .stubArgv(['docker', 'start'], { exitCode: 0, stdout: 'no problems' })
-      .stubArgv(['docker', 'diff'], { stdout: `C /ambicode/work/src/orders.ts\n` })
-      .stubArgv(['docker', 'rm'], {});
+      .stubArgv(
+        ['docker', 'rm'],
+        options.removeFails === true
+          ? { exitCode: 1, stderr: 'Error: container is still running' }
+          : {},
+      );
+  }
+
+  it('runs the command in a locked-down disposable container and never mounts the source', async (t) => {
+    const runner = containerRunner();
+    copyOut({ 'src/orders.ts': SNAPSHOT_CONTENT })(runner);
 
     const outcome = await run(t, runner, PINNED);
     const [result] = outcome.results;
@@ -162,6 +193,10 @@ describe('U18 remote executable checks', () => {
     assert.equal(valueAfter('--user'), '65534:65534');
     assert.equal(valueAfter('--cap-drop'), 'ALL');
     assert.equal(valueAfter('--security-opt'), 'no-new-privileges');
+    // The container root cannot be written at all; the one writable place is
+    // the disposable workspace volume.
+    assert.ok(create.includes('--read-only'));
+    assert.equal(valueAfter('--mount'), 'type=volume,dst=/ambicode/work');
     // Bounded CPU, memory, processes and time.
     assert.ok(create.includes('--pids-limit'));
     assert.ok(create.includes('--memory'));
@@ -171,23 +206,84 @@ describe('U18 remote executable checks', () => {
       'the run itself is time-bounded',
     );
 
-    // No bind mount at all: not the source, not the host home, not a socket.
-    assert.ok(!create.some((value) => value === '-v' || value === '--volume' || value === '--mount'));
+    // No bind mount of any kind: not the source, not the host home, not a
+    // socket. The only mount is the anonymous volume asserted above.
+    assert.ok(!create.some((value) => value === '-v' || value === '--volume'));
+    assert.ok(!create.some((value) => value.startsWith('type=bind')));
     assert.ok(!create.some((value) => value.includes('docker.sock')));
     const home = process.env.HOME;
     if (home !== undefined) assert.ok(!create.some((value) => value.includes(home)));
     assert.ok(!create.includes('--privileged'));
 
-    // The snapshot arrives by copy into container-local storage.
-    const copy = runner.argvs().find((argv) => argv[1] === 'cp');
+    // The snapshot arrives by copy into container-local storage. `--archive` is
+    // absent on purpose, so the copy is owned by the container's own user.
+    const copy = runner.argvs().find((argv) => argv[1] === 'cp' && (argv[2] ?? '').endsWith('/files/.'));
     assert.ok(copy);
-    assert.match(copy[2] ?? '', /\/files\/\.$/);
     assert.equal(copy[3], 'container-1:/ambicode/work');
+    assert.ok(!copy.includes('--archive') && !copy.includes('-a'));
 
-    // Writes inside that workspace are reported and then thrown away.
+    assert.ok(runner.argvs().some((argv) => argv[1] === 'rm' && argv.includes('--force')));
+  });
+
+  it('reports no mutation when the check left its workspace exactly as it was', async (t) => {
+    const runner = containerRunner();
+    // The workspace comes back byte-identical to the copied snapshot.
+    copyOut({ 'src/orders.ts': SNAPSHOT_CONTENT })(runner);
+
+    const outcome = await run(t, runner, PINNED);
+    const [result] = outcome.results;
+    assert.ok(result);
+    assert.deepEqual(result.mutations, []);
+    // The snapshot copy that setup performed is not itself a mutation.
+    assert.ok(!result.limitations.some((line) => /changed files inside/.test(line)));
+    assert.ok(!result.limitations.some((line) => /could not be established/.test(line)));
+  });
+
+  it('reports exactly what an actual rewrite changed', async (t) => {
+    const runner = containerRunner();
+    copyOut({
+      // Rewritten, plus a file the command created. `src/orders.ts` is the one
+      // the snapshot held, so the rewrite is a modification and not a creation.
+      'src/orders.ts': 'export const a = 2;\n',
+      'src/generated.ts': 'export const b = 3;\n',
+    })(runner);
+
+    const outcome = await run(t, runner, PINNED);
+    const [result] = outcome.results;
+    assert.ok(result);
+    assert.match(result.mutations.join('\n'), /modified src\/orders\.ts/);
+    assert.match(result.mutations.join('\n'), /created src\/generated\.ts/);
     assert.match(result.mutations.join('\n'), /inside the disposable container workspace/);
     assert.match(result.limitations.join('\n'), /discarded and are not part of the reviewed revision/);
-    assert.ok(runner.argvs().some((argv) => argv[1] === 'rm' && argv.includes('--force')));
+  });
+
+  it('reports mutation detection as unavailable rather than claiming nothing changed', async (t) => {
+    const runner = containerRunner().stub(
+      (argv) => argv[1] === 'cp' && (argv[2] ?? '').includes(':/ambicode/work/.'),
+      { exitCode: 1, stderr: 'Error: No such container:path' },
+    );
+
+    const outcome = await run(t, runner, PINNED);
+    const [result] = outcome.results;
+    assert.ok(result);
+    // The check still ran and still has its own outcome.
+    assert.equal(result.status, 'passed');
+    assert.deepEqual(result.mutations, []);
+    assert.match(
+      result.limitations.join('\n'),
+      /could not be established .*Treat this as unknown, not as "nothing was changed"/s,
+    );
+  });
+
+  it('surfaces a cleanup failure without replacing the check result', async (t) => {
+    const runner = containerRunner({ removeFails: true });
+    copyOut({ 'src/orders.ts': SNAPSHOT_CONTENT })(runner);
+
+    const outcome = await run(t, runner, PINNED);
+    const [result] = outcome.results;
+    assert.ok(result);
+    assert.equal(result.status, 'passed');
+    assert.match(result.limitations.join('\n'), /could not be removed .*Remove it manually/);
   });
 
   it('removes the container even when the command times out', async (t) => {
@@ -196,7 +292,6 @@ describe('U18 remote executable checks', () => {
       .stubArgv(['docker', 'create'], { stdout: 'container-2\n' })
       .stubArgv(['docker', 'cp'], {})
       .stubArgv(['docker', 'start'], { kind: 'timed-out' })
-      .stubArgv(['docker', 'diff'], { exitCode: 1 })
       .stubArgv(['docker', 'rm'], {});
 
     const outcome = await run(t, runner, PINNED);

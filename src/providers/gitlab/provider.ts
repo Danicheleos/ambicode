@@ -2,11 +2,13 @@ import { z } from 'zod';
 import {
   providerFailed,
   providerOk,
+  type CoverageGap,
   type DiscussionListing,
   type FetchSnapshotRequest,
   type FetchedContent,
   type FetchedSnapshot,
   type ListDiscussionsRequest,
+  type ProviderIdentity,
   type ProviderOutcome,
   type PublishCommentRequest,
   type PublishedComment,
@@ -15,6 +17,7 @@ import {
   type RemoteFetchedFile,
   type RemoteTarget,
   type ResolveTargetRequest,
+  type ReviewCoverage,
   type ReviewProvider,
 } from '../../contracts/provider.ts';
 import type { ProcessRunner } from '../../ports/process.ts';
@@ -29,6 +32,7 @@ import {
   GitLabMergeRequest,
   GitLabProject,
   GitLabTreeEntry,
+  GitLabUser,
   GitLabVersion,
   GitLabVersionDetail,
   type GitLabVersionDiff,
@@ -47,6 +51,17 @@ import { encodeProjectIdentity, parseMergeRequestUrl } from './url.ts';
  */
 
 const GITLAB_HOST_PATTERN = /(^|\.)gitlab\b/i;
+
+/** Git's mode for a symlink blob; its target is never read or followed. */
+const SYMLINK_MODE = '120000';
+/** Git's mode for a submodule entry, which has no blob to mirror. */
+const GITLINK_MODE = '160000';
+
+/**
+ * Version collection states GitLab uses when it did not deliver everything.
+ * `collected` and `empty` are the only complete ones; the rest are caps.
+ */
+const CAPPED_VERSION_STATES = new Set(['overflow', 'without_files', 'timeout']);
 
 export interface GitLabProviderOptions {
   runner: ProcessRunner;
@@ -205,26 +220,31 @@ export class GitLabProvider implements ReviewProvider {
     const omissions: string[] = [];
     const files: RemoteFetchedFile[] = [];
     const sections: string[] = [];
+    const symlinkPaths = new Set<string>();
 
     for (const entry of version.value.diffs) {
       const file = toFetchedFile(entry);
-      if (file.incomplete) {
+      if (file.incompleteReason !== null) {
         omissions.push(
-          `${entry.new_path || entry.old_path}: GitLab did not deliver this file's diff in full (${describeIncompleteness(entry)}), so its change is not part of the reviewed evidence.`,
+          `${entry.new_path || entry.old_path}: GitLab did not deliver this file's diff in full (${file.incompleteReason}), so its change is not part of the reviewed evidence.`,
         );
       }
+      if (file.symlink && file.newPath !== null) symlinkPaths.add(file.newPath);
       files.push(file);
       sections.push(file.patchSection);
     }
 
-    if (version.value.diffs.length === 0) {
-      omissions.push('GitLab returned no file diffs for the pinned version, so there is nothing to review.');
+    const coverage = assessCoverage(version.value, files);
+    for (const gap of coverage.gaps) {
+      if (gap.kind === 'file-truncated') continue; // Already reported above.
+      omissions.push(gap.detail);
     }
 
     const content = new RemoteContent(
       api,
       target,
       request.includeSiblingContext,
+      symlinkPaths,
       (message) => omissions.push(message),
     );
 
@@ -234,30 +254,161 @@ export class GitLabProvider implements ReviewProvider {
       read: (relativePath) => content.read(relativePath),
       list: (directoryName) => content.list(directoryName),
       omissions,
+      coverage,
     });
   }
 
-  /** The merge request as it is now, for the P1.6 stale-revision checks. */
+  /**
+   * The merge request as it is now, for the stale-revision checks.
+   *
+   * Both the merge request's own head and the newest collected diff version are
+   * read, because they disagree for as long as GitLab is still collecting a new
+   * push. Returning the newest collected version on its own would let
+   * publication treat a superseded revision as current (doc 03 P1.5
+   * correction 1).
+   */
   async getCurrentRevision(target: RemoteTarget): Promise<ProviderOutcome<RemoteRevision>> {
     const api = this.apiFor(target.host);
+    const identity = {
+      provider: 'gitlab' as const,
+      host: target.host,
+      projectId: target.projectId,
+      mergeRequestIid: target.mergeRequestIid,
+    };
+
+    const mergeRequest = await api.request(
+      { path: mergeRequestPath(target.projectId, target.mergeRequestIid) },
+      GitLabMergeRequest,
+    );
+    // A merge request that was deleted, or whose response could not be
+    // validated or was truncated, is unavailable — never "unchanged".
+    if (mergeRequest.kind !== 'ok') {
+      return providerOk({
+        ...identity,
+        state: 'unavailable',
+        headSha: null,
+        versionId: null,
+        collectedHeadSha: null,
+        mergeRequestState: null,
+        reason: `The merge request could not be read: ${mergeRequest.message}`,
+      });
+    }
+
+    const mr = mergeRequest.value;
+    if (mr.state !== 'opened') {
+      return providerOk({
+        ...identity,
+        state: 'unavailable',
+        headSha: mr.sha,
+        versionId: null,
+        collectedHeadSha: null,
+        mergeRequestState: mr.state,
+        reason: `The merge request is ${mr.state}, so a review comment can no longer be attached to its diff.`,
+      });
+    }
+
+    // GitLab publishes `diff_refs` only once it has collected a diff for the
+    // current head; their absence means collection is still in progress.
+    if (mr.diff_refs === null || mr.diff_refs.head_sha === null) {
+      return providerOk({
+        ...identity,
+        state: 'collecting',
+        headSha: mr.sha,
+        versionId: null,
+        collectedHeadSha: null,
+        mergeRequestState: mr.state,
+        reason:
+          'GitLab has not published current diff refs for this merge request, which means it is still collecting the diff for the newest push.',
+      });
+    }
+
+    const currentHead = mr.sha ?? mr.diff_refs.head_sha;
+    if (!sameSha(currentHead, mr.diff_refs.head_sha)) {
+      return providerOk({
+        ...identity,
+        state: 'collecting',
+        headSha: currentHead,
+        versionId: null,
+        collectedHeadSha: mr.diff_refs.head_sha,
+        mergeRequestState: mr.state,
+        reason: `The merge request head is ${currentHead.slice(0, 12)} but its diff refs still describe ${mr.diff_refs.head_sha.slice(0, 12)}; GitLab is still collecting.`,
+      });
+    }
+
     const versions = await api.collect(
       { path: `${mergeRequestPath(target.projectId, target.mergeRequestIid)}/versions` },
       GitLabVersion,
     );
-    if (versions.kind !== 'ok') return this.fail('getCurrentRevision', versions);
+    if (versions.kind !== 'ok') {
+      return providerOk({
+        ...identity,
+        state: 'unavailable',
+        headSha: currentHead,
+        versionId: null,
+        collectedHeadSha: null,
+        mergeRequestState: mr.state,
+        reason: `The collected diff versions could not be read: ${versions.message}`,
+      });
+    }
 
     const newest = versions.value.items[0];
     if (newest === undefined) {
-      return providerFailed('gitlab', 'getCurrentRevision', 'This merge request has no collected diff version.');
+      return providerOk({
+        ...identity,
+        state: 'collecting',
+        headSha: currentHead,
+        versionId: null,
+        collectedHeadSha: null,
+        mergeRequestState: mr.state,
+        reason: 'This merge request has no collected diff version.',
+      });
     }
+
+    // The decisive comparison: the newest collected version must describe the
+    // head the merge request actually points at. When it does not, a newer push
+    // exists that GitLab has not collected yet, and the pinned version is not
+    // the current one however old or new its id happens to be.
+    if (!sameSha(newest.head_commit_sha, currentHead)) {
+      return providerOk({
+        ...identity,
+        state: 'collecting',
+        headSha: currentHead,
+        versionId: newest.id,
+        collectedHeadSha: newest.head_commit_sha,
+        mergeRequestState: mr.state,
+        reason: `The merge request head is ${currentHead.slice(0, 12)}, but the newest collected diff version ${newest.id} still describes ${newest.head_commit_sha.slice(0, 12)}. GitLab has not collected the newest push yet.`,
+      });
+    }
+
+    if (!sameSha(currentHead, target.headSha) || newest.id !== target.versionId) {
+      return providerOk({
+        ...identity,
+        state: 'stale',
+        headSha: currentHead,
+        versionId: newest.id,
+        collectedHeadSha: newest.head_commit_sha,
+        mergeRequestState: mr.state,
+        reason: `The merge request has moved since the review: pinned ${target.headSha.slice(0, 12)} (version ${target.versionId}), current ${currentHead.slice(0, 12)} (version ${newest.id}).`,
+      });
+    }
+
     return providerOk({
-      provider: 'gitlab',
-      host: target.host,
-      projectId: target.projectId,
-      mergeRequestIid: target.mergeRequestIid,
-      headSha: newest.head_commit_sha,
+      ...identity,
+      state: 'current',
+      headSha: currentHead,
       versionId: newest.id,
+      collectedHeadSha: newest.head_commit_sha,
+      mergeRequestState: mr.state,
+      reason: null,
     });
+  }
+
+  /** The account glab is authenticated as, for reconciliation identity checks. */
+  async getIdentity(target: RemoteTarget): Promise<ProviderOutcome<ProviderIdentity>> {
+    const api = this.apiFor(target.host);
+    const user = await api.request({ path: 'user' }, GitLabUser);
+    if (user.kind !== 'ok') return this.fail('getIdentity', user);
+    return providerOk({ username: user.value.username, displayName: user.value.name });
   }
 
   async listDiscussions(request: ListDiscussionsRequest): Promise<ProviderOutcome<DiscussionListing>> {
@@ -277,14 +428,14 @@ export class GitLabProvider implements ReviewProvider {
 
     return providerOk({
       discussions: collected.value.items.map(toRemoteDiscussion),
+      complete: !collected.value.capped,
       omissions,
     });
   }
 
   /**
-   * Implemented because the contract requires it. Nothing in P1.5 calls it: the
-   * CLI, the review skill and the review command have no path that reaches a
-   * remote write. Publication is authorized by the human form in P1.6.
+   * Called only by the publication run the human form authorizes. The CLI, the
+   * review skill and the review command have no path that reaches it.
    */
   async publishComment(request: PublishCommentRequest): Promise<ProviderOutcome<PublishedComment>> {
     const api = this.apiFor(request.target.host);
@@ -323,6 +474,85 @@ export class GitLabProvider implements ReviewProvider {
 }
 
 /**
+ * GitLab abbreviates a sha in some payloads and spells it in full in others, so
+ * two spellings of the same commit are compared on their common prefix. Seven
+ * hex characters is git's own minimum for an unambiguous abbreviation.
+ */
+export function sameSha(left: string | null, right: string | null): boolean {
+  if (left === null || right === null) return false;
+  const length = Math.min(left.length, right.length);
+  if (length < 7) return false;
+  return left.slice(0, length) === right.slice(0, length);
+}
+
+/**
+ * Whether the delivered diff is the whole change. GitLab caps a merge request
+ * diff in two independent ways: per file, with `collapsed` or `too_large`, and
+ * in aggregate, by declaring a `real_size` larger than the list it sends or by
+ * marking the version's collection state as an overflow.
+ *
+ * Both are material: a missing file is a change nobody reviewed, so the result
+ * may not be called complete (doc 03 P1.5 correction 2).
+ */
+export function assessCoverage(
+  version: { real_size: string | null; state: string | null; diffs: readonly unknown[] },
+  files: readonly RemoteFetchedFile[],
+): ReviewCoverage {
+  const gaps: CoverageGap[] = [];
+  const declared = parseRealSize(version.real_size);
+  const delivered = files.length;
+
+  if (version.state !== null && CAPPED_VERSION_STATES.has(version.state)) {
+    gaps.push({
+      kind: 'aggregate-cap',
+      path: null,
+      detail: `GitLab reports the pinned diff version's collection state as "${version.state}", which means it did not deliver every changed file. The review covers only the files it sent.`,
+    });
+  }
+
+  if (declared !== null && declared > delivered) {
+    gaps.push({
+      kind: 'omitted-files',
+      path: null,
+      detail: `GitLab declares ${declared} changed file(s) for the pinned version but delivered ${delivered}. The missing ${declared - delivered} file(s) were not reviewed.`,
+    });
+  }
+
+  if (delivered === 0) {
+    gaps.push({
+      kind: 'no-files',
+      path: null,
+      detail: 'GitLab returned no file diffs for the pinned version, so there is nothing to review.',
+    });
+  }
+
+  for (const file of files) {
+    if (file.incompleteReason === null) continue;
+    gaps.push({
+      kind: 'file-truncated',
+      path: file.newPath ?? file.oldPath,
+      detail: `${file.newPath ?? file.oldPath ?? '(unnamed)'}: ${file.incompleteReason}.`,
+    });
+  }
+
+  return {
+    complete: gaps.length === 0,
+    declaredFileCount: declared,
+    deliveredFileCount: delivered,
+    versionState: version.state,
+    gaps,
+  };
+}
+
+/** GitLab writes `real_size` as a decimal string, sometimes suffixed with "+". */
+function parseRealSize(value: string | null): number | null {
+  if (value === null) return null;
+  const match = /^\s*(\d+)\s*\+?\s*$/.exec(value);
+  if (match === null) return null;
+  return Number.parseInt(match[1] as string, 10);
+}
+
+/**
  * Post-image blobs, read from the source project at the pinned head SHA. A fork
  * merge request's head commits exist only in the fork, so the target project is
  * not where the new content lives.
@@ -334,6 +564,7 @@ class RemoteContent {
   private readonly api: GitLabApi;
   private readonly target: RemoteTarget;
   private readonly includeSiblings: boolean;
+  private readonly symlinkPaths: ReadonlySet<string>;
   private readonly note: (message: string) => void;
   private readonly files = new Map<string, FetchedContent | null>();
   private readonly trees = new Map<string, string[]>();
@@ -342,11 +573,13 @@ class RemoteContent {
     api: GitLabApi,
     target: RemoteTarget,
     includeSiblings: boolean,
+    symlinkPaths: ReadonlySet<string>,
     note: (message: string) => void,
   ) {
     this.api = api;
     this.target = target;
     this.includeSiblings = includeSiblings;
+    this.symlinkPaths = symlinkPaths;
     this.note = note;
   }
 
@@ -359,6 +592,10 @@ class RemoteContent {
   }
 
   private async fetch(relativePath: string): Promise<FetchedContent | null> {
+    // A symlink's blob holds the path it points at. It is never fetched and
+    // never resolved, so nothing can be followed out of the snapshot.
+    if (this.symlinkPaths.has(relativePath)) return { kind: 'symlink' };
+
     const result = await this.api.request(
       {
         path: `projects/${encodeProjectIdentity(this.target.sourceProjectId)}/repository/files/${encodeProjectIdentity(relativePath)}`,
@@ -412,7 +649,9 @@ class RemoteContent {
       return [];
     }
 
-    const names = collected.value.items.filter((entry) => entry.type === 'blob').map((entry) => entry.path);
+    const names = collected.value.items
+      .filter((entry) => entry.type === 'blob' && entry.mode !== SYMLINK_MODE)
+      .map((entry) => entry.path);
     this.trees.set(directoryName, names);
     return names;
   }
@@ -422,28 +661,67 @@ function mergeRequestPath(projectId: string, iid: number): string {
   return `projects/${encodeProjectIdentity(projectId)}/merge_requests/${iid}`;
 }
 
+type ModeKind = 'file' | 'symlink' | 'gitlink' | 'unknown';
+
+function modeKind(mode: string | null): ModeKind {
+  if (mode === null || mode === '' || mode === '0') return 'unknown';
+  if (mode === SYMLINK_MODE) return 'symlink';
+  if (mode === GITLINK_MODE) return 'gitlink';
+  return 'file';
+}
+
 /**
  * GitLab delivers a file's diff body without the `diff --git` header, so the
  * header is rebuilt from the authoritative `old_path`/`new_path` fields. The
  * header is never parsed back for identity — those fields are the identity.
+ *
+ * An empty body is not automatically a truncation: a pure rename and a
+ * mode-only change both legitimately carry no hunks, and reporting them as
+ * missing coverage would make every renamed file a gap (doc 03 P1.5
+ * correction 5).
  */
 function toFetchedFile(entry: GitLabVersionDiff): RemoteFetchedFile {
   const oldPath = entry.new_file ? null : entry.old_path;
   const newPath = entry.deleted_file ? null : entry.new_path;
-  const changeKind = entry.new_file
+
+  const oldKind = modeKind(entry.a_mode);
+  const newKind = modeKind(entry.b_mode);
+  const typeChanged =
+    !entry.new_file && !entry.deleted_file && oldKind !== 'unknown' && newKind !== 'unknown' && oldKind !== newKind;
+  const symlink = newKind === 'symlink' || (entry.deleted_file && oldKind === 'symlink');
+
+  const changeKind: RemoteFetchedFile['changeKind'] = entry.new_file
     ? 'added'
     : entry.deleted_file
       ? 'deleted'
-      : entry.renamed_file
-        ? 'renamed'
-        : 'modified';
+      : typeChanged
+        ? 'type-changed'
+        : entry.renamed_file
+          ? 'renamed'
+          : 'modified';
 
   const body = entry.diff;
   const binary = /^Binary files .* differ$/m.test(body) || /^GIT binary patch$/m.test(body);
-  const incomplete = entry.too_large === true || entry.collapsed === true || (body === '' && !binary);
+  // A rename or a mode change with no content change has nothing to put in a
+  // hunk, and GitLab says so by sending the entry with an empty body.
+  const modeOnly = entry.a_mode !== entry.b_mode && entry.a_mode !== null && entry.b_mode !== null;
+  const contentlessIsExpected = entry.renamed_file || modeOnly || symlink || entry.generated_file === true;
+
+  const incompleteReason =
+    entry.too_large === true
+      ? 'GitLab marked it too large'
+      : entry.collapsed === true
+        ? 'GitLab collapsed it'
+        : body === '' && !binary && !contentlessIsExpected
+          ? 'GitLab returned an empty diff body'
+          : null;
+  const incomplete = incompleteReason !== null;
 
   const header = [
     `diff --git a/${entry.old_path} b/${entry.new_path}`,
+    ...(entry.a_mode === null || entry.b_mode === null || entry.a_mode === entry.b_mode
+      ? []
+      : [`old mode ${entry.a_mode}`, `new mode ${entry.b_mode}`]),
     `--- ${oldPath === null ? '/dev/null' : `a/${entry.old_path}`}`,
     `+++ ${newPath === null ? '/dev/null' : `b/${entry.new_path}`}`,
   ].join('\n');
@@ -451,13 +729,18 @@ function toFetchedFile(entry: GitLabVersionDiff): RemoteFetchedFile {
     ? `${header}\n`
     : `${header}\n${body.endsWith('\n') || body === '' ? body : `${body}\n`}`;
 
-  return { oldPath, newPath, changeKind, binary, incomplete, patchSection: section };
-}
-
-function describeIncompleteness(entry: GitLabVersionDiff): string {
-  if (entry.too_large === true) return 'GitLab marked it too large';
-  if (entry.collapsed === true) return 'GitLab collapsed it';
-  return 'GitLab returned an empty diff body';
+  return {
+    oldPath,
+    newPath,
+    changeKind,
+    binary,
+    oldMode: entry.a_mode,
+    newMode: entry.b_mode,
+    symlink,
+    incomplete,
+    incompleteReason,
+    patchSection: section,
+  };
 }
 
 function toRemoteDiscussion(discussion: GitLabDiscussion): RemoteDiscussion {
