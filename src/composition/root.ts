@@ -8,6 +8,9 @@ import { systemIds, type IdSource } from '../ports/ids.ts';
 import { NodeProcessRunner } from '../ports/node-process-runner.ts';
 import type { ProcessRunner } from '../ports/process.ts';
 import { loadPacksForProject } from '../policy/load.ts';
+import { GitHubProvider } from '../providers/github/provider.ts';
+import { GitLabProvider } from '../providers/gitlab/provider.ts';
+import { ProviderRegistry } from '../providers/registry.ts';
 import { resolvePolicy } from '../policy/resolve.ts';
 import type { Activity } from '../contracts/primitives.ts';
 import type { ResolvedPolicy } from '../contracts/policy.ts';
@@ -29,6 +32,12 @@ export interface Runtime {
   pluginRoot: string;
   /** Read once here; nothing below this root touches `process.env` (doc 02). */
   env: Readonly<Record<string, string | undefined>>;
+  /**
+   * Every remote host AMBICODE knows, registered once. Review, reporting and
+   * the later selection page ask this for a provider; none of them imports a
+   * GitLab or GitHub module (doc 02).
+   */
+  providers: ProviderRegistry;
 }
 
 export interface RuntimeOverrides {
@@ -39,20 +48,32 @@ export interface RuntimeOverrides {
   cwd?: string;
   pluginRoot?: string;
   env?: Readonly<Record<string, string | undefined>>;
+  providers?: ProviderRegistry;
 }
 
 export async function createRuntime(overrides: RuntimeOverrides = {}): Promise<Runtime> {
   const fs = overrides.fs ?? nodeFileSystem;
   const env = overrides.env ?? process.env;
+  const runner = overrides.runner ?? new NodeProcessRunner(env);
+  const cwd = overrides.cwd ?? process.cwd();
   return {
-    runner: overrides.runner ?? new NodeProcessRunner(env),
+    runner,
     fs,
     clock: overrides.clock ?? systemClock,
     ids: overrides.ids ?? systemIds,
-    cwd: overrides.cwd ?? process.cwd(),
+    cwd,
     pluginRoot: overrides.pluginRoot ?? (await resolvePluginRoot(fs, env)),
     env,
+    providers: overrides.providers ?? defaultProviders(runner, cwd),
   };
+}
+
+/**
+ * The registration list. Adding a host is one entry here plus its own module;
+ * nothing else in the codebase names a provider (doc 10, cleanliness check 5).
+ */
+export function defaultProviders(runner: ProcessRunner, cwd: string): ProviderRegistry {
+  return new ProviderRegistry([new GitLabProvider({ runner, cwd }), new GitHubProvider()]);
 }
 
 export interface Workspace {

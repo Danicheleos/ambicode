@@ -1,5 +1,5 @@
 import { execa, type Options, type ResultPromise } from 'execa';
-import type { ProcessOutcome, ProcessRequest, ProcessRunner } from './process.ts';
+import { resolveEnvironment, type ProcessOutcome, type ProcessRequest, type ProcessRunner } from './process.ts';
 
 /**
  * Executes an argument vector through Execa (doc 11). There is no shell: a
@@ -25,8 +25,10 @@ export class NodeProcessRunner implements ProcessRunner {
 
     const options: Options = {
       cwd: request.cwd,
-      // Narrow overrides on top of the injected base, never a cloned process.env.
-      env: { ...this.baseEnv, ...request.env } as Record<string, string>,
+      // The request's declared policy applied to the injected base, never a
+      // cloned process.env: a replacement policy means the host's other
+      // variables are absent from the child, not merely unused (doc 02).
+      env: resolveEnvironment(request.env, this.baseEnv),
       extendEnv: false,
       shell: false,
       timeout: request.timeoutMs,

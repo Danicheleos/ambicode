@@ -39,17 +39,21 @@ export class Git {
       cwd: this.options.repositoryRoot,
       timeoutMs: GIT_TIMEOUT_MS,
       maxOutputBytes: GIT_MAX_OUTPUT_BYTES,
-      // Narrow overrides only: the process adapter merges them onto the base
-      // environment the composition root supplied (doc 02).
+      // Git reads the operator's own configuration, credential helpers and
+      // ssh agent, so it runs with the inherited environment plus narrow
+      // overrides (doc 02). The reviewer's policy is a different one.
       env: {
-        GIT_OPTIONAL_LOCKS: '0',
-        GIT_TERMINAL_PROMPT: '0',
-        // git is translated. Pin the locale so diagnostics AMBICODE surfaces to
-        // the user are the messages this codebase was written against.
-        LC_ALL: 'C',
-        LANG: 'C',
-        ...this.options.extraEnv,
-      } as Record<string, string>,
+        kind: 'inherited',
+        overrides: {
+          GIT_OPTIONAL_LOCKS: '0',
+          GIT_TERMINAL_PROMPT: '0',
+          // git is translated. Pin the locale so diagnostics AMBICODE surfaces
+          // to the user are the messages this codebase was written against.
+          LC_ALL: 'C',
+          LANG: 'C',
+          ...this.options.extraEnv,
+        },
+      },
     });
 
     if (outcome.kind === 'spawn-failed') {

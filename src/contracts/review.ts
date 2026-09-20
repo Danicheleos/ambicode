@@ -1,8 +1,8 @@
 import { z } from 'zod';
+import { RemoteDiscussion, RemoteTarget } from './provider.ts';
 import {
   CheckStatus,
   Confidence,
-  ProviderId,
   PublicationState,
   ReviewStatus,
   Risk,
@@ -12,21 +12,6 @@ import {
 /** Persisted review schemas (doc 02, "Shared contracts"). */
 
 export const REVIEW_SCHEMA_VERSION = 1;
-
-export const RemoteTarget = z.strictObject({
-  provider: ProviderId,
-  host: z.string().min(1),
-  projectId: z.string().min(1),
-  projectPath: z.string().min(1),
-  mergeRequestIid: z.number().int().positive(),
-  webUrl: z.string().min(1),
-  /** The collected diff version the review is pinned to. */
-  versionId: z.number().int().positive(),
-  baseSha: z.string().min(1),
-  startSha: z.string().min(1),
-  headSha: z.string().min(1),
-});
-export type RemoteTarget = z.infer<typeof RemoteTarget>;
 
 export const ReviewTarget = z.strictObject({
   kind: TargetKind,
@@ -156,7 +141,20 @@ export const ReviewInputs = z.strictObject({
   changedFiles: z.number().int().nonnegative(),
   changedLines: z.number().int().nonnegative(),
   patchBytes: z.number().int().nonnegative(),
+  /** Bytes of the files mirrored into the snapshot for the reviewer to read. */
   snapshotBytes: z.number().int().nonnegative(),
+  /** Bytes of retrieved requirement content, which the prompt carries. */
+  requirementBytes: z.number().int().nonnegative().default(0),
+  /**
+   * Bytes of the composed canonical prompt: role and contract prompts, scoped
+   * policy, requirements, prior discussion evidence, check evidence and the
+   * patch. Zero only before the prompt exists.
+   */
+  promptBytes: z.number().int().nonnegative().default(0),
+  /**
+   * Everything the model is handed: the composed prompt plus the mirrored
+   * tree. Measured against `review.maxContextBytes` (doc 02).
+   */
   contextBytes: z.number().int().nonnegative(),
   limits: z.strictObject({
     maxChangedFiles: z.number().int().positive(),
@@ -204,6 +202,11 @@ export const ReviewResult = z.strictObject({
     ruleIds: z.array(z.string()).default([]),
   }),
   checks: z.array(CheckResult).default([]),
+  /**
+   * Merge-request threads that already existed. Evidence for deduplication and
+   * for later reconciliation; never proof that a defect was fixed (doc 03).
+   */
+  discussions: z.array(RemoteDiscussion).default([]),
   changedFiles: z
     .array(
       z.strictObject({

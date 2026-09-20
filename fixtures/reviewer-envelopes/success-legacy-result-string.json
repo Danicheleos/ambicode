@@ -1,0 +1,9 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "num_turns": 3,
+  "result": "{\"findings\":[],\"coverageNotes\":[\"Nothing material was identified.\"]}",
+  "stop_reason": "end_turn",
+  "session_id": "session_01BBBBBBBBBBBBBBBBBBBBBBBB"
+}

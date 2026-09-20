@@ -286,6 +286,8 @@ async function selectByRunner(options: SelectOptions): Promise<Selection> {
     cwd: absoluteRoot,
     timeoutMs: options.timeoutMs,
     maxOutputBytes: 1_048_576,
+    // A project's own test runner, in the developer's own environment.
+    env: { kind: 'inherited' },
   });
 
   if (outcome.kind !== 'exited' || outcome.exitCode !== 0) {
@@ -356,6 +358,8 @@ async function selectByCommand(options: SelectOptions, commandId: string): Promi
     cwd: path.join(absoluteRoot, command.cwd ?? ''),
     timeoutMs: options.timeoutMs,
     maxOutputBytes: 262_144,
+    // A configured project script, in the developer's own environment.
+    env: { kind: 'inherited' },
   });
 
   if (outcome.kind !== 'exited' || outcome.exitCode !== 0) {

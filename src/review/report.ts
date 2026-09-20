@@ -13,6 +13,21 @@ export interface ReportOptions {
   pendingApprovals: readonly PendingApproval[];
 }
 
+/**
+ * The split the limit was applied to. Once the prompt exists it is the prompt
+ * plus the mirrored tree, with the patch and requirements inside the prompt
+ * rather than counted twice.
+ */
+function describeInputSplit(inputs: ReviewResult['inputs']): string {
+  if (inputs.promptBytes === 0) {
+    return `${inputs.patchBytes} patch + ${inputs.requirementBytes} requirements + ${inputs.snapshotBytes} mirrored`;
+  }
+  return (
+    `${inputs.promptBytes} prompt, of which ${inputs.patchBytes} patch and ` +
+    `${inputs.requirementBytes} requirements, + ${inputs.snapshotBytes} mirrored`
+  );
+}
+
 export function renderReport(options: ReportOptions): string {
   const { result } = options;
   return [
@@ -34,8 +49,8 @@ function whatWasReviewed(options: ReportOptions): string[] {
     `   mode        ${result.requirementMode}`,
     `   target      ${result.target.kind} (${result.target.snapshotId})`,
     `   measured    ${result.inputs.changedFiles} file(s), ${result.inputs.changedLines} line(s), ` +
-      `${result.inputs.contextBytes} context byte(s) ` +
-      `(${result.inputs.patchBytes} patch + ${result.inputs.snapshotBytes} mirrored)`,
+      `${result.inputs.contextBytes} model-input byte(s) ` +
+      `(${describeInputSplit(result.inputs)}), limit ${result.inputs.limits.maxContextBytes}`,
     `   snapshot    ${options.snapshotDirectory}`,
     `   result      ${options.resultPath}`,
   ];

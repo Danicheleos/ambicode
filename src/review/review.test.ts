@@ -345,7 +345,12 @@ describe('U17 location validation', () => {
       confidence: 'high' as const,
       category: 'correctness',
       location,
-      supportingLocations: [],
+      supportingLocations: [] as {
+        oldPath: string | null;
+        newPath: string | null;
+        side: 'old' | 'new';
+        line: number;
+      }[],
       explanation: 'x',
       suggestedComment: 'y',
       ruleRefs: [] as string[],
@@ -368,71 +373,124 @@ describe('U17 location validation', () => {
     });
   }
 
-  it('rejects a path that is not in the reviewed change', () => {
-    const result = run([
-      candidate({ oldPath: 'src/invented.ts', newPath: 'src/invented.ts', side: 'new', line: 2 }),
-    ]);
-    assert.deepEqual(result.findings, []);
+  /** The happy path returns findings; anything else is an invalid result. */
+  function expectOk(result: ReturnType<typeof validateFindings>) {
+    assert.equal(result.kind, 'ok', `expected a valid result, got ${JSON.stringify(result)}`);
+    return result.kind === 'ok' ? result.findings : [];
+  }
+
+  function expectInvalid(result: ReturnType<typeof validateFindings>) {
+    assert.equal(result.kind, 'invalid', 'expected the reviewer result to be invalid');
+    return result.kind === 'invalid' ? result : { reason: '', rejections: [] as string[] };
+  }
+
+  it('makes a path that is not in the reviewed change an invalid reviewer result', () => {
+    const result = expectInvalid(
+      run([candidate({ oldPath: 'src/invented.ts', newPath: 'src/invented.ts', side: 'new', line: 2 })]),
+    );
     assert.match(result.rejections.join('\n'), /is not a file in this review/);
+    assert.match(result.reason, /could not be verified against the pinned change/);
   });
 
-  it('rejects a line the change does not address', () => {
-    const result = run([
-      candidate({ oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'new', line: 99 }),
-    ]);
-    assert.deepEqual(result.findings, []);
+  it('makes a line the change does not address an invalid reviewer result', () => {
+    const result = expectInvalid(
+      run([candidate({ oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'new', line: 99 })]),
+    );
     assert.match(result.rejections.join('\n'), /line 99 is not present on the new side/);
   });
 
+  it('does not expose the surviving findings when one location is unverifiable', () => {
+    // A reviewer that named a file the change does not hold has not shown that
+    // its other claims were checked against the same evidence.
+    const result = expectInvalid(
+      run([
+        candidate({ oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'new', line: 2 }),
+        candidate({ oldPath: 'src/invented.ts', newPath: 'src/invented.ts', side: 'new', line: 1 }),
+      ]),
+    );
+    assert.equal(result.rejections.length, 1);
+    assert.ok(!('findings' in result));
+  });
+
+  it('makes an unverifiable supporting location invalid too', () => {
+    const result = expectInvalid(
+      run([
+        {
+          ...candidate({ oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'new', line: 2 }),
+          supportingLocations: [
+            { oldPath: 'src/invented.ts', newPath: 'src/invented.ts', side: 'new' as const, line: 1 },
+          ],
+        },
+      ]),
+    );
+    assert.match(result.rejections.join('\n'), /a supporting location is unverifiable/);
+  });
+
   it('rejects a side the location does not name a path for', () => {
-    const result = run([candidate({ oldPath: null, newPath: 'src/orders.ts', side: 'old', line: 2 })]);
-    assert.deepEqual(result.findings, []);
+    const result = expectInvalid(
+      run([candidate({ oldPath: null, newPath: 'src/orders.ts', side: 'old', line: 2 })]),
+    );
     assert.match(result.rejections.join('\n'), /no oldPath was given/);
   });
 
   it('accepts an old-side location and quotes the removed line from the diff', () => {
-    const result = run([
-      candidate({ oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'old', line: 2 }),
-    ]);
-    assert.equal(result.findings.length, 1);
-    assert.match(result.findings[0]?.evidence ?? '', /amounts\.length/);
+    const findings = expectOk(
+      run([candidate({ oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'old', line: 2 })]),
+    );
+    assert.equal(findings.length, 1);
+    assert.match(findings[0]?.evidence ?? '', /amounts\.length/);
   });
 
   it('takes the paths from the bundle rather than from the model', () => {
-    const result = run([
-      // The model names only one side; the result carries both, from the diff.
-      candidate({ oldPath: null, newPath: 'src/orders.ts', side: 'new', line: 2 }),
-    ]);
-    assert.equal(result.findings[0]?.location.oldPath, 'src/orders.ts');
+    // The model names only one side; the result carries both, from the diff.
+    const findings = expectOk(
+      run([candidate({ oldPath: null, newPath: 'src/orders.ts', side: 'new', line: 2 })]),
+    );
+    assert.equal(findings[0]?.location.oldPath, 'src/orders.ts');
   });
 
-  it('drops references the review does not know', () => {
-    const result = run([
-      { ...candidate({ oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'new', line: 2 }),
-        ruleRefs: ['invented/rule', 'common-quality/reuse-before-reimplementing'],
-        requirementRefs: ['NOPE-1'] },
-    ]);
-    assert.deepEqual(result.findings[0]?.ruleRefs, ['common-quality/reuse-before-reimplementing']);
-    assert.deepEqual(result.findings[0]?.requirementRefs, []);
+  it('invalidates the result rather than rewriting a reference it does not know', () => {
+    const result = expectInvalid(
+      run([
+        {
+          ...candidate({ oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'new', line: 2 }),
+          ruleRefs: ['invented/rule', 'common-quality/reuse-before-reimplementing'],
+          requirementRefs: ['NOPE-1'],
+        },
+      ]),
+    );
     assert.match(result.rejections.join('\n'), /invented\/rule/);
     assert.match(result.rejections.join('\n'), /NOPE-1/);
   });
 
-  it('enforces the configured finding limit and records what it dropped', () => {
+  it('keeps references the review does know', () => {
+    const findings = expectOk(
+      run([
+        {
+          ...candidate({ oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'new', line: 2 }),
+          ruleRefs: ['common-quality/reuse-before-reimplementing'],
+          requirementRefs: ['ORD-17'],
+        },
+      ]),
+    );
+    assert.deepEqual(findings[0]?.ruleRefs, ['common-quality/reuse-before-reimplementing']);
+    assert.deepEqual(findings[0]?.requirementRefs, ['ORD-17']);
+  });
+
+  it('rejects an oversized result instead of trimming it into a complete-looking one', () => {
     const many = Array.from({ length: 4 }, (_, index) => ({
       ...candidate({ oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'new', line: 2 }),
       suggestedComment: `comment ${index}`,
     }));
-    const result = run(many, { maxFindings: 2 });
-    assert.equal(result.findings.length, 2);
-    assert.equal(result.rejections.length, 2);
-    assert.match(result.rejections.join('\n'), /configured limit of 2 findings/);
+    const result = expectInvalid(run(many, { maxFindings: 2 }));
+    assert.match(result.reason, /above the configured limit of 2/);
+    assert.match(result.reason, /does not silently keep the first 2/);
   });
 
   it('gives the same finding the same id twice', () => {
-    const one = run([candidate({ oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'new', line: 2 })]);
-    const two = run([candidate({ oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'new', line: 2 })]);
-    assert.equal(one.findings[0]?.id, two.findings[0]?.id);
+    const one = expectOk(run([candidate({ oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'new', line: 2 })]));
+    const two = expectOk(run([candidate({ oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'new', line: 2 })]));
+    assert.equal(one[0]?.id, two[0]?.id);
   });
 });
 
@@ -621,6 +679,93 @@ describe('U17 instruction-like content is evidence', () => {
       // The capability set does not depend on the content: it is the argument
       // vector, which the text cannot reach.
       assert.deepEqual(output.result.reviewer?.tools, [...REVIEWER_TOOLS]);
+      await nodeFileSystem.remove(output.snapshotDirectory);
+    } finally {
+      await context.dispose();
+    }
+  });
+});
+
+describe('U17 an unverifiable location makes the review an error', () => {
+  it('records the reviewer as failed and exposes no reduced finding list', async () => {
+    const context = await fixture();
+    try {
+      // One location is real, one names a file the change does not contain.
+      const reviewer = new FakeReviewer(
+        ok({
+          findings: [
+            {
+              risk: 'high',
+              confidence: 'high',
+              category: 'correctness',
+              location: { oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'new', line: 2 },
+              supportingLocations: [],
+              explanation: 'real',
+              suggestedComment: 'real',
+              ruleRefs: [],
+              requirementRefs: [],
+            },
+            {
+              risk: 'high',
+              confidence: 'high',
+              category: 'correctness',
+              location: { oldPath: 'src/invented.ts', newPath: 'src/invented.ts', side: 'new', line: 1 },
+              supportingLocations: [],
+              explanation: 'fabricated',
+              suggestedComment: 'fabricated',
+              ruleRefs: [],
+              requirementRefs: [],
+            },
+          ],
+        }),
+      );
+
+      const output = await review(context.runtime, [], reviewer);
+
+      assert.equal(output.result.status, 'error');
+      assert.equal(output.result.reviewer?.status, 'failed');
+      // Not a successful review with one finding dropped.
+      assert.deepEqual(output.result.findings, []);
+      assert.match(output.result.reviewer?.detail ?? '', /invalid-output/);
+      assert.match(
+        output.result.reviewer?.rejections.join('\n') ?? '',
+        /src\/invented\.ts.*is not a file in this review/,
+      );
+      assert.match(output.result.statusReason ?? '', /invalid-output/);
+
+      // And the diagnostic is persisted, not only returned.
+      const persisted = JSON.parse(
+        await nodeFileSystem.readText(output.resultPath),
+      ) as { reviewer: { status: string; rejections: string[] }; findings: unknown[] };
+      assert.equal(persisted.reviewer.status, 'failed');
+      assert.deepEqual(persisted.findings, []);
+      assert.ok(persisted.reviewer.rejections.length > 0);
+      await nodeFileSystem.remove(output.snapshotDirectory);
+    } finally {
+      await context.dispose();
+    }
+  });
+
+  it('treats an oversized finding list as a failed review, not a trimmed one', async () => {
+    const context = await fixture();
+    try {
+      const many = Array.from({ length: 9 }, (_unused, index) => ({
+        risk: 'low' as const,
+        confidence: 'low' as const,
+        category: 'correctness',
+        location: { oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'new' as const, line: 2 },
+        supportingLocations: [],
+        explanation: `finding ${index}`,
+        suggestedComment: `comment ${index}`,
+        ruleRefs: [] as string[],
+        requirementRefs: [] as string[],
+      }));
+
+      const output = await review(context.runtime, [], new FakeReviewer(ok({ findings: many })));
+
+      assert.equal(output.result.status, 'error');
+      assert.deepEqual(output.result.findings, []);
+      assert.match(output.result.reviewer?.detail ?? '', /above the configured limit of 7/);
       await nodeFileSystem.remove(output.snapshotDirectory);
     } finally {
       await context.dispose();

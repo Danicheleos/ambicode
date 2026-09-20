@@ -11,6 +11,7 @@ async function node(script: string, maxOutputBytes = 1024, timeoutMs = 10_000): 
     cwd: process.cwd(),
     timeoutMs,
     maxOutputBytes,
+    env: { kind: 'inherited' },
   });
 }
 
@@ -67,6 +68,7 @@ describe('U29 process runner', () => {
       cwd: process.cwd(),
       timeoutMs: 5_000,
       maxOutputBytes: 1024,
+      env: { kind: 'inherited' },
     });
     assert.equal(spawnFailed.kind, 'spawn-failed');
     assert.match(spawnFailed.failure ?? '', /ENOENT/);
@@ -86,6 +88,7 @@ describe('U29 process runner', () => {
       cwd: process.cwd(),
       timeoutMs: 10_000,
       maxOutputBytes: 1024,
+      env: { kind: 'inherited' },
       stdin: 'a requirement URL, over stdin',
     });
     assert.equal(outcome.stdout, 'a requirement URL, over stdin');
@@ -98,7 +101,7 @@ describe('U29 process runner', () => {
       cwd: process.cwd(),
       timeoutMs: 10_000,
       maxOutputBytes: 1024,
-      env: { LC_ALL: 'C' },
+      env: { kind: 'inherited', overrides: { LC_ALL: 'C' } },
     });
     assert.equal(outcome.stdout, 'base:C');
   });

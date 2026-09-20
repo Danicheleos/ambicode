@@ -261,6 +261,9 @@ export async function runChecks(options: RunChecksOptions): Promise<RunChecksOut
       cwd: commandCwd,
       timeoutMs: (command.timeoutSeconds ?? options.config.checks.timeoutSeconds) * 1000,
       maxOutputBytes: MAX_COMMAND_OUTPUT_BYTES,
+      // A configured project command runs as the developer would run it; it
+      // needs their tooling environment (doc 05).
+      env: { kind: 'inherited' },
     });
     const durationMs = Math.round(options.clock.elapsed() - started);
 

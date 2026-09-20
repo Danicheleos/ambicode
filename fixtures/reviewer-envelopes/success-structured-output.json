@@ -1,0 +1,29 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "duration_ms": 41233,
+  "duration_api_ms": 40810,
+  "num_turns": 6,
+  "result": "I reviewed the change and returned the findings through the structured output tool.",
+  "stop_reason": "end_turn",
+  "session_id": "session_01AAAAAAAAAAAAAAAAAAAAAAAA",
+  "total_cost_usd": 0.0412,
+  "structured_output": {
+    "findings": [
+      {
+        "risk": "high",
+        "confidence": "medium",
+        "category": "correctness",
+        "location": { "oldPath": "src/orders.ts", "newPath": "src/orders.ts", "side": "new", "line": 2 },
+        "supportingLocations": [],
+        "explanation": "The reduce has no initial value, so an empty list throws instead of returning zero.",
+        "suggestedComment": "Give `reduce` an initial value of 0 so an empty list returns 0 rather than throwing.",
+        "ruleRefs": [],
+        "requirementRefs": []
+      }
+    ],
+    "coverageNotes": ["Callers of total() outside the snapshot were not available."]
+  },
+  "uuid": "11111111-2222-3333-4444-555555555555"
+}

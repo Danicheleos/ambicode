@@ -5,16 +5,12 @@ import type { ReviewResult, ReviewerRun } from '../../contracts/review.ts';
 import type { Reviewer } from '../../ports/reviewer.ts';
 import { ClaudeReviewer, REVIEWER_TOOLS } from '../../review/claude-reviewer.ts';
 import { assembleBundle, writeBundleArtifacts, type ReviewBundle } from '../../review/bundle.ts';
-import { composeReviewerPrompt } from '../../review/prompt.ts';
 import { renderReport } from '../../review/report.ts';
 import { validateFindings } from '../../review/validate.ts';
 import type { ParsedArgs } from '../args.ts';
+import { resolveTargetOptions, TARGET_OPTIONS } from '../target-option.ts';
 
-export const REVIEW_OPTIONS = {
-  values: ['base', 'evidence'],
-  repeated: ['requirement', 'approve'],
-  flags: ['json', 'branch'],
-} as const;
+export const REVIEW_OPTIONS = TARGET_OPTIONS;
 
 export interface ReviewOutput {
   command: 'review';
@@ -42,14 +38,10 @@ export async function runReview(
   args: ParsedArgs,
   dependencies: ReviewDependencies = {},
 ): Promise<ReviewOutput> {
-  const bundle = await assembleBundle({
-    runtime,
-    branch: args.flag('branch'),
-    baseRef: args.value('base'),
-    requirementUrls: args.all('requirement'),
-    evidencePath: resolveEvidencePath(runtime, args.value('evidence')),
-    approvals: new Set(args.all('approve')),
-  });
+  // The bundle composes the canonical prompt and refuses the whole review if
+  // the measured input exceeds the limit, so nothing below can reach a model
+  // with more than the configuration allows.
+  const bundle = await assembleBundle({ runtime, ...resolveTargetOptions('review', runtime, args) });
 
   const reviewConfig = bundle.workspace.config.review;
   const reviewer =
@@ -58,16 +50,8 @@ export async function runReview(
   // Refuses before the prompt is built if the boundary cannot be established.
   await reviewer.assertIsolationAvailable?.();
 
-  const prompt = await composeReviewerPrompt(runtime.fs, runtime.pluginRoot, bundle);
-  bundle.result.provenance = [...bundle.result.provenance, ...prompt.provenance].sort((a, b) =>
-    `${a.kind}${a.reference}`.localeCompare(`${b.kind}${b.reference}`),
-  );
-
-  const promptPath = path.join(bundle.reviewDirectory, 'reviewer-prompt.md');
-  await runtime.fs.writeText(promptPath, prompt.text);
-
   const invocation = await reviewer.invoke({
-    prompt: prompt.text,
+    prompt: bundle.prompt.text,
     // The sanitized snapshot, which is also the reviewer's only readable tree.
     workingDirectory: bundle.snapshot.directory,
     model: reviewConfig.model,
@@ -85,6 +69,10 @@ export async function runReview(
     detail: invocation.kind === 'ok' ? null : `${invocation.reason}: ${invocation.detail}`,
   };
 
+  // Validation is part of whether the reviewer succeeded, not a filter applied
+  // afterwards: output that does not survive it makes the run a failure with a
+  // stated reason, never a shorter finding list presented as validated.
+  let reviewerOk = invocation.kind === 'ok';
   if (invocation.kind === 'ok') {
     const validated = validateFindings({
       output: invocation.output,
@@ -95,13 +83,20 @@ export async function runReview(
       knownRuleIds: new Set(bundle.result.policySummary.ruleIds),
       knownRequirementIds: new Set(bundle.result.requirements.map((source) => source.id)),
     });
-    bundle.result.findings = validated.findings;
-    run.rejections = validated.rejections;
-    bundle.result.omissions = [...bundle.result.omissions, ...invocation.output.coverageNotes];
+
+    if (validated.kind === 'ok') {
+      bundle.result.findings = validated.findings;
+      bundle.result.omissions = [...bundle.result.omissions, ...invocation.output.coverageNotes];
+    } else {
+      reviewerOk = false;
+      run.status = 'failed';
+      run.rejections = validated.rejections;
+      run.detail = `invalid-output: ${validated.reason}`;
+    }
   }
 
   bundle.result.reviewer = run;
-  applyStatus(bundle, invocation.kind === 'ok');
+  applyStatus(bundle, reviewerOk);
 
   await writeBundleArtifacts(runtime, bundle);
   const reportPath = path.join(bundle.reviewDirectory, 'report.txt');
@@ -134,6 +129,7 @@ function applyStatus(bundle: ReviewBundle, reviewerOk: boolean): void {
   if (!reviewerOk) {
     bundle.result.status = 'error';
     bundle.result.statusReason =
+        bundle.result.reviewer?.detail ??
       'The independent reviewer did not produce a validated result, so no finding list was produced. This is not a clean review.';
     return;
   }
@@ -172,11 +168,6 @@ function toolsOf(argv: readonly string[]): string[] {
   return declared === undefined || declared.startsWith('--')
     ? [...REVIEWER_TOOLS]
     : declared.split(',');
-}
-
-function resolveEvidencePath(runtime: Runtime, value: string | null): string | null {
-  if (value === null) return null;
-  return path.isAbsolute(value) ? value : path.resolve(runtime.cwd, value);
 }
 
 export function renderReview(output: ReviewOutput): string {

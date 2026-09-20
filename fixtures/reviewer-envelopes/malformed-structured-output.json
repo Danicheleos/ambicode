@@ -1,0 +1,13 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "num_turns": 4,
+  "result": "Findings returned.",
+  "stop_reason": "end_turn",
+  "session_id": "session_01DDDDDDDDDDDDDDDDDDDDDDDD",
+  "structured_output": {
+    "findings": [{ "risk": "catastrophic", "category": "correctness" }],
+    "coverageNotes": []
+  }
+}

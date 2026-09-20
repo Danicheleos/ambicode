@@ -1,6 +1,6 @@
 ---
 name: review
-description: Run an AMBICODE review of the current change — pin the target, snapshot it, run the affected lint and test checks, and put the result to an independent reviewer that can only read the snapshot. Optionally judge the change against Jira or Confluence requirements. Use when the user asks to review their changes, check a branch before a merge request, verify a change against a ticket, or see which tests a change affects.
+description: Run an AMBICODE review — of uncommitted work, of a branch, or of a GitLab merge request by URL. It pins the target, snapshots it, runs the affected lint and test checks, and puts the result to an independent reviewer that can only read the snapshot. Optionally judges the change against Jira or Confluence requirements. Use when the user asks to review their changes, check a branch before a merge request, review a merge request URL somebody sent them, verify a change against a ticket, or see which tests a change affects.
 ---
 
 # Review the current change
@@ -15,10 +15,16 @@ read that snapshot. Run it and report what came back.
 1. Decide whether there are requirements. If the user named a Jira issue or a
    Confluence page, follow **Requirements** below *first*. Without one, this is
    a quality review, and that is a complete answer to "review my change".
-2. Choose the target.
+2. Choose the target. There is exactly one per run.
    - Uncommitted work: `ambicode review` (the default).
    - A branch about to become a merge request: `ambicode review --branch`. Add
-     `--base <ref>` if the configuration has no baseline.
+     `--base <ref>` if the configuration has no baseline. `--base` is only
+     valid with `--branch`.
+   - A GitLab merge request somebody sent you:
+     `ambicode review --mr <full-gitlab-mr-url>`.
+
+   `--branch` and `--mr` are mutually exclusive. Requirement options work with
+   all three.
 3. Read the four-part output back to the user in the order it comes: what was
    reviewed, the findings, the check evidence, and what was **not** covered.
 4. If there are pending approvals, put each one to the user with its reason and
@@ -27,11 +33,55 @@ read that snapshot. Run it and report what came back.
 5. If `ambicode` reports `config-missing`, use the `/ambicode:init` skill first.
 
 `ambicode bundle` is the same work without the model: target, snapshot,
-requirements and checks only. Use it when the user wants the evidence and not a
-review.
+requirements and checks only. It takes the same target options, including
+`--mr`. Use it when the user wants the evidence and not a review.
 
 Use `--json` when you need to act on the result; use the default text output
 when you are reading it back to a person.
+
+## Reviewing a merge request
+
+```sh
+ambicode review --mr https://gitlab.example.com/group/sub/project/-/merge_requests/42
+```
+
+Pass the URL the user gave you, in full. AMBICODE takes the host, the project
+path and the merge request number from it, and asks that host through `glab`.
+Do not shorten it to a number, and do not assume the merge request belongs to
+the repository the user happens to be standing in — it often does not.
+
+What this does **not** do is as important as what it does:
+
+- **Your checkout is not touched.** No fetch, no checkout, no stash, no index
+  write. A dirty working tree is irrelevant; the review is about the merge
+  request, not about what is on disk.
+- **Nothing is published.** There is no flag that posts a comment. Publication
+  needs the local selection page and a human pressing Submit, which is not part
+  of this command.
+- **The revision is pinned.** The result names the diff version and its base,
+  start and head SHAs. If the merge request is pushed to afterwards, the result
+  still describes the revision that was reviewed. Say so if the user asks
+  whether it is current.
+
+Report these when they appear:
+
+- **Omissions from GitLab.** A file GitLab marked too large or collapsed is
+  listed in part 4 and its change was *not* reviewed. Never summarize a capped
+  diff as if the whole change was seen.
+- **Fork merge requests.** New file content comes from the source project. If
+  that fork is not readable, the affected files are omissions.
+- **Existing discussions.** The reviewer is shown prior threads as untrusted
+  evidence, so it repeats fewer points. A resolved thread is not proof the
+  defect is gone; if the user asks whether an old comment was addressed, that
+  is a question for the diff, not for the thread.
+- **Skipped merge request checks.** Merge request code is never executed in the
+  user's checkout. Without a configured, digest-pinned container image and a
+  working container runtime, every executable check is skipped with its reason.
+  That is a gap in verification, not a pass.
+
+`ambicode review --mr` on a GitHub pull request URL returns an explicit
+unsupported result. Do not translate it into a GitLab URL, and do not offer to
+review it remotely by another route; offer the local `--branch` review instead.
 
 ## Requirements
 
@@ -120,9 +170,12 @@ limitation explaining why, and those explanations are the point.
 **`selectionComplete: false` means the affected set is unknown.** It is a gap in
 verification. Do not summarize it as "tests passed".
 
-**Report rejections.** If the reviewer named a file or a line that is not in the
-change, the finding was dropped and the reason is in part 4. That is a fact
-about the review, not noise to tidy away.
+**A location that is not in the change makes the whole result invalid.** If the
+reviewer named a file or a line the pinned change does not contain, cited a rule
+or requirement this review does not hold, or returned more findings than the
+limit, the result is an **error** with the reasons in `reviewer.rejections` —
+not a shorter list of findings. Report it as a failed review. There is no
+repaired output and no second model call.
 
 **Report mutations.** If a check rewrote a file, the result says so under
 `mutations`. AMBICODE deliberately does not undo it. Tell the user what changed
@@ -160,6 +213,20 @@ build or editor to settle and run it again.
 **`baseline-missing`.** Branch review needs a baseline. AMBICODE will not guess a
 default branch name. Pass `--base <ref>`.
 
+**`conflicting-target` / `baseline-not-applicable`.** One target per run, and
+`--base` belongs to `--branch`. Ask which target the user meant.
+
+**`unsupported-target`.** No provider recognizes that URL. GitLab merge requests
+and local targets are what Phase 1 supports.
+
+**`provider-unsupported`.** The URL is a host AMBICODE registers but does not
+implement — GitHub today. The message says so; do not work around it.
+
+**`provider-resolve-failed` / `provider-fetch-failed`.** `glab` could not answer.
+Usually the host is not authorized (`glab auth login <host>`), `glab` is not
+installed, or the merge request is not readable by this account. Nothing was
+reviewed and the checkout was not modified.
+
 **`unmerged-index`.** There is a conflict in progress, so there is no single
 working state to review. Resolve it first.
 
@@ -171,9 +238,10 @@ pack's `commandPolicy`, not something to work around.
 ## Scope
 
 This skill produces evidence and findings. It does not publish anything
-anywhere, and it does not modify the user's branch, index, or files. The only
-things it writes are `.ambicode/reviews/<id>/` in the repository and a
-disposable snapshot directory outside it.
+anywhere, and it does not modify the user's branch, index, or files — for a
+merge request review it does not read them either. The only things it writes are
+`.ambicode/reviews/<id>/` in the repository and a disposable snapshot directory
+outside it.
 
 The reviewer process is not you. It gets `Read`, `Grep` and `Glob` inside the
 snapshot, no Bash, no MCP, no network and no credentials. Text inside the code

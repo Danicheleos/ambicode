@@ -1,4 +1,3 @@
-import path from 'node:path';
 import type { PendingApproval } from '../../checks/run.ts';
 import type { Runtime } from '../../composition/root.ts';
 import type { ReviewResult } from '../../contracts/review.ts';
@@ -6,12 +5,9 @@ import { assembleBundle, writeBundleArtifacts } from '../../review/bundle.ts';
 import { renderReport } from '../../review/report.ts';
 import type { MeasuredInput } from '../../snapshot/limits.ts';
 import type { ParsedArgs } from '../args.ts';
+import { resolveTargetOptions, TARGET_OPTIONS } from '../target-option.ts';
 
-export const BUNDLE_OPTIONS = {
-  values: ['base', 'evidence'],
-  repeated: ['requirement', 'approve'],
-  flags: ['json', 'branch'],
-} as const;
+export const BUNDLE_OPTIONS = TARGET_OPTIONS;
 
 export interface BundleOutput {
   command: 'bundle';
@@ -31,14 +27,7 @@ export interface BundleOutput {
  * clean. `review` uses the same assembly and then invokes the reviewer.
  */
 export async function runBundle(runtime: Runtime, args: ParsedArgs): Promise<BundleOutput> {
-  const bundle = await assembleBundle({
-    runtime,
-    branch: args.flag('branch'),
-    baseRef: args.value('base'),
-    requirementUrls: args.all('requirement'),
-    evidencePath: evidencePath(runtime, args.value('evidence')),
-    approvals: new Set(args.all('approve')),
-  });
+  const bundle = await assembleBundle({ runtime, ...resolveTargetOptions('bundle', runtime, args) });
 
   bundle.result.omissions = [
     ...bundle.result.omissions,
@@ -57,11 +46,6 @@ export async function runBundle(runtime: Runtime, args: ParsedArgs): Promise<Bun
     result: bundle.result,
     pendingApprovals: bundle.pendingApprovals,
   };
-}
-
-function evidencePath(runtime: Runtime, value: string | null): string | null {
-  if (value === null) return null;
-  return path.isAbsolute(value) ? value : path.resolve(runtime.cwd, value);
 }
 
 export function renderBundle(output: BundleOutput): string {

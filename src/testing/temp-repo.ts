@@ -41,7 +41,7 @@ export class TempRepo {
       cwd: this.root,
       timeoutMs: 30_000,
       maxOutputBytes: 4 * 1024 * 1024,
-      env: { LC_ALL: 'C', LANG: 'C' },
+      env: { kind: 'inherited', overrides: { LC_ALL: 'C', LANG: 'C' } },
       ...(stdin === undefined ? {} : { stdin }),
     });
     if (outcome.kind !== 'exited' || outcome.exitCode !== 0) {

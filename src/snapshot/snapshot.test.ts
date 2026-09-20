@@ -117,6 +117,8 @@ test('U09 input above a configured limit blocks the review with measured counts'
     changedLines: 150,
     patchBytes: 100,
     snapshotBytes: 0,
+    requirementBytes: 0,
+    promptBytes: 0,
     contextBytes: 100,
   });
   assert.doesNotThrow(() => enforceReviewInputLimits(measured, DEFAULTS.review));
@@ -191,7 +193,7 @@ test('U09 the mirrored files count against the context limit, not just the patch
   });
 
   const patchOnly = measureInput(reviewable.files, reviewable.patch);
-  const whole = measureInput(reviewable.files, reviewable.patch, plan.totalBytes);
+  const whole = measureInput(reviewable.files, reviewable.patch, { snapshotBytes: plan.totalBytes });
 
   assert.ok(patchOnly.contextBytes < 2_000, 'the patch alone is small');
   assert.ok(whole.contextBytes > 40_000, 'what the reviewer actually receives is not');
@@ -204,7 +206,7 @@ test('U09 the mirrored files count against the context limit, not just the patch
   } catch (error) {
     const typed = error as Error & { code: string; details: string[] };
     assert.equal(typed.code, 'input-too-large');
-    assert.ok(typed.details.some((detail) => detail.includes('in the mirrored files')));
+    assert.ok(typed.details.some((detail) => detail.includes('mirrored files the reviewer can read')));
   }
 });
 

@@ -7,6 +7,7 @@ import { CONFIG_OPTIONS, renderConfig, runConfig } from './commands/config.ts';
 import { INIT_OPTIONS, renderInit, runInit } from './commands/init.ts';
 import { POLICY_OPTIONS, renderPolicy, runPolicy } from './commands/policy.ts';
 import { REVIEW_OPTIONS, renderReview, runReview } from './commands/review.ts';
+import { validateTargetArgs } from './target-option.ts';
 
 /**
  * The helper the AMBICODE skills call. Every command prints a human summary or,
@@ -27,8 +28,13 @@ export const USAGE = `ambicode <command> [options]
   review                  The full review: pin the target, snapshot it, run the
                           affected checks, and put the result to an isolated
                           reviewer that can only read the snapshot.
+                          The target is your uncommitted work unless --branch or
+                          --mr names another one; the two are mutually exclusive.
                             --branch              Review the branch, not the working tree.
-                            --base <ref>          Baseline for --branch.
+                            --base <ref>          Baseline for --branch. Valid only there.
+                            --mr <url>            Review a GitLab merge request from its
+                                                  full URL. Your checkout, branch and
+                                                  index are not read or modified.
                             --requirement <url>   Jira or Confluence URL to judge the
                                                   change against; repeatable. Without
                                                   any, this is a quality review.
@@ -39,9 +45,10 @@ export const USAGE = `ambicode <command> [options]
 
   bundle                  The evidence stage of "review" on its own: target,
                           snapshot, requirements and checks, with no model
-                          invoked.
+                          invoked. Takes the same target options.
                             --branch              Review the branch, not the working tree.
-                            --base <ref>          Baseline for --branch.
+                            --base <ref>          Baseline for --branch. Valid only there.
+                            --mr <url>            Bundle a GitLab merge request.
                             --requirement <url>   Requirement URL; repeatable.
                             --evidence <file>     The retrieved requirement evidence.
                             --approve <key>       Authorize one proposed run; repeatable.
@@ -72,6 +79,10 @@ export async function main(argv: readonly string[]): Promise<number> {
     // Parsed once, before any runtime exists: a bad argument must not reach a
     // process, the filesystem or a provider, and a good one must not be re-judged.
     const args = parseArgs(command, rest, spec);
+    // Combination rules are decided here too, still before a runtime exists:
+    // a conflicting target must not create a temporary directory, start git,
+    // or reach a provider first.
+    validateCombination(command, args);
     const rendered = await dispatch(command, args);
     process.stdout.write(
       args.flag('json') ? `${JSON.stringify(rendered.data, null, 2)}\n` : `${rendered.text}\n`,
@@ -93,6 +104,11 @@ export const SPECS: Record<string, OptionSpec | undefined> = {
   bundle: BUNDLE_OPTIONS,
   version: VERSION_OPTIONS,
 };
+
+/** Per-command rules that need more than one option to decide. */
+function validateCombination(command: string, args: ParsedArgs): void {
+  if (command === 'review' || command === 'bundle') validateTargetArgs(command, args);
+}
 
 async function dispatch(command: string, args: ParsedArgs): Promise<Rendered> {
   const runtime = await createRuntime();

@@ -68,6 +68,7 @@ async function sandbox(t: { after(fn: () => unknown): void }): Promise<string> {
     cwd: directory,
     timeoutMs: 30_000,
     maxOutputBytes: 65_536,
+    env: { kind: 'inherited' },
   });
   return directory;
 }

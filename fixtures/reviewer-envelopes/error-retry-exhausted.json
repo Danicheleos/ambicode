@@ -1,0 +1,13 @@
+{
+  "type": "result",
+  "subtype": "error_max_structured_output_retries",
+  "is_error": true,
+  "duration_ms": 61004,
+  "num_turns": 9,
+  "stop_reason": null,
+  "terminal_reason": "structured_output_retry_exhausted",
+  "session_id": "session_01EEEEEEEEEEEEEEEEEEEEEEEE",
+  "errors": [
+    "StructuredOutput retry cap (1) exceeded - 1 failed call with no valid output"
+  ]
+}

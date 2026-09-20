@@ -1,0 +1,8 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "num_turns": 2,
+  "stop_reason": "end_turn",
+  "session_id": "session_01CCCCCCCCCCCCCCCCCCCCCCCC"
+}

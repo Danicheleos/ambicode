@@ -35,6 +35,24 @@ export const MAX_COMMAND_OUTPUT_BYTES = 262_144;
 export const MAX_SNAPSHOT_FILE_BYTES = 262_144;
 export const MAX_SNAPSHOT_TOTAL_BYTES = 4 * 1024 * 1024;
 
+/**
+ * Prior merge request discussion shown to the reviewer as untrusted evidence.
+ * Bounded so a long-running merge request cannot crowd the change out of the
+ * context; whatever is left out is reported as an omission (doc 03 P1.5).
+ */
+export const MAX_REVIEWED_DISCUSSIONS = 50;
+export const MAX_DISCUSSION_CONTEXT_BYTES = 32_768;
+/** Comments longer than this are shown with their tail marked as omitted. */
+export const MAX_DISCUSSION_NOTE_BYTES = 2_048;
+
+/**
+ * Headroom kept when deciding how much unchanged sibling context fits. The
+ * prompt's check and omission sections are written after the snapshot is
+ * planned, so the budget reserves room for them rather than discovering the
+ * overrun at the final measurement.
+ */
+export const PROMPT_EVIDENCE_RESERVE_BYTES = 16_384;
+
 export const CONFIG_DIR = '.ambicode';
 export const CONFIG_FILE = '.ambicode/config.yaml';
 export const REVIEWS_DIR = '.ambicode/reviews';
