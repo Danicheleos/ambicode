@@ -1,17 +1,28 @@
-import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { AmbicodeConfig, ProjectConfig } from '../contracts/config.ts';
 import type { ResolvedPolicy } from '../contracts/policy.ts';
 import type { CheckResult } from '../contracts/review.ts';
 import { MAX_COMMAND_OUTPUT_BYTES } from '../config/defaults.ts';
-import { decisionFor, explainRefusal } from '../policy/resolve.ts';
+import type { Git } from '../git/git.ts';
 import type { Clock } from '../ports/clock.ts';
+import type { FileSystem } from '../ports/filesystem.ts';
 import type { ProcessRunner } from '../ports/process.ts';
 import { normalizeRelative } from '../util/paths.ts';
 import { adapterFor } from './adapters.ts';
-import { expandFiles, selectLintFiles, selectTestFiles, type ChangedPath, type Selection } from './select.ts';
+import { authorizeCommand, checkApprovalKey, selectorApprovalKey } from './authorize.ts';
+import { MUTATION_DISCLAIMER, watchWorkspace } from './mutations.ts';
+import {
+  expandFiles,
+  selectionRunsCommand,
+  selectLintFiles,
+  selectorCommandPlan,
+  selectTestFiles,
+  type ChangedPath,
+  type Selection,
+} from './select.ts';
 
 export interface RunChecksOptions {
+  fs: FileSystem;
   config: AmbicodeConfig;
   project: ProjectConfig;
   policy: ResolvedPolicy;
@@ -24,10 +35,24 @@ export interface RunChecksOptions {
   /** Absolute directory the review writes captured output into. */
   reviewDirectory: string;
   enumerationRevision: string | null;
+  git: Git;
+  /**
+   * Repository-relative paths under review. They are fingerprinted around every
+   * command so a project tool that rewrites them is reported (doc 03 P1.3).
+   */
+  watchedPaths: readonly string[];
+  /**
+   * What the checkout is, relative to the reviewed revision, when the two are
+   * not the same thing. Attached to every result that actually ran, because the
+   * evidence then describes something other than what was reviewed.
+   */
+  revisionNote: string | null;
 }
 
 export interface PendingApproval {
   checkId: string;
+  /** The token the caller puts back into `approvals` to authorize this run. */
+  approvalKey: string;
   projectId: string;
   reason: string;
   scope: string;
@@ -44,11 +69,20 @@ export interface RunChecksOutcome {
 export async function runChecks(options: RunChecksOptions): Promise<RunChecksOutcome> {
   const results: CheckResult[] = [];
   const pendingApprovals: PendingApproval[] = [];
+  // Brackets every process this function starts, selectors included.
+  const watch = watchWorkspace({
+    fs: options.fs,
+    git: options.git,
+    repositoryRoot: options.repositoryRoot,
+    paths: options.watchedPaths,
+  });
   const projectRoot = normalizeRelative(options.project.root);
   const absoluteRoot = path.join(options.repositoryRoot, projectRoot);
 
   for (const checkId of Object.keys(options.project.checks).sort()) {
     const check = options.project.checks[checkId];
+    const approvalKey = checkApprovalKey(options.project.id, checkId);
+    const selectorKey = selectorApprovalKey(options.project.id, checkId);
 
     if (check === null || check === undefined) {
       results.push(
@@ -70,12 +104,15 @@ export async function runChecks(options: RunChecksOptions): Promise<RunChecksOut
       continue;
     }
 
-    const decision = decisionFor(options.policy, check.command);
-    if (decision.action === 'forbid' || decision.action === 'undeclared') {
+    const authorization = authorizeCommand({
+      policy: options.policy,
+      commandId: check.command,
+      approvalKey,
+      approvals: options.approvals,
+    });
+    if (authorization.kind === 'refused') {
       results.push(
-        skipped(checkId, options.project.id, check.command, check.adapter, [
-          explainRefusal(options.policy, check.command),
-        ]),
+        skipped(checkId, options.project.id, check.command, check.adapter, [authorization.reason]),
       );
       continue;
     }
@@ -90,7 +127,50 @@ export async function runChecks(options: RunChecksOptions): Promise<RunChecksOut
       continue;
     }
 
+    // A command selector runs project code, so it is authorized in its own
+    // right before selection begins. Approving the test command is not
+    // approving the script that decides which tests to run.
+    if (check.selector?.kind === 'command') {
+      const selectorCommandId = check.selector.command;
+      const selectorAuthorization = authorizeCommand({
+        policy: options.policy,
+        commandId: selectorCommandId,
+        approvalKey: selectorKey,
+        approvals: options.approvals,
+      });
+
+      if (selectorAuthorization.kind !== 'allowed') {
+        const plan = selectorCommandPlan({
+          project: options.project,
+          repositoryRoot: options.repositoryRoot,
+          changed: options.changed,
+          commandId: selectorCommandId,
+        });
+
+        if (selectorAuthorization.kind === 'needs-approval') {
+          pendingApprovals.push({
+            checkId,
+            approvalKey: selectorKey,
+            projectId: options.project.id,
+            reason: `${selectorAuthorization.reason}, and it selects the files for check "${checkId}"`,
+            scope: `selector for check "${checkId}"`,
+            proposedArgv: plan?.argv ?? [],
+            cwd: plan?.cwd ?? commandCwdFor(absoluteRoot, null),
+          });
+        }
+
+        results.push(
+          skipped(checkId, options.project.id, check.command, check.adapter, [
+            `The selector command "${selectorCommandId}" was not run: ${selectorAuthorization.reason}.`,
+            'Nothing could be selected, so the check was skipped. This is a gap in verification, not a passing check.',
+          ]),
+        );
+        continue;
+      }
+    }
+
     const selectOptions = {
+      fs: options.fs,
       project: options.project,
       check,
       changed: options.changed,
@@ -100,35 +180,57 @@ export async function runChecks(options: RunChecksOptions): Promise<RunChecksOut
       maxSelectedTestFiles: options.config.checks.maxSelectedTestFiles,
       timeoutMs: (command.timeoutSeconds ?? options.config.checks.timeoutSeconds) * 1000,
       commandArgv: command.argv,
+      authorize: (commandId: string) =>
+        authorizeCommand({
+          policy: options.policy,
+          commandId,
+          approvalKey: selectorKey,
+          approvals: options.approvals,
+        }),
     };
+
+    // Selection runs project code too: a `command` selector is a project
+    // script, a `related` selector asks the runner. Both are watched.
+    const selectionExecutes = adapter.role !== 'lint' && selectionRunsCommand(check);
+    if (selectionExecutes) await watch.baseline();
 
     const selection: Selection =
       adapter.role === 'lint' ? selectLintFiles(selectOptions) : await selectTestFiles(selectOptions);
 
-    const commandCwd = path.join(absoluteRoot, command.cwd ?? '');
+    const selectionMutations = selectionExecutes
+      ? await watch.observe(`the selector for check "${checkId}"`)
+      : [];
+
+    const commandCwd = commandCwdFor(absoluteRoot, command.cwd ?? null);
     const argv = expandFiles(command.argv, selection.files.map((file) => file.path));
 
     if (selection.files.length === 0) {
-      // An empty selection never becomes a whole-suite command (doc 05).
+      // An empty selection never becomes a whole-suite command (doc 05). A
+      // selector that moved the tree before returning nothing is still reported.
       results.push({
         ...skipped(checkId, options.project.id, check.command, check.adapter, [
           selection.complete
             ? 'No file in this change is in scope for this check, so it was not run.'
             : 'No test file could be selected, and the selector could not establish the affected set. This is a gap in verification, not a passing check.',
           ...selection.limitations,
+          ...mutationLimitation(selectionMutations),
         ]),
         selectionComplete: selection.complete,
+        mutations: reportMutations(selectionMutations),
       });
       continue;
     }
 
-    const needsApproval = selection.approval !== null || decision.action === 'propose';
-    if (needsApproval && !options.approvals.has(checkId)) {
+    // Either the policy proposed this command, or the selection itself is wider
+    // or less certain than the limits allow. One approval token covers the run.
+    const needsApproval = selection.approval !== null || authorization.kind === 'needs-approval';
+    if (needsApproval && !options.approvals.has(approvalKey)) {
       const reason =
         selection.approval?.reason ??
-        `policy declares "${check.command}" as propose, so each run is authorized separately`;
+        (authorization.kind === 'needs-approval' ? authorization.reason : 'this run needs authorization');
       pendingApprovals.push({
         checkId,
+        approvalKey,
         projectId: options.project.id,
         reason,
         scope: selection.approval?.scope ?? `${selection.files.length} file(s)`,
@@ -139,14 +241,19 @@ export async function runChecks(options: RunChecksOptions): Promise<RunChecksOut
         ...skipped(checkId, options.project.id, check.command, check.adapter, [
           `Not run: ${reason}. AMBICODE waits for a human to authorize this specific run.`,
           ...selection.limitations,
+          ...mutationLimitation(selectionMutations),
         ]),
         selected: selection.files,
         selectionComplete: selection.complete,
         argv,
         cwd: commandCwd,
+        mutations: reportMutations(selectionMutations),
       });
       continue;
     }
+
+    // A no-op when selection already took it.
+    await watch.baseline();
 
     const started = options.clock.elapsed();
     const outcome = await options.runner.run({
@@ -157,7 +264,12 @@ export async function runChecks(options: RunChecksOptions): Promise<RunChecksOut
     });
     const durationMs = Math.round(options.clock.elapsed() - started);
 
+    const commandMutations = await watch.observe(`the "${check.command}" command`);
+    const mutations = reportMutations(selectionMutations, commandMutations);
+
     const limitations = [...selection.limitations, ...(adapter.limitations ?? [])];
+    if (options.revisionNote !== null) limitations.push(options.revisionNote);
+    limitations.push(...mutationLimitation(selectionMutations, commandMutations));
     if (outcome.truncated) limitations.push('The captured output was truncated at the configured limit.');
 
     if (outcome.kind === 'spawn-failed') {
@@ -183,11 +295,19 @@ export async function runChecks(options: RunChecksOptions): Promise<RunChecksOut
             : `The check could not be started: ${outcome.failure ?? 'unknown failure'}.`,
           ...limitations,
         ],
+        mutations,
       });
       continue;
     }
 
-    const outputRef = await captureOutput(options.reviewDirectory, checkId, outcome.stdout, outcome.stderr);
+    const outputRef = await captureOutput(
+      options.fs,
+      options.reviewDirectory,
+      options.project.id,
+      checkId,
+      outcome.stdout,
+      outcome.stderr,
+    );
 
     results.push({
       checkId,
@@ -203,10 +323,33 @@ export async function runChecks(options: RunChecksOptions): Promise<RunChecksOut
       exitCode: outcome.exitCode,
       outputRef,
       limitations,
+      mutations,
     });
   }
 
   return { results, pendingApprovals };
+}
+
+/**
+ * The mutations a result carries: the facts, then the one sentence that says
+ * what AMBICODE did about them. Empty stays empty, so a clean run says nothing.
+ */
+function reportMutations(...groups: readonly (readonly string[])[]): string[] {
+  const all = groups.flat();
+  return all.length === 0 ? [] : [...all, MUTATION_DISCLAIMER];
+}
+
+/** The same fact stated where a reader judges the evidence, not the workspace. */
+function mutationLimitation(...groups: readonly (readonly string[])[]): string[] {
+  return groups.some((group) => group.length > 0)
+    ? [
+        'Something AMBICODE ran changed the working copy, so this result describes code that is no longer exactly what was reviewed.',
+      ]
+    : [];
+}
+
+function commandCwdFor(absoluteRoot: string, cwd: string | null): string {
+  return path.join(absoluteRoot, cwd ?? '');
 }
 
 function skipped(
@@ -230,19 +373,23 @@ function skipped(
     exitCode: null,
     outputRef: null,
     limitations,
+    mutations: [],
   };
 }
 
+/** Output is filed under its project, so two projects' `lint` cannot overwrite each other. */
 async function captureOutput(
+  fs: FileSystem,
   reviewDirectory: string,
+  projectId: string,
   checkId: string,
   stdout: string,
   stderr: string,
 ): Promise<string> {
-  const directory = path.join(reviewDirectory, 'checks');
-  await mkdir(directory, { recursive: true });
-  const fileName = `${checkId.replace(/[^A-Za-z0-9._-]/g, '_')}.txt`;
-  const body = `--- stdout ---\n${stdout}\n--- stderr ---\n${stderr}\n`;
-  await writeFile(path.join(directory, fileName), body, 'utf8');
-  return `checks/${fileName}`;
+  const safe = (value: string): string => value.replace(/[^A-Za-z0-9._-]/g, '_');
+  const relative = `checks/${safe(projectId)}/${safe(checkId)}.txt`;
+  const destination = path.join(reviewDirectory, relative);
+  await fs.mkdirp(path.dirname(destination));
+  await fs.writeText(destination, `--- stdout ---\n${stdout}\n--- stderr ---\n${stderr}\n`);
+  return relative;
 }

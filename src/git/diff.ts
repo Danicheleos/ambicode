@@ -24,15 +24,17 @@ export interface DiffFile {
   addedLines: number;
   removedLines: number;
   hunks: DiffHunk[];
+  /**
+   * This file's own patch section, so a patch can be rebuilt from the reviewable
+   * files without re-parsing ambiguous `diff --git` paths.
+   */
+  patchSection: string;
 }
 
 /**
- * Pairs the authoritative `--raw -z` change list with the patch body.
- *
- * The patch is split only on `diff --git` boundaries and never parsed for
- * paths, because `diff --git a/x b/y` is ambiguous for paths containing
- * spaces. git emits both listings in the same order, so the two are zipped by
- * position and a length mismatch is an error rather than a silent guess.
+ * Pairs the authoritative `--raw -z` change list with the patch body. The patch
+ * is split on `diff --git` boundaries and never parsed for paths, which are
+ * ambiguous; the two listings are zipped by position and a mismatch is an error.
  */
 export function combineDiff(changes: readonly RawChange[], patch: string): DiffFile[] {
   const sections = splitPatchSections(patch);
@@ -56,6 +58,7 @@ export function combineDiff(changes: readonly RawChange[], patch: string): DiffF
       addedLines: hunks.reduce((total, hunk) => total + hunk.lines.filter((l) => l.kind === 'added').length, 0),
       removedLines: hunks.reduce((total, hunk) => total + hunk.lines.filter((l) => l.kind === 'removed').length, 0),
       hunks,
+      patchSection: section,
     };
   });
 }

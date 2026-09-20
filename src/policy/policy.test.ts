@@ -6,6 +6,7 @@ import path from 'node:path';
 import type { ProjectConfig } from '../contracts/config.ts';
 import { loadPacksForProject } from './load.ts';
 import { decisionFor, explainRefusal, resolvePolicy } from './resolve.ts';
+import { nodeFileSystem } from '../ports/filesystem.ts';
 
 const BUILTIN_DIRECTORY = path.join(import.meta.dirname, '..', '..', 'policies');
 
@@ -30,6 +31,7 @@ async function sandbox(t: { after(fn: () => unknown): void }): Promise<string> {
 
 test('U03 built-in packs parse, keep authority and provenance, and qualify rule ids', async () => {
   const { packs, diagnostics } = await loadPacksForProject({
+    fs: nodeFileSystem,
     project: project({ packs: ['builtin/common-quality'] }),
     builtinDirectory: BUILTIN_DIRECTORY,
     repositoryRoot: '/nowhere',
@@ -59,6 +61,7 @@ test('U26 every built-in pack loads and its referenced prompt files exist', asyn
     'express-http', 'express-persistence', 'express-errors', 'express-style',
   ];
   const { packs, diagnostics } = await loadPacksForProject({
+    fs: nodeFileSystem,
     project: project({
       packs: ids.map((id) => `builtin/${id}`),
       commands: { lint: null, unit: null, e2e: null },
@@ -90,6 +93,7 @@ test('U03 a missing prompt file and an unknown command id are diagnosed, not ign
   );
 
   const { packs, diagnostics } = await loadPacksForProject({
+    fs: nodeFileSystem,
     project: project({ policyFiles: ['.ambicode/policies/broken.yaml'] }),
     builtinDirectory: BUILTIN_DIRECTORY,
     repositoryRoot: directory,
@@ -118,6 +122,7 @@ test('U03 an unsupported prompt stage is a configuration error', async (t) => {
   );
 
   const { packs, diagnostics } = await loadPacksForProject({
+    fs: nodeFileSystem,
     project: project({ policyFiles: ['.ambicode/policies/stage.yaml'] }),
     builtinDirectory: BUILTIN_DIRECTORY,
     repositoryRoot: directory,
@@ -149,6 +154,7 @@ test('U07 a prompt reference that leaves the pack directory through a link is re
   );
 
   const { packs, diagnostics } = await loadPacksForProject({
+    fs: nodeFileSystem,
     project: project({ policyFiles: ['.ambicode/policies/escape.yaml'] }),
     builtinDirectory: BUILTIN_DIRECTORY,
     repositoryRoot: directory,
@@ -184,6 +190,7 @@ test('U04 command precedence is forbid over propose over run, and silence is not
     commands: { lint: null, unit: null, e2e: null },
   });
   const { packs } = await loadPacksForProject({
+    fs: nodeFileSystem,
     project: config,
     builtinDirectory: BUILTIN_DIRECTORY,
     repositoryRoot: directory,
@@ -230,6 +237,7 @@ test('U04 a scoped pack does not apply to paths outside its globs', async (t) =>
     policyFiles: ['.ambicode/policies/orders.yaml'],
   });
   const { packs } = await loadPacksForProject({
+    fs: nodeFileSystem,
     project: config,
     builtinDirectory: BUILTIN_DIRECTORY,
     repositoryRoot: directory,
@@ -281,6 +289,7 @@ test('U05 replacement is explicit and whole-pack, and an implicit duplicate fail
     policyFiles: ['.ambicode/policies/replacement.yaml'],
   });
   const first = await loadPacksForProject({
+    fs: nodeFileSystem,
     project: replacing,
     builtinDirectory: BUILTIN_DIRECTORY,
     repositoryRoot: directory,
@@ -300,6 +309,7 @@ test('U05 replacement is explicit and whole-pack, and an implicit duplicate fail
     policyFiles: ['.ambicode/policies/duplicate.yaml'],
   });
   const second = await loadPacksForProject({
+    fs: nodeFileSystem,
     project: duplicating,
     builtinDirectory: BUILTIN_DIRECTORY,
     repositoryRoot: directory,
@@ -320,11 +330,13 @@ test('U06 framework packs stay in their own scope', async () => {
   });
 
   const angularPacks = await loadPacksForProject({
+    fs: nodeFileSystem,
     project: angular,
     builtinDirectory: BUILTIN_DIRECTORY,
     repositoryRoot: '/nowhere',
   });
   const expressPacks = await loadPacksForProject({
+    fs: nodeFileSystem,
     project: express,
     builtinDirectory: BUILTIN_DIRECTORY,
     repositoryRoot: '/nowhere',
@@ -353,6 +365,7 @@ test('U06 framework packs stay in their own scope', async () => {
 test('U06 activity filtering keeps read-only work out of check decisions', async () => {
   const config = project({ packs: ['builtin/common-checks'] });
   const { packs } = await loadPacksForProject({
+    fs: nodeFileSystem,
     project: config,
     builtinDirectory: BUILTIN_DIRECTORY,
     repositoryRoot: '/nowhere',
@@ -369,8 +382,8 @@ test('U06 output ordering is deterministic and independent of declaration order'
   const forward = project({ packs: ['builtin/common-quality', 'builtin/python-quality'] });
   const reverse = project({ packs: ['builtin/python-quality', 'builtin/common-quality'] });
 
-  const a = await loadPacksForProject({ project: forward, builtinDirectory: BUILTIN_DIRECTORY, repositoryRoot: '/x' });
-  const b = await loadPacksForProject({ project: reverse, builtinDirectory: BUILTIN_DIRECTORY, repositoryRoot: '/x' });
+  const a = await loadPacksForProject({ fs: nodeFileSystem, project: forward, builtinDirectory: BUILTIN_DIRECTORY, repositoryRoot: '/x' });
+  const b = await loadPacksForProject({ fs: nodeFileSystem, project: reverse, builtinDirectory: BUILTIN_DIRECTORY, repositoryRoot: '/x' });
 
   const resolveWith = (config: ProjectConfig, packs: Awaited<ReturnType<typeof loadPacksForProject>>['packs']) =>
     resolvePolicy({ activity: 'review', project: config, packs, paths: ['apps/web/a.py'] }).rules.map(

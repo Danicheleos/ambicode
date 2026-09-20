@@ -89,7 +89,15 @@ export class Git {
   }
 
   async isDirty(): Promise<boolean> {
-    return (await this.exec(['status', '--porcelain', '-z'], true)).trim() !== '';
+    return (await this.status()).trim() !== '';
+  }
+
+  /**
+   * Porcelain status including untracked files, used to notice that a command
+   * created, removed, or staged something while it ran.
+   */
+  async status(): Promise<string> {
+    return await this.exec(['status', '--porcelain', '-z', '--untracked-files=all'], true);
   }
 
   async isRepository(): Promise<boolean> {

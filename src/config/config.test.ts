@@ -7,6 +7,7 @@ import { detectProjects } from './detect.ts';
 import { planInit } from './init.ts';
 import { parseConfig, validateArgv } from './load.ts';
 import { mostSpecificRoot, normalizeRelative } from '../util/paths.ts';
+import { nodeFileSystem } from '../ports/filesystem.ts';
 
 async function sandbox(t: { after(fn: () => unknown): void }): Promise<string> {
   const directory = await mkdtemp(path.join(tmpdir(), 'ambicode-config-'));
@@ -115,8 +116,9 @@ test('U01 init writes null commands with notices, and a second run preserves use
     'utf8',
   );
 
-  const detected = await detectProjects(directory);
+  const detected = await detectProjects(nodeFileSystem, directory);
   const first = await planInit({
+    fs: nodeFileSystem,
     repositoryRoot: directory,
     detected,
     baseline: '',
@@ -139,6 +141,7 @@ test('U01 init writes null commands with notices, and a second run preserves use
   await writeFile(path.join(directory, '.ambicode', 'config.yaml'), edited, 'utf8');
 
   const second = await planInit({
+    fs: nodeFileSystem,
     repositoryRoot: directory,
     detected,
     baseline: '',
@@ -157,8 +160,9 @@ test('U01 re-init adds a newly detected project without touching the existing on
   await writeFile(path.join(directory, 'apps', 'web', 'package.json'), '{"name":"web"}', 'utf8');
 
   const first = await planInit({
+    fs: nodeFileSystem,
     repositoryRoot: directory,
-    detected: await detectProjects(directory),
+    detected: await detectProjects(nodeFileSystem, directory),
     baseline: 'origin/main',
     baselineNotice: 'baseline from origin/HEAD',
   });
@@ -170,8 +174,9 @@ test('U01 re-init adds a newly detected project without touching the existing on
   await writeFile(path.join(directory, 'services', 'api', 'pyproject.toml'), '[project]\nname="api"\n', 'utf8');
 
   const second = await planInit({
+    fs: nodeFileSystem,
     repositoryRoot: directory,
-    detected: await detectProjects(directory),
+    detected: await detectProjects(nodeFileSystem, directory),
     baseline: 'origin/main',
     baselineNotice: 'baseline from origin/HEAD',
   });
@@ -194,8 +199,9 @@ test('U01 a python project without a mapping leaves the unit check null with an 
   }
 
   const plan = await planInit({
+    fs: nodeFileSystem,
     repositoryRoot: directory,
-    detected: await detectProjects(directory),
+    detected: await detectProjects(nodeFileSystem, directory),
     baseline: '',
     baselineNotice: 'no baseline',
   });
@@ -211,8 +217,9 @@ test('U01 the generated configuration always parses', async (t) => {
   const directory = await sandbox(t);
   await writeFile(path.join(directory, 'package.json'), '{"name":"x"}', 'utf8');
   const plan = await planInit({
+    fs: nodeFileSystem,
     repositoryRoot: directory,
-    detected: await detectProjects(directory),
+    detected: await detectProjects(nodeFileSystem, directory),
     baseline: 'origin/main',
     baselineNotice: 'x',
   });

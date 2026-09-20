@@ -1,4 +1,4 @@
-import { readFile, readdir, stat } from 'node:fs/promises';
+import type { DirectoryEntry, FileSystem } from '../ports/filesystem.ts';
 import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type { AdapterId, Ecosystem } from '../contracts/primitives.ts';
@@ -46,8 +46,8 @@ export interface DetectedProject {
   notices: string[];
 }
 
-export async function detectProjects(repositoryRoot: string): Promise<DetectedProject[]> {
-  const roots = await findProjectRoots(repositoryRoot);
+export async function detectProjects(fs: FileSystem, repositoryRoot: string): Promise<DetectedProject[]> {
+  const roots = await findProjectRoots(fs, repositoryRoot);
   const projects: DetectedProject[] = [];
   const usedIds = new Set<string>();
 
@@ -55,8 +55,8 @@ export async function detectProjects(repositoryRoot: string): Promise<DetectedPr
     const absoluteRoot = path.join(repositoryRoot, relativeRoot);
     const detected =
       ecosystem === 'typescript'
-        ? await detectTypescript(absoluteRoot)
-        : await detectPython(absoluteRoot);
+        ? await detectTypescript(fs, absoluteRoot)
+        : await detectPython(fs, absoluteRoot);
     projects.push({
       id: uniqueId(projectId(relativeRoot, ecosystem), usedIds),
       root: relativeRoot === '' ? '.' : relativeRoot,
@@ -96,13 +96,13 @@ interface RootCandidate {
   ecosystem: Ecosystem;
 }
 
-async function findProjectRoots(repositoryRoot: string): Promise<RootCandidate[]> {
+async function findProjectRoots(fs: FileSystem, repositoryRoot: string): Promise<RootCandidate[]> {
   const found: RootCandidate[] = [];
 
   const walk = async (absolute: string, relative: string, depth: number): Promise<void> => {
-    let entries;
+    let entries: DirectoryEntry[];
     try {
-      entries = await readdir(absolute, { withFileTypes: true });
+      entries = await fs.readdir(absolute);
     } catch {
       return;
     }
@@ -128,18 +128,18 @@ async function findProjectRoots(repositoryRoot: string): Promise<RootCandidate[]
   return found;
 }
 
-async function exists(absolutePath: string): Promise<boolean> {
+async function exists(fs: FileSystem, absolutePath: string): Promise<boolean> {
   try {
-    await stat(absolutePath);
+    await fs.stat(absolutePath);
     return true;
   } catch {
     return false;
   }
 }
 
-async function readJson(absolutePath: string): Promise<Record<string, unknown> | null> {
+async function readJson(fs: FileSystem, absolutePath: string): Promise<Record<string, unknown> | null> {
   try {
-    return JSON.parse(await readFile(absolutePath, 'utf8')) as Record<string, unknown>;
+    return JSON.parse(await fs.readText(absolutePath)) as Record<string, unknown>;
   } catch {
     return null;
   }
@@ -156,16 +156,51 @@ function declaredDependencies(manifest: Record<string, unknown> | null): Set<str
   return names;
 }
 
+/**
+ * `scripts` from package.json, read as evidence of which tools a project uses
+ * and never turned into a configured command: a wrapper cannot be scoped to
+ * changed files or asked what a change affects (doc 05, P1.2 item 2).
+ */
+function packageScripts(manifest: Record<string, unknown> | null): Map<string, string> {
+  const scripts = new Map<string, string>();
+  const section = manifest?.['scripts'];
+  if (section === null || typeof section !== 'object') return scripts;
+  for (const [name, value] of Object.entries(section as Record<string, unknown>)) {
+    if (typeof value === 'string') scripts.set(name, value);
+  }
+  return scripts;
+}
+
+/** The first script whose command line invokes one of these tools. */
+function scriptInvoking(
+  scripts: ReadonlyMap<string, string>,
+  tools: readonly string[],
+): { name: string; tool: string } | null {
+  for (const [name, line] of scripts) {
+    for (const tool of tools) {
+      // Word-bounded so "eslint-config-x" in a script line is not read as a
+      // call to eslint.
+      if (new RegExp(`(^|[\\s/])${tool}([\\s]|$)`).test(line)) return { name, tool };
+    }
+  }
+  return null;
+}
+
 async function detectTypescript(
+  fs: FileSystem,
   absoluteRoot: string,
 ): Promise<Pick<DetectedProject, 'lint' | 'unit' | 'e2e' | 'notices'>> {
-  const manifest = await readJson(path.join(absoluteRoot, 'package.json'));
+  const manifest = await readJson(fs, path.join(absoluteRoot, 'package.json'));
   const declared = declaredDependencies(manifest);
+  const scripts = packageScripts(manifest);
   const notices: string[] = [];
+
+  const scriptNotice = (slot: string, found: { name: string; tool: string }): string =>
+    `package.json defines "npm run ${found.name}", which invokes ${found.tool}. AMBICODE does not run package scripts for ${slot}: a wrapper cannot be scoped to the changed files, and ${found.tool} cannot be asked through it which tests a change affects. Point the ${slot} argv at ./node_modules/.bin/${found.tool} instead.`;
 
   const binary = async (name: string): Promise<string | null> => {
     const relative = `./node_modules/.bin/${name}`;
-    return (await exists(path.join(absoluteRoot, 'node_modules', '.bin', name))) ? relative : null;
+    return (await exists(fs, path.join(absoluteRoot, 'node_modules', '.bin', name))) ? relative : null;
   };
 
   const lint = await (async (): Promise<DetectedCommand | null> => {
@@ -179,6 +214,11 @@ async function detectTypescript(
         adapter: 'eslint',
         notice: 'eslint is declared in package.json but not installed; install dependencies, then re-run init',
       };
+    }
+    const script = scriptInvoking(scripts, ['eslint']);
+    if (script !== null) {
+      notices.push(scriptNotice('lint', script));
+      return { argv: null, adapter: 'eslint', notice: `only found via "npm run ${script.name}"` };
     }
     return null;
   })();
@@ -201,12 +241,22 @@ async function detectTypescript(
         };
       }
     }
+    const script = scriptInvoking(scripts, ['vitest', 'jest']);
+    if (script !== null) {
+      notices.push(scriptNotice('unit', script));
+      return {
+        argv: null,
+        adapter: script.tool === 'jest' ? 'jest' : 'vitest',
+        notice: `only found via "npm run ${script.name}"`,
+      };
+    }
     return null;
   })();
 
   const e2e = await (async (): Promise<DetectedCommand | null> => {
     const bin = await binary('playwright');
-    if (bin === null && !declared.has('@playwright/test')) return null;
+    const script = scriptInvoking(scripts, ['playwright']);
+    if (bin === null && !declared.has('@playwright/test') && script === null) return null;
     // Left null on purpose: an existing e2e setup may start services, so it is
     // not treated as a bounded command without the owner saying so (doc 05).
     notices.push(
@@ -220,18 +270,24 @@ async function detectTypescript(
   })();
 
   if (manifest === null) notices.push('package.json could not be parsed; commands were left null');
+  else if (scripts.size > 0) {
+    notices.push(
+      `package.json declares ${scripts.size} script(s) (${[...scripts.keys()].sort().join(', ')}). They are read as evidence only and are never executed by detection.`,
+    );
+  }
   return { lint, unit, e2e, notices };
 }
 
 async function detectPython(
+  fs: FileSystem,
   absoluteRoot: string,
 ): Promise<Pick<DetectedProject, 'lint' | 'unit' | 'e2e' | 'notices'>> {
   const notices: string[] = [];
-  const declared = await readPythonDependencies(absoluteRoot);
+  const declared = await readPythonDependencies(fs, absoluteRoot);
 
   const venvBinary = async (name: string): Promise<string | null> => {
     for (const directory of ['.venv', 'venv']) {
-      if (await exists(path.join(absoluteRoot, directory, 'bin', name))) {
+      if (await exists(fs, path.join(absoluteRoot, directory, 'bin', name))) {
         return `./${directory}/bin/${name}`;
       }
     }
@@ -279,7 +335,7 @@ async function detectPython(
   return { lint, unit, e2e: null, notices };
 }
 
-async function readPythonDependencies(absoluteRoot: string): Promise<Set<string>> {
+async function readPythonDependencies(fs: FileSystem, absoluteRoot: string): Promise<Set<string>> {
   const names = new Set<string>();
   const add = (specifier: string) => {
     const name = specifier.trim().split(/[<>=!~\[;\s]/)[0]?.toLowerCase();
@@ -287,9 +343,8 @@ async function readPythonDependencies(absoluteRoot: string): Promise<Set<string>
   };
 
   try {
-    const text = await readFile(path.join(absoluteRoot, 'pyproject.toml'), 'utf8');
-    // Deliberately a shallow scan, not a TOML parser: detection only needs to
-    // know whether a tool is mentioned, and a wrong guess yields a null command.
+    const text = await fs.readText(path.join(absoluteRoot, 'pyproject.toml'));
+    // A shallow scan, not a TOML parser: a wrong guess yields a null command.
     for (const match of text.matchAll(/"([A-Za-z0-9._-]+(?:\[[^\]]*\])?[^"]*)"/g)) {
       if (match[1] !== undefined) add(match[1]);
     }
@@ -302,7 +357,7 @@ async function readPythonDependencies(absoluteRoot: string): Promise<Set<string>
 
   for (const file of ['requirements.txt', 'requirements-dev.txt', 'dev-requirements.txt']) {
     try {
-      const text = await readFile(path.join(absoluteRoot, file), 'utf8');
+      const text = await fs.readText(path.join(absoluteRoot, file));
       for (const line of text.split('\n')) {
         if (line.trim() !== '' && !line.trimStart().startsWith('#')) add(line);
       }

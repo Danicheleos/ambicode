@@ -160,11 +160,8 @@ export function strongerAction(a: CommandAction, b: CommandAction): CommandActio
 }
 
 /**
- * The decision for a command that no pack mentions.
- *
- * Absence is not permission: an arbitrary catalog command is never executed
- * because nothing forbade it (doc 05). Callers ask for the decision and act on
- * `run` only.
+ * The decision for a command no pack mentions. Absence is not permission, so a
+ * catalog command is never executed because nothing forbade it (doc 05).
  */
 export function decisionFor(policy: ResolvedPolicy, commandId: string): {
   action: CommandAction | 'undeclared';

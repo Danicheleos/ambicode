@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { realpath } from 'node:fs/promises';
+import type { FileSystem } from '../ports/filesystem.ts';
 import { AmbicodeError } from './errors.ts';
 import { toPosix } from './glob.ts';
 
@@ -21,6 +21,7 @@ export function isInside(parent: string, child: string): boolean {
  * still inside `boundary` after symlinks are followed (doc 05, "Resolution").
  */
 export async function resolveInsideBoundary(
+  fs: FileSystem,
   boundary: string,
   declaredPath: string,
   what: string,
@@ -31,10 +32,10 @@ export async function resolveInsideBoundary(
       field: declaredPath,
     });
   }
-  const realBoundary = await realpath(boundary);
+  const realBoundary = await fs.realpath(boundary);
   let realCandidate: string;
   try {
-    realCandidate = await realpath(candidate);
+    realCandidate = await fs.realpath(candidate);
   } catch (cause) {
     throw new AmbicodeError('path-missing', `${what} does not exist`, {
       field: declaredPath,

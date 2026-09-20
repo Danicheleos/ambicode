@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import type { FileSystem } from '../ports/filesystem.ts';
 import { z } from 'zod';
 import { RequirementSource } from '../contracts/review.ts';
 import { describeIssues } from '../config/load.ts';
@@ -24,7 +24,10 @@ export interface NormalizedRequirements {
   mcpServer: string | null;
 }
 
-export async function loadRequirements(filePath: string | null): Promise<NormalizedRequirements> {
+export async function loadRequirements(
+  fs: FileSystem,
+  filePath: string | null,
+): Promise<NormalizedRequirements> {
   if (filePath === null) {
     // No supplied source means quality review is available (D04).
     return { sources: [], mode: 'quality-review', mcpServer: null };
@@ -32,7 +35,7 @@ export async function loadRequirements(filePath: string | null): Promise<Normali
 
   let raw: string;
   try {
-    raw = await readFile(filePath, 'utf8');
+    raw = await fs.readText(filePath);
   } catch (cause) {
     throw new AmbicodeError('requirements-unreadable', 'The requirements file could not be read.', {
       field: filePath,

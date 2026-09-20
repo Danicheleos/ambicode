@@ -8,5 +8,14 @@
     "name": "AMBICODE"
   },
   "license": "UNLICENSED",
-  "keywords": ["code-review", "gitlab", "policy", "typescript", "python"]
+  "keywords": [
+    "code-review",
+    "gitlab",
+    "policy",
+    "typescript",
+    "python"
+  ],
+  "experimental": {
+    "evals": "evals"
+  }
 }

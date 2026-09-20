@@ -1,35 +1,35 @@
-import { copyFile, mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
+import type { FileSystem } from '../ports/filesystem.ts';
 import type { ReviewTarget } from '../contracts/review.ts';
 import { combineDiff, type DiffFile } from '../git/diff.ts';
 import { Git } from '../git/git.ts';
 import { AmbicodeError } from '../util/errors.ts';
 import { contentHash } from '../util/hash.ts';
+import { captureWorkingTree, revisionContent, type ContentSource } from './content.ts';
 
 export interface TargetResolution {
   target: ReviewTarget;
   files: DiffFile[];
-  /** Revision whose post-image content should be read: null means the working tree. */
-  postImageRevision: string | null;
+  /** The patch the review is about, pinned together with `content`. */
+  patch: string;
+  /** The only place downstream code reads reviewed file bytes from. */
+  content: ContentSource;
   preImageRevision: string;
 }
 
 export interface WorkingTargetOptions {
+  fs: FileSystem;
   git: Git;
   repositoryRoot: string;
 }
 
 /**
- * Working target: `HEAD` compared with the effective working-tree contents.
- *
- * `git diff HEAD` already yields the net of staged and unstaged edits, so a
- * staged change that the working file undoes is correctly absent. Untracked
- * files are brought in through intent-to-add entries written to a throwaway
- * index copy, which leaves `.git/index` byte-identical (doc 02).
+ * Working target: `HEAD` against the effective working tree. `git diff HEAD`
+ * nets staged and unstaged edits; untracked files arrive as intent-to-add
+ * entries in a throwaway index copy, leaving `.git/index` untouched (doc 02).
  */
 export async function resolveWorkingTarget(options: WorkingTargetOptions): Promise<TargetResolution> {
-  const { git, repositoryRoot } = options;
+  const { fs, git, repositoryRoot } = options;
   await requireHead(git);
 
   const unmerged = await git.unmergedPaths();
@@ -44,13 +44,13 @@ export async function resolveWorkingTarget(options: WorkingTargetOptions): Promi
   const headSha = await git.revParse('HEAD');
   if (headSha === null) throw new AmbicodeError('no-head', 'HEAD does not resolve to a commit.');
 
-  const scratch = await mkdtemp(path.join(tmpdir(), 'ambicode-index-'));
+  const scratch = await fs.temporaryDirectory('ambicode-index-');
   const notes: string[] = [];
   try {
     const shadowIndex = path.join(scratch, 'index');
     const realIndex = path.join(await git.gitCommonDir(), 'index');
     try {
-      await copyFile(realIndex, shadowIndex);
+      await fs.copyFile(realIndex, shadowIndex);
     } catch {
       // A repository with no index yet is fine: git creates the shadow copy.
     }
@@ -62,11 +62,41 @@ export async function resolveWorkingTarget(options: WorkingTargetOptions): Promi
     const files = combineDiff(changes, patch);
     notes.push('Untracked files that git does not ignore are included as additions.');
 
+    // The only content that can change while the review runs, so it is read
+    // once here and never again (doc 02).
+    const content = await captureWorkingTree({
+      fs,
+      repositoryRoot,
+      changedPaths: files
+        .map((file) => file.newPath)
+        .filter((value): value is string => value !== null),
+      includeSiblings: true,
+    });
+
+    // A build or editor can write during the read. If the diff moved, capture
+    // and patch may describe different bytes, so stop instead of publishing.
+    const patchAfterCapture = await shadow.patchDiff(['HEAD'], 3);
+    if (patchAfterCapture !== patch) {
+      throw new AmbicodeError(
+        'working-tree-changed',
+        'The working tree changed while the review target was being captured, so the snapshot would not describe a single state of the code.',
+        {
+          details: [
+            'Nothing was reviewed and nothing was modified.',
+            'Let the build or editor finish writing, then run the review again.',
+          ],
+        },
+      );
+    }
+
+    notes.push(content.pinning);
+
     return {
       target: {
         kind: 'working',
+        // Covers the captured bytes too, so an id cannot name unseen content.
+        snapshotId: `working-${contentHash(`${headSha}\n${patch}\n${content.digest}`).slice(7, 23)}`,
         repositoryRoot,
-        snapshotId: `working-${contentHash(`${headSha}\n${patch}`).slice(7, 23)}`,
         headSha,
         baseSha: headSha,
         baseRef: 'HEAD',
@@ -74,11 +104,12 @@ export async function resolveWorkingTarget(options: WorkingTargetOptions): Promi
         notes,
       },
       files,
-      postImageRevision: null,
+      patch,
+      content,
       preImageRevision: headSha,
     };
   } finally {
-    await rm(scratch, { recursive: true, force: true });
+    await fs.remove(scratch);
   }
 }
 
@@ -138,6 +169,9 @@ export async function resolveBranchTarget(options: BranchTargetOptions): Promise
     notes.push('Uncommitted working-tree changes exist and were excluded from this review.');
   }
 
+  const content = revisionContent(git, headSha);
+  notes.push(content.pinning);
+
   return {
     target: {
       kind: 'branch',
@@ -150,7 +184,8 @@ export async function resolveBranchTarget(options: BranchTargetOptions): Promise
       notes,
     },
     files,
-    postImageRevision: headSha,
+    patch,
+    content,
     preImageRevision: mergeBase,
   };
 }

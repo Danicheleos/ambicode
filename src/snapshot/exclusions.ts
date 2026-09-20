@@ -49,6 +49,31 @@ const BINARY_EXTENSIONS = new Set([
   'sqlite', 'db', 'parquet',
 ]);
 
+/**
+ * Worth reviewing when changed, worthless as surrounding context. A lockfile
+ * the change touches is still reviewed; an unchanged one would occupy a third
+ * of the context budget for nothing.
+ */
+const GENERATED_CONTEXT_NAMES = new Set([
+  'package-lock.json',
+  'npm-shrinkwrap.json',
+  'yarn.lock',
+  'pnpm-lock.yaml',
+  'bun.lock',
+  'Cargo.lock',
+  'composer.lock',
+  'Gemfile.lock',
+  'poetry.lock',
+  'Pipfile.lock',
+  'uv.lock',
+  'go.sum',
+]);
+
+/** Whether an unchanged neighbour is worth mirroring purely as context. */
+export function isUselessAsContext(relativePath: string): boolean {
+  return GENERATED_CONTEXT_NAMES.has(relativePath.split('/').pop() ?? '');
+}
+
 export type ExclusionReason =
   | 'excluded-directory'
   | 'credential-like-name'
@@ -85,4 +110,18 @@ export function describeExclusion(reason: ExclusionReason): string {
     case 'symlink':
       return 'a symbolic link, which AMBICODE reports but does not follow';
   }
+}
+
+/**
+ * Kept out of the reviewable material entirely: not mirrored, not measured, not
+ * in the patch. Both names are tested, since a rename out of an excluded
+ * directory still carries that content in its diff.
+ */
+export function isExcludedFromReview(oldPath: string | null, newPath: string | null): ExclusionReason | null {
+  for (const candidate of [newPath, oldPath]) {
+    if (candidate === null) continue;
+    const reason = pathExclusionReason(candidate);
+    if (reason !== null) return reason;
+  }
+  return null;
 }

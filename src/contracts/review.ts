@@ -79,6 +79,8 @@ export const CheckResult = z.strictObject({
   /** Path of the bounded captured output, relative to the review directory. */
   outputRef: z.string().nullable().default(null),
   limitations: z.array(z.string()).default([]),
+  /** Source or index changes this command made, reported and never reverted. */
+  mutations: z.array(z.string()).default([]),
 });
 export type CheckResult = z.infer<typeof CheckResult>;
 

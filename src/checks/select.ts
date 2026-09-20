@@ -1,11 +1,12 @@
-import { glob } from 'node:fs/promises';
 import path from 'node:path';
 import type { CheckSpec, ProjectConfig } from '../contracts/config.ts';
 import type { DiffFile } from '../git/diff.ts';
+import type { FileSystem } from '../ports/filesystem.ts';
 import type { ProcessRunner } from '../ports/process.ts';
 import { matchesAnyGlob } from '../util/glob.ts';
 import { normalizeRelative } from '../util/paths.ts';
 import { adapterFor, enumerationExecutable } from './adapters.ts';
+import type { CommandAuthorization } from './authorize.ts';
 
 export interface SelectedFile {
   /** Project-relative path handed to the runner. */
@@ -36,6 +37,7 @@ export interface ChangedPath {
 }
 
 export interface SelectOptions {
+  fs: FileSystem;
   project: ProjectConfig;
   check: CheckSpec;
   changed: readonly ChangedPath[];
@@ -46,6 +48,12 @@ export interface SelectOptions {
   maxSelectedTestFiles: number;
   timeoutMs: number;
   commandArgv: readonly string[] | null;
+  /**
+   * The command-policy decision for any command selection itself would run.
+   * Required rather than optional so a call site cannot execute a project
+   * script without a decision having been taken (doc 05).
+   */
+  authorize: (commandId: string) => CommandAuthorization;
 }
 
 /**
@@ -173,7 +181,7 @@ async function selectByMapping(
       const source = candidates.find((candidate) => matchesAnyGlob(candidate, [...mapping.source]));
       if (source === undefined) continue;
       matched = true;
-      const expanded = await expandGlobs(absoluteRoot, mapping.tests);
+      const expanded = await expandGlobs(options.fs, absoluteRoot, mapping.tests);
       if (expanded.length === 0) {
         complete = false;
         limitations.push(
@@ -236,9 +244,29 @@ async function selectByRunner(options: SelectOptions): Promise<Selection> {
     .filter((value): value is string => value !== null);
 
   let argv: string[];
+  // True once part of the change cannot be put to the runner at all.
+  let partial = false;
+
   if (adapter.enumeration.kind === 'from-files') {
+    // A file-based enumerator answers from the files that exist now. On jest
+    // 30.5.2 a deleted path, or a rename's destination, exits 0 printing
+    // nothing, so a vanished name yields an uncertain selection, not an empty one.
+    const vanished = options.changed
+      .map(vanishedPath)
+      .filter((value): value is string => value !== null)
+      .map((value) => toProjectRelative(projectRoot, value))
+      .filter((value): value is string => value !== null);
+
+    if (vanished.length > 0) {
+      partial = true;
+      limitations.push(
+        `${vanished.join(', ')} no longer exists under that name, and ${adapter.id} can only find tests related to files that still exist. Tests that referenced the old name may be missing from this selection.`,
+      );
+    }
+
     if (sourcePaths.length === 0) {
-      return { files: [], complete: true, limitations, approval: null };
+      // Empty only when nothing vanished; otherwise the affected set is unknown.
+      return { files: [], complete: !partial, limitations, approval: null };
     }
     argv = adapter.enumeration.argv(executable, sourcePaths);
   } else {
@@ -278,15 +306,36 @@ async function selectByRunner(options: SelectOptions): Promise<Selection> {
     reason: `${adapter.id} reported this test as affected by the change`,
   }));
 
-  return { files: dedupe(files), complete: true, limitations, approval: null };
+  return { files: dedupe(files), complete: !partial, limitations, approval: null };
 }
 
 /**
- * A project-owned selector script. It is project code under the same trust
- * boundary as any other check, and running it is subject to command policy; the
- * caller applies that before calling here (doc 05).
+ * The pre-image name a change removed from the tree: the path of a deletion, or
+ * the source of a rename. Null for anything that still exists under its own
+ * name, including an ordinary modification.
  */
+function vanishedPath(change: ChangedPath): string | null {
+  if (change.oldPath === null) return null;
+  if (change.newPath === null) return change.oldPath;
+  return change.oldPath === change.newPath ? null : change.oldPath;
+}
+
+/** A project-owned selector script, subject to command policy like any check (doc 05). */
 async function selectByCommand(options: SelectOptions, commandId: string): Promise<Selection> {
+  // Before the command is resolved: a forbidden selector must not run.
+  const authorization = options.authorize(commandId);
+  if (authorization.kind !== 'allowed') {
+    return {
+      files: [],
+      complete: false,
+      limitations: [
+        `The selector command "${commandId}" was not run: ${authorization.reason}`,
+        'Without it the affected tests are unknown, so this is a gap in verification rather than an empty selection.',
+      ],
+      approval: null,
+    };
+  }
+
   const projectRoot = normalizeRelative(options.project.root);
   const absoluteRoot = path.join(options.repositoryRoot, projectRoot);
   const command = options.project.commands[commandId];
@@ -300,11 +349,7 @@ async function selectByCommand(options: SelectOptions, commandId: string): Promi
     };
   }
 
-  const changedPaths = options.changed
-    .map((change) => change.newPath ?? change.oldPath)
-    .filter((value): value is string => value !== null)
-    .map((value) => toProjectRelative(projectRoot, value))
-    .filter((value): value is string => value !== null);
+  const changedPaths = changedProjectPaths(projectRoot, options.changed);
 
   const outcome = await options.runner.run({
     argv: expandFiles(command.argv, changedPaths),
@@ -356,6 +401,54 @@ async function selectByCommand(options: SelectOptions, commandId: string): Promi
   return { files: dedupe(files), complete: limitations.length === 0, limitations, approval: null };
 }
 
+/**
+ * What a command selector would execute, so an approval shows the exact argv.
+ * Null when the command is absent or intentionally unavailable.
+ */
+export function selectorCommandPlan(options: {
+  project: ProjectConfig;
+  repositoryRoot: string;
+  changed: readonly ChangedPath[];
+  commandId: string;
+}): { argv: string[]; cwd: string } | null {
+  const command = options.project.commands[options.commandId];
+  if (command === undefined || command === null) return null;
+  const projectRoot = normalizeRelative(options.project.root);
+  const absoluteRoot = path.join(options.repositoryRoot, projectRoot);
+  return {
+    argv: expandFiles(command.argv, changedProjectPaths(projectRoot, options.changed)),
+    cwd: path.join(absoluteRoot, command.cwd ?? ''),
+  };
+}
+
+/**
+ * Both names of every change, deduplicated. A rename contributes its source as
+ * well as its destination: the tests that imported the old name are the ones it
+ * can break, and only a project script can find them (doc 05).
+ */
+function changedProjectPaths(projectRoot: string, changed: readonly ChangedPath[]): string[] {
+  const seen = new Set<string>();
+  const paths: string[] = [];
+  for (const change of changed) {
+    for (const candidate of [change.newPath, change.oldPath]) {
+      if (candidate === null) continue;
+      const relative = toProjectRelative(projectRoot, candidate);
+      if (relative === null || seen.has(relative)) continue;
+      seen.add(relative);
+      paths.push(relative);
+    }
+  }
+  return paths;
+}
+
+/**
+ * Whether deciding this check's selection starts a process. Lint and mapping
+ * selection run nothing, so bracketing them would only cost a `git status`.
+ */
+export function selectionRunsCommand(check: CheckSpec): boolean {
+  return check.selector?.kind === 'command' || check.selector?.kind === 'related';
+}
+
 /** `{files}` occupies a whole argument and expands into separate filenames. */
 export function expandFiles(argv: readonly string[], files: readonly string[]): string[] {
   const expanded: string[] = [];
@@ -366,16 +459,17 @@ export function expandFiles(argv: readonly string[], files: readonly string[]): 
   return expanded;
 }
 
-async function expandGlobs(absoluteRoot: string, globs: readonly string[]): Promise<string[]> {
+async function expandGlobs(
+  fs: FileSystem,
+  absoluteRoot: string,
+  globs: readonly string[],
+): Promise<string[]> {
   const found = new Set<string>();
   for (const pattern of globs) {
     try {
-      for await (const entry of glob(pattern, { cwd: absoluteRoot })) {
-        found.add(entry.split(path.sep).join('/'));
-      }
+      for (const entry of await fs.glob(pattern, absoluteRoot)) found.add(entry);
     } catch {
-      // An unusable pattern surfaces as an empty expansion, which the caller
-      // already reports as an incomplete selection.
+      // An unusable pattern expands to nothing, which the caller reports.
     }
   }
   return [...found].sort();

@@ -1,28 +1,23 @@
-import { access } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { FileSystem } from '../ports/filesystem.ts';
 import { AmbicodeError } from './errors.ts';
 
 /**
- * Where the installed plugin's content lives. Claude Code exports
- * `CLAUDE_PLUGIN_ROOT`; the upward search is the fallback that lets the same
- * code run from `src/` during development and from `scripts/` once bundled.
- * Nothing resolves content through a developer-specific absolute path.
+ * Where the installed plugin's content lives: `CLAUDE_PLUGIN_ROOT` when Claude
+ * Code exports it, else an upward search, so the same code runs from `src/` and
+ * from `scripts/` without a developer-specific absolute path.
  */
-export async function resolvePluginRoot(): Promise<string> {
+export async function resolvePluginRoot(fs: FileSystem): Promise<string> {
   const declared = process.env['CLAUDE_PLUGIN_ROOT'];
   if (declared !== undefined && declared.trim() !== '') return path.resolve(declared);
 
   let directory = path.dirname(fileURLToPath(import.meta.url));
   for (let depth = 0; depth < 8; depth += 1) {
-    try {
-      await access(path.join(directory, '.claude-plugin', 'plugin.json'));
-      return directory;
-    } catch {
-      const parent = path.dirname(directory);
-      if (parent === directory) break;
-      directory = parent;
-    }
+    if (await fs.exists(path.join(directory, '.claude-plugin', 'plugin.json'))) return directory;
+    const parent = path.dirname(directory);
+    if (parent === directory) break;
+    directory = parent;
   }
   throw new AmbicodeError(
     'plugin-root-unresolved',

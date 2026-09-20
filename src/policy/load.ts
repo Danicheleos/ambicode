@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import type { FileSystem } from '../ports/filesystem.ts';
 import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type { ProjectConfig } from '../contracts/config.ts';
@@ -13,6 +13,7 @@ export interface PackWithPrompts extends LoadedPack {
 }
 
 export interface LoadPacksOptions {
+  fs: FileSystem;
   project: ProjectConfig;
   /** `<pluginRoot>/policies`. */
   builtinDirectory: string;
@@ -29,14 +30,14 @@ export interface LoadedPacks {
  * a file happens to exist on disk (doc 05).
  */
 export async function loadPacksForProject(options: LoadPacksOptions): Promise<LoadedPacks> {
-  const { project, builtinDirectory, repositoryRoot } = options;
+  const { fs, project, builtinDirectory, repositoryRoot } = options;
   const diagnostics: Diagnostic[] = [];
   const loaded: PackWithPrompts[] = [];
 
   for (const reference of project.packs) {
     const id = reference.slice('builtin/'.length);
     const filePath = path.join(builtinDirectory, `${id}.yaml`);
-    const pack = await loadOne(filePath, reference, 'builtin', diagnostics, project);
+    const pack = await loadOne(fs, filePath, reference, 'builtin', diagnostics, project);
     if (pack === null) continue;
     if (pack.pack.id !== id) {
       diagnostics.push({
@@ -61,7 +62,7 @@ export async function loadPacksForProject(options: LoadPacksOptions): Promise<Lo
 
   for (const relativePath of project.policyFiles) {
     const filePath = path.join(repositoryRoot, relativePath);
-    const pack = await loadOne(filePath, relativePath, 'project', diagnostics, project);
+    const pack = await loadOne(fs, filePath, relativePath, 'project', diagnostics, project);
     if (pack !== null) loaded.push(pack);
   }
 
@@ -125,6 +126,7 @@ function applyReplacements(packs: PackWithPrompts[], diagnostics: Diagnostic[]):
 }
 
 async function loadOne(
+  fs: FileSystem,
   filePath: string,
   reference: string,
   origin: 'builtin' | 'project',
@@ -133,7 +135,7 @@ async function loadOne(
 ): Promise<PackWithPrompts | null> {
   let raw: string;
   try {
-    raw = await readFile(filePath, 'utf8');
+    raw = await fs.readText(filePath);
   } catch {
     diagnostics.push({
       severity: 'error',
@@ -175,11 +177,12 @@ async function loadOne(
   for (const promptRef of pack.prompts) {
     try {
       const absolutePath = await resolveInsideBoundary(
+        fs,
         packDirectory,
         promptRef.file,
         `prompt "${promptRef.file}" referenced by ${reference}`,
       );
-      const contents = await readFile(absolutePath, 'utf8');
+      const contents = await fs.readText(absolutePath);
       resolvedPrompts.push({
         packId: pack.id,
         packReference: reference,

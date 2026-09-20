@@ -2,10 +2,9 @@ import path from 'node:path';
 import type { AdapterId } from '../contracts/primitives.ts';
 
 /**
- * What each supported runner can actually do, pinned to the versions listed in
- * `docs/compatibility.md`. An adapter claims enumeration only where it was
- * observed to enumerate; the selector turns a missing capability into a request
- * for approval or a mapping, never into a silent whole-suite run (doc 05).
+ * What each runner can do, at the versions in `docs/compatibility.md`. A
+ * missing capability becomes an approval request or a mapping, never a silent
+ * whole-suite run (doc 05).
  */
 
 export type EnumerationMode =
@@ -105,10 +104,8 @@ export function adapterFor(id: AdapterId): CheckAdapter {
 }
 
 /**
- * Enumeration appends adapter-specific arguments to the configured executable.
- * If the project wraps the runner (a package script, a task runner), the
- * basename will not match and enumeration is not attempted, because appending
- * `--listTests` to `npm` would not mean what it means to jest.
+ * Enumeration appends adapter arguments to the configured executable. A wrapped
+ * runner's basename will not match, so enumeration is not attempted.
  */
 export function enumerationExecutable(adapter: CheckAdapter, argv: readonly string[]): string | null {
   const executable = argv[0];

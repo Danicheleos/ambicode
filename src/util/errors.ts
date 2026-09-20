@@ -1,7 +1,6 @@
 /**
- * One error type for every condition an operator can act on. `field` names the
- * configuration path or file at fault; `details` never carries the offending
- * value, because configuration may contain private data (doc 05).
+ * One error type for every condition an operator can act on. `details` never
+ * carries the offending value: configuration may hold private data (doc 05).
  */
 export class AmbicodeError extends Error {
   readonly code: string;

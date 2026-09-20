@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import type { FileSystem } from '../ports/filesystem.ts';
 import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
@@ -14,11 +14,11 @@ export interface LoadedConfig {
   raw: string;
 }
 
-export async function loadConfig(repositoryRoot: string): Promise<LoadedConfig> {
+export async function loadConfig(fs: FileSystem, repositoryRoot: string): Promise<LoadedConfig> {
   const filePath = path.join(repositoryRoot, CONFIG_FILE);
   let raw: string;
   try {
-    raw = await readFile(filePath, 'utf8');
+    raw = await fs.readText(filePath);
   } catch (cause) {
     throw new AmbicodeError(
       'config-missing',
@@ -45,8 +45,8 @@ export function parseConfig(raw: string): AmbicodeConfig {
     });
   }
 
-  // Checked before field validation so an unsupported future file produces an
-  // upgrade instruction rather than a list of mismatched fields (doc 05).
+  // Before field validation, so a future file yields an upgrade instruction
+  // rather than a list of mismatched fields (doc 05).
   const declared = (document as Record<string, unknown>)['schemaVersion'];
   if (typeof declared === 'number' && declared > SUPPORTED_SCHEMA_VERSION) {
     throw new AmbicodeError(

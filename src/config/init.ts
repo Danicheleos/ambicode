@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import type { FileSystem } from '../ports/filesystem.ts';
 import path from 'node:path';
 import { Document, parseDocument, type YAMLMap, type YAMLSeq } from 'yaml';
 import type { AmbicodeConfig } from '../contracts/config.ts';
@@ -18,6 +18,7 @@ export interface InitPlan {
 }
 
 export interface PlanInitOptions {
+  fs: FileSystem;
   repositoryRoot: string;
   detected: readonly DetectedProject[];
   baseline: string;
@@ -32,7 +33,7 @@ export async function planInit(options: PlanInitOptions): Promise<InitPlan> {
   const filePath = path.join(options.repositoryRoot, CONFIG_FILE);
   let existingRaw: string | null = null;
   try {
-    existingRaw = await readFile(filePath, 'utf8');
+    existingRaw = await options.fs.readText(filePath);
   } catch {
     existingRaw = null;
   }
@@ -82,8 +83,7 @@ function createFresh(options: PlanInitOptions): InitPlan {
 }
 
 function updateExisting(existingRaw: string, options: PlanInitOptions): InitPlan {
-  // Parsed as a document rather than plain data so the user's own comments and
-  // formatting survive an addition.
+  // A document, not plain data, so the user's comments and formatting survive.
   const document = parseDocument(existingRaw);
   const changes: string[] = [];
   const notices: string[] = [];
@@ -168,8 +168,7 @@ function projectNode(
   for (const slot of ['lint', 'unit', 'e2e'] as const) {
     const candidate = detected[slot];
     if (candidate?.argv == null) {
-      // A missing or unsafe-to-scope command is null with a notice and a
-      // skipped result, never a guessed command line (D06).
+      // Null with a notice, never a guessed command line (D06).
       commands[slot] = null;
       checks[slot] = null;
       notices.push(

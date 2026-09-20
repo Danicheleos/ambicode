@@ -5,6 +5,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { TempRepo } from '../testing/temp-repo.ts';
 import { resolveBranchTarget, resolveWorkingTarget } from './target.ts';
+import { nodeFileSystem } from '../ports/filesystem.ts';
 
 async function digestOf(file: string): Promise<string | null> {
   try {
@@ -37,12 +38,13 @@ test('U09 working target is the net of staged and unstaged edits plus untracked 
   const indexPath = path.join(repo.root, '.git', 'index');
   const indexBefore = await digestOf(indexPath);
 
-  const resolution = await resolveWorkingTarget({ git: repo.git, repositoryRoot: repo.root });
+  const resolution = await resolveWorkingTarget({ fs: nodeFileSystem, git: repo.git, repositoryRoot: repo.root });
   const paths = resolution.files.map((file) => file.newPath ?? file.oldPath).sort();
 
   assert.deepEqual(paths, ['.gitignore', 'src/brand-new.ts', 'src/unstaged.ts']);
   assert.equal(resolution.target.kind, 'working');
-  assert.equal(resolution.postImageRevision, null);
+  // Content is pinned at resolution, so the mirrored file cannot drift.
+  assert.equal(await resolution.content.read('src/unstaged.ts').then((c) => c?.kind), 'text');
 
   // The developer's staged state must survive the review untouched (doc 02).
   assert.equal(await digestOf(indexPath), indexBefore);
@@ -57,7 +59,7 @@ test('U09 an unmerged index blocks working review instead of producing a diff', 
   await repo.makeUnmerged('conflict.txt');
 
   await assert.rejects(
-    resolveWorkingTarget({ git: repo.git, repositoryRoot: repo.root }),
+    resolveWorkingTarget({ fs: nodeFileSystem, git: repo.git, repositoryRoot: repo.root }),
     (error: Error & { code?: string }) => error.code === 'unmerged-index',
   );
 });
@@ -67,7 +69,7 @@ test('U09 a repository with no commits gets an actionable message, not a crash',
   t.after(() => repo.dispose());
 
   await assert.rejects(
-    resolveWorkingTarget({ git: repo.git, repositoryRoot: repo.root }),
+    resolveWorkingTarget({ fs: nodeFileSystem, git: repo.git, repositoryRoot: repo.root }),
     (error: Error & { code?: string }) => error.code === 'no-head',
   );
 });
@@ -126,7 +128,7 @@ test('U09 deleting a tracked file is a deletion in the working diff', async (t) 
   await repo.commitAll('init');
   await rm(path.join(repo.root, 'gone.ts'));
 
-  const resolution = await resolveWorkingTarget({ git: repo.git, repositoryRoot: repo.root });
+  const resolution = await resolveWorkingTarget({ fs: nodeFileSystem, git: repo.git, repositoryRoot: repo.root });
   assert.equal(resolution.files.length, 1);
   assert.equal(resolution.files[0]?.changeKind, 'deleted');
   assert.equal(resolution.files[0]?.oldPath, 'gone.ts');
