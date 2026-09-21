@@ -40,6 +40,15 @@ export interface FileSystem {
   readText(absolutePath: string): Promise<string>;
   readBytes(absolutePath: string): Promise<Uint8Array>;
   writeText(absolutePath: string, contents: string): Promise<void>;
+  /**
+   * Creates a file only if it does not already exist, atomically at the OS
+   * level (`O_EXCL`): two callers racing to create the same path can never
+   * both succeed. Returns `false` without writing anything when the path is
+   * already there. Used for the per-review publication lease (doc 03 P1.7
+   * correction C), where the in-memory session lock is not enough because the
+   * same review can be opened by two processes.
+   */
+  createExclusive(absolutePath: string, contents: string): Promise<boolean>;
   /** Same-directory rename, which is atomic; used to replace a file in place. */
   rename(from: string, to: string): Promise<void>;
   mkdirp(absolutePath: string): Promise<void>;
@@ -63,6 +72,17 @@ export const nodeFileSystem: FileSystem = {
   readText: (absolutePath) => readFile(absolutePath, 'utf8'),
   readBytes: (absolutePath) => readFile(absolutePath),
   writeText: (absolutePath, contents) => writeFile(absolutePath, contents, 'utf8'),
+  createExclusive: async (absolutePath, contents) => {
+    try {
+      // `wx` is `O_CREAT | O_EXCL`: the kernel refuses the call outright when
+      // the path exists, rather than this adapter checking and then writing.
+      await writeFile(absolutePath, contents, { encoding: 'utf8', flag: 'wx' });
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false;
+      throw error;
+    }
+  },
   rename: (from, to) => rename(from, to),
   mkdirp: async (absolutePath) => {
     await mkdir(absolutePath, { recursive: true });

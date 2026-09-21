@@ -291,6 +291,32 @@ are `skills/init` and `skills/review` rather than repeating "ambicode" in both
 halves of the invocation. Observed with
 `claude --plugin-dir . -p "list ambicode skills"` on 2.1.272.
 
+Re-confirmed on 2.1.272 through the **packaged** candidate rather than
+`--plugin-dir`, with no model call: `claude plugin details
+ambicode@ambicode-team`, against the plugin installed from a local test
+marketplace into an isolated `CLAUDE_CONFIG_DIR`, reports `Skills (2)
+init, review`. Doc 03 P1.7's acceptance record under `docs/acceptance/`
+has the full transcript.
+
+## Packaging and marketplace
+
+Established this session, against Claude Code 2.1.272's own documented
+schema (fetched fresh; not recalled from an earlier version):
+
+| Component | Version | How established |
+|---|---|---|
+| `zip` (Info-ZIP) | as shipped with the OS (`/usr/bin/zip`) | observed; used by `package-candidate.mjs` to build the `archive`-source artifact |
+| Marketplace source types | `local path`, `github`, `url`, `git-subdir`, `npm`, `archive` (sha256-pinned), `command` | current schema, fetched from `code.claude.com/docs/en/plugin-marketplaces` this session |
+| `CLAUDE_CONFIG_DIR` | isolates settings, session history and plugin state | observed directly: a fresh directory received its own `.claude.json` and an empty marketplace list, independent of the real `~/.claude` |
+| `claude plugin install/enable/disable/uninstall/update/list/details/validate` | all exercised | observed, against a local candidate marketplace, in an isolated config directory; see `docs/installation.md` |
+
+`scripts/ambicode.mjs` is gitignored and therefore absent from an ordinary
+git tag of this repository. `package-candidate.mjs` resolves this by
+always rebuilding it fresh and shipping it inside a zipped artifact
+(`archive` source, sha256-pinned) rather than depending on it having been
+committed. See `docs/installation.md` for the full mechanism and
+`docs/release-checklist.md` for what a real release still needs.
+
 ## Reused platform capabilities
 
 Recorded per plan/11. No new runtime dependency was added for these.

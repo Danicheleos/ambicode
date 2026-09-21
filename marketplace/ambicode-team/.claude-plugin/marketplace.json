@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-marketplace.json",
+  "name": "ambicode-team",
+  "owner": {
+    "name": "REPLACE: release owner's name",
+    "email": "REPLACE: release owner's contact email"
+  },
+  "description": "Private marketplace for the AMBICODE Claude Code plugin: scoped project policy, evidence-backed checks, independent code review, and human-selected GitLab merge-request comment publication.",
+  "plugins": [
+    {
+      "name": "ambicode",
+      "displayName": "AMBICODE",
+      "description": "Scoped project policy, evidence-backed checks, independent code review, and human-selected comment publication for GitLab merge requests.",
+      "version": "0.1.0",
+      "license": "UNLICENSED",
+      "keywords": ["code-review", "gitlab", "policy", "typescript", "python"],
+      "metadata": {
+        "releaseOwnerTodo": "Replace source.url with the hosted artifact URL and source.sha256 with the real digest from dist/ambicode-<version>.zip.sha256 before this marketplace is used outside a local test. See docs/installation.md#release-owner-checklist."
+      },
+      "source": {
+        "source": "archive",
+        "url": "https://example.invalid/REPLACE-with-hosted-artifact-url/ambicode-0.1.0.zip",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    }
+  ]
+}

@@ -6,6 +6,7 @@ import {
   cookieJar,
   form,
   openPage,
+  reopenHarness,
   startHarness,
   type Harness,
   type OpenedPage,
@@ -345,6 +346,84 @@ describe('U21 the page accepts only its own form', () => {
       assert.match(response.body, /name="select_f-aaaa" value="on" checked/);
       assert.match(response.body, /name="select_f-bbbb" value="on" checked/);
       assert.deepEqual(harness.provider?.published, []);
+    } finally {
+      await harness.dispose();
+    }
+  });
+
+  it('persists a valid draft accompanying a blank selection, and shows it unchecked on reopening', async () => {
+    const harness = await startHarness();
+    try {
+      const page = await openPage(harness);
+      const response = await post(harness, page, {
+        ...validFields(page),
+        'body_f-aaaa': 'A valid draft next to a field that will fail.',
+        'body_f-bbbb': '   ',
+        'select_f-bbbb': 'on',
+      });
+      assert.equal(response.statusCode, 400);
+      assert.match(response.body, /selected with an empty comment/);
+
+      // Persisted for a future load, not only redisplayed on this response
+      // (doc 03 P1.7 correction E).
+      const record = await harness.store.readPublication(harness.result.reviewId);
+      assert.equal(
+        record.drafts.find((draft) => draft.findingId === 'f-aaaa')?.body,
+        'A valid draft next to a field that will fail.',
+      );
+
+      // A newly opened page — a second process reading the same saved
+      // review, with a fresh capability and session and no `selected`
+      // redisplay set — shows the preserved text but starts every checkbox
+      // unchecked.
+      const second = await reopenHarness(harness);
+      try {
+        const reopened = await openPage(second);
+        assert.match(reopened.html, /A valid draft next to a field that will fail\./);
+        assert.doesNotMatch(reopened.html, /name="select_f-aaaa" value="on" checked/);
+        assert.doesNotMatch(reopened.html, /name="select_f-bbbb" value="on" checked/);
+      } finally {
+        await second.dispose();
+      }
+    } finally {
+      await harness.dispose();
+    }
+  });
+
+  it('persists a valid draft accompanying an unexpected field', async () => {
+    const harness = await startHarness();
+    try {
+      const page = await openPage(harness);
+      const response = await post(harness, page, {
+        ...validFields(page),
+        'body_f-bbbb': 'Kept even though the request carries a stowaway field.',
+        stowaway: 'x',
+      });
+      assert.equal(response.statusCode, 400);
+      assert.match(response.body, /is not part of this form/);
+
+      const record = await harness.store.readPublication(harness.result.reviewId);
+      assert.equal(
+        record.drafts.find((draft) => draft.findingId === 'f-bbbb')?.body,
+        'Kept even though the request carries a stowaway field.',
+      );
+    } finally {
+      await harness.dispose();
+    }
+  });
+
+  it('does not persist an oversized field from a rejected submission', async () => {
+    const harness = await startHarness();
+    try {
+      const page = await openPage(harness);
+      const response = await post(harness, page, {
+        ...validFields(page),
+        'body_f-bbbb': 'x'.repeat(17_000),
+      });
+      assert.equal(response.statusCode, 400);
+
+      const record = await harness.store.readPublication(harness.result.reviewId);
+      assert.equal(record.drafts.find((draft) => draft.findingId === 'f-bbbb'), undefined);
     } finally {
       await harness.dispose();
     }

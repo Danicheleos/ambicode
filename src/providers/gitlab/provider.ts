@@ -469,7 +469,7 @@ export class GitLabProvider implements ReviewProvider {
     operation: Parameters<typeof providerFailed>[1],
     result: Exclude<ApiResult<unknown>, { kind: 'ok' }>,
   ): ProviderOutcome<T> {
-    return providerFailed('gitlab', operation, result.message, result.details);
+    return providerFailed('gitlab', operation, result.message, result.details, result.certainty);
   }
 }
 

@@ -7,6 +7,7 @@ import { PUBLICATION_SCHEMA_VERSION } from '../contracts/publication.ts';
 import type { PublicationState } from '../contracts/primitives.ts';
 import {
   revisionMatches,
+  type DeliveryCertainty,
   type ProviderOutcome,
   type RemoteDiscussion,
   type RemoteRevision,
@@ -188,20 +189,21 @@ export async function runPublication(options: PublishRunOptions): Promise<Submis
       };
     }
 
-    // Re-checked before every individual comment: a push between two writes
-    // must stop the rest rather than attach them to code that has moved.
-    if (index > 0) {
-      const again = await checkRevision(options.provider, options.target);
-      if (again.kind !== 'current') {
-        return {
-          ...stopAll(
-            `${again.reason} The remaining comments were not sent, and no comment was moved to a current line. Run a fresh review against the new revision.`,
-            again.kind === 'stale' ? 'stale' : 'failed-before-send',
-            index,
-          ),
-          revisionState: again.state,
-        };
-      }
+    // Re-checked immediately before every individual write, including the
+    // first: the batch check above ran before identity and the discussion
+    // listing, both of which take time the merge request can move during
+    // (doc 03 P1.7 correction B). A push between two writes must stop the
+    // rest rather than attach them to code that has moved.
+    const again = await checkRevision(options.provider, options.target);
+    if (again.kind !== 'current') {
+      return {
+        ...stopAll(
+          `${again.reason} The remaining comments were not sent, and no comment was moved to a current line. Run a fresh review against the new revision.`,
+          again.kind === 'stale' ? 'stale' : 'failed-before-send',
+          index,
+        ),
+        revisionState: again.state,
+      };
     }
 
     const sent = await options.provider.publishComment({
@@ -372,21 +374,26 @@ async function listAllDiscussions(
 /**
  * Whether a failed write definitely did not reach GitLab, or might have.
  *
- * A nonzero exit carries GitLab's own rejection, so nothing was created. A
- * timeout, a truncated answer, an unvalidatable body or a missing note all mean
- * the request may have been accepted and the answer lost. Anything unrecognized
- * is treated as uncertain, because the cost of guessing wrong the other way is
- * a duplicate published comment.
+ * `unsupported` means the provider never attempted anything, so it is always
+ * `failed-before-send`. A `failed` write carries its own structured
+ * `certainty`, set where the request was actually made (doc 03 P1.7
+ * correction A): only a proven pre-send rejection — the process never
+ * starting, or the provider disproving creation — is `before-send`. A
+ * timeout, a truncated or unvalidatable answer, a nonzero exit after the
+ * process started, and anything else the provider did not prove are all
+ * `uncertain`, because the cost of guessing wrong the other way is a
+ * duplicate published comment.
+ *
+ * This never matches on `message` text: a diagnostic string is for a human,
+ * not a certainty proof.
  */
 export function classifyWriteFailure(outcome: {
   kind: 'failed' | 'unsupported';
   message: string;
+  certainty?: DeliveryCertainty;
 }): PublicationState {
   if (outcome.kind === 'unsupported') return 'failed-before-send';
-  const message = outcome.message;
-  if (/could not be started/.test(message)) return 'failed-before-send';
-  if (/failed with exit code/.test(message)) return 'failed-before-send';
-  return 'uncertain';
+  return outcome.certainty === 'before-send' ? 'failed-before-send' : 'uncertain';
 }
 
 export const PUBLICATION_RUN_SCHEMA_VERSION = PUBLICATION_SCHEMA_VERSION;

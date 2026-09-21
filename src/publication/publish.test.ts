@@ -13,6 +13,44 @@ import {
 import { currentRevision, staleRevision, FakeProvider } from '../testing/fake-provider.ts';
 import { publicationPositions, reviewResult } from '../testing/review-fixture.ts';
 import { findMarker } from './marker.ts';
+import { classifyWriteFailure } from './publish.ts';
+
+/**
+ * P1.7 correction A. `classifyWriteFailure` is the one place a provider
+ * failure becomes a `PublicationState`; it must read the provider's own
+ * `certainty` and never infer one from `message` text.
+ */
+describe('P1.7 correction A: classifyWriteFailure', () => {
+  it('an unsupported provider never attempted anything: before-send', () => {
+    assert.equal(classifyWriteFailure({ kind: 'unsupported', message: 'not implemented' }), 'failed-before-send');
+  });
+
+  it('a proven before-send failure classifies as before-send', () => {
+    assert.equal(
+      classifyWriteFailure({ kind: 'failed', message: 'glab could not be started: ENOENT.', certainty: 'before-send' }),
+      'failed-before-send',
+    );
+  });
+
+  it('a failure with no certainty at all defaults to uncertain, never before-send', () => {
+    // A hand-built outcome that omits certainty must not be trusted as proof
+    // of anything; the safe reading is that GitLab may have accepted it.
+    assert.equal(classifyWriteFailure({ kind: 'failed', message: 'glab api failed with exit code 1.' }), 'uncertain');
+  });
+
+  it('is never fooled by message text that looks like a before-send phrase', () => {
+    // The message says "could not be started", the classic before-send
+    // wording, but the structured certainty says otherwise: certainty wins.
+    assert.equal(
+      classifyWriteFailure({
+        kind: 'failed',
+        message: 'glab could not be started: a lie for this test.',
+        certainty: 'uncertain',
+      }),
+      'uncertain',
+    );
+  });
+});
 
 /**
  * U22. Publication happens on one path only, and the fake provider records
@@ -119,7 +157,23 @@ describe('U22 publication happens only when a human submits the form', () => {
     }
   });
 
-  it('checks the current revision before the submission and before each comment', async () => {
+  it('checks the current revision once in the batch preflight and once before the one selected comment', async () => {
+    const harness = await startHarness();
+    try {
+      const page = await openPage(harness);
+      await publish(harness, page, { ...BODIES, 'select_f-aaaa': 'on' });
+
+      const checks = harness.provider?.calls.filter((call) => call === 'getCurrentRevision') ?? [];
+      // The batch preflight, then an individual check immediately before the
+      // one comment actually written (doc 03 P1.7 correction B).
+      assert.equal(checks.length, 2);
+      assert.equal(harness.provider?.published.length, 1);
+    } finally {
+      await harness.dispose();
+    }
+  });
+
+  it('checks the current revision before every individual write, including the first', async () => {
     const harness = await startHarness();
     try {
       const page = await openPage(harness);
@@ -130,9 +184,29 @@ describe('U22 publication happens only when a human submits the form', () => {
       });
 
       const checks = harness.provider?.calls.filter((call) => call === 'getCurrentRevision') ?? [];
-      // Once before anything is sent, then again before the second comment.
-      assert.equal(checks.length, 2);
+      // The batch preflight, plus one individual check before each of the two
+      // comments: three in total, not two.
+      assert.equal(checks.length, 3);
       assert.equal(harness.provider?.published.length, 2);
+    } finally {
+      await harness.dispose();
+    }
+  });
+
+  it('prevents the first write when the merge request moves during discussion retrieval', async () => {
+    const provider = new FakeProvider();
+    // Current for the batch preflight; moved by the time the individual
+    // pre-write check runs, which happens after identity and the complete
+    // discussion listing (doc 03 P1.7 correction B).
+    provider.revisions = [currentRevision(), staleRevision()];
+    const harness = await startHarness({ provider });
+    try {
+      const page = await openPage(harness);
+      await publish(harness, page, { ...BODIES, 'select_f-aaaa': 'on' });
+
+      assert.deepEqual(provider.published, []);
+      const record = await harness.store.readPublication(harness.result.reviewId);
+      assert.equal(record.outcomes.find((o) => o.findingId === 'f-aaaa')?.state, 'stale');
     } finally {
       await harness.dispose();
     }
@@ -159,8 +233,9 @@ describe('U22 publication happens only when a human submits the form', () => {
 
   it('stops the remaining comments when the revision moves mid-run, and never relocates one', async () => {
     const provider = new FakeProvider();
-    // Current for the pre-flight check and the first comment; moved after that.
-    provider.revisions = [currentRevision(), staleRevision()];
+    // Current for the batch preflight and the individual check before each of
+    // the first comment's write; moved by the check before the second.
+    provider.revisions = [currentRevision(), currentRevision(), staleRevision()];
     const harness = await startHarness({ provider });
     try {
       const page = await openPage(harness);
@@ -182,6 +257,8 @@ describe('U22 publication happens only when a human submits the form', () => {
 
   it('keeps an earlier confirmed publication accurate after a later failure', async () => {
     const provider = new FakeProvider();
+    // A nonzero glab exit after the process started: unproven, so it must
+    // land as uncertain, never as before-send (doc 03 P1.7 correction A).
     provider.publishFailures = [null, 'glab api failed with exit code 1.'];
     const harness = await startHarness({ provider });
     try {
@@ -191,8 +268,8 @@ describe('U22 publication happens only when a human submits the form', () => {
       const record = await harness.store.readPublication(harness.result.reviewId);
       assert.equal(record.outcomes.find((o) => o.findingId === 'f-aaaa')?.state, 'published');
       const failed = record.outcomes.find((o) => o.findingId === 'f-bbbb');
-      assert.equal(failed?.state, 'failed-before-send');
-      assert.match(failed?.message ?? '', /Nothing was created on the merge request/);
+      assert.equal(failed?.state, 'uncertain');
+      assert.match(failed?.message ?? '', /whether it was delivered is unknown/);
     } finally {
       await harness.dispose();
     }

@@ -15,6 +15,8 @@
     "validate:plugin": "claude plugin validate . --strict",
     "fixtures": "node fixtures/materialize.mjs",
     "evals": "claude plugin eval . --runs 3 --ablation with-without --scaffold --allow-tools Bash --no-publish",
+    "package:candidate": "node package-candidate.mjs",
+    "package:reproducible": "node package-candidate.mjs --check-reproducible",
     "verify": "npm run typecheck && npm run test:unit && npm run build && npm run validate:plugin"
   },
   "dependencies": {

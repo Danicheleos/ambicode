@@ -13,6 +13,7 @@ import type { Clock } from '../ports/clock.ts';
 import type { FileSystem } from '../ports/filesystem.ts';
 import type { IdSource } from '../ports/ids.ts';
 import type { ReviewProvider } from '../contracts/provider.ts';
+import { acquirePublicationLease } from '../publication/lease.ts';
 import { runPublication, type SelectedComment } from '../publication/publish.ts';
 import type { ReviewStore } from '../publication/store.ts';
 import { SessionStore } from './session.ts';
@@ -56,6 +57,8 @@ export interface PageServerOptions {
   reopenCommand: string;
   /** `host:port` this server answers for. Set after listen, or fixed in tests. */
   authority?: string;
+  /** This process's pid, recorded in the publication lease for diagnostics. */
+  processId: number;
 }
 
 export interface PageServer {
@@ -304,7 +307,16 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
       if (parsed.kind === 'invalid') {
         // The CSRF token already proved this came from our own form, so the
         // human's text is theirs and is shown back to them rather than lost.
-        const record = await options.store.readPublication(options.result.reviewId);
+        // `parsed.drafts` already excludes anything unknown, duplicated,
+        // oversized or malformed — parsing rejected those before they ever
+        // reached this map — so what remains is safe to persist even though
+        // another field made the whole submission invalid (doc 03 P1.7
+        // correction E). Only this response redisplays the checkboxes the
+        // human had ticked; a freshly opened page never does, because
+        // `buildPageModel` only checks a box from an explicit `selected` set,
+        // never from a persisted draft.
+        let record = await options.store.readPublication(options.result.reviewId);
+        record = await options.store.saveDrafts(record, draftsOf(parsed, options.clock));
         reply.status(400).type('text/html; charset=utf-8');
         return await reply.view(
           'review',
@@ -319,6 +331,25 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
       const claimed = sessions.beginSubmission(session, parsed.submissionId);
       if (!claimed.ok) {
         await refuse(reply, 409, 'That submission was not accepted.', claimed.reason);
+        return reply;
+      }
+
+      // The in-memory session lock above only serializes within this process;
+      // the same saved review can be opened by a second `ambicode view`
+      // (doc 03 P1.7 correction C). The lease is acquired only now, after
+      // authentication, CSRF/Origin and form validation all passed, and it
+      // covers everything from here through the recorded outcome.
+      const lease = await acquirePublicationLease({
+        fs: options.fs,
+        clock: options.clock,
+        reviewDirectory: options.store.directory,
+        reviewId: options.result.reviewId,
+        submissionId: parsed.submissionId,
+        pid: options.processId,
+      });
+      if (lease.kind === 'held') {
+        sessions.endSubmission(session);
+        await refuse(reply, 409, 'This review is already publishing.', lease.message);
         return reply;
       }
 
@@ -349,6 +380,7 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
 
         await options.store.recordSubmission(record, submission);
       } finally {
+        await lease.release();
         sessions.endSubmission(session);
       }
 
@@ -472,7 +504,12 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
   };
 }
 
-function draftsOf(parsed: ParsedSubmission & { kind: 'ok' }, clock: Clock) {
+/**
+ * Shared by the accepted and the rejected path: both carry the same
+ * `drafts`/`selected` shape, and a rejected submission's known, bounded draft
+ * text is preserved exactly like an accepted one's (doc 03 P1.7 correction E).
+ */
+function draftsOf(parsed: Pick<ParsedSubmission, 'drafts' | 'selected'>, clock: Clock) {
   const at = clock.now().toISOString();
   return [...parsed.drafts.entries()].map(([findingId, body]) => ({
     findingId,

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { DeliveryCertainty } from '../../contracts/provider.ts';
 import type { ProcessRunner } from '../../ports/process.ts';
 
 /**
@@ -16,7 +17,7 @@ export const PAGE_SIZE = 100;
 
 export type ApiResult<T> =
   | { kind: 'ok'; value: T }
-  | { kind: 'failed'; message: string; details: string[] };
+  | { kind: 'failed'; message: string; details: string[]; certainty: DeliveryCertainty };
 
 export interface GitLabApiOptions {
   runner: ProcessRunner;
@@ -88,10 +89,21 @@ export class GitLabApi {
     });
 
     if (outcome.kind === 'spawn-failed') {
-      return failed(`glab could not be started: ${outcome.failure ?? 'unknown spawn failure'}.`, [
-        'AMBICODE talks to GitLab only through the glab CLI; install it and run `glab auth login` for this host.',
-      ]);
+      // The process never started, so no request reached GitLab: the only
+      // case this module can prove happened strictly before any send (doc 03
+      // P1.7 correction A).
+      return failed(
+        `glab could not be started: ${outcome.failure ?? 'unknown spawn failure'}.`,
+        ['AMBICODE talks to GitLab only through the glab CLI; install it and run `glab auth login` for this host.'],
+        'before-send',
+      );
     }
+    // Everything below started a process that GitLab may have already acted
+    // on, so none of it may claim `before-send`: a timeout, a truncated
+    // answer, a nonzero exit and an unparseable or schema-invalid body are all
+    // `uncertain` by default. Do not narrow this by matching message text —
+    // only a provider that returns structured proof of pre-send rejection may
+    // pass `before-send` explicitly, and none of these cases is that.
     if (outcome.kind === 'timed-out') {
       return failed(`glab api ${request.path} timed out after ${Math.round(this.timeoutMs / 1000)}s.`);
     }
@@ -157,10 +169,14 @@ export class GitLabApi {
         arraySchema,
       );
       if (result.kind !== 'ok') {
-        return failed(`${result.message} (page ${page} of ${request.path})`, [
-          ...result.details,
-          `${items.length} item(s) had already been read; a partial listing is not returned as a complete one.`,
-        ]);
+        return failed(
+          `${result.message} (page ${page} of ${request.path})`,
+          [
+            ...result.details,
+            `${items.length} item(s) had already been read; a partial listing is not returned as a complete one.`,
+          ],
+          result.certainty,
+        );
       }
 
       items.push(...result.value);
@@ -182,8 +198,13 @@ export class GitLabApi {
   }
 }
 
-function failed<T>(message: string, details: string[] = []): ApiResult<T> {
-  return { kind: 'failed', message, details };
+/** `certainty` defaults to `uncertain`: see the call sites above for the one exception. */
+function failed<T>(
+  message: string,
+  details: string[] = [],
+  certainty: DeliveryCertainty = 'uncertain',
+): ApiResult<T> {
+  return { kind: 'failed', message, details, certainty };
 }
 
 function firstLine(value: string): string {

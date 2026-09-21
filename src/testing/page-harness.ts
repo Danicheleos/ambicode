@@ -76,6 +76,7 @@ export interface HarnessOptions {
   provider?: FakeProvider | null;
   idleTimeoutSeconds?: number;
   record?: PublicationRecord;
+  processId?: number;
 }
 
 export interface Harness {
@@ -112,6 +113,7 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
     idleTimeoutSeconds: options.idleTimeoutSeconds ?? 1800,
     reopenCommand: reopenCommand(result.reviewId),
     authority: AUTHORITY,
+    processId: options.processId ?? process.pid,
   });
 
   return {
@@ -124,6 +126,43 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
     dispose: async () => {
       await server.stop('test finished');
       await rm(directory, { recursive: true, force: true });
+    },
+  };
+}
+
+/**
+ * A second `ambicode view` process against the same saved review: a fresh
+ * server, a fresh capability and session, reading whatever the first process
+ * left on disk. Used to prove that persisted drafts survive a reopen while
+ * checkbox selection does not (doc 03 P1.7 correction E).
+ */
+export async function reopenHarness(harness: Harness): Promise<Harness> {
+  const record = await harness.store.readPublication(harness.result.reviewId);
+  const positions = await harness.store.readPositions();
+  const server = await createPageServer({
+    fs: nodeFileSystem,
+    clock: harness.clock,
+    ids: new CountingIds(`h${(harnessCounter += 1)}-`),
+    store: harness.store,
+    result: harness.result,
+    positions,
+    record,
+    provider: harness.provider,
+    templatesDirectory,
+    idleTimeoutSeconds: 1800,
+    reopenCommand: reopenCommand(harness.result.reviewId),
+    authority: AUTHORITY,
+    processId: process.pid,
+  });
+  return {
+    server,
+    provider: harness.provider,
+    store: harness.store,
+    clock: harness.clock,
+    directory: harness.directory,
+    result: harness.result,
+    dispose: async () => {
+      await server.stop('test finished');
     },
   };
 }

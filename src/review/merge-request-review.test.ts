@@ -144,7 +144,14 @@ class FakeGitLab implements ReviewProvider {
   async listDiscussions(): Promise<ProviderOutcome<DiscussionListing>> {
     this.calls.push('listDiscussions');
     if (this.discussionsFail) {
-      return { kind: 'failed', provider: 'gitlab', operation: 'listDiscussions', message: 'HTTP 403', details: [] };
+      return {
+        kind: 'failed',
+        provider: 'gitlab',
+        operation: 'listDiscussions',
+        message: 'HTTP 403',
+        details: [],
+        certainty: 'uncertain',
+      };
     }
     return {
       kind: 'ok',

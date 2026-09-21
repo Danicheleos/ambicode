@@ -194,6 +194,7 @@ describe('U23 uncertain delivery', () => {
         operation: 'publishComment',
         message: 'glab api projects/91/... timed out after 60s.',
         details: [],
+        certainty: 'uncertain',
       };
     };
 
@@ -218,6 +219,7 @@ describe('U23 uncertain delivery', () => {
         operation: 'publishComment',
         message: 'The GitLab response for discussions does not match what AMBICODE expects.',
         details: [],
+        certainty: 'uncertain',
       };
     };
     const originalList = provider.listDiscussions.bind(provider);

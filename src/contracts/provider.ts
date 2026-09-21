@@ -26,7 +26,23 @@ export type ProviderOutcome<T> =
       operation: ProviderOperation;
       message: string;
       details: string[];
+      /**
+       * Whether a write this failure describes can be proven to have never
+       * reached the remote. Only meaningful for `publishComment`; other
+       * operations may leave it at its safe default (doc 03 P1.6/P1.7
+       * correction A).
+       *
+       * `before-send`: the process never started, or the provider proved the
+       * request was rejected before it could create anything.
+       * `uncertain`: the request may have started; creation cannot be
+       * disproved. This is the default a caller must assume absent structured
+       * proof otherwise — never inferred from message text.
+       */
+      certainty: DeliveryCertainty;
     };
+
+export const DeliveryCertainty = z.enum(['before-send', 'uncertain']);
+export type DeliveryCertainty = z.infer<typeof DeliveryCertainty>;
 
 export type ProviderOperation =
   | 'resolveTarget'
@@ -48,13 +64,20 @@ export function providerUnsupported<T>(
   return { kind: 'unsupported', provider, operation, message };
 }
 
+/**
+ * `certainty` defaults to `uncertain`: a caller that does not have structured
+ * proof that a write never reached the remote must never claim it did (doc 03
+ * P1.7 correction A). Only a proven pre-send rejection passes `'before-send'`
+ * explicitly.
+ */
 export function providerFailed<T>(
   provider: ProviderId,
   operation: ProviderOperation,
   message: string,
   details: string[] = [],
+  certainty: DeliveryCertainty = 'uncertain',
 ): ProviderOutcome<T> {
-  return { kind: 'failed', provider, operation, message, details };
+  return { kind: 'failed', provider, operation, message, details, certainty };
 }
 
 /**

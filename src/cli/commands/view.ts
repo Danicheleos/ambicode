@@ -8,6 +8,7 @@ import { sweepOwnedTemporaries, type SweepReport } from '../../page/cleanup.ts';
 import { openInBrowser } from '../../page/open-browser.ts';
 import { reopenCommand } from '../../page/reopen.ts';
 import { createPageServer } from '../../page/server.ts';
+import { validateReviewAggregate } from '../../publication/aggregate.ts';
 import { reconcileUncertainOutcomes } from '../../publication/publish.ts';
 import { ReviewStore } from '../../publication/store.ts';
 import { AmbicodeError } from '../../util/errors.ts';
@@ -88,6 +89,11 @@ export async function runView(
   const positions = await store.readPositions();
   let record = await store.readPublication(result.reviewId);
 
+  // Each file already validated against its own schema; this additionally
+  // proves the three agree with each other before a provider or the page
+  // server is built on them (doc 03 P1.7 correction D).
+  validateReviewAggregate({ result, positions, record });
+
   const provider = providerFor(runtime, result);
   const notes: string[] = [
     ...cleanup.failures,
@@ -133,6 +139,7 @@ export async function runView(
     templatesDirectory: path.join(runtime.pluginRoot, 'templates'),
     idleTimeoutSeconds: config.idleTimeoutSeconds,
     reopenCommand: reopenCommand(result.reviewId),
+    processId: process.pid,
   });
 
   let port = 0;
