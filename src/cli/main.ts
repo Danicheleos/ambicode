@@ -7,6 +7,7 @@ import { BUNDLE_OPTIONS, renderBundle, runBundle } from './commands/bundle.ts';
 import { CONFIG_OPTIONS, renderConfig, runConfig } from './commands/config.ts';
 import { INIT_OPTIONS, renderInit, runInit } from './commands/init.ts';
 import { POLICY_OPTIONS, renderPolicy, runPolicy } from './commands/policy.ts';
+import { POLICY_CHECK_OPTIONS, renderPolicyCheck, runPolicyCheck } from './commands/policy-check.ts';
 import { PREPARE_OPTIONS, renderPrepare, runPrepare } from './commands/prepare.ts';
 import { REVIEW_OPTIONS, renderReview, runReview } from './commands/review.ts';
 import { VIEW_OPTIONS, renderView, runView, type ViewOutput } from './commands/view.ts';
@@ -27,6 +28,19 @@ export const USAGE = `ambicode <command> [options]
   policy [paths...]       Print the policy that applies.
                             --project <id>
                             --activity <review|task|plan|investigate>
+
+  policy check <file...>  Validate candidate policy pack files that are not yet
+                          referenced from .ambicode/config.yaml: the schema, the
+                          load-time rules, and what each appliesTo glob matches
+                          in the repository as it stands. Exits nonzero when any
+                          diagnostic is an error. Nothing is written.
+                            --project <id>        The project whose root, layout
+                                                  and command catalog the packs
+                                                  are judged against. Required
+                                                  when more than one project is
+                                                  configured.
+                          To resolve policy for a path literally named "check",
+                          write "policy -- check".
 
   prepare [paths...]      The smallest shared preparation for a skill that has
                           not yet decided what to do: normalized requirement
@@ -104,6 +118,13 @@ type Rendered = {
   json?: JsonFormat;
   /** A command that keeps serving until this settles, e.g. the review page. */
   wait?: { until: Promise<string>; stop: (reason: string) => Promise<void> };
+  /**
+   * A nonzero status for a command whose *finding* is the outcome, not a
+   * failure to run: `policy check` printed its report in full and then exits
+   * nonzero because a diagnostic was an error. An operator error still throws
+   * and still exits 2; this is neither that nor success.
+   */
+  exitCode?: number;
 };
 
 export async function main(argv: readonly string[]): Promise<number> {
@@ -129,7 +150,14 @@ export async function main(argv: readonly string[]): Promise<number> {
     return 0;
   }
 
-  const spec = SPECS[command];
+  // The one two-word command. `policy`'s operands are paths, so the subcommand
+  // is recognized here, once, rather than by `runPolicy` inspecting its own
+  // operands: a path literally named "check" stays reachable as
+  // `policy -- check`, which does not match this.
+  const name = command === 'policy' && rest[0] === 'check' ? 'policy check' : command;
+  const commandArgv = name === 'policy check' ? rest.slice(1) : rest;
+
+  const spec = SPECS[name];
   if (spec === undefined) {
     process.stderr.write(`Unknown command "${command}".\n\n${USAGE}`);
     return 2;
@@ -138,12 +166,12 @@ export async function main(argv: readonly string[]): Promise<number> {
   try {
     // Parsed once, before any runtime exists: a bad argument must not reach a
     // process, the filesystem or a provider, and a good one must not be re-judged.
-    const args = parseArgs(command, rest, spec);
+    const args = parseArgs(name, commandArgv, spec);
     // Combination rules are decided here too, still before a runtime exists:
     // a conflicting target must not create a temporary directory, start git,
     // or reach a provider first.
-    validateCombination(command, args);
-    const rendered = await dispatch(command, args);
+    validateCombination(name, args);
+    const rendered = await dispatch(name, args);
     process.stdout.write(
       args.flag('json') ? formatJsonOutput(rendered.data, rendered.json ?? 'pretty') : `${rendered.text}\n`,
     );
@@ -151,7 +179,7 @@ export async function main(argv: readonly string[]): Promise<number> {
       const reason = await serveUntilStopped(rendered.wait);
       process.stdout.write(`The review page stopped: ${reason}.\n`);
     }
-    return 0;
+    return rendered.exitCode ?? 0;
   } catch (error) {
     return reportFailure(error);
   }
@@ -164,6 +192,7 @@ export const SPECS: Record<string, OptionSpec | undefined> = {
   init: INIT_OPTIONS,
   config: CONFIG_OPTIONS,
   policy: POLICY_OPTIONS,
+  'policy check': POLICY_CHECK_OPTIONS,
   prepare: PREPARE_OPTIONS,
   review: REVIEW_OPTIONS,
   bundle: BUNDLE_OPTIONS,
@@ -191,6 +220,12 @@ async function dispatch(command: string, args: ParsedArgs): Promise<Rendered> {
     case 'policy': {
       const output = await runPolicy(runtime, args);
       return { text: renderPolicy(output), data: output };
+    }
+    case 'policy check': {
+      const output = await runPolicyCheck(runtime, args);
+      // The report is the deliverable either way; the status says whether the
+      // candidate files are usable, so a skill can loop on it without parsing.
+      return { text: renderPolicyCheck(output), data: output, ...(output.ok ? {} : { exitCode: 1 }) };
     }
     case 'prepare': {
       const run = await runPrepare(runtime, args);

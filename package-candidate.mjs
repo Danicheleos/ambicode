@@ -182,7 +182,7 @@ async function checkNoWorkstationPaths(candidateDir) {
 async function checkSharedResourceReferences(candidateDir) {
   const SHARED_RESOURCE = 'skills/shared/requirements-mcp.md';
   const PLUGIN_ROOT_REFERENCE = '${CLAUDE_PLUGIN_ROOT}/skills/shared/requirements-mcp.md';
-  const EXPECTED_REFERRERS = ['review', 'investigate', 'plan', 'task'];
+  const EXPECTED_REFERRERS = ['review', 'investigate', 'plan', 'task', 'rules'];
 
   const sharedFile = path.join(candidateDir, SHARED_RESOURCE);
   if (!(await stat(sharedFile).then(() => true, () => false))) {

@@ -4,7 +4,7 @@
 //
 // Usage: node smoke-candidate.mjs [candidate-directory]
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -65,6 +65,41 @@ async function checkPoliciesAndPromptsResolve() {
       throw new Error(`resolved policy did not include the built-in common-quality pack:\n${policyOutput}`);
     }
     console.log('OK: `ambicode init` + `ambicode policy` resolve the installed candidate\'s built-in policies.');
+
+    // R3: the two-word `policy check` dispatch and the nonzero exit on an
+    // error diagnostic, through the bundled entry point rather than the source
+    // tree — a subcommand recognized only in `src/cli/main.ts` would look fine
+    // in a unit test and be unreachable in the shipped bundle.
+    await mkdir(path.join(cwd, '.ambicode', 'policies'), { recursive: true });
+    const candidatePack = path.join('.ambicode', 'policies', 'smoke.yaml');
+    await writeFile(
+      path.join(cwd, candidatePack),
+      [
+        'schemaVersion: 1',
+        'id: smoke',
+        'authority: team',
+        'appliesTo: ["**/*.ts"]',
+        'activities: [review]',
+        'source: { location: "smoke-candidate.mjs" }',
+        'rules: []',
+        '',
+      ].join('\n'),
+    );
+    const checkOutput = run(['policy', 'check', candidatePack], { cwd });
+    if (!/appliesTo/.test(checkOutput) || !/1 file/.test(checkOutput)) {
+      throw new Error(`policy check did not report what the candidate pack's glob matches:\n${checkOutput}`);
+    }
+
+    await writeFile(path.join(cwd, candidatePack), 'schemaVersion: 2\n');
+    let failed = false;
+    try {
+      run(['policy', 'check', candidatePack], { cwd, stdio: 'pipe' });
+    } catch (error) {
+      failed = true;
+      if (error.status !== 1) throw new Error(`policy check exited ${error.status}, expected 1`);
+    }
+    if (!failed) throw new Error('policy check accepted an invalid pack');
+    console.log('OK: `ambicode policy check` validates a candidate pack and exits nonzero on an error.');
   });
 }
 

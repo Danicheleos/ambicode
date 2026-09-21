@@ -55,7 +55,7 @@ function requiredString(fm: Record<string, unknown>, key: string, what: string):
 const PLUGIN_ROOT_SHARED_REFERENCE = '${CLAUDE_PLUGIN_ROOT}/skills/shared/requirements-mcp.md';
 
 describe('P2.2/P2.3 shipped skill content', () => {
-  it('registers exactly ambicode:init, ambicode:review, ambicode:investigate, ambicode:plan and ambicode:task', async () => {
+  it('registers exactly ambicode:init, ambicode:review, ambicode:investigate, ambicode:plan, ambicode:task and ambicode:rules', async () => {
     const entries = await readdir(SKILLS_DIR, { withFileTypes: true });
     const skillDirs: string[] = [];
     for (const entry of entries) {
@@ -68,7 +68,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
         // A directory with no SKILL.md (e.g. `shared/`) is not a skill.
       }
     }
-    assert.deepEqual(skillDirs.sort(), ['init', 'investigate', 'plan', 'review', 'task']);
+    assert.deepEqual(skillDirs.sort(), ['init', 'investigate', 'plan', 'review', 'rules', 'task']);
 
     // Being registered is not the same as being triggerable: Claude Code
     // matches on `name` and `description`, and a skill whose frontmatter fails
@@ -83,7 +83,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
       assert.equal(requiredString(fm, 'name', what), dir, `${what} must declare name: ${dir}`);
       requiredString(fm, 'description', what);
       // Only the two skills that take an argument declare a hint for it.
-      if (dir === 'plan' || dir === 'task') requiredString(fm, 'argument-hint', what);
+      if (dir === 'plan' || dir === 'task' || dir === 'rules') requiredString(fm, 'argument-hint', what);
     }
   });
 
@@ -93,8 +93,8 @@ describe('P2.2/P2.3 shipped skill content', () => {
     await assert.rejects(readFile(path.join(SKILLS_DIR, 'shared', 'SKILL.md'), 'utf8'));
   });
 
-  it('review, investigate, plan and task all reference the shared MCP acquisition procedure through the plugin root, instead of duplicating it or a repository-relative path', async () => {
-    const referrers = ['review', 'investigate', 'plan', 'task'] as const;
+  it('review, investigate, plan, task and rules all reference the shared MCP acquisition procedure through the plugin root, instead of duplicating it or a repository-relative path', async () => {
+    const referrers = ['review', 'investigate', 'plan', 'task', 'rules'] as const;
     for (const name of referrers) {
       const content = await readFile(path.join(SKILLS_DIR, name, 'SKILL.md'), 'utf8');
       assert.ok(
@@ -120,7 +120,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
 
   it('the shared procedure describes retrieving on behalf of all four referrers and no other skill file duplicates it', async () => {
     const shared = await readFile(path.join(SKILLS_DIR, 'shared', 'requirements-mcp.md'), 'utf8');
-    for (const name of ['review', 'investigate', 'plan', 'task']) {
+    for (const name of ['review', 'investigate', 'plan', 'task', 'rules']) {
       assert.ok(shared.includes(name), `shared/requirements-mcp.md should name "${name}" as a referrer`);
     }
   });
@@ -136,7 +136,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
     // procedure and review, and every line of it existed only because the
     // envelope had to survive between two commands. `--evidence -` removes
     // the object, so the protocol around it has nothing left to govern.
-    const files = ['shared/requirements-mcp.md', 'task/SKILL.md', 'review/SKILL.md', 'plan/SKILL.md', 'investigate/SKILL.md'];
+    const files = ['shared/requirements-mcp.md', 'task/SKILL.md', 'review/SKILL.md', 'plan/SKILL.md', 'investigate/SKILL.md', 'rules/SKILL.md'];
     for (const relative of files) {
       const content = (await readFile(path.join(SKILLS_DIR, relative), 'utf8')).replace(/\s+/g, ' ');
       for (const forbidden of [

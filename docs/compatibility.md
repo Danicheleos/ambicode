@@ -299,14 +299,18 @@ the live behaviour.
 
 ## Skills
 
-The plugin ships five skills, invoked as `/ambicode:init`, `/ambicode:review`,
-`/ambicode:investigate`, `/ambicode:plan` and `/ambicode:task`. Per the plugin
-reference, a skill's directory name is only a fallback — and an unstable one
-for a cached plugin — so each `SKILL.md` sets `name` explicitly. Claude Code
-namespaces them under the plugin name, which is why the directories are
-`skills/init`, `skills/review`, `skills/investigate`, `skills/plan` and
-`skills/task` rather than repeating "ambicode" in each half of the
-invocation.
+The plugin ships six skills, invoked as `/ambicode:init`, `/ambicode:rules`,
+`/ambicode:review`, `/ambicode:investigate`, `/ambicode:plan` and
+`/ambicode:task`. Per the plugin reference, a skill's directory name is only a
+fallback — and an unstable one for a cached plugin — so each `SKILL.md` sets
+`name` explicitly. Claude Code namespaces them under the plugin name, which is
+why the directories are `skills/init`, `skills/rules`, `skills/review`,
+`skills/investigate`, `skills/plan` and `skills/task` rather than repeating
+"ambicode" in each half of the invocation.
+
+`/ambicode:rules` (R3) is a setup-time skill: it is invoked when AMBICODE is
+adopted and when the team's rules change, never on a task, plan, investigation
+or review path.
 
 Re-confirmed on 2.1.272 through the **packaged** candidate rather than
 `--plugin-dir`, with no model call, via `npm run smoke:install-local` (doc 04

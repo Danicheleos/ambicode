@@ -1,9 +1,11 @@
 # Retrieving Jira/Confluence requirements over MCP
 
 Shared by every AMBICODE skill that accepts a repeatable `--requirement <url>`
-— today `review`, `investigate`, `plan` and `task`. Read this once per
-invocation that has at least one requirement URL. Do not copy this procedure
-into another skill file; if a future skill needs it, point it here instead.
+— today `review`, `investigate`, `plan` and `task` — and by `rules`, which
+reuses the binding and retrieval steps without any command to hand the result
+to. Read this once per invocation that has at least one Jira/Confluence URL. Do
+not copy this procedure into another skill file; if a future skill needs it,
+point it here instead.
 
 You hold the MCP connection. The helper never does, and never will: it has no
 Atlassian client and no credentials. So you retrieve, and you hand over what
@@ -69,6 +71,11 @@ EVIDENCE
    In PowerShell, pipe it instead: `$evidence | node "…/ambicode.mjs" review
    --requirement <url> --evidence -`. Every URL you pass with `--requirement`
    must have an entry in the envelope, and the envelope must hold nothing else.
+
+**Retrieval with no command to hand it to.** `rules` reads a Confluence page to
+author policy packs from what it states, and no command takes an envelope for
+that. It follows steps 1 to 3 and stops: no envelope, no `--requirement`, same
+honesty about a source it could not read.
 
 **There is no evidence file to own.** A workflow that hands the same evidence
 to two commands — `prepare` and then `review`, or `review` again after fixing

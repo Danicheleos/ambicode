@@ -16,6 +16,13 @@ export interface InitOutput {
   written: boolean;
   changes: string[];
   notices: string[];
+  /**
+   * Files that usually hold a team's written rules, detected by existence
+   * only (R3 part 3). They are migration candidates for `/ambicode:rules`,
+   * never rules init has understood: AMBICODE's runtime reads policy from
+   * YAML packs and from nothing else.
+   */
+  ruleSources: string[];
   projects: { id: string; root: string; ecosystem: string; configured: string[]; missing: string[]; navigation: NavigationGuidance }[];
 }
 
@@ -56,6 +63,7 @@ export async function runInit(runtime: Runtime, args: ParsedArgs): Promise<InitO
     written,
     changes: plan.changes,
     notices: plan.notices,
+    ruleSources: plan.ruleSources,
     projects: plan.config.projects.map((project) => ({
       id: project.id,
       root: project.root,
@@ -105,6 +113,12 @@ export function renderInit(output: InitOutput): string {
     lines.push(`  checks missing:    ${project.missing.join(', ') || '(none)'}`);
     lines.push(`  code intelligence: ${project.navigation.plugin} (session-observed; optional setup below)`);
     lines.push(...project.navigation.setupCommands.map((command) => `    ${command}`));
+  }
+
+  if (output.ruleSources.length > 0) {
+    lines.push('', 'Rule sources to migrate (none was read):');
+    for (const source of output.ruleSources) lines.push(`  - ${source}`);
+    lines.push('  Run /ambicode:rules to turn the rules these state into scoped YAML packs.');
   }
 
   if (output.changes.length > 0) {

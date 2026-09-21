@@ -13,6 +13,12 @@ export interface InitPlan {
   created: boolean;
   changes: string[];
   notices: string[];
+  /**
+   * Repository-relative paths that usually hold a team's written rules, found
+   * by existence alone (R3 part 3). Candidates for `/ambicode:rules`; nothing
+   * here has been opened, classified, or migrated.
+   */
+  ruleSources: string[];
   /** The configuration that results once `yaml` is written. */
   config: AmbicodeConfig;
 }
@@ -38,7 +44,45 @@ export async function planInit(options: PlanInitOptions): Promise<InitPlan> {
     existingRaw = null;
   }
 
-  return existingRaw === null ? createFresh(options) : updateExisting(existingRaw, options);
+  const plan = existingRaw === null ? createFresh(options) : updateExisting(existingRaw, options);
+  plan.ruleSources = await detectRuleSources(options.fs, options.repositoryRoot);
+  if (plan.ruleSources.length > 0) plan.notices.push(ruleSourceNotice(plan.ruleSources));
+  return plan;
+}
+
+/**
+ * Where a team's rules are usually written, in the order a migration would
+ * read them. This is a fixed list checked with `exists` and nothing more: init
+ * does not read, classify, or migrate rule content, because deciding that a
+ * paragraph is a rule and what it is scoped to is a judgement, and a judgement
+ * belongs to `/ambicode:rules` with a human present, once, at setup — never to
+ * a detector that runs on every init (R3 part 3).
+ */
+const RULE_SOURCE_CANDIDATES = [
+  'CLAUDE.md',
+  'CONTRIBUTING.md',
+  'docs',
+  '.cursor/rules',
+  '.github/instructions',
+  '.github/copilot-instructions.md',
+] as const;
+
+export async function detectRuleSources(fs: FileSystem, repositoryRoot: string): Promise<string[]> {
+  const found: string[] = [];
+  for (const candidate of RULE_SOURCE_CANDIDATES) {
+    if (await fs.exists(path.join(repositoryRoot, candidate))) found.push(candidate);
+  }
+  return found;
+}
+
+function ruleSourceNotice(sources: readonly string[]): string {
+  return [
+    `This repository has files that usually hold written rules: ${sources.join(', ')}.`,
+    'AMBICODE resolves policy only from YAML packs, so none of this is in effect. Run',
+    '/ambicode:rules to turn the rules those documents state into scoped packs under',
+    '.ambicode/policies/, once, with you confirming what carries over and what does not.',
+    'Nothing above was read, classified, or migrated by init.',
+  ].join('\n');
 }
 
 /**
@@ -88,7 +132,7 @@ function createFresh(options: PlanInitOptions): InitPlan {
   document.commentBefore = HEADER_COMMENT;
 
   const yaml = document.toString({ lineWidth: 100 });
-  return { yaml, created: true, changes, notices, config: parseConfig(yaml) };
+  return { yaml, created: true, changes, notices, ruleSources: [], config: parseConfig(yaml) };
 }
 
 function updateExisting(existingRaw: string, options: PlanInitOptions): InitPlan {
@@ -132,11 +176,11 @@ function updateExisting(existingRaw: string, options: PlanInitOptions): InitPlan
 
   if (changes.length === 0) {
     notices.push('Everything detected is already described in the configuration; nothing was changed.');
-    return { yaml: null, created: false, changes, notices, config: parseConfig(existingRaw) };
+    return { yaml: null, created: false, changes, notices, ruleSources: [], config: parseConfig(existingRaw) };
   }
 
   const yaml = document.toString({ lineWidth: 100 });
-  return { yaml, created: false, changes, notices, config: parseConfig(yaml) };
+  return { yaml, created: false, changes, notices, ruleSources: [], config: parseConfig(yaml) };
 }
 
 /**

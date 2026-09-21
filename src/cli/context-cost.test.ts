@@ -49,6 +49,10 @@ const MAX_SKILL_BYTES: Record<string, number> = {
   'plan/SKILL.md': 10_400,
   'review/SKILL.md': 11_800,
   'task/SKILL.md': 10_000,
+  // R3: a setup-time skill, invoked by name and never on a per-call path, so
+  // its ceiling is about staying disciplined rather than about per-call cost.
+  // It is the longest because it is the only skill that has to teach a format.
+  'rules/SKILL.md': 11_600,
   'shared/requirements-mcp.md': 5_600,
   'shared/prepare-output.md': 4_000,
 };
