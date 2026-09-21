@@ -11,22 +11,43 @@ import type { FileSystem } from '../ports/filesystem.ts';
 import { byteLength } from '../snapshot/limits.ts';
 import { promptsDirectory } from '../util/plugin-root.ts';
 import { contentHash } from '../util/hash.ts';
+import { readSharedOperatingContract } from '../policy/shared-contract.ts';
 import type { ReviewBundle } from './bundle.ts';
 
 /**
  * The reviewer prompt is composed from files, not from strings in TypeScript:
  * calibration is a Markdown edit (doc 05). This module orders the sections and
  * marks the boundary between what is authoritative and what is evidence.
+ *
+ * The shared operating contract is read through the one canonical helper
+ * (`src/policy/shared-contract.ts`) that `ambicode prepare` also uses (doc 04
+ * P2.4 correction A4), so this file and every authoring skill agree on
+ * exactly which bytes that contract is.
  */
 
-const SHARED_CONTRACT = 'shared-operating-contract.md';
 const REVIEWER_ROLE = 'reviewer-role.md';
 
 /** Everything below this line is data. The marker is referenced by both files. */
 const UNTRUSTED = 'UNTRUSTED EVIDENCE';
 
 export interface ComposedPrompt {
-  text: string;
+  /**
+   * Appended to the reviewer's default system prompt via
+   * `--append-system-prompt` (doc 04 P2.4 correction E1): only the canonical
+   * shared operating contract and the reviewer role, nothing that carries
+   * change data, requirements, prior discussion, or diff content. Kept as a
+   * distinct artifact from `user` so the two are stored, measured, and
+   * audited separately (correction E6).
+   */
+  system: string;
+  /**
+   * The ordinary user prompt (correction E2): scope, scoped project
+   * guidance, requirements, discussions, check evidence, and the diff itself,
+   * each under its own explicit boundary. Trusted, pack-provenanced project
+   * guidance is visibly separated from the sections marked `UNTRUSTED
+   * EVIDENCE` (correction E3).
+   */
+  user: string;
   provenance: ProvenanceEntry[];
 }
 
@@ -36,27 +57,37 @@ export async function composeReviewerPrompt(
   bundle: ReviewBundle,
 ): Promise<ComposedPrompt> {
   const provenance: ProvenanceEntry[] = [];
-  const sections: string[] = [];
+  const systemSections: string[] = [];
 
-  for (const name of [SHARED_CONTRACT, REVIEWER_ROLE]) {
-    const absolute = path.join(promptsDirectory(pluginRoot), name);
-    const text = await fs.readText(absolute);
-    provenance.push({ kind: 'prompt', reference: `builtin/prompts/${name}`, contentHash: contentHash(text) });
-    sections.push(text.trimEnd());
-  }
+  const shared = await readSharedOperatingContract(fs, pluginRoot);
+  provenance.push({ kind: 'prompt', reference: shared.reference, contentHash: shared.contentHash });
+  systemSections.push(shared.content.trimEnd());
 
-  sections.push(scopeSection(bundle));
+  const reviewerRoleAbsolute = path.join(promptsDirectory(pluginRoot), REVIEWER_ROLE);
+  const reviewerRoleText = await fs.readText(reviewerRoleAbsolute);
+  provenance.push({
+    kind: 'prompt',
+    reference: `builtin/prompts/${REVIEWER_ROLE}`,
+    contentHash: contentHash(reviewerRoleText),
+  });
+  systemSections.push(reviewerRoleText.trimEnd());
+
+  const userSections: string[] = [scopeSection(bundle)];
 
   const guidance = await guidanceSection(fs, bundle.policies);
-  if (guidance !== null) sections.push(guidance);
+  if (guidance !== null) userSections.push(guidance);
 
-  sections.push(requirementSection(bundle));
+  userSections.push(requirementSection(bundle));
   const discussions = discussionSection(bundle);
-  if (discussions !== null) sections.push(discussions);
-  sections.push(evidenceSection(bundle));
-  sections.push(outputSection(bundle));
+  if (discussions !== null) userSections.push(discussions);
+  userSections.push(evidenceSection(bundle));
+  userSections.push(outputSection(bundle));
 
-  return { text: `${sections.join('\n\n---\n\n')}\n`, provenance };
+  return {
+    system: `${systemSections.join('\n\n---\n\n')}\n`,
+    user: `${userSections.join('\n\n---\n\n')}\n`,
+    provenance,
+  };
 }
 
 /**
@@ -78,12 +109,15 @@ export async function estimatePromptOverheadBytes(
 ): Promise<number> {
   let total = PROMPT_EVIDENCE_RESERVE_BYTES + byteLength(parts.patch);
 
-  for (const name of [SHARED_CONTRACT, REVIEWER_ROLE]) {
-    try {
-      total += byteLength(await fs.readText(path.join(promptsDirectory(pluginRoot), name)));
-    } catch {
-      // A missing canonical prompt fails later, where it can be explained.
-    }
+  try {
+    total += byteLength((await readSharedOperatingContract(fs, pluginRoot)).content);
+  } catch {
+    // A missing canonical prompt fails later, where it can be explained.
+  }
+  try {
+    total += byteLength(await fs.readText(path.join(promptsDirectory(pluginRoot), REVIEWER_ROLE)));
+  } catch {
+    // Same.
   }
 
   for (const source of parts.requirements) total += byteLength(source.content) + byteLength(source.title);

@@ -36,10 +36,12 @@ either.
      question, informed by what you just retrieved. Never ask before reading.
    - A direct code question with no URL is already bounded: there is nothing
      to retrieve and nothing to ask before starting.
-3. **Prepare.** Run:
+3. **Prepare.** Run, with `--json` — its structured fields below are not
+   fully represented in the default text summary, which is a human-readable
+   overview, not the machine contract this step reads:
 
    ```sh
-   ambicode prepare --activity investigate [paths...] [--project <id>] \
+   ambicode prepare --activity investigate --json [paths...] [--project <id>] \
      [--requirement <url>]... [--evidence <file>]
    ```
 
@@ -50,15 +52,13 @@ either.
    not identify one project — pass `--project <id>`, or narrow the paths,
    rather than guessing which one was meant.
 
-   Its output is more than notices and diagnostics — apply it:
+   Parse its JSON output and apply it:
 
-   - Read `policy.rules` and weigh each by its actual authority (doc 05,
-     "Canonical policy pack"): `team` is an approved project requirement;
-     `observed` is evidence of existing project practice — relevant, but not
-     an approved requirement by itself; `inherited` is baseline guidance.
-     Never report `observed` or `inherited` guidance as a policy violation
-     unless independent requirement or code evidence establishes the
-     problem — the label alone is never enough.
+   - Read `sharedOperatingContract.content` first — the canonical operating
+     contract (evidence, untrusted content, and how to weigh `policy.rules`'
+     authority labels) that governs this and every other AMBICODE skill. It
+     is delivered here, hash-verified, exactly once; do not restate its
+     rules yourself.
    - Read `policy.prompts` before you do anything else in the steps below:
      the `before-work` stage is scoped content for exactly this moment, and
      its `content` field is already the file's full text — read it directly,

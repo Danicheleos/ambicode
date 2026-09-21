@@ -42,7 +42,7 @@
 //   node install-local.mjs uninstall /tmp/ambicode-isolated-claude-config
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { cp, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -160,6 +160,14 @@ function statePath(configDir) {
   return path.join(installRoot(configDir), 'state.json');
 }
 
+function lockPath(configDir) {
+  return path.join(installRoot(configDir), 'lock.json');
+}
+
+function journalPath(configDir) {
+  return path.join(installRoot(configDir), 'recovery-journal.json');
+}
+
 function randomSuffix() {
   return randomBytes(6).toString('hex');
 }
@@ -169,6 +177,65 @@ async function pathExists(candidate) {
     () => true,
     () => false,
   );
+}
+
+/** `null` when the source does not exist yet (e.g. a project dir not yet created); realpath'd otherwise so scope comparison is never fooled by a symlinked prefix (P2.4 correction D3). */
+async function canonicalize(candidate) {
+  if (candidate === null) return null;
+  try {
+    return await realpath(candidate);
+  } catch {
+    return path.resolve(candidate);
+  }
+}
+
+/**
+ * An ownership lock so two installer processes never mutate the same install
+ * root concurrently (P2.4 correction D11). A stale lock — its recorded pid no
+ * longer running — is reclaimed; a live one is refused outright rather than
+ * silently waited on, so a caller sees the conflict instead of two processes
+ * racing to publish the same marketplace directory.
+ */
+async function acquireLock(configDir) {
+  await mkdir(installRoot(configDir), { recursive: true });
+  const target = lockPath(configDir);
+  const record = { pid: process.pid, acquiredAt: new Date().toISOString() };
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      await writeFile(target, `${JSON.stringify(record, null, 2)}\n`, { flag: 'wx' });
+      return { release: () => rm(target, { force: true }) };
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+    }
+    let holder;
+    try {
+      holder = JSON.parse(await readFile(target, 'utf8'));
+    } catch {
+      holder = null;
+    }
+    const holderPid = typeof holder?.pid === 'number' ? holder.pid : null;
+    if (holderPid !== null && isProcessAlive(holderPid)) {
+      throw new InstallError(
+        'locked',
+        `Another install-local.mjs process (pid ${holderPid}) is already mutating ${installRoot(configDir)}. ` +
+          'Wait for it to finish, or remove the lock file yourself if you are certain it is not actually running: ' +
+          `${target}`,
+      );
+    }
+    // Stale: the recorded process is gone. Reclaim by removing it and retrying once.
+    await rm(target, { force: true });
+  }
+  throw new InstallError('locked', `Could not acquire the install lock at ${target} after reclaiming a stale one.`);
+}
+
+function isProcessAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === 'EPERM'; // Exists, just not signalable by us — still alive.
+  }
 }
 
 async function readCandidateIdentity(candidateDir) {
@@ -185,40 +252,69 @@ async function readCandidateIdentity(candidateDir) {
   return { name: manifest.name, version: manifest.version };
 }
 
+const SUPPORTED_STATE_SCHEMA_VERSION = 1;
+
 /**
  * The owned metadata this script persists on every successful install (P2.3
- * correction A): enough to identify the installed plugin version, scope, and
- * explicit project directory, so a later `uninstall` never has to guess or
- * accept an arbitrary caller-supplied scope for state it did not itself
- * record.
+ * correction A; P2.4 correction D4): enough to identify the installed
+ * plugin version, scope, and explicit project directory, so a later
+ * `uninstall` never has to guess or accept an arbitrary caller-supplied
+ * scope for state it did not itself record.
+ *
+ * Returns a tagged result that keeps "absent" (nothing installed by this
+ * script, a genuine no-op) strictly apart from "corrupt" (the file exists
+ * but is unreadable, invalid JSON, missing required fields, or declares a
+ * schema version this script does not understand) — the latter is an
+ * actionable failure a caller must resolve, never silently treated the same
+ * as "nothing to do here".
  */
-async function readState(configDir) {
+async function readStateStrict(configDir) {
+  const target = statePath(configDir);
   let raw;
   try {
-    raw = await readFile(statePath(configDir), 'utf8');
-  } catch {
-    return null;
+    raw = await readFile(target, 'utf8');
+  } catch (cause) {
+    if (cause.code === 'ENOENT') return { kind: 'absent' };
+    return { kind: 'corrupt', reason: `could not read ${target}: ${describe(cause)}` };
   }
   let parsed;
   try {
     parsed = JSON.parse(raw);
-  } catch {
-    return null;
+  } catch (cause) {
+    return { kind: 'corrupt', reason: `${target} is not valid JSON: ${describe(cause)}` };
+  }
+  if (parsed === null || typeof parsed !== 'object') {
+    return { kind: 'corrupt', reason: `${target} must contain a JSON object` };
+  }
+  if (parsed.schemaVersion !== undefined && parsed.schemaVersion !== SUPPORTED_STATE_SCHEMA_VERSION) {
+    return {
+      kind: 'corrupt',
+      reason: `${target} declares schemaVersion ${JSON.stringify(parsed.schemaVersion)}; this script supports ${SUPPORTED_STATE_SCHEMA_VERSION}`,
+    };
   }
   if (typeof parsed.name !== 'string' || typeof parsed.version !== 'string' || typeof parsed.scope !== 'string') {
-    return null;
+    return { kind: 'corrupt', reason: `${target} is missing required field "name", "version", or "scope"` };
+  }
+  if (!SCOPES.includes(parsed.scope)) {
+    return { kind: 'corrupt', reason: `${target} declares unsupported scope ${JSON.stringify(parsed.scope)}` };
+  }
+  if (parsed.projectDir !== null && parsed.projectDir !== undefined && typeof parsed.projectDir !== 'string') {
+    return { kind: 'corrupt', reason: `${target} field "projectDir" must be a string or null` };
   }
   return {
-    name: parsed.name,
-    version: parsed.version,
-    scope: parsed.scope,
-    projectDir: typeof parsed.projectDir === 'string' ? parsed.projectDir : null,
+    kind: 'ok',
+    state: {
+      name: parsed.name,
+      version: parsed.version,
+      scope: parsed.scope,
+      projectDir: typeof parsed.projectDir === 'string' ? parsed.projectDir : null,
+    },
   };
 }
 
 async function writeState(configDir, state) {
   await mkdir(installRoot(configDir), { recursive: true });
-  await writeFile(statePath(configDir), `${JSON.stringify(state, null, 2)}\n`);
+  await writeFile(statePath(configDir), `${JSON.stringify({ schemaVersion: SUPPORTED_STATE_SCHEMA_VERSION, ...state }, null, 2)}\n`);
 }
 
 /**
@@ -373,10 +469,46 @@ export function createRealNativeCommands() {
       if (!r.ok) return { ok: false, plugins: [], stderr: r.stderr };
       try {
         const plugins = JSON.parse(r.stdout);
-        return { ok: true, plugins: Array.isArray(plugins) ? plugins : [], stderr: r.stderr };
+        if (!Array.isArray(plugins)) {
+          // Malformed/truncated structured data (P2.4 correction D5): never
+          // silently treated as "the empty list", which downstream logic
+          // would otherwise read as "nothing installed".
+          return { ok: false, plugins: [], stderr: '`claude plugin list --json` did not return a JSON array' };
+        }
+        return { ok: true, plugins, stderr: r.stderr };
       } catch (cause) {
         return { ok: false, plugins: [], stderr: `Could not parse \`claude plugin list --json\` output: ${describe(cause)}` };
       }
+    },
+    /**
+     * Strict validation against the *staged* candidate, before it is ever
+     * published over the live marketplace path or handed to a native
+     * install/update (P2.4 correction D6): `claude plugin validate <dir>
+     * --strict --json` treats warnings as failures too.
+     */
+    pluginValidateStrict(pluginDir) {
+      let r;
+      try {
+        const stdout = execFileSync('claude', ['plugin', 'validate', pluginDir, '--strict', '--json'], {
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
+        r = { ok: true, stdout, stderr: '' };
+      } catch (error) {
+        r = {
+          ok: false,
+          stdout: typeof error.stdout === 'string' ? error.stdout : (error.stdout?.toString() ?? ''),
+          stderr: typeof error.stderr === 'string' ? error.stderr : (error.stderr?.toString() ?? describe(error)),
+        };
+      }
+      let report = null;
+      try {
+        report = JSON.parse(r.stdout);
+      } catch {
+        // Handled below as a failure with no parsed report.
+      }
+      const success = report !== null && typeof report === 'object' && report.success === true;
+      return { ok: success, report, stderr: r.stderr };
     },
   };
 }
@@ -390,149 +522,378 @@ function ok(detail) {
   return { ok: true, ...detail };
 }
 
-function failed(code, detail, native) {
-  return { ok: false, code, detail, native: native ?? null };
+function failed(code, detail, native, journal) {
+  return { ok: false, code, detail, native: native ?? null, journal: journal ?? null };
 }
 
 /**
- * Installs, or upgrades an existing installation in place. P2.3 correction
- * A's ordering: stage and validate the replacement, publish it over the live
- * marketplace path (preserving the previous content under a rollback name,
- * never deleting it up front), drive the native operations against the
- * now-published content, and only on full success discard the rollback copy
- * and record owned state — any native failure restores the rollback copy and
- * returns a failure result without ever calling this "installed".
+ * Runs compensating actions in reverse order (P2.4 correction D7): each
+ * mutation this script performs against native state pushes its own undo
+ * onto `compensations` as soon as it succeeds, so a later failure unwinds
+ * exactly what was actually done, in the right order — a native
+ * registration is always removed *before* the filesystem content it points
+ * at disappears, never after. If every compensation succeeds, the caller's
+ * failure is reported normally. If any compensation itself fails, every
+ * source still needed for manual recovery is left in place and a recovery
+ * journal is persisted with exact next steps (P2.4 correction D7).
+ */
+async function failWithCompensation(configDir, code, detail, native, compensations) {
+  const failures = [];
+  for (const action of [...compensations].reverse()) {
+    try {
+      await action.undo();
+    } catch (error) {
+      failures.push({ description: action.description, error: describe(error) });
+    }
+  }
+  if (failures.length === 0) {
+    await rm(journalPath(configDir), { force: true }).catch(() => {});
+    return failed(code, detail, native);
+  }
+
+  const journal = {
+    schemaVersion: 1,
+    createdAt: new Date().toISOString(),
+    failedOperation: code,
+    detail,
+    failedCompensations: failures,
+    recoveryInstructions: [
+      `Automatic recovery could not complete after "${code}" failed.`,
+      `${failures.length} compensating step(s) also failed: ${failures.map((f) => `${f.description} (${f.error})`).join('; ')}.`,
+      `Inspect ${installRoot(configDir)} by hand: it may hold a ".marketplace.rollback-*" directory (the previous working content) and/or a ".marketplace.staging-*" directory (the attempted replacement) — neither has been deleted.`,
+      `The native marketplace "${MARKETPLACE_NAME}" and any plugin registered from it may be inconsistent. Inspect with: claude plugin list --json  (CLAUDE_CONFIG_DIR=${configDir})  and  claude plugin marketplace list`,
+      `Clear it by hand if needed: claude plugin uninstall <id>@${MARKETPLACE_NAME} -s <scope>  then  claude plugin marketplace remove ${MARKETPLACE_NAME}`,
+      `Once resolved by hand, remove ${journalPath(configDir)} yourself, or re-run "install-local.mjs uninstall ${configDir}" to attempt a clean removal.`,
+    ],
+  };
+  await mkdir(installRoot(configDir), { recursive: true });
+  await writeFile(journalPath(configDir), `${JSON.stringify(journal, null, 2)}\n`);
+  return failed(code, detail, native, journal);
+}
+
+/**
+ * D8: the postcondition is verified through the same structured plugin state
+ * a caller would inspect, not inferred from "the native command returned
+ * ok" — exact plugin id, scope, project path where applicable, expected
+ * version, enabled/loadable status, and no reported load errors.
+ */
+function verifyPostcondition(plugins, { name, version, scope, canonicalProjectDir }) {
+  const id = `${name}@${MARKETPLACE_NAME}`;
+  const entry = plugins.find((candidate) => candidate?.id === id && candidate?.scope === scope);
+  if (entry === undefined) {
+    return { ok: false, reason: `no plugin entry with id "${id}" and scope "${scope}" was found in structured plugin state after install` };
+  }
+  if (entry.version !== version) {
+    return { ok: false, reason: `plugin "${id}" reports version "${entry.version}", expected "${version}"` };
+  }
+  if (entry.enabled !== undefined && entry.enabled !== true) {
+    return { ok: false, reason: `plugin "${id}" is not enabled (enabled: ${JSON.stringify(entry.enabled)})` };
+  }
+  if ((scope === 'project' || scope === 'local') && canonicalProjectDir !== null && typeof entry.projectPath === 'string') {
+    if (entry.projectPath !== canonicalProjectDir) {
+      return { ok: false, reason: `plugin "${id}" reports project path "${entry.projectPath}", expected "${canonicalProjectDir}"` };
+    }
+  }
+  if (Array.isArray(entry.errors) && entry.errors.length > 0) {
+    return { ok: false, reason: `plugin "${id}" reports load errors: ${entry.errors.join('; ')}` };
+  }
+  return { ok: true };
+}
+
+/**
+ * Installs, or upgrades an existing installation in place (P2.3 correction
+ * A; P2.4 correction D). One `CLAUDE_CONFIG_DIR/ambicode-install` is one
+ * owned installation:
+ *
+ *  1. An ownership lock keeps two installer processes from racing (D11).
+ *  2. Existing state is read and strictly validated *before* anything is
+ *     changed (D1/D4): corruption is an actionable failure, not treated as
+ *     "nothing installed".
+ *  3. A scope or canonical project directory that differs from an existing
+ *     installation's is refused before any mutation (D2/D3) — scope
+ *     migration is an explicit uninstall followed by install, never this.
+ *  4. The replacement is staged and strictly validated (`claude plugin
+ *     validate --strict`) before it is ever published (D6), then published
+ *     atomically over the live marketplace path, preserving the previous
+ *     content under a rollback name rather than deleting it up front.
+ *  5. Every native mutation pushes its own compensation before the next
+ *     step runs, so a failure partway through unwinds exactly what
+ *     happened, in the right order (D7).
+ *  6. Success is proven by re-reading structured plugin state, never
+ *     inferred from a native command's exit code alone (D5/D8).
+ *  7. State is written before the rollback copy is discarded, so a
+ *     state-write failure is itself compensated rather than losing the
+ *     recovery path first (D9).
  */
 export async function install({ candidateDir, configDir, scope, projectDir }, native = createRealNativeCommands()) {
+  const canonicalProjectDir = await canonicalize(projectDir);
   const { name, version } = await readCandidateIdentity(candidateDir);
-  await mkdir(installRoot(configDir), { recursive: true });
 
-  const marketDir = marketplaceDir(configDir);
-  const marketExisted = await pathExists(marketDir);
-  const stagingDir = path.join(installRoot(configDir), `.marketplace.staging-${randomSuffix()}`);
-
-  await buildMarketplaceContent(stagingDir, candidateDir, name, version);
+  let lock;
   try {
-    await validateMarketplaceContent(stagingDir, name, version);
+    lock = await acquireLock(configDir);
   } catch (error) {
-    await rm(stagingDir, { recursive: true, force: true });
     if (error instanceof InstallError) return failed(error.code, error.message);
     throw error;
   }
-
-  const rollbackDir = marketExisted
-    ? path.join(installRoot(configDir), `.marketplace.rollback-${randomSuffix()}`)
-    : null;
-  if (rollbackDir !== null) await rename(marketDir, rollbackDir);
-  await rename(stagingDir, marketDir);
-
-  const restore = async () => {
-    await rm(marketDir, { recursive: true, force: true });
-    if (rollbackDir !== null) await rename(rollbackDir, marketDir);
-  };
-
-  const runOptions = { configDir, projectDir };
-
-  const addResult = await native.marketplaceAdd(marketDir, runOptions);
-  if (!addResult.ok) {
-    await restore();
-    return failed('marketplace-add-failed', 'Adding the local marketplace failed.', addResult);
-  }
-
-  const updateMarketResult = await native.marketplaceUpdate(MARKETPLACE_NAME, runOptions);
-  if (!updateMarketResult.ok) {
-    await restore();
-    return failed('marketplace-update-failed', 'Refreshing the local marketplace failed.', updateMarketResult);
-  }
-
-  const listResult = await native.pluginList(runOptions);
-  const existing = listResult.ok ? findInstalled(listResult.plugins, name, scope) : null;
-
-  if (existing === null) {
-    const installResult = await native.pluginInstall(`${name}@${MARKETPLACE_NAME}`, scope, runOptions);
-    if (!installResult.ok) {
-      await restore();
-      return failed('plugin-install-failed', 'Installing the plugin failed.', installResult);
+  try {
+    const existing = await readStateStrict(configDir);
+    if (existing.kind === 'corrupt') {
+      return failed(
+        'state-corrupt',
+        `Existing installer state is corrupt (${existing.reason}). Resolve it by hand — inspect or remove ` +
+          `${installRoot(configDir)} — before installing again; this script never overwrites unreadable state.`,
+      );
     }
-  } else if (existing.version !== version) {
-    const updateResult = await native.pluginUpdate(`${name}@${MARKETPLACE_NAME}`, scope, runOptions);
-    if (!updateResult.ok) {
-      await restore();
-      return failed('plugin-update-failed', 'Updating the plugin failed.', updateResult);
+    const priorState = existing.kind === 'ok' ? existing.state : null;
+
+    if (priorState !== null) {
+      const priorCanonicalProjectDir = await canonicalize(priorState.projectDir);
+      if (priorState.scope !== scope || priorCanonicalProjectDir !== canonicalProjectDir) {
+        return failed(
+          'scope-mismatch',
+          `An installation already exists with scope "${priorState.scope}"` +
+            `${priorState.projectDir === null ? '' : ` (project dir ${priorState.projectDir})`}; refusing to install ` +
+            `scope "${scope}"${canonicalProjectDir === null ? '' : ` (project dir ${canonicalProjectDir})`} instead. ` +
+            `Scope migration requires an explicit "install-local.mjs uninstall ${configDir}" followed by a fresh install.`,
+        );
+      }
     }
+
+    const marketDir = marketplaceDir(configDir);
+    const marketExisted = await pathExists(marketDir);
+    const stagingDir = path.join(installRoot(configDir), `.marketplace.staging-${randomSuffix()}`);
+    const pluginDirName = `${name}-${version}`;
+
+    await buildMarketplaceContent(stagingDir, candidateDir, name, version);
+    try {
+      await validateMarketplaceContent(stagingDir, name, version);
+      const strict = await native.pluginValidateStrict(path.join(stagingDir, pluginDirName));
+      if (!strict.ok) {
+        throw new InstallError(
+          'plugin-validation-failed',
+          `Strict plugin validation failed for the staged candidate: ${describe(strict.report ?? strict.stderr)}`,
+        );
+      }
+    } catch (error) {
+      await rm(stagingDir, { recursive: true, force: true });
+      if (error instanceof InstallError) return failed(error.code, error.message);
+      throw error;
+    }
+
+    const rollbackDir = marketExisted
+      ? path.join(installRoot(configDir), `.marketplace.rollback-${randomSuffix()}`)
+      : null;
+    if (rollbackDir !== null) await rename(marketDir, rollbackDir);
+    await rename(stagingDir, marketDir);
+
+    const runOptions = { configDir, projectDir };
+    // Pushed in the order actions happen, undone in reverse: a native
+    // registration this call created is always removed before the
+    // filesystem restore beneath it runs (D7).
+    const compensations = [
+      {
+        description: 'restore the previous marketplace directory content',
+        undo: async () => {
+          await rm(marketDir, { recursive: true, force: true });
+          if (rollbackDir !== null) await rename(rollbackDir, marketDir);
+        },
+      },
+    ];
+
+    const addResult = await native.marketplaceAdd(marketDir, runOptions);
+    if (!addResult.ok) {
+      return await failWithCompensation(configDir, 'marketplace-add-failed', 'Adding the local marketplace failed.', addResult, compensations);
+    }
+    if (!marketExisted) {
+      // Only a *fresh* registration needs undoing; an upgrade's marketplace
+      // already existed before this call and is handled by the filesystem
+      // restore plus a refresh below.
+      compensations.push({
+        description: 'remove the marketplace registration this install created',
+        undo: async () => {
+          await native.marketplaceRemove(MARKETPLACE_NAME, runOptions);
+        },
+      });
+    }
+
+    const updateMarketResult = await native.marketplaceUpdate(MARKETPLACE_NAME, runOptions);
+    if (!updateMarketResult.ok) {
+      return await failWithCompensation(configDir, 'marketplace-update-failed', 'Refreshing the local marketplace failed.', updateMarketResult, compensations);
+    }
+
+    const listResult = await native.pluginList(runOptions);
+    if (!listResult.ok) {
+      // D5: malformed/failed structured state is never read as "not installed".
+      return await failWithCompensation(
+        configDir,
+        'plugin-list-failed',
+        'Could not read structured plugin state, so installation status could not be determined.',
+        listResult,
+        compensations,
+      );
+    }
+    const priorNative = findInstalled(listResult.plugins, name, scope);
+
+    if (priorNative === null) {
+      const installResult = await native.pluginInstall(`${name}@${MARKETPLACE_NAME}`, scope, runOptions);
+      if (!installResult.ok) {
+        return await failWithCompensation(configDir, 'plugin-install-failed', 'Installing the plugin failed.', installResult, compensations);
+      }
+      compensations.push({
+        description: 'uninstall the plugin registration this install created',
+        undo: async () => {
+          await native.pluginUninstall(`${name}@${MARKETPLACE_NAME}`, scope, runOptions);
+        },
+      });
+    } else if (priorNative.version !== version) {
+      const updateResult = await native.pluginUpdate(`${name}@${MARKETPLACE_NAME}`, scope, runOptions);
+      if (!updateResult.ok) {
+        return await failWithCompensation(configDir, 'plugin-update-failed', 'Updating the plugin failed.', updateResult, compensations);
+      }
+      // The plugin record already existed before this call; restoring the
+      // filesystem (already queued) and refreshing the marketplace again is
+      // "restore the prior source and refresh the prior plugin state" (D7).
+      compensations.push({
+        description: 're-point the marketplace at the restored (previous) content',
+        undo: async () => {
+          await native.marketplaceUpdate(MARKETPLACE_NAME, runOptions);
+        },
+      });
+    }
+    // Else: already installed at the requested version and scope — an
+    // idempotent no-op, proven by native structured state rather than by
+    // swallowing an install failure (D10: no fake version bump needed).
+
+    const verifyResult = await native.pluginList(runOptions);
+    if (!verifyResult.ok) {
+      return await failWithCompensation(
+        configDir,
+        'postcondition-unverifiable',
+        'Could not re-read structured plugin state to verify the install actually took effect.',
+        verifyResult,
+        compensations,
+      );
+    }
+    const postcondition = verifyPostcondition(verifyResult.plugins, { name, version, scope, canonicalProjectDir });
+    if (!postcondition.ok) {
+      return await failWithCompensation(configDir, 'postcondition-failed', `Postcondition failed: ${postcondition.reason}.`, verifyResult, compensations);
+    }
+
+    // D9: state is written before the rollback copy is discarded. A
+    // state-write failure is itself compensated (the rollback directory is
+    // still there, so native state and the filesystem are unwound together)
+    // rather than losing the recovery path first.
+    try {
+      await writeState(configDir, { name, version, scope, projectDir });
+    } catch (error) {
+      return await failWithCompensation(configDir, 'state-write-failed', `Recording installer state failed: ${describe(error)}.`, null, compensations);
+    }
+    if (rollbackDir !== null) await rm(rollbackDir, { recursive: true, force: true });
+    await rm(journalPath(configDir), { force: true }).catch(() => {});
+
+    return ok({ name, version, scope, projectDir, marketDir });
+  } finally {
+    await lock.release();
   }
-  // Already installed at the requested version and scope: nothing further to
-  // mutate — an idempotent no-op success, proven by native structured state
-  // (`plugin list --json`) rather than by swallowing an install failure.
-
-  if (rollbackDir !== null) await rm(rollbackDir, { recursive: true, force: true });
-  await writeState(configDir, { name, version, scope, projectDir });
-
-  return ok({ name, version, scope, projectDir, marketDir });
 }
 
 /**
- * Uninstalls using the recorded scope/project directory (P2.3 correction A).
- * A caller-supplied `--scope`/`--project-dir` that conflicts with the record
- * is refused rather than honored — this script will not operate on one scope
- * while deleting the durable source another scope's installation depends on.
- * The durable directory is removed only once both the native plugin
- * uninstall and marketplace removal have succeeded (or were already a
- * no-op); any other failure leaves it in place as a recovery path.
+ * Uninstalls using the recorded scope/project directory (P2.3 correction A;
+ * P2.4 correction D). A caller-supplied `--scope`/`--project-dir` that
+ * conflicts with the record is refused rather than honored — this script
+ * will not operate on one scope while deleting the durable source another
+ * scope's installation depends on. The durable directory is removed only
+ * once both the native plugin uninstall and marketplace removal have
+ * succeeded (or were already a no-op); any other failure leaves it in place
+ * as a recovery path.
  */
 export async function uninstall(
   { configDir, scope: requestedScope, scopeExplicit, projectDir: requestedProjectDir, projectDirExplicit },
   native = createRealNativeCommands(),
 ) {
-  const state = await readState(configDir);
-  if (state === null) {
-    return ok({ noop: true, message: `Nothing installed by install-local.mjs was found under CLAUDE_CONFIG_DIR=${configDir}.` });
+  let lock;
+  try {
+    lock = await acquireLock(configDir);
+  } catch (error) {
+    if (error instanceof InstallError) return failed(error.code, error.message);
+    throw error;
   }
+  try {
+    const existing = await readStateStrict(configDir);
+    if (existing.kind === 'corrupt') {
+      return failed(
+        'state-corrupt',
+        `Existing installer state is corrupt (${existing.reason}). Resolve it by hand — inspect or remove ` +
+          `${installRoot(configDir)} — this script will not guess what to uninstall from unreadable state.`,
+      );
+    }
+    if (existing.kind === 'absent') {
+      return ok({ noop: true, message: `Nothing installed by install-local.mjs was found under CLAUDE_CONFIG_DIR=${configDir}.` });
+    }
+    const state = existing.state;
 
-  if (scopeExplicit && requestedScope !== state.scope) {
-    return failed(
-      'scope-mismatch',
-      `The recorded installation is scoped "${state.scope}"` +
-        `${state.projectDir === null ? '' : ` (project dir ${state.projectDir})`}; refusing to uninstall scope ` +
-        `"${requestedScope}" instead. Omit --scope to use the recorded scope, or pass --scope ${state.scope} to confirm it.`,
-    );
+    if (scopeExplicit && requestedScope !== state.scope) {
+      return failed(
+        'scope-mismatch',
+        `The recorded installation is scoped "${state.scope}"` +
+          `${state.projectDir === null ? '' : ` (project dir ${state.projectDir})`}; refusing to uninstall scope ` +
+          `"${requestedScope}" instead. Omit --scope to use the recorded scope, or pass --scope ${state.scope} to confirm it.`,
+      );
+    }
+    if (projectDirExplicit) {
+      const canonicalRequested = await canonicalize(requestedProjectDir);
+      const canonicalRecorded = await canonicalize(state.projectDir);
+      if (canonicalRequested !== canonicalRecorded) {
+        return failed(
+          'scope-mismatch',
+          `The recorded installation used project dir "${state.projectDir ?? '(none)'}"; refusing to use ` +
+            `"${requestedProjectDir}" instead.`,
+        );
+      }
+    }
+
+    const scope = state.scope;
+    const projectDir = state.projectDir;
+    const runOptions = { configDir, projectDir };
+    const marketDir = marketplaceDir(configDir);
+
+    const uninstallResult = await native.pluginUninstall(`${state.name}@${MARKETPLACE_NAME}`, scope, runOptions);
+    const uninstallAccepted = uninstallResult.ok || uninstallResult.failureCode === 'not_installed';
+    if (!uninstallAccepted) {
+      return failed('plugin-uninstall-failed', 'Uninstalling the plugin failed.', uninstallResult);
+    }
+
+    const removeResult = await native.marketplaceRemove(MARKETPLACE_NAME, runOptions);
+    const removeAccepted = removeResult.ok || removeResult.notFound === true;
+    if (!removeAccepted) {
+      return failed('marketplace-remove-failed', 'Removing the local marketplace failed.', removeResult);
+    }
+
+    await rm(marketDir, { recursive: true, force: true });
+    await rm(installRoot(configDir), { recursive: true, force: true });
+
+    return ok({ name: state.name, version: state.version, scope, projectDir });
+  } finally {
+    // The lock file lives under installRoot(configDir), which a successful
+    // uninstall above already removed entirely; releasing a lock whose file
+    // is already gone is a harmless no-op (`rm(..., { force: true })`).
+    await lock.release();
   }
-  if (projectDirExplicit && requestedProjectDir !== state.projectDir) {
-    return failed(
-      'scope-mismatch',
-      `The recorded installation used project dir "${state.projectDir ?? '(none)'}"; refusing to use ` +
-        `"${requestedProjectDir}" instead.`,
-    );
-  }
-
-  const scope = state.scope;
-  const projectDir = state.projectDir;
-  const runOptions = { configDir, projectDir };
-  const marketDir = marketplaceDir(configDir);
-
-  const uninstallResult = await native.pluginUninstall(`${state.name}@${MARKETPLACE_NAME}`, scope, runOptions);
-  const uninstallAccepted = uninstallResult.ok || uninstallResult.failureCode === 'not_installed';
-  if (!uninstallAccepted) {
-    return failed('plugin-uninstall-failed', 'Uninstalling the plugin failed.', uninstallResult);
-  }
-
-  const removeResult = await native.marketplaceRemove(MARKETPLACE_NAME, runOptions);
-  const removeAccepted = removeResult.ok || removeResult.notFound === true;
-  if (!removeAccepted) {
-    return failed('marketplace-remove-failed', 'Removing the local marketplace failed.', removeResult);
-  }
-
-  await rm(marketDir, { recursive: true, force: true });
-  await rm(installRoot(configDir), { recursive: true, force: true });
-
-  return ok({ name: state.name, version: state.version, scope, projectDir });
 }
 
 export async function inspect({ configDir }, native = createRealNativeCommands()) {
-  const state = await readState(configDir);
-  if (state === null) {
+  const existing = await readStateStrict(configDir);
+  if (existing.kind === 'corrupt') {
+    return failed(
+      'state-corrupt',
+      `Existing installer state at ${statePath(configDir)} is corrupt: ${existing.reason}.`,
+    );
+  }
+  if (existing.kind === 'absent') {
     return ok({ installed: false, message: `No AMBICODE install-local.mjs installation found under CLAUDE_CONFIG_DIR=${configDir}.` });
   }
+  const state = existing.state;
   const listResult = await native.pluginList({ configDir, projectDir: state.projectDir });
   return ok({
     installed: true,
@@ -547,6 +908,10 @@ function printResult(command, result, options) {
     console.error(`\n${command} failed: ${result.detail ?? '(no detail)'}`);
     if (result.native?.message) console.error(`  native: ${result.native.message}`);
     if (result.native?.stderr) console.error(`  ${result.native.stderr}`);
+    if (result.journal !== null && result.journal !== undefined) {
+      console.error(`\nRecovery needed — a compensating step also failed. Journal: ${journalPath(options.configDir)}`);
+      for (const line of result.journal.recoveryInstructions ?? []) console.error(`  ${line}`);
+    }
     process.exitCode = 1;
     return;
   }

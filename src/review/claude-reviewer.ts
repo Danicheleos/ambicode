@@ -42,6 +42,7 @@ export const REQUIRED_FLAGS = [
   '--permission-prompts',
   '--output-format',
   '--model',
+  '--append-system-prompt',
 ] as const;
 
 const CAPABILITY_TIMEOUT_MS = 30_000;
@@ -246,6 +247,11 @@ export class ClaudeReviewer implements Reviewer {
       '--no-session-persistence',
       '--model',
       request.model,
+      // Only the shared operating contract and the reviewer role (doc 04 P2.4
+      // correction E1); everything with change data, requirements, or diff
+      // content stays in the ordinary user prompt below, never here.
+      '--append-system-prompt',
+      request.systemPrompt,
       '--output-format',
       'json',
       '--json-schema',

@@ -83,6 +83,7 @@ function createFresh(options: PlanInitOptions): InitPlan {
     requirements: { mcpServer: null },
     projects,
     remoteChecks: { image: null },
+    authoring: { ...DEFAULTS.authoring },
   });
   document.commentBefore = HEADER_COMMENT;
 
@@ -99,6 +100,14 @@ function updateExisting(existingRaw: string, options: PlanInitOptions): InitPlan
   const requirementsNode = document.get('requirements') as YAMLMap | undefined;
   if (requirementsNode === undefined || requirementsNode.get('mcpServer') == null) {
     notices.push(MCP_BINDING_NOTICE);
+  }
+
+  // Doc 04 P2.4 correction F: an existing schema-version-1 config written
+  // before `authoring` existed gets the documented default added, once,
+  // never a destructive rewrite of a value the user already set.
+  if (document.get('authoring') === undefined) {
+    document.set('authoring', document.createNode({ ...DEFAULTS.authoring }));
+    changes.push(`Added "authoring.editReminders: ${DEFAULTS.authoring.editReminders}" (the documented default).`);
   }
 
   const projectsNode = document.get('projects') as YAMLSeq | undefined;

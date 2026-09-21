@@ -27,6 +27,7 @@ function config(): AmbicodeConfig {
     requirements: { mcpServer: null },
     projects: [],
     remoteChecks: { image: null },
+    authoring: { ...DEFAULTS.authoring },
   };
 }
 

@@ -227,6 +227,68 @@ test('U01 the generated configuration always parses', async (t) => {
   assert.doesNotThrow(() => parseConfig(plan.yaml as string));
 });
 
+test('P2.4 correction F: fresh init writes the documented authoring.editReminders default, visibly', async (t) => {
+  const directory = await sandbox(t);
+  await writeFile(path.join(directory, 'package.json'), '{"name":"x"}', 'utf8');
+  const plan = await planInit({
+    fs: nodeFileSystem,
+    repositoryRoot: directory,
+    detected: await detectProjects(nodeFileSystem, directory),
+    baseline: 'origin/main',
+    baselineNotice: 'x',
+  });
+  assert.ok(plan.yaml !== null);
+  assert.match(plan.yaml, /authoring:\s*\n?\s*editReminders:\s*true/);
+  assert.equal(plan.config.authoring.editReminders, true);
+});
+
+test('P2.4 correction F: re-init adds the missing authoring section to a pre-existing schema-version-1 config, without touching anything else', async (t) => {
+  const directory = await sandbox(t);
+  await mkdir(path.join(directory, '.ambicode'), { recursive: true });
+  // A config written before "authoring" existed: no such key at all.
+  await writeFile(
+    path.join(directory, '.ambicode', 'config.yaml'),
+    withProjects(
+      '  - id: app\n    root: .\n    ecosystem: typescript\n    packs: []\n    policyFiles: []\n    commands: {}\n    checks: {}\n',
+    ),
+    'utf8',
+  );
+
+  const plan = await planInit({
+    fs: nodeFileSystem,
+    repositoryRoot: directory,
+    detected: [],
+    baseline: '',
+    baselineNotice: 'x',
+  });
+
+  assert.ok(plan.yaml !== null, 'a missing authoring section is itself a change to write');
+  assert.ok(plan.changes.some((change) => change.includes('authoring.editReminders')));
+  assert.equal(plan.config.authoring.editReminders, true);
+});
+
+test('P2.4 correction F: re-init never overwrites an explicit authoring.editReminders: false', async (t) => {
+  const directory = await sandbox(t);
+  await mkdir(path.join(directory, '.ambicode'), { recursive: true });
+  await writeFile(
+    path.join(directory, '.ambicode', 'config.yaml'),
+    `${MINIMAL}\nauthoring:\n  editReminders: false\nprojects:\n` +
+      '  - id: app\n    root: .\n    ecosystem: typescript\n    packs: []\n    policyFiles: []\n    commands: {}\n    checks: {}\n',
+    'utf8',
+  );
+
+  const plan = await planInit({
+    fs: nodeFileSystem,
+    repositoryRoot: directory,
+    detected: [],
+    baseline: '',
+    baselineNotice: 'x',
+  });
+
+  assert.equal(plan.yaml, null, 'the user-set value must not trigger a rewrite');
+  assert.equal(plan.config.authoring.editReminders, false);
+});
+
 test('path normalization keeps repository-relative form', () => {
   assert.equal(normalizeRelative('./apps/web/'), 'apps/web');
   assert.equal(normalizeRelative('.'), '');

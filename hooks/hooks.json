@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/ambicode hook" }]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|fork",
+        "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/ambicode hook" }]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/ambicode hook" }]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/ambicode hook" }]
+      }
+    ]
+  }
+}

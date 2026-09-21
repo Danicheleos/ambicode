@@ -103,6 +103,20 @@ export const RemoteChecksConfig = z.strictObject({
   image: z.string().min(1).nullable(),
 });
 
+/**
+ * Doc 04 P2.4 correction F: one explicit switch for the packaged edit-time
+ * reminder hook. `editReminders: false` disables it entirely for this
+ * repository, independent of any pack's own `remindOnEdit` declarations.
+ * Defaults to `true` so an existing schema-version-1 config (written before
+ * this field existed) receives the documented default without a destructive
+ * rewrite — `AmbicodeConfig.parse` fills it in via `.default()` the same way
+ * it already does for other additive fields.
+ */
+export const AuthoringConfig = z.strictObject({
+  editReminders: z.boolean().default(true),
+});
+export type AuthoringConfig = z.infer<typeof AuthoringConfig>;
+
 export const AmbicodeConfig = z.strictObject({
   schemaVersion: z.literal(1),
   /** Empty string means "no baseline recorded"; branch review then needs --base. */
@@ -115,6 +129,7 @@ export const AmbicodeConfig = z.strictObject({
   }),
   projects: z.array(ProjectConfig).min(1),
   remoteChecks: RemoteChecksConfig,
+  authoring: AuthoringConfig.default({ editReminders: true }),
 });
 export type AmbicodeConfig = z.infer<typeof AmbicodeConfig>;
 

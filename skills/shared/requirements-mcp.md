@@ -81,19 +81,24 @@ choice the user makes — never one this procedure makes for them.
 
 Delete the evidence file once **the last command in your workflow that
 reads it** has finished — success or failure. It is transport for exactly
-this one workflow's invocation, not a record, but which command is "last"
-depends on which skill you are running:
+this one workflow's invocation, not a record. A workflow may read it through
+an **arbitrary number of consumers**, not a fixed count of one or two:
 
 - `review` and `investigate` each read it exactly once — `ambicode review`
   or `ambicode bundle` for review, `ambicode prepare` for investigate — so
   delete it right after that one command finishes.
 - `plan` reads it once, through `ambicode prepare`, and deletes it right
   after too.
-- `task` reads it **twice**: once through `ambicode prepare` (to prepare and
-  scope the work) and again, later, through `ambicode review` (the
-  independent review after implementation). Keep the evidence file alive
-  across both of those calls and delete it only after `ambicode review` has
-  finished, not right after `ambicode prepare`.
+- `task` may read it **many times**: once per `ambicode prepare` call (the
+  initial one, and any rerun after implementation reaches paths outside what
+  was first prepared for) and once per `ambicode review` call (the first
+  review, any approval-authorized rerun, and every re-review after fixing an
+  accepted finding). Keep the evidence file alive across every one of those
+  calls, however many that turns out to be, and delete it in exactly one
+  final cleanup path: after the task reaches its terminal report, or if it
+  is abandoned partway through — never after an individual `prepare` or
+  `review` call just because that call succeeded, and never at any other
+  arbitrary point in between.
 
 Nothing is lost by deleting it once its workflow's last consumer has run:
 `review`'s and `task`'s saved review result already carry every retrieved
@@ -103,8 +108,9 @@ separately asks for a note, and the evidence file was never inside the
 repository to begin with, so deleting it leaves no trace either way.
 
 Do not reuse one evidence file across multiple commands or sessions; write a
-fresh one each time you retrieve sources, and remove it once your own
-workflow's last consumer has read it.
+fresh one each time you retrieve sources, and remove it only through your
+workflow's one final cleanup path, and only the exact path you wrote it to —
+never an arbitrary or guessed path.
 
 ## What this never does
 

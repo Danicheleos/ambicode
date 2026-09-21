@@ -22,6 +22,9 @@ export const DEFAULTS = {
   remoteChecks: {
     image: null,
   },
+  authoring: {
+    editReminders: true,
+  },
 } as const;
 
 /** Bounded capture for any single command; larger output is truncated with a notice. */

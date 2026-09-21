@@ -15,9 +15,11 @@ import type { FileSystem } from '../../ports/filesystem.ts';
 import { applicablePrepareStages } from '../../policy/resolve.ts';
 import { configProvenance, packProvenance } from '../../policy/provenance.ts';
 import { normalizeRequirements, readRequirementEvidence } from '../../requirements/normalize.ts';
+import { readSharedOperatingContract } from '../../policy/shared-contract.ts';
 import { byteLength } from '../../snapshot/limits.ts';
 import { AmbicodeError } from '../../util/errors.ts';
 import { contentHash } from '../../util/hash.ts';
+import { formatJsonOutput } from '../../util/json-output.ts';
 import type { ParsedArgs } from '../args.ts';
 import { absoluteEvidencePath } from '../target-option.ts';
 
@@ -62,6 +64,22 @@ export async function runPrepare(runtime: Runtime, args: ParsedArgs): Promise<Pr
   const policy = await resolvePolicyFor({ workspace, project, activity, paths });
   const policies = [{ project, policy }];
 
+  // Read once, here, so every authoring skill receives it through this one
+  // boundary rather than locating and reading it independently (doc 04 P2.4
+  // correction A4). An unreadable canonical contract is a packaging defect,
+  // not a per-project configuration gap, so it fails the whole preparation
+  // rather than becoming a silent omission.
+  let sharedOperatingContract;
+  try {
+    sharedOperatingContract = await readSharedOperatingContract(runtime.fs, runtime.pluginRoot);
+  } catch (cause) {
+    throw new AmbicodeError(
+      'shared-contract-unreadable',
+      'The canonical shared operating contract could not be read from this installation.',
+      { details: [cause instanceof Error ? cause.message : String(cause)] },
+    );
+  }
+
   const draft = await toDraftOutput({
     fs: runtime.fs,
     activity,
@@ -69,6 +87,7 @@ export async function runPrepare(runtime: Runtime, args: ParsedArgs): Promise<Pr
     paths,
     requirements,
     policy,
+    sharedOperatingContract,
     // Config and pack provenance alongside requirement provenance, the same
     // composition `review`/`bundle` use for packs (doc 04 P2.2 correction D).
     // Prompt provenance is deliberately *not* included here: unlike a pack —
@@ -76,8 +95,13 @@ export async function runPrepare(runtime: Runtime, args: ParsedArgs): Promise<Pr
     // filtered by stage or fail content resolution, and provenance must never
     // claim content that was not actually delivered (doc 04 P2.3 correction
     // B). `toDraftOutput` adds prompt provenance itself, from the
-    // stage-filtered, content-resolved prompts it actually returns.
-    policyProvenance: [...(await configProvenance(runtime.fs, workspace)), ...packProvenance(policies)],
+    // stage-filtered, content-resolved prompts it actually returns. The shared
+    // contract's own provenance entry is added the same way, immediately below.
+    policyProvenance: [
+      ...(await configProvenance(runtime.fs, workspace)),
+      ...packProvenance(policies),
+      { kind: 'prompt', reference: sharedOperatingContract.reference, contentHash: sharedOperatingContract.contentHash },
+    ],
   });
 
   // Blocking, not silently success-shaped (doc 04 P2.3 correction B): an
@@ -96,28 +120,52 @@ export async function runPrepare(runtime: Runtime, args: ParsedArgs): Promise<Pr
     );
   }
 
-  const contextBudget = measurePrepareContextBudget(draft, workspace.config.review.maxContextBytes);
-  return PrepareOutputSchema.parse({ ...draft, contextBudget });
+  return finalizePrepareOutput(draft, workspace.config.review.maxContextBytes);
 }
 
 interface PrepareDraftOutput extends Omit<PrepareOutput, 'contextBudget'> {}
 
 /**
- * One aggregate byte budget over everything delivered for outer-model use
- * (doc 04 P2.3 correction B), reusing the existing `review.maxContextBytes`
- * limit rather than a second hardcoded number. Measured as the actual
- * serialized draft output — the real "fixed output framing" plus every
- * content field — so nothing delivered can silently escape the count.
+ * Resolves the self-referential `contextBudget.measuredBytes` field to a
+ * stable value and returns the exact `PrepareOutput` the `--json` path will
+ * print (doc 04 P2.4 correction B1/B2): `measuredBytes` is itself part of
+ * the object it measures, so it is computed by serializing a candidate with
+ * the previous guess, re-measuring, and repeating until the value stops
+ * moving — which happens immediately unless `measuredBytes`'s own digit
+ * count changes between guesses, in which case one further pass converges
+ * it. Serialization uses the one canonical `formatJsonOutput` the CLI's
+ * `--json` dispatch also uses (`src/cli/main.ts`), so a test can assert
+ * `Buffer.byteLength(actualCliStdout) === parsed.contextBudget.measuredBytes`
+ * against the real bundled CLI, not an approximation of what it prints.
  */
-function measurePrepareContextBudget(draft: PrepareDraftOutput, limitBytes: number): PrepareOutput['contextBudget'] {
-  const measuredBytes = byteLength(JSON.stringify(draft));
-  if (measuredBytes <= limitBytes) return { measuredBytes, limitBytes };
+function finalizePrepareOutput(draft: PrepareDraftOutput, limitBytes: number): PrepareOutput {
+  let measuredBytes = 0;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const candidate = PrepareOutputSchema.parse({
+      ...draft,
+      contextBudget: { measuredBytes, limitBytes },
+    });
+    const actualBytes = byteLength(formatJsonOutput(candidate));
+    if (actualBytes === measuredBytes) {
+      if (actualBytes > limitBytes) throwPreparationTooLarge(draft, actualBytes, limitBytes);
+      return candidate;
+    }
+    measuredBytes = actualBytes;
+  }
+  throw new AmbicodeError(
+    'internal',
+    'Could not compute a stable measured byte count for this preparation output.',
+    { details: [`last measured value: ${measuredBytes} bytes`] },
+  );
+}
 
+function throwPreparationTooLarge(draft: PrepareDraftOutput, measuredBytes: number, limitBytes: number): never {
   const requirementBytes = draft.requirements.reduce((total, source) => total + byteLength(source.content), 0);
   const ruleBytes = draft.policy.rules.reduce((total, rule) => total + byteLength(rule.instruction), 0);
   const promptBytes = draft.policy.prompts.reduce((total, prompt) => total + byteLength(prompt.content), 0);
   const noticeBytes = draft.notices.reduce((total, notice) => total + byteLength(notice), 0);
   const diagnosticBytes = draft.policy.diagnostics.reduce((total, diagnostic) => total + byteLength(diagnostic.message), 0);
+  const sharedContractBytes = byteLength(draft.sharedOperatingContract.content);
 
   throw new AmbicodeError(
     'preparation-too-large',
@@ -127,6 +175,7 @@ function measurePrepareContextBudget(draft: PrepareDraftOutput, limitBytes: numb
       details: [
         `measured: ${measuredBytes} bytes, limit ${limitBytes} (review.maxContextBytes)`,
         'measured components:',
+        `  shared operating contract: ${sharedContractBytes} bytes`,
         `  requirement content: ${requirementBytes} bytes`,
         `  rule instructions: ${ruleBytes} bytes`,
         `  prompt content: ${promptBytes} bytes`,
@@ -146,6 +195,7 @@ async function toDraftOutput(options: {
   paths: readonly string[];
   requirements: ReturnType<typeof normalizeRequirements>;
   policy: ResolvedPolicy;
+  sharedOperatingContract: PrepareOutput['sharedOperatingContract'];
   policyProvenance: PrepareOutput['provenance'];
 }): Promise<PrepareDraftOutput> {
   const preparePolicy = await toPreparePolicy(options.fs, options.policy);
@@ -172,6 +222,7 @@ async function toDraftOutput(options: {
     ),
     notices: options.requirements.notices,
     policy: preparePolicy,
+    sharedOperatingContract: options.sharedOperatingContract,
   };
 }
 
@@ -200,6 +251,7 @@ async function toPreparePolicy(fs: FileSystem, policy: ResolvedPolicy): Promise<
       checkKind: rule.check.kind,
       checkExplanation: rule.check.explanation,
       checkCommand: rule.check.kind === 'command' ? rule.check.command : null,
+      remindOnEdit: rule.remindOnEdit,
     })),
     prompts,
     commandDecisions: policy.commandDecisions.map((decision) => ({
@@ -337,6 +389,7 @@ export function renderPrepare(output: PrepareOutput): string {
     `project:  ${output.projectId}`,
     `paths:    ${output.paths.join(', ') || '(none supplied — activity-level content only)'}`,
     `requirements: ${output.requirementMode}`,
+    `shared operating contract: ${output.sharedOperatingContract.reference} [${byteLength(output.sharedOperatingContract.content)} bytes] — use --json to read its content`,
   ];
 
   if (output.requirements.length > 0) {

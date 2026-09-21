@@ -225,6 +225,24 @@ async function loadOne(
     }
   }
 
+  // A reminder is allowed only for a path-specific pack (doc 04 P2.4
+  // correction F): a pack applying broadly to `**/*` would otherwise fire a
+  // reminder on every edit anywhere in the project, exactly the per-file
+  // noise `remindOnEdit` is meant to avoid — this is a configuration error,
+  // not a silently ignored flag.
+  if (pack.appliesTo.includes('**/*')) {
+    for (const rule of pack.rules) {
+      if (rule.remindOnEdit) {
+        diagnostics.push({
+          severity: 'error',
+          code: 'remind-on-edit-broad-pack',
+          message: `${reference}: rule "${rule.id}" declares remindOnEdit: true, but this pack applies broadly ("**/*"). A reminder is allowed only for a path-specific pack; narrow "appliesTo" or remove remindOnEdit.`,
+          where: filePath,
+        });
+      }
+    }
+  }
+
   return {
     pack,
     reference,

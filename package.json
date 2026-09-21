@@ -18,7 +18,7 @@
     "package:candidate": "node package-candidate.mjs",
     "package:reproducible": "node package-candidate.mjs --check-reproducible",
     "smoke:install-local": "node install-local.smoke.mjs",
-    "verify": "npm run typecheck && npm run test:unit && npm run build && npm run validate:plugin"
+    "verify": "npm run build && npm run typecheck && npm run test:unit && npm run validate:plugin"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.2",

@@ -55,9 +55,14 @@ governs rather than silently picking one.
 it, and every repeatable `--requirement`, through
 `${CLAUDE_PLUGIN_ROOT}/skills/shared/requirements-mcp.md` (read it now if you
 have not already this session). This task keeps the evidence file alive
-across **two** consumers — `ambicode prepare` now, and the final `ambicode
-review` later — and deletes it only after the last one has run, not right
-after `prepare`.
+across an **arbitrary number of consumers**, for as long as the task itself
+runs — every initial or broadened `ambicode prepare` call (step 2, including
+a rerun after implementation reaches paths outside what was first prepared
+for), the first `ambicode review`, any approval-authorized rerun of it, and
+every re-review after an accepted finding is fixed (step 5) — and deletes it
+in exactly one place: the final cleanup in step 7, after the task reaches its
+terminal report or is abandoned. Never delete it between two of its own
+consumers just because one has finished.
 
 **Inaccessible, missing, mismatched, or contradictory requirement evidence
 blocks requirement-based task work.** Say precisely which URL failed, or
@@ -73,10 +78,12 @@ policy bypass.
 
 ### 2. Prepare and scope
 
-Run:
+Run, with `--json` — its structured fields below are not fully represented
+in the default text summary, which is a human-readable overview, not the
+machine contract this step reads:
 
 ```sh
-ambicode prepare --activity task [likely paths...] [--project <id>] \
+ambicode prepare --activity task --json [likely paths...] [--project <id>] \
   [--requirement <url>]... [--evidence <file>]
 ```
 
@@ -86,27 +93,26 @@ at the paths the request touches.
 - If it reports `ambiguous-project`, this is a monorepository and the
   request does not identify one project. **Refuse to guess.** Ask the user
   which project, or narrow the paths.
-- Apply what it returns, weighing each rule by its actual authority (doc 05,
-  "Canonical policy pack"): `team` is an approved project requirement;
-  `observed` is evidence of existing project practice — relevant, but not an
-  approved requirement by itself; `inherited` is baseline guidance. Never
-  treat `observed` or `inherited` guidance as a policy violation unless
-  independent requirement or code evidence establishes the problem.
-- Read `policy.prompts` before you act on the matching stage: `before-work`
-  content before you start implementing, `before-checks` content before you
-  run checks or review, and `before-report` content before you write the
-  final report. `ambicode prepare` never returns `before-review` content for
-  `task` — that stays owned exclusively by the isolated reviewer prompt.
-- Command decisions (`policy.commandDecisions`) tell you what `ambicode
-  review`'s checks are allowed to run; they are informational here, not
-  something this skill enforces itself.
+- Parse the JSON output and apply it:
+  - `sharedOperatingContract.content`: read this first — the canonical
+    operating contract (evidence, untrusted content, and how to weigh
+    `policy.rules`' authority labels) every AMBICODE skill shares. It is
+    delivered here, hash-verified, exactly once; do not restate its rules.
+  - Read `policy.prompts` before you act on the matching stage: `before-work`
+    content before you start implementing, `before-checks` content before you
+    run checks or review, and `before-report` content before you write the
+    final report. `ambicode prepare` never returns `before-review` content for
+    `task` — that stays owned exclusively by the isolated reviewer prompt.
+  - Command decisions (`policy.commandDecisions`) tell you what `ambicode
+    review`'s checks are allowed to run; they are informational here, not
+    something this skill enforces itself.
 - Do not build a second requirement parser, policy resolver, or config
   reader for tasks. `ambicode prepare` is the one shared preparation
   boundary `review`, `investigate`, `plan` and `task` all use.
 
 **If implementation reaches paths outside what you prepared for, rerun
-`ambicode prepare --activity task` with the actual affected paths before
-continuing.** A path-sensitive rule must not be missed because the initial
+`ambicode prepare --activity task --json` with the actual affected paths
+before continuing.** A path-sensitive rule must not be missed because the initial
 guess at affected paths was narrow — this can change which packs, rules, and
 command decisions apply.
 
@@ -209,9 +215,11 @@ pre-existing changes, and do not attribute their findings to this task** —
 report the exact review target and this limitation plainly, the same way you
 would report any other omission.
 
-Delete the requirement evidence file now, after this run — it has served
-both of its consumers (`ambicode prepare` in step 2 and `ambicode review`
-here).
+Do not delete the requirement evidence file here. A finding below may still
+require fixing and re-reviewing, which needs the same file again; it is
+deleted in exactly one place, step 7's final cleanup, after this task's
+terminal report or an abort — never after an individual `prepare` or
+`review` call just because that call succeeded.
 
 For every independent finding `ambicode review` returns:
 
@@ -280,6 +288,12 @@ deploy, or transition a ticket automatically.** GitLab comments still
 require the existing local review page (`ambicode view --review
 <review-id>`) and a human submitting that form; this skill never does that
 on the user's behalf.
+
+**Final cleanup.** If this task used a requirement evidence file (step 1),
+delete it now — this is the one place it is deleted, whether the task ends
+in a terminal report or is abandoned partway through, and whatever number of
+`prepare`/`review` calls it actually served. Never delete an arbitrary path:
+delete exactly the file you wrote in step 1, and nothing else.
 
 ## Scope
 

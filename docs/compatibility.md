@@ -30,7 +30,10 @@ present in `claude --help` on 2.1.272:
 
 `--print`, `--safe-mode`, `--restricted`, `--tools`, `--disallowedTools`,
 `--mcp-config`, `--strict-mcp-config`, `--no-session-persistence`,
-`--permission-prompts none`, `--output-format json`, `--json-schema`, `--model`.
+`--permission-prompts none`, `--output-format json`, `--json-schema`, `--model`,
+`--append-system-prompt` (confirmed this session; no separate `-file` variant
+is exposed on 2.1.272, so the shared operating contract and reviewer role are
+passed as one string argument, not a path).
 
 `ClaudeReviewer.assertIsolationAvailable` re-checks that list against the
 installed CLI before every review and refuses with
@@ -111,13 +114,20 @@ The argument vector, as observed being handed to the process:
 --tools Read,Grep,Glob
 --disallowedTools Bash,Write,Edit,NotebookEdit,WebFetch,WebSearch,Task,Agent
 --permission-prompts none --no-session-persistence --model <model>
+--append-system-prompt <system prompt text>
 --output-format json --json-schema <schema>
 ```
 
-The prompt goes over stdin, not in the argument vector: it is large and holds
-option-like text. The working directory is the sanitized snapshot; there is no
-`--add-dir`, so the product checkout is unreachable, and no provider credential
-is passed.
+The user prompt (diff, requirements, discussion, check evidence) still goes
+over stdin, not in the argument vector: it is large and holds option-like
+text. The *system* prompt (only the shared operating contract and the
+reviewer role, never product code, requirement text, or discussion) is passed
+through `--append-system-prompt` instead (P2.4 correction E), so a hostile
+string planted in reviewed code or a fetched requirement cannot land in the
+model's system-level instructions no matter how it is phrased — it can only
+ever reach the user turn, the same place the diff itself lives. The working
+directory is the sanitized snapshot; there is no `--add-dir`, so the product
+checkout is unreachable, and no provider credential is passed.
 
 A plugin-shipped agent file cannot express this isolation: per the plugin
 reference, plugin agents support neither `permissionMode` nor `mcpServers`.
@@ -181,10 +191,16 @@ snapshotBytes` before returning, so the refusal happens before any caller can
 reach a reviewer. `ReviewInputs` records `patchBytes`, `requirementBytes`,
 `promptBytes`, `snapshotBytes` and `contextBytes`, and a refusal prints each.
 
-Measured on a one-line edit in a minimal TypeScript fixture with the built
-artifact: 1,579 patch bytes, 1,129 mirrored bytes, **17,586 prompt bytes**,
-18,715 model-input bytes. A limit that counted only patch plus mirror would have
-under-measured that review by a factor of seven.
+Re-measured this session (doc 04 P2.4 correction E, since the prompt is now
+composed as separate system/user parts rather than one concatenated string)
+on a one-line edit in a fresh minimal TypeScript fixture with the built
+artifact: 266 patch bytes, 104 mirrored bytes, **16,969 prompt bytes**
+(`system` + `user` combined), 17,073 model-input bytes. A limit that counted
+only patch plus mirror (370 bytes) would have under-measured that review by
+roughly a factor of 46 — the exact ratio depends on the fixture's canonical
+prompt/policy overhead relative to its patch size, so the ratio itself is
+illustrative, not a constant; what is invariant is that patch-plus-mirror is
+never the actual context size.
 
 Two further consequences follow, both deliberate:
 
@@ -303,6 +319,59 @@ observation above is from doc 03 P1.7's acceptance record under
 `docs/acceptance/`, before `investigate` (P2.1), `plan` (P2.2) and `task`
 (P2.3) existed; the P2.3 acceptance record under `docs/acceptance/` has the
 current transcript.
+
+## Hooks
+
+The plugin ships one hook manifest, `hooks/hooks.json` (doc 04 P2.4
+correction G), registering four events — `PostToolUse` (matcher
+`Edit|Write`), `SessionStart` (matcher `startup|resume|clear|fork`),
+`PostCompact`, and `SessionEnd` — each routed through the same single
+bundled entry point, `${CLAUDE_PLUGIN_ROOT}/bin/ambicode hook`, rather than a
+separate script per event. Re-confirmed this session through the same
+packaged-candidate/`npm run smoke:install-local` path as "Skills" above:
+`claude plugin details ambicode@ambicode-team` reports `Hooks (4)
+PostToolUse, SessionStart, PostCompact, SessionEnd (harness-only — no model
+context cost)`.
+
+`ambicode hook` reads a hook invocation's JSON payload from stdin (fields
+confirmed against 2.1.272: `session_id`, `agent_id` (present only for a
+subagent invocation, absent for the main agent), `cwd`, `scratchpad_dir`,
+`hook_event_name`, `tool_name`, `tool_input.file_path`) and, for a
+`PostToolUse` Edit/Write inside a configured repository with an applicable
+`remindOnEdit` rule not yet delivered this session epoch, replies with
+`{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext":
+"…"}}` — the documented contract for surfacing text back into the
+conversation from a hook, never a permission decision or a blocking exit
+code. `SessionStart` and `PostCompact` reset the per-session delivery epoch
+so a reminder can fire again after a context compaction or a fresh session;
+`SessionEnd` removes the hook's own dedup-marker directory. All of this is
+covered by `src/hook/run-hook.test.ts` (unit level, fake ports) and
+`hook-artifact.test.mjs` (built-artifact level: real bundled
+`scripts/ambicode.mjs hook` invoked with piped stdin, no `claude` process
+involved).
+
+## Plugin validation
+
+`claude plugin validate <path> --strict --json` on 2.1.272 returns (observed
+this session against the packaged `dist/ambicode-0.1.0` candidate):
+
+```json
+{ "success": true, "strict": true,
+  "target": "<absolute path>/.claude-plugin/plugin.json",
+  "manifest": { "file": "<absolute path>/.claude-plugin/plugin.json",
+                "type": "plugin", "errors": [], "warnings": [], "notes": [] },
+  "contents": [] }
+```
+
+`npm run verify` runs this (non-`--json`, for a readable pass/fail) against
+the source tree, and this session additionally ran it directly against the
+**packaged** candidate directory (`dist/ambicode-0.1.0`), confirming the
+zipped, allowlist-filtered artifact — not only the source checkout — passes
+strict validation on its own. `claude plugin list --json` returns an array
+of `{ id, version, scope, enabled, installPath, installedAt, lastUpdated,
+projectPath?, mcpServers }`; `verifyPostcondition` in `install-local.mjs`
+(doc 04 P2.4 correction D) reads exactly this shape rather than a native
+command's exit code to decide whether an install actually took effect.
 
 ## Packaging and marketplace
 

@@ -30,6 +30,16 @@ export const PolicyRule = z.strictObject({
   category: RuleCategory,
   instruction: z.string().min(1),
   check: RuleCheck,
+  /**
+   * Declares this rule as an edit-time reminder candidate (doc 04 P2.4
+   * correction F): the packaged PostToolUse hook may deliver it as
+   * `additionalContext` when an edited file matches the owning pack. Default
+   * `false` for backward compatibility with existing schema-version-1 packs.
+   * Allowed only on a path-specific pack — never one whose `appliesTo`
+   * includes `**\/*` — enforced in `policy/load.ts`, not here, because that
+   * check needs the pack's own `appliesTo` alongside this field.
+   */
+  remindOnEdit: z.boolean().default(false),
 });
 export type PolicyRule = z.infer<typeof PolicyRule>;
 
@@ -90,6 +100,8 @@ export interface ResolvedRule {
   category: z.infer<typeof RuleCategory>;
   instruction: string;
   check: RuleCheck;
+  /** Doc 04 P2.4 correction F: this rule may be delivered as an edit-time reminder. */
+  remindOnEdit: boolean;
 }
 
 export interface ResolvedPromptRef {

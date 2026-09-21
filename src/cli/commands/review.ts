@@ -55,7 +55,8 @@ export async function runReview(
   await reviewer.assertIsolationAvailable?.();
 
   const invocation = await reviewer.invoke({
-    prompt: bundle.prompt.text,
+    systemPrompt: bundle.prompt.system,
+    prompt: bundle.prompt.user,
     // The sanitized snapshot, which is also the reviewer's only readable tree.
     workingDirectory: bundle.snapshot.directory,
     model: reviewConfig.model,
@@ -169,7 +170,16 @@ function applyStatus(bundle: ReviewBundle, reviewerOk: boolean): void {
   const unverified = bundle.result.checks.filter(
     (check) => check.status !== 'passed' || !check.selectionComplete,
   );
+  // An applicable policy diagnostic (correction B8) is coverage the review
+  // did not actually have, so it keeps the result honestly `partial` rather
+  // than `complete` — it does not stop the reviewer from examining the
+  // available change, which already ran by the time this is decided.
+  const policyGaps = bundle.policies.reduce(
+    (total, { policy }) => total + policy.diagnostics.filter((d) => d.severity === 'error').length,
+    0,
+  );
   const gaps = [
+    ...(policyGaps > 0 ? [`${policyGaps} applicable policy diagnostic(s) could not be resolved`] : []),
     // A file the remote did not deliver is a change nobody reviewed, so the
     // result may not be called complete however well everything else went.
     ...(bundle.result.coverage.complete

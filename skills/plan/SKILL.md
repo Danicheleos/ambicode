@@ -52,10 +52,12 @@ there is no plural `--requirements`.
 
 ### 2. Prepare
 
-Run:
+Run, with `--json` — its structured fields below are not fully represented
+in the default text summary, which is a human-readable overview, not the
+machine contract this step reads:
 
 ```sh
-ambicode prepare --activity plan [paths...] [--project <id>] \
+ambicode prepare --activity plan --json [paths...] [--project <id>] \
   [--requirement <url>]... [--evidence <file>]
 ```
 
@@ -65,13 +67,11 @@ guess at the paths the request touches.
 - If it reports `ambiguous-project`, this is a monorepository and the request
   does not identify one project. **Refuse to guess.** Ask the user which
   project, or narrow the paths — do not pick the first configured project.
-- Apply what it returns, the same way `investigate` does:
-  - `policy.rules`: weigh each by its actual authority (doc 05, "Canonical
-    policy pack"): `team` is an approved project requirement; `observed` is
-    evidence of existing project practice — relevant, but not an approved
-    requirement by itself; `inherited` is baseline guidance. Never treat
-    `observed` or `inherited` guidance as a policy violation unless
-    independent requirement or code evidence establishes the problem.
+- Parse the JSON output and apply it, the same way `investigate` does:
+  - `sharedOperatingContract.content`: read this first — the canonical
+    operating contract (evidence, untrusted content, and how to weigh
+    `policy.rules`' authority labels) every AMBICODE skill shares. It is
+    delivered here, hash-verified, exactly once; do not restate its rules.
   - `policy.prompts`: read `before-work` content before you investigate, and
     any `before-report` content before you present the plan. `ambicode
     prepare` never returns reviewer-only (`before-checks`/`before-review`)

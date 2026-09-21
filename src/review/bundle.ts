@@ -227,6 +227,7 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
       ...snapshot.omissions,
       ...checkNotes,
       ...requirements.notices,
+      ...policyDiagnosticOmissions(policies),
       ...(requirements.mode === 'source-free'
         ? [
             'No requirement was supplied, so this is a quality review. It does not establish that the change does what any ticket or specification asked for.',
@@ -250,7 +251,7 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
     policies,
     requirements,
     pendingApprovals,
-    prompt: { text: '', provenance: [] },
+    prompt: { system: '', user: '', provenance: [] },
     result,
   };
 
@@ -260,12 +261,14 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
   );
 
   // The authoritative measurement, on the bytes that exist rather than on an
-  // estimate: the composed prompt plus the tree the reviewer can read. It
-  // happens here, before any caller can invoke a reviewer.
+  // estimate: the composed system and user prompts plus the tree the
+  // reviewer can read (doc 04 P2.4 correction E5: both prompts count against
+  // the one canonical limit). It happens here, before any caller can invoke a
+  // reviewer.
   bundle.measured = measureInput(reviewable.files, reviewable.patch, {
     snapshotBytes: plan.totalBytes,
     requirementBytes,
-    promptBytes: byteLength(bundle.prompt.text),
+    promptBytes: byteLength(bundle.prompt.system) + byteLength(bundle.prompt.user),
   });
   bundle.result.inputs = { ...bundle.measured, limits: bundle.result.inputs.limits };
   enforceReviewInputLimits(bundle.measured, limits, reviewable.files);
@@ -273,12 +276,22 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
   return bundle;
 }
 
-/** Persists the result, the prompt and the pointer to its snapshot. */
+/**
+ * Persists the result, the two composed prompt artifacts and the pointer to
+ * its snapshot. The system and user prompts are written as two separate
+ * files (doc 04 P2.4 correction E6) so an audit can see exactly what was
+ * appended to the reviewer's system prompt versus what it received as the
+ * ordinary user prompt, without reconstructing the split from one merged file.
+ */
 export async function writeBundleArtifacts(runtime: Runtime, bundle: ReviewBundle): Promise<void> {
   await runtime.fs.writeText(bundle.resultPath, `${JSON.stringify(bundle.result, null, 2)}\n`);
   await runtime.fs.writeText(
-    path.join(bundle.reviewDirectory, 'reviewer-prompt.md'),
-    bundle.prompt.text,
+    path.join(bundle.reviewDirectory, 'reviewer-system-prompt.md'),
+    bundle.prompt.system,
+  );
+  await runtime.fs.writeText(
+    path.join(bundle.reviewDirectory, 'reviewer-user-prompt.md'),
+    bundle.prompt.user,
   );
   await runtime.fs.writeText(
     path.join(bundle.reviewDirectory, 'snapshot-path.txt'),
@@ -442,6 +455,30 @@ async function runProjectChecks(options: ProjectChecksOptions): Promise<{
   }
 
   return { checks, pendingApprovals, notes: [] };
+}
+
+/**
+ * An applicable policy diagnostic (an unreadable review prompt, an unknown
+ * command reference) must become an explicit coverage omission rather than
+ * silently disappearing (doc 04 P2.4 correction B8): review/bundle never
+ * inspected `ResolvedPolicy.diagnostics` at all before this, so a blocking
+ * error here was invisible in the result. It does not stop the quality
+ * reviewer from examining the available change — only `applyStatus`
+ * (`src/cli/commands/review.ts`) uses this to keep the result honestly
+ * `partial` rather than `complete`. A diagnostic already downgraded to
+ * `notice`/`warning` because it does not apply to this review (resolved by
+ * `resolvePolicy`, correction B6/B7) is omitted here: it was never coverage
+ * this review needed.
+ */
+function policyDiagnosticOmissions(policies: readonly { project: ProjectConfig; policy: ResolvedPolicy }[]): string[] {
+  const omissions: string[] = [];
+  for (const { project, policy } of policies) {
+    for (const diagnostic of policy.diagnostics) {
+      if (diagnostic.severity !== 'error') continue;
+      omissions.push(`project "${project.id}" policy: ${diagnostic.code}: ${diagnostic.message}`);
+    }
+  }
+  return omissions;
 }
 
 function summarizePolicy(

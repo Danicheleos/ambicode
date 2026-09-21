@@ -38,6 +38,7 @@ function stubbedHelp(): FakeProcessRunner {
     stdout: [
       '--print --safe-mode --restricted --strict-mcp-config --tools --disallowedTools',
       '--no-session-persistence --permission-prompts --output-format --model --json-schema',
+      '--append-system-prompt',
     ].join('\n'),
   });
 }
@@ -96,6 +97,7 @@ describe('the reviewer receives only runtime and model authentication', () => {
     const reviewer = new ClaudeReviewer({ runner, cwd: '/work' });
     await reviewer.assertIsolationAvailable();
     await reviewer.invoke({
+      systemPrompt: 'contract + role',
       prompt: 'review this',
       workingDirectory: '/tmp/ambicode-snapshot-x',
       model: 'sonnet',
@@ -122,6 +124,7 @@ describe('the reviewer receives only runtime and model authentication', () => {
       stdout: await envelope('success-structured-output.json'),
     });
     await new ClaudeReviewer({ runner, cwd: '/work' }).invoke({
+      systemPrompt: 's',
       prompt: 'p',
       workingDirectory: '/tmp/s',
       model: 'sonnet',
@@ -191,6 +194,7 @@ describe('the real Claude Code structured-output envelope', () => {
       truncated: true,
     });
     const invocation = await new ClaudeReviewer({ runner, cwd: '/w' }).invoke({
+      systemPrompt: 's',
       prompt: 'p',
       workingDirectory: '/tmp/s',
       model: 'sonnet',

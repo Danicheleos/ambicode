@@ -9,6 +9,7 @@ import type { ProcessRunner } from '../ports/process.ts';
 import { contentHash } from '../util/hash.ts';
 import { isAmbicodeError } from '../util/errors.ts';
 import { TempRepo } from '../testing/temp-repo.ts';
+import { formatJsonOutput } from '../util/json-output.ts';
 import { parseArgs } from './args.ts';
 import { INIT_OPTIONS, runInit } from './commands/init.ts';
 import { PREPARE_OPTIONS, runPrepare } from './commands/prepare.ts';
@@ -1157,14 +1158,104 @@ describe('P2.3 ambicode prepare — correction B: complete and bounded policy', 
           !output.provenance.some((entry) => entry.kind === 'prompt' && entry.reference.includes('before-review')),
           `${activity} must not claim provenance for the filtered-out before-review prompt`,
         );
-        // Every prompt-kind provenance entry corresponds to actually-delivered content.
-        const deliveredReferences = new Set(
-          output.policy.prompts.map((prompt) => `${prompt.packReference}:${prompt.declaredPath}@${prompt.stage}`),
-        );
+        // Every prompt-kind provenance entry corresponds to actually-delivered
+        // content: either a stage-filtered pack prompt, or the canonical
+        // shared operating contract every activity receives (P2.4 correction
+        // A4), never a reference to something filtered out.
+        const deliveredReferences = new Set([
+          ...output.policy.prompts.map((prompt) => `${prompt.packReference}:${prompt.declaredPath}@${prompt.stage}`),
+          output.sharedOperatingContract.reference,
+        ]);
         for (const entry of output.provenance.filter((candidate) => candidate.kind === 'prompt')) {
           assert.ok(deliveredReferences.has(entry.reference), `provenance entry ${entry.reference} was not actually delivered`);
         }
       }
+    } finally {
+      await repo.dispose();
+    }
+  });
+});
+
+describe('P2.4 correction A4: shared operating contract delivered through prepare', () => {
+  it('delivers the canonical shared operating contract, content/hash verified, in provenance and the budget', async () => {
+    const repo = await TempRepo.create();
+    try {
+      await repo.write('src/app.ts', 'export const a = 1;\n');
+      await repo.commitAll('initial');
+      const runtime = await createRuntime({ cwd: repo.root });
+      await runInit(runtime, parseArgs('init', [], INIT_OPTIONS));
+
+      const output = await runPrepare(
+        runtime,
+        parseArgs('prepare', ['--activity', 'task'], PREPARE_OPTIONS),
+      );
+
+      const actualContent = await runtime.fs.readText(
+        path.join(runtime.pluginRoot, 'prompts', 'shared-operating-contract.md'),
+      );
+      assert.equal(output.sharedOperatingContract.content, actualContent);
+      assert.equal(output.sharedOperatingContract.contentHash, contentHash(actualContent));
+      assert.equal(output.sharedOperatingContract.reference, 'builtin/prompts/shared-operating-contract.md');
+
+      // Counted in provenance, exactly once.
+      const matches = output.provenance.filter(
+        (entry) => entry.kind === 'prompt' && entry.reference === output.sharedOperatingContract.reference,
+      );
+      assert.equal(matches.length, 1);
+      assert.equal(matches[0]?.contentHash, output.sharedOperatingContract.contentHash);
+
+      // Counted in the aggregate budget: the raw serialized draft already
+      // includes the field, so this is really asserting it was not measured
+      // as an afterthought bolted on outside the JSON that was actually sent.
+      const serialized = JSON.stringify(output);
+      assert.ok(serialized.includes(JSON.stringify(output.sharedOperatingContract.content)));
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it("the reported contextBudget.measuredBytes equals Buffer.byteLength of the exact --json bytes (doc 04 P2.4 correction B1/B3)", async () => {
+    const repo = await TempRepo.create();
+    try {
+      await repo.write('src/app.ts', 'export const a = 1;\n');
+      await repo.commitAll('initial');
+      const runtime = await createRuntime({ cwd: repo.root });
+      await runInit(runtime, parseArgs('init', [], INIT_OPTIONS));
+
+      const output = await runPrepare(
+        runtime,
+        parseArgs('prepare', ['--activity', 'task'], PREPARE_OPTIONS),
+      );
+
+      // The same canonical serializer the CLI's --json dispatch uses
+      // (src/cli/main.ts), applied to the exact object `runPrepare` returned.
+      const actualCliStdout = formatJsonOutput(output);
+      assert.equal(Buffer.byteLength(actualCliStdout, 'utf8'), output.contextBudget.measuredBytes);
+
+      // And round-tripping that exact text reproduces the same value again,
+      // proving the self-reference was actually resolved to a fixed point
+      // rather than merely happening to match once.
+      const parsedBack = JSON.parse(actualCliStdout);
+      assert.equal(parsedBack.contextBudget.measuredBytes, output.contextBudget.measuredBytes);
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it('delivers the identical shared operating contract to every authoring activity', async () => {
+    const repo = await TempRepo.create();
+    try {
+      await repo.write('src/app.ts', 'export const a = 1;\n');
+      await repo.commitAll('initial');
+      const runtime = await createRuntime({ cwd: repo.root });
+      await runInit(runtime, parseArgs('init', [], INIT_OPTIONS));
+
+      const hashes = new Set<string>();
+      for (const activity of ['investigate', 'plan', 'task']) {
+        const output = await runPrepare(runtime, parseArgs('prepare', ['--activity', activity], PREPARE_OPTIONS));
+        hashes.add(output.sharedOperatingContract.contentHash);
+      }
+      assert.equal(hashes.size, 1, 'every activity must receive the identical canonical content');
     } finally {
       await repo.dispose();
     }

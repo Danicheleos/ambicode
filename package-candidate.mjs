@@ -39,6 +39,7 @@ const FILE_ALLOWLIST = [
   { from: '.claude-plugin/plugin.json', mode: 0o644 },
   { from: 'bin/ambicode', mode: 0o755 },
   { from: 'scripts/ambicode.mjs', mode: 0o644 },
+  { from: 'hooks/hooks.json', mode: 0o644 },
   { from: 'docs/installation.md', mode: 0o644 },
   { from: 'docs/compatibility.md', mode: 0o644 },
   { from: 'docs/review.md', mode: 0o644 },
@@ -218,6 +219,39 @@ async function checkSharedResourceReferences(candidateDir) {
   }
 }
 
+/**
+ * Doc 04 P2.4 correction G2/I4: the packaged hook manifest ships, declares
+ * every documented event this plugin uses, and routes each one through the
+ * single bundled `ambicode hook` entry point — never a second executable or
+ * a shell/jq parser — checked against the assembled candidate itself.
+ */
+async function checkHooksManifest(candidateDir) {
+  const manifestPath = path.join(candidateDir, 'hooks', 'hooks.json');
+  let manifest;
+  try {
+    manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+  } catch (cause) {
+    throw new Error(`${manifestPath} is missing or not valid JSON: ${cause instanceof Error ? cause.message : cause}`);
+  }
+  const events = Object.keys(manifest.hooks ?? {});
+  const expectedEvents = ['PostToolUse', 'SessionStart', 'PostCompact', 'SessionEnd'];
+  for (const event of expectedEvents) {
+    if (!events.includes(event)) throw new Error(`hooks/hooks.json is missing the "${event}" event.`);
+  }
+  for (const event of events) {
+    for (const matcher of manifest.hooks[event]) {
+      for (const entry of matcher.hooks ?? []) {
+        if (entry.type !== 'command' || entry.command !== '${CLAUDE_PLUGIN_ROOT}/bin/ambicode hook') {
+          throw new Error(
+            `hooks/hooks.json's "${event}" entry does not route through the single bundled entry point ` +
+              '"${CLAUDE_PLUGIN_ROOT}/bin/ambicode hook".',
+          );
+        }
+      }
+    }
+  }
+}
+
 async function checkLauncherExecutable(candidateDir) {
   const mode = (await stat(path.join(candidateDir, 'bin/ambicode'))).mode & 0o777;
   if ((mode & 0o111) === 0) {
@@ -270,6 +304,7 @@ async function main() {
   await checkNoForbiddenDependencies(candidateDir);
   await checkNoWorkstationPaths(candidateDir);
   await checkSharedResourceReferences(candidateDir);
+  await checkHooksManifest(candidateDir);
 
   const inventory = await inventoryOf(candidateDir);
   await mkdir(DIST, { recursive: true });

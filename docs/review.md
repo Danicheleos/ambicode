@@ -61,10 +61,13 @@ carried into the saved review result (`.ambicode/reviews/<id>/result.json`),
 which is what makes a requirement-based review reopenable without the
 transport file. `skills/shared/requirements-mcp.md` in the plugin has the
 full lifecycle; `investigate` and `plan` follow the same procedure. `task`
-also follows it, but keeps the same evidence file alive across two
-consumers — `ambicode prepare` first, then this command later, once
-implementation is done — deleting it only after this command has read it,
-not right after `prepare`.
+also follows it, but keeps the same evidence file alive across an
+**arbitrary number of consumers** for as long as the task runs — every
+`ambicode prepare` call (initial and any rerun after a broadened scope) and
+every `ambicode review` call (the first one, any approval-authorized rerun,
+and every re-review after fixing an accepted finding) — deleting it in
+exactly one final cleanup path, after the task's terminal report or an
+abort, never right after any one `prepare` or `review` call.
 
 Every `--requirement` URL must have an entry in that file, and the file must
 hold nothing else. A URL whose entry says `forbidden`, `not-found` or
@@ -240,9 +243,11 @@ Four parts, in this order.
    why, what the reviewer said it could not assess, and every finding that was
    rejected for naming a file or line that is not in the change.
 
-Results are written to `.ambicode/reviews/<id>/` — `result.json`, `report.txt`
-and `reviewer-prompt.md` — which is gitignored. The snapshot lives outside the
-repository.
+Results are written to `.ambicode/reviews/<id>/` — `result.json`, `report.txt`,
+`reviewer-system-prompt.md` and `reviewer-user-prompt.md` (split per doc 04
+P2.4 correction E, so the appended system instructions and the user-turn
+content are separately inspectable) — which is gitignored. The snapshot lives
+outside the repository.
 
 ### Reading the outcome honestly
 

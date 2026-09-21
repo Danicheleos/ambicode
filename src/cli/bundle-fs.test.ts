@@ -101,7 +101,8 @@ describe('U28 bundle writes only through the filesystem port', () => {
       for (const artifact of [
         output.resultPath,
         output.reportPath,
-        path.join(output.reviewDirectory, 'reviewer-prompt.md'),
+        path.join(output.reviewDirectory, 'reviewer-system-prompt.md'),
+        path.join(output.reviewDirectory, 'reviewer-user-prompt.md'),
         path.join(output.reviewDirectory, 'snapshot-path.txt'),
       ]) {
         assert.ok(recorder.writes.includes(artifact), `${artifact} was not written through the port`);

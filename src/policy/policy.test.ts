@@ -392,3 +392,212 @@ test('U06 output ordering is deterministic and independent of declaration order'
 
   assert.deepEqual(resolveWith(forward, a.packs), resolveWith(reverse, b.packs));
 });
+
+// doc 04 P2.4 correction B6/B7: an error in an applicable rule/prompt/command
+// decision blocks; the same error in a valid pack that simply does not match
+// this request's activity/path does not — though it may remain visible.
+
+test('B6/B7 a broken review-only prompt/command does not block plan or investigate, but does block review', async (t) => {
+  const directory = await sandbox(t);
+  const packDirectory = path.join(directory, '.ambicode', 'policies');
+  await mkdir(packDirectory, { recursive: true });
+  await writeFile(
+    path.join(packDirectory, 'review-only.yaml'),
+    [
+      'schemaVersion: 1',
+      'id: review-only',
+      'authority: team',
+      'appliesTo: ["**/*"]',
+      'activities: [review]',
+      'source: { location: "test" }',
+      'prompts: [{ stage: before-review, file: "./missing.md" }]',
+      'commandPolicy: [{ command: not-declared, action: run }]',
+    ].join('\n'),
+    'utf8',
+  );
+
+  const config = project({ policyFiles: ['.ambicode/policies/review-only.yaml'] });
+  const { packs, diagnostics } = await loadPacksForProject({
+    fs: nodeFileSystem,
+    project: config,
+    builtinDirectory: BUILTIN_DIRECTORY,
+    repositoryRoot: directory,
+  });
+  assert.ok(diagnostics.some((d) => d.code === 'path-missing' && d.severity === 'error'));
+  assert.ok(diagnostics.some((d) => d.code === 'pack-unknown-command' && d.severity === 'error'));
+
+  // Not applicable to "plan" (the pack only declares activities: [review]):
+  // both diagnostics become nonblocking, but stay visible.
+  const forPlan = resolvePolicy({ activity: 'plan', project: config, packs, paths: [], diagnostics });
+  assert.equal(forPlan.diagnostics.filter((d) => d.severity === 'error').length, 0);
+  assert.ok(forPlan.diagnostics.some((d) => d.code === 'path-missing' && d.severity === 'notice'));
+  assert.ok(forPlan.diagnostics.some((d) => d.code === 'pack-unknown-command' && d.severity === 'notice'));
+
+  // Not applicable to "investigate" either, for the same reason.
+  const forInvestigate = resolvePolicy({ activity: 'investigate', project: config, packs, paths: [], diagnostics });
+  assert.equal(forInvestigate.diagnostics.filter((d) => d.severity === 'error').length, 0);
+
+  // Applicable to "review": both diagnostics keep blocking.
+  const forReview = resolvePolicy({ activity: 'review', project: config, packs, paths: [], diagnostics });
+  assert.equal(forReview.diagnostics.filter((d) => d.severity === 'error').length, 2);
+});
+
+test('B6/B7 a broken prompt in a pack scoped to another path does not block a request outside that path, but does block one inside it', async (t) => {
+  const directory = await sandbox(t);
+  const packDirectory = path.join(directory, '.ambicode', 'policies');
+  await mkdir(packDirectory, { recursive: true });
+  await writeFile(
+    path.join(packDirectory, 'scoped.yaml'),
+    [
+      'schemaVersion: 1',
+      'id: scoped',
+      'authority: team',
+      'appliesTo: ["src/orders/**"]',
+      'activities: [task]',
+      'source: { location: "test" }',
+      'prompts: [{ stage: before-work, file: "./missing.md" }]',
+    ].join('\n'),
+    'utf8',
+  );
+
+  const config = project({ policyFiles: ['.ambicode/policies/scoped.yaml'] });
+  const { packs, diagnostics } = await loadPacksForProject({
+    fs: nodeFileSystem,
+    project: config,
+    builtinDirectory: BUILTIN_DIRECTORY,
+    repositoryRoot: directory,
+  });
+  assert.ok(diagnostics.some((d) => d.code === 'path-missing'));
+
+  // A nonmatching path pack: applicable activity, but the path is elsewhere.
+  const outside = resolvePolicy({
+    activity: 'task',
+    project: config,
+    packs,
+    paths: ['apps/web/a.ts'],
+    diagnostics,
+  });
+  assert.equal(outside.diagnostics.filter((d) => d.severity === 'error').length, 0);
+
+  // An applicable task whose broken task prompt actually matches this path
+  // still blocks.
+  const inside = resolvePolicy({
+    activity: 'task',
+    project: config,
+    packs,
+    paths: ['apps/web/src/orders/service.ts'],
+    diagnostics,
+  });
+  assert.equal(inside.diagnostics.filter((d) => d.severity === 'error').length, 1);
+});
+
+// doc 04 P2.4 correction F: remindOnEdit defaults to false, and is only
+// allowed on a path-specific pack.
+
+test('F remindOnEdit defaults to false for a rule that does not declare it', async (t) => {
+  const directory = await sandbox(t);
+  const packDirectory = path.join(directory, '.ambicode', 'policies');
+  await mkdir(packDirectory, { recursive: true });
+  await writeFile(
+    path.join(packDirectory, 'scoped.yaml'),
+    [
+      'schemaVersion: 1',
+      'id: scoped',
+      'authority: team',
+      'appliesTo: ["src/orders/**"]',
+      'activities: [task]',
+      'source: { location: "test" }',
+      'rules:',
+      '  - id: no-secrets-in-logs',
+      '    category: security',
+      '    instruction: "Do not log secrets."',
+      '    check: { kind: reviewer, explanation: "manual read" }',
+      '  - id: reminder-rule',
+      '    category: architecture',
+      '    instruction: "Keep orders logic in the service layer."',
+      '    check: { kind: reviewer, explanation: "manual read" }',
+      '    remindOnEdit: true',
+    ].join('\n'),
+    'utf8',
+  );
+
+  const config = project({ policyFiles: ['.ambicode/policies/scoped.yaml'] });
+  const { packs, diagnostics } = await loadPacksForProject({
+    fs: nodeFileSystem,
+    project: config,
+    builtinDirectory: BUILTIN_DIRECTORY,
+    repositoryRoot: directory,
+  });
+  assert.deepEqual(diagnostics, []);
+  const resolved = resolvePolicy({ activity: 'task', project: config, packs, paths: ['apps/web/src/orders/x.ts'] });
+  const noSecrets = resolved.rules.find((r) => r.qualifiedId === 'scoped/no-secrets-in-logs');
+  const reminder = resolved.rules.find((r) => r.qualifiedId === 'scoped/reminder-rule');
+  assert.equal(noSecrets?.remindOnEdit, false);
+  assert.equal(reminder?.remindOnEdit, true);
+});
+
+test('F a broadly-applying pack ("**/*") cannot mark a rule as remindOnEdit', async (t) => {
+  const directory = await sandbox(t);
+  const packDirectory = path.join(directory, '.ambicode', 'policies');
+  await mkdir(packDirectory, { recursive: true });
+  await writeFile(
+    path.join(packDirectory, 'broad.yaml'),
+    [
+      'schemaVersion: 1',
+      'id: broad',
+      'authority: team',
+      'appliesTo: ["**/*"]',
+      'activities: [task]',
+      'source: { location: "test" }',
+      'rules:',
+      '  - id: reminder-rule',
+      '    category: architecture',
+      '    instruction: "Keep it simple."',
+      '    check: { kind: reviewer, explanation: "manual read" }',
+      '    remindOnEdit: true',
+    ].join('\n'),
+    'utf8',
+  );
+
+  const config = project({ policyFiles: ['.ambicode/policies/broad.yaml'] });
+  const { packs, diagnostics } = await loadPacksForProject({
+    fs: nodeFileSystem,
+    project: config,
+    builtinDirectory: BUILTIN_DIRECTORY,
+    repositoryRoot: directory,
+  });
+  assert.ok(diagnostics.some((d) => d.code === 'remind-on-edit-broad-pack' && d.severity === 'error'));
+
+  // Applicable to "task": blocks. Not applicable to "plan": downgraded (B6/B7).
+  const forTask = resolvePolicy({ activity: 'task', project: config, packs, paths: [], diagnostics });
+  assert.ok(forTask.diagnostics.some((d) => d.code === 'remind-on-edit-broad-pack' && d.severity === 'error'));
+  const forPlan = resolvePolicy({ activity: 'plan', project: config, packs, paths: [], diagnostics });
+  assert.ok(forPlan.diagnostics.every((d) => d.code !== 'remind-on-edit-broad-pack' || d.severity !== 'error'));
+});
+
+test('B6/B7 an invalid pack whose applicability cannot be established keeps blocking regardless of activity', async (t) => {
+  const directory = await sandbox(t);
+  const packDirectory = path.join(directory, '.ambicode', 'policies');
+  await mkdir(packDirectory, { recursive: true });
+  await writeFile(path.join(packDirectory, 'invalid.yaml'), 'not: [valid, yaml', 'utf8');
+
+  const config = project({ policyFiles: ['.ambicode/policies/invalid.yaml'] });
+  const { packs, diagnostics } = await loadPacksForProject({
+    fs: nodeFileSystem,
+    project: config,
+    builtinDirectory: BUILTIN_DIRECTORY,
+    repositoryRoot: directory,
+  });
+  assert.equal(packs.length, 0);
+  assert.ok(diagnostics.some((d) => d.severity === 'error' && (d.code === 'pack-unparsable' || d.code === 'pack-invalid')));
+
+  // Its applicability can never be established (it never parsed), so it
+  // keeps blocking every activity, not only the ones it might have declared.
+  for (const activity of ['review', 'task', 'plan', 'investigate'] as const) {
+    const resolved = resolvePolicy({ activity, project: config, packs, paths: [], diagnostics });
+    assert.ok(
+      resolved.diagnostics.some((d) => d.severity === 'error'),
+      `activity "${activity}" must still be blocked by an unparsable pack`,
+    );
+  }
+});

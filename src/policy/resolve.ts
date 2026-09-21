@@ -66,6 +66,16 @@ export function resolvePolicy(options: ResolveOptions): ResolvedPolicy {
   const prompts: ResolvedPromptRef[] = [];
   const decisionsByCommand = new Map<string, ResolvedCommandDecision>();
 
+  // Tracked so a load-time diagnostic about a pack's *content* (an unknown
+  // command reference, an unreadable prompt file) can be told apart from one
+  // about a pack that is simply not applicable to this activity/paths (doc 04
+  // P2.4 correction B6/B7): a pack whose YAML never parsed has unknown
+  // applicability and its diagnostic keeps blocking regardless, but a pack
+  // that parsed fine and applies to some *other* activity, stage, project or
+  // path must not block a request it was never relevant to.
+  const consideredFilePaths = new Set(packs.map((loaded) => loaded.filePath));
+  const applicableFilePaths = new Set<string>();
+
   for (const loaded of packs) {
     const pack = loaded.pack;
     if (!pack.activities.includes(activity)) continue;
@@ -77,6 +87,7 @@ export function resolvePolicy(options: ResolveOptions): ResolvedPolicy {
       : [];
     if (pathsSupplied && matchedPaths.length === 0) continue;
 
+    applicableFilePaths.add(loaded.filePath);
     packEntries.push({
       id: pack.id,
       reference: loaded.reference,
@@ -106,6 +117,7 @@ export function resolvePolicy(options: ResolveOptions): ResolvedPolicy {
         category: rule.category,
         instruction: rule.instruction,
         check: rule.check,
+        remindOnEdit: rule.remindOnEdit,
       });
     }
 
@@ -152,8 +164,54 @@ export function resolvePolicy(options: ResolveOptions): ResolvedPolicy {
     rules: dedupeBy(rules, (rule) => rule.qualifiedId),
     prompts: dedupeBy(prompts, (prompt) => `${prompt.stage}::${prompt.absolutePath}`),
     commandDecisions,
-    diagnostics,
+    diagnostics: scopeDiagnostics(diagnostics, consideredFilePaths, applicableFilePaths),
   };
+}
+
+/**
+ * A content-level diagnostic about a specific pack file (an unknown command
+ * reference, an unreadable prompt) whose relevance depends on whether that
+ * pack actually applies here. Structural diagnostics about the pack's own
+ * validity (unparsable, duplicate id, replaces an unused built-in, ...) are
+ * not in this set: those always block, because they are configuration
+ * defects independent of any one activity/path request (doc 04 P2.4
+ * correction B6).
+ */
+const PACK_SCOPED_DIAGNOSTIC_CODES: ReadonlySet<string> = new Set([
+  'pack-unknown-command',
+  'prompt-unreadable',
+  'path-escape',
+  'path-missing',
+  'remind-on-edit-broad-pack',
+]);
+
+/**
+ * Downgrades a pack-scoped diagnostic from `error` to `notice` when the pack
+ * it belongs to parsed successfully but does not apply to this activity or
+ * these paths (doc 04 P2.4 correction B6/B7): an error in an *applicable*
+ * rule, prompt, or command decision still blocks; the same error in a valid
+ * pack that simply does not match this request must not. A diagnostic whose
+ * pack never parsed at all (`consideredFilePaths` does not know it) keeps
+ * blocking, because its applicability genuinely cannot be established. The
+ * diagnostic stays visible either way — only its severity, and therefore
+ * whether it can block preparation, changes.
+ */
+function scopeDiagnostics(
+  diagnostics: readonly Diagnostic[],
+  consideredFilePaths: ReadonlySet<string>,
+  applicableFilePaths: ReadonlySet<string>,
+): Diagnostic[] {
+  return diagnostics.map((diagnostic) => {
+    if (diagnostic.severity !== 'error') return diagnostic;
+    if (!PACK_SCOPED_DIAGNOSTIC_CODES.has(diagnostic.code)) return diagnostic;
+    if (diagnostic.where === undefined) return diagnostic;
+    const parsedSuccessfully = consideredFilePaths.has(diagnostic.where);
+    const applicable = applicableFilePaths.has(diagnostic.where);
+    if (parsedSuccessfully && !applicable) {
+      return { ...diagnostic, severity: 'notice' };
+    }
+    return diagnostic;
+  });
 }
 
 /**

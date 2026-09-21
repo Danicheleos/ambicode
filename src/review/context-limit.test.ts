@@ -152,8 +152,11 @@ describe('U17 the context limit covers the whole model input', () => {
         reviewer,
       });
 
-      const sent = reviewer.requests[0]?.prompt ?? '';
-      assert.equal(output.result.inputs.promptBytes, byteLength(sent));
+      // Correction E5: the limit and the recorded measurement cover both the
+      // appended system prompt and the ordinary user prompt, not only one.
+      const sentSystem = reviewer.requests[0]?.systemPrompt ?? '';
+      const sentUser = reviewer.requests[0]?.prompt ?? '';
+      assert.equal(output.result.inputs.promptBytes, byteLength(sentSystem) + byteLength(sentUser));
       assert.equal(
         output.result.inputs.contextBytes,
         output.result.inputs.promptBytes + output.result.inputs.snapshotBytes,

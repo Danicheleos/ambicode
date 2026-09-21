@@ -1,6 +1,7 @@
 import { realpathSync } from 'node:fs';
 import { createRuntime } from '../composition/root.ts';
 import { AmbicodeError, isAmbicodeError } from '../util/errors.ts';
+import { formatJsonOutput } from '../util/json-output.ts';
 import { parseArgs, type OptionSpec, type ParsedArgs } from './args.ts';
 import { BUNDLE_OPTIONS, renderBundle, runBundle } from './commands/bundle.ts';
 import { CONFIG_OPTIONS, renderConfig, runConfig } from './commands/config.ts';
@@ -103,6 +104,21 @@ export async function main(argv: readonly string[]): Promise<number> {
     return 0;
   }
 
+  // The packaged PostToolUse/SessionStart/PostCompact/SessionEnd hook entry
+  // point (doc 04 P2.4 correction G): a completely different I/O contract
+  // from every other command — stdin JSON in, the exact hook JSON contract
+  // out, always exit 0, never the `{text, data}`/`--json` shape the rest of
+  // this dispatcher uses — so it is handled here, before `SPECS`/`dispatch`,
+  // rather than forced through option parsing it does not have.
+  if (command === 'hook') {
+    const { runHook, readBoundedStdin } = await import('../hook/run-hook.ts');
+    const runtime = await createRuntime();
+    const stdin = await readBoundedStdin(process.stdin);
+    const output = await runHook(runtime, stdin);
+    process.stdout.write(`${JSON.stringify(output)}\n`);
+    return 0;
+  }
+
   const spec = SPECS[command];
   if (spec === undefined) {
     process.stderr.write(`Unknown command "${command}".\n\n${USAGE}`);
@@ -118,9 +134,7 @@ export async function main(argv: readonly string[]): Promise<number> {
     // or reach a provider first.
     validateCombination(command, args);
     const rendered = await dispatch(command, args);
-    process.stdout.write(
-      args.flag('json') ? `${JSON.stringify(rendered.data, null, 2)}\n` : `${rendered.text}\n`,
-    );
+    process.stdout.write(args.flag('json') ? formatJsonOutput(rendered.data) : `${rendered.text}\n`);
     if (rendered.wait !== undefined) {
       const reason = await serveUntilStopped(rendered.wait);
       process.stdout.write(`The review page stopped: ${reason}.\n`);

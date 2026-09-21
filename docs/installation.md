@@ -130,6 +130,50 @@ preserves the durable source, a marketplace-removal failure that preserves a
 recoverable state, and uninstall without the original candidate directory —
 without shelling out to the real `claude` binary for any of it.
 
+**Ownership lock, scope immutability, and recovery (doc 04 P2.4 correction
+D).** Four further failure modes were closed this session, on top of the
+P2.3 rename-aside/validate-before-publish mechanics above:
+
+- **Ownership lock.** `install`/`uninstall` first acquire an exclusive lock
+  file (`<config-dir>/ambicode-install/lock.json`, holding the locking
+  process's PID, written with the atomic `wx` flag) before reading or
+  mutating anything else. A second concurrent `install-local.mjs` invocation
+  against the same `CLAUDE_CONFIG_DIR` is refused immediately rather than
+  racing the first one's rename/publish steps; a lock left behind by a
+  process that is no longer running (checked by signalling its recorded PID
+  with `process.kill(pid, 0)`) is treated as stale, reclaimed, and retried
+  once, so a crashed prior run cannot permanently wedge the directory.
+- **Scope immutability.** `install` now reads any existing recorded state
+  *before* staging or publishing anything, and refuses outright — leaving
+  the existing installation completely untouched — if the caller's
+  `--scope`/`--project-dir` disagrees with what is already installed at this
+  `CLAUDE_CONFIG_DIR`. Previously only `uninstall` checked this; `install`
+  had no such check, so a second `install` call with a different scope could
+  silently leave a dangling native registration for the original scope.
+- **Postcondition verification.** After the native `plugin install`/`plugin
+  update` calls report success, `install` re-reads `claude plugin list
+  --json` (a fresh native read, not the same process's cached belief) and
+  confirms the installed entry's name, version and scope actually match what
+  was just requested before printing "Installed" or writing
+  `state.json`. A native command that reports success while leaving stale or
+  mismatched state is caught here instead of being trusted at face value.
+- **Recovery journal.** If a compensating rollback step itself fails after a
+  native mutation already succeeded — the one case where `install-local.mjs`
+  cannot silently undo what it did — it writes
+  `<config-dir>/ambicode-install/recovery-journal.json` with the recorded
+  recovery instructions (exactly which native commands to run by hand to
+  reach a consistent state) before exiting nonzero, instead of silently
+  leaving a half-mutated directory with no explanation. The journal is
+  removed on any ordinary successful run; `printResult` prints its path and
+  contents to the terminal on the failure path that creates it.
+
+`install-local.test.mjs`'s P2.4 describe block ("failure-safe installation")
+covers all four against the fake native-command adapter: a concurrent lock
+holder is refused, a stale lock (dead PID) is reclaimed, an `install` with a
+conflicting scope is refused before any mutation, a native list result that
+disagrees with what was just requested fails the postcondition check and
+rolls back, and an interrupted run leaves a journal that `inspect` surfaces.
+
 `claude --plugin-dir .` is not a substitute for testing the candidate: it
 loads the live source tree directly and never exercises the packaged
 artifact, the allowlist, or this install path at all.

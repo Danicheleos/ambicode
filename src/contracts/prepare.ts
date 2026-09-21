@@ -44,6 +44,7 @@ const PrepareRule = z.strictObject({
   checkKind: z.enum(['reviewer', 'command', 'none']),
   checkExplanation: z.string().min(1),
   checkCommand: z.string().min(1).nullable(),
+  remindOnEdit: z.boolean(),
 });
 
 const PreparePrompt = z.strictObject({
@@ -100,6 +101,21 @@ export const PrepareContextBudget = z.strictObject({
 });
 export type PrepareContextBudget = z.infer<typeof PrepareContextBudget>;
 
+/**
+ * The canonical shared operating contract (doc 04 P2.4 correction A4),
+ * delivered to every `prepare` caller exactly once through this one
+ * boundary, content/hash verified against what was actually read, so an
+ * authoring skill never locates and reads it independently. Its bytes are
+ * included in `provenance` and counted in `contextBudget`, the same as a
+ * pack prompt.
+ */
+export const PrepareSharedContract = z.strictObject({
+  reference: z.string().min(1),
+  content: z.string(),
+  contentHash: z.string().min(1),
+});
+export type PrepareSharedContract = z.infer<typeof PrepareSharedContract>;
+
 export const PrepareOutput = z.strictObject({
   command: z.literal('prepare'),
   activity: Activity,
@@ -112,6 +128,7 @@ export const PrepareOutput = z.strictObject({
   provenance: z.array(ProvenanceEntry),
   notices: z.array(z.string()),
   policy: PreparePolicy,
+  sharedOperatingContract: PrepareSharedContract,
   contextBudget: PrepareContextBudget,
 });
 export type PrepareOutput = z.infer<typeof PrepareOutput>;

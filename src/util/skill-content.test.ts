@@ -87,11 +87,25 @@ describe('P2.2/P2.3 shipped skill content', () => {
     }
   });
 
-  it('the shared procedure explains that task keeps the evidence file alive across two consumers, unlike review/investigate/plan', async () => {
+  it('the shared procedure explains that task keeps the evidence file alive across an arbitrary number of consumers, unlike review/investigate/plan (doc 04 P2.4 correction C4)', async () => {
     const shared = await readFile(path.join(SKILLS_DIR, 'shared', 'requirements-mcp.md'), 'utf8');
     const normalized = shared.replace(/\s+/g, ' ');
-    assert.match(normalized, /task.*reads it.*twice/i);
+    assert.match(normalized, /task.*may read it.*many times/i);
+    assert.match(normalized, /arbitrary number of consumers/i);
     assert.match(normalized, /last command in your workflow that reads it/i);
+    // No stale "exactly two" framing: task's real lifecycle is open-ended
+    // (every prepare rerun, every review rerun, every re-review after a fix).
+    assert.doesNotMatch(normalized, /task.*reads it.*twice/i);
+  });
+
+  it('task/SKILL.md deletes its evidence file in exactly one final-cleanup place, never right after prepare or an individual review call (doc 04 P2.4 correction C)', async () => {
+    const task = await readFile(path.join(SKILLS_DIR, 'task', 'SKILL.md'), 'utf8');
+    assert.match(task, /arbitrary number of consumers/i);
+    assert.match(task, /Final cleanup/);
+    assert.match(task, /delete it now — this is the one place it is deleted/i);
+    // The premature "delete right after this run" instruction must be gone:
+    // a finding-fix cycle needs the same evidence file for a second review.
+    assert.doesNotMatch(task, /Delete the requirement evidence file now, after this run/);
   });
 
   it('investigate documents its single note-writing boundary', async () => {
@@ -182,26 +196,59 @@ describe('P2.2/P2.3 shipped skill content', () => {
     }
   });
 
-  it('plan, investigate and task state the three-way authority distinction, and never conflate "observed" with "team" (doc 04 P2.3 correction C)', async () => {
+  it('the canonical shared operating contract states the three-way authority distinction, and never conflates "observed" with "team" (doc 04 P2.4 correction A5)', async () => {
+    const content = await readFile(
+      path.join(repositoryRoot, 'prompts', 'shared-operating-contract.md'),
+      'utf8',
+    );
+    assert.match(content, /`team`.*approved (project )?requirement/is, 'must state that "team" is an approved requirement');
+    assert.match(
+      content,
+      /`observed`.*evidence of existing project practice/is,
+      'must state that "observed" is evidence of existing practice, not an approved requirement',
+    );
+    assert.match(content, /`inherited`.*(baseline )?guidance/is, 'must state that "inherited" is guidance');
+    assert.match(
+      content,
+      /never.*(report|treat).*`observed`.*or.*`inherited`.*(content|guidance|rule).*(as a )?(policy )?violation/is,
+      'must say observed/inherited guidance is never itself a policy violation',
+    );
+    // The specific defect the original correction fixed: grouping observed
+    // together with team as if both were already "actual expectations".
+    assert.ok(
+      !/`team`\/`observed`/.test(content),
+      'must not conflate "team" and "observed" as if both were approved requirements',
+    );
+    // Workflow-neutral: nothing reviewer-only (finding/output rules) leaked
+    // into the shared contract (doc 04 P2.4 correction A5) — that stays in
+    // reviewer-role.md.
+    assert.ok(!/suggestedComment|coverageNotes/i.test(content), 'must not carry reviewer-only finding/output vocabulary');
+  });
+
+  it('plan, investigate and task point at the prepared shared operating contract for authority guidance, instead of duplicating its definition (doc 04 P2.4 correction A6)', async () => {
     for (const name of ['plan', 'investigate', 'task']) {
       const content = await readFile(path.join(SKILLS_DIR, name, 'SKILL.md'), 'utf8');
-      assert.match(content, /`team`.*approved (project )?requirement/is, `${name}/SKILL.md must state that "team" is an approved requirement`);
       assert.match(
         content,
-        /`observed`.*evidence of existing project practice/is,
-        `${name}/SKILL.md must state that "observed" is evidence of existing practice, not an approved requirement`,
+        /sharedOperatingContract\.content/,
+        `${name}/SKILL.md must read sharedOperatingContract.content from ambicode prepare's JSON output`,
       );
-      assert.match(content, /`inherited`.*(baseline )?guidance/is, `${name}/SKILL.md must state that "inherited" is guidance`);
-      assert.match(
-        content,
-        /never.*(report|treat).*`observed`.*or.*`inherited`.*(guidance|rule).*(as a )?(policy )?violation/is,
-        `${name}/SKILL.md must say observed/inherited guidance is never itself a policy violation`,
-      );
-      // The specific defect this correction fixes: grouping observed together
-      // with team as if both were already "actual expectations"/requirements.
+      // The full authority-label definitions are no longer copied into each
+      // skill file; the canonical contract is the one place that owns them.
       assert.ok(
-        !/`team`\/`observed`/.test(content),
-        `${name}/SKILL.md must not conflate "team" and "observed" as if both were approved requirements`,
+        !/`observed`.*evidence of existing project practice/is.test(content),
+        `${name}/SKILL.md must not duplicate the authority-label definitions the shared contract now owns`,
+      );
+    }
+  });
+
+  it('every authoring skill invokes ambicode prepare with --json and reads its structured output (doc 04 P2.4 correction A1)', async () => {
+    for (const name of ['plan', 'investigate', 'task']) {
+      const content = await readFile(path.join(SKILLS_DIR, name, 'SKILL.md'), 'utf8');
+      assert.match(
+        content,
+        /ambicode prepare --activity \S+ --json/,
+        `${name}/SKILL.md must invoke ambicode prepare with --json`,
       );
     }
   });

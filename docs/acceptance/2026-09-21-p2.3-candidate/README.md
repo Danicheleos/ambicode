@@ -1,5 +1,22 @@
 # P2.2-corrected + P2.3 candidate acceptance record — 2026-09-21
 
+> **Superseded.** A P2.4 audit (doc 04 P2.4, corrections A–K) in a later
+> session this same day found and fixed real gaps this record did not know
+> about — most materially: authoring skills invoked `ambicode prepare`
+> without `--json` and could not actually read `sharedOperatingContract`,
+> `contextBudget.measuredBytes` did not equal the real `--json` stdout byte
+> count, load-time policy diagnostics from a genuinely inapplicable pack
+> incorrectly blocked preparation, `install()` never checked for a scope
+> conflict or re-verified a postcondition and could leave a dangling
+> marketplace registration on a failed fresh install, and the reviewer
+> prompt carried the diff and untrusted evidence inside the same text as the
+> operating contract rather than the appended system prompt. This record's
+> claims about P2.2/P2.3 correctness are superseded by
+> `docs/acceptance/2026-09-21-p2.4-final-candidate/README.md`, which also
+> covers P2.4 itself. Read that record first; this one is kept for its
+> still-accurate installer/skill-count narrative and is not itself corrected
+> line by line.
+
 This is a locally prepared and locally verified candidate, not a released
 version. Sections below use exactly `passed`, `failed`, `pending`, or `not
 applicable`. "Unavailable" is never written as "passed." This record
