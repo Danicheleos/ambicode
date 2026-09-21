@@ -1,5 +1,14 @@
 # P2.4 final candidate acceptance record — 2026-09-21
 
+> **Superseded for local installation, Windows portability, and code
+> navigation.** A post-commit audit of `44cd94911af6e82e8e9b12822b20deb174005c29`
+> reproduced defects that this record missed: the guide installed into an
+> isolated config and then suggested checking the normal one; packaging and
+> hooks depended on POSIX tools; rollback/postcondition paths were incomplete;
+> and LSP guidance was neither structured nor evidenced. See the dated local
+> install/navigation correction record. Historical observations below remain
+> historical and do not prove that those corrected areas passed.
+
 This is a locally prepared and locally verified candidate, not a released
 artifact. AMBICODE is installed and used locally (doc 08, "Distribution");
 there is no hosted, public, or private remote marketplace and nothing in

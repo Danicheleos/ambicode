@@ -247,9 +247,19 @@ describe('P2.2/P2.3 shipped skill content', () => {
       const content = await readFile(path.join(SKILLS_DIR, name, 'SKILL.md'), 'utf8');
       assert.match(
         content,
-        /ambicode prepare --activity \S+ --json/,
-        `${name}/SKILL.md must invoke ambicode prepare with --json`,
+        /node "\$\{CLAUDE_PLUGIN_ROOT\}\/scripts\/ambicode\.mjs" prepare --activity \S+ --json/,
+        `${name}/SKILL.md must invoke the packaged Node entry point with prepare --json`,
       );
+    }
+  });
+
+  it('makes LSP-first navigation observable instead of silently claiming or skipping it', async () => {
+    for (const name of ['plan', 'investigate', 'task']) {
+      const content = await readFile(path.join(SKILLS_DIR, name, 'SKILL.md'), 'utf8');
+      assert.match(content, /`navigation`/, `${name}/SKILL.md must read prepare's navigation contract`);
+      assert.match(content, /Navigation: LSP/);
+      assert.match(content, /targeted-search fallback/);
+      assert.match(content, /installed or recommended alone/i);
     }
   });
 });

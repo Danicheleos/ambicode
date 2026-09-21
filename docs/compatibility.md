@@ -325,9 +325,10 @@ current transcript.
 The plugin ships one hook manifest, `hooks/hooks.json` (doc 04 P2.4
 correction G), registering four events — `PostToolUse` (matcher
 `Edit|Write`), `SessionStart` (matcher `startup|resume|clear|fork`),
-`PostCompact`, and `SessionEnd` — each routed through the same single
-bundled entry point, `${CLAUDE_PLUGIN_ROOT}/bin/ambicode hook`, rather than a
-separate script per event. Re-confirmed this session through the same
+`PostCompact`, and `SessionEnd` — each routed in exec form through command
+`node` with arguments `${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs`, `hook`.
+This avoids shell parsing and works when the plugin path contains spaces or
+the host has no POSIX shell. Re-confirmed this session through the same
 packaged-candidate/`npm run smoke:install-local` path as "Skills" above:
 `claude plugin details ambicode@ambicode-team` reports `Hooks (4)
 PostToolUse, SessionStart, PostCompact, SessionEnd (harness-only — no model
@@ -353,7 +354,7 @@ involved).
 ## Plugin validation
 
 `claude plugin validate <path> --strict --json` on 2.1.272 returns (observed
-this session against the packaged `dist/ambicode-0.1.0` candidate):
+this session against the packaged `dist/ambicode-0.1.1` candidate):
 
 ```json
 { "success": true, "strict": true,
@@ -365,7 +366,7 @@ this session against the packaged `dist/ambicode-0.1.0` candidate):
 
 `npm run verify` runs this (non-`--json`, for a readable pass/fail) against
 the source tree, and this session additionally ran it directly against the
-**packaged** candidate directory (`dist/ambicode-0.1.0`), confirming the
+**packaged** candidate directory (`dist/ambicode-0.1.1`), confirming the
 zipped, allowlist-filtered artifact — not only the source checkout — passes
 strict validation on its own. `claude plugin list --json` returns an array
 of `{ id, version, scope, enabled, installPath, installedAt, lastUpdated,
@@ -380,17 +381,39 @@ schema (fetched fresh; not recalled from an earlier version):
 
 | Component | Version | How established |
 |---|---|---|
-| `zip` (Info-ZIP) | as shipped with the OS (`/usr/bin/zip`) | observed; used by `package-candidate.mjs` to build the `archive`-source artifact |
+| `fflate` | 0.8.3 | pure-JavaScript deterministic ZIP generation in `package-candidate.mjs`; replaces the unavailable-on-Windows OS `zip` dependency |
 | Marketplace source types | `local path`, `github`, `url`, `git-subdir`, `npm`, `archive` (sha256-pinned), `command` | current schema, fetched from `code.claude.com/docs/en/plugin-marketplaces` this session |
 | `CLAUDE_CONFIG_DIR` | isolates settings, session history and plugin state | observed directly: a fresh directory received its own `.claude.json` and an empty marketplace list, independent of the real `~/.claude` |
 | `claude plugin install/enable/disable/uninstall/update/list/details/validate` | all exercised | observed, against a local candidate marketplace, in an isolated config directory; see `docs/installation.md` |
 
 `scripts/ambicode.mjs` is gitignored and therefore absent from an ordinary
-git tag of this repository. `package-candidate.mjs` resolves this by
-always rebuilding it fresh and shipping it inside a zipped artifact
-(`archive` source, sha256-pinned) rather than depending on it having been
-committed. See `docs/installation.md` for the full mechanism and
-`docs/release-checklist.md` for what a real release still needs.
+git tag of this repository. `package-candidate.mjs` always rebuilds it and
+ships it in the local candidate. The ZIP is a reproducibility artifact; local
+installation uses the candidate directory. See `docs/installation.md`.
+
+The installer defaults to `$CLAUDE_CONFIG_DIR` when set, otherwise the
+platform home's `.claude` directory. A custom `--config-dir` is explicit and
+isolated; ordinary `claude plugin list` cannot see it unless invoked with the
+same `CLAUDE_CONFIG_DIR`. CLI execution uses Execa's cross-platform binary
+resolution, state replacement is atomic, and normalized native failures count
+as rollback failures. These paths are unit- and macOS-smoke-tested; a real
+Windows-host lifecycle remains a release acceptance item.
+
+## Code intelligence
+
+AMBICODE reuses the official `typescript-lsp@claude-plugins-official` and
+`pyright-lsp@claude-plugins-official` plugins. It does not bundle a language
+server or build another index. One registry in
+`src/code-intelligence/navigation.ts` maps the existing ecosystem enum to the
+plugin, server command and setup commands. `init`, `config`, and `prepare`
+surface that guidance. Authoring skills record actual LSP symbol operations or
+a specific targeted-search fallback reason because the helper cannot inspect
+the active conversation's tool inventory.
+
+Observed from the current official marketplace: TypeScript uses
+`typescript-language-server --stdio`; Python uses `pyright-langserver --stdio`.
+No LSP plugin was active in this acceptance session, so product-project symbol
+navigation remains unobserved here.
 
 ## Reused platform capabilities
 
@@ -417,6 +440,12 @@ through the built artifact (the smoke run below), not only through
 `node --test`. `npm audit --omit=dev` reports 0 vulnerabilities; that is
 supporting evidence, not a release decision on its own.
 
+### Build-only dependency
+
+| Package | Pinned | License | Upstream | Used by | Why not Node alone |
+|---|---|---|---|---|---|
+| `fflate` | ^0.8.3 (0.8.3) | MIT | 101arrowz/fflate | `package-candidate.mjs` | Node 24 has no ZIP writer. The previous `/usr/bin/zip` call made candidate construction fail on Windows. `zipSync` receives sorted paths, fixed timestamps and explicit modes, and `package:reproducible` compares two archive digests. It is not shipped in the plugin bundle. |
+
 ### The `view` page's server stack
 
 | Package | Pinned | License | Upstream | Used by | Why not Node alone |
@@ -438,8 +467,8 @@ bump to any of the seven is a deliberate upgrade, re-run through the same
 built-artifact smoke test before it ships, not an automatic `^` float in
 practice even though the ranges allow patch/minor movement.
 
-`npm audit` on the full tree (113 resolved packages: 84 prod, 30 dev, 26
-optional) reports **0 vulnerabilities** as of this writing. That is a snapshot,
+`npm audit` on the full current lockfile reports **0 vulnerabilities** as of
+this writing. That is a snapshot,
 not a standing guarantee; a reachability assessment still matters more than the
 count — every one of the seven packages above is reachable only from
 `src/page/server.ts` and `templates/*.eta`, which run only when `ambicode view`

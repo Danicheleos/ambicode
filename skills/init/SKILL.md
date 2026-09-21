@@ -10,10 +10,12 @@ read its output back to the user and help them decide what to fill in.
 
 ## Steps
 
-1. Run `ambicode init`. Add `--dry-run` first if the user wants to see the
+1. Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" init`. Add `--dry-run` first if the user wants to see the
    proposal before anything is written.
 2. Read the result to the user: which projects were detected, which checks are
-   configured, and which are missing.
+   configured, which are missing, and each project's code-intelligence
+   recommendation. Explain that the listed official LSP plugin and server are
+   optional setup; only the active Claude session can confirm LSP availability.
 3. For every missing check, give the notice verbatim. The notices say exactly why
    a slot is null and what to do about it.
 4. Stop. Do not edit `.ambicode/config.yaml` yourself unless the user asks for a
@@ -22,7 +24,8 @@ read its output back to the user and help them decide what to fill in.
 ## What init will and will not do
 
 It reads `package.json`, `pyproject.toml`, `requirements*.txt`, and looks for
-installed executables under `node_modules/.bin` and `.venv/bin`. It reads the
+installed executables under `node_modules/.bin`, `.venv/bin`, and
+`.venv/Scripts`. It reads the
 `scripts` section as evidence about which tools the project uses.
 
 It does **not** run a project script, install a package, or invent a command
@@ -71,5 +74,5 @@ no checks yet.
 
 ## After init
 
-`ambicode config` prints the effective values, including the limits that are not
+`node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" config` prints the effective values, including the limits that are not
 stored in the file. Quote it rather than repeating numbers from memory.

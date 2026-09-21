@@ -57,7 +57,7 @@ in the default text summary, which is a human-readable overview, not the
 machine contract this step reads:
 
 ```sh
-ambicode prepare --activity plan --json [paths...] [--project <id>] \
+node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" prepare --activity plan --json [paths...] [--project <id>] \
   [--requirement <url>]... [--evidence <file>]
 ```
 
@@ -76,6 +76,9 @@ guess at the paths the request touches.
     any `before-report` content before you present the plan. `ambicode
     prepare` never returns reviewer-only (`before-checks`/`before-review`)
     content for `plan` — there is nothing to filter out on your side.
+  - `navigation`: follow its search order and observe LSP availability from
+    this Claude session. The helper recommends the official plugin but cannot
+    truthfully declare a session tool active.
 - Do not build a second requirement parser, policy resolver, or config
   reader for planning. `ambicode prepare` is the one shared preparation
   boundary `review`, `investigate` and `plan` all use.
@@ -86,9 +89,12 @@ guess at the paths the request touches.
   `.ambicode/notes/investigations/`, or one they just ran in this session),
   read and reuse it. **Never require one** — most plans start from nothing
   but the request.
-- Navigate known paths first (from the request, the ticket, or what the user
-  typed), then available symbol/LSP navigation, then targeted Grep/Glob/Read.
-  Do not index or read the entire repository by default.
+- Navigate known paths first, then use current-session LSP tools for
+  definitions, references, callers and symbols, then targeted Grep/Glob/Read
+  only when LSP is absent or insufficient. Do not index or read the entire
+  repository by default. Record `Navigation: LSP — <operations used>` or
+  `Navigation: targeted-search fallback — <specific reason>` in the plan;
+  installed or recommended alone does not prove that LSP ran.
 - Read callers, boundaries, existing tests, and any existing implementation
   that already does something close to what is being asked — a plan that
   proposes a new helper where one already exists is a defect, not a
@@ -128,6 +134,7 @@ planning boundary" below. Structure the content as:
 - **Requirements and their cited sources** (or "source-free" if none were
   supplied, stated plainly, not implied).
 - **Confirmed current behavior and affected boundaries.**
+- **Navigation evidence** — actual LSP operations or the fallback reason.
 - **Explicit exclusions** — what this plan deliberately does not cover.
 - **Recommended design, and rejected material alternatives** with why each
   was rejected.

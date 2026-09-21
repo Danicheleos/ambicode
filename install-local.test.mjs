@@ -11,7 +11,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
-import { install, inspect, MARKETPLACE_NAME, uninstall } from './install-local.mjs';
+import { defaultClaudeConfigDir, install, inspect, MARKETPLACE_NAME, parseArgs, uninstall } from './install-local.mjs';
 
 async function makeCandidate(name, version) {
   const dir = await mkdtemp(path.join(tmpdir(), 'ambicode-candidate-'));
@@ -48,7 +48,7 @@ function fakeNative(overrides = {}) {
   // `install-local.mjs` calls `claude plugin update` at all for a
   // local-directory source: the registration's reported version does not
   // silently follow newer content staged at the same path until told to.
-  const state = { marketplaceRegistered: false, marketDir: null, installed: new Map() };
+  const state = { marketplaceRegistered: false, marketDir: null, installed: new Map(), projectPaths: new Map() };
 
   function currentIdentity() {
     if (state.marketDir === null) return null;
@@ -80,20 +80,25 @@ function fakeNative(overrides = {}) {
       return { ok: true, notFound: !existed, stdout: '', stderr: '' };
     },
     pluginValidateStrict: () => ({ ok: true, report: { success: true }, stderr: '' }),
-    pluginInstall: (pluginId, scope) => {
+    pluginInstall: (pluginId, scope, opts) => {
       const identity = currentIdentity();
-      state.installed.set(`${pluginId.split('@')[0]}@${scope}`, identity?.version ?? null);
+      const key = `${pluginId.split('@')[0]}@${scope}`;
+      state.installed.set(key, identity?.version ?? null);
+      state.projectPaths.set(key, opts?.projectDir ?? null);
       return { ok: true, outcome: 'ok', failureCode: null, message: null };
     },
-    pluginUpdate: (pluginId, scope) => {
+    pluginUpdate: (pluginId, scope, opts) => {
       const identity = currentIdentity();
-      state.installed.set(`${pluginId.split('@')[0]}@${scope}`, identity?.version ?? null);
+      const key = `${pluginId.split('@')[0]}@${scope}`;
+      state.installed.set(key, identity?.version ?? null);
+      state.projectPaths.set(key, opts?.projectDir ?? null);
       return { ok: true, outcome: 'ok', failureCode: null, message: null };
     },
     pluginUninstall: (pluginId, scope) => {
       const key = `${pluginId.split('@')[0]}@${scope}`;
       const existed = state.installed.has(key);
       state.installed.delete(key);
+      state.projectPaths.delete(key);
       return { ok: true, outcome: 'ok', failureCode: existed ? null : 'not_installed', message: null };
     },
     pluginList: () => {
@@ -101,12 +106,16 @@ function fakeNative(overrides = {}) {
       const name = identity?.name ?? null;
       const plugins = [...state.installed.entries()]
         .filter(([key]) => name === null || key.startsWith(`${name}@`))
-        .map(([key, version]) => ({
-          id: `${key.slice(0, key.lastIndexOf('@'))}@${MARKETPLACE_NAME}`,
-          scope: key.slice(key.lastIndexOf('@') + 1),
-          version,
-          enabled: true,
-        }));
+        .map(([key, version]) => {
+          const projectPath = state.projectPaths.get(key);
+          return {
+            id: `${key.slice(0, key.lastIndexOf('@'))}@${MARKETPLACE_NAME}`,
+            scope: key.slice(key.lastIndexOf('@') + 1),
+            version,
+            enabled: true,
+            ...(projectPath === null || projectPath === undefined ? {} : { projectPath }),
+          };
+        });
       return { ok: true, plugins };
     },
   };
@@ -137,6 +146,30 @@ async function readState(configDir) {
     return null;
   }
 }
+
+describe('install-local.mjs command-line configuration', () => {
+  it('defaults to the same per-user Claude configuration ordinary commands read', () => {
+    const home = path.join(tmpdir(), 'ambicode-home');
+    assert.equal(defaultClaudeConfigDir({}, home), path.join(home, '.claude'));
+    assert.deepEqual(parseArgs(['install', './candidate'], {}, home), {
+      command: 'install',
+      candidateDir: path.resolve('./candidate'),
+      configDir: path.join(home, '.claude'),
+      configDirExplicit: false,
+      scope: 'user',
+      projectDir: null,
+    });
+  });
+
+  it('uses CLAUDE_CONFIG_DIR when already set and makes a custom override explicit', () => {
+    const home = path.join(tmpdir(), 'ambicode-home');
+    const fromEnvironment = path.join(tmpdir(), 'claude-from-env');
+    assert.equal(parseArgs(['inspect'], { CLAUDE_CONFIG_DIR: fromEnvironment }, home).configDir, fromEnvironment);
+    const custom = parseArgs(['uninstall', '--config-dir', './isolated'], {}, home);
+    assert.equal(custom.configDir, path.resolve('./isolated'));
+    assert.equal(custom.configDirExplicit, true);
+  });
+});
 
 describe('install-local.mjs install/uninstall (P2.3 correction A)', () => {
   it('first install: nothing installed, plugin install is called, state is recorded', async () => {
@@ -190,6 +223,32 @@ describe('install-local.mjs install/uninstall (P2.3 correction A)', () => {
     }
   });
 
+  it('refuses changed content under the same version before replacing the source or claiming an update', async () => {
+    const v1 = await makeCandidate('ambicode', '0.1.0');
+    const changed = await makeCandidate('ambicode', '0.1.0');
+    const configDir = await freshConfigDir();
+    try {
+      await writeFile(path.join(changed, 'skills.txt'), 'changed calibration content\n');
+      const first = fakeNative();
+      await install({ candidateDir: v1, configDir, scope: 'user', projectDir: null }, first.native);
+
+      const { native, calls, state } = fakeNative();
+      state.installed = first.state.installed;
+      state.projectPaths = first.state.projectPaths;
+      const result = await install({ candidateDir: changed, configDir, scope: 'user', projectDir: null }, native);
+
+      assert.equal(result.ok, false);
+      assert.equal(result.code, 'same-version-content-changed');
+      assert.match(result.detail, /stale cached skills/);
+      assert.deepEqual(calls, [], 'same-version drift is refused before any native mutation');
+      await assert.rejects(readFile(path.join(configDir, 'ambicode-install', 'marketplace', 'ambicode-0.1.0', 'skills.txt')));
+    } finally {
+      await rm(v1, { recursive: true, force: true });
+      await rm(changed, { recursive: true, force: true });
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
   it('successful version upgrade calls pluginUpdate, not pluginInstall, and records the new version', async () => {
     const v1 = await makeCandidate('ambicode', '0.1.0');
     const v2 = await makeCandidate('ambicode', '0.2.0');
@@ -204,6 +263,7 @@ describe('install-local.mjs install/uninstall (P2.3 correction A)', () => {
       // repoint `marketDir` to v2's staged content via `marketplaceAdd`.
       const { native, calls, state } = fakeNative();
       state.installed = first.state.installed;
+      state.projectPaths = first.state.projectPaths;
       const result = await install({ candidateDir: v2, configDir, scope: 'user', projectDir: null }, native);
 
       assert.equal(result.ok, true, JSON.stringify(result));
@@ -430,6 +490,7 @@ describe('install-local.mjs P2.4 correction D: failure-safe installation', () =>
       const { native, calls, state } = fakeNative();
       state.marketplaceRegistered = first.state.marketplaceRegistered;
       state.installed = first.state.installed;
+      state.projectPaths = first.state.projectPaths;
       const result = await install({ candidateDir, configDir, scope: 'project', projectDir: aliasProjectDir }, native);
 
       assert.equal(result.ok, true, JSON.stringify(result));
@@ -531,6 +592,75 @@ describe('install-local.mjs P2.4 correction D: failure-safe installation', () =>
       assert.equal(state.marketplaceRegistered, false);
       // No recovery journal needed: compensation fully succeeded.
       assert.equal(result.journal, null);
+    } finally {
+      await rm(candidateDir, { recursive: true, force: true });
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it('records a recovery journal and preserves the source when a normalized native compensation returns ok:false', async () => {
+    const candidateDir = await makeCandidate('ambicode', '0.1.0');
+    const configDir = await freshConfigDir();
+    try {
+      const { native, state } = fakeNative({
+        pluginInstall: () => ({ ok: false, outcome: 'failed', failureCode: 'unknown', message: 'install failed' }),
+        marketplaceRemove: () => ({ ok: false, notFound: false, stdout: '', stderr: 'removal denied' }),
+      });
+      const result = await install({ candidateDir, configDir, scope: 'user', projectDir: null }, native);
+
+      assert.equal(result.ok, false);
+      assert.equal(result.code, 'plugin-install-failed');
+      assert.ok(result.journal !== null, 'a returned native failure must create a recovery journal');
+      assert.equal(state.marketplaceRegistered, true, 'the failed native registration remains accurately represented');
+      assert.equal(await readManifestVersion(configDir), '0.1.0', 'its source remains available for manual recovery');
+    } finally {
+      await rm(candidateDir, { recursive: true, force: true });
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses a project-scoped postcondition that omits the project path', async () => {
+    const candidateDir = await makeCandidate('ambicode', '0.1.0');
+    const configDir = await freshConfigDir();
+    const projectDir = await mkdtemp(path.join(tmpdir(), 'ambicode-project-'));
+    try {
+      let listCall = 0;
+      const { native } = fakeNative({
+        pluginList: () => {
+          listCall += 1;
+          if (listCall === 1) return { ok: true, plugins: [] };
+          return {
+            ok: true,
+            plugins: [{ id: `ambicode@${MARKETPLACE_NAME}`, version: '0.1.0', scope: 'project', enabled: true }],
+          };
+        },
+      });
+      const result = await install({ candidateDir, configDir, scope: 'project', projectDir }, native);
+      assert.equal(result.ok, false);
+      assert.equal(result.code, 'postcondition-failed');
+      assert.match(result.detail, /does not report the required project path/);
+    } finally {
+      await rm(candidateDir, { recursive: true, force: true });
+      await rm(configDir, { recursive: true, force: true });
+      await rm(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it('inspect surfaces a failed or contradictory native plugin list', async () => {
+    const candidateDir = await makeCandidate('ambicode', '0.1.0');
+    const configDir = await freshConfigDir();
+    try {
+      await install({ candidateDir, configDir, scope: 'user', projectDir: null }, fakeNative().native);
+      const failedList = await inspect(
+        { configDir },
+        fakeNative({ pluginList: () => ({ ok: false, plugins: [], stderr: 'cannot read state' }) }).native,
+      );
+      assert.equal(failedList.ok, false);
+      assert.equal(failedList.code, 'plugin-list-failed');
+
+      const missing = await inspect({ configDir }, fakeNative().native);
+      assert.equal(missing.ok, false);
+      assert.equal(missing.code, 'postcondition-failed');
     } finally {
       await rm(candidateDir, { recursive: true, force: true });
       await rm(configDir, { recursive: true, force: true });

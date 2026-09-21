@@ -287,8 +287,15 @@ async function detectPython(
 
   const venvBinary = async (name: string): Promise<string | null> => {
     for (const directory of ['.venv', 'venv']) {
-      if (await exists(fs, path.join(absoluteRoot, directory, 'bin', name))) {
-        return `./${directory}/bin/${name}`;
+      const candidates = [
+        ['bin', name],
+        ['Scripts', `${name}.exe`],
+        ['Scripts', name],
+      ] as const;
+      for (const [binaryDirectory, executable] of candidates) {
+        if (await exists(fs, path.join(absoluteRoot, directory, binaryDirectory, executable))) {
+          return `./${directory}/${binaryDirectory}/${executable}`;
+        }
       }
     }
     return null;

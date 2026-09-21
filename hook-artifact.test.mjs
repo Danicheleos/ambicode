@@ -11,7 +11,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
@@ -133,19 +133,20 @@ describe('built-artifact regression: ambicode hook (P2.4 correction G/H)', () =>
     }
   });
 
-  it('reports the packaged plugin\'s hooks when installed (companion to install-local.smoke.mjs)', () => {
+  it('reports the packaged plugin\'s hooks when installed (companion to install-local.smoke.mjs)', async () => {
     // The exact registration is proved end to end by install-local.smoke.mjs
     // ("claude plugin details" reporting "Hooks (4)"); this just proves the
     // manifest file itself is well-formed JSON with the four events wired to
     // the same bundled entry point, since that is what ships in the candidate.
-    const manifest = JSON.parse(execFileSync('cat', [path.join(ROOT, 'hooks', 'hooks.json')], { encoding: 'utf8' }));
+    const manifest = JSON.parse(await readFile(path.join(ROOT, 'hooks', 'hooks.json'), 'utf8'));
     const events = Object.keys(manifest.hooks);
     assert.deepEqual(events.sort(), ['PostCompact', 'PostToolUse', 'SessionEnd', 'SessionStart']);
     for (const event of events) {
       for (const matcher of manifest.hooks[event]) {
         for (const entry of matcher.hooks) {
           assert.equal(entry.type, 'command');
-          assert.equal(entry.command, '${CLAUDE_PLUGIN_ROOT}/bin/ambicode hook');
+          assert.equal(entry.command, 'node');
+          assert.deepEqual(entry.args, ['${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs', 'hook']);
         }
       }
     }

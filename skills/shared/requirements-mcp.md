@@ -11,7 +11,8 @@ you got.
 
 ## Steps
 
-1. Check `ambicode config` for `requirements.mcpServer`. That is the server
+1. Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" config` and check
+   `requirements.mcpServer`. That is the server
    this repository is bound to.
    - If it is `null` and exactly one compatible Jira/Confluence MCP server is
      connected, use it and tell the user to record it in
@@ -22,9 +23,16 @@ you got.
      substitute another server.
 2. Retrieve each URL with that server's read tools.
 3. Write one evidence file — **outside the product repository**, in a
-   restrictive temporary location, for example with
-   `mktemp -t ambicode-evidence` (POSIX `mktemp` already creates it
-   owner-only). This file is transport input to the command you are about to
+   restrictive temporary location. Use the current platform's secure temporary
+   file API. If only a shell is available, this Node command is cross-platform
+   and prints the new file path:
+
+   ```text
+   node -e "const fs=require('node:fs'),os=require('node:os'),path=require('node:path');const d=fs.mkdtempSync(path.join(os.tmpdir(),'ambicode-evidence-'));const f=path.join(d,'requirements.json');fs.writeFileSync(f,'',{flag:'wx',mode:0o600});console.log(f)"
+   ```
+
+   Do not use POSIX-only `mktemp` in a workflow that must also run on Windows.
+   This file is transport input to the command you are about to
    run, not an AMBICODE artifact: never write it under `.ambicode/` or
    anywhere else inside the repository. A read-only investigation or plan
    that never touches the repository must stay true even for a URL-only

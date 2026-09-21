@@ -1,6 +1,7 @@
 import { MAX_SNAPSHOT_FILE_BYTES, MAX_SNAPSHOT_TOTAL_BYTES } from '../../config/defaults.ts';
 import type { AmbicodeConfig } from '../../contracts/config.ts';
 import { openWorkspace, type Runtime } from '../../composition/root.ts';
+import { navigationFor, type NavigationGuidance } from '../../code-intelligence/navigation.ts';
 
 export const CONFIG_OPTIONS = { flags: ['json'] } as const;
 
@@ -23,6 +24,7 @@ export interface ConfigOutput {
     packs: string[];
     commands: { id: string; argv: string[] | null }[];
     checks: { id: string; command: string | null; adapter: string | null; selector: string }[];
+    navigation: NavigationGuidance;
   }[];
 }
 
@@ -48,6 +50,7 @@ export async function runConfig(runtime: Runtime): Promise<ConfigOutput> {
       id: project.id,
       root: project.root,
       ecosystem: project.ecosystem,
+      navigation: navigationFor(project.ecosystem),
       packs: project.packs,
       commands: Object.entries(project.commands)
         .map(([id, command]) => ({ id, argv: command?.argv ?? null }))
@@ -93,6 +96,8 @@ export function renderConfig(output: ConfigOutput): string {
   for (const project of output.projects) {
     lines.push('', `project ${project.id}  [${project.ecosystem}]  root: ${project.root}`);
     lines.push(`  packs: ${project.packs.join(', ') || '(none)'}`);
+    lines.push(`  code intelligence: ${project.navigation.plugin} (server: ${project.navigation.serverCommand})`);
+    lines.push(`    setup: ${project.navigation.setupCommands.join(' ; ')}`);
     for (const command of project.commands) {
       lines.push(`  command ${command.id}: ${command.argv === null ? 'null (intentionally unavailable)' : command.argv.join(' ')}`);
     }

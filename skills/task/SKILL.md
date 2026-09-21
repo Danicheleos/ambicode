@@ -83,7 +83,7 @@ in the default text summary, which is a human-readable overview, not the
 machine contract this step reads:
 
 ```sh
-ambicode prepare --activity task --json [likely paths...] [--project <id>] \
+node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" prepare --activity task --json [likely paths...] [--project <id>] \
   [--requirement <url>]... [--evidence <file>]
 ```
 
@@ -128,9 +128,14 @@ which were already present.
 
 ### 4. Implement
 
-Use native code navigation: known paths first, then available symbol/LSP
-navigation, then targeted Grep/Glob/Read. Do not build an index or read the
-entire repository by default.
+Read `navigation` from the preparation result. Use its bounded order: known
+paths first, then current-session LSP tools for definitions, references,
+callers and symbols, then targeted Grep/Glob/Read only when LSP is absent or
+insufficient. The helper recommends an official plugin but cannot observe
+this session's tools. Record `Navigation: LSP — <operations used>` or
+`Navigation: targeted-search fallback — <specific reason>` for the final
+Evidence section; installed or recommended alone is not evidence of use. Do
+not build an index or read the entire repository by default.
 
 **Before adding a helper, adapter, dependency, validator, parser, or other
 abstraction, search for the existing implementation and inspect current
@@ -168,7 +173,7 @@ mutation detection, evidence, and the independent reviewer. Invoke it
 directly:
 
 ```sh
-ambicode review \
+node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" review \
   --requirement <url>... \
   --evidence "$evidence_file"
 ```
@@ -269,7 +274,7 @@ successful verification it did not have:
 
 ```text
 Done: what was implemented.
-Evidence: requirement/plan sources used, checks selected (including
+Evidence: navigation evidence; requirement/plan sources used, checks selected (including
   unchanged affected tests), each check's outcome and any mutation, the
   independent review's ID/status/findings, and which accepted findings were
   addressed.

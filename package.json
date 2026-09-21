@@ -1,6 +1,6 @@
 {
   "name": "ambicode",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "AMBICODE Claude Code plugin helpers: scoped policy, evidence checks, independent review, human-selected publication.",
   "license": "UNLICENSED",
@@ -17,6 +17,7 @@
     "evals": "claude plugin eval . --runs 3 --ablation with-without --scaffold --allow-tools Bash --no-publish",
     "package:candidate": "node package-candidate.mjs",
     "package:reproducible": "node package-candidate.mjs --check-reproducible",
+    "smoke:candidate": "node smoke-candidate.mjs",
     "smoke:install-local": "node install-local.smoke.mjs",
     "verify": "npm run build && npm run typecheck && npm run test:unit && npm run validate:plugin"
   },
@@ -36,6 +37,7 @@
   "devDependencies": {
     "@types/node": "^24.0.0",
     "esbuild": "^0.28.2",
+    "fflate": "^0.8.3",
     "typescript": "^5.9.3"
   }
 }

@@ -147,6 +147,11 @@ describe('P2.1 ambicode prepare', () => {
       assert.equal(output.requirementMode, 'source-free');
       assert.deepEqual(output.requirements, []);
       assert.ok(output.projectId.length > 0);
+      assert.equal(output.navigation.strategy, 'known-paths-then-lsp-then-targeted-search');
+      assert.equal(output.navigation.plugin, 'typescript-lsp@claude-plugins-official');
+      assert.equal(output.navigation.serverCommand, 'typescript-language-server');
+      assert.equal(output.navigation.statusSource, 'current-session');
+      assert.match(output.navigation.evidenceRequirement, /Report the LSP symbol operations used/);
     } finally {
       await repo.dispose();
     }

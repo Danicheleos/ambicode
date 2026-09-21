@@ -22,6 +22,7 @@ import { contentHash } from '../../util/hash.ts';
 import { formatJsonOutput } from '../../util/json-output.ts';
 import type { ParsedArgs } from '../args.ts';
 import { absoluteEvidencePath } from '../target-option.ts';
+import { navigationFor } from '../../code-intelligence/navigation.ts';
 
 export const PREPARE_OPTIONS = {
   values: ['activity', 'project', 'evidence'],
@@ -222,6 +223,7 @@ async function toDraftOutput(options: {
     ),
     notices: options.requirements.notices,
     policy: preparePolicy,
+    navigation: navigationFor(options.project.ecosystem),
     sharedOperatingContract: options.sharedOperatingContract,
   };
 }
@@ -389,12 +391,14 @@ export function renderPrepare(output: PrepareOutput): string {
     `project:  ${output.projectId}`,
     `paths:    ${output.paths.join(', ') || '(none supplied — activity-level content only)'}`,
     `requirements: ${output.requirementMode}`,
+    `navigation: ${output.navigation.strategy} (${output.navigation.plugin}; status observed by the current session)`,
     `shared operating contract: ${output.sharedOperatingContract.reference} [${byteLength(output.sharedOperatingContract.content)} bytes] — use --json to read its content`,
   ];
 
   if (output.requirements.length > 0) {
     lines.push(...output.requirements.map((source) => `  ${source.id}  ${source.url}`));
   }
+  lines.push(`  evidence: ${output.navigation.evidenceRequirement}`);
   if (output.notices.length > 0) {
     lines.push('', 'notices');
     lines.push(...output.notices.map((notice) => `  ${notice}`));
