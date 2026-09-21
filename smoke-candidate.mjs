@@ -100,6 +100,20 @@ async function checkPoliciesAndPromptsResolve() {
     }
     if (!failed) throw new Error('policy check accepted an invalid pack');
     console.log('OK: `ambicode policy check` validates a candidate pack and exits nonzero on an error.');
+
+    // R4: the boundary shortlist through the bundled entry point, for the same
+    // reason as `policy check` above. It also proves the command needs nothing
+    // but git — no index, no language server, no state carried from install.
+    const locateOutput = run(['locate', 'app'], { cwd });
+    if (!/app\.ts/.test(locateOutput) || !/filename matched "app"/.test(locateOutput)) {
+      throw new Error(`locate did not return a reason-carrying candidate:\n${locateOutput}`);
+    }
+    const emptyOutput = run(['locate', 'kaleidoscope'], { cwd });
+    // Honest emptiness, not the whole repository.
+    if (!/\(none/.test(emptyOutput) || /app\.ts/.test(emptyOutput)) {
+      throw new Error(`locate widened an empty shortlist:\n${emptyOutput}`);
+    }
+    console.log('OK: `ambicode locate` ranks with reasons and stays empty when nothing matches.');
   });
 }
 

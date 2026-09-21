@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PrepareShortlist } from './locate.ts';
 import { Activity, Authority, CommandAction, Ecosystem, PromptStage, RuleCategory } from './primitives.ts';
 import { ProvenanceEntry, RequirementMode, RequirementSource } from './requirements.ts';
 
@@ -122,13 +123,19 @@ export type PrepareSharedContract = z.infer<typeof PrepareSharedContract>;
  * its own tools and report either LSP use or the reason for the fallback.
  */
 export const PrepareNavigation = z.strictObject({
-  strategy: z.literal('known-paths-then-lsp-then-targeted-search'),
+  strategy: z.literal('shortlist-then-known-paths-then-lsp-then-targeted-search'),
   ecosystem: Ecosystem,
   plugin: z.string().min(1),
   serverCommand: z.string().min(1),
   setupCommands: z.array(z.string().min(1)).min(1),
   statusSource: z.literal('current-session'),
   evidenceRequirement: z.string().min(1),
+  /**
+   * The first step of the strategy, when this call was given terms or
+   * requirement evidence to derive them from (R4). Absent means no shortlist
+   * was asked for — never that the repository holds no candidates.
+   */
+  shortlist: PrepareShortlist.optional(),
 });
 export type PrepareNavigation = z.infer<typeof PrepareNavigation>;
 
@@ -235,9 +242,11 @@ const PrepareCompactPolicy = z.strictObject({
 });
 
 const PrepareCompactNavigation = z.strictObject({
-  strategy: z.literal('known-paths-then-lsp-then-targeted-search'),
+  strategy: z.literal('shortlist-then-known-paths-then-lsp-then-targeted-search'),
   ecosystem: Ecosystem,
   evidenceRequirement: z.string().min(1),
+  /** Paths and reasons only. A shortlist never carries file contents (R4). */
+  shortlist: PrepareShortlist.optional(),
 });
 
 /**

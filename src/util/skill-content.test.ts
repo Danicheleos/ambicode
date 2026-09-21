@@ -313,6 +313,37 @@ describe('P2.2/P2.3 shipped skill content', () => {
       assert.match(content, /installed or recommended alone/i);
     }
   });
+
+  it('starts task and investigate from the boundary shortlist, and treats it as a hypothesis rather than an answer (R4)', async () => {
+    for (const name of ['investigate', 'task']) {
+      const content = (await readFile(path.join(SKILLS_DIR, name, 'SKILL.md'), 'utf8')).replace(/\s+/g, ' ');
+      assert.match(content, /navigation\.shortlist/, `${name}/SKILL.md must start from the shortlist`);
+      assert.match(
+        content,
+        /shortlist is a hypothesis, not an answer/i,
+        `${name}/SKILL.md must not present the shortlist as the answer`,
+      );
+      assert.match(content, /confirm each candidate/i, `${name}/SKILL.md`);
+      // Which candidates held, which did not, and what came from outside the
+      // list: without that the shortlist is unfalsifiable.
+      assert.match(content, /rejected/i, `${name}/SKILL.md`);
+      assert.match(content, /outside it/i, `${name}/SKILL.md`);
+      // A broad search stays allowed; it is reported, not forbidden.
+      assert.match(content, /broad search is\s*allowed and is reported with its reason/i, `${name}/SKILL.md`);
+    }
+  });
+
+  it('documents the shortlist once, in the shared file every authoring skill reads (R4)', async () => {
+    const shared = await readFile(path.join(SKILLS_DIR, 'shared', 'prepare-output.md'), 'utf8');
+    assert.match(shared, /navigation\.shortlist/);
+    assert.match(shared, /hypothesis, not an answer/i);
+    assert.match(shared, /never "read everything"/i);
+    // The standalone command is reachable through the plugin root, like every
+    // other packaged entry point.
+    assert.match(shared, /scripts\/ambicode\.mjs" locate <term>\.\.\. --json/);
+    // And it does not claim, anywhere, to build something it must not build.
+    assert.match(shared, /no index, no cache, nothing written/i);
+  });
 });
 
 describe('P2.3 task skill', () => {

@@ -4,6 +4,7 @@ import { parseArgs, type OptionSpec } from './args.ts';
 import { BUNDLE_OPTIONS } from './commands/bundle.ts';
 import { CONFIG_OPTIONS } from './commands/config.ts';
 import { INIT_OPTIONS } from './commands/init.ts';
+import { LOCATE_OPTIONS } from './commands/locate.ts';
 import { POLICY_OPTIONS } from './commands/policy.ts';
 import { POLICY_CHECK_OPTIONS } from './commands/policy-check.ts';
 import { PREPARE_OPTIONS } from './commands/prepare.ts';
@@ -14,6 +15,7 @@ import { isAmbicodeError } from '../util/errors.ts';
 const SPECS: Record<string, OptionSpec> = {
   init: INIT_OPTIONS,
   config: CONFIG_OPTIONS,
+  locate: LOCATE_OPTIONS,
   policy: POLICY_OPTIONS,
   'policy check': POLICY_CHECK_OPTIONS,
   prepare: PREPARE_OPTIONS,
@@ -111,9 +113,13 @@ describe('U27 command line arguments', () => {
       assert.equal(error.code, 'bad-argument');
       assert.match(error.message, /takes no positional arguments/);
     }
-    // Policy and prepare are the commands whose operands are data.
+    // Policy, prepare and locate are the commands whose operands are data.
     assert.deepEqual(parseArgs('policy', ['src/app.ts'], POLICY_OPTIONS).positionals, ['src/app.ts']);
     assert.deepEqual(parseArgs('prepare', ['src/app.ts'], PREPARE_OPTIONS).positionals, ['src/app.ts']);
+    // R4: locate's operands are search terms, which may be multiword.
+    const locate = parseArgs('locate', ['--limit', '5', 'invoice', 'negative amount'], LOCATE_OPTIONS);
+    assert.deepEqual(locate.positionals, ['invoice', 'negative amount']);
+    assert.equal(locate.value('limit'), '5');
   });
 
   it('collects repeatable requirement URLs in the order they were given', () => {

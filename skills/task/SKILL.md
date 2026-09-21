@@ -75,10 +75,15 @@ from it.
 
 ## 4. Implement
 
-Navigate in `navigation`'s bounded order (shared file above). Record either
+Navigate in `navigation`'s bounded order (shared file above). Start from
+`navigation.shortlist` when it is there, or `ambicode locate <term>...` to get
+one. **The shortlist is a hypothesis, not an answer:** confirm each candidate
+before editing it, and say in Evidence which candidates you confirmed, which
+you rejected, and which files you needed from outside it. Record either
 `Navigation: LSP — <operations used>` or
 `Navigation: targeted-search fallback — <specific reason>` for Evidence;
-installed or recommended alone is not evidence of use.
+installed or recommended alone is not evidence of use. A broad search is
+allowed and is reported with its reason.
 
 **Before adding a helper, adapter, dependency, validator, parser, or other
 abstraction, search for the existing implementation and inspect current

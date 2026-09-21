@@ -1,7 +1,6 @@
 import {
   openWorkspace,
-  projectById,
-  projectForPath,
+  projectForRequest,
   resolvePolicyFor,
   toRepositoryRelative,
   type Runtime,
@@ -16,7 +15,7 @@ import {
   type PrepareOutput,
   type PreparePolicy,
 } from '../../contracts/prepare.ts';
-import type { AmbicodeConfig, ProjectConfig } from '../../contracts/config.ts';
+import type { ProjectConfig } from '../../contracts/config.ts';
 import { MAX_SNAPSHOT_FILE_BYTES } from '../../config/defaults.ts';
 import type { FileSystem } from '../../ports/filesystem.ts';
 import { applicablePrepareStages } from '../../policy/resolve.ts';
@@ -30,10 +29,17 @@ import { formatJsonOutput, type JsonFormat } from '../../util/json-output.ts';
 import type { ParsedArgs } from '../args.ts';
 import { evidenceSource } from '../target-option.ts';
 import { navigationFor } from '../../code-intelligence/navigation.ts';
+import {
+  locate,
+  termsFromRequirements,
+  PREPARE_SHORTLIST_LIMIT,
+  type LocateShortlist,
+} from '../../code-intelligence/locate.ts';
+import type { Git } from '../../git/git.ts';
 
 export const PREPARE_OPTIONS = {
   values: ['activity', 'project', 'evidence'],
-  repeated: ['requirement'],
+  repeated: ['requirement', 'term'],
   flags: ['json', 'verbose', 'with-contract'],
   positionals: true,
 } as const;
@@ -82,7 +88,7 @@ export async function runPrepare(runtime: Runtime, args: ParsedArgs): Promise<Pr
     configuredServer: workspace.config.requirements.mcpServer,
   });
 
-  const project = resolveProject(workspace.config, args.value('project'), paths);
+  const project = projectForRequest(workspace.config, args.value('project'), paths);
 
   const policy = await resolvePolicyFor({ workspace, project, activity, paths });
   const policies = [{ project, policy }];
@@ -103,6 +109,17 @@ export async function runPrepare(runtime: Runtime, args: ParsedArgs): Promise<Pr
     );
   }
 
+  // The boundary shortlist, when this call was given something to search for
+  // (R4): stated `--term`s, or the retrieved requirement text when it was not
+  // told. It reads git and nothing else, builds no index and writes nothing;
+  // an empty shortlist stays empty rather than widening to the project.
+  const shortlist = await shortlistFor({
+    git: workspace.git,
+    project,
+    statedTerms: args.all('term'),
+    requirements: requirements.sources,
+  });
+
   const detail = await toDraftOutput({
     fs: runtime.fs,
     activity,
@@ -110,6 +127,7 @@ export async function runPrepare(runtime: Runtime, args: ParsedArgs): Promise<Pr
     paths,
     requirements,
     policy,
+    shortlist,
     sharedOperatingContract,
     // Config and pack provenance alongside requirement provenance, the same
     // composition `review`/`bundle` use for packs (doc 04 P2.2 correction D).
@@ -275,6 +293,7 @@ export function toCompactOutput(
       strategy: detail.navigation.strategy,
       ecosystem: detail.navigation.ecosystem,
       evidenceRequirement: detail.navigation.evidenceRequirement,
+      ...(detail.navigation.shortlist === undefined ? {} : { shortlist: detail.navigation.shortlist }),
     },
     sharedOperatingContract: {
       reference: detail.sharedOperatingContract.reference,
@@ -316,6 +335,49 @@ function throwPreparationTooLarge(detail: PrepareDetail, measuredBytes: number, 
   );
 }
 
+/**
+ * The shortlist `prepare` carries, or nothing when this call named no terms
+ * and retrieved no requirement to take them from. Half `locate`'s default
+ * limit, because these bytes ride along on every call and R2 measures them;
+ * `ambicode locate` is where a caller goes for the longer list.
+ */
+async function shortlistFor(options: {
+  git: Git;
+  project: ProjectConfig;
+  statedTerms: readonly string[];
+  requirements: readonly { title: string; content: string }[];
+}): Promise<PrepareDetail['navigation']['shortlist']> {
+  const stated = options.statedTerms.filter((term) => term.trim() !== '');
+  const derived = stated.length > 0 ? [] : termsFromRequirements(options.requirements);
+  const terms = stated.length > 0 ? stated : derived;
+  if (terms.length === 0) return undefined;
+
+  const found: LocateShortlist = await locate({
+    git: options.git,
+    project: options.project,
+    terms,
+    limit: PREPARE_SHORTLIST_LIMIT,
+  });
+  // Every supplied term was unusable (all shorter than the minimum). There is
+  // no shortlist to carry and nothing was searched; `ambicode locate` is where
+  // that is reported in full, since a `prepare` payload is not the place to
+  // explain a malformed `--term`.
+  if (found.terms.length === 0) return undefined;
+
+  const limitations =
+    derived.length === 0
+      ? found.limitations
+      : [
+          'Terms were derived from the requirement text by word frequency, not stated by the caller; pass --term to narrow them.',
+          ...found.limitations,
+        ];
+  return {
+    terms: found.terms,
+    candidates: found.candidates,
+    ...(limitations.length === 0 ? {} : { limitations }),
+  };
+}
+
 async function toDraftOutput(options: {
   fs: FileSystem;
   activity: Activity;
@@ -323,6 +385,7 @@ async function toDraftOutput(options: {
   paths: readonly string[];
   requirements: ReturnType<typeof normalizeRequirements>;
   policy: ResolvedPolicy;
+  shortlist: PrepareDetail['navigation']['shortlist'];
   sharedOperatingContract: PrepareOutput['sharedOperatingContract'];
   policyProvenance: PrepareOutput['provenance'];
 }): Promise<PrepareDetail> {
@@ -350,7 +413,10 @@ async function toDraftOutput(options: {
     ),
     notices: options.requirements.notices,
     policy: preparePolicy,
-    navigation: navigationFor(options.project.ecosystem),
+    navigation: {
+      ...navigationFor(options.project.ecosystem),
+      ...(options.shortlist === undefined ? {} : { shortlist: options.shortlist }),
+    },
     sharedOperatingContract: options.sharedOperatingContract,
   };
 }
@@ -470,49 +536,6 @@ function requireActivity(value: string | null): Activity {
 }
 
 /**
- * Resolves the one project this call is about, without ever defaulting to
- * "the first configured project" when the request is genuinely ambiguous
- * (doc 04 P2.1: a monorepository request must not have that decision made for
- * it silently). A single configured project is not ambiguous; neither is an
- * explicit `--project`, nor a set of paths that all resolve to the same
- * project.
- */
-function resolveProject(
-  config: AmbicodeConfig,
-  requestedId: string | null,
-  paths: readonly string[],
-): ProjectConfig {
-  if (requestedId !== null) return projectById(config, requestedId);
-
-  if (config.projects.length === 0) {
-    throw new AmbicodeError('unknown-project', 'No project is configured for this repository.', {
-      details: ['Run the AMBICODE init skill first.'],
-    });
-  }
-  if (config.projects.length === 1) return config.projects[0] as ProjectConfig;
-
-  if (paths.length > 0) {
-    const resolved = new Set(paths.map((value) => projectForPath(config, value)?.id ?? null));
-    if (resolved.size === 1) {
-      const [only] = resolved;
-      if (only !== null && only !== undefined) return projectById(config, only);
-    }
-  }
-
-  throw new AmbicodeError(
-    'ambiguous-project',
-    'This repository configures more than one project, and this request does not identify exactly one.',
-    {
-      field: '--project',
-      details: [
-        `Configured projects: ${config.projects.map((project) => project.id).join(', ')}.`,
-        'Pass --project <id>, or give one or more paths that all fall inside a single project root.',
-      ],
-    },
-  );
-}
-
-/**
  * The human summary, which always renders from everything that was resolved:
  * it is read by a person, not counted against the per-call byte budget, so it
  * says the same things whether `--json` would have emitted the compact shape
@@ -533,6 +556,16 @@ export function renderPrepare(run: PrepareRun): string {
     lines.push(...output.requirements.map((source) => `  ${source.id}  ${source.url}`));
   }
   lines.push(`  evidence: ${output.navigation.evidenceRequirement}`);
+
+  const shortlist = output.navigation.shortlist;
+  if (shortlist !== undefined) {
+    lines.push('', `boundary shortlist for ${shortlist.terms.join(', ')} — a hypothesis, confirm each candidate`);
+    for (const candidate of shortlist.candidates) {
+      lines.push(`  ${candidate.path}  [${candidate.score}] ${candidate.reasons.join('; ')}`);
+    }
+    if (shortlist.candidates.length === 0) lines.push('  (none — nothing matched well enough to start from)');
+    for (const limitation of shortlist.limitations ?? []) lines.push(`  ! ${limitation}`);
+  }
   if (output.notices.length > 0) {
     lines.push('', 'notices');
     lines.push(...output.notices.map((notice) => `  ${notice}`));

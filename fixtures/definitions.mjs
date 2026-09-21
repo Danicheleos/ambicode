@@ -379,6 +379,86 @@ export const FIXTURES = [
     ],
   },
   {
+    name: 'ts-feature-boundary',
+    summary:
+      'An invoice feature spread across a model, a service, a route and a test, with decoy files that only share the keyword.',
+    covers: ['boundary shortlist', 'co-change signal', 'keyword decoys'],
+    steps: [
+      {
+        write: {
+          '.gitignore': STANDARD_IGNORE,
+          'package.json': JEST_MANIFEST,
+          'eslint.config.mjs': ESLINT_CONFIG,
+          'src/app.ts': "export const app = 'fixture';\n",
+          // The users feature gives the repository history that has nothing to
+          // do with invoices, so co-change has something to be wrong about.
+          'src/users/model.ts': 'export interface User { id: string; name: string }\n',
+          'src/users/service.ts':
+            "import type { User } from './model.ts';\n\nexport const rename = (user: User, name: string): User => ({ ...user, name });\n",
+          'src/routes/users.ts': "export const usersRoute = '/users';\n",
+          'tests/users.test.ts':
+            "import { rename } from '../src/users/service.ts';\n\ntest('renames', () => { expect(rename({ id: 'a', name: 'a' }, 'b').name).toBe('b'); });\n",
+          // Decoys. Each carries the keyword and none of them belongs to the
+          // boundary: one has it in its filename, two only in their prose.
+          'src/legacy/invoice-export.ts':
+            '// Retired in 2019; kept so the old invoice export links still resolve.\nexport const legacyInvoiceExport = null;\n',
+          'src/reports/monthly.ts':
+            '// Totals every invoice of the month, reading the reporting replica.\nexport const monthly = () => 0;\n',
+          'docs/glossary.md': '# Glossary\n\n**Invoice** - what a customer is asked to pay.\n',
+        },
+      },
+      { commit: 'init' },
+      // The boundary arrives whole: model, service, route and test together.
+      {
+        write: {
+          'src/invoices/model.ts': 'export interface Invoice { id: string; amountCents: number }\n',
+          'src/invoices/service.ts':
+            "import type { Invoice } from './model.ts';\n\nexport const total = (invoice: Invoice): number => invoice.amountCents;\n",
+          'src/routes/invoices.ts':
+            "import { total } from '../invoices/service.ts';\n\nexport const invoicesRoute = { path: '/invoices', total };\n",
+          'tests/invoices.test.ts':
+            "import { total } from '../src/invoices/service.ts';\n\ntest('totals', () => { expect(total({ id: 'a', amountCents: 100 })).toBe(100); });\n",
+        },
+      },
+      { commit: 'invoices: add the invoice boundary' },
+      // Twice more, all four at once: that habit is the co-change signal.
+      {
+        write: {
+          'src/invoices/model.ts':
+            'export interface Invoice { id: string; amountCents: number; currency: string }\n',
+          'src/invoices/service.ts':
+            "import type { Invoice } from './model.ts';\n\nexport const total = (invoice: Invoice): number => {\n  if (invoice.amountCents < 0) throw new Error('negative amount');\n  return invoice.amountCents;\n};\n",
+          'src/routes/invoices.ts':
+            "import { total } from '../invoices/service.ts';\n\nexport const invoicesRoute = { path: '/invoices', total, currency: true };\n",
+          'tests/invoices.test.ts':
+            "import { total } from '../src/invoices/service.ts';\n\ntest('rejects a negative amount', () => {\n  expect(() => total({ id: 'a', amountCents: -1, currency: 'EUR' })).toThrow();\n});\n",
+        },
+      },
+      { commit: 'invoices: reject a negative amount' },
+      {
+        write: {
+          'src/invoices/model.ts':
+            'export interface Invoice { id: string; amountCents: number; currency: string; taxCents: number }\n',
+          'src/invoices/service.ts':
+            "import type { Invoice } from './model.ts';\n\nexport const total = (invoice: Invoice): number => {\n  if (invoice.amountCents < 0) throw new Error('negative amount');\n  return invoice.amountCents + invoice.taxCents;\n};\n",
+          'src/routes/invoices.ts':
+            "import { total } from '../invoices/service.ts';\n\nexport const invoicesRoute = { path: '/invoices', total, currency: true, tax: true };\n",
+          'tests/invoices.test.ts':
+            "import { total } from '../src/invoices/service.ts';\n\ntest('adds tax', () => {\n  expect(total({ id: 'a', amountCents: 100, currency: 'EUR', taxCents: 20 })).toBe(120);\n});\n",
+        },
+      },
+      { commit: 'invoices: add tax to the total' },
+      // Unrelated work last, so the newest commit is not the feature's.
+      {
+        write: {
+          'src/users/service.ts':
+            "import type { User } from './model.ts';\n\nexport const rename = (user: User, name: string): User => ({ ...user, name: name.trim() });\n",
+        },
+      },
+      { commit: 'users: trim the new name' },
+    ],
+  },
+  {
     name: 'py-no-runner',
     summary: 'A Python project with no test runner and no linter installed.',
     covers: ['null commands', 'skipped checks with notices'],

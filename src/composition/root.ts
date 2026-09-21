@@ -127,6 +127,51 @@ export function projectById(config: AmbicodeConfig, id: string): ProjectConfig {
   return project;
 }
 
+/**
+ * The one project a command is about, without ever defaulting to "the first
+ * configured project" when the request is genuinely ambiguous (doc 04 P2.1: a
+ * monorepository request must not have that decision made for it silently). A
+ * single configured project is not ambiguous; neither is an explicit
+ * `--project`, nor a set of paths that all resolve to the same project.
+ *
+ * Shared by `prepare` and `locate`, so the two cannot disagree about which
+ * project a request names or about when it names none.
+ */
+export function projectForRequest(
+  config: AmbicodeConfig,
+  requestedId: string | null,
+  paths: readonly string[],
+): ProjectConfig {
+  if (requestedId !== null) return projectById(config, requestedId);
+
+  if (config.projects.length === 0) {
+    throw new AmbicodeError('unknown-project', 'No project is configured for this repository.', {
+      details: ['Run the AMBICODE init skill first.'],
+    });
+  }
+  if (config.projects.length === 1) return config.projects[0] as ProjectConfig;
+
+  if (paths.length > 0) {
+    const resolved = new Set(paths.map((value) => projectForPath(config, value)?.id ?? null));
+    if (resolved.size === 1) {
+      const [only] = resolved;
+      if (only !== null && only !== undefined) return projectById(config, only);
+    }
+  }
+
+  throw new AmbicodeError(
+    'ambiguous-project',
+    'This repository configures more than one project, and this request does not identify exactly one.',
+    {
+      field: '--project',
+      details: [
+        `Configured projects: ${config.projects.map((project) => project.id).join(', ')}.`,
+        'Pass --project <id>, or give one or more paths that all fall inside a single project root.',
+      ],
+    },
+  );
+}
+
 export interface ResolvePolicyOptions {
   workspace: Workspace;
   project: ProjectConfig;

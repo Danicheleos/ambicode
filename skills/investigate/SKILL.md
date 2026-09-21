@@ -53,11 +53,16 @@ either.
    there is nothing to filter out on your side. On `ambiguous-project`, pass
    `--project <id>` or narrow the paths rather than guessing which project
    was meant.
-4. **Navigate.** Follow `navigation`'s bounded order — known paths, then
-   current-session LSP tools, then targeted search. Record either
-   `Navigation: LSP — <operations used>` or
+4. **Navigate.** Follow `navigation`'s bounded order — the shortlist, then
+   known paths, then current-session LSP tools, then targeted search. Start
+   from `navigation.shortlist` when it is there, or `ambicode locate
+   <term>...` to get one. **The shortlist is a hypothesis, not an answer:**
+   confirm each candidate against the code before citing it, and say which
+   candidates were confirmed, which rejected, and which facts came from files
+   outside it. Record either `Navigation: LSP — <operations used>` or
    `Navigation: targeted-search fallback — <specific reason>` in the final
-   report. Installed or recommended alone does not prove that LSP ran.
+   report; a broad search is allowed and is reported with its reason.
+   Installed or recommended alone does not prove that LSP ran.
 5. **Compare, don't stop at the first match.** Form every candidate
    explanation the evidence actually supports and check each against the
    code and requirement evidence before settling on one. A single fact that

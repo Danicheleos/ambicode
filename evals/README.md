@@ -95,6 +95,27 @@ Case names, descriptions and tags are neutral: the expected defect lives in
 | duplication-ts, complexity-py | Reuse and unjustified complexity | `ts-duplication`, `py-complexity` |
 | degraded-ts, degraded-py | Evidence is missing; silence is the failure mode | `ts-rename-delete`, `py-no-runner` |
 
+## Navigation cost (R4)
+
+`p2-investigate-boundary-shortlist` is the one case whose point is not the
+verdict. Both arms are expected to be able to answer it; the fixture
+(`ts-feature-boundary`) is built so keyword matching alone ranks a retired
+decoy exactly like the two real files that share its keyword, and only
+co-change separates them.
+
+What it measures is what the answer cost, read from the run record rather than
+from a grader:
+
+- tool calls before all four boundary files were open or cited;
+- input and output tokens for the run;
+- whether the decoy was read at all.
+
+A grader can say the answer was right; none of them can say it was cheap. Both
+figures are recorded per arm, with the caveat that three runs of one case is a
+signal to accumulate, not a benchmark. `shortlist-requested` is an
+`arm: with-only` indicator like `helper-ran`: it matches the tool **input**, so
+it proves the call was attempted and nothing more.
+
 ## Adjudication
 
 Grader verdicts are machine labels, not adjudication. Document 07 requires human

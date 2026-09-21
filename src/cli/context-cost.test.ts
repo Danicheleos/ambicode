@@ -39,22 +39,39 @@ const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 const MAX_COMPACT_PREPARE_BYTES = 9_300;
 
 /**
- * Per-skill `SKILL.md` ceilings. `task` is the one R2 set a number for
- * (under 10,000); the rest are held near what the same editing pass left
- * them at.
+ * The same payload with R4's boundary shortlist on it. The shortlist is paths
+ * and reasons only — never file contents — and it is bounded by
+ * `PREPARE_SHORTLIST_LIMIT`, so what it can add to a call is bounded too.
+ * This ceiling is that bound made visible: it emitted 9,335 bytes for the
+ * fixture below when this was written.
+ */
+const MAX_COMPACT_PREPARE_WITH_SHORTLIST_BYTES = 10_400;
+
+/**
+ * Per-skill `SKILL.md` ceilings. `task` is the one R2 set a number for; the
+ * rest are held near what the same editing pass left them at.
+ *
+ * `task` and `shared/prepare-output.md` were raised deliberately by R4, which
+ * added one genuinely new rule: a shortlist candidate is confirmed before it
+ * is edited, and the report says which candidates were confirmed, rejected,
+ * or found outside the list. The explanation of the field lives once in the
+ * shared file, which a session reads once; each skill carries only the
+ * sentences its own reader acts on. The alternative was to ship the field and
+ * leave the discipline unstated, which is how a hypothesis turns into an
+ * answer.
  */
 const MAX_SKILL_BYTES: Record<string, number> = {
   'init/SKILL.md': 4_200,
   'investigate/SKILL.md': 7_600,
   'plan/SKILL.md': 10_400,
   'review/SKILL.md': 11_800,
-  'task/SKILL.md': 10_000,
+  'task/SKILL.md': 10_500,
   // R3: a setup-time skill, invoked by name and never on a per-call path, so
   // its ceiling is about staying disciplined rather than about per-call cost.
   // It is the longest because it is the only skill that has to teach a format.
   'rules/SKILL.md': 11_600,
   'shared/requirements-mcp.md': 5_600,
-  'shared/prepare-output.md': 4_000,
+  'shared/prepare-output.md': 4_700,
 };
 
 const PACK_A = [
@@ -206,7 +223,7 @@ describe('R2 per-call context cost', () => {
       const runtime = await createRuntime({ cwd: repo.root });
       const run = await runPrepare(runtime, parseArgs('prepare', ['--activity', 'task'], PREPARE_OPTIONS));
       const navigation = (run.data as PrepareCompactOutput).navigation;
-      assert.equal(navigation.strategy, 'known-paths-then-lsp-then-targeted-search');
+      assert.equal(navigation.strategy, 'shortlist-then-known-paths-then-lsp-then-targeted-search');
       assert.ok(navigation.evidenceRequirement.length > 0);
       assert.ok(
         navigation.evidenceRequirement.length < 100,
@@ -219,6 +236,38 @@ describe('R2 per-call context cost', () => {
         true,
         'setup guidance must still exist for init/config to report',
       );
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it('carries the boundary shortlist when given terms, as paths and reasons within a bounded cost (R4)', async () => {
+    const repo = await fixture();
+    try {
+      const runtime = await createRuntime({ cwd: repo.root });
+      const run = await runPrepare(
+        runtime,
+        parseArgs('prepare', ['--activity', 'task', '--term', 'app', 'src/app.ts'], PREPARE_OPTIONS),
+      );
+      const shortlist = (run.data as PrepareCompactOutput).navigation.shortlist;
+
+      assert.ok(shortlist !== undefined, 'a call given --term must carry a shortlist');
+      assert.deepEqual(shortlist.terms, ['app']);
+      assert.ok(shortlist.candidates.some((candidate) => candidate.path === 'src/app.ts'));
+      for (const candidate of shortlist.candidates) {
+        // Paths and reasons, never file contents: the shortlist says where to
+        // look, and the caller decides what is worth reading.
+        assert.deepEqual(Object.keys(candidate).sort(), ['path', 'reasons', 'score']);
+        assert.ok(candidate.reasons.length > 0, `${candidate.path} ranked without a reason`);
+      }
+
+      const emitted = formatJsonOutput(run.data, run.json);
+      assert.ok(
+        Buffer.byteLength(emitted, 'utf8') <= MAX_COMPACT_PREPARE_WITH_SHORTLIST_BYTES,
+        `prepare with a shortlist is ${Buffer.byteLength(emitted, 'utf8')} bytes, over the ` +
+          `${MAX_COMPACT_PREPARE_WITH_SHORTLIST_BYTES}-byte ceiling.`,
+      );
+      assert.equal(Buffer.byteLength(emitted, 'utf8'), run.data.contextBudget.measuredBytes);
     } finally {
       await repo.dispose();
     }

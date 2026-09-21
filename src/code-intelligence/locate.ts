@@ -1,0 +1,423 @@
+import type { ProjectConfig } from '../contracts/config.ts';
+import type { LocateCandidate } from '../contracts/locate.ts';
+import type { RequirementSource } from '../contracts/requirements.ts';
+import { literalPathspec, type Git } from '../git/git.ts';
+import { pathExclusionReason } from '../snapshot/exclusions.ts';
+import { matchesGlob } from '../util/glob.ts';
+import { normalizeRelative } from '../util/paths.ts';
+
+/**
+ * The boundary shortlist (R4, core idea #2): the files a request is probably
+ * about, ranked, each with the reason it ranked.
+ *
+ * Every signal below is computed on demand from data git already holds. There
+ * is no index, no cache, no symbol table and no dependency graph — those are
+ * `plan/09-backlog.md` items and they stay there. The whole of this module's
+ * state lives on the stack of one call, which is what keeps it honest: a
+ * shortlist that cannot go stale is one nobody has to invalidate.
+ *
+ * The shortlist is a hypothesis for the caller to confirm, never an answer.
+ * It says what it could not establish in `limitations`, and when it finds
+ * nothing it returns nothing — it never widens into "here is the whole
+ * project", which is the same rule `src/checks/select.ts` applies to test
+ * selection.
+ */
+
+/** A starting point for an agent, not a context dump. */
+export const DEFAULT_LOCATE_LIMIT = 20;
+
+/**
+ * Half that inside `prepare`, whose payload is re-sent on every call and
+ * whose byte cost R2 measures. Ten candidates are enough to start from; a
+ * caller that wants the long list runs `ambicode locate` for it.
+ */
+export const PREPARE_SHORTLIST_LIMIT = 10;
+
+/** Terms beyond this are dropped: an unbounded term list is an unbounded scan. */
+const MAX_TERMS = 12;
+
+/** Shorter than this matches too much of any codebase to mean anything. */
+const MIN_TERM_LENGTH = 3;
+
+/** Per term, per signal. A term matching more than this is bounded and said so. */
+const MAX_CONTENT_MATCHES_PER_TERM = 200;
+
+/** A few hundred commits: enough for a habit to show, bounded so it stays fast. */
+const MAX_COCHANGE_COMMITS = 200;
+
+/** Fewer than this and co-change is coincidence, not habit. */
+const MIN_COCHANGE_COMMITS = 2;
+
+/** A path must accompany a seed at least this often before it is worth saying. */
+const MIN_COCHANGE_SHARE = 0.25;
+const MIN_COCHANGE_COUNT = 2;
+
+/**
+ * A sweeping commit — a reformat, a licence header, the initial import — puts
+ * every file next to every other one and says nothing about which files form
+ * a boundary. It is excluded from co-change, and the exclusion is reported.
+ */
+const MAX_COCHANGE_COMMIT_FILES = 50;
+
+/** The already-matched files co-change is measured against. */
+const MAX_SEEDS = 5;
+
+/**
+ * Scores are comparable within one call and nothing more: they order a list,
+ * they do not measure a probability. A directory named for the term is the
+ * strongest single signal that a boundary was found, a filename next, and a
+ * mention in the contents weakest — a word can appear in any comment.
+ */
+const SCORE_DIRECTORY = 5;
+const SCORE_FILENAME = 3;
+const SCORE_CONTENT = 2;
+/** Scaled by the share of the seed's commits, so a habit outranks an accident. */
+const SCORE_COCHANGE = 4;
+
+export interface LocateRequest {
+  git: Git;
+  project: ProjectConfig;
+  terms: readonly string[];
+  limit: number;
+}
+
+export interface LocateShortlist {
+  terms: string[];
+  candidates: LocateCandidate[];
+  limitations: string[];
+}
+
+interface Ranked {
+  path: string;
+  score: number;
+  reasons: string[];
+}
+
+export async function locate(request: LocateRequest): Promise<LocateShortlist> {
+  const limitations: string[] = [];
+  const terms = normalizeTerms(request.terms, limitations);
+  if (terms.length === 0) {
+    return { terms: [], candidates: [], limitations: [...limitations, 'No usable search term was supplied.'] };
+  }
+
+  const projectRoot = normalizeRelative(request.project.root);
+  const pathspec = projectRoot === '' ? null : literalPathspec(projectRoot);
+  const files = (await request.git.listFiles(pathspec)).filter(
+    (candidate) => inProject(projectRoot, candidate) && pathExclusionReason(candidate) === null,
+  );
+  if (files.length === 0) {
+    return {
+      terms,
+      candidates: [],
+      limitations: [...limitations, `Project "${request.project.id}" holds no reviewable files to search.`],
+    };
+  }
+
+  const fileSet = new Set(files);
+  const ranked = new Map<string, Ranked>();
+
+  for (const term of terms) {
+    const matchedPaths = pathMatches(term, files, limitations);
+    const matchedContents = await contentMatches(request, term, pathspec, fileSet, limitations);
+
+    const touched = new Set([...matchedPaths.map((match) => match.path), ...matchedContents]);
+    if (isTooBroad(touched.size, files.length)) {
+      limitations.push(
+        `"${term}" matched ${touched.size} of the project's ${files.length} files, which is not a shortlist, so it was ignored.`,
+      );
+      continue;
+    }
+    if (touched.size === 0) {
+      limitations.push(`No file's path or contents matched "${term}".`);
+      continue;
+    }
+
+    for (const match of matchedPaths) {
+      add(ranked, match.path, match.kind === 'directory' ? SCORE_DIRECTORY : SCORE_FILENAME, match.reason);
+    }
+    for (const path of matchedContents) {
+      add(ranked, path, SCORE_CONTENT, `contains "${term}"`);
+    }
+  }
+
+  await addCoChange(request, ranked, fileSet, limitations);
+
+  const ordered = [...ranked.values()].sort(
+    (a, b) => b.score - a.score || a.path.localeCompare(b.path),
+  );
+  if (ordered.length > request.limit) {
+    limitations.push(
+      `${ordered.length - request.limit} further candidate(s) scored but are not listed; raise --limit to see them.`,
+    );
+  }
+
+  return {
+    terms,
+    candidates: ordered.slice(0, request.limit).map((entry) => ({
+      path: entry.path,
+      // Two decimals: the co-change share is fractional, and a long float is
+      // bytes spent on precision the ordering does not use.
+      score: Math.round(entry.score * 100) / 100,
+      reasons: entry.reasons,
+    })),
+    limitations,
+  };
+}
+
+/**
+ * Signal 1 — path and filename. `**\/*term*` matches the final segment, so it
+ * is a filename hit; `**\/*term*\/**` matches any directory above the file,
+ * which is the stronger claim that a whole boundary was named. Both sides are
+ * lowercased so the comparison is case-insensitive, and `matchesGlob` works in
+ * POSIX form, so a Windows checkout compares the same paths a Linux one does.
+ *
+ * A term carrying glob syntax cannot be turned into a literal pattern here, so
+ * it contributes through its contents only and the caller is told.
+ */
+function pathMatches(
+  term: string,
+  files: readonly string[],
+  limitations: string[],
+): { path: string; kind: 'directory' | 'filename'; reason: string }[] {
+  const needle = term.toLowerCase();
+  if (!/^[^*?[\]{}()!\\]+$/.test(needle)) {
+    limitations.push(`"${term}" carries glob syntax, so it was matched against file contents only.`);
+    return [];
+  }
+
+  const matches: { path: string; kind: 'directory' | 'filename'; reason: string }[] = [];
+  for (const file of files) {
+    const lower = file.toLowerCase();
+    if (matchesGlob(lower, `**/*${needle}*/**`)) {
+      matches.push({ path: file, kind: 'directory', reason: `sits under a directory matching "${term}"` });
+    } else if (matchesGlob(lower, `**/*${needle}*`)) {
+      matches.push({ path: file, kind: 'filename', reason: `filename matched "${term}"` });
+    }
+  }
+  return matches;
+}
+
+/** Signal 2 — contents, as a fixed case-insensitive string, bounded. */
+async function contentMatches(
+  request: LocateRequest,
+  term: string,
+  pathspec: string | null,
+  fileSet: ReadonlySet<string>,
+  limitations: string[],
+): Promise<string[]> {
+  const found = (await request.git.grepFiles(term, pathspec)).filter((path) => fileSet.has(path));
+  if (found.length <= MAX_CONTENT_MATCHES_PER_TERM) return found;
+  limitations.push(
+    `"${term}" appears in ${found.length} files; only the first ${MAX_CONTENT_MATCHES_PER_TERM} were ranked.`,
+  );
+  return found.slice(0, MAX_CONTENT_MATCHES_PER_TERM);
+}
+
+/**
+ * Signal 3 — co-change. This is the one that finds the *boundary* rather than
+ * the keyword: the test file, the DTO, the migration, the route registration
+ * that habitually moves with the files the terms already matched, and that
+ * carry none of the terms themselves.
+ *
+ * Two git invocations, whatever the number of seeds: the commits that touched
+ * any seed, then those commits' file lists. Nothing is kept between calls.
+ */
+async function addCoChange(
+  request: LocateRequest,
+  ranked: Map<string, Ranked>,
+  fileSet: ReadonlySet<string>,
+  limitations: string[],
+): Promise<void> {
+  const seeds = [...ranked.values()]
+    .sort((a, b) => b.score - a.score || a.path.localeCompare(b.path))
+    .slice(0, MAX_SEEDS)
+    .map((entry) => entry.path);
+  if (seeds.length === 0) return;
+
+  const commits = await request.git.commitsTouching(seeds.map(literalPathspec), MAX_COCHANGE_COMMITS);
+  if (commits.length < MIN_COCHANGE_COMMITS) {
+    limitations.push(
+      `Co-change contributed nothing: ${commits.length} commit(s) in this repository touch the files the terms matched.`,
+    );
+    return;
+  }
+
+  const lists = await request.git.commitFileLists(commits);
+  const usable = lists.filter((entry) => entry.paths.length <= MAX_COCHANGE_COMMIT_FILES);
+  if (usable.length < lists.length) {
+    limitations.push(
+      `${lists.length - usable.length} of ${lists.length} commit(s) changed more than ${MAX_COCHANGE_COMMIT_FILES} files and were not used for co-change.`,
+    );
+  }
+  if (usable.length < MIN_COCHANGE_COMMITS) return;
+
+  // The strongest single companionship, not the sum over every seed. Summing
+  // would let a file that merely accompanies four seeds outrank the file the
+  // terms actually named — which is what happened before this was capped, and
+  // it is the difference between a shortlist and a list of neighbours.
+  const best = new Map<string, { share: number; reason: string }>();
+
+  for (const seed of seeds) {
+    const withSeed = usable.filter((entry) => entry.paths.includes(seed));
+    if (withSeed.length < MIN_COCHANGE_COMMITS) continue;
+
+    const counts = new Map<string, number>();
+    for (const entry of withSeed) {
+      for (const path of entry.paths) {
+        if (path === seed || !fileSet.has(path)) continue;
+        counts.set(path, (counts.get(path) ?? 0) + 1);
+      }
+    }
+
+    for (const [path, count] of counts) {
+      const share = count / withSeed.length;
+      if (count < MIN_COCHANGE_COUNT || share < MIN_COCHANGE_SHARE) continue;
+      const existing = best.get(path);
+      if (existing !== undefined && existing.share >= share) continue;
+      best.set(path, {
+        share,
+        reason: `changed with ${seed} in ${count} of ${withSeed.length} commits`,
+      });
+    }
+  }
+
+  for (const [path, entry] of best) {
+    add(ranked, path, SCORE_COCHANGE * entry.share, entry.reason);
+  }
+}
+
+function add(ranked: Map<string, Ranked>, path: string, score: number, reason: string): void {
+  const existing = ranked.get(path);
+  if (existing === undefined) {
+    ranked.set(path, { path, score, reasons: [reason] });
+    return;
+  }
+  existing.score += score;
+  if (!existing.reasons.includes(reason)) existing.reasons.push(reason);
+}
+
+/**
+ * A term that reaches most of the project is describing the project rather
+ * than a boundary within it — `src`, the company name, the framework. Ignoring
+ * it is the honest answer; ranking on it would return a list of everything
+ * with the term's name on it, which is the failure this iteration exists to
+ * avoid. The small absolute floor keeps a four-file project, where matching
+ * three of them is perfectly informative, out of the rule.
+ */
+const TOO_BROAD_SHARE = 0.6;
+const TOO_BROAD_MIN_FILES = 5;
+
+function isTooBroad(matched: number, total: number): boolean {
+  return matched >= TOO_BROAD_MIN_FILES && matched > total * TOO_BROAD_SHARE;
+}
+
+function inProject(projectRoot: string, repositoryRelativePath: string): boolean {
+  if (projectRoot === '') return true;
+  return repositoryRelativePath.startsWith(`${projectRoot}/`) || repositoryRelativePath === projectRoot;
+}
+
+function normalizeTerms(supplied: readonly string[], limitations: string[]): string[] {
+  const seen = new Set<string>();
+  const terms: string[] = [];
+  const tooShort: string[] = [];
+
+  for (const raw of supplied) {
+    const term = raw.trim();
+    if (term === '') continue;
+    if (term.length < MIN_TERM_LENGTH) {
+      tooShort.push(term);
+      continue;
+    }
+    const key = term.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    terms.push(term);
+  }
+
+  if (tooShort.length > 0) {
+    limitations.push(
+      `Ignored term(s) shorter than ${MIN_TERM_LENGTH} characters: ${[...new Set(tooShort)].join(', ')}.`,
+    );
+  }
+  if (terms.length > MAX_TERMS) {
+    limitations.push(
+      `Only the first ${MAX_TERMS} terms were searched; ${terms.length - MAX_TERMS} were dropped.`,
+    );
+    return terms.slice(0, MAX_TERMS);
+  }
+  return terms;
+}
+
+/**
+ * Terms from retrieved requirement text, for a caller that has a ticket rather
+ * than a list of words. This is a word-frequency heuristic and nothing more:
+ * it is stated as one in the shortlist's limitations, and `--term` overrides
+ * it whenever the caller knows better.
+ *
+ * Identifier-shaped tokens — `order_total`, `InvoiceService`, `src/orders` —
+ * rank first, because a requirement that names code is naming the boundary.
+ */
+export function termsFromRequirements(
+  sources: readonly Pick<RequirementSource, 'title' | 'content'>[],
+): string[] {
+  const found = new Map<string, { term: string; count: number; order: number; identifier: boolean }>();
+  let order = 0;
+
+  for (const source of sources) {
+    for (const token of tokenize(`${source.title}\n${source.content}`)) {
+      const key = token.toLowerCase();
+      const existing = found.get(key);
+      if (existing !== undefined) {
+        existing.count += 1;
+        continue;
+      }
+      found.set(key, { term: token, count: 1, order: (order += 1), identifier: isIdentifierLike(token) });
+    }
+  }
+
+  return [...found.values()]
+    .sort(
+      (a, b) =>
+        Number(b.identifier) - Number(a.identifier) || b.count - a.count || a.order - b.order,
+    )
+    .slice(0, MAX_TERMS)
+    .map((entry) => entry.term);
+}
+
+function tokenize(text: string): string[] {
+  const tokens: string[] = [];
+  for (const raw of text.split(/[^\p{L}\p{N}_./-]+/u)) {
+    const token = raw.replace(/^[./-]+/, '').replace(/[./-]+$/, '');
+    if (token.length < MIN_TERM_LENGTH) continue;
+    if (/^\p{N}+$/u.test(token)) continue;
+    if (isIdentifierLike(token)) {
+      tokens.push(token);
+      continue;
+    }
+    if (token.length < 4 || STOPWORDS.has(token.toLowerCase())) continue;
+    tokens.push(token);
+  }
+  return tokens;
+}
+
+/** `order_total`, `InvoiceService`, `src/orders`, `tax.rate` — but not `Order`. */
+function isIdentifierLike(token: string): boolean {
+  return /[_./-]/.test(token) || /\p{Ll}\p{Lu}/u.test(token);
+}
+
+/**
+ * Words that appear in every requirement document ever written. A short,
+ * deliberately unambitious list: the breadth guard above is what actually
+ * stops a useless term, so this only avoids spending a grep on "should".
+ */
+const STOPWORDS = new Set([
+  'about', 'after', 'also', 'always', 'another', 'because', 'been', 'before', 'being', 'both',
+  'cannot', 'could', 'description', 'does', 'done', 'each', 'either', 'else', 'every', 'from',
+  'given', 'have', 'here', 'however', 'into', 'issue', 'it’s', 'just', 'like', 'made', 'make',
+  'many', 'more', 'most', 'must', 'need', 'needs', 'never', 'none', 'only', 'other', 'over',
+  'page', 'part', 'please', 'rather', 'same', 'shall', 'should', 'since', 'some', 'stop', 'such',
+  'summary', 'sure', 'than', 'that', 'their', 'them', 'then', 'there', 'these', 'they', 'this',
+  'those', 'through', 'ticket', 'time', 'under', 'until', 'upon', 'used', 'user', 'using', 'very',
+  'want', 'were', 'what', 'when', 'where', 'which', 'while', 'will', 'with', 'within', 'without',
+  'work', 'would', 'your',
+]);

@@ -38,13 +38,27 @@ debugging. It is not the shape to read routinely.
   skill: that stays owned by the isolated reviewer prompt.
 - **`policy.commandDecisions`** — what `ambicode review`'s checks are allowed
   to run. Informational to an authoring skill; it enforces nothing itself.
-- **`navigation`** — the bounded search order: known paths first, then
-  current-session LSP tools for definitions, references, callers and symbol
-  lookup, then targeted Grep/Glob/Read only where LSP is absent or
+- **`navigation`** — the bounded search order: the shortlist first, then known
+  paths, then current-session LSP tools for definitions, references, callers
+  and symbol lookup, then targeted Grep/Glob/Read only where LSP is absent or
   insufficient. Do not build an index or read the whole repository by
   default. The helper cannot see this session's tool inventory, so observe it
   yourself; `ambicode config` names the ecosystem's official Claude Code LSP
   plugin when you need to recommend one.
+- **`navigation.shortlist`** — the candidate files for this request, present
+  when the call passed `--term <term>` or requirement evidence to take terms
+  from. Each candidate carries its `path`, a `score` comparable only inside
+  that one call, and the `reasons` it ranked: a matching directory or
+  filename, a content hit, or that it habitually changes together with a file
+  the terms matched. `limitations` says what it could not establish.
+  **It is a hypothesis, not an answer.** Confirm each candidate against the
+  code before relying on it, and state which you confirmed, which you
+  rejected, and which files you needed from outside it. Empty `candidates`
+  means nothing matched well enough to start from — never "read everything".
+  For a longer list, or for terms you choose rather than ones derived from a
+  ticket, run
+  `node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" locate <term>... --json`.
+  It reads git only: no index, no cache, nothing written.
 - **`requirements`, `provenance`, `notices`, `diagnostics`** — what was
   pinned and what is worth saying out loud. An empty list is omitted rather
   than emitted.

@@ -7,7 +7,15 @@ import type { Ecosystem } from '../contracts/primitives.ts';
  * LSP tools are actually active, so consumers must report what they observed.
  */
 export interface NavigationGuidance {
-  strategy: 'known-paths-then-lsp-then-targeted-search';
+  /**
+   * The bounded order a skill navigates in (R4). The shortlist
+   * (`ambicode locate`) narrows the repository to candidate files from the
+   * request itself; LSP then goes from a candidate to its definitions,
+   * references and callers. The two are not alternatives: `locate` finds the
+   * candidates, LSP explains them, and targeted search is what is left when
+   * neither answered.
+   */
+  strategy: 'shortlist-then-known-paths-then-lsp-then-targeted-search';
   ecosystem: Ecosystem;
   plugin: string;
   serverCommand: string;
@@ -23,7 +31,7 @@ export interface NavigationGuidance {
 
 const GUIDANCE: Record<Ecosystem, Omit<NavigationGuidance, 'ecosystem'>> = {
   typescript: {
-    strategy: 'known-paths-then-lsp-then-targeted-search',
+    strategy: 'shortlist-then-known-paths-then-lsp-then-targeted-search',
     plugin: 'typescript-lsp@claude-plugins-official',
     serverCommand: 'typescript-language-server',
     setupCommands: [
@@ -35,7 +43,7 @@ const GUIDANCE: Record<Ecosystem, Omit<NavigationGuidance, 'ecosystem'>> = {
       'Report the LSP operations used, or the targeted-search fallback reason.',
   },
   python: {
-    strategy: 'known-paths-then-lsp-then-targeted-search',
+    strategy: 'shortlist-then-known-paths-then-lsp-then-targeted-search',
     plugin: 'pyright-lsp@claude-plugins-official',
     serverCommand: 'pyright-langserver',
     setupCommands: [

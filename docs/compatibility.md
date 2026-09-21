@@ -429,6 +429,13 @@ surface that guidance. Authoring skills record actual LSP symbol operations or
 a specific targeted-search fallback reason because the helper cannot inspect
 the active conversation's tool inventory.
 
+The step before LSP is `ambicode locate`: a ranked shortlist of candidate
+files for a request, from path shape, `git grep` contents and co-change over a
+bounded commit window. It runs no language server, starts no process other
+than `git` through the existing adapter, and stores nothing between calls, so
+it adds no compatibility surface of its own. LSP is still how a caller goes
+from a candidate file to its definitions, references and callers.
+
 Observed from the current official marketplace: TypeScript uses
 `typescript-language-server --stdio`; Python uses `pyright-langserver --stdio`.
 No LSP plugin was active in this acceptance session, so product-project symbol

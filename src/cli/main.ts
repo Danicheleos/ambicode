@@ -6,6 +6,7 @@ import { parseArgs, type OptionSpec, type ParsedArgs } from './args.ts';
 import { BUNDLE_OPTIONS, renderBundle, runBundle } from './commands/bundle.ts';
 import { CONFIG_OPTIONS, renderConfig, runConfig } from './commands/config.ts';
 import { INIT_OPTIONS, renderInit, runInit } from './commands/init.ts';
+import { LOCATE_OPTIONS, renderLocate, runLocate } from './commands/locate.ts';
 import { POLICY_OPTIONS, renderPolicy, runPolicy } from './commands/policy.ts';
 import { POLICY_CHECK_OPTIONS, renderPolicyCheck, runPolicyCheck } from './commands/policy-check.ts';
 import { PREPARE_OPTIONS, renderPrepare, runPrepare } from './commands/prepare.ts';
@@ -42,6 +43,20 @@ export const USAGE = `ambicode <command> [options]
                           To resolve policy for a path literally named "check",
                           write "policy -- check".
 
+  locate [terms...]       A ranked shortlist of the files a request is probably
+                          about, each with the reason it ranked: path and
+                          filename shape, file contents, and which files
+                          habitually change with the ones already matched.
+                          Nothing is indexed, cached, or written; it is a
+                          starting point to confirm, not an answer.
+                            --project <id>        Required when more than one
+                                                  project is configured.
+                            --evidence <file|->   Derive the terms from the
+                                                  retrieved requirement
+                                                  envelope instead of naming
+                                                  them.
+                            --limit <n>           Candidates to list (default 20).
+
   prepare [paths...]      The smallest shared preparation for a skill that has
                           not yet decided what to do: normalized requirement
                           provenance and applicable policy. No provider,
@@ -60,6 +75,10 @@ export const USAGE = `ambicode <command> [options]
                                                   "-" to read the envelope from
                                                   standard input. Required
                                                   whenever --requirement is used.
+                            --term <term>         Seed the boundary shortlist;
+                                                  repeatable. Without any, the
+                                                  terms come from the requirement
+                                                  text when evidence is supplied.
                             --with-contract       Inline the shared operating
                                                   contract's text, for a session
                                                   the AMBICODE hook never reached.
@@ -191,6 +210,7 @@ const VERSION_OPTIONS = { flags: ['json'] } as const;
 export const SPECS: Record<string, OptionSpec | undefined> = {
   init: INIT_OPTIONS,
   config: CONFIG_OPTIONS,
+  locate: LOCATE_OPTIONS,
   policy: POLICY_OPTIONS,
   'policy check': POLICY_CHECK_OPTIONS,
   prepare: PREPARE_OPTIONS,
@@ -226,6 +246,12 @@ async function dispatch(command: string, args: ParsedArgs): Promise<Rendered> {
       // The report is the deliverable either way; the status says whether the
       // candidate files are usable, so a skill can loop on it without parsing.
       return { text: renderPolicyCheck(output), data: output, ...(output.ok ? {} : { exitCode: 1 }) };
+    }
+    case 'locate': {
+      const output = await runLocate(runtime, args);
+      // Compact, like `prepare`: its reader is a model deciding where to look,
+      // and indentation on a path list carries no information (R2).
+      return { text: renderLocate(output), data: output, json: 'compact' };
     }
     case 'prepare': {
       const run = await runPrepare(runtime, args);
