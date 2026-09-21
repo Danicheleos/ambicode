@@ -50,7 +50,11 @@ async function checkPoliciesAndPromptsResolve() {
     execFileSync('git', ['commit', '--quiet', '-m', 'seed'], { cwd });
 
     const initOutput = run(['init'], { cwd });
-    if (!/\.ambicode\/config\.yaml/.test(initOutput)) throw new Error(`init did not report writing config:\n${initOutput}`);
+    // `init` reports a host path, so on Windows it reads `.ambicode\config.yaml`.
+    // Same decision as the two assertions in R1 defect 3: the check accepts
+    // either separator rather than the production value being reshaped to
+    // suit it.
+    if (!/\.ambicode[\\/]config\.yaml/.test(initOutput)) throw new Error(`init did not report writing config:\n${initOutput}`);
 
     const policyOutput = run(['policy'], { cwd });
     // A built-in pack, shipped under policies/ in the candidate: proves the

@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
-import { describe, it } from 'node:test';
-import { CombinedCapture, NodeProcessRunner, decodeCompleteUtf8 } from './node-process-runner.ts';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { after, before, describe, it } from 'node:test';
+import { CombinedCapture, NodeProcessRunner, decodeCompleteUtf8, windowsCommandExists } from './node-process-runner.ts';
 import type { ProcessOutcome } from './process.ts';
 
 const runner = new NodeProcessRunner();
@@ -74,6 +77,74 @@ describe('U29 process runner', () => {
     assert.match(spawnFailed.failure ?? '', /ENOENT/);
   });
 
+  /**
+   * `kind` is what tells "the tool is not installed" apart from "the tool ran
+   * and failed", and D06 turns only the first into a notice and a skipped
+   * result. Every case below asserts the same thing on Linux, Windows and
+   * macOS: on Windows the missing-command case used to arrive as a plain
+   * `exited` with code 1, so an uninstalled linter was reported to the user as
+   * a failing lint check (R1 defect 2).
+   */
+  describe('a command that never starts is spawn-failed on every platform', () => {
+    async function attempt(argv: readonly string[], cwd = process.cwd()): Promise<ProcessOutcome> {
+      return await runner.run({ argv, cwd, timeoutMs: 10_000, maxOutputBytes: 1024, env: { kind: 'inherited' } });
+    }
+
+    it('a command that is not installed', async () => {
+      const outcome = await attempt(['ambicode-no-such-executable']);
+      assert.equal(outcome.kind, 'spawn-failed');
+      assert.match(outcome.failure ?? '', /ENOENT/);
+      // Never an exit code: an uninstalled tool did not run, so it cannot have
+      // "failed" — the distinction the whole check exists to preserve.
+      assert.equal(outcome.exitCode, null);
+    });
+
+    it('a command given as a path that does not exist', async () => {
+      const missing = path.join(os.tmpdir(), 'ambicode-no-such-directory', 'linter.exe');
+      const outcome = await attempt([missing]);
+      assert.equal(outcome.kind, 'spawn-failed');
+      assert.equal(outcome.exitCode, null);
+      assert.notEqual(outcome.failure, null);
+    });
+
+    it('a cwd that does not exist', async () => {
+      const outcome = await attempt([process.execPath, '-e', ''], path.join(os.tmpdir(), 'ambicode-no-such-cwd'));
+      assert.equal(outcome.kind, 'spawn-failed');
+      assert.equal(outcome.exitCode, null);
+      assert.notEqual(outcome.failure, null);
+    });
+
+    it('a path that exists but cannot be executed', async () => {
+      // A directory is the one "exists but is not runnable" case that behaves
+      // the same way everywhere: POSIX rejects it with EACCES at exec time,
+      // and on Windows it resolves to something that is not a file. A
+      // permission-denied *file* has no Windows equivalent — executability
+      // there is decided by extension, not by a mode bit.
+      const outcome = await attempt([os.tmpdir()]);
+      assert.equal(outcome.kind, 'spawn-failed');
+      assert.equal(outcome.exitCode, null);
+      assert.notEqual(outcome.failure, null);
+    });
+
+    it('still reports a command that did run and failed as exited, not spawn-failed', async () => {
+      // The other half of the distinction: exit 1 is the most common "ran and
+      // found problems" code, and on Windows it is byte-for-byte what cmd.exe
+      // returns for a command it could not find. This must stay `exited`.
+      const outcome = await attempt([process.execPath, '-e', 'process.exit(1)']);
+      assert.equal(outcome.kind, 'exited');
+      assert.equal(outcome.exitCode, 1);
+      assert.equal(outcome.failure, null);
+    });
+
+    it('resolves a command that is installed, rather than rejecting it', async () => {
+      // The pre-flight resolution must not turn a real tool into a false
+      // "not installed": the interpreter running this test is found by
+      // absolute path, and `node` by a bare name through PATH.
+      assert.equal((await attempt([process.execPath, '-e', 'process.exit(0)'])).kind, 'exited');
+      assert.equal((await attempt(['node', '-e', 'process.exit(0)'])).kind, 'exited');
+    });
+  });
+
   it('reports truncation separately from the exit status', async () => {
     const outcome = await node('process.stdout.write("0123456789"); process.exit(0)', 4);
     assert.equal(outcome.kind, 'exited');
@@ -122,5 +193,80 @@ describe('U29 process runner', () => {
     assert.equal(decodeCompleteUtf8(four), '😀');
     assert.equal(decodeCompleteUtf8(four.subarray(0, 3)), '');
     assert.equal(decodeCompleteUtf8(Buffer.concat([Buffer.from('ok'), four.subarray(0, 2)])), 'ok');
+  });
+});
+
+/**
+ * The Windows pre-flight resolution in isolation (R1 defect 2). It takes its
+ * environment and cwd as arguments and separates both `PATH` and `PATHEXT`
+ * with `;` exactly as Windows does, so these run and mean the same thing on
+ * every platform in the matrix — the behavior they pin down is only *used* on
+ * Windows, but it is not only *checked* there.
+ */
+describe('U29 Windows command resolution', () => {
+  let directory = '';
+
+  before(async () => {
+    directory = await mkdtemp(path.join(os.tmpdir(), 'ambicode-resolve-'));
+    await writeFile(path.join(directory, 'linter.EXE'), '');
+    await writeFile(path.join(directory, 'plain'), '');
+    await mkdir(path.join(directory, 'a-directory'));
+  });
+
+  after(async () => {
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  const env = (overrides: Record<string, string> = {}): Record<string, string> => ({
+    PATHEXT: '.COM;.EXE;.BAT;.CMD',
+    ...overrides,
+  });
+
+  it('finds a bare name through PATH by appending a PATHEXT extension', () => {
+    assert.equal(windowsCommandExists('linter', env({ PATH: directory }), os.tmpdir()), true);
+  });
+
+  it('finds a bare name whose file has no extension at all', () => {
+    // Wider than Execa on purpose: a resolution this function refuses is one
+    // Execa could not have made either, so it may never be the narrower of
+    // the two.
+    assert.equal(windowsCommandExists('plain', env({ PATH: directory }), os.tmpdir()), true);
+  });
+
+  it('reports a name that is on no PATH entry as missing', () => {
+    assert.equal(windowsCommandExists('linter', env({ PATH: os.tmpdir() }), os.tmpdir()), false);
+  });
+
+  it('searches the current directory ahead of PATH', () => {
+    assert.equal(windowsCommandExists('linter', env({ PATH: '' }), directory), true);
+  });
+
+  it('resolves a command carrying a path separator instead of searching PATH', () => {
+    assert.equal(windowsCommandExists(path.join(directory, 'linter.EXE'), env(), os.tmpdir()), true);
+    // On PATH, but given as a path relative to a cwd it is not under.
+    assert.equal(windowsCommandExists('./linter', env({ PATH: directory }), os.tmpdir()), false);
+  });
+
+  it('never resolves a directory to a command', () => {
+    assert.equal(windowsCommandExists('a-directory', env({ PATH: directory }), os.tmpdir()), false);
+  });
+
+  it('skips an empty PATH entry rather than reading it as the current directory', () => {
+    // `directory` holds `linter.EXE`; reaching it through an empty entry would
+    // mean an attacker-planted file in the cwd wins a PATH lookup.
+    assert.equal(windowsCommandExists('linter', env({ PATH: ';;' }), os.tmpdir()), false);
+  });
+
+  it('unquotes a quoted PATH entry, as Windows allows', () => {
+    assert.equal(windowsCommandExists('linter', env({ PATH: `"${directory}"` }), os.tmpdir()), true);
+  });
+
+  it('reads PATH and PATHEXT case-insensitively, as Windows names them', () => {
+    // A child can be handed `Path` rather than `PATH`.
+    assert.equal(windowsCommandExists('linter', { Path: directory, PathExt: '.EXE' }, os.tmpdir()), true);
+  });
+
+  it('falls back to the default PATHEXT when the environment sets an empty one', () => {
+    assert.equal(windowsCommandExists('linter', { PATH: directory, PATHEXT: '' }, os.tmpdir()), true);
   });
 });

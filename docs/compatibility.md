@@ -399,6 +399,18 @@ resolution, state replacement is atomic, and normalized native failures count
 as rollback failures. These paths are unit- and macOS-smoke-tested; a real
 Windows-host lifecycle remains a release acceptance item.
 
+One qualification on "Execa's cross-platform binary resolution", established
+by measurement in R1: on Windows, when Execa cannot resolve a command to a
+`.exe`/`.com` it does not report a failure — it hands the command line to
+`cmd.exe /d /s /c`, which starts successfully, writes "is not recognized as an
+internal or external command" to stderr and exits **1**. A command that is not
+installed is therefore indistinguishable, from Execa's result alone, from a
+linter that ran and found problems. Because `ProcessOutcome.kind` is what D06
+uses to turn a missing command into a notice and a skipped result rather than
+a reported failure, `NodeProcessRunner` resolves the executable itself before
+spawning on Windows (`windowsCommandExists`). Unix is unaffected: there the OS
+resolves the command and Execa surfaces the real `ENOENT`/`EACCES`.
+
 ## Code intelligence
 
 AMBICODE reuses the official `typescript-lsp@claude-plugins-official` and

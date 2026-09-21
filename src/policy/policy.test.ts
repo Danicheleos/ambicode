@@ -7,6 +7,7 @@ import type { ProjectConfig } from '../contracts/config.ts';
 import { loadPacksForProject } from './load.ts';
 import { decisionFor, explainRefusal, resolvePolicy } from './resolve.ts';
 import { nodeFileSystem } from '../ports/filesystem.ts';
+import { toPosix } from '../util/glob.ts';
 
 const BUILTIN_DIRECTORY = path.join(import.meta.dirname, '..', '..', 'policies');
 
@@ -51,7 +52,12 @@ test('U03 built-in packs parse, keep authority and provenance, and qualify rule 
   assert.ok(resolved.rules.every((rule) => rule.qualifiedId.startsWith('common-quality/')));
   assert.ok(resolved.rules.some((rule) => rule.qualifiedId === 'common-quality/reuse-before-reimplementing'));
   assert.equal(resolved.prompts.length, 1);
-  assert.ok(resolved.prompts[0]?.absolutePath.endsWith('policies/prompts/review-smells.md'));
+  // `absolutePath` is a host path: it is handed to `fs.readText` and printed
+  // in diagnostics for an operator to open, so it keeps the platform's own
+  // separator and is `...\policies\prompts\...` on Windows. The assertion
+  // normalizes to compare; production is not reshaped to suit a test (R1
+  // defect 3).
+  assert.ok(toPosix(resolved.prompts[0]?.absolutePath ?? '').endsWith('policies/prompts/review-smells.md'));
 });
 
 test('U26 every built-in pack loads and its referenced prompt files exist', async () => {

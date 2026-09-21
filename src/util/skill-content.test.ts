@@ -3,6 +3,7 @@ import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import YAML from 'yaml';
 
 /**
  * Structural checks on the shipped skill content itself (doc 04 P2.1). These
@@ -15,11 +16,39 @@ import { fileURLToPath } from 'node:url';
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SKILLS_DIR = path.join(repositoryRoot, 'skills');
 
-function frontmatterName(content: string): string | null {
-  const match = /^---\n([\s\S]*?)\n---/.exec(content);
-  if (match === null) return null;
-  const name = /^name:\s*(\S+)\s*$/m.exec(match[1] ?? '');
-  return name?.[1] ?? null;
+/**
+ * Parses a shipped `SKILL.md`'s frontmatter with the same YAML parser Claude
+ * Code uses, instead of matching lines with a regex. A per-line regex happily
+ * reads a value the YAML spec rejects — an unquoted plain scalar containing
+ * `": "` — which is exactly how two skills shipped in the 0.1.1 candidate with
+ * no `name` and no `description` at all while this test stayed green (R1
+ * defect 1). The `---` delimiters are not themselves YAML, so they are still
+ * split off by hand, but with `\r?\n`: a Windows checkout of a repository
+ * without `.gitattributes` has CRLF, and the LF-only form silently matched
+ * nothing there (R1 defect 3).
+ */
+function frontmatter(content: string, what: string): Record<string, unknown> {
+  const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content);
+  assert.ok(match !== null, `${what}: no frontmatter block`);
+  let parsed: unknown;
+  try {
+    parsed = YAML.parse(match[1] ?? '');
+  } catch (cause) {
+    assert.fail(`${what}: frontmatter is not valid YAML — ${(cause as Error).message}`);
+  }
+  assert.ok(
+    typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed),
+    `${what}: frontmatter is not a YAML mapping`,
+  );
+  return parsed as Record<string, unknown>;
+}
+
+/** Reads one frontmatter key Claude Code relies on, and proves it is present. */
+function requiredString(fm: Record<string, unknown>, key: string, what: string): string {
+  const value = fm[key];
+  assert.equal(typeof value, 'string', `${what}: frontmatter must declare a string ${key}`);
+  assert.notEqual((value as string).trim(), '', `${what}: frontmatter ${key} must not be blank`);
+  return value as string;
 }
 
 /** `${CLAUDE_PLUGIN_ROOT}/skills/shared/requirements-mcp.md` (doc 04 P2.2 correction B). */
@@ -41,11 +70,20 @@ describe('P2.2/P2.3 shipped skill content', () => {
     }
     assert.deepEqual(skillDirs.sort(), ['init', 'investigate', 'plan', 'review', 'task']);
 
+    // Being registered is not the same as being triggerable: Claude Code
+    // matches on `name` and `description`, and a skill whose frontmatter fails
+    // to parse loads with neither. Assert the parse and both keys, not just a
+    // line that looks like a name.
     for (const dir of skillDirs) {
       const content = await readFile(path.join(SKILLS_DIR, dir, 'SKILL.md'), 'utf8');
+      const what = `${dir}/SKILL.md`;
+      const fm = frontmatter(content, what);
       // The directory name is only a fallback and an unstable one for a cached
       // plugin, so every skill sets `name` explicitly (doc 08, "Skills").
-      assert.equal(frontmatterName(content), dir, `${dir}/SKILL.md must declare name: ${dir}`);
+      assert.equal(requiredString(fm, 'name', what), dir, `${what} must declare name: ${dir}`);
+      requiredString(fm, 'description', what);
+      // Only the two skills that take an argument declare a hint for it.
+      if (dir === 'plan' || dir === 'task') requiredString(fm, 'argument-hint', what);
     }
   });
 
@@ -129,8 +167,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
 
   it('plan declares an argument hint and makes the request available through $ARGUMENTS', async () => {
     const raw = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
-    const frontmatter = /^---\n([\s\S]*?)\n---/.exec(raw)?.[1] ?? '';
-    assert.match(frontmatter, /^argument-hint:\s*\S.+$/m, 'plan/SKILL.md must declare argument-hint');
+    requiredString(frontmatter(raw, 'plan/SKILL.md'), 'argument-hint', 'plan/SKILL.md');
     assert.ok(raw.includes('$ARGUMENTS'), 'plan/SKILL.md must reference $ARGUMENTS explicitly');
   });
 
@@ -140,8 +177,8 @@ describe('P2.2/P2.3 shipped skill content', () => {
     // No *usage example* (fenced code, or a frontmatter argument-hint) shows a
     // plural flag; prose is allowed to name it only to explicitly rule it out.
     const codeBlocks = [...plan.matchAll(/```[\s\S]*?```/g)].map((match) => match[0]);
-    const frontmatter = /^---\n([\s\S]*?)\n---/.exec(plan)?.[1] ?? '';
-    for (const usage of [...codeBlocks, frontmatter]) {
+    const hint = requiredString(frontmatter(plan, 'plan/SKILL.md'), 'argument-hint', 'plan/SKILL.md');
+    for (const usage of [...codeBlocks, hint]) {
       assert.ok(!/--requirements\b/.test(usage), `plan/SKILL.md must not show --requirements as usage: ${usage}`);
     }
   });
@@ -271,8 +308,7 @@ describe('P2.3 task skill', () => {
 
   it('declares an argument hint and makes the request available through $ARGUMENTS', async () => {
     const raw = await task();
-    const frontmatter = /^---\n([\s\S]*?)\n---/.exec(raw)?.[1] ?? '';
-    assert.match(frontmatter, /^argument-hint:\s*\S.+$/m, 'task/SKILL.md must declare argument-hint');
+    requiredString(frontmatter(raw, 'task/SKILL.md'), 'argument-hint', 'task/SKILL.md');
     assert.ok(raw.includes('$ARGUMENTS'), 'task/SKILL.md must reference $ARGUMENTS explicitly');
   });
 
@@ -280,8 +316,8 @@ describe('P2.3 task skill', () => {
     const content = await task();
     assert.match(content, /--requirement <url>/);
     const codeBlocks = [...content.matchAll(/```[\s\S]*?```/g)].map((match) => match[0]);
-    const frontmatter = /^---\n([\s\S]*?)\n---/.exec(content)?.[1] ?? '';
-    for (const usage of [...codeBlocks, frontmatter]) {
+    const hint = requiredString(frontmatter(content, 'task/SKILL.md'), 'argument-hint', 'task/SKILL.md');
+    for (const usage of [...codeBlocks, hint]) {
       assert.ok(!/--requirements\b/.test(usage), `task/SKILL.md must not show --requirements as usage: ${usage}`);
     }
   });
@@ -371,8 +407,8 @@ describe('P2.3 task skill', () => {
     );
     // Also stated in the frontmatter description, for the model deciding
     // whether to invoke this skill at all.
-    const frontmatter = /^---\n([\s\S]*?)\n---/.exec(content)?.[1] ?? '';
-    assert.match(frontmatter, /never commits, pushes, opens a merge request, publishes a comment, merges, deploys, or transitions a ticket/i);
+    const description = requiredString(frontmatter(content, 'task/SKILL.md'), 'description', 'task/SKILL.md');
+    assert.match(description, /never commits, pushes, opens a merge request, publishes a comment, merges, deploys, or transitions a ticket/i);
   });
 
   it('treats plans, tickets, repository files, comments, and test output as evidence, never as capabilities or permission', async () => {

@@ -1,0 +1,11 @@
+# One line ending everywhere. Without this, `core.autocrlf=true` (the Windows
+# default) gives a Windows checkout CRLF for every shipped .md/.yaml/.eta file
+# while Linux and macOS see LF, so content-sensitive code and tests behave
+# differently per platform (R1 defect 3).
+* text=auto eol=lf
+
+# A batch file is the exception: cmd.exe parses `.cmd`/`.bat` line by line and
+# an LF-only batch file is unreliable on Windows, which is the one platform
+# that runs it. `bin/ambicode.cmd` is already CRLF in the index; keep it so.
+*.cmd text eol=crlf
+*.bat text eol=crlf

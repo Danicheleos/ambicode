@@ -10,6 +10,7 @@ import { systemClock } from '../ports/clock.ts';
 import { nodeFileSystem } from '../ports/filesystem.ts';
 import { FakeProcessRunner } from '../testing/fake-process-runner.ts';
 import { runRemoteChecks } from './remote.ts';
+import { toPosix } from '../util/glob.ts';
 import type { ChangedPath } from './select.ts';
 
 /**
@@ -218,7 +219,12 @@ describe('U18 remote executable checks', () => {
 
     // The snapshot arrives by copy into container-local storage. `--archive` is
     // absent on purpose, so the copy is owned by the container's own user.
-    const copy = runner.argvs().find((argv) => argv[1] === 'cp' && (argv[2] ?? '').endsWith('/files/.'));
+    // Same decision as the prompt path in policy.test.ts: the argument is a
+    // host path and keeps the platform's separator, so the assertion
+    // normalizes rather than the production value (R1 defect 3). The trailing
+    // `/.` is not a separator at all — it is `docker cp`'s own marker for "the
+    // directory's contents", literal on every host — so it stays as written.
+    const copy = runner.argvs().find((argv) => argv[1] === 'cp' && toPosix(argv[2] ?? '').endsWith('/files/.'));
     assert.ok(copy);
     assert.equal(copy[3], 'container-1:/ambicode/work');
     assert.ok(!copy.includes('--archive') && !copy.includes('-a'));

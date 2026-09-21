@@ -1,6 +1,6 @@
 ---
 name: investigate
-description: Answer a bounded question about this repository with cited evidence — code paths/lines and, when a Jira or Confluence URL is given, retrieved requirement text. Use when the user asks how something works, why something happens, whether something is feasible, what a change would cost, or hands over a Jira/Confluence URL to look into. Read-only: proposes but never runs a diagnostic command without authorization, and never edits source, configuration, or tests.
+description: "Answer a bounded question about this repository with cited evidence — code paths/lines and, when a Jira or Confluence URL is given, retrieved requirement text. Use when the user asks how something works, why something happens, whether something is feasible, what a change would cost, or hands over a Jira/Confluence URL to look into. Read-only: proposes but never runs a diagnostic command without authorization, and never edits source, configuration, or tests."
 ---
 
 # Investigate a question

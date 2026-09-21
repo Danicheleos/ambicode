@@ -1,0 +1,67 @@
+name: verify
+
+# The release gate D13 deferred. `npm run verify` existed before 0.1.1 and was
+# simply not run: the candidate shipped two skills whose frontmatter did not
+# parse, and the suite was red on native Windows. Both defects are
+# integration-level and manual acceptance caught neither, so the gate runs
+# here, on every platform the plugin claims to support.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: verify (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Every OS reports, so one platform's failure does not hide another's —
+      # the Windows defects were invisible precisely because nothing else ran.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - run: npm ci
+
+      # `git ls-files --eol` must report `lf` for every text file. Without
+      # `.gitattributes`, a Windows checkout is CRLF and content-sensitive
+      # code behaves differently per platform (R1 defect 3). Checked on
+      # Windows because that is the only runner where the two can diverge.
+      - name: line endings are normalized
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: node check-line-endings.mjs
+
+      # The plugin CLI is what loads the skills; `validate --strict` inside
+      # `npm run verify` is the check that both broken skills failed.
+      - name: install the Claude Code CLI
+        run: npm install --global @anthropic-ai/claude-code
+
+      # Native shell on every runner: `cmd` on Windows, not bash or WSL, so
+      # the paths, separators and line endings are the ones a Windows user
+      # actually gets.
+      - name: npm run verify (Windows, native cmd)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: npm run verify
+
+      - name: npm run verify
+        if: runner.os != 'Windows'
+        shell: bash
+        run: npm run verify

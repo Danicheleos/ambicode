@@ -1,3 +1,5 @@
+import { statSync } from 'node:fs';
+import path from 'node:path';
 import { execa, type Options, type ResultPromise } from 'execa';
 import { resolveEnvironment, type ProcessOutcome, type ProcessRequest, type ProcessRunner } from './process.ts';
 
@@ -20,15 +22,26 @@ export class NodeProcessRunner implements ProcessRunner {
       return outcome('spawn-failed', { failure: 'empty argument vector' });
     }
 
+    // The request's declared policy applied to the injected base, never a
+    // cloned process.env: a replacement policy means the host's other
+    // variables are absent from the child, not merely unused (doc 02).
+    const environment = resolveEnvironment(request.env, this.baseEnv);
+
+    // Windows only, and before anything is spawned: see `windowsCommandExists`
+    // for why the outcome below cannot tell a missing command from one that
+    // ran and failed on this platform. The message deliberately mirrors the
+    // `spawn <command> ENOENT` that Unix produces, so a caller — and D06's
+    // notice-and-skip path — reads one shape everywhere.
+    if (process.platform === 'win32' && !windowsCommandExists(executable, environment, request.cwd)) {
+      return outcome('spawn-failed', { failure: `spawn ${executable} ENOENT` });
+    }
+
     const capture = new CombinedCapture(request.maxOutputBytes);
     const started = performance.now();
 
     const options: Options = {
       cwd: request.cwd,
-      // The request's declared policy applied to the injected base, never a
-      // cloned process.env: a replacement policy means the host's other
-      // variables are absent from the child, not merely unused (doc 02).
-      env: resolveEnvironment(request.env, this.baseEnv),
+      env: environment,
       extendEnv: false,
       shell: false,
       timeout: request.timeoutMs,
@@ -60,12 +73,121 @@ export class NodeProcessRunner implements ProcessRunner {
 
     const base = { ...decoded, durationMs };
     if (result.timedOut === true) return outcome('timed-out', base);
-    // Execa reports a missing executable, a permission error and a bad cwd
-    // through `code`; a process that ran and failed has an exit code instead.
+    // Whatever Execa did reach the operating system with, it failed to start:
+    // a permission error, or a `cwd` that does not exist. Both arrive as a
+    // `code` with no exit code and no signal, on all three platforms — the
+    // missing-command case is the one that does not, and is already handled
+    // above. A process that ran and failed has an exit code instead.
     if (result.failed === true && result.exitCode === undefined && result.signal === undefined) {
       return outcome('spawn-failed', { ...base, failure: result.shortMessage ?? messageOf(result) });
     }
     return outcome('exited', { ...base, exitCode: result.exitCode ?? null });
+  }
+}
+
+/** `PATHEXT`'s documented default, used when the environment does not set one. */
+const DEFAULT_PATHEXT = '.COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC';
+
+/**
+ * Windows only: could this command resolve to a file the OS can start?
+ *
+ * Observed empirically on Windows 11 with Execa 10.0.1 and Node 24.18: when
+ * Execa cannot resolve a command to a `.exe`/`.com` it does not fail — it
+ * hands the command line to `cmd.exe /d /s /c` instead
+ * (`execa/lib/arguments/command-file.js`). A command that is not installed
+ * therefore never reaches Node's spawn at all. `cmd.exe` itself starts
+ * perfectly well, writes its localized "is not recognized as an internal or
+ * external command" to stderr, and exits **1** (measured; not the 9009 an
+ * interactive shell reports). The result object carries
+ * `{ failed: true, exitCode: 1, code: undefined, signal: undefined }`, which
+ * is exactly what a linter that ran and found problems returns. The previous
+ * `exitCode === undefined` test could not separate them, so on Windows an
+ * uninstalled linter was reported as a *failed lint check* rather than the
+ * notice-and-skip D06 requires.
+ *
+ * Resolution therefore has to happen before the spawn. This mirrors Execa's
+ * own search — `PATHEXT`, the current directory ahead of `PATH`, quoted
+ * `PATH` entries, an explicit path resolved rather than searched — but at
+ * every choice it is deliberately *more* permissive: it also tries the bare
+ * name with no extension, always searches the current directory, and counts
+ * an `EACCES` from `stat` as present. A command this reports missing is one
+ * Execa could not have resolved either; anything uncertain is spawned and
+ * classified exactly as it was before.
+ *
+ * Unix is untouched. There the OS resolves the command and Execa surfaces the
+ * real `ENOENT`/`EACCES` through `code`, which `run` already classified
+ * correctly, so this function is never called.
+ *
+ * `statSync` is deliberate: the check must observe the same real filesystem
+ * `CreateProcess` is about to, so it cannot go through an injectable port
+ * whose fake could disagree with the host. This is the Node adapter layer,
+ * where doc 11 permits `node:fs`.
+ */
+export function windowsCommandExists(
+  command: string,
+  environment: Readonly<Record<string, string>>,
+  cwd: string,
+): boolean {
+  for (const candidate of windowsCandidates(command, environment, cwd)) {
+    if (isExistingFile(candidate)) return true;
+  }
+  return false;
+}
+
+function* windowsCandidates(
+  command: string,
+  environment: Readonly<Record<string, string>>,
+  cwd: string,
+): Generator<string> {
+  // Windows environment names are case-insensitive, and a child can be handed
+  // `Path` rather than `PATH`.
+  const lookup = (name: string): string | undefined => {
+    const wanted = name.toLowerCase();
+    for (const [key, value] of Object.entries(environment)) {
+      if (key.toLowerCase() === wanted) return value;
+    }
+    return undefined;
+  };
+
+  // Windows separates both lists with `;` whatever `path.delimiter` says on
+  // the host running this code, so the function behaves identically wherever
+  // it is unit-tested. `||` not `??`: an empty `PATHEXT` falls back to the
+  // default instead of disabling every extension.
+  // The leading '' tries the name verbatim — wider than Execa, on purpose.
+  const extensions = ['', ...(lookup('PATHEXT') || DEFAULT_PATHEXT).split(';').filter(Boolean)];
+
+  // A command carrying a separator or a drive letter is a path: it is resolved
+  // against `cwd`, never searched for along `PATH`.
+  const directories = /[\\/:]/.test(command)
+    ? [cwd]
+    : [cwd, ...(lookup('PATH') ?? '').split(';')];
+
+  for (const directory of directories) {
+    const unquoted =
+      directory.length > 1 && directory.startsWith('"') && directory.endsWith('"')
+        ? directory.slice(1, -1)
+        : directory;
+    // An empty `PATH` entry is skipped rather than read as the current
+    // directory: implicitly searching it is the classic planting attack.
+    if (unquoted === '') continue;
+    let base: string;
+    try {
+      base = path.resolve(unquoted, command);
+    } catch {
+      continue;
+    }
+    for (const extension of extensions) yield base + extension;
+  }
+}
+
+function isExistingFile(candidate: string): boolean {
+  try {
+    // A directory is not a command, even though it stats cleanly.
+    return statSync(candidate).isFile();
+  } catch (error) {
+    // A Windows App Execution Alias (under `WindowsApps`) is launchable but
+    // throws `EACCES` on `stat`; calling it missing would break a real tool.
+    return (error as NodeJS.ErrnoException).code === 'EACCES';
   }
 }
 
