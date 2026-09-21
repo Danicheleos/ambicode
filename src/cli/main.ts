@@ -1,7 +1,7 @@
 import { realpathSync } from 'node:fs';
 import { createRuntime } from '../composition/root.ts';
 import { AmbicodeError, isAmbicodeError } from '../util/errors.ts';
-import { formatJsonOutput } from '../util/json-output.ts';
+import { formatJsonOutput, type JsonFormat } from '../util/json-output.ts';
 import { parseArgs, type OptionSpec, type ParsedArgs } from './args.ts';
 import { BUNDLE_OPTIONS, renderBundle, runBundle } from './commands/bundle.ts';
 import { CONFIG_OPTIONS, renderConfig, runConfig } from './commands/config.ts';
@@ -41,10 +41,16 @@ export const USAGE = `ambicode <command> [options]
                             --requirement <url>   Jira or Confluence URL;
                                                   repeatable. Without any, this
                                                   is a source-free run.
-                            --evidence <file>     The retrieved requirement
-                                                  evidence the calling session
-                                                  wrote. Required whenever
-                                                  --requirement is used.
+                            --evidence <file|->   The retrieved requirement
+                                                  evidence, as a file path or
+                                                  "-" to read the envelope from
+                                                  standard input. Required
+                                                  whenever --requirement is used.
+                            --with-contract       Inline the shared operating
+                                                  contract's text, for a session
+                                                  the AMBICODE hook never reached.
+                            --verbose             Emit the full, indented shape
+                                                  instead of the compact default.
 
   review                  The full review: pin the target, snapshot it, run the
                           affected checks, and put the result to an isolated
@@ -59,9 +65,10 @@ export const USAGE = `ambicode <command> [options]
                             --requirement <url>   Jira or Confluence URL to judge the
                                                   change against; repeatable. Without
                                                   any, this is a quality review.
-                            --evidence <file>     The retrieved requirement evidence
-                                                  the reviewing session wrote. Required
-                                                  whenever --requirement is used.
+                            --evidence <file|->   The retrieved requirement evidence,
+                                                  as a file path or "-" for standard
+                                                  input. Required whenever
+                                                  --requirement is used.
                             --approve <key>       Authorize one proposed run; repeatable.
 
   bundle                  The evidence stage of "review" on its own: target,
@@ -71,7 +78,8 @@ export const USAGE = `ambicode <command> [options]
                             --base <ref>          Baseline for --branch. Valid only there.
                             --mr <url>            Bundle a GitLab merge request.
                             --requirement <url>   Requirement URL; repeatable.
-                            --evidence <file>     The retrieved requirement evidence.
+                            --evidence <file|->   The retrieved requirement evidence,
+                                                  or "-" for standard input.
                             --approve <key>       Authorize one proposed run; repeatable.
 
   view                    Open a saved review in a local page on 127.0.0.1, to
@@ -92,6 +100,8 @@ Global:
 type Rendered = {
   text: string;
   data: unknown;
+  /** How `--json` serializes `data`; pretty unless the command says otherwise. */
+  json?: JsonFormat;
   /** A command that keeps serving until this settles, e.g. the review page. */
   wait?: { until: Promise<string>; stop: (reason: string) => Promise<void> };
 };
@@ -111,9 +121,9 @@ export async function main(argv: readonly string[]): Promise<number> {
   // this dispatcher uses — so it is handled here, before `SPECS`/`dispatch`,
   // rather than forced through option parsing it does not have.
   if (command === 'hook') {
-    const { runHook, readBoundedStdin } = await import('../hook/run-hook.ts');
+    const { runHook, MAX_HOOK_INPUT_BYTES } = await import('../hook/run-hook.ts');
     const runtime = await createRuntime();
-    const stdin = await readBoundedStdin(process.stdin);
+    const stdin = (await runtime.stdin.read(MAX_HOOK_INPUT_BYTES)) ?? '';
     const output = await runHook(runtime, stdin);
     process.stdout.write(`${JSON.stringify(output)}\n`);
     return 0;
@@ -134,7 +144,9 @@ export async function main(argv: readonly string[]): Promise<number> {
     // or reach a provider first.
     validateCombination(command, args);
     const rendered = await dispatch(command, args);
-    process.stdout.write(args.flag('json') ? formatJsonOutput(rendered.data) : `${rendered.text}\n`);
+    process.stdout.write(
+      args.flag('json') ? formatJsonOutput(rendered.data, rendered.json ?? 'pretty') : `${rendered.text}\n`,
+    );
     if (rendered.wait !== undefined) {
       const reason = await serveUntilStopped(rendered.wait);
       process.stdout.write(`The review page stopped: ${reason}.\n`);
@@ -181,8 +193,8 @@ async function dispatch(command: string, args: ParsedArgs): Promise<Rendered> {
       return { text: renderPolicy(output), data: output };
     }
     case 'prepare': {
-      const output = await runPrepare(runtime, args);
-      return { text: renderPrepare(output), data: output };
+      const run = await runPrepare(runtime, args);
+      return { text: renderPrepare(run), data: run.data, json: run.json };
     }
     case 'review': {
       const output = await runReview(runtime, args);

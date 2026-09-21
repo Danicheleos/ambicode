@@ -1,5 +1,6 @@
 import path from 'node:path';
 import type { Runtime } from '../composition/root.ts';
+import type { EvidenceSource } from '../requirements/normalize.ts';
 import type { TargetSelection } from '../review/bundle.ts';
 import { AmbicodeError } from '../util/errors.ts';
 import type { ParsedArgs } from './args.ts';
@@ -22,7 +23,7 @@ export const TARGET_OPTIONS = {
 export interface ResolvedTargetOptions {
   target: TargetSelection;
   requirementUrls: string[];
-  evidencePath: string | null;
+  evidence: EvidenceSource | null;
   approvals: Set<string>;
 }
 
@@ -79,13 +80,19 @@ export function resolveTargetOptions(
   return {
     target: validateTargetArgs(command, args),
     requirementUrls: args.all('requirement'),
-    evidencePath: absoluteEvidencePath(runtime, args.value('evidence')),
+    evidence: evidenceSource(runtime, args.value('evidence')),
     approvals: new Set(args.all('approve')),
   };
 }
 
-/** Shared with `prepare`, so the two commands resolve `--evidence` identically. */
-export function absoluteEvidencePath(runtime: Runtime, value: string | null): string | null {
+/**
+ * Shared with `prepare`, so the two commands resolve `--evidence` identically.
+ * `-` is standard input (R2 change 4): a skill that hands the same evidence to
+ * `prepare` and then to `review` pipes it twice rather than writing a file it
+ * must then keep alive and delete in exactly one place.
+ */
+export function evidenceSource(runtime: Runtime, value: string | null): EvidenceSource | null {
   if (value === null) return null;
-  return path.isAbsolute(value) ? value : path.resolve(runtime.cwd, value);
+  if (value === '-') return { kind: 'stdin' };
+  return { kind: 'file', path: path.isAbsolute(value) ? value : path.resolve(runtime.cwd, value) };
 }

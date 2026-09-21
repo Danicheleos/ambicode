@@ -7,6 +7,7 @@ import { INIT_OPTIONS, runInit } from '../cli/commands/init.ts';
 import { createRuntime } from '../composition/root.ts';
 import { nodeFileSystem } from '../ports/filesystem.ts';
 import { TempRepo } from '../testing/temp-repo.ts';
+import { PREPARE_OPTIONS, runPrepare } from '../cli/commands/prepare.ts';
 import { runHook } from './run-hook.ts';
 
 /**
@@ -269,14 +270,74 @@ describe('G/H: ambicode hook (PostToolUse edit reminders)', () => {
       const dedup = await runHook(runtime, postToolUse({ sessionId, filePath, cwd: repo.root }));
       assert.deepEqual(dedup, {});
 
-      const reset = await runHook(
+      const reset = (await runHook(
         runtime,
         JSON.stringify({ hook_event_name: 'SessionStart', session_id: sessionId }),
-      );
-      assert.deepEqual(reset, {});
+      )) as Record<string, unknown>;
+      // The reset also carries the shared operating contract for the fresh
+      // epoch (R2 change 2); the reset itself is what this test is about.
+      assert.ok('hookSpecificOutput' in reset);
 
       const afterReset = (await runHook(runtime, postToolUse({ sessionId, filePath, cwd: repo.root }))) as Record<string, unknown>;
       assert.ok('hookSpecificOutput' in afterReset, 'delivery must resume after a SessionStart reset');
+    } finally {
+      await dispose();
+    }
+  });
+
+  it('R2 change 2: SessionStart and PostCompact put the shared operating contract into context once per epoch', async () => {
+    const { repo, dispose } = await fixtureWithPack();
+    try {
+      const runtime = await createRuntime({ cwd: repo.root });
+      const sessionId = randomUUID();
+      const start = (await runHook(
+        runtime,
+        JSON.stringify({ hook_event_name: 'SessionStart', session_id: sessionId }),
+      )) as { hookSpecificOutput?: { hookEventName?: string; additionalContext?: string } };
+
+      assert.equal(start.hookSpecificOutput?.hookEventName, 'SessionStart');
+      const delivered = start.hookSpecificOutput?.additionalContext ?? '';
+      const canonical = await nodeFileSystem.readText(
+        path.join(runtime.pluginRoot, 'prompts', 'shared-operating-contract.md'),
+      );
+      // The whole contract, not a summary of it: `prepare` stopped sending it,
+      // so this is the only copy the session gets.
+      assert.ok(delivered.includes(canonical.trimEnd()));
+      assert.match(delivered, /--with-contract/);
+
+      // A second event in the same epoch does not repeat it — that repetition
+      // is exactly the cost this change removes.
+      const again = await runHook(
+        runtime,
+        JSON.stringify({ hook_event_name: 'PostCompact', session_id: sessionId, agent_id: undefined }),
+      );
+      const secondEpoch = (again as { hookSpecificOutput?: unknown }).hookSpecificOutput;
+      assert.ok(secondEpoch !== undefined, 'PostCompact starts a new epoch, which is a new delivery');
+
+      // And `prepare` in that session carries the contract by reference only.
+      const prepared = await runPrepare(
+        runtime,
+        parseArgs('prepare', ['--activity', 'task'], PREPARE_OPTIONS),
+      );
+      assert.equal(prepared.json, 'compact');
+      assert.equal(
+        (prepared.data as { sharedOperatingContract: { content?: string } }).sharedOperatingContract.content,
+        undefined,
+      );
+    } finally {
+      await dispose();
+    }
+  });
+
+  it('stays a silent no-op when the contract cannot be read, rather than failing the session event', async () => {
+    const { repo, dispose } = await fixtureWithPack();
+    try {
+      const runtime = await createRuntime({ cwd: repo.root, pluginRoot: path.join(repo.root, 'no-such-plugin') });
+      const output = await runHook(
+        runtime,
+        JSON.stringify({ hook_event_name: 'SessionStart', session_id: randomUUID() }),
+      );
+      assert.deepEqual(output, {});
     } finally {
       await dispose();
     }

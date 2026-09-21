@@ -7,7 +7,8 @@
 //   1. A matching edit reminder is delivered once.
 //   2. A repeated edit of the same file is suppressed.
 //   3. A changed rule content hash redelivers it.
-//   4. A context reset (SessionStart) redelivers it.
+//   4. A context reset (SessionStart) redelivers it, and carries the shared
+//      operating contract for the new epoch (R2 change 2).
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -125,7 +126,12 @@ describe('built-artifact regression: ambicode hook (P2.4 correction G/H)', () =>
       assert.equal(third.hookSpecificOutput?.hookEventName, 'PostToolUse', 'a changed rule content hash must redeliver');
 
       const reset = JSON.parse(runHookCli({ hook_event_name: 'SessionStart', session_id: sessionId }));
-      assert.deepEqual(reset, {});
+      assert.equal(reset.hookSpecificOutput?.hookEventName, 'SessionStart');
+      assert.match(
+        reset.hookSpecificOutput?.additionalContext ?? '',
+        /# AMBICODE operating contract/,
+        'SessionStart must carry the shared operating contract for the new epoch',
+      );
       const fourth = JSON.parse(runHookCli(postToolUse()));
       assert.equal(fourth.hookSpecificOutput?.hookEventName, 'PostToolUse', 'a context reset must redeliver');
     } finally {

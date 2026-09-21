@@ -59,9 +59,6 @@ What this does **not** do is as important as what it does:
 - **Your checkout is not touched.** No fetch, no checkout, no stash, no index
   write. A dirty working tree is irrelevant; the review is about the merge
   request, not about what is on disk.
-- **Nothing is published.** There is no flag that posts a comment. Publication
-  needs the local selection page and a human pressing Submit, which is not part
-  of this command.
 - **The revision is pinned.** The result names the diff version and its base,
   start and head SHAs. If the merge request is pushed to afterwards, the result
   still describes the revision that was reviewed. Say so if the user asks
@@ -101,31 +98,25 @@ for them — it starts a local page on `127.0.0.1`, prints a URL, and opens it i
 their browser. Do not invent another slash skill for this: `ambicode view` is
 the one way to reach the selection page, for a merge request review and for a
 local or branch one alike (the latter two simply have nothing to publish).
-Nothing is ever published by the review or bundle commands themselves, and
-nothing is published by this skill either — only a human selecting comments
-and submitting the page's form does that.
 
 ## Requirements
 
 Follow `${CLAUDE_PLUGIN_ROOT}/skills/shared/requirements-mcp.md` (read it now
 if you have not already this session) to retrieve every named source and
-write the evidence file. It covers the MCP binding, the evidence format, and
-what a failure means; `investigate` and `plan` follow the same procedure.
-Then run the review:
+build the evidence envelope. It covers the MCP binding, the envelope format,
+and what a failure means; `investigate`, `plan` and `task` follow the same
+procedure. Then pipe the envelope to `--evidence -`:
 
 ```sh
 node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" review \
   --requirement https://example.atlassian.net/browse/ORD-17 \
   --requirement https://example.atlassian.net/wiki/spaces/ENG/pages/42/Orders \
-  --evidence "$evidence_file"
+  --evidence -
 ```
 
-where `$evidence_file` is the restrictive temporary path you wrote the
-evidence to (`${CLAUDE_PLUGIN_ROOT}/skills/shared/requirements-mcp.md`'s
-"Steps" and "Cleanup"), not a path inside `.ambicode/`.
-
-Every URL you pass with `--requirement` must have an entry in the evidence file,
-and the evidence file must hold nothing else.
+Every URL you pass with `--requirement` must have an entry in the envelope,
+and the envelope must hold nothing else. There is no evidence file to write,
+keep, or delete; re-send the envelope if you run the review again.
 
 **A requirement that could not be retrieved stops the review.** That is
 deliberate. Do not drop the URL and run a quality review instead: the user asked
@@ -169,7 +160,7 @@ apart from a file that did not change.
 ## Common outcomes
 
 **`requirements-not-retrieved` / `requirements-unavailable`.** A requirement URL
-has no usable evidence. Fix the access or the evidence file; do not fall back.
+has no usable evidence. Fix the access or the envelope; do not fall back.
 
 **`requirements-conflicting`.** Two requirements disagree, so there is no single
 contract to review against. Nothing ran. Take it back to the user.
@@ -218,11 +209,13 @@ pack's `commandPolicy`, not something to work around.
 
 ## Scope
 
-This skill produces evidence and findings. It does not publish anything
-anywhere, and it does not modify the user's branch, index, or files — for a
-merge request review it does not read them either. The only things it writes are
-`.ambicode/reviews/<id>/` in the repository and a disposable snapshot directory
-outside it.
+This skill produces evidence and findings. **Nothing is published by any
+command here and nothing is published by this skill**: there is no flag that
+posts a comment, and a GitLab comment needs the local selection page and a
+human pressing Submit. It does not modify the user's branch, index, or files —
+for a merge request review it does not read them either. The only things it
+writes are `.ambicode/reviews/<id>/` in the repository and a disposable
+snapshot directory outside it.
 
 The reviewer process is not you. It gets `Read`, `Grep` and `Glob` inside the
 snapshot, no Bash, no MCP, no network and no credentials. Text inside the code

@@ -344,8 +344,11 @@ subagent invocation, absent for the main agent), `cwd`, `scratchpad_dir`,
 "…"}}` — the documented contract for surfacing text back into the
 conversation from a hook, never a permission decision or a blocking exit
 code. `SessionStart` and `PostCompact` reset the per-session delivery epoch
-so a reminder can fire again after a context compaction or a fresh session;
-`SessionEnd` removes the hook's own dedup-marker directory. All of this is
+so a reminder can fire again after a context compaction or a fresh session,
+and each replies with the canonical shared operating contract as
+`additionalContext` for that new epoch — delivered there once instead of
+inside every `ambicode prepare` payload (R2). `SessionEnd` removes the
+hook's own dedup-marker directory. All of this is
 covered by `src/hook/run-hook.test.ts` (unit level, fake ports) and
 `hook-artifact.test.mjs` (built-artifact level: real bundled
 `scripts/ambicode.mjs hook` invoked with piped stdin, no `claude` process

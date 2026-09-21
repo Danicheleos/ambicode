@@ -149,3 +149,123 @@ export const PrepareOutput = z.strictObject({
   contextBudget: PrepareContextBudget,
 });
 export type PrepareOutput = z.infer<typeof PrepareOutput>;
+
+/**
+ * The compact projection `ambicode prepare --json` emits by default (R2).
+ *
+ * "Cheap for a small change" is a product requirement, and the shape above
+ * spends over half its bytes repeating framing rather than delivering policy:
+ * `packId`, `packReference` and `authority` on every rule, a `checkKind`
+ * derivable from `checkCommand`, hook-only `remindOnEdit`, fields sitting at
+ * their default, and installation guidance the authoring session cannot act
+ * on mid-task. This projection removes exactly that. **No rule content is
+ * dropped**: every `instruction` and check explanation ships in full, every
+ * pack, prompt and command decision the resolver returned is still here, and
+ * provenance is untouched. `--verbose` still emits the shape above.
+ *
+ * Two things a consumer reconstructs rather than reads:
+ *   - a rule's qualified id is `` `${pack.id}/${rule.id}` ``;
+ *   - a rule's authority is its pack's `authority`.
+ *
+ * Setup guidance (`setupCommands`, the LSP plugin and server command) lives in
+ * `ambicode init` and `ambicode config`, which is where someone acts on it.
+ */
+
+const PrepareCompactRule = z
+  .strictObject({
+    /** Rule id within its pack. The qualified id is `<pack.id>/<id>`. */
+    id: z.string().min(1),
+    category: RuleCategory,
+    instruction: z.string().min(1),
+    /** `checkExplanation` in the verbose shape; always present, never abridged. */
+    check: z.string().min(1),
+    /** Only for a rule nothing verifies. Absent means the reviewer judges it. */
+    checkKind: z.literal('none').optional(),
+    /** Present exactly when a project command verifies this rule. */
+    checkCommand: z.string().min(1).optional(),
+  })
+  .refine((rule) => !(rule.checkKind === 'none' && rule.checkCommand !== undefined), {
+    message: 'A rule with checkKind "none" cannot also name a check command.',
+  });
+export type PrepareCompactRule = z.infer<typeof PrepareCompactRule>;
+
+const PrepareCompactPack = z.strictObject({
+  id: z.string().min(1),
+  reference: z.string().min(1),
+  /** Hoisted here from every rule it owns; a rule's authority is its pack's. */
+  authority: Authority,
+  replacedReference: z.string().min(1).optional(),
+  /** Omitted when this pack contributes no rule to this activity and path set. */
+  rules: z.array(PrepareCompactRule).min(1).optional(),
+});
+
+const PrepareCompactCommandSource = z.strictObject({
+  /** The declaring pack's reference. */
+  pack: z.string().min(1),
+  /** Only when this pack's own action differs from the resolved one. */
+  action: CommandAction.optional(),
+  reason: z.string().min(1).optional(),
+});
+
+/**
+ * One command's resolved decision. A single declaring pack is flattened onto
+ * the decision — with one source, the resolved action *is* that source's — and
+ * `sources` appears only where precedence actually had something to resolve.
+ */
+const PrepareCompactCommandDecision = z.union([
+  z.strictObject({
+    command: z.string().min(1),
+    action: CommandAction,
+    pack: z.string().min(1),
+    reason: z.string().min(1).optional(),
+  }),
+  z.strictObject({
+    command: z.string().min(1),
+    action: CommandAction,
+    sources: z.array(PrepareCompactCommandSource).min(2),
+  }),
+]);
+
+const PrepareCompactPolicy = z.strictObject({
+  packs: z.array(PrepareCompactPack),
+  /** Prompt content is delivered unchanged; only empty lists are omitted. */
+  prompts: z.array(PreparePrompt).min(1).optional(),
+  commandDecisions: z.array(PrepareCompactCommandDecision).min(1).optional(),
+  diagnostics: z.array(PrepareDiagnostic).min(1).optional(),
+});
+
+const PrepareCompactNavigation = z.strictObject({
+  strategy: z.literal('known-paths-then-lsp-then-targeted-search'),
+  ecosystem: Ecosystem,
+  evidenceRequirement: z.string().min(1),
+});
+
+/**
+ * The contract by reference, not by value (R2 change 2): the plugin's
+ * `SessionStart`/`PostCompact` hook delivers its text once per context epoch,
+ * so re-sending 2.3 KiB on every `prepare` call buys nothing. `contentHash`
+ * keeps provenance and the context budget exact, and `--with-contract`
+ * inlines `content` for a session that never received the hook's copy.
+ */
+const PrepareCompactSharedContract = z.strictObject({
+  reference: z.string().min(1),
+  contentHash: z.string().min(1),
+  content: z.string().optional(),
+});
+
+export const PrepareCompactOutput = z.strictObject({
+  command: z.literal('prepare'),
+  activity: Activity,
+  projectId: z.string().min(1),
+  /** Omitted when no path was supplied, which means activity-level content only. */
+  paths: z.array(z.string()).min(1).optional(),
+  requirementMode: RequirementMode,
+  requirements: z.array(RequirementSource).min(1).optional(),
+  notices: z.array(z.string()).min(1).optional(),
+  policy: PrepareCompactPolicy,
+  navigation: PrepareCompactNavigation,
+  sharedOperatingContract: PrepareCompactSharedContract,
+  provenance: z.array(ProvenanceEntry),
+  contextBudget: PrepareContextBudget,
+});
+export type PrepareCompactOutput = z.infer<typeof PrepareCompactOutput>;

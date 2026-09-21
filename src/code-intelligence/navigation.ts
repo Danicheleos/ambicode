@@ -11,8 +11,13 @@ export interface NavigationGuidance {
   ecosystem: Ecosystem;
   plugin: string;
   serverCommand: string;
+  /** Installation guidance: `init` and `config` report it; `prepare` does not. */
   setupCommands: string[];
   statusSource: 'current-session';
+  /**
+   * One clause, because it is re-sent on every `prepare` call and the
+   * authoring session only has to do one thing with it (R2 change 3).
+   */
   evidenceRequirement: string;
 }
 
@@ -27,7 +32,7 @@ const GUIDANCE: Record<Ecosystem, Omit<NavigationGuidance, 'ecosystem'>> = {
     ],
     statusSource: 'current-session',
     evidenceRequirement:
-      'Report the LSP symbol operations used, or report targeted-search fallback with the reason LSP was unavailable or insufficient.',
+      'Report the LSP operations used, or the targeted-search fallback reason.',
   },
   python: {
     strategy: 'known-paths-then-lsp-then-targeted-search',
@@ -39,7 +44,7 @@ const GUIDANCE: Record<Ecosystem, Omit<NavigationGuidance, 'ecosystem'>> = {
     ],
     statusSource: 'current-session',
     evidenceRequirement:
-      'Report the LSP symbol operations used, or report targeted-search fallback with the reason LSP was unavailable or insufficient.',
+      'Report the LSP operations used, or the targeted-search fallback reason.',
   },
 };
 

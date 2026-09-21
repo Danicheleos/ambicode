@@ -166,8 +166,10 @@ claude plugin install pyright-lsp@claude-plugins-official --scope user
 pipx install pyright
 ```
 
-Restart or reload Claude after installing. `ambicode init`, `ambicode config`
-and `ambicode prepare --json` show the recommendation for every project. During
+Restart or reload Claude after installing. `ambicode init` and `ambicode
+config` show the recommendation for every project; `ambicode prepare --json`
+deliberately leaves installation guidance out of its per-call payload and
+carries only the search strategy and the evidence requirement. During
 `investigate`, `plan`, and `task`, the skill must report the LSP operations it
 actually used or a specific targeted-search fallback reason. Installed state
 alone is not evidence that the current session used LSP.

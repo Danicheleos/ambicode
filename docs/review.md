@@ -40,7 +40,7 @@ result says so in its omissions.
 ambicode review \
   --requirement https://example.atlassian.net/browse/ORD-17 \
   --requirement https://example.atlassian.net/wiki/spaces/ENG/pages/42/Orders \
-  --evidence "$evidence_file"
+  --evidence -
 ```
 
 `--requirement` is the one canonical way a requirement enters a review. It is
@@ -48,29 +48,22 @@ repeatable. The result is then labelled `requirement-based`.
 
 **The helper never retrieves anything.** It has no Atlassian client, no
 credentials and no MCP connection, by design. Your Claude session holds the MCP
-connection, retrieves each URL, and writes the result into the evidence file
-that `--evidence` points at. The `/ambicode:review` skill does this for you; its
-`SKILL.md` documents the file's shape if you want to write one by hand.
+connection, retrieves each URL, and hands the result over as a JSON envelope.
+`--evidence -` reads that envelope from standard input; `--evidence <path>`
+still reads it from a file if you happen to have one.
+`skills/shared/requirements-mcp.md` in the plugin documents the envelope's
+shape, and `investigate`, `plan` and `task` all follow the same procedure.
 
-`$evidence_file` is a **restrictive temporary file outside this repository**
-(for example, from `mktemp`), not a path under `.ambicode/`. It is transport
-input for this one invocation: `--evidence` just reads it, and the skill
-deletes it once the review command has read it. Nothing is lost by deleting
-it — every retrieved source's content, citations, and provenance are already
-carried into the saved review result (`.ambicode/reviews/<id>/result.json`),
-which is what makes a requirement-based review reopenable without the
-transport file. `skills/shared/requirements-mcp.md` in the plugin has the
-full lifecycle; `investigate` and `plan` follow the same procedure. `task`
-also follows it, but keeps the same evidence file alive across an
-**arbitrary number of consumers** for as long as the task runs — every
-`ambicode prepare` call (initial and any rerun after a broadened scope) and
-every `ambicode review` call (the first one, any approval-authorized rerun,
-and every re-review after fixing an accepted finding) — deleting it in
-exactly one final cleanup path, after the task's terminal report or an
-abort, never right after any one `prepare` or `review` call.
+**No skill writes an evidence file.** A workflow that hands the same evidence
+to two commands — `prepare` and then `review`, or `review` again after fixing
+a finding — pipes it again, so there is nothing to keep alive across
+consumers and nothing to remember to delete. Nothing is lost either way:
+every retrieved source's content, citations, and provenance are carried into
+the saved review result (`.ambicode/reviews/<id>/result.json`), which is what
+makes a requirement-based review reopenable.
 
-Every `--requirement` URL must have an entry in that file, and the file must
-hold nothing else. A URL whose entry says `forbidden`, `not-found` or
+Every `--requirement` URL must have an entry in that envelope, and the
+envelope must hold nothing else. A URL whose entry says `forbidden`, `not-found` or
 `unavailable` **stops the review**. It does not quietly become a quality review:
 you asked whether the change meets a requirement, and "the requirement could not
 be read" is the answer, not "nothing found".
@@ -79,7 +72,7 @@ Two requirements that contradict each other also stop the review, before any
 check runs and before the model is called. Code detects the structural cases —
 the same document retrieved twice with different content; the same id pointing
 at two documents. Your session reports the ones only a reader can see, in the
-evidence file's `conflicts` array. Neither claims to find every contradiction.
+envelope's `conflicts` array. Neither claims to find every contradiction.
 
 ### Binding an MCP server
 

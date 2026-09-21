@@ -31,6 +31,15 @@ export const DEFAULTS = {
 export const MAX_COMMAND_OUTPUT_BYTES = 262_144;
 
 /**
+ * Bound on a requirement envelope piped in with `--evidence -`. Generous
+ * against `review.maxContextBytes`, which is what actually decides whether
+ * the retrieved content fits: this only stops an unbounded read, and an
+ * envelope over it is refused rather than truncated, because half an
+ * envelope is not evidence.
+ */
+export const MAX_EVIDENCE_BYTES = 4 * 1024 * 1024;
+
+/**
  * Snapshot budgets. These bound what is written to disk for the reviewer to
  * read; `review.maxContextBytes` separately bounds the prompt itself, so the
  * two are not interchangeable.

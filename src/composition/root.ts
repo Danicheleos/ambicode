@@ -7,6 +7,7 @@ import { nodeFileSystem, type FileSystem } from '../ports/filesystem.ts';
 import { systemIds, type IdSource } from '../ports/ids.ts';
 import { NodeProcessRunner } from '../ports/node-process-runner.ts';
 import type { ProcessRunner } from '../ports/process.ts';
+import { processStandardInput, type StandardInput } from '../ports/stdin.ts';
 import { loadPacksForProject } from '../policy/load.ts';
 import { GitHubProvider } from '../providers/github/provider.ts';
 import { GitLabProvider } from '../providers/gitlab/provider.ts';
@@ -30,6 +31,8 @@ export interface Runtime {
   ids: IdSource;
   cwd: string;
   pluginRoot: string;
+  /** Bounded standard input; `--evidence -` and the hook payload are its readers. */
+  stdin: StandardInput;
   /** Read once here; nothing below this root touches `process.env` (doc 02). */
   env: Readonly<Record<string, string | undefined>>;
   /**
@@ -47,6 +50,7 @@ export interface RuntimeOverrides {
   ids?: IdSource;
   cwd?: string;
   pluginRoot?: string;
+  stdin?: StandardInput;
   env?: Readonly<Record<string, string | undefined>>;
   providers?: ProviderRegistry;
 }
@@ -63,6 +67,7 @@ export async function createRuntime(overrides: RuntimeOverrides = {}): Promise<R
     ids: overrides.ids ?? systemIds,
     cwd,
     pluginRoot: overrides.pluginRoot ?? (await resolvePluginRoot(fs, env)),
+    stdin: overrides.stdin ?? processStandardInput,
     env,
     providers: overrides.providers ?? defaultProviders(runner, cwd),
   };

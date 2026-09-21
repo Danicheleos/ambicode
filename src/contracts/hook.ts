@@ -25,13 +25,22 @@ export const HookInput = z.looseObject({
 });
 export type HookInput = z.infer<typeof HookInput>;
 
-/** The exact PostToolUse contract for injecting model-visible context (doc 04 P2.4 correction G6). */
-export interface PostToolUseHookOutput {
+/**
+ * The exact contract for injecting model-visible context (doc 04 P2.4
+ * correction G6). `PostToolUse` carries edit reminders; `SessionStart` and
+ * `PostCompact` carry the shared operating contract once per context epoch,
+ * which is why `ambicode prepare` no longer re-sends its text on every call
+ * (R2 change 2). The event name is echoed back because the host matches the
+ * response to the event it dispatched.
+ */
+export interface AdditionalContextHookOutput<Event extends string = string> {
   hookSpecificOutput: {
-    hookEventName: 'PostToolUse';
+    hookEventName: Event;
     additionalContext: string;
   };
 }
+
+export type PostToolUseHookOutput = AdditionalContextHookOutput<'PostToolUse'>;
 
 /** Every other event, and every silent no-op path, returns exactly this. */
 export const EMPTY_HOOK_OUTPUT: Record<string, never> = {};

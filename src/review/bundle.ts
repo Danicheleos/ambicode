@@ -19,7 +19,8 @@ import type { FileSystem } from '../ports/filesystem.ts';
 import { configProvenance, policyProvenance } from '../policy/provenance.ts';
 import {
   normalizeRequirements,
-  readRequirementEvidence,
+  loadRequirementEvidence,
+  type EvidenceSource,
   type NormalizedRequirements,
 } from '../requirements/normalize.ts';
 import { describeExclusion, isExcludedFromReview } from '../snapshot/exclusions.ts';
@@ -82,8 +83,8 @@ export interface AssembleOptions {
   target: TargetSelection;
   /** Requirement URLs, the canonical way a requirement enters a review. */
   requirementUrls: readonly string[];
-  /** Path of the evidence envelope the outer session wrote, if any. */
-  evidencePath: string | null;
+  /** Where the outer session's evidence envelope comes from, if any. */
+  evidence: EvidenceSource | null;
   approvals: ReadonlySet<string>;
 }
 
@@ -97,9 +98,9 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
   const requirements = normalizeRequirements({
     urls: options.requirementUrls,
     evidence:
-      options.evidencePath === null
+      options.evidence === null
         ? null
-        : await readRequirementEvidence(runtime.fs, options.evidencePath),
+        : await loadRequirementEvidence(runtime, options.evidence),
     configuredServer: workspace.config.requirements.mcpServer,
   });
   const requirementBytes = requirements.sources.reduce(

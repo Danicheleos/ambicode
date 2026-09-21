@@ -125,25 +125,31 @@ describe('P2.2/P2.3 shipped skill content', () => {
     }
   });
 
-  it('the shared procedure explains that task keeps the evidence file alive across an arbitrary number of consumers, unlike review/investigate/plan (doc 04 P2.4 correction C4)', async () => {
+  it('the shared procedure pipes the envelope with --evidence - and owns no file lifecycle (R2 change 4)', async () => {
     const shared = await readFile(path.join(SKILLS_DIR, 'shared', 'requirements-mcp.md'), 'utf8');
-    const normalized = shared.replace(/\s+/g, ' ');
-    assert.match(normalized, /task.*may read it.*many times/i);
-    assert.match(normalized, /arbitrary number of consumers/i);
-    assert.match(normalized, /last command in your workflow that reads it/i);
-    // No stale "exactly two" framing: task's real lifecycle is open-ended
-    // (every prepare rerun, every review rerun, every re-review after a fix).
-    assert.doesNotMatch(normalized, /task.*reads it.*twice/i);
+    assert.match(shared, /--evidence -/);
+    assert.match(shared, /There is no evidence file to own/i);
   });
 
-  it('task/SKILL.md deletes its evidence file in exactly one final-cleanup place, never right after prepare or an individual review call (doc 04 P2.4 correction C)', async () => {
-    const task = await readFile(path.join(SKILLS_DIR, 'task', 'SKILL.md'), 'utf8');
-    assert.match(task, /arbitrary number of consumers/i);
-    assert.match(task, /Final cleanup/);
-    assert.match(task, /delete it now — this is the one place it is deleted/i);
-    // The premature "delete right after this run" instruction must be gone:
-    // a finding-fix cycle needs the same evidence file for a second review.
-    assert.doesNotMatch(task, /Delete the requirement evidence file now, after this run/);
+  it('no skill tells anyone to create, keep alive, or delete a requirement evidence file (R2 change 4)', async () => {
+    // The file lifecycle was roughly 40 lines across task, the shared
+    // procedure and review, and every line of it existed only because the
+    // envelope had to survive between two commands. `--evidence -` removes
+    // the object, so the protocol around it has nothing left to govern.
+    const files = ['shared/requirements-mcp.md', 'task/SKILL.md', 'review/SKILL.md', 'plan/SKILL.md', 'investigate/SKILL.md'];
+    for (const relative of files) {
+      const content = (await readFile(path.join(SKILLS_DIR, relative), 'utf8')).replace(/\s+/g, ' ');
+      for (const forbidden of [
+        /write one evidence file/i,
+        /delete the evidence file/i,
+        /keeps? the evidence file alive/i,
+        /arbitrary number of consumers/i,
+        /final cleanup/i,
+        /mkdtemp/i,
+      ]) {
+        assert.doesNotMatch(content, forbidden, `${relative} still describes an evidence-file lifecycle`);
+      }
+    }
   });
 
   it('investigate documents its single note-writing boundary', async () => {
@@ -267,8 +273,16 @@ describe('P2.2/P2.3 shipped skill content', () => {
       const content = await readFile(path.join(SKILLS_DIR, name, 'SKILL.md'), 'utf8');
       assert.match(
         content,
+        /sharedOperatingContract/,
+        `${name}/SKILL.md must point at prepare's sharedOperatingContract field`,
+      );
+      // R2 change 2: the text arrives once per session through the plugin
+      // hook, so a skill that still expected `.content` on every call would
+      // be describing a field the compact output no longer carries.
+      assert.doesNotMatch(
+        content,
         /sharedOperatingContract\.content/,
-        `${name}/SKILL.md must read sharedOperatingContract.content from ambicode prepare's JSON output`,
+        `${name}/SKILL.md must not expect the contract's text on every prepare call`,
       );
       // The full authority-label definitions are no longer copied into each
       // skill file; the canonical contract is the one place that owns them.

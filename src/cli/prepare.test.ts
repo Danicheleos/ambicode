@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, it } from 'node:test';
-import { createRuntime } from '../composition/root.ts';
+import { createRuntime, type Runtime } from '../composition/root.ts';
 import { applicablePrepareStages } from '../policy/resolve.ts';
 import { nodeFileSystem, type FileSystem } from '../ports/filesystem.ts';
 import type { ProcessRunner } from '../ports/process.ts';
@@ -10,9 +10,28 @@ import { contentHash } from '../util/hash.ts';
 import { isAmbicodeError } from '../util/errors.ts';
 import { TempRepo } from '../testing/temp-repo.ts';
 import { formatJsonOutput } from '../util/json-output.ts';
-import { parseArgs } from './args.ts';
+import type { PrepareOutput } from '../contracts/prepare.ts';
+import { parseArgs as parseCliArgs, type OptionSpec, type ParsedArgs } from './args.ts';
 import { INIT_OPTIONS, runInit } from './commands/init.ts';
-import { PREPARE_OPTIONS, runPrepare } from './commands/prepare.ts';
+import { PREPARE_OPTIONS, runPrepare as runPrepareCommand } from './commands/prepare.ts';
+
+/**
+ * R2 moved the full `prepare` shape behind `--verbose` and made a compact
+ * projection the default. Every assertion in this file is about the full
+ * shape — it is the one that still carries `policy.rules`, per-rule
+ * authority, and the contract's text — so these two helpers add the flag
+ * through the real parser once instead of at forty-six call sites. The
+ * compact default has its own tests in `context-cost.test.ts`.
+ */
+function parseArgs(command: string, argv: readonly string[], spec: OptionSpec): ParsedArgs {
+  return parseCliArgs(command, command === 'prepare' ? [...argv, '--verbose'] : [...argv], spec);
+}
+
+async function runPrepare(runtime: Runtime, args: ParsedArgs): Promise<PrepareOutput> {
+  const run = await runPrepareCommand(runtime, args);
+  assert.equal(run.json, 'pretty', 'this file exercises the verbose shape');
+  return run.data as PrepareOutput;
+}
 
 const CONFIG_HEADER = 'schemaVersion: 1\nbaseline: ""\n';
 const CONFIG_TAIL = [
@@ -151,7 +170,7 @@ describe('P2.1 ambicode prepare', () => {
       assert.equal(output.navigation.plugin, 'typescript-lsp@claude-plugins-official');
       assert.equal(output.navigation.serverCommand, 'typescript-language-server');
       assert.equal(output.navigation.statusSource, 'current-session');
-      assert.match(output.navigation.evidenceRequirement, /Report the LSP symbol operations used/);
+      assert.match(output.navigation.evidenceRequirement, /Report the LSP operations used/);
     } finally {
       await repo.dispose();
     }
