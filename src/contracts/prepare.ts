@@ -87,6 +87,19 @@ export const PreparePolicy = z.strictObject({
 });
 export type PreparePolicy = z.infer<typeof PreparePolicy>;
 
+/**
+ * The aggregate byte budget over everything `ambicode prepare` delivers for
+ * outer-model use (doc 04 P2.3 correction B): requirement content, rule
+ * instructions, prompt content, notices, diagnostics, and the fixed output
+ * framing around them, measured as UTF-8 bytes against the one canonical
+ * `review.maxContextBytes` limit — not a second hardcoded number.
+ */
+export const PrepareContextBudget = z.strictObject({
+  measuredBytes: z.number().int().nonnegative(),
+  limitBytes: z.number().int().positive(),
+});
+export type PrepareContextBudget = z.infer<typeof PrepareContextBudget>;
+
 export const PrepareOutput = z.strictObject({
   command: z.literal('prepare'),
   activity: Activity,
@@ -99,5 +112,6 @@ export const PrepareOutput = z.strictObject({
   provenance: z.array(ProvenanceEntry),
   notices: z.array(z.string()),
   policy: PreparePolicy,
+  contextBudget: PrepareContextBudget,
 });
 export type PrepareOutput = z.infer<typeof PrepareOutput>;

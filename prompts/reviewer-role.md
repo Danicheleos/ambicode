@@ -31,7 +31,13 @@ Assess the change for:
 - **Unjustified complexity.** Machinery the change does not need, argued from
   what it costs a reader.
 - **Dead surface.** Code the change leaves unreachable.
-- **Policy.** The rules supplied to you, honouring their authority labels.
+- **Policy.** The rules supplied to you, honouring their authority labels:
+  `team` is an approved project requirement; `observed` is evidence of
+  existing project practice, not itself an approved requirement; `inherited`
+  is baseline guidance. Report an `observed` or `inherited` rule as a
+  violation only when independent requirement or code evidence in front of
+  you establishes that this specific change is actually a problem — never
+  because the label alone made it sound authoritative.
 
 Do not report: formatting the project's own tools own, preferences the project
 has not adopted, or defects that already existed and the change does not touch.

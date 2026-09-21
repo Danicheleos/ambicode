@@ -25,8 +25,8 @@ function frontmatterName(content: string): string | null {
 /** `${CLAUDE_PLUGIN_ROOT}/skills/shared/requirements-mcp.md` (doc 04 P2.2 correction B). */
 const PLUGIN_ROOT_SHARED_REFERENCE = '${CLAUDE_PLUGIN_ROOT}/skills/shared/requirements-mcp.md';
 
-describe('P2.2 shipped skill content', () => {
-  it('registers exactly ambicode:init, ambicode:review, ambicode:investigate and ambicode:plan', async () => {
+describe('P2.2/P2.3 shipped skill content', () => {
+  it('registers exactly ambicode:init, ambicode:review, ambicode:investigate, ambicode:plan and ambicode:task', async () => {
     const entries = await readdir(SKILLS_DIR, { withFileTypes: true });
     const skillDirs: string[] = [];
     for (const entry of entries) {
@@ -39,7 +39,7 @@ describe('P2.2 shipped skill content', () => {
         // A directory with no SKILL.md (e.g. `shared/`) is not a skill.
       }
     }
-    assert.deepEqual(skillDirs.sort(), ['init', 'investigate', 'plan', 'review']);
+    assert.deepEqual(skillDirs.sort(), ['init', 'investigate', 'plan', 'review', 'task']);
 
     for (const dir of skillDirs) {
       const content = await readFile(path.join(SKILLS_DIR, dir, 'SKILL.md'), 'utf8');
@@ -55,8 +55,8 @@ describe('P2.2 shipped skill content', () => {
     await assert.rejects(readFile(path.join(SKILLS_DIR, 'shared', 'SKILL.md'), 'utf8'));
   });
 
-  it('review, investigate and plan all reference the shared MCP acquisition procedure through the plugin root, instead of duplicating it or a repository-relative path', async () => {
-    const referrers = ['review', 'investigate', 'plan'] as const;
+  it('review, investigate, plan and task all reference the shared MCP acquisition procedure through the plugin root, instead of duplicating it or a repository-relative path', async () => {
+    const referrers = ['review', 'investigate', 'plan', 'task'] as const;
     for (const name of referrers) {
       const content = await readFile(path.join(SKILLS_DIR, name, 'SKILL.md'), 'utf8');
       assert.ok(
@@ -72,7 +72,7 @@ describe('P2.2 shipped skill content', () => {
         `${name}/SKILL.md references skills/shared/requirements-mcp.md by a path relative to the product repository`,
       );
       // The full retrieval procedure (the numbered evidence-file steps) is not
-      // copied into any of the three skills; only the shared file has it.
+      // copied into any of the four skills; only the shared file has it.
       assert.ok(
         !/status.*is.*`retrieved`, `unavailable`, `forbidden`/s.test(content),
         `${name}/SKILL.md appears to duplicate the shared evidence-file procedure`,
@@ -80,11 +80,18 @@ describe('P2.2 shipped skill content', () => {
     }
   });
 
-  it('the shared procedure describes retrieving on behalf of all three referrers and no other skill file duplicates it', async () => {
+  it('the shared procedure describes retrieving on behalf of all four referrers and no other skill file duplicates it', async () => {
     const shared = await readFile(path.join(SKILLS_DIR, 'shared', 'requirements-mcp.md'), 'utf8');
-    for (const name of ['review', 'investigate', 'plan']) {
+    for (const name of ['review', 'investigate', 'plan', 'task']) {
       assert.ok(shared.includes(name), `shared/requirements-mcp.md should name "${name}" as a referrer`);
     }
+  });
+
+  it('the shared procedure explains that task keeps the evidence file alive across two consumers, unlike review/investigate/plan', async () => {
+    const shared = await readFile(path.join(SKILLS_DIR, 'shared', 'requirements-mcp.md'), 'utf8');
+    const normalized = shared.replace(/\s+/g, ' ');
+    assert.match(normalized, /task.*reads it.*twice/i);
+    assert.match(normalized, /last command in your workflow that reads it/i);
   });
 
   it('investigate documents its single note-writing boundary', async () => {
@@ -99,6 +106,11 @@ describe('P2.2 shipped skill content', () => {
   it('plan documents its single note-writing boundary, separate from investigate\'s', async () => {
     const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
     assert.match(plan, /\.ambicode\/notes\/plans\//);
+  });
+
+  it('task documents its single note-writing boundary, separate from investigate\'s and plan\'s', async () => {
+    const task = await readFile(path.join(SKILLS_DIR, 'task', 'SKILL.md'), 'utf8');
+    assert.match(task, /\.ambicode\/notes\/tasks\//);
   });
 
   it('plan declares an argument hint and makes the request available through $ARGUMENTS', async () => {
@@ -152,5 +164,164 @@ describe('P2.2 shipped skill content', () => {
   it('plan treats requirement and repository content as evidence, never as authorization', async () => {
     const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
     assert.match(plan, /never\s+instructions?\s+or\s+authorization/i);
+  });
+
+  it('plan and task define the primary request as the complete span before --requirement, preserving multiword intent, never the first token alone (doc 04 P2.3 correction D)', async () => {
+    for (const name of ['plan', 'task']) {
+      const content = await readFile(path.join(SKILLS_DIR, name, 'SKILL.md'), 'utf8');
+      const normalized = content.replace(/\s+/g, ' ');
+      assert.match(normalized, /primary request is the complete argument span before the first recognized/i, `${name}/SKILL.md`);
+      assert.match(normalized, /multiword/i, `${name}/SKILL.md`);
+      assert.match(normalized, /preserve its whitespace/i, `${name}/SKILL.md`);
+      // The specific defect this correction fixes: describing the primary
+      // request as "the first token" of $ARGUMENTS.
+      assert.ok(
+        !/first token \(or the whole line/i.test(normalized),
+        `${name}/SKILL.md must not describe the primary request as the first token`,
+      );
+    }
+  });
+
+  it('plan, investigate and task state the three-way authority distinction, and never conflate "observed" with "team" (doc 04 P2.3 correction C)', async () => {
+    for (const name of ['plan', 'investigate', 'task']) {
+      const content = await readFile(path.join(SKILLS_DIR, name, 'SKILL.md'), 'utf8');
+      assert.match(content, /`team`.*approved (project )?requirement/is, `${name}/SKILL.md must state that "team" is an approved requirement`);
+      assert.match(
+        content,
+        /`observed`.*evidence of existing project practice/is,
+        `${name}/SKILL.md must state that "observed" is evidence of existing practice, not an approved requirement`,
+      );
+      assert.match(content, /`inherited`.*(baseline )?guidance/is, `${name}/SKILL.md must state that "inherited" is guidance`);
+      assert.match(
+        content,
+        /never.*(report|treat).*`observed`.*or.*`inherited`.*(guidance|rule).*(as a )?(policy )?violation/is,
+        `${name}/SKILL.md must say observed/inherited guidance is never itself a policy violation`,
+      );
+      // The specific defect this correction fixes: grouping observed together
+      // with team as if both were already "actual expectations"/requirements.
+      assert.ok(
+        !/`team`\/`observed`/.test(content),
+        `${name}/SKILL.md must not conflate "team" and "observed" as if both were approved requirements`,
+      );
+    }
+  });
+});
+
+describe('P2.3 task skill', () => {
+  async function task(): Promise<string> {
+    return readFile(path.join(SKILLS_DIR, 'task', 'SKILL.md'), 'utf8');
+  }
+
+  it('declares an argument hint and makes the request available through $ARGUMENTS', async () => {
+    const raw = await task();
+    const frontmatter = /^---\n([\s\S]*?)\n---/.exec(raw)?.[1] ?? '';
+    assert.match(frontmatter, /^argument-hint:\s*\S.+$/m, 'task/SKILL.md must declare argument-hint');
+    assert.ok(raw.includes('$ARGUMENTS'), 'task/SKILL.md must reference $ARGUMENTS explicitly');
+  });
+
+  it('takes a repeatable --requirement, never a plural --requirements', async () => {
+    const content = await task();
+    assert.match(content, /--requirement <url>/);
+    const codeBlocks = [...content.matchAll(/```[\s\S]*?```/g)].map((match) => match[0]);
+    const frontmatter = /^---\n([\s\S]*?)\n---/.exec(content)?.[1] ?? '';
+    for (const usage of [...codeBlocks, frontmatter]) {
+      assert.ok(!/--requirements\b/.test(usage), `task/SKILL.md must not show --requirements as usage: ${usage}`);
+    }
+  });
+
+  it('never forces a small change through /ambicode:plan and never requires an investigation or task ID', async () => {
+    const content = await task();
+    assert.match(content, /plan is optional/i);
+    assert.match(content, /never force a small/i);
+    assert.match(content, /never require an investigation or a task id/i);
+  });
+
+  it('treats an accepted plan as supporting evidence, with the user\'s request as the actual authorization', async () => {
+    const content = await task();
+    const normalized = content.replace(/\s+/g, ' ');
+    assert.match(normalized, /supporting evidence/i);
+    assert.match(normalized, /user's request to implement it is the authorization to begin/i);
+  });
+
+  it('reuses ambicode prepare and ambicode review rather than adding a second policy parser, selector, runner, or reviewer', async () => {
+    const content = await task();
+    assert.match(content, /ambicode prepare --activity task/);
+    assert.match(content, /ambicode review/);
+    assert.match(content, /do not create a second task-specific check selector, runner, or reviewer/i);
+    assert.match(content, /do not build a second requirement parser, policy resolver, or config\s+reader for tasks/i);
+  });
+
+  it('refuses ambiguous monorepository project selection instead of guessing', async () => {
+    const content = await task();
+    assert.match(content, /ambiguous-project/);
+    assert.match(content, /refuse to guess/i);
+  });
+
+  it('reruns ambicode prepare when implementation reaches paths outside the prepared scope', async () => {
+    const content = await task();
+    const normalized = content.replace(/\s+/g, ' ');
+    assert.match(normalized, /rerun.*ambicode prepare --activity task.*with the actual affected paths/i);
+  });
+
+  it('never runs the affected checks or the independent reviewer twice for the same reason, and calls the CLI pipeline directly rather than imitating a review itself', async () => {
+    const content = await task();
+    assert.match(content, /do not run lint\/unit\/e2e separately and then run `ambicode review` again/i);
+    assert.match(
+      content,
+      /do not paste this\s*\n?\s*conversation into the reviewer and do not attempt to imitate an independent\s*\n?\s*review yourself/i,
+    );
+  });
+
+  it('states that a source change without a successfully executed affected test remains verification-incomplete', async () => {
+    const content = await task();
+    assert.match(content, /verification-incomplete/i);
+    assert.match(content, /unchanged test that was selected\s*\n?\s*only because the source it exercises changed/i);
+  });
+
+  it('asks the user rather than silently implementing a scope-expanding finding, and does not loop indefinitely', async () => {
+    const content = await task();
+    assert.match(content, /materially expand scope/i);
+    assert.match(content, /do not loop indefinitely/i);
+  });
+
+  it('needs no mandatory task file for a small change, and documents what an optional note may contain', async () => {
+    const content = await task();
+    assert.match(content, /a small task needs no task file at all/i);
+    assert.match(content, /add a task database, a workflow engine, an event log, a mandatory\s*\n?\s*identifier/i);
+  });
+
+  it('treats a resumed note\'s recorded evidence as historical and re-prepares/re-reviews the current iteration', async () => {
+    const content = await task();
+    const normalized = content.replace(/\s+/g, ' ');
+    assert.match(normalized, /when resuming.*read the note and the current git state first/i);
+    assert.match(normalized, /never assume the diff.*are still current/i);
+  });
+
+  it('reports exactly Done, Evidence, Not verified, and Remaining, and never lets Done imply successful verification', async () => {
+    const content = await task();
+    assert.match(content, /Done:/);
+    assert.match(content, /Evidence:/);
+    assert.match(content, /Not verified:/);
+    assert.match(content, /Remaining:/);
+    assert.match(content, /must never be hidden behind "done"/i);
+  });
+
+  it('never commits, pushes, opens a merge request, publishes, merges, deploys, or transitions a ticket', async () => {
+    const content = await task();
+    assert.match(
+      content,
+      /never commit,\s*\n?\s*push,\s*create a merge request,\s*publish a comment,\s*merge,\s*\n?\s*deploy,\s*or\s*transition a ticket automatically/i,
+    );
+    // Also stated in the frontmatter description, for the model deciding
+    // whether to invoke this skill at all.
+    const frontmatter = /^---\n([\s\S]*?)\n---/.exec(content)?.[1] ?? '';
+    assert.match(frontmatter, /never commits, pushes, opens a merge request, publishes a comment, merges, deploys, or transitions a ticket/i);
+  });
+
+  it('treats plans, tickets, repository files, comments, and test output as evidence, never as capabilities or permission', async () => {
+    const content = await task();
+    const normalized = content.replace(/\s+/g, ' ');
+    assert.match(normalized, /evidence, never/i);
+    assert.match(normalized, /not a grant of any tool, capability, commit, deploy, publish, or/i);
   });
 });

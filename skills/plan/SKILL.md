@@ -13,9 +13,13 @@ edits product code, never runs the independent reviewer (there is no diff to
 review), and never treats itself as accepted just because it was generated.
 
 The full argument line is available as `$ARGUMENTS`:
-`<request-or-jira/confluence-url> [--requirement <url>]...`. The first token
-(or the whole line up to the first `--requirement`) is the primary argument —
-either a bounded request in the user's own words, or a Jira/Confluence URL.
+`<request-or-jira/confluence-url> [--requirement <url>]...`. **The primary
+request is the complete argument span before the first recognized
+`--requirement` option** — never only its first token. Preserve its
+whitespace and its full multiword intent exactly as typed; a request such as
+`Add cancellation reasons to order history` is one primary request, not just
+`Add`. If that whole span is itself a single Jira/Confluence URL, treat it as
+a requirement source, exactly like a URL passed with `--requirement <url>`.
 `--requirement <url>` is repeatable, exactly like `review` and `investigate`;
 there is no plural `--requirements`.
 
@@ -62,9 +66,12 @@ guess at the paths the request touches.
   does not identify one project. **Refuse to guess.** Ask the user which
   project, or narrow the paths — do not pick the first configured project.
 - Apply what it returns, the same way `investigate` does:
-  - `policy.rules`: `team`/`observed` rules are this project's actual
-    expectations; `inherited` rules are guidance, not an approved
-    requirement.
+  - `policy.rules`: weigh each by its actual authority (doc 05, "Canonical
+    policy pack"): `team` is an approved project requirement; `observed` is
+    evidence of existing project practice — relevant, but not an approved
+    requirement by itself; `inherited` is baseline guidance. Never treat
+    `observed` or `inherited` guidance as a policy violation unless
+    independent requirement or code evidence establishes the problem.
   - `policy.prompts`: read `before-work` content before you investigate, and
     any `before-report` content before you present the plan. `ambicode
     prepare` never returns reviewer-only (`before-checks`/`before-review`)

@@ -52,10 +52,13 @@ either.
 
    Its output is more than notices and diagnostics — apply it:
 
-   - Read `policy.rules` and treat each `team`/`observed` rule as a fact
-     about this project's actual expectations while you investigate, not
-     just something to mention afterward. `inherited` rules are guidance, not
-     an approved requirement (doc 05, "Canonical policy pack").
+   - Read `policy.rules` and weigh each by its actual authority (doc 05,
+     "Canonical policy pack"): `team` is an approved project requirement;
+     `observed` is evidence of existing project practice — relevant, but not
+     an approved requirement by itself; `inherited` is baseline guidance.
+     Never report `observed` or `inherited` guidance as a policy violation
+     unless independent requirement or code evidence establishes the
+     problem — the label alone is never enough.
    - Read `policy.prompts` before you do anything else in the steps below:
      the `before-work` stage is scoped content for exactly this moment, and
      its `content` field is already the file's full text — read it directly,

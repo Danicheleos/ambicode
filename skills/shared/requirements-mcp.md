@@ -1,9 +1,9 @@
 # Retrieving Jira/Confluence requirements over MCP
 
 Shared by every AMBICODE skill that accepts a repeatable `--requirement <url>`
-— today `review`, `investigate` and `plan`. Read this once per invocation
-that has at least one requirement URL. Do not copy this procedure into
-another skill file; if a future skill needs it, point it here instead.
+— today `review`, `investigate`, `plan` and `task`. Read this once per
+invocation that has at least one requirement URL. Do not copy this procedure
+into another skill file; if a future skill needs it, point it here instead.
 
 You hold the MCP connection. The helper never does, and never will: it has no
 Atlassian client and no credentials. So you retrieve, and you hand over what
@@ -79,19 +79,32 @@ choice the user makes — never one this procedure makes for them.
 
 ## Cleanup
 
-Delete the evidence file once the command that reads it (`ambicode prepare`,
-`ambicode review`, or `ambicode bundle`) has finished — success or failure.
-It is transport for exactly this one invocation, not a record:
+Delete the evidence file once **the last command in your workflow that
+reads it** has finished — success or failure. It is transport for exactly
+this one workflow's invocation, not a record, but which command is "last"
+depends on which skill you are running:
 
-- `review`'s saved result already carries every retrieved source's content,
-  citations, and provenance forward (doc 02, "Storage and ownership"), so
-  nothing is lost by deleting the transport file.
-- `investigate` and `plan` do not save anything unless the user separately
-  asks for a note, and the evidence file was never inside the repository to
-  begin with, so deleting it leaves no trace either way.
+- `review` and `investigate` each read it exactly once — `ambicode review`
+  or `ambicode bundle` for review, `ambicode prepare` for investigate — so
+  delete it right after that one command finishes.
+- `plan` reads it once, through `ambicode prepare`, and deletes it right
+  after too.
+- `task` reads it **twice**: once through `ambicode prepare` (to prepare and
+  scope the work) and again, later, through `ambicode review` (the
+  independent review after implementation). Keep the evidence file alive
+  across both of those calls and delete it only after `ambicode review` has
+  finished, not right after `ambicode prepare`.
+
+Nothing is lost by deleting it once its workflow's last consumer has run:
+`review`'s and `task`'s saved review result already carry every retrieved
+source's content, citations, and provenance forward (doc 02, "Storage and
+ownership"); `investigate` and `plan` do not save anything unless the user
+separately asks for a note, and the evidence file was never inside the
+repository to begin with, so deleting it leaves no trace either way.
 
 Do not reuse one evidence file across multiple commands or sessions; write a
-fresh one each time you retrieve sources, and remove it right after.
+fresh one each time you retrieve sources, and remove it once your own
+workflow's last consumer has read it.
 
 ## What this never does
 

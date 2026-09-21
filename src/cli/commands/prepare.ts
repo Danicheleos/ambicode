@@ -13,7 +13,7 @@ import type { AmbicodeConfig, ProjectConfig } from '../../contracts/config.ts';
 import { MAX_SNAPSHOT_FILE_BYTES } from '../../config/defaults.ts';
 import type { FileSystem } from '../../ports/filesystem.ts';
 import { applicablePrepareStages } from '../../policy/resolve.ts';
-import { configProvenance, policyProvenance } from '../../policy/provenance.ts';
+import { configProvenance, packProvenance } from '../../policy/provenance.ts';
 import { normalizeRequirements, readRequirementEvidence } from '../../requirements/normalize.ts';
 import { byteLength } from '../../snapshot/limits.ts';
 import { AmbicodeError } from '../../util/errors.ts';
@@ -62,22 +62,84 @@ export async function runPrepare(runtime: Runtime, args: ParsedArgs): Promise<Pr
   const policy = await resolvePolicyFor({ workspace, project, activity, paths });
   const policies = [{ project, policy }];
 
-  return toOutput({
+  const draft = await toDraftOutput({
     fs: runtime.fs,
     activity,
     project,
     paths,
     requirements,
     policy,
-    // Config/pack/prompt provenance alongside requirement provenance, the
-    // same composition `review`/`bundle` use (doc 04 P2.2 correction D): a
-    // caller applying this policy needs to know what produced it, not only
-    // what requirement evidence went in.
-    policyProvenance: [...(await configProvenance(runtime.fs, workspace)), ...policyProvenance(policies)],
+    // Config and pack provenance alongside requirement provenance, the same
+    // composition `review`/`bundle` use for packs (doc 04 P2.2 correction D).
+    // Prompt provenance is deliberately *not* included here: unlike a pack —
+    // which is fully applicable once matched — a resolved prompt may still be
+    // filtered by stage or fail content resolution, and provenance must never
+    // claim content that was not actually delivered (doc 04 P2.3 correction
+    // B). `toDraftOutput` adds prompt provenance itself, from the
+    // stage-filtered, content-resolved prompts it actually returns.
+    policyProvenance: [...(await configProvenance(runtime.fs, workspace)), ...packProvenance(policies)],
   });
+
+  // Blocking, not silently success-shaped (doc 04 P2.3 correction B): an
+  // `error` diagnostic means applicable trusted content — a pack, a rule, or
+  // a prompt this activity should have received — was omitted, not merely
+  // noted. `prepare` never hands back a policy that looks complete while
+  // quietly missing something applicable.
+  const blocking = draft.policy.diagnostics.filter((diagnostic) => diagnostic.severity === 'error');
+  if (blocking.length > 0) {
+    throw new AmbicodeError(
+      'preparation-blocked',
+      'Preparation cannot return a complete policy: applicable content was omitted.',
+      {
+        details: blocking.map((diagnostic) => `${diagnostic.code}: ${diagnostic.message}`),
+      },
+    );
+  }
+
+  const contextBudget = measurePrepareContextBudget(draft, workspace.config.review.maxContextBytes);
+  return PrepareOutputSchema.parse({ ...draft, contextBudget });
 }
 
-async function toOutput(options: {
+interface PrepareDraftOutput extends Omit<PrepareOutput, 'contextBudget'> {}
+
+/**
+ * One aggregate byte budget over everything delivered for outer-model use
+ * (doc 04 P2.3 correction B), reusing the existing `review.maxContextBytes`
+ * limit rather than a second hardcoded number. Measured as the actual
+ * serialized draft output — the real "fixed output framing" plus every
+ * content field — so nothing delivered can silently escape the count.
+ */
+function measurePrepareContextBudget(draft: PrepareDraftOutput, limitBytes: number): PrepareOutput['contextBudget'] {
+  const measuredBytes = byteLength(JSON.stringify(draft));
+  if (measuredBytes <= limitBytes) return { measuredBytes, limitBytes };
+
+  const requirementBytes = draft.requirements.reduce((total, source) => total + byteLength(source.content), 0);
+  const ruleBytes = draft.policy.rules.reduce((total, rule) => total + byteLength(rule.instruction), 0);
+  const promptBytes = draft.policy.prompts.reduce((total, prompt) => total + byteLength(prompt.content), 0);
+  const noticeBytes = draft.notices.reduce((total, notice) => total + byteLength(notice), 0);
+  const diagnosticBytes = draft.policy.diagnostics.reduce((total, diagnostic) => total + byteLength(diagnostic.message), 0);
+
+  throw new AmbicodeError(
+    'preparation-too-large',
+    'This preparation exceeds the configured aggregate context budget, so it was not returned.',
+    {
+      field: 'review',
+      details: [
+        `measured: ${measuredBytes} bytes, limit ${limitBytes} (review.maxContextBytes)`,
+        'measured components:',
+        `  requirement content: ${requirementBytes} bytes`,
+        `  rule instructions: ${ruleBytes} bytes`,
+        `  prompt content: ${promptBytes} bytes`,
+        `  notices: ${noticeBytes} bytes`,
+        `  diagnostics: ${diagnosticBytes} bytes`,
+        'Supply fewer or smaller requirements, narrow the applicable paths/project, or raise review.maxContextBytes in .ambicode/config.yaml deliberately.',
+        'AMBICODE does not truncate applicable content to fit and then report on the whole.',
+      ],
+    },
+  );
+}
+
+async function toDraftOutput(options: {
   fs: FileSystem;
   activity: Activity;
   project: ProjectConfig;
@@ -85,20 +147,32 @@ async function toOutput(options: {
   requirements: ReturnType<typeof normalizeRequirements>;
   policy: ResolvedPolicy;
   policyProvenance: PrepareOutput['provenance'];
-}): Promise<PrepareOutput> {
-  return PrepareOutputSchema.parse({
+}): Promise<PrepareDraftOutput> {
+  const preparePolicy = await toPreparePolicy(options.fs, options.policy);
+
+  // Prompt provenance only for what `preparePolicy.prompts` actually
+  // delivers — stage-filtered and content-resolved — never for a prompt this
+  // activity's pack declared but that was filtered out or failed content
+  // resolution (doc 04 P2.3 correction B).
+  const promptProvenance: PrepareOutput['provenance'] = preparePolicy.prompts.map((prompt) => ({
+    kind: 'prompt' as const,
+    reference: `${prompt.packReference}:${prompt.declaredPath}@${prompt.stage}`,
+    contentHash: prompt.contentHash,
+  }));
+
+  return {
     command: 'prepare' as const,
     activity: options.activity,
     projectId: options.project.id,
     paths: [...options.paths],
     requirementMode: options.requirements.mode,
     requirements: options.requirements.sources,
-    provenance: [...options.policyProvenance, ...options.requirements.provenance].sort((a, b) =>
+    provenance: [...options.policyProvenance, ...promptProvenance, ...options.requirements.provenance].sort((a, b) =>
       `${a.kind}${a.reference}`.localeCompare(`${b.kind}${b.reference}`),
     ),
     notices: options.requirements.notices,
-    policy: await toPreparePolicy(options.fs, options.policy),
-  });
+    policy: preparePolicy,
+  };
 }
 
 async function toPreparePolicy(fs: FileSystem, policy: ResolvedPolicy): Promise<PreparePolicy> {
@@ -304,5 +378,10 @@ export function renderPrepare(output: PrepareOutput): string {
       lines.push(`  [${diagnostic.severity}] ${diagnostic.code}: ${diagnostic.message}`);
     }
   }
+
+  lines.push(
+    '',
+    `context budget: ${output.contextBudget.measuredBytes}/${output.contextBudget.limitBytes} bytes (review.maxContextBytes)`,
+  );
   return lines.join('\n');
 }

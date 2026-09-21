@@ -11,7 +11,7 @@
   "scripts": {
     "build": "node build.mjs",
     "typecheck": "tsc --noEmit",
-    "test:unit": "node --test --test-reporter=spec \"src/**/*.test.ts\"",
+    "test:unit": "node --test --test-reporter=spec \"src/**/*.test.ts\" \"*.test.mjs\"",
     "validate:plugin": "claude plugin validate . --strict",
     "fixtures": "node fixtures/materialize.mjs",
     "evals": "claude plugin eval . --runs 3 --ablation with-without --scaffold --allow-tools Bash --no-publish",

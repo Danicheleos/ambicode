@@ -18,13 +18,21 @@ against evidence that already exists, not as open-ended advice.
   anything below.
 - [ ] Install the candidate into a chosen `CLAUDE_CONFIG_DIR` with
   `node install-local.mjs install dist/ambicode-<version> <config-dir>`, and
-  confirm `claude plugin details ambicode@ambicode-team` reports all four
-  skills (`init`, `review`, `investigate`, `plan`) before relying on it.
-- [ ] Run `npm run smoke:install-local` (doc 04 P2.2 correction A): proves
-  install, inspect, durability after the candidate directory used for
-  install is deleted (checked from fresh `claude` processes, not the one
-  that ran the install), and uninstall without that candidate directory —
-  not merely that the commands exist.
+  confirm `claude plugin details ambicode@ambicode-team` reports all five
+  skills (`init`, `review`, `investigate`, `plan`, `task`) before relying on
+  it.
+- [ ] Run `npm run smoke:install-local` (doc 04 P2.2 correction A, and the
+  failure-safety rewrite of doc 04 P2.3 correction A): proves install,
+  inspect, durability after the candidate directory used for install is
+  deleted (checked from fresh `claude` processes, not the one that ran the
+  install), and uninstall without that candidate directory — not merely
+  that the commands exist.
+- [ ] Run `node --test install-local.test.mjs` (included in `npm run
+  test:unit`): proves install/uninstall failure-safety against a fake
+  native-command adapter — a marketplace-update or plugin-update failure
+  during an upgrade preserves the old installation, a plugin-uninstall or
+  marketplace-removal failure preserves the durable source, and a
+  wrong-scope uninstall is refused — without shelling out to `claude`.
 - [ ] Have a second developer — not the person who built the candidate —
   install it in a fresh environment using only `docs/installation.md`, and
   complete one working-tree review end to end. Doc 08 makes this mandatory
@@ -81,9 +89,10 @@ have.
 | M05–M09 (live GitLab sandbox scenarios) | A private test GitLab project, an MR with added/renamed/deleted lines, an authenticated `glab` | Follow doc 07's manual scenario table M05–M09 against that project; record the discussion links it produces |
 | M10 (hostile input through a real browser), M12 (real browser idle/reopen/disable/reinstall) | A browser on the machine running the page | Run `ambicode view --review <id>` and drive the scenarios in doc 07 by hand; `curl`/Fastify-injection evidence already exists but does not substitute |
 | M06 executable-check portion, M10 isolation portion | A running Docker daemon and a digest-pinned image | Start the daemon, configure `remoteChecks.image`, rerun the relevant fixture review |
-| M13 and its Phase 2 evaluation | A connected Jira/Confluence MCP server, an authenticated `glab`, and a GitLab sandbox project — P2.1's code (`/ambicode:investigate`) and P2.2's (`/ambicode:plan`) were explicitly authorized to start and are implemented despite the Phase 1 value gate still being pending; only the *evaluation* against real external services remains gated on these prerequisites | Follow doc 07's M13 procedure once the prerequisites exist; record model/MCP/GitLab cases as pending until they are actually executed with authorized access, never as passed from a unit-test fixture |
+| M13 and its Phase 2 evaluation | A connected Jira/Confluence MCP server, an authenticated `glab`, and a GitLab sandbox project — P2.1's code (`/ambicode:investigate`), P2.2's (`/ambicode:plan`), and P2.3's (`/ambicode:task`) were explicitly authorized to start and are implemented despite the Phase 1 value gate still being pending; only the *evaluation* against real external services remains gated on these prerequisites | Follow doc 07's M13 procedure once the prerequisites exist; record model/MCP/GitLab cases as pending until they are actually executed with authorized access, never as passed from a unit-test fixture |
 | I01–I08 (P2.1 fixed investigation cases) | Authorized model access; I02–I05/I07 additionally need a connected Jira/Confluence MCP server; I08 needs a configured diagnostic command | Follow doc 07's "P2.1 fixed investigation cases" table |
 | PL01–PL10 (P2.2 fixed plan cases) | Authorized model access; PL02–PL05 additionally need a connected Jira/Confluence MCP server; PL06 needs a prior investigation (note or same-session) | Follow doc 07's "P2.2 fixed plan cases" table |
+| T01–T11 (P2.3 fixed task cases) | Authorized model access with a fixture project whose configured checks actually run; T03 needs a previously accepted plan; T05 needs a fixture with no configured reproduction mechanism; T06 needs a configured `propose` command or an over-limit selection; T09 needs a deliberately planted scope-expanding finding | Follow doc 07's "P2.3 fixed task cases" table |
 | E02 (one authorized eval smoke case) | Authorized, budgeted model access for `claude plugin eval` | `claude plugin eval . --scaffold --allow-tools Bash --runs 1 --max-cost-usd <budget>` on one case; inspect the trace for skill routing *and* the packaged helper actually running, per doc 07 |
 | The comparative evaluation / value gate | Two pilot repositories, pilot owner, authorized model access at pilot scale | See "Pilot owner checklist" above |
 | Second-developer packaged install | Any second person | Hand them `docs/installation.md` and the packaged candidate; record their result in a new dated acceptance record |

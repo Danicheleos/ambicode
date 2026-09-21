@@ -158,17 +158,21 @@ export function resolvePolicy(options: ResolveOptions): ResolvedPolicy {
 
 /**
  * Which prompt stages `ambicode prepare` surfaces per activity (doc 04 P2.2
- * correction D). `review`/`task` compose their own reviewer prompt directly
- * from `ResolvedPolicy.prompts` (`src/review/prompt.ts`) and never call
- * `prepare`, so only `investigate` and `plan` are listed: both read their
- * activity's `before-work` guidance before analysis and `before-report`
- * guidance before presenting their result. Reviewer-only stages
- * (`before-checks`, `before-review`) are never applicable content for either,
- * regardless of which activities a pack itself declares.
+ * correction D; doc 04 P2.3 adds `task`). `review` composes its own reviewer
+ * prompt directly from `ResolvedPolicy.prompts` (`src/review/prompt.ts`) and
+ * never calls `prepare`, so it is not listed here. `investigate` and `plan`
+ * read their activity's `before-work` guidance before analysis and
+ * `before-report` guidance before presenting their result. `task` additionally
+ * reads `before-checks` guidance before it runs checks/review, since — unlike
+ * investigate/plan — it actually performs an implementation and check cycle;
+ * `before-review` remains owned exclusively by the isolated reviewer prompt
+ * and is never applicable content for any `prepare` caller, regardless of
+ * which activities a pack itself declares.
  */
 export const PREPARE_PROMPT_STAGES: Readonly<Partial<Record<Activity, readonly PromptStage[]>>> = {
   investigate: ['before-work', 'before-report'],
   plan: ['before-work', 'before-report'],
+  task: ['before-work', 'before-checks', 'before-report'],
 };
 
 /** The stages `ambicode prepare` includes prompt content for; empty for an activity it does not serve (doc 04 P2.2 correction D). */

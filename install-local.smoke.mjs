@@ -86,7 +86,7 @@ async function main() {
     step('Fresh `claude` process: plugin details still report its skills');
     const details = claude(['plugin', 'details', 'ambicode@ambicode-team'], configDir);
     console.log(details);
-    for (const skill of ['init', 'review', 'investigate', 'plan']) {
+    for (const skill of ['init', 'review', 'investigate', 'plan', 'task']) {
       if (!details.includes(skill)) {
         throw new Error(`Expected skill "${skill}" in \`claude plugin details\` output.`);
       }

@@ -11,13 +11,29 @@ import { contentHash } from '../util/hash.ts';
  */
 export function policyProvenance(policies: readonly { policy: ResolvedPolicy }[]): ProvenanceEntry[] {
   const entries = new Map<string, ProvenanceEntry>();
+  for (const entry of packProvenance(policies)) entries.set(entry.reference, entry);
   for (const { policy } of policies) {
-    for (const pack of policy.packs) {
-      entries.set(pack.reference, { kind: 'pack', reference: pack.reference, contentHash: pack.contentHash });
-    }
     for (const prompt of policy.prompts) {
       const reference = `${prompt.packReference}:${prompt.declaredPath}@${prompt.stage}`;
       entries.set(reference, { kind: 'prompt', reference, contentHash: prompt.contentHash });
+    }
+  }
+  return [...entries.values()].sort((a, b) => a.reference.localeCompare(b.reference));
+}
+
+/**
+ * Pack provenance only, with no assumption about which prompt stages a
+ * caller actually receives (doc 04 P2.3 correction B). `ambicode prepare`
+ * uses this rather than `policyProvenance` and adds its own prompt provenance
+ * from the stage-filtered, content-resolved prompts it actually delivers —
+ * `review`/`bundle` compose every applicable stage directly from
+ * `ResolvedPolicy` and so keep using `policyProvenance` unchanged.
+ */
+export function packProvenance(policies: readonly { policy: ResolvedPolicy }[]): ProvenanceEntry[] {
+  const entries = new Map<string, ProvenanceEntry>();
+  for (const { policy } of policies) {
+    for (const pack of policy.packs) {
+      entries.set(pack.reference, { kind: 'pack', reference: pack.reference, contentHash: pack.contentHash });
     }
   }
   return [...entries.values()].sort((a, b) => a.reference.localeCompare(b.reference));

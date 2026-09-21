@@ -283,23 +283,26 @@ the live behaviour.
 
 ## Skills
 
-The plugin ships four skills, invoked as `/ambicode:init`, `/ambicode:review`,
-`/ambicode:investigate` and `/ambicode:plan`. Per the plugin reference, a
-skill's directory name is only a fallback — and an unstable one for a cached
-plugin — so each `SKILL.md` sets `name` explicitly. Claude Code namespaces
-them under the plugin name, which is why the directories are `skills/init`,
-`skills/review`, `skills/investigate` and `skills/plan` rather than repeating
-"ambicode" in each half of the invocation.
+The plugin ships five skills, invoked as `/ambicode:init`, `/ambicode:review`,
+`/ambicode:investigate`, `/ambicode:plan` and `/ambicode:task`. Per the plugin
+reference, a skill's directory name is only a fallback — and an unstable one
+for a cached plugin — so each `SKILL.md` sets `name` explicitly. Claude Code
+namespaces them under the plugin name, which is why the directories are
+`skills/init`, `skills/review`, `skills/investigate`, `skills/plan` and
+`skills/task` rather than repeating "ambicode" in each half of the
+invocation.
 
 Re-confirmed on 2.1.272 through the **packaged** candidate rather than
 `--plugin-dir`, with no model call, via `npm run smoke:install-local` (doc 04
-P2.2 correction A): `claude plugin details ambicode@ambicode-team`, against
-the plugin installed from the durable local marketplace into an isolated
-`CLAUDE_CONFIG_DIR`, reports `Skills (4)  init, investigate, plan, review`.
-The two-skill observation above is from doc 03 P1.7's acceptance record
-under `docs/acceptance/`, before `investigate` (P2.1) and `plan` (P2.2)
-existed; the P2.2 acceptance record under `docs/acceptance/` has the current
-transcript.
+P2.2 correction A, re-verified this session against the rewritten,
+failure-safe `install-local.mjs` of doc 04 P2.3 correction A):
+`claude plugin details ambicode@ambicode-team`, against the plugin installed
+from the durable local marketplace into an isolated `CLAUDE_CONFIG_DIR`,
+reports `Skills (5)  init, investigate, plan, review, task`. The two-skill
+observation above is from doc 03 P1.7's acceptance record under
+`docs/acceptance/`, before `investigate` (P2.1), `plan` (P2.2) and `task`
+(P2.3) existed; the P2.3 acceptance record under `docs/acceptance/` has the
+current transcript.
 
 ## Packaging and marketplace
 

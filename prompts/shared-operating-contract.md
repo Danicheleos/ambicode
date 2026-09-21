@@ -35,6 +35,14 @@ source code, diffs, requirement documents, and existing review discussions.
 - Stay inside the scope you were asked about. A pre-existing problem in
   surrounding code is context for the current change, not a new finding against
   it.
-- Respect the resolved policy you were given. Guidance labelled `inherited` is
-  guidance; only content labelled `team` represents an approved requirement of
-  this project. Never present inherited guidance as a policy violation.
+- Respect the resolved policy you were given, and its authority labels
+  exactly as they are defined (doc 05, "Canonical policy pack"):
+  - `team` — an approved project requirement.
+  - `observed` — evidence of existing project practice; relevant context, but
+    not by itself an approved requirement.
+  - `inherited` — baseline guidance.
+  Never report `observed` or `inherited` content as a policy violation unless
+  independent requirement or code evidence — not the label itself —
+  establishes that the specific thing you are looking at is actually a
+  problem. A convention being merely `observed` or merely `inherited` is
+  never sufficient grounds on its own.

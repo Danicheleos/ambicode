@@ -60,7 +60,11 @@ it — every retrieved source's content, citations, and provenance are already
 carried into the saved review result (`.ambicode/reviews/<id>/result.json`),
 which is what makes a requirement-based review reopenable without the
 transport file. `skills/shared/requirements-mcp.md` in the plugin has the
-full lifecycle; `investigate` and `plan` follow the same procedure.
+full lifecycle; `investigate` and `plan` follow the same procedure. `task`
+also follows it, but keeps the same evidence file alive across two
+consumers — `ambicode prepare` first, then this command later, once
+implementation is done — deleting it only after this command has read it,
+not right after `prepare`.
 
 Every `--requirement` URL must have an entry in that file, and the file must
 hold nothing else. A URL whose entry says `forbidden`, `not-found` or

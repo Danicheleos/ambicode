@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
+import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import { createRuntime } from '../composition/root.ts';
+import { applicablePrepareStages } from '../policy/resolve.ts';
 import { nodeFileSystem, type FileSystem } from '../ports/filesystem.ts';
 import type { ProcessRunner } from '../ports/process.ts';
 import { contentHash } from '../util/hash.ts';
@@ -656,6 +658,8 @@ async function repoWithPlanningPack(): Promise<TempRepo> {
       'prompts:',
       '  - stage: before-work',
       '    file: "./prompts/before-work.md"',
+      '  - stage: before-checks',
+      '    file: "./prompts/before-checks.md"',
       '  - stage: before-report',
       '    file: "./prompts/before-report.md"',
       '  - stage: before-review',
@@ -665,6 +669,7 @@ async function repoWithPlanningPack(): Promise<TempRepo> {
     ].join('\n'),
   );
   await repo.write('.ambicode/policies/prompts/before-work.md', 'Read the orders domain glossary before analysis.\n');
+  await repo.write('.ambicode/policies/prompts/before-checks.md', 'Run checks against the orders sandbox project.\n');
   await repo.write('.ambicode/policies/prompts/before-report.md', 'State assumptions explicitly before presenting.\n');
   await repo.write('.ambicode/policies/prompts/before-review.md', 'Reviewer-only vocabulary: smells, evidence, confidence.\n');
   await repo.write(
@@ -921,6 +926,245 @@ describe('P2.2 ambicode prepare — plan policy resolution and prompt content', 
       assert.ok(runner.executables.every((exe) => exe === 'git'), `unexpected process: ${runner.executables.join(', ')}`);
       assert.deepEqual(fs.writes, []);
       assert.deepEqual(fs.dirs, []);
+    } finally {
+      await repo.dispose();
+    }
+  });
+});
+
+describe('P2.3 ambicode prepare — correction B: complete and bounded policy', () => {
+  it('adds "task" to the prepare stage map: before-work, before-checks and before-report, never before-review', () => {
+    assert.deepEqual([...applicablePrepareStages('task')].sort(), ['before-checks', 'before-report', 'before-work']);
+  });
+
+  it('delivers a before-checks prompt for "task" but not for "plan"/"investigate", and never before-review for any of them', async () => {
+    const repo = await repoWithPlanningPack();
+    try {
+      const runtime = await createRuntime({ cwd: repo.root });
+      const taskOutput = await runPrepare(runtime, parseArgs('prepare', ['--activity', 'task'], PREPARE_OPTIONS));
+      const taskStages = taskOutput.policy.prompts.map((prompt) => prompt.stage).sort();
+      assert.deepEqual(taskStages, ['before-checks', 'before-report', 'before-work']);
+
+      for (const activity of ['plan', 'investigate']) {
+        const output = await runPrepare(runtime, parseArgs('prepare', ['--activity', activity], PREPARE_OPTIONS));
+        assert.ok(!output.policy.prompts.some((prompt) => prompt.stage === 'before-checks'));
+      }
+      assert.ok(!taskOutput.policy.prompts.some((prompt) => prompt.stage === 'before-review'));
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it('blocks rather than silently omitting when an applicable prompt is unreadable', async () => {
+    const repo = await repoWithPlanningPack();
+    try {
+      const runtime = await createRuntime({ cwd: repo.root });
+      await rm(path.join(repo.root, '.ambicode/policies/prompts/before-work.md'));
+
+      assert.equal(
+        await code(runPrepare(runtime, parseArgs('prepare', ['--activity', 'plan'], PREPARE_OPTIONS))),
+        'preparation-blocked',
+      );
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it('blocks rather than silently omitting when an applicable prompt exceeds the per-file content limit', async () => {
+    const repo = await repoWithPlanningPack();
+    try {
+      // MAX_SNAPSHOT_FILE_BYTES is 262144; comfortably exceed it.
+      await repo.write('.ambicode/policies/prompts/before-work.md', 'x'.repeat(300_000));
+      const runtime = await createRuntime({ cwd: repo.root });
+
+      assert.equal(
+        await code(runPrepare(runtime, parseArgs('prepare', ['--activity', 'plan'], PREPARE_OPTIONS))),
+        'preparation-blocked',
+      );
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it('blocks rather than silently omitting when an applicable prompt changed on disk between policy resolution and content delivery', async () => {
+    const repo = await repoWithPlanningPack();
+    try {
+      const promptPath = path.join(repo.root, '.ambicode/policies/prompts/before-work.md');
+      const original = await nodeFileSystem.readText(promptPath);
+
+      // A fake FileSystem that returns the original content on the resolver's
+      // own read (used to compute the recorded contentHash) and a changed
+      // body on every read after that, simulating a same-run race between
+      // policy resolution and content delivery without needing two processes.
+      // `resolveInsideBoundary` realpath-resolves the path before reading it,
+      // so match by suffix rather than by exact string identity with the
+      // (non-realpath'd) path this test built.
+      let reads = 0;
+      const racedFs: FileSystem = {
+        ...nodeFileSystem,
+        readText: async (absolutePath: string) => {
+          if (!absolutePath.endsWith('before-work.md')) return nodeFileSystem.readText(absolutePath);
+          reads += 1;
+          return reads === 1 ? original : `${original}\nchanged after policy resolution\n`;
+        },
+      };
+      const runtime = await createRuntime({ cwd: repo.root, fs: racedFs });
+
+      assert.equal(
+        await code(runPrepare(runtime, parseArgs('prepare', ['--activity', 'plan'], PREPARE_OPTIONS))),
+        'preparation-blocked',
+      );
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it('blocks on a pack-level error diagnostic (invalid YAML) rather than returning a partial policy', async () => {
+    const repo = await repoWithPlanningPack();
+    try {
+      await repo.write('.ambicode/policies/planning.yaml', 'not: [valid, yaml,\n');
+      const runtime = await createRuntime({ cwd: repo.root });
+
+      assert.equal(
+        await code(runPrepare(runtime, parseArgs('prepare', ['--activity', 'plan'], PREPARE_OPTIONS))),
+        'preparation-blocked',
+      );
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it('records the measured aggregate context budget against review.maxContextBytes when within it', async () => {
+    const repo = await repoWithPlanningPack();
+    try {
+      const runtime = await createRuntime({ cwd: repo.root });
+      const output = await runPrepare(runtime, parseArgs('prepare', ['--activity', 'plan'], PREPARE_OPTIONS));
+      assert.equal(output.contextBudget.limitBytes, 524_288);
+      assert.ok(output.contextBudget.measuredBytes > 0);
+      assert.ok(output.contextBudget.measuredBytes <= output.contextBudget.limitBytes);
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it('blocks aggregate overflow from several individually valid prompts, even though none alone exceeds the per-file limit', async () => {
+    const repo = await repoWithPlanningPack();
+    try {
+      // Each pack/prompt is individually tiny and well under
+      // MAX_SNAPSHOT_FILE_BYTES; only the configured aggregate context budget
+      // is small enough for their sum to exceed it.
+      for (const n of [1, 2, 3]) {
+        await repo.write(
+          `.ambicode/policies/extra-${n}.yaml`,
+          [
+            'schemaVersion: 1',
+            `id: extra-${n}`,
+            'authority: inherited',
+            'appliesTo: ["**/*"]',
+            'activities: [plan]',
+            'source:',
+            `  location: "extra pack ${n}"`,
+            'rules: []',
+            'prompts:',
+            '  - stage: before-work',
+            `    file: "./extra-${n}-prompt.md"`,
+            'commandPolicy: []',
+            '',
+          ].join('\n'),
+        );
+        await repo.write(`.ambicode/policies/extra-${n}-prompt.md`, `${'guidance '.repeat(200)}\n`);
+      }
+      await repo.write(
+        '.ambicode/config.yaml',
+        (await nodeFileSystem.readText(path.join(repo.root, '.ambicode/config.yaml')))
+          .replace('maxContextBytes: 524288', 'maxContextBytes: 800')
+          .replace('policyFiles: [".ambicode/policies/planning.yaml"]',
+            'policyFiles: [".ambicode/policies/planning.yaml", ".ambicode/policies/extra-1.yaml", ".ambicode/policies/extra-2.yaml", ".ambicode/policies/extra-3.yaml"]'),
+      );
+      const runtime = await createRuntime({ cwd: repo.root });
+
+      assert.equal(
+        await code(runPrepare(runtime, parseArgs('prepare', ['--activity', 'plan'], PREPARE_OPTIONS))),
+        'preparation-too-large',
+      );
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it('blocks aggregate overflow from a requirement plus applicable prompt content together', async () => {
+    const repo = await repoWithPlanningPack();
+    try {
+      await repo.write(
+        '.ambicode/config.yaml',
+        (await nodeFileSystem.readText(path.join(repo.root, '.ambicode/config.yaml'))).replace(
+          'maxContextBytes: 524288',
+          'maxContextBytes: 900',
+        ),
+      );
+      await repo.write(
+        'evidence.json',
+        JSON.stringify({
+          mcpServer: null,
+          sources: [
+            {
+              id: 'ORD-1',
+              url: 'https://example.atlassian.net/browse/ORD-1',
+              title: 'A large requirement',
+              retrievedAt: '2026-09-20T09:00:00.000Z',
+              content: 'requirement text '.repeat(200),
+              status: 'retrieved',
+              retrievedVia: 'mcp__atlassian__getJiraIssue',
+            },
+          ],
+          conflicts: [],
+        }),
+      );
+      const runtime = await createRuntime({ cwd: repo.root });
+
+      assert.equal(
+        await code(
+          runPrepare(
+            runtime,
+            parseArgs(
+              'prepare',
+              [
+                '--activity',
+                'plan',
+                '--requirement',
+                'https://example.atlassian.net/browse/ORD-1',
+                '--evidence',
+                path.join(repo.root, 'evidence.json'),
+              ],
+              PREPARE_OPTIONS,
+            ),
+          ),
+        ),
+        'preparation-too-large',
+      );
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it('does not claim provenance for a filtered before-review prompt on "plan" or "investigate"', async () => {
+    const repo = await repoWithPlanningPack();
+    try {
+      const runtime = await createRuntime({ cwd: repo.root });
+      for (const activity of ['plan', 'investigate']) {
+        const output = await runPrepare(runtime, parseArgs('prepare', ['--activity', activity], PREPARE_OPTIONS));
+        assert.ok(
+          !output.provenance.some((entry) => entry.kind === 'prompt' && entry.reference.includes('before-review')),
+          `${activity} must not claim provenance for the filtered-out before-review prompt`,
+        );
+        // Every prompt-kind provenance entry corresponds to actually-delivered content.
+        const deliveredReferences = new Set(
+          output.policy.prompts.map((prompt) => `${prompt.packReference}:${prompt.declaredPath}@${prompt.stage}`),
+        );
+        for (const entry of output.provenance.filter((candidate) => candidate.kind === 'prompt')) {
+          assert.ok(deliveredReferences.has(entry.reference), `provenance entry ${entry.reference} was not actually delivered`);
+        }
+      }
     } finally {
       await repo.dispose();
     }
