@@ -5,6 +5,7 @@ import { BUNDLE_OPTIONS } from './commands/bundle.ts';
 import { CONFIG_OPTIONS } from './commands/config.ts';
 import { INIT_OPTIONS } from './commands/init.ts';
 import { POLICY_OPTIONS } from './commands/policy.ts';
+import { PREPARE_OPTIONS } from './commands/prepare.ts';
 import { REVIEW_OPTIONS } from './commands/review.ts';
 import { SPECS as COMMAND_SPECS, USAGE } from './main.ts';
 import { isAmbicodeError } from '../util/errors.ts';
@@ -13,6 +14,7 @@ const SPECS: Record<string, OptionSpec> = {
   init: INIT_OPTIONS,
   config: CONFIG_OPTIONS,
   policy: POLICY_OPTIONS,
+  prepare: PREPARE_OPTIONS,
   review: REVIEW_OPTIONS,
   bundle: BUNDLE_OPTIONS,
 };
@@ -96,8 +98,9 @@ describe('U27 command line arguments', () => {
       assert.equal(error.code, 'bad-argument');
       assert.match(error.message, /takes no positional arguments/);
     }
-    // Policy is the one command whose operands are data.
+    // Policy and prepare are the commands whose operands are data.
     assert.deepEqual(parseArgs('policy', ['src/app.ts'], POLICY_OPTIONS).positionals, ['src/app.ts']);
+    assert.deepEqual(parseArgs('prepare', ['src/app.ts'], PREPARE_OPTIONS).positionals, ['src/app.ts']);
   });
 
   it('collects repeatable requirement URLs in the order they were given', () => {

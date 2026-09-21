@@ -6,6 +6,7 @@ import { BUNDLE_OPTIONS, renderBundle, runBundle } from './commands/bundle.ts';
 import { CONFIG_OPTIONS, renderConfig, runConfig } from './commands/config.ts';
 import { INIT_OPTIONS, renderInit, runInit } from './commands/init.ts';
 import { POLICY_OPTIONS, renderPolicy, runPolicy } from './commands/policy.ts';
+import { PREPARE_OPTIONS, renderPrepare, runPrepare } from './commands/prepare.ts';
 import { REVIEW_OPTIONS, renderReview, runReview } from './commands/review.ts';
 import { VIEW_OPTIONS, renderView, runView, type ViewOutput } from './commands/view.ts';
 import { validateTargetArgs } from './target-option.ts';
@@ -25,6 +26,24 @@ export const USAGE = `ambicode <command> [options]
   policy [paths...]       Print the policy that applies.
                             --project <id>
                             --activity <review|task|plan|investigate>
+
+  prepare [paths...]      The smallest shared preparation for a skill that has
+                          not yet decided what to do: normalized requirement
+                          provenance and applicable policy. No provider,
+                          reviewer, or publication call; no project command or
+                          configured check runs; nothing is written.
+                            --activity <review|task|plan|investigate>  Required.
+                            --project <id>        Required when more than one
+                                                  project is configured and the
+                                                  given paths do not resolve to
+                                                  exactly one of them.
+                            --requirement <url>   Jira or Confluence URL;
+                                                  repeatable. Without any, this
+                                                  is a source-free run.
+                            --evidence <file>     The retrieved requirement
+                                                  evidence the calling session
+                                                  wrote. Required whenever
+                                                  --requirement is used.
 
   review                  The full review: pin the target, snapshot it, run the
                           affected checks, and put the result to an isolated
@@ -119,6 +138,7 @@ export const SPECS: Record<string, OptionSpec | undefined> = {
   init: INIT_OPTIONS,
   config: CONFIG_OPTIONS,
   policy: POLICY_OPTIONS,
+  prepare: PREPARE_OPTIONS,
   review: REVIEW_OPTIONS,
   bundle: BUNDLE_OPTIONS,
   view: VIEW_OPTIONS,
@@ -145,6 +165,10 @@ async function dispatch(command: string, args: ParsedArgs): Promise<Rendered> {
     case 'policy': {
       const output = await runPolicy(runtime, args);
       return { text: renderPolicy(output), data: output };
+    }
+    case 'prepare': {
+      const output = await runPrepare(runtime, args);
+      return { text: renderPrepare(output), data: output };
     }
     case 'review': {
       const output = await runReview(runtime, args);

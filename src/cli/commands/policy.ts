@@ -33,7 +33,7 @@ export interface PolicyOutput {
  */
 export async function runPolicy(runtime: Runtime, args: ParsedArgs): Promise<PolicyOutput> {
   const workspace = await openWorkspace(runtime);
-  const paths = args.positionals.map((value) => toRepositoryRelative(workspace, value));
+  const paths = await Promise.all(args.positionals.map((value) => toRepositoryRelative(workspace, value)));
 
   const activityInput = args.value('activity') ?? 'review';
   const activity = Activity.safeParse(activityInput);

@@ -84,7 +84,8 @@ export function resolveTargetOptions(
   };
 }
 
-function absoluteEvidencePath(runtime: Runtime, value: string | null): string | null {
+/** Shared with `prepare`, so the two commands resolve `--evidence` identically. */
+export function absoluteEvidencePath(runtime: Runtime, value: string | null): string | null {
   if (value === null) return null;
   return path.isAbsolute(value) ? value : path.resolve(runtime.cwd, value);
 }

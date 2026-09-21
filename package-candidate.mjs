@@ -6,7 +6,7 @@
 // short list here than as configuration for a generic bundler plugin.
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,20 +17,39 @@ const DIST = path.join(ROOT, 'dist');
 // Directories copied wholesale, filtered to these extensions and skipping any
 // dotfile (so a stray `.DS_Store` or similar workstation file never ships).
 // This is the "everything required at runtime" list from doc 03 P1.7 §1.
+//
+// `docs/` is deliberately NOT copied wholesale (doc 03 P1.7 correction B): a
+// recursive copy picked up `docs/acceptance/**` — this repository's own dated
+// acceptance records — which is build evidence, not a shipped document, and
+// silently changed the candidate's file count between one packaging run and
+// the acceptance record that described it. Shipped documentation is instead
+// an explicit list in FILE_ALLOWLIST below, the same way the runtime files are.
 const DIRECTORY_ALLOWLIST = [
   { from: 'skills', extensions: ['.md'] },
   { from: 'prompts', extensions: ['.md'] },
   { from: 'policies', extensions: ['.yaml', '.md'] },
   { from: 'templates', extensions: ['.eta', '.css'] },
-  { from: 'docs', extensions: ['.md'] },
 ];
 
-// Individual files, each with the mode the installed copy must carry.
+// Individual files, each with the mode the installed copy must carry. This is
+// the complete shipped-document allowlist for `docs/`: acceptance records,
+// the release/pilot-owner checklist and anything else under `docs/` not named
+// here is deliberately excluded from the candidate.
 const FILE_ALLOWLIST = [
   { from: '.claude-plugin/plugin.json', mode: 0o644 },
   { from: 'bin/ambicode', mode: 0o755 },
   { from: 'scripts/ambicode.mjs', mode: 0o644 },
+  { from: 'docs/installation.md', mode: 0o644 },
+  { from: 'docs/compatibility.md', mode: 0o644 },
+  { from: 'docs/review.md', mode: 0o644 },
+  { from: 'docs/rule-migration.md', mode: 0o644 },
 ];
+
+// Fixed so two packaging runs of identical content produce identical zip
+// bytes (doc 03 P1.7 correction B): a freshly copied file's real mtime would
+// otherwise differ between two runs a second apart and change every zip entry
+// that carries a timestamp, even though nothing shipped actually changed.
+const REPRODUCIBLE_MTIME = new Date('2020-01-01T00:00:00Z');
 
 async function readJson(relativePath) {
   return JSON.parse(await readFile(path.join(ROOT, relativePath), 'utf8'));
@@ -86,6 +105,15 @@ async function buildCandidate(candidateDir) {
   }
   for (const dir of DIRECTORY_ALLOWLIST) {
     await copyAllowedTree(path.join(ROOT, dir.from), path.join(candidateDir, dir.from), dir.extensions);
+  }
+  await normalizeTimestamps(candidateDir);
+}
+
+/** Every shipped file gets the same fixed mtime, so byte-reproducibility does
+ * not depend on how quickly two packaging runs happen one after another. */
+async function normalizeTimestamps(candidateDir) {
+  for (const relativePath of await walkFiles(candidateDir)) {
+    await utimes(path.join(candidateDir, relativePath), REPRODUCIBLE_MTIME, REPRODUCIBLE_MTIME);
   }
 }
 
@@ -153,6 +181,27 @@ async function checkNoForbiddenDependencies(candidateDir) {
   }
 }
 
+/**
+ * Zips the already-built `<stagingParent>/ambicode-<version>` directory. Every
+ * shipped file already carries the fixed `REPRODUCIBLE_MTIME`, the file list
+ * is explicit and sorted rather than left to `-r`'s own traversal order, `-D`
+ * omits directory entries (which carry no content but do carry a timestamp),
+ * `-X` strips extra per-entry attributes, and a fixed `TZ` makes the embedded
+ * MS-DOS timestamp independent of the machine's local zone — together this is
+ * what makes the archive byte-identical across two independent packaging runs
+ * of the same source (doc 03 P1.7 correction B), not only the same file set.
+ */
+async function buildZip(stagingParent, version) {
+  const entryName = `ambicode-${version}`;
+  const files = (await walkFiles(path.join(stagingParent, entryName))).sort();
+  const zipPath = path.join(stagingParent, `${entryName}.zip`);
+  await rm(zipPath, { force: true });
+  const args = ['-X', '-D', zipPath, ...files.map((relativePath) => `${entryName}/${relativePath}`)];
+  execFileSync('zip', args, { cwd: stagingParent, stdio: 'inherit', env: { ...process.env, TZ: 'UTC' } });
+  const sha256 = createHash('sha256').update(await readFile(zipPath)).digest('hex');
+  return { zipPath, sha256 };
+}
+
 async function main() {
   // Always packages a freshly compiled helper, never whatever `scripts/`
   // happens to hold from an earlier run (doc 03 P1.7 §1: installation must
@@ -172,12 +221,11 @@ async function main() {
   const inventoryPath = path.join(DIST, `ambicode-${version}.inventory.json`);
   await writeFile(inventoryPath, `${JSON.stringify({ version, files: inventory }, null, 2)}\n`);
 
-  // Zipped so the private marketplace's `archive` source type (sha256-pinned)
-  // can install it once the release owner hosts it; see doc 03 P1.7 §3.
-  const zipPath = path.join(DIST, `ambicode-${version}.zip`);
-  await rm(zipPath, { force: true });
-  execFileSync('zip', ['-rX', zipPath, `ambicode-${version}`], { cwd: DIST, stdio: 'inherit' });
-  const zipDigest = createHash('sha256').update(await readFile(zipPath)).digest('hex');
+  // The zip is an optional, byte-reproducible convenience artifact, not part
+  // of local installation: `install-local.mjs` installs the candidate
+  // directory itself (doc 03 P1.7 correction C — installation is local, and a
+  // local-path marketplace source needs no archive).
+  const { zipPath, sha256: zipDigest } = await buildZip(DIST, version);
   await writeFile(path.join(DIST, `ambicode-${version}.zip.sha256`), `${zipDigest}  ambicode-${version}.zip\n`);
 
   console.log(`Candidate directory: ${candidateDir}`);
@@ -190,8 +238,8 @@ async function main() {
 /**
  * Packages twice, into two independent temporary directories built from the
  * same checked-out source and the same lockfile, and asserts the resulting
- * file set and every content hash are identical (doc 03 P1.7 §2, "a check
- * that rebuilding ... produces the intended file set").
+ * file set, every content hash, and the zip's own bytes are identical (doc 03
+ * P1.7 correction B: "compare the two zip SHA-256 values").
  */
 async function checkReproducible() {
   // Rebuilds the bundle itself between the two packaging attempts, so this
@@ -201,21 +249,38 @@ async function checkReproducible() {
   const first = await packageInto(await mkdtemp(path.join(tmpdir(), 'ambicode-repro-a-')));
   execFileSync('node', ['build.mjs'], { cwd: ROOT, stdio: 'inherit' });
   const second = await packageInto(await mkdtemp(path.join(tmpdir(), 'ambicode-repro-b-')));
-  const a = JSON.stringify(first);
-  const b = JSON.stringify(second);
-  if (a !== b) {
+
+  if (JSON.stringify(first.inventory) !== JSON.stringify(second.inventory)) {
     throw new Error('Two packaging runs from the same source produced different file sets or hashes.');
   }
-  console.log(`Reproducible: ${first.length} files, identical paths, sizes and sha256 digests across two runs.`);
+  if (first.zipSha256 !== second.zipSha256) {
+    throw new Error(
+      `Two packaging runs produced the same file set but different zip bytes ` +
+        `(${first.zipSha256} vs ${second.zipSha256}). The archive is not reproducible even though its contents are.`,
+    );
+  }
+  console.log(
+    `Reproducible: ${first.inventory.length} files, identical paths/sizes/sha256 digests, ` +
+      `and identical zip sha256 (${first.zipSha256}) across two independent runs.`,
+  );
 }
 
-async function packageInto(candidateDir) {
+/** Builds into `<parentDir>/ambicode-<version>` so both reproducibility
+ * attempts produce the same in-zip entry name regardless of their own
+ * (necessarily distinct) temporary parent directory. */
+async function packageInto(parentDir) {
+  const version = await canonicalVersion();
+  const candidateDir = path.join(parentDir, `ambicode-${version}`);
   await buildCandidate(candidateDir);
   const inventory = await inventoryOf(candidateDir);
-  await rm(candidateDir, { recursive: true, force: true });
-  // The version and mtimes are not part of the comparison; only the shipped
-  // file set and its content, which is what "the same file set" means here.
-  return inventory.map(({ path: p, bytes, sha256, mode }) => ({ path: p, bytes, sha256, mode }));
+  const { sha256: zipSha256 } = await buildZip(parentDir, version);
+  await rm(parentDir, { recursive: true, force: true });
+  // The version is not part of the file-set comparison; only the shipped
+  // content, which is what "the same file set" means here.
+  return {
+    inventory: inventory.map(({ path: p, bytes, sha256, mode }) => ({ path: p, bytes, sha256, mode })),
+    zipSha256,
+  };
 }
 
 const mode = process.argv[2];

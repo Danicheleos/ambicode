@@ -1,5 +1,11 @@
 # P1.7 candidate acceptance record — 2026-09-21
 
+**Superseded by `docs/acceptance/2026-09-21-p2.1-candidate/`**, which corrects
+this record's lease-reclaim, packaging-allowlist, and hosted-marketplace
+findings (doc 03 P1.7 corrections A–C) and adds the P2.1 result. This record
+is kept for its still-accurate M01–M04/M12/M14 evidence and is otherwise
+historical; do not read its packaging/distribution sections as current.
+
 This is a locally prepared and locally verified candidate, not a released
 version. Sections below use exactly `passed`, `failed`, `pending`, or `not
 applicable`. "Unavailable" is never written as "passed."

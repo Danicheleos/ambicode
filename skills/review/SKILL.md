@@ -103,56 +103,10 @@ and submitting the page's form does that.
 
 ## Requirements
 
-You hold the MCP connection. The helper does not, and never will: it has no
-Atlassian client and no credentials. So you retrieve, and you hand over what you
-got.
-
-1. Check `ambicode config` for `requirements.mcpServer`. That is the server this
-   repository is bound to.
-   - If it is `null` and exactly one compatible Jira/Confluence MCP server is
-     connected, use it and tell the user to record it in
-     `.ambicode/config.yaml` so later reviews are pinned to it.
-   - If it is `null` and **more than one** compatible server is connected, ask
-     the user which one to use before retrieving anything. Do not pick one.
-   - If it names a server that is not connected, say so and stop. Do not
-     substitute another server.
-2. Retrieve each URL with that server's read tools.
-3. Write one evidence file, for example `.ambicode/reviews/evidence.json`:
-
-```json
-{
-  "mcpServer": "atlassian",
-  "sources": [
-    {
-      "id": "ORD-17",
-      "url": "https://example.atlassian.net/browse/ORD-17",
-      "title": "Reject negative order amounts",
-      "retrievedAt": "2026-09-20T09:00:00.000Z",
-      "sourceVersion": "12",
-      "updatedAt": "2026-09-19T17:30:00.000Z",
-      "content": "…the text you retrieved, verbatim…",
-      "citations": ["ORD-17 description"],
-      "status": "retrieved",
-      "failureReason": null,
-      "retrievedVia": "mcp__atlassian__getJiraIssue"
-    }
-  ],
-  "conflicts": []
-}
-```
-
-   - `id` is a short stable handle the reviewer cites in `requirementRefs`.
-   - `sourceVersion` and `updatedAt` are the source's own, or `null`. Never
-     invent one.
-   - `status` is `retrieved`, `unavailable`, `forbidden` or `not-found`. If you
-     could not read it, say so here with a `failureReason` rather than leaving
-     it out or summarizing from memory.
-   - `content` is what the document says. Do not paraphrase it into a
-     requirement you think it implies.
-   - `conflicts` is where you report a contradiction you noticed between two
-     documents: `{"summary": "...", "sourceIds": ["A", "B"]}`. Code cannot find
-     these in prose; you can.
-4. Run the review:
+Follow `skills/shared/requirements-mcp.md` (read it now if you have not
+already this session) to retrieve every named source and write the evidence
+file. It covers the MCP binding, the evidence format, and what a failure
+means; `investigate` follows the same procedure. Then run the review:
 
 ```sh
 ambicode review \

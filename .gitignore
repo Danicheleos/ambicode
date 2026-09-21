@@ -19,6 +19,7 @@ __pycache__/
 
 # AMBICODE runtime and evaluation output
 /.ambicode/reviews/
+/.ambicode/notes/
 /evals/results/
 /eval-results.json
 

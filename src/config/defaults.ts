@@ -57,6 +57,8 @@ export const CONFIG_DIR = '.ambicode';
 export const CONFIG_FILE = '.ambicode/config.yaml';
 export const REVIEWS_DIR = '.ambicode/reviews';
 export const PROJECT_POLICIES_DIR = '.ambicode/policies';
+/** Optional investigation/task/plan notes (doc 02, "Storage and ownership"); local, never versioned. */
+export const NOTES_DIR = '.ambicode/notes';
 
 /** Entries first-run setup may add, preserving whatever the file already holds. */
-export const IGNORE_ENTRIES = ['.ambicode/reviews/'];
+export const IGNORE_ENTRIES = ['.ambicode/reviews/', '.ambicode/notes/'];

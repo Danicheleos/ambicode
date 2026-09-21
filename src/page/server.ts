@@ -342,6 +342,7 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
       const lease = await acquirePublicationLease({
         fs: options.fs,
         clock: options.clock,
+        ids: options.ids,
         reviewDirectory: options.store.directory,
         reviewId: options.result.reviewId,
         submissionId: parsed.submissionId,

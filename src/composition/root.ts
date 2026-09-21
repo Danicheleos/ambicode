@@ -148,8 +148,28 @@ export async function resolvePolicyFor(options: ResolvePolicyOptions): Promise<R
   });
 }
 
-/** Repository-relative form of a path the user typed, wherever they typed it from. */
-export function toRepositoryRelative(workspace: Workspace, value: string): string {
+/**
+ * Repository-relative form of a path the user typed, wherever they typed it
+ * from. Resolves through realpath when the target exists, because
+ * `repositoryRoot` is git's own realpath'd top level (`git rev-parse
+ * --show-toplevel`): on a host where `cwd` reaches the repository through a
+ * symlinked prefix (macOS's `/tmp` and `/var` are themselves symlinks), a
+ * purely lexical `path.relative` against the two would produce a nonsense
+ * `../../..` path and every path-derived decision downstream of it — project
+ * resolution among them — would silently fail. A target that does not exist
+ * yet falls back to the lexical form, which is what deleted/renamed diff
+ * paths already need.
+ */
+export async function toRepositoryRelative(workspace: Workspace, value: string): Promise<string> {
   const absolute = path.isAbsolute(value) ? value : path.resolve(workspace.runtime.cwd, value);
-  return normalizeRelative(path.relative(workspace.repositoryRoot, absolute));
+  const resolved = await realpathIfExists(workspace.runtime.fs, absolute);
+  return normalizeRelative(path.relative(workspace.repositoryRoot, resolved));
+}
+
+async function realpathIfExists(fs: FileSystem, absolute: string): Promise<string> {
+  try {
+    return await fs.realpath(absolute);
+  } catch {
+    return absolute;
+  }
 }
