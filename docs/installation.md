@@ -54,52 +54,81 @@ that takes a packaged candidate and installs it into a chosen
 
 ```sh
 npm run package:candidate
-node install-local.mjs dist/ambicode-<version> /tmp/ambicode-isolated-claude-config
+node install-local.mjs install dist/ambicode-<version> /tmp/ambicode-isolated-claude-config
 ```
 
-This generates a throwaway local marketplace next to the candidate — a
-directory containing a `.claude-plugin/marketplace.json` whose one entry's
-`source` is a local path to a copy of the candidate — and runs, with
+**This installation is durable** (doc 04 P2.2 correction A): Claude Code
+loads a local-directory marketplace's `source` path *in place*, not by
+copying it into its own cache at install time, so a throwaway `/tmp`
+marketplace would silently stop working the moment that directory was
+cleaned up. `install-local.mjs` instead copies the candidate into one
+directory it owns beneath the `CLAUDE_CONFIG_DIR` you passed —
+`<config-dir>/ambicode-install/marketplace/` — and points the marketplace at
+*that* copy. Once `install` finishes, the original `dist/ambicode-<version>`
+directory can be deleted, the terminal can be closed, and `/tmp` can be
+swept: none of that affects the installation, because none of it is what the
+marketplace actually points at any more. Concretely, `install` runs, with
 `CLAUDE_CONFIG_DIR` set to the directory you passed:
 
 ```sh
-claude plugin marketplace add <generated-marketplace-dir>
+claude plugin marketplace add <config-dir>/ambicode-install/marketplace
 claude plugin install ambicode@ambicode-team -s user -y
 ```
 
-The generated marketplace directory is not committed, published, or reused
-between runs; it exists only because a directory-backed marketplace is
-Claude Code's own mechanism for installing a plugin from somewhere other
-than `--plugin-dir`. `claude --plugin-dir .` is not a substitute for testing
-the candidate: it loads the live source tree directly and never exercises
-the packaged artifact, the allowlist, or this install path at all.
+(falling back to `plugin marketplace update` / `plugin update` on a repeat
+install against the same `CLAUDE_CONFIG_DIR`, so installing twice — an
+upgrade included — is idempotent rather than an error).
+
+`claude --plugin-dir .` is not a substitute for testing the candidate: it
+loads the live source tree directly and never exercises the packaged
+artifact, the allowlist, or this install path at all.
 
 Reverse it with:
 
 ```sh
-node install-local.mjs dist/ambicode-<version> /tmp/ambicode-isolated-claude-config --uninstall
+node install-local.mjs uninstall /tmp/ambicode-isolated-claude-config
 ```
 
-which runs `claude plugin uninstall ambicode@ambicode-team -s user -y` then
-`claude plugin marketplace remove ambicode-team` against the same
-`CLAUDE_CONFIG_DIR`. Pass `--scope project` or `--scope local` to install or
-uninstall at another of Claude Code's own scopes.
+Uninstall does **not** take a candidate directory — it reads the installed
+plugin's name and version back out of the durable marketplace manifest under
+`CLAUDE_CONFIG_DIR`, so it works even if `dist/ambicode-<version>` (or the
+whole source checkout it lived in) is long gone. It runs `claude plugin
+uninstall ambicode@ambicode-team -s user -y` then `claude plugin marketplace
+remove ambicode-team`, then removes the `<config-dir>/ambicode-install/`
+directory it owns. It never touches a product repository's `.ambicode/`.
+Pass `--scope project` or `--scope local` to install or uninstall at another
+of Claude Code's own scopes; both require an explicit `--project-dir <dir>`
+(the scope writes into that project's own `.claude/settings.json`, and
+`install-local.mjs` refuses to guess an incidental current working
+directory for that).
+
+Use `node install-local.mjs inspect <config-dir>` at any point to see the
+durable marketplace's recorded plugin identity and to run `claude plugin
+list` against that `CLAUDE_CONFIG_DIR` in a fresh `claude` process.
 
 Using a fresh `CLAUDE_CONFIG_DIR` (confirmed in this session to fully
 isolate settings, session history and plugin state from the real
 `~/.claude`) is what makes this a genuine install test rather than a change
 to whoever runs it.
 
-Verified in this session, both against the 0.1.0 candidate through
-`install-local.mjs` end to end (install, inspect, uninstall) into an
-isolated `CLAUDE_CONFIG_DIR`:
+**Isolated durability smoke test** (`npm run smoke:install-local`,
+`install-local.smoke.mjs`): packages the candidate, copies it to a private
+temporary directory standing in for a source checkout's `dist/`, installs
+into a fresh isolated `CLAUDE_CONFIG_DIR`, inspects it, **deletes that
+candidate copy entirely**, then — in brand new `claude` processes, none of
+them the one that ran the install — confirms `claude plugin list` and
+`claude plugin details ambicode@ambicode-team` still report the plugin and
+all four skills. It then uninstalls (without the deleted candidate directory
+existing) and confirms both the plugin and the durable install directory are
+gone. Run in this session against the 0.1.0 candidate; passed:
 
-- `claude plugin marketplace add` and `claude plugin install ambicode@ambicode-team -s user -y` both succeed.
-- `claude plugin list` shows `ambicode@ambicode-team`, version matching the candidate, status enabled.
-- `claude plugin details ambicode@ambicode-team` reports the three skills — `init`, `review`, `investigate` — the `ambicode:init` / `ambicode:review` / `ambicode:investigate` namespace doc 03 and `docs/compatibility.md` describe, confirmed without a model call.
+- `claude plugin marketplace add` and `claude plugin install ambicode@ambicode-team -s user -y` both succeed, against the durable `<config-dir>/ambicode-install/marketplace`, not a `/tmp` path.
+- `claude plugin list` (a first fresh process) shows `ambicode@ambicode-team`, version matching the candidate, status enabled.
+- The candidate directory used for the install is deleted.
+- `claude plugin list` and `claude plugin details ambicode@ambicode-team` (further fresh processes, run *after* that deletion) still report the plugin, and `details` reports all four skills — `init`, `investigate`, `plan`, `review`.
 - `grep -rl "$(pwd)"` (the source repo's own absolute path) and a search for the operator's `$HOME` across the installed cache tree both come back empty: no developer-specific path in the installed files.
-- `claude plugin validate <candidate-dir> --strict` passes against the packaged directory itself, not only against the source repository.
-- `claude plugin uninstall ambicode@ambicode-team -s user -y` followed by `claude plugin marketplace remove ambicode-team` both succeed, and `claude plugin list` afterward shows no installed plugins.
+- `claude plugin validate <candidate-dir> --strict` passes against the packaged directory itself, not only against the source repository (run separately as part of `npm run verify`).
+- `claude plugin uninstall ambicode@ambicode-team -s user -y` followed by `claude plugin marketplace remove ambicode-team` both succeed without the deleted candidate directory, `claude plugin list` (a further fresh process) afterward shows no installed plugins, and `<config-dir>/ambicode-install/` no longer exists.
 
 ## Hosted or remote marketplace distribution: out of scope
 
@@ -115,17 +144,22 @@ default extension of local installation.
 
 ## Upgrade
 
-The straightforward path matches how the candidate was installed: package
-the new version and run `install-local.mjs --uninstall` against the old one,
-then a plain install of the new one (each generates its own temporary
-marketplace, so there is nothing stale to update). If you kept a generated
-marketplace directory and overwrite the candidate copy inside it in place,
-Claude Code's native update mechanism also works unmodified:
+Package the new version and run `install` again against the same
+`CLAUDE_CONFIG_DIR`:
 
 ```sh
-claude plugin marketplace update ambicode-team
-claude plugin update ambicode@ambicode-team
+npm run package:candidate
+node install-local.mjs install dist/ambicode-<new-version> /tmp/ambicode-isolated-claude-config
 ```
+
+This is idempotent, not merely repeatable: `install` replaces the durable
+copy under `<config-dir>/ambicode-install/marketplace/` in place (removing
+the previous version's copy so it does not accumulate), rewrites the
+marketplace manifest, then falls back from `plugin marketplace add` /
+`plugin install` to `plugin marketplace update` / `plugin update` when
+Claude Code already knows this marketplace — the same native commands doc
+08 ("Distribution") describes, now driven against a durable path instead of
+one you would have to remember to update by hand.
 
 Reopen any review with `ambicode view --review <id>` after an upgrade rather
 than assuming an in-flight review's pinned policy changed; it does not (doc
@@ -152,34 +186,46 @@ sandbox.
 ## Uninstall
 
 ```sh
-claude plugin uninstall ambicode@ambicode-team -s user
+node install-local.mjs uninstall /tmp/ambicode-isolated-claude-config
 ```
 
-Verified in this session: `claude plugin list` afterward shows no
-installed plugins, and a product repository's `.ambicode/config.yaml` and
-`.ambicode/reviews/**` created before the uninstall were byte-for-byte
-untouched (checked with `find` before and after). AMBICODE's own
-uninstall path never runs against project files, because it has none: all
-project-owned state lives under the product repository's own
-`.ambicode/`, not under the plugin installation.
+which runs `claude plugin uninstall ambicode@ambicode-team -s user -y`, then
+`claude plugin marketplace remove ambicode-team`, then removes the
+`<config-dir>/ambicode-install/` directory `install-local.mjs` itself owns —
+the durable marketplace copy, not anything Claude Code's own cache manages.
+It reads the plugin's name and version back out of that directory's
+marketplace manifest, so it needs no candidate directory (doc 04 P2.2
+correction A): a source checkout's `dist/ambicode-<version>` can be long
+gone and uninstall still works, as confirmed by `npm run
+smoke:install-local` above.
 
-The plugin's cached files under Claude Code's own
-`plugins/cache/<marketplace>/<plugin>/<version>/` were **not** removed by
-this uninstall in the observed run — that is Claude Code's own cache
-behavior, not something AMBICODE controls. `claude plugin uninstall
---keep-data` additionally preserves the plugin's `CLAUDE_PLUGIN_DATA`
-directory if one exists; AMBICODE does not use `CLAUDE_PLUGIN_DATA` today,
-so this flag has no additional effect for AMBICODE specifically as of this
-version.
+Verified in this session: `claude plugin list` afterward shows no
+installed plugins, `<config-dir>/ambicode-install/` no longer exists, and a
+product repository's `.ambicode/config.yaml` and `.ambicode/reviews/**`
+created before the uninstall were byte-for-byte untouched (checked with
+`find` before and after). AMBICODE's own uninstall path never runs against
+project files, because it has none: all project-owned state lives under the
+product repository's own `.ambicode/`, not under the plugin installation or
+anywhere beneath `CLAUDE_CONFIG_DIR`.
+
+If you instead run the raw native commands by hand (`claude plugin
+uninstall ambicode@ambicode-team -s user`), Claude Code's own cached files
+under `plugins/cache/<marketplace>/<plugin>/<version>/` are **not** removed
+— that is Claude Code's own cache behavior, not something AMBICODE
+controls, and `install-local.mjs uninstall` does not touch it either.
+`claude plugin uninstall --keep-data` additionally preserves the plugin's
+`CLAUDE_PLUGIN_DATA` directory if one exists; AMBICODE does not use
+`CLAUDE_PLUGIN_DATA` today, so this flag has no additional effect for
+AMBICODE specifically as of this version.
 
 ## Rollback
 
 Native plugin management, not a rewritten branch, is the rollback path
 (doc 08, "Rollback and cleanup"): disable or uninstall the candidate, then
-install the previously published immutable version. No real previously
-published version of AMBICODE exists yet, so this session demonstrated the
-*mechanism* with two local, clearly-labeled test candidates rather than
-claiming a real rollback:
+install the previously built version. No real previously released version
+of AMBICODE exists yet. A prior session (P1.7) demonstrated the *mechanism*
+against the earlier throwaway-marketplace install path with two local,
+clearly-labeled test candidates:
 
 ```sh
 # marketplace.json's ambicode entry pointed at ./ambicode-0.0.1-rollback-demo,
@@ -190,7 +236,20 @@ claude plugin update ambicode@ambicode-team
 # -> "Plugin ambicode updated from 0.1.0 to 0.0.1-rollback-demo for scope user."
 ```
 
-That output is the actual mechanism a real rollback uses. **Pending**: an
+The underlying native commands are unchanged by this release's durable
+install directory (doc 04 P2.2 correction A) — only the concrete path
+`install-local.mjs` points the marketplace at moved, from a throwaway
+`/tmp` directory to `<config-dir>/ambicode-install/marketplace/`. The
+straightforward equivalent with the current `install-local.mjs` is simply
+`install`ing the older candidate again:
+
+```sh
+node install-local.mjs install dist/ambicode-<older-version> /tmp/ambicode-isolated-claude-config
+```
+
+using `install`'s own replace-in-place idempotency (see "Upgrade" above) to
+go backwards exactly as it goes forwards. **Pending**: rerunning this
+specific demonstration against the current `install-local.mjs`, and an
 actual rollback between two genuinely different released versions, which
 needs a first real release to exist.
 
@@ -200,7 +259,9 @@ needs a first real release to exist.
 | --- | --- | --- |
 | `<product repo>/.ambicode/config.yaml`, policy packs, prompt files | The product repository, versioned | Never |
 | `<product repo>/.ambicode/reviews/` (results, drafts, publication history) | The product repository, gitignored | Never |
+| `<product repo>/.ambicode/notes/` (investigation/plan notes) | The product repository, gitignored | Never |
 | Temporary sanitized code snapshots (`ambicode-snapshot-*`, `ambicode-page-*`, …) | The current run; owned by AMBICODE's own marker file | Swept automatically once expired, at the next `ambicode view` |
+| `<config-dir>/ambicode-install/` (durable local marketplace + candidate copy) | `install-local.mjs`, under the `CLAUDE_CONFIG_DIR` you chose | Yes — `install-local.mjs uninstall` removes exactly this directory |
 | `~/.claude/plugins/cache/<marketplace>/ambicode/<version>/` | Claude Code | Native behavior; observed **not** removed on uninstall in this session — remove it yourself if you want the disk space back |
 | `~/.claude/plugins/data/ambicode/` (`CLAUDE_PLUGIN_DATA`), if it ever exists | Claude Code | Removed on uninstall from all scopes unless `--keep-data`; unused by AMBICODE today |
 

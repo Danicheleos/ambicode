@@ -186,6 +186,7 @@ async function loadOne(
       resolvedPrompts.push({
         packId: pack.id,
         packReference: reference,
+        authority: pack.authority,
         stage: promptRef.stage,
         absolutePath,
         declaredPath: promptRef.file,

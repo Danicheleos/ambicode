@@ -1,10 +1,16 @@
 import { z } from 'zod';
 import { COMPLETE_COVERAGE, RemoteDiscussion, RemoteTarget, ReviewCoverage } from './provider.ts';
 import { CheckStatus, Confidence, ReviewStatus, Risk, TargetKind } from './primitives.ts';
+import { ProvenanceEntry, RequirementConflict, RequirementSource } from './requirements.ts';
 
 /** Persisted review schemas (doc 02, "Shared contracts"). */
 
 export const REVIEW_SCHEMA_VERSION = 1;
+
+// Requirement/source-presence types are activity-neutral (doc 04 P2.2
+// correction C) and live on `./requirements.ts`; re-exported here so this
+// module's existing importers do not need to change their import path.
+export { ProvenanceEntry, RequirementConflict, RequirementSource };
 
 export const ReviewTarget = z.strictObject({
   kind: TargetKind,
@@ -19,36 +25,6 @@ export const ReviewTarget = z.strictObject({
   notes: z.array(z.string()).default([]),
 });
 export type ReviewTarget = z.infer<typeof ReviewTarget>;
-
-export const RequirementSource = z.strictObject({
-  id: z.string().min(1),
-  url: z.string().min(1),
-  title: z.string(),
-  retrievedAt: z.string().min(1),
-  sourceVersion: z.string().nullable().default(null),
-  updatedAt: z.string().nullable().default(null),
-  content: z.string(),
-  citations: z.array(z.string()).default([]),
-  status: z.enum(['retrieved', 'unavailable', 'forbidden', 'not-found']),
-  /** Required whenever status is not `retrieved`. */
-  failureReason: z.string().nullable().default(null),
-  /** Tool the outer session used, recorded as provenance. */
-  retrievedVia: z.string().min(1),
-});
-export type RequirementSource = z.infer<typeof RequirementSource>;
-
-/**
- * A contradiction between requirement sources. Code detects structural cases;
- * the outer session declares the ones only a reader can see (doc 05). Either
- * way the review stops before checks or the model (doc 02).
- */
-export const RequirementConflict = z.strictObject({
-  summary: z.string().min(1),
-  /** Requirement source IDs that disagree. */
-  sourceIds: z.array(z.string().min(1)).min(2),
-  detectedBy: z.enum(['helper', 'session']),
-});
-export type RequirementConflict = z.infer<typeof RequirementConflict>;
 
 export const SelectedFile = z.strictObject({
   path: z.string().min(1),
@@ -122,13 +98,6 @@ export const ReviewerOutput = z.strictObject({
 });
 export type ReviewerOutput = z.infer<typeof ReviewerOutput>;
 
-export const ProvenanceEntry = z.strictObject({
-  kind: z.enum(['prompt', 'pack', 'config', 'requirement']),
-  reference: z.string().min(1),
-  contentHash: z.string().min(1),
-});
-export type ProvenanceEntry = z.infer<typeof ProvenanceEntry>;
-
 /** What the reviewer was measured against, so a refusal can be reproduced. */
 export const ReviewInputs = z.strictObject({
   changedFiles: z.number().int().nonnegative(),
@@ -176,6 +145,16 @@ export const ReviewerRun = z.strictObject({
 });
 export type ReviewerRun = z.infer<typeof ReviewerRun>;
 
+/**
+ * `ReviewResult`'s own historical spelling of the canonical `RequirementMode`
+ * (`./requirements.ts`): `quality-review` where the canonical value is
+ * `source-free`. This is the one place that mapping happens — when a
+ * `ReviewResult` is built (`src/review/bundle.ts`) — so the persisted review
+ * contract (doc 02) is unaffected by doc 04 P2.2 correction C.
+ */
+export const ReviewRequirementMode = z.enum(['quality-review', 'requirement-based']);
+export type ReviewRequirementMode = z.infer<typeof ReviewRequirementMode>;
+
 export const ReviewResult = z.strictObject({
   schemaVersion: z.literal(REVIEW_SCHEMA_VERSION),
   reviewId: z.string().min(1),
@@ -185,7 +164,7 @@ export const ReviewResult = z.strictObject({
   target: ReviewTarget,
   requirements: z.array(RequirementSource).default([]),
   /** Quality review means no requirement URLs were supplied (doc 02). */
-  requirementMode: z.enum(['quality-review', 'requirement-based']),
+  requirementMode: ReviewRequirementMode,
   requirementConflicts: z.array(RequirementConflict).default([]),
   provenance: z.array(ProvenanceEntry).default([]),
   inputs: ReviewInputs,

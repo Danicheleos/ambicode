@@ -1,5 +1,13 @@
 # P1.7-corrected + P2.1 candidate acceptance record — 2026-09-21
 
+**Superseded by `docs/acceptance/2026-09-21-p2.2-candidate/`**, which corrects
+this record's non-durable local installation, product-repository-relative
+shared-resource reference, review-specific requirement-mode literal, and
+prompt-metadata-only `ambicode prepare` output (P2.1 corrections A–E) and
+adds the P2.2 result. This record is kept for its still-accurate
+M01–M04/M12/M14 evidence and is otherwise historical; do not read its
+installation, shared-resource, or `ambicode prepare` sections as current.
+
 This is a locally prepared and locally verified candidate, not a released
 version. Sections below use exactly `passed`, `failed`, `pending`, or `not
 applicable`. "Unavailable" is never written as "passed." This record

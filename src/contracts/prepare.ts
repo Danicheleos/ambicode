@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { Activity, Authority, CommandAction, PromptStage, RuleCategory } from './primitives.ts';
-import { ProvenanceEntry, RequirementSource } from './review.ts';
+import { ProvenanceEntry, RequirementMode, RequirementSource } from './requirements.ts';
 
 /**
  * The `ambicode prepare` boundary contract (doc 04 P2.1): the smallest shared
@@ -49,9 +49,18 @@ const PrepareRule = z.strictObject({
 const PreparePrompt = z.strictObject({
   packId: z.string().min(1),
   packReference: z.string().min(1),
+  authority: Authority,
   stage: PromptStage,
   declaredPath: z.string().min(1),
   contentHash: z.string().min(1),
+  /**
+   * The prompt's full text, bounded by the same configured limit as a
+   * snapshot file and verified to hash to `contentHash` (doc 04 P2.2
+   * correction D). Investigate/plan apply this content directly; they do not
+   * resolve `declaredPath` against a checkout-specific absolute path
+   * themselves, which would be unusable from an installed plugin cache.
+   */
+  content: z.string(),
 });
 
 const PrepareCommandDecisionSource = z.strictObject({
@@ -84,8 +93,8 @@ export const PrepareOutput = z.strictObject({
   projectId: z.string().min(1),
   /** Repository-relative paths the caller supplied; empty means activity-level content only. */
   paths: z.array(z.string()),
-  /** `quality-review` means no requirement URL was supplied (doc 02 central values), whatever the activity. */
-  requirementMode: z.enum(['quality-review', 'requirement-based']),
+  /** `source-free` means no requirement URL was supplied, whatever the activity (canonical `RequirementMode`). */
+  requirementMode: RequirementMode,
   requirements: z.array(RequirementSource),
   provenance: z.array(ProvenanceEntry),
   notices: z.array(z.string()),

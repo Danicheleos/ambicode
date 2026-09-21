@@ -4,7 +4,8 @@ import {
   RequirementConflict,
   RequirementSource,
   type ProvenanceEntry,
-} from '../contracts/review.ts';
+  type RequirementMode,
+} from '../contracts/requirements.ts';
 import type { FileSystem } from '../ports/filesystem.ts';
 import { AmbicodeError } from '../util/errors.ts';
 import { contentHash } from '../util/hash.ts';
@@ -31,7 +32,7 @@ export const RequirementEvidence = z.strictObject({
 });
 export type RequirementEvidence = z.infer<typeof RequirementEvidence>;
 
-export type RequirementMode = 'quality-review' | 'requirement-based';
+export type { RequirementMode };
 
 export interface NormalizedRequirements {
   mode: RequirementMode;
@@ -52,8 +53,15 @@ export interface NormalizeOptions {
   configuredServer: string | null;
 }
 
-export const QUALITY_REVIEW: NormalizedRequirements = {
-  mode: 'quality-review',
+/**
+ * The activity-neutral "no source was supplied" result (canonical
+ * `RequirementMode`, doc 04 P2.2 correction C). `review` maps this to its own
+ * `quality-review` spelling only when building a `ReviewResult`
+ * (`src/review/bundle.ts`); nothing upstream of that mapping should assume a
+ * review-specific name for "no requirement" applies to every activity.
+ */
+export const SOURCE_FREE: NormalizedRequirements = {
+  mode: 'source-free',
   sources: [],
   conflicts: [],
   mcpServer: null,
@@ -122,8 +130,9 @@ export function normalizeRequirements(options: NormalizeOptions): NormalizedRequ
         },
       );
     }
-    // No supplied source means a quality review is the honest answer (D04).
-    return { ...QUALITY_REVIEW, notices: [] };
+    // No supplied source means a source-free run is the honest answer (D04);
+    // for review that reads as "quality review" once ReviewResult is built.
+    return { ...SOURCE_FREE, notices: [] };
   }
 
   for (const url of urls) assertRetrievableUrl(url);

@@ -7,11 +7,17 @@ import {
   type Runtime,
 } from '../../composition/root.ts';
 import { Activity } from '../../contracts/primitives.ts';
-import type { ResolvedPolicy } from '../../contracts/policy.ts';
+import type { ResolvedPolicy, ResolvedPromptRef } from '../../contracts/policy.ts';
 import { PrepareOutput as PrepareOutputSchema, type PrepareOutput, type PreparePolicy } from '../../contracts/prepare.ts';
 import type { AmbicodeConfig, ProjectConfig } from '../../contracts/config.ts';
+import { MAX_SNAPSHOT_FILE_BYTES } from '../../config/defaults.ts';
+import type { FileSystem } from '../../ports/filesystem.ts';
+import { applicablePrepareStages } from '../../policy/resolve.ts';
+import { configProvenance, policyProvenance } from '../../policy/provenance.ts';
 import { normalizeRequirements, readRequirementEvidence } from '../../requirements/normalize.ts';
+import { byteLength } from '../../snapshot/limits.ts';
 import { AmbicodeError } from '../../util/errors.ts';
+import { contentHash } from '../../util/hash.ts';
 import type { ParsedArgs } from '../args.ts';
 import { absoluteEvidencePath } from '../target-option.ts';
 
@@ -54,17 +60,32 @@ export async function runPrepare(runtime: Runtime, args: ParsedArgs): Promise<Pr
   const project = resolveProject(workspace.config, args.value('project'), paths);
 
   const policy = await resolvePolicyFor({ workspace, project, activity, paths });
+  const policies = [{ project, policy }];
 
-  return toOutput({ activity, project, paths, requirements, policy });
+  return toOutput({
+    fs: runtime.fs,
+    activity,
+    project,
+    paths,
+    requirements,
+    policy,
+    // Config/pack/prompt provenance alongside requirement provenance, the
+    // same composition `review`/`bundle` use (doc 04 P2.2 correction D): a
+    // caller applying this policy needs to know what produced it, not only
+    // what requirement evidence went in.
+    policyProvenance: [...(await configProvenance(runtime.fs, workspace)), ...policyProvenance(policies)],
+  });
 }
 
-function toOutput(options: {
+async function toOutput(options: {
+  fs: FileSystem;
   activity: Activity;
   project: ProjectConfig;
   paths: readonly string[];
   requirements: ReturnType<typeof normalizeRequirements>;
   policy: ResolvedPolicy;
-}): PrepareOutput {
+  policyProvenance: PrepareOutput['provenance'];
+}): Promise<PrepareOutput> {
   return PrepareOutputSchema.parse({
     command: 'prepare' as const,
     activity: options.activity,
@@ -72,13 +93,25 @@ function toOutput(options: {
     paths: [...options.paths],
     requirementMode: options.requirements.mode,
     requirements: options.requirements.sources,
-    provenance: options.requirements.provenance,
+    provenance: [...options.policyProvenance, ...options.requirements.provenance].sort((a, b) =>
+      `${a.kind}${a.reference}`.localeCompare(`${b.kind}${b.reference}`),
+    ),
     notices: options.requirements.notices,
-    policy: toPreparePolicy(options.policy),
+    policy: await toPreparePolicy(options.fs, options.policy),
   });
 }
 
-function toPreparePolicy(policy: ResolvedPolicy): PreparePolicy {
+async function toPreparePolicy(fs: FileSystem, policy: ResolvedPolicy): Promise<PreparePolicy> {
+  const stages = new Set(applicablePrepareStages(policy.activity));
+  const diagnostics = [...policy.diagnostics.map((diagnostic) => ({ ...diagnostic }))];
+
+  const prompts: PreparePolicy['prompts'] = [];
+  for (const prompt of policy.prompts) {
+    if (!stages.has(prompt.stage)) continue; // Not applicable to this activity (doc 04 P2.2 correction D).
+    const resolved = await resolvePreparePrompt(fs, prompt, diagnostics);
+    if (resolved !== null) prompts.push(resolved);
+  }
+
   return {
     activity: policy.activity,
     projectId: policy.projectId,
@@ -94,19 +127,73 @@ function toPreparePolicy(policy: ResolvedPolicy): PreparePolicy {
       checkExplanation: rule.check.explanation,
       checkCommand: rule.check.kind === 'command' ? rule.check.command : null,
     })),
-    prompts: policy.prompts.map((prompt) => ({
-      packId: prompt.packId,
-      packReference: prompt.packReference,
-      stage: prompt.stage,
-      declaredPath: prompt.declaredPath,
-      contentHash: prompt.contentHash,
-    })),
+    prompts,
     commandDecisions: policy.commandDecisions.map((decision) => ({
       command: decision.command,
       action: decision.action,
       sources: decision.sources.map((source) => ({ ...source })),
     })),
-    diagnostics: policy.diagnostics.map((diagnostic) => ({ ...diagnostic })),
+    diagnostics,
+  };
+}
+
+/**
+ * Reads one prompt's bounded, hash-verified content (doc 04 P2.2 correction
+ * D): bounded by the same configured limit a snapshot file uses — no second,
+ * unbounded prompt-loading path — and the freshly read bytes must hash to
+ * the same `contentHash` the resolver already recorded, so a caller applying
+ * this content is never handed something that silently drifted from what was
+ * resolved. Either failure is a diagnostic on the output, not a thrown error:
+ * one oversized or unexpectedly-changed pack prompt should not fail every
+ * other applicable rule and prompt this call would otherwise report.
+ */
+async function resolvePreparePrompt(
+  fs: FileSystem,
+  prompt: ResolvedPromptRef,
+  diagnostics: PreparePolicy['diagnostics'],
+): Promise<PreparePolicy['prompts'][number] | null> {
+  let content: string;
+  try {
+    content = await fs.readText(prompt.absolutePath);
+  } catch (cause) {
+    diagnostics.push({
+      severity: 'error',
+      code: 'prompt-unreadable',
+      message: `${prompt.packReference}: prompt "${prompt.declaredPath}" could not be read: ${cause instanceof Error ? cause.message : String(cause)}`,
+      where: prompt.absolutePath,
+    });
+    return null;
+  }
+
+  if (byteLength(content) > MAX_SNAPSHOT_FILE_BYTES) {
+    diagnostics.push({
+      severity: 'error',
+      code: 'prompt-too-large',
+      message: `${prompt.packReference}: prompt "${prompt.declaredPath}" (${byteLength(content)} bytes) exceeds the ${MAX_SNAPSHOT_FILE_BYTES}-byte content limit, so its content was not included.`,
+      where: prompt.absolutePath,
+    });
+    return null;
+  }
+
+  const actualHash = contentHash(content);
+  if (actualHash !== prompt.contentHash) {
+    diagnostics.push({
+      severity: 'error',
+      code: 'prompt-content-changed',
+      message: `${prompt.packReference}: prompt "${prompt.declaredPath}" changed on disk between policy resolution and content delivery.`,
+      where: prompt.absolutePath,
+    });
+    return null;
+  }
+
+  return {
+    packId: prompt.packId,
+    packReference: prompt.packReference,
+    authority: prompt.authority,
+    stage: prompt.stage,
+    declaredPath: prompt.declaredPath,
+    contentHash: prompt.contentHash,
+    content,
   };
 }
 
@@ -196,6 +283,12 @@ export function renderPrepare(output: PrepareOutput): string {
   for (const rule of output.policy.rules) {
     lines.push(`  ${rule.qualifiedId} [${rule.category}] ${rule.instruction}`);
   }
+
+  lines.push('', `prompts (${output.policy.prompts.length})`);
+  for (const prompt of output.policy.prompts) {
+    lines.push(`  ${prompt.stage}: ${prompt.packId} -> ${prompt.declaredPath} [${prompt.authority}, ${byteLength(prompt.content)} bytes]`);
+  }
+  if (output.policy.prompts.length === 0) lines.push('  (none apply)');
 
   lines.push('', 'command decisions');
   for (const decision of output.policy.commandDecisions) {

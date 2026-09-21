@@ -164,6 +164,60 @@ async function checkNoWorkstationPaths(candidateDir) {
   }
 }
 
+/**
+ * The candidate-level version of doc 04 P2.2 correction B: every skill that
+ * points at the shared MCP-acquisition procedure must do so through
+ * `${CLAUDE_PLUGIN_ROOT}/skills/shared/requirements-mcp.md`, never a path
+ * relative to the product repository — a plugin loaded from Claude Code's own
+ * cache has no such repository. Checked against the assembled candidate
+ * itself, not only the source tree, because that is what a real install
+ * actually loads.
+ */
+async function checkSharedResourceReferences(candidateDir) {
+  const SHARED_RESOURCE = 'skills/shared/requirements-mcp.md';
+  const PLUGIN_ROOT_REFERENCE = '${CLAUDE_PLUGIN_ROOT}/skills/shared/requirements-mcp.md';
+  const EXPECTED_REFERRERS = ['review', 'investigate', 'plan'];
+
+  const sharedFile = path.join(candidateDir, SHARED_RESOURCE);
+  if (!(await stat(sharedFile).then(() => true, () => false))) {
+    throw new Error(`${SHARED_RESOURCE} is missing from the candidate; review/investigate/plan reference it.`);
+  }
+
+  const skillsDir = path.join(candidateDir, 'skills');
+  const entries = await readdir(skillsDir, { withFileTypes: true });
+  const referrers = [];
+
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.name === 'shared') continue;
+    const skillFile = path.join(skillsDir, entry.name, 'SKILL.md');
+    const text = await readFile(skillFile, 'utf8').catch(() => '');
+    if (text === '') continue;
+
+    const mentionsSharedFile = text.includes('requirements-mcp.md');
+    if (!mentionsSharedFile) continue;
+    referrers.push(entry.name);
+
+    if (!text.includes(PLUGIN_ROOT_REFERENCE)) {
+      throw new Error(
+        `${entry.name}/SKILL.md references ${SHARED_RESOURCE} without the "${PLUGIN_ROOT_REFERENCE}" ` +
+          'plugin-root substitution, so an installed plugin (not run from the product repository) could not resolve it.',
+      );
+    }
+    // A bare, non-substituted reference anywhere in the same file is a
+    // leftover source-checkout-relative path, not a second legitimate use.
+    const bareReference = new RegExp(`(?<!\\$\\{CLAUDE_PLUGIN_ROOT\\}/)${SHARED_RESOURCE.replace(/\./g, '\\.')}`);
+    if (bareReference.test(text)) {
+      throw new Error(`${entry.name}/SKILL.md references ${SHARED_RESOURCE} by a path relative to the product repository.`);
+    }
+  }
+
+  for (const expected of EXPECTED_REFERRERS) {
+    if (!referrers.includes(expected)) {
+      throw new Error(`Expected ${expected}/SKILL.md to reference the shared MCP-acquisition procedure, but it does not.`);
+    }
+  }
+}
+
 async function checkLauncherExecutable(candidateDir) {
   const mode = (await stat(path.join(candidateDir, 'bin/ambicode'))).mode & 0o777;
   if ((mode & 0o111) === 0) {
@@ -215,6 +269,7 @@ async function main() {
   await checkLauncherExecutable(candidateDir);
   await checkNoForbiddenDependencies(candidateDir);
   await checkNoWorkstationPaths(candidateDir);
+  await checkSharedResourceReferences(candidateDir);
 
   const inventory = await inventoryOf(candidateDir);
   await mkdir(DIST, { recursive: true });

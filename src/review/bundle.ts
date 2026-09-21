@@ -13,14 +13,10 @@ import {
 import type { ProjectConfig } from '../contracts/config.ts';
 import type { ResolvedPolicy } from '../contracts/policy.ts';
 import { COMPLETE_COVERAGE, type RemoteDiscussion } from '../contracts/provider.ts';
-import {
-  REVIEW_SCHEMA_VERSION,
-  type CheckResult,
-  type ProvenanceEntry,
-  type ReviewResult,
-} from '../contracts/review.ts';
+import { REVIEW_SCHEMA_VERSION, type CheckResult, type ReviewResult } from '../contracts/review.ts';
 import type { DiffFile } from '../git/diff.ts';
 import type { FileSystem } from '../ports/filesystem.ts';
+import { configProvenance, policyProvenance } from '../policy/provenance.ts';
 import {
   normalizeRequirements,
   readRequirementEvidence,
@@ -41,7 +37,6 @@ import {
   resolveWorkingTarget,
   type TargetResolution,
 } from '../snapshot/target.ts';
-import { contentHash } from '../util/hash.ts';
 import { normalizeRelative } from '../util/paths.ts';
 import { composeReviewerPrompt, estimatePromptOverheadBytes, type ComposedPrompt } from './prompt.ts';
 
@@ -185,7 +180,11 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
     reviewModel: limits.model,
     target: resolution.target,
     requirements: requirements.sources,
-    requirementMode: requirements.mode,
+    // ReviewResult keeps its own historical spelling; `source-free` (the
+    // canonical, activity-neutral value normalizeRequirements returns) maps
+    // to `quality-review` only here, at the one place a ReviewResult is built
+    // (doc 04 P2.2 correction C; contracts/review.ts, ReviewRequirementMode).
+    requirementMode: requirements.mode === 'source-free' ? 'quality-review' : 'requirement-based',
     requirementConflicts: requirements.conflicts,
     provenance: [
       ...(await configProvenance(runtime.fs, workspace)),
@@ -228,7 +227,7 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
       ...snapshot.omissions,
       ...checkNotes,
       ...requirements.notices,
-      ...(requirements.mode === 'quality-review'
+      ...(requirements.mode === 'source-free'
         ? [
             'No requirement was supplied, so this is a quality review. It does not establish that the change does what any ticket or specification asked for.',
           ]
@@ -455,34 +454,6 @@ function summarizePolicy(
     for (const rule of policy.rules) ruleIds.add(rule.qualifiedId);
   }
   return { packs: [...packs].sort(), ruleIds: [...ruleIds].sort() };
-}
-
-function policyProvenance(policies: readonly { policy: ResolvedPolicy }[]): ProvenanceEntry[] {
-  const entries = new Map<string, ProvenanceEntry>();
-  for (const { policy } of policies) {
-    for (const pack of policy.packs) {
-      entries.set(pack.reference, { kind: 'pack', reference: pack.reference, contentHash: pack.contentHash });
-    }
-    for (const prompt of policy.prompts) {
-      const reference = `${prompt.packReference}:${prompt.declaredPath}@${prompt.stage}`;
-      entries.set(reference, { kind: 'prompt', reference, contentHash: prompt.contentHash });
-    }
-  }
-  return [...entries.values()].sort((a, b) => a.reference.localeCompare(b.reference));
-}
-
-async function configProvenance(fs: FileSystem, workspace: Workspace): Promise<ProvenanceEntry[]> {
-  try {
-    return [
-      {
-        kind: 'config',
-        reference: '.ambicode/config.yaml',
-        contentHash: contentHash(await fs.readText(workspace.configPath)),
-      },
-    ];
-  } catch {
-    return [];
-  }
 }
 
 async function pluginVersion(fs: FileSystem, pluginRoot: string): Promise<string> {

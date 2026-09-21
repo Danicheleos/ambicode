@@ -40,7 +40,7 @@ result says so in its omissions.
 ambicode review \
   --requirement https://example.atlassian.net/browse/ORD-17 \
   --requirement https://example.atlassian.net/wiki/spaces/ENG/pages/42/Orders \
-  --evidence .ambicode/reviews/evidence.json
+  --evidence "$evidence_file"
 ```
 
 `--requirement` is the one canonical way a requirement enters a review. It is
@@ -51,6 +51,16 @@ credentials and no MCP connection, by design. Your Claude session holds the MCP
 connection, retrieves each URL, and writes the result into the evidence file
 that `--evidence` points at. The `/ambicode:review` skill does this for you; its
 `SKILL.md` documents the file's shape if you want to write one by hand.
+
+`$evidence_file` is a **restrictive temporary file outside this repository**
+(for example, from `mktemp`), not a path under `.ambicode/`. It is transport
+input for this one invocation: `--evidence` just reads it, and the skill
+deletes it once the review command has read it. Nothing is lost by deleting
+it — every retrieved source's content, citations, and provenance are already
+carried into the saved review result (`.ambicode/reviews/<id>/result.json`),
+which is what makes a requirement-based review reopenable without the
+transport file. `skills/shared/requirements-mcp.md` in the plugin has the
+full lifecycle; `investigate` and `plan` follow the same procedure.
 
 Every `--requirement` URL must have an entry in that file, and the file must
 hold nothing else. A URL whose entry says `forbidden`, `not-found` or

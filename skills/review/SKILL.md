@@ -103,17 +103,22 @@ and submitting the page's form does that.
 
 ## Requirements
 
-Follow `skills/shared/requirements-mcp.md` (read it now if you have not
-already this session) to retrieve every named source and write the evidence
-file. It covers the MCP binding, the evidence format, and what a failure
-means; `investigate` follows the same procedure. Then run the review:
+Follow `${CLAUDE_PLUGIN_ROOT}/skills/shared/requirements-mcp.md` (read it now
+if you have not already this session) to retrieve every named source and
+write the evidence file. It covers the MCP binding, the evidence format, and
+what a failure means; `investigate` and `plan` follow the same procedure.
+Then run the review:
 
 ```sh
 ambicode review \
   --requirement https://example.atlassian.net/browse/ORD-17 \
   --requirement https://example.atlassian.net/wiki/spaces/ENG/pages/42/Orders \
-  --evidence .ambicode/reviews/evidence.json
+  --evidence "$evidence_file"
 ```
+
+where `$evidence_file` is the restrictive temporary path you wrote the
+evidence to (`${CLAUDE_PLUGIN_ROOT}/skills/shared/requirements-mcp.md`'s
+"Steps" and "Cleanup"), not a path inside `.ambicode/`.
 
 Every URL you pass with `--requirement` must have an entry in the evidence file,
 and the evidence file must hold nothing else.

@@ -95,6 +95,7 @@ export interface ResolvedRule {
 export interface ResolvedPromptRef {
   packId: string;
   packReference: string;
+  authority: z.infer<typeof Authority>;
   stage: z.infer<typeof PromptStage>;
   /** Absolute path, already proven to sit inside the pack directory. */
   absolutePath: string;

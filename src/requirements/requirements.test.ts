@@ -46,9 +46,9 @@ function failure(run: () => unknown): { code: string; message: string; details: 
 }
 
 describe('U16 requirement normalization and provenance', () => {
-  it('without a URL the review is a quality review, distinctly labelled', () => {
+  it('without a URL, normalization is source-free — a canonical, activity-neutral label', () => {
     const normalized = normalize();
-    assert.equal(normalized.mode, 'quality-review');
+    assert.equal(normalized.mode, 'source-free');
     assert.deepEqual(normalized.sources, []);
     assert.deepEqual(normalized.provenance, []);
   });

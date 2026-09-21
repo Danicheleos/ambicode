@@ -3,6 +3,7 @@ import {
   COMMAND_ACTION_PRECEDENCE,
   type Activity,
   type CommandAction,
+  type PromptStage,
 } from '../contracts/primitives.ts';
 import type {
   Diagnostic,
@@ -153,6 +154,26 @@ export function resolvePolicy(options: ResolveOptions): ResolvedPolicy {
     commandDecisions,
     diagnostics,
   };
+}
+
+/**
+ * Which prompt stages `ambicode prepare` surfaces per activity (doc 04 P2.2
+ * correction D). `review`/`task` compose their own reviewer prompt directly
+ * from `ResolvedPolicy.prompts` (`src/review/prompt.ts`) and never call
+ * `prepare`, so only `investigate` and `plan` are listed: both read their
+ * activity's `before-work` guidance before analysis and `before-report`
+ * guidance before presenting their result. Reviewer-only stages
+ * (`before-checks`, `before-review`) are never applicable content for either,
+ * regardless of which activities a pack itself declares.
+ */
+export const PREPARE_PROMPT_STAGES: Readonly<Partial<Record<Activity, readonly PromptStage[]>>> = {
+  investigate: ['before-work', 'before-report'],
+  plan: ['before-work', 'before-report'],
+};
+
+/** The stages `ambicode prepare` includes prompt content for; empty for an activity it does not serve (doc 04 P2.2 correction D). */
+export function applicablePrepareStages(activity: Activity): readonly PromptStage[] {
+  return PREPARE_PROMPT_STAGES[activity] ?? [];
 }
 
 export function strongerAction(a: CommandAction, b: CommandAction): CommandAction {

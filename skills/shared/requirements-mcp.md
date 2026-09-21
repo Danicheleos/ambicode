@@ -1,9 +1,9 @@
 # Retrieving Jira/Confluence requirements over MCP
 
 Shared by every AMBICODE skill that accepts a repeatable `--requirement <url>`
-— today `review` and `investigate`. Read this once per invocation that has at
-least one requirement URL. Do not copy this procedure into another skill
-file; if a future skill needs it, point it here instead.
+— today `review`, `investigate` and `plan`. Read this once per invocation
+that has at least one requirement URL. Do not copy this procedure into
+another skill file; if a future skill needs it, point it here instead.
 
 You hold the MCP connection. The helper never does, and never will: it has no
 Atlassian client and no credentials. So you retrieve, and you hand over what
@@ -21,9 +21,16 @@ you got.
    - If it names a server that is not connected, say so and stop. Do not
      substitute another server.
 2. Retrieve each URL with that server's read tools.
-3. Write one evidence file — for example `.ambicode/reviews/evidence.json`
-   for a review, or `.ambicode/notes/investigations/evidence.json` for an
-   investigation. Only the path you pass with `--evidence` matters:
+3. Write one evidence file — **outside the product repository**, in a
+   restrictive temporary location, for example with
+   `mktemp -t ambicode-evidence` (POSIX `mktemp` already creates it
+   owner-only). This file is transport input to the command you are about to
+   run, not an AMBICODE artifact: never write it under `.ambicode/` or
+   anywhere else inside the repository. A read-only investigation or plan
+   that never touches the repository must stay true even for a URL-only
+   request, and a review's saved result already carries the normalized
+   requirement content forward (see "Cleanup" below), so there is nothing to
+   keep here either. Only the path you pass with `--evidence` matters:
 
 ```json
 {
@@ -69,6 +76,22 @@ something about, or against, that source, and "I could not read it" is the
 honest answer, not silence about the gap. Say which URL failed and why, and
 offer to continue without that source only as a separate, clearly labelled
 choice the user makes — never one this procedure makes for them.
+
+## Cleanup
+
+Delete the evidence file once the command that reads it (`ambicode prepare`,
+`ambicode review`, or `ambicode bundle`) has finished — success or failure.
+It is transport for exactly this one invocation, not a record:
+
+- `review`'s saved result already carries every retrieved source's content,
+  citations, and provenance forward (doc 02, "Storage and ownership"), so
+  nothing is lost by deleting the transport file.
+- `investigate` and `plan` do not save anything unless the user separately
+  asks for a note, and the evidence file was never inside the repository to
+  begin with, so deleting it leaves no trace either way.
+
+Do not reuse one evidence file across multiple commands or sessions; write a
+fresh one each time you retrieve sources, and remove it right after.
 
 ## What this never does
 

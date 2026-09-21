@@ -19,9 +19,9 @@ either.
      later.
    - Every Jira/Confluence URL — the primary argument and every
      `--requirement` — needs retrieving. Follow
-     `skills/shared/requirements-mcp.md` (read it now if you have not
-     already this session) to retrieve and write the evidence file for all
-     of them, **before** looking at any code.
+     `${CLAUDE_PLUGIN_ROOT}/skills/shared/requirements-mcp.md` (read it now
+     if you have not already this session) to retrieve and write the
+     evidence file for all of them, **before** looking at any code.
    - If retrieval fails for any of them, stop and say precisely which URL
      failed and why. Do not silently continue as a source-free
      investigation — that turns "I could not read the ticket" into a
@@ -45,11 +45,24 @@ either.
 
    with the same `--requirement`/`--evidence` you used in step 1, and your
    first guess at the paths the question touches. It normalizes the
-   requirements and resolves applicable policy for `investigate`; read its
-   notices and diagnostics. If it reports `ambiguous-project`, this is a
-   monorepository and the request does not identify one project — pass
-   `--project <id>`, or narrow the paths, rather than guessing which one was
-   meant.
+   requirements and resolves applicable policy for `investigate`. If it
+   reports `ambiguous-project`, this is a monorepository and the request does
+   not identify one project — pass `--project <id>`, or narrow the paths,
+   rather than guessing which one was meant.
+
+   Its output is more than notices and diagnostics — apply it:
+
+   - Read `policy.rules` and treat each `team`/`observed` rule as a fact
+     about this project's actual expectations while you investigate, not
+     just something to mention afterward. `inherited` rules are guidance, not
+     an approved requirement (doc 05, "Canonical policy pack").
+   - Read `policy.prompts` before you do anything else in the steps below:
+     the `before-work` stage is scoped content for exactly this moment, and
+     its `content` field is already the file's full text — read it directly,
+     never resolve `declaredPath` against a local checkout path yourself.
+   - `ambicode prepare` never returns `before-checks` or `before-review`
+     content for `investigate` — that stays reviewer-only. There is nothing
+     to filter out on your side.
 4. **Navigate.** Known paths first (from the question, the ticket, or what
    you typed), then available symbol/LSP navigation, then targeted
    Grep/Glob/Read. Do not build an index or read the entire repository by
@@ -58,7 +71,10 @@ either.
    explanation the evidence actually supports and check each against the
    code and requirement evidence before settling on one. A single fact that
    happens to fit is not a confirmed answer.
-6. **Report**, in this shape:
+6. **Before reporting**, read any `before-report` prompt the same `prepare`
+   output carried — content scoped for how to present a conclusion, applied
+   here, at presentation time, not folded into step 3's reading. Then
+   **report**, in this shape:
    - **Confirmed facts** — repository facts cited as `path:line`; requirement
      facts cited by source URL, title and section/citation.
    - **Assumptions** — named as assumptions, never folded into the facts.
