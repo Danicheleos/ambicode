@@ -67,13 +67,13 @@ async function main() {
 
   try {
     step(`Install into an isolated CLAUDE_CONFIG_DIR=${configDir}`);
-    execFileSync('node', ['install-local.mjs', 'install', candidateDir, configDir], { cwd: ROOT, stdio: 'inherit' });
+    execFileSync('node', ['install-local.mjs', 'install', candidateDir, '--config-dir', configDir], { cwd: ROOT, stdio: 'inherit' });
 
     step('Inspect immediately after install');
-    execFileSync('node', ['install-local.mjs', 'inspect', configDir], { cwd: ROOT, stdio: 'inherit' });
+    execFileSync('node', ['install-local.mjs', 'inspect', '--config-dir', configDir], { cwd: ROOT, stdio: 'inherit' });
 
     step('Same-version reinstall is idempotent (D2.4 correction D10)');
-    execFileSync('node', ['install-local.mjs', 'install', candidateDir, configDir], { cwd: ROOT, stdio: 'inherit' });
+    execFileSync('node', ['install-local.mjs', 'install', candidateDir, '--config-dir', configDir], { cwd: ROOT, stdio: 'inherit' });
     {
       const listed = claude(['plugin', 'list', '--json'], configDir);
       const entries = JSON.parse(listed).filter((entry) => entry.id === 'ambicode@ambicode-team');
@@ -84,14 +84,15 @@ async function main() {
     const upgradedCandidateDir = await mkdtemp(path.join(tmpdir(), 'ambicode-smoke-upgrade-'));
     const upgradedPluginDir = path.join(upgradedCandidateDir, `ambicode-${version}-upgrade`);
     await cp(candidateDir, upgradedPluginDir, { recursive: true });
-    const upgradedVersion = '0.1.1-smoke';
+    const [major, minor, patch] = String(version).split('.').map(Number);
+    const upgradedVersion = `${major}.${minor}.${patch + 1}-smoke`;
     {
       const manifestPath = path.join(upgradedPluginDir, '.claude-plugin', 'plugin.json');
       const manifest = JSON.parse(await (await import('node:fs/promises')).readFile(manifestPath, 'utf8'));
       manifest.version = upgradedVersion;
       await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
     }
-    execFileSync('node', ['install-local.mjs', 'install', upgradedPluginDir, configDir], { cwd: ROOT, stdio: 'inherit' });
+    execFileSync('node', ['install-local.mjs', 'install', upgradedPluginDir, '--config-dir', configDir], { cwd: ROOT, stdio: 'inherit' });
     {
       const listed = JSON.parse(claude(['plugin', 'list', '--json'], configDir));
       const entry = listed.find((candidate) => candidate.id === 'ambicode@ambicode-team');
@@ -109,7 +110,7 @@ async function main() {
         try {
           execFileSync(
             'node',
-            ['install-local.mjs', 'install', candidateDir, configDir, '--scope', 'project', '--project-dir', scopeChangeProjectDir],
+            ['install-local.mjs', 'install', candidateDir, '--config-dir', configDir, '--scope', 'project', '--project-dir', scopeChangeProjectDir],
             { cwd: ROOT, stdio: 'pipe' },
           );
         } catch {
@@ -134,7 +135,7 @@ async function main() {
         await writeFile(path.join(corruptConfigDir, 'ambicode-install', 'state.json'), '{ not valid json');
         let refused = false;
         try {
-          execFileSync('node', ['install-local.mjs', 'install', candidateDir, corruptConfigDir], { cwd: ROOT, stdio: 'pipe' });
+          execFileSync('node', ['install-local.mjs', 'install', candidateDir, '--config-dir', corruptConfigDir], { cwd: ROOT, stdio: 'pipe' });
         } catch {
           refused = true;
         }
@@ -178,7 +179,7 @@ async function main() {
     }
 
     step('Uninstall without the original candidate directory existing');
-    execFileSync('node', ['install-local.mjs', 'uninstall', configDir], { cwd: ROOT, stdio: 'inherit' });
+    execFileSync('node', ['install-local.mjs', 'uninstall', '--config-dir', configDir], { cwd: ROOT, stdio: 'inherit' });
 
     step('Fresh `claude` process: plugin no longer listed');
     const afterUninstall = claude(['plugin', 'list'], configDir);

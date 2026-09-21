@@ -29,22 +29,23 @@
 // failure exits nonzero while leaving a working installation in place.
 //
 // Usage:
-//   node install-local.mjs install <candidate-dir> <claude-config-dir> \
+//   node install-local.mjs install <candidate-dir> [--config-dir <dir>] \
 //     [--scope user|project|local] [--project-dir <dir>]
-//   node install-local.mjs uninstall <claude-config-dir> \
+//   node install-local.mjs uninstall [--config-dir <dir>] \
 //     [--scope user|project|local] [--project-dir <dir>]
-//   node install-local.mjs inspect <claude-config-dir>
+//   node install-local.mjs inspect [--config-dir <dir>]
 //
 // Example:
 //   npm run package:candidate
-//   node install-local.mjs install dist/ambicode-0.1.0 /tmp/ambicode-isolated-claude-config
-//   node install-local.mjs inspect /tmp/ambicode-isolated-claude-config
-//   node install-local.mjs uninstall /tmp/ambicode-isolated-claude-config
-import { execFileSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
-import { cp, mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
+//   node install-local.mjs install dist/ambicode-0.1.1
+//   node install-local.mjs inspect
+//   node install-local.mjs uninstall
+import { createHash, randomBytes } from 'node:crypto';
+import { cp, mkdir, open, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execaSync } from 'execa';
 
 export const MARKETPLACE_NAME = 'ambicode-team';
 const SCOPES = ['user', 'project', 'local'];
@@ -54,15 +55,20 @@ function usageError(message) {
   console.error(
     [
       'Usage:',
-      '  node install-local.mjs install <candidate-dir> <claude-config-dir> [--scope user|project|local] [--project-dir <dir>]',
-      '  node install-local.mjs uninstall <claude-config-dir> [--scope user|project|local] [--project-dir <dir>]',
-      '  node install-local.mjs inspect <claude-config-dir>',
+      '  node install-local.mjs install <candidate-dir> [--config-dir <dir>] [--scope user|project|local] [--project-dir <dir>]',
+      '  node install-local.mjs uninstall [--config-dir <dir>] [--scope user|project|local] [--project-dir <dir>]',
+      '  node install-local.mjs inspect [--config-dir <dir>]',
     ].join('\n'),
   );
   process.exit(2);
 }
 
-export function parseArgs(argv) {
+export function defaultClaudeConfigDir(env = process.env, home = homedir()) {
+  const configured = env.CLAUDE_CONFIG_DIR?.trim();
+  return path.resolve(configured === undefined || configured === '' ? path.join(home, '.claude') : configured);
+}
+
+export function parseArgs(argv, env = process.env, home = homedir()) {
   const [command, ...rest] = argv;
   if (command !== 'install' && command !== 'uninstall' && command !== 'inspect') {
     usageError(`Unknown command "${command ?? ''}". Expected "install", "uninstall", or "inspect".`);
@@ -73,6 +79,8 @@ export function parseArgs(argv) {
   let scopeExplicit = false;
   let projectDir = null;
   let projectDirExplicit = false;
+  let configDir = defaultClaudeConfigDir(env, home);
+  let configDirExplicit = false;
   for (let i = 0; i < rest.length; i += 1) {
     const value = rest[i];
     if (value === '--scope') {
@@ -83,6 +91,10 @@ export function parseArgs(argv) {
       projectDir = rest[i + 1] ?? usageError('--project-dir needs a value.');
       projectDirExplicit = true;
       i += 1;
+    } else if (value === '--config-dir') {
+      configDir = path.resolve(rest[i + 1] ?? usageError('--config-dir needs a value.'));
+      configDirExplicit = true;
+      i += 1;
     } else if (value?.startsWith('-')) {
       usageError(`Unknown option "${value}".`);
     } else {
@@ -92,12 +104,12 @@ export function parseArgs(argv) {
 
   if (scopeExplicit && !SCOPES.includes(scope)) usageError(`--scope must be one of: ${SCOPES.join(', ')}.`);
 
-  const expectedPositionals = command === 'install' ? 2 : 1;
+  const expectedPositionals = command === 'install' ? 1 : 0;
   if (positionals.length !== expectedPositionals) {
     usageError(
       command === 'install'
-        ? 'Expected exactly two positional arguments: <candidate-dir> <claude-config-dir>.'
-        : 'Expected exactly one positional argument: <claude-config-dir>.',
+        ? 'Expected exactly one positional argument: <candidate-dir>. Use --config-dir only for an intentionally isolated Claude configuration.'
+        : 'Expected no positional arguments. Use --config-dir only for an intentionally isolated Claude configuration.',
     );
   }
 
@@ -111,11 +123,12 @@ export function parseArgs(argv) {
           'to say explicitly which project, rather than an incidental current working directory.',
       );
     }
-    const [candidateDir, configDir] = positionals;
+    const [candidateDir] = positionals;
     return {
       command,
       candidateDir: path.resolve(candidateDir),
-      configDir: path.resolve(configDir),
+      configDir,
+      configDirExplicit,
       scope: effectiveScope,
       projectDir: projectDirExplicit ? path.resolve(projectDir) : null,
     };
@@ -128,10 +141,10 @@ export function parseArgs(argv) {
     if (scopeExplicit && (scope === 'project' || scope === 'local') && !projectDirExplicit) {
       usageError(`--scope ${scope} needs an explicit --project-dir to compare against the recorded installation.`);
     }
-    const [configDir] = positionals;
     return {
       command,
-      configDir: path.resolve(configDir),
+      configDir,
+      configDirExplicit,
       scope,
       scopeExplicit,
       projectDir: projectDirExplicit ? path.resolve(projectDir) : null,
@@ -139,8 +152,7 @@ export function parseArgs(argv) {
     };
   }
 
-  const [configDir] = positionals;
-  return { command, configDir: path.resolve(configDir) };
+  return { command, configDir, configDirExplicit };
 }
 
 /** `<config-dir>/ambicode-install/`: the one directory this script owns. */
@@ -177,6 +189,30 @@ async function pathExists(candidate) {
     () => true,
     () => false,
   );
+}
+
+/** Stable content identity for detecting a changed candidate that reused its version. */
+async function candidateFingerprint(root) {
+  const hash = createHash('sha256');
+  async function visit(directory, relativeDirectory = '') {
+    const entries = await readdir(directory, { withFileTypes: true });
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of entries) {
+      const relative = relativeDirectory === '' ? entry.name : `${relativeDirectory}/${entry.name}`;
+      const absolute = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        await visit(absolute, relative);
+      } else if (entry.isFile()) {
+        const bytes = await readFile(absolute);
+        hash.update(`file\0${relative}\0${bytes.length}\0`);
+        hash.update(bytes);
+      } else {
+        throw new InstallError('invalid-candidate', `Candidate contains an unsupported filesystem entry: ${relative}.`);
+      }
+    }
+  }
+  await visit(root);
+  return hash.digest('hex');
 }
 
 /** `null` when the source does not exist yet (e.g. a project dir not yet created); realpath'd otherwise so scope comparison is never fooled by a symlinked prefix (P2.4 correction D3). */
@@ -314,7 +350,20 @@ async function readStateStrict(configDir) {
 
 async function writeState(configDir, state) {
   await mkdir(installRoot(configDir), { recursive: true });
-  await writeFile(statePath(configDir), `${JSON.stringify({ schemaVersion: SUPPORTED_STATE_SCHEMA_VERSION, ...state }, null, 2)}\n`);
+  const target = statePath(configDir);
+  const temporary = `${target}.tmp-${process.pid}-${randomSuffix()}`;
+  let handle = null;
+  try {
+    handle = await open(temporary, 'wx', 0o600);
+    await handle.writeFile(`${JSON.stringify({ schemaVersion: SUPPORTED_STATE_SCHEMA_VERSION, ...state }, null, 2)}\n`);
+    await handle.sync();
+    await handle.close();
+    handle = null;
+    await rename(temporary, target);
+  } finally {
+    await handle?.close().catch(() => {});
+    await rm(temporary, { force: true }).catch(() => {});
+  }
 }
 
 /**
@@ -390,21 +439,18 @@ function describe(cause) {
  * error, so callers decide what a given failure means.
  */
 function runClaude(args, { configDir, projectDir }) {
-  try {
-    const stdout = execFileSync('claude', args, {
-      cwd: projectDir ?? undefined,
-      env: { ...process.env, CLAUDE_CONFIG_DIR: configDir },
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    return { ok: true, stdout, stderr: '' };
-  } catch (error) {
-    return {
-      ok: false,
-      stdout: typeof error.stdout === 'string' ? error.stdout : (error.stdout?.toString() ?? ''),
-      stderr: typeof error.stderr === 'string' ? error.stderr : (error.stderr?.toString() ?? describe(error)),
-    };
-  }
+  const result = execaSync('claude', args, {
+    cwd: projectDir ?? undefined,
+    env: { ...process.env, CLAUDE_CONFIG_DIR: configDir },
+    encoding: 'utf8',
+    stdin: 'ignore',
+    reject: false,
+  });
+  return {
+    ok: result.exitCode === 0 && !result.failed,
+    stdout: typeof result.stdout === 'string' ? result.stdout : '',
+    stderr: typeof result.stderr === 'string' ? result.stderr : (result.shortMessage ?? result.message ?? ''),
+  };
 }
 
 /** `--json` always prints one structured result line, on success or failure. */
@@ -487,20 +533,16 @@ export function createRealNativeCommands() {
      * --strict --json` treats warnings as failures too.
      */
     pluginValidateStrict(pluginDir) {
-      let r;
-      try {
-        const stdout = execFileSync('claude', ['plugin', 'validate', pluginDir, '--strict', '--json'], {
-          encoding: 'utf8',
-          stdio: ['ignore', 'pipe', 'pipe'],
-        });
-        r = { ok: true, stdout, stderr: '' };
-      } catch (error) {
-        r = {
-          ok: false,
-          stdout: typeof error.stdout === 'string' ? error.stdout : (error.stdout?.toString() ?? ''),
-          stderr: typeof error.stderr === 'string' ? error.stderr : (error.stderr?.toString() ?? describe(error)),
-        };
-      }
+      const result = execaSync('claude', ['plugin', 'validate', pluginDir, '--strict', '--json'], {
+        encoding: 'utf8',
+        stdin: 'ignore',
+        reject: false,
+      });
+      const r = {
+        ok: result.exitCode === 0 && !result.failed,
+        stdout: typeof result.stdout === 'string' ? result.stdout : '',
+        stderr: typeof result.stderr === 'string' ? result.stderr : (result.shortMessage ?? result.message ?? ''),
+      };
       let report = null;
       try {
         report = JSON.parse(r.stdout);
@@ -527,23 +569,25 @@ function failed(code, detail, native, journal) {
 }
 
 /**
- * Runs compensating actions in reverse order (P2.4 correction D7): each
- * mutation this script performs against native state pushes its own undo
- * onto `compensations` as soon as it succeeds, so a later failure unwinds
- * exactly what was actually done, in the right order — a native
- * registration is always removed *before* the filesystem content it points
- * at disappears, never after. If every compensation succeeds, the caller's
- * failure is reported normally. If any compensation itself fails, every
- * source still needed for manual recovery is left in place and a recovery
- * journal is persisted with exact next steps (P2.4 correction D7).
+ * Runs compensating actions in their explicit recovery order. Callers arrange
+ * that order around the dependency they are restoring: a fresh install removes
+ * plugin and marketplace registrations before removing their source; an
+ * upgrade restores the prior source before refreshing/downgrading native
+ * state from it. Every normalized `{ok:false}` result must be converted to a
+ * thrown error by the action itself, because the native adapter deliberately
+ * never throws. A failed compensation therefore always creates a journal.
  */
 async function failWithCompensation(configDir, code, detail, native, compensations) {
   const failures = [];
-  for (const action of [...compensations].reverse()) {
+  for (const action of compensations) {
     try {
       await action.undo();
     } catch (error) {
       failures.push({ description: action.description, error: describe(error) });
+      // Later actions may remove state the failed action still depends on.
+      // Stop at the first failed compensation and leave the remaining source
+      // intact for the recovery journal's manual steps.
+      break;
     }
   }
   if (failures.length === 0) {
@@ -563,7 +607,7 @@ async function failWithCompensation(configDir, code, detail, native, compensatio
       `Inspect ${installRoot(configDir)} by hand: it may hold a ".marketplace.rollback-*" directory (the previous working content) and/or a ".marketplace.staging-*" directory (the attempted replacement) — neither has been deleted.`,
       `The native marketplace "${MARKETPLACE_NAME}" and any plugin registered from it may be inconsistent. Inspect with: claude plugin list --json  (CLAUDE_CONFIG_DIR=${configDir})  and  claude plugin marketplace list`,
       `Clear it by hand if needed: claude plugin uninstall <id>@${MARKETPLACE_NAME} -s <scope>  then  claude plugin marketplace remove ${MARKETPLACE_NAME}`,
-      `Once resolved by hand, remove ${journalPath(configDir)} yourself, or re-run "install-local.mjs uninstall ${configDir}" to attempt a clean removal.`,
+      `Once resolved by hand, remove ${journalPath(configDir)} yourself, or re-run "node install-local.mjs uninstall --config-dir <dir>" to attempt a clean removal.`,
     ],
   };
   await mkdir(installRoot(configDir), { recursive: true });
@@ -589,7 +633,10 @@ function verifyPostcondition(plugins, { name, version, scope, canonicalProjectDi
   if (entry.enabled !== undefined && entry.enabled !== true) {
     return { ok: false, reason: `plugin "${id}" is not enabled (enabled: ${JSON.stringify(entry.enabled)})` };
   }
-  if ((scope === 'project' || scope === 'local') && canonicalProjectDir !== null && typeof entry.projectPath === 'string') {
+  if ((scope === 'project' || scope === 'local') && canonicalProjectDir !== null) {
+    if (typeof entry.projectPath !== 'string') {
+      return { ok: false, reason: `plugin "${id}" does not report the required project path for scope "${scope}"` };
+    }
     if (entry.projectPath !== canonicalProjectDir) {
       return { ok: false, reason: `plugin "${id}" reports project path "${entry.projectPath}", expected "${canonicalProjectDir}"` };
     }
@@ -655,8 +702,29 @@ export async function install({ candidateDir, configDir, scope, projectDir }, na
           `An installation already exists with scope "${priorState.scope}"` +
             `${priorState.projectDir === null ? '' : ` (project dir ${priorState.projectDir})`}; refusing to install ` +
             `scope "${scope}"${canonicalProjectDir === null ? '' : ` (project dir ${canonicalProjectDir})`} instead. ` +
-            `Scope migration requires an explicit "install-local.mjs uninstall ${configDir}" followed by a fresh install.`,
+            'Scope migration requires an explicit "node install-local.mjs uninstall" followed by a fresh install.',
         );
+      }
+      if (priorState.version === version) {
+        const priorCandidateDir = path.join(marketplaceDir(configDir), `${priorState.name}-${priorState.version}`);
+        if (!(await pathExists(priorCandidateDir))) {
+          return failed(
+            'same-version-source-missing',
+            `The recorded ${name} ${version} source is missing, so a same-version reinstall cannot prove what Claude has cached. ` +
+              'Uninstall and install again, or build a candidate with a new version.',
+          );
+        }
+        const [incomingFingerprint, priorFingerprint] = await Promise.all([
+          candidateFingerprint(candidateDir),
+          candidateFingerprint(priorCandidateDir),
+        ]);
+        if (incomingFingerprint !== priorFingerprint) {
+          return failed(
+            'same-version-content-changed',
+            `Candidate content changed while version stayed ${JSON.stringify(version)}. Claude Code treats a same-version update as already current and would keep stale cached skills. ` +
+              'For development, use claude --plugin-dir and /reload-plugins. For an installed candidate, bump the version before reinstalling.',
+          );
+        }
       }
     }
 
@@ -687,10 +755,11 @@ export async function install({ candidateDir, configDir, scope, projectDir }, na
     if (rollbackDir !== null) await rename(marketDir, rollbackDir);
     await rename(stagingDir, marketDir);
 
-    const runOptions = { configDir, projectDir };
-    // Pushed in the order actions happen, undone in reverse: a native
-    // registration this call created is always removed before the
-    // filesystem restore beneath it runs (D7).
+    const runOptions = { configDir, projectDir: canonicalProjectDir };
+    // Stored in the exact order recovery must run. Fresh-install native
+    // registrations are prepended before the filesystem restore. Upgrade
+    // refresh/downgrade actions are appended after the prior filesystem has
+    // been restored.
     const compensations = [
       {
         description: 'restore the previous marketplace directory content',
@@ -701,22 +770,30 @@ export async function install({ candidateDir, configDir, scope, projectDir }, na
       },
     ];
 
-    const addResult = await native.marketplaceAdd(marketDir, runOptions);
-    if (!addResult.ok) {
-      return await failWithCompensation(configDir, 'marketplace-add-failed', 'Adding the local marketplace failed.', addResult, compensations);
-    }
     if (!marketExisted) {
-      // Only a *fresh* registration needs undoing; an upgrade's marketplace
-      // already existed before this call and is handled by the filesystem
-      // restore plus a refresh below.
-      compensations.push({
-        description: 'remove the marketplace registration this install created',
+      compensations.unshift({
+        description: 'remove the marketplace registration this install may have created',
         undo: async () => {
-          await native.marketplaceRemove(MARKETPLACE_NAME, runOptions);
+          const result = await native.marketplaceRemove(MARKETPLACE_NAME, runOptions);
+          if (!result.ok && result.notFound !== true) {
+            throw new Error(result.stderr || 'marketplace removal returned an unsuccessful outcome');
+          }
+        },
+      });
+    } else {
+      compensations.push({
+        description: 'refresh the marketplace after restoring its previous directory content',
+        undo: async () => {
+          const result = await native.marketplaceUpdate(MARKETPLACE_NAME, runOptions);
+          if (!result.ok) throw new Error(result.stderr || 'marketplace refresh returned an unsuccessful outcome');
         },
       });
     }
 
+    const addResult = await native.marketplaceAdd(marketDir, runOptions);
+    if (!addResult.ok) {
+      return await failWithCompensation(configDir, 'marketplace-add-failed', 'Adding the local marketplace failed.', addResult, compensations);
+    }
     const updateMarketResult = await native.marketplaceUpdate(MARKETPLACE_NAME, runOptions);
     if (!updateMarketResult.ok) {
       return await failWithCompensation(configDir, 'marketplace-update-failed', 'Refreshing the local marketplace failed.', updateMarketResult, compensations);
@@ -736,30 +813,38 @@ export async function install({ candidateDir, configDir, scope, projectDir }, na
     const priorNative = findInstalled(listResult.plugins, name, scope);
 
     if (priorNative === null) {
+      compensations.unshift({
+        description: 'uninstall the plugin registration this install may have created',
+        undo: async () => {
+          const result = await native.pluginUninstall(`${name}@${MARKETPLACE_NAME}`, scope, runOptions);
+          if (!result.ok && result.failureCode !== 'not_installed') {
+            throw new Error(result.message || result.stderr || 'plugin uninstall returned an unsuccessful outcome');
+          }
+        },
+      });
       const installResult = await native.pluginInstall(`${name}@${MARKETPLACE_NAME}`, scope, runOptions);
       if (!installResult.ok) {
         return await failWithCompensation(configDir, 'plugin-install-failed', 'Installing the plugin failed.', installResult, compensations);
       }
+    } else if (priorNative.version !== version) {
+      const priorVersion = priorNative.version;
       compensations.push({
-        description: 'uninstall the plugin registration this install created',
+        description: `restore plugin version ${priorVersion} after restoring the previous marketplace`,
         undo: async () => {
-          await native.pluginUninstall(`${name}@${MARKETPLACE_NAME}`, scope, runOptions);
+          const result = await native.pluginUpdate(`${name}@${MARKETPLACE_NAME}`, scope, runOptions);
+          if (!result.ok) throw new Error(result.message || result.stderr || 'plugin downgrade returned an unsuccessful outcome');
+          const listed = await native.pluginList(runOptions);
+          if (!listed.ok) throw new Error(listed.stderr || 'could not verify the restored plugin version');
+          const restored = findInstalled(listed.plugins, name, scope);
+          if (restored?.version !== priorVersion) {
+            throw new Error(`restored plugin reports version ${JSON.stringify(restored?.version)}, expected ${JSON.stringify(priorVersion)}`);
+          }
         },
       });
-    } else if (priorNative.version !== version) {
       const updateResult = await native.pluginUpdate(`${name}@${MARKETPLACE_NAME}`, scope, runOptions);
       if (!updateResult.ok) {
         return await failWithCompensation(configDir, 'plugin-update-failed', 'Updating the plugin failed.', updateResult, compensations);
       }
-      // The plugin record already existed before this call; restoring the
-      // filesystem (already queued) and refreshing the marketplace again is
-      // "restore the prior source and refresh the prior plugin state" (D7).
-      compensations.push({
-        description: 're-point the marketplace at the restored (previous) content',
-        undo: async () => {
-          await native.marketplaceUpdate(MARKETPLACE_NAME, runOptions);
-        },
-      });
     }
     // Else: already installed at the requested version and scope — an
     // idempotent no-op, proven by native structured state rather than by
@@ -785,7 +870,7 @@ export async function install({ candidateDir, configDir, scope, projectDir }, na
     // still there, so native state and the filesystem are unwound together)
     // rather than losing the recovery path first.
     try {
-      await writeState(configDir, { name, version, scope, projectDir });
+      await writeState(configDir, { name, version, scope, projectDir: canonicalProjectDir });
     } catch (error) {
       return await failWithCompensation(configDir, 'state-write-failed', `Recording installer state failed: ${describe(error)}.`, null, compensations);
     }
@@ -895,11 +980,27 @@ export async function inspect({ configDir }, native = createRealNativeCommands()
   }
   const state = existing.state;
   const listResult = await native.pluginList({ configDir, projectDir: state.projectDir });
+  if (!listResult.ok) {
+    return failed(
+      'plugin-list-failed',
+      `Installer state exists, but Claude Code's installed-plugin state could not be read for CLAUDE_CONFIG_DIR=${configDir}.`,
+      listResult,
+    );
+  }
+  const postcondition = verifyPostcondition(listResult.plugins, {
+    name: state.name,
+    version: state.version,
+    scope: state.scope,
+    canonicalProjectDir: await canonicalize(state.projectDir),
+  });
+  if (!postcondition.ok) {
+    return failed('postcondition-failed', `Installer state and Claude Code disagree: ${postcondition.reason}.`, listResult);
+  }
   return ok({
     installed: true,
     state,
     manifestPath: marketplaceManifestPath(marketplaceDir(configDir)),
-    plugins: listResult.ok ? listResult.plugins : [],
+    plugins: listResult.plugins,
   });
 }
 
@@ -921,8 +1022,22 @@ function printResult(command, result, options) {
     console.log(`Durable marketplace: ${result.marketDir}`);
     console.log('This directory is owned by AMBICODE and is not deleted automatically; removing the');
     console.log(`original candidate directory (${options.candidateDir}) does not affect this installation.`);
+    if (options.configDirExplicit) {
+      console.log('This is an isolated/custom Claude configuration. Ordinary `claude plugin list` will not see it unless');
+      console.log(`CLAUDE_CONFIG_DIR is also set to ${options.configDir}. Use this configuration-safe verification instead:`);
+      console.log(`  node install-local.mjs inspect --config-dir "${options.configDir}"`);
+    } else {
+      console.log('Verify it in the normal Claude configuration with:');
+      console.log('  claude plugin list');
+      console.log('  claude plugin details ambicode@ambicode-team');
+    }
+    console.log('Start or reload Claude Code from the target repository, then run /ambicode:init.');
     console.log('Reverse this with:');
-    console.log(`  node install-local.mjs uninstall ${options.configDir}`);
+    console.log(
+      options.configDirExplicit
+        ? `  node install-local.mjs uninstall --config-dir "${options.configDir}"`
+        : '  node install-local.mjs uninstall',
+    );
     return;
   }
 

@@ -5,6 +5,7 @@ import { planInit } from '../../config/init.ts';
 import { openRepository, type Runtime } from '../../composition/root.ts';
 import type { FileSystem } from '../../ports/filesystem.ts';
 import type { ParsedArgs } from '../args.ts';
+import { navigationFor, type NavigationGuidance } from '../../code-intelligence/navigation.ts';
 
 export const INIT_OPTIONS = { flags: ['json', 'dry-run'] } as const;
 
@@ -15,7 +16,7 @@ export interface InitOutput {
   written: boolean;
   changes: string[];
   notices: string[];
-  projects: { id: string; root: string; ecosystem: string; configured: string[]; missing: string[] }[];
+  projects: { id: string; root: string; ecosystem: string; configured: string[]; missing: string[]; navigation: NavigationGuidance }[];
 }
 
 /**
@@ -59,6 +60,7 @@ export async function runInit(runtime: Runtime, args: ParsedArgs): Promise<InitO
       id: project.id,
       root: project.root,
       ecosystem: project.ecosystem,
+      navigation: navigationFor(project.ecosystem),
       // "Show configured and missing checks" (P1.2 item 2): a slot that is null
       // is stated as missing rather than left for the reader to infer.
       configured: Object.entries(project.checks)
@@ -101,6 +103,8 @@ export function renderInit(output: InitOutput): string {
     lines.push(`${project.id}  [${project.ecosystem}]  root: ${project.root}`);
     lines.push(`  checks configured: ${project.configured.join(', ') || '(none)'}`);
     lines.push(`  checks missing:    ${project.missing.join(', ') || '(none)'}`);
+    lines.push(`  code intelligence: ${project.navigation.plugin} (session-observed; optional setup below)`);
+    lines.push(...project.navigation.setupCommands.map((command) => `    ${command}`));
   }
 
   if (output.changes.length > 0) {

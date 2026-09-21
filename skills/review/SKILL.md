@@ -10,6 +10,10 @@ cannot change underneath the review, runs the checks the change actually
 affects, and hands the whole bundle to a fresh Claude Code process that can only
 read that snapshot. Run it and report what came back.
 
+Every `ambicode ...` spelling below describes the CLI operation. Invoke it
+through the packaged cross-platform entry point:
+`node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" ...`.
+
 ## Steps
 
 1. Decide whether there are requirements. If the user named a Jira issue or a
@@ -42,7 +46,7 @@ when you are reading it back to a person.
 ## Reviewing a merge request
 
 ```sh
-ambicode review --mr https://gitlab.example.com/group/sub/project/-/merge_requests/42
+node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" review --mr https://gitlab.example.com/group/sub/project/-/merge_requests/42
 ```
 
 Pass the URL the user gave you, in full. AMBICODE takes the host, the project
@@ -89,7 +93,7 @@ review it remotely by another route; offer the local `--branch` review instead.
 review for publication:
 
 ```sh
-ambicode view --review <review-id>
+node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" view --review <review-id>
 ```
 
 After a merge request review, tell the user this command and offer to run it
@@ -110,7 +114,7 @@ what a failure means; `investigate` and `plan` follow the same procedure.
 Then run the review:
 
 ```sh
-ambicode review \
+node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" review \
   --requirement https://example.atlassian.net/browse/ORD-17 \
   --requirement https://example.atlassian.net/wiki/spaces/ENG/pages/42/Orders \
   --evidence "$evidence_file"

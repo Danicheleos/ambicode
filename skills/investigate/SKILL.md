@@ -41,7 +41,7 @@ either.
    overview, not the machine contract this step reads:
 
    ```sh
-   ambicode prepare --activity investigate --json [paths...] [--project <id>] \
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" prepare --activity investigate --json [paths...] [--project <id>] \
      [--requirement <url>]... [--evidence <file>]
    ```
 
@@ -66,10 +66,17 @@ either.
    - `ambicode prepare` never returns `before-checks` or `before-review`
      content for `investigate` — that stays reviewer-only. There is nothing
      to filter out on your side.
-4. **Navigate.** Known paths first (from the question, the ticket, or what
-   you typed), then available symbol/LSP navigation, then targeted
-   Grep/Glob/Read. Do not build an index or read the entire repository by
-   default — a bounded question needs bounded reading.
+   - Read `navigation`. It names the ecosystem's official Claude Code LSP
+     plugin and search order. The helper cannot see this session's tool
+     inventory, so observe whether LSP tools are actually available here;
+     never infer availability merely from the recommendation.
+4. **Navigate.** Follow `navigation.strategy`: known paths first, then use
+   current-session LSP tools for definitions, references, callers and symbol
+   lookup, then targeted Grep/Glob/Read only where LSP is absent or
+   insufficient. Do not build an index or read the entire repository by
+   default. Record either `Navigation: LSP — <operations used>` or
+   `Navigation: targeted-search fallback — <specific reason>` in the final
+   report. Installed or recommended alone does not prove that LSP ran.
 5. **Compare, don't stop at the first match.** Form every candidate
    explanation the evidence actually supports and check each against the
    code and requirement evidence before settling on one. A single fact that
@@ -83,6 +90,7 @@ either.
    - **Assumptions** — named as assumptions, never folded into the facts.
    - **Unresolved questions** — named, not silently dropped.
    - **Recommendation.**
+   - **Navigation evidence** — the required LSP operations or fallback reason.
    - **What would change this conclusion** — the specific evidence that would
      revise it.
    - If the evidence is genuinely inconclusive, or the honest answer is

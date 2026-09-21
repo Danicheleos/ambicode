@@ -213,6 +213,19 @@ test('U01 a python project without a mapping leaves the unit check null with an 
   assert.ok(plan.notices.some((notice) => notice.includes('selector:') && notice.includes('kind: mapping')));
 });
 
+test('U01 detects Python tools in a Windows virtual environment', async (t) => {
+  const directory = await sandbox(t);
+  await mkdir(path.join(directory, '.venv', 'Scripts'), { recursive: true });
+  await writeFile(path.join(directory, 'pyproject.toml'), '[project]\nname="api"\n', 'utf8');
+  for (const binary of ['python.exe', 'pytest.exe', 'ruff.exe']) {
+    await writeFile(path.join(directory, '.venv', 'Scripts', binary), '', 'utf8');
+  }
+
+  const [project] = await detectProjects(nodeFileSystem, directory);
+  assert.deepEqual(project?.lint?.argv, ['./.venv/Scripts/ruff.exe', 'check', '--', '{files}']);
+  assert.deepEqual(project?.unit?.argv, ['./.venv/Scripts/python.exe', '-m', 'pytest', '--', '{files}']);
+});
+
 test('U01 the generated configuration always parses', async (t) => {
   const directory = await sandbox(t);
   await writeFile(path.join(directory, 'package.json'), '{"name":"x"}', 'utf8');

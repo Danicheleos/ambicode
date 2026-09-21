@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Activity, Authority, CommandAction, PromptStage, RuleCategory } from './primitives.ts';
+import { Activity, Authority, CommandAction, Ecosystem, PromptStage, RuleCategory } from './primitives.ts';
 import { ProvenanceEntry, RequirementMode, RequirementSource } from './requirements.ts';
 
 /**
@@ -116,6 +116,22 @@ export const PrepareSharedContract = z.strictObject({
 });
 export type PrepareSharedContract = z.infer<typeof PrepareSharedContract>;
 
+/**
+ * Visible code-navigation contract for authoring skills. Availability cannot
+ * be inferred from repository files: the active Claude session must observe
+ * its own tools and report either LSP use or the reason for the fallback.
+ */
+export const PrepareNavigation = z.strictObject({
+  strategy: z.literal('known-paths-then-lsp-then-targeted-search'),
+  ecosystem: Ecosystem,
+  plugin: z.string().min(1),
+  serverCommand: z.string().min(1),
+  setupCommands: z.array(z.string().min(1)).min(1),
+  statusSource: z.literal('current-session'),
+  evidenceRequirement: z.string().min(1),
+});
+export type PrepareNavigation = z.infer<typeof PrepareNavigation>;
+
 export const PrepareOutput = z.strictObject({
   command: z.literal('prepare'),
   activity: Activity,
@@ -128,6 +144,7 @@ export const PrepareOutput = z.strictObject({
   provenance: z.array(ProvenanceEntry),
   notices: z.array(z.string()),
   policy: PreparePolicy,
+  navigation: PrepareNavigation,
   sharedOperatingContract: PrepareSharedContract,
   contextBudget: PrepareContextBudget,
 });

@@ -3,23 +3,23 @@
     "PostToolUse": [
       {
         "matcher": "Edit|Write",
-        "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/ambicode hook" }]
+        "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs", "hook"] }]
       }
     ],
     "SessionStart": [
       {
         "matcher": "startup|resume|clear|fork",
-        "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/ambicode hook" }]
+        "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs", "hook"] }]
       }
     ],
     "PostCompact": [
       {
-        "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/ambicode hook" }]
+        "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs", "hook"] }]
       }
     ],
     "SessionEnd": [
       {
-        "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/ambicode hook" }]
+        "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs", "hook"] }]
       }
     ]
   }

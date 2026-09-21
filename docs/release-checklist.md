@@ -16,9 +16,11 @@ against evidence that already exists, not as open-ended advice.
   && npm run test:unit && npm run validate:plugin && npm run
   package:candidate && npm run package:reproducible`. All must pass before
   anything below.
-- [ ] Install the candidate into a chosen `CLAUDE_CONFIG_DIR` with
-  `node install-local.mjs install dist/ambicode-<version> <config-dir>`, and
-  confirm `claude plugin details ambicode@ambicode-team` reports all five
+- [ ] Install the candidate into the normal Claude configuration with
+  `node install-local.mjs install dist/ambicode-<version>`; use the named
+  `--config-dir <dir>` option only for an intentionally isolated test. Confirm
+  ordinary `claude plugin list` and
+  `claude plugin details ambicode@ambicode-team` report all five
   skills (`init`, `review`, `investigate`, `plan`, `task`) and the four hooks
   (`Hooks (4)  PostToolUse, SessionStart, PostCompact, SessionEnd`, doc 04
   P2.4 correction G) before relying on it.
@@ -34,6 +36,15 @@ against evidence that already exists, not as open-ended advice.
   during an upgrade preserves the old installation, a plugin-uninstall or
   marketplace-removal failure preserves the durable source, and a
   wrong-scope uninstall is refused — without shelling out to `claude`.
+- [ ] On a real Windows host, run `npm run verify`,
+  `npm run package:reproducible`, and `npm run smoke:install-local`; then load
+  the plugin from a target repository and exercise one hook. The implementation
+  no longer depends on OS `zip`, `/bin/sh`, or `.venv/bin`, but macOS evidence
+  is not Windows acceptance evidence.
+- [ ] For each pilot language, install the official LSP plugin and server from
+  `docs/installation.md`, then record one real definition/reference operation
+  from `/ambicode:investigate`, `/ambicode:plan`, or `/ambicode:task`. Record a
+  fallback reason if the current session exposes no LSP tools.
 - [ ] Have a second developer — not the person who built the candidate —
   install it in a fresh environment using only `docs/installation.md`, and
   complete one working-tree review end to end. Doc 08 makes this mandatory

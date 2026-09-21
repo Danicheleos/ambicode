@@ -2,21 +2,18 @@
 // second developer's machine would, with none of this repository's
 // node_modules or TypeScript source reachable (doc 03 P1.7 §2-3).
 //
-// Usage: node smoke-candidate.mjs <candidate-directory>
+// Usage: node smoke-candidate.mjs [candidate-directory]
 import { execFileSync, spawn } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-const candidateDir = process.argv[2];
-if (candidateDir === undefined) {
-  console.error('usage: node smoke-candidate.mjs <candidate-directory>');
-  process.exit(2);
-}
-const launcher = path.resolve(candidateDir, 'bin/ambicode');
+const packageVersion = JSON.parse(await readFile(new URL('./package.json', import.meta.url), 'utf8')).version;
+const candidateDir = path.resolve(process.argv[2] ?? path.join('dist', `ambicode-${packageVersion}`));
+const bundle = path.resolve(candidateDir, 'scripts/ambicode.mjs');
 
 function run(args, options = {}) {
-  return execFileSync(launcher, args, { encoding: 'utf8', ...options });
+  return execFileSync(process.execPath, [bundle, ...args], { encoding: 'utf8', ...options });
 }
 
 async function withTempDir(prefix, task) {
@@ -83,7 +80,7 @@ async function checkViewTemplatesResolve() {
     const result = minimalLocalReviewResult(reviewId);
     await writeFile(path.join(reviewDir, 'result.json'), `${JSON.stringify(result, null, 2)}\n`);
 
-    const child = spawn(launcher, ['view', '--review', reviewId, '--no-open'], { cwd });
+    const child = spawn(process.execPath, [bundle, 'view', '--review', reviewId, '--no-open'], { cwd });
     let stdout = '';
     let stderr = '';
     const url = await new Promise((resolve, reject) => {

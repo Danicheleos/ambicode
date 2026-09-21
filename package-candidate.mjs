@@ -10,6 +10,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from '
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { zipSync } from 'fflate';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.join(ROOT, 'dist');
@@ -38,6 +39,7 @@ const DIRECTORY_ALLOWLIST = [
 const FILE_ALLOWLIST = [
   { from: '.claude-plugin/plugin.json', mode: 0o644 },
   { from: 'bin/ambicode', mode: 0o755 },
+  { from: 'bin/ambicode.cmd', mode: 0o644 },
   { from: 'scripts/ambicode.mjs', mode: 0o644 },
   { from: 'hooks/hooks.json', mode: 0o644 },
   { from: 'docs/installation.md', mode: 0o644 },
@@ -50,7 +52,10 @@ const FILE_ALLOWLIST = [
 // bytes (doc 03 P1.7 correction B): a freshly copied file's real mtime would
 // otherwise differ between two runs a second apart and change every zip entry
 // that carries a timestamp, even though nothing shipped actually changed.
-const REPRODUCIBLE_MTIME = new Date('2020-01-01T00:00:00Z');
+// ZIP's DOS timestamp has no timezone. fflate deliberately uses local Date
+// fields, so construct the fixed value in local time: every timezone then
+// writes the same 2020-01-01 00:00 bytes instead of shifting a UTC instant.
+const REPRODUCIBLE_MTIME = new Date(2020, 0, 1, 0, 0, 0, 0);
 
 async function readJson(relativePath) {
   return JSON.parse(await readFile(path.join(ROOT, relativePath), 'utf8'));
@@ -241,10 +246,14 @@ async function checkHooksManifest(candidateDir) {
   for (const event of events) {
     for (const matcher of manifest.hooks[event]) {
       for (const entry of matcher.hooks ?? []) {
-        if (entry.type !== 'command' || entry.command !== '${CLAUDE_PLUGIN_ROOT}/bin/ambicode hook') {
+        if (
+          entry.type !== 'command' ||
+          entry.command !== 'node' ||
+          JSON.stringify(entry.args) !== JSON.stringify(['${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs', 'hook'])
+        ) {
           throw new Error(
             `hooks/hooks.json's "${event}" entry does not route through the single bundled entry point ` +
-              '"${CLAUDE_PLUGIN_ROOT}/bin/ambicode hook".',
+              '`node ${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs hook` in cross-platform exec form.',
           );
         }
       }
@@ -253,6 +262,13 @@ async function checkHooksManifest(candidateDir) {
 }
 
 async function checkLauncherExecutable(candidateDir) {
+  if (process.platform === 'win32') {
+    const windowsLauncher = await readFile(path.join(candidateDir, 'bin/ambicode.cmd'), 'utf8');
+    if (!windowsLauncher.includes('scripts\\ambicode.mjs')) {
+      throw new Error('bin/ambicode.cmd does not route to the bundled Node entry point.');
+    }
+    return;
+  }
   const mode = (await stat(path.join(candidateDir, 'bin/ambicode'))).mode & 0o777;
   if ((mode & 0o111) === 0) {
     throw new Error(`bin/ambicode is not executable in the candidate (mode ${mode.toString(8)}).`);
@@ -270,22 +286,27 @@ async function checkNoForbiddenDependencies(candidateDir) {
 }
 
 /**
- * Zips the already-built `<stagingParent>/ambicode-<version>` directory. Every
- * shipped file already carries the fixed `REPRODUCIBLE_MTIME`, the file list
- * is explicit and sorted rather than left to `-r`'s own traversal order, `-D`
- * omits directory entries (which carry no content but do carry a timestamp),
- * `-X` strips extra per-entry attributes, and a fixed `TZ` makes the embedded
- * MS-DOS timestamp independent of the machine's local zone — together this is
- * what makes the archive byte-identical across two independent packaging runs
- * of the same source (doc 03 P1.7 correction B), not only the same file set.
+ * Zips the already-built `<stagingParent>/ambicode-<version>` directory with a
+ * pure JavaScript ZIP implementation. The prior Info-ZIP subprocess made an
+ * otherwise Node-only package fail on a normal Windows machine. Sorted input,
+ * fixed timestamps and explicit Unix mode attributes keep the archive bytes
+ * reproducible on every host without requiring an OS `zip` executable.
  */
 async function buildZip(stagingParent, version) {
   const entryName = `ambicode-${version}`;
   const files = (await walkFiles(path.join(stagingParent, entryName))).sort();
   const zipPath = path.join(stagingParent, `${entryName}.zip`);
   await rm(zipPath, { force: true });
-  const args = ['-X', '-D', zipPath, ...files.map((relativePath) => `${entryName}/${relativePath}`)];
-  execFileSync('zip', args, { cwd: stagingParent, stdio: 'inherit', env: { ...process.env, TZ: 'UTC' } });
+  const entries = {};
+  for (const relativePath of files) {
+    const absolutePath = path.join(stagingParent, entryName, relativePath);
+    const mode = (await stat(absolutePath)).mode & 0o777;
+    entries[`${entryName}/${relativePath}`] = [
+      await readFile(absolutePath),
+      { mtime: REPRODUCIBLE_MTIME, os: 3, attrs: mode << 16 },
+    ];
+  }
+  await writeFile(zipPath, zipSync(entries, { level: 9, mtime: REPRODUCIBLE_MTIME }));
   const sha256 = createHash('sha256').update(await readFile(zipPath)).digest('hex');
   return { zipPath, sha256 };
 }
