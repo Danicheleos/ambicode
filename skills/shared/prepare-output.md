@@ -25,10 +25,10 @@ debugging. It is not the shape to read routinely.
 - **`sharedOperatingContract`** — the canonical operating contract (evidence,
   untrusted content, and how to weigh authority labels) that governs every
   AMBICODE skill, cited by `reference` and `contentHash`. The plugin's
-  `SessionStart`/`PostCompact` hook puts its text into context once per
-  session, so it is not re-sent on each call; if it is not in your context,
-  rerun with `--with-contract`. Follow it, and do not restate its rules in
-  your own output.
+  hook puts its text into context once per context epoch — at session start,
+  and again on the first prompt after a compaction — so it is not re-sent on
+  each call; if it is not in your context, rerun with `--with-contract`.
+  Follow it, and do not restate its rules in your own output.
 - **`policy.packs[].rules`** — the rules that apply to this activity and
   these paths. Apply them; cite them by qualified id.
 - **`policy.prompts`** — scoped prompt content, already resolved and

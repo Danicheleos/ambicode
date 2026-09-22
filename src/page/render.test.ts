@@ -156,7 +156,10 @@ describe('U20 the review page shows what the result actually says', () => {
       const page = await openPage(harness);
       assert.match(page.html, /This is a local review/);
       assert.ok(!page.html.includes('type="checkbox"'));
-      assert.ok(!page.html.includes('<button type="submit">'));
+      // Nothing that publishes. The "Close the page" button is not that: it
+      // stops the local server and reaches no provider.
+      assert.ok(!page.html.includes('Publish the checked comments'));
+      assert.ok(page.html.includes('action="/close"'));
     } finally {
       await harness.dispose();
     }
@@ -171,7 +174,10 @@ describe('U20 the review page shows what the result actually says', () => {
       const page = await openPage(harness);
       assert.match(page.html, /did not produce a validated result/);
       assert.match(page.html, /This is not a clean review/);
-      assert.ok(!page.html.includes('<button type="submit">'));
+      // Nothing that publishes. The "Close the page" button is not that: it
+      // stops the local server and reaches no provider.
+      assert.ok(!page.html.includes('Publish the checked comments'));
+      assert.ok(page.html.includes('action="/close"'));
     } finally {
       await harness.dispose();
     }

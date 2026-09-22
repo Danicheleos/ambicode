@@ -10,6 +10,7 @@ import { parseHunks, type DiffFile } from '../git/diff.ts';
 import { nodeFileSystem } from '../ports/filesystem.ts';
 import type { Reviewer, ReviewerInvocation, ReviewerRequest } from '../ports/reviewer.ts';
 import { FakeProcessRunner } from '../testing/fake-process-runner.ts';
+import { reviewerIo } from '../testing/reviewer-io.ts';
 import { TempRepo } from '../testing/temp-repo.ts';
 import { isAmbicodeError } from '../util/errors.ts';
 import { ClaudeReviewer, REVIEWER_TOOLS, parseReviewerOutput } from './claude-reviewer.ts';
@@ -622,7 +623,9 @@ describe('U17 reviewer isolation', () => {
       stdout: [
         '--print --safe-mode --restricted --strict-mcp-config --tools --disallowedTools',
         '--no-session-persistence --permission-prompts --output-format --model --json-schema',
-        '--append-system-prompt',
+        // Spelled as Claude Code's own --help spells it: the file variant is
+        // only mentioned inside the --bare description.
+        '--append-system-prompt <prompt>  --append-system-prompt[-file]',
       ].join('\n'),
     });
   }
@@ -631,7 +634,8 @@ describe('U17 reviewer isolation', () => {
     const runner = stubbedHelp().stubArgv(['claude', '--print'], {
       stdout: JSON.stringify({ result: { findings: [], coverageNotes: [] } }),
     });
-    const reviewer = new ClaudeReviewer({ runner, cwd: '/work/checkout' });
+    const io = reviewerIo();
+    const reviewer = new ClaudeReviewer({ runner, ...io, cwd: '/work/checkout' });
     await reviewer.assertIsolationAvailable();
 
     const invocation = await reviewer.invoke({
@@ -657,8 +661,14 @@ describe('U17 reviewer isolation', () => {
     assert.ok(argv.includes('--no-session-persistence'));
     // The system prompt is appended through the documented flag, never
     // through stdin (doc 04 P2.4 correction E1); the user prompt (with the
-    // diff and requirements) is the only thing sent over stdin.
-    assert.equal(argv[argv.indexOf('--append-system-prompt') + 1], 'contract + role');
+    // diff and requirements) is the only thing sent over stdin. It travels as
+    // a file, so no argument can ever hold a line break — which cmd.exe would
+    // read as a command separator when claude.cmd is spawned on Windows.
+    const systemPromptFile = argv[argv.indexOf('--append-system-prompt-file') + 1];
+    assert.ok(systemPromptFile);
+    assert.equal(io.written.get(systemPromptFile), 'contract + role');
+    assert.ok(!argv.includes('contract + role'));
+    for (const value of argv) assert.ok(!/[\r\n]/.test(value), `argument holds a line break: ${value}`);
     assert.equal(argv[argv.indexOf('--permission-prompts') + 1], 'none');
     assert.equal(argv[argv.indexOf('--model') + 1], 'sonnet');
 
@@ -673,9 +683,11 @@ describe('U17 reviewer isolation', () => {
 
   it('refuses the review when the installed CLI lacks an isolation option', async () => {
     const runner = new FakeProcessRunner().stubArgv(['claude', '--help'], {
-      stdout: '--print --tools --output-format --model',
+      // Carries the system-prompt file variant, so the refusal below is the
+      // isolation check failing and not the transport check ahead of it.
+      stdout: '--print --tools --output-format --model --append-system-prompt[-file]',
     });
-    const reviewer = new ClaudeReviewer({ runner, cwd: '/work/checkout' });
+    const reviewer = new ClaudeReviewer({ runner, ...reviewerIo(), cwd: '/work/checkout' });
     await assert.rejects(
       () => reviewer.assertIsolationAvailable(),
       (error: unknown) => {
@@ -692,7 +704,7 @@ describe('U17 reviewer isolation', () => {
       kind: 'spawn-failed',
       failure: 'spawn claude ENOENT',
     });
-    const reviewer = new ClaudeReviewer({ runner, cwd: '/work/checkout' });
+    const reviewer = new ClaudeReviewer({ runner, ...reviewerIo(), cwd: '/work/checkout' });
     await assert.rejects(
       () => reviewer.assertIsolationAvailable(),
       (error: unknown) => isAmbicodeError(error) && error.code === 'reviewer-unavailable',
@@ -708,7 +720,7 @@ describe('U17 reviewer isolation', () => {
     ];
     for (const [outcome, reason] of cases) {
       const runner = new FakeProcessRunner().stubArgv(['claude', '--print'], outcome);
-      const invocation = await new ClaudeReviewer({ runner, cwd: '/w' }).invoke({
+      const invocation = await new ClaudeReviewer({ runner, ...reviewerIo(), cwd: '/w' }).invoke({
         systemPrompt: 's',
         prompt: 'p',
         workingDirectory: '/tmp/s',

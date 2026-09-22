@@ -22,7 +22,14 @@ async function post(
   harness: Harness,
   page: OpenedPage,
   fields: Record<string, string | string[]>,
-  overrides: { host?: string; origin?: string | null; contentType?: string; cookie?: string } = {},
+  overrides: {
+    host?: string;
+    origin?: string | null;
+    contentType?: string;
+    cookie?: string;
+    secFetchSite?: string;
+    referer?: string;
+  } = {},
 ) {
   const headers: Record<string, string> = {
     host: overrides.host ?? AUTHORITY,
@@ -30,6 +37,8 @@ async function post(
     cookie: overrides.cookie ?? page.cookies,
   };
   if (overrides.origin !== null) headers.origin = overrides.origin ?? ORIGIN;
+  if (overrides.secFetchSite !== undefined) headers['sec-fetch-site'] = overrides.secFetchSite;
+  if (overrides.referer !== undefined) headers.referer = overrides.referer;
   return await harness.server.app.inject({
     method: 'POST',
     url: '/publish',
@@ -171,19 +180,138 @@ describe('U21 the page accepts only its own form', () => {
         origin: 'http://attacker.example.com',
       });
       assert.equal(response.statusCode, 403);
-      assert.match(response.body, /must carry Origin http:\/\/127\.0\.0\.1:7777/);
+      assert.match(response.body, /accepts http:\/\/127\.0\.0\.1:7777/);
+      // The refusal names what actually arrived, so a genuine refusal reads
+      // differently from a guard that is rejecting its own page.
+      assert.match(response.body, /attacker\.example\.com/);
       assert.deepEqual(harness.provider?.published, []);
     } finally {
       await harness.dispose();
     }
   });
 
-  it('refuses a submission with no Origin at all', async () => {
+  it('refuses a submission that cannot be shown to come from this page', async () => {
     const harness = await startHarness();
     try {
       const page = await openPage(harness);
+      // No Origin, and nothing else that establishes where it came from.
       const response = await post(harness, page, validFields(page), { origin: null });
       assert.equal(response.statusCode, 403);
+      assert.deepEqual(harness.provider?.published, []);
+    } finally {
+      await harness.dispose();
+    }
+  });
+
+  it('stops the server when the reader closes the page, publishing nothing', async () => {
+    // Deciding to publish nothing is an ordinary outcome, and it needs an
+    // ending. Ctrl-C does not reach a page a skill started in the background.
+    const harness = await startHarness();
+    try {
+      const page = await openPage(harness);
+      const response = await harness.server.app.inject({
+        method: 'POST',
+        url: '/close',
+        headers: { host: AUTHORITY, origin: ORIGIN, 'content-type': 'application/x-www-form-urlencoded', cookie: page.cookies },
+        payload: form({ _csrf: page.csrfToken }),
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.match(response.body, /The page is closed/);
+      assert.deepEqual(harness.provider?.published, []);
+      assert.equal(await harness.server.stopped, 'closed from the page');
+    } finally {
+      await harness.dispose();
+    }
+  });
+
+  it('refuses to close on a request that is not from the page', async () => {
+    const harness = await startHarness();
+    try {
+      const page = await openPage(harness);
+      const noToken = await harness.server.app.inject({
+        method: 'POST',
+        url: '/close',
+        headers: { host: AUTHORITY, origin: ORIGIN, 'content-type': 'application/x-www-form-urlencoded', cookie: page.cookies },
+        payload: form({}),
+      });
+      assert.equal(noToken.statusCode, 403);
+
+      const badOrigin = await harness.server.app.inject({
+        method: 'POST',
+        url: '/close',
+        headers: {
+          host: AUTHORITY,
+          origin: 'http://attacker.example.com',
+          'content-type': 'application/x-www-form-urlencoded',
+          cookie: page.cookies,
+        },
+        payload: form({ _csrf: page.csrfToken }),
+      });
+      assert.equal(badOrigin.statusCode, 403);
+    } finally {
+      await harness.dispose();
+    }
+  });
+
+  it('accepts a same-origin submission that carries no Origin header', async () => {
+    // A same-origin form POST is not obliged to send `Origin`, and browsers
+    // differ on whether they do. Refusing on its absence rejected real
+    // submissions from the page the server had just opened itself. The CSRF
+    // token, the signed session cookie and the Host check all still apply.
+    const harness = await startHarness();
+    try {
+      const page = await openPage(harness);
+      const response = await post(harness, page, validFields(page), {
+        origin: null,
+        secFetchSite: 'same-origin',
+      });
+      assert.notEqual(response.statusCode, 403);
+    } finally {
+      await harness.dispose();
+    }
+  });
+
+  it('refuses a cross-site submission that carries no Origin header', async () => {
+    const harness = await startHarness();
+    try {
+      const page = await openPage(harness);
+      const response = await post(harness, page, validFields(page), {
+        origin: null,
+        secFetchSite: 'cross-site',
+      });
+      assert.equal(response.statusCode, 403);
+      assert.match(response.body, /cross-site/);
+      assert.deepEqual(harness.provider?.published, []);
+    } finally {
+      await harness.dispose();
+    }
+  });
+
+  it('accepts a Referer on this page when neither Origin nor Sec-Fetch-Site is present', async () => {
+    const harness = await startHarness();
+    try {
+      const page = await openPage(harness);
+      const response = await post(harness, page, validFields(page), {
+        origin: null,
+        referer: 'http://127.0.0.1:7777/',
+      });
+      assert.notEqual(response.statusCode, 403);
+    } finally {
+      await harness.dispose();
+    }
+  });
+
+  it('refuses a Referer from somewhere else when Origin is absent', async () => {
+    const harness = await startHarness();
+    try {
+      const page = await openPage(harness);
+      const response = await post(harness, page, validFields(page), {
+        origin: null,
+        referer: 'http://evil.example.com/',
+      });
+      assert.equal(response.statusCode, 403);
+      assert.match(response.body, /evil\.example\.com/);
       assert.deepEqual(harness.provider?.published, []);
     } finally {
       await harness.dispose();

@@ -3,6 +3,7 @@ import { runChecks, type PendingApproval } from '../checks/run.ts';
 import { runRemoteChecks } from '../checks/remote.ts';
 import type { ChangedPath } from '../checks/select.ts';
 import { MAX_REVIEWED_DISCUSSIONS, REVIEWS_DIR } from '../config/defaults.ts';
+import { uniqueReviewName } from './review-name.ts';
 import {
   openWorkspace,
   projectForPath,
@@ -153,8 +154,19 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
 
   const snapshot = await writeSnapshot(runtime.fs, plan, reviewable.patch, runtime.clock);
 
-  const reviewId = runtime.ids.reviewId();
-  const reviewDirectory = path.join(workspace.repositoryRoot, REVIEWS_DIR, reviewId);
+  // The directory name is the review id, and it is what a person scans the
+  // listing for: which merge request, which ticket, which day.
+  const reviewsRoot = path.join(workspace.repositoryRoot, REVIEWS_DIR);
+  const reviewId = await uniqueReviewName(
+    {
+      target: resolution.target,
+      requirementIds: requirements.sources.map((source) => source.id),
+      now: runtime.clock.now(),
+    },
+    (name) => runtime.fs.exists(path.join(reviewsRoot, name)),
+    runtime.ids.reviewId(),
+  );
+  const reviewDirectory = path.join(reviewsRoot, reviewId);
   await runtime.fs.mkdirp(reviewDirectory);
 
   const { checks, pendingApprovals, notes: checkNotes } = await runProjectChecks({

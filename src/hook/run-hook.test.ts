@@ -285,7 +285,7 @@ describe('G/H: ambicode hook (PostToolUse edit reminders)', () => {
     }
   });
 
-  it('R2 change 2: SessionStart and PostCompact put the shared operating contract into context once per epoch', async () => {
+  it('R2 change 2: SessionStart and the first UserPromptSubmit of an epoch put the shared operating contract into context once', async () => {
     const { repo, dispose } = await fixtureWithPack();
     try {
       const runtime = await createRuntime({ cwd: repo.root });
@@ -307,12 +307,29 @@ describe('G/H: ambicode hook (PostToolUse edit reminders)', () => {
 
       // A second event in the same epoch does not repeat it — that repetition
       // is exactly the cost this change removes.
-      const again = await runHook(
+      const sameEpoch = await runHook(
+        runtime,
+        JSON.stringify({ hook_event_name: 'UserPromptSubmit', session_id: sessionId }),
+      );
+      assert.deepEqual(sameEpoch, {}, 'the contract is already in context for this epoch');
+
+      // `PostCompact` drops the earlier delivery, but it cannot carry the
+      // replacement: Claude Code's output schema has no `hookSpecificOutput`
+      // variant for that event, and returning one is a visible validation
+      // failure. It resets, silently.
+      const compacted = await runHook(
         runtime,
         JSON.stringify({ hook_event_name: 'PostCompact', session_id: sessionId, agent_id: undefined }),
       );
-      const secondEpoch = (again as { hookSpecificOutput?: unknown }).hookSpecificOutput;
-      assert.ok(secondEpoch !== undefined, 'PostCompact starts a new epoch, which is a new delivery');
+      assert.deepEqual(compacted, {}, 'PostCompact cannot inject context, so it must return nothing');
+
+      // The first prompt after the compaction is what puts it back.
+      const afterCompact = (await runHook(
+        runtime,
+        JSON.stringify({ hook_event_name: 'UserPromptSubmit', session_id: sessionId }),
+      )) as { hookSpecificOutput?: { hookEventName?: string; additionalContext?: string } };
+      assert.equal(afterCompact.hookSpecificOutput?.hookEventName, 'UserPromptSubmit');
+      assert.ok((afterCompact.hookSpecificOutput?.additionalContext ?? '').includes(canonical.trimEnd()));
 
       // And `prepare` in that session carries the contract by reference only.
       const prepared = await runPrepare(

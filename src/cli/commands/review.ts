@@ -49,7 +49,13 @@ export async function runReview(
 
   const reviewConfig = bundle.workspace.config.review;
   const reviewer =
-    dependencies.reviewer ?? new ClaudeReviewer({ runner: runtime.runner, cwd: runtime.cwd });
+    dependencies.reviewer ??
+    new ClaudeReviewer({
+      runner: runtime.runner,
+      fs: runtime.fs,
+      clock: runtime.clock,
+      cwd: runtime.cwd,
+    });
 
   // Refuses before the prompt is built if the boundary cannot be established.
   await reviewer.assertIsolationAvailable?.();

@@ -15,11 +15,17 @@ import type { FileSystem } from '../ports/filesystem.ts';
 export const OWNERSHIP_MARKER = '.ambicode-owned.json';
 
 /** Prefixes `FileSystem.temporaryDirectory` is called with. */
-export const OWNED_PREFIXES = ['ambicode-snapshot-', 'ambicode-page-', 'ambicode-workspace-', 'ambicode-index-'];
+export const OWNED_PREFIXES = [
+  'ambicode-snapshot-',
+  'ambicode-page-',
+  'ambicode-workspace-',
+  'ambicode-index-',
+  'ambicode-reviewer-',
+];
 
 export const OwnershipMarker = z.strictObject({
   tool: z.literal('ambicode'),
-  kind: z.enum(['snapshot', 'page-session', 'workspace-inspection', 'index']),
+  kind: z.enum(['snapshot', 'page-session', 'workspace-inspection', 'index', 'reviewer-prompt']),
   createdAt: z.string().min(1),
   /** Informational; ownership does not depend on the process still existing. */
   pid: z.number().int().nonnegative(),

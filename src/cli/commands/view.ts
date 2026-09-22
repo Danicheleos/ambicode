@@ -283,7 +283,7 @@ export function renderView(output: ViewOutput): string {
     output.browserOpened
       ? `The browser was opened (${output.browserDetail}).`
       : `The browser was not opened (${output.browserDetail}). Paste the URL above into a browser on this machine.`,
-    `The link works once. The page stops after ${output.idleTimeoutSeconds}s idle, or when you press Ctrl-C.`,
+    `The link works once. Stop the page with its "Close the page" button, with Ctrl-C, or leave it to idle out after ${output.idleTimeoutSeconds}s.`,
     output.publicationAvailable
       ? 'Selected comments can be published to the merge request from the page. Nothing is sent until you submit the form.'
       : 'This review has no remote publication action.',

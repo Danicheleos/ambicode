@@ -139,14 +139,44 @@ describe('built-artifact regression: ambicode hook (P2.4 correction G/H)', () =>
     }
   });
 
+  it('PostCompact returns nothing, and the next UserPromptSubmit carries the contract', async () => {
+    // Claude Code's hook output schema has no `hookSpecificOutput` variant for
+    // `PostCompact`. Returning one is a validation failure the user sees on
+    // every compaction ("expected one of ... hookEventName"), not a silent
+    // no-op, so this asserts against the built bundle rather than the source.
+    const repo = await makeFixtureRepo();
+    const sessionId = randomUUID();
+    try {
+      const start = JSON.parse(runHookCli({ hook_event_name: 'SessionStart', session_id: sessionId }));
+      assert.equal(start.hookSpecificOutput?.hookEventName, 'SessionStart');
+
+      const compacted = JSON.parse(runHookCli({ hook_event_name: 'PostCompact', session_id: sessionId }));
+      assert.deepEqual(compacted, {}, 'PostCompact must carry no hookSpecificOutput');
+
+      const prompt = JSON.parse(
+        runHookCli({ hook_event_name: 'UserPromptSubmit', session_id: sessionId, cwd: repo }),
+      );
+      assert.equal(prompt.hookSpecificOutput?.hookEventName, 'UserPromptSubmit');
+      assert.match(prompt.hookSpecificOutput?.additionalContext ?? '', /# AMBICODE operating contract/);
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
   it('reports the packaged plugin\'s hooks when installed (companion to install-local.smoke.mjs)', async () => {
     // The exact registration is proved end to end by install-local.smoke.mjs
-    // ("claude plugin details" reporting "Hooks (4)"); this just proves the
-    // manifest file itself is well-formed JSON with the four events wired to
+    // ("claude plugin details" reporting "Hooks (5)"); this just proves the
+    // manifest file itself is well-formed JSON with the five events wired to
     // the same bundled entry point, since that is what ships in the candidate.
     const manifest = JSON.parse(await readFile(path.join(ROOT, 'hooks', 'hooks.json'), 'utf8'));
     const events = Object.keys(manifest.hooks);
-    assert.deepEqual(events.sort(), ['PostCompact', 'PostToolUse', 'SessionEnd', 'SessionStart']);
+    assert.deepEqual(events.sort(), [
+      'PostCompact',
+      'PostToolUse',
+      'SessionEnd',
+      'SessionStart',
+      'UserPromptSubmit',
+    ]);
     for (const event of events) {
       for (const matcher of manifest.hooks[event]) {
         for (const entry of matcher.hooks) {

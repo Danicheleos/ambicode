@@ -31,9 +31,21 @@ present in `claude --help` on 2.1.272:
 `--print`, `--safe-mode`, `--restricted`, `--tools`, `--disallowedTools`,
 `--mcp-config`, `--strict-mcp-config`, `--no-session-persistence`,
 `--permission-prompts none`, `--output-format json`, `--json-schema`, `--model`,
-`--append-system-prompt` (confirmed this session; no separate `-file` variant
-is exposed on 2.1.272, so the shared operating contract and reviewer role are
-passed as one string argument, not a path).
+`--append-system-prompt-file` (verified working on 2.1.278; `--help` prints
+the inline `--append-system-prompt` but spells the file variant only inside
+the `--bare` description, as `--append-system-prompt[-file]`, so
+`assertIsolationAvailable` accepts either spelling).
+
+The file variant is a requirement, not a preference. On Windows `claude`
+resolves to `claude.cmd`, which cannot be spawned directly: it goes through
+`cmd.exe`, and `cmd.exe` reads CR and LF as command separators with no escape
+available. An argument holding the multi-line operating contract is therefore
+refused outright — correctly, since allowing it would be a command-injection
+vector and the contract is composed from project-controlled policy packs.
+Passing it as a path keeps every newline out of the argument vector, so the
+same code path runs on Linux, macOS and Windows. Before this, every review on
+Windows failed at spawn with "the command and its arguments cannot contain a
+line break on Windows without a shell".
 
 `ClaudeReviewer.assertIsolationAvailable` re-checks that list against the
 installed CLI before every review and refuses with
@@ -94,18 +106,29 @@ one is `error_max_structured_output_retries`, with
 
 Claude Code retries a StructuredOutput call that fails schema validation, up to
 the integer environment variable `MAX_STRUCTURED_OUTPUT_RETRIES`, **default 5**,
-and those retries do not appear in the result envelope. Doc 02 forbids an
-automatic model-repair loop, so AMBICODE sets the variable to `1` in the
-reviewer's replacement environment: one attempt, after which a schema failure
-comes back as `error_max_structured_output_retries` and becomes a review error.
+and those retries do not appear in the result envelope. AMBICODE sets the
+variable to `3` in the reviewer's replacement environment rather than
+inheriting the default, and an exhausted budget becomes a review error
+(`structured-output-exhausted`), never a clean review with no findings.
+
+It was `1` until a live run proved that wrong. Doc 02 forbids an automatic
+model-repair loop, and `1` was read as the way to honour that — but a
+StructuredOutput retry re-asks the model to serialize the answer it already
+has; it does not revise a finding. The rule doc 02 states is enforced by the
+Zod validation in `parseReviewerOutput`, independently of this variable. What
+`1` did cause was a whole review discarded on a single mis-serialization.
 
 How this was established: the field names, the error subtype, the variable name
 and its default were read out of the shipped `claude` 2.1.272 binary's embedded
 sources (`structured_output`, `error_max_structured_output_retries`,
 `MAX_STRUCTURED_OUTPUT_RETRIES`, default `5`), and the envelope shapes were
 exercised end to end through the built artifact against a stub `claude` on
-`PATH`. **No authorized model call was made**, so the live behaviour of the
-retry cap is unverified; it is covered by M11 when model access is available.
+`PATH`. That first pass made **no authorized model call**, so the live
+behaviour of the retry cap went unverified — and that is precisely where it
+was wrong. It has since been exercised against the real CLI on 2.1.278: a
+schema-constrained run returning `structured_output` with the declared
+`$defs`/`$ref` resolved, and a real merge-request review failing with
+`structured_output_retry_exhausted` after eighteen turns under the cap of one.
 
 The argument vector, as observed being handed to the process:
 
@@ -114,7 +137,7 @@ The argument vector, as observed being handed to the process:
 --tools Read,Grep,Glob
 --disallowedTools Bash,Write,Edit,NotebookEdit,WebFetch,WebSearch,Task,Agent
 --permission-prompts none --no-session-persistence --model <model>
---append-system-prompt <system prompt text>
+--append-system-prompt-file <path to a file holding the system prompt>
 --output-format json --json-schema <schema>
 ```
 
@@ -122,7 +145,7 @@ The user prompt (diff, requirements, discussion, check evidence) still goes
 over stdin, not in the argument vector: it is large and holds option-like
 text. The *system* prompt (only the shared operating contract and the
 reviewer role, never product code, requirement text, or discussion) is passed
-through `--append-system-prompt` instead (P2.4 correction E), so a hostile
+through `--append-system-prompt-file` instead (P2.4 correction E), so a hostile
 string planted in reviewed code or a fetched requirement cannot land in the
 model's system-level instructions no matter how it is phrased — it can only
 ever reach the user turn, the same place the diff itself lives. The working
@@ -327,16 +350,16 @@ current transcript.
 ## Hooks
 
 The plugin ships one hook manifest, `hooks/hooks.json` (doc 04 P2.4
-correction G), registering four events — `PostToolUse` (matcher
+correction G), registering five events — `PostToolUse` (matcher
 `Edit|Write`), `SessionStart` (matcher `startup|resume|clear|fork`),
-`PostCompact`, and `SessionEnd` — each routed in exec form through command
+`UserPromptSubmit`, `PostCompact`, and `SessionEnd` — each routed in exec form through command
 `node` with arguments `${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs`, `hook`.
 This avoids shell parsing and works when the plugin path contains spaces or
 the host has no POSIX shell. Re-confirmed this session through the same
 packaged-candidate/`npm run smoke:install-local` path as "Skills" above:
-`claude plugin details ambicode@ambicode-team` reports `Hooks (4)
-PostToolUse, SessionStart, PostCompact, SessionEnd (harness-only — no model
-context cost)`.
+`claude plugin details ambicode@ambicode-team` reports `Hooks (5)
+PostToolUse, SessionStart, UserPromptSubmit, PostCompact, SessionEnd
+(harness-only — no model context cost)`.
 
 `ambicode hook` reads a hook invocation's JSON payload from stdin (fields
 confirmed against 2.1.272: `session_id`, `agent_id` (present only for a
@@ -347,11 +370,28 @@ subagent invocation, absent for the main agent), `cwd`, `scratchpad_dir`,
 `{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext":
 "…"}}` — the documented contract for surfacing text back into the
 conversation from a hook, never a permission decision or a blocking exit
-code. `SessionStart` and `PostCompact` reset the per-session delivery epoch
-so a reminder can fire again after a context compaction or a fresh session,
-and each replies with the canonical shared operating contract as
-`additionalContext` for that new epoch — delivered there once instead of
-inside every `ambicode prepare` payload (R2). `SessionEnd` removes the
+code. `SessionStart` and `PostCompact` reset the per-session delivery epoch so a
+reminder can fire again after a context compaction or a fresh session.
+
+Which of them may *carry* the contract is not a free choice. Claude Code's
+hook-output schema has a `hookSpecificOutput` variant for only some events,
+and `PostCompact` is not among them (verified against 2.1.278: the accepted
+names are `PreToolUse`, `UserPromptSubmit`, `UserPromptExpansion`,
+`SessionStart`, `Setup`, `PreModelSwitch`, `PostModelSwitch`,
+`SubagentStart`, `PostToolUse`, `PostToolBatch`, `PostToolUseFailure`,
+`Stop`, `SubagentStop`, `PermissionDenied`, `Notification`,
+`PermissionRequest`, `CwdChanged`, `FileChanged`, `MessageDisplay`,
+`Elicitation`, `ElicitationResult`, `WorktreeCreate`). Returning one from
+`PostCompact` is a hard validation failure the user sees on every compaction,
+not a silent no-op. So `PostCompact` resets and returns `{}`, `SessionStart`
+resets and delivers, and `UserPromptSubmit` delivers when the current epoch
+has not had it yet — which is what puts the contract back after a compaction.
+The marker dedup means it is sent once per epoch, not once per prompt, but the
+hook process itself does start on every user message (~190ms on the reference
+machine). That cost buys the post-compaction redelivery; dropping the
+`UserPromptSubmit` registration removes both, leaving `prepare --with-contract`
+as the manual fallback. `ADDITIONAL_CONTEXT_EVENTS` in `src/contracts/hook.ts`
+holds the accepted names so the type system refuses the mistake. `SessionEnd` removes the
 hook's own dedup-marker directory. All of this is
 covered by `src/hook/run-hook.test.ts` (unit level, fake ports) and
 `hook-artifact.test.mjs` (built-artifact level: real bundled

@@ -13,6 +13,7 @@ import type { ResolvedRule } from '../contracts/policy.ts';
 import {
   EMPTY_HOOK_OUTPUT,
   HookInput,
+  type AdditionalContextEvent,
   type AdditionalContextHookOutput,
   type PostToolUseHookOutput,
 } from '../contracts/hook.ts';
@@ -54,11 +55,25 @@ export async function runHook(runtime: Runtime, rawStdin: string): Promise<unkno
 
   try {
     switch (input.hook_event_name) {
-      case 'SessionStart':
-      case 'PostCompact': {
+      case 'SessionStart': {
         const base = hookStateBaseDir(runtime.fs, input.session_id, input.scratchpad_dir);
         await resetEpoch(runtime.fs, runtime.ids, base);
-        return await deliverSharedContract(runtime, input, base);
+        return await deliverSharedContract(runtime, input, base, 'SessionStart');
+      }
+      case 'PostCompact': {
+        // A compaction invalidates every earlier delivery, so the epoch is
+        // reset here — but this event has no `hookSpecificOutput` variant in
+        // Claude Code's schema, so it cannot carry the contract itself.
+        // Returning one is a validation failure the user sees. The next
+        // `UserPromptSubmit`, which is the first thing to happen after a
+        // compaction, delivers it into the fresh epoch instead.
+        const base = hookStateBaseDir(runtime.fs, input.session_id, input.scratchpad_dir);
+        await resetEpoch(runtime.fs, runtime.ids, base);
+        return EMPTY_HOOK_OUTPUT;
+      }
+      case 'UserPromptSubmit': {
+        const base = hookStateBaseDir(runtime.fs, input.session_id, input.scratchpad_dir);
+        return await deliverSharedContract(runtime, input, base, 'UserPromptSubmit');
       }
       case 'SessionEnd': {
         const base = hookStateBaseDir(runtime.fs, input.session_id, input.scratchpad_dir);
@@ -94,6 +109,7 @@ async function deliverSharedContract(
   runtime: Runtime,
   input: HookInput,
   baseDir: string,
+  event: AdditionalContextEvent,
 ): Promise<unknown> {
   const contract = await readSharedOperatingContract(runtime.fs, runtime.pluginRoot);
   const key: DeliveryKey = {
@@ -108,7 +124,7 @@ async function deliverSharedContract(
 
   const output: AdditionalContextHookOutput = {
     hookSpecificOutput: {
-      hookEventName: input.hook_event_name,
+      hookEventName: event,
       additionalContext: [
         `AMBICODE operating contract (${contract.reference}, ${contract.contentHash}).`,
         'It governs every AMBICODE skill in this session. `ambicode prepare` cites it by',

@@ -92,8 +92,14 @@ async function addIgnoreEntries(fs: FileSystem, repositoryRoot: string, notices:
   } catch {
     existing = '';
   }
-  const lines = new Set(existing.split('\n').map((line) => line.trim()));
-  const missing = IGNORE_ENTRIES.filter((entry) => !lines.has(entry));
+  // `/.ambicode/reviews/` and `.ambicode/reviews/` are the same rule to git:
+  // a pattern containing a slash is already anchored to the .gitignore's own
+  // directory, so the leading one adds nothing. Comparing the literal text
+  // made `init` append a second spelling of an entry that was already there,
+  // every time it ran.
+  const anchored = (entry: string): string => entry.replace(/^\//, '');
+  const lines = new Set(existing.split('\n').map((line) => anchored(line.trim())));
+  const missing = IGNORE_ENTRIES.filter((entry) => !lines.has(anchored(entry)));
   if (missing.length === 0) return;
 
   const separator = existing === '' || existing.endsWith('\n') ? '' : '\n';

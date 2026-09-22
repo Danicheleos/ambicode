@@ -20,10 +20,10 @@ against evidence that already exists, not as open-ended advice.
   `node install-local.mjs install dist/ambicode-<version>`; use the named
   `--config-dir <dir>` option only for an intentionally isolated test. Confirm
   ordinary `claude plugin list` and
-  `claude plugin details ambicode@ambicode-team` report all five
-  skills (`init`, `review`, `investigate`, `plan`, `task`) and the four hooks
-  (`Hooks (4)  PostToolUse, SessionStart, PostCompact, SessionEnd`, doc 04
-  P2.4 correction G) before relying on it.
+  `claude plugin details ambicode@ambicode-team` report all six
+  skills (`init`, `review`, `investigate`, `plan`, `task`, `rules`) and the
+  five hooks (`Hooks (5)  PostToolUse, SessionStart, UserPromptSubmit,
+  PostCompact, SessionEnd`, doc 04 P2.4 correction G) before relying on it.
 - [ ] Run `npm run smoke:install-local` (doc 04 P2.2 correction A, and the
   failure-safety rewrite of doc 04 P2.3 correction A): proves install,
   inspect, durability after the candidate directory used for install is

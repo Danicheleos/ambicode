@@ -93,11 +93,14 @@ review for publication:
 node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" view --review <review-id>
 ```
 
-After a merge request review, tell the user this command and offer to run it
-for them — it starts a local page on `127.0.0.1`, prints a URL, and opens it in
-their browser. Do not invent another slash skill for this: `ambicode view` is
-the one way to reach the selection page, for a merge request review and for a
-local or branch one alike (the latter two simply have nothing to publish).
+After a merge request review that produced findings, **run it yourself, in the
+background, without asking** — it starts a local page on `127.0.0.1`, opens the
+user's browser at it, and then keeps serving, so a foreground run would block
+until the page times out. Report the URL it printed. Its link works once and
+the page stops when idle; if the user comes back to it later, run the command
+again for a fresh one. Do not invent another slash skill for this: `ambicode
+view` is the one way to reach the selection page. A local or branch review has
+nothing to publish, so do not start a page for one.
 
 ## Requirements
 

@@ -206,9 +206,21 @@ directory, with:
   the model provider. `GITLAB_TOKEN`, `GLAB_TOKEN`, GitHub, Jira, package
   registry, database and cloud workload variables are absent from the process,
   not merely unused by it;
-- `MAX_STRUCTURED_OUTPUT_RETRIES=1`, set deliberately. Claude Code otherwise
-  retries a schema-invalid answer up to five times, invisibly. One attempt means
-  a schema failure is reported as a failed review instead of quietly repaired.
+- `MAX_STRUCTURED_OUTPUT_RETRIES=3`, set rather than inherited (the default is
+  five). A retry re-asks the model to serialize the answer it already reached;
+  it does not revise a finding. What keeps an unchecked answer out is the Zod
+  validation in `parseReviewerOutput`, which fails the review rather than
+  degrading to an empty finding list, and that is independent of this number.
+  The cap was briefly `1`, which threw away a completed review whenever the
+  model mis-serialized once — on a nineteen-file merge request, three minutes
+  of analysis and a full model call, with a re-run as the only remedy.
+
+  When the budget is exhausted the review still fails, as
+  `structured-output-exhausted`. It is reported as a failure and never as a
+  clean review with no findings: the analysis is not recoverable, and
+  reconstructing it from the model's prose would be inventing findings nothing
+  validated. A nonzero exit is classified from the result envelope Claude Code
+  prints alongside it, not from the exit code, so the failure is named.
 
 If the installed Claude Code stops offering one of the options that boundary is
 built from, the review is refused with `reviewer-isolation-unavailable` rather

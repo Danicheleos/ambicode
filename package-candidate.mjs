@@ -239,7 +239,7 @@ async function checkHooksManifest(candidateDir) {
     throw new Error(`${manifestPath} is missing or not valid JSON: ${cause instanceof Error ? cause.message : cause}`);
   }
   const events = Object.keys(manifest.hooks ?? {});
-  const expectedEvents = ['PostToolUse', 'SessionStart', 'PostCompact', 'SessionEnd'];
+  const expectedEvents = ['PostToolUse', 'SessionStart', 'UserPromptSubmit', 'PostCompact', 'SessionEnd'];
   for (const event of expectedEvents) {
     if (!events.includes(event)) throw new Error(`hooks/hooks.json is missing the "${event}" event.`);
   }
