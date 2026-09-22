@@ -88,6 +88,7 @@ function baseOptions(overrides: Partial<RunChecksOptions> & { project: ProjectCo
     runner: new FakeProcessRunner(),
     clock,
     approvals: new Set<string>(),
+    declines: new Set<string>(),
     enumerationRevision: 'HEAD',
     git: gitFor(overrides.reviewDirectory),
     watchedPaths: [],

@@ -13,7 +13,7 @@ import type { LocateCandidate } from '../contracts/locate.ts';
 import { Git } from '../git/git.ts';
 import { nodeFileSystem, type FileSystem } from '../ports/filesystem.ts';
 import { NodeProcessRunner } from '../ports/node-process-runner.ts';
-import { locate, termsFromRequirements } from './locate.ts';
+import { locate, PREPARE_SHORTLIST_LIMIT, termsFromRequirements } from './locate.ts';
 
 /**
  * R4: the boundary shortlist has to beat the thing it replaces — an agent
@@ -374,6 +374,137 @@ describe('R4 terms from requirement text', () => {
         output.limitations.some((limitation) => limitation.includes('derived from the requirement text')),
         output.limitations.join(' | '),
       );
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
+  });
+});
+
+/**
+ * The failure this fixture records happened in the field: a real ticket
+ * ("increase the Push/Pull load weight maximum") produced a ten-candidate
+ * shortlist of ten translation files, and the agent fell back to grepping for
+ * the constant itself — the exact work the shortlist exists to replace.
+ *
+ * Two things went wrong, and both are general. The words a requirement uses
+ * are the words a translation file holds, and three overlapping mentions
+ * outscored a directory named for the feature. And a locale family that an
+ * export rewrites as a block co-changes perfectly with itself, which looks
+ * like the strongest possible boundary signal and carries no information at
+ * all. Meanwhile the code spelled the ticket's name as `nom-push-pull` and
+ * `pushPull`, neither of which a search for "Push/Pull" ever finds.
+ */
+describe('R4 shortlist against the prose of a ticket', () => {
+  it('ranks the code above the translation family that carries the same words', async () => {
+    const root = await materialize('ts-locale-decoys');
+    try {
+      const shortlist = await locate({
+        git: gitFor(root),
+        project: wholeRepositoryProject(),
+        terms: ['Push/Pull', 'NOM-036', 'NOM-036-1', 'load-weight'],
+        limit: 20,
+      });
+
+      const paths = shortlist.candidates.map((candidate) => candidate.path);
+      const worstCode = Math.max(rankOf(shortlist.candidates, 'main/features/nom/wizards/nom-push-pull/services/nom-push-pull-form.service.ts'), rankOf(shortlist.candidates, 'main/features/nom/wizards/nom-push-pull/services/nom-push-pull-form.service.spec.ts'));
+      assert.ok(paths.includes('main/features/nom/wizards/nom-push-pull/services/nom-push-pull-form.service.ts'), `the form service is missing: ${paths.join(', ')}`);
+      for (const locale of paths.filter((candidate) => candidate.startsWith('main/assets/i18n/'))) {
+        assert.ok(
+          rankOf(shortlist.candidates, locale) > worstCode,
+          `${locale} ranked above the code the ticket is about`,
+        );
+      }
+
+      // Within the shortlist a caller actually receives, not merely somewhere
+      // in a longer list: `prepare` sends ten.
+      assert.ok(
+        shortlist.candidates.slice(0, PREPARE_SHORTLIST_LIMIT).some((candidate) => candidate.path === 'main/features/nom/wizards/nom-push-pull/services/nom-push-pull-form.service.ts'),
+        `the form service is outside the first ${PREPARE_SHORTLIST_LIMIT} candidates`,
+      );
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it('finds a name the code spells with another separator, and says which spelling matched', async () => {
+    const root = await materialize('ts-locale-decoys');
+    try {
+      const shortlist = await locate({
+        git: gitFor(root),
+        project: wholeRepositoryProject(),
+        terms: ['Push/Pull'],
+        limit: 20,
+      });
+
+      const target = shortlist.candidates.find((candidate) => candidate.path === 'main/features/nom/wizards/nom-push-pull/services/nom-push-pull-form.service.ts');
+      assert.ok(target !== undefined, 'the directory spelled `nom-push-pull` was not found');
+      // The reason names the spelling that matched, not the term the caller
+      // typed: a reader has to be able to see why this file is here.
+      assert.ok(
+        target.reasons.some((reason) => reason.includes('"push-pull", a path spelling of "Push/Pull"')),
+        target.reasons.join(' | '),
+      );
+      assert.ok(
+        target.reasons.some((reason) => reason.includes('"pushpull", a compact spelling of "Push/Pull"')),
+        target.reasons.join(' | '),
+      );
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it('never lets mentions add up to having the boundary named', async () => {
+    const root = await materialize('ts-locale-decoys');
+    try {
+      const shortlist = await locate({
+        git: gitFor(root),
+        project: wholeRepositoryProject(),
+        terms: ['Push/Pull', 'NOM-036', 'NOM-036-1'],
+        limit: 20,
+      });
+
+      const locale = shortlist.candidates.find((candidate) =>
+        candidate.path.startsWith('main/assets/i18n/'),
+      );
+      assert.ok(locale !== undefined);
+      // Three mentions, and still worth less than one directory named for the
+      // term. Overlapping terms are not independent evidence.
+      assert.equal(locale.reasons.filter((reason) => reason.startsWith('contains')).length, 3);
+      assert.ok(locale.score < 5, `three mentions scored ${locale.score}`);
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it('drops the co-change of a set that is maintained as a block, and says so', async () => {
+    const root = await materialize('ts-locale-decoys');
+    try {
+      const shortlist = await locate({
+        git: gitFor(root),
+        project: wholeRepositoryProject(),
+        terms: ['Push/Pull', 'NOM-036'],
+        limit: 20,
+      });
+
+      for (const candidate of shortlist.candidates) {
+        if (!candidate.path.startsWith('main/assets/i18n/')) continue;
+        assert.ok(
+          !candidate.reasons.some((reason) => reason.startsWith('changed with')),
+          `${candidate.path} was credited for moving with its own family`,
+        );
+      }
+      assert.ok(
+        shortlist.limitations.some((limitation) =>
+          limitation.includes('maintained as a block'),
+        ),
+        shortlist.limitations.join(' | '),
+      );
+
+      // And the signal still does the job it exists for: the constants file
+      // carries none of the ticket's words and is found only by moving with
+      // the code that does.
+      const constants = shortlist.candidates.find((candidate) => candidate.path === 'main/features/nom/constants/nom-validation-thresholds.constants.ts');
+      assert.ok(constants !== undefined, 'co-change found nothing the terms did not already name');
     } finally {
       await rm(path.dirname(root), { recursive: true, force: true });
     }

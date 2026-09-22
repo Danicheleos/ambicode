@@ -39,6 +39,49 @@ const JEST_MANIFEST = JSON.stringify(
   2,
 );
 
+/**
+ * The eight locale files of `ts-locale-decoys`, written together as a real
+ * translation export writes them. They carry the ticket's own prose — the
+ * words a requirement uses — and none of the code's identifiers.
+ */
+const LOCALES = ['de', 'el', 'en', 'es', 'fr', 'nb', 'nl', 'pt'];
+
+function localeFiles(maximum) {
+  const files = {};
+  for (const locale of LOCALES) {
+    files[`main/assets/i18n/${locale}.json`] = `${JSON.stringify(
+      {
+        nom: {
+          'NOM-036': { title: 'Push/Pull', 'NOM-036-1': `Load Weight has to be below ${maximum}` },
+        },
+      },
+      null,
+      2,
+    )}\n`;
+  }
+  return files;
+}
+
+
+/**
+ * Unrelated feature code, so `ts-locale-decoys` is a project rather than a
+ * handful of files. The breadth guard measures a term against the size of
+ * what it searched, and in a sixteen-file repository ten matches genuinely
+ * are most of the project — the guard would be right and the fixture wrong.
+ */
+function fillerFiles() {
+  const files = {};
+  for (const feature of ['niosh', 'lift', 'carry', 'reba', 'owas', 'strain']) {
+    files[`main/features/score-types/${feature}/${feature}.service.ts`] =
+      `export const ${feature} = () => 0;\n`;
+    files[`main/features/score-types/${feature}/${feature}.component.ts`] =
+      `export class ${feature[0].toUpperCase()}${feature.slice(1)}Component {}\n`;
+    files[`main/features/score-types/${feature}/${feature}.service.spec.ts`] =
+      `import { ${feature} } from './${feature}.service.ts';\n\ntest('scores', () => { expect(${feature}()).toBe(0); });\n`;
+  }
+  return files;
+}
+
 export const FIXTURES = [
   {
     name: 'ts-staged-unstaged',
@@ -456,6 +499,53 @@ export const FIXTURES = [
         },
       },
       { commit: 'users: trim the new name' },
+    ],
+  },
+  {
+    name: 'ts-locale-decoys',
+    summary:
+      "A ticket whose words live in a bulk-maintained translation family, while the code it is about spells those words as a path.",
+    covers: ['boundary shortlist', 'prose decoys', 'term separator forms'],
+    steps: [
+      {
+        write: {
+          '.gitignore': STANDARD_IGNORE,
+          'package.json': JEST_MANIFEST,
+          'eslint.config.mjs': ESLINT_CONFIG,
+          // The translation family. Every locale carries the ticket's own
+          // words, and the export tooling rewrites the whole set together, so
+          // they co-change perfectly and that tells nobody which one to open.
+          ...localeFiles('999.9'),
+          // The code the ticket is actually about. It never writes "Push/Pull":
+          // a directory spells it `nom-push-pull` and an identifier `pushPull`.
+          'main/features/nom/wizards/nom-push-pull/services/nom-push-pull-form.service.ts':
+            "import { NomWeightThresholds } from '../../../constants/nom-validation-thresholds.constants.ts';\n\nexport const pushPullForm = () => ({ loadWeightKg: NomWeightThresholds.max });\n",
+          'main/features/nom/wizards/nom-push-pull/services/nom-push-pull-form.service.spec.ts':
+            "import { pushPullForm } from './nom-push-pull-form.service.ts';\n\ntest('caps the load weight', () => { expect(pushPullForm().loadWeightKg).toBe(1000); });\n",
+          'main/features/nom/constants/nom-validation-thresholds.constants.ts':
+            'export const NomWeightThresholds = { min: 0.1, max: 1000 };\n',
+          // The trap an agent's own guessed term walks into: directories named
+          // for the concept, holding nothing this ticket touches.
+          'main/features/nom/validators/nom-frequency.validators.ts':
+            'export const frequency = () => null;\n',
+          'main/validators/number.validators.ts': 'export const number = () => null;\n',
+          ...fillerFiles(),
+        },
+      },
+      { commit: 'init' },
+      { write: localeFiles('1000.0') },
+      { commit: 'i18n: sync every locale from the export' },
+      { write: localeFiles('1000.0 kg') },
+      { commit: 'i18n: sync every locale from the export again' },
+      {
+        write: {
+          'main/features/nom/constants/nom-validation-thresholds.constants.ts':
+            'export const NomWeightThresholds = { min: 0.1, max: 1000.0 };\n',
+          'main/features/nom/wizards/nom-push-pull/services/nom-push-pull-form.service.spec.ts':
+            "import { pushPullForm } from './nom-push-pull-form.service.ts';\n\ntest('caps the load weight', () => { expect(pushPullForm().loadWeightKg).toBe(1000.0); });\n",
+        },
+      },
+      { commit: 'nom: restate the push/pull weight threshold' },
     ],
   },
   {

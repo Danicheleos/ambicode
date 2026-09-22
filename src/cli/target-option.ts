@@ -16,7 +16,7 @@ import type { ParsedArgs } from './args.ts';
  */
 export const TARGET_OPTIONS = {
   values: ['base', 'mr', 'evidence'],
-  repeated: ['requirement', 'approve'],
+  repeated: ['requirement', 'approve', 'decline'],
   flags: ['json', 'branch'],
 } as const;
 
@@ -25,6 +25,12 @@ export interface ResolvedTargetOptions {
   requirementUrls: string[];
   evidence: EvidenceSource | null;
   approvals: Set<string>;
+  /**
+   * `--decline <key>`: the other answer. `--approve` alone gives a human one
+   * way to end the question, and a check they do not want run would leave the
+   * review waiting forever.
+   */
+  declines: Set<string>;
 }
 
 /** Pure: the target the arguments name, or the reason they name none. */
@@ -82,6 +88,7 @@ export function resolveTargetOptions(
     requirementUrls: args.all('requirement'),
     evidence: evidenceSource(runtime, args.value('evidence')),
     approvals: new Set(args.all('approve')),
+    declines: new Set(args.all('decline')),
   };
 }
 

@@ -285,6 +285,39 @@ ambicode bundle          # same options as review
 The same target, snapshot, requirements and check evidence, with no model
 invoked. Its empty `findings` list means nothing ran, and the omissions say so.
 
+## A check waiting for a human
+
+A check can stop and ask before it runs: its command is `propose` in policy,
+or its selection is incomplete, reaches outside the project, or holds more
+test files than `checks.maxSelectedTestFiles` allows. The report names each
+one, its reason, and the exact argv it would execute.
+
+**While any check is waiting, `review` stops at the evidence and invokes no
+reviewer.** There is no finding list, and the omissions say why rather than
+presenting an empty one. Answer every waiting key and re-run once:
+
+```sh
+ambicode review --approve app/unit --decline app/e2e
+```
+
+Both options are repeatable, and one key answers one run: neither authorizes
+the same check next time. `--decline` leaves the check skipped exactly as an
+unauthorized one is — it never widens or substitutes a run — and the result
+records that a human was asked and said no, which is a gap in verification
+somebody chose rather than one nobody noticed.
+
+The reason for stopping is arithmetic, not ceremony. Check evidence is part
+of the reviewer prompt, so running the reviewer while a check is unresolved
+buys a review of evidence that is about to change, and the same review is
+paid for again afterwards. Measured on a real task: 187s of reviewer time
+with the unit check skipped over a selection limit, then 233s more for the
+identical review once the human had approved it — 233s whose only new
+information was one check result. Stopping first makes that run cost what
+`bundle` costs.
+
+A failed or skipped check is different and does **not** stop anything: it is
+settled evidence, it narrows what the review verified, and the review runs.
+
 ## Review input limits
 
 `review.maxContextBytes` bounds **everything the model is handed**, measured in

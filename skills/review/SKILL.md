@@ -31,9 +31,12 @@ through the packaged cross-platform entry point:
    all three.
 3. Read the four-part output back to the user in the order it comes: what was
    reviewed, the findings, the check evidence, and what was **not** covered.
-4. If there are pending approvals, put each one to the user with its reason and
-   the exact command it would run. Re-run with `--approve <key>` only for the
-   ones they agree to. One key authorizes one run.
+4. A check waiting for authorization **stops the run before the reviewer**,
+   so there is no finding list yet. Put each waiting check to the user with
+   its reason and the exact argv, then re-run once carrying every answer:
+   `--approve <key>` for each they agree to, `--decline <key>` for each they
+   refuse. Both repeat; one key answers one run, and an unanswered key stops
+   the run again.
 5. If `ambicode` reports `config-missing`, use the `/ambicode:init` skill first.
 
 `ambicode bundle` is the same work without the model: target, snapshot,

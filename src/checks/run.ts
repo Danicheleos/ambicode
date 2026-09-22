@@ -47,6 +47,13 @@ export interface RunChecksOptions {
    * evidence then describes something other than what was reviewed.
    */
   revisionNote: string | null;
+  /**
+   * Approval keys a human answered with "no". A declined check is skipped
+   * exactly as an unauthorized one is, and the difference is the whole point:
+   * it stops waiting. Without it "waiting for authorization" has no ending
+   * except approving, so a caller that gates on it could never proceed.
+   */
+  declines: ReadonlySet<string>;
 }
 
 export interface PendingApproval {
@@ -228,6 +235,26 @@ export async function runChecks(options: RunChecksOptions): Promise<RunChecksOut
       const reason =
         selection.approval?.reason ??
         (authorization.kind === 'needs-approval' ? authorization.reason : 'this run needs authorization');
+
+      // Declined is an answer, so this is evidence rather than an open
+      // question: the check did not run, a human said so, and nothing is
+      // waiting on anybody.
+      if (options.declines.has(approvalKey)) {
+        results.push({
+          ...skipped(checkId, options.project.id, check.command, check.adapter, [
+            `Not run: ${reason}. A human was asked and declined this run, so it is a gap in verification that somebody chose.`,
+            ...selection.limitations,
+            ...mutationLimitation(selectionMutations),
+          ]),
+          selected: selection.files,
+          selectionComplete: selection.complete,
+          argv,
+          cwd: commandCwd,
+          mutations: reportMutations(selectionMutations),
+        });
+        continue;
+      }
+
       pendingApprovals.push({
         checkId,
         approvalKey,

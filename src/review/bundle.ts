@@ -87,6 +87,8 @@ export interface AssembleOptions {
   /** Where the outer session's evidence envelope comes from, if any. */
   evidence: EvidenceSource | null;
   approvals: ReadonlySet<string>;
+  /** Approval keys a human refused, so the run stops waiting on them. */
+  declines: ReadonlySet<string>;
 }
 
 export async function assembleBundle(options: AssembleOptions): Promise<ReviewBundle> {
@@ -178,6 +180,7 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
     reviewDirectory,
     snapshot,
     approvals: options.approvals,
+    declines: options.declines,
   });
 
   const measured = measureInput(reviewable.files, reviewable.patch, {
@@ -394,6 +397,7 @@ interface ProjectChecksOptions {
   reviewDirectory: string;
   snapshot: Snapshot;
   approvals: ReadonlySet<string>;
+  declines: ReadonlySet<string>;
 }
 
 async function runProjectChecks(options: ProjectChecksOptions): Promise<{
@@ -457,6 +461,7 @@ async function runProjectChecks(options: ProjectChecksOptions): Promise<{
       runner: options.runtime.runner,
       clock: options.runtime.clock,
       approvals: options.approvals,
+      declines: options.declines,
       reviewDirectory: options.reviewDirectory,
       enumerationRevision: resolution.preImageRevision,
       git: workspace.git,

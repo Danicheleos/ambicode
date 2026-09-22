@@ -25,6 +25,13 @@ export interface ReviewOutput {
   pendingApprovals: PendingApproval[];
   /** Findings with an exact remote position saved for later publication. */
   publishablePositions: number;
+  /**
+   * True when the run stopped at the evidence because a check is waiting for
+   * a human, so no reviewer was invoked. The bundle on disk is real and
+   * complete for everything that did run; the finding list is absent rather
+   * than empty.
+   */
+  awaitingAuthorization: boolean;
 }
 
 export interface ReviewDependencies {
@@ -35,7 +42,20 @@ export interface ReviewDependencies {
 /**
  * The default review: assemble the pinned bundle, hand it to a fresh isolated
  * reviewer, validate what comes back against that same bundle, and report the
- * four parts. Failed or skipped checks are evidence here, not a gate.
+ * four parts. A failed or skipped check is evidence here, not a gate.
+ *
+ * A check *waiting for a human* is the one exception, and it is not a gate on
+ * the change — it is a gate on spending the model. Check evidence is part of
+ * the reviewer prompt, so reviewing now means paying for a review of evidence
+ * that is about to change, and then paying again for the same review after
+ * the answer arrives. Measured on a real task: a review ran for 187s with the
+ * unit check skipped over a selection limit, the human approved it, and the
+ * identical review ran again for 233s — 233s whose only new information was
+ * one check result. Stopping here makes the first run cost what `bundle`
+ * costs, and the answer arrives before the expensive half begins.
+ *
+ * `--decline <key>` is the other answer, so a human who does not want the
+ * check run is not trapped in a question with one exit.
  */
 export async function runReview(
   runtime: Runtime,
@@ -46,6 +66,10 @@ export async function runReview(
   // the measured input exceeds the limit, so nothing below can reach a model
   // with more than the configuration allows.
   const bundle = await assembleBundle({ runtime, ...resolveTargetOptions('review', runtime, args) });
+
+  if (bundle.pendingApprovals.length > 0) {
+    return await stopForAuthorization(runtime, bundle);
+  }
 
   const reviewConfig = bundle.workspace.config.review;
   const reviewer =
@@ -133,6 +157,50 @@ export async function runReview(
     result: bundle.result,
     pendingApprovals: bundle.pendingApprovals,
     publishablePositions: positions,
+    awaitingAuthorization: false,
+  };
+}
+
+/**
+ * The evidence bundle, written and reported, with no reviewer invoked and no
+ * finding list presented. Everything that did run is here — the selection,
+ * the exact argv each waiting check would execute, the limitations — so the
+ * human deciding has what they need to decide, and a re-run with `--approve`
+ * or `--decline` is the next and only remaining step.
+ */
+async function stopForAuthorization(runtime: Runtime, bundle: ReviewBundle): Promise<ReviewOutput> {
+  const keys = bundle.pendingApprovals.map((approval) => approval.approvalKey);
+  bundle.result.status = 'partial';
+  bundle.result.statusReason =
+    `No reviewer was invoked: ${keys.length} check(s) are waiting for authorization (${keys.join(', ')}). ` +
+    'Check evidence is part of what the reviewer is given, so the review runs once, after the answer.';
+  bundle.result.omissions = [
+    ...bundle.result.omissions,
+    'No model review was run: the evidence is still waiting on a human. An empty finding list here does not mean the change is clean.',
+    `Answer each waiting check with --approve <key> or --decline <key>, then re-run. Keys: ${keys.join(', ')}.`,
+  ];
+
+  await writeBundleArtifacts(runtime, bundle);
+  const reportPath = path.join(bundle.reviewDirectory, 'report.txt');
+  const report = renderReport({
+    result: bundle.result,
+    snapshotDirectory: bundle.snapshot.directory,
+    resultPath: bundle.resultPath,
+    pendingApprovals: bundle.pendingApprovals,
+  });
+  await runtime.fs.writeText(reportPath, `${report}\n`);
+
+  return {
+    command: 'review',
+    reviewId: bundle.reviewId,
+    reviewDirectory: bundle.reviewDirectory,
+    snapshotDirectory: bundle.snapshot.directory,
+    resultPath: bundle.resultPath,
+    reportPath,
+    result: bundle.result,
+    pendingApprovals: bundle.pendingApprovals,
+    publishablePositions: 0,
+    awaitingAuthorization: true,
   };
 }
 

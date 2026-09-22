@@ -118,9 +118,11 @@ Its default target is your uncommitted work — exactly this task's edits.
 conversation into the reviewer and do not attempt to imitate an independent
 review yourself in this same context.**
 
-- A `run` command executes automatically; a `propose` command needs the
-  user's explicit authorization for that exact previewed argv before you
-  re-run with `--approve <key>`; a `forbid` or undeclared command never runs.
+- A `run` command executes automatically. A `propose` command, or a
+  selection over a configured limit, needs the user's answer, and **`review`
+  stops before the reviewer while any check waits** — so ask, then re-run
+  once with `--approve <key>` for each they agree to and `--decline <key>`
+  for each they refuse. A `forbid` command never runs and never asks.
 - If selection is incomplete, too broad, missing, declined, timed out, or
   failed, **record that exact result.** Never substitute an unconfigured
   broad test command; do not invent `npm test` or `pytest .`.
