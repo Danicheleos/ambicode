@@ -382,7 +382,7 @@ describe('R4 terms from requirement text', () => {
 
 /**
  * The failure this fixture records happened in the field: a real ticket
- * ("increase the Push/Pull load weight maximum") produced a ten-candidate
+ * ("raise the Order/Refund amount limit") produced a ten-candidate
  * shortlist of ten translation files, and the agent fell back to grepping for
  * the constant itself — the exact work the shortlist exists to replace.
  *
@@ -391,8 +391,8 @@ describe('R4 terms from requirement text', () => {
  * outscored a directory named for the feature. And a locale family that an
  * export rewrites as a block co-changes perfectly with itself, which looks
  * like the strongest possible boundary signal and carries no information at
- * all. Meanwhile the code spelled the ticket's name as `nom-push-pull` and
- * `pushPull`, neither of which a search for "Push/Pull" ever finds.
+ * all. Meanwhile the code spelled the ticket's name as `order-refund` and
+ * `orderRefund`, neither of which a search for "Order/Refund" ever finds.
  */
 describe('R4 shortlist against the prose of a ticket', () => {
   it('ranks the code above the translation family that carries the same words', async () => {
@@ -401,14 +401,14 @@ describe('R4 shortlist against the prose of a ticket', () => {
       const shortlist = await locate({
         git: gitFor(root),
         project: wholeRepositoryProject(),
-        terms: ['Push/Pull', 'NOM-036', 'NOM-036-1', 'load-weight'],
+        terms: ['Order/Refund', 'ORD-17', 'ORD-17-1', 'refund-limit'],
         limit: 20,
       });
 
       const paths = shortlist.candidates.map((candidate) => candidate.path);
-      const worstCode = Math.max(rankOf(shortlist.candidates, 'main/features/nom/wizards/nom-push-pull/services/nom-push-pull-form.service.ts'), rankOf(shortlist.candidates, 'main/features/nom/wizards/nom-push-pull/services/nom-push-pull-form.service.spec.ts'));
-      assert.ok(paths.includes('main/features/nom/wizards/nom-push-pull/services/nom-push-pull-form.service.ts'), `the form service is missing: ${paths.join(', ')}`);
-      for (const locale of paths.filter((candidate) => candidate.startsWith('main/assets/i18n/'))) {
+      const worstCode = Math.max(rankOf(shortlist.candidates, 'src/features/orders/order-refund/services/order-refund-form.service.ts'), rankOf(shortlist.candidates, 'src/features/orders/order-refund/services/order-refund-form.service.spec.ts'));
+      assert.ok(paths.includes('src/features/orders/order-refund/services/order-refund-form.service.ts'), `the form service is missing: ${paths.join(', ')}`);
+      for (const locale of paths.filter((candidate) => candidate.startsWith('src/assets/i18n/'))) {
         assert.ok(
           rankOf(shortlist.candidates, locale) > worstCode,
           `${locale} ranked above the code the ticket is about`,
@@ -418,7 +418,7 @@ describe('R4 shortlist against the prose of a ticket', () => {
       // Within the shortlist a caller actually receives, not merely somewhere
       // in a longer list: `prepare` sends ten.
       assert.ok(
-        shortlist.candidates.slice(0, PREPARE_SHORTLIST_LIMIT).some((candidate) => candidate.path === 'main/features/nom/wizards/nom-push-pull/services/nom-push-pull-form.service.ts'),
+        shortlist.candidates.slice(0, PREPARE_SHORTLIST_LIMIT).some((candidate) => candidate.path === 'src/features/orders/order-refund/services/order-refund-form.service.ts'),
         `the form service is outside the first ${PREPARE_SHORTLIST_LIMIT} candidates`,
       );
     } finally {
@@ -432,22 +432,50 @@ describe('R4 shortlist against the prose of a ticket', () => {
       const shortlist = await locate({
         git: gitFor(root),
         project: wholeRepositoryProject(),
-        terms: ['Push/Pull'],
+        terms: ['Order/Refund'],
         limit: 20,
       });
 
-      const target = shortlist.candidates.find((candidate) => candidate.path === 'main/features/nom/wizards/nom-push-pull/services/nom-push-pull-form.service.ts');
-      assert.ok(target !== undefined, 'the directory spelled `nom-push-pull` was not found');
+      const target = shortlist.candidates.find((candidate) => candidate.path === 'src/features/orders/order-refund/services/order-refund-form.service.ts');
+      assert.ok(target !== undefined, 'the directory spelled `order-refund` was not found');
       // The reason names the spelling that matched, not the term the caller
       // typed: a reader has to be able to see why this file is here.
       assert.ok(
-        target.reasons.some((reason) => reason.includes('"push-pull", a path spelling of "Push/Pull"')),
+        target.reasons.some((reason) => reason.includes('"order-refund", a path spelling of "Order/Refund"')),
         target.reasons.join(' | '),
       );
       assert.ok(
-        target.reasons.some((reason) => reason.includes('"pushpull", a compact spelling of "Push/Pull"')),
+        target.reasons.some((reason) => reason.includes('"orderrefund", a compact spelling of "Order/Refund"')),
         target.reasons.join(' | '),
       );
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it('does not join the words of a number, because that makes a different number', async () => {
+    const root = await materialize('ts-locale-decoys');
+    try {
+      const shortlist = await locate({
+        git: gitFor(root),
+        project: wholeRepositoryProject(),
+        terms: ['250.5', 'Order/Refund'],
+        limit: 40,
+      });
+
+      const illustration = shortlist.candidates.find((candidate) => candidate.path === 'src/assets/illustrations/outline.svg');
+      assert.equal(
+        illustration,
+        undefined,
+        `"2505" reached SVG path data: ${illustration?.reasons.join(' | ') ?? ''}`,
+      );
+
+      // The guard is about digits, not about joining: a term that holds a word
+      // still gets its compact spelling.
+      const compact = shortlist.candidates.find((candidate) =>
+        candidate.reasons.some((reason) => reason.includes('"orderrefund", a compact spelling of "Order/Refund"')),
+      );
+      assert.ok(compact !== undefined, shortlist.candidates.map((candidate) => candidate.reasons.join(' | ')).join('\n'));
     } finally {
       await rm(path.dirname(root), { recursive: true, force: true });
     }
@@ -459,12 +487,12 @@ describe('R4 shortlist against the prose of a ticket', () => {
       const shortlist = await locate({
         git: gitFor(root),
         project: wholeRepositoryProject(),
-        terms: ['Push/Pull', 'NOM-036', 'NOM-036-1'],
+        terms: ['Order/Refund', 'ORD-17', 'ORD-17-1'],
         limit: 20,
       });
 
       const locale = shortlist.candidates.find((candidate) =>
-        candidate.path.startsWith('main/assets/i18n/'),
+        candidate.path.startsWith('src/assets/i18n/'),
       );
       assert.ok(locale !== undefined);
       // Three mentions, and still worth less than one directory named for the
@@ -482,12 +510,12 @@ describe('R4 shortlist against the prose of a ticket', () => {
       const shortlist = await locate({
         git: gitFor(root),
         project: wholeRepositoryProject(),
-        terms: ['Push/Pull', 'NOM-036'],
+        terms: ['Order/Refund', 'ORD-17'],
         limit: 20,
       });
 
       for (const candidate of shortlist.candidates) {
-        if (!candidate.path.startsWith('main/assets/i18n/')) continue;
+        if (!candidate.path.startsWith('src/assets/i18n/')) continue;
         assert.ok(
           !candidate.reasons.some((reason) => reason.startsWith('changed with')),
           `${candidate.path} was credited for moving with its own family`,
@@ -503,8 +531,55 @@ describe('R4 shortlist against the prose of a ticket', () => {
       // And the signal still does the job it exists for: the constants file
       // carries none of the ticket's words and is found only by moving with
       // the code that does.
-      const constants = shortlist.candidates.find((candidate) => candidate.path === 'main/features/nom/constants/nom-validation-thresholds.constants.ts');
+      const constants = shortlist.candidates.find((candidate) => candidate.path === 'src/features/orders/constants/refund-limits.constants.ts');
       assert.ok(constants !== undefined, 'co-change found nothing the terms did not already name');
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
+  });
+});
+
+/**
+ * Nothing in the shortlist reads a language. Files come from `git ls-files`,
+ * contents from `git grep -i -F`, paths from globs, and relatedness from the
+ * commit history — none of which knows what a `.ts` file is. The spellings
+ * are the one place a convention could hide, so this is where it is checked:
+ * one name, the five ways five ecosystems write it, five unrelated roots.
+ */
+describe('R4 shortlist across ecosystems and layouts', () => {
+  it('finds one name under the spelling each ecosystem uses', async () => {
+    const root = await materialize('polyglot-spellings');
+    try {
+      const shortlist = await locate({
+        git: gitFor(root),
+        project: wholeRepositoryProject(),
+        terms: ['Order/Refund'],
+        limit: 20,
+      });
+
+      const expected = [
+        ['services/order_refund/refund_limits.py', 'order_refund'],
+        ['platform/src/main/java/com/acme/orderrefund/RefundLimits.java', 'orderrefund'],
+        ['internal/orderrefund/limits.go', 'orderrefund'],
+        ['lib/order_refund/limits.c', 'order_refund'],
+        ['app/order-refund/limits.rb', 'order-refund'],
+      ] as const;
+
+      for (const [file, spelling] of expected) {
+        const candidate = shortlist.candidates.find((entry) => entry.path === file);
+        assert.ok(
+          candidate !== undefined,
+          `${file} is missing: ${shortlist.candidates.map((entry) => entry.path).join(', ')}`,
+        );
+        // The reason names the spelling that matched, so a reader can see
+        // that the shortlist understood the project's convention.
+        assert.ok(
+          candidate.reasons.some((reason) =>
+            reason.includes(`"${spelling}", a path spelling of "Order/Refund"`),
+          ),
+          `${file}: ${candidate.reasons.join(' | ')}`,
+        );
+      }
     } finally {
       await rm(path.dirname(root), { recursive: true, force: true });
     }

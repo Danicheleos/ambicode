@@ -44,15 +44,15 @@ const JEST_MANIFEST = JSON.stringify(
  * translation export writes them. They carry the ticket's own prose — the
  * words a requirement uses — and none of the code's identifiers.
  */
-const LOCALES = ['de', 'el', 'en', 'es', 'fr', 'nb', 'nl', 'pt'];
+const LOCALES = ['de', 'es', 'fr', 'it', 'ja', 'nl', 'pt', 'zh'];
 
 function localeFiles(maximum) {
   const files = {};
   for (const locale of LOCALES) {
-    files[`main/assets/i18n/${locale}.json`] = `${JSON.stringify(
+    files[`src/assets/i18n/${locale}.json`] = `${JSON.stringify(
       {
-        nom: {
-          'NOM-036': { title: 'Push/Pull', 'NOM-036-1': `Load Weight has to be below ${maximum}` },
+        orders: {
+          'ORD-17': { title: 'Order/Refund', 'ORD-17-1': `Refund Limit has to be below ${maximum}` },
         },
       },
       null,
@@ -71,13 +71,33 @@ function localeFiles(maximum) {
  */
 function fillerFiles() {
   const files = {};
-  for (const feature of ['niosh', 'lift', 'carry', 'reba', 'owas', 'strain']) {
-    files[`main/features/score-types/${feature}/${feature}.service.ts`] =
-      `export const ${feature} = () => 0;\n`;
-    files[`main/features/score-types/${feature}/${feature}.component.ts`] =
+  for (const feature of ['billing', 'catalog', 'profile', 'search', 'shipping', 'support']) {
+    files[`src/features/${feature}/${feature}.service.ts`] = `export const ${feature} = () => 0;\n`;
+    files[`src/features/${feature}/${feature}.component.ts`] =
       `export class ${feature[0].toUpperCase()}${feature.slice(1)}Component {}\n`;
-    files[`main/features/score-types/${feature}/${feature}.service.spec.ts`] =
-      `import { ${feature} } from './${feature}.service.ts';\n\ntest('scores', () => { expect(${feature}()).toBe(0); });\n`;
+    files[`src/features/${feature}/${feature}.service.spec.ts`] =
+      `import { ${feature} } from './${feature}.service.ts';\n\ntest('runs', () => { expect(${feature}()).toBe(0); });\n`;
+  }
+  // Path coordinates, which are where a numeric term goes wrong: joining the
+  // words of "250.5" gives "2505", and the `41.2505` below contains it. Real
+  // illustrations put five such files in the top twenty of a shortlist for a
+  // ticket that raised a numeric limit.
+  files['src/assets/illustrations/outline.svg'] =
+    '<svg><path d="M25 74V74.0856L28.7378 41.2505L25.6763 73.9141Z"/></svg>\n';
+  return files;
+}
+
+/**
+ * Unrelated code for `polyglot-spellings`, in the same three ecosystems and
+ * under the same three roots as the files the terms are meant to find, so a
+ * hit there is a hit on the name rather than on the language or the layout.
+ */
+function polyglotFiller() {
+  const files = {};
+  for (const name of ['billing', 'catalog', 'profile', 'search', 'shipping', 'support']) {
+    files[`services/${name}/${name}.py`] = `def ${name}():\n    return 0\n`;
+    files[`internal/${name}/${name}.go`] = `package ${name}\n\nconst Zero = 0\n`;
+    files[`lib/${name}/${name}.c`] = `int ${name}(void) { return 0; }\n`;
   }
   return files;
 }
@@ -515,37 +535,66 @@ export const FIXTURES = [
           // The translation family. Every locale carries the ticket's own
           // words, and the export tooling rewrites the whole set together, so
           // they co-change perfectly and that tells nobody which one to open.
-          ...localeFiles('999.9'),
-          // The code the ticket is actually about. It never writes "Push/Pull":
-          // a directory spells it `nom-push-pull` and an identifier `pushPull`.
-          'main/features/nom/wizards/nom-push-pull/services/nom-push-pull-form.service.ts':
-            "import { NomWeightThresholds } from '../../../constants/nom-validation-thresholds.constants.ts';\n\nexport const pushPullForm = () => ({ loadWeightKg: NomWeightThresholds.max });\n",
-          'main/features/nom/wizards/nom-push-pull/services/nom-push-pull-form.service.spec.ts':
-            "import { pushPullForm } from './nom-push-pull-form.service.ts';\n\ntest('caps the load weight', () => { expect(pushPullForm().loadWeightKg).toBe(1000); });\n",
-          'main/features/nom/constants/nom-validation-thresholds.constants.ts':
-            'export const NomWeightThresholds = { min: 0.1, max: 1000 };\n',
+          ...localeFiles('250.5'),
+          // The code the ticket is actually about. It never writes "Order/Refund":
+          // a directory spells it `order-refund` and an identifier `orderRefund`.
+          'src/features/orders/order-refund/services/order-refund-form.service.ts':
+            "import { RefundThresholds } from '../../constants/refund-limits.constants.ts';\n\nexport const orderRefundForm = () => ({ refundLimit: RefundThresholds.max });\n",
+          'src/features/orders/order-refund/services/order-refund-form.service.spec.ts':
+            "import { orderRefundForm } from './order-refund-form.service.ts';\n\ntest('caps the refund limit', () => { expect(orderRefundForm().refundLimit).toBe(500); });\n",
+          'src/features/orders/constants/refund-limits.constants.ts':
+            'export const RefundThresholds = { min: 0.1, max: 500 };\n',
           // The trap an agent's own guessed term walks into: directories named
           // for the concept, holding nothing this ticket touches.
-          'main/features/nom/validators/nom-frequency.validators.ts':
+          'src/features/orders/validators/order-frequency.validators.ts':
             'export const frequency = () => null;\n',
-          'main/validators/number.validators.ts': 'export const number = () => null;\n',
+          'src/validators/number.validators.ts': 'export const number = () => null;\n',
           ...fillerFiles(),
         },
       },
       { commit: 'init' },
-      { write: localeFiles('1000.0') },
+      { write: localeFiles('500.0') },
       { commit: 'i18n: sync every locale from the export' },
-      { write: localeFiles('1000.0 kg') },
+      { write: localeFiles('500.0 EUR') },
       { commit: 'i18n: sync every locale from the export again' },
       {
         write: {
-          'main/features/nom/constants/nom-validation-thresholds.constants.ts':
-            'export const NomWeightThresholds = { min: 0.1, max: 1000.0 };\n',
-          'main/features/nom/wizards/nom-push-pull/services/nom-push-pull-form.service.spec.ts':
-            "import { pushPullForm } from './nom-push-pull-form.service.ts';\n\ntest('caps the load weight', () => { expect(pushPullForm().loadWeightKg).toBe(1000.0); });\n",
+          'src/features/orders/constants/refund-limits.constants.ts':
+            'export const RefundThresholds = { min: 0.1, max: 500.0 };\n',
+          'src/features/orders/order-refund/services/order-refund-form.service.spec.ts':
+            "import { orderRefundForm } from './order-refund-form.service.ts';\n\ntest('caps the refund limit', () => { expect(orderRefundForm().refundLimit).toBe(500.0); });\n",
         },
       },
-      { commit: 'nom: restate the push/pull weight threshold' },
+      { commit: 'orders: restate the refund limit' },
+    ],
+  },
+  {
+    name: 'polyglot-spellings',
+    summary:
+      'One name, written the way five ecosystems write it, under five unrelated roots.',
+    covers: ['boundary shortlist', 'term separator forms', 'language independence'],
+    steps: [
+      {
+        write: {
+          '.gitignore': STANDARD_IGNORE,
+          // Python: a snake_case package directory.
+          'services/order_refund/refund_limits.py':
+            'ORDER_REFUND_MAX = 500.0\n\n\ndef refund_limit():\n    return ORDER_REFUND_MAX\n',
+          // Java: a package directory with the separator dropped entirely.
+          'platform/src/main/java/com/acme/orderrefund/RefundLimits.java':
+            'package com.acme.orderrefund;\n\npublic final class RefundLimits {\n  public static final double MAX = 500.0;\n}\n',
+          // Go: one lowercase word for the package, CamelCase for the export.
+          'internal/orderrefund/limits.go': 'package orderrefund\n\nconst OrderRefundMax = 500.0\n',
+          // C: a snake_case directory and an upper-snake macro.
+          'lib/order_refund/limits.c':
+            '#define ORDER_REFUND_MAX 500.0\n\ndouble order_refund_max(void) { return ORDER_REFUND_MAX; }\n',
+          // Ruby: a hyphenated directory, which no compiler asks for and many
+          // projects use anyway.
+          'app/order-refund/limits.rb': 'module OrderRefund\n  MAX = 500.0\nend\n',
+          ...polyglotFiller(),
+        },
+      },
+      { commit: 'init' },
     ],
   },
   {

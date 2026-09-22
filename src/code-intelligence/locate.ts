@@ -95,7 +95,7 @@ const SCORE_COCHANGE = 4;
  * `2 * SCORE_CONTENT`, which is below `SCORE_DIRECTORY` by construction.
  *
  * Without this, a file that merely says the words wins by saying them often.
- * A ticket's terms overlap heavily — "NOM-036" and "NOM-036-1" are one fact,
+ * A ticket's terms overlap heavily — "ORD-17" and "ORD-17-1" are one fact,
  * not two — so a translation file carrying the ticket's prose three times
  * scored 6 and outranked the directory that is actually named for it. Three
  * weak signals are still weak.
@@ -201,9 +201,9 @@ export async function locate(request: LocateRequest): Promise<LocateShortlist> {
 }
 
 /**
- * The spellings one name is written in. A requirement says "Push/Pull", a
- * directory says `nom-push-pull`, an identifier says `pushPull`, a constant
- * says `PUSH_PULL`: four conventions, one name. A search that knows only the
+ * The spellings one name is written in. A requirement says "Order/Refund", a
+ * directory says `order-refund`, an identifier says `orderRefund`, a
+ * constant says `ORDER_REFUND`: four conventions, one name. A search that knows only the
  * spelling the ticket happened to use finds only the prose — which is exactly
  * how a shortlist comes back holding nothing but translation files.
  *
@@ -220,6 +220,18 @@ function wordsOf(term: string): string[] {
 }
 
 /**
+ * Joining a term's words is another spelling of it only when the separator is
+ * punctuation inside a name. Between digits the separator is arithmetic:
+ * "250.5" joins to "2505", which matched `41.2505` inside SVG path coordinates
+ * and put five illustration files in the top twenty of a real ticket's
+ * shortlist. A term whose every word is digits therefore keeps only the one
+ * spelling it was written in.
+ */
+function joinable(words: readonly string[]): boolean {
+  return words.length > 1 && words.some((word) => !/^\p{N}+$/u.test(word));
+}
+
+/**
  * The path spellings to try, the term's own first so its reason is the one
  * reported when it matches. The joined forms hold only letters and digits, so
  * they are always safe to put in a glob — which also means a term carrying
@@ -229,18 +241,19 @@ function pathForms(term: string): string[] {
   const words = wordsOf(term);
   const literal = term.toLowerCase();
   const forms = /^[^*?[\]{}()!\\]+$/.test(literal) ? [literal] : [];
-  if (words.length > 1) forms.push(words.join('-'), words.join('_'), words.join(''));
+  if (joinable(words)) forms.push(words.join('-'), words.join('_'), words.join(''));
   return [...new Set(forms)];
 }
 
 /**
  * The one extra content search worth a grep: every separator convention
- * collapses to the same letters and digits, so `loadweight` finds
- * `loadWeightKg` and `LOAD_WEIGHT` alike. Spellings only, never a second
+ * collapses to the same letters and digits, so `refundlimit` finds
+ * `refundLimit` and `REFUND_LIMIT` alike. Spellings only, never a second
  * term — two greps per term is the whole budget.
  */
 function compactForm(term: string): string {
-  return wordsOf(term).join('');
+  const words = wordsOf(term);
+  return joinable(words) ? words.join('') : term.toLowerCase();
 }
 
 /**
