@@ -9,6 +9,7 @@ import { createRuntime, type Runtime } from '../composition/root.ts';
 import type {
   ProviderIdentity,
   DiscussionListing,
+  FetchSnapshotRequest,
   FetchedSnapshot,
   ProviderOutcome,
   PublishCommentRequest,
@@ -86,6 +87,10 @@ class FakeGitLab implements ReviewProvider {
   readonly calls: string[] = [];
   readonly published: PublishCommentRequest[] = [];
   discussionsFail = false;
+  /** What the review asked for, so the cost of a remote review is assertable. */
+  snapshotRequest: FetchSnapshotRequest | null = null;
+  readonly listed: string[] = [];
+  readonly primed: string[][] = [];
 
   owns(url: string): boolean {
     return url.includes('/-/merge_requests/');
@@ -96,8 +101,9 @@ class FakeGitLab implements ReviewProvider {
     return { kind: 'ok', value: REMOTE };
   }
 
-  async fetchSnapshot(): Promise<ProviderOutcome<FetchedSnapshot>> {
+  async fetchSnapshot(request: FetchSnapshotRequest): Promise<ProviderOutcome<FetchedSnapshot>> {
     this.calls.push('fetchSnapshot');
+    this.snapshotRequest = request;
     return {
       kind: 'ok',
       value: {
@@ -134,7 +140,13 @@ class FakeGitLab implements ReviewProvider {
             : relativePath === 'src/orders.spec.ts'
               ? { kind: 'text', text: REMOTE_SPEC }
               : null,
-        list: async () => [],
+        list: async (directoryName: string) => {
+          this.listed.push(directoryName);
+          return [];
+        },
+        prime: async (relativePaths: readonly string[]) => {
+          this.primed.push([...relativePaths]);
+        },
         omissions: ['src/huge.ts: GitLab marked this file too large to deliver.'],
         coverage: {
           complete: false,
@@ -525,6 +537,39 @@ describe('U18 reviewing a merge request', () => {
       await assert.rejects(
         () => reviewMr(runtime, new FakeReviewer()),
         (error: unknown) => isAmbicodeError(error) && error.code === 'unsupported-target',
+      );
+    } finally {
+      await context.dispose();
+    }
+  });
+});
+
+describe('U18 a merge-request review fetches the change, not the repository', () => {
+  it('asks for no unchanged neighbours, lists no directory, and names its reads once', async () => {
+    const context = await fixture();
+    try {
+      await reviewMr(context.runtime, new FakeReviewer());
+
+      // Measured on MR 2677: 47 changed files, 94 unchanged neighbours and 19
+      // directory listings — 160 requests and 61s, two thirds of it spent on
+      // code the merge request does not touch.
+      assert.equal(context.provider.snapshotRequest?.includeSiblingContext, false);
+      assert.deepEqual(context.provider.listed, [], 'a listing is a request, and there is nothing to list for');
+      // Every path the planner will read, handed over before the first read so
+      // one query can answer them all.
+      assert.deepEqual(context.provider.primed, [['src/orders.ts']]);
+    } finally {
+      await context.dispose();
+    }
+  });
+
+  it('says the reviewer had only the change, rather than leaving it to be assumed', async () => {
+    const context = await fixture();
+    try {
+      const output = await reviewMr(context.runtime, new FakeReviewer());
+      assert.ok(
+        output.result.omissions.some((line) => line.includes('Only changed files are present')),
+        `a narrower snapshot is stated as coverage; got ${JSON.stringify(output.result.omissions)}`,
       );
     } finally {
       await context.dispose();

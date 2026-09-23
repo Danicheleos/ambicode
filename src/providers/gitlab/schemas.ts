@@ -71,6 +71,19 @@ export const GitLabVersionDetail = GitLabVersion.extend({
 });
 export type GitLabVersionDetail = z.infer<typeof GitLabVersionDetail>;
 
+/**
+ * `repository/compare`, used only to find which of a merge request's changed
+ * files still differ from the target branch. `compare_timeout` is GitLab's own
+ * signal that it gave up part-way, and a partial answer here must never be
+ * treated as "these are all the files that differ".
+ */
+export const GitLabCompare = z.looseObject({
+  compare_timeout: z.boolean().default(false),
+  compare_same_ref: z.boolean().default(false),
+  diffs: z.array(z.looseObject({ old_path: z.string(), new_path: z.string() })).default([]),
+});
+export type GitLabCompare = z.infer<typeof GitLabCompare>;
+
 export const GitLabFile = z.looseObject({
   file_path: z.string(),
   size: z.number().int().nonnegative().nullable().default(null),
@@ -128,3 +141,36 @@ export const GitLabUser = z.looseObject({
   name: z.string().default(''),
 });
 export type GitLabUser = z.infer<typeof GitLabUser>;
+
+/**
+ * The batched blob query's answer. Strict where it matters: `hasNextPage` is
+ * required because GitLab caps this connection at 100 nodes and says so
+ * nowhere else — asked for 141 paths it returned 124, with no error and no
+ * missing-path list. A response without that field cannot be trusted to be the
+ * whole answer, so it fails validation rather than being read as one.
+ */
+export const GitLabBlobBatch = z.object({
+  data: z.object({
+    project: z
+      .object({
+        repository: z
+          .object({
+            blobs: z.object({
+              pageInfo: z.object({ hasNextPage: z.boolean() }),
+              nodes: z.array(
+                z.looseObject({
+                  path: z.string().min(1),
+                  /** Byte length of the blob itself, as a string in GraphQL. */
+                  rawSize: z.string().nullable().default(null),
+                  /** Empty for a blob GitLab does not serve as text. */
+                  rawTextBlob: z.string().nullable().default(null),
+                }),
+              ),
+            }),
+          })
+          .nullable(),
+      })
+      .nullable(),
+  }),
+});
+export type GitLabBlobBatch = z.infer<typeof GitLabBlobBatch>;

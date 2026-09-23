@@ -224,6 +224,11 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
   const plan = await planSnapshot({
     files: reviewable.files,
     content: resolution.content,
+    // Local context is a filesystem read; remote context is a request each.
+    // Stated here as well as at the provider so the planner does not list 25
+    // directories to be told each time that there is nothing in them.
+    includeSiblingContext: resolution.target.kind !== 'merge-request',
+    operator: patterns,
     contextBudgetBytes: Math.max(0, limits.maxContextBytes - overheadBytes),
   });
 
@@ -442,7 +447,12 @@ async function resolveTarget(
       provider: workspace.runtime.providers.forUrl(target.url),
       url: target.url,
       repositoryRoot: workspace.repositoryRoot,
-      includeSiblingContext: true,
+      // Every unchanged neighbour is another remote request. Measured on MR
+      // 2677: 47 changed files, 94 unchanged neighbours, 19 directory listings
+      // — two thirds of the requests and about half the mirrored bytes, spent
+      // on code the merge request does not touch. The diff and the changed
+      // files themselves are what the review is of.
+      includeSiblingContext: false,
       maxDiscussions: MAX_REVIEWED_DISCUSSIONS,
     });
   }

@@ -403,16 +403,43 @@ reviewer is never spent on an empty change.
 
 ## What gathering the context costs
 
-For a merge request every file is a `glab` subprocess, measured at 1.52s each.
-Reads run eight at a time, and unchanged neighbouring files are bounded by
-count — at most 25 of the change's directories are listed and at most 100
-neighbours read. Counts rather than seconds, so the same review gathers the
-same context on a slow network. When a bound bites, the omissions say so: an
-absent neighbour then means "not read", not "nothing there".
+**A merge-request review fetches the change and nothing else.** The diff, and
+the full content of the files the diff touches. Not the unchanged files beside
+them, and not the repository.
 
-Measured on a 299-file merge request across 181 directories holding 606
-unchanged siblings: 1,086 serial requests, about 27.5 minutes, became 424
-requests and about 1.3 minutes.
+A local review still takes its neighbours: reading them is a filesystem call.
+Over the API each one is a request, and on MR 2677 they were 94 of the 141
+files mirrored and 19 directory listings on top — two thirds of the requests
+and half the mirrored bytes, spent on code the merge request does not touch.
+Either way, whatever a review does not hold is in its omissions: an absent
+neighbour means "not read", never "nothing there".
+
+The changed files themselves are fetched in one GraphQL query per hundred
+paths rather than one request each. The reply carries every blob's own
+`rawSize`, and a body that does not weigh exactly that — a binary blob, a
+re-encoded one, a path GitLab left out of a capped page — is not used at all;
+that file is read the per-file way, where bytes are classified before they are
+decoded. So the batch is an optimization that cannot change an answer, only
+the number of requests it took.
+
+Measured end to end on MR 2677, `bundle --mr` with one `--exclude`:
+
+```
+before   160 requests   68.5s   141 files mirrored   648 KB snapshot
+after      ~9 requests  12.0s    41 files mirrored   223 KB snapshot
+```
+
+Before that, the same gathering had been 1,086 serial requests and about 27.5
+minutes on a 299-file merge request.
+
+### A file kept out does not come back beside the change
+
+Sibling context is filtered through the same patterns that decided what is
+reviewed. It has to be: on MR 2677 the result said the change's test code was
+not reviewed while six of those exact `.spec.ts` files sat in the snapshot as
+neighbours of a changed file, where the reviewer could read them. An exclusion
+that the snapshot quietly undoes is worse than no exclusion, because the report
+claims it happened.
 
 ## Publishing selected comments
 

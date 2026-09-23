@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { MAX_SNAPSHOT_FILE_BYTES } from '../config/defaults.ts';
 import type { RemoteTarget } from '../contracts/provider.ts';
 import { revisionMatches } from '../contracts/provider.ts';
 import { parseHunks, type DiffFile } from '../git/diff.ts';
@@ -515,10 +516,23 @@ describe('U18 fetching the pinned snapshot', () => {
   };
 
   function detailRunner(diffs: unknown[], overrides: Record<string, unknown> = {}): FakeProcessRunner {
-    return new FakeProcessRunner().stub(
-      (argv) => /versions\/5$/.test(argv.at(-1) ?? ''),
-      { stdout: JSON.stringify(versionDetail(diffs, overrides)) },
-    );
+    return new FakeProcessRunner()
+      .stub((argv) => /versions\/5$/.test(argv.at(-1) ?? ''), {
+        stdout: JSON.stringify(versionDetail(diffs, overrides)),
+      })
+      // The neutral comparison: every changed file still differs from the
+      // target branch, so nothing is narrowed and these tests see the diff
+      // exactly as GitLab delivered it. A test about the narrowing itself
+      // overrides this with its own answer.
+      .stub((argv) => (argv.at(-1) ?? '').includes('repository/compare'), {
+        stdout: JSON.stringify({
+          compare_timeout: false,
+          diffs: (diffs as { old_path?: string; new_path?: string }[]).map((entry) => ({
+            old_path: entry.old_path ?? '',
+            new_path: entry.new_path ?? '',
+          })),
+        }),
+      });
   }
 
   it('rebuilds a patch whose added, deleted and renamed files keep their real paths', async () => {
@@ -560,6 +574,71 @@ describe('U18 fetching the pinned snapshot', () => {
     assert.match(outcome.value.patch, /--- \/dev\/null\n\+\+\+ b\/src\/new file\.ts/);
     assert.match(outcome.value.patch, /--- a\/src\/gone\.ts\n\+\+\+ \/dev\/null/);
     assert.match(outcome.value.patch, /diff --git a\/src\/ünïcode-old\.ts b\/src\/--option-like\.ts/);
+  });
+
+  /**
+   * MR 2677: GitLab's diff is against the merge base, which for a long-lived
+   * branch is far behind the target. 299 files were listed, 249 of them already
+   * byte-identical to the target branch — including package-lock.json and 15 of
+   * 16 translation bundles, which blocked the review twice on the per-file
+   * ceiling for changes that merging would not make.
+   */
+  function comparing(diffs: unknown[], compare: unknown): FakeProcessRunner {
+    // The compare stub goes on first: the fake answers with the earliest
+    // matching stub, so it has to precede `detailRunner`'s neutral one.
+    return new FakeProcessRunner()
+      .stub((argv) => (argv.at(-1) ?? '').includes('repository/compare'), {
+        stdout: JSON.stringify(compare),
+      })
+      .stub((argv) => /versions\/5$/.test(argv.at(-1) ?? ''), {
+        stdout: JSON.stringify(versionDetail(diffs)),
+      });
+  }
+
+  it('reviews only the files that still differ from the target branch', async () => {
+    const runner = comparing(
+      [
+        { old_path: 'src/orders.ts', new_path: 'src/orders.ts', diff: MODIFIED_DIFF },
+        { old_path: 'package-lock.json', new_path: 'package-lock.json', diff: MODIFIED_DIFF },
+      ],
+      { compare_timeout: false, diffs: [{ old_path: 'src/orders.ts', new_path: 'src/orders.ts' }] },
+    );
+    const provider = new GitLabProvider({ runner, cwd: '/work' });
+    const outcome = await provider.fetchSnapshot({ target, includeSiblingContext: false });
+
+    assert.equal(outcome.kind, 'ok');
+    if (outcome.kind !== 'ok') return;
+    assert.deepEqual(outcome.value.files.map((file) => file.newPath), ['src/orders.ts']);
+    // It leaves the patch as well, or the reviewer reads it anyway.
+    assert.doesNotMatch(outcome.value.patch, /package-lock\.json/);
+    assert.match(
+      outcome.value.omissions.join('\n'),
+      /1 of the merge request's 2 changed file\(s\) are already identical/,
+    );
+    // The compare is one call, not one per file.
+    assert.equal(
+      runner.argvs().filter((argv) => (argv.at(-1) ?? '').includes('repository/compare')).length,
+      1,
+    );
+  });
+
+  it('reviews the whole diff when GitLab could not finish the comparison', async () => {
+    // A partial answer would silently narrow the review, which is the one
+    // failure this narrowing is not allowed to cause.
+    const runner = comparing(
+      [
+        { old_path: 'src/orders.ts', new_path: 'src/orders.ts', diff: MODIFIED_DIFF },
+        { old_path: 'package-lock.json', new_path: 'package-lock.json', diff: MODIFIED_DIFF },
+      ],
+      { compare_timeout: true, diffs: [] },
+    );
+    const provider = new GitLabProvider({ runner, cwd: '/work' });
+    const outcome = await provider.fetchSnapshot({ target, includeSiblingContext: false });
+
+    assert.equal(outcome.kind, 'ok');
+    if (outcome.kind !== 'ok') return;
+    assert.equal(outcome.value.files.length, 2);
+    assert.match(outcome.value.omissions.join('\n'), /could not be established/);
   });
 
   it('reports a collapsed or too-large file as an omission, not as an unchanged one', async () => {
@@ -617,6 +696,164 @@ describe('U18 fetching the pinned snapshot', () => {
     // The fork, not the target project, and the pinned head, not a branch name.
     assert.match(fileCall.at(-1) ?? '', /^projects\/404\/repository\/files\/src%2Fa\.ts\?/);
     assert.match(fileCall.at(-1) ?? '', /ref=cccccccccccccccccccccccccccccccccccccccc/);
+  });
+
+  /**
+   * One request per changed file was the largest cost of a merge-request
+   * review: 141 files mirrored as 160 `glab` calls, 61s. GraphQL answers a
+   * hundred paths at once — and answers a hundred however many were asked for,
+   * which is why every one of these tests is about what happens when it does
+   * not answer with the whole truth.
+   */
+  describe('U18 batched blob reads', () => {
+    const isGraphql = (argv: readonly string[]): boolean => (argv.at(-1) ?? '') === 'graphql';
+    const isFileRead = (argv: readonly string[]): boolean => (argv.at(-1) ?? '').includes('repository/files');
+
+    function blobs(
+      nodes: { path: string; rawSize: string | null; rawTextBlob: string | null }[],
+      hasNextPage = false,
+    ): string {
+      return JSON.stringify({
+        data: { project: { repository: { blobs: { pageInfo: { hasNextPage }, nodes } } } },
+      });
+    }
+
+    /** Two changed files, and whatever the batch and the per-file read answer. */
+    async function snapshotWith(runner: FakeProcessRunner) {
+      const provider = new GitLabProvider({ runner, cwd: '/work' });
+      const outcome = await provider.fetchSnapshot({ target, includeSiblingContext: false });
+      assert.equal(outcome.kind, 'ok');
+      return outcome.kind === 'ok' ? outcome.value : null;
+    }
+
+    function changed(): FakeProcessRunner {
+      return detailRunner([
+        { old_path: 'src/a.ts', new_path: 'src/a.ts', diff: MODIFIED_DIFF },
+        { old_path: 'src/b.ts', new_path: 'src/b.ts', diff: MODIFIED_DIFF },
+      ]);
+    }
+
+    it('reads every primed path in one query and then makes no per-file request', async () => {
+      const runner = changed().stub(isGraphql, {
+        stdout: blobs([
+          { path: 'src/a.ts', rawSize: '4', rawTextBlob: 'a=1\n' },
+          { path: 'src/b.ts', rawSize: '4', rawTextBlob: 'b=2\n' },
+        ]),
+      });
+      const snapshot = await snapshotWith(runner);
+      if (snapshot === null) return;
+
+      await snapshot.prime?.(['src/a.ts', 'src/b.ts']);
+      const a = await snapshot.read('src/a.ts');
+      const b = await snapshot.read('src/b.ts');
+
+      assert.equal(a?.kind === 'text' ? a.text : '', 'a=1\n');
+      assert.equal(b?.kind === 'text' ? b.text : '', 'b=2\n');
+      assert.equal(runner.argvs().filter(isGraphql).length, 1);
+      assert.deepEqual(runner.argvs().filter(isFileRead), [], 'the batch answered, so nothing is read twice');
+    });
+
+    it('falls back to per-file reads when the page was capped', async () => {
+      // Asked for 141 paths, gitlab.com returned 124 and named none of the
+      // missing ones. `hasNextPage` is the only evidence that happened.
+      const runner = changed()
+        .stub(isGraphql, {
+          stdout: blobs([{ path: 'src/a.ts', rawSize: '4', rawTextBlob: 'a=1\n' }], true),
+        })
+        .stub(isFileRead, {
+          stdout: JSON.stringify({
+            file_path: 'src/a.ts',
+            size: 8,
+            encoding: 'base64',
+            content: Buffer.from('whole a\n', 'utf8').toString('base64'),
+          }),
+        });
+      const snapshot = await snapshotWith(runner);
+      if (snapshot === null) return;
+
+      await snapshot.prime?.(['src/a.ts', 'src/b.ts']);
+      const a = await snapshot.read('src/a.ts');
+
+      // Not the node from the capped page: a response that admits it is partial
+      // is not read for the part it did deliver.
+      assert.equal(a?.kind === 'text' ? a.text : '', 'whole a\n');
+      assert.equal(runner.argvs().filter(isFileRead).length, 1);
+    });
+
+    it('falls back for a blob whose body does not weigh what the blob does', async () => {
+      // A binary blob comes back as an empty string against a non-zero
+      // rawSize. Mirroring that would put an empty file in the snapshot and
+      // call it the file's content.
+      const runner = changed()
+        .stub(isGraphql, {
+          stdout: blobs([{ path: 'src/a.ts', rawSize: '2011', rawTextBlob: '' }]),
+        })
+        .stub(isFileRead, {
+          stdout: JSON.stringify({
+            file_path: 'src/a.ts',
+            size: 4,
+            encoding: 'base64',
+            content: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01]).toString('base64'),
+          }),
+        });
+      const snapshot = await snapshotWith(runner);
+      if (snapshot === null) return;
+
+      await snapshot.prime?.(['src/a.ts']);
+      const a = await snapshot.read('src/a.ts');
+
+      // The per-file path classifies the bytes, which is the whole reason the
+      // fallback exists.
+      assert.equal(a?.kind, 'binary');
+      assert.equal(runner.argvs().filter(isFileRead).length, 1);
+    });
+
+    it('takes a blob over the per-file ceiling from its size alone', async () => {
+      const runner = changed()
+        .stub(isGraphql, {
+          stdout: blobs([{ path: 'src/a.ts', rawSize: String(MAX_SNAPSHOT_FILE_BYTES + 1), rawTextBlob: '' }]),
+        })
+        .stub(isFileRead, { exitCode: 1, stderr: 'this must not be reached' });
+      const snapshot = await snapshotWith(runner);
+      if (snapshot === null) return;
+
+      await snapshot.prime?.(['src/a.ts']);
+      const a = await snapshot.read('src/a.ts');
+
+      assert.equal(a?.kind, 'too-large');
+      assert.deepEqual(runner.argvs().filter(isFileRead), []);
+    });
+
+    it('splits the paths into queries of a hundred, which is what the connection returns', async () => {
+      const paths = Array.from({ length: 101 }, (_, index) => `src/f${String(index)}.ts`);
+      const runner = changed().stub(isGraphql, { stdout: blobs([]) });
+      const snapshot = await snapshotWith(runner);
+      if (snapshot === null) return;
+
+      await snapshot.prime?.(paths);
+      assert.equal(runner.argvs().filter(isGraphql).length, 2);
+      const sent = runner.calls.filter((call) => isGraphql(call.argv));
+      const first = JSON.parse(sent[0]?.stdin ?? '{}') as { variables: { paths: string[] } };
+      const second = JSON.parse(sent[1]?.stdin ?? '{}') as { variables: { paths: string[] } };
+      assert.equal(first.variables.paths.length, 100);
+      assert.equal(second.variables.paths.length, 1);
+    });
+
+    it('does not spend a query on a fork whose path could not be resolved', async () => {
+      // An unreadable fork leaves the numeric id where the full path goes, and
+      // GraphQL addresses a project by path only.
+      const runner = changed().stub(isGraphql, { stdout: blobs([]) });
+      const provider = new GitLabProvider({ runner, cwd: '/work' });
+      const outcome = await provider.fetchSnapshot({
+        target: { ...target, sourceProjectPath: '404' },
+        includeSiblingContext: false,
+      });
+      assert.equal(outcome.kind, 'ok');
+      if (outcome.kind !== 'ok') return;
+
+      await outcome.value.prime?.(['src/a.ts']);
+      assert.deepEqual(runner.argvs().filter(isGraphql), []);
+    });
   });
 
   it('records inaccessible fork content as an omission rather than as an empty file', async () => {

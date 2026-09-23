@@ -107,6 +107,9 @@ export async function resolveMergeRequestTarget(
       return value.kind === 'unavailable' ? null : value;
     },
     list: (directoryName: string) => snapshot.list(directoryName),
+    ...(snapshot.prime === undefined
+      ? {}
+      : { prime: (relativePaths: readonly string[]) => snapshot.prime?.(relativePaths) ?? Promise.resolve() }),
   };
 
   const notes = [

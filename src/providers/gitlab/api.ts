@@ -71,7 +71,14 @@ export class GitLabApi {
       this.host,
       '--method',
       request.method ?? 'GET',
-      ...(request.body === undefined ? [] : ['--input', '-']),
+      // `glab api --input -` sends the body with no Content-Type of its own,
+      // and GitLab answers HTTP 415 ("The provided content-type '' is not
+      // supported") before it looks at the request at all. Measured on glab
+      // 1.119.0 against gitlab.com: every publish failed this way, and the
+      // same request with this header is answered on its merits.
+      ...(request.body === undefined
+        ? []
+        : ['--header', 'Content-Type: application/json', '--input', '-']),
       query === '' ? request.path : `${request.path}?${query}`,
     ];
   }
@@ -115,9 +122,16 @@ export class GitLabApi {
       ]);
     }
     if (outcome.exitCode !== 0) {
-      return failed(`glab api ${request.path} failed with exit code ${String(outcome.exitCode)}.`, [
-        firstLine(outcome.stderr) || firstLine(outcome.stdout) || 'glab produced no diagnostic.',
-      ]);
+      // The diagnostic goes in the message, not only in the details: a
+      // publication outcome records the message alone, so `glab: HTTP 415` —
+      // the line that identified the bug that made every publish fail — never
+      // reached the operator, who saw only "failed with exit code 1".
+      const diagnostic =
+        firstLine(outcome.stderr) || firstLine(outcome.stdout) || 'glab produced no diagnostic.';
+      return failed(
+        `glab api ${request.path} failed with exit code ${String(outcome.exitCode)}: ${diagnostic}`,
+        [diagnostic],
+      );
     }
 
     let parsed: unknown;
@@ -139,6 +153,24 @@ export class GitLabApi {
       ]);
     }
     return { kind: 'ok', value: validated.data };
+  }
+
+  /**
+   * One GraphQL query, for the cases where REST would be one request per item.
+   * `glab api graphql` is the same transport as everything else here — the
+   * `Content-Type` header above is what makes GitLab answer it at all.
+   *
+   * GraphQL reports failure in two shapes: `glab` exits nonzero and the body
+   * holds `errors`, or the body parses but does not match the schema. Both
+   * arrive here as a failure, and every caller of this treats a failure as
+   * "fall back to the per-item requests", never as an empty answer.
+   */
+  async graphql<T>(
+    query: string,
+    variables: Readonly<Record<string, unknown>>,
+    schema: z.ZodType<T>,
+  ): Promise<ApiResult<T>> {
+    return await this.request({ path: 'graphql', method: 'POST', body: { query, variables } }, schema);
   }
 
   /**

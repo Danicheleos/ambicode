@@ -512,3 +512,38 @@ test('U09 test files are told apart from product code by unambiguous markers onl
   // it just wrote.
   assert.equal(pathExclusionReason('src/orders.spec.ts'), null);
 });
+
+test('U09 a file kept out of the review does not come back as context beside it', async (t) => {
+  const repo = await TempRepo.create();
+  t.after(() => repo.dispose());
+
+  await repo.write('src/app.ts', 'export const value = 0;\n');
+  await repo.write('src/app.spec.ts', 'it("works", () => {});\n');
+  await repo.write('src/secret.env.ts', 'export const token = "a";\n');
+  await repo.commitAll('init');
+  await repo.write('src/app.ts', 'export const value = 1;\n');
+
+  const resolution = await resolveWorkingTarget({ fs: nodeFileSystem, git: repo.git, repositoryRoot: repo.root });
+
+  // Measured on MR 2677 before this: the result said "the change's test code
+  // was not reviewed" while six of those .spec.ts files were in the snapshot,
+  // put back as neighbours of a changed file and readable by the reviewer.
+  const excluded = await planSnapshot({
+    files: partitionChange(resolution.files).files,
+    content: resolution.content,
+    operator: { excludeTests: true, exclude: ['src/secret.env.ts'] },
+  });
+  assert.deepEqual(
+    excluded.entries.map((entry) => entry.path).filter((each) => each !== 'src/app.ts'),
+    [],
+    'nothing the patterns removed may be mirrored as context',
+  );
+
+  // Without those patterns the same neighbour is ordinary context, so the test
+  // above is about the patterns and not about the file being uninteresting.
+  const included = await planSnapshot({
+    files: partitionChange(resolution.files).files,
+    content: resolution.content,
+  });
+  assert.ok(included.entries.some((entry) => entry.path === 'src/app.spec.ts'));
+});
