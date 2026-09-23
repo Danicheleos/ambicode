@@ -2,8 +2,8 @@ import path from 'node:path';
 import { runChecks, type PendingApproval } from '../checks/run.ts';
 import { runRemoteChecks } from '../checks/remote.ts';
 import type { ChangedPath } from '../checks/select.ts';
-import { MAX_REVIEWED_DISCUSSIONS, REVIEWS_DIR } from '../config/defaults.ts';
-import { uniqueReviewName } from './review-name.ts';
+import { MAX_REVIEWED_DISCUSSIONS, REVIEWS_DIR, REVIEWS_LEAF, TASKS_DIR } from '../config/defaults.ts';
+import { taskSlugFor, uniqueReviewName } from './review-name.ts';
 import {
   openWorkspace,
   projectForPath,
@@ -19,6 +19,7 @@ import type { DiffFile } from '../git/diff.ts';
 import type { FileSystem } from '../ports/filesystem.ts';
 import { configProvenance, policyProvenance } from '../policy/provenance.ts';
 import {
+  canonicalUrl,
   normalizeRequirements,
   loadRequirementEvidence,
   type EvidenceSource,
@@ -89,6 +90,8 @@ export interface AssembleOptions {
   approvals: ReadonlySet<string>;
   /** Approval keys a human refused, so the run stops waiting on them. */
   declines: ReadonlySet<string>;
+  /** The task directory this review belongs in; see `taskSlugFor`. */
+  task: string | null;
 }
 
 export async function assembleBundle(options: AssembleOptions): Promise<ReviewBundle> {
@@ -157,13 +160,38 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
   const snapshot = await writeSnapshot(runtime.fs, plan, reviewable.patch, runtime.clock);
 
   // The directory name is the review id, and it is what a person scans the
-  // listing for: which merge request, which ticket, which day.
-  const reviewsRoot = path.join(workspace.repositoryRoot, REVIEWS_DIR);
+  // listing for: which merge request, which ticket, which day. Inside a task
+  // directory the ticket is already in the path above it, so the name carries
+  // the target and the day only.
+  const requirementIds = requirements.sources.map((source) => source.id);
+  // `normalizeRequirements` sorts its sources by id so the result reads the
+  // same whatever order they arrived in. That is right for the result and
+  // wrong for the task: given a ticket and the Confluence page behind it,
+  // sorting picks whichever sorts first, and the work is named after the
+  // ticket. The first `--requirement` the caller named is the task.
+  const asNamed = options.requirementUrls
+    .map(
+      (url) =>
+        requirements.sources.find((source) => canonicalUrl(source.url) === canonicalUrl(url))?.id,
+    )
+    .filter((id): id is string => id !== undefined);
+  const taskSlug =
+    resolution.target.kind === 'merge-request'
+      ? null
+      : taskSlugFor({
+          requirementIds: asNamed.length > 0 ? asNamed : requirementIds,
+          task: options.task,
+        });
+  const reviewsRoot =
+    taskSlug === null
+      ? path.join(workspace.repositoryRoot, REVIEWS_DIR)
+      : path.join(workspace.repositoryRoot, TASKS_DIR, taskSlug, REVIEWS_LEAF);
   const reviewId = await uniqueReviewName(
     {
       target: resolution.target,
-      requirementIds: requirements.sources.map((source) => source.id),
+      requirementIds,
       now: runtime.clock.now(),
+      insideTask: taskSlug !== null,
     },
     (name) => runtime.fs.exists(path.join(reviewsRoot, name)),
     runtime.ids.reviewId(),

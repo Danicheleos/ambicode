@@ -19,8 +19,8 @@ Jira/Confluence URL is a requirement source. `--requirement` is repeatable
 ## 1. Intent and sources
 
 Start from a direct request, a Jira/Confluence URL, a pasted or saved
-accepted plan (`.ambicode/notes/plans/<slug>.md`), or a note under
-`.ambicode/notes/tasks/<slug>.md` (**Resume**, step 6).
+accepted plan (`.ambicode/task/<slug>/plan_<time>.md`), or that task's
+`notes.md` (**Resume**, step 6).
 
 **A plan is optional. Never force a small, clearly bounded change through
 `/ambicode:plan` first, and never require an investigation or a task ID
@@ -110,10 +110,10 @@ when source-free):
 
 ```sh
 node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" review \
-  --requirement <url>... --evidence -
+  --requirement <url>... --evidence - [--task <slug>]
 ```
 
-Its default target is your uncommitted work — exactly this task's edits.
+Its default target is all of your uncommitted work, not only this task's.
 **Call the CLI pipeline directly; do not paste this
 conversation into the reviewer and do not attempt to imitate an independent
 review yourself in this same context.**
@@ -132,12 +132,13 @@ review yourself in this same context.**
   verification succeeded.
 - A check that mutates the workspace is reported under `mutations`. Tell the
   user; do not silently accept or revert it.
+- Format what you just wrote before the first review.
 - Do not run lint/unit/e2e separately and then run `ambicode review` again on
   top of that. One pipeline run per iteration, and again only when a changed
   finding needs fresh verification.
-- If the tree was already dirty, the reviewed target covers more than this
-  task's files. **Do not modify those changes, and do not attribute their
-  findings to this task** — report the target and that limitation.
+- If the tree was already dirty, the target covers more than this task's
+  files. **Name them before the first review** — they spend the reviewer on
+  themselves. Never modify them or adopt their findings.
 
 For every finding: verify it against the current code and the requirement
 evidence rather than forwarding it unverified; address every accepted,
@@ -152,7 +153,7 @@ Remaining.
 ## 6. Optional task note and resume
 
 **A small task needs no task file at all.** Write one plain Markdown note
-under `.ambicode/notes/tasks/<slug>.md` only when the user asks, the accepted
+at `.ambicode/task/<slug>/notes.md` only when the user asks, the accepted
 plan has multiple iterations, or the work must resume across sessions. Do not
 add a task database, a workflow engine, an event log, a mandatory identifier,
 classification levels, or a machine state protocol.

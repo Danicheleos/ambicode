@@ -285,6 +285,37 @@ ambicode bundle          # same options as review
 The same target, snapshot, requirements and check evidence, with no model
 invoked. Its empty `findings` list means nothing ran, and the omissions say so.
 
+## Where a review is saved
+
+Everything about one task lives in one directory:
+
+```
+.ambicode/task/ORD-17/
+  plan_2026-09-22T23-42.md
+  investigation_2026-09-22T21-10.md
+  notes.md
+  reviews/
+    local_2026-09-22T23-42/
+      result.json
+      report.txt
+```
+
+The task is named by the first `--requirement` you pass — a ticket is what
+the work is called in Jira, in the branch and in the merge request, so it is
+the name a person guesses first. With no requirement, `--task <slug>` names
+it, and the authoring skills mint that slug as a short kebab of the request
+plus a timestamp (`raise-upload-limit_2026-09-23T10-15`). With neither, the
+review stays directly under `.ambicode/reviews/`, because there is no task to
+group it with.
+
+A merge-request review always stays under `.ambicode/reviews/`: it reviews
+somebody else's branch, and there is no local task it belongs beside.
+
+The review id is the directory name only — `local_2026-09-22T23-42`, with no
+ticket in it, because the directory above already carries the ticket.
+`ambicode view --review <id>` looks through every task directory for it, and
+refuses rather than guesses if two of them hold that id.
+
 ## A check waiting for a human
 
 A check can stop and ask before it runs: its command is `propose` in policy,

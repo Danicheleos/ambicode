@@ -41,10 +41,13 @@ debugging. It is not the shape to read routinely.
 - **`navigation`** — the bounded search order: the shortlist first, then known
   paths, then current-session LSP tools for definitions, references, callers
   and symbol lookup, then targeted Grep/Glob/Read only where LSP is absent or
-  insufficient. Do not build an index or read the whole repository by
-  default. The helper cannot see this session's tool inventory, so observe it
-  yourself; `ambicode config` names the ecosystem's official Claude Code LSP
-  plugin when you need to recommend one.
+  insufficient. The helper cannot see this session's tool inventory, so
+  observe it yourself; `ambicode config` names the ecosystem's official
+  Claude Code LSP plugin when you need to recommend one.
+- **Read spans, not whole files.** Ask LSP where a symbol is defined or used
+  and open only those lines with `offset`/`limit`. Read whole only what you
+  are about to edit; to learn whether a behaviour is covered, grep the spec
+  rather than reading it.
 - **`navigation.shortlist`** — the candidate files for this request, present
   when the call passed `--term <term>` or requirement evidence to take terms
   from. Each candidate carries its `path`, a `score` comparable only inside

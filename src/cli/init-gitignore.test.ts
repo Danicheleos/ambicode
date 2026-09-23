@@ -59,14 +59,18 @@ describe('init keeps optional notes out of the product repository history', () =
     const repo = await TempRepo.create();
     try {
       await repo.write('src/app.ts', 'export const a = 1;\n');
-      await repo.write('.gitignore', '/.ambicode/reviews/\n/.ambicode/notes/\n');
+      await repo.write('.gitignore', '/.ambicode/reviews/\n/.ambicode/notes/\n/.ambicode/task/\n');
       await repo.commitAll('initial');
       const runtime = await createRuntime({ cwd: repo.root });
 
       const output = await runInit(runtime, parseArgs('init', [], INIT_OPTIONS));
 
       const ignore = await runtime.fs.readText(`${repo.root}/.gitignore`);
-      assert.equal(ignore, '/.ambicode/reviews/\n/.ambicode/notes/\n', 'nothing was appended');
+      assert.equal(
+        ignore,
+        '/.ambicode/reviews/\n/.ambicode/notes/\n/.ambicode/task/\n',
+        'nothing was appended',
+      );
       assert.ok(!output.notices.some((notice) => notice.includes('.gitignore')));
     } finally {
       await repo.dispose();

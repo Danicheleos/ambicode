@@ -15,7 +15,7 @@ import type { ParsedArgs } from './args.ts';
  * before any of those (doc 02, "CLI execution contract").
  */
 export const TARGET_OPTIONS = {
-  values: ['base', 'mr', 'evidence'],
+  values: ['base', 'mr', 'evidence', 'task'],
   repeated: ['requirement', 'approve', 'decline'],
   flags: ['json', 'branch'],
 } as const;
@@ -31,6 +31,13 @@ export interface ResolvedTargetOptions {
    * review waiting forever.
    */
   declines: Set<string>;
+  /**
+   * `--task <slug>`: the task directory this run belongs to. A run carrying a
+   * requirement needs no slug — the ticket is one. This is for the rest: a
+   * plain request the authoring skill has already named, so its plan, its
+   * investigation and its reviews land in one directory instead of three.
+   */
+  task: string | null;
 }
 
 /** Pure: the target the arguments name, or the reason they name none. */
@@ -89,6 +96,7 @@ export function resolveTargetOptions(
     evidence: evidenceSource(runtime, args.value('evidence')),
     approvals: new Set(args.all('approve')),
     declines: new Set(args.all('decline')),
+    task: args.value('task'),
   };
 }
 

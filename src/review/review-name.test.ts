@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { ReviewTarget } from '../contracts/review.ts';
-import { reviewNameBase, uniqueReviewName } from './review-name.ts';
+import { reviewNameBase, taskSlugFor, uniqueReviewName } from './review-name.ts';
 
 /**
  * A review directory is found by reading its name. These assert what a person
@@ -110,5 +110,31 @@ describe('review directory names', () => {
       3,
     );
     assert.match(name, /a1b2c3d4$/);
+  });
+});
+
+describe('the task a review belongs to', () => {
+  it('takes the ticket as the slug, because that is what the work is called everywhere else', () => {
+    assert.equal(taskSlugFor({ requirementIds: ['ORD-17'], task: null }), 'ORD-17');
+  });
+
+  it('prefers the slug the caller passed, which is the case with no ticket to use', () => {
+    assert.equal(
+      taskSlugFor({ requirementIds: [], task: 'fix-retry-backoff_2026-09-23T10-15' }),
+      'fix-retry-backoff_2026-09-23T10-15',
+    );
+  });
+
+  it('has no task when there is neither, so those artifacts stay where they were', () => {
+    assert.equal(taskSlugFor({ requirementIds: [], task: null }), null);
+    assert.equal(taskSlugFor({ requirementIds: [], task: '   ' }), null);
+  });
+
+  it('leaves the ticket out of the name when the directory above already carries it', () => {
+    const input = { target: target(), requirementIds: ['ORD-17'], now: NOW };
+    assert.equal(reviewNameBase(input), 'local_ORD-17_2026-09-22T14-35');
+    // The same run saved inside `.ambicode/task/ORD-17/reviews/`: spelling
+    // the ticket again would put it twice in one path and add nothing.
+    assert.equal(reviewNameBase({ ...input, insideTask: true }), 'local_2026-09-22T14-35');
   });
 });

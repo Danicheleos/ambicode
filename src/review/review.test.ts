@@ -119,6 +119,12 @@ describe('U16 requirement modes end to end', () => {
 
       assert.equal(output.result.requirementMode, 'quality-review');
       assert.deepEqual(output.result.requirements, []);
+      // No ticket and no --task: nothing to group this with, so it stays in
+      // the flat review directory rather than inventing a task for it.
+      assert.ok(
+        output.reviewDirectory.includes(path.join('.ambicode', 'reviews')),
+        output.reviewDirectory,
+      );
       assert.equal(reviewer.requests.length, 1);
       assert.match(
         output.result.omissions.join('\n'),
@@ -150,6 +156,14 @@ describe('U16 requirement modes end to end', () => {
       );
 
       assert.equal(output.result.requirementMode, 'requirement-based');
+      // The ticket is the task: the review lands under `.ambicode/task/ORD-17/`,
+      // beside the plan and any investigation of the same work, and its own
+      // name no longer repeats the ticket that the directory above it carries.
+      assert.ok(
+        output.reviewDirectory.includes(path.join('.ambicode', 'task', 'ORD-17', 'reviews')),
+        output.reviewDirectory,
+      );
+      assert.ok(!path.basename(output.reviewDirectory).includes('ORD-17'), output.reviewId);
       assert.deepEqual(
         output.result.requirements.map((source) => source.id),
         ['ENG-orders', 'ORD-17'],

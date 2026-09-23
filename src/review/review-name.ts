@@ -46,6 +46,33 @@ export interface ReviewNameInput {
   /** Requirement ids in the order supplied; only the first reaches the name. */
   requirementIds: readonly string[];
   now: Date;
+  /**
+   * True when the review directory sits inside its task folder, which already
+   * carries the ticket. Spelling it again in the directory underneath would
+   * put it twice in one path and add nothing to the listing.
+   */
+  insideTask?: boolean;
+}
+
+/**
+ * The task directory a run belongs to, under `TASKS_DIR`, or `null` when the
+ * run has no task identity and its artifacts stay where they were.
+ *
+ * A requirement id is the best slug available: it is what the work is called
+ * in Jira, in the branch name and in the merge request, so a person looking
+ * for it guesses right the first time. A caller working without a ticket
+ * passes its own slug, which the authoring skills mint as a short kebab of
+ * the request plus a timestamp — readable, and unique enough that two
+ * unrelated requests phrased alike do not land in one directory.
+ */
+export function taskSlugFor(input: {
+  requirementIds: readonly string[];
+  task: string | null;
+}): string | null {
+  const explicit = input.task === null ? "" : sanitize(input.task, 60);
+  if (explicit !== "") return explicit;
+  const ticket = sanitize(input.requirementIds[0] ?? "", 24);
+  return ticket === "" ? null : ticket;
 }
 
 /**
@@ -69,7 +96,10 @@ export function reviewNameBase(input: ReviewNameInput): string {
     parts.push('local');
   }
 
-  const ticket = requirementIds.length === 0 ? '' : sanitize(requirementIds[0] ?? '', 24);
+  const ticket =
+    input.insideTask === true || requirementIds.length === 0
+      ? ''
+      : sanitize(requirementIds[0] ?? '', 24);
   if (ticket !== '') parts.push(ticket);
 
   parts.push(localTimestamp(now));

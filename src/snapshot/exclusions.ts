@@ -25,6 +25,7 @@ const EXCLUDED_PATH_GLOBS = [
   '**/target/**',
   '**/vendor/**',
   '**/.ambicode/reviews/**',
+  '**/.ambicode/task/**',
 ];
 
 /** Names that usually hold credentials rather than reviewable source. */

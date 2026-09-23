@@ -158,17 +158,17 @@ describe('P2.2/P2.3 shipped skill content', () => {
     // cannot call one, so `src/notes/path.ts` (unreachable from any real
     // boundary) was removed rather than kept to justify a helper nothing calls.
     const investigate = await readFile(path.join(SKILLS_DIR, 'investigate', 'SKILL.md'), 'utf8');
-    assert.match(investigate, /\.ambicode\/notes\/investigations\//);
+    assert.match(investigate, /\.ambicode\/task\/<slug>\/investigation_/);
   });
 
   it('plan documents its single note-writing boundary, separate from investigate\'s', async () => {
     const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
-    assert.match(plan, /\.ambicode\/notes\/plans\//);
+    assert.match(plan, /\.ambicode\/task\/<slug>\/plan_/);
   });
 
   it('task documents its single note-writing boundary, separate from investigate\'s and plan\'s', async () => {
     const task = await readFile(path.join(SKILLS_DIR, 'task', 'SKILL.md'), 'utf8');
-    assert.match(task, /\.ambicode\/notes\/tasks\//);
+    assert.match(task, /\.ambicode\/task\/<slug>\/notes\.md/);
   });
 
   it('plan declares an argument hint and makes the request available through $ARGUMENTS', async () => {
@@ -200,6 +200,17 @@ describe('P2.2/P2.3 shipped skill content', () => {
     );
   });
 
+  it('plan names an acceptance gate that works outside plan mode, and offers a decline', async () => {
+    const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
+    // A real run was not in plan mode, found `ExitPlanMode` to be the only
+    // mechanism the skill named, and fell back to printing the roadmap with no
+    // control on it — the human had to guess the word that ended the wait. Both
+    // paths must be named, and the decline with them: a gate whose only answer
+    // is yes is not a gate.
+    assert.match(plan, /ExitPlanMode/);
+    assert.match(plan, /AskUserQuestion/);
+    assert.match(plan, /\bReject\b/);
+  });
   it('plan states it never implements, never invokes the reviewer, and never publishes, commits, or pushes', async () => {
     const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
     for (const phrase of [
@@ -410,6 +421,21 @@ describe('P2.3 task skill', () => {
     );
   });
 
+  it('never promises the review target is only this task\'s edits, and spends the dirty tree before the reviewer does', async () => {
+    const content = await task();
+    // A run read "exactly this task's edits", took the target on trust, and
+    // shipped a review of a tree that had been dirty since before it started:
+    // 20 files reviewed, 16 its own, and both findings against the other four.
+    // The claim must not come back, and the warning has to land before the
+    // reviewer is paid for, not in the report afterwards.
+    assert.ok(
+      !/exactly this task's edits/i.test(content),
+      'task/SKILL.md must not claim the working-tree target is only this task\'s edits',
+    );
+    assert.match(content, /all of your uncommitted work/i);
+    assert.match(content, /\*\*Name them before the first review\*\*/);
+    assert.match(content, /Format what you just wrote before the first review/i);
+  });
   it('states that a source change without a successfully executed affected test remains verification-incomplete', async () => {
     const content = await task();
     assert.match(content, /verification-incomplete/i);

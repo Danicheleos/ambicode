@@ -109,9 +109,10 @@ act on one.
 The response to the user is the result of this skill. Write a Markdown note
 only when the user asks you to save one. When they do:
 
-- Save it under `.ambicode/notes/investigations/`, named for the question (a
-  short kebab-case slug, optionally with a date). Never write outside that
-  directory for this skill's notes.
+- Save it as `.ambicode/task/<slug>/investigation_<YYYY-MM-DDTHH-MM>.md` —
+  slug = the requirement id, or a short kebab of the question plus that
+  timestamp. One directory per task, so it sits beside the plan it feeds.
+  Never write outside it.
 - Label it clearly, at the top, as an **investigation note** — not an
   accepted plan, not a task, not a decision record.
 - Include the question, the sources (code paths and requirement

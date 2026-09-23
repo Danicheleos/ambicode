@@ -67,7 +67,78 @@ function view(runtime: Runtime, argv: string[]) {
   });
 }
 
+/**
+ * A review saved beside the plan and the investigation of the same task. The
+ * id stays short because `.ambicode/task/<slug>/` already names the ticket, so
+ * resolving it means asking each task directory rather than reading the id.
+ */
+async function taskFixture(slug: string, reviewId: string): Promise<Fixture> {
+  const repo = await TempRepo.create();
+  await repo.write('package.json', '{"name":"app","version":"1.0.0"}\n');
+  await repo.write('src/orders.ts', 'export const total = 0;\n');
+  await repo.commitAll('initial');
+
+  const setup = await createRuntime({ cwd: repo.root });
+  await runInit(setup, parseArgs('init', [], INIT_OPTIONS));
+
+  const result = { ...reviewResult({ kind: 'working', remote: null }), reviewId };
+  const reviewDirectory = path.join(repo.root, '.ambicode', 'task', slug, 'reviews', reviewId);
+  await nodeFileSystem.mkdirp(reviewDirectory);
+  await nodeFileSystem.writeText(
+    path.join(reviewDirectory, 'result.json'),
+    `${JSON.stringify(result, null, 2)}\n`,
+  );
+
+  const runtime = await createRuntime({
+    cwd: repo.root,
+    clock: new FakeClock(),
+    ids: new CountingIds('view-'),
+    providers: new ProviderRegistry([new FakeProvider(), new GitHubProvider()]),
+  });
+  return { repo, runtime, reviewDirectory, dispose: () => repo.dispose() };
+}
+
 describe('the reopen command', () => {
+  it('finds a review inside the task directory it belongs to', async () => {
+    const context = await taskFixture('ORD-17', 'local_2026-09-22T14-35');
+    try {
+      const output = await view(context.runtime, ['--review', 'local_2026-09-22T14-35']);
+      assert.ok(
+        output.reviewDirectory.endsWith(
+          path.join('.ambicode', 'task', 'ORD-17', 'reviews', 'local_2026-09-22T14-35'),
+        ),
+        output.reviewDirectory,
+      );
+      await output.stop('test finished');
+    } finally {
+      await context.dispose();
+    }
+  });
+
+  it('refuses an id two task directories both hold, rather than opening whichever came first', async () => {
+    const context = await taskFixture('ORD-17', 'local_2026-09-22T14-35');
+    try {
+      // Two tasks reviewed in the same minute: rare, and silently opening the
+      // wrong one would be worse than saying so.
+      const twin = path.join(
+        context.repo.root,
+        '.ambicode',
+        'task',
+        'ORD-42',
+        'reviews',
+        'local_2026-09-22T14-35',
+      );
+      await nodeFileSystem.mkdirp(twin);
+      await nodeFileSystem.writeText(path.join(twin, 'result.json'), '{}\n');
+
+      await assert.rejects(
+        () => view(context.runtime, ['--review', 'local_2026-09-22T14-35']),
+        (error: unknown) => isAmbicodeError(error) && error.code === 'review-ambiguous',
+      );
+    } finally {
+      await context.dispose();
+    }
+  });
   it('loads a saved review by its id and reports what the page offers', async () => {
     const context = await fixture();
     try {

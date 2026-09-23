@@ -71,7 +71,7 @@ planning.
 ### 3. Investigate only enough to plan
 
 - If the user already points at an existing investigation (a note under
-  `.ambicode/notes/investigations/`, or one they just ran in this session),
+  `.ambicode/task/<slug>/`, or one they just ran in this session),
   read and reuse it. **Never require one** — most plans start from nothing
   but the request.
 - Navigate in `navigation`'s bounded order. Record `Navigation: LSP —
@@ -109,9 +109,8 @@ planning.
 
 ### 5. Produce the plan
 
-Use Claude Code's native plan-presentation mechanism (`ExitPlanMode` / the
-permitted plan location) to write and present it — see "Preserve the
-planning boundary" below. Structure the content as:
+Present it, then gate acceptance — see "Preserve the planning boundary"
+below. Structure the content as:
 
 - **Requested outcome.**
 - **Requirements and their cited sources** (or "source-free" if none were
@@ -151,18 +150,25 @@ planning boundary" below. Structure the content as:
 - **Do not commit, push, open a merge request, publish a comment, deploy, or
   transition a ticket.** Planning never touches GitLab, Jira, or Confluence
   beyond the read-only retrieval in step 1.
-- **Use Claude Code's own planning mode and permitted plan location.** Write
-  and present the plan the way Claude Code's native plan workflow expects
-  (`ExitPlanMode` when you are in plan mode), and let the human accept or
-  send back the roadmap through that same native mechanism. Do not route
-  around it with an ad hoc file write instead.
-- **Save a plan to `.ambicode/notes/plans/<slug>.md` only when writing is
-  permitted and the user asks you to save it**, or explicitly accepts a
-  workflow that already says saving is part of it. A saved plan is a plain
-  Markdown file: the same content structure as step 5, a top-of-file label
-  ("**plan** — draft" or "**plan** — accepted", matching its real status),
-  and nothing else. No task database, hidden state, event log, or mandatory
-  identifier.
+- **Make acceptance a click, not a word the human has to guess.** In plan
+  mode, present the roadmap with `ExitPlanMode`; approving it is the
+  acceptance. Outside it, present the roadmap in your message and put the
+  gate on `AskUserQuestion` — *Accept and save* / *Revise* / *Reject*, the
+  decline included, so the gate is not a trap. Never enter plan mode just to
+  get the widget, and never narrate which mode you are in: the human is
+  deciding on a roadmap, not on harness state.
+- **Save the plan the human accepts to
+  `.ambicode/task/<slug>/plan_<YYYY-MM-DDTHH-MM>.md`**, where `<slug>` is the
+  requirement id (`ORD-17`) or, with no ticket, a short kebab of the request
+  plus the same timestamp (`raise-upload-limit_2026-09-23T10-15`). One
+  directory holds everything about one task — plan, investigation, reviews —
+  and it is what `/ambicode:task` opens: a plan left only in Claude Code's
+  own plan file sits outside the repository under a name the harness
+  generated, so the next skill cannot find it and nobody can review or share
+  it. A saved plan is plain Markdown: the step 5 structure, a top-of-file
+  label ("**plan** — accepted"), and nothing else. No task database, hidden
+  state, event log, or mandatory identifier. **Do not save a draft** the
+  human has not accepted; a rejected roadmap is not repository content.
 
 ## Scope
 
