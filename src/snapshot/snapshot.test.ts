@@ -6,6 +6,7 @@ import path from 'node:path';
 import { DEFAULTS } from '../config/defaults.ts';
 import { TempRepo } from '../testing/temp-repo.ts';
 import { enforceReviewInputLimits, measureInput, partitionChange } from './limits.ts';
+import { pathExclusionReason } from './exclusions.ts';
 import { buildSnapshot, planSnapshot } from './snapshot.ts';
 import { resolveBranchTarget, resolveWorkingTarget } from './target.ts';
 import { nodeFileSystem } from '../ports/filesystem.ts';
@@ -458,4 +459,56 @@ test('U09 sibling context stops reading once it cannot use what it reads', async
     plan.omissions.some((line) => /context/i.test(line)),
     'what it stopped short of is reported',
   );
+});
+
+test('U09 test files are told apart from product code by unambiguous markers only', () => {
+  // 60 of MR 2677's 299 changed files are `.spec.ts`; the rest is what the
+  // reviewer's budget should go to. The directory rules matched nothing in that
+  // repository and are here for the ecosystems that use them.
+  const tests = [
+    'main/components/assessment-form.component.spec.ts',
+    'src/orders.test.tsx',
+    'internal/server_test.go',
+    'lib/parser_spec.rb',
+    'api/tests/test_orders.py',
+    'api/conftest.py',
+    'web/__tests__/checkout.ts',
+    'web/__mocks__/stripe.ts',
+    'e2e/login.ts',
+    'cypress/support/commands.ts',
+    'web/checkout.cy.ts',
+    'server/src/test/java/OrdersTest.java',
+    'lib/spec/helper.rb',
+  ];
+  for (const candidate of tests) {
+    assert.equal(
+      pathExclusionReason(candidate, { excludeTests: true }),
+      'test-file',
+      `${candidate} should read as a test file`,
+    );
+  }
+
+  // Not tests. A silent over-exclusion drops product code from a review, so
+  // "fixtures", "testdata" and a file merely *named* after testing are left in:
+  // this repository's own `fixtures/` holds shipped fixture repositories.
+  const code = [
+    'main/components/assessment-form.component.ts',
+    'src/testing/fake-process-runner.ts',
+    'src/util/contest.ts',
+    'fixtures/materialize.mjs',
+    'api/testdata/orders.json',
+    'src/latest.ts',
+    'docs/testing.md',
+  ];
+  for (const candidate of code) {
+    assert.equal(
+      pathExclusionReason(candidate, { excludeTests: true }),
+      null,
+      `${candidate} is product code and must stay in the review`,
+    );
+  }
+
+  // Off unless asked for: a local review of your own work should see the tests
+  // it just wrote.
+  assert.equal(pathExclusionReason('src/orders.spec.ts'), null);
 });

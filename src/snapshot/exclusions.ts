@@ -28,6 +28,31 @@ const EXCLUDED_PATH_GLOBS = [
   '**/.ambicode/task/**',
 ];
 
+/**
+ * Test code, by markers that mean "test" and nothing else. Off by default and
+ * on for a merge request, where the checks cannot run in the user's checkout
+ * anyway and 60 of MR 2677's 299 changed files were `.spec.ts`.
+ *
+ * Deliberately narrow. `fixtures/`, `testdata/` and a directory called `test`
+ * with product code in it would all be plausible additions, and every one of
+ * them would quietly drop shipped code out of a review — this repository's own
+ * `fixtures/` holds the fixture repositories the product replays. A file has to
+ * say it is a test in its own name, or sit in a directory whose name is a test
+ * convention and nothing else.
+ */
+const TEST_PATH_PATTERNS = [
+  /(^|\/)[^/]+\.(spec|test|cy)\.[^/]+$/,
+  /(^|\/)[^/]+_(test|spec)\.[^/]+$/,
+  /(^|\/)test_[^/]+\.py$/,
+  /(^|\/)conftest\.py$/,
+  /(^|\/)(__tests__|__mocks__|tests|test|spec|e2e|cypress)\//,
+];
+
+/** Whether a path is test code rather than the code under test. */
+export function isTestPath(relativePath: string): boolean {
+  return TEST_PATH_PATTERNS.some((pattern) => pattern.test(relativePath));
+}
+
 /** Names that usually hold credentials rather than reviewable source. */
 const SECRET_NAME_PATTERNS = [
   /(^|\/)\.env(\.|$)/,
@@ -80,6 +105,7 @@ export type ExclusionReason =
   | 'excluded-directory'
   | 'operator-pattern'
   | 'not-selected'
+  | 'test-file'
   | 'credential-like-name'
   | 'binary-extension'
   | 'binary-content'
@@ -95,6 +121,8 @@ export type ExclusionReason =
 export interface OperatorPatterns {
   exclude?: readonly string[];
   include?: readonly string[];
+  /** Leave test code out; see `TEST_PATH_PATTERNS`. */
+  excludeTests?: boolean;
 }
 
 export function pathExclusionReason(
@@ -104,6 +132,7 @@ export function pathExclusionReason(
   if (matchesAnyGlob(relativePath, EXCLUDED_PATH_GLOBS)) return 'excluded-directory';
   const exclude = operator.exclude ?? [];
   if (exclude.length > 0 && matchesAnyGlob(relativePath, exclude)) return 'operator-pattern';
+  if (operator.excludeTests === true && isTestPath(relativePath)) return 'test-file';
   if (SECRET_NAME_PATTERNS.some((pattern) => pattern.test(relativePath))) return 'credential-like-name';
   const extension = relativePath.split('.').pop()?.toLowerCase();
   if (extension !== undefined && BINARY_EXTENSIONS.has(extension)) return 'binary-extension';
@@ -127,6 +156,8 @@ export function describeExclusion(reason: ExclusionReason): string {
       return 'excluded by a path pattern this run was given (--exclude or review.excludePaths)';
     case 'not-selected':
       return 'outside the paths this run was told to review (--only)';
+    case 'test-file':
+      return 'test code, which merge-request review leaves out unless --with-tests is passed';
     case 'credential-like-name':
       return 'the name matches a credential or private-key pattern';
     case 'binary-extension':

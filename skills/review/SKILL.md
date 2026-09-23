@@ -76,10 +76,10 @@ Report these when they appear:
   evidence, so it repeats fewer points. A resolved thread is not proof the
   defect is gone; if the user asks whether an old comment was addressed, that
   is a question for the diff, not for the thread.
-- **Skipped merge request checks.** Merge request code is never executed in the
-  user's checkout. Without a configured, digest-pinned container image and a
-  working container runtime, every executable check is skipped with its reason.
-  That is a gap in verification, not a pass.
+- **Nothing executed, and the tests went unread.** Merge request code never
+  runs in the user's checkout: without a digest-pinned image every executable
+  check is skipped with its reason, and for the same reason the change's test
+  files leave the review — `--with-tests` keeps them. Gaps, not passes.
 
 ### Publishing selected comments
 

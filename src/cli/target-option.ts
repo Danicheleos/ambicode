@@ -17,7 +17,7 @@ import type { ParsedArgs } from './args.ts';
 export const TARGET_OPTIONS = {
   values: ['base', 'mr', 'evidence', 'task'],
   repeated: ['requirement', 'approve', 'decline', 'exclude', 'only'],
-  flags: ['json', 'branch'],
+  flags: ['json', 'branch', 'with-tests'],
 } as const;
 
 export interface ResolvedTargetOptions {
@@ -54,6 +54,14 @@ export interface ResolvedTargetOptions {
    * the task never touched.
    */
   onlyPaths: string[];
+  /**
+   * `--with-tests`: review the change's test code too. Merge-request review
+   * leaves it out by default — the checks cannot run in the user's checkout, so
+   * nothing executes those files, and 60 of MR 2677's 299 changed files were
+   * `.spec.ts`. The flag is the way back: an exclusion nobody can undo is the
+   * same trap as a question with one answer.
+   */
+  withTests: boolean;
 }
 
 /** Pure: the target the arguments name, or the reason they name none. */
@@ -115,6 +123,7 @@ export function resolveTargetOptions(
     task: args.value('task'),
     excludePaths: args.all('exclude'),
     onlyPaths: args.all('only'),
+    withTests: args.flag('with-tests'),
   };
 }
 

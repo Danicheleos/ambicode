@@ -97,6 +97,8 @@ export interface AssembleOptions {
   excludePaths?: readonly string[];
   /** `--only <glob>`: review nothing outside these paths. */
   onlyPaths?: readonly string[];
+  /** `--with-tests`: keep test code in a merge-request review. */
+  withTests?: boolean;
 }
 
 function quoteAll(globs: readonly string[]): string {
@@ -175,7 +177,15 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
   // first, so `ambicode config` reads in the order the patterns are applied.
   const excludePaths = [...limits.excludePaths, ...(options.excludePaths ?? [])];
   const onlyPaths = [...(options.onlyPaths ?? [])];
-  const patterns = { exclude: excludePaths, include: onlyPaths };
+  // Merge-request review is about somebody else's branch, and none of its test
+  // files will be executed here: without a pinned container every check is
+  // skipped, so a spec file is read but never run. 60 of MR 2677's 299 changed
+  // files were `.spec.ts`. A local review of your own work keeps them, because
+  // `task` has just written them and whether they cover the change is the
+  // question. `--with-tests` puts them back either way.
+  const excludeTests =
+    options.withTests !== true && resolution.target.kind === 'merge-request';
+  const patterns = { exclude: excludePaths, include: onlyPaths, excludeTests };
   const reviewable = partitionChange(resolution.files, patterns);
 
   // A review of no files would run a model over nothing and report an empty
@@ -339,6 +349,11 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
         : [
             `This review was narrowed on request: paths matching ${quoteAll(excludePaths)} were not reviewed. Whatever changed in them is unexamined.`,
           ]),
+      ...(excludeTests && reviewable.excluded.some((entry) => entry.reason.includes('test code'))
+        ? [
+            "This is a merge-request review, so the change's test code was not reviewed and no check executed it. Whether the tests cover the change, and whether any assertion was weakened, is unestablished. Re-run with --with-tests to review them.",
+          ]
+        : []),
       ...reviewable.excluded.map((entry) => `${entry.path}: ${entry.reason}.`),
       ...snapshot.omissions,
       ...checkNotes,

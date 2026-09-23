@@ -151,6 +151,24 @@ claims about an earlier revision. The threads are also kept in the result, with
 note identity, author, position and resolution state, because publication later
 needs to recognize a comment it already posted.
 
+### Test code is not reviewed
+
+A merge request's own test files are left out by default: `*.spec.*`,
+`*.test.*`, `*_test.*`, `*_spec.*`, `*.cy.*`, `test_*.py`, `conftest.py`, and
+anything under `__tests__/`, `__mocks__/`, `tests/`, `test/`, `spec/`, `e2e/`
+or `cypress/`. Measured on one 299-file merge request, 60 of those files were
+`.spec.ts` — a fifth of the budget spent on files that, without a pinned
+container, no check here will ever execute.
+
+The rules are deliberately narrow, and match only markers that mean "test" and
+nothing else. `fixtures/` and `testdata/` are **not** among them: a silent
+over-exclusion drops shipped code out of a review.
+
+What this costs is stated in the result's omissions: whether the tests cover
+the change, and whether an assertion was weakened, is unestablished. Pass
+`--with-tests` to review them. A local or `--branch` review keeps them, because
+there the tests are usually the work you just did.
+
 ### Checks on merge request code
 
 Merge request code is somebody else's, so it never executes in your checkout —

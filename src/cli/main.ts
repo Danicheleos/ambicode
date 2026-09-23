@@ -114,6 +114,10 @@ export const USAGE = `ambicode <command> [options]
                                                   more than the work in hand.
                                                   Both state the gap in the report,
                                                   and neither may empty the review.
+                            --with-tests          Review the change's test code too.
+                                                  --mr leaves it out by default: no
+                                                  check executes it there, so it costs
+                                                  budget and returns nothing.
 
   bundle                  The evidence stage of "review" on its own: target,
                           snapshot, requirements and checks, with no model
@@ -127,6 +131,7 @@ export const USAGE = `ambicode <command> [options]
                             --approve <key>       Authorize one proposed run; repeatable.
                             --exclude <glob>      Do not review matching paths; repeatable.
                             --only <glob>         Review only matching paths; repeatable.
+                            --with-tests          Include the change's test code (--mr).
 
   view                  Open a saved review in a local page on 127.0.0.1, to
                           read it and, for a merge request review, select
