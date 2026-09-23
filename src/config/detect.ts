@@ -43,6 +43,8 @@ export interface DetectedProject {
   lint: DetectedCommand | null;
   unit: DetectedCommand | null;
   e2e: DetectedCommand | null;
+  /** Built-in packs the declared framework calls for, beyond `suggestedPacks`. */
+  frameworkPacks: string[];
   notices: string[];
 }
 
@@ -189,7 +191,7 @@ function scriptInvoking(
 async function detectTypescript(
   fs: FileSystem,
   absoluteRoot: string,
-): Promise<Pick<DetectedProject, 'lint' | 'unit' | 'e2e' | 'notices'>> {
+): Promise<Pick<DetectedProject, 'lint' | 'unit' | 'e2e' | 'frameworkPacks' | 'notices'>> {
   const manifest = await readJson(fs, path.join(absoluteRoot, 'package.json'));
   const declared = declaredDependencies(manifest);
   const scripts = packageScripts(manifest);
@@ -275,13 +277,19 @@ async function detectTypescript(
       `package.json declares ${scripts.size} script(s) (${[...scripts.keys()].sort().join(', ')}). They are read as evidence only and are never executed by detection.`,
     );
   }
-  return { lint, unit, e2e, notices };
+  const framework = FRAMEWORKS.find((candidate) => declared.has(candidate.dependency));
+  if (framework !== undefined) {
+    notices.push(
+      `package.json declares ${framework.dependency}, so the ${framework.name} packs are enabled: ${framework.packs.join(', ')}.`,
+    );
+  }
+  return { lint, unit, e2e, frameworkPacks: framework === undefined ? [] : [...framework.packs], notices };
 }
 
 async function detectPython(
   fs: FileSystem,
   absoluteRoot: string,
-): Promise<Pick<DetectedProject, 'lint' | 'unit' | 'e2e' | 'notices'>> {
+): Promise<Pick<DetectedProject, 'lint' | 'unit' | 'e2e' | 'frameworkPacks' | 'notices'>> {
   const notices: string[] = [];
   const declared = await readPythonDependencies(fs, absoluteRoot);
 
@@ -339,7 +347,7 @@ async function detectPython(
   if (declared.size === 0) {
     notices.push('No Python dependency declarations were readable; commands were left null');
   }
-  return { lint, unit, e2e: null, notices };
+  return { lint, unit, e2e: null, frameworkPacks: [], notices };
 }
 
 async function readPythonDependencies(fs: FileSystem, absoluteRoot: string): Promise<Set<string>> {
@@ -375,7 +383,30 @@ async function readPythonDependencies(fs: FileSystem, absoluteRoot: string): Pro
   return names;
 }
 
-/** Built-in packs offered for an ecosystem. Framework packs stay opt-in. */
+/**
+ * First match wins. Angular precedes Express because an Angular SSR app also
+ * declares express, and the Express globs would then claim every Angular service.
+ */
+const FRAMEWORKS = [
+  {
+    dependency: '@angular/core',
+    name: 'Angular',
+    packs: [
+      'builtin/angular-architecture',
+      'builtin/angular-components',
+      'builtin/angular-http',
+      'builtin/angular-state',
+      'builtin/angular-style',
+    ],
+  },
+  {
+    dependency: 'express',
+    name: 'Express',
+    packs: ['builtin/express-errors', 'builtin/express-http', 'builtin/express-persistence', 'builtin/express-style'],
+  },
+] as const;
+
+/** Built-in packs offered for an ecosystem, before any framework packs. */
 export function suggestedPacks(ecosystem: Ecosystem): string[] {
   return ecosystem === 'python'
     ? ['builtin/common-quality', 'builtin/common-checks', 'builtin/python-quality']

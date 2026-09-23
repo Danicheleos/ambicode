@@ -1,6 +1,6 @@
 import type { FileSystem } from '../ports/filesystem.ts';
 import path from 'node:path';
-import { Document, parseDocument, type YAMLMap, type YAMLSeq } from 'yaml';
+import { Document, isSeq, parseDocument, type YAMLMap, type YAMLSeq } from 'yaml';
 import type { AmbicodeConfig } from '../contracts/config.ts';
 import { normalizeRelative } from '../util/paths.ts';
 import { CONFIG_FILE, DEFAULTS } from './defaults.ts';
@@ -172,6 +172,7 @@ function updateExisting(existingRaw: string, options: PlanInitOptions): InitPlan
       continue;
     }
     addMissingCommands(document, existing, detected, changes, notices);
+    noticeMissingFrameworkPacks(existing, detected, notices);
   }
 
   if (changes.length === 0) {
@@ -181,6 +182,17 @@ function updateExisting(existingRaw: string, options: PlanInitOptions): InitPlan
 
   const yaml = document.toString({ lineWidth: 100 });
   return { yaml, created: false, changes, notices, ruleSources: [], config: parseConfig(yaml) };
+}
+
+/** A packs list is the user's value, so a framework pack it lacks is named rather than added. */
+function noticeMissingFrameworkPacks(projectNodeMap: YAMLMap, detected: DetectedProject, notices: string[]): void {
+  const packs = projectNodeMap.get('packs');
+  const enabled = new Set<unknown>(isSeq(packs) ? packs.toJSON() : []);
+  const missing = detected.frameworkPacks.filter((reference) => !enabled.has(reference));
+  if (missing.length === 0) return;
+  notices.push(
+    `${detected.id}: ${missing.join(', ')} match this project's dependencies but are not enabled. Add them to its packs to apply them; init does not edit an existing packs list.`,
+  );
 }
 
 /**
@@ -255,7 +267,7 @@ function projectNode(
     id: detected.id,
     root: detected.root,
     ecosystem: detected.ecosystem,
-    packs: suggestedPacks(detected.ecosystem),
+    packs: [...suggestedPacks(detected.ecosystem), ...detected.frameworkPacks],
     policyFiles: [],
     commands,
     checks,

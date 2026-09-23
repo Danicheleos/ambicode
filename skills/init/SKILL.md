@@ -32,6 +32,9 @@ It does **not** run a project script, install a package, or invent a command
 line. A tool it cannot find becomes a `null` command with a notice, and a null
 command produces a skipped check rather than a guess.
 
+`@angular/core` or `express` in `package.json` also enables that framework's
+built-in packs.
+
 Re-running init is safe. It adds entries that are missing and never overwrites a
 value the user has set, including an explicit `null`. Comments in the file
 survive.

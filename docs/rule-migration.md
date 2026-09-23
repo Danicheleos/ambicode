@@ -97,7 +97,7 @@ responsibility, ownership, error semantics, and boundary typing.
 `common-checks` carries no rules. It exists to declare command policy — which of
 the project's own configured checks may run — and nothing else.
 
-## Angular (optional, opt-in per project root)
+## Angular (enabled by init when package.json declares `@angular/core`)
 
 | Pack | Rules | Disposition |
 |---|---|---|
@@ -107,7 +107,7 @@ the project's own configured checks may run — and nothing else.
 | `angular-http` | `response-validation`, `error-semantics`, `duplicate-requests`, `cross-cutting-http-concerns` | Retained as transport concerns that hold across versions. Specific `HttpClient` API expectations dropped. |
 | `angular-style` | `configured-style`, `honest-types`, `distinct-shapes` | `configured-style` defers to the project's linter rather than restating it. Folder-naming conventions dropped. |
 
-## Express (optional, opt-in per project root)
+## Express (enabled by init when package.json declares `express` and not `@angular/core`)
 
 Doc 05 asks for general HTTP safety to be separated from Express- and
 version-specific assumptions. That split is the reason there are four packs.

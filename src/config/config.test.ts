@@ -6,6 +6,7 @@ import path from 'node:path';
 import { detectProjects } from './detect.ts';
 import { planInit } from './init.ts';
 import { parseConfig, validateArgv } from './load.ts';
+import { loadPacksForProject } from '../policy/load.ts';
 import { mostSpecificRoot, normalizeRelative } from '../util/paths.ts';
 import { nodeFileSystem } from '../ports/filesystem.ts';
 
@@ -238,6 +239,107 @@ test('U01 the generated configuration always parses', async (t) => {
   });
   assert.ok(plan.yaml !== null);
   assert.doesNotThrow(() => parseConfig(plan.yaml as string));
+});
+
+async function initWithDependencies(
+  t: { after(fn: () => unknown): void },
+  dependencies: Record<string, string>,
+): Promise<{ directory: string; plan: Awaited<ReturnType<typeof planInit>> }> {
+  const directory = await sandbox(t);
+  await writeFile(path.join(directory, 'package.json'), JSON.stringify({ name: 'x', dependencies }), 'utf8');
+  const plan = await planInit({
+    fs: nodeFileSystem,
+    repositoryRoot: directory,
+    detected: await detectProjects(nodeFileSystem, directory),
+    baseline: 'origin/main',
+    baselineNotice: 'x',
+  });
+  return { directory, plan };
+}
+
+const ANGULAR_PACKS = [
+  'builtin/angular-architecture',
+  'builtin/angular-components',
+  'builtin/angular-http',
+  'builtin/angular-state',
+  'builtin/angular-style',
+];
+const EXPRESS_PACKS = [
+  'builtin/express-errors',
+  'builtin/express-http',
+  'builtin/express-persistence',
+  'builtin/express-style',
+];
+
+test('init enables the Angular packs for a project that declares @angular/core, and every one loads', async (t) => {
+  const { plan } = await initWithDependencies(t, { '@angular/core': '^21.0.0' });
+  const project = plan.config.projects[0];
+  assert.ok(project !== undefined);
+  assert.deepEqual(project.packs, ['builtin/common-quality', 'builtin/common-checks', ...ANGULAR_PACKS]);
+  assert.ok(plan.notices.some((notice) => notice.includes('declares @angular/core')));
+
+  const loaded = await loadPacksForProject({
+    fs: nodeFileSystem,
+    project,
+    builtinDirectory: path.join(import.meta.dirname, '..', '..', 'policies'),
+    repositoryRoot: '.',
+  });
+  assert.deepEqual(loaded.diagnostics, []);
+  assert.equal(loaded.packs.length, project.packs.length);
+});
+
+test('init enables the Express packs for a project that declares express', async (t) => {
+  const { plan } = await initWithDependencies(t, { express: '^4.19.2' });
+  assert.deepEqual(plan.config.projects[0]?.packs, ['builtin/common-quality', 'builtin/common-checks', ...EXPRESS_PACKS]);
+});
+
+test('an Angular SSR app declaring express gets the Angular packs only', async (t) => {
+  const { plan } = await initWithDependencies(t, { '@angular/core': '^21.0.0', '@angular/ssr': '^21.0.0', express: '^4.21.0' });
+  const packs = plan.config.projects[0]?.packs ?? [];
+  assert.ok(ANGULAR_PACKS.every((pack) => packs.includes(pack)));
+  assert.ok(!packs.some((pack) => pack.startsWith('builtin/express-')));
+});
+
+test('a TypeScript project with no known framework keeps only the common packs', async (t) => {
+  const { plan } = await initWithDependencies(t, { lodash: '^4.0.0' });
+  assert.deepEqual(plan.config.projects[0]?.packs, ['builtin/common-quality', 'builtin/common-checks']);
+});
+
+test('re-init names framework packs an existing project lacks, without editing its packs list', async (t) => {
+  const directory = await sandbox(t);
+  await writeFile(
+    path.join(directory, 'package.json'),
+    JSON.stringify({ name: 'x', dependencies: { '@angular/core': '^21.0.0' } }),
+    'utf8',
+  );
+  await mkdir(path.join(directory, '.ambicode'), { recursive: true });
+  const existing = withProjects(
+    [
+      '  - id: app',
+      '    root: .',
+      '    ecosystem: typescript',
+      '    packs: [builtin/common-quality, builtin/angular-style]',
+      '    commands: { lint: null, unit: null, e2e: null }',
+      '    checks: { lint: null, unit: null, e2e: null }',
+      'authoring: { editReminders: true }',
+    ].join('\n'),
+  );
+  await writeFile(path.join(directory, '.ambicode', 'config.yaml'), existing, 'utf8');
+
+  const plan = await planInit({
+    fs: nodeFileSystem,
+    repositoryRoot: directory,
+    detected: await detectProjects(nodeFileSystem, directory),
+    baseline: 'origin/main',
+    baselineNotice: 'x',
+  });
+
+  assert.equal(plan.yaml, null, 'a notice alone rewrites nothing');
+  assert.deepEqual(plan.config.projects[0]?.packs, ['builtin/common-quality', 'builtin/angular-style']);
+  const notice = plan.notices.find((value) => value.startsWith('app: builtin/angular-architecture'));
+  assert.ok(notice !== undefined, plan.notices.join('\n'));
+  assert.ok(!notice.includes('builtin/angular-style'), 'an enabled pack is not named');
+  assert.ok(!notice.includes('builtin/common-checks'), 'a removed common pack is the user\'s choice, not a notice');
 });
 
 test('P2.4 correction F: fresh init writes the documented authoring.editReminders default, visibly', async (t) => {
