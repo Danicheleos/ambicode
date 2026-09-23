@@ -16,7 +16,7 @@ import type { ParsedArgs } from './args.ts';
  */
 export const TARGET_OPTIONS = {
   values: ['base', 'mr', 'evidence', 'task'],
-  repeated: ['requirement', 'approve', 'decline'],
+  repeated: ['requirement', 'approve', 'decline', 'exclude', 'only'],
   flags: ['json', 'branch'],
 } as const;
 
@@ -38,6 +38,22 @@ export interface ResolvedTargetOptions {
    * investigation and its reviews land in one directory instead of three.
    */
   task: string | null;
+  /**
+   * `--exclude <glob>`: paths this run must not review, added to
+   * `review.excludePaths`. Without it a change is either reviewable whole or
+   * refused whole, and the per-file snapshot ceiling is not a configurable
+   * number — so one generated file could refuse a change with no way out but
+   * editing the installed plugin (run 21f23317).
+   */
+  excludePaths: string[];
+  /**
+   * `--only <glob>`: review nothing outside these paths. The counterpart of
+   * `--exclude`, for the case the working-tree target creates — a dirty tree
+   * whose review grew from 6 to 12 files over one session as unrelated edits
+   * accumulated (run 3c2188c8), covering `.gitignore` and `angular.json` that
+   * the task never touched.
+   */
+  onlyPaths: string[];
 }
 
 /** Pure: the target the arguments name, or the reason they name none. */
@@ -97,6 +113,8 @@ export function resolveTargetOptions(
     approvals: new Set(args.all('approve')),
     declines: new Set(args.all('decline')),
     task: args.value('task'),
+    excludePaths: args.all('exclude'),
+    onlyPaths: args.all('only'),
   };
 }
 

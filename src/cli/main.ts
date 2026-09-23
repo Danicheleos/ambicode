@@ -103,6 +103,17 @@ export const USAGE = `ambicode <command> [options]
                                                   input. Required whenever
                                                   --requirement is used.
                             --approve <key>       Authorize one proposed run; repeatable.
+                            --exclude <glob>      Do not review paths matching this
+                                                  glob; repeatable, added to
+                                                  review.excludePaths. The way past a
+                                                  refusal a limit cannot fix, such as
+                                                  one generated file over the per-file
+                                                  snapshot ceiling.
+                            --only <glob>         Review nothing outside this glob;
+                                                  repeatable. For a dirty tree holding
+                                                  more than the work in hand.
+                                                  Both state the gap in the report,
+                                                  and neither may empty the review.
 
   bundle                  The evidence stage of "review" on its own: target,
                           snapshot, requirements and checks, with no model
@@ -114,8 +125,10 @@ export const USAGE = `ambicode <command> [options]
                             --evidence <file|->   The retrieved requirement evidence,
                                                   or "-" for standard input.
                             --approve <key>       Authorize one proposed run; repeatable.
+                            --exclude <glob>      Do not review matching paths; repeatable.
+                            --only <glob>         Review only matching paths; repeatable.
 
-  view                    Open a saved review in a local page on 127.0.0.1, to
+  view                  Open a saved review in a local page on 127.0.0.1, to
                           read it and, for a merge request review, select
                           comments to publish. The link is printed and opened
                           once; the page stops on Ctrl-C or when it idles out.

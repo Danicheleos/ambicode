@@ -1,7 +1,7 @@
 import type { ReviewConfig } from '../contracts/config.ts';
 import { totalChangedLines, type DiffFile } from '../git/diff.ts';
 import { AmbicodeError } from '../util/errors.ts';
-import { describeExclusion, isExcludedFromReview } from './exclusions.ts';
+import { describeExclusion, isExcludedFromReview, type OperatorPatterns } from './exclusions.ts';
 
 export interface MeasuredInput {
   changedFiles: number;
@@ -41,12 +41,15 @@ export interface ReviewableChange {
  * excluded part leaves the patch as well as the mirror, so a `.env` cannot
  * reach the model through the diff.
  */
-export function partitionChange(files: readonly DiffFile[]): ReviewableChange {
+export function partitionChange(
+  files: readonly DiffFile[],
+  operator: OperatorPatterns = {},
+): ReviewableChange {
   const included: DiffFile[] = [];
   const excluded: { path: string; reason: string }[] = [];
 
   for (const file of files) {
-    const reason = isExcludedFromReview(file.oldPath, file.newPath);
+    const reason = isExcludedFromReview(file.oldPath, file.newPath, operator);
     if (reason === null) {
       included.push(file);
       continue;
@@ -146,6 +149,7 @@ export function enforceReviewInputLimits(
         ...exceeded,
         ...(largest.length === 0 ? [] : ['largest changed files:', ...largest]),
         'Split the change into reviewable parts, supply fewer or smaller requirements, or raise the limit in .ambicode/config.yaml deliberately.',
+        'Or narrow it deliberately: --exclude <glob>, repeatable, also review.excludePaths. Matching paths leave the patch, the mirror and these counts, and the report states the gap.',
         'AMBICODE does not truncate a change or a requirement to fit and then report on the whole.',
       ],
     },

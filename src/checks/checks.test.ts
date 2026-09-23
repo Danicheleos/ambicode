@@ -477,6 +477,63 @@ test('U15 passed, failed, timed-out, skipped and error stay distinct', async (t)
   assert.equal(broken?.status, 'error');
 });
 
+test('U15 a check killed after its runner finished reporting keeps the result it produced', async (t) => {
+  const directory = await sandbox(t);
+  // Measured in run 3c2188c8: unit.txt already held `Tests 1 failed | 14 passed
+  // (15)` when the 120s ceiling killed vitest at 121,051ms. A real assertion
+  // failure was reported as timed-out, so executed coverage counted as
+  // unestablished and the defect was invisible in the review.
+  const vitestSummary = [
+    ' ✓ src/a.spec.ts (14 tests) 1203ms',
+    ' ✗ src/b.spec.ts (1 test | 1 failed) 88ms',
+    '',
+    ' Test Files  1 failed | 1 passed (2)',
+    '      Tests  1 failed | 14 passed (15)',
+    '   Start at  17:26:41',
+    '   Duration  60.85s (transform 3.40s, setup 0ms, collect 12.11s, tests 1.29s, environment 79.26s)',
+    '',
+  ].join('\n');
+
+  const run = async (stdout: string) => {
+    const runner = new FakeProcessRunner()
+      .stubArgv(['vitest', 'list'], { stdout: 'src/a.spec.ts\nsrc/b.spec.ts\n' })
+      .stubArgv(['vitest', 'run'], { kind: 'timed-out', stdout });
+    const { results } = await runChecks(
+      baseOptions({
+        reviewDirectory: directory,
+        runner,
+        project: {
+          id: 'web', root: '.', ecosystem: 'typescript', packs: [], policyFiles: [],
+          commands: { unit: { argv: ['vitest', 'run', '{files}'] } },
+          checks: { unit: { command: 'unit', adapter: 'vitest', selector: { kind: 'related' } } },
+        },
+        changed: changed([{ newPath: 'src/a.spec.ts' }]),
+      }),
+    );
+    return results[0];
+  };
+
+  const recovered = await run(vitestSummary);
+  assert.equal(recovered?.status, 'failed', 'the runner reported a complete run with a failure');
+  assert.equal(recovered?.exitCode, null, 'no exit code was ever produced, and none is invented');
+  assert.ok(
+    recovered?.limitations.some((line) => line.includes('killed') && line.includes('timeout')),
+    `the overrun must still be reported; got ${JSON.stringify(recovered?.limitations)}`,
+  );
+
+  // A kill part-way through has no summary to read, so nothing is recovered.
+  const partial = await run(' ✓ src/a.spec.ts (14 tests) 1203ms\n');
+  assert.equal(partial?.status, 'timed-out');
+
+  // The selector seeds the adapter's notes and the result adds them again, so
+  // every vitest check reported its two limitations four times.
+  assert.deepEqual(
+    [...new Set(recovered?.limitations)],
+    recovered?.limitations,
+    'a limitation stated twice reads as two separate problems',
+  );
+});
+
 test('U01/U15 a null command and a null check are distinct skipped outcomes', async (t) => {
   const directory = await sandbox(t);
   const runner = new FakeProcessRunner();

@@ -364,6 +364,38 @@ trimmed to fit: not the change, not a requirement. The one discretionary part is
 unchanged sibling context, which stops at the remaining budget and reports what
 it left out.
 
+Two snapshot ceilings sit below the configurable limits and are not settings:
+262,144 bytes per mirrored file and 4,194,304 in total. Raising
+`review.maxContextBytes` does not move them, so one oversized generated file
+can make a whole change unreviewable — measured on a 299-file merge request
+that stopped at a 390,029-byte translation JSON.
+
+`--exclude <glob>`, repeatable, and `review.excludePaths` are the way through.
+Matching paths join the built-in exclusions: out of the patch, out of the
+mirror, out of every count. `--only <glob>` is its counterpart, for a working
+tree holding more than the work in hand: nothing outside it is reviewed, and a
+file renamed *into* the selection is in it.
+
+The result's omissions name the patterns and each path they removed, because
+the review then covers part of a change and has to read as one. A refusal names
+every oversized path at once rather than the first, so one pass tells you
+everything you have to decide about. Narrowing to nothing is refused
+(`nothing-to-review`), and so is a target with no changed files at all: a
+reviewer is never spent on an empty change.
+
+## What gathering the context costs
+
+For a merge request every file is a `glab` subprocess, measured at 1.52s each.
+Reads run eight at a time, and unchanged neighbouring files are bounded by
+count — at most 25 of the change's directories are listed and at most 100
+neighbours read. Counts rather than seconds, so the same review gathers the
+same context on a slow network. When a bound bites, the omissions say so: an
+absent neighbour then means "not read", not "nothing there".
+
+Measured on a 299-file merge request across 181 directories holding 606
+unchanged siblings: 1,086 serial requests, about 27.5 minutes, became 424
+requests and about 1.3 minutes.
+
 ## Publishing selected comments
 
 `ambicode review` and `ambicode bundle` never publish anything by themselves.

@@ -21,8 +21,29 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const BUNDLE = path.join(ROOT, 'scripts', 'ambicode.mjs');
 
-async function exists(candidate) {
-  return stat(candidate).then(() => true, () => false);
+/**
+ * Whether the built bundle is there, told apart from a stat that could not be
+ * answered. The previous `stat().then(() => true, () => false)` reported both
+ * as "not built": one gate run printed six failures telling the operator to run
+ * `npm run build`, for a file that measured 3,408,246 bytes immediately
+ * afterwards and whose build step had already succeeded (F5). A transient
+ * EBUSY, EPERM or EMFILE under 60-odd concurrent test files is retried; ENOENT
+ * is the only answer that means the bundle is missing.
+ */
+async function assertBundleBuilt(candidate) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return (await stat(candidate)).size;
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        assert.fail(`${candidate} does not exist; run "npm run build" first.`);
+      }
+      if (attempt >= 4) {
+        assert.fail(`${candidate} could not be checked after 5 attempts (${error.code}).`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
 }
 
 function git(args, cwd) {
@@ -98,7 +119,7 @@ function runHookCli(payload) {
 
 describe('built-artifact regression: ambicode hook (P2.4 correction G/H)', () => {
   it('requires the bundle to have been built (npm run build) before this test runs', async () => {
-    assert.ok(await exists(BUNDLE), `${BUNDLE} does not exist; run "npm run build" first.`);
+    assert.ok((await assertBundleBuilt(BUNDLE)) > 0, `${BUNDLE} is empty`);
   });
 
   it('delivers once, suppresses a repeat, redelivers on rule-content change, and redelivers after a context reset', async () => {

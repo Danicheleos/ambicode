@@ -80,6 +80,7 @@ export function renderConfig(output: ConfigOutput): string {
     `  maxChangedFiles     ${output.review.maxChangedFiles}`,
     `  maxChangedLines     ${output.review.maxChangedLines}`,
     `  maxContextBytes     ${output.review.maxContextBytes}  (the patch and the mirrored files together)`,
+    `  excludePaths        ${output.review.excludePaths.join(', ') || '(none — every changed path is reviewed)'}`,
     '',
     'check limits',
     `  timeoutSeconds        ${output.checks.timeoutSeconds}`,

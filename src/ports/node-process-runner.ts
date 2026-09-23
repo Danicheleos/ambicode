@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import { statSync } from 'node:fs';
 import path from 'node:path';
 import { execa, type Options, type ResultPromise } from 'execa';
@@ -39,12 +40,16 @@ export class NodeProcessRunner implements ProcessRunner {
     const capture = new CombinedCapture(request.maxOutputBytes);
     const started = performance.now();
 
+    // Windows manages its own deadline below, because Execa's kills only reach
+    // the process it spawned. See `killProcessTree`.
+    const ownDeadline = process.platform === 'win32';
+
     const options: Options = {
       cwd: request.cwd,
       env: environment,
       extendEnv: false,
       shell: false,
-      timeout: request.timeoutMs,
+      timeout: ownDeadline ? undefined : request.timeoutMs,
       // Kills the whole group where the platform supports it, so a timeout does
       // not leave a known descendant running (doc 02).
       forceKillAfterDelay: 2_000,
@@ -67,12 +72,30 @@ export class NodeProcessRunner implements ProcessRunner {
     child.stderr?.on('data', (chunk: Buffer) => capture.push('stderr', chunk));
     if (request.stdin !== undefined) child.stdin?.end(request.stdin);
 
-    const result = await child;
+    // Fired while the tree is still intact, which is why it replaces Execa's
+    // timeout rather than running beside it: `taskkill /T` walks living
+    // children, and by the time Execa's kill has taken the shim down there is
+    // no tree left to walk.
+    let killedByDeadline = false;
+    const deadline =
+      ownDeadline && request.timeoutMs > 0
+        ? setTimeout(() => {
+            killedByDeadline = true;
+            killProcessTree(child.pid);
+          }, request.timeoutMs)
+        : undefined;
+
+    let result: Awaited<ResultPromise<Options>>;
+    try {
+      result = await child;
+    } finally {
+      if (deadline !== undefined) clearTimeout(deadline);
+    }
     const durationMs = Math.round(performance.now() - started);
     const decoded = capture.decode();
 
     const base = { ...decoded, durationMs };
-    if (result.timedOut === true) return outcome('timed-out', base);
+    if (result.timedOut === true || killedByDeadline) return outcome('timed-out', base);
     // Whatever Execa did reach the operating system with, it failed to start:
     // a permission error, or a `cwd` that does not exist. Both arrive as a
     // `code` with no exit code and no signal, on all three platforms — the
@@ -82,6 +105,38 @@ export class NodeProcessRunner implements ProcessRunner {
       return outcome('spawn-failed', { ...base, failure: result.shortMessage ?? messageOf(result) });
     }
     return outcome('exited', { ...base, exitCode: result.exitCode ?? null });
+  }
+}
+
+/**
+ * Kills a process and everything it started, on Windows only.
+ *
+ * Execa's `timeout`, `killSignal` and `forceKillAfterDelay` all act on the
+ * process it spawned. Windows has no process group for a signal to propagate
+ * through, so a command that starts its own child — every `.cmd` shim does,
+ * since it is `cmd.exe` running the real program — leaves that child alive. It
+ * keeps the inherited stdout and stderr pipes open, and `await child` never
+ * settles. Measured: a `vitest.cmd` whose node child held a timer ran 30,076ms
+ * against a 5s ceiling, and with an unbounded timer `ambicode bundle` was still
+ * waiting 18 minutes later, so nothing timed out and nothing was reported.
+ *
+ * `taskkill /T` is the OS's own tree walk, which is why this is a spawn rather
+ * than a hand-rolled traversal of `wmic` output. Failures are ignored: the
+ * process may have exited between the deadline and this call, and an error here
+ * must not replace whatever the command itself was going to report.
+ */
+function killProcessTree(pid: number | undefined): void {
+  if (pid === undefined) return;
+  try {
+    const killer = spawn('taskkill', ['/T', '/F', '/PID', String(pid)], {
+      stdio: 'ignore',
+      windowsHide: true,
+      detached: false,
+    });
+    killer.on('error', () => {});
+    killer.unref();
+  } catch {
+    // Nothing to add: the deadline has already decided the outcome.
   }
 }
 

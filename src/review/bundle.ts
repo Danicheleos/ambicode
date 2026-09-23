@@ -40,6 +40,7 @@ import {
   resolveWorkingTarget,
   type TargetResolution,
 } from '../snapshot/target.ts';
+import { AmbicodeError } from '../util/errors.ts';
 import { normalizeRelative } from '../util/paths.ts';
 import { composeReviewerPrompt, estimatePromptOverheadBytes, type ComposedPrompt } from './prompt.ts';
 
@@ -92,6 +93,51 @@ export interface AssembleOptions {
   declines: ReadonlySet<string>;
   /** The task directory this review belongs in; see `taskSlugFor`. */
   task: string | null;
+  /** `--exclude <glob>`, added to `review.excludePaths` for this run only. */
+  excludePaths?: readonly string[];
+  /** `--only <glob>`: review nothing outside these paths. */
+  onlyPaths?: readonly string[];
+}
+
+function quoteAll(globs: readonly string[]): string {
+  return globs.map((glob) => `"${glob}"`).join(', ');
+}
+
+/**
+ * Nothing left to review, from either direction. The two cases need different
+ * advice — there is no change at all, or the patterns ate it — but the same
+ * code, so a caller can branch on one thing.
+ */
+function nothingToReview(
+  changedFiles: number,
+  excludePaths: readonly string[],
+  onlyPaths: readonly string[],
+): AmbicodeError {
+  if (changedFiles === 0) {
+    return new AmbicodeError('nothing-to-review', 'Nothing has changed, so there is nothing to review.', {
+      details: [
+        'The target resolved to no changed file at all.',
+        'For uncommitted work that means a clean tree; for --branch, a branch level with its baseline; for --mr, an empty diff.',
+        'AMBICODE does not spend a reviewer on an empty change and report the result as a review.',
+      ],
+    });
+  }
+  const patterns = [
+    ...(onlyPaths.length === 0 ? [] : [`--only ${quoteAll(onlyPaths)}`]),
+    ...(excludePaths.length === 0 ? [] : [`--exclude ${quoteAll(excludePaths)}`]),
+  ];
+  return new AmbicodeError(
+    'nothing-to-review',
+    'Every changed file was left out by the path patterns, so there is nothing to review.',
+    {
+      field: patterns.length === 0 ? 'review' : 'review.excludePaths',
+      details: [
+        `${changedFiles} changed file(s), and none of them survived: ${patterns.join(' ; ') || 'the built-in exclusions'}.`,
+        'Widen the patterns so the change itself is still reviewed.',
+        'AMBICODE does not spend a reviewer on an empty change and report the result as a review.',
+      ],
+    },
+  );
 }
 
 export async function assembleBundle(options: AssembleOptions): Promise<ReviewBundle> {
@@ -124,7 +170,21 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
   // Vendored directories, build output and credential-shaped files leave the
   // review here: they are not mirrored, not put in the patch, and not counted
   // against limits meant to protect genuine review.
-  const reviewable = partitionChange(resolution.files);
+  //
+  // The configured patterns and this run's `--exclude` join them. Config
+  // first, so `ambicode config` reads in the order the patterns are applied.
+  const excludePaths = [...limits.excludePaths, ...(options.excludePaths ?? [])];
+  const onlyPaths = [...(options.onlyPaths ?? [])];
+  const patterns = { exclude: excludePaths, include: onlyPaths };
+  const reviewable = partitionChange(resolution.files, patterns);
+
+  // A review of no files would run a model over nothing and report an empty
+  // finding list, which reads exactly like a review that found nothing wrong.
+  // Measured both ways: a clean tree gave "0 file(s), 0 line(s)" and exit 0,
+  // and so did three changed files with every one of them excluded.
+  if (reviewable.files.length === 0) {
+    throw nothingToReview(resolution.files.length, excludePaths, onlyPaths);
+  }
 
   // The counts that cost nothing come first: a change already over the file,
   // line or requirement limit is refused without reading a single file, and
@@ -253,7 +313,7 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
     // reader cannot see is indistinguishable from a file that did not change.
     changedFiles: resolution.files.map((file) => {
       const target = file.newPath;
-      const reason = isExcludedFromReview(file.oldPath, file.newPath);
+      const reason = isExcludedFromReview(file.oldPath, file.newPath, patterns);
       return {
         oldPath: file.oldPath,
         newPath: file.newPath,
@@ -267,6 +327,18 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
     findings: [],
     omissions: [
       ...remoteOmissions,
+      // Stated once, where the reader judges coverage: a narrowed review is
+      // still a review of part of a change, and has to read as one.
+      ...(onlyPaths.length === 0
+        ? []
+        : [
+            `This review was narrowed on request: only paths matching ${quoteAll(onlyPaths)} were reviewed. Everything else the change touches is unexamined.`,
+          ]),
+      ...(excludePaths.length === 0
+        ? []
+        : [
+            `This review was narrowed on request: paths matching ${quoteAll(excludePaths)} were not reviewed. Whatever changed in them is unexamined.`,
+          ]),
       ...reviewable.excluded.map((entry) => `${entry.path}: ${entry.reason}.`),
       ...snapshot.omissions,
       ...checkNotes,

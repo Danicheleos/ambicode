@@ -12,10 +12,12 @@ against evidence that already exists, not as open-ended advice.
 
 - [ ] Read `docs/installation.md` in full; it is the source of truth for
   every command below.
-- [ ] From a clean checkout: `npm ci && npm run build && npm run typecheck
-  && npm run test:unit && npm run validate:plugin && npm run
-  package:candidate && npm run package:reproducible`. All must pass before
-  anything below.
+- [ ] From a clean checkout: `npm ci && npm run verify && npm run
+  package:reproducible`. All must pass before anything below.
+  `verify` is `build`, `typecheck`, `test:unit` and `validate:plugin`, and
+  `validate:plugin` packages the candidate in order to validate the artifact
+  rather than the checkout — so it leaves `dist/ambicode-<version>` behind and
+  a separate `package:candidate` would only build the same bytes again.
 - [ ] Install the candidate into the normal Claude configuration with
   `node install-local.mjs install dist/ambicode-<version>`; use the named
   `--config-dir <dir>` option only for an intentionally isolated test. Confirm

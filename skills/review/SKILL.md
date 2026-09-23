@@ -57,8 +57,6 @@ path and the merge request number from it, and asks that host through `glab`.
 Do not shorten it to a number, and do not assume the merge request belongs to
 the repository the user happens to be standing in — it often does not.
 
-What this does **not** do is as important as what it does:
-
 - **Your checkout is not touched.** No fetch, no checkout, no stash, no index
   write. A dirty working tree is irrelevant; the review is about the merge
   request, not about what is on disk.
@@ -83,10 +81,6 @@ Report these when they appear:
   working container runtime, every executable check is skipped with its reason.
   That is a gap in verification, not a pass.
 
-`ambicode review --mr` on a GitHub pull request URL returns an explicit
-unsupported result. Do not translate it into a GitLab URL, and do not offer to
-review it remotely by another route; offer the local `--branch` review instead.
-
 ### Publishing selected comments
 
 `ambicode review`'s output always includes the exact command to open the
@@ -101,9 +95,9 @@ background, without asking** — it starts a local page on `127.0.0.1`, opens th
 user's browser at it, and then keeps serving, so a foreground run would block
 until the page times out. Report the URL it printed. Its link works once and
 the page stops when idle; if the user comes back to it later, run the command
-again for a fresh one. Do not invent another slash skill for this: `ambicode
-view` is the one way to reach the selection page. A local or branch review has
-nothing to publish, so do not start a page for one.
+again for a fresh one; it is the only route to the selection page, so do not
+invent a slash skill for it. A local or branch review has nothing to publish,
+so do not start a page for one.
 
 ## Requirements
 
@@ -159,9 +153,11 @@ repaired output and no second model call.
 `mutations`. AMBICODE deliberately does not undo it. Tell the user what changed
 and let them decide.
 
-**Report omissions.** Files excluded for being vendored, generated, binary, or
-credential-shaped are listed. A reader who cannot see an omission cannot tell it
-apart from a file that did not change.
+**Report omissions.** Files left out for being vendored, generated, binary,
+credential-shaped, or outside this run's path patterns are listed, as is context
+a bound stopped short of. A reader who cannot see an omission cannot tell it
+apart from a file that did not change, so a narrowed review is never reported
+as covering the whole change.
 
 ## Common outcomes
 
@@ -184,6 +180,14 @@ the largest contributors. Usually something uncommitted and generated — a
 lockfile, build output — is in the working tree. Commit or ignore it, or split
 the change. Raising the limit is a deliberate decision, not the default advice.
 
+**`snapshot-too-large`.** Changed files exceed a per-file ceiling no setting
+raises. Every one is named: ask once, re-run once with `--exclude <glob>`,
+repeatable (`review.excludePaths` makes it permanent). `--only <glob>` narrows
+from the other side, for a dirty tree. Neither may empty the review.
+
+**`nothing-to-review`.** Nothing changed, or the patterns took all of it. No
+reviewer ran. Say which; do not widen the patterns without asking.
+
 **`working-tree-changed`.** Something wrote to the working tree while the target
 was being captured. Nothing was reviewed and nothing was modified. Wait for the
 build or editor to settle and run it again.
@@ -194,11 +198,9 @@ default branch name. Pass `--base <ref>`.
 **`conflicting-target` / `baseline-not-applicable`.** One target per run, and
 `--base` belongs to `--branch`. Ask which target the user meant.
 
-**`unsupported-target`.** No provider recognizes that URL. GitLab merge requests
-and local targets are what Phase 1 supports.
-
-**`provider-unsupported`.** The URL is a host AMBICODE registers but does not
-implement — GitHub today. The message says so; do not work around it.
+**`unsupported-target` / `provider-unsupported`.** GitLab merge requests and
+local targets are what Phase 1 reviews; GitHub is recognized and refused. Do not
+translate the URL or work around it — offer the local `--branch` review instead.
 
 **`provider-resolve-failed` / `provider-fetch-failed`.** `glab` could not answer.
 Usually the host is not authorized (`glab auth login <host>`), `glab` is not
@@ -218,9 +220,7 @@ pack's `commandPolicy`, not something to work around.
 This skill produces evidence and findings. **Nothing is published by any
 command here and nothing is published by this skill**: there is no flag that
 posts a comment, and a GitLab comment needs the local selection page and a
-human pressing Submit. It does not modify the user's branch, index, or files —
-for a merge request review it does not read them either. The only things it
-writes are `.ambicode/reviews/<id>/` in the repository and a disposable
+human pressing Submit. The only things it writes are `.ambicode/reviews/<id>/` in the repository and a disposable
 snapshot directory outside it.
 
 The reviewer process is not you. It gets `Read`, `Grep` and `Glob` inside the

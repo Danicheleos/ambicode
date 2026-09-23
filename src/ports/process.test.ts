@@ -270,3 +270,50 @@ describe('U29 Windows command resolution', () => {
     assert.equal(windowsCommandExists('linter', { PATH: directory, PATHEXT: '' }, os.tmpdir()), true);
   });
 });
+
+describe('U29 a timeout kills the whole process tree', () => {
+  let directory = '';
+  before(async () => {
+    directory = await mkdtemp(path.join(os.tmpdir(), 'ambicode-tree-'));
+  });
+  after(async () => {
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  // An explicit timeout: without the fix this test does not fail, it hangs, and
+  // a gate that hangs is worse than one that goes red.
+  it('returns promptly when the command leaves a running grandchild (F1)', { timeout: 30_000 }, async (t) => {
+    if (process.platform !== 'win32') {
+      t.skip('Unix kills the process group already; this is the Windows shim case');
+      return;
+    }
+
+    // Measured before this fix: a vitest.cmd shim whose node child held a timer
+    // ran 30,076ms against a 5s ceiling, and an unbounded one never returned at
+    // all — `ambicode bundle` was still waiting 18 minutes later, because the
+    // grandchild kept the inherited stdout and stderr pipes open.
+    const child = path.join(directory, 'child.mjs');
+    await writeFile(child, 'console.log("started"); setInterval(() => {}, 1000);', 'utf8');
+    const shim = path.join(directory, 'wrapper.cmd');
+    await writeFile(shim, `@echo off\r\nnode "${child}"\r\n`, 'utf8');
+
+    const started = performance.now();
+    const outcome = await runner.run({
+      argv: [shim],
+      cwd: directory,
+      timeoutMs: 1_000,
+      maxOutputBytes: 1024,
+      env: { kind: 'inherited' },
+    });
+    const elapsed = performance.now() - started;
+
+    assert.equal(outcome.kind, 'timed-out');
+    assert.equal(outcome.exitCode, null);
+    assert.ok(
+      elapsed < 15_000,
+      `waited ${Math.round(elapsed)}ms for a 1,000ms timeout; the grandchild is still holding it open`,
+    );
+    // Whatever the command managed to say is still evidence.
+    assert.match(outcome.stdout, /started/);
+  });
+});

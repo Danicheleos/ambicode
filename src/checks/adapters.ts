@@ -24,6 +24,29 @@ export interface CheckAdapter {
   parseEnumeration?: (stdout: string, projectRootAbsolute: string) => string[];
   /** Notes attached to every result this adapter produces. */
   limitations?: readonly string[];
+  /**
+   * The verdict a killed run already published, or null when the output does
+   * not show it finished. Vitest reached its own summary at 60.85s and was then
+   * killed at the 120s ceiling during teardown (run 3c2188c8): the tests had
+   * run, one had genuinely failed, and reporting `timed-out` threw that away.
+   */
+  parseCompletedRun?: (output: string) => 'passed' | 'failed' | null;
+}
+
+/**
+ * Vitest and Jest both print a per-file tally and then a per-test one, and only
+ * once every selected file has run; a run killed part-way has neither. Both are
+ * read, because either can carry the failure — a suite that throws on import
+ * fails a file without failing a test. `Test Files` is vitest's label and
+ * `Test Suites:` is jest's; the counts differ in punctuation, not in wording.
+ */
+function parseTestSummary(output: string): 'passed' | 'failed' | null {
+  const files = /^\s*Test (?:Files|Suites):?\s+(\S.*)$/m.exec(output)?.[1];
+  const tests = /^\s*Tests:?\s+(\S.*)$/m.exec(output)?.[1];
+  if (files === undefined || tests === undefined) return null;
+  const summary = `${files} ${tests}`;
+  if (/\b\d+ failed\b/.test(summary)) return 'failed';
+  return /\b\d+ passed\b/.test(summary) ? 'passed' : null;
 }
 
 function linesToPaths(stdout: string, projectRootAbsolute: string): string[] {
@@ -62,6 +85,7 @@ const ADAPTERS: Record<AdapterId, CheckAdapter> = {
       argv: (executable, files) => [executable, '--listTests', '--findRelatedTests', ...files],
     },
     parseEnumeration: linesToPaths,
+    parseCompletedRun: parseTestSummary,
   },
   vitest: {
     id: 'vitest',
@@ -78,6 +102,7 @@ const ADAPTERS: Record<AdapterId, CheckAdapter> = {
       'Vitest selected the affected tests from the repository working tree at the moment of enumeration, not from the pinned snapshot.',
       'Vitest cannot follow a dynamic import whose specifier is computed, so a test reached only that way may be missing from the selection.',
     ],
+    parseCompletedRun: parseTestSummary,
   },
   pytest: {
     id: 'pytest',

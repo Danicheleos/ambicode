@@ -11,6 +11,8 @@ export const DEFAULTS = {
     maxChangedFiles: 50,
     maxChangedLines: 2000,
     maxContextBytes: 524_288,
+    /** Written out empty so the key is discoverable before it is needed. */
+    excludePaths: [] as string[],
   },
   checks: {
     timeoutSeconds: 120,

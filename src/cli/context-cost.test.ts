@@ -64,7 +64,12 @@ const MAX_SKILL_BYTES: Record<string, number> = {
   'init/SKILL.md': 4_200,
   'investigate/SKILL.md': 7_600,
   'plan/SKILL.md': 10_400,
-  'review/SKILL.md': 11_800,
+  // Raised from 11,800 in the F1-F7 fix pass, deliberately and by 100 bytes.
+  // The file gained `--only`, the `nothing-to-review` outcome and the
+  // context-bound omission; three passes of tightening its own new text plus
+  // cutting two genuine repetitions (GitHub stated in three places, `ambicode
+  // view` in two) recovered most but not all of it.
+  'review/SKILL.md': 11_900,
   'task/SKILL.md': 10_500,
   // R3: a setup-time skill, invoked by name and never on a per-call path, so
   // its ceiling is about staying disciplined rather than about per-call cost.
