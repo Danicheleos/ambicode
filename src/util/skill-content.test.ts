@@ -433,8 +433,22 @@ describe('P2.3 task skill', () => {
       'task/SKILL.md must not claim the working-tree target is only this task\'s edits',
     );
     assert.match(content, /all of your uncommitted work/i);
-    assert.match(content, /\*\*Name them before the first review\*\*/);
-    assert.match(content, /Format what you just wrote before the first review/i);
+    assert.match(content, /\*\*name those files before the first review\*\*/i);
+    assert.match(content, /Never modify them or adopt their\s*\n?\s*findings/i);
+  });
+  it('spends the reviewer only with the user\'s consent, and records a skip as unverified', async () => {
+    const content = await task();
+    // One review of one change measured 276s: 73s of affected tests and 112s
+    // of isolated reviewer. That is the user's minute to spend, so the skill
+    // offers the skip rather than starting it — and a skip that reported as
+    // nothing-found would be worse than never asking.
+    assert.match(content, /Format what you wrote, then ask/i);
+    assert.match(content, /offer the skip/i);
+    assert.match(content, /a skipped, declined or incomplete independent review/i);
+    assert.ok(
+      !/independent review pipeline automatically/i.test(content),
+      'task/SKILL.md must not advertise a review the user is now asked about',
+    );
   });
   it('states that a source change without a successfully executed affected test remains verification-incomplete', async () => {
     const content = await task();

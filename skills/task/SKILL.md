@@ -1,6 +1,6 @@
 ---
 name: task
-description: Implement a small change, a bug fix, or one iteration of an accepted /ambicode:plan — locate the code, make the smallest coherent change, select and run the affected checks (including unchanged tests a source change affects), then invoke the existing independent review pipeline automatically and address in-scope findings. Use when the user asks to implement, fix, or build something, hands over a Jira/Confluence URL to implement directly, says to go ahead with an accepted plan, or asks to resume a larger task. Never commits, pushes, opens a merge request, publishes a comment, merges, deploys, or transitions a ticket.
+description: Implement a small change, a bug fix, or one iteration of an accepted /ambicode:plan — locate the code, make the smallest coherent change, select and run the affected checks (including unchanged tests a source change affects), then offer the independent review pipeline and address in-scope findings. Use when the user asks to implement, fix, or build something, hands over a Jira/Confluence URL to implement directly, says to go ahead with an accepted plan, or asks to resume a larger task. Never commits, pushes, opens a merge request, publishes a comment, merges, deploys, or transitions a ticket.
 argument-hint: <request-or-jira/confluence-url> [--requirement <url>]...
 ---
 
@@ -113,7 +113,10 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" review \
   --requirement <url>... --evidence - [--task <slug>]
 ```
 
-Its default target is all of your uncommitted work, not only this task's.
+Its default target is all of your uncommitted work, not only this task's. If
+the tree was already dirty, **name those files before the first review** —
+they spend the reviewer on themselves. Never modify them or adopt their
+findings.
 **Call the CLI pipeline directly; do not paste this
 conversation into the reviewer and do not attempt to imitate an independent
 review yourself in this same context.**
@@ -132,13 +135,11 @@ review yourself in this same context.**
   verification succeeded.
 - A check that mutates the workspace is reported under `mutations`. Tell the
   user; do not silently accept or revert it.
-- Format what you just wrote before the first review.
+- Before the first review: format what you wrote, then ask — it costs
+  minutes, so offer the skip.
 - Do not run lint/unit/e2e separately and then run `ambicode review` again on
   top of that. One pipeline run per iteration, and again only when a changed
   finding needs fresh verification.
-- If the tree was already dirty, the target covers more than this task's
-  files. **Name them before the first review** — they spend the reviewer on
-  themselves. Never modify them or adopt their findings.
 
 For every finding: verify it against the current code and the requirement
 evidence rather than forwarding it unverified; address every accepted,
@@ -180,7 +181,7 @@ Remaining: exact remaining work or decisions still needed.
 
 "Done" may describe code implemented even where verification did not fully
 succeed: they are separate statements. A failed, skipped, or declined
-affected test, or a declined or incomplete independent review,
+affected test, or a skipped, declined or incomplete independent review,
 must never be hidden behind "done".
 
 ## Scope
