@@ -229,6 +229,11 @@ describe('R2 per-call context cost', () => {
         navigation.evidenceRequirement.length < 100,
         'the evidence requirement is re-sent on every call and should stay one clause',
       );
+      assert.ok(navigation.readGuidance.length > 0);
+      assert.ok(
+        navigation.readGuidance.length < 100,
+        'the read guidance rides every call for the same reason and stays one clause',
+      );
       assert.equal('setupCommands' in navigation, false);
       // `init` and `config` still carry it; this is the per-call path only.
       assert.deepEqual(

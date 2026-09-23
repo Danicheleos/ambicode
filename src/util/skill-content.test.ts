@@ -161,6 +161,41 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.match(investigate, /\.ambicode\/task\/<slug>\/investigation_/);
   });
 
+  it('saves the investigation note unconditionally, without asking', async () => {
+    // Measured on run 3c2188c8: 10.8 min, 73 tool calls, 281,094 bytes of tool
+    // results and a 16,867-byte answer, all of it discarded because the skill
+    // saved "only when the user asks" and nothing ever offered. The save path,
+    // label and contents were already documented — only the trigger was
+    // unreachable. plan/SKILL.md makes the same argument for a plan, and it is
+    // stronger here: plan step 3 reads an investigation note as its input.
+    const investigate = (await readFile(path.join(SKILLS_DIR, 'investigate', 'SKILL.md'), 'utf8')).replace(
+      /\s+/g,
+      ' ',
+    );
+    assert.match(investigate, /Save the note every time/i);
+    assert.match(investigate, /Do not ask/i);
+    assert.doesNotMatch(
+      investigate,
+      /only when the user asks you to save one/i,
+      'investigate/SKILL.md must not gate the note on a request the user cannot know to make',
+    );
+    // The answer is still the deliverable; the file is a copy of it, not a
+    // replacement that leaves the user reading a path instead of a finding.
+    assert.match(investigate, /in addition to the answer, never instead of it/i);
+  });
+
+  it('tells plan, task and investigate to pass the terms prepare needs for a shortlist (R4)', async () => {
+    // prepare.ts:350-353 builds the shortlist from `--term`, or from retrieved
+    // requirement text when no term is stated. No skill's argv template named
+    // `--term`, so a source-free code question could never get a shortlist:
+    // run 3c2188c8 got `navigation.shortlist` absent and fell back to `find`
+    // at 5s. The option already existed (prepare.ts:42); nothing passed it.
+    for (const name of ['plan', 'task', 'investigate']) {
+      const content = await readFile(path.join(SKILLS_DIR, name, 'SKILL.md'), 'utf8');
+      assert.match(content, /--term <term>/, `${name}/SKILL.md must offer --term in its prepare argv`);
+    }
+  });
+
   it('plan documents its single note-writing boundary, separate from investigate\'s', async () => {
     const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
     assert.match(plan, /\.ambicode\/task\/<slug>\/plan_/);

@@ -130,6 +130,8 @@ export const PrepareNavigation = z.strictObject({
   setupCommands: z.array(z.string().min(1)).min(1),
   statusSource: z.literal('current-session'),
   evidenceRequirement: z.string().min(1),
+  /** How much of a file to open once the order has found it. */
+  readGuidance: z.string().min(1),
   /**
    * The first step of the strategy, when this call was given terms or
    * requirement evidence to derive them from (R4). Absent means no shortlist
@@ -245,6 +247,7 @@ const PrepareCompactNavigation = z.strictObject({
   strategy: z.literal('shortlist-then-known-paths-then-lsp-then-targeted-search'),
   ecosystem: Ecosystem,
   evidenceRequirement: z.string().min(1),
+  readGuidance: z.string().min(1),
   /** Paths and reasons only. A shortlist never carries file contents (R4). */
   shortlist: PrepareShortlist.optional(),
 });

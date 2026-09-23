@@ -293,6 +293,7 @@ export function toCompactOutput(
       strategy: detail.navigation.strategy,
       ecosystem: detail.navigation.ecosystem,
       evidenceRequirement: detail.navigation.evidenceRequirement,
+      readGuidance: detail.navigation.readGuidance,
       ...(detail.navigation.shortlist === undefined ? {} : { shortlist: detail.navigation.shortlist }),
     },
     sharedOperatingContract: {
@@ -556,6 +557,7 @@ export function renderPrepare(run: PrepareRun): string {
     lines.push(...output.requirements.map((source) => `  ${source.id}  ${source.url}`));
   }
   lines.push(`  evidence: ${output.navigation.evidenceRequirement}`);
+  lines.push(`  reading: ${output.navigation.readGuidance}`);
 
   const shortlist = output.navigation.shortlist;
   if (shortlist !== undefined) {

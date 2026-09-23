@@ -3,7 +3,7 @@
 Shared by every authoring skill that prepares before it works — today
 `investigate`, `plan` and `task`. Read this once per session. Each skill
 still runs `prepare` itself, with its own `--activity`; what they do with the
-result is identical, so it is written once here instead of three times.
+result is identical.
 
 Always pass `--json`. The default text output is a human-readable overview,
 not this contract.
@@ -44,13 +44,14 @@ debugging. It is not the shape to read routinely.
   insufficient. The helper cannot see this session's tool inventory, so
   observe it yourself; `ambicode config` names the ecosystem's official
   Claude Code LSP plugin when you need to recommend one.
-- **Read spans, not whole files.** Ask LSP where a symbol is defined or used
-  and open only those lines with `offset`/`limit`. Read whole only what you
-  are about to edit; to learn whether a behaviour is covered, grep the spec
-  rather than reading it.
+- **`navigation.readGuidance`** — **read spans, not whole files.** Ask LSP
+  where a symbol is defined or used and open only those lines with
+  `offset`/`limit`. Read whole only what you are about to edit; to learn
+  whether a behaviour is covered, grep the spec rather than reading it.
 - **`navigation.shortlist`** — the candidate files for this request, present
-  when the call passed `--term <term>` or requirement evidence to take terms
-  from. Each candidate carries its `path`, a `score` comparable only inside
+  when the call passed `--term <term>`, or requirement text to take terms from
+  by word frequency. **State them yourself** — with no requirement there is
+  nothing to derive. Each candidate carries its `path`, a `score` comparable only inside
   that one call, and the `reasons` it ranked: a matching directory or
   filename, a content hit, or that it habitually changes together with a file
   the terms matched. `limitations` says what it could not establish.
@@ -58,8 +59,7 @@ debugging. It is not the shape to read routinely.
   code before relying on it, and state which you confirmed, which you
   rejected, and which files you needed from outside it. Empty `candidates`
   means nothing matched well enough to start from — never "read everything".
-  For a longer list, or for terms you choose rather than ones derived from a
-  ticket, run
+  For a longer list, run
   `node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" locate <term>... --json`.
   It reads git only: no index, no cache, nothing written.
 - **`requirements`, `provenance`, `notices`, `diagnostics`** — what was

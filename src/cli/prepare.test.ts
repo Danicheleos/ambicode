@@ -171,6 +171,12 @@ describe('P2.1 ambicode prepare', () => {
       assert.equal(output.navigation.serverCommand, 'typescript-language-server');
       assert.equal(output.navigation.statusSource, 'current-session');
       assert.match(output.navigation.evidenceRequirement, /Report the LSP operations used/);
+      // Run 3c2188c8 read 40 files whole for 207,655 bytes — 74% of every tool
+      // result in the run — and cited 607 lines of them. The span rule existed
+      // only in skills/shared/prepare-output.md, a second file that run never
+      // opened. It rides the navigation contract now, delivered with the order
+      // it governs rather than behind a pointer.
+      assert.match(output.navigation.readGuidance, /spans/i);
       // R4: no terms and no requirement evidence, so there was nothing to
       // build a shortlist from. Absent means "not asked for", never "nothing
       // in this repository matches".

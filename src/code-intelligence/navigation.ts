@@ -27,6 +27,15 @@ export interface NavigationGuidance {
    * authoring session only has to do one thing with it (R2 change 3).
    */
   evidenceRequirement: string;
+  /**
+   * How much of a file the order expects a skill to open. It lives here rather
+   * than only in `skills/shared/prepare-output.md` because a run that skips
+   * that second file still receives this one: investigation 3c2188c8 read 40
+   * files whole for 207,655 bytes — 74% of every tool result it produced — and
+   * cited 607 lines of them, never having opened the pointer. Same one-clause
+   * budget as `evidenceRequirement`, for the same per-call reason.
+   */
+  readGuidance: string;
 }
 
 const GUIDANCE: Record<Ecosystem, Omit<NavigationGuidance, 'ecosystem'>> = {
@@ -41,6 +50,7 @@ const GUIDANCE: Record<Ecosystem, Omit<NavigationGuidance, 'ecosystem'>> = {
     statusSource: 'current-session',
     evidenceRequirement:
       'Report the LSP operations used, or the targeted-search fallback reason.',
+    readGuidance: 'Read spans with offset/limit, not whole files.',
   },
   python: {
     strategy: 'shortlist-then-known-paths-then-lsp-then-targeted-search',
@@ -53,6 +63,7 @@ const GUIDANCE: Record<Ecosystem, Omit<NavigationGuidance, 'ecosystem'>> = {
     statusSource: 'current-session',
     evidenceRequirement:
       'Report the LSP operations used, or the targeted-search fallback reason.',
+    readGuidance: 'Read spans with offset/limit, not whole files.',
   },
 };
 

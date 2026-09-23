@@ -50,7 +50,7 @@ cancellation reasons to order history` is one primary request, not just
 
 ```sh
 node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" prepare --activity plan --json [paths...] [--project <id>] \
-  [--requirement <url>]... [--evidence -]
+  [--requirement <url>]... [--evidence -] [--term <term>]...
 ```
 
 with the same requirement URLs and envelope from step 1, and your first guess

@@ -46,7 +46,7 @@ task: that answers a different, unasked question.
 
 ```sh
 node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" prepare --activity task --json [likely paths...] [--project <id>] \
-  [--requirement <url>]... [--evidence -]
+  [--requirement <url>]... [--evidence -] [--term <term>]...
 ```
 
 Pass step 1's URLs and envelope, plus your first guess at affected paths.
