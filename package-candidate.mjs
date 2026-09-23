@@ -5,7 +5,7 @@
 // below is the actual contract for what ships, so it is easier to review as a
 // short list here than as configuration for a generic bundler plugin.
 import { createHash } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -182,7 +182,7 @@ async function checkNoWorkstationPaths(candidateDir) {
 async function checkSharedResourceReferences(candidateDir) {
   const SHARED_RESOURCE = 'skills/shared/requirements-mcp.md';
   const PLUGIN_ROOT_REFERENCE = '${CLAUDE_PLUGIN_ROOT}/skills/shared/requirements-mcp.md';
-  const EXPECTED_REFERRERS = ['review', 'investigate', 'plan', 'task'];
+  const EXPECTED_REFERRERS = ['review', 'investigate', 'plan', 'task', 'rules'];
 
   const sharedFile = path.join(candidateDir, SHARED_RESOURCE);
   if (!(await stat(sharedFile).then(() => true, () => false))) {
@@ -239,7 +239,7 @@ async function checkHooksManifest(candidateDir) {
     throw new Error(`${manifestPath} is missing or not valid JSON: ${cause instanceof Error ? cause.message : cause}`);
   }
   const events = Object.keys(manifest.hooks ?? {});
-  const expectedEvents = ['PostToolUse', 'SessionStart', 'PostCompact', 'SessionEnd'];
+  const expectedEvents = ['PostToolUse', 'SessionStart', 'UserPromptSubmit', 'PostCompact', 'SessionEnd'];
   for (const event of expectedEvents) {
     if (!events.includes(event)) throw new Error(`hooks/hooks.json is missing the "${event}" event.`);
   }
@@ -394,9 +394,25 @@ async function packageInto(parentDir) {
   };
 }
 
+/**
+ * Validates the candidate, not the checkout: the repository root is also its
+ * own Claude Code project root, so `validate .` failed `--strict` on a root
+ * CLAUDE.md that FILE_ALLOWLIST never ships. Same validation, no stronger —
+ * with `name:` deleted from a skill, both targets still passed.
+ */
+function validatePlugin(candidateDir) {
+  // A command string, not an args array: `claude` is a PATH shim on Windows so
+  // a shell-less spawn is ENOENT, and args plus `shell: true` is DEP0190. Only
+  // `dist/ambicode-<semver>` is interpolated, which cannot contain a space.
+  const target = path.relative(ROOT, candidateDir).split(path.sep).join('/');
+  execSync(`claude plugin validate ${target} --strict`, { cwd: ROOT, stdio: 'inherit' });
+}
+
 const mode = process.argv[2];
 if (mode === '--check-reproducible') {
   await checkReproducible();
 } else {
-  await main();
+  const { candidateDir } = await main();
+  // Opt-in, so packaging still works without a `claude` binary.
+  if (mode === '--validate-plugin') validatePlugin(candidateDir);
 }

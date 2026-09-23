@@ -31,9 +31,21 @@ present in `claude --help` on 2.1.272:
 `--print`, `--safe-mode`, `--restricted`, `--tools`, `--disallowedTools`,
 `--mcp-config`, `--strict-mcp-config`, `--no-session-persistence`,
 `--permission-prompts none`, `--output-format json`, `--json-schema`, `--model`,
-`--append-system-prompt` (confirmed this session; no separate `-file` variant
-is exposed on 2.1.272, so the shared operating contract and reviewer role are
-passed as one string argument, not a path).
+`--append-system-prompt-file` (verified working on 2.1.278; `--help` prints
+the inline `--append-system-prompt` but spells the file variant only inside
+the `--bare` description, as `--append-system-prompt[-file]`, so
+`assertIsolationAvailable` accepts either spelling).
+
+The file variant is a requirement, not a preference. On Windows `claude`
+resolves to `claude.cmd`, which cannot be spawned directly: it goes through
+`cmd.exe`, and `cmd.exe` reads CR and LF as command separators with no escape
+available. An argument holding the multi-line operating contract is therefore
+refused outright — correctly, since allowing it would be a command-injection
+vector and the contract is composed from project-controlled policy packs.
+Passing it as a path keeps every newline out of the argument vector, so the
+same code path runs on Linux, macOS and Windows. Before this, every review on
+Windows failed at spawn with "the command and its arguments cannot contain a
+line break on Windows without a shell".
 
 `ClaudeReviewer.assertIsolationAvailable` re-checks that list against the
 installed CLI before every review and refuses with
@@ -94,18 +106,29 @@ one is `error_max_structured_output_retries`, with
 
 Claude Code retries a StructuredOutput call that fails schema validation, up to
 the integer environment variable `MAX_STRUCTURED_OUTPUT_RETRIES`, **default 5**,
-and those retries do not appear in the result envelope. Doc 02 forbids an
-automatic model-repair loop, so AMBICODE sets the variable to `1` in the
-reviewer's replacement environment: one attempt, after which a schema failure
-comes back as `error_max_structured_output_retries` and becomes a review error.
+and those retries do not appear in the result envelope. AMBICODE sets the
+variable to `3` in the reviewer's replacement environment rather than
+inheriting the default, and an exhausted budget becomes a review error
+(`structured-output-exhausted`), never a clean review with no findings.
+
+It was `1` until a live run proved that wrong. Doc 02 forbids an automatic
+model-repair loop, and `1` was read as the way to honour that — but a
+StructuredOutput retry re-asks the model to serialize the answer it already
+has; it does not revise a finding. The rule doc 02 states is enforced by the
+Zod validation in `parseReviewerOutput`, independently of this variable. What
+`1` did cause was a whole review discarded on a single mis-serialization.
 
 How this was established: the field names, the error subtype, the variable name
 and its default were read out of the shipped `claude` 2.1.272 binary's embedded
 sources (`structured_output`, `error_max_structured_output_retries`,
 `MAX_STRUCTURED_OUTPUT_RETRIES`, default `5`), and the envelope shapes were
 exercised end to end through the built artifact against a stub `claude` on
-`PATH`. **No authorized model call was made**, so the live behaviour of the
-retry cap is unverified; it is covered by M11 when model access is available.
+`PATH`. That first pass made **no authorized model call**, so the live
+behaviour of the retry cap went unverified — and that is precisely where it
+was wrong. It has since been exercised against the real CLI on 2.1.278: a
+schema-constrained run returning `structured_output` with the declared
+`$defs`/`$ref` resolved, and a real merge-request review failing with
+`structured_output_retry_exhausted` after eighteen turns under the cap of one.
 
 The argument vector, as observed being handed to the process:
 
@@ -114,7 +137,7 @@ The argument vector, as observed being handed to the process:
 --tools Read,Grep,Glob
 --disallowedTools Bash,Write,Edit,NotebookEdit,WebFetch,WebSearch,Task,Agent
 --permission-prompts none --no-session-persistence --model <model>
---append-system-prompt <system prompt text>
+--append-system-prompt-file <path to a file holding the system prompt>
 --output-format json --json-schema <schema>
 ```
 
@@ -122,7 +145,7 @@ The user prompt (diff, requirements, discussion, check evidence) still goes
 over stdin, not in the argument vector: it is large and holds option-like
 text. The *system* prompt (only the shared operating contract and the
 reviewer role, never product code, requirement text, or discussion) is passed
-through `--append-system-prompt` instead (P2.4 correction E), so a hostile
+through `--append-system-prompt-file` instead (P2.4 correction E), so a hostile
 string planted in reviewed code or a fetched requirement cannot land in the
 model's system-level instructions no matter how it is phrased — it can only
 ever reach the user turn, the same place the diff itself lives. The working
@@ -299,14 +322,18 @@ the live behaviour.
 
 ## Skills
 
-The plugin ships five skills, invoked as `/ambicode:init`, `/ambicode:review`,
-`/ambicode:investigate`, `/ambicode:plan` and `/ambicode:task`. Per the plugin
-reference, a skill's directory name is only a fallback — and an unstable one
-for a cached plugin — so each `SKILL.md` sets `name` explicitly. Claude Code
-namespaces them under the plugin name, which is why the directories are
-`skills/init`, `skills/review`, `skills/investigate`, `skills/plan` and
-`skills/task` rather than repeating "ambicode" in each half of the
-invocation.
+The plugin ships six skills, invoked as `/ambicode:init`, `/ambicode:rules`,
+`/ambicode:review`, `/ambicode:investigate`, `/ambicode:plan` and
+`/ambicode:task`. Per the plugin reference, a skill's directory name is only a
+fallback — and an unstable one for a cached plugin — so each `SKILL.md` sets
+`name` explicitly. Claude Code namespaces them under the plugin name, which is
+why the directories are `skills/init`, `skills/rules`, `skills/review`,
+`skills/investigate`, `skills/plan` and `skills/task` rather than repeating
+"ambicode" in each half of the invocation.
+
+`/ambicode:rules` (R3) is a setup-time skill: it is invoked when AMBICODE is
+adopted and when the team's rules change, never on a task, plan, investigation
+or review path.
 
 Re-confirmed on 2.1.272 through the **packaged** candidate rather than
 `--plugin-dir`, with no model call, via `npm run smoke:install-local` (doc 04
@@ -323,16 +350,16 @@ current transcript.
 ## Hooks
 
 The plugin ships one hook manifest, `hooks/hooks.json` (doc 04 P2.4
-correction G), registering four events — `PostToolUse` (matcher
+correction G), registering five events — `PostToolUse` (matcher
 `Edit|Write`), `SessionStart` (matcher `startup|resume|clear|fork`),
-`PostCompact`, and `SessionEnd` — each routed in exec form through command
+`UserPromptSubmit`, `PostCompact`, and `SessionEnd` — each routed in exec form through command
 `node` with arguments `${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs`, `hook`.
 This avoids shell parsing and works when the plugin path contains spaces or
 the host has no POSIX shell. Re-confirmed this session through the same
 packaged-candidate/`npm run smoke:install-local` path as "Skills" above:
-`claude plugin details ambicode@ambicode-team` reports `Hooks (4)
-PostToolUse, SessionStart, PostCompact, SessionEnd (harness-only — no model
-context cost)`.
+`claude plugin details ambicode@ambicode-team` reports `Hooks (5)
+PostToolUse, SessionStart, UserPromptSubmit, PostCompact, SessionEnd
+(harness-only — no model context cost)`.
 
 `ambicode hook` reads a hook invocation's JSON payload from stdin (fields
 confirmed against 2.1.272: `session_id`, `agent_id` (present only for a
@@ -343,9 +370,29 @@ subagent invocation, absent for the main agent), `cwd`, `scratchpad_dir`,
 `{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext":
 "…"}}` — the documented contract for surfacing text back into the
 conversation from a hook, never a permission decision or a blocking exit
-code. `SessionStart` and `PostCompact` reset the per-session delivery epoch
-so a reminder can fire again after a context compaction or a fresh session;
-`SessionEnd` removes the hook's own dedup-marker directory. All of this is
+code. `SessionStart` and `PostCompact` reset the per-session delivery epoch so a
+reminder can fire again after a context compaction or a fresh session.
+
+Which of them may *carry* the contract is not a free choice. Claude Code's
+hook-output schema has a `hookSpecificOutput` variant for only some events,
+and `PostCompact` is not among them (verified against 2.1.278: the accepted
+names are `PreToolUse`, `UserPromptSubmit`, `UserPromptExpansion`,
+`SessionStart`, `Setup`, `PreModelSwitch`, `PostModelSwitch`,
+`SubagentStart`, `PostToolUse`, `PostToolBatch`, `PostToolUseFailure`,
+`Stop`, `SubagentStop`, `PermissionDenied`, `Notification`,
+`PermissionRequest`, `CwdChanged`, `FileChanged`, `MessageDisplay`,
+`Elicitation`, `ElicitationResult`, `WorktreeCreate`). Returning one from
+`PostCompact` is a hard validation failure the user sees on every compaction,
+not a silent no-op. So `PostCompact` resets and returns `{}`, `SessionStart`
+resets and delivers, and `UserPromptSubmit` delivers when the current epoch
+has not had it yet — which is what puts the contract back after a compaction.
+The marker dedup means it is sent once per epoch, not once per prompt, but the
+hook process itself does start on every user message (~190ms on the reference
+machine). That cost buys the post-compaction redelivery; dropping the
+`UserPromptSubmit` registration removes both, leaving `prepare --with-contract`
+as the manual fallback. `ADDITIONAL_CONTEXT_EVENTS` in `src/contracts/hook.ts`
+holds the accepted names so the type system refuses the mistake. `SessionEnd` removes the
+hook's own dedup-marker directory. All of this is
 covered by `src/hook/run-hook.test.ts` (unit level, fake ports) and
 `hook-artifact.test.mjs` (built-artifact level: real bundled
 `scripts/ambicode.mjs hook` invoked with piped stdin, no `claude` process
@@ -399,6 +446,18 @@ resolution, state replacement is atomic, and normalized native failures count
 as rollback failures. These paths are unit- and macOS-smoke-tested; a real
 Windows-host lifecycle remains a release acceptance item.
 
+One qualification on "Execa's cross-platform binary resolution", established
+by measurement in R1: on Windows, when Execa cannot resolve a command to a
+`.exe`/`.com` it does not report a failure — it hands the command line to
+`cmd.exe /d /s /c`, which starts successfully, writes "is not recognized as an
+internal or external command" to stderr and exits **1**. A command that is not
+installed is therefore indistinguishable, from Execa's result alone, from a
+linter that ran and found problems. Because `ProcessOutcome.kind` is what D06
+uses to turn a missing command into a notice and a skipped result rather than
+a reported failure, `NodeProcessRunner` resolves the executable itself before
+spawning on Windows (`windowsCommandExists`). Unix is unaffected: there the OS
+resolves the command and Execa surfaces the real `ENOENT`/`EACCES`.
+
 ## Code intelligence
 
 AMBICODE reuses the official `typescript-lsp@claude-plugins-official` and
@@ -409,6 +468,53 @@ plugin, server command and setup commands. `init`, `config`, and `prepare`
 surface that guidance. Authoring skills record actual LSP symbol operations or
 a specific targeted-search fallback reason because the helper cannot inspect
 the active conversation's tool inventory.
+
+The step before LSP is `ambicode locate`: a ranked shortlist of candidate
+files for a request, from path shape, `git grep` contents and co-change over a
+bounded commit window. It runs no language server, starts no process other
+than `git` through the existing adapter, and stores nothing between calls, so
+it adds no compatibility surface of its own. LSP is still how a caller goes
+from a candidate file to its definitions, references and callers.
+
+Three properties of that ranking were established against a real failure and
+are what keep it usable on a request phrased in prose:
+
+- **A term is matched in every separator convention, not the one it was
+  written in.** "Order/Refund" also searches `order-refund`, `order_refund`
+  and `orderrefund` — between them the conventions a Python package, a Java
+  package, a Go package, a C macro and a hyphenated directory actually use.
+  Paths try all forms (in memory, free); contents try the term and its
+  compact form, so a term costs at most two `git grep` invocations.
+- **A number keeps the one spelling it was written in.** Joining words is a
+  spelling only where the separator is punctuation in a name; between digits
+  it is arithmetic. "250.5" would join to "2505", which matches `41.2505`
+  inside SVG path data — five illustration files in the top twenty of a real
+  ticket's shortlist before the guard, none after it.
+- **Mentions never add up to having the boundary named.** A file that merely
+  contains the terms accrues 2, 3, 3.5 … approaching 4, below the 5 a
+  directory named for the term scores. A ticket's terms overlap heavily —
+  "ORD-17" and "ORD-17-1" are one fact — so unbounded summing let prose
+  outrank code.
+- **Co-change is dropped for a file that moves with more than six others.**
+  A locale family regenerated by an export co-changes perfectly with itself,
+  which looks like the strongest boundary signal and carries no information
+  at all. This is the same objection as the existing 50-file sweeping-commit
+  guard, applied to the seed rather than the commit, and the shortlist says
+  when it fires.
+
+Before these, a real ticket ("raise the Order/Refund amount limit")
+produced a ten-candidate shortlist of ten translation files and none of the
+code, and the agent fell back to grepping for the constant by hand — the work
+the shortlist exists to replace. The `ts-locale-decoys` fixture holds that
+shape.
+
+None of this reads a language. Files come from `git ls-files`, contents from
+`git grep -i -F`, paths from globs, and relatedness from the commit history,
+so a Python, Java, Go, C or mixed repository is ranked by the same rules as a
+TypeScript one, under whatever directory layout it uses. The spellings are
+the one place a convention could hide, and `polyglot-spellings` is the
+fixture that holds it to that: one name, five ecosystems, five unrelated
+roots, no shared prefix.
 
 Observed from the current official marketplace: TypeScript uses
 `typescript-language-server --stdio`; Python uses `pyright-langserver --stdio`.
@@ -421,7 +527,7 @@ Recorded per plan/11. No new runtime dependency was added for these.
 
 | Capability | Component | Evidence |
 |---|---|---|
-| CLI arguments | Node 24 `util.parseArgs` | Strict mode, positionals, `multiple` for repeatable `--approve` and `--requirement`, and `--` handled by the platform. Parsed once in `main` before `createRuntime`, so a rejected argument reaches no process or file (U27). Combination rules (`--branch` versus `--mr`, `--base` only with `--branch`) are applied in `main` immediately after parsing and still before `createRuntime`. Only `policy` declares `positionals`; every other command rejects an operand. |
+| CLI arguments | Node 24 `util.parseArgs` | Strict mode, positionals, `multiple` for repeatable `--approve`, `--decline` and `--requirement`, and `--` handled by the platform. Parsed once in `main` before `createRuntime`, so a rejected argument reaches no process or file (U27). Combination rules (`--branch` versus `--mr`, `--base` only with `--branch`) are applied in `main` immediately after parsing and still before `createRuntime`. Only `policy` declares `positionals`; every other command rejects an operand. |
 | Temporary directories | `FileSystem.temporaryDirectory` | The adapter owns the host location; no domain module calls `tmpdir()`. |
 | Process execution | `execa` behind `ProcessRunner` | See the dependency record below. |
 | Binary content | `isbinaryfile` on bytes | See the dependency record below. |

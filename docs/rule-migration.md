@@ -1,11 +1,67 @@
 # Rule migration and disposition
 
-What became of the legacy rule packs, rule by rule. Doc 05 gives the intended
-migration; this records what was actually written and, where the two differ, why.
+AMBICODE resolves policy from YAML packs in `policies/` and `.ambicode/policies/`
+and from nothing else. A rule written only in a Markdown document is not in
+effect, however clearly it is stated. Getting a team's rules onto the pack
+format is therefore a real step, and this document is both halves of it:
 
-The source content was read from `grahpt/assets/rule-packs`. Nothing was copied
-unchanged to preserve a filename, that repository was not modified, and no
-released file refers to its path.
+- **[Migrating your own rules](#migrating-your-own-rules)** — the supported path,
+  `/ambicode:rules`, for a team adopting AMBICODE.
+- **The disposition tables below** — the worked example. They record, rule by
+  rule, what became of the legacy packs the built-ins were distilled from: what
+  was retained, what was dropped, and why. That is the shape of judgement your
+  own migration has to reproduce, so read it before running yours.
+
+Doc 05 gives the intended migration for the built-ins; the tables record what
+was actually written and, where the two differ, why. The source content was read
+from `grahpt/assets/rule-packs`. Nothing was copied unchanged to preserve a
+filename, that repository was not modified, and no released file refers to its
+path.
+
+## Migrating your own rules
+
+Run `/ambicode:rules`. It is a setup-time skill: it runs once when you adopt
+AMBICODE, and again when the team's rules change. Nothing on a per-call path
+ever reads a Markdown rule source or infers a scope.
+
+It reads the sources you point it at — `CLAUDE.md` and nested ones,
+`CONTRIBUTING.md`, `docs/**`, `.cursor/rules/**`, `.github/instructions/**`, or
+a Confluence page through the bound MCP server — and then, with you:
+
+1. classifies each rule as global or scoped to a path pattern, deriving the glob
+   from your repository's **actual** layout and verifying what it matches;
+2. drafts one pack per coherent scope into `.ambicode/policies/<id>.yaml`, with
+   `source.location` naming the document and section each rule came from;
+3. validates every draft with `ambicode policy check` and loops until clean;
+4. adds the files to the right project's `policyFiles`, preserving the rest of
+   `.ambicode/config.yaml`;
+5. shows you a disposition table like the ones below and **asks you to confirm
+   the drops** before finishing.
+
+`ambicode policy check <file...>` is usable on its own, for a pack you wrote by
+hand. It validates a candidate file that nothing references yet — the schema,
+every load-time rule the schema cannot express, and what each `appliesTo` glob
+matches in the repository as it stands — and exits nonzero on an error:
+
+```sh
+ambicode policy check --project web .ambicode/policies/team-components.yaml
+```
+
+A glob that matches nothing is the mistake worth running it for. The pack
+validates, gets enabled, and never applies to anything.
+
+`init` names the documents in your repository that usually hold rules, as
+migration candidates. It checks only whether they exist; it does not read,
+classify, or migrate any of them.
+
+Two things the skill deliberately does not carry over, for the reasons the
+worked example gives below: a rule that encodes one team's structural choice
+rather than a defect (see [the layering note](#common)), and a rule naming a
+specific framework API (see [the one deviation](#the-one-deviation-worth-arguing-about)).
+It asks you about the first and drops the second.
+
+See [policy authoring](policy-authoring.md) for what `authority`, `replaces` and
+`remindOnEdit` actually change.
 
 ## The one deviation worth arguing about
 
@@ -77,7 +133,7 @@ counterpart; they exist because the language makes those mistakes easy.
 
 ## How to change any of this
 
-Packs are YAML in `policies/`. Editing a rule, adding one, or disabling a pack
+Packs are YAML in `policies/` (built-in) and `.ambicode/policies/` (yours). Editing a rule, adding one, or disabling a pack
 for a project needs no TypeScript change and no rebuild. A project can replace a
 built-in pack wholesale with `replaces: builtin/<id>`; replacement is explicit
 and whole-pack, because a half-overridden checklist is impossible to reason

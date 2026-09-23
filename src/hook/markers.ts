@@ -4,12 +4,16 @@ import type { IdSource } from '../ports/ids.ts';
 import { contentHash } from '../util/hash.ts';
 
 /**
- * Per-session edit-reminder delivery state (doc 04 P2.4 correction H). Never
- * written into the product repository (correction G9): it lives in the
- * host-provided per-session scratchpad when one is available, and in a
- * safe, owned temporary directory otherwise (correction H2) — keyed by a
- * hash of the session id, never the id itself, so the directory name
- * carries no session content.
+ * Per-session hook delivery state (doc 04 P2.4 correction H). Never written
+ * into the product repository (correction G9): it lives in the host-provided
+ * per-session scratchpad when one is available, and in a safe, owned
+ * temporary directory otherwise (correction H2) — keyed by a hash of the
+ * session id, never the id itself, so the directory name carries no session
+ * content.
+ *
+ * Two kinds of delivery share this machinery: an edit reminder for one rule
+ * on one path, and the shared operating contract once per context epoch (R2
+ * change 2). They differ only in what identifies the thing delivered.
  */
 
 const HOOK_STATE_DIR_NAME = 'ambicode-hook-state';
@@ -60,35 +64,38 @@ export async function cleanupSessionState(fs: FileSystem, baseDir: string): Prom
   await fs.remove(baseDir);
 }
 
-export interface ReminderKey {
+export interface DeliveryKey {
   epoch: string;
   /** `agent_id`, or a fixed sentinel for the main thread (correction H1). */
   agentKey: string;
-  normalizedPath: string;
-  qualifiedRuleId: string;
-  ruleContentHash: string;
+  /** What is being delivered: an edit reminder, or the shared contract. */
+  kind: 'edit-reminder' | 'shared-contract';
+  /** Identifies the thing within its kind, e.g. `<path>::<qualified rule id>`. */
+  subject: string;
+  /** Changed content is a different marker, delivered again (correction H4). */
+  contentHash: string;
 }
 
-function markerPath(baseDir: string, key: ReminderKey): string {
+function markerPath(baseDir: string, key: DeliveryKey): string {
   const identity = contentHash(
-    `${key.epoch}::${key.agentKey}::${key.normalizedPath}::${key.qualifiedRuleId}::${key.ruleContentHash}`,
+    `${key.epoch}::${key.agentKey}::${key.kind}::${key.subject}::${key.contentHash}`,
   ).replace(/[^a-z0-9]/gi, '');
   return path.join(baseDir, DELIVERED_DIR, key.epoch.replace(/[^a-z0-9]/gi, '').slice(0, 40), identity);
 }
 
 /**
- * `true` if this exact (epoch, agent, path, rule, rule-content-hash) tuple
- * was already delivered — the same rule on the same path in one epoch is
- * delivered once (correction H5); a changed rule content hash is a
- * different marker and is delivered again without waiting for a new session
+ * `true` if this exact (epoch, agent, kind, subject, content-hash) tuple was
+ * already delivered — the same rule on the same path in one epoch is
+ * delivered once (correction H5); a changed content hash is a different
+ * marker and is delivered again without waiting for a new session
  * (correction H4); the same rule on another path is a different marker too
  * (correction H6).
  */
-export async function alreadyDelivered(fs: FileSystem, baseDir: string, key: ReminderKey): Promise<boolean> {
+export async function alreadyDelivered(fs: FileSystem, baseDir: string, key: DeliveryKey): Promise<boolean> {
   return fs.exists(markerPath(baseDir, key));
 }
 
-export async function markDelivered(fs: FileSystem, baseDir: string, key: ReminderKey): Promise<void> {
+export async function markDelivered(fs: FileSystem, baseDir: string, key: DeliveryKey): Promise<void> {
   const target = markerPath(baseDir, key);
   await fs.mkdirp(path.dirname(target));
   await fs.writeText(target, '');

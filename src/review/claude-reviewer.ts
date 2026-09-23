@@ -1,5 +1,9 @@
+import path from 'node:path';
 import { z } from 'zod';
 import { ReviewerOutput } from '../contracts/review.ts';
+import { markOwned } from '../page/cleanup.ts';
+import type { Clock } from '../ports/clock.ts';
+import type { FileSystem } from '../ports/filesystem.ts';
 import type { EnvironmentPolicy, ProcessRunner } from '../ports/process.ts';
 import type { Reviewer, ReviewerInvocation, ReviewerRequest } from '../ports/reviewer.ts';
 import { AmbicodeError } from '../util/errors.ts';
@@ -42,8 +46,37 @@ export const REQUIRED_FLAGS = [
   '--permission-prompts',
   '--output-format',
   '--model',
-  '--append-system-prompt',
+  // `--append-system-prompt` is deliberately absent: the reviewer passes the
+  // file variant instead, and probing for the inline flag could never fail on
+  // its own because its name is a prefix of both spellings of the file one.
+  // `SYSTEM_PROMPT_FILE_HELP` below is the check that carries that weight.
 ] as const;
+
+/**
+ * The system prompt is handed over as a file, never as an argument.
+ *
+ * On Windows `claude` resolves to `claude.cmd`, which cannot be spawned
+ * directly: it goes through `cmd.exe`, and `cmd.exe` treats CR and LF as
+ * command separators with no escape available. An argument holding the
+ * multi-line operating contract is therefore rejected outright — allowing it
+ * would be a command-injection vector, and the contract is composed from
+ * project-controlled policy packs. The file variant keeps every newline out of
+ * the argument vector, so one code path works on Linux, macOS and Windows.
+ */
+export const SYSTEM_PROMPT_FILE_FLAG = '--append-system-prompt-file';
+
+/**
+ * `--help` does not print the flag literally: it lists
+ * `--append-system-prompt <prompt>` and mentions the file variant only inside
+ * the `--bare` description, spelled `--append-system-prompt[-file]`. Verified
+ * against Claude Code 2.1.278, where the flag itself works. Accept either
+ * spelling; a version that prints neither has no file variant to use.
+ */
+const SYSTEM_PROMPT_FILE_HELP = ['--append-system-prompt-file', '--append-system-prompt[-file]'];
+
+/** The reviewer's own temporary directory, and the file inside it. */
+const REVIEWER_PROMPT_PREFIX = 'ambicode-reviewer-';
+const SYSTEM_PROMPT_FILE = 'system-prompt.md';
 
 const CAPABILITY_TIMEOUT_MS = 30_000;
 
@@ -89,14 +122,25 @@ export const REVIEWER_ENV_ALLOWLIST = [
 ] as const;
 
 /**
- * Claude Code retries a StructuredOutput call that fails schema validation, up
- * to `MAX_STRUCTURED_OUTPUT_RETRIES` (default 5) times, and the retries are
- * invisible in the result envelope. Doc 02 forbids an automatic model-repair
- * loop, so the cap is set to one attempt deliberately: a schema failure comes
- * back as `error_max_structured_output_retries` and becomes a review error,
- * rather than a quietly repaired finding list.
+ * How many times Claude Code may re-ask the model to emit its answer in the
+ * required shape (`MAX_STRUCTURED_OUTPUT_RETRIES`, default 5).
+ *
+ * This was `'1'` — no retry at all — on the reasoning that doc 02 forbids an
+ * automatic model-repair loop. That conflated two different things. A retry
+ * does not repair a *finding*: it tells the model its tool input did not match
+ * the schema and asks for the same answer again, correctly serialized. What
+ * doc 02 actually forbids is AMBICODE accepting an answer it has not checked,
+ * and the guard for that is `parseReviewerOutput` below, which validates
+ * against the Zod contract and fails the review rather than degrading to an
+ * empty finding list. That guard is unaffected by this number.
+ *
+ * What `'1'` did buy was a review thrown away whenever the model mis-serialized
+ * once — on a 19-file merge request, a hundred and sixty seconds of completed
+ * analysis and a full model call, discarded, with a re-run as the only remedy.
+ * That is the review-and-redo cycle this tool exists to avoid. Three bounds the
+ * cost of a slip while leaving a persistent failure to fail.
  */
-export const STRUCTURED_OUTPUT_ATTEMPTS = '1';
+export const STRUCTURED_OUTPUT_ATTEMPTS = '3';
 
 /** The reviewer's JSON contract, handed to the process as a schema. */
 export const REVIEWER_JSON_SCHEMA = {
@@ -159,6 +203,10 @@ const Envelope = z.looseObject({
 
 export interface ClaudeReviewerOptions {
   runner: ProcessRunner;
+  /** Holds the system-prompt file for the life of the child process. */
+  fs: FileSystem;
+  /** Stamps that file's directory as AMBICODE's, so a sweep may reclaim it. */
+  clock: Clock;
   /** Where the capability probe runs; the review itself runs in the snapshot. */
   cwd: string;
   /** Overridable so a test can point at a stub without a PATH lookup. */
@@ -169,12 +217,16 @@ export interface ClaudeReviewerOptions {
 
 export class ClaudeReviewer implements Reviewer {
   private readonly runner: ProcessRunner;
+  private readonly fs: FileSystem;
+  private readonly clock: Clock;
   private readonly cwd: string;
   private readonly executable: string;
   private readonly maxOutputBytes: number;
 
   constructor(options: ClaudeReviewerOptions) {
     this.runner = options.runner;
+    this.fs = options.fs;
+    this.clock = options.clock;
     this.cwd = options.cwd;
     this.executable = options.executable ?? 'claude';
     this.maxOutputBytes = options.maxOutputBytes ?? 4 * 1024 * 1024;
@@ -209,6 +261,20 @@ export class ClaudeReviewer implements Reviewer {
     }
 
     const help = `${outcome.stdout}${outcome.stderr}`;
+    if (!SYSTEM_PROMPT_FILE_HELP.some((spelling) => help.includes(spelling))) {
+      throw new AmbicodeError(
+        'reviewer-unavailable',
+        `The installed Claude Code does not offer ${SYSTEM_PROMPT_FILE_FLAG}, so the review was not run.`,
+        {
+          details: [
+            'AMBICODE hands the reviewer its system prompt as a file rather than as an argument.',
+            'A multi-line argument cannot be passed to claude.cmd on Windows: cmd.exe treats CR and LF as command separators, so it would be a command-injection vector.',
+            'Update Claude Code to a version that offers the file variant.',
+          ],
+        },
+      );
+    }
+
     const missing = REQUIRED_FLAGS.filter((flag) => !help.includes(flag));
     if (missing.length > 0) {
       throw new AmbicodeError(
@@ -225,8 +291,15 @@ export class ClaudeReviewer implements Reviewer {
     }
   }
 
-  /** The exact argument vector, exposed so the result can record what ran. */
-  argvFor(request: ReviewerRequest): string[] {
+  /**
+   * The exact argument vector, exposed so the result can record what ran.
+   *
+   * `systemPromptFile` is the path `invoke` wrote the system prompt to. Every
+   * element here is a single line by construction: the JSON arguments are
+   * emitted without indentation, and the only multi-line value in the request
+   * reaches the child through that file or through stdin.
+   */
+  argvFor(request: ReviewerRequest, systemPromptFile: string): string[] {
     return [
       this.executable,
       '--print',
@@ -250,8 +323,8 @@ export class ClaudeReviewer implements Reviewer {
       // Only the shared operating contract and the reviewer role (doc 04 P2.4
       // correction E1); everything with change data, requirements, or diff
       // content stays in the ordinary user prompt below, never here.
-      '--append-system-prompt',
-      request.systemPrompt,
+      SYSTEM_PROMPT_FILE_FLAG,
+      systemPromptFile,
       '--output-format',
       'json',
       '--json-schema',
@@ -260,7 +333,23 @@ export class ClaudeReviewer implements Reviewer {
   }
 
   async invoke(request: ReviewerRequest): Promise<ReviewerInvocation> {
-    const argv = this.argvFor(request);
+    // Its own directory, outside the snapshot: the reviewer's file tools are
+    // confined to `cwd`, so its system prompt never appears as a file it can
+    // read back and never joins the material under review. The CLI reads it
+    // before any of that applies.
+    const promptDirectory = await this.fs.temporaryDirectory(REVIEWER_PROMPT_PREFIX);
+    try {
+      await markOwned(this.fs, promptDirectory, 'reviewer-prompt', this.clock, process.pid);
+      const systemPromptFile = path.join(promptDirectory, SYSTEM_PROMPT_FILE);
+      await this.fs.writeText(systemPromptFile, request.systemPrompt);
+      return await this.run(request, this.argvFor(request, systemPromptFile));
+    } finally {
+      // The child has exited by now, so the file has been read.
+      await this.fs.remove(promptDirectory).catch(() => undefined);
+    }
+  }
+
+  private async run(request: ReviewerRequest, argv: string[]): Promise<ReviewerInvocation> {
     const outcome = await this.runner.run({
       argv,
       // The sanitized snapshot, and nothing is added as an extra directory.
@@ -287,6 +376,17 @@ export class ClaudeReviewer implements Reviewer {
       return fail(argv, 'truncated', 'the reviewer produced more output than AMBICODE reads, so it was not parsed');
     }
     if (outcome.exitCode !== 0) {
+      // Claude Code exits nonzero for an errored run but still prints its
+      // result envelope, and that envelope is the only thing that says *what*
+      // went wrong — the exit code says only that something did. Classifying
+      // from the code alone made every named failure below unreachable, so a
+      // schema-retry exhaustion was reported as a bare "nonzero-exit". An
+      // envelope that parses as a successful answer is still not accepted
+      // here: the process said it failed, and that is not overridden.
+      if (outcome.stdout.trim() !== '') {
+        const classified = parseReviewerOutput(outcome.stdout, argv);
+        if (classified.kind === 'error') return classified;
+      }
       return fail(
         argv,
         'nonzero-exit',
@@ -340,11 +440,16 @@ export function parseReviewerOutput(stdout: string, argv: readonly string[]): Re
   const data = parsedEnvelope.data;
   if (data.is_error === true) {
     const subtype = data.subtype ?? 'unknown';
-    return fail(
-      argv,
-      subtype === 'error_max_structured_output_retries' ? 'structured-output-exhausted' : 'reviewer-error',
-      `the reviewer reported an error (${subtype}): ${describe(data.errors ?? data.result)}`,
-    );
+    if (subtype === 'error_max_structured_output_retries' || subtype === 'structured_output_retry_exhausted') {
+      return fail(
+        argv,
+        'structured-output-exhausted',
+        // The analysis itself is not recoverable from here, and guessing at it
+        // from the model's prose would be inventing findings nothing checked.
+        `the reviewer finished its analysis but could not express it in the required shape, ${STRUCTURED_OUTPUT_ATTEMPTS} attempt(s) running: ${describe(data.errors ?? data.result)}. Nothing it found survived, so there is no partial result to report. The target is pinned by revision, so re-running reviews the identical change.`,
+      );
+    }
+    return fail(argv, 'reviewer-error', `the reviewer reported an error (${subtype}): ${describe(data.errors ?? data.result)}`);
   }
 
   if (data.structured_output === undefined || data.structured_output === null) {

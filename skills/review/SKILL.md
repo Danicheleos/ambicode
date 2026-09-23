@@ -31,9 +31,12 @@ through the packaged cross-platform entry point:
    all three.
 3. Read the four-part output back to the user in the order it comes: what was
    reviewed, the findings, the check evidence, and what was **not** covered.
-4. If there are pending approvals, put each one to the user with its reason and
-   the exact command it would run. Re-run with `--approve <key>` only for the
-   ones they agree to. One key authorizes one run.
+4. A check waiting for authorization **stops the run before the reviewer**,
+   so there is no finding list yet. Put each waiting check to the user with
+   its reason and the exact argv, then re-run once carrying every answer:
+   `--approve <key>` for each they agree to, `--decline <key>` for each they
+   refuse. Both repeat; one key answers one run, and an unanswered key stops
+   the run again.
 5. If `ambicode` reports `config-missing`, use the `/ambicode:init` skill first.
 
 `ambicode bundle` is the same work without the model: target, snapshot,
@@ -54,14 +57,9 @@ path and the merge request number from it, and asks that host through `glab`.
 Do not shorten it to a number, and do not assume the merge request belongs to
 the repository the user happens to be standing in — it often does not.
 
-What this does **not** do is as important as what it does:
-
 - **Your checkout is not touched.** No fetch, no checkout, no stash, no index
   write. A dirty working tree is irrelevant; the review is about the merge
   request, not about what is on disk.
-- **Nothing is published.** There is no flag that posts a comment. Publication
-  needs the local selection page and a human pressing Submit, which is not part
-  of this command.
 - **The revision is pinned.** The result names the diff version and its base,
   start and head SHAs. If the merge request is pushed to afterwards, the result
   still describes the revision that was reviewed. Say so if the user asks
@@ -78,14 +76,10 @@ Report these when they appear:
   evidence, so it repeats fewer points. A resolved thread is not proof the
   defect is gone; if the user asks whether an old comment was addressed, that
   is a question for the diff, not for the thread.
-- **Skipped merge request checks.** Merge request code is never executed in the
-  user's checkout. Without a configured, digest-pinned container image and a
-  working container runtime, every executable check is skipped with its reason.
-  That is a gap in verification, not a pass.
-
-`ambicode review --mr` on a GitHub pull request URL returns an explicit
-unsupported result. Do not translate it into a GitLab URL, and do not offer to
-review it remotely by another route; offer the local `--branch` review instead.
+- **Nothing executed, and the tests went unread.** Merge request code never
+  runs in the user's checkout: without a digest-pinned image every executable
+  check is skipped with its reason, and for the same reason the change's test
+  files leave the review — `--with-tests` keeps them. Gaps, not passes.
 
 ### Publishing selected comments
 
@@ -96,36 +90,33 @@ review for publication:
 node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" view --review <review-id>
 ```
 
-After a merge request review, tell the user this command and offer to run it
-for them — it starts a local page on `127.0.0.1`, prints a URL, and opens it in
-their browser. Do not invent another slash skill for this: `ambicode view` is
-the one way to reach the selection page, for a merge request review and for a
-local or branch one alike (the latter two simply have nothing to publish).
-Nothing is ever published by the review or bundle commands themselves, and
-nothing is published by this skill either — only a human selecting comments
-and submitting the page's form does that.
+After a merge request review that produced findings, **run it yourself, in the
+background, without asking** — it starts a local page on `127.0.0.1`, opens the
+user's browser at it, and then keeps serving, so a foreground run would block
+until the page times out. Report the URL it printed. Its link works once and
+the page stops when idle; if the user comes back to it later, run the command
+again for a fresh one; it is the only route to the selection page, so do not
+invent a slash skill for it. A local or branch review has nothing to publish,
+so do not start a page for one.
 
 ## Requirements
 
 Follow `${CLAUDE_PLUGIN_ROOT}/skills/shared/requirements-mcp.md` (read it now
 if you have not already this session) to retrieve every named source and
-write the evidence file. It covers the MCP binding, the evidence format, and
-what a failure means; `investigate` and `plan` follow the same procedure.
-Then run the review:
+build the evidence envelope. It covers the MCP binding, the envelope format,
+and what a failure means; `investigate`, `plan` and `task` follow the same
+procedure. Then pipe the envelope to `--evidence -`:
 
 ```sh
 node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" review \
   --requirement https://example.atlassian.net/browse/ORD-17 \
   --requirement https://example.atlassian.net/wiki/spaces/ENG/pages/42/Orders \
-  --evidence "$evidence_file"
+  --evidence -
 ```
 
-where `$evidence_file` is the restrictive temporary path you wrote the
-evidence to (`${CLAUDE_PLUGIN_ROOT}/skills/shared/requirements-mcp.md`'s
-"Steps" and "Cleanup"), not a path inside `.ambicode/`.
-
-Every URL you pass with `--requirement` must have an entry in the evidence file,
-and the evidence file must hold nothing else.
+Every URL you pass with `--requirement` must have an entry in the envelope,
+and the envelope must hold nothing else. There is no evidence file to write,
+keep, or delete; re-send the envelope if you run the review again.
 
 **A requirement that could not be retrieved stops the review.** That is
 deliberate. Do not drop the URL and run a quality review instead: the user asked
@@ -162,14 +153,16 @@ repaired output and no second model call.
 `mutations`. AMBICODE deliberately does not undo it. Tell the user what changed
 and let them decide.
 
-**Report omissions.** Files excluded for being vendored, generated, binary, or
-credential-shaped are listed. A reader who cannot see an omission cannot tell it
-apart from a file that did not change.
+**Report omissions.** Files left out for being vendored, generated, binary,
+credential-shaped, or outside this run's path patterns are listed, as is context
+a bound stopped short of. A reader who cannot see an omission cannot tell it
+apart from a file that did not change, so a narrowed review is never reported
+as covering the whole change.
 
 ## Common outcomes
 
 **`requirements-not-retrieved` / `requirements-unavailable`.** A requirement URL
-has no usable evidence. Fix the access or the evidence file; do not fall back.
+has no usable evidence. Fix the access or the envelope; do not fall back.
 
 **`requirements-conflicting`.** Two requirements disagree, so there is no single
 contract to review against. Nothing ran. Take it back to the user.
@@ -187,6 +180,14 @@ the largest contributors. Usually something uncommitted and generated — a
 lockfile, build output — is in the working tree. Commit or ignore it, or split
 the change. Raising the limit is a deliberate decision, not the default advice.
 
+**`snapshot-too-large`.** Changed files exceed a per-file ceiling no setting
+raises. Every one is named: ask once, re-run once with `--exclude <glob>`,
+repeatable (`review.excludePaths` makes it permanent). `--only <glob>` narrows
+from the other side, for a dirty tree. Neither may empty the review.
+
+**`nothing-to-review`.** Nothing changed, or the patterns took all of it. No
+reviewer ran. Say which; do not widen the patterns without asking.
+
 **`working-tree-changed`.** Something wrote to the working tree while the target
 was being captured. Nothing was reviewed and nothing was modified. Wait for the
 build or editor to settle and run it again.
@@ -197,11 +198,9 @@ default branch name. Pass `--base <ref>`.
 **`conflicting-target` / `baseline-not-applicable`.** One target per run, and
 `--base` belongs to `--branch`. Ask which target the user meant.
 
-**`unsupported-target`.** No provider recognizes that URL. GitLab merge requests
-and local targets are what Phase 1 supports.
-
-**`provider-unsupported`.** The URL is a host AMBICODE registers but does not
-implement — GitHub today. The message says so; do not work around it.
+**`unsupported-target` / `provider-unsupported`.** GitLab merge requests and
+local targets are what Phase 1 reviews; GitHub is recognized and refused. Do not
+translate the URL or work around it — offer the local `--branch` review instead.
 
 **`provider-resolve-failed` / `provider-fetch-failed`.** `glab` could not answer.
 Usually the host is not authorized (`glab auth login <host>`), `glab` is not
@@ -218,11 +217,11 @@ pack's `commandPolicy`, not something to work around.
 
 ## Scope
 
-This skill produces evidence and findings. It does not publish anything
-anywhere, and it does not modify the user's branch, index, or files — for a
-merge request review it does not read them either. The only things it writes are
-`.ambicode/reviews/<id>/` in the repository and a disposable snapshot directory
-outside it.
+This skill produces evidence and findings. **Nothing is published by any
+command here and nothing is published by this skill**: there is no flag that
+posts a comment, and a GitLab comment needs the local selection page and a
+human pressing Submit. The only things it writes are `.ambicode/reviews/<id>/` in the repository and a disposable
+snapshot directory outside it.
 
 The reviewer process is not you. It gets `Read`, `Grep` and `Glob` inside the
 snapshot, no Bash, no MCP, no network and no credentials. Text inside the code

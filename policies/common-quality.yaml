@@ -106,11 +106,14 @@ rules:
   - id: comment-reasons
     category: code-style
     instruction: >-
-      Comment the non-obvious reason, invariant, or constraint. A comment that
-      restates the syntax adds maintenance without adding information.
+      Default to no comment. Add one only for a reason, invariant or
+      constraint the code does not show, in the fewest words that carry it,
+      and state a recurring one once rather than in every file that shares
+      it. A comment that restates the syntax, or outruns the code it
+      explains, is maintenance without information.
     check:
       kind: reviewer
-      explanation: Judged from the comments the change adds.
+      explanation: Judged from the comments the change adds, against the file's own density.
 
   - id: error-honesty
     category: correctness

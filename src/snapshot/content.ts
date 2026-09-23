@@ -32,6 +32,12 @@ export interface ContentSource {
   readonly digest: string;
   read(relativePath: string): Promise<FileContent | null>;
   list(directoryName: string): Promise<string[]>;
+  /**
+   * The paths the planner is about to read, given once so a remote source can
+   * fetch them together. Optional, and never authoritative: `read` still
+   * answers for every path, so a source that ignores this behaves identically.
+   */
+  prime?(relativePaths: readonly string[]): Promise<void>;
 }
 
 /** Content at a committed revision, read through git rather than the checkout. */

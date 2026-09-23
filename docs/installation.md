@@ -166,11 +166,19 @@ claude plugin install pyright-lsp@claude-plugins-official --scope user
 pipx install pyright
 ```
 
-Restart or reload Claude after installing. `ambicode init`, `ambicode config`
-and `ambicode prepare --json` show the recommendation for every project. During
-`investigate`, `plan`, and `task`, the skill must report the LSP operations it
-actually used or a specific targeted-search fallback reason. Installed state
-alone is not evidence that the current session used LSP.
+Restart or reload Claude after installing. `ambicode init` and `ambicode
+config` show the recommendation for every project; `ambicode prepare --json`
+deliberately leaves installation guidance out of its per-call payload and
+carries only the search strategy, the evidence requirement, and the boundary
+shortlist when the call asked for one. During `investigate`, `plan`, and
+`task`, the skill must report the LSP operations it actually used or a
+specific targeted-search fallback reason. Installed state alone is not
+evidence that the current session used LSP.
+
+Nothing here is required for the shortlist. `ambicode locate <term>...` needs
+only git, and it is what narrows a repository to candidate files before LSP is
+asked anything; LSP then explains a candidate rather than finding it. A
+session with no LSP plugin installed still gets the shortlist.
 
 ## Repository verification
 

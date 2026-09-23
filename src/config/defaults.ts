@@ -11,6 +11,8 @@ export const DEFAULTS = {
     maxChangedFiles: 50,
     maxChangedLines: 2000,
     maxContextBytes: 524_288,
+    /** Written out empty so the key is discoverable before it is needed. */
+    excludePaths: [] as string[],
   },
   checks: {
     timeoutSeconds: 120,
@@ -29,6 +31,15 @@ export const DEFAULTS = {
 
 /** Bounded capture for any single command; larger output is truncated with a notice. */
 export const MAX_COMMAND_OUTPUT_BYTES = 262_144;
+
+/**
+ * Bound on a requirement envelope piped in with `--evidence -`. Generous
+ * against `review.maxContextBytes`, which is what actually decides whether
+ * the retrieved content fits: this only stops an unbounded read, and an
+ * envelope over it is refused rather than truncated, because half an
+ * envelope is not evidence.
+ */
+export const MAX_EVIDENCE_BYTES = 4 * 1024 * 1024;
 
 /**
  * Snapshot budgets. These bound what is written to disk for the reviewer to
@@ -58,10 +69,33 @@ export const PROMPT_EVIDENCE_RESERVE_BYTES = 16_384;
 
 export const CONFIG_DIR = '.ambicode';
 export const CONFIG_FILE = '.ambicode/config.yaml';
+/**
+ * Where a merge-request review is saved. A merge request is somebody else's
+ * branch: there is no local task it belongs beside, so it keeps its own home.
+ */
 export const REVIEWS_DIR = '.ambicode/reviews';
+
+/**
+ * One directory per task, holding everything about that task: the plan, any
+ * investigation, and the reviews of the work. Answering "what happened on
+ * ORD-17" used to mean three listings — `notes/plans/`,
+ * `notes/investigations/` and `reviews/` — and a name match in each, because
+ * the only thing tying them together was a ticket id repeated in three
+ * filenames. The directory is the grouping now, so the ticket is spelled
+ * once and the listing is the index.
+ */
+export const TASKS_DIR = '.ambicode/task';
+
+/** The reviews of one task, inside its own directory. */
+export const REVIEWS_LEAF = 'reviews';
 export const PROJECT_POLICIES_DIR = '.ambicode/policies';
-/** Optional investigation/task/plan notes (doc 02, "Storage and ownership"); local, never versioned. */
-export const NOTES_DIR = '.ambicode/notes';
+/**
+ * The old home of investigation, task and plan notes. Nothing writes here any
+ * more — those live in `TASKS_DIR` beside the reviews of the same work — but
+ * the ignore entry stays so a repository that still holds one keeps it out of
+ * history.
+ */
+const LEGACY_NOTES_DIR = '.ambicode/notes/';
 
 /** Entries first-run setup may add, preserving whatever the file already holds. */
-export const IGNORE_ENTRIES = ['.ambicode/reviews/', '.ambicode/notes/'];
+export const IGNORE_ENTRIES = ['.ambicode/reviews/', LEGACY_NOTES_DIR, '.ambicode/task/'];

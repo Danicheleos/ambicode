@@ -10,6 +10,7 @@ import { parseHunks, type DiffFile } from '../git/diff.ts';
 import { nodeFileSystem } from '../ports/filesystem.ts';
 import type { Reviewer, ReviewerInvocation, ReviewerRequest } from '../ports/reviewer.ts';
 import { FakeProcessRunner } from '../testing/fake-process-runner.ts';
+import { reviewerIo } from '../testing/reviewer-io.ts';
 import { TempRepo } from '../testing/temp-repo.ts';
 import { isAmbicodeError } from '../util/errors.ts';
 import { ClaudeReviewer, REVIEWER_TOOLS, parseReviewerOutput } from './claude-reviewer.ts';
@@ -118,6 +119,12 @@ describe('U16 requirement modes end to end', () => {
 
       assert.equal(output.result.requirementMode, 'quality-review');
       assert.deepEqual(output.result.requirements, []);
+      // No ticket and no --task: nothing to group this with, so it stays in
+      // the flat review directory rather than inventing a task for it.
+      assert.ok(
+        output.reviewDirectory.includes(path.join('.ambicode', 'reviews')),
+        output.reviewDirectory,
+      );
       assert.equal(reviewer.requests.length, 1);
       assert.match(
         output.result.omissions.join('\n'),
@@ -149,6 +156,14 @@ describe('U16 requirement modes end to end', () => {
       );
 
       assert.equal(output.result.requirementMode, 'requirement-based');
+      // The ticket is the task: the review lands under `.ambicode/task/ORD-17/`,
+      // beside the plan and any investigation of the same work, and its own
+      // name no longer repeats the ticket that the directory above it carries.
+      assert.ok(
+        output.reviewDirectory.includes(path.join('.ambicode', 'task', 'ORD-17', 'reviews')),
+        output.reviewDirectory,
+      );
+      assert.ok(!path.basename(output.reviewDirectory).includes('ORD-17'), output.reviewId);
       assert.deepEqual(
         output.result.requirements.map((source) => source.id),
         ['ENG-orders', 'ORD-17'],
@@ -622,7 +637,9 @@ describe('U17 reviewer isolation', () => {
       stdout: [
         '--print --safe-mode --restricted --strict-mcp-config --tools --disallowedTools',
         '--no-session-persistence --permission-prompts --output-format --model --json-schema',
-        '--append-system-prompt',
+        // Spelled as Claude Code's own --help spells it: the file variant is
+        // only mentioned inside the --bare description.
+        '--append-system-prompt <prompt>  --append-system-prompt[-file]',
       ].join('\n'),
     });
   }
@@ -631,7 +648,8 @@ describe('U17 reviewer isolation', () => {
     const runner = stubbedHelp().stubArgv(['claude', '--print'], {
       stdout: JSON.stringify({ result: { findings: [], coverageNotes: [] } }),
     });
-    const reviewer = new ClaudeReviewer({ runner, cwd: '/work/checkout' });
+    const io = reviewerIo();
+    const reviewer = new ClaudeReviewer({ runner, ...io, cwd: '/work/checkout' });
     await reviewer.assertIsolationAvailable();
 
     const invocation = await reviewer.invoke({
@@ -657,8 +675,14 @@ describe('U17 reviewer isolation', () => {
     assert.ok(argv.includes('--no-session-persistence'));
     // The system prompt is appended through the documented flag, never
     // through stdin (doc 04 P2.4 correction E1); the user prompt (with the
-    // diff and requirements) is the only thing sent over stdin.
-    assert.equal(argv[argv.indexOf('--append-system-prompt') + 1], 'contract + role');
+    // diff and requirements) is the only thing sent over stdin. It travels as
+    // a file, so no argument can ever hold a line break — which cmd.exe would
+    // read as a command separator when claude.cmd is spawned on Windows.
+    const systemPromptFile = argv[argv.indexOf('--append-system-prompt-file') + 1];
+    assert.ok(systemPromptFile);
+    assert.equal(io.written.get(systemPromptFile), 'contract + role');
+    assert.ok(!argv.includes('contract + role'));
+    for (const value of argv) assert.ok(!/[\r\n]/.test(value), `argument holds a line break: ${value}`);
     assert.equal(argv[argv.indexOf('--permission-prompts') + 1], 'none');
     assert.equal(argv[argv.indexOf('--model') + 1], 'sonnet');
 
@@ -673,9 +697,11 @@ describe('U17 reviewer isolation', () => {
 
   it('refuses the review when the installed CLI lacks an isolation option', async () => {
     const runner = new FakeProcessRunner().stubArgv(['claude', '--help'], {
-      stdout: '--print --tools --output-format --model',
+      // Carries the system-prompt file variant, so the refusal below is the
+      // isolation check failing and not the transport check ahead of it.
+      stdout: '--print --tools --output-format --model --append-system-prompt[-file]',
     });
-    const reviewer = new ClaudeReviewer({ runner, cwd: '/work/checkout' });
+    const reviewer = new ClaudeReviewer({ runner, ...reviewerIo(), cwd: '/work/checkout' });
     await assert.rejects(
       () => reviewer.assertIsolationAvailable(),
       (error: unknown) => {
@@ -692,7 +718,7 @@ describe('U17 reviewer isolation', () => {
       kind: 'spawn-failed',
       failure: 'spawn claude ENOENT',
     });
-    const reviewer = new ClaudeReviewer({ runner, cwd: '/work/checkout' });
+    const reviewer = new ClaudeReviewer({ runner, ...reviewerIo(), cwd: '/work/checkout' });
     await assert.rejects(
       () => reviewer.assertIsolationAvailable(),
       (error: unknown) => isAmbicodeError(error) && error.code === 'reviewer-unavailable',
@@ -708,7 +734,7 @@ describe('U17 reviewer isolation', () => {
     ];
     for (const [outcome, reason] of cases) {
       const runner = new FakeProcessRunner().stubArgv(['claude', '--print'], outcome);
-      const invocation = await new ClaudeReviewer({ runner, cwd: '/w' }).invoke({
+      const invocation = await new ClaudeReviewer({ runner, ...reviewerIo(), cwd: '/w' }).invoke({
         systemPrompt: 's',
         prompt: 'p',
         workingDirectory: '/tmp/s',
@@ -888,6 +914,148 @@ describe('U17 an unverifiable location makes the review an error', () => {
       assert.deepEqual(output.result.findings, []);
       assert.match(output.result.reviewer?.detail ?? '', /above the configured limit of 7/);
       await nodeFileSystem.remove(output.snapshotDirectory);
+    } finally {
+      await context.dispose();
+    }
+  });
+});
+
+/**
+ * A check waiting for a human is the one thing that stops the review before
+ * the model, and the reason is arithmetic rather than principle: check
+ * evidence is part of the reviewer prompt, so a review run now is a review of
+ * evidence that is about to change. In the field this cost 187s of reviewer
+ * time, then 233s more for the identical review once the human had answered.
+ */
+describe('a check waiting for authorization', () => {
+  /** A unit check whose mapping selector always exceeds its own file limit. */
+  async function gatedFixture(): Promise<Fixture> {
+    const context = await fixture();
+    await context.repo.write('tests/a.test.ts', "test('a', () => {});\n");
+    await context.repo.write('tests/b.test.ts', "test('b', () => {});\n");
+    await context.repo.commitAll('tests');
+    // That commit swept up the edit `fixture` left uncommitted, and a review of
+    // an unchanged tree selects no test at all. Put a source change back.
+    await context.repo.write(
+      'src/orders.ts',
+      'export function total(amounts: number[]) {\n  return amounts.reduce((a, b) => a + b, 0);\n}\n\nexport const zero = 0;\n',
+    );
+    await context.repo.write(
+      '.ambicode/config.yaml',
+      [
+        'schemaVersion: 1',
+        'baseline: ""',
+        'review:',
+        '  model: sonnet',
+        '  timeoutSeconds: 300',
+        '  maxFindings: 7',
+        '  maxChangedFiles: 50',
+        '  maxChangedLines: 2000',
+        '  maxContextBytes: 524288',
+        'checks:',
+        '  timeoutSeconds: 120',
+        '  maxSelectedTestFiles: 20',
+        'page:',
+        '  idleTimeoutSeconds: 1800',
+        'requirements:',
+        '  mcpServer: null',
+        'remoteChecks:',
+        '  image: null',
+        'authoring:',
+        '  editReminders: true',
+        'projects:',
+        '  - id: app',
+        '    root: .',
+        '    ecosystem: typescript',
+        '    packs:',
+        '      - builtin/common-quality',
+        '      - builtin/common-checks',
+        '    policyFiles: []',
+        '    commands:',
+        '      unit:',
+        '        argv: [node, -e, ""]',
+        '    checks:',
+        '      unit:',
+        '        command: unit',
+        '        adapter: vitest',
+        '        selector:',
+        '          kind: mapping',
+        '          maxFiles: 1',
+        '          mappings:',
+        '            - source: ["src/**"]',
+        '              tests: ["tests/*.test.ts"]',
+        '',
+      ].join('\n'),
+    );
+    return context;
+  }
+
+  it('stops at the evidence and never invokes the reviewer', async () => {
+    const context = await gatedFixture();
+    try {
+      const reviewer = new FakeReviewer(ok());
+      const output = await review(context.runtime, [], reviewer);
+
+      assert.equal(output.awaitingAuthorization, true);
+      assert.deepEqual(reviewer.requests, [], 'the model was paid for evidence that is about to change');
+      assert.equal(output.result.reviewer, null, 'no reviewer ran, so there is no reviewer run to report');
+      assert.equal(output.pendingApprovals.length, 1);
+      assert.equal(output.pendingApprovals[0]?.approvalKey, 'app/unit');
+
+      // An absent finding list, never an empty one presented as clean.
+      assert.deepEqual(output.result.findings, []);
+      assert.equal(output.result.status, 'partial');
+      assert.ok(output.result.statusReason?.includes('app/unit'), output.result.statusReason ?? '');
+      assert.ok(
+        output.result.omissions.some((omission) =>
+          omission.includes('--approve <key> or --decline <key>'),
+        ),
+        output.result.omissions.join(' | '),
+      );
+
+      // The evidence that did run is still written, so the human deciding can
+      // read the selection and the exact argv before answering.
+      assert.ok(await context.runtime.fs.exists(output.resultPath));
+      assert.ok(await context.runtime.fs.exists(output.reportPath));
+    } finally {
+      await context.dispose();
+    }
+  });
+
+  it('takes --decline as an answer, so one run covers the whole review', async () => {
+    const context = await gatedFixture();
+    try {
+      const reviewer = new FakeReviewer(ok());
+      const output = await review(context.runtime, ['--decline', 'app/unit'], reviewer);
+
+      assert.equal(output.awaitingAuthorization, false);
+      assert.equal(reviewer.requests.length, 1, 'the review ran once, after the answer');
+      assert.deepEqual(output.pendingApprovals, [], 'a declined check is answered, not waiting');
+
+      const unit = output.result.checks.find((check) => check.checkId === 'unit');
+      assert.equal(unit?.status, 'skipped');
+      assert.ok(
+        unit?.limitations.some((limitation) => limitation.includes('declined this run')),
+        unit?.limitations.join(' | ') ?? '',
+      );
+      // Declining does not make the review clean: it is a gap somebody chose.
+      assert.equal(output.result.status, 'partial');
+    } finally {
+      await context.dispose();
+    }
+  });
+
+  it('takes --approve as the other answer, and then runs both halves once', async () => {
+    const context = await gatedFixture();
+    try {
+      const reviewer = new FakeReviewer(ok());
+      const output = await review(context.runtime, ['--approve', 'app/unit'], reviewer);
+
+      assert.equal(output.awaitingAuthorization, false);
+      assert.equal(reviewer.requests.length, 1);
+      assert.deepEqual(output.pendingApprovals, []);
+      const unit = output.result.checks.find((check) => check.checkId === 'unit');
+      assert.equal(unit?.status, 'passed', JSON.stringify(unit?.limitations));
     } finally {
       await context.dispose();
     }

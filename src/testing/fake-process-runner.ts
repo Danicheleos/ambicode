@@ -38,9 +38,13 @@ export class FakeProcessRunner implements ProcessRunner {
     this.calls.push(request);
     const stub = this.stubs.find((candidate) => candidate.match(request.argv));
     const produced = stub?.handler === undefined ? (stub?.outcome ?? {}) : await stub.handler(request);
+    const kind = produced.kind ?? 'exited';
     return {
-      kind: produced.kind ?? 'exited',
-      exitCode: produced.exitCode ?? 0,
+      kind,
+      // Only an `exited` process has one. The real runner reports null for a
+      // kill or a failed spawn, so a fake that defaulted to 0 let a test assert
+      // an exit code production never produces.
+      exitCode: produced.exitCode ?? (kind === 'exited' ? 0 : null),
       stdout: produced.stdout ?? '',
       stderr: produced.stderr ?? '',
       truncated: produced.truncated ?? false,

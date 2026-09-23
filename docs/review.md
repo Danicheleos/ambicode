@@ -40,7 +40,7 @@ result says so in its omissions.
 ambicode review \
   --requirement https://example.atlassian.net/browse/ORD-17 \
   --requirement https://example.atlassian.net/wiki/spaces/ENG/pages/42/Orders \
-  --evidence "$evidence_file"
+  --evidence -
 ```
 
 `--requirement` is the one canonical way a requirement enters a review. It is
@@ -48,29 +48,22 @@ repeatable. The result is then labelled `requirement-based`.
 
 **The helper never retrieves anything.** It has no Atlassian client, no
 credentials and no MCP connection, by design. Your Claude session holds the MCP
-connection, retrieves each URL, and writes the result into the evidence file
-that `--evidence` points at. The `/ambicode:review` skill does this for you; its
-`SKILL.md` documents the file's shape if you want to write one by hand.
+connection, retrieves each URL, and hands the result over as a JSON envelope.
+`--evidence -` reads that envelope from standard input; `--evidence <path>`
+still reads it from a file if you happen to have one.
+`skills/shared/requirements-mcp.md` in the plugin documents the envelope's
+shape, and `investigate`, `plan` and `task` all follow the same procedure.
 
-`$evidence_file` is a **restrictive temporary file outside this repository**
-(for example, from `mktemp`), not a path under `.ambicode/`. It is transport
-input for this one invocation: `--evidence` just reads it, and the skill
-deletes it once the review command has read it. Nothing is lost by deleting
-it — every retrieved source's content, citations, and provenance are already
-carried into the saved review result (`.ambicode/reviews/<id>/result.json`),
-which is what makes a requirement-based review reopenable without the
-transport file. `skills/shared/requirements-mcp.md` in the plugin has the
-full lifecycle; `investigate` and `plan` follow the same procedure. `task`
-also follows it, but keeps the same evidence file alive across an
-**arbitrary number of consumers** for as long as the task runs — every
-`ambicode prepare` call (initial and any rerun after a broadened scope) and
-every `ambicode review` call (the first one, any approval-authorized rerun,
-and every re-review after fixing an accepted finding) — deleting it in
-exactly one final cleanup path, after the task's terminal report or an
-abort, never right after any one `prepare` or `review` call.
+**No skill writes an evidence file.** A workflow that hands the same evidence
+to two commands — `prepare` and then `review`, or `review` again after fixing
+a finding — pipes it again, so there is nothing to keep alive across
+consumers and nothing to remember to delete. Nothing is lost either way:
+every retrieved source's content, citations, and provenance are carried into
+the saved review result (`.ambicode/reviews/<id>/result.json`), which is what
+makes a requirement-based review reopenable.
 
-Every `--requirement` URL must have an entry in that file, and the file must
-hold nothing else. A URL whose entry says `forbidden`, `not-found` or
+Every `--requirement` URL must have an entry in that envelope, and the
+envelope must hold nothing else. A URL whose entry says `forbidden`, `not-found` or
 `unavailable` **stops the review**. It does not quietly become a quality review:
 you asked whether the change meets a requirement, and "the requirement could not
 be read" is the answer, not "nothing found".
@@ -79,7 +72,7 @@ Two requirements that contradict each other also stop the review, before any
 check runs and before the model is called. Code detects the structural cases —
 the same document retrieved twice with different content; the same id pointing
 at two documents. Your session reports the ones only a reader can see, in the
-evidence file's `conflicts` array. Neither claims to find every contradiction.
+envelope's `conflicts` array. Neither claims to find every contradiction.
 
 ### Binding an MCP server
 
@@ -158,6 +151,24 @@ claims about an earlier revision. The threads are also kept in the result, with
 note identity, author, position and resolution state, because publication later
 needs to recognize a comment it already posted.
 
+### Test code is not reviewed
+
+A merge request's own test files are left out by default: `*.spec.*`,
+`*.test.*`, `*_test.*`, `*_spec.*`, `*.cy.*`, `test_*.py`, `conftest.py`, and
+anything under `__tests__/`, `__mocks__/`, `tests/`, `test/`, `spec/`, `e2e/`
+or `cypress/`. Measured on one 299-file merge request, 60 of those files were
+`.spec.ts` — a fifth of the budget spent on files that, without a pinned
+container, no check here will ever execute.
+
+The rules are deliberately narrow, and match only markers that mean "test" and
+nothing else. `fixtures/` and `testdata/` are **not** among them: a silent
+over-exclusion drops shipped code out of a review.
+
+What this costs is stated in the result's omissions: whether the tests cover
+the change, and whether an assertion was weakened, is unestablished. Pass
+`--with-tests` to review them. A local or `--branch` review keeps them, because
+there the tests are usually the work you just did.
+
 ### Checks on merge request code
 
 Merge request code is somebody else's, so it never executes in your checkout —
@@ -213,9 +224,21 @@ directory, with:
   the model provider. `GITLAB_TOKEN`, `GLAB_TOKEN`, GitHub, Jira, package
   registry, database and cloud workload variables are absent from the process,
   not merely unused by it;
-- `MAX_STRUCTURED_OUTPUT_RETRIES=1`, set deliberately. Claude Code otherwise
-  retries a schema-invalid answer up to five times, invisibly. One attempt means
-  a schema failure is reported as a failed review instead of quietly repaired.
+- `MAX_STRUCTURED_OUTPUT_RETRIES=3`, set rather than inherited (the default is
+  five). A retry re-asks the model to serialize the answer it already reached;
+  it does not revise a finding. What keeps an unchecked answer out is the Zod
+  validation in `parseReviewerOutput`, which fails the review rather than
+  degrading to an empty finding list, and that is independent of this number.
+  The cap was briefly `1`, which threw away a completed review whenever the
+  model mis-serialized once — on a nineteen-file merge request, three minutes
+  of analysis and a full model call, with a re-run as the only remedy.
+
+  When the budget is exhausted the review still fails, as
+  `structured-output-exhausted`. It is reported as a failure and never as a
+  clean review with no findings: the analysis is not recoverable, and
+  reconstructing it from the model's prose would be inventing findings nothing
+  validated. A nonzero exit is classified from the result envelope Claude Code
+  prints alongside it, not from the exit code, so the failure is named.
 
 If the installed Claude Code stops offering one of the options that boundary is
 built from, the review is refused with `reviewer-isolation-unavailable` rather
@@ -280,6 +303,70 @@ ambicode bundle          # same options as review
 The same target, snapshot, requirements and check evidence, with no model
 invoked. Its empty `findings` list means nothing ran, and the omissions say so.
 
+## Where a review is saved
+
+Everything about one task lives in one directory:
+
+```
+.ambicode/task/ORD-17/
+  plan_2026-09-22T23-42.md
+  investigation_2026-09-22T21-10.md
+  notes.md
+  reviews/
+    local_2026-09-22T23-42/
+      result.json
+      report.txt
+```
+
+The task is named by the first `--requirement` you pass — a ticket is what
+the work is called in Jira, in the branch and in the merge request, so it is
+the name a person guesses first. With no requirement, `--task <slug>` names
+it, and the authoring skills mint that slug as a short kebab of the request
+plus a timestamp (`raise-upload-limit_2026-09-23T10-15`). With neither, the
+review stays directly under `.ambicode/reviews/`, because there is no task to
+group it with.
+
+A merge-request review always stays under `.ambicode/reviews/`: it reviews
+somebody else's branch, and there is no local task it belongs beside.
+
+The review id is the directory name only — `local_2026-09-22T23-42`, with no
+ticket in it, because the directory above already carries the ticket.
+`ambicode view --review <id>` looks through every task directory for it, and
+refuses rather than guesses if two of them hold that id.
+
+## A check waiting for a human
+
+A check can stop and ask before it runs: its command is `propose` in policy,
+or its selection is incomplete, reaches outside the project, or holds more
+test files than `checks.maxSelectedTestFiles` allows. The report names each
+one, its reason, and the exact argv it would execute.
+
+**While any check is waiting, `review` stops at the evidence and invokes no
+reviewer.** There is no finding list, and the omissions say why rather than
+presenting an empty one. Answer every waiting key and re-run once:
+
+```sh
+ambicode review --approve app/unit --decline app/e2e
+```
+
+Both options are repeatable, and one key answers one run: neither authorizes
+the same check next time. `--decline` leaves the check skipped exactly as an
+unauthorized one is — it never widens or substitutes a run — and the result
+records that a human was asked and said no, which is a gap in verification
+somebody chose rather than one nobody noticed.
+
+The reason for stopping is arithmetic, not ceremony. Check evidence is part
+of the reviewer prompt, so running the reviewer while a check is unresolved
+buys a review of evidence that is about to change, and the same review is
+paid for again afterwards. Measured on a real task: 187s of reviewer time
+with the unit check skipped over a selection limit, then 233s more for the
+identical review once the human had approved it — 233s whose only new
+information was one check result. Stopping first makes that run cost what
+`bundle` costs.
+
+A failed or skipped check is different and does **not** stop anything: it is
+settled evidence, it narrows what the review verified, and the review runs.
+
 ## Review input limits
 
 `review.maxContextBytes` bounds **everything the model is handed**, measured in
@@ -294,6 +381,65 @@ Exceeding it refuses the review and names each measured component. Nothing is
 trimmed to fit: not the change, not a requirement. The one discretionary part is
 unchanged sibling context, which stops at the remaining budget and reports what
 it left out.
+
+Two snapshot ceilings sit below the configurable limits and are not settings:
+262,144 bytes per mirrored file and 4,194,304 in total. Raising
+`review.maxContextBytes` does not move them, so one oversized generated file
+can make a whole change unreviewable — measured on a 299-file merge request
+that stopped at a 390,029-byte translation JSON.
+
+`--exclude <glob>`, repeatable, and `review.excludePaths` are the way through.
+Matching paths join the built-in exclusions: out of the patch, out of the
+mirror, out of every count. `--only <glob>` is its counterpart, for a working
+tree holding more than the work in hand: nothing outside it is reviewed, and a
+file renamed *into* the selection is in it.
+
+The result's omissions name the patterns and each path they removed, because
+the review then covers part of a change and has to read as one. A refusal names
+every oversized path at once rather than the first, so one pass tells you
+everything you have to decide about. Narrowing to nothing is refused
+(`nothing-to-review`), and so is a target with no changed files at all: a
+reviewer is never spent on an empty change.
+
+## What gathering the context costs
+
+**A merge-request review fetches the change and nothing else.** The diff, and
+the full content of the files the diff touches. Not the unchanged files beside
+them, and not the repository.
+
+A local review still takes its neighbours: reading them is a filesystem call.
+Over the API each one is a request, and on MR 2677 they were 94 of the 141
+files mirrored and 19 directory listings on top — two thirds of the requests
+and half the mirrored bytes, spent on code the merge request does not touch.
+Either way, whatever a review does not hold is in its omissions: an absent
+neighbour means "not read", never "nothing there".
+
+The changed files themselves are fetched in one GraphQL query per hundred
+paths rather than one request each. The reply carries every blob's own
+`rawSize`, and a body that does not weigh exactly that — a binary blob, a
+re-encoded one, a path GitLab left out of a capped page — is not used at all;
+that file is read the per-file way, where bytes are classified before they are
+decoded. So the batch is an optimization that cannot change an answer, only
+the number of requests it took.
+
+Measured end to end on MR 2677, `bundle --mr` with one `--exclude`:
+
+```
+before   160 requests   68.5s   141 files mirrored   648 KB snapshot
+after      ~9 requests  12.0s    41 files mirrored   223 KB snapshot
+```
+
+Before that, the same gathering had been 1,086 serial requests and about 27.5
+minutes on a 299-file merge request.
+
+### A file kept out does not come back beside the change
+
+Sibling context is filtered through the same patterns that decided what is
+reviewed. It has to be: on MR 2677 the result said the change's test code was
+not reviewed while six of those exact `.spec.ts` files sat in the snapshot as
+neighbours of a changed file, where the reviewer could read them. An exclusion
+that the snapshot quietly undoes is worse than no exclusion, because the report
+claims it happened.
 
 ## Publishing selected comments
 

@@ -26,6 +26,8 @@ import { isBinaryContent } from '../../snapshot/exclusions.ts';
 import { toGitLabPositionFields } from '../position.ts';
 import { GitLabApi, type ApiResult } from './api.ts';
 import {
+  GitLabBlobBatch,
+  GitLabCompare,
   GitLabCreatedDiscussion,
   GitLabDiscussion,
   GitLabFile,
@@ -62,6 +64,33 @@ const GITLINK_MODE = '160000';
  * `collected` and `empty` are the only complete ones; the rest are caps.
  */
 const CAPPED_VERSION_STATES = new Set(['overflow', 'without_files', 'timeout']);
+
+/**
+ * Paths per batched blob query. Two separate ceilings sit just above it, both
+ * measured against gitlab.com:
+ *
+ * - the connection returns at most 100 nodes however many paths were asked
+ *   for, and says so only in `pageInfo`. Asked for 141, it answered 124 — one
+ *   full page plus a second query's 24 — with no error naming the 17 it left
+ *   out.
+ * - the query complexity limit is 250, and this selection costs about 2 per
+ *   path: 118 paths is "complexity of 252, which exceeds max complexity of
+ *   250", 117 is accepted.
+ *
+ * So 100 is the real limit, and `hasNextPage` is still checked, because a
+ * server with a smaller page is the same failure with a different number.
+ */
+const MAX_BLOB_BATCH_PATHS = 100;
+
+/**
+ * `rawTextBlob` is empty for anything GitLab does not serve as text, and
+ * `rawSize` is the blob's own byte length — which is what makes the answer
+ * checkable rather than trusted.
+ */
+const BLOB_BATCH_QUERY =
+  'query($project:ID!,$paths:[String!]!,$ref:String!){' +
+  'project(fullPath:$project){repository{blobs(paths:$paths,ref:$ref){' +
+  'pageInfo{hasNextPage} nodes{path rawSize rawTextBlob}}}}}';
 
 export interface GitLabProviderOptions {
   runner: ProcessRunner;
@@ -218,8 +247,7 @@ export class GitLabProvider implements ReviewProvider {
     }
 
     const omissions: string[] = [];
-    const files: RemoteFetchedFile[] = [];
-    const sections: string[] = [];
+    const delivered: RemoteFetchedFile[] = [];
     const symlinkPaths = new Set<string>();
 
     for (const entry of version.value.diffs) {
@@ -230,11 +258,39 @@ export class GitLabProvider implements ReviewProvider {
         );
       }
       if (file.symlink && file.newPath !== null) symlinkPaths.add(file.newPath);
-      files.push(file);
-      sections.push(file.patchSection);
+      delivered.push(file);
     }
 
-    const coverage = assessCoverage(version.value, files);
+    // Coverage is judged on what GitLab delivered, before anything below
+    // narrows it: dropping a file here must never read as GitLab withholding one.
+    const coverage = assessCoverage(version.value, delivered);
+
+    // A merge request's diff is against the merge base, which for a long-lived
+    // branch is far behind the target. Measured on MR 2677: 299 changed files,
+    // of which 249 were byte-identical to the target branch already — including
+    // package-lock.json and 15 of 16 translation bundles, which between them
+    // blocked the review twice on the per-file ceiling. Reviewing them asks the
+    // reader about work that merging would not change.
+    const stillDiffers = await this.pathsDifferingFromTarget(api, target);
+    const files =
+      stillDiffers === null
+        ? delivered
+        : delivered.filter((file) => {
+            const named = file.newPath ?? file.oldPath;
+            return named === null || stillDiffers.has(named);
+          });
+    const dropped = delivered.length - files.length;
+    if (stillDiffers === null) {
+      omissions.push(
+        'Whether each changed file still differs from the target branch could not be established, so the whole merge-request diff was reviewed, including any part of it that is already on the target branch.',
+      );
+    } else if (dropped > 0) {
+      omissions.push(
+        `${dropped} of the merge request's ${delivered.length} changed file(s) are already identical to ${target.projectPath}'s target branch at ${target.startSha.slice(0, 12)}, so merging changes nothing in them and they were not reviewed. The ${files.length} file(s) that would actually change were.`,
+      );
+    }
+
+    const sections = files.map((file) => file.patchSection);
     for (const gap of coverage.gaps) {
       if (gap.kind === 'file-truncated') continue; // Already reported above.
       omissions.push(gap.detail);
@@ -253,6 +309,7 @@ export class GitLabProvider implements ReviewProvider {
       patch: sections.join(''),
       read: (relativePath) => content.read(relativePath),
       list: (directoryName) => content.list(directoryName),
+      prime: (relativePaths) => content.prime(relativePaths),
       omissions,
       coverage,
     });
@@ -465,6 +522,42 @@ export class GitLabProvider implements ReviewProvider {
     });
   }
 
+  /**
+   * The changed paths that still differ between the target branch and the
+   * merge request head, or null when that could not be established.
+   *
+   * One `repository/compare` call, not one read per file. Null rather than an
+   * empty set on any doubt — a partial answer would silently narrow the review,
+   * which is the one failure this is not allowed to cause. `compare_timeout` is
+   * GitLab saying so itself.
+   *
+   * This only ever removes files from GitLab's own diff, so it cannot invent a
+   * change: a file the branch never touched is not in that diff to begin with,
+   * and so cannot arrive here as a phantom revert of the target branch's work.
+   * Measured on MR 2677: of 50 paths differing from the target, 0 were absent
+   * from the merge request's own 299-file diff.
+   */
+  private async pathsDifferingFromTarget(
+    api: GitLabApi,
+    target: RemoteTarget,
+  ): Promise<Set<string> | null> {
+    if (sameSha(target.startSha, target.headSha)) return null;
+    const compared = await api.request(
+      {
+        path: `projects/${encodeProjectIdentity(target.projectId)}/repository/compare`,
+        query: { from: target.startSha, to: target.headSha, straight: 'true' },
+      },
+      GitLabCompare,
+    );
+    if (compared.kind !== 'ok' || compared.value.compare_timeout) return null;
+    const paths = new Set<string>();
+    for (const entry of compared.value.diffs) {
+      if (entry.new_path !== '') paths.add(entry.new_path);
+      if (entry.old_path !== '') paths.add(entry.old_path);
+    }
+    return paths;
+  }
+
   private fail<T>(
     operation: Parameters<typeof providerFailed>[1],
     result: Exclude<ApiResult<unknown>, { kind: 'ok' }>,
@@ -589,6 +682,64 @@ class RemoteContent {
     const value = await this.fetch(relativePath);
     this.files.set(relativePath, value);
     return value;
+  }
+
+  /**
+   * Fetches what the planner is about to read in batches of
+   * `MAX_BLOB_BATCH_PATHS`, instead of one request per file. Measured on MR
+   * 2677's 47 changed files: 47 `repository/files` calls against one query of
+   * 282 KB answered in 1.9s.
+   *
+   * Nothing here is load-bearing. A path this does not resolve — a failed
+   * query, a short page, a blob GitLab will not serve as text, a body whose
+   * length disagrees with the blob's own `rawSize` — is simply left uncached,
+   * and `read` fetches it the old way, where bytes are classified before they
+   * are decoded. So the fast path can only be faster, never a different answer.
+   */
+  async prime(relativePaths: readonly string[]): Promise<void> {
+    // GraphQL addresses a project by its full path. An unreadable fork leaves
+    // the numeric id in its place, which this cannot look up, so that case goes
+    // straight to the per-file reads rather than spending a query to find out.
+    if (!this.target.sourceProjectPath.includes('/')) return;
+    const wanted = relativePaths.filter(
+      (relativePath) => !this.files.has(relativePath) && !this.symlinkPaths.has(relativePath),
+    );
+    for (let start = 0; start < wanted.length; start += MAX_BLOB_BATCH_PATHS) {
+      await this.primeBatch(wanted.slice(start, start + MAX_BLOB_BATCH_PATHS));
+    }
+  }
+
+  private async primeBatch(paths: readonly string[]): Promise<void> {
+    const result = await this.api.graphql(
+      BLOB_BATCH_QUERY,
+      { project: this.target.sourceProjectPath, paths, ref: this.target.headSha },
+      GitLabBlobBatch,
+    );
+    if (result.kind !== 'ok') return;
+
+    const blobs = result.value.data.project?.repository?.blobs;
+    // A capped page is not a short answer: the paths GitLab left out are not
+    // named anywhere, so nothing in this response identifies which of them are
+    // missing rather than absent from the repository.
+    if (blobs === undefined || blobs.pageInfo.hasNextPage) return;
+
+    for (const node of blobs.nodes) {
+      if (!paths.includes(node.path)) continue;
+      const rawSize = node.rawSize === null ? null : Number(node.rawSize);
+      if (rawSize === null || !Number.isSafeInteger(rawSize)) continue;
+      if (rawSize > MAX_SNAPSHOT_FILE_BYTES) {
+        this.files.set(node.path, { kind: 'too-large', bytes: rawSize });
+        continue;
+      }
+      const text = node.rawTextBlob ?? '';
+      // GraphQL hands back a decoded string, so the byte-level binary test the
+      // per-file path runs cannot be applied here. This equality is the stand-in
+      // and it is strict: a binary blob comes back as an empty string against a
+      // non-zero `rawSize`, and anything GitLab re-encoded fails it too. Both
+      // fall through to `fetch`, which sees the actual bytes.
+      if (Buffer.byteLength(text, 'utf8') !== rawSize) continue;
+      this.files.set(node.path, rawSize === 0 ? { kind: 'text', text: '' } : { kind: 'text', text });
+    }
   }
 
   private async fetch(relativePath: string): Promise<FetchedContent | null> {

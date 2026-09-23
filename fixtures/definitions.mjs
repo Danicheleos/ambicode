@@ -39,6 +39,69 @@ const JEST_MANIFEST = JSON.stringify(
   2,
 );
 
+/**
+ * The eight locale files of `ts-locale-decoys`, written together as a real
+ * translation export writes them. They carry the ticket's own prose — the
+ * words a requirement uses — and none of the code's identifiers.
+ */
+const LOCALES = ['de', 'es', 'fr', 'it', 'ja', 'nl', 'pt', 'zh'];
+
+function localeFiles(maximum) {
+  const files = {};
+  for (const locale of LOCALES) {
+    files[`src/assets/i18n/${locale}.json`] = `${JSON.stringify(
+      {
+        orders: {
+          'ORD-17': { title: 'Order/Refund', 'ORD-17-1': `Refund Limit has to be below ${maximum}` },
+        },
+      },
+      null,
+      2,
+    )}\n`;
+  }
+  return files;
+}
+
+
+/**
+ * Unrelated feature code, so `ts-locale-decoys` is a project rather than a
+ * handful of files. The breadth guard measures a term against the size of
+ * what it searched, and in a sixteen-file repository ten matches genuinely
+ * are most of the project — the guard would be right and the fixture wrong.
+ */
+function fillerFiles() {
+  const files = {};
+  for (const feature of ['billing', 'catalog', 'profile', 'search', 'shipping', 'support']) {
+    files[`src/features/${feature}/${feature}.service.ts`] = `export const ${feature} = () => 0;\n`;
+    files[`src/features/${feature}/${feature}.component.ts`] =
+      `export class ${feature[0].toUpperCase()}${feature.slice(1)}Component {}\n`;
+    files[`src/features/${feature}/${feature}.service.spec.ts`] =
+      `import { ${feature} } from './${feature}.service.ts';\n\ntest('runs', () => { expect(${feature}()).toBe(0); });\n`;
+  }
+  // Path coordinates, which are where a numeric term goes wrong: joining the
+  // words of "250.5" gives "2505", and the `41.2505` below contains it. Real
+  // illustrations put five such files in the top twenty of a shortlist for a
+  // ticket that raised a numeric limit.
+  files['src/assets/illustrations/outline.svg'] =
+    '<svg><path d="M25 74V74.0856L28.7378 41.2505L25.6763 73.9141Z"/></svg>\n';
+  return files;
+}
+
+/**
+ * Unrelated code for `polyglot-spellings`, in the same three ecosystems and
+ * under the same three roots as the files the terms are meant to find, so a
+ * hit there is a hit on the name rather than on the language or the layout.
+ */
+function polyglotFiller() {
+  const files = {};
+  for (const name of ['billing', 'catalog', 'profile', 'search', 'shipping', 'support']) {
+    files[`services/${name}/${name}.py`] = `def ${name}():\n    return 0\n`;
+    files[`internal/${name}/${name}.go`] = `package ${name}\n\nconst Zero = 0\n`;
+    files[`lib/${name}/${name}.c`] = `int ${name}(void) { return 0; }\n`;
+  }
+  return files;
+}
+
 export const FIXTURES = [
   {
     name: 'ts-staged-unstaged',
@@ -376,6 +439,162 @@ export const FIXTURES = [
             'COSTS = {"eu": 5, "us": 9, "apac": 14}\n\n\ndef cost(region):\n    if region == "eu":\n        return 5\n    else:\n        if region == "us":\n            return 9\n        else:\n            if region == "apac":\n                return 14\n            else:\n                return 20\n',
         },
       },
+    ],
+  },
+  {
+    name: 'ts-feature-boundary',
+    summary:
+      'An invoice feature spread across a model, a service, a route and a test, with decoy files that only share the keyword.',
+    covers: ['boundary shortlist', 'co-change signal', 'keyword decoys'],
+    steps: [
+      {
+        write: {
+          '.gitignore': STANDARD_IGNORE,
+          'package.json': JEST_MANIFEST,
+          'eslint.config.mjs': ESLINT_CONFIG,
+          'src/app.ts': "export const app = 'fixture';\n",
+          // The users feature gives the repository history that has nothing to
+          // do with invoices, so co-change has something to be wrong about.
+          'src/users/model.ts': 'export interface User { id: string; name: string }\n',
+          'src/users/service.ts':
+            "import type { User } from './model.ts';\n\nexport const rename = (user: User, name: string): User => ({ ...user, name });\n",
+          'src/routes/users.ts': "export const usersRoute = '/users';\n",
+          'tests/users.test.ts':
+            "import { rename } from '../src/users/service.ts';\n\ntest('renames', () => { expect(rename({ id: 'a', name: 'a' }, 'b').name).toBe('b'); });\n",
+          // Decoys. Each carries the keyword and none of them belongs to the
+          // boundary: one has it in its filename, two only in their prose.
+          'src/legacy/invoice-export.ts':
+            '// Retired in 2019; kept so the old invoice export links still resolve.\nexport const legacyInvoiceExport = null;\n',
+          'src/reports/monthly.ts':
+            '// Totals every invoice of the month, reading the reporting replica.\nexport const monthly = () => 0;\n',
+          'docs/glossary.md': '# Glossary\n\n**Invoice** - what a customer is asked to pay.\n',
+        },
+      },
+      { commit: 'init' },
+      // The boundary arrives whole: model, service, route and test together.
+      {
+        write: {
+          'src/invoices/model.ts': 'export interface Invoice { id: string; amountCents: number }\n',
+          'src/invoices/service.ts':
+            "import type { Invoice } from './model.ts';\n\nexport const total = (invoice: Invoice): number => invoice.amountCents;\n",
+          'src/routes/invoices.ts':
+            "import { total } from '../invoices/service.ts';\n\nexport const invoicesRoute = { path: '/invoices', total };\n",
+          'tests/invoices.test.ts':
+            "import { total } from '../src/invoices/service.ts';\n\ntest('totals', () => { expect(total({ id: 'a', amountCents: 100 })).toBe(100); });\n",
+        },
+      },
+      { commit: 'invoices: add the invoice boundary' },
+      // Twice more, all four at once: that habit is the co-change signal.
+      {
+        write: {
+          'src/invoices/model.ts':
+            'export interface Invoice { id: string; amountCents: number; currency: string }\n',
+          'src/invoices/service.ts':
+            "import type { Invoice } from './model.ts';\n\nexport const total = (invoice: Invoice): number => {\n  if (invoice.amountCents < 0) throw new Error('negative amount');\n  return invoice.amountCents;\n};\n",
+          'src/routes/invoices.ts':
+            "import { total } from '../invoices/service.ts';\n\nexport const invoicesRoute = { path: '/invoices', total, currency: true };\n",
+          'tests/invoices.test.ts':
+            "import { total } from '../src/invoices/service.ts';\n\ntest('rejects a negative amount', () => {\n  expect(() => total({ id: 'a', amountCents: -1, currency: 'EUR' })).toThrow();\n});\n",
+        },
+      },
+      { commit: 'invoices: reject a negative amount' },
+      {
+        write: {
+          'src/invoices/model.ts':
+            'export interface Invoice { id: string; amountCents: number; currency: string; taxCents: number }\n',
+          'src/invoices/service.ts':
+            "import type { Invoice } from './model.ts';\n\nexport const total = (invoice: Invoice): number => {\n  if (invoice.amountCents < 0) throw new Error('negative amount');\n  return invoice.amountCents + invoice.taxCents;\n};\n",
+          'src/routes/invoices.ts':
+            "import { total } from '../invoices/service.ts';\n\nexport const invoicesRoute = { path: '/invoices', total, currency: true, tax: true };\n",
+          'tests/invoices.test.ts':
+            "import { total } from '../src/invoices/service.ts';\n\ntest('adds tax', () => {\n  expect(total({ id: 'a', amountCents: 100, currency: 'EUR', taxCents: 20 })).toBe(120);\n});\n",
+        },
+      },
+      { commit: 'invoices: add tax to the total' },
+      // Unrelated work last, so the newest commit is not the feature's.
+      {
+        write: {
+          'src/users/service.ts':
+            "import type { User } from './model.ts';\n\nexport const rename = (user: User, name: string): User => ({ ...user, name: name.trim() });\n",
+        },
+      },
+      { commit: 'users: trim the new name' },
+    ],
+  },
+  {
+    name: 'ts-locale-decoys',
+    summary:
+      "A ticket whose words live in a bulk-maintained translation family, while the code it is about spells those words as a path.",
+    covers: ['boundary shortlist', 'prose decoys', 'term separator forms'],
+    steps: [
+      {
+        write: {
+          '.gitignore': STANDARD_IGNORE,
+          'package.json': JEST_MANIFEST,
+          'eslint.config.mjs': ESLINT_CONFIG,
+          // The translation family. Every locale carries the ticket's own
+          // words, and the export tooling rewrites the whole set together, so
+          // they co-change perfectly and that tells nobody which one to open.
+          ...localeFiles('250.5'),
+          // The code the ticket is actually about. It never writes "Order/Refund":
+          // a directory spells it `order-refund` and an identifier `orderRefund`.
+          'src/features/orders/order-refund/services/order-refund-form.service.ts':
+            "import { RefundThresholds } from '../../constants/refund-limits.constants.ts';\n\nexport const orderRefundForm = () => ({ refundLimit: RefundThresholds.max });\n",
+          'src/features/orders/order-refund/services/order-refund-form.service.spec.ts':
+            "import { orderRefundForm } from './order-refund-form.service.ts';\n\ntest('caps the refund limit', () => { expect(orderRefundForm().refundLimit).toBe(500); });\n",
+          'src/features/orders/constants/refund-limits.constants.ts':
+            'export const RefundThresholds = { min: 0.1, max: 500 };\n',
+          // The trap an agent's own guessed term walks into: directories named
+          // for the concept, holding nothing this ticket touches.
+          'src/features/orders/validators/order-frequency.validators.ts':
+            'export const frequency = () => null;\n',
+          'src/validators/number.validators.ts': 'export const number = () => null;\n',
+          ...fillerFiles(),
+        },
+      },
+      { commit: 'init' },
+      { write: localeFiles('500.0') },
+      { commit: 'i18n: sync every locale from the export' },
+      { write: localeFiles('500.0 EUR') },
+      { commit: 'i18n: sync every locale from the export again' },
+      {
+        write: {
+          'src/features/orders/constants/refund-limits.constants.ts':
+            'export const RefundThresholds = { min: 0.1, max: 500.0 };\n',
+          'src/features/orders/order-refund/services/order-refund-form.service.spec.ts':
+            "import { orderRefundForm } from './order-refund-form.service.ts';\n\ntest('caps the refund limit', () => { expect(orderRefundForm().refundLimit).toBe(500.0); });\n",
+        },
+      },
+      { commit: 'orders: restate the refund limit' },
+    ],
+  },
+  {
+    name: 'polyglot-spellings',
+    summary:
+      'One name, written the way five ecosystems write it, under five unrelated roots.',
+    covers: ['boundary shortlist', 'term separator forms', 'language independence'],
+    steps: [
+      {
+        write: {
+          '.gitignore': STANDARD_IGNORE,
+          // Python: a snake_case package directory.
+          'services/order_refund/refund_limits.py':
+            'ORDER_REFUND_MAX = 500.0\n\n\ndef refund_limit():\n    return ORDER_REFUND_MAX\n',
+          // Java: a package directory with the separator dropped entirely.
+          'platform/src/main/java/com/acme/orderrefund/RefundLimits.java':
+            'package com.acme.orderrefund;\n\npublic final class RefundLimits {\n  public static final double MAX = 500.0;\n}\n',
+          // Go: one lowercase word for the package, CamelCase for the export.
+          'internal/orderrefund/limits.go': 'package orderrefund\n\nconst OrderRefundMax = 500.0\n',
+          // C: a snake_case directory and an upper-snake macro.
+          'lib/order_refund/limits.c':
+            '#define ORDER_REFUND_MAX 500.0\n\ndouble order_refund_max(void) { return ORDER_REFUND_MAX; }\n',
+          // Ruby: a hyphenated directory, which no compiler asks for and many
+          // projects use anyway.
+          'app/order-refund/limits.rb': 'module OrderRefund\n  MAX = 500.0\nend\n',
+          ...polyglotFiller(),
+        },
+      },
+      { commit: 'init' },
     ],
   },
   {

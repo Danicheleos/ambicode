@@ -6,6 +6,7 @@ import path from 'node:path';
 import { DEFAULTS } from '../config/defaults.ts';
 import { TempRepo } from '../testing/temp-repo.ts';
 import { enforceReviewInputLimits, measureInput, partitionChange } from './limits.ts';
+import { pathExclusionReason } from './exclusions.ts';
 import { buildSnapshot, planSnapshot } from './snapshot.ts';
 import { resolveBranchTarget, resolveWorkingTarget } from './target.ts';
 import { nodeFileSystem } from '../ports/filesystem.ts';
@@ -307,7 +308,242 @@ test('U09 a changed file that will not fit blocks the review instead of being om
       assert.ok(error.details.some((detail) => detail.includes('src/huge.ts')));
       assert.ok(error.details.some((detail) => detail.includes('not configurable')));
       assert.ok(error.details.some((detail) => detail.includes('does not review part of a change')));
+      // Run 21f23317 ended here: the refusal named no way out, so "ignore the
+      // limit" had nothing behind it and the only route left was editing the
+      // installed bundle.
+      assert.ok(
+        error.details.some((detail) => detail.includes('--exclude')),
+        `the refusal must name the escape; got ${JSON.stringify(error.details)}`,
+      );
       return true;
     },
   );
+});
+
+test('U09 a path the operator excludes leaves the review instead of blocking it', async (t) => {
+  const repo = await TempRepo.create();
+  t.after(() => repo.dispose());
+
+  // MR 2677 (run 21f23317): main/assets/i18n/cs.json is 390,029 bytes against
+  // the 262,144-byte per-file ceiling, so one generated translation file
+  // blocked a 299-file review and no configurable limit could unblock it.
+  await repo.write('src/app.ts', 'export const value = 0;\n');
+  await repo.commitAll('init');
+  await repo.write('src/app.ts', 'export const value = 1;\n');
+  await repo.write('assets/i18n/cs.json', `{"a":"${'x'.repeat(300_000)}"}\n`);
+
+  const resolution = await resolveWorkingTarget({ fs: nodeFileSystem, git: repo.git, repositoryRoot: repo.root });
+  const reviewable = partitionChange(resolution.files, { exclude: ['assets/i18n/**'] });
+
+  assert.deepEqual(reviewable.files.map((file) => file.newPath), ['src/app.ts']);
+  assert.doesNotMatch(reviewable.patch, /i18n/, 'an excluded path leaves the patch too');
+  const excluded = reviewable.excluded.find((entry) => entry.path === 'assets/i18n/cs.json');
+  assert.ok(excluded, 'the exclusion is reported, not silent');
+  assert.match(excluded.reason, /pattern/i);
+
+  const plan = await planSnapshot({
+    files: reviewable.files,
+    content: resolution.content,
+    includeSiblingContext: false,
+  });
+  assert.deepEqual(plan.changedPaths, ['src/app.ts']);
+
+  // It also stops counting against the limits it was blocking.
+  const measured = measureInput(reviewable.files, reviewable.patch, { snapshotBytes: plan.totalBytes });
+  assert.equal(measured.changedFiles, 1);
+  assert.doesNotThrow(() => enforceReviewInputLimits(measured, DEFAULTS.review, reviewable.files));
+});
+
+/**
+ * A `ContentSource` that counts reads, because for a merge request each one is
+ * a `glab` subprocess measured at 1.52s (F6). The count is the cost.
+ */
+function countingSource(files: Map<string, string>, tree: Map<string, string[]>) {
+  const reads: string[] = [];
+  const lists: string[] = [];
+  return {
+    reads,
+    lists,
+    source: {
+      pinning: 'counted',
+      digest: 'counted',
+      async read(relativePath: string) {
+        reads.push(relativePath);
+        const text = files.get(relativePath);
+        if (text === undefined) return null;
+        const bytes = Buffer.byteLength(text, 'utf8');
+        if (bytes > 262_144) return { kind: 'too-large' as const, bytes };
+        return { kind: 'text' as const, text };
+      },
+      async list(directoryName: string) {
+        lists.push(directoryName);
+        return tree.get(directoryName) ?? [];
+      },
+    },
+  };
+}
+
+function diffFile(newPath: string) {
+  return {
+    oldPath: newPath,
+    newPath,
+    changeKind: 'modified' as const,
+    addedLines: 1,
+    removedLines: 0,
+    binary: false,
+    hunks: [],
+    patchSection: `--- a/${newPath}\n+++ b/${newPath}\n@@ -1 +1 @@\n-old\n+new\n`,
+  };
+}
+
+test('U09 every file over the per-file ceiling is named in one refusal, not one per run', async () => {
+  // Run ce05d377 paid for this twice: 15.7s to be told about
+  // main/assets/i18n/cs.json, then 385.6s to be told about package-lock.json,
+  // with a question to the user between them. A third was still to come.
+  const huge = 'x'.repeat(300_000);
+  const files = new Map([
+    ['src/app.ts', 'export const a = 1;\n'],
+    ['assets/i18n/cs.json', huge],
+    ['package-lock.json', huge],
+  ]);
+  const counted = countingSource(files, new Map());
+
+  await assert.rejects(
+    () =>
+      planSnapshot({
+        files: [diffFile('src/app.ts'), diffFile('assets/i18n/cs.json'), diffFile('package-lock.json')],
+        content: counted.source,
+        includeSiblingContext: false,
+      }),
+    (error: Error & { code: string; details: string[] }) => {
+      assert.equal(error.code, 'snapshot-too-large');
+      const text = error.details.join('\n');
+      assert.match(text, /assets\/i18n\/cs\.json/);
+      assert.match(text, /package-lock\.json/, 'the second oversized file must be in the same refusal');
+      assert.match(text, /--exclude "assets\/i18n\/cs\.json"/);
+      assert.match(text, /--exclude "package-lock\.json"/);
+      return true;
+    },
+  );
+
+  // One pass, not one pass per oversized file.
+  assert.deepEqual(counted.reads, ['src/app.ts', 'assets/i18n/cs.json', 'package-lock.json']);
+});
+
+test('U09 sibling context stops reading once it cannot use what it reads', async () => {
+  // MR 2677: 181 directories holding 606 unchanged siblings, every one fetched
+  // at 1.52s and most discarded for budget — 15.4 minutes of thrown-away work.
+  const files = new Map<string, string>([['src/app.ts', 'export const a = 1;\n']]);
+  const siblings: string[] = [];
+  for (let index = 0; index < 400; index += 1) {
+    const name = `src/neighbour-${index}.ts`;
+    siblings.push(name);
+    files.set(name, `${'// context\n'.repeat(200)}`);
+  }
+  const counted = countingSource(files, new Map([['src', ['src/app.ts', ...siblings]]]));
+
+  const plan = await planSnapshot({
+    files: [diffFile('src/app.ts')],
+    content: counted.source,
+    // Room for a handful of the 2,000-byte neighbours, not 400 of them.
+    contextBudgetBytes: 20_000,
+  });
+
+  const siblingReads = counted.reads.filter((read) => read !== 'src/app.ts').length;
+  assert.ok(
+    siblingReads <= 120,
+    `read ${siblingReads} of 400 siblings for a 20,000-byte budget; reading past the budget is the cost`,
+  );
+  assert.ok(plan.entries.length > 1, 'it still gathered the context that fits');
+  assert.ok(
+    plan.omissions.some((line) => /context/i.test(line)),
+    'what it stopped short of is reported',
+  );
+});
+
+test('U09 test files are told apart from product code by unambiguous markers only', () => {
+  // 60 of MR 2677's 299 changed files are `.spec.ts`; the rest is what the
+  // reviewer's budget should go to. The directory rules matched nothing in that
+  // repository and are here for the ecosystems that use them.
+  const tests = [
+    'main/components/assessment-form.component.spec.ts',
+    'src/orders.test.tsx',
+    'internal/server_test.go',
+    'lib/parser_spec.rb',
+    'api/tests/test_orders.py',
+    'api/conftest.py',
+    'web/__tests__/checkout.ts',
+    'web/__mocks__/stripe.ts',
+    'e2e/login.ts',
+    'cypress/support/commands.ts',
+    'web/checkout.cy.ts',
+    'server/src/test/java/OrdersTest.java',
+    'lib/spec/helper.rb',
+  ];
+  for (const candidate of tests) {
+    assert.equal(
+      pathExclusionReason(candidate, { excludeTests: true }),
+      'test-file',
+      `${candidate} should read as a test file`,
+    );
+  }
+
+  // Not tests. A silent over-exclusion drops product code from a review, so
+  // "fixtures", "testdata" and a file merely *named* after testing are left in:
+  // this repository's own `fixtures/` holds shipped fixture repositories.
+  const code = [
+    'main/components/assessment-form.component.ts',
+    'src/testing/fake-process-runner.ts',
+    'src/util/contest.ts',
+    'fixtures/materialize.mjs',
+    'api/testdata/orders.json',
+    'src/latest.ts',
+    'docs/testing.md',
+  ];
+  for (const candidate of code) {
+    assert.equal(
+      pathExclusionReason(candidate, { excludeTests: true }),
+      null,
+      `${candidate} is product code and must stay in the review`,
+    );
+  }
+
+  // Off unless asked for: a local review of your own work should see the tests
+  // it just wrote.
+  assert.equal(pathExclusionReason('src/orders.spec.ts'), null);
+});
+
+test('U09 a file kept out of the review does not come back as context beside it', async (t) => {
+  const repo = await TempRepo.create();
+  t.after(() => repo.dispose());
+
+  await repo.write('src/app.ts', 'export const value = 0;\n');
+  await repo.write('src/app.spec.ts', 'it("works", () => {});\n');
+  await repo.write('src/secret.env.ts', 'export const token = "a";\n');
+  await repo.commitAll('init');
+  await repo.write('src/app.ts', 'export const value = 1;\n');
+
+  const resolution = await resolveWorkingTarget({ fs: nodeFileSystem, git: repo.git, repositoryRoot: repo.root });
+
+  // Measured on MR 2677 before this: the result said "the change's test code
+  // was not reviewed" while six of those .spec.ts files were in the snapshot,
+  // put back as neighbours of a changed file and readable by the reviewer.
+  const excluded = await planSnapshot({
+    files: partitionChange(resolution.files).files,
+    content: resolution.content,
+    operator: { excludeTests: true, exclude: ['src/secret.env.ts'] },
+  });
+  assert.deepEqual(
+    excluded.entries.map((entry) => entry.path).filter((each) => each !== 'src/app.ts'),
+    [],
+    'nothing the patterns removed may be mirrored as context',
+  );
+
+  // Without those patterns the same neighbour is ordinary context, so the test
+  // above is about the patterns and not about the file being uninteresting.
+  const included = await planSnapshot({
+    files: partitionChange(resolution.files).files,
+    content: resolution.content,
+  });
+  assert.ok(included.entries.some((entry) => entry.path === 'src/app.spec.ts'));
 });

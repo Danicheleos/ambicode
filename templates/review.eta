@@ -241,8 +241,14 @@
 </form>
 <% } %>
 
+<form method="post" action="/close" class="close-row">
+  <input type="hidden" name="_csrf" value="<%= it.csrfToken %>">
+  <button type="submit">Close the page</button>
+  <span>Stops this local server. Publishing nothing is a complete answer, and anything you typed is already saved.</span>
+</form>
+
 <footer>
-  <p>This page is served from 127.0.0.1 by your own <code>ambicode view</code> process. It holds no GitLab, model or other credential, and it stops when you close it or it idles out.</p>
+  <p>This page is served from 127.0.0.1 by your own <code>ambicode view</code> process. It holds no GitLab, model or other credential. Closing the browser tab does not stop it &mdash; use the button above, or leave it to idle out.</p>
 </footer>
 </main>
 </body>

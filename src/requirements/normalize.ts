@@ -6,7 +6,9 @@ import {
   type ProvenanceEntry,
   type RequirementMode,
 } from '../contracts/requirements.ts';
+import { MAX_EVIDENCE_BYTES } from '../config/defaults.ts';
 import type { FileSystem } from '../ports/filesystem.ts';
+import type { StandardInput } from '../ports/stdin.ts';
 import { AmbicodeError } from '../util/errors.ts';
 import { contentHash } from '../util/hash.ts';
 
@@ -69,6 +71,54 @@ export const SOURCE_FREE: NormalizedRequirements = {
   provenance: [],
 };
 
+/**
+ * Where a requirement envelope comes from. `-` means standard input, so a
+ * skill that needs to pass the same evidence to two commands pipes it twice
+ * instead of owning a temporary file's whole lifecycle across an arbitrary
+ * number of consumers (R2 change 4). A path still works unchanged.
+ */
+export type EvidenceSource = { kind: 'stdin' } | { kind: 'file'; path: string };
+
+/** Standard input reduced to what an envelope reader needs. */
+export interface EvidenceInput {
+  fs: FileSystem;
+  stdin: StandardInput;
+}
+
+/** The envelope, from wherever `--evidence` named. Failure to read is failure to run. */
+export async function loadRequirementEvidence(
+  io: EvidenceInput,
+  source: EvidenceSource,
+): Promise<RequirementEvidence> {
+  if (source.kind === 'file') return readRequirementEvidence(io.fs, source.path);
+
+  const raw = await io.stdin.read(MAX_EVIDENCE_BYTES);
+  if (raw === null) {
+    throw new AmbicodeError(
+      'requirements-unreadable',
+      `The requirement evidence piped on standard input exceeds ${MAX_EVIDENCE_BYTES} bytes.`,
+      {
+        field: '--evidence -',
+        details: [
+          'Nothing was normalized: a partially read envelope is not evidence.',
+          'Supply fewer or smaller requirement sources.',
+        ],
+      },
+    );
+  }
+  if (raw.trim() === '') {
+    throw new AmbicodeError(
+      'requirements-unreadable',
+      '"--evidence -" was given but standard input was empty.',
+      {
+        field: '--evidence -',
+        details: ['Pipe the evidence envelope the retrieving session built, or omit --evidence.'],
+      },
+    );
+  }
+  return parseRequirementEvidence(raw, 'standard input');
+}
+
 /** Reads the envelope a skill wrote. Failure to read is failure to review. */
 export async function readRequirementEvidence(
   fs: FileSystem,
@@ -86,13 +136,17 @@ export async function readRequirementEvidence(
       ],
     });
   }
+  return parseRequirementEvidence(raw, filePath);
+}
 
+/** One parser for both sources, so a piped envelope is judged identically to a file. */
+function parseRequirementEvidence(raw: string, where: string): RequirementEvidence {
   let document: unknown;
   try {
     document = JSON.parse(raw);
   } catch (cause) {
-    throw new AmbicodeError('requirements-unparsable', 'The requirement evidence file is not valid JSON.', {
-      field: filePath,
+    throw new AmbicodeError('requirements-unparsable', 'The requirement evidence is not valid JSON.', {
+      field: where,
       details: [cause instanceof Error ? cause.message : String(cause)],
     });
   }
@@ -101,8 +155,8 @@ export async function readRequirementEvidence(
   if (!parsed.success) {
     throw new AmbicodeError(
       'requirements-invalid',
-      'The requirement evidence file does not match the expected shape.',
-      { field: filePath, details: describeIssues(parsed.error) },
+      'The requirement evidence does not match the expected shape.',
+      { field: where, details: describeIssues(parsed.error) },
     );
   }
   return parsed.data;

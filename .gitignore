@@ -26,6 +26,7 @@ __pycache__/
 # Local planning and research inputs
 /plan/
 /research/
+/review/
 
 # Operating-system and editor metadata (at any depth)
 .DS_Store
@@ -35,3 +36,4 @@ Thumbs.db
 *.swp
 *.swo
 *~
+.ambicode

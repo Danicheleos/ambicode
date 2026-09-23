@@ -9,6 +9,7 @@ import { createRuntime, type Runtime } from '../composition/root.ts';
 import type {
   ProviderIdentity,
   DiscussionListing,
+  FetchSnapshotRequest,
   FetchedSnapshot,
   ProviderOutcome,
   PublishCommentRequest,
@@ -60,12 +61,36 @@ const PATCH = [
   '',
 ].join('\n');
 
+const REMOTE_SPEC = [
+  "import { total } from './orders.ts';",
+  '',
+  'it("adds", () => {',
+  '  expect(total([1, 2])).toBe(3);',
+  '});',
+  '',
+].join('\n');
+
+const SPEC_PATCH = [
+  'diff --git a/src/orders.spec.ts b/src/orders.spec.ts',
+  '--- a/src/orders.spec.ts',
+  '+++ b/src/orders.spec.ts',
+  '@@ -1,3 +1,3 @@',
+  " import { total } from './orders.ts';",
+  '-  expect(total([1, 2])).toBe(2);',
+  '+  expect(total([1, 2])).toBe(3);',
+  '',
+].join('\n');
+
 /** Records every call, so "nothing was published" is an assertion, not a hope. */
 class FakeGitLab implements ReviewProvider {
   readonly id = 'gitlab' as const;
   readonly calls: string[] = [];
   readonly published: PublishCommentRequest[] = [];
   discussionsFail = false;
+  /** What the review asked for, so the cost of a remote review is assertable. */
+  snapshotRequest: FetchSnapshotRequest | null = null;
+  readonly listed: string[] = [];
+  readonly primed: string[][] = [];
 
   owns(url: string): boolean {
     return url.includes('/-/merge_requests/');
@@ -76,8 +101,9 @@ class FakeGitLab implements ReviewProvider {
     return { kind: 'ok', value: REMOTE };
   }
 
-  async fetchSnapshot(): Promise<ProviderOutcome<FetchedSnapshot>> {
+  async fetchSnapshot(request: FetchSnapshotRequest): Promise<ProviderOutcome<FetchedSnapshot>> {
     this.calls.push('fetchSnapshot');
+    this.snapshotRequest = request;
     return {
       kind: 'ok',
       value: {
@@ -94,11 +120,33 @@ class FakeGitLab implements ReviewProvider {
             incompleteReason: null,
             patchSection: PATCH,
           },
+          {
+            oldPath: 'src/orders.spec.ts',
+            newPath: 'src/orders.spec.ts',
+            changeKind: 'modified',
+            binary: false,
+            oldMode: '100644',
+            newMode: '100644',
+            symlink: false,
+            incomplete: false,
+            incompleteReason: null,
+            patchSection: SPEC_PATCH,
+          },
         ],
-        patch: PATCH,
+        patch: `${PATCH}${SPEC_PATCH}`,
         read: async (relativePath: string) =>
-          relativePath === 'src/orders.ts' ? { kind: 'text', text: REMOTE_SOURCE } : null,
-        list: async () => [],
+          relativePath === 'src/orders.ts'
+            ? { kind: 'text', text: REMOTE_SOURCE }
+            : relativePath === 'src/orders.spec.ts'
+              ? { kind: 'text', text: REMOTE_SPEC }
+              : null,
+        list: async (directoryName: string) => {
+          this.listed.push(directoryName);
+          return [];
+        },
+        prime: async (relativePaths: readonly string[]) => {
+          this.primed.push([...relativePaths]);
+        },
         omissions: ['src/huge.ts: GitLab marked this file too large to deliver.'],
         coverage: {
           complete: false,
@@ -492,6 +540,107 @@ describe('U18 reviewing a merge request', () => {
       );
     } finally {
       await context.dispose();
+    }
+  });
+});
+
+describe('U18 a merge-request review fetches the change, not the repository', () => {
+  it('asks for no unchanged neighbours, lists no directory, and names its reads once', async () => {
+    const context = await fixture();
+    try {
+      await reviewMr(context.runtime, new FakeReviewer());
+
+      // Measured on MR 2677: 47 changed files, 94 unchanged neighbours and 19
+      // directory listings — 160 requests and 61s, two thirds of it spent on
+      // code the merge request does not touch.
+      assert.equal(context.provider.snapshotRequest?.includeSiblingContext, false);
+      assert.deepEqual(context.provider.listed, [], 'a listing is a request, and there is nothing to list for');
+      // Every path the planner will read, handed over before the first read so
+      // one query can answer them all.
+      assert.deepEqual(context.provider.primed, [['src/orders.ts']]);
+    } finally {
+      await context.dispose();
+    }
+  });
+
+  it('says the reviewer had only the change, rather than leaving it to be assumed', async () => {
+    const context = await fixture();
+    try {
+      const output = await reviewMr(context.runtime, new FakeReviewer());
+      assert.ok(
+        output.result.omissions.some((line) => line.includes('Only changed files are present')),
+        `a narrower snapshot is stated as coverage; got ${JSON.stringify(output.result.omissions)}`,
+      );
+    } finally {
+      await context.dispose();
+    }
+  });
+});
+
+describe('U18 merge-request review leaves the change test code out', () => {
+  it('reviews the code under test, not the tests, and says so', async () => {
+    const context = await fixture();
+    try {
+      const output = await reviewMr(context.runtime, new FakeReviewer());
+
+      const reviewed = output.result.changedFiles.filter((file) => file.included);
+      assert.deepEqual(reviewed.map((file) => file.newPath), ['src/orders.ts']);
+
+      const spec = output.result.changedFiles.find((file) => file.newPath === 'src/orders.spec.ts');
+      assert.equal(spec?.included, false);
+      assert.match(spec?.exclusionReason ?? '', /test code/);
+
+      // It leaves the patch too, or the reviewer reads it anyway.
+      const patch = await nodeFileSystem.readText(
+        path.join(output.snapshotDirectory, 'changed.diff'),
+      );
+      assert.doesNotMatch(patch, /orders\.spec\.ts/);
+
+      // Nothing ran those files either, so the gap is coverage, not tidiness.
+      assert.ok(
+        output.result.omissions.some(
+          (line) => /test code was not reviewed/.test(line) && /--with-tests/.test(line),
+        ),
+        `the unreviewed tests must be reported; got ${JSON.stringify(output.result.omissions)}`,
+      );
+      await nodeFileSystem.remove(output.snapshotDirectory);
+    } finally {
+      await context.dispose();
+    }
+  });
+
+  it('puts them back with --with-tests, so the exclusion has an exit', async () => {
+    const context = await fixture();
+    try {
+      const output = await reviewMr(context.runtime, new FakeReviewer(), ['--with-tests']);
+      const reviewed = output.result.changedFiles.filter((file) => file.included).map((file) => file.newPath);
+      assert.deepEqual(reviewed.sort(), ['src/orders.spec.ts', 'src/orders.ts']);
+      assert.ok(!output.result.omissions.some((line) => /--with-tests/.test(line)));
+      await nodeFileSystem.remove(output.snapshotDirectory);
+    } finally {
+      await context.dispose();
+    }
+  });
+
+  it('keeps test files in a local review of your own work', async () => {
+    const repo = await TempRepo.create();
+    try {
+      await repo.write('package.json', '{"name":"app","version":"1.0.0"}\n');
+      await repo.write('src/orders.ts', 'export const total = 0;\n');
+      await repo.write('src/orders.spec.ts', 'it("works", () => {});\n');
+      const setup = await createRuntime({ cwd: repo.root });
+      await runInit(setup, parseArgs('init', [], INIT_OPTIONS));
+      await repo.commitAll('initial');
+      await repo.write('src/orders.ts', 'export const total = 1;\n');
+      await repo.write('src/orders.spec.ts', 'it("works", () => { expect(1).toBe(1); });\n');
+
+      const runtime = await createRuntime({ cwd: repo.root });
+      const output = await runBundle(runtime, parseArgs('bundle', [], BUNDLE_OPTIONS));
+      const reviewed = output.result.changedFiles.filter((file) => file.included).map((file) => file.newPath);
+      assert.deepEqual(reviewed.sort(), ['src/orders.spec.ts', 'src/orders.ts']);
+      await nodeFileSystem.remove(output.snapshotDirectory);
+    } finally {
+      await repo.dispose();
     }
   });
 });

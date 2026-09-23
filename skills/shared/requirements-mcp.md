@@ -1,9 +1,11 @@
 # Retrieving Jira/Confluence requirements over MCP
 
 Shared by every AMBICODE skill that accepts a repeatable `--requirement <url>`
-— today `review`, `investigate`, `plan` and `task`. Read this once per
-invocation that has at least one requirement URL. Do not copy this procedure
-into another skill file; if a future skill needs it, point it here instead.
+— today `review`, `investigate`, `plan` and `task` — and by `rules`, which
+reuses the binding and retrieval steps without any command to hand the result
+to. Read this once per invocation that has at least one Jira/Confluence URL. Do
+not copy this procedure into another skill file; if a future skill needs it,
+point it here instead.
 
 You hold the MCP connection. The helper never does, and never will: it has no
 Atlassian client and no credentials. So you retrieve, and you hand over what
@@ -12,8 +14,7 @@ you got.
 ## Steps
 
 1. Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" config` and check
-   `requirements.mcpServer`. That is the server
-   this repository is bound to.
+   `requirements.mcpServer`. That is the server this repository is bound to.
    - If it is `null` and exactly one compatible Jira/Confluence MCP server is
      connected, use it and tell the user to record it in
      `.ambicode/config.yaml` so later runs are pinned to it.
@@ -22,23 +23,7 @@ you got.
    - If it names a server that is not connected, say so and stop. Do not
      substitute another server.
 2. Retrieve each URL with that server's read tools.
-3. Write one evidence file — **outside the product repository**, in a
-   restrictive temporary location. Use the current platform's secure temporary
-   file API. If only a shell is available, this Node command is cross-platform
-   and prints the new file path:
-
-   ```text
-   node -e "const fs=require('node:fs'),os=require('node:os'),path=require('node:path');const d=fs.mkdtempSync(path.join(os.tmpdir(),'ambicode-evidence-'));const f=path.join(d,'requirements.json');fs.writeFileSync(f,'',{flag:'wx',mode:0o600});console.log(f)"
-   ```
-
-   Do not use POSIX-only `mktemp` in a workflow that must also run on Windows.
-   This file is transport input to the command you are about to
-   run, not an AMBICODE artifact: never write it under `.ambicode/` or
-   anywhere else inside the repository. A read-only investigation or plan
-   that never touches the repository must stay true even for a URL-only
-   request, and a review's saved result already carries the normalized
-   requirement content forward (see "Cleanup" below), so there is nothing to
-   keep here either. Only the path you pass with `--evidence` matters:
+3. Build this envelope, holding exactly the URLs you were asked about:
 
 ```json
 {
@@ -73,10 +58,31 @@ you got.
    - `conflicts` is where you report a contradiction you noticed between two
      documents: `{"summary": "...", "sourceIds": ["A", "B"]}`. Code cannot find
      these in prose; you can.
-4. Pass every retrieved URL with `--requirement <url>` (repeatable) and the
-   evidence file with `--evidence <file>` to the command you are about to run.
-   Every URL you pass with `--requirement` must have an entry in the evidence
-   file, and the evidence file must hold nothing else.
+4. Pass every retrieved URL with `--requirement <url>` (repeatable) and pipe
+   the envelope to `--evidence -`, which reads it from standard input:
+
+```sh
+node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" prepare --activity task --json \
+  --requirement https://example.atlassian.net/browse/ORD-17 --evidence - <<'EVIDENCE'
+{ …the envelope above… }
+EVIDENCE
+```
+
+   In PowerShell, pipe it instead: `$evidence | node "…/ambicode.mjs" review
+   --requirement <url> --evidence -`. Every URL you pass with `--requirement`
+   must have an entry in the envelope, and the envelope must hold nothing else.
+
+**Retrieval with no command to hand it to.** `rules` reads a Confluence page to
+author policy packs from what it states, and no command takes an envelope for
+that. It follows steps 1 to 3 and stops: no envelope, no `--requirement`, same
+honesty about a source it could not read.
+
+**There is no evidence file to own.** A workflow that hands the same evidence
+to two commands — `prepare` and then `review`, or `review` again after fixing
+a finding — pipes it again. Keep the envelope in your own context and re-send
+it; do not write it into the repository, into a temporary file you then have
+to remember to delete, or anywhere else on disk. `--evidence <path>` still
+accepts a file if a caller has one, but no AMBICODE skill creates one.
 
 **A requirement that could not be retrieved stops the run.** That is
 deliberate. Do not drop the URL and continue without it: the user asked
@@ -84,41 +90,6 @@ something about, or against, that source, and "I could not read it" is the
 honest answer, not silence about the gap. Say which URL failed and why, and
 offer to continue without that source only as a separate, clearly labelled
 choice the user makes — never one this procedure makes for them.
-
-## Cleanup
-
-Delete the evidence file once **the last command in your workflow that
-reads it** has finished — success or failure. It is transport for exactly
-this one workflow's invocation, not a record. A workflow may read it through
-an **arbitrary number of consumers**, not a fixed count of one or two:
-
-- `review` and `investigate` each read it exactly once — `ambicode review`
-  or `ambicode bundle` for review, `ambicode prepare` for investigate — so
-  delete it right after that one command finishes.
-- `plan` reads it once, through `ambicode prepare`, and deletes it right
-  after too.
-- `task` may read it **many times**: once per `ambicode prepare` call (the
-  initial one, and any rerun after implementation reaches paths outside what
-  was first prepared for) and once per `ambicode review` call (the first
-  review, any approval-authorized rerun, and every re-review after fixing an
-  accepted finding). Keep the evidence file alive across every one of those
-  calls, however many that turns out to be, and delete it in exactly one
-  final cleanup path: after the task reaches its terminal report, or if it
-  is abandoned partway through — never after an individual `prepare` or
-  `review` call just because that call succeeded, and never at any other
-  arbitrary point in between.
-
-Nothing is lost by deleting it once its workflow's last consumer has run:
-`review`'s and `task`'s saved review result already carry every retrieved
-source's content, citations, and provenance forward (doc 02, "Storage and
-ownership"); `investigate` and `plan` do not save anything unless the user
-separately asks for a note, and the evidence file was never inside the
-repository to begin with, so deleting it leaves no trace either way.
-
-Do not reuse one evidence file across multiple commands or sessions; write a
-fresh one each time you retrieve sources, and remove it only through your
-workflow's one final cleanup path, and only the exact path you wrote it to —
-never an arbitrary or guessed path.
 
 ## What this never does
 

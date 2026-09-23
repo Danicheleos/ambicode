@@ -86,6 +86,14 @@ export const ReviewConfig = z.strictObject({
   maxChangedFiles: z.number().int().positive(),
   maxChangedLines: z.number().int().positive(),
   maxContextBytes: z.number().int().positive(),
+  /**
+   * Paths this repository never wants reviewed — generated translations, a
+   * committed bundle. Empty by default, and `--exclude` adds to it per run.
+   * The one way past the per-file snapshot ceiling, which no limit can raise:
+   * a single 390 KB generated file otherwise blocks the whole change.
+   * `.default([])` so a config written before this key existed still parses.
+   */
+  excludePaths: z.array(z.string().min(1)).default([]),
 });
 export type ReviewConfig = z.infer<typeof ReviewConfig>;
 

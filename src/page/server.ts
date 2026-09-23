@@ -265,6 +265,42 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
   });
 
   /**
+   * Ends the session and stops the server, from the page itself.
+   *
+   * Deciding to publish nothing is an ordinary outcome of a review, and until
+   * this existed it had no ending: the page went on serving until it idled out
+   * half an hour later, and Ctrl-C only reaches it when `ambicode view` is
+   * running in the foreground — which it is not when a skill started it. The
+   * reader needs a way to say "done" from the place they are already looking.
+   *
+   * It writes nothing and publishes nothing. It goes through the same guards
+   * as `/publish` anyway, so a page in another tab cannot close this one out
+   * from under its reader.
+   */
+  app.post('/close', { preHandler: [originGuard, app.csrfProtection] }, async (request, reply) => {
+    const session = authenticate(request);
+    if (session === null) {
+      await refuse(
+        reply,
+        401,
+        'That request had no valid session.',
+        'The session expired or belongs to an earlier run of the server. Nothing was changed.',
+      );
+      return reply;
+    }
+
+    reply.status(200).type('text/html; charset=utf-8');
+    const body = await reply.view('closed', { reopenCommand: options.reopenCommand });
+    // The listener is what keeps the process alive, so it can only close once
+    // this response has actually reached the browser.
+    reply.raw.once('finish', () => {
+      void stop('closed from the page');
+    });
+    await reply.send(body);
+    return reply;
+  });
+
+  /**
    * The only write path. It reaches a provider only from here, only with a
    * valid CSRF token, a matching Origin and an authenticated session, and only
    * for findings whose positions were saved at review time.
@@ -445,20 +481,55 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
     return sessions.get(unsigned.value);
   }
 
+  /**
+   * Refuses a state-changing request that did not come from this page.
+   *
+   * An `Origin` that names something else is always refused. An **absent**
+   * `Origin` is not the same thing, and treating it as a mismatch rejected
+   * legitimate submissions: a same-origin form POST is not required to carry
+   * one, and browsers differ on whether they send it. So when it is absent,
+   * same origin has to be established some other way — `Sec-Fetch-Site`,
+   * which every current browser sends and no page can forge, or a `Referer`
+   * on this exact origin.
+   *
+   * Dropping to that fallback gives up very little. This request has already
+   * passed the `Host` check in `onRequest`, and it still has to carry the CSRF
+   * token and an authenticated signed session cookie, which is what actually
+   * stops a cross-site post. `Origin` is the outermost of four checks, not the
+   * only one.
+   */
   async function originGuard(request: FastifyRequest, reply: FastifyReply): Promise<void> {
-    const origin = request.headers.origin;
+    if (authority === '') return;
     const expected = `http://${authority}`;
-    if (authority !== '' && origin !== expected) {
-      reply.status(403).type('text/html; charset=utf-8');
-      await reply.send(
-        await reply.view('error', {
-          title: 'That submission did not come from this page.',
-          detail: `A state-changing request must carry Origin ${expected}. Nothing was published.`,
-          reopen: true,
-          reopenCommand: options.reopenCommand,
-        }),
-      );
+    const origin = request.headers.origin;
+    const site = request.headers['sec-fetch-site'];
+    const referer = request.headers.referer;
+
+    let refusal: string | null = null;
+    if (origin !== undefined && origin !== 'null') {
+      if (origin !== expected) refusal = `This page accepts ${expected}; the request carried Origin ${origin}.`;
+    } else if (site !== undefined) {
+      if (site !== 'same-origin') refusal = `The request reported Sec-Fetch-Site ${String(site)}, not same-origin.`;
+    } else if (referer !== undefined) {
+      if (!referer.startsWith(`${expected}/`) && referer !== expected) {
+        refusal = `The request carried no Origin, and its Referer ${referer} is not this page.`;
+      }
+    } else {
+      refusal = `The request carried no Origin, no Sec-Fetch-Site and no Referer, so it could not be shown to come from ${expected}.`;
     }
+    if (refusal === null) return;
+
+    reply.status(403).type('text/html; charset=utf-8');
+    await reply.send(
+      await reply.view('error', {
+        title: 'That submission did not come from this page.',
+        // Say what actually arrived: the previous message named only what was
+        // wanted, which left a legitimate refusal indistinguishable from a bug.
+        detail: `${refusal} Nothing was published.`,
+        reopen: true,
+        reopenCommand: options.reopenCommand,
+      }),
+    );
   }
 
   async function model(

@@ -47,6 +47,13 @@ export interface RunChecksOptions {
    * evidence then describes something other than what was reviewed.
    */
   revisionNote: string | null;
+  /**
+   * Approval keys a human answered with "no". A declined check is skipped
+   * exactly as an unauthorized one is, and the difference is the whole point:
+   * it stops waiting. Without it "waiting for authorization" has no ending
+   * except approving, so a caller that gates on it could never proceed.
+   */
+  declines: ReadonlySet<string>;
 }
 
 export interface PendingApproval {
@@ -228,6 +235,26 @@ export async function runChecks(options: RunChecksOptions): Promise<RunChecksOut
       const reason =
         selection.approval?.reason ??
         (authorization.kind === 'needs-approval' ? authorization.reason : 'this run needs authorization');
+
+      // Declined is an answer, so this is evidence rather than an open
+      // question: the check did not run, a human said so, and nothing is
+      // waiting on anybody.
+      if (options.declines.has(approvalKey)) {
+        results.push({
+          ...skipped(checkId, options.project.id, check.command, check.adapter, [
+            `Not run: ${reason}. A human was asked and declined this run, so it is a gap in verification that somebody chose.`,
+            ...selection.limitations,
+            ...mutationLimitation(selectionMutations),
+          ]),
+          selected: selection.files,
+          selectionComplete: selection.complete,
+          argv,
+          cwd: commandCwd,
+          mutations: reportMutations(selectionMutations),
+        });
+        continue;
+      }
+
       pendingApprovals.push({
         checkId,
         approvalKey,
@@ -270,7 +297,11 @@ export async function runChecks(options: RunChecksOptions): Promise<RunChecksOut
     const commandMutations = await watch.observe(`the "${check.command}" command`);
     const mutations = reportMutations(selectionMutations, commandMutations);
 
-    const limitations = [...selection.limitations, ...(adapter.limitations ?? [])];
+    // Deduplicated because the selector seeds the adapter's notes too, so a
+    // vitest result carried each of its two limitations twice — the same
+    // problem reading as two. Both sources stay: a check that never reached
+    // selection still needs them.
+    const limitations = [...new Set([...selection.limitations, ...(adapter.limitations ?? [])])];
     if (options.revisionNote !== null) limitations.push(options.revisionNote);
     limitations.push(...mutationLimitation(selectionMutations, commandMutations));
     if (outcome.truncated) limitations.push('The captured output was truncated at the configured limit.');
@@ -312,12 +343,28 @@ export async function runChecks(options: RunChecksOptions): Promise<RunChecksOut
       outcome.stderr,
     );
 
+    // A kill is not automatically an absent result. When the runner had already
+    // printed its own complete summary, that verdict is evidence the review
+    // would otherwise discard — measured once as a real assertion failure
+    // reported as unestablished coverage. The overrun is still reported, and
+    // `exitCode` stays null because none was ever produced.
+    const recovered =
+      outcome.kind === 'timed-out'
+        ? (adapter.parseCompletedRun?.(`${outcome.stdout}\n${outcome.stderr}`) ?? null)
+        : null;
+    if (recovered !== null) {
+      limitations.push(
+        `The command was killed at the ${Math.round((command.timeoutSeconds ?? options.config.checks.timeoutSeconds))}s checks.timeoutSeconds timeout, after ${durationMs}ms, but it had already reported a complete run: that reported result is what this check carries. Work after the last test — teardown, coverage, reporters — did not finish.`,
+      );
+    }
+
     results.push({
       checkId,
       projectId: options.project.id,
       commandId: check.command,
       adapter: check.adapter,
-      status: outcome.kind === 'timed-out' ? 'timed-out' : outcome.exitCode === 0 ? 'passed' : 'failed',
+      status:
+        recovered ?? (outcome.kind === 'timed-out' ? 'timed-out' : outcome.exitCode === 0 ? 'passed' : 'failed'),
       selected: selection.files,
       selectionComplete: selection.complete,
       argv,

@@ -3,8 +3,10 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { nodeFileSystem } from '../ports/filesystem.ts';
 import { resolveEnvironment } from '../ports/process.ts';
 import { FakeProcessRunner } from '../testing/fake-process-runner.ts';
+import { reviewerIo } from '../testing/reviewer-io.ts';
 import {
   ClaudeReviewer,
   REVIEWER_ENV_ALLOWLIST,
@@ -38,7 +40,9 @@ function stubbedHelp(): FakeProcessRunner {
     stdout: [
       '--print --safe-mode --restricted --strict-mcp-config --tools --disallowedTools',
       '--no-session-persistence --permission-prompts --output-format --model --json-schema',
-      '--append-system-prompt',
+      // Spelled as Claude Code's own --help spells it: the file variant is
+      // only mentioned inside the --bare description.
+      '--append-system-prompt <prompt>  --append-system-prompt[-file]',
     ].join('\n'),
   });
 }
@@ -94,7 +98,7 @@ describe('the reviewer receives only runtime and model authentication', () => {
     const runner = stubbedHelp().stubArgv(['claude', '--print'], {
       stdout: await envelope('success-structured-output.json'),
     });
-    const reviewer = new ClaudeReviewer({ runner, cwd: '/work' });
+    const reviewer = new ClaudeReviewer({ runner, ...reviewerIo(), cwd: '/work' });
     await reviewer.assertIsolationAvailable();
     await reviewer.invoke({
       systemPrompt: 'contract + role',
@@ -113,6 +117,43 @@ describe('the reviewer receives only runtime and model authentication', () => {
     }
   });
 
+  it('keeps the multi-line system prompt out of the argument vector entirely', async () => {
+    // The regression this guards: the operating contract plus the reviewer
+    // role is several kilobytes of Markdown. Passed as an argument it reaches
+    // `claude.cmd` through `cmd.exe` on Windows, which reads CR and LF as
+    // command separators and offers no escape — so the spawn is refused and
+    // every review on that platform fails before the model is ever asked.
+    const runner = stubbedHelp().stubArgv(['claude', '--print'], {
+      stdout: await envelope('success-structured-output.json'),
+    });
+    const io = reviewerIo();
+    const reviewer = new ClaudeReviewer({ runner, ...io, cwd: '/work' });
+    await reviewer.assertIsolationAvailable();
+
+    const systemPrompt = '# AMBICODE operating contract\r\n\r\n- Evidence\n- Untrusted content\n- Scope\n';
+    await reviewer.invoke({
+      systemPrompt,
+      prompt: 'review this\nacross several\nlines',
+      workingDirectory: '/tmp/ambicode-snapshot-x',
+      model: 'sonnet',
+      timeoutMs: 1_000,
+    });
+
+    const call = runner.calls.at(-1);
+    assert.ok(call);
+    for (const value of call.argv) {
+      assert.ok(!/[\r\n]/.test(value), `argument holds a line break: ${JSON.stringify(value)}`);
+    }
+
+    // It was not dropped on the way: it went to the file the flag names.
+    const file = call.argv[call.argv.indexOf('--append-system-prompt-file') + 1];
+    assert.ok(file);
+    assert.equal(io.written.get(file), systemPrompt);
+
+    // And the directory holding it is gone once the reviewer has answered.
+    await assert.rejects(() => nodeFileSystem.readText(file));
+  });
+
   it('names no provider or ticket variable in its allowlist at all', () => {
     const suspicious = /GITLAB|GLAB|GITHUB|GH_|JIRA|ATLASSIAN|CONFLUENCE|NPM|PYPI|DOCKER|AWS|GOOGLE|AZURE|DATABASE|POSTGRES|MYSQL|REDIS/i;
     const offenders = REVIEWER_ENV_ALLOWLIST.filter((name) => suspicious.test(name));
@@ -123,7 +164,7 @@ describe('the reviewer receives only runtime and model authentication', () => {
     const runner = stubbedHelp().stubArgv(['claude', '--print'], {
       stdout: await envelope('success-structured-output.json'),
     });
-    await new ClaudeReviewer({ runner, cwd: '/work' }).invoke({
+    await new ClaudeReviewer({ runner, ...reviewerIo(), cwd: '/work' }).invoke({
       systemPrompt: 's',
       prompt: 'p',
       workingDirectory: '/tmp/s',
@@ -136,9 +177,62 @@ describe('the reviewer receives only runtime and model authentication', () => {
     assert.equal(call.env.kind, 'replacement');
     if (call.env.kind !== 'replacement') return;
     // Claude Code retries a failed StructuredOutput call up to five times by
-    // default. One attempt means a schema failure is reported, not repaired.
+    // default. The cap is set rather than inherited, and it is bounded: a
+    // re-ask lets the model serialize the same answer correctly, but it never
+    // becomes the gate on whether the answer is acceptable — that is
+    // `parseReviewerOutput`, below.
     assert.equal(call.env.set?.MAX_STRUCTURED_OUTPUT_RETRIES, STRUCTURED_OUTPUT_ATTEMPTS);
-    assert.equal(STRUCTURED_OUTPUT_ATTEMPTS, '1');
+    assert.equal(STRUCTURED_OUTPUT_ATTEMPTS, '3');
+  });
+
+  it('classifies a nonzero exit from its result envelope, not from the exit code alone', async () => {
+    // Claude Code exits 1 for an errored run and still prints the envelope
+    // naming the failure. Checking the exit code first made every named
+    // failure unreachable, so exhausting the schema-retry budget after a full
+    // analysis was reported as an unexplained "nonzero-exit".
+    const runner = stubbedHelp().stubArgv(['claude', '--print'], {
+      exitCode: 1,
+      stdout: JSON.stringify({
+        type: 'result',
+        subtype: 'structured_output_retry_exhausted',
+        is_error: true,
+        num_turns: 18,
+        result: 'input property "review" is not allowed; findings and coverageNotes are required',
+      }),
+    });
+    const invocation = await new ClaudeReviewer({ runner, ...reviewerIo(), cwd: '/w' }).invoke({
+      systemPrompt: 's',
+      prompt: 'p',
+      workingDirectory: '/tmp/s',
+      model: 'sonnet',
+      timeoutMs: 1_000,
+    });
+
+    assert.equal(invocation.kind, 'error');
+    if (invocation.kind !== 'error') return;
+    assert.equal(invocation.reason, 'structured-output-exhausted');
+    // It says what happened and what to do, and it does not pretend there is
+    // a partial finding list to salvage.
+    assert.match(invocation.detail, /required shape/);
+    assert.match(invocation.detail, /re-running reviews the identical change/);
+  });
+
+  it('still fails a nonzero exit whose envelope claims success', async () => {
+    const runner = stubbedHelp().stubArgv(['claude', '--print'], {
+      exitCode: 1,
+      stdout: await envelope('success-structured-output.json'),
+    });
+    const invocation = await new ClaudeReviewer({ runner, ...reviewerIo(), cwd: '/w' }).invoke({
+      systemPrompt: 's',
+      prompt: 'p',
+      workingDirectory: '/tmp/s',
+      model: 'sonnet',
+      timeoutMs: 1_000,
+    });
+
+    assert.equal(invocation.kind, 'error');
+    if (invocation.kind !== 'error') return;
+    assert.equal(invocation.reason, 'nonzero-exit');
   });
 });
 
@@ -193,7 +287,7 @@ describe('the real Claude Code structured-output envelope', () => {
       stdout: await envelope('truncated.txt'),
       truncated: true,
     });
-    const invocation = await new ClaudeReviewer({ runner, cwd: '/w' }).invoke({
+    const invocation = await new ClaudeReviewer({ runner, ...reviewerIo(), cwd: '/w' }).invoke({
       systemPrompt: 's',
       prompt: 'p',
       workingDirectory: '/tmp/s',

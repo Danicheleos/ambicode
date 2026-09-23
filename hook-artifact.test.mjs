@@ -7,7 +7,8 @@
 //   1. A matching edit reminder is delivered once.
 //   2. A repeated edit of the same file is suppressed.
 //   3. A changed rule content hash redelivers it.
-//   4. A context reset (SessionStart) redelivers it.
+//   4. A context reset (SessionStart) redelivers it, and carries the shared
+//      operating contract for the new epoch (R2 change 2).
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -20,8 +21,29 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const BUNDLE = path.join(ROOT, 'scripts', 'ambicode.mjs');
 
-async function exists(candidate) {
-  return stat(candidate).then(() => true, () => false);
+/**
+ * Whether the built bundle is there, told apart from a stat that could not be
+ * answered. The previous `stat().then(() => true, () => false)` reported both
+ * as "not built": one gate run printed six failures telling the operator to run
+ * `npm run build`, for a file that measured 3,408,246 bytes immediately
+ * afterwards and whose build step had already succeeded (F5). A transient
+ * EBUSY, EPERM or EMFILE under 60-odd concurrent test files is retried; ENOENT
+ * is the only answer that means the bundle is missing.
+ */
+async function assertBundleBuilt(candidate) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return (await stat(candidate)).size;
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        assert.fail(`${candidate} does not exist; run "npm run build" first.`);
+      }
+      if (attempt >= 4) {
+        assert.fail(`${candidate} could not be checked after 5 attempts (${error.code}).`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
 }
 
 function git(args, cwd) {
@@ -97,7 +119,7 @@ function runHookCli(payload) {
 
 describe('built-artifact regression: ambicode hook (P2.4 correction G/H)', () => {
   it('requires the bundle to have been built (npm run build) before this test runs', async () => {
-    assert.ok(await exists(BUNDLE), `${BUNDLE} does not exist; run "npm run build" first.`);
+    assert.ok((await assertBundleBuilt(BUNDLE)) > 0, `${BUNDLE} is empty`);
   });
 
   it('delivers once, suppresses a repeat, redelivers on rule-content change, and redelivers after a context reset', async () => {
@@ -125,7 +147,12 @@ describe('built-artifact regression: ambicode hook (P2.4 correction G/H)', () =>
       assert.equal(third.hookSpecificOutput?.hookEventName, 'PostToolUse', 'a changed rule content hash must redeliver');
 
       const reset = JSON.parse(runHookCli({ hook_event_name: 'SessionStart', session_id: sessionId }));
-      assert.deepEqual(reset, {});
+      assert.equal(reset.hookSpecificOutput?.hookEventName, 'SessionStart');
+      assert.match(
+        reset.hookSpecificOutput?.additionalContext ?? '',
+        /# AMBICODE operating contract/,
+        'SessionStart must carry the shared operating contract for the new epoch',
+      );
       const fourth = JSON.parse(runHookCli(postToolUse()));
       assert.equal(fourth.hookSpecificOutput?.hookEventName, 'PostToolUse', 'a context reset must redeliver');
     } finally {
@@ -133,14 +160,44 @@ describe('built-artifact regression: ambicode hook (P2.4 correction G/H)', () =>
     }
   });
 
+  it('PostCompact returns nothing, and the next UserPromptSubmit carries the contract', async () => {
+    // Claude Code's hook output schema has no `hookSpecificOutput` variant for
+    // `PostCompact`. Returning one is a validation failure the user sees on
+    // every compaction ("expected one of ... hookEventName"), not a silent
+    // no-op, so this asserts against the built bundle rather than the source.
+    const repo = await makeFixtureRepo();
+    const sessionId = randomUUID();
+    try {
+      const start = JSON.parse(runHookCli({ hook_event_name: 'SessionStart', session_id: sessionId }));
+      assert.equal(start.hookSpecificOutput?.hookEventName, 'SessionStart');
+
+      const compacted = JSON.parse(runHookCli({ hook_event_name: 'PostCompact', session_id: sessionId }));
+      assert.deepEqual(compacted, {}, 'PostCompact must carry no hookSpecificOutput');
+
+      const prompt = JSON.parse(
+        runHookCli({ hook_event_name: 'UserPromptSubmit', session_id: sessionId, cwd: repo }),
+      );
+      assert.equal(prompt.hookSpecificOutput?.hookEventName, 'UserPromptSubmit');
+      assert.match(prompt.hookSpecificOutput?.additionalContext ?? '', /# AMBICODE operating contract/);
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
   it('reports the packaged plugin\'s hooks when installed (companion to install-local.smoke.mjs)', async () => {
     // The exact registration is proved end to end by install-local.smoke.mjs
-    // ("claude plugin details" reporting "Hooks (4)"); this just proves the
-    // manifest file itself is well-formed JSON with the four events wired to
+    // ("claude plugin details" reporting "Hooks (5)"); this just proves the
+    // manifest file itself is well-formed JSON with the five events wired to
     // the same bundled entry point, since that is what ships in the candidate.
     const manifest = JSON.parse(await readFile(path.join(ROOT, 'hooks', 'hooks.json'), 'utf8'));
     const events = Object.keys(manifest.hooks);
-    assert.deepEqual(events.sort(), ['PostCompact', 'PostToolUse', 'SessionEnd', 'SessionStart']);
+    assert.deepEqual(events.sort(), [
+      'PostCompact',
+      'PostToolUse',
+      'SessionEnd',
+      'SessionStart',
+      'UserPromptSubmit',
+    ]);
     for (const event of events) {
       for (const matcher of manifest.hooks[event]) {
         for (const entry of matcher.hooks) {

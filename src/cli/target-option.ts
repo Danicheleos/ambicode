@@ -1,5 +1,6 @@
 import path from 'node:path';
 import type { Runtime } from '../composition/root.ts';
+import type { EvidenceSource } from '../requirements/normalize.ts';
 import type { TargetSelection } from '../review/bundle.ts';
 import { AmbicodeError } from '../util/errors.ts';
 import type { ParsedArgs } from './args.ts';
@@ -14,16 +15,53 @@ import type { ParsedArgs } from './args.ts';
  * before any of those (doc 02, "CLI execution contract").
  */
 export const TARGET_OPTIONS = {
-  values: ['base', 'mr', 'evidence'],
-  repeated: ['requirement', 'approve'],
-  flags: ['json', 'branch'],
+  values: ['base', 'mr', 'evidence', 'task'],
+  repeated: ['requirement', 'approve', 'decline', 'exclude', 'only'],
+  flags: ['json', 'branch', 'with-tests'],
 } as const;
 
 export interface ResolvedTargetOptions {
   target: TargetSelection;
   requirementUrls: string[];
-  evidencePath: string | null;
+  evidence: EvidenceSource | null;
   approvals: Set<string>;
+  /**
+   * `--decline <key>`: the other answer. `--approve` alone gives a human one
+   * way to end the question, and a check they do not want run would leave the
+   * review waiting forever.
+   */
+  declines: Set<string>;
+  /**
+   * `--task <slug>`: the task directory this run belongs to. A run carrying a
+   * requirement needs no slug — the ticket is one. This is for the rest: a
+   * plain request the authoring skill has already named, so its plan, its
+   * investigation and its reviews land in one directory instead of three.
+   */
+  task: string | null;
+  /**
+   * `--exclude <glob>`: paths this run must not review, added to
+   * `review.excludePaths`. Without it a change is either reviewable whole or
+   * refused whole, and the per-file snapshot ceiling is not a configurable
+   * number — so one generated file could refuse a change with no way out but
+   * editing the installed plugin (run 21f23317).
+   */
+  excludePaths: string[];
+  /**
+   * `--only <glob>`: review nothing outside these paths. The counterpart of
+   * `--exclude`, for the case the working-tree target creates — a dirty tree
+   * whose review grew from 6 to 12 files over one session as unrelated edits
+   * accumulated (run 3c2188c8), covering `.gitignore` and `angular.json` that
+   * the task never touched.
+   */
+  onlyPaths: string[];
+  /**
+   * `--with-tests`: review the change's test code too. Merge-request review
+   * leaves it out by default — the checks cannot run in the user's checkout, so
+   * nothing executes those files, and 60 of MR 2677's 299 changed files were
+   * `.spec.ts`. The flag is the way back: an exclusion nobody can undo is the
+   * same trap as a question with one answer.
+   */
+  withTests: boolean;
 }
 
 /** Pure: the target the arguments name, or the reason they name none. */
@@ -79,13 +117,24 @@ export function resolveTargetOptions(
   return {
     target: validateTargetArgs(command, args),
     requirementUrls: args.all('requirement'),
-    evidencePath: absoluteEvidencePath(runtime, args.value('evidence')),
+    evidence: evidenceSource(runtime, args.value('evidence')),
     approvals: new Set(args.all('approve')),
+    declines: new Set(args.all('decline')),
+    task: args.value('task'),
+    excludePaths: args.all('exclude'),
+    onlyPaths: args.all('only'),
+    withTests: args.flag('with-tests'),
   };
 }
 
-/** Shared with `prepare`, so the two commands resolve `--evidence` identically. */
-export function absoluteEvidencePath(runtime: Runtime, value: string | null): string | null {
+/**
+ * Shared with `prepare`, so the two commands resolve `--evidence` identically.
+ * `-` is standard input (R2 change 4): a skill that hands the same evidence to
+ * `prepare` and then to `review` pipes it twice rather than writing a file it
+ * must then keep alive and delete in exactly one place.
+ */
+export function evidenceSource(runtime: Runtime, value: string | null): EvidenceSource | null {
   if (value === null) return null;
-  return path.isAbsolute(value) ? value : path.resolve(runtime.cwd, value);
+  if (value === '-') return { kind: 'stdin' };
+  return { kind: 'file', path: path.isAbsolute(value) ? value : path.resolve(runtime.cwd, value) };
 }

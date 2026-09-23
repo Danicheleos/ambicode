@@ -7,6 +7,7 @@ import { nodeFileSystem, type FileSystem } from '../ports/filesystem.ts';
 import { systemIds, type IdSource } from '../ports/ids.ts';
 import { NodeProcessRunner } from '../ports/node-process-runner.ts';
 import type { ProcessRunner } from '../ports/process.ts';
+import { processStandardInput, type StandardInput } from '../ports/stdin.ts';
 import { loadPacksForProject } from '../policy/load.ts';
 import { GitHubProvider } from '../providers/github/provider.ts';
 import { GitLabProvider } from '../providers/gitlab/provider.ts';
@@ -30,6 +31,8 @@ export interface Runtime {
   ids: IdSource;
   cwd: string;
   pluginRoot: string;
+  /** Bounded standard input; `--evidence -` and the hook payload are its readers. */
+  stdin: StandardInput;
   /** Read once here; nothing below this root touches `process.env` (doc 02). */
   env: Readonly<Record<string, string | undefined>>;
   /**
@@ -47,6 +50,7 @@ export interface RuntimeOverrides {
   ids?: IdSource;
   cwd?: string;
   pluginRoot?: string;
+  stdin?: StandardInput;
   env?: Readonly<Record<string, string | undefined>>;
   providers?: ProviderRegistry;
 }
@@ -63,6 +67,7 @@ export async function createRuntime(overrides: RuntimeOverrides = {}): Promise<R
     ids: overrides.ids ?? systemIds,
     cwd,
     pluginRoot: overrides.pluginRoot ?? (await resolvePluginRoot(fs, env)),
+    stdin: overrides.stdin ?? processStandardInput,
     env,
     providers: overrides.providers ?? defaultProviders(runner, cwd),
   };
@@ -120,6 +125,51 @@ export function projectById(config: AmbicodeConfig, id: string): ProjectConfig {
     });
   }
   return project;
+}
+
+/**
+ * The one project a command is about, without ever defaulting to "the first
+ * configured project" when the request is genuinely ambiguous (doc 04 P2.1: a
+ * monorepository request must not have that decision made for it silently). A
+ * single configured project is not ambiguous; neither is an explicit
+ * `--project`, nor a set of paths that all resolve to the same project.
+ *
+ * Shared by `prepare` and `locate`, so the two cannot disagree about which
+ * project a request names or about when it names none.
+ */
+export function projectForRequest(
+  config: AmbicodeConfig,
+  requestedId: string | null,
+  paths: readonly string[],
+): ProjectConfig {
+  if (requestedId !== null) return projectById(config, requestedId);
+
+  if (config.projects.length === 0) {
+    throw new AmbicodeError('unknown-project', 'No project is configured for this repository.', {
+      details: ['Run the AMBICODE init skill first.'],
+    });
+  }
+  if (config.projects.length === 1) return config.projects[0] as ProjectConfig;
+
+  if (paths.length > 0) {
+    const resolved = new Set(paths.map((value) => projectForPath(config, value)?.id ?? null));
+    if (resolved.size === 1) {
+      const [only] = resolved;
+      if (only !== null && only !== undefined) return projectById(config, only);
+    }
+  }
+
+  throw new AmbicodeError(
+    'ambiguous-project',
+    'This repository configures more than one project, and this request does not identify exactly one.',
+    {
+      field: '--project',
+      details: [
+        `Configured projects: ${config.projects.map((project) => project.id).join(', ')}.`,
+        'Pass --project <id>, or give one or more paths that all fall inside a single project root.',
+      ],
+    },
+  );
 }
 
 export interface ResolvePolicyOptions {

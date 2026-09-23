@@ -7,18 +7,37 @@ import type { Ecosystem } from '../contracts/primitives.ts';
  * LSP tools are actually active, so consumers must report what they observed.
  */
 export interface NavigationGuidance {
-  strategy: 'known-paths-then-lsp-then-targeted-search';
+  /**
+   * The bounded order a skill navigates in (R4). The shortlist
+   * (`ambicode locate`) narrows the repository to candidate files from the
+   * request itself; LSP then goes from a candidate to its definitions,
+   * references and callers. The two are not alternatives: `locate` finds the
+   * candidates, LSP explains them, and targeted search is what is left when
+   * neither answered.
+   */
+  strategy: 'shortlist-then-known-paths-then-lsp-then-targeted-search';
   ecosystem: Ecosystem;
   plugin: string;
   serverCommand: string;
+  /** Installation guidance: `init` and `config` report it; `prepare` does not. */
   setupCommands: string[];
   statusSource: 'current-session';
+  /**
+   * One clause, because it is re-sent on every `prepare` call and the
+   * authoring session only has to do one thing with it (R2 change 3).
+   */
   evidenceRequirement: string;
+  /**
+   * How much of a file to open. Here, not only in `prepare-output.md`, because
+   * run 3c2188c8 never opened that file and read 40 whole ones for 207,655
+   * bytes. One clause, like `evidenceRequirement`.
+   */
+  readGuidance: string;
 }
 
 const GUIDANCE: Record<Ecosystem, Omit<NavigationGuidance, 'ecosystem'>> = {
   typescript: {
-    strategy: 'known-paths-then-lsp-then-targeted-search',
+    strategy: 'shortlist-then-known-paths-then-lsp-then-targeted-search',
     plugin: 'typescript-lsp@claude-plugins-official',
     serverCommand: 'typescript-language-server',
     setupCommands: [
@@ -27,10 +46,11 @@ const GUIDANCE: Record<Ecosystem, Omit<NavigationGuidance, 'ecosystem'>> = {
     ],
     statusSource: 'current-session',
     evidenceRequirement:
-      'Report the LSP symbol operations used, or report targeted-search fallback with the reason LSP was unavailable or insufficient.',
+      'Report the LSP operations used, or the targeted-search fallback reason.',
+    readGuidance: 'Read spans with offset/limit, not whole files.',
   },
   python: {
-    strategy: 'known-paths-then-lsp-then-targeted-search',
+    strategy: 'shortlist-then-known-paths-then-lsp-then-targeted-search',
     plugin: 'pyright-lsp@claude-plugins-official',
     serverCommand: 'pyright-langserver',
     setupCommands: [
@@ -39,7 +59,8 @@ const GUIDANCE: Record<Ecosystem, Omit<NavigationGuidance, 'ecosystem'>> = {
     ],
     statusSource: 'current-session',
     evidenceRequirement:
-      'Report the LSP symbol operations used, or report targeted-search fallback with the reason LSP was unavailable or insufficient.',
+      'Report the LSP operations used, or the targeted-search fallback reason.',
+    readGuidance: 'Read spans with offset/limit, not whole files.',
   },
 };
 

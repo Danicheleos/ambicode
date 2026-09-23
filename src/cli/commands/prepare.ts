@@ -1,37 +1,62 @@
 import {
   openWorkspace,
-  projectById,
-  projectForPath,
+  projectForRequest,
   resolvePolicyFor,
   toRepositoryRelative,
   type Runtime,
 } from '../../composition/root.ts';
 import { Activity } from '../../contracts/primitives.ts';
 import type { ResolvedPolicy, ResolvedPromptRef } from '../../contracts/policy.ts';
-import { PrepareOutput as PrepareOutputSchema, type PrepareOutput, type PreparePolicy } from '../../contracts/prepare.ts';
-import type { AmbicodeConfig, ProjectConfig } from '../../contracts/config.ts';
+import {
+  PrepareCompactOutput as PrepareCompactOutputSchema,
+  PrepareOutput as PrepareOutputSchema,
+  type PrepareCompactOutput,
+  type PrepareContextBudget,
+  type PrepareOutput,
+  type PreparePolicy,
+} from '../../contracts/prepare.ts';
+import type { ProjectConfig } from '../../contracts/config.ts';
 import { MAX_SNAPSHOT_FILE_BYTES } from '../../config/defaults.ts';
 import type { FileSystem } from '../../ports/filesystem.ts';
 import { applicablePrepareStages } from '../../policy/resolve.ts';
 import { configProvenance, packProvenance } from '../../policy/provenance.ts';
-import { normalizeRequirements, readRequirementEvidence } from '../../requirements/normalize.ts';
+import { loadRequirementEvidence, normalizeRequirements } from '../../requirements/normalize.ts';
 import { readSharedOperatingContract } from '../../policy/shared-contract.ts';
 import { byteLength } from '../../snapshot/limits.ts';
 import { AmbicodeError } from '../../util/errors.ts';
 import { contentHash } from '../../util/hash.ts';
-import { formatJsonOutput } from '../../util/json-output.ts';
+import { formatJsonOutput, type JsonFormat } from '../../util/json-output.ts';
 import type { ParsedArgs } from '../args.ts';
-import { absoluteEvidencePath } from '../target-option.ts';
+import { evidenceSource } from '../target-option.ts';
 import { navigationFor } from '../../code-intelligence/navigation.ts';
+import {
+  locate,
+  termsFromRequirements,
+  PREPARE_SHORTLIST_LIMIT,
+  type LocateShortlist,
+} from '../../code-intelligence/locate.ts';
+import type { Git } from '../../git/git.ts';
 
 export const PREPARE_OPTIONS = {
   values: ['activity', 'project', 'evidence'],
-  repeated: ['requirement'],
-  flags: ['json'],
+  repeated: ['requirement', 'term'],
+  flags: ['json', 'verbose', 'with-contract'],
   positionals: true,
 } as const;
 
 export type { PrepareOutput };
+
+/** Everything resolved, before either projection picks what to emit. */
+export interface PrepareDetail extends Omit<PrepareOutput, 'contextBudget'> {}
+
+export interface PrepareRun {
+  /** Exactly what `--json` prints, and what `contextBudget` measures. */
+  data: PrepareOutput | PrepareCompactOutput;
+  /** Everything resolved, for the human text summary. */
+  detail: PrepareDetail;
+  /** How `--json` serializes `data`. */
+  json: JsonFormat;
+}
 
 /**
  * The smallest shared preparation a skill needs before it starts navigating
@@ -42,8 +67,12 @@ export type { PrepareOutput };
  * configuration, requirement-normalization and policy-resolver code the
  * `review`/`bundle` commands use, composed for a caller that has not yet
  * decided what (if anything) to execute.
+ *
+ * Emits the compact projection by default and the full shape behind
+ * `--verbose` (R2). Both carry the same resolved policy; they differ only in
+ * how many bytes of framing they spend saying it.
  */
-export async function runPrepare(runtime: Runtime, args: ParsedArgs): Promise<PrepareOutput> {
+export async function runPrepare(runtime: Runtime, args: ParsedArgs): Promise<PrepareRun> {
   const workspace = await openWorkspace(runtime);
 
   const activity = requireActivity(args.value('activity'));
@@ -52,15 +81,14 @@ export async function runPrepare(runtime: Runtime, args: ParsedArgs): Promise<Pr
   // Requirements first, same order `bundle`/`review` use (doc 02, "Data
   // flow"): an inaccessible or contradictory source must stop the run before
   // policy is even resolved, let alone before any code investigation.
-  const evidencePath = absoluteEvidencePath(runtime, args.value('evidence'));
+  const evidence = evidenceSource(runtime, args.value('evidence'));
   const requirements = normalizeRequirements({
     urls: args.all('requirement'),
-    evidence:
-      evidencePath === null ? null : await readRequirementEvidence(runtime.fs, evidencePath),
+    evidence: evidence === null ? null : await loadRequirementEvidence(runtime, evidence),
     configuredServer: workspace.config.requirements.mcpServer,
   });
 
-  const project = resolveProject(workspace.config, args.value('project'), paths);
+  const project = projectForRequest(workspace.config, args.value('project'), paths);
 
   const policy = await resolvePolicyFor({ workspace, project, activity, paths });
   const policies = [{ project, policy }];
@@ -81,13 +109,25 @@ export async function runPrepare(runtime: Runtime, args: ParsedArgs): Promise<Pr
     );
   }
 
-  const draft = await toDraftOutput({
+  // The boundary shortlist, when this call was given something to search for
+  // (R4): stated `--term`s, or the retrieved requirement text when it was not
+  // told. It reads git and nothing else, builds no index and writes nothing;
+  // an empty shortlist stays empty rather than widening to the project.
+  const shortlist = await shortlistFor({
+    git: workspace.git,
+    project,
+    statedTerms: args.all('term'),
+    requirements: requirements.sources,
+  });
+
+  const detail = await toDraftOutput({
     fs: runtime.fs,
     activity,
     project,
     paths,
     requirements,
     policy,
+    shortlist,
     sharedOperatingContract,
     // Config and pack provenance alongside requirement provenance, the same
     // composition `review`/`bundle` use for packs (doc 04 P2.2 correction D).
@@ -110,7 +150,7 @@ export async function runPrepare(runtime: Runtime, args: ParsedArgs): Promise<Pr
   // a prompt this activity should have received — was omitted, not merely
   // noted. `prepare` never hands back a policy that looks complete while
   // quietly missing something applicable.
-  const blocking = draft.policy.diagnostics.filter((diagnostic) => diagnostic.severity === 'error');
+  const blocking = detail.policy.diagnostics.filter((diagnostic) => diagnostic.severity === 'error');
   if (blocking.length > 0) {
     throw new AmbicodeError(
       'preparation-blocked',
@@ -121,34 +161,53 @@ export async function runPrepare(runtime: Runtime, args: ParsedArgs): Promise<Pr
     );
   }
 
-  return finalizePrepareOutput(draft, workspace.config.review.maxContextBytes);
-}
+  const limitBytes = workspace.config.review.maxContextBytes;
+  if (args.flag('verbose')) {
+    const data = measureAgainstOwnBytes(
+      (contextBudget) => PrepareOutputSchema.parse({ ...detail, contextBudget }),
+      'pretty',
+      limitBytes,
+      detail,
+    );
+    return { data, detail, json: 'pretty' };
+  }
 
-interface PrepareDraftOutput extends Omit<PrepareOutput, 'contextBudget'> {}
+  const compact = toCompactOutput(detail, { includeContractContent: args.flag('with-contract') });
+  const data = measureAgainstOwnBytes(
+    (contextBudget) => PrepareCompactOutputSchema.parse({ ...compact, contextBudget }),
+    'compact',
+    limitBytes,
+    detail,
+  );
+  return { data, detail, json: 'compact' };
+}
 
 /**
  * Resolves the self-referential `contextBudget.measuredBytes` field to a
- * stable value and returns the exact `PrepareOutput` the `--json` path will
- * print (doc 04 P2.4 correction B1/B2): `measuredBytes` is itself part of
- * the object it measures, so it is computed by serializing a candidate with
- * the previous guess, re-measuring, and repeating until the value stops
- * moving — which happens immediately unless `measuredBytes`'s own digit
- * count changes between guesses, in which case one further pass converges
- * it. Serialization uses the one canonical `formatJsonOutput` the CLI's
- * `--json` dispatch also uses (`src/cli/main.ts`), so a test can assert
- * `Buffer.byteLength(actualCliStdout) === parsed.contextBudget.measuredBytes`
- * against the real bundled CLI, not an approximation of what it prints.
+ * stable value and returns the exact object the `--json` path will print (doc
+ * 04 P2.4 correction B1/B2): `measuredBytes` is itself part of the object it
+ * measures, so it is computed by serializing a candidate with the previous
+ * guess, re-measuring, and repeating until the value stops moving — which
+ * happens immediately unless `measuredBytes`'s own digit count changes
+ * between guesses, in which case one further pass converges it. Serialization
+ * uses the one canonical `formatJsonOutput` the CLI's `--json` dispatch also
+ * uses (`src/cli/main.ts`), in the same format that dispatch will choose, so
+ * a test can assert `Buffer.byteLength(actualCliStdout) ===
+ * parsed.contextBudget.measuredBytes` against the real bundled CLI for
+ * whichever shape was emitted — compact or verbose.
  */
-function finalizePrepareOutput(draft: PrepareDraftOutput, limitBytes: number): PrepareOutput {
+function measureAgainstOwnBytes<T>(
+  build: (contextBudget: PrepareContextBudget) => T,
+  format: JsonFormat,
+  limitBytes: number,
+  detail: PrepareDetail,
+): T {
   let measuredBytes = 0;
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    const candidate = PrepareOutputSchema.parse({
-      ...draft,
-      contextBudget: { measuredBytes, limitBytes },
-    });
-    const actualBytes = byteLength(formatJsonOutput(candidate));
+    const candidate = build({ measuredBytes, limitBytes });
+    const actualBytes = byteLength(formatJsonOutput(candidate, format));
     if (actualBytes === measuredBytes) {
-      if (actualBytes > limitBytes) throwPreparationTooLarge(draft, actualBytes, limitBytes);
+      if (actualBytes > limitBytes) throwPreparationTooLarge(detail, actualBytes, limitBytes);
       return candidate;
     }
     measuredBytes = actualBytes;
@@ -160,13 +219,101 @@ function finalizePrepareOutput(draft: PrepareDraftOutput, limitBytes: number): P
   );
 }
 
-function throwPreparationTooLarge(draft: PrepareDraftOutput, measuredBytes: number, limitBytes: number): never {
-  const requirementBytes = draft.requirements.reduce((total, source) => total + byteLength(source.content), 0);
-  const ruleBytes = draft.policy.rules.reduce((total, rule) => total + byteLength(rule.instruction), 0);
-  const promptBytes = draft.policy.prompts.reduce((total, prompt) => total + byteLength(prompt.content), 0);
-  const noticeBytes = draft.notices.reduce((total, notice) => total + byteLength(notice), 0);
-  const diagnosticBytes = draft.policy.diagnostics.reduce((total, diagnostic) => total + byteLength(diagnostic.message), 0);
-  const sharedContractBytes = byteLength(draft.sharedOperatingContract.content);
+/**
+ * The compact projection (R2 change 1/2/3). Nothing here decides *what*
+ * applies — the resolver already did — so this function only re-expresses the
+ * same resolved policy without the per-rule constants, the defaults, the
+ * hook-only metadata, the setup guidance, and the contract body that the
+ * `SessionStart`/`PostCompact` hook already delivered once this epoch.
+ */
+export function toCompactOutput(
+  detail: PrepareDetail,
+  options: { includeContractContent: boolean },
+): Omit<PrepareCompactOutput, 'contextBudget'> {
+  const packs = detail.policy.packs.map((pack) => {
+    const rules = detail.policy.rules
+      .filter((rule) => rule.packId === pack.id)
+      .map((rule) => ({
+        id: rule.qualifiedId.startsWith(`${rule.packId}/`)
+          ? rule.qualifiedId.slice(rule.packId.length + 1)
+          : rule.qualifiedId,
+        category: rule.category,
+        instruction: rule.instruction,
+        check: rule.checkExplanation,
+        ...(rule.checkKind === 'none' ? { checkKind: 'none' as const } : {}),
+        ...(rule.checkCommand === null ? {} : { checkCommand: rule.checkCommand }),
+      }));
+    return {
+      id: pack.id,
+      reference: pack.reference,
+      authority: pack.authority,
+      ...(pack.replacedReference === undefined ? {} : { replacedReference: pack.replacedReference }),
+      ...(rules.length === 0 ? {} : { rules }),
+    };
+  });
+
+  const commandDecisions = detail.policy.commandDecisions.map((decision) => {
+    const [only] = decision.sources;
+    if (decision.sources.length === 1 && only !== undefined) {
+      // With one declaring pack there is no precedence to show: the resolved
+      // action is that pack's action.
+      return {
+        command: decision.command,
+        action: decision.action,
+        pack: only.packReference,
+        ...(only.reason === undefined ? {} : { reason: only.reason }),
+      };
+    }
+    return {
+      command: decision.command,
+      action: decision.action,
+      sources: decision.sources.map((source) => ({
+        pack: source.packReference,
+        ...(source.action === decision.action ? {} : { action: source.action }),
+        ...(source.reason === undefined ? {} : { reason: source.reason }),
+      })),
+    };
+  });
+
+  return {
+    command: 'prepare' as const,
+    activity: detail.activity,
+    projectId: detail.projectId,
+    ...(detail.paths.length === 0 ? {} : { paths: detail.paths }),
+    requirementMode: detail.requirementMode,
+    ...(detail.requirements.length === 0 ? {} : { requirements: detail.requirements }),
+    ...(detail.notices.length === 0 ? {} : { notices: detail.notices }),
+    policy: {
+      packs,
+      ...(detail.policy.prompts.length === 0 ? {} : { prompts: detail.policy.prompts }),
+      ...(commandDecisions.length === 0 ? {} : { commandDecisions }),
+      ...(detail.policy.diagnostics.length === 0 ? {} : { diagnostics: detail.policy.diagnostics }),
+    },
+    navigation: {
+      strategy: detail.navigation.strategy,
+      ecosystem: detail.navigation.ecosystem,
+      evidenceRequirement: detail.navigation.evidenceRequirement,
+      readGuidance: detail.navigation.readGuidance,
+      ...(detail.navigation.shortlist === undefined ? {} : { shortlist: detail.navigation.shortlist }),
+    },
+    sharedOperatingContract: {
+      reference: detail.sharedOperatingContract.reference,
+      contentHash: detail.sharedOperatingContract.contentHash,
+      ...(options.includeContractContent
+        ? { content: detail.sharedOperatingContract.content }
+        : {}),
+    },
+    provenance: detail.provenance,
+  };
+}
+
+function throwPreparationTooLarge(detail: PrepareDetail, measuredBytes: number, limitBytes: number): never {
+  const requirementBytes = detail.requirements.reduce((total, source) => total + byteLength(source.content), 0);
+  const ruleBytes = detail.policy.rules.reduce((total, rule) => total + byteLength(rule.instruction), 0);
+  const promptBytes = detail.policy.prompts.reduce((total, prompt) => total + byteLength(prompt.content), 0);
+  const noticeBytes = detail.notices.reduce((total, notice) => total + byteLength(notice), 0);
+  const diagnosticBytes = detail.policy.diagnostics.reduce((total, diagnostic) => total + byteLength(diagnostic.message), 0);
+  const sharedContractBytes = byteLength(detail.sharedOperatingContract.content);
 
   throw new AmbicodeError(
     'preparation-too-large',
@@ -189,6 +336,49 @@ function throwPreparationTooLarge(draft: PrepareDraftOutput, measuredBytes: numb
   );
 }
 
+/**
+ * The shortlist `prepare` carries, or nothing when this call named no terms
+ * and retrieved no requirement to take them from. Half `locate`'s default
+ * limit, because these bytes ride along on every call and R2 measures them;
+ * `ambicode locate` is where a caller goes for the longer list.
+ */
+async function shortlistFor(options: {
+  git: Git;
+  project: ProjectConfig;
+  statedTerms: readonly string[];
+  requirements: readonly { title: string; content: string }[];
+}): Promise<PrepareDetail['navigation']['shortlist']> {
+  const stated = options.statedTerms.filter((term) => term.trim() !== '');
+  const derived = stated.length > 0 ? [] : termsFromRequirements(options.requirements);
+  const terms = stated.length > 0 ? stated : derived;
+  if (terms.length === 0) return undefined;
+
+  const found: LocateShortlist = await locate({
+    git: options.git,
+    project: options.project,
+    terms,
+    limit: PREPARE_SHORTLIST_LIMIT,
+  });
+  // Every supplied term was unusable (all shorter than the minimum). There is
+  // no shortlist to carry and nothing was searched; `ambicode locate` is where
+  // that is reported in full, since a `prepare` payload is not the place to
+  // explain a malformed `--term`.
+  if (found.terms.length === 0) return undefined;
+
+  const limitations =
+    derived.length === 0
+      ? found.limitations
+      : [
+          'Terms were derived from the requirement text by word frequency, not stated by the caller; pass --term to narrow them.',
+          ...found.limitations,
+        ];
+  return {
+    terms: found.terms,
+    candidates: found.candidates,
+    ...(limitations.length === 0 ? {} : { limitations }),
+  };
+}
+
 async function toDraftOutput(options: {
   fs: FileSystem;
   activity: Activity;
@@ -196,9 +386,10 @@ async function toDraftOutput(options: {
   paths: readonly string[];
   requirements: ReturnType<typeof normalizeRequirements>;
   policy: ResolvedPolicy;
+  shortlist: PrepareDetail['navigation']['shortlist'];
   sharedOperatingContract: PrepareOutput['sharedOperatingContract'];
   policyProvenance: PrepareOutput['provenance'];
-}): Promise<PrepareDraftOutput> {
+}): Promise<PrepareDetail> {
   const preparePolicy = await toPreparePolicy(options.fs, options.policy);
 
   // Prompt provenance only for what `preparePolicy.prompts` actually
@@ -223,7 +414,10 @@ async function toDraftOutput(options: {
     ),
     notices: options.requirements.notices,
     policy: preparePolicy,
-    navigation: navigationFor(options.project.ecosystem),
+    navigation: {
+      ...navigationFor(options.project.ecosystem),
+      ...(options.shortlist === undefined ? {} : { shortlist: options.shortlist }),
+    },
     sharedOperatingContract: options.sharedOperatingContract,
   };
 }
@@ -343,62 +537,37 @@ function requireActivity(value: string | null): Activity {
 }
 
 /**
- * Resolves the one project this call is about, without ever defaulting to
- * "the first configured project" when the request is genuinely ambiguous
- * (doc 04 P2.1: a monorepository request must not have that decision made for
- * it silently). A single configured project is not ambiguous; neither is an
- * explicit `--project`, nor a set of paths that all resolve to the same
- * project.
+ * The human summary, which always renders from everything that was resolved:
+ * it is read by a person, not counted against the per-call byte budget, so it
+ * says the same things whether `--json` would have emitted the compact shape
+ * or the verbose one. The budget it reports is the emitted payload's.
  */
-function resolveProject(
-  config: AmbicodeConfig,
-  requestedId: string | null,
-  paths: readonly string[],
-): ProjectConfig {
-  if (requestedId !== null) return projectById(config, requestedId);
-
-  if (config.projects.length === 0) {
-    throw new AmbicodeError('unknown-project', 'No project is configured for this repository.', {
-      details: ['Run the AMBICODE init skill first.'],
-    });
-  }
-  if (config.projects.length === 1) return config.projects[0] as ProjectConfig;
-
-  if (paths.length > 0) {
-    const resolved = new Set(paths.map((value) => projectForPath(config, value)?.id ?? null));
-    if (resolved.size === 1) {
-      const [only] = resolved;
-      if (only !== null && only !== undefined) return projectById(config, only);
-    }
-  }
-
-  throw new AmbicodeError(
-    'ambiguous-project',
-    'This repository configures more than one project, and this request does not identify exactly one.',
-    {
-      field: '--project',
-      details: [
-        `Configured projects: ${config.projects.map((project) => project.id).join(', ')}.`,
-        'Pass --project <id>, or give one or more paths that all fall inside a single project root.',
-      ],
-    },
-  );
-}
-
-export function renderPrepare(output: PrepareOutput): string {
+export function renderPrepare(run: PrepareRun): string {
+  const output = run.detail;
   const lines = [
     `activity: ${output.activity}`,
     `project:  ${output.projectId}`,
     `paths:    ${output.paths.join(', ') || '(none supplied — activity-level content only)'}`,
     `requirements: ${output.requirementMode}`,
     `navigation: ${output.navigation.strategy} (${output.navigation.plugin}; status observed by the current session)`,
-    `shared operating contract: ${output.sharedOperatingContract.reference} [${byteLength(output.sharedOperatingContract.content)} bytes] — use --json to read its content`,
+    `shared operating contract: ${output.sharedOperatingContract.reference} [${byteLength(output.sharedOperatingContract.content)} bytes] — delivered once per session by the AMBICODE hook; --with-contract inlines it`,
   ];
 
   if (output.requirements.length > 0) {
     lines.push(...output.requirements.map((source) => `  ${source.id}  ${source.url}`));
   }
   lines.push(`  evidence: ${output.navigation.evidenceRequirement}`);
+  lines.push(`  reading: ${output.navigation.readGuidance}`);
+
+  const shortlist = output.navigation.shortlist;
+  if (shortlist !== undefined) {
+    lines.push('', `boundary shortlist for ${shortlist.terms.join(', ')} — a hypothesis, confirm each candidate`);
+    for (const candidate of shortlist.candidates) {
+      lines.push(`  ${candidate.path}  [${candidate.score}] ${candidate.reasons.join('; ')}`);
+    }
+    if (shortlist.candidates.length === 0) lines.push('  (none — nothing matched well enough to start from)');
+    for (const limitation of shortlist.limitations ?? []) lines.push(`  ! ${limitation}`);
+  }
   if (output.notices.length > 0) {
     lines.push('', 'notices');
     lines.push(...output.notices.map((notice) => `  ${notice}`));
@@ -438,7 +607,7 @@ export function renderPrepare(output: PrepareOutput): string {
 
   lines.push(
     '',
-    `context budget: ${output.contextBudget.measuredBytes}/${output.contextBudget.limitBytes} bytes (review.maxContextBytes)`,
+    `context budget: ${run.data.contextBudget.measuredBytes}/${run.data.contextBudget.limitBytes} bytes (review.maxContextBytes, ${run.json} --json shape)`,
   );
   return lines.join('\n');
 }

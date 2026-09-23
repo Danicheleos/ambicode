@@ -3,6 +3,7 @@ import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import YAML from 'yaml';
 
 /**
  * Structural checks on the shipped skill content itself (doc 04 P2.1). These
@@ -15,18 +16,46 @@ import { fileURLToPath } from 'node:url';
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SKILLS_DIR = path.join(repositoryRoot, 'skills');
 
-function frontmatterName(content: string): string | null {
-  const match = /^---\n([\s\S]*?)\n---/.exec(content);
-  if (match === null) return null;
-  const name = /^name:\s*(\S+)\s*$/m.exec(match[1] ?? '');
-  return name?.[1] ?? null;
+/**
+ * Parses a shipped `SKILL.md`'s frontmatter with the same YAML parser Claude
+ * Code uses, instead of matching lines with a regex. A per-line regex happily
+ * reads a value the YAML spec rejects — an unquoted plain scalar containing
+ * `": "` — which is exactly how two skills shipped in the 0.1.1 candidate with
+ * no `name` and no `description` at all while this test stayed green (R1
+ * defect 1). The `---` delimiters are not themselves YAML, so they are still
+ * split off by hand, but with `\r?\n`: a Windows checkout of a repository
+ * without `.gitattributes` has CRLF, and the LF-only form silently matched
+ * nothing there (R1 defect 3).
+ */
+function frontmatter(content: string, what: string): Record<string, unknown> {
+  const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content);
+  assert.ok(match !== null, `${what}: no frontmatter block`);
+  let parsed: unknown;
+  try {
+    parsed = YAML.parse(match[1] ?? '');
+  } catch (cause) {
+    assert.fail(`${what}: frontmatter is not valid YAML — ${(cause as Error).message}`);
+  }
+  assert.ok(
+    typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed),
+    `${what}: frontmatter is not a YAML mapping`,
+  );
+  return parsed as Record<string, unknown>;
+}
+
+/** Reads one frontmatter key Claude Code relies on, and proves it is present. */
+function requiredString(fm: Record<string, unknown>, key: string, what: string): string {
+  const value = fm[key];
+  assert.equal(typeof value, 'string', `${what}: frontmatter must declare a string ${key}`);
+  assert.notEqual((value as string).trim(), '', `${what}: frontmatter ${key} must not be blank`);
+  return value as string;
 }
 
 /** `${CLAUDE_PLUGIN_ROOT}/skills/shared/requirements-mcp.md` (doc 04 P2.2 correction B). */
 const PLUGIN_ROOT_SHARED_REFERENCE = '${CLAUDE_PLUGIN_ROOT}/skills/shared/requirements-mcp.md';
 
 describe('P2.2/P2.3 shipped skill content', () => {
-  it('registers exactly ambicode:init, ambicode:review, ambicode:investigate, ambicode:plan and ambicode:task', async () => {
+  it('registers exactly ambicode:init, ambicode:review, ambicode:investigate, ambicode:plan, ambicode:task and ambicode:rules', async () => {
     const entries = await readdir(SKILLS_DIR, { withFileTypes: true });
     const skillDirs: string[] = [];
     for (const entry of entries) {
@@ -39,13 +68,22 @@ describe('P2.2/P2.3 shipped skill content', () => {
         // A directory with no SKILL.md (e.g. `shared/`) is not a skill.
       }
     }
-    assert.deepEqual(skillDirs.sort(), ['init', 'investigate', 'plan', 'review', 'task']);
+    assert.deepEqual(skillDirs.sort(), ['init', 'investigate', 'plan', 'review', 'rules', 'task']);
 
+    // Being registered is not the same as being triggerable: Claude Code
+    // matches on `name` and `description`, and a skill whose frontmatter fails
+    // to parse loads with neither. Assert the parse and both keys, not just a
+    // line that looks like a name.
     for (const dir of skillDirs) {
       const content = await readFile(path.join(SKILLS_DIR, dir, 'SKILL.md'), 'utf8');
+      const what = `${dir}/SKILL.md`;
+      const fm = frontmatter(content, what);
       // The directory name is only a fallback and an unstable one for a cached
       // plugin, so every skill sets `name` explicitly (doc 08, "Skills").
-      assert.equal(frontmatterName(content), dir, `${dir}/SKILL.md must declare name: ${dir}`);
+      assert.equal(requiredString(fm, 'name', what), dir, `${what} must declare name: ${dir}`);
+      requiredString(fm, 'description', what);
+      // Only the two skills that take an argument declare a hint for it.
+      if (dir === 'plan' || dir === 'task' || dir === 'rules') requiredString(fm, 'argument-hint', what);
     }
   });
 
@@ -55,8 +93,8 @@ describe('P2.2/P2.3 shipped skill content', () => {
     await assert.rejects(readFile(path.join(SKILLS_DIR, 'shared', 'SKILL.md'), 'utf8'));
   });
 
-  it('review, investigate, plan and task all reference the shared MCP acquisition procedure through the plugin root, instead of duplicating it or a repository-relative path', async () => {
-    const referrers = ['review', 'investigate', 'plan', 'task'] as const;
+  it('review, investigate, plan, task and rules all reference the shared MCP acquisition procedure through the plugin root, instead of duplicating it or a repository-relative path', async () => {
+    const referrers = ['review', 'investigate', 'plan', 'task', 'rules'] as const;
     for (const name of referrers) {
       const content = await readFile(path.join(SKILLS_DIR, name, 'SKILL.md'), 'utf8');
       assert.ok(
@@ -82,30 +120,36 @@ describe('P2.2/P2.3 shipped skill content', () => {
 
   it('the shared procedure describes retrieving on behalf of all four referrers and no other skill file duplicates it', async () => {
     const shared = await readFile(path.join(SKILLS_DIR, 'shared', 'requirements-mcp.md'), 'utf8');
-    for (const name of ['review', 'investigate', 'plan', 'task']) {
+    for (const name of ['review', 'investigate', 'plan', 'task', 'rules']) {
       assert.ok(shared.includes(name), `shared/requirements-mcp.md should name "${name}" as a referrer`);
     }
   });
 
-  it('the shared procedure explains that task keeps the evidence file alive across an arbitrary number of consumers, unlike review/investigate/plan (doc 04 P2.4 correction C4)', async () => {
+  it('the shared procedure pipes the envelope with --evidence - and owns no file lifecycle (R2 change 4)', async () => {
     const shared = await readFile(path.join(SKILLS_DIR, 'shared', 'requirements-mcp.md'), 'utf8');
-    const normalized = shared.replace(/\s+/g, ' ');
-    assert.match(normalized, /task.*may read it.*many times/i);
-    assert.match(normalized, /arbitrary number of consumers/i);
-    assert.match(normalized, /last command in your workflow that reads it/i);
-    // No stale "exactly two" framing: task's real lifecycle is open-ended
-    // (every prepare rerun, every review rerun, every re-review after a fix).
-    assert.doesNotMatch(normalized, /task.*reads it.*twice/i);
+    assert.match(shared, /--evidence -/);
+    assert.match(shared, /There is no evidence file to own/i);
   });
 
-  it('task/SKILL.md deletes its evidence file in exactly one final-cleanup place, never right after prepare or an individual review call (doc 04 P2.4 correction C)', async () => {
-    const task = await readFile(path.join(SKILLS_DIR, 'task', 'SKILL.md'), 'utf8');
-    assert.match(task, /arbitrary number of consumers/i);
-    assert.match(task, /Final cleanup/);
-    assert.match(task, /delete it now — this is the one place it is deleted/i);
-    // The premature "delete right after this run" instruction must be gone:
-    // a finding-fix cycle needs the same evidence file for a second review.
-    assert.doesNotMatch(task, /Delete the requirement evidence file now, after this run/);
+  it('no skill tells anyone to create, keep alive, or delete a requirement evidence file (R2 change 4)', async () => {
+    // The file lifecycle was roughly 40 lines across task, the shared
+    // procedure and review, and every line of it existed only because the
+    // envelope had to survive between two commands. `--evidence -` removes
+    // the object, so the protocol around it has nothing left to govern.
+    const files = ['shared/requirements-mcp.md', 'task/SKILL.md', 'review/SKILL.md', 'plan/SKILL.md', 'investigate/SKILL.md', 'rules/SKILL.md'];
+    for (const relative of files) {
+      const content = (await readFile(path.join(SKILLS_DIR, relative), 'utf8')).replace(/\s+/g, ' ');
+      for (const forbidden of [
+        /write one evidence file/i,
+        /delete the evidence file/i,
+        /keeps? the evidence file alive/i,
+        /arbitrary number of consumers/i,
+        /final cleanup/i,
+        /mkdtemp/i,
+      ]) {
+        assert.doesNotMatch(content, forbidden, `${relative} still describes an evidence-file lifecycle`);
+      }
+    }
   });
 
   it('investigate documents its single note-writing boundary', async () => {
@@ -114,23 +158,49 @@ describe('P2.2/P2.3 shipped skill content', () => {
     // cannot call one, so `src/notes/path.ts` (unreachable from any real
     // boundary) was removed rather than kept to justify a helper nothing calls.
     const investigate = await readFile(path.join(SKILLS_DIR, 'investigate', 'SKILL.md'), 'utf8');
-    assert.match(investigate, /\.ambicode\/notes\/investigations\//);
+    assert.match(investigate, /\.ambicode\/task\/<slug>\/investigation_/);
+  });
+
+  it('saves the investigation note unconditionally, without asking', async () => {
+    // Run 3c2188c8 discarded a 16,867-byte answer: the skill saved "only when
+    // the user asks" and nothing ever offered. plan step 3 reads this note.
+    const investigate = (await readFile(path.join(SKILLS_DIR, 'investigate', 'SKILL.md'), 'utf8')).replace(
+      /\s+/g,
+      ' ',
+    );
+    assert.match(investigate, /Save the note every time/i);
+    assert.match(investigate, /Do not ask/i);
+    assert.doesNotMatch(
+      investigate,
+      /only when the user asks you to save one/i,
+      'investigate/SKILL.md must not gate the note on a request the user cannot know to make',
+    );
+    // The file is a copy of the answer, not a replacement for it.
+    assert.match(investigate, /in addition to the answer, never instead of it/i);
+  });
+
+  it('tells plan, task and investigate to pass the terms prepare needs for a shortlist (R4)', async () => {
+    // No argv template named `--term`, so a question with no ticket got no
+    // shortlist at all (run 3c2188c8). The option existed; nothing passed it.
+    for (const name of ['plan', 'task', 'investigate']) {
+      const content = await readFile(path.join(SKILLS_DIR, name, 'SKILL.md'), 'utf8');
+      assert.match(content, /--term <term>/, `${name}/SKILL.md must offer --term in its prepare argv`);
+    }
   });
 
   it('plan documents its single note-writing boundary, separate from investigate\'s', async () => {
     const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
-    assert.match(plan, /\.ambicode\/notes\/plans\//);
+    assert.match(plan, /\.ambicode\/task\/<slug>\/plan_/);
   });
 
   it('task documents its single note-writing boundary, separate from investigate\'s and plan\'s', async () => {
     const task = await readFile(path.join(SKILLS_DIR, 'task', 'SKILL.md'), 'utf8');
-    assert.match(task, /\.ambicode\/notes\/tasks\//);
+    assert.match(task, /\.ambicode\/task\/<slug>\/notes\.md/);
   });
 
   it('plan declares an argument hint and makes the request available through $ARGUMENTS', async () => {
     const raw = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
-    const frontmatter = /^---\n([\s\S]*?)\n---/.exec(raw)?.[1] ?? '';
-    assert.match(frontmatter, /^argument-hint:\s*\S.+$/m, 'plan/SKILL.md must declare argument-hint');
+    requiredString(frontmatter(raw, 'plan/SKILL.md'), 'argument-hint', 'plan/SKILL.md');
     assert.ok(raw.includes('$ARGUMENTS'), 'plan/SKILL.md must reference $ARGUMENTS explicitly');
   });
 
@@ -140,8 +210,8 @@ describe('P2.2/P2.3 shipped skill content', () => {
     // No *usage example* (fenced code, or a frontmatter argument-hint) shows a
     // plural flag; prose is allowed to name it only to explicitly rule it out.
     const codeBlocks = [...plan.matchAll(/```[\s\S]*?```/g)].map((match) => match[0]);
-    const frontmatter = /^---\n([\s\S]*?)\n---/.exec(plan)?.[1] ?? '';
-    for (const usage of [...codeBlocks, frontmatter]) {
+    const hint = requiredString(frontmatter(plan, 'plan/SKILL.md'), 'argument-hint', 'plan/SKILL.md');
+    for (const usage of [...codeBlocks, hint]) {
       assert.ok(!/--requirements\b/.test(usage), `plan/SKILL.md must not show --requirements as usage: ${usage}`);
     }
   });
@@ -157,6 +227,17 @@ describe('P2.2/P2.3 shipped skill content', () => {
     );
   });
 
+  it('plan names an acceptance gate that works outside plan mode, and offers a decline', async () => {
+    const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
+    // A real run was not in plan mode, found `ExitPlanMode` to be the only
+    // mechanism the skill named, and fell back to printing the roadmap with no
+    // control on it — the human had to guess the word that ended the wait. Both
+    // paths must be named, and the decline with them: a gate whose only answer
+    // is yes is not a gate.
+    assert.match(plan, /ExitPlanMode/);
+    assert.match(plan, /AskUserQuestion/);
+    assert.match(plan, /\bReject\b/);
+  });
   it('plan states it never implements, never invokes the reviewer, and never publishes, commits, or pushes', async () => {
     const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
     for (const phrase of [
@@ -230,8 +311,16 @@ describe('P2.2/P2.3 shipped skill content', () => {
       const content = await readFile(path.join(SKILLS_DIR, name, 'SKILL.md'), 'utf8');
       assert.match(
         content,
+        /sharedOperatingContract/,
+        `${name}/SKILL.md must point at prepare's sharedOperatingContract field`,
+      );
+      // R2 change 2: the text arrives once per session through the plugin
+      // hook, so a skill that still expected `.content` on every call would
+      // be describing a field the compact output no longer carries.
+      assert.doesNotMatch(
+        content,
         /sharedOperatingContract\.content/,
-        `${name}/SKILL.md must read sharedOperatingContract.content from ambicode prepare's JSON output`,
+        `${name}/SKILL.md must not expect the contract's text on every prepare call`,
       );
       // The full authority-label definitions are no longer copied into each
       // skill file; the canonical contract is the one place that owns them.
@@ -262,6 +351,37 @@ describe('P2.2/P2.3 shipped skill content', () => {
       assert.match(content, /installed or recommended alone/i);
     }
   });
+
+  it('starts task and investigate from the boundary shortlist, and treats it as a hypothesis rather than an answer (R4)', async () => {
+    for (const name of ['investigate', 'task']) {
+      const content = (await readFile(path.join(SKILLS_DIR, name, 'SKILL.md'), 'utf8')).replace(/\s+/g, ' ');
+      assert.match(content, /navigation\.shortlist/, `${name}/SKILL.md must start from the shortlist`);
+      assert.match(
+        content,
+        /shortlist is a hypothesis, not an answer/i,
+        `${name}/SKILL.md must not present the shortlist as the answer`,
+      );
+      assert.match(content, /confirm each candidate/i, `${name}/SKILL.md`);
+      // Which candidates held, which did not, and what came from outside the
+      // list: without that the shortlist is unfalsifiable.
+      assert.match(content, /rejected/i, `${name}/SKILL.md`);
+      assert.match(content, /outside it/i, `${name}/SKILL.md`);
+      // A broad search stays allowed; it is reported, not forbidden.
+      assert.match(content, /broad search is\s*allowed and is reported with its reason/i, `${name}/SKILL.md`);
+    }
+  });
+
+  it('documents the shortlist once, in the shared file every authoring skill reads (R4)', async () => {
+    const shared = await readFile(path.join(SKILLS_DIR, 'shared', 'prepare-output.md'), 'utf8');
+    assert.match(shared, /navigation\.shortlist/);
+    assert.match(shared, /hypothesis, not an answer/i);
+    assert.match(shared, /never "read everything"/i);
+    // The standalone command is reachable through the plugin root, like every
+    // other packaged entry point.
+    assert.match(shared, /scripts\/ambicode\.mjs" locate <term>\.\.\. --json/);
+    // And it does not claim, anywhere, to build something it must not build.
+    assert.match(shared, /no index, no cache, nothing written/i);
+  });
 });
 
 describe('P2.3 task skill', () => {
@@ -271,8 +391,7 @@ describe('P2.3 task skill', () => {
 
   it('declares an argument hint and makes the request available through $ARGUMENTS', async () => {
     const raw = await task();
-    const frontmatter = /^---\n([\s\S]*?)\n---/.exec(raw)?.[1] ?? '';
-    assert.match(frontmatter, /^argument-hint:\s*\S.+$/m, 'task/SKILL.md must declare argument-hint');
+    requiredString(frontmatter(raw, 'task/SKILL.md'), 'argument-hint', 'task/SKILL.md');
     assert.ok(raw.includes('$ARGUMENTS'), 'task/SKILL.md must reference $ARGUMENTS explicitly');
   });
 
@@ -280,8 +399,8 @@ describe('P2.3 task skill', () => {
     const content = await task();
     assert.match(content, /--requirement <url>/);
     const codeBlocks = [...content.matchAll(/```[\s\S]*?```/g)].map((match) => match[0]);
-    const frontmatter = /^---\n([\s\S]*?)\n---/.exec(content)?.[1] ?? '';
-    for (const usage of [...codeBlocks, frontmatter]) {
+    const hint = requiredString(frontmatter(content, 'task/SKILL.md'), 'argument-hint', 'task/SKILL.md');
+    for (const usage of [...codeBlocks, hint]) {
       assert.ok(!/--requirements\b/.test(usage), `task/SKILL.md must not show --requirements as usage: ${usage}`);
     }
   });
@@ -329,6 +448,35 @@ describe('P2.3 task skill', () => {
     );
   });
 
+  it('never promises the review target is only this task\'s edits, and spends the dirty tree before the reviewer does', async () => {
+    const content = await task();
+    // A run read "exactly this task's edits", took the target on trust, and
+    // shipped a review of a tree that had been dirty since before it started:
+    // 20 files reviewed, 16 its own, and both findings against the other four.
+    // The claim must not come back, and the warning has to land before the
+    // reviewer is paid for, not in the report afterwards.
+    assert.ok(
+      !/exactly this task's edits/i.test(content),
+      'task/SKILL.md must not claim the working-tree target is only this task\'s edits',
+    );
+    assert.match(content, /all of your uncommitted work/i);
+    assert.match(content, /\*\*name those files before the first review\*\*/i);
+    assert.match(content, /Never modify them or adopt their\s*\n?\s*findings/i);
+  });
+  it('spends the reviewer only with the user\'s consent, and records a skip as unverified', async () => {
+    const content = await task();
+    // One review of one change measured 276s: 73s of affected tests and 112s
+    // of isolated reviewer. That is the user's minute to spend, so the skill
+    // offers the skip rather than starting it — and a skip that reported as
+    // nothing-found would be worse than never asking.
+    assert.match(content, /Format what you wrote, then ask/i);
+    assert.match(content, /offer the skip/i);
+    assert.match(content, /a skipped, declined or incomplete independent review/i);
+    assert.ok(
+      !/independent review pipeline automatically/i.test(content),
+      'task/SKILL.md must not advertise a review the user is now asked about',
+    );
+  });
   it('states that a source change without a successfully executed affected test remains verification-incomplete', async () => {
     const content = await task();
     assert.match(content, /verification-incomplete/i);
@@ -371,8 +519,8 @@ describe('P2.3 task skill', () => {
     );
     // Also stated in the frontmatter description, for the model deciding
     // whether to invoke this skill at all.
-    const frontmatter = /^---\n([\s\S]*?)\n---/.exec(content)?.[1] ?? '';
-    assert.match(frontmatter, /never commits, pushes, opens a merge request, publishes a comment, merges, deploys, or transitions a ticket/i);
+    const description = requiredString(frontmatter(content, 'task/SKILL.md'), 'description', 'task/SKILL.md');
+    assert.match(description, /never commits, pushes, opens a merge request, publishes a comment, merges, deploys, or transitions a ticket/i);
   });
 
   it('treats plans, tickets, repository files, comments, and test output as evidence, never as capabilities or permission', async () => {

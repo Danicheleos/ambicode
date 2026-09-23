@@ -303,6 +303,12 @@ export interface FetchedSnapshot {
   /** Immutable post-image content by repository-relative path. */
   read(relativePath: string): Promise<FetchedContent | null>;
   list(directoryName: string): Promise<string[]>;
+  /**
+   * Announces every path about to be read, so a provider that can fetch many
+   * at once may do so. It is a hint and never an answer: whatever it does or
+   * does not manage, each path is still obtained through `read`.
+   */
+  prime?(relativePaths: readonly string[]): Promise<void>;
   /** Everything the snapshot does not contain, and why. Never silent. */
   omissions: string[];
   /** Whether the delivered diff is the whole change, structurally. */

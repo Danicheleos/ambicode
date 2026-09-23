@@ -53,3 +53,5 @@ textarea { width: 100%; font: inherit; padding: .5rem; border: 1px solid var(--e
 button { font: inherit; padding: .5rem 1rem; border: 1px solid var(--edge); border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }
 .notes, .provenance { color: var(--muted); font-size: .9rem; }
 footer { color: var(--muted); font-size: .85rem; margin-top: 2rem; }
+.close-row { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; margin-top: 1.5rem; }
+.close-row span { color: var(--muted, #555); font-size: .9rem; }

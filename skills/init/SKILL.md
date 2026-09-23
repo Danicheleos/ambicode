@@ -72,6 +72,13 @@ requirements:
 written with every command null. That is a working configuration; it simply has
 no checks yet.
 
+**Rule sources were reported.** Init lists documents that usually hold written
+rules — `CLAUDE.md`, `CONTRIBUTING.md`, `docs`, `.cursor/rules` — when they
+exist. It has not read any of them, and rules written in Markdown are not in
+effect: AMBICODE resolves policy from YAML packs only. Offer `/ambicode:rules`,
+which turns them into scoped packs once, at setup. Do not attempt the migration
+yourself here.
+
 ## After init
 
 `node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" config` prints the effective values, including the limits that are not

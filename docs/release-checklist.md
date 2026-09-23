@@ -12,18 +12,20 @@ against evidence that already exists, not as open-ended advice.
 
 - [ ] Read `docs/installation.md` in full; it is the source of truth for
   every command below.
-- [ ] From a clean checkout: `npm ci && npm run build && npm run typecheck
-  && npm run test:unit && npm run validate:plugin && npm run
-  package:candidate && npm run package:reproducible`. All must pass before
-  anything below.
+- [ ] From a clean checkout: `npm ci && npm run verify && npm run
+  package:reproducible`. All must pass before anything below.
+  `verify` is `build`, `typecheck`, `test:unit` and `validate:plugin`, and
+  `validate:plugin` packages the candidate in order to validate the artifact
+  rather than the checkout — so it leaves `dist/ambicode-<version>` behind and
+  a separate `package:candidate` would only build the same bytes again.
 - [ ] Install the candidate into the normal Claude configuration with
   `node install-local.mjs install dist/ambicode-<version>`; use the named
   `--config-dir <dir>` option only for an intentionally isolated test. Confirm
   ordinary `claude plugin list` and
-  `claude plugin details ambicode@ambicode-team` report all five
-  skills (`init`, `review`, `investigate`, `plan`, `task`) and the four hooks
-  (`Hooks (4)  PostToolUse, SessionStart, PostCompact, SessionEnd`, doc 04
-  P2.4 correction G) before relying on it.
+  `claude plugin details ambicode@ambicode-team` report all six
+  skills (`init`, `review`, `investigate`, `plan`, `task`, `rules`) and the
+  five hooks (`Hooks (5)  PostToolUse, SessionStart, UserPromptSubmit,
+  PostCompact, SessionEnd`, doc 04 P2.4 correction G) before relying on it.
 - [ ] Run `npm run smoke:install-local` (doc 04 P2.2 correction A, and the
   failure-safety rewrite of doc 04 P2.3 correction A): proves install,
   inspect, durability after the candidate directory used for install is
@@ -36,11 +38,24 @@ against evidence that already exists, not as open-ended advice.
   during an upgrade preserves the old installation, a plugin-uninstall or
   marketplace-removal failure preserves the durable source, and a
   wrong-scope uninstall is refused — without shelling out to `claude`.
+- [ ] Confirm the `verify` workflow is green on **all three** legs —
+  `ubuntu-latest`, `windows-latest`, `macos-latest` — for the exact commit
+  being released, not for an ancestor. `fail-fast: false`, so read every leg;
+  a single green tick on the job list is not the same as three green legs.
+  This is the D13 exception added in R1: it exists because the 0.1.1
+  candidate shipped with `verify` red on Windows and two skills that could not
+  be triggered, and one-platform manual acceptance found neither.
 - [ ] On a real Windows host, run `npm run verify`,
-  `npm run package:reproducible`, and `npm run smoke:install-local`; then load
-  the plugin from a target repository and exercise one hook. The implementation
-  no longer depends on OS `zip`, `/bin/sh`, or `.venv/bin`, but macOS evidence
-  is not Windows acceptance evidence.
+  `npm run package:reproducible`, `npm run smoke:candidate`, and
+  `npm run smoke:install-local`; then load the plugin from a target repository
+  and exercise one hook. The implementation no longer depends on OS `zip`,
+  `/bin/sh`, or `.venv/bin`, but macOS evidence is not Windows acceptance
+  evidence — and neither is a green CI leg, which does not install the plugin
+  or run a hook.
+- [ ] Run `node check-line-endings.mjs`: every tracked text file must be
+  stored with LF. A file committed as CRLF before `.gitattributes` existed
+  keeps its CRLF in the index, and a Windows checkout then differs byte for
+  byte from a Linux one.
 - [ ] For each pilot language, install the official LSP plugin and server from
   `docs/installation.md`, then record one real definition/reference operation
   from `/ambicode:investigate`, `/ambicode:plan`, or `/ambicode:task`. Record a

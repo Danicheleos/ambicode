@@ -33,6 +33,19 @@ export class Git {
   }
 
   private async exec(args: readonly string[], allowFailure = false): Promise<string> {
+    return (await this.execOutcome(args, allowFailure)).stdout;
+  }
+
+  /**
+   * The same invocation, keeping the exit code. Only a caller for which a
+   * nonzero status is an *answer* rather than a failure needs it: `git grep`
+   * exits 1 to say "no file matched", which is a fact, while anything above 1
+   * is a real error that must not be read as an empty result (R4).
+   */
+  private async execOutcome(
+    args: readonly string[],
+    allowFailure = false,
+  ): Promise<{ stdout: string; exitCode: number | null }> {
     const prefix = this.options.gitDir === undefined ? [] : ['--git-dir', this.options.gitDir];
     const outcome = await this.options.runner.run({
       argv: ['git', ...prefix, ...SAFE_CONFIG, ...args],
@@ -72,7 +85,7 @@ export class Git {
     if (outcome.truncated) {
       throw new AmbicodeError('git-output-truncated', `git ${args[0] ?? ''} produced more output than AMBICODE reads.`);
     }
-    return outcome.stdout;
+    return { stdout: outcome.stdout, exitCode: outcome.exitCode };
   }
 
   /**
@@ -199,6 +212,110 @@ export class Git {
     return names;
   }
 
+  /**
+   * Every path in the work tree the developer can see: tracked files plus
+   * untracked ones their ignore rules do not exclude. Used by the boundary
+   * shortlist (R4), which must consider a file the author just created as
+   * readily as one that has been committed for years.
+   */
+  async listFiles(pathspec: string | null): Promise<string[]> {
+    const output = await this.exec([
+      'ls-files',
+      '-z',
+      '--cached',
+      '--others',
+      '--exclude-standard',
+      '--',
+      ...(pathspec === null ? [] : [pathspec]),
+    ]);
+    return [...new Set(splitNul(output))];
+  }
+
+  /**
+   * Paths whose contents hold `term` as a fixed, case-insensitive string.
+   * Fixed (`-F`) because a term comes from a request or a requirement
+   * document and is not a regular expression the caller wrote; `-I` because a
+   * binary hit is not evidence a person can read.
+   *
+   * Exit 1 means git searched and found nothing, which is an answer. Anything
+   * above it is a failure and is raised, so an unreadable repository never
+   * arrives as "no file matched".
+   */
+  async grepFiles(term: string, pathspec: string | null): Promise<string[]> {
+    const outcome = await this.execOutcome(
+      [
+        'grep',
+        '--untracked',
+        '-I',
+        '-l',
+        '-z',
+        '-i',
+        '-F',
+        '-e',
+        term,
+        '--',
+        ...(pathspec === null ? [] : [pathspec]),
+      ],
+      true,
+    );
+    if (outcome.exitCode === 1) return [];
+    if (outcome.exitCode !== 0) {
+      throw new AmbicodeError('git-failed', `git grep failed with exit code ${String(outcome.exitCode)}.`);
+    }
+    return splitNul(outcome.stdout);
+  }
+
+  /**
+   * The most recent non-merge commits that touched any of `paths`, newest
+   * first and never more than `limit` of them. A merge carries no file list of
+   * its own under `--name-only`, so excluding merges keeps the commit count
+   * and the per-file counts derived from it talking about the same thing.
+   *
+   * A repository with no commits yet answers with nothing rather than failing:
+   * "too little history" is a limitation the caller reports, not an error.
+   */
+  async commitsTouching(paths: readonly string[], limit: number): Promise<string[]> {
+    if (paths.length === 0 || limit <= 0) return [];
+    const outcome = await this.execOutcome(
+      ['log', '--no-merges', '--format=%H', '-n', String(limit), '--', ...paths],
+      true,
+    );
+    if (outcome.exitCode !== 0) return [];
+    return outcome.stdout
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line !== '');
+  }
+
+  /**
+   * The paths each of `commits` changed, grouped by commit. `--no-walk`
+   * reports exactly the commits given rather than their ancestry, and under
+   * `-z` the stream is `<sha> NUL LF <path> NUL <path> NUL <sha> NUL ...`, so
+   * the commit list from `commitsTouching` is what tells a boundary record
+   * apart from a path, rather than a guess about what a 40-character name
+   * means.
+   */
+  async commitFileLists(commits: readonly string[]): Promise<{ commit: string; paths: string[] }[]> {
+    if (commits.length === 0) return [];
+    const known = new Set(commits);
+    const output = await this.exec(['log', '--no-walk', '-z', '--format=%H', '--name-only', ...commits, '--']);
+    const lists: { commit: string; paths: string[] }[] = [];
+    let current: { commit: string; paths: string[] } | null = null;
+    for (const record of output.split('\0')) {
+      // The format's own terminator arrives attached to the first path of each
+      // commit; it is separator, not part of the name.
+      const entry = record.startsWith('\n') ? record.slice(1) : record;
+      if (entry === '') continue;
+      if (known.has(entry)) {
+        current = { commit: entry, paths: [] };
+        lists.push(current);
+        continue;
+      }
+      current?.paths.push(entry);
+    }
+    return lists;
+  }
+
   async version(): Promise<string> {
     return (await this.exec(['--version'])).trim();
   }
@@ -212,6 +329,16 @@ export interface RawChange {
   changeKind: RawChangeKind;
   oldMode: string;
   newMode: string;
+}
+
+/**
+ * A pathspec that means exactly this path: git's wildcard and magic syntax is
+ * off, and the path is read from the repository root whatever the process's
+ * working directory is. Without it a file legitimately named `*.ts` would be
+ * read as a pattern.
+ */
+export function literalPathspec(repositoryRelativePath: string): string {
+  return `:(literal,top)${repositoryRelativePath}`;
 }
 
 export function splitNul(output: string): string[] {

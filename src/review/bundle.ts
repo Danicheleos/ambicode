@@ -2,7 +2,8 @@ import path from 'node:path';
 import { runChecks, type PendingApproval } from '../checks/run.ts';
 import { runRemoteChecks } from '../checks/remote.ts';
 import type { ChangedPath } from '../checks/select.ts';
-import { MAX_REVIEWED_DISCUSSIONS, REVIEWS_DIR } from '../config/defaults.ts';
+import { MAX_REVIEWED_DISCUSSIONS, REVIEWS_DIR, REVIEWS_LEAF, TASKS_DIR } from '../config/defaults.ts';
+import { taskSlugFor, uniqueReviewName } from './review-name.ts';
 import {
   openWorkspace,
   projectForPath,
@@ -18,8 +19,10 @@ import type { DiffFile } from '../git/diff.ts';
 import type { FileSystem } from '../ports/filesystem.ts';
 import { configProvenance, policyProvenance } from '../policy/provenance.ts';
 import {
+  canonicalUrl,
   normalizeRequirements,
-  readRequirementEvidence,
+  loadRequirementEvidence,
+  type EvidenceSource,
   type NormalizedRequirements,
 } from '../requirements/normalize.ts';
 import { describeExclusion, isExcludedFromReview } from '../snapshot/exclusions.ts';
@@ -37,6 +40,7 @@ import {
   resolveWorkingTarget,
   type TargetResolution,
 } from '../snapshot/target.ts';
+import { AmbicodeError } from '../util/errors.ts';
 import { normalizeRelative } from '../util/paths.ts';
 import { composeReviewerPrompt, estimatePromptOverheadBytes, type ComposedPrompt } from './prompt.ts';
 
@@ -82,9 +86,60 @@ export interface AssembleOptions {
   target: TargetSelection;
   /** Requirement URLs, the canonical way a requirement enters a review. */
   requirementUrls: readonly string[];
-  /** Path of the evidence envelope the outer session wrote, if any. */
-  evidencePath: string | null;
+  /** Where the outer session's evidence envelope comes from, if any. */
+  evidence: EvidenceSource | null;
   approvals: ReadonlySet<string>;
+  /** Approval keys a human refused, so the run stops waiting on them. */
+  declines: ReadonlySet<string>;
+  /** The task directory this review belongs in; see `taskSlugFor`. */
+  task: string | null;
+  /** `--exclude <glob>`, added to `review.excludePaths` for this run only. */
+  excludePaths?: readonly string[];
+  /** `--only <glob>`: review nothing outside these paths. */
+  onlyPaths?: readonly string[];
+  /** `--with-tests`: keep test code in a merge-request review. */
+  withTests?: boolean;
+}
+
+function quoteAll(globs: readonly string[]): string {
+  return globs.map((glob) => `"${glob}"`).join(', ');
+}
+
+/**
+ * Nothing left to review, from either direction. The two cases need different
+ * advice — there is no change at all, or the patterns ate it — but the same
+ * code, so a caller can branch on one thing.
+ */
+function nothingToReview(
+  changedFiles: number,
+  excludePaths: readonly string[],
+  onlyPaths: readonly string[],
+): AmbicodeError {
+  if (changedFiles === 0) {
+    return new AmbicodeError('nothing-to-review', 'Nothing has changed, so there is nothing to review.', {
+      details: [
+        'The target resolved to no changed file at all.',
+        'For uncommitted work that means a clean tree; for --branch, a branch level with its baseline; for --mr, an empty diff.',
+        'AMBICODE does not spend a reviewer on an empty change and report the result as a review.',
+      ],
+    });
+  }
+  const patterns = [
+    ...(onlyPaths.length === 0 ? [] : [`--only ${quoteAll(onlyPaths)}`]),
+    ...(excludePaths.length === 0 ? [] : [`--exclude ${quoteAll(excludePaths)}`]),
+  ];
+  return new AmbicodeError(
+    'nothing-to-review',
+    'Every changed file was left out by the path patterns, so there is nothing to review.',
+    {
+      field: patterns.length === 0 ? 'review' : 'review.excludePaths',
+      details: [
+        `${changedFiles} changed file(s), and none of them survived: ${patterns.join(' ; ') || 'the built-in exclusions'}.`,
+        'Widen the patterns so the change itself is still reviewed.',
+        'AMBICODE does not spend a reviewer on an empty change and report the result as a review.',
+      ],
+    },
+  );
 }
 
 export async function assembleBundle(options: AssembleOptions): Promise<ReviewBundle> {
@@ -97,9 +152,9 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
   const requirements = normalizeRequirements({
     urls: options.requirementUrls,
     evidence:
-      options.evidencePath === null
+      options.evidence === null
         ? null
-        : await readRequirementEvidence(runtime.fs, options.evidencePath),
+        : await loadRequirementEvidence(runtime, options.evidence),
     configuredServer: workspace.config.requirements.mcpServer,
   });
   const requirementBytes = requirements.sources.reduce(
@@ -117,7 +172,29 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
   // Vendored directories, build output and credential-shaped files leave the
   // review here: they are not mirrored, not put in the patch, and not counted
   // against limits meant to protect genuine review.
-  const reviewable = partitionChange(resolution.files);
+  //
+  // The configured patterns and this run's `--exclude` join them. Config
+  // first, so `ambicode config` reads in the order the patterns are applied.
+  const excludePaths = [...limits.excludePaths, ...(options.excludePaths ?? [])];
+  const onlyPaths = [...(options.onlyPaths ?? [])];
+  // Merge-request review is about somebody else's branch, and none of its test
+  // files will be executed here: without a pinned container every check is
+  // skipped, so a spec file is read but never run. 60 of MR 2677's 299 changed
+  // files were `.spec.ts`. A local review of your own work keeps them, because
+  // `task` has just written them and whether they cover the change is the
+  // question. `--with-tests` puts them back either way.
+  const excludeTests =
+    options.withTests !== true && resolution.target.kind === 'merge-request';
+  const patterns = { exclude: excludePaths, include: onlyPaths, excludeTests };
+  const reviewable = partitionChange(resolution.files, patterns);
+
+  // A review of no files would run a model over nothing and report an empty
+  // finding list, which reads exactly like a review that found nothing wrong.
+  // Measured both ways: a clean tree gave "0 file(s), 0 line(s)" and exit 0,
+  // and so did three changed files with every one of them excluded.
+  if (reviewable.files.length === 0) {
+    throw nothingToReview(resolution.files.length, excludePaths, onlyPaths);
+  }
 
   // The counts that cost nothing come first: a change already over the file,
   // line or requirement limit is refused without reading a single file, and
@@ -147,13 +224,54 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
   const plan = await planSnapshot({
     files: reviewable.files,
     content: resolution.content,
+    // Local context is a filesystem read; remote context is a request each.
+    // Stated here as well as at the provider so the planner does not list 25
+    // directories to be told each time that there is nothing in them.
+    includeSiblingContext: resolution.target.kind !== 'merge-request',
+    operator: patterns,
     contextBudgetBytes: Math.max(0, limits.maxContextBytes - overheadBytes),
   });
 
   const snapshot = await writeSnapshot(runtime.fs, plan, reviewable.patch, runtime.clock);
 
-  const reviewId = runtime.ids.reviewId();
-  const reviewDirectory = path.join(workspace.repositoryRoot, REVIEWS_DIR, reviewId);
+  // The directory name is the review id, and it is what a person scans the
+  // listing for: which merge request, which ticket, which day. Inside a task
+  // directory the ticket is already in the path above it, so the name carries
+  // the target and the day only.
+  const requirementIds = requirements.sources.map((source) => source.id);
+  // `normalizeRequirements` sorts its sources by id so the result reads the
+  // same whatever order they arrived in. That is right for the result and
+  // wrong for the task: given a ticket and the Confluence page behind it,
+  // sorting picks whichever sorts first, and the work is named after the
+  // ticket. The first `--requirement` the caller named is the task.
+  const asNamed = options.requirementUrls
+    .map(
+      (url) =>
+        requirements.sources.find((source) => canonicalUrl(source.url) === canonicalUrl(url))?.id,
+    )
+    .filter((id): id is string => id !== undefined);
+  const taskSlug =
+    resolution.target.kind === 'merge-request'
+      ? null
+      : taskSlugFor({
+          requirementIds: asNamed.length > 0 ? asNamed : requirementIds,
+          task: options.task,
+        });
+  const reviewsRoot =
+    taskSlug === null
+      ? path.join(workspace.repositoryRoot, REVIEWS_DIR)
+      : path.join(workspace.repositoryRoot, TASKS_DIR, taskSlug, REVIEWS_LEAF);
+  const reviewId = await uniqueReviewName(
+    {
+      target: resolution.target,
+      requirementIds,
+      now: runtime.clock.now(),
+      insideTask: taskSlug !== null,
+    },
+    (name) => runtime.fs.exists(path.join(reviewsRoot, name)),
+    runtime.ids.reviewId(),
+  );
+  const reviewDirectory = path.join(reviewsRoot, reviewId);
   await runtime.fs.mkdirp(reviewDirectory);
 
   const { checks, pendingApprovals, notes: checkNotes } = await runProjectChecks({
@@ -165,6 +283,7 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
     reviewDirectory,
     snapshot,
     approvals: options.approvals,
+    declines: options.declines,
   });
 
   const measured = measureInput(reviewable.files, reviewable.patch, {
@@ -209,7 +328,7 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
     // reader cannot see is indistinguishable from a file that did not change.
     changedFiles: resolution.files.map((file) => {
       const target = file.newPath;
-      const reason = isExcludedFromReview(file.oldPath, file.newPath);
+      const reason = isExcludedFromReview(file.oldPath, file.newPath, patterns);
       return {
         oldPath: file.oldPath,
         newPath: file.newPath,
@@ -223,6 +342,23 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
     findings: [],
     omissions: [
       ...remoteOmissions,
+      // Stated once, where the reader judges coverage: a narrowed review is
+      // still a review of part of a change, and has to read as one.
+      ...(onlyPaths.length === 0
+        ? []
+        : [
+            `This review was narrowed on request: only paths matching ${quoteAll(onlyPaths)} were reviewed. Everything else the change touches is unexamined.`,
+          ]),
+      ...(excludePaths.length === 0
+        ? []
+        : [
+            `This review was narrowed on request: paths matching ${quoteAll(excludePaths)} were not reviewed. Whatever changed in them is unexamined.`,
+          ]),
+      ...(excludeTests && reviewable.excluded.some((entry) => entry.reason.includes('test code'))
+        ? [
+            "This is a merge-request review, so the change's test code was not reviewed and no check executed it. Whether the tests cover the change, and whether any assertion was weakened, is unestablished. Re-run with --with-tests to review them.",
+          ]
+        : []),
       ...reviewable.excluded.map((entry) => `${entry.path}: ${entry.reason}.`),
       ...snapshot.omissions,
       ...checkNotes,
@@ -311,7 +447,12 @@ async function resolveTarget(
       provider: workspace.runtime.providers.forUrl(target.url),
       url: target.url,
       repositoryRoot: workspace.repositoryRoot,
-      includeSiblingContext: true,
+      // Every unchanged neighbour is another remote request. Measured on MR
+      // 2677: 47 changed files, 94 unchanged neighbours, 19 directory listings
+      // — two thirds of the requests and about half the mirrored bytes, spent
+      // on code the merge request does not touch. The diff and the changed
+      // files themselves are what the review is of.
+      includeSiblingContext: false,
       maxDiscussions: MAX_REVIEWED_DISCUSSIONS,
     });
   }
@@ -381,6 +522,7 @@ interface ProjectChecksOptions {
   reviewDirectory: string;
   snapshot: Snapshot;
   approvals: ReadonlySet<string>;
+  declines: ReadonlySet<string>;
 }
 
 async function runProjectChecks(options: ProjectChecksOptions): Promise<{
@@ -444,6 +586,7 @@ async function runProjectChecks(options: ProjectChecksOptions): Promise<{
       runner: options.runtime.runner,
       clock: options.runtime.clock,
       approvals: options.approvals,
+      declines: options.declines,
       reviewDirectory: options.reviewDirectory,
       enumerationRevision: resolution.preImageRevision,
       git: workspace.git,
