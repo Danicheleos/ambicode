@@ -60,6 +60,29 @@ test('U03 built-in packs parse, keep authority and provenance, and qualify rule 
   assert.ok(toPosix(resolved.prompts[0]?.absolutePath ?? '').endsWith('policies/prompts/review-smells.md'));
 });
 
+test('comment-reasons defaults to no comment, bounds its length, and refuses the same reason in several places', async () => {
+  // Run 3c2188c8 added 38 comment lines to 161 code lines, 4 of them for a
+  // 2-line change in a file that had none, and restated one reason in four
+  // files. "Comment the non-obvious reason" read as an obligation to add them.
+  const { packs } = await loadPacksForProject({
+    fs: nodeFileSystem,
+    project: project({ packs: ['builtin/common-quality'] }),
+    builtinDirectory: BUILTIN_DIRECTORY,
+    repositoryRoot: '/nowhere',
+  });
+  const rule = packs[0]?.pack.rules.find((candidate) => candidate.id === 'comment-reasons');
+  assert.ok(rule, 'common-quality must still declare comment-reasons');
+  const instruction = rule.instruction.replace(/\s+/g, ' ');
+  assert.match(instruction, /default to no comment/i, 'must make no comment the default');
+  assert.match(instruction, /fewest words|shortest/i, 'must bound how long a comment may be');
+  assert.match(instruction, /once rather than|once, not/i, 'must forbid restating one reason in several places');
+  // It rides every `prepare` call and the reviewer prompt.
+  assert.ok(
+    instruction.length < 320,
+    `comment-reasons is ${instruction.length} characters; it is re-sent on every call and should stay short`,
+  );
+});
+
 test('U26 every built-in pack loads and its referenced prompt files exist', async () => {
   const ids = [
     'common-quality', 'common-checks', 'python-quality',

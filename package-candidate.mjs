@@ -395,26 +395,15 @@ async function packageInto(parentDir) {
 }
 
 /**
- * `claude plugin validate --strict` against the candidate rather than the
- * checkout. The repository root is both a plugin root and its own Claude Code
- * project root, so validating `.` failed `--strict` on a warning that the root
- * `CLAUDE.md` "is not loaded as project context" — true, and not a defect in
- * the plugin: CLAUDE.md is not in FILE_ALLOWLIST and has never shipped
- * (36-file inventory at 0.2.0). The check was pointed at the wrong tree.
- *
- * It is the same manifest validation, not a stronger one. Measured with a
- * `name:` field deleted from skills/rules/SKILL.md, both targets reported
- * "Validation passed" for the skill; `src/util/skill-content.test.ts` is what
- * fails on that, and the candidate's own structural assertions are the checks
- * above. So this move buys the false warning's removal and nothing else.
+ * Validates the candidate, not the checkout: the repository root is also its
+ * own Claude Code project root, so `validate .` failed `--strict` on a root
+ * CLAUDE.md that FILE_ALLOWLIST never ships. Same validation, no stronger —
+ * with `name:` deleted from a skill, both targets still passed.
  */
 function validatePlugin(candidateDir) {
-  // A shell, and one command string rather than an argument array: on Windows
-  // `claude` on PATH is a shim, so a shell-less spawn is ENOENT, and passing
-  // an args array alongside `shell: true` is deprecated (DEP0190) because the
-  // shell concatenates without escaping. So nothing here is interpolated
-  // except a repository-relative `dist/ambicode-<semver>`, which cannot
-  // contain a space; the checkout path, which can, stays in `cwd`.
+  // A command string, not an args array: `claude` is a PATH shim on Windows so
+  // a shell-less spawn is ENOENT, and args plus `shell: true` is DEP0190. Only
+  // `dist/ambicode-<semver>` is interpolated, which cannot contain a space.
   const target = path.relative(ROOT, candidateDir).split(path.sep).join('/');
   execSync(`claude plugin validate ${target} --strict`, { cwd: ROOT, stdio: 'inherit' });
 }
@@ -424,8 +413,6 @@ if (mode === '--check-reproducible') {
   await checkReproducible();
 } else {
   const { candidateDir } = await main();
-  // Opt-in, so packaging keeps working on a machine with no `claude` binary;
-  // `npm run validate:plugin` is what asks for it, and `npm run verify` runs
-  // that.
+  // Opt-in, so packaging still works without a `claude` binary.
   if (mode === '--validate-plugin') validatePlugin(candidateDir);
 }

@@ -28,12 +28,9 @@ export interface NavigationGuidance {
    */
   evidenceRequirement: string;
   /**
-   * How much of a file the order expects a skill to open. It lives here rather
-   * than only in `skills/shared/prepare-output.md` because a run that skips
-   * that second file still receives this one: investigation 3c2188c8 read 40
-   * files whole for 207,655 bytes — 74% of every tool result it produced — and
-   * cited 607 lines of them, never having opened the pointer. Same one-clause
-   * budget as `evidenceRequirement`, for the same per-call reason.
+   * How much of a file to open. Here, not only in `prepare-output.md`, because
+   * run 3c2188c8 never opened that file and read 40 whole ones for 207,655
+   * bytes. One clause, like `evidenceRequirement`.
    */
   readGuidance: string;
 }
