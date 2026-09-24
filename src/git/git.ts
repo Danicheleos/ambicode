@@ -145,6 +145,12 @@ export class Git {
     return sha === '' ? null : sha;
   }
 
+  /** The fetch URL of a remote, or null when the checkout has no such remote. */
+  async remoteUrl(name: string): Promise<string | null> {
+    const url = (await this.exec(['remote', 'get-url', '--', name], true)).trim();
+    return url === '' ? null : url;
+  }
+
   async originHead(): Promise<string | null> {
     const output = await this.exec(['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD'], true);
     const ref = output.trim();
@@ -339,6 +345,40 @@ export interface RawChange {
  */
 export function literalPathspec(repositoryRelativePath: string): string {
   return `:(literal,top)${repositoryRelativePath}`;
+}
+
+/**
+ * Host and project path of a remote URL, in any of git's three spellings:
+ * `https://host/group/project.git`, `ssh://git@host:22/group/project.git` and
+ * `git@host:group/project.git`. Null for anything else, such as a local path.
+ * Deliberately returns no user, password or port: a remote URL can carry a
+ * token, and what callers do with this is print it.
+ */
+export function parseRemoteProject(url: string): { host: string; path: string } | null {
+  const trimmed = url.trim();
+  let host: string;
+  let pathname: string;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) {
+    let parsed: URL;
+    try {
+      parsed = new URL(trimmed);
+    } catch {
+      return null;
+    }
+    if (parsed.protocol === 'file:') return null;
+    host = parsed.hostname;
+    pathname = decodeURIComponent(parsed.pathname);
+  } else {
+    // scp-like: `[user@]host:path`, where the path does not start with `/`
+    // only by convention. A Windows drive letter (`C:\...`) is a local path.
+    const match = /^(?:[^@/\s]+@)?([^:/\s]+):(?!\\)(.+)$/.exec(trimmed);
+    if (match === null || /^[a-z]$/i.test(match[1] ?? '')) return null;
+    host = match[1] ?? '';
+    pathname = match[2] ?? '';
+  }
+  const path = pathname.replace(/^\/+/, '').replace(/\/+$/, '').replace(/\.git$/i, '');
+  if (host === '' || path === '') return null;
+  return { host: host.toLowerCase(), path };
 }
 
 export function splitNul(output: string): string[] {

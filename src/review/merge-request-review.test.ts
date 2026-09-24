@@ -471,6 +471,62 @@ describe('U18 reviewing a merge request', () => {
     }
   });
 
+  describe('says whose configuration judged the merge request', () => {
+    async function withOrigin(origin: string | null) {
+      const context = await fixture();
+      if (origin !== null) await context.repo.run(['git', 'remote', 'add', 'origin', origin]);
+      const output = await reviewMr(context.runtime, new FakeReviewer());
+      await nodeFileSystem.remove(output.snapshotDirectory);
+      return { context, output };
+    }
+
+    it('names the checkout and its origin when it is the merge request project', async () => {
+      const { context, output } = await withOrigin('git@gitlab.example.com:group/sub/project.git');
+      try {
+        const notes = output.result.target.notes.join('\n');
+        assert.match(notes, /Judged with the configuration, policy packs and check commands of the checkout at /);
+        assert.match(notes, /\(origin gitlab\.example\.com\/group\/sub\/project\)\./);
+        assert.ok(!output.result.omissions.some((line) => line.includes('written for another project')));
+      } finally {
+        await context.dispose();
+      }
+    });
+
+    it('accepts a checkout of the fork the source branch lives in', async () => {
+      const { context, output } = await withOrigin('https://gitlab.example.com/contributor/project.git');
+      try {
+        assert.ok(!output.result.omissions.some((line) => line.includes('written for another project')));
+      } finally {
+        await context.dispose();
+      }
+    });
+
+    it('records a gap when the checkout is another project, without printing its credentials', async () => {
+      const { context, output } = await withOrigin('https://oauth2:glpat-SECRET@gitlab.example.com/inseer/inseer-frontend.git');
+      try {
+        const gap = output.result.omissions.find((line) => line.includes('written for another project'));
+        assert.ok(gap !== undefined, output.result.omissions.join('\n'));
+        assert.match(gap, /This checkout is gitlab\.example\.com\/inseer\/inseer-frontend, not gitlab\.example\.com\/group\/sub\/project/);
+        assert.ok(!JSON.stringify(output.result).includes('SECRET'));
+        const report = await nodeFileSystem.readText(output.reportPath);
+        assert.match(report, /written for another project/);
+      } finally {
+        await context.dispose();
+      }
+    });
+
+    it('says it could not check when the checkout has no origin, and still reviews', async () => {
+      const { context, output } = await withOrigin(null);
+      try {
+        assert.match(output.result.target.notes.join('\n'), /which has no origin remote, so whether it belongs to group\/sub\/project could not be checked/);
+        assert.equal(output.result.reviewer?.status, 'ok');
+        assert.ok(!output.result.omissions.some((line) => line.includes('written for another project')));
+      } finally {
+        await context.dispose();
+      }
+    });
+  });
+
   it('narrows the review rather than stopping it when discussions cannot be read', async () => {
     const context = await fixture();
     try {

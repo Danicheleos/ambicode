@@ -447,6 +447,7 @@ async function resolveTarget(
       provider: workspace.runtime.providers.forUrl(target.url),
       url: target.url,
       repositoryRoot: workspace.repositoryRoot,
+      checkoutOriginUrl: await workspace.git.remoteUrl('origin'),
       // Every unchanged neighbour is another remote request. Measured on MR
       // 2677: 47 changed files, 94 unchanged neighbours, 19 directory listings
       // — two thirds of the requests and about half the mirrored bytes, spent
