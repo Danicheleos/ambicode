@@ -13,7 +13,8 @@ import type { LocateCandidate } from '../contracts/locate.ts';
 import { Git } from '../git/git.ts';
 import { nodeFileSystem, type FileSystem } from '../ports/filesystem.ts';
 import { NodeProcessRunner } from '../ports/node-process-runner.ts';
-import { locate, PREPARE_SHORTLIST_LIMIT, termsFromRequirements } from './locate.ts';
+import { locate, pathHit, PREPARE_SHORTLIST_LIMIT, termsFromRequirements } from './locate.ts';
+import { matchesGlob } from '../util/glob.ts';
 
 /**
  * R4: the boundary shortlist has to beat the thing it replaces — an agent
@@ -583,5 +584,50 @@ describe('R4 shortlist across ecosystems and layouts', () => {
     } finally {
       await rm(path.dirname(root), { recursive: true, force: true });
     }
+  });
+});
+
+describe('R4 path signal without a glob per file', () => {
+  /** What `pathMatches` computed before, kept here as the reference. */
+  function globHit(lowerPath: string, form: string): 'directory' | 'filename' | null {
+    if (matchesGlob(lowerPath, `**/*${form}*/**`)) return 'directory';
+    return matchesGlob(lowerPath, `**/*${form}*`) ? 'filename' : null;
+  }
+
+  it('gives exactly the answer the two globs gave, on this repository and on the edge cases', async () => {
+    const tracked = await gitFor(repositoryRoot).listFiles(null);
+    const edges = [
+      'a/.foo/b.ts', 'a/.foo.ts', 'a/x.foo.ts', '.github/foo.yml', '.github/foo/x.yml',
+      'a/foo/.x/b.ts', 'a/foo/.env', 'foo.ts', 'foo/b.ts', 'a/xfooy/b.ts', 'a/foo',
+      'Src/Orders/Refund.ts', 'src/orders.ts', 'xsrc/ordersy/z.ts', 'a/b+c/d.ts', 'a/b.c/d.ts',
+      'a/bxc/d.ts', 'a/x.env', 'a/é/d.ts', 'a/order-refund/x.ts', 'a/order_refund.py',
+    ];
+    const paths = [...new Set([...tracked, ...edges])].map((value) => value.toLowerCase());
+    // Every segment word of the corpus is a form, so the fast path is checked
+    // against far more spellings than any one request would try.
+    const forms = new Set(['foo', 'src/orders', '.env', 'b+c', 'b.c', 'é', 'order-refund', 'orderrefund', '.ts', 'x']);
+    for (const value of paths) {
+      for (const word of value.split(/[/._-]/)) if (word.length >= 3) forms.add(word);
+    }
+
+    const seen = { directory: 0, filename: 0, none: 0, hiddenByDot: 0 };
+    const disagreements: string[] = [];
+    for (const form of forms) {
+      for (const value of paths) {
+        const expected = globHit(value, form);
+        const actual = pathHit(value, form);
+        if (actual !== expected && disagreements.length < 10) {
+          disagreements.push(`${JSON.stringify(form)} in ${value}: glob ${expected}, now ${actual}`);
+        }
+        seen[expected ?? 'none'] += 1;
+        // The case a plain substring test gets wrong.
+        if (expected === null && value.includes(form) && value.split('/').some((part) => part.startsWith('.'))) {
+          seen.hiddenByDot += 1;
+        }
+      }
+    }
+    assert.deepEqual(disagreements, []);
+    // Equality means nothing unless every answer the glob can give was given.
+    for (const [outcome, count] of Object.entries(seen)) assert.ok(count > 0, `no case produced ${outcome}`);
   });
 });

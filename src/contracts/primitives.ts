@@ -46,12 +46,6 @@ export const PublicationState = z.enum([
 ]);
 export type PublicationState = z.infer<typeof PublicationState>;
 
-/** States that mean the comment exists remotely and must never be sent again. */
-export const SETTLED_PUBLICATION_STATES: ReadonlySet<PublicationState> = new Set([
-  'published',
-  'already-published',
-]);
-
 export const Authority = z.enum(['team', 'observed', 'inherited']);
 export type Authority = z.infer<typeof Authority>;
 
@@ -89,7 +83,7 @@ export const COMMAND_ACTION_PRECEDENCE: Record<z.infer<typeof CommandAction>, nu
 export const Ecosystem = z.enum(['typescript', 'python']);
 export type Ecosystem = z.infer<typeof Ecosystem>;
 
-export const AdapterId = z.enum(['eslint', 'ruff', 'jest', 'vitest', 'pytest', 'playwright']);
+export const AdapterId = z.enum(['eslint', 'ruff', 'generic', 'jest', 'vitest', 'pytest', 'playwright']);
 export type AdapterId = z.infer<typeof AdapterId>;
 
 export const TargetKind = z.enum(['working', 'branch', 'merge-request']);

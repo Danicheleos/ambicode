@@ -3,7 +3,7 @@ import type {
   PublicationOutcome,
   SubmissionRecord,
 } from '../contracts/publication.ts';
-import { PUBLICATION_SCHEMA_VERSION } from '../contracts/publication.ts';
+import { PUBLICATION_SCHEMA_VERSION, isSettled } from '../contracts/publication.ts';
 import type { PublicationState } from '../contracts/primitives.ts';
 import {
   revisionMatches,
@@ -146,7 +146,7 @@ export async function runPublication(options: PublishRunOptions): Promise<Submis
     }
 
     const settled = options.previous.get(comment.findingId);
-    if (settled !== undefined && (settled.state === 'published' || settled.state === 'already-published')) {
+    if (settled !== undefined && isSettled(settled.state)) {
       outcomes.push(
         outcome(comment, 'already-published', at(), {
           positionDigest: position.digest,

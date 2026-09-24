@@ -25,10 +25,7 @@ import type { ParsedArgs } from '../args.ts';
  * request (doc 03 P1.6).
  */
 
-export const VIEW_OPTIONS = {
-  values: ['review'],
-  flags: ['json', 'no-open'],
-} as const;
+export { VIEW_OPTIONS } from '../view-options.ts';
 
 /** Temporary directories older than this are swept at startup, if AMBICODE owns them. */
 export const SWEEP_MAX_AGE_MS = 24 * 60 * 60 * 1000;

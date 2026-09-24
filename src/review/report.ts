@@ -61,9 +61,13 @@ function whatWasReviewed(options: ReportOptions): string[] {
     lines.push(
       `   reviewer    ${result.reviewer.status} — model ${result.reviewer.model}, ` +
         `tools ${result.reviewer.tools.join(',') || '(none)'}, ` +
-        `timeout ${result.reviewer.timeoutSeconds}s`,
+        `timeout ${result.reviewer.timeoutSeconds}s` +
+        (result.reviewer.durationMs === null ? '' : `, took ${Math.round(result.reviewer.durationMs / 1000)}s`),
     );
     if (result.reviewer.detail !== null) lines.push(`               ${result.reviewer.detail}`);
+    if (result.reviewer.rejectedOutputRef !== null) {
+      lines.push(`               the refused answer, unvalidated: ${result.reviewer.rejectedOutputRef}`);
+    }
   }
 
   for (const note of result.target.notes) lines.push(`   note        ${note}`);
@@ -141,7 +145,12 @@ function verification(options: ReportOptions): string[] {
         `  complete=${check.selectionComplete}` +
         (check.exitCode === null ? '' : `  exit=${check.exitCode}`),
     );
-    if (check.argv.length > 0) lines.push(`     ran: ${check.argv.join(' ')}`);
+    // A skipped check can still carry the argv it was not allowed to run — a
+    // merge request with no container, a binary that is not installed. `ran:`
+    // on those read as execution in run a0e87d39.
+    if (check.argv.length > 0) {
+      lines.push(`     ${check.status === 'skipped' ? 'would have run' : 'ran'}: ${check.argv.join(' ')}`);
+    }
     if (check.outputRef !== null) lines.push(`     output: ${check.outputRef}`);
     for (const limitation of check.limitations) lines.push(`     - ${limitation}`);
     for (const mutation of check.mutations) lines.push(`     ! ${mutation}`);

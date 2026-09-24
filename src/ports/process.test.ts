@@ -316,4 +316,49 @@ describe('U29 a timeout kills the whole process tree', () => {
     // Whatever the command managed to say is still evidence.
     assert.match(outcome.stdout, /started/);
   });
+
+  // The browser case: the command exits at once, but the program it started
+  // inherited the pipes. Measured with pipes: 6,138 ms against a 3 s ceiling,
+  // exit code 0, reported as timed-out. This is the same grandchild as above
+  // seen from the other side — there, the command itself never exits.
+  describe('a command that exits and leaves a grandchild holding the pipes', () => {
+    async function launcher(request: { output?: 'capture' | 'ignore'; timeoutMs: number }): Promise<{
+      outcome: ProcessOutcome;
+      elapsed: number;
+    }> {
+      const child = path.join(directory, 'lingering.mjs');
+      await writeFile(child, 'setTimeout(() => {}, 2500);', 'utf8');
+      // `start /b` and `&` both return before the child does, and both hand it
+      // the parent's stdio.
+      const argv =
+        process.platform === 'win32'
+          ? ['cmd', '/c', 'start', '', '/b', process.execPath, child]
+          : ['sh', '-c', `"${process.execPath}" "${child}" &`];
+      const started = performance.now();
+      const outcome = await runner.run({
+        argv,
+        // Not `directory`: the grandchild outlives the test and a Windows
+        // process holds its cwd, which would make `after`'s rm fail with EBUSY.
+        cwd: os.tmpdir(),
+        maxOutputBytes: 1024,
+        env: { kind: 'inherited' },
+        ...request,
+      });
+      return { outcome, elapsed: performance.now() - started };
+    }
+
+    it('reaches the deadline when output is captured (the defect)', { timeout: 30_000 }, async () => {
+      const { outcome } = await launcher({ timeoutMs: 1_000 });
+      assert.equal(outcome.kind, 'timed-out');
+    });
+
+    it('ends when the command exits once output is ignored', { timeout: 30_000 }, async () => {
+      const { outcome, elapsed } = await launcher({ output: 'ignore', timeoutMs: 5_000 });
+      assert.equal(outcome.kind, 'exited');
+      assert.equal(outcome.exitCode, 0);
+      assert.ok(elapsed < 2_000, `waited ${Math.round(elapsed)}ms for a launcher that exits at once`);
+      assert.equal(outcome.stdout, '');
+      assert.equal(outcome.stderr, '');
+    });
+  });
 });

@@ -122,8 +122,3 @@ export function emptyPublicationRecord(reviewId: string, at: string): Publicatio
 export function isSettled(state: PublicationState): boolean {
   return state === 'published' || state === 'already-published';
 }
-
-/** Whether a human may submit this finding again. */
-export function isRetryable(state: PublicationState): boolean {
-  return state === 'draft' || state === 'failed-before-send' || state === 'stale' || state === 'not-selected';
-}

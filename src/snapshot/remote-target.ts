@@ -5,7 +5,7 @@ import type {
   ReviewProvider,
 } from '../contracts/provider.ts';
 import { combineDiff } from '../git/diff.ts';
-import type { RawChange } from '../git/git.ts';
+import { parseRemoteProject, type RawChange } from '../git/git.ts';
 import { AmbicodeError } from '../util/errors.ts';
 import type { ContentSource, FileContent } from './content.ts';
 import type { TargetResolution } from './target.ts';
@@ -24,6 +24,8 @@ export interface RemoteTargetOptions {
   url: string;
   /** The repository the command was run in; it supplies configuration only. */
   repositoryRoot: string;
+  /** That checkout's `origin` URL, or null when it has none. */
+  checkoutOriginUrl: string | null;
   includeSiblingContext: boolean;
   /** Zero disables reading prior threads entirely. */
   maxDiscussions: number;
@@ -76,6 +78,8 @@ export async function resolveMergeRequestTarget(
 
   const omissions = [...snapshot.omissions];
   const coverage = snapshot.coverage;
+  const configuration = configurationProvenance(options, remote);
+  if (configuration.mismatch !== null) omissions.push(configuration.mismatch);
 
   const discussions: RemoteDiscussion[] = [];
   if (options.maxDiscussions > 0) {
@@ -119,6 +123,7 @@ export async function resolveMergeRequestTarget(
       ? []
       : [`The source branch lives in ${remote.sourceProjectPath}, a fork; new file content was read from there.`]),
     'Your local checkout, branch and index were not read or modified for this review.',
+    configuration.note,
     content.pinning,
   ];
 
@@ -142,6 +147,47 @@ export async function resolveMergeRequestTarget(
     discussions,
     omissions,
     coverage,
+  };
+}
+
+/**
+ * Whose configuration judged this merge request. The checkout supplies the
+ * policy packs and check commands, and nothing ties it to the merge request's
+ * project: run a0e87d39 reviewed an inseer-api merge request from the
+ * inseer-frontend checkout, and the frontend's prettier command selected nine
+ * backend files, while the report said only that the checkout was not read.
+ */
+function configurationProvenance(
+  options: RemoteTargetOptions,
+  remote: RemoteTarget,
+): { note: string; mismatch: string | null } {
+  const origin = options.checkoutOriginUrl === null ? null : parseRemoteProject(options.checkoutOriginUrl);
+  const where = `Judged with the configuration, policy packs and check commands of the checkout at ${options.repositoryRoot}`;
+  if (options.checkoutOriginUrl === null) {
+    return {
+      note: `${where}, which has no origin remote, so whether it belongs to ${remote.projectPath} could not be checked.`,
+      mismatch: null,
+    };
+  }
+  if (origin === null) {
+    return {
+      note: `${where}; its origin is not a host and project path, so whether it belongs to ${remote.projectPath} could not be checked.`,
+      mismatch: null,
+    };
+  }
+
+  const same = (path: string): boolean =>
+    origin.host === remote.host.split(':')[0]?.toLowerCase() && origin.path.toLowerCase() === path.toLowerCase();
+  // A fork's checkout is still the same project's configuration.
+  if (same(remote.projectPath) || same(remote.sourceProjectPath)) {
+    return { note: `${where} (origin ${origin.host}/${origin.path}).`, mismatch: null };
+  }
+  return {
+    note: `${where} (origin ${origin.host}/${origin.path}), which is not ${remote.host}/${remote.projectPath}.`,
+    mismatch:
+      `This checkout is ${origin.host}/${origin.path}, not ${remote.host}/${remote.projectPath}: its configuration, ` +
+      'policy packs and check commands were written for another project and were applied to this merge request anyway. ' +
+      "Run the review from a checkout of the merge request's own project to judge it by that project's rules.",
   };
 }
 

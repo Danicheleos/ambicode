@@ -4,7 +4,7 @@ import type { DiffFile } from '../git/diff.ts';
 import type { FileSystem } from '../ports/filesystem.ts';
 import type { ProcessRunner } from '../ports/process.ts';
 import { matchesAnyGlob } from '../util/glob.ts';
-import { normalizeRelative } from '../util/paths.ts';
+import { normalizeRelative, toProjectRelative } from '../util/paths.ts';
 import { adapterFor, enumerationExecutable } from './adapters.ts';
 import type { CommandAuthorization } from './authorize.ts';
 
@@ -477,13 +477,6 @@ async function expandGlobs(
     }
   }
   return [...found].sort();
-}
-
-function toProjectRelative(projectRoot: string, repositoryRelativePath: string): string | null {
-  const value = normalizeRelative(repositoryRelativePath);
-  if (projectRoot === '') return value;
-  if (value === projectRoot) return '';
-  return value.startsWith(`${projectRoot}/`) ? value.slice(projectRoot.length + 1) : null;
 }
 
 function dedupe(files: readonly SelectedFile[]): SelectedFile[] {

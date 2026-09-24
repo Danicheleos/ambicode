@@ -30,6 +30,8 @@ const DIRECTORY_ALLOWLIST = [
   { from: 'prompts', extensions: ['.md'] },
   { from: 'policies', extensions: ['.yaml', '.md'] },
   { from: 'templates', extensions: ['.eta', '.css'] },
+  // The code-split parts of `scripts/ambicode.mjs` (see build.mjs).
+  { from: 'scripts/chunks', extensions: ['.mjs'] },
 ];
 
 // Individual files, each with the mode the installed copy must carry. This is

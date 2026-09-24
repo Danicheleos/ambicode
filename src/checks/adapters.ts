@@ -76,6 +76,15 @@ const ADAPTERS: Record<AdapterId, CheckAdapter> = {
     executableNames: ['ruff'],
     enumeration: { kind: 'none' },
   },
+  // Any file-scoped tool whose exit code is the verdict: prettier --check,
+  // stylelint, biome, tsc. A lint adapter contributes nothing but its name, and
+  // without this one a prettier command had to be labelled `eslint` (run c41ef078).
+  generic: {
+    id: 'generic',
+    role: 'lint',
+    executableNames: [],
+    enumeration: { kind: 'none' },
+  },
   jest: {
     id: 'jest',
     role: 'test',

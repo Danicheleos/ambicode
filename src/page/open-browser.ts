@@ -34,6 +34,11 @@ export async function openInBrowser(
     // The operator's own desktop session decides which browser opens; this is
     // their environment, not the reviewer's.
     env: { kind: 'inherited' },
+    // The browser inherits whatever pipes the opener has and keeps them open
+    // for its whole life. With pipes, every Windows run reached this deadline
+    // and reported "not opened" for a browser that had opened (runs 8335f588
+    // through a0e87d39); the opener's output carries nothing anyway.
+    output: 'ignore',
   });
 
   if (outcome.kind === 'spawn-failed') {

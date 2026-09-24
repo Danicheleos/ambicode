@@ -172,7 +172,7 @@ function updateExisting(existingRaw: string, options: PlanInitOptions): InitPlan
       continue;
     }
     addMissingCommands(document, existing, detected, changes, notices);
-    noticeMissingFrameworkPacks(existing, detected, notices);
+    addMissingFrameworkPacks(document, existing, detected, changes);
   }
 
   if (changes.length === 0) {
@@ -184,15 +184,29 @@ function updateExisting(existingRaw: string, options: PlanInitOptions): InitPlan
   return { yaml, created: false, changes, notices, ruleSources: [], config: parseConfig(yaml) };
 }
 
-/** A packs list is the user's value, so a framework pack it lacks is named rather than added. */
-function noticeMissingFrameworkPacks(projectNodeMap: YAMLMap, detected: DetectedProject, notices: string[]): void {
+/**
+ * A framework pack the dependencies call for is a missing entry, like a command
+ * slot. A notice instead of the entry made a user recreate the whole file to
+ * get the Angular packs, losing their mcpServer and review limits (run
+ * 2d344627 → c41ef078). A pack deliberately removed does come back; the header
+ * already says init adds what is missing.
+ */
+function addMissingFrameworkPacks(
+  document: Document,
+  projectNodeMap: YAMLMap,
+  detected: DetectedProject,
+  changes: string[],
+): void {
   const packs = projectNodeMap.get('packs');
   const enabled = new Set<unknown>(isSeq(packs) ? packs.toJSON() : []);
   const missing = detected.frameworkPacks.filter((reference) => !enabled.has(reference));
   if (missing.length === 0) return;
-  notices.push(
-    `${detected.id}: ${missing.join(', ')} match this project's dependencies but are not enabled. Add them to its packs to apply them; init does not edit an existing packs list.`,
-  );
+  if (isSeq(packs)) {
+    for (const reference of missing) packs.add(reference);
+  } else {
+    projectNodeMap.set('packs', document.createNode([...missing]));
+  }
+  changes.push(`Enabled ${missing.join(', ')} for project "${detected.id}": its dependencies call for them.`);
 }
 
 /**

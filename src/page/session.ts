@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 import type { Clock } from '../ports/clock.ts';
 import type { IdSource } from '../ports/ids.ts';
 
@@ -67,7 +68,11 @@ export class SessionStore {
     if (held === null) {
       return { kind: 'rejected', reason: 'This server has no capability to consume.' };
     }
-    if (presented.length !== held.value.length || !timingSafeEqual(presented, held.value)) {
+    // Bytes, not characters: `timingSafeEqual` throws on a length mismatch, and
+    // four characters of `é` are eight bytes against the capability's four.
+    const presentedBytes = Buffer.from(presented, 'utf8');
+    const heldBytes = Buffer.from(held.value, 'utf8');
+    if (presentedBytes.length !== heldBytes.length || !timingSafeEqual(presentedBytes, heldBytes)) {
       return { kind: 'rejected', reason: 'That capability is not the one this server issued.' };
     }
     if (held.consumed) {
@@ -149,13 +154,4 @@ export class SessionStore {
   get sessionCount(): number {
     return this.sessions.size;
   }
-}
-
-/** Constant-time for equal-length strings; length is compared by the caller. */
-function timingSafeEqual(left: string, right: string): boolean {
-  let difference = 0;
-  for (let index = 0; index < left.length; index += 1) {
-    difference |= left.charCodeAt(index) ^ right.charCodeAt(index);
-  }
-  return difference === 0;
 }

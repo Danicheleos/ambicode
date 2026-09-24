@@ -168,6 +168,22 @@ describe('the reopen command', () => {
     }
   });
 
+  it('says so when the browser was opened, and how to proceed when it was not', async () => {
+    const context = await fixture();
+    try {
+      const output = await view(context.runtime, ['--review', 'r-0001']);
+      assert.equal(output.browserOpened, false);
+      assert.match(renderView(output), /The browser was not opened \(The browser was not launched\.\)\. Paste the URL/);
+      assert.match(
+        renderView({ ...output, browserOpened: true, browserDetail: 'cmd was asked to open the page' }),
+        /The browser was opened \(cmd was asked to open the page\)\./,
+      );
+      await output.stop('test finished');
+    } finally {
+      await context.dispose();
+    }
+  });
+
   it('says a local review has no publication action', async () => {
     const context = await fixture({ kind: 'working' });
     try {

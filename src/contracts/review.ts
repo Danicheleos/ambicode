@@ -142,6 +142,18 @@ export const ReviewerRun = z.strictObject({
   /** Locations the validator refused, kept because a refusal is evidence. */
   rejections: z.array(z.string()).default([]),
   detail: z.string().nullable().default(null),
+  /**
+   * How long the reviewer took, spawn to answer. Null in results written before
+   * it was recorded. Without it a timeout cannot be set from evidence: one input
+   * of 779 KB timed out at 300 s and, rerun, answered in about 264 s.
+   */
+  durationMs: z.number().int().nonnegative().nullable().default(null),
+  /**
+   * The answer the validator refused, saved beside the result and relative to
+   * the review directory. Null when nothing was refused. The rejection line
+   * alone named `build.mjs:29` but not what the reviewer claimed there.
+   */
+  rejectedOutputRef: z.string().nullable().default(null),
 });
 export type ReviewerRun = z.infer<typeof ReviewerRun>;
 

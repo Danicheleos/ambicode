@@ -165,6 +165,28 @@ test('U14 filenames reach the command as separate arguments, unquoted and unmang
   ]);
 });
 
+test('a generic lint adapter runs the configured command and reads its exit code as the verdict', async (t) => {
+  const directory = await sandbox(t);
+  for (const [exitCode, status] of [[0, 'passed'], [2, 'failed']] as const) {
+    const runner = new FakeProcessRunner().stubArgv(['./node_modules/.bin/prettier'], { exitCode });
+    const { results } = await runChecks(
+      baseOptions({
+        reviewDirectory: directory,
+        runner,
+        project: {
+          id: 'web', root: '.', ecosystem: 'typescript', packs: [], policyFiles: [],
+          commands: { lint: { argv: ['./node_modules/.bin/prettier', '--check', '--', '{files}'] } },
+          checks: { lint: { command: 'lint', adapter: 'generic', include: ['**/*.scss'] } },
+        },
+        changed: changed([{ newPath: 'src/app.scss' }]),
+      }),
+    );
+    assert.deepEqual(runner.argvs(), [['./node_modules/.bin/prettier', '--check', '--', 'src/app.scss']]);
+    assert.equal(results[0]?.status, status);
+    assert.equal(results[0]?.exitCode, exitCode);
+  }
+});
+
 test('U14 a forbidden command never reaches the process runner', async (t) => {
   const directory = await sandbox(t);
   const runner = new FakeProcessRunner();

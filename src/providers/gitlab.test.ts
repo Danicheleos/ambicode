@@ -191,6 +191,61 @@ describe('U18 resolving and pinning a merge request', () => {
     assert.equal(outcome.kind === 'ok' ? outcome.value.sourceProjectPath : null, 'contributor/project');
   });
 
+  it('asks for the merge request and its versions at the same time, once the project is known', async () => {
+    // Built by hand: stubs match in registration order, so resolvingRunner's
+    // own answers would shadow the two below.
+    const runner = new FakeProcessRunner();
+    runner.stub((argv) => argv.at(-1) === 'projects/group%2Fsub%2Fproject', { stdout: JSON.stringify(project()) });
+    let inFlight = 0;
+    let peak = 0;
+    const overlapping = (payload: unknown) => async () => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      // One turn of the event loop: long enough for a request issued alongside
+      // to start, with no clock involved.
+      await new Promise((resolve) => setImmediate(resolve));
+      inFlight -= 1;
+      return { stdout: JSON.stringify(payload) };
+    };
+    runner.stubEffect((argv) => /merge_requests\/42$/.test(argv.at(-1) ?? ''), overlapping(mergeRequest()));
+    runner.stubEffect((argv) => (argv.at(-1) ?? '').includes('/versions?'), overlapping([version()]));
+    const provider = new GitLabProvider({ runner, cwd: '/work' });
+
+    const outcome = await provider.resolveTarget({ url: URL_BASE });
+    assert.equal(outcome.kind, 'ok');
+    assert.equal(peak, 2, 'the two requests ran one after the other');
+    assert.equal(runner.argvs()[0]?.at(-1), 'projects/group%2Fsub%2Fproject', 'the project comes first');
+  });
+
+  it('issues nothing else when the project cannot be read', async () => {
+    const runner = new FakeProcessRunner();
+    runner.stub((argv) => argv.at(-1) === 'projects/group%2Fsub%2Fproject', {
+      exitCode: 1,
+      stderr: 'glab: 404 Project Not Found',
+    });
+    const provider = new GitLabProvider({ runner, cwd: '/work' });
+
+    const outcome = await provider.resolveTarget({ url: URL_BASE });
+    assert.equal(outcome.kind, 'failed');
+    assert.equal(runner.calls.length, 1);
+  });
+
+  it('reports the merge request failure, not the versions, when the merge request cannot be read', async () => {
+    const runner = new FakeProcessRunner();
+    runner.stub((argv) => argv.at(-1) === 'projects/group%2Fsub%2Fproject', { stdout: JSON.stringify(project()) });
+    runner.stub((argv) => /merge_requests\/42$/.test(argv.at(-1) ?? ''), {
+      exitCode: 1,
+      stderr: 'glab: 404 Merge Request Not Found',
+    });
+    runner.stub((argv) => (argv.at(-1) ?? '').includes('/versions?'), { stdout: JSON.stringify([version()]) });
+    const provider = new GitLabProvider({ runner, cwd: '/work' });
+
+    const outcome = await provider.resolveTarget({ url: URL_BASE });
+    assert.equal(outcome.kind, 'failed');
+    if (outcome.kind !== 'failed') return;
+    assert.match(outcome.message, /404 Merge Request Not Found/);
+  });
+
   it('refuses rather than guessing when no diff version has been collected', async () => {
     const provider = new GitLabProvider({ runner: resolvingRunner({ versions: [] }), cwd: '/work' });
     const outcome = await provider.resolveTarget({ url: URL_BASE });

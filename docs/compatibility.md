@@ -169,6 +169,7 @@ policy can still impose behaviour that neither shows.
 | vitest | 5.0.1 | `list --filesOnly --changed <revision>` only | observed |
 | eslint | 9.39.5 | not applicable (lint is file-scoped) | observed |
 | ruff | — | not applicable (lint is file-scoped) | unverified; not installed here |
+| generic | any | not applicable (lint is file-scoped); for a tool whose exit code is the verdict, e.g. `prettier --check`, stylelint, biome, `tsc` | no runner-specific behaviour, so nothing to establish |
 | pytest | 9.0.1 | none; selection comes from a configured mapping | observed |
 | playwright | — | none; selection comes from a configured mapping | unverified; not installed here |
 

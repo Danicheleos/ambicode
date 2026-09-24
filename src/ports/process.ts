@@ -38,6 +38,14 @@ export interface ProcessRequest {
   /** Required: see `EnvironmentPolicy`. There is no implicit default. */
   env: EnvironmentPolicy;
   stdin?: string;
+  /**
+   * `ignore` gives the child no stdout or stderr pipe at all. For a launcher
+   * whose work is a program it starts and leaves behind: `cmd /c start <url>`
+   * hands the browser the inherited pipes, and a piped run then ends only when
+   * the browser does — measured 6,138 ms against a 3 s ceiling with pipes,
+   * 51 ms without. Default `capture`.
+   */
+  output?: 'capture' | 'ignore';
 }
 
 export interface ProcessOutcome {

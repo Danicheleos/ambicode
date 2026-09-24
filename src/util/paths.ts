@@ -10,6 +10,18 @@ export function normalizeRelative(value: string): string {
   return trimmed === '.' ? '' : trimmed;
 }
 
+/**
+ * A repository-relative path as seen from a project root (itself already
+ * normalized; `''` is the repository root), or null when the path is outside
+ * that project. The root itself is `''`.
+ */
+export function toProjectRelative(projectRoot: string, repositoryRelativePath: string): string | null {
+  const value = normalizeRelative(repositoryRelativePath);
+  if (projectRoot === '') return value;
+  if (value === projectRoot) return '';
+  return value.startsWith(`${projectRoot}/`) ? value.slice(projectRoot.length + 1) : null;
+}
+
 /** True when `child` is `parent` itself or sits beneath it. */
 export function isInside(parent: string, child: string): boolean {
   const relative = path.relative(parent, child);
@@ -63,8 +75,7 @@ export function mostSpecificRoot<T extends { root: string }>(
   let bestLength = -1;
   for (const project of projects) {
     const root = normalizeRelative(project.root);
-    const matches = root === '' || file === root || file.startsWith(`${root}/`);
-    if (matches && root.length > bestLength) {
+    if (toProjectRelative(root, file) !== null && root.length > bestLength) {
       best = project;
       bestLength = root.length;
     }

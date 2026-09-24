@@ -7,9 +7,11 @@ import { contentHash } from '../util/hash.ts';
  * it becomes a finding. Nothing here is repaired and no second model call is
  * made (doc 02).
  *
- * A location outside the pinned diff, a reference to a rule or requirement this
- * review does not hold, or more findings than the configured limit make the
- * whole reviewer result invalid — not a successful review with a shorter list.
+ * A primary location outside the pinned diff, a supporting location that names
+ * no line of the diff or of a mirrored file, a reference to a rule or
+ * requirement this review does not hold, or more findings than the configured
+ * limit make the whole reviewer result invalid — not a successful review with a
+ * shorter list.
  * A reviewer that named a file the change does not contain has not demonstrated
  * that its other claims were checked against the same evidence, so presenting
  * the survivors as validated output would overstate what is known.
@@ -62,12 +64,12 @@ export function validateFindings(options: ValidateOptions): ValidatedFindings {
 
     const supporting: FindingLocation[] = [];
     for (const extra of candidate.supportingLocations) {
-      const resolved = resolveLocation(extra, options.files);
+      const resolved = resolveSupporting(extra, options.files, options.snapshotText);
       if (typeof resolved === 'string') {
         rejections.push(`${label}: a supporting location is unverifiable — ${resolved}`);
         continue;
       }
-      supporting.push(resolved.location);
+      supporting.push(resolved);
     }
 
     // The snippet is taken here, from the snapshot and the pinned diff. Text the
@@ -149,6 +151,39 @@ function resolveLocation(
       side: location.side,
       line: location.line,
     },
+  };
+}
+
+/**
+ * A supporting location is evidence, never a comment position (positions are
+ * derived from the primary location alone), so on the `new` side it may name
+ * any line of a mirrored file: the consequence of a change often sits on a line
+ * the change did not touch, and requiring the diff there left such a finding
+ * no honest anchor. The old side is not mirrored, so it stays diff-only.
+ */
+function resolveSupporting(
+  location: FindingLocation,
+  files: readonly DiffFile[],
+  snapshotText: ReadonlyMap<string, string>,
+): FindingLocation | string {
+  const inDiff = resolveLocation(location, files);
+  if (typeof inDiff !== 'string') return inDiff.location;
+  if (location.side !== 'new' || location.newPath === null) return inDiff;
+
+  const text = snapshotText.get(location.newPath);
+  if (text === undefined) return inDiff;
+  const lineCount = text.endsWith('\n') ? text.split('\n').length - 1 : text.split('\n').length;
+  if (location.line > lineCount) {
+    return `line ${location.line} is past the end of "${location.newPath}", which has ${lineCount} line(s).`;
+  }
+  // Paths from the bundle, not from the model: a changed file keeps its own
+  // pre-image name, an unchanged neighbour is the same file on both sides.
+  const changed = files.find((file) => file.newPath === location.newPath);
+  return {
+    oldPath: changed === undefined ? location.newPath : changed.oldPath,
+    newPath: location.newPath,
+    side: 'new',
+    line: location.line,
   };
 }
 

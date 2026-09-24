@@ -14,6 +14,9 @@ import { resolveTargetOptions, TARGET_OPTIONS } from '../target-option.ts';
 
 export const REVIEW_OPTIONS = TARGET_OPTIONS;
 
+/** Beside `result.json`; see `ReviewerRun.rejectedOutputRef`. */
+export const REJECTED_OUTPUT_FILE = 'reviewer-rejected-output.json';
+
 export interface ReviewOutput {
   command: 'review';
   reviewId: string;
@@ -84,6 +87,7 @@ export async function runReview(
   // Refuses before the prompt is built if the boundary cannot be established.
   await reviewer.assertIsolationAvailable?.();
 
+  const started = runtime.clock.elapsed();
   const invocation = await reviewer.invoke({
     systemPrompt: bundle.prompt.system,
     prompt: bundle.prompt.user,
@@ -92,6 +96,7 @@ export async function runReview(
     model: reviewConfig.model,
     timeoutMs: reviewConfig.timeoutSeconds * 1000,
   });
+  const durationMs = Math.max(0, Math.round(runtime.clock.elapsed() - started));
 
   const run: ReviewerRun = {
     status: invocation.kind === 'ok' ? 'ok' : 'failed',
@@ -102,6 +107,8 @@ export async function runReview(
     isolation: isolationOf(invocation.argv),
     rejections: [],
     detail: invocation.kind === 'ok' ? null : `${invocation.reason}: ${invocation.detail}`,
+    durationMs,
+    rejectedOutputRef: null,
   };
 
   // Validation is part of whether the reviewer succeeded, not a filter applied
@@ -127,6 +134,13 @@ export async function runReview(
       run.status = 'failed';
       run.rejections = validated.rejections;
       run.detail = `invalid-output: ${validated.reason}`;
+      // Kept as the reviewer wrote it, for a person diagnosing the refusal. It is
+      // untrusted model output and nothing reads it back as findings.
+      await runtime.fs.writeText(
+        path.join(bundle.reviewDirectory, REJECTED_OUTPUT_FILE),
+        `${JSON.stringify(invocation.output, null, 2)}\n`,
+      );
+      run.rejectedOutputRef = REJECTED_OUTPUT_FILE;
     }
   }
 

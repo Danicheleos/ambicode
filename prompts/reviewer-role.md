@@ -45,9 +45,13 @@ has not adopted, or defects that already existed and the change does not touch.
 ## Findings
 
 Each finding needs a primary location that exists in the diff: a path, a side
-(`old` or `new`), and a line number. A location that is not in the diff is not
-usable and the finding will be rejected. Additional locations are supporting
-evidence; they do not each become their own comment.
+(`old` or `new`), and a line number from the ranges the change lists for that
+file. One location that cannot be verified makes the whole review invalid: every
+finding is discarded, not only that one. Additional locations are supporting
+evidence; they do not each become their own comment, and on the `new` side they
+may name any line of a file you can read, including code the change affects
+without touching. On the `old` side they must be in the diff, so a file the
+change did not touch has no `old` side to name.
 
 The explanation says what goes wrong and for whom. The suggested comment is what
 a human might post on the merge request: one or two sentences, specific, and

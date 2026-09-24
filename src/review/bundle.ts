@@ -13,7 +13,7 @@ import {
 } from '../composition/root.ts';
 import type { ProjectConfig } from '../contracts/config.ts';
 import type { ResolvedPolicy } from '../contracts/policy.ts';
-import { COMPLETE_COVERAGE, type RemoteDiscussion } from '../contracts/provider.ts';
+import { COMPLETE_COVERAGE } from '../contracts/provider.ts';
 import { REVIEW_SCHEMA_VERSION, type CheckResult, type ReviewResult } from '../contracts/review.ts';
 import type { DiffFile } from '../git/diff.ts';
 import type { FileSystem } from '../ports/filesystem.ts';
@@ -215,6 +215,7 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
     requirements: requirements.sources,
     policies,
     discussions,
+    files: reviewable.files,
   });
 
   // Decided and read, but not yet written. Changed files are mirrored whatever
@@ -447,6 +448,7 @@ async function resolveTarget(
       provider: workspace.runtime.providers.forUrl(target.url),
       url: target.url,
       repositoryRoot: workspace.repositoryRoot,
+      checkoutOriginUrl: await workspace.git.remoteUrl('origin'),
       // Every unchanged neighbour is another remote request. Measured on MR
       // 2677: 47 changed files, 94 unchanged neighbours, 19 directory listings
       // — two thirds of the requests and about half the mirrored bytes, spent
@@ -645,9 +647,4 @@ async function pluginVersion(fs: FileSystem, pluginRoot: string): Promise<string
   } catch {
     return 'unknown';
   }
-}
-
-/** Kept for the discussions a caller wants without re-reading the result. */
-export function discussionsOf(bundle: ReviewBundle): readonly RemoteDiscussion[] {
-  return bundle.result.discussions;
 }

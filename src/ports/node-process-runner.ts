@@ -44,6 +44,9 @@ export class NodeProcessRunner implements ProcessRunner {
     // the process it spawned. See `killProcessTree`.
     const ownDeadline = process.platform === 'win32';
 
+    // See `ProcessRequest.output`: no pipe means nothing a grandchild can hold
+    // open, so the run ends when the command exits.
+    const output = request.output === 'ignore' ? 'ignore' : 'pipe';
     const options: Options = {
       cwd: request.cwd,
       env: environment,
@@ -58,6 +61,8 @@ export class NodeProcessRunner implements ProcessRunner {
       encoding: 'buffer',
       buffer: false,
       stdin: request.stdin === undefined ? 'ignore' : 'pipe',
+      stdout: output,
+      stderr: output,
       reject: false,
     };
 

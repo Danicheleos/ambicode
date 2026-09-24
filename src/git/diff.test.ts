@@ -4,7 +4,26 @@ import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { TempRepo } from '../testing/temp-repo.ts';
 import { combineDiff, addressableLines, lineAt, parseHunks, splitPatchSections } from './diff.ts';
-import { parseRawZ } from './git.ts';
+import { parseRawZ, parseRemoteProject } from './git.ts';
+
+test('a remote URL reduces to host and project path in all three spellings, and never to its credentials', () => {
+  const expected = { host: 'gitlab.com', path: 'inseer/front/inseer-frontend' };
+  for (const url of [
+    'https://gitlab.com/inseer/front/inseer-frontend.git',
+    'https://gitlab.com/inseer/front/inseer-frontend/',
+    'https://oauth2:glpat-SECRET@GitLab.com/inseer/front/inseer-frontend.git',
+    'ssh://git@gitlab.com:2222/inseer/front/inseer-frontend.git',
+    'git@gitlab.com:inseer/front/inseer-frontend.git',
+    'gitlab.com:inseer/front/inseer-frontend',
+  ]) {
+    const parsed = parseRemoteProject(url);
+    assert.deepEqual(parsed, expected, url);
+    assert.ok(!JSON.stringify(parsed).includes('SECRET'), url);
+  }
+  for (const local of ['/srv/git/app.git', 'C:\\repos\\app', 'file:///srv/git/app.git', '../app', '']) {
+    assert.equal(parseRemoteProject(local), null, local);
+  }
+});
 
 // U08: added, deleted, renamed files and old/new positions, with Unicode,
 // spaces and option-like names.

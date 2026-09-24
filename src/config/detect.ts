@@ -1,8 +1,6 @@
 import type { DirectoryEntry, FileSystem } from '../ports/filesystem.ts';
 import path from 'node:path';
-import { parse as parseYaml } from 'yaml';
 import type { AdapterId, Ecosystem } from '../contracts/primitives.ts';
-import { normalizeRelative } from '../util/paths.ts';
 
 /**
  * Detection reads manifests and looks for installed executables. It never runs
@@ -130,15 +128,6 @@ async function findProjectRoots(fs: FileSystem, repositoryRoot: string): Promise
   return found;
 }
 
-async function exists(fs: FileSystem, absolutePath: string): Promise<boolean> {
-  try {
-    await fs.stat(absolutePath);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 async function readJson(fs: FileSystem, absolutePath: string): Promise<Record<string, unknown> | null> {
   try {
     return JSON.parse(await fs.readText(absolutePath)) as Record<string, unknown>;
@@ -202,7 +191,7 @@ async function detectTypescript(
 
   const binary = async (name: string): Promise<string | null> => {
     const relative = `./node_modules/.bin/${name}`;
-    return (await exists(fs, path.join(absoluteRoot, 'node_modules', '.bin', name))) ? relative : null;
+    return (await fs.exists(path.join(absoluteRoot, 'node_modules', '.bin', name))) ? relative : null;
   };
 
   const lint = await (async (): Promise<DetectedCommand | null> => {
@@ -301,7 +290,7 @@ async function detectPython(
         ['Scripts', name],
       ] as const;
       for (const [binaryDirectory, executable] of candidates) {
-        if (await exists(fs, path.join(absoluteRoot, directory, binaryDirectory, executable))) {
+        if (await fs.exists(path.join(absoluteRoot, directory, binaryDirectory, executable))) {
           return `./${directory}/${binaryDirectory}/${executable}`;
         }
       }
@@ -427,17 +416,4 @@ export async function detectBaseline(
     };
   }
   return { baseline: originHead, notice: `baseline taken from refs/remotes/origin/HEAD (${originHead})` };
-}
-
-/** Used by init to keep a user's existing YAML comments and edits in view. */
-export function parseExistingConfigDocument(raw: string): unknown {
-  try {
-    return parseYaml(raw);
-  } catch {
-    return null;
-  }
-}
-
-export function relativeRootOf(repositoryRoot: string, absolute: string): string {
-  return normalizeRelative(path.relative(repositoryRoot, absolute));
 }

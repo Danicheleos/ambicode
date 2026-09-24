@@ -13,7 +13,7 @@ import type {
   ResolvedRule,
 } from '../contracts/policy.ts';
 import { matchesAnyGlob } from '../util/glob.ts';
-import { normalizeRelative } from '../util/paths.ts';
+import { normalizeRelative, toProjectRelative } from '../util/paths.ts';
 import type { PackWithPrompts } from './load.ts';
 
 export interface ResolveOptions {
@@ -270,13 +270,6 @@ export function explainRefusal(policy: ResolvedPolicy, commandId: string): strin
     return `Command "${commandId}" is proposed, not run automatically. Approve this specific run, or change the owning pack's commandPolicy.`;
   }
   return `Command "${commandId}" is not declared by any enabled pack for this activity, so AMBICODE does not run it. Add a "run" decision to a pack that applies here.`;
-}
-
-function toProjectRelative(projectRoot: string, repositoryRelativePath: string): string | null {
-  const value = normalizeRelative(repositoryRelativePath);
-  if (projectRoot === '') return value;
-  if (value === projectRoot) return '';
-  return value.startsWith(`${projectRoot}/`) ? value.slice(projectRoot.length + 1) : null;
 }
 
 function dedupeBy<T>(items: readonly T[], key: (item: T) => string): T[] {
