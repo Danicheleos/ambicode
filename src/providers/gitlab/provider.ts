@@ -160,16 +160,17 @@ export class GitLabProvider implements ReviewProvider {
     );
     if (project.kind !== 'ok') return this.fail('resolveTarget', project);
 
-    const mergeRequest = await api.request(
-      { path: mergeRequestPath(project.value.id, ref.mergeRequestIid) },
-      GitLabMergeRequest,
-    );
+    // Both need only the project id, and each is a `glab` process measured at
+    // 1.52s, so they run together. The merge request's failure is still the
+    // one reported when both fail: it is the more specific answer.
+    const [mergeRequest, versions] = await Promise.all([
+      api.request({ path: mergeRequestPath(project.value.id, ref.mergeRequestIid) }, GitLabMergeRequest),
+      api.collect(
+        { path: `${mergeRequestPath(project.value.id, ref.mergeRequestIid)}/versions` },
+        GitLabVersion,
+      ),
+    ]);
     if (mergeRequest.kind !== 'ok') return this.fail('resolveTarget', mergeRequest);
-
-    const versions = await api.collect(
-      { path: `${mergeRequestPath(project.value.id, ref.mergeRequestIid)}/versions` },
-      GitLabVersion,
-    );
     if (versions.kind !== 'ok') return this.fail('resolveTarget', versions);
 
     // GitLab lists versions newest first; the newest collected one is what the
