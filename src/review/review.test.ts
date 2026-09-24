@@ -3,7 +3,7 @@ import path from 'node:path';
 import { describe, it } from 'node:test';
 import { parseArgs } from '../cli/args.ts';
 import { INIT_OPTIONS, runInit } from '../cli/commands/init.ts';
-import { REVIEW_OPTIONS, runReview } from '../cli/commands/review.ts';
+import { REJECTED_OUTPUT_FILE, REVIEW_OPTIONS, runReview } from '../cli/commands/review.ts';
 import { createRuntime, type Runtime } from '../composition/root.ts';
 import type { ReviewerOutput } from '../contracts/review.ts';
 import { parseHunks, type DiffFile } from '../git/diff.ts';
@@ -15,6 +15,8 @@ import { TempRepo } from '../testing/temp-repo.ts';
 import { isAmbicodeError } from '../util/errors.ts';
 import { ClaudeReviewer, REVIEWER_TOOLS, parseReviewerOutput } from './claude-reviewer.ts';
 import { validateFindings } from './validate.ts';
+import { nameableLines } from './prompt.ts';
+import { FakeClock } from '../testing/page-harness.ts';
 
 const JIRA = 'https://example.atlassian.net/browse/ORD-17';
 const CONFLUENCE = 'https://example.atlassian.net/wiki/spaces/ENG/pages/42/Orders';
@@ -439,6 +441,50 @@ describe('U17 location validation', () => {
       ]),
     );
     assert.match(result.rejections.join('\n'), /a supporting location is unverifiable/);
+  });
+
+  describe('a supporting location may name code the change affects without touching', () => {
+    // The shape of branch_origin-main_2026-09-24T12-25: the change sits on lines
+    // 1-3 and its consequence on line 29, which no hunk covers.
+    const longer = `${Array.from({ length: 30 }, (_, index) => `line ${index + 1}`).join('\n')}\n`;
+    const snapshotText = new Map([
+      ['src/orders.ts', longer],
+      ['src/cart.ts', 'export const cart = [];\nexport const size = cart.length;\n'],
+    ]);
+    const primary = { oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'new' as const, line: 2 };
+    const supported = (extra: { oldPath: string | null; newPath: string | null; side: 'old' | 'new'; line: number }) =>
+      run([{ ...candidate(primary), supportingLocations: [extra] }], { snapshotText });
+
+    it('accepts an unchanged line of a changed file on the new side', () => {
+      const findings = expectOk(supported({ oldPath: null, newPath: 'src/orders.ts', side: 'new', line: 29 }));
+      assert.deepEqual(findings[0]?.supportingLocations, [
+        { oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'new', line: 29 },
+      ]);
+    });
+
+    it('accepts a line of an unchanged mirrored neighbour, naming it on both sides', () => {
+      const findings = expectOk(supported({ oldPath: null, newPath: 'src/cart.ts', side: 'new', line: 2 }));
+      assert.deepEqual(findings[0]?.supportingLocations, [
+        { oldPath: 'src/cart.ts', newPath: 'src/cart.ts', side: 'new', line: 2 },
+      ]);
+    });
+
+    it('still refuses the same line as the primary location, which is where a comment would go', () => {
+      const result = expectInvalid(
+        run([candidate({ oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'new', line: 29 })], { snapshotText }),
+      );
+      assert.match(result.rejections.join('\n'), /line 29 is not present on the new side/);
+    });
+
+    it('refuses a line past the end of the mirrored file', () => {
+      const result = expectInvalid(supported({ oldPath: null, newPath: 'src/cart.ts', side: 'new', line: 3 }));
+      assert.match(result.rejections.join('\n'), /line 3 is past the end of "src\/cart\.ts", which has 2 line\(s\)/);
+    });
+
+    it('keeps the old side to the diff, because the pre-image is not mirrored', () => {
+      const result = expectInvalid(supported({ oldPath: 'src/orders.ts', newPath: null, side: 'old', line: 29 }));
+      assert.match(result.rejections.join('\n'), /line 29 is not present on the old side/);
+    });
   });
 
   it('rejects a side the location does not name a path for', () => {
@@ -887,6 +933,21 @@ describe('U17 an unverifiable location makes the review an error', () => {
       assert.equal(persisted.reviewer.status, 'failed');
       assert.deepEqual(persisted.findings, []);
       assert.ok(persisted.reviewer.rejections.length > 0);
+
+      // So is what the reviewer actually claimed, which the rejection line
+      // alone does not say, and the report says where it is.
+      assert.equal(output.result.reviewer?.rejectedOutputRef, REJECTED_OUTPUT_FILE);
+      const refused = JSON.parse(
+        await nodeFileSystem.readText(path.join(output.reviewDirectory, REJECTED_OUTPUT_FILE)),
+      ) as ReviewerOutput;
+      assert.deepEqual(
+        refused.findings.map((finding) => finding.explanation),
+        ['real', 'fabricated'],
+      );
+      assert.match(
+        await nodeFileSystem.readText(output.reportPath),
+        new RegExp(`the refused answer, unvalidated: ${REJECTED_OUTPUT_FILE.replace('.', '\\.')}`),
+      );
       await nodeFileSystem.remove(output.snapshotDirectory);
     } finally {
       await context.dispose();
@@ -917,6 +978,118 @@ describe('U17 an unverifiable location makes the review an error', () => {
     } finally {
       await context.dispose();
     }
+  });
+});
+
+describe('what the reviewer is told, and what is kept about its run', () => {
+  /** Advances a fake clock by the time a real reviewer took, so the record is exact. */
+  class TimedReviewer extends FakeReviewer {
+    private readonly clock: FakeClock;
+    private readonly tookMs: number;
+    constructor(answer: ReviewerInvocation, clock: FakeClock, tookMs: number) {
+      super(answer);
+      this.clock = clock;
+      this.tookMs = tookMs;
+    }
+    override async invoke(request: ReviewerRequest): Promise<ReviewerInvocation> {
+      this.clock.advance(this.tookMs);
+      return await super.invoke(request);
+    }
+  }
+
+  it('records how long the reviewer took, and keeps nothing extra when its answer is valid', async () => {
+    const context = await fixture();
+    try {
+      const clock = new FakeClock();
+      const runtime = await createRuntime({ cwd: context.repo.root, clock });
+      const output = await review(runtime, [], new TimedReviewer(ok(), clock, 264_000));
+
+      assert.equal(output.result.reviewer?.durationMs, 264_000);
+      assert.equal(output.result.reviewer?.rejectedOutputRef, null);
+      assert.equal(await nodeFileSystem.exists(path.join(output.reviewDirectory, REJECTED_OUTPUT_FILE)), false);
+      assert.match(await nodeFileSystem.readText(output.reportPath), /timeout \d+s, took 264s/);
+      await nodeFileSystem.remove(output.snapshotDirectory);
+    } finally {
+      await context.dispose();
+    }
+  });
+
+  it('says one unverifiable location voids the whole review, in both prompts', async () => {
+    const context = await fixture();
+    try {
+      const reviewer = new FakeReviewer(ok());
+      const output = await review(context.runtime, [], reviewer);
+      const request = reviewer.requests[0];
+      assert.ok(request !== undefined);
+
+      // The previous wording said the finding would be dropped; the validator
+      // has always voided the review (branch_origin-main_2026-09-24T12-25).
+      assert.match(request.prompt, /makes this whole review invalid: every finding is discarded/);
+      assert.match(request.systemPrompt, /makes the whole review invalid: every\s+finding is discarded/);
+      assert.doesNotMatch(request.prompt, /the finding is dropped/);
+      assert.doesNotMatch(request.systemPrompt, /the finding will be rejected/);
+      assert.match(request.prompt, /did not touch has no `old` side to name/);
+      assert.match(request.systemPrompt, /did not touch has no `old` side to name/);
+      await nodeFileSystem.remove(output.snapshotDirectory);
+    } finally {
+      await context.dispose();
+    }
+  });
+
+  it('lists, for each changed file, the lines a finding may name', async () => {
+    const context = await fixture();
+    try {
+      const reviewer = new FakeReviewer(ok());
+      const output = await review(context.runtime, [], reviewer);
+      // The fixture's one-line edit, three lines of context, a three-line file.
+      assert.match(
+        reviewer.requests[0]?.prompt ?? '',
+        /- src\/orders\.ts \(modified, \+1\/-1\) — content available in files\/; lines new 1-3; old 1-3/,
+      );
+      await nodeFileSystem.remove(output.snapshotDirectory);
+    } finally {
+      await context.dispose();
+    }
+  });
+});
+
+describe('the nameable lines of one file', () => {
+  const section = (hunks: string[]) =>
+    ['diff --git a/a.ts b/a.ts', '--- a/a.ts', '+++ b/a.ts', ...hunks].join('\n');
+  const file = (patch: string, overrides: Partial<DiffFile> = {}): DiffFile => ({
+    oldPath: 'a.ts',
+    newPath: 'a.ts',
+    changeKind: 'modified',
+    binary: false,
+    addedLines: 0,
+    removedLines: 0,
+    hunks: parseHunks(patch),
+    patchSection: patch,
+    ...overrides,
+  });
+
+  it('joins consecutive lines into ranges and keeps separate hunks apart, per side', () => {
+    const patch = section([
+      '@@ -5,3 +5,4 @@',
+      ' a',
+      '+b',
+      ' c',
+      ' d',
+      '@@ -40,1 +41,1 @@',
+      '-old',
+      '+new',
+    ]);
+    assert.equal(nameableLines(file(patch)), 'lines new 5-8, 41; old 5-7, 40');
+  });
+
+  it('names only the side a deletion has', () => {
+    const patch = section(['@@ -1,2 +0,0 @@', '-x', '-y']);
+    assert.equal(nameableLines(file(patch, { newPath: null, changeKind: 'deleted' })), 'lines old 1-2');
+  });
+
+  it('says so when no line can be named, for a binary file or one left out of the review', () => {
+    assert.equal(nameableLines(file('', { binary: true })), 'no line here may be named');
+    assert.equal(nameableLines(undefined), 'no line here may be named');
   });
 });
 

@@ -101,6 +101,8 @@ export function reviewResult(options: FixtureOptions = {}): ReviewResult {
       isolation: ['--safe-mode', '--restricted'],
       rejections: [],
       detail: reviewerStatus === 'ok' ? null : `The reviewer failed: ${HOSTILE}`,
+      durationMs: 42_000,
+      rejectedOutputRef: null,
     },
     policySummary: { packs: [], ruleIds: [] },
     checks: [

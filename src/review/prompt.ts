@@ -8,6 +8,7 @@ import type { ResolvedPolicy } from '../contracts/policy.ts';
 import type { RemoteDiscussion } from '../contracts/provider.ts';
 import type { ProvenanceEntry, RequirementSource } from '../contracts/review.ts';
 import type { FileSystem } from '../ports/filesystem.ts';
+import { addressableLines, type DiffFile } from '../git/diff.ts';
 import { byteLength } from '../snapshot/limits.ts';
 import { promptsDirectory } from '../util/plugin-root.ts';
 import { contentHash } from '../util/hash.ts';
@@ -105,9 +106,12 @@ export async function estimatePromptOverheadBytes(
     requirements: readonly RequirementSource[];
     policies: readonly { policy: ResolvedPolicy }[];
     discussions: readonly RemoteDiscussion[];
+    /** The reviewable files, whose nameable-line ranges the prompt lists. */
+    files: readonly DiffFile[];
   },
 ): Promise<number> {
   let total = PROMPT_EVIDENCE_RESERVE_BYTES + byteLength(parts.patch);
+  for (const file of parts.files) total += byteLength(`; ${nameableLines(file)}`);
 
   try {
     total += byteLength((await readSharedOperatingContract(fs, pluginRoot)).content);
@@ -322,6 +326,41 @@ function bound(body: string): string[] {
   ];
 }
 
+/**
+ * The lines a finding may name in one file, per side, computed by the same
+ * `addressableLines` the validator uses, so the prompt and the check cannot
+ * disagree. Without them a reviewer reading whole files cited `build.mjs:29`,
+ * six lines past its hunk, and that one location voided a 42-file review
+ * (branch_origin-main_2026-09-24T12-25).
+ */
+export function nameableLines(file: DiffFile | undefined): string {
+  if (file === undefined) return 'no line here may be named';
+  const side = (name: 'new' | 'old'): string | null => {
+    const numbers = [...addressableLines(file, name)].sort((a, b) => a - b);
+    const ranges: string[] = [];
+    let start: number | undefined;
+    let previous: number | undefined;
+    for (const number of [...numbers, Number.NaN]) {
+      if (previous !== undefined && number === previous + 1) {
+        previous = number;
+        continue;
+      }
+      if (start !== undefined && previous !== undefined) {
+        ranges.push(start === previous ? `${start}` : `${start}-${previous}`);
+      }
+      start = number;
+      previous = number;
+    }
+    return ranges.length === 0 ? null : `${name} ${ranges.join(', ')}`;
+  };
+  const sides = [side('new'), side('old')].filter((value): value is string => value !== null);
+  return sides.length === 0 ? 'no line here may be named' : `lines ${sides.join('; ')}`;
+}
+
+function diffFileOf(bundle: ReviewBundle, file: { oldPath: string | null; newPath: string | null }): DiffFile | undefined {
+  return bundle.files.find((entry) => entry.newPath === file.newPath && entry.oldPath === file.oldPath);
+}
+
 function evidenceSection(bundle: ReviewBundle): string {
   const lines = [`# ${UNTRUSTED}: the change and its verification`, ''];
 
@@ -331,7 +370,9 @@ function evidenceSection(bundle: ReviewBundle): string {
     const state = file.included
       ? 'content available in files/'
       : `content not available: ${file.exclusionReason ?? 'excluded from the snapshot'}`;
-    lines.push(`- ${name} (${file.changeKind}, +${file.addedLines}/-${file.removedLines}) — ${state}`);
+    lines.push(
+      `- ${name} (${file.changeKind}, +${file.addedLines}/-${file.removedLines}) — ${state}; ${nameableLines(diffFileOf(bundle, file))}`,
+    );
   }
 
   lines.push('', '## Checks', '');
@@ -371,8 +412,14 @@ function outputSection(bundle: ReviewBundle): string {
     'Return only JSON matching the supplied schema: no prose around it and no code fence.',
     '',
     'Every finding needs a `location` with a path, a `side` (`old` or `new`) and a',
-    '`line` that exists in the change above. A location that is not in the change',
-    'is rejected and the finding is dropped.',
+    '`line` from the ranges "Changed files" lists for that file. One location that',
+    'cannot be verified makes this whole review invalid: every finding is discarded,',
+    'not only that one. Check each location against the ranges before answering.',
+    '',
+    '`supportingLocations` on the `new` side may name any line of a file under',
+    '`files/`, changed or not, such as code the change affects without touching.',
+    'On the `old` side they must be in the listed ranges too, so a file the change',
+    'did not touch has no `old` side to name.',
     '',
     ruleIds.length === 0
       ? 'No policy rule ids apply; leave `ruleRefs` empty.'

@@ -61,9 +61,13 @@ function whatWasReviewed(options: ReportOptions): string[] {
     lines.push(
       `   reviewer    ${result.reviewer.status} — model ${result.reviewer.model}, ` +
         `tools ${result.reviewer.tools.join(',') || '(none)'}, ` +
-        `timeout ${result.reviewer.timeoutSeconds}s`,
+        `timeout ${result.reviewer.timeoutSeconds}s` +
+        (result.reviewer.durationMs === null ? '' : `, took ${Math.round(result.reviewer.durationMs / 1000)}s`),
     );
     if (result.reviewer.detail !== null) lines.push(`               ${result.reviewer.detail}`);
+    if (result.reviewer.rejectedOutputRef !== null) {
+      lines.push(`               the refused answer, unvalidated: ${result.reviewer.rejectedOutputRef}`);
+    }
   }
 
   for (const note of result.target.notes) lines.push(`   note        ${note}`);

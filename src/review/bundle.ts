@@ -215,6 +215,7 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
     requirements: requirements.sources,
     policies,
     discussions,
+    files: reviewable.files,
   });
 
   // Decided and read, but not yet written. Changed files are mirrored whatever
