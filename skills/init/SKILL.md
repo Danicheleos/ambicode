@@ -5,8 +5,8 @@ description: Set up AMBICODE in this repository — detect projects, write .ambi
 
 # Set up AMBICODE
 
-Run the helper and report what it found. The helper does the work; your job is to
-read its output back to the user and help them decide what to fill in.
+Run the helper, read its output back to the user, and help them decide what to
+fill in.
 
 ## Steps
 
@@ -23,14 +23,11 @@ read its output back to the user and help them decide what to fill in.
 
 ## What init will and will not do
 
-It reads `package.json`, `pyproject.toml`, `requirements*.txt`, and looks for
-installed executables under `node_modules/.bin`, `.venv/bin`, and
-`.venv/Scripts`. It reads the
-`scripts` section as evidence about which tools the project uses.
-
-It does **not** run a project script, install a package, or invent a command
-line. A tool it cannot find becomes a `null` command with a notice, and a null
-command produces a skipped check rather than a guess.
+It reads `package.json`, `pyproject.toml` and `requirements*.txt`, and looks for
+installed executables under `node_modules/.bin` and `.venv`; the `scripts`
+section is evidence only. It does **not** run a project script, install
+anything, or invent a command line: a tool it cannot find becomes a `null`
+command with a notice, and a skipped check rather than a guess.
 
 `@angular/core` or `express` in `package.json` also enables that framework's
 built-in packs.
@@ -50,6 +47,10 @@ example. Offer to add the mapping using the project's real directory layout.
 directly, because it cannot scope a wrapper to the changed files or ask a wrapper
 which tests a change affects. Point the `argv` at `./node_modules/.bin/<tool>`.
 
+**The lint tool is not eslint or ruff.** Set `adapter: generic`: any tool whose
+exit code is the verdict (`prettier --check`, stylelint, biome, `tsc`). The
+adapters are eslint, ruff, generic, jest, vitest, pytest and playwright.
+
 **No baseline was recorded.** AMBICODE does not assume a branch is called `main`.
 Either set `baseline` in the configuration or pass `--base <ref>` when reviewing
 a branch.
@@ -64,16 +65,10 @@ servers this session has. Look at what is connected:
 - none — leave it null and say that requirement-based review is unavailable
   until a server is connected. Quality review still works.
 
-The name goes under `requirements:` in `.ambicode/config.yaml`:
-
-```yaml
-requirements:
-  mcpServer: atlassian
-```
+The name is written as `requirements.mcpServer` in `.ambicode/config.yaml`.
 
 **Nothing was detected at all.** One project covering the repository root is
-written with every command null. That is a working configuration; it simply has
-no checks yet.
+written with every command null: a working configuration with no checks yet.
 
 **Rule sources were reported.** Init lists documents that usually hold written
 rules — `CLAUDE.md`, `CONTRIBUTING.md`, `docs`, `.cursor/rules` — when they

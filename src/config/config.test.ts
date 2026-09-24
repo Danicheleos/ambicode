@@ -38,6 +38,26 @@ test('U01 an unknown field is an error rather than being ignored', () => {
   );
 });
 
+test('a lint check may name the generic adapter; an adapter AMBICODE does not know is refused with the list', () => {
+  const project = (adapter: string): string =>
+    withProjects(
+      [
+        '  - id: web',
+        '    root: .',
+        '    ecosystem: typescript',
+        '    commands: { format: { argv: ["./node_modules/.bin/prettier", "--check", "--", "{files}"] } }',
+        `    checks: { format: { command: format, adapter: ${adapter} } }`,
+      ].join('\n'),
+    );
+
+  assert.equal(parseConfig(project('generic')).projects[0]?.checks['format']?.adapter, 'generic');
+  assert.throws(
+    () => parseConfig(project('prettier')),
+    (error: Error & { details?: string[] }) =>
+      error.details?.some((detail) => detail.includes('checks.format.adapter') && detail.includes('"generic"')) === true,
+  );
+});
+
 test('U01 a newer schema version asks for an upgrade instead of guessing a migration', () => {
   assert.throws(
     () => parseConfig(MINIMAL.replace('schemaVersion: 1', 'schemaVersion: 2')),

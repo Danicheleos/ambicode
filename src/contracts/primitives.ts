@@ -89,7 +89,7 @@ export const COMMAND_ACTION_PRECEDENCE: Record<z.infer<typeof CommandAction>, nu
 export const Ecosystem = z.enum(['typescript', 'python']);
 export type Ecosystem = z.infer<typeof Ecosystem>;
 
-export const AdapterId = z.enum(['eslint', 'ruff', 'jest', 'vitest', 'pytest', 'playwright']);
+export const AdapterId = z.enum(['eslint', 'ruff', 'generic', 'jest', 'vitest', 'pytest', 'playwright']);
 export type AdapterId = z.infer<typeof AdapterId>;
 
 export const TargetKind = z.enum(['working', 'branch', 'merge-request']);
