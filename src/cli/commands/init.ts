@@ -109,8 +109,14 @@ async function addIgnoreEntries(fs: FileSystem, repositoryRoot: string, notices:
 
 export function renderInit(output: InitOutput): string {
   const lines: string[] = [];
-  lines.push(output.created ? `Created ${output.configPath}` : `Updated ${output.configPath}`);
-  if (!output.written) lines.push('(nothing was written)');
+  // Three outcomes, each in its own words: "Updated" followed by "nothing was
+  // written" read as a contradiction in run 2d344627.
+  if (!output.written && !output.created && output.changes.length === 0) {
+    lines.push(`Checked ${output.configPath}: nothing to change.`);
+  } else {
+    lines.push(output.created ? `Created ${output.configPath}` : `Updated ${output.configPath}`);
+    if (!output.written) lines.push('(dry run: nothing was written)');
+  }
 
   for (const project of output.projects) {
     lines.push('');

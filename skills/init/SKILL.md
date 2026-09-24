@@ -35,9 +35,9 @@ command produces a skipped check rather than a guess.
 `@angular/core` or `express` in `package.json` also enables that framework's
 built-in packs.
 
-Re-running init is safe. It adds entries that are missing and never overwrites a
-value the user has set, including an explicit `null`. Comments in the file
-survive.
+Re-running init is safe. It adds missing command slots and framework packs and
+never overwrites a value the user has set, including an explicit `null`.
+Comments in the file survive.
 
 ## Things that will come up
 

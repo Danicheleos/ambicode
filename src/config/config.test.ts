@@ -305,7 +305,7 @@ test('a TypeScript project with no known framework keeps only the common packs',
   assert.deepEqual(plan.config.projects[0]?.packs, ['builtin/common-quality', 'builtin/common-checks']);
 });
 
-test('re-init names framework packs an existing project lacks, without editing its packs list', async (t) => {
+test('re-init enables the framework packs an existing project lacks, keeping the packs it has', async (t) => {
   const directory = await sandbox(t);
   await writeFile(
     path.join(directory, 'package.json'),
@@ -334,12 +334,65 @@ test('re-init names framework packs an existing project lacks, without editing i
     baselineNotice: 'x',
   });
 
-  assert.equal(plan.yaml, null, 'a notice alone rewrites nothing');
-  assert.deepEqual(plan.config.projects[0]?.packs, ['builtin/common-quality', 'builtin/angular-style']);
-  const notice = plan.notices.find((value) => value.startsWith('app: builtin/angular-architecture'));
-  assert.ok(notice !== undefined, plan.notices.join('\n'));
-  assert.ok(!notice.includes('builtin/angular-style'), 'an enabled pack is not named');
-  assert.ok(!notice.includes('builtin/common-checks'), 'a removed common pack is the user\'s choice, not a notice');
+  // The user's own list first, then only what was missing, in the detected order.
+  assert.deepEqual(plan.config.projects[0]?.packs, [
+    'builtin/common-quality',
+    'builtin/angular-style',
+    'builtin/angular-architecture',
+    'builtin/angular-components',
+    'builtin/angular-http',
+    'builtin/angular-state',
+  ]);
+  const change = plan.changes.find((value) => value.startsWith('Enabled builtin/angular-architecture'));
+  assert.ok(change !== undefined, plan.changes.join('\n'));
+  assert.ok(!change.includes('builtin/angular-style'), 'a pack already enabled is not re-added');
+  assert.ok(
+    !plan.config.projects[0]?.packs.includes('builtin/common-checks'),
+    'a removed common pack stays the user\'s choice',
+  );
+  assert.ok(!plan.notices.some((notice) => notice.includes('not enabled')), plan.notices.join('\n'));
+  // Written in place: the flow-style list the user wrote is extended, not
+  // replaced. Whitespace collapsed, because yaml wraps a long flow list.
+  assert.ok(plan.yaml !== null);
+  assert.match(
+    plan.yaml.replace(/\s+/g, ' '),
+    /packs: \[ ?builtin\/common-quality, builtin\/angular-style, builtin\/angular-architecture/,
+  );
+});
+
+test('re-init leaves a project that already has every framework pack untouched', async (t) => {
+  const directory = await sandbox(t);
+  await writeFile(
+    path.join(directory, 'package.json'),
+    JSON.stringify({ name: 'x', dependencies: { '@angular/core': '^21.0.0' } }),
+    'utf8',
+  );
+  await mkdir(path.join(directory, '.ambicode'), { recursive: true });
+  await writeFile(
+    path.join(directory, '.ambicode', 'config.yaml'),
+    withProjects(
+      [
+        '  - id: app',
+        '    root: .',
+        '    ecosystem: typescript',
+        `    packs: [builtin/common-quality, builtin/common-checks, ${ANGULAR_PACKS.join(', ')}]`,
+        '    commands: { lint: null, unit: null, e2e: null }',
+        '    checks: { lint: null, unit: null, e2e: null }',
+        'authoring: { editReminders: true }',
+      ].join('\n'),
+    ),
+    'utf8',
+  );
+
+  const plan = await planInit({
+    fs: nodeFileSystem,
+    repositoryRoot: directory,
+    detected: await detectProjects(nodeFileSystem, directory),
+    baseline: 'origin/main',
+    baselineNotice: 'x',
+  });
+  assert.equal(plan.yaml, null, plan.changes.join('\n'));
+  assert.deepEqual(plan.changes, []);
 });
 
 test('P2.4 correction F: fresh init writes the documented authoring.editReminders default, visibly', async (t) => {
