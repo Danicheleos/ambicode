@@ -11,7 +11,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
-import { defaultClaudeConfigDir, install, inspect, MARKETPLACE_NAME, parseArgs, uninstall } from './install-local.mjs';
+import { defaultClaudeConfigDir, inspect, install, MARKETPLACE_NAME, parseArgs, uninstall } from './install-local.mjs';
 
 async function makeCandidate(name, version) {
   const dir = await mkdtemp(path.join(tmpdir(), 'ambicode-candidate-'));
@@ -173,7 +173,7 @@ describe('install-local.mjs command-line configuration', () => {
 
 describe('install-local.mjs install/uninstall (P2.3 correction A)', () => {
   it('first install: nothing installed, plugin install is called, state is recorded', async () => {
-    const candidateDir = await makeCandidate('ambicode', '0.1.0');
+    const candidateDir = await makeCandidate('ambicode', '0.3.0');
     const configDir = await freshConfigDir();
     try {
       const { native, calls } = fakeNative();
@@ -182,11 +182,11 @@ describe('install-local.mjs install/uninstall (P2.3 correction A)', () => {
       assert.equal(result.ok, true, JSON.stringify(result));
       assert.ok(calls.includes('pluginInstall'), 'expected pluginInstall to be called for a fresh install');
       assert.ok(!calls.includes('pluginUpdate'), 'a fresh install must not call pluginUpdate');
-      assert.equal(await readManifestVersion(configDir), '0.1.0');
+      assert.equal(await readManifestVersion(configDir), '0.3.0');
       assert.deepEqual(await readState(configDir), {
         schemaVersion: 1,
         name: 'ambicode',
-        version: '0.1.0',
+        version: '0.3.0',
         scope: 'user',
         projectDir: null,
       });
@@ -197,14 +197,14 @@ describe('install-local.mjs install/uninstall (P2.3 correction A)', () => {
   });
 
   it('same-version reinstall is idempotent: neither pluginInstall nor pluginUpdate runs again', async () => {
-    const candidateDir = await makeCandidate('ambicode', '0.1.0');
+    const candidateDir = await makeCandidate('ambicode', '0.3.0');
     const configDir = await freshConfigDir();
     try {
       await install({ candidateDir, configDir, scope: 'user', projectDir: null }, fakeNative().native);
 
       const { native, calls } = fakeNative({
         // Structured native state says this exact version is already installed.
-        pluginList: () => ({ ok: true, plugins: [{ id: `ambicode@${MARKETPLACE_NAME}`, version: '0.1.0', scope: 'user' }] }),
+        pluginList: () => ({ ok: true, plugins: [{ id: `ambicode@${MARKETPLACE_NAME}`, version: '0.3.0', scope: 'user' }] }),
         pluginInstall: () => {
           throw new Error('must not be called for an idempotent same-version reinstall');
         },
@@ -224,8 +224,8 @@ describe('install-local.mjs install/uninstall (P2.3 correction A)', () => {
   });
 
   it('refuses changed content under the same version before replacing the source or claiming an update', async () => {
-    const v1 = await makeCandidate('ambicode', '0.1.0');
-    const changed = await makeCandidate('ambicode', '0.1.0');
+    const v1 = await makeCandidate('ambicode', '0.3.0');
+    const changed = await makeCandidate('ambicode', '0.3.0');
     const configDir = await freshConfigDir();
     try {
       await writeFile(path.join(changed, 'skills.txt'), 'changed calibration content\n');
@@ -241,7 +241,7 @@ describe('install-local.mjs install/uninstall (P2.3 correction A)', () => {
       assert.equal(result.code, 'same-version-content-changed');
       assert.match(result.detail, /stale cached skills/);
       assert.deepEqual(calls, [], 'same-version drift is refused before any native mutation');
-      await assert.rejects(readFile(path.join(configDir, 'ambicode-install', 'marketplace', 'ambicode-0.1.0', 'skills.txt')));
+      await assert.rejects(readFile(path.join(configDir, 'ambicode-install', 'marketplace', 'ambicode-0.3.0', 'skills.txt')));
     } finally {
       await rm(v1, { recursive: true, force: true });
       await rm(changed, { recursive: true, force: true });
@@ -250,8 +250,8 @@ describe('install-local.mjs install/uninstall (P2.3 correction A)', () => {
   });
 
   it('successful version upgrade calls pluginUpdate, not pluginInstall, and records the new version', async () => {
-    const v1 = await makeCandidate('ambicode', '0.1.0');
-    const v2 = await makeCandidate('ambicode', '0.2.0');
+    const v1 = await makeCandidate('ambicode', '0.3.0');
+    const v2 = await makeCandidate('ambicode', '0.3.0');
     const configDir = await freshConfigDir();
     try {
       const first = fakeNative();
@@ -269,8 +269,8 @@ describe('install-local.mjs install/uninstall (P2.3 correction A)', () => {
       assert.equal(result.ok, true, JSON.stringify(result));
       assert.ok(calls.includes('pluginUpdate'));
       assert.ok(!calls.includes('pluginInstall'));
-      assert.equal(await readManifestVersion(configDir), '0.2.0');
-      assert.equal((await readState(configDir)).version, '0.2.0');
+      assert.equal(await readManifestVersion(configDir), '0.3.0');
+      assert.equal((await readState(configDir)).version, '0.3.0');
     } finally {
       await rm(v1, { recursive: true, force: true });
       await rm(v2, { recursive: true, force: true });
@@ -279,8 +279,8 @@ describe('install-local.mjs install/uninstall (P2.3 correction A)', () => {
   });
 
   it('a marketplace-update failure during upgrade preserves the old installation and reports nonzero failure', async () => {
-    const v1 = await makeCandidate('ambicode', '0.1.0');
-    const v2 = await makeCandidate('ambicode', '0.2.0');
+    const v1 = await makeCandidate('ambicode', '0.3.0');
+    const v2 = await makeCandidate('ambicode', '0.3.0');
     const configDir = await freshConfigDir();
     try {
       await install({ candidateDir: v1, configDir, scope: 'user', projectDir: null }, fakeNative().native);
@@ -293,8 +293,8 @@ describe('install-local.mjs install/uninstall (P2.3 correction A)', () => {
       assert.equal(result.ok, false);
       assert.equal(result.code, 'marketplace-update-failed');
       // The previous working installation is intact, not partially overwritten.
-      assert.equal(await readManifestVersion(configDir), '0.1.0');
-      assert.equal((await readState(configDir)).version, '0.1.0');
+      assert.equal(await readManifestVersion(configDir), '0.3.0');
+      assert.equal((await readState(configDir)).version, '0.3.0');
     } finally {
       await rm(v1, { recursive: true, force: true });
       await rm(v2, { recursive: true, force: true });
@@ -303,22 +303,22 @@ describe('install-local.mjs install/uninstall (P2.3 correction A)', () => {
   });
 
   it('a plugin-update failure during upgrade preserves the old installation and reports nonzero failure', async () => {
-    const v1 = await makeCandidate('ambicode', '0.1.0');
-    const v2 = await makeCandidate('ambicode', '0.2.0');
+    const v1 = await makeCandidate('ambicode', '0.3.0');
+    const v2 = await makeCandidate('ambicode', '0.3.0');
     const configDir = await freshConfigDir();
     try {
       await install({ candidateDir: v1, configDir, scope: 'user', projectDir: null }, fakeNative().native);
 
       const { native } = fakeNative({
-        pluginList: () => ({ ok: true, plugins: [{ id: `ambicode@${MARKETPLACE_NAME}`, version: '0.1.0', scope: 'user' }] }),
+        pluginList: () => ({ ok: true, plugins: [{ id: `ambicode@${MARKETPLACE_NAME}`, version: '0.3.0', scope: 'user' }] }),
         pluginUpdate: () => ({ ok: false, outcome: 'failed', failureCode: 'validation_failed', message: 'bad manifest' }),
       });
       const result = await install({ candidateDir: v2, configDir, scope: 'user', projectDir: null }, native);
 
       assert.equal(result.ok, false);
       assert.equal(result.code, 'plugin-update-failed');
-      assert.equal(await readManifestVersion(configDir), '0.1.0');
-      assert.equal((await readState(configDir)).version, '0.1.0');
+      assert.equal(await readManifestVersion(configDir), '0.3.0');
+      assert.equal((await readState(configDir)).version, '0.3.0');
     } finally {
       await rm(v1, { recursive: true, force: true });
       await rm(v2, { recursive: true, force: true });
@@ -327,7 +327,7 @@ describe('install-local.mjs install/uninstall (P2.3 correction A)', () => {
   });
 
   it('uninstall uses the recorded scope/project directory without requiring the caller to repeat it', async () => {
-    const candidateDir = await makeCandidate('ambicode', '0.1.0');
+    const candidateDir = await makeCandidate('ambicode', '0.3.0');
     const configDir = await freshConfigDir();
     try {
       await install({ candidateDir, configDir, scope: 'user', projectDir: null }, fakeNative().native);
@@ -349,7 +349,7 @@ describe('install-local.mjs install/uninstall (P2.3 correction A)', () => {
   });
 
   it('refuses an explicit --scope that conflicts with the recorded installation, touching nothing', async () => {
-    const candidateDir = await makeCandidate('ambicode', '0.1.0');
+    const candidateDir = await makeCandidate('ambicode', '0.3.0');
     const configDir = await freshConfigDir();
     try {
       await install({ candidateDir, configDir, scope: 'user', projectDir: null }, fakeNative().native);
@@ -377,7 +377,7 @@ describe('install-local.mjs install/uninstall (P2.3 correction A)', () => {
   });
 
   it('a plugin-uninstall failure preserves the durable source and reports nonzero failure', async () => {
-    const candidateDir = await makeCandidate('ambicode', '0.1.0');
+    const candidateDir = await makeCandidate('ambicode', '0.3.0');
     const configDir = await freshConfigDir();
     try {
       await install({ candidateDir, configDir, scope: 'user', projectDir: null }, fakeNative().native);
@@ -392,7 +392,7 @@ describe('install-local.mjs install/uninstall (P2.3 correction A)', () => {
 
       assert.equal(result.ok, false);
       assert.equal(result.code, 'plugin-uninstall-failed');
-      assert.equal(await readManifestVersion(configDir), '0.1.0');
+      assert.equal(await readManifestVersion(configDir), '0.3.0');
       assert.ok(await readState(configDir) !== null, 'state must survive a failed uninstall');
     } finally {
       await rm(candidateDir, { recursive: true, force: true });
@@ -401,7 +401,7 @@ describe('install-local.mjs install/uninstall (P2.3 correction A)', () => {
   });
 
   it('a marketplace-removal failure preserves a recoverable state even after the plugin itself was uninstalled', async () => {
-    const candidateDir = await makeCandidate('ambicode', '0.1.0');
+    const candidateDir = await makeCandidate('ambicode', '0.3.0');
     const configDir = await freshConfigDir();
     try {
       await install({ candidateDir, configDir, scope: 'user', projectDir: null }, fakeNative().native);
@@ -419,7 +419,7 @@ describe('install-local.mjs install/uninstall (P2.3 correction A)', () => {
       assert.equal(result.code, 'marketplace-remove-failed');
       // Retryable: state and the marketplace directory are both still there.
       assert.ok(await readState(configDir) !== null);
-      assert.equal(await readManifestVersion(configDir), '0.1.0');
+      assert.equal(await readManifestVersion(configDir), '0.3.0');
     } finally {
       await rm(candidateDir, { recursive: true, force: true });
       await rm(configDir, { recursive: true, force: true });
@@ -427,7 +427,7 @@ describe('install-local.mjs install/uninstall (P2.3 correction A)', () => {
   });
 
   it('uninstalls cleanly without the original candidate directory existing', async () => {
-    const candidateDir = await makeCandidate('ambicode', '0.1.0');
+    const candidateDir = await makeCandidate('ambicode', '0.3.0');
     const configDir = await freshConfigDir();
     try {
       await install({ candidateDir, configDir, scope: 'user', projectDir: null }, fakeNative().native);
@@ -449,7 +449,7 @@ describe('install-local.mjs install/uninstall (P2.3 correction A)', () => {
 
 describe('install-local.mjs P2.4 correction D: failure-safe installation', () => {
   it('D2/D3: refuses a user→project scope change on install, before any mutation, leaving only the user installation', async () => {
-    const candidateDir = await makeCandidate('ambicode', '0.1.0');
+    const candidateDir = await makeCandidate('ambicode', '0.3.0');
     const configDir = await freshConfigDir();
     const projectDir = await mkdtemp(path.join(tmpdir(), 'ambicode-project-'));
     try {
@@ -467,7 +467,7 @@ describe('install-local.mjs P2.4 correction D: failure-safe installation', () =>
       // Only the original user-scoped installation is recorded.
       assert.equal((await readState(configDir)).scope, 'user');
       assert.equal((await readState(configDir)).projectDir, null);
-      assert.equal(await readManifestVersion(configDir), '0.1.0');
+      assert.equal(await readManifestVersion(configDir), '0.3.0');
     } finally {
       await rm(candidateDir, { recursive: true, force: true });
       await rm(configDir, { recursive: true, force: true });
@@ -476,7 +476,7 @@ describe('install-local.mjs P2.4 correction D: failure-safe installation', () =>
   });
 
   it('D3: canonicalizes a symlinked project directory before comparing, so a symlink alias is not treated as a scope change', async () => {
-    const candidateDir = await makeCandidate('ambicode', '0.1.0');
+    const candidateDir = await makeCandidate('ambicode', '0.3.0');
     const configDir = await freshConfigDir();
     const realProjectDir = await mkdtemp(path.join(tmpdir(), 'ambicode-real-project-'));
     const aliasParent = await mkdtemp(path.join(tmpdir(), 'ambicode-alias-parent-'));
@@ -507,7 +507,7 @@ describe('install-local.mjs P2.4 correction D: failure-safe installation', () =>
   });
 
   it('D4: a corrupt state file is refused as an actionable failure on install, uninstall, and inspect, never treated as "nothing installed"', async () => {
-    const candidateDir = await makeCandidate('ambicode', '0.1.0');
+    const candidateDir = await makeCandidate('ambicode', '0.3.0');
     const configDir = await freshConfigDir();
     try {
       await mkdir(path.join(configDir, 'ambicode-install'), { recursive: true });
@@ -534,7 +534,7 @@ describe('install-local.mjs P2.4 correction D: failure-safe installation', () =>
   });
 
   it('D5: a failed structured plugin-list during install aborts rather than being read as "not installed"', async () => {
-    const candidateDir = await makeCandidate('ambicode', '0.1.0');
+    const candidateDir = await makeCandidate('ambicode', '0.3.0');
     const configDir = await freshConfigDir();
     try {
       const { native, calls } = fakeNative({ pluginList: () => ({ ok: false, plugins: [], stderr: 'transient failure' }) });
@@ -551,7 +551,7 @@ describe('install-local.mjs P2.4 correction D: failure-safe installation', () =>
   });
 
   it('D6: strict plugin validation against the staged candidate blocks the install before anything is published', async () => {
-    const candidateDir = await makeCandidate('ambicode', '0.1.0');
+    const candidateDir = await makeCandidate('ambicode', '0.3.0');
     const configDir = await freshConfigDir();
     try {
       const { native, calls } = fakeNative({
@@ -575,7 +575,7 @@ describe('install-local.mjs P2.4 correction D: failure-safe installation', () =>
   });
 
   it('D7: a fresh install that fails after the marketplace registration was created removes that registration rather than leaving it dangling', async () => {
-    const candidateDir = await makeCandidate('ambicode', '0.1.0');
+    const candidateDir = await makeCandidate('ambicode', '0.3.0');
     const configDir = await freshConfigDir();
     try {
       const { native, calls, state } = fakeNative({
@@ -599,7 +599,7 @@ describe('install-local.mjs P2.4 correction D: failure-safe installation', () =>
   });
 
   it('records a recovery journal and preserves the source when a normalized native compensation returns ok:false', async () => {
-    const candidateDir = await makeCandidate('ambicode', '0.1.0');
+    const candidateDir = await makeCandidate('ambicode', '0.3.0');
     const configDir = await freshConfigDir();
     try {
       const { native, state } = fakeNative({
@@ -612,7 +612,7 @@ describe('install-local.mjs P2.4 correction D: failure-safe installation', () =>
       assert.equal(result.code, 'plugin-install-failed');
       assert.ok(result.journal !== null, 'a returned native failure must create a recovery journal');
       assert.equal(state.marketplaceRegistered, true, 'the failed native registration remains accurately represented');
-      assert.equal(await readManifestVersion(configDir), '0.1.0', 'its source remains available for manual recovery');
+      assert.equal(await readManifestVersion(configDir), '0.3.0', 'its source remains available for manual recovery');
     } finally {
       await rm(candidateDir, { recursive: true, force: true });
       await rm(configDir, { recursive: true, force: true });
@@ -620,7 +620,7 @@ describe('install-local.mjs P2.4 correction D: failure-safe installation', () =>
   });
 
   it('refuses a project-scoped postcondition that omits the project path', async () => {
-    const candidateDir = await makeCandidate('ambicode', '0.1.0');
+    const candidateDir = await makeCandidate('ambicode', '0.3.0');
     const configDir = await freshConfigDir();
     const projectDir = await mkdtemp(path.join(tmpdir(), 'ambicode-project-'));
     try {
@@ -631,7 +631,7 @@ describe('install-local.mjs P2.4 correction D: failure-safe installation', () =>
           if (listCall === 1) return { ok: true, plugins: [] };
           return {
             ok: true,
-            plugins: [{ id: `ambicode@${MARKETPLACE_NAME}`, version: '0.1.0', scope: 'project', enabled: true }],
+            plugins: [{ id: `ambicode@${MARKETPLACE_NAME}`, version: '0.3.0', scope: 'project', enabled: true }],
           };
         },
       });
@@ -647,7 +647,7 @@ describe('install-local.mjs P2.4 correction D: failure-safe installation', () =>
   });
 
   it('inspect surfaces a failed or contradictory native plugin list', async () => {
-    const candidateDir = await makeCandidate('ambicode', '0.1.0');
+    const candidateDir = await makeCandidate('ambicode', '0.3.0');
     const configDir = await freshConfigDir();
     try {
       await install({ candidateDir, configDir, scope: 'user', projectDir: null }, fakeNative().native);
@@ -668,8 +668,8 @@ describe('install-local.mjs P2.4 correction D: failure-safe installation', () =>
   });
 
   it('D7: an upgrade that fails after the plugin was updated refreshes the marketplace to point at the restored (previous) content', async () => {
-    const v1 = await makeCandidate('ambicode', '0.1.0');
-    const v2 = await makeCandidate('ambicode', '0.2.0');
+    const v1 = await makeCandidate('ambicode', '0.3.0');
+    const v2 = await makeCandidate('ambicode', '0.3.0');
     const configDir = await freshConfigDir();
     try {
       const first = fakeNative();
@@ -693,8 +693,8 @@ describe('install-local.mjs P2.4 correction D: failure-safe installation', () =>
             // pluginUpdate runs. Second call (D8 postcondition): lie about
             // the version, forcing a postcondition failure after the update
             // already "succeeded" natively.
-            if (call === 1) return { ok: true, plugins: [{ id: `ambicode@${MARKETPLACE_NAME}`, scope: 'user', version: '0.1.0', enabled: true }] };
-            return { ok: true, plugins: [{ id: `ambicode@${MARKETPLACE_NAME}`, scope: 'user', version: '0.1.0', enabled: true }] };
+            if (call === 1) return { ok: true, plugins: [{ id: `ambicode@${MARKETPLACE_NAME}`, scope: 'user', version: '0.3.0', enabled: true }] };
+            return { ok: true, plugins: [{ id: `ambicode@${MARKETPLACE_NAME}`, scope: 'user', version: '0.3.0', enabled: true }] };
           };
         })(),
       });
@@ -706,7 +706,7 @@ describe('install-local.mjs P2.4 correction D: failure-safe installation', () =>
       // The compensating refresh ran as part of unwinding.
       assert.ok(updateCount >= 2, 'marketplaceUpdate must run again as part of compensation');
       // The live installation was not left on the failed v2 attempt.
-      assert.equal(await readManifestVersion(configDir), '0.1.0');
+      assert.equal(await readManifestVersion(configDir), '0.3.0');
     } finally {
       await rm(v1, { recursive: true, force: true });
       await rm(v2, { recursive: true, force: true });
@@ -715,7 +715,7 @@ describe('install-local.mjs P2.4 correction D: failure-safe installation', () =>
   });
 
   it('D11: refuses to install while another process holds the ownership lock, and reclaims a stale lock left by a dead process', async () => {
-    const candidateDir = await makeCandidate('ambicode', '0.1.0');
+    const candidateDir = await makeCandidate('ambicode', '0.3.0');
     const configDir = await freshConfigDir();
     try {
       await mkdir(path.join(configDir, 'ambicode-install'), { recursive: true });

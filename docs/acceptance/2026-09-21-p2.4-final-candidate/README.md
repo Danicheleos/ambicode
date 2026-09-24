@@ -241,20 +241,20 @@ unstaged diff, before staging anything:
 
 ## Candidate identity
 
-- **Candidate version**: `0.1.0` (from `package.json` and
+- **Candidate version**: `0.3.0` (from `package.json` and
   `.claude-plugin/plugin.json`, which packaging verifies agree).
 - **Source commit currently tested**: `daf919e` ("P2.3"), **plus the
   uncommitted P2.4 corrections and additions described above**. Nothing
   from this session has been committed. See "Staged/unstaged status" below
   for exactly what is staged.
-- **Artifact filename**: `dist/ambicode-0.1.0.zip` (an optional,
+- **Artifact filename**: `dist/ambicode-0.3.0.zip` (an optional,
   byte-reproducible convenience artifact — not required for local
   installation, which uses the candidate directory directly).
 - **Artifact digest (SHA-256)**: `201231c4bd64a7421352c71e484fdfcdc49f33c51d2890b8e5c2db6afce6f441`
-  (also in `dist/ambicode-0.1.0.zip.sha256`; regenerate before relying on
+  (also in `dist/ambicode-0.3.0.zip.sha256`; regenerate before relying on
   this file, since `dist/` is gitignored build output, not a committed
   artifact).
-- **Artifact inventory**: `dist/ambicode-0.1.0.inventory.json`, generated
+- **Artifact inventory**: `dist/ambicode-0.3.0.inventory.json`, generated
   fresh for this record: **32 files** (31 in the P2.3 record, plus
   `hooks/hooks.json`; several shipped documents' byte counts also changed
   where this session's corrections edited them).
@@ -313,7 +313,7 @@ times).
 | Build, typecheck, unit tests, strict plugin validation (source), in doc 07's documented order | `npm run verify` | passed — **454 tests, 50 suites, 0 failures** |
 | Package candidate | `npm run package:candidate` | passed (32 files; launcher mode 755; no forbidden paths; no workstation paths; shared-resource references correct for all four referrers; hooks manifest routes through the one bundled entry point) |
 | Reproducible package | `npm run package:reproducible` | passed (two independent builds; identical file set, digests, and zip SHA-256) |
-| Strict plugin validation (packaged candidate) | `claude plugin validate dist/ambicode-0.1.0 --strict` | passed |
+| Strict plugin validation (packaged candidate) | `claude plugin validate dist/ambicode-0.3.0 --strict` | passed |
 | Isolated durable local install/inspect/reload/uninstall smoke | `npm run smoke:install-local` | passed — see "Packaged installation evidence" below |
 | `npm audit` | | 0 vulnerabilities |
 | `git diff --check` (unstaged, before staging) | | passed, no whitespace errors |
@@ -336,7 +336,7 @@ pointed at the real `~/.claude`:
    the four hooks; confirmed no workstation absolute path appears anywhere
    under the installed `CLAUDE_CONFIG_DIR`; exercised a same-version
    reinstall, a version-upgrade-in-place against a synthetic
-   `0.1.1-smoke` candidate, a scope-change refusal, and a corrupt-state
+   `0.3.0-smoke` candidate, a scope-change refusal, and a corrupt-state
    refusal (all four added this session); then uninstalled without the
    deleted candidate directory existing and confirmed both the plugin and
    the durable install directory were gone afterward.
@@ -353,7 +353,7 @@ pointed at the real `~/.claude`:
      LSP servers (0)
    ```
 
-   then ran `claude plugin validate dist/ambicode-0.1.0 --strict --json`
+   then ran `claude plugin validate dist/ambicode-0.3.0 --strict --json`
    against the same packaged directory, confirming the exact response shape
    documented in `docs/compatibility.md`, then uninstalled cleanly.
 

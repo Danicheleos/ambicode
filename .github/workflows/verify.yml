@@ -1,6 +1,6 @@
 name: verify
 
-# The release gate D13 deferred. `npm run verify` existed before 0.1.1 and was
+# The release gate D13 deferred. `npm run verify` existed before 0.3.0 and was
 # simply not run: the candidate shipped two skills whose frontmatter did not
 # parse, and the suite was red on native Windows. Both defects are
 # integration-level and manual acceptance caught neither, so the gate runs

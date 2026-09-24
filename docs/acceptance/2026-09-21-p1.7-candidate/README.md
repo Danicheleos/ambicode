@@ -12,11 +12,11 @@ applicable`. "Unavailable" is never written as "passed."
 
 ## Candidate identity
 
-- **Candidate version**: `0.1.0` (from `package.json` and `.claude-plugin/plugin.json`, which packaging verifies agree).
+- **Candidate version**: `0.3.0` (from `package.json` and `.claude-plugin/plugin.json`, which packaging verifies agree).
 - **Source commit currently tested**: `7255b9c555bac1877ab6669cb67a82b6a56d4608` ("P1.6"), **plus staged, uncommitted P1.7 work on top** (the P1.6 corrections A–E and all P1.7 packaging/docs described below). Nothing has been committed. `git status --porcelain` at the time this record was written lists every changed/new path; the final report accompanying this record repeats the exact list.
-- **Artifact filename**: `dist/ambicode-0.1.0.zip`
-- **Artifact digest (SHA-256)**: `fa82837f42cb6ebdc3da4a50f5d2d3ac621f8836662da77929c65e2fbcaaf569` (also in `dist/ambicode-0.1.0.zip.sha256`, produced by `npm run package:candidate`)
-- **Artifact inventory**: `dist/ambicode-0.1.0.inventory.json`, 28 files, reproduced below.
+- **Artifact filename**: `dist/ambicode-0.3.0.zip`
+- **Artifact digest (SHA-256)**: `fa82837f42cb6ebdc3da4a50f5d2d3ac621f8836662da77929c65e2fbcaaf569` (also in `dist/ambicode-0.3.0.zip.sha256`, produced by `npm run package:candidate`)
+- **Artifact inventory**: `dist/ambicode-0.3.0.inventory.json`, 28 files, reproduced below.
 
 | Path | Bytes | Mode |
 | --- | --- | --- |
@@ -75,8 +75,8 @@ Windows path handling for the plugin loader's own conventions.
 | Strict plugin validation (source) | `claude plugin validate . --strict` | passed |
 | Package candidate | `npm run package:candidate` | passed (28 files; launcher mode 755; no forbidden paths; no workstation paths) |
 | Reproducible package | `npm run package:reproducible` | passed (two independent builds, identical file set and digests) |
-| Strict plugin validation (**packaged** candidate) | `claude plugin validate dist/ambicode-0.1.0 --strict` | passed |
-| Packaged-helper smoke, outside this checkout | `node smoke-candidate.mjs dist/ambicode-0.1.0` (from `/tmp`) | passed — `version` outside any repo, `init`+`policy` resolve built-in policies, `view` serves its own templates |
+| Strict plugin validation (**packaged** candidate) | `claude plugin validate dist/ambicode-0.3.0 --strict` | passed |
+| Packaged-helper smoke, outside this checkout | `node smoke-candidate.mjs dist/ambicode-0.3.0` (from `/tmp`) | passed — `version` outside any repo, `init`+`policy` resolve built-in policies, `view` serves its own templates |
 | Local marketplace install (isolated `CLAUDE_CONFIG_DIR`) | see "Packaged installation evidence" below | passed |
 | `git diff --cached --check` | run after staging | passed — see final report |
 | `npm audit --omit=dev` | | 0 vulnerabilities (113 resolved packages total across the tree at last full audit in `docs/compatibility.md`; supporting evidence, not a standing guarantee — every dependency introducing a new attack surface is reachable only from `src/page/server.ts`/`templates/*.eta`, per that doc) |
@@ -91,17 +91,17 @@ marketplace list, independent of the real user configuration.
 
 1. `claude plugin marketplace add /tmp/ambicode-local-marketplace` (a local
    test marketplace whose one plugin entry's `source` is
-   `./ambicode-0.1.0`, a copy of the packaged candidate directory — **not**
+   `./ambicode-0.3.0`, a copy of the packaged candidate directory — **not**
    `--plugin-dir .` and **not** the source repository) → succeeded.
 2. `claude plugin install ambicode@ambicode-team -s user -y` → succeeded,
-   `claude plugin list` showed version `0.1.0`, status enabled.
+   `claude plugin list` showed version `0.3.0`, status enabled.
 3. `claude plugin details ambicode@ambicode-team` → `Skills (2)  init,
    review`, confirming the `/ambicode:init` and `/ambicode:review`
    namespace without a model call.
 4. `grep -rl` for this repository's own absolute path, and for the
    operator's home directory, across the entire installed cache tree →
    no matches.
-5. `claude plugin validate dist/ambicode-0.1.0 --strict` (the same
+5. `claude plugin validate dist/ambicode-0.3.0 --strict` (the same
    directory the marketplace entry pointed at) → passed.
 
 ## Disable / uninstall / rollback evidence
@@ -116,7 +116,7 @@ marketplace list, independent of the real user configuration.
    plugin list` reported no installed plugins; the two product-owned files
    were confirmed present and unchanged afterward.
 4. The plugin's own cache under
-   `plugins/cache/ambicode-team/ambicode/0.1.0/` in the isolated config
+   `plugins/cache/ambicode-team/ambicode/0.3.0/` in the isolated config
    directory was **not** removed by the uninstall in this observed run —
    recorded as Claude Code's native behavior, not asserted as a design
    requirement of AMBICODE's.
@@ -126,7 +126,7 @@ marketplace list, independent of the real user configuration.
    directory whose `plugin.json` version is literally
    `"0.0.1-rollback-demo"`, ran `claude plugin marketplace update
    ambicode-team` then `claude plugin update ambicode@ambicode-team`, and
-   observed `Plugin "ambicode" updated from 0.1.0 to 0.0.1-rollback-demo`.
+   observed `Plugin "ambicode" updated from 0.3.0 to 0.0.1-rollback-demo`.
    **Pending**: an actual rollback between two genuinely different
    released versions, which needs a first real release.
 
@@ -153,7 +153,7 @@ marketplace list, independent of the real user configuration.
 
 Unit tests do not satisfy M01–M12 (doc 07/08 are explicit about this), so
 every row below is either a command actually typed and observed this
-session against the **packaged candidate binary** (`dist/ambicode-0.1.0/bin/ambicode`)
+session against the **packaged candidate binary** (`dist/ambicode-0.3.0/bin/ambicode`)
 and a real materialized fixture repository, or is marked pending with its
 exact prerequisite. None of the "passed" rows below rest on a unit test
 alone.
@@ -173,7 +173,7 @@ alone.
 | M11 | partial: capability/env-allowlist unit evidence passed; live process-boundary observation is **pending** | Needs a live authorized reviewer invocation |
 | M12 | **passed (this session)**, packaged-install portion; browser-idle/reopen portion pending | This record's "Disable / uninstall / rollback evidence" section below is the packaged-install version of M12. Local-page idle timeout, reopening a saved result, and disabling/reinstalling through a real browser session are still pending (needs a browser) |
 | M13 | not applicable | Phase 2 is on hold; do not start (see below) |
-| M14 | **passed (this session)** | Edited `dist/ambicode-0.1.0/policies/common-quality.yaml` directly (adding one rule, no TypeScript touched, no rebuild), reran `ambicode policy --json` from the packaged binary in the `ts-staged-unstaged` fixture, and the new rule's qualified id appeared in the resolved rule list immediately. Reverted the file and reran: the rule disappeared. As a byproduct, a first malformed attempt at the same edit was rejected with four precise field-level diagnostics (`pack-invalid`), which is exactly U03's contract observed live rather than only in a unit fixture. |
+| M14 | **passed (this session)** | Edited `dist/ambicode-0.3.0/policies/common-quality.yaml` directly (adding one rule, no TypeScript touched, no rebuild), reran `ambicode policy --json` from the packaged binary in the `ts-staged-unstaged` fixture, and the new rule's qualified id appeared in the resolved rule list immediately. Reverted the file and reran: the rule disappeared. As a byproduct, a first malformed attempt at the same edit was rejected with four precise field-level diagnostics (`pack-invalid`), which is exactly U03's contract observed live rather than only in a unit fixture. |
 
 ## Dependency and license inventory
 

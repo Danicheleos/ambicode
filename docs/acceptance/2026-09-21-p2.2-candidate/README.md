@@ -115,11 +115,11 @@ restating rows that record already covers and this session did not touch
 
 ## Candidate identity
 
-- **Candidate version**: `0.1.0` (from `package.json` and `.claude-plugin/plugin.json`, which packaging verifies agree).
+- **Candidate version**: `0.3.0` (from `package.json` and `.claude-plugin/plugin.json`, which packaging verifies agree).
 - **Source commit currently tested**: `3ebf4ed` ("P2.1"), **plus the uncommitted corrections and P2.2 work described above and in the accompanying final report**. Nothing from this session has been committed. The final report lists every staged/unstaged/untracked path.
-- **Artifact filename**: `dist/ambicode-0.1.0.zip` (an optional, byte-reproducible convenience artifact — not required for local installation, which uses the candidate directory directly; see doc 03 P1.7 correction B/C).
-- **Artifact digest (SHA-256)**: `430b2905e2197aebb304a113837339233dbbdff13adc67d8bf46bc463cfe6a3c` (also in `dist/ambicode-0.1.0.zip.sha256`).
-- **Artifact inventory**: `dist/ambicode-0.1.0.inventory.json`, generated fresh for this record: **30 files** (29 in the prior P2.1 record, plus `skills/plan/SKILL.md`; every other shipped document's byte count also changed where this session's corrections edited it — see below).
+- **Artifact filename**: `dist/ambicode-0.3.0.zip` (an optional, byte-reproducible convenience artifact — not required for local installation, which uses the candidate directory directly; see doc 03 P1.7 correction B/C).
+- **Artifact digest (SHA-256)**: `430b2905e2197aebb304a113837339233dbbdff13adc67d8bf46bc463cfe6a3c` (also in `dist/ambicode-0.3.0.zip.sha256`).
+- **Artifact inventory**: `dist/ambicode-0.3.0.inventory.json`, generated fresh for this record: **30 files** (29 in the prior P2.1 record, plus `skills/plan/SKILL.md`; every other shipped document's byte count also changed where this session's corrections edited it — see below).
 
 | Path | Bytes | Mode |
 | --- | --- | --- |
@@ -177,7 +177,7 @@ times).
 | `npm run verify` (typecheck + test:unit + build + validate:plugin, in one run) | `npm run verify` | passed |
 | Package candidate | `npm run package:candidate` | passed (30 files; launcher mode 755; no forbidden paths; no workstation paths; shared-resource references correct) |
 | Reproducible package | `npm run package:reproducible` | passed (two independent builds; identical file set, digests, **and zip SHA-256**) |
-| Strict plugin validation (packaged candidate) | `claude plugin validate dist/ambicode-0.1.0 --strict` | passed |
+| Strict plugin validation (packaged candidate) | `claude plugin validate dist/ambicode-0.3.0 --strict` | passed |
 | Isolated durable local install/inspect/reload/uninstall smoke | `npm run smoke:install-local` | passed — see "Packaged installation evidence" below |
 | `git diff --check` | | passed, no whitespace errors |
 | `git diff --cached --check` | | passed |
@@ -190,13 +190,13 @@ All of the following ran with a fresh, isolated `CLAUDE_CONFIG_DIR` created
 by `install-local.smoke.mjs` for this record, never pointed at the real
 `~/.claude`, via `npm run smoke:install-local`:
 
-1. `node install-local.mjs install dist/ambicode-0.1.0 <config-dir>` →
+1. `node install-local.mjs install dist/ambicode-0.3.0 <config-dir>` →
    copied the candidate into the durable `<config-dir>/ambicode-install/marketplace/`,
    ran `claude plugin marketplace add <that-directory>` then `claude plugin
    install ambicode@ambicode-team -s user -y`, both succeeded.
 2. `node install-local.mjs inspect <config-dir>` (a first fresh `claude`
    process) → reported the durable manifest and `claude plugin list` showing
-   `ambicode@ambicode-team`, version `0.1.0`, status enabled.
+   `ambicode@ambicode-team`, version `0.3.0`, status enabled.
 3. The candidate directory used for the install — a private temporary copy,
    never the developer's own `dist/` — was **deleted entirely**.
 4. `claude plugin list` and `claude plugin details ambicode@ambicode-team`

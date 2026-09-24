@@ -3,7 +3,7 @@
 **Commit:** `a8798c48b33a9cc3935f784f87f4d766a76543c4` (`R1: release integrity
 and the three-OS matrix`)
 **Date:** 2026-09-21
-**Version:** 0.1.2 (`package.json` and `.claude-plugin/plugin.json`)
+**Version:** 0.3.0 (`package.json` and `.claude-plugin/plugin.json`)
 **Supersedes:** [`2026-09-21-local-install-navigation-correction`](../2026-09-21-local-install-navigation-correction/README.md),
 whose verification evidence is corrected in place.
 
@@ -40,8 +40,8 @@ Two further defects were confirmed that no test reported:
   `description:` that is not a legal YAML plain scalar. Parsing either with
   the `yaml` package raises *"Nested mappings are not allowed in compact
   mappings at line 2, column 14"*, so both skills load with no `name` and no
-  `description`. Confirmed present in `dist/ambicode-0.1.1/` and absent from
-  `dist/ambicode-0.1.0/`.
+  `description`. Confirmed present in `dist/ambicode-0.3.0/` and absent from
+  `dist/ambicode-0.3.0/`.
 - `git ls-files --eol` reported `i/lf w/crlf` for 318 of 321 tracked files:
   no `.gitattributes` existed, and `core.autocrlf=true` is the Windows
   default.
@@ -86,9 +86,9 @@ Each line is a command that was run on this commit and its actual output.
   `exited`, which is the case Windows used to conflate with a missing command.
 - **Acceptance criterion 5.** `node check-line-endings.mjs` reports
   *"line endings OK: 321 tracked text file(s), all stored as LF"*.
-- **Acceptance criterion 7.** All five skills in `dist/ambicode-0.1.2/skills/`
+- **Acceptance criterion 7.** All five skills in `dist/ambicode-0.3.0/skills/`
   parse, and each `name` matches its directory. The broken
-  `dist/ambicode-0.1.1*` artifacts were deleted.
+  `dist/ambicode-0.3.0*` artifacts were deleted.
 - **`npm run package:reproducible`**: 33 files, byte-identical archives across
   two independent runs, zip SHA-256
   `876dd0d47856b9de4339fc1a35be40a86cc2f2b562ba8333004eb712b0cf21e2`.
@@ -108,7 +108,7 @@ Each line is a command that was run on this commit and its actual output.
   therefore **not** evidenced by this record. The workflow's YAML was parsed
   and its matrix and step list inspected, but no CI run has executed: the
   workflow is new in this commit and runs on first push. **This record must be
-  amended with the first green matrix run before 0.1.2 is released.**
+  amended with the first green matrix run before 0.3.0 is released.**
 - **Acceptance criterion 1 passes but proves nothing.**
   `claude plugin validate . --strict` exits 0 — and it also exits 0 on the
   *broken* tree. Measured on CLI 2.1.278: at the repository root its `--json`

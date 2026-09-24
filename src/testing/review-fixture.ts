@@ -1,5 +1,5 @@
-import { PUBLICATION_SCHEMA_VERSION, type PublicationPositions } from '../contracts/publication.ts';
 import { COMPLETE_COVERAGE, type RemoteTarget } from '../contracts/provider.ts';
+import { PUBLICATION_SCHEMA_VERSION, type PublicationPositions } from '../contracts/publication.ts';
 import { REVIEW_SCHEMA_VERSION, type Finding, type ReviewResult } from '../contracts/review.ts';
 import { positionDigest } from '../publication/positions.ts';
 import { FAKE_TARGET } from './fake-provider.ts';
@@ -48,7 +48,7 @@ export function reviewResult(options: FixtureOptions = {}): ReviewResult {
     schemaVersion: REVIEW_SCHEMA_VERSION,
     reviewId: REVIEW_ID,
     createdAt: '2026-09-20T10:00:00.000Z',
-    pluginVersion: '0.1.0',
+    pluginVersion: '0.3.0',
     reviewModel: 'sonnet',
     target: {
       kind,

@@ -165,11 +165,11 @@ passing, before P2.3's task implementation began, per this session's task.
 
 ## Candidate identity
 
-- **Candidate version**: `0.1.0` (from `package.json` and `.claude-plugin/plugin.json`, which packaging verifies agree).
+- **Candidate version**: `0.3.0` (from `package.json` and `.claude-plugin/plugin.json`, which packaging verifies agree).
 - **Source commit currently tested**: `aa9f965` ("P2.2"), **plus the uncommitted corrections and P2.3 work described above and in the accompanying final report**. Nothing from this session has been committed. The final report lists every staged/unstaged/untracked path.
-- **Artifact filename**: `dist/ambicode-0.1.0.zip` (an optional, byte-reproducible convenience artifact — not required for local installation, which uses the candidate directory directly; see doc 03 P1.7 correction B/C).
-- **Artifact digest (SHA-256)**: `62b5cb64112f5c3a70f5445b0ac5aeb6c18c373efbeec6a34b4d29415730e9d6` (also in `dist/ambicode-0.1.0.zip.sha256`).
-- **Artifact inventory**: `dist/ambicode-0.1.0.inventory.json`, generated fresh for this record: **31 files** (30 in the prior P2.2 record, plus `skills/task/SKILL.md`; several other shipped documents' byte counts also changed where this session's corrections edited them — `docs/compatibility.md`, `docs/installation.md`, `docs/review.md`, `prompts/reviewer-role.md`, `prompts/shared-operating-contract.md`, `skills/investigate/SKILL.md`, `skills/plan/SKILL.md`, `skills/shared/requirements-mcp.md`).
+- **Artifact filename**: `dist/ambicode-0.3.0.zip` (an optional, byte-reproducible convenience artifact — not required for local installation, which uses the candidate directory directly; see doc 03 P1.7 correction B/C).
+- **Artifact digest (SHA-256)**: `62b5cb64112f5c3a70f5445b0ac5aeb6c18c373efbeec6a34b4d29415730e9d6` (also in `dist/ambicode-0.3.0.zip.sha256`).
+- **Artifact inventory**: `dist/ambicode-0.3.0.inventory.json`, generated fresh for this record: **31 files** (30 in the prior P2.2 record, plus `skills/task/SKILL.md`; several other shipped documents' byte counts also changed where this session's corrections edited them — `docs/compatibility.md`, `docs/installation.md`, `docs/review.md`, `prompts/reviewer-role.md`, `prompts/shared-operating-contract.md`, `skills/investigate/SKILL.md`, `skills/plan/SKILL.md`, `skills/shared/requirements-mcp.md`).
 
 | Path | Bytes | Mode |
 | --- | --- | --- |
@@ -228,7 +228,7 @@ times).
 | `npm run verify` (typecheck + test:unit + build + validate:plugin, in one run) | `npm run verify` | passed |
 | Package candidate | `npm run package:candidate` | passed (31 files; launcher mode 755; no forbidden paths; no workstation paths; shared-resource references correct for all four referrers including `task`) |
 | Reproducible package | `npm run package:reproducible` | passed (two independent builds; identical file set, digests, and zip SHA-256) |
-| Strict plugin validation (packaged candidate) | `claude plugin validate dist/ambicode-0.1.0 --strict` | passed |
+| Strict plugin validation (packaged candidate) | `claude plugin validate dist/ambicode-0.3.0 --strict` | passed |
 | Isolated durable local install/inspect/reload/uninstall smoke | `npm run smoke:install-local` | passed — see "Packaged installation evidence" below; now asserts all five skills |
 | `git diff --check` | | passed, no whitespace errors |
 | `git diff --cached --check` | | passed, no whitespace errors, against the complete batch staged at the end of this session |

@@ -37,15 +37,15 @@
 //
 // Example:
 //   npm run package:candidate
-//   node install-local.mjs install dist/ambicode-0.1.1
+//   node install-local.mjs install dist/ambicode-0.3.0
 //   node install-local.mjs inspect
 //   node install-local.mjs uninstall
+import { execaSync } from 'execa';
 import { createHash, randomBytes } from 'node:crypto';
 import { cp, mkdir, open, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execaSync } from 'execa';
 
 export const MARKETPLACE_NAME = 'ambicode-team';
 const SCOPES = ['user', 'project', 'local'];

@@ -9,7 +9,7 @@ and plan, not from an implementer failing to follow them.
 > commit that the evidence belonged to. Both are corrected in place: see
 > [Correction: what this record actually evidenced](#correction-what-this-record-actually-evidenced)
 > at the end. In short — `npm run verify` did **not** pass on the tree that
-> was published as the 0.1.1 candidate, on any platform. The superseding
+> was published as the 0.3.0 candidate, on any platform. The superseding
 > record is
 > [`2026-09-21-r1-release-integrity`](../2026-09-21-r1-release-integrity/README.md).
 
@@ -74,7 +74,7 @@ and plan, not from an implementer failing to follow them.
 - A normal user-scope install into `/Users/KillBill/.claude` succeeded.
   `node install-local.mjs inspect`, `claude plugin details`, and `claude plugin
   list` from an unrelated temporary target directory all showed enabled
-  `ambicode@ambicode-team` 0.1.1 with five skills and four hooks.
+  `ambicode@ambicode-team` 0.3.0 with five skills and four hooks.
 
 ## Evidence still pending
 
@@ -94,7 +94,7 @@ was filed for.
 **This record named no commit.** An acceptance record whose evidence cannot be
 tied to an exact tree cannot be checked later, which is how the two claims
 below survived. Every record from here on names the commit it describes; this
-one is retroactively tied to `a4638779`, the commit that published the 0.1.1
+one is retroactively tied to `a4638779`, the commit that published the 0.3.0
 candidate.
 
 **Claim: "462 tests in 51 suites, 0 failures; ... strict plugin validation

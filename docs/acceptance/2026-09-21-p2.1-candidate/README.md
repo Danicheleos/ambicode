@@ -63,11 +63,11 @@ session did not touch (M05–M11 GitLab/browser prerequisites, the value gate).
 
 ## Candidate identity
 
-- **Candidate version**: `0.1.0` (from `package.json` and `.claude-plugin/plugin.json`, which packaging verifies agree).
+- **Candidate version**: `0.3.0` (from `package.json` and `.claude-plugin/plugin.json`, which packaging verifies agree).
 - **Source commit currently tested**: `9aeaf15` ("P1.7"), **plus the uncommitted corrections and P2.1 work described above and in the accompanying final report**. Nothing from this session has been committed. The final report lists every staged/unstaged/untracked path.
-- **Artifact filename**: `dist/ambicode-0.1.0.zip` (an optional, byte-reproducible convenience artifact — not required for local installation, which uses the candidate directory directly; see doc 03 P1.7 correction B/C).
-- **Artifact digest (SHA-256)**: `f2dc51b40b9ffa01c90fd380002ee53d37c0c53a50e54e0f62873740dc98f512` (also in `dist/ambicode-0.1.0.zip.sha256`).
-- **Artifact inventory**: `dist/ambicode-0.1.0.inventory.json`, generated fresh for this record: **29 files** (28 in the prior P1.7 record, minus `docs/release-checklist.md` and `docs/acceptance/**` which no longer ship, plus `skills/investigate/SKILL.md` and `skills/shared/requirements-mcp.md`).
+- **Artifact filename**: `dist/ambicode-0.3.0.zip` (an optional, byte-reproducible convenience artifact — not required for local installation, which uses the candidate directory directly; see doc 03 P1.7 correction B/C).
+- **Artifact digest (SHA-256)**: `f2dc51b40b9ffa01c90fd380002ee53d37c0c53a50e54e0f62873740dc98f512` (also in `dist/ambicode-0.3.0.zip.sha256`).
+- **Artifact inventory**: `dist/ambicode-0.3.0.inventory.json`, generated fresh for this record: **29 files** (28 in the prior P1.7 record, minus `docs/release-checklist.md` and `docs/acceptance/**` which no longer ship, plus `skills/investigate/SKILL.md` and `skills/shared/requirements-mcp.md`).
 
 | Path | Bytes | Mode |
 | --- | --- | --- |
@@ -122,8 +122,8 @@ times).
 | Strict plugin validation (source) | `claude plugin validate . --strict` | passed |
 | Package candidate | `npm run package:candidate` | passed (29 files; launcher mode 755; no forbidden paths; no workstation paths) |
 | Reproducible package | `npm run package:reproducible` | passed (two independent builds; identical file set, digests, **and zip SHA-256**) |
-| Strict plugin validation (packaged candidate) | `claude plugin validate dist/ambicode-0.1.0 --strict` | passed |
-| Packaged-helper smoke, outside this checkout | `node smoke-candidate.mjs dist/ambicode-0.1.0` (run from `/tmp`) | passed — `version` outside any repo, `init`+`policy` resolve built-in policies, `view` serves its own templates |
+| Strict plugin validation (packaged candidate) | `claude plugin validate dist/ambicode-0.3.0 --strict` | passed |
+| Packaged-helper smoke, outside this checkout | `node smoke-candidate.mjs dist/ambicode-0.3.0` (run from `/tmp`) | passed — `version` outside any repo, `init`+`policy` resolve built-in policies, `view` serves its own templates |
 | Local install via `install-local.mjs` (isolated `CLAUDE_CONFIG_DIR`) | see "Packaged installation evidence" below | passed |
 | `git diff --check` | | passed, no whitespace errors |
 | `git diff --cached --check` | | passed (nothing staged) |
@@ -136,21 +136,21 @@ All of the following ran with `CLAUDE_CONFIG_DIR=/tmp/ambicode-isolated-cfg`,
 a directory created fresh for this record and never pointed at the real
 `~/.claude`.
 
-1. `node install-local.mjs dist/ambicode-0.1.0 /tmp/ambicode-isolated-cfg` →
+1. `node install-local.mjs dist/ambicode-0.3.0 /tmp/ambicode-isolated-cfg` →
    generated a temporary local marketplace, ran
    `claude plugin marketplace add <generated-dir>` then
    `claude plugin install ambicode@ambicode-team -s user -y`, both succeeded.
 2. `claude plugin list` (with that `CLAUDE_CONFIG_DIR`) → showed
-   `ambicode@ambicode-team`, version `0.1.0`, status enabled.
+   `ambicode@ambicode-team`, version `0.3.0`, status enabled.
 3. `claude plugin details ambicode@ambicode-team` →
    **`Skills (3)  init, investigate, review`** — confirms the three-skill
    namespace this candidate ships, without a model call.
 4. `grep -rl "$(pwd)"` (this repository's own absolute path) across the
    isolated `CLAUDE_CONFIG_DIR` → zero matches. A same-scope `$HOME` search
    found no match outside the config directory itself.
-5. `claude plugin validate dist/ambicode-0.1.0 --strict` (the exact directory
+5. `claude plugin validate dist/ambicode-0.3.0 --strict` (the exact directory
    the generated marketplace pointed at) → passed.
-6. `node install-local.mjs dist/ambicode-0.1.0 /tmp/ambicode-isolated-cfg --uninstall`
+6. `node install-local.mjs dist/ambicode-0.3.0 /tmp/ambicode-isolated-cfg --uninstall`
    → ran `claude plugin uninstall ambicode@ambicode-team -s user -y` then
    `claude plugin marketplace remove ambicode-team`, both succeeded;
    `claude plugin list` afterward reported no installed plugins.

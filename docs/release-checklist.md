@@ -42,7 +42,7 @@ against evidence that already exists, not as open-ended advice.
   `ubuntu-latest`, `windows-latest`, `macos-latest` — for the exact commit
   being released, not for an ancestor. `fail-fast: false`, so read every leg;
   a single green tick on the job list is not the same as three green legs.
-  This is the D13 exception added in R1: it exists because the 0.1.1
+  This is the D13 exception added in R1: it exists because the 0.3.0
   candidate shipped with `verify` red on Windows and two skills that could not
   be triggered, and one-platform manual acceptance found neither.
 - [ ] On a real Windows host, run `npm run verify`,
