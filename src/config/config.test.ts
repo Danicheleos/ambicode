@@ -7,7 +7,7 @@ import { detectProjects } from './detect.ts';
 import { planInit } from './init.ts';
 import { parseConfig, validateArgv } from './load.ts';
 import { loadPacksForProject } from '../policy/load.ts';
-import { mostSpecificRoot, normalizeRelative } from '../util/paths.ts';
+import { mostSpecificRoot, normalizeRelative, toProjectRelative } from '../util/paths.ts';
 import { nodeFileSystem } from '../ports/filesystem.ts';
 
 async function sandbox(t: { after(fn: () => unknown): void }): Promise<string> {
@@ -100,6 +100,17 @@ test('U02 project membership uses the most specific configured root', () => {
   assert.equal(mostSpecificRoot([{ root: 'apps/web' }], 'services/api/a.ts'), null);
   // "apps/website" must not be treated as living under "apps/web".
   assert.equal(mostSpecificRoot([{ root: 'apps/web' }], 'apps/website/a.ts'), null);
+});
+
+test('U02 a repository path seen from a project root, the one definition every caller shares', () => {
+  assert.equal(toProjectRelative('', 'src/a.ts'), 'src/a.ts');
+  assert.equal(toProjectRelative('apps/web', 'apps/web/src/a.ts'), 'src/a.ts');
+  assert.equal(toProjectRelative('apps/web', 'apps/web'), '');
+  assert.equal(toProjectRelative('apps/web', 'apps/website/a.ts'), null);
+  assert.equal(toProjectRelative('apps/web', 'services/api/a.ts'), null);
+  // The path is normalized; the root is the caller's, already normalized.
+  assert.equal(toProjectRelative('apps/web', './apps/web/src/../lib/a.ts'), 'lib/a.ts');
+  assert.equal(toProjectRelative('apps/web', 'apps/web/'), '');
 });
 
 test('U01 a check must reference a declared command', () => {

@@ -133,30 +133,32 @@ describe('U23 reconciliation before any write', () => {
     assert.match(submission.stoppedReason ?? '', /account AMBICODE would publish as could not be established/);
   });
 
-  it('never re-sends a comment an earlier submission confirmed', async () => {
-    const provider = new FakeProvider();
-    const previous = new Map<string, PublicationOutcome>([
-      [
-        'f-aaaa',
-        {
-          findingId: 'f-aaaa',
-          state: 'published',
-          body: 'The original wording.',
-          positionDigest: POSITION.digest,
-          discussionId: 'existing',
-          noteId: 'n-existing',
-          discussionUrl: 'https://gitlab.example.com/#note_n-existing',
-          message: null,
-          at: '2026-09-20T12:00:00.000Z',
-        },
-      ],
-    ]);
+  it('never re-sends a comment an earlier submission confirmed, by either settled state', async () => {
+    for (const state of ['published', 'already-published'] as const) {
+      const provider = new FakeProvider();
+      const previous = new Map<string, PublicationOutcome>([
+        [
+          'f-aaaa',
+          {
+            findingId: 'f-aaaa',
+            state,
+            body: 'The original wording.',
+            positionDigest: POSITION.digest,
+            discussionId: 'existing',
+            noteId: 'n-existing',
+            discussionUrl: 'https://gitlab.example.com/#note_n-existing',
+            message: null,
+            at: '2026-09-20T12:00:00.000Z',
+          },
+        ],
+      ]);
 
-    const submission = await run(provider, previous);
-    assert.deepEqual(provider.published, []);
-    assert.equal(submission.outcomes[0]?.state, 'already-published');
-    assert.equal(submission.outcomes[0]?.discussionUrl, 'https://gitlab.example.com/#note_n-existing');
-    assert.match(submission.outcomes[0]?.message ?? '', /edit made here was not applied/);
+      const submission = await run(provider, previous);
+      assert.deepEqual(provider.published, [], state);
+      assert.equal(submission.outcomes[0]?.state, 'already-published', state);
+      assert.equal(submission.outcomes[0]?.discussionUrl, 'https://gitlab.example.com/#note_n-existing', state);
+      assert.match(submission.outcomes[0]?.message ?? '', /edit made here was not applied/, state);
+    }
   });
 });
 

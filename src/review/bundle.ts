@@ -13,7 +13,7 @@ import {
 } from '../composition/root.ts';
 import type { ProjectConfig } from '../contracts/config.ts';
 import type { ResolvedPolicy } from '../contracts/policy.ts';
-import { COMPLETE_COVERAGE, type RemoteDiscussion } from '../contracts/provider.ts';
+import { COMPLETE_COVERAGE } from '../contracts/provider.ts';
 import { REVIEW_SCHEMA_VERSION, type CheckResult, type ReviewResult } from '../contracts/review.ts';
 import type { DiffFile } from '../git/diff.ts';
 import type { FileSystem } from '../ports/filesystem.ts';
@@ -646,9 +646,4 @@ async function pluginVersion(fs: FileSystem, pluginRoot: string): Promise<string
   } catch {
     return 'unknown';
   }
-}
-
-/** Kept for the discussions a caller wants without re-reading the result. */
-export function discussionsOf(bundle: ReviewBundle): readonly RemoteDiscussion[] {
-  return bundle.result.discussions;
 }

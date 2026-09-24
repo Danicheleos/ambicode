@@ -4,7 +4,7 @@ import type { RequirementSource } from '../contracts/requirements.ts';
 import { literalPathspec, type Git } from '../git/git.ts';
 import { pathExclusionReason } from '../snapshot/exclusions.ts';
 import { matchesGlob } from '../util/glob.ts';
-import { normalizeRelative } from '../util/paths.ts';
+import { normalizeRelative, toProjectRelative } from '../util/paths.ts';
 
 /**
  * The boundary shortlist (R4, core idea #2): the files a request is probably
@@ -136,7 +136,7 @@ export async function locate(request: LocateRequest): Promise<LocateShortlist> {
   const projectRoot = normalizeRelative(request.project.root);
   const pathspec = projectRoot === '' ? null : literalPathspec(projectRoot);
   const files = (await request.git.listFiles(pathspec)).filter(
-    (candidate) => inProject(projectRoot, candidate) && pathExclusionReason(candidate) === null,
+    (candidate) => toProjectRelative(projectRoot, candidate) !== null && pathExclusionReason(candidate) === null,
   );
   if (files.length === 0) {
     return {
@@ -485,11 +485,6 @@ const TOO_BROAD_MIN_FILES = 5;
 
 function isTooBroad(matched: number, total: number): boolean {
   return matched >= TOO_BROAD_MIN_FILES && matched > total * TOO_BROAD_SHARE;
-}
-
-function inProject(projectRoot: string, repositoryRelativePath: string): boolean {
-  if (projectRoot === '') return true;
-  return repositoryRelativePath.startsWith(`${projectRoot}/`) || repositoryRelativePath === projectRoot;
 }
 
 function normalizeTerms(supplied: readonly string[], limitations: string[]): string[] {

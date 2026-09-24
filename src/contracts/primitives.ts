@@ -46,12 +46,6 @@ export const PublicationState = z.enum([
 ]);
 export type PublicationState = z.infer<typeof PublicationState>;
 
-/** States that mean the comment exists remotely and must never be sent again. */
-export const SETTLED_PUBLICATION_STATES: ReadonlySet<PublicationState> = new Set([
-  'published',
-  'already-published',
-]);
-
 export const Authority = z.enum(['team', 'observed', 'inherited']);
 export type Authority = z.infer<typeof Authority>;
 

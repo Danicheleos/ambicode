@@ -401,13 +401,3 @@ export interface ReviewProvider {
   listDiscussions(request: ListDiscussionsRequest): Promise<ProviderOutcome<DiscussionListing>>;
   publishComment(request: PublishCommentRequest): Promise<ProviderOutcome<PublishedComment>>;
 }
-
-/** Turns a non-ok outcome into the sentences an operator can act on. */
-export function describeProviderOutcome(
-  outcome: Exclude<ProviderOutcome<unknown>, { kind: 'ok' }>,
-): { message: string; details: string[] } {
-  return {
-    message: outcome.message,
-    details: outcome.kind === 'failed' ? outcome.details : [],
-  };
-}

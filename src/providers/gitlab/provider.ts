@@ -933,8 +933,5 @@ function toRemoteDiscussion(discussion: GitLabDiscussion): RemoteDiscussion {
   };
 }
 
-/** Exported for the adapter tests, which assert the rebuilt patch directly. */
-export const __testing = { toFetchedFile, toRemoteDiscussion };
-
 /** Kept close to the schemas it validates, so a drift shows up as a type error. */
 export type GitLabCollectionSchema = z.ZodType<unknown>;
