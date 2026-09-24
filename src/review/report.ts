@@ -64,6 +64,16 @@ function whatWasReviewed(options: ReportOptions): string[] {
         `timeout ${result.reviewer.timeoutSeconds}s` +
         (result.reviewer.durationMs === null ? '' : `, took ${Math.round(result.reviewer.durationMs / 1000)}s`),
     );
+    const usage = result.reviewer.usage;
+    if (usage !== null) {
+      const unknown = 'unknown';
+      lines.push(
+        `               ${usage.turns ?? unknown} turn(s), ` +
+          `model time ${usage.apiDurationMs === null ? unknown : `${Math.round(usage.apiDurationMs / 1000)}s`}, ` +
+          `${usage.outputTokens ?? unknown} output token(s), ` +
+          `cost ${usage.costUsd === null ? unknown : `$${usage.costUsd.toFixed(2)}`}`,
+      );
+    }
     if (result.reviewer.detail !== null) lines.push(`               ${result.reviewer.detail}`);
     if (result.reviewer.rejectedOutputRef !== null) {
       lines.push(`               the refused answer, unvalidated: ${result.reviewer.rejectedOutputRef}`);

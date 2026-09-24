@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "ambicode",
   "displayName": "AMBICODE",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "Scoped project policy, evidence-backed checks, independent code review, and human-selected comment publication for GitLab merge requests.",
   "author": {
     "name": "Daniil Mikhailau"

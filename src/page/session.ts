@@ -151,6 +151,14 @@ export class SessionStore {
     this.capability = null;
   }
 
+  /** Whether any session holds its publication slot right now. */
+  get publishing(): boolean {
+    for (const session of this.sessions.values()) {
+      if (session.inFlightSubmissionId !== null) return true;
+    }
+    return false;
+  }
+
   get sessionCount(): number {
     return this.sessions.size;
   }

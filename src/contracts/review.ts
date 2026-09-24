@@ -127,6 +127,15 @@ export const ReviewInputs = z.strictObject({
 });
 export type ReviewInputs = z.infer<typeof ReviewInputs>;
 
+/** Each field is null when the envelope did not carry it, never zero. */
+export const ReviewerUsage = z.strictObject({
+  turns: z.number().int().nonnegative().nullable(),
+  apiDurationMs: z.number().int().nonnegative().nullable(),
+  outputTokens: z.number().int().nonnegative().nullable(),
+  costUsd: z.number().nonnegative().nullable(),
+});
+export type ReviewerUsage = z.infer<typeof ReviewerUsage>;
+
 /**
  * The isolated reviewer invocation as it actually happened, including the case
  * where it did not: `not-run` is a fact a reader needs, not an empty result.
@@ -148,6 +157,12 @@ export const ReviewerRun = z.strictObject({
    * of 779 KB timed out at 300 s and, rerun, answered in about 264 s.
    */
   durationMs: z.number().int().nonnegative().nullable().default(null),
+  /**
+   * What Claude Code's envelope said about the run. Null when no envelope came
+   * back (timeout, spawn failure) or the results predate it. Duration alone
+   * could not say why MR 2719 (8 files) took 257 s against a 104 s median.
+   */
+  usage: ReviewerUsage.nullable().default(null),
   /**
    * The answer the validator refused, saved beside the result and relative to
    * the review directory. Null when nothing was refused. The rejection line

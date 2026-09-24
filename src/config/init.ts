@@ -154,6 +154,13 @@ function updateExisting(existingRaw: string, options: PlanInitOptions): InitPlan
     changes.push(`Added "authoring.editReminders: ${DEFAULTS.authoring.editReminders}" (the documented default).`);
   }
 
+  // Same for `page.port`, written so the fixed review-page port is visible
+  // and editable rather than an unlisted default.
+  if (document.getIn(['page', 'port']) === undefined) {
+    document.setIn(['page', 'port'], DEFAULTS.page.port);
+    changes.push(`Added "page.port: ${DEFAULTS.page.port}" (the documented default).`);
+  }
+
   const projectsNode = document.get('projects') as YAMLSeq | undefined;
   const existingRoots = new Map<string, YAMLMap>();
   if (projectsNode !== undefined && Array.isArray(projectsNode.items)) {

@@ -20,6 +20,14 @@ export const DEFAULTS = {
   },
   page: {
     idleTimeoutSeconds: 1800,
+    /**
+     * Fixed, so a new `ambicode view` finds and replaces the previous page and
+     * an old tab reaches a server that can say it was disconnected. Below the
+     * ephemeral range (49152+) and away from dev-server defaults (3000, 4200,
+     * 5173, 8080). With a random port per run, reopening MR 2719 left two
+     * pages serving at once (63004, 60781), each until its idle stop.
+     */
+    port: 45831,
   },
   remoteChecks: {
     image: null,

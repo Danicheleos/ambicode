@@ -5,6 +5,7 @@ import formbody from '@fastify/formbody';
 import helmet from '@fastify/helmet';
 import view from '@fastify/view';
 import { Eta } from 'eta';
+import { timingSafeEqual } from 'node:crypto';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import type { PublicationPositions, PublicationRecord } from '../contracts/publication.ts';
 import type { RemoteTarget } from '../contracts/provider.ts';
@@ -17,6 +18,7 @@ import { acquirePublicationLease } from '../publication/lease.ts';
 import { runPublication, type SelectedComment } from '../publication/publish.ts';
 import type { ReviewStore } from '../publication/store.ts';
 import { SessionStore } from './session.ts';
+import { TAKEOVER_HEADER } from './takeover.ts';
 import { parseSubmission, type ParsedSubmission } from './submission.ts';
 import {
   buildPageModel,
@@ -59,6 +61,15 @@ export interface PageServerOptions {
   authority?: string;
   /** This process's pid, recorded in the publication lease for diagnostics. */
   processId: number;
+  /** Diagnostic lines for the terminal. Never given a capability or session value. */
+  log?: (line: string) => void;
+  /** Presented by a newer `ambicode view` to stop this one. Absent: nothing can. */
+  takeoverToken?: string;
+  /**
+   * Awaited before the listener closes, so a successor that binds the freed
+   * port cannot have its control file removed by this server's cleanup.
+   */
+  beforeClose?: () => Promise<void>;
 }
 
 export interface PageServer {
@@ -147,7 +158,9 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
   const stop = async (reason: string): Promise<void> => {
     const first = !shuttingDown;
     beginShutdown(reason);
-    if (first) await app.close();
+    if (!first) return;
+    await options.beforeClose?.().catch(() => undefined);
+    await app.close();
   };
 
   const noteActivity = (): void => {
@@ -225,11 +238,36 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
   app.get('/', async (request, reply) => {
     const presented = (request.query as Record<string, unknown> | undefined)?.['c'];
     if (typeof presented === 'string') {
+      // First, so a probe carrying the cookie does not count as activity either.
+      const notNavigation = nonNavigationReason(request);
+      if (notNavigation !== null) {
+        logBootstrap(request, `not consumed: ${notNavigation}`);
+        // Not 2xx, so a prefetch is discarded rather than served as the page.
+        await refuse(
+          reply,
+          503,
+          'This link opens only as a page.',
+          `The request was ${notNavigation}, so the link was left unused. Open it in a browser tab.`,
+        );
+        return reply;
+      }
+      // Before the capability is looked at: the browser that consumed it may
+      // load the same URL again, and its signed cookie already authenticates it.
+      const existing = authenticate(request);
+      if (existing !== null) {
+        logBootstrap(request, 'already signed in, redirected');
+        sessions.touch(existing);
+        noteActivity();
+        reply.redirect('/', 303);
+        return reply;
+      }
       const consumed = sessions.consumeCapability(presented);
       if (consumed.kind !== 'ok') {
+        logBootstrap(request, `refused: ${consumed.reason}`);
         await refuse(reply, 403, 'That link is no longer valid.', consumed.reason);
         return reply;
       }
+      logBootstrap(request, 'consumed');
       reply.setCookie(SESSION_COOKIE, consumed.session.id, {
         httpOnly: true,
         sameSite: 'strict',
@@ -248,6 +286,10 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
 
     const session = authenticate(request);
     if (session === null) {
+      if (fromEarlierServer(request)) {
+        await refuseDisconnected(reply, 'Nothing was changed.');
+        return reply;
+      }
       await refuse(
         reply,
         401,
@@ -277,7 +319,7 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
    * as `/publish` anyway, so a page in another tab cannot close this one out
    * from under its reader.
    */
-  app.post('/close', { preHandler: [originGuard, app.csrfProtection] }, async (request, reply) => {
+  app.post('/close', { preHandler: [disconnectGuard, originGuard, app.csrfProtection] }, async (request, reply) => {
     const session = authenticate(request);
     if (session === null) {
       await refuse(
@@ -307,7 +349,7 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
    */
   app.post(
     '/publish',
-    { preHandler: [originGuard, app.csrfProtection] },
+    { preHandler: [disconnectGuard, originGuard, app.csrfProtection] },
     async (request, reply) => {
       const session = authenticate(request);
       if (session === null) {
@@ -428,6 +470,35 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
     },
   );
 
+  /**
+   * A newer `ambicode view` asking for the fixed port. Only the token this
+   * process wrote to its control file is accepted, and never while a
+   * publication is running: stopping then would leave comments half-posted.
+   */
+  app.post('/takeover', async (request, reply) => {
+    const presented = request.headers[TAKEOVER_HEADER];
+    const expected = options.takeoverToken;
+    const matches =
+      typeof presented === 'string' &&
+      expected !== undefined &&
+      Buffer.byteLength(presented) === Buffer.byteLength(expected) &&
+      timingSafeEqual(Buffer.from(presented), Buffer.from(expected));
+    if (!matches) {
+      await refuse(reply, 403, 'That request was refused.', 'Only a newer review page on this machine can stop this one.');
+      return reply;
+    }
+    if (sessions.publishing) {
+      await refuse(reply, 409, 'This review page is publishing.', 'It stops once the publication has finished.');
+      return reply;
+    }
+    reply.raw.once('finish', () => {
+      void stop('replaced by a newer ambicode view');
+    });
+    reply.status(200).type('text/plain; charset=utf-8');
+    await reply.send('stopping');
+    return reply;
+  });
+
   app.setNotFoundHandler(async (_request, reply) => {
     await refuse(reply, 404, 'No such page.', 'This server serves one review page and its stylesheet.');
     return reply;
@@ -472,6 +543,52 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
     );
     return reply;
   });
+
+  /**
+   * One line per request carrying a capability, never the capability itself.
+   * Without it, a link reported as "already been used" on its first visible
+   * load could not say what had used it (MR 2719, both launches).
+   */
+  function logBootstrap(request: FastifyRequest, outcome: string): void {
+    const header = (name: string): string => {
+      const value = request.headers[name];
+      return typeof value === 'string' && value !== '' ? value.slice(0, 200) : '-';
+    };
+    const line =
+      `page: ${request.method} /?c=… ${outcome} ` +
+        `(sec-fetch-mode ${header('sec-fetch-mode')}, sec-fetch-dest ${header('sec-fetch-dest')}, ` +
+        `sec-purpose ${header('sec-purpose')}, purpose ${header('purpose')}, ` +
+        `session cookie ${request.cookies[SESSION_COOKIE] === undefined ? 'absent' : 'present'}, ` +
+        `user-agent ${header('user-agent')})`;
+    // Header values reach the operator's terminal: control bytes, ANSI escapes
+    // and the Unicode line separators are replaced at the sink.
+    options.log?.(line.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, '?'));
+  }
+
+  /**
+   * A signed cookie this server cannot verify was issued by an earlier one:
+   * each process signs with its own secret. On the fixed port that is the tab
+   * of a page that stopped or was replaced, and it gets said so rather than
+   * a CSRF or session refusal that reads like a bug.
+   */
+  function fromEarlierServer(request: FastifyRequest): boolean {
+    const raw = request.cookies[SESSION_COOKIE];
+    return raw !== undefined && !request.unsignCookie(raw).valid;
+  }
+
+  async function refuseDisconnected(reply: FastifyReply, outcome: string): Promise<void> {
+    await refuse(
+      reply,
+      410,
+      'This review page was disconnected.',
+      `The page in this tab belonged to an earlier ambicode view, which has stopped or was replaced by a newer one. ${outcome} Use the newest review tab, or reopen the review.`,
+    );
+  }
+
+  /** Runs before the CSRF check, whose token an earlier server signed too. */
+  async function disconnectGuard(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+    if (fromEarlierServer(request)) await refuseDisconnected(reply, 'Nothing was published.');
+  }
 
   function authenticate(request: FastifyRequest): ReturnType<SessionStore['get']> {
     const raw = request.cookies[SESSION_COOKIE];
@@ -574,6 +691,24 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
     stop,
     noteActivity,
   };
+}
+
+/**
+ * Why a request presenting the capability must not consume it, or null for a
+ * top-level page load. Fastify answers HEAD with the GET handler, and a
+ * prefetch or subresource fetch would otherwise spend the link before the tab
+ * does. `Sec-Fetch-*` is judged only when sent: a client that sends none is not
+ * shown to be anything but a navigation.
+ */
+function nonNavigationReason(request: FastifyRequest): string | null {
+  if (request.method === 'HEAD') return 'a HEAD request';
+  const purpose = `${String(request.headers['sec-purpose'] ?? '')} ${String(request.headers['purpose'] ?? '')}`;
+  if (/prefetch|prerender/i.test(purpose)) return 'a prefetch';
+  const mode = request.headers['sec-fetch-mode'];
+  if (mode !== undefined && mode !== 'navigate') return 'not a navigation (Sec-Fetch-Mode)';
+  const dest = request.headers['sec-fetch-dest'];
+  if (dest !== undefined && dest !== 'document') return 'not for a page (Sec-Fetch-Dest)';
+  return null;
 }
 
 /**

@@ -102,6 +102,7 @@ export function reviewResult(options: FixtureOptions = {}): ReviewResult {
       rejections: [],
       detail: reviewerStatus === 'ok' ? null : `The reviewer failed: ${HOSTILE}`,
       durationMs: 42_000,
+      usage: null,
       rejectedOutputRef: null,
     },
     policySummary: { packs: [], ruleIds: [] },

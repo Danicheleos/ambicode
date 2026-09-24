@@ -1,4 +1,4 @@
-import type { ReviewerOutput } from '../contracts/review.ts';
+import type { ReviewerOutput, ReviewerUsage } from '../contracts/review.ts';
 
 export interface ReviewerRequest {
   /**
@@ -14,9 +14,10 @@ export interface ReviewerRequest {
   timeoutMs: number;
 }
 
+/** `usage` is absent when no envelope was read, e.g. a timeout. */
 export type ReviewerInvocation =
-  | { kind: 'ok'; output: ReviewerOutput; rawLength: number; argv: readonly string[] }
-  | { kind: 'error'; reason: string; detail: string; argv: readonly string[] };
+  | { kind: 'ok'; output: ReviewerOutput; rawLength: number; argv: readonly string[]; usage?: ReviewerUsage }
+  | { kind: 'error'; reason: string; detail: string; argv: readonly string[]; usage?: ReviewerUsage };
 
 export interface Reviewer {
   /**

@@ -108,6 +108,7 @@ export async function runReview(
     rejections: [],
     detail: invocation.kind === 'ok' ? null : `${invocation.reason}: ${invocation.detail}`,
     durationMs,
+    usage: invocation.usage ?? null,
     rejectedOutputRef: null,
   };
 

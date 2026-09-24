@@ -86,7 +86,117 @@ describe('U21 the page accepts only its own form', () => {
       });
       assert.equal(replay.statusCode, 403);
       assert.match(replay.body, /already been used/);
+      assert.equal(replay.cookies.length, 0);
       assert.ok(!replay.body.includes(harness.server.capability));
+    } finally {
+      await harness.dispose();
+    }
+  });
+
+  it('lets the browser that consumed the capability load the same URL again', async () => {
+    const harness = await startHarness();
+    try {
+      const url = `/?c=${harness.server.capability}`;
+      const first = await harness.server.app.inject({ method: 'GET', url, headers: { host: AUTHORITY } });
+      const jar = cookieJar(first.cookies);
+
+      const again = await harness.server.app.inject({
+        method: 'GET',
+        url,
+        headers: { host: AUTHORITY, cookie: jar.header() },
+      });
+      assert.equal(again.statusCode, 303);
+      assert.equal(again.headers.location, '/');
+      assert.equal(harness.server.sessions.sessionCount, 1, 'no second session is created');
+
+      const page = await harness.server.app.inject({
+        method: 'GET',
+        url: '/',
+        headers: { host: AUTHORITY, cookie: jar.header() },
+      });
+      assert.equal(page.statusCode, 200);
+    } finally {
+      await harness.dispose();
+    }
+  });
+
+  it('leaves the capability unused for a HEAD, a prefetch or a subresource fetch', async () => {
+    const lines: string[] = [];
+    const harness = await startHarness({ log: (line) => lines.push(line) });
+    try {
+      const url = `/?c=${harness.server.capability}`;
+      const probes: Record<string, string>[] = [
+        { 'sec-purpose': 'prefetch' },
+        { purpose: 'prefetch' },
+        { 'sec-purpose': 'prefetch;prerender' },
+        { 'sec-fetch-mode': 'no-cors', 'sec-fetch-dest': 'image' },
+        { 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'iframe' },
+      ];
+      const head = await harness.server.app.inject({ method: 'HEAD', url, headers: { host: AUTHORITY } });
+      assert.equal(head.statusCode, 503);
+      for (const extra of probes) {
+        const probe = await harness.server.app.inject({ method: 'GET', url, headers: { host: AUTHORITY, ...extra } });
+        assert.equal(probe.statusCode, 503, JSON.stringify(extra));
+        assert.ok(!probe.cookies.some((cookie) => cookie.name === 'ambicode_session'));
+      }
+      assert.equal(harness.server.sessions.sessionCount, 0);
+
+      const tab = await harness.server.app.inject({
+        method: 'GET',
+        url,
+        headers: { host: AUTHORITY, 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'document' },
+      });
+      assert.equal(tab.statusCode, 303);
+
+      await harness.server.app.inject({
+        method: 'HEAD',
+        url,
+        headers: { host: AUTHORITY, 'user-agent': `probe \u001b]0;owned\u0007 ${'x'.repeat(500)}` },
+      });
+      const hostile = lines.pop() ?? '';
+      assert.doesNotMatch(hostile, /[\u0000-\u001f\u007f]/);
+      assert.match(hostile, /user-agent probe \?\]0;owned\? x+\)$/);
+      assert.ok(hostile.length < 600, 'the header is bounded');
+      // The refusal names the header but never echoes its value, to the page or the log.
+      const refused = await harness.server.app.inject({
+        method: 'GET',
+        url,
+        headers: { host: AUTHORITY, 'sec-fetch-mode': `cors\u001b[2J${'y'.repeat(500)}` },
+      });
+      assert.doesNotMatch(refused.body, /cors|\u001b/);
+      const echoed = lines.pop() ?? '';
+      assert.match(echoed, /not consumed: not a navigation \(Sec-Fetch-Mode\) \(sec-fetch-mode cors\?\[2Jy+,/);
+      assert.doesNotMatch(echoed, /[\u0000-\u001f\u007f]/);
+      assert.ok(echoed.length < 800, 'the logged header is bounded');
+
+      assert.equal(lines.length, probes.length + 2);
+      assert.match(lines[0] ?? '', /^page: HEAD \/\?c=… not consumed: a HEAD request/);
+      assert.match(lines.at(-1) ?? '', /GET \/\?c=… consumed .*sec-fetch-mode navigate/);
+      for (const line of lines) assert.ok(!line.includes(harness.server.capability), line);
+    } finally {
+      await harness.dispose();
+    }
+  });
+
+  it('does not count a probe that carries the session cookie as activity', async () => {
+    const harness = await startHarness();
+    try {
+      const url = `/?c=${harness.server.capability}`;
+      const first = await harness.server.app.inject({ method: 'GET', url, headers: { host: AUTHORITY } });
+      const jar = cookieJar(first.cookies);
+      const signed = first.cookies.find((cookie) => cookie.name === 'ambicode_session')?.value ?? '';
+      const session = harness.server.sessions.get(harness.server.app.unsignCookie(signed).value ?? undefined);
+      assert.ok(session);
+      const seen = session.lastSeenAt;
+
+      harness.clock.advance(60_000);
+      const probe = await harness.server.app.inject({
+        method: 'GET',
+        url,
+        headers: { host: AUTHORITY, cookie: jar.header(), 'sec-purpose': 'prefetch' },
+      });
+      assert.equal(probe.statusCode, 503);
+      assert.equal(session.lastSeenAt, seen);
     } finally {
       await harness.dispose();
     }
@@ -147,7 +257,11 @@ describe('U21 the page accepts only its own form', () => {
         url: '/',
         headers: { host: AUTHORITY, cookie: page.cookies },
       });
-      assert.equal(response.statusCode, 401);
+      // Still refused; since the fixed port this is how a replaced page's tab
+      // arrives, so it is named a disconnect rather than a missing link.
+      assert.equal(response.statusCode, 410);
+      assert.match(response.body, /This review page was disconnected./);
+      assert.doesNotMatch(response.body, /Review r-0001/);
     } finally {
       await one.dispose();
       await two.dispose();

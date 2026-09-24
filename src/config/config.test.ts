@@ -21,10 +21,13 @@ const MINIMAL = [
   'baseline: origin/main',
   'review: { model: sonnet, timeoutSeconds: 300, maxFindings: 7, maxChangedFiles: 50, maxChangedLines: 2000, maxContextBytes: 524288 }',
   'checks: { timeoutSeconds: 120, maxSelectedTestFiles: 20 }',
-  'page: { idleTimeoutSeconds: 1800 }',
+  'page: { idleTimeoutSeconds: 1800, port: 45831 }',
   'requirements: { mcpServer: null }',
   'remoteChecks: { image: null }',
 ].join('\n');
+
+/** A config written before `page.port` existed. */
+const BEFORE_PORT = MINIMAL.replace(', port: 45831 }', ' }');
 
 function withProjects(body: string): string {
   return `${MINIMAL}\nprojects:\n${body}`;
@@ -464,6 +467,39 @@ test('P2.4 correction F: re-init adds the missing authoring section to a pre-exi
   assert.ok(plan.yaml !== null, 'a missing authoring section is itself a change to write');
   assert.ok(plan.changes.some((change) => change.includes('authoring.editReminders')));
   assert.equal(plan.config.authoring.editReminders, true);
+});
+
+test('fresh init writes the review page port, visibly', async (t) => {
+  const directory = await sandbox(t);
+  const plan = await planInit({
+    fs: nodeFileSystem,
+    repositoryRoot: directory,
+    detected: [],
+    baseline: '',
+    baselineNotice: 'x',
+  });
+  assert.match(plan.yaml ?? '', /page:\s*\n\s*idleTimeoutSeconds: 1800\s*\n\s*port: 45831/);
+  assert.equal(plan.config.page.port, 45831);
+});
+
+test('re-init adds page.port to an existing config, and never overwrites one already set', async (t) => {
+  const directory = await sandbox(t);
+  await mkdir(path.join(directory, '.ambicode'), { recursive: true });
+  const project =
+    '  - id: app\n    root: .\n    ecosystem: typescript\n    packs: []\n    policyFiles: []\n    commands: {}\n    checks: {}\n';
+  const configPath = path.join(directory, '.ambicode', 'config.yaml');
+  const options = { fs: nodeFileSystem, repositoryRoot: directory, detected: [], baseline: '', baselineNotice: 'x' };
+
+  assert.match(BEFORE_PORT, /page: \{ idleTimeoutSeconds: 1800 \}/);
+  await writeFile(configPath, `${BEFORE_PORT}\nprojects:\n${project}`, 'utf8');
+  const added = await planInit(options);
+  assert.ok(added.changes.includes('Added "page.port: 45831" (the documented default).'), added.changes.join('\n'));
+  assert.match(added.yaml ?? '', /page: \{ idleTimeoutSeconds: 1800, port: 45831 \}/);
+
+  await writeFile(configPath, withProjects(project).replace('port: 45831', 'port: 0'), 'utf8');
+  const kept = await planInit(options);
+  assert.ok(!kept.changes.some((change) => change.includes('page.port')));
+  assert.equal(kept.config.page.port, 0);
 });
 
 test('P2.4 correction F: re-init never overwrites an explicit authoring.editReminders: false', async (t) => {

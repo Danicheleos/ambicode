@@ -287,7 +287,11 @@ async function dispatch(command: string, args: ParsedArgs): Promise<Rendered> {
     case 'view': {
       // Loaded here and nowhere else: see `view-options.ts`.
       const { renderView, runView } = await import('./commands/view.ts');
-      const output = await runView(runtime, args);
+      // stderr, so a `--json` reader of stdout still receives one document. The
+      // page writes here for up to its idle timeout; a closed reader (EPIPE)
+      // must cost the diagnostic line, not the page.
+      process.stderr.on('error', () => undefined);
+      const output = await runView(runtime, args, { log: (line) => process.stderr.write(`${line}\n`) });
       return {
         text: renderView(output),
         data: viewData(output),

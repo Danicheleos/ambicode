@@ -1008,6 +1008,27 @@ describe('what the reviewer is told, and what is kept about its run', () => {
       assert.equal(output.result.reviewer?.rejectedOutputRef, null);
       assert.equal(await nodeFileSystem.exists(path.join(output.reviewDirectory, REJECTED_OUTPUT_FILE)), false);
       assert.match(await nodeFileSystem.readText(output.reportPath), /timeout \d+s, took 264s/);
+      assert.equal(output.result.reviewer?.usage, null);
+      assert.doesNotMatch(await nodeFileSystem.readText(output.reportPath), /turn\(s\)/);
+      await nodeFileSystem.remove(output.snapshotDirectory);
+    } finally {
+      await context.dispose();
+    }
+  });
+
+  it('keeps what the envelope said about the run, and prints an absent field as unknown', async () => {
+    const context = await fixture();
+    try {
+      const clock = new FakeClock();
+      const runtime = await createRuntime({ cwd: context.repo.root, clock });
+      const usage = { turns: 14, apiDurationMs: 241_500, outputTokens: null, costUsd: 0.31 };
+      const output = await review(runtime, [], new TimedReviewer({ ...ok(), usage }, clock, 257_000));
+
+      assert.deepEqual(output.result.reviewer?.usage, usage);
+      assert.match(
+        await nodeFileSystem.readText(output.reportPath),
+        /14 turn\(s\), model time 242s, unknown output token\(s\), cost \$0\.31/,
+      );
       await nodeFileSystem.remove(output.snapshotDirectory);
     } finally {
       await context.dispose();

@@ -77,6 +77,8 @@ export interface HarnessOptions {
   idleTimeoutSeconds?: number;
   record?: PublicationRecord;
   processId?: number;
+  log?: (line: string) => void;
+  takeoverToken?: string;
 }
 
 export interface Harness {
@@ -114,6 +116,8 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
     reopenCommand: reopenCommand(result.reviewId),
     authority: AUTHORITY,
     processId: options.processId ?? process.pid,
+    ...(options.log === undefined ? {} : { log: options.log }),
+    ...(options.takeoverToken === undefined ? {} : { takeoverToken: options.takeoverToken }),
   });
 
   return {

@@ -248,6 +248,32 @@ describe('the real Claude Code structured-output envelope', () => {
     ]);
   });
 
+  it('keeps the turn count, model time and cost the envelope reports', async () => {
+    const invocation = parseReviewerOutput(await envelope('success-structured-output.json'), ARGV);
+    assert.deepEqual(invocation.usage, { turns: 6, apiDurationMs: 40810, outputTokens: null, costUsd: 0.0412 });
+
+    const exhausted = parseReviewerOutput(await envelope('error-retry-exhausted.json'), ARGV);
+    assert.equal(exhausted.kind, 'error');
+    assert.deepEqual(exhausted.usage, { turns: 9, apiDurationMs: null, outputTokens: null, costUsd: null });
+  });
+
+  it('reads output tokens, and loses only the number when a usage field has an unexpected type', async () => {
+    const base = JSON.parse(await envelope('success-structured-output.json')) as Record<string, unknown>;
+    const invocation = parseReviewerOutput(
+      JSON.stringify({ ...base, num_turns: '6', usage: { output_tokens: 3120 } }),
+      ARGV,
+    );
+    assert.equal(invocation.kind, 'ok');
+    assert.deepEqual(invocation.usage, { turns: null, apiDurationMs: 40810, outputTokens: 3120, costUsd: 0.0412 });
+
+    const bare = parseReviewerOutput(
+      JSON.stringify({ type: 'result', subtype: 'success', structured_output: { findings: [], coverageNotes: [] } }),
+      ARGV,
+    );
+    assert.equal(bare.kind, 'ok');
+    assert.equal(bare.usage, undefined);
+  });
+
   it('still accepts an answer that arrives only as a JSON string in result', async () => {
     const invocation = parseReviewerOutput(await envelope('success-legacy-result-string.json'), ARGV);
     assert.equal(invocation.kind, 'ok');

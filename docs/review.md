@@ -464,7 +464,8 @@ ambicode view --review <review-id-or-path-to-result.json>
 ambicode view --review <review-id> --no-open
 ```
 
-Starts a local page, bound only to `127.0.0.1` on a free port, holding the
+Starts a local page, bound only to `127.0.0.1` on port 45831 (`page.port`;
+`0` picks a free port per run), holding the
 saved result, its positions, its drafts and its publication history. It prints
 the URL once, tries to open your default browser, and keeps serving either
 way — paste the URL yourself if the browser does not open. The page stays up
@@ -476,6 +477,21 @@ A local or branch review opens the same way and reads the same way; it simply
 has no publish action, because there is no merge request to publish to.
 **GitHub is not supported for publication**, the same as it is not supported
 for review.
+
+There is one page per machine. A new `ambicode view` that finds the port held
+by an earlier review page stops that page and takes the port; a tab still
+showing the old page then says it was disconnected, and nothing it submits is
+published. A page in the middle of publishing is left running. Anything else
+holding the port is left alone, and the new page uses a free port and says so.
+
+The page is plain HTML with no script, so a tab cannot notice on its own that
+its server stopped; it finds out on its next request. If no page runs on the
+port any more, that request fails in the browser itself.
+
+The link consumes itself only on a page load. A `HEAD` request, a prefetch or
+a subresource fetch leaves it unused, and the same browser loading it twice
+lands on the page. Each request carrying the link is logged to stderr, without
+the link, so a link reported as already used shows what used it.
 
 Reopening never reuses anything from the previous run. A fresh one-time
 capability is put only in the printed URL; the page consumes it on the first

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DEFAULTS } from '../config/defaults.ts';
 import { AdapterId, Ecosystem } from './primitives.ts';
 
 /**
@@ -104,6 +105,8 @@ export const ChecksConfig = z.strictObject({
 
 export const PageConfig = z.strictObject({
   idleTimeoutSeconds: z.number().int().positive(),
+  /** 0 lets the OS pick, one page per run. */
+  port: z.number().int().min(0).max(65535).default(DEFAULTS.page.port),
 });
 
 export const RemoteChecksConfig = z.strictObject({

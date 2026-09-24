@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { z } from 'zod';
-import { ReviewerOutput } from '../contracts/review.ts';
+import { ReviewerOutput, type ReviewerUsage } from '../contracts/review.ts';
 import { markOwned } from '../page/cleanup.ts';
 import type { Clock } from '../ports/clock.ts';
 import type { FileSystem } from '../ports/filesystem.ts';
@@ -383,15 +383,14 @@ export class ClaudeReviewer implements Reviewer {
       // schema-retry exhaustion was reported as a bare "nonzero-exit". An
       // envelope that parses as a successful answer is still not accepted
       // here: the process said it failed, and that is not overridden.
-      if (outcome.stdout.trim() !== '') {
-        const classified = parseReviewerOutput(outcome.stdout, argv);
-        if (classified.kind === 'error') return classified;
-      }
-      return fail(
+      const classified = outcome.stdout.trim() === '' ? null : parseReviewerOutput(outcome.stdout, argv);
+      if (classified?.kind === 'error') return classified;
+      const failed = fail(
         argv,
         'nonzero-exit',
         `the reviewer exited ${outcome.exitCode}: ${firstLine(outcome.stderr) || firstLine(outcome.stdout) || 'no diagnostic'}`,
       );
+      return classified?.usage === undefined ? failed : { ...failed, usage: classified.usage };
     }
 
     return parseReviewerOutput(outcome.stdout, argv);
@@ -431,7 +430,12 @@ export function parseReviewerOutput(stdout: string, argv: readonly string[]): Re
   } catch (error) {
     return fail(argv, 'unparsable', `the reviewer did not return JSON: ${messageOf(error)}`);
   }
+  const invocation = parseEnvelope(envelope, stdout, argv);
+  const usage = usageOf(envelope);
+  return usage === null ? invocation : { ...invocation, usage };
+}
 
+function parseEnvelope(envelope: unknown, stdout: string, argv: readonly string[]): ReviewerInvocation {
   const parsedEnvelope = Envelope.safeParse(envelope);
   if (!parsedEnvelope.success) {
     return fail(argv, 'unparsable', 'the reviewer returned JSON that is not a Claude Code result envelope');
@@ -492,6 +496,32 @@ function validateAnswer(payload: unknown, argv: readonly string[], stdout: strin
   }
 
   return { kind: 'ok', output: parsed.data, rawLength: stdout.length, argv };
+}
+
+/**
+ * Read apart from `Envelope` so that an unexpected type here costs only the
+ * number, never the review.
+ */
+function usageOf(data: unknown): ReviewerUsage | null {
+  if (data === null || typeof data !== 'object') return null;
+  const envelope = data as Record<string, unknown>;
+  const tokens = envelope['usage'];
+  const tokenCounts = tokens !== null && typeof tokens === 'object' ? (tokens as Record<string, unknown>) : {};
+  const usage: ReviewerUsage = {
+    turns: count(envelope['num_turns']),
+    apiDurationMs: count(envelope['duration_api_ms']),
+    outputTokens: count(tokenCounts['output_tokens']),
+    costUsd: amount(envelope['total_cost_usd']),
+  };
+  return Object.values(usage).every((value) => value === null) ? null : usage;
+}
+
+function count(value: unknown): number | null {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+function amount(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
 }
 
 function fail(argv: readonly string[], reason: string, detail: string): ReviewerInvocation {

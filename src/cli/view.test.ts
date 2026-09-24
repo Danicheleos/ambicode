@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { get } from 'node:http';
+import { createServer, type AddressInfo } from 'node:net';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import { createRuntime, type Runtime } from '../composition/root.ts';
@@ -262,6 +264,108 @@ describe('the reopen command', () => {
         },
       );
     } finally {
+      await context.dispose();
+    }
+  });
+});
+
+describe('the fixed review page port', () => {
+  /** A port nothing holds right now, so the test never touches the real default. */
+  async function freePort(): Promise<number> {
+    const probe = createServer();
+    await new Promise<void>((resolve) => probe.listen(0, '127.0.0.1', resolve));
+    const { port } = probe.address() as AddressInfo;
+    await new Promise<void>((resolve) => probe.close(() => resolve()));
+    return port;
+  }
+
+  /**
+   * A top-level navigation over a real socket. Node's `fetch` sends
+   * `Sec-Fetch-Mode: cors` whatever it is told, which the page rightly refuses.
+   */
+  function browserGet(url: string, cookie?: string): Promise<{ status: number; body: string; setCookies: string[] }> {
+    return new Promise((resolve, reject) => {
+      const headers: Record<string, string> = { 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'document' };
+      if (cookie !== undefined) headers.cookie = cookie;
+      get(url, { headers }, (response) => {
+        let body = '';
+        response.setEncoding('utf8');
+        response.on('data', (chunk: string) => (body += chunk));
+        response.on('end', () =>
+          resolve({ status: response.statusCode ?? 0, body, setCookies: response.headers['set-cookie'] ?? [] }),
+        );
+      }).on('error', reject);
+    });
+  }
+
+  function serve(runtime: Runtime, port: number) {
+    return runView(runtime, parseArgs('view', ['--review', 'r-0001'], VIEW_OPTIONS), {
+      openBrowser: false,
+      port,
+    });
+  }
+
+  it('replaces the previous page on the same port, and its tab is told it was disconnected', async () => {
+    const context = await fixture();
+    const port = await freePort();
+    const first = await serve(context.runtime, port);
+    const second = { value: null as Awaited<ReturnType<typeof serve>> | null };
+    try {
+      assert.equal(first.port, port);
+      const control = path.join(nodeFileSystem.temporaryRoot(), `ambicode-view-${port}.json`);
+      assert.equal(await nodeFileSystem.exists(control), true);
+
+      const bootstrap = await browserGet(first.url);
+      assert.equal(bootstrap.status, 303);
+      const oldCookie = bootstrap.setCookies.map((line) => line.split(';')[0]).join('; ');
+
+      const runtime = await createRuntime({
+        cwd: context.repo.root,
+        clock: new FakeClock(),
+        ids: new CountingIds('view-second-'),
+        providers: new ProviderRegistry([new FakeProvider(), new GitHubProvider()]),
+      });
+      second.value = await serve(runtime, port);
+      assert.equal(await first.stopped, 'replaced by a newer ambicode view');
+      assert.equal(second.value.port, port);
+      assert.ok(second.value.notes.includes(`Stopped the previous review page on port ${port}.`), second.value.notes.join('\n'));
+      assert.match(await nodeFileSystem.readText(control), /cap-view-second-/);
+
+      const oldTab = await browserGet(`http://127.0.0.1:${port}/`, oldCookie);
+      assert.equal(oldTab.status, 410);
+      assert.match(oldTab.body, /This review page was disconnected\./);
+
+      await second.value.stop('test finished');
+      assert.equal(await nodeFileSystem.exists(control), false);
+    } finally {
+      await first.stop('test finished');
+      await second.value?.stop('test finished');
+      await context.dispose();
+    }
+  });
+
+  it('leaves a port it did not open alone, and says which port it used instead', async () => {
+    const context = await fixture();
+    const squatter = createServer();
+    await new Promise<void>((resolve) => squatter.listen(0, '127.0.0.1', resolve));
+    const { port } = squatter.address() as AddressInfo;
+    try {
+      const output = await serve(context.runtime, port);
+      try {
+        assert.notEqual(output.port, port);
+        assert.ok(output.port > 0);
+        assert.ok(
+          output.notes.some((note) =>
+            note.startsWith(`Not on port ${port}: port ${port} is in use, and no AMBICODE review page recorded it.`),
+          ),
+          output.notes.join('\n'),
+        );
+        assert.equal(squatter.listening, true);
+      } finally {
+        await output.stop('test finished');
+      }
+    } finally {
+      await new Promise<void>((resolve) => squatter.close(() => resolve()));
       await context.dispose();
     }
   });

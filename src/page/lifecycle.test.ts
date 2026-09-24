@@ -5,6 +5,7 @@ import path from 'node:path';
 import { describe, it } from 'node:test';
 import { nodeFileSystem, type FileSystem } from '../ports/filesystem.ts';
 import { markOwned, sweepOwnedTemporaries, OWNERSHIP_MARKER } from './cleanup.ts';
+import { TAKEOVER_HEADER } from './takeover.ts';
 import {
   AUTHORITY,
   ORIGIN,
@@ -128,12 +129,15 @@ describe('U24 reopening a saved review', () => {
       });
       assert.equal(oldCapability.statusCode, 403);
 
+      // Refused as before; since the fixed port, said to be a disconnect.
       const oldCookie = await second.server.app.inject({
         method: 'GET',
         url: '/',
         headers: { host: AUTHORITY, cookie: firstPage.cookies },
       });
-      assert.equal(oldCookie.statusCode, 401);
+      assert.equal(oldCookie.statusCode, 410);
+      assert.match(oldCookie.body, /This review page was disconnected\./);
+      assert.doesNotMatch(oldCookie.body, /Review r-0001/);
 
       const page = await openPage(second);
       assert.match(page.html, /Review r-0001/);
@@ -204,6 +208,84 @@ describe('U24 reopening a saved review', () => {
       assert.equal(await nodeFileSystem.exists(path.join(harness.directory, 'publication.json.writing')), false);
     } finally {
       await harness.dispose();
+    }
+  });
+});
+
+describe('U24 a newer page takes over the fixed port', () => {
+  const TOKEN = 't'.repeat(32);
+
+  function takeover(harness: Awaited<ReturnType<typeof startHarness>>, token: string | null) {
+    return harness.server.app.inject({
+      method: 'POST',
+      url: '/takeover',
+      headers: { host: AUTHORITY, ...(token === null ? {} : { [TAKEOVER_HEADER]: token }) },
+    });
+  }
+
+  it('stops only for its own token, and never while publishing', async () => {
+    const harness = await startHarness({ takeoverToken: TOKEN });
+    try {
+      assert.equal((await takeover(harness, null)).statusCode, 403);
+      assert.equal((await takeover(harness, 'u'.repeat(32))).statusCode, 403);
+      assert.equal((await takeover(harness, 'short')).statusCode, 403);
+
+      const bootstrap = await harness.server.app.inject({
+        method: 'GET',
+        url: `/?c=${harness.server.capability}`,
+        headers: { host: AUTHORITY },
+      });
+      const signed = bootstrap.cookies.find((cookie) => cookie.name === 'ambicode_session')?.value ?? '';
+      const session = harness.server.sessions.get(harness.server.app.unsignCookie(signed).value ?? undefined);
+      assert.ok(session);
+      harness.server.sessions.beginSubmission(session, 'sub-1');
+      const busy = await takeover(harness, TOKEN);
+      assert.equal(busy.statusCode, 409);
+      harness.server.sessions.endSubmission(session);
+
+      const accepted = await takeover(harness, TOKEN);
+      assert.equal(accepted.statusCode, 200);
+      assert.equal(await harness.server.stopped, 'replaced by a newer ambicode view');
+    } finally {
+      await harness.dispose();
+    }
+  });
+
+  it('refuses a takeover on a page that was given no token', async () => {
+    const harness = await startHarness();
+    try {
+      assert.equal((await takeover(harness, TOKEN)).statusCode, 403);
+    } finally {
+      await harness.dispose();
+    }
+  });
+
+  it('tells a tab of the replaced page that it was disconnected, and publishes nothing', async () => {
+    const first = await startHarness();
+    const oldPage = await openPage(first);
+    await first.server.stop('replaced by a newer ambicode view');
+    const second = await startHarness();
+    try {
+      for (const url of ['/publish', '/close']) {
+        const response = await second.server.app.inject({
+          method: 'POST',
+          url,
+          headers: {
+            host: AUTHORITY,
+            origin: ORIGIN,
+            cookie: oldPage.cookies,
+            'content-type': 'application/x-www-form-urlencoded',
+          },
+          payload: form({ _csrf: oldPage.csrfToken, submissionId: oldPage.submissionId, 'select_f-aaaa': 'on' }),
+        });
+        assert.equal(response.statusCode, 410, url);
+        assert.match(response.body, /This review page was disconnected\./, url);
+      }
+      assert.deepEqual(second.provider?.calls ?? [], []);
+      assert.equal(await Promise.race([second.server.stopped, Promise.resolve('running')]), 'running');
+    } finally {
+      await first.dispose();
+      await second.dispose();
     }
   });
 });

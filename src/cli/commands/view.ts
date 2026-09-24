@@ -8,6 +8,7 @@ import { sweepOwnedTemporaries, type SweepReport } from '../../page/cleanup.ts';
 import { openInBrowser } from '../../page/open-browser.ts';
 import { reopenCommand } from '../../page/reopen.ts';
 import { createPageServer } from '../../page/server.ts';
+import { bindPort, removeControlFile, writeControlFile } from '../../page/takeover.ts';
 import { validateReviewAggregate } from '../../publication/aggregate.ts';
 import { reconcileUncertainOutcomes } from '../../publication/publish.ts';
 import { ReviewStore } from '../../publication/store.ts';
@@ -54,6 +55,10 @@ export interface ViewDependencies {
   listen?: boolean;
   openBrowser?: boolean;
   platform?: string;
+  /** Where the page's diagnostic lines go; dropped when absent. */
+  log?: (line: string) => void;
+  /** Overrides `page.port`, so a test binds a port it chose. */
+  port?: number;
 }
 
 export async function runView(
@@ -124,6 +129,8 @@ export async function runView(
   }
 
   const config = await readPageConfig(runtime, repositoryRoot);
+  const takeoverToken = runtime.ids.capability();
+  let controlPort: number | null = null;
   const server = await createPageServer({
     fs: runtime.fs,
     clock: runtime.clock,
@@ -137,20 +144,30 @@ export async function runView(
     idleTimeoutSeconds: config.idleTimeoutSeconds,
     reopenCommand: reopenCommand(result.reviewId),
     processId: process.pid,
+    ...(dependencies.log === undefined ? {} : { log: dependencies.log }),
+    takeoverToken,
+    beforeClose: async () => {
+      if (controlPort !== null) await removeControlFile(runtime.fs, controlPort, takeoverToken);
+    },
   });
 
   let port = 0;
   let url = '';
   if (dependencies.listen !== false) {
-    // Loopback only, on a port the operating system picks: nothing on the
-    // network can reach this page, and no fixed port can be squatted.
-    const address = await server.app.listen({ host: '127.0.0.1', port: 0 });
-    port = portOf(server.app.server.address()) ?? 0;
+    // Loopback only: nothing on the network can reach this page. The fixed
+    // port is taken from a previous page, never from anything else.
+    const bound = await bindPort(server.app, runtime.fs, dependencies.port ?? config.port);
+    port = bound.port;
+    if (bound.note !== null) notes.push(bound.note);
+    // Only the fixed port is findable by a successor; an OS-picked one is not.
+    if (port === (dependencies.port ?? config.port)) {
+      await writeControlFile(runtime.fs, { port, pid: process.pid, token: takeoverToken });
+      controlPort = port;
+    }
     const authority = `127.0.0.1:${port}`;
     server.setAuthority(authority);
     // The capability appears here and nowhere else: not in a log, not on disk.
     url = `http://${authority}/?c=${server.capability}`;
-    void address;
   }
 
   let browserOpened = false;
@@ -296,18 +313,10 @@ function providerFor(runtime: Runtime, result: ReviewResult): ReviewProvider | n
 async function readPageConfig(
   runtime: Runtime,
   repositoryRoot: string,
-): Promise<{ idleTimeoutSeconds: number }> {
+): Promise<{ idleTimeoutSeconds: number; port: number }> {
   const { loadConfig } = await import('../../config/load.ts');
   const loaded = await loadConfig(runtime.fs, repositoryRoot);
   return loaded.config.page;
-}
-
-function portOf(address: unknown): number | null {
-  if (address !== null && typeof address === 'object' && 'port' in address) {
-    const port = (address as { port: unknown }).port;
-    return typeof port === 'number' ? port : null;
-  }
-  return null;
 }
 
 export function renderView(output: ViewOutput): string {
