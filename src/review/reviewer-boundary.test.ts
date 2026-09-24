@@ -250,21 +250,34 @@ describe('the real Claude Code structured-output envelope', () => {
 
   it('keeps the turn count, model time and cost the envelope reports', async () => {
     const invocation = parseReviewerOutput(await envelope('success-structured-output.json'), ARGV);
-    assert.deepEqual(invocation.usage, { turns: 6, apiDurationMs: 40810, outputTokens: null, costUsd: 0.0412 });
+    assert.deepEqual(invocation.usage, { turns: 6, apiDurationMs: 40810, outputTokens: null, costUsd: 0.0412, thinkingTokens: null });
 
     const exhausted = parseReviewerOutput(await envelope('error-retry-exhausted.json'), ARGV);
     assert.equal(exhausted.kind, 'error');
-    assert.deepEqual(exhausted.usage, { turns: 9, apiDurationMs: null, outputTokens: null, costUsd: null });
+    assert.deepEqual(exhausted.usage, { turns: 9, apiDurationMs: null, outputTokens: null, costUsd: null, thinkingTokens: null });
   });
 
   it('reads output tokens, and loses only the number when a usage field has an unexpected type', async () => {
     const base = JSON.parse(await envelope('success-structured-output.json')) as Record<string, unknown>;
     const invocation = parseReviewerOutput(
-      JSON.stringify({ ...base, num_turns: '6', usage: { output_tokens: 3120 } }),
+      JSON.stringify({ ...base, num_turns: '6', usage: { output_tokens: 3120, output_tokens_details: { thinking_tokens: 'many' } } }),
       ARGV,
     );
     assert.equal(invocation.kind, 'ok');
-    assert.deepEqual(invocation.usage, { turns: null, apiDurationMs: 40810, outputTokens: 3120, costUsd: 0.0412 });
+    assert.deepEqual(invocation.usage, {
+      turns: null,
+      apiDurationMs: 40810,
+      outputTokens: 3120,
+      costUsd: 0.0412,
+      thinkingTokens: null,
+    });
+
+    // As the MR 2719 envelope reported it: 13,697 of 18,642 output tokens were reasoning.
+    const reasoned = parseReviewerOutput(
+      JSON.stringify({ ...base, usage: { output_tokens: 18642, output_tokens_details: { thinking_tokens: 13697 } } }),
+      ARGV,
+    );
+    assert.equal(reasoned.usage?.thinkingTokens, 13697);
 
     const bare = parseReviewerOutput(
       JSON.stringify({ type: 'result', subtype: 'success', structured_output: { findings: [], coverageNotes: [] } }),

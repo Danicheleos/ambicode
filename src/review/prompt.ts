@@ -409,7 +409,8 @@ function outputSection(bundle: ReviewBundle): string {
     '# Output',
     '',
     `Return at most ${limit} findings, the ones that most deserve a human's time.`,
-    'Return only JSON matching the supplied schema: no prose around it and no code fence.',
+    'Answer with one `StructuredOutput` call whose arguments are the answer object itself,',
+    '`findings` and `coverageNotes` at the top level, not wrapped in any key such as `input`.',
     '',
     'Every finding needs a `location` with a path, a `side` (`old` or `new`) and a',
     '`line` from the ranges "Changed files" lists for that file. One location that',
@@ -423,7 +424,7 @@ function outputSection(bundle: ReviewBundle): string {
     '',
     ruleIds.length === 0
       ? 'No policy rule ids apply; leave `ruleRefs` empty.'
-      : `Valid \`ruleRefs\` values: ${ruleIds.join(', ')}.`,
+      : `Valid \`ruleRefs\` values: ${ruleIds.join(', ')}. Cite a rule only when the finding breaches what its instruction asks; a finding that is merely near a rule's topic cites none.`,
     requirementIds.length === 0
       ? 'No requirements were supplied; leave `requirementRefs` empty.'
       : `Valid \`requirementRefs\` values: ${requirementIds.join(', ')}.`,

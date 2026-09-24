@@ -1021,14 +1021,18 @@ describe('what the reviewer is told, and what is kept about its run', () => {
     try {
       const clock = new FakeClock();
       const runtime = await createRuntime({ cwd: context.repo.root, clock });
-      const usage = { turns: 14, apiDurationMs: 241_500, outputTokens: null, costUsd: 0.31 };
+      const usage = { turns: 14, apiDurationMs: 241_500, outputTokens: null, costUsd: 0.31, thinkingTokens: null };
       const output = await review(runtime, [], new TimedReviewer({ ...ok(), usage }, clock, 257_000));
 
       assert.deepEqual(output.result.reviewer?.usage, usage);
-      assert.match(
-        await nodeFileSystem.readText(output.reportPath),
-        /14 turn\(s\), model time 242s, unknown output token\(s\), cost \$0\.31/,
-      );
+      const report = await nodeFileSystem.readText(output.reportPath);
+      assert.match(report, /14 turn\(s\), model time 242s, unknown output token\(s\), cost \$0\.31\n/);
+      assert.doesNotMatch(report, /reasoning/);
+
+      const reasoned = { turns: 18, apiDurationMs: 215_000, outputTokens: 22_201, costUsd: 0.54, thinkingTokens: 18_135 };
+      const second = await review(runtime, [], new TimedReviewer({ ...ok(), usage: reasoned }, clock, 217_000));
+      assert.match(await nodeFileSystem.readText(second.reportPath), /22201 output token\(s\), cost \$0\.54, 18135 of them reasoning/);
+      await nodeFileSystem.remove(second.snapshotDirectory);
       await nodeFileSystem.remove(output.snapshotDirectory);
     } finally {
       await context.dispose();
@@ -1051,6 +1055,29 @@ describe('what the reviewer is told, and what is kept about its run', () => {
       assert.doesNotMatch(request.systemPrompt, /the finding will be rejected/);
       assert.match(request.prompt, /did not touch has no `old` side to name/);
       assert.match(request.systemPrompt, /did not touch has no `old` side to name/);
+      await nodeFileSystem.remove(output.snapshotDirectory);
+    } finally {
+      await context.dispose();
+    }
+  });
+
+  it('asks for the answer as the StructuredOutput arguments themselves, and for rules only where one is breached', async () => {
+    const context = await fixture();
+    try {
+      const reviewer = new FakeReviewer(ok());
+      const output = await review(context.runtime, [], reviewer);
+      const request = reviewer.requests[0];
+      assert.ok(request !== undefined);
+
+      // On MR 2719, 6 of 10 runs first sent `{"input": {...}}` and paid a 9–12 s retry;
+      // both prompts described a text answer ("Return only JSON …").
+      for (const prompt of [request.prompt, request.systemPrompt]) {
+        assert.match(prompt, /`StructuredOutput`/);
+        assert.match(prompt, /not\s+wrapped\s+in\s+(another|any)\s+key\s+such\s+as\s+`input`/);
+        assert.doesNotMatch(prompt, /Return only JSON/);
+      }
+      // 3 of the 7 rule citations on MR 2719 did not fit their finding.
+      assert.match(request.prompt, /Cite a rule only when the finding breaches what its instruction asks/);
       await nodeFileSystem.remove(output.snapshotDirectory);
     } finally {
       await context.dispose();

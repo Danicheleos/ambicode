@@ -58,12 +58,12 @@ function validFields(page: OpenedPage): Record<string, string> {
 }
 
 describe('U21 the page accepts only its own form', () => {
-  it('consumes the capability exactly once and redirects to a clean URL', async () => {
+  it('opens a session from the link and redirects to a clean URL, on every visit', async () => {
     const harness = await startHarness();
     try {
       const first = await harness.server.app.inject({
         method: 'GET',
-        url: `/?c=${harness.server.capability}`,
+        url: `/${harness.server.capability}`,
         headers: { host: AUTHORITY },
       });
       assert.equal(first.statusCode, 303);
@@ -78,25 +78,33 @@ describe('U21 the page accepts only its own form', () => {
       // The signed value is not the raw session id.
       assert.ok(session.value.includes('.'));
 
-      // The same capability a second time is dead.
+      // Reusable by design since MR 2719: a second browser, with no cookie,
+      // gets its own session rather than "already used".
       const replay = await harness.server.app.inject({
         method: 'GET',
-        url: `/?c=${harness.server.capability}`,
+        url: `/${harness.server.capability}`,
         headers: { host: AUTHORITY },
       });
-      assert.equal(replay.statusCode, 403);
-      assert.match(replay.body, /already been used/);
-      assert.equal(replay.cookies.length, 0);
-      assert.ok(!replay.body.includes(harness.server.capability));
+      assert.equal(replay.statusCode, 303);
+      const second = replay.cookies.find((cookie) => cookie.name === 'ambicode_session');
+      assert.ok(second);
+      assert.notEqual(second.value, session.value);
+      assert.equal(harness.server.sessions.sessionCount, 2);
+
+      // The bare address carries no session and says where the link is.
+      const bare = await harness.server.app.inject({ method: 'GET', url: '/', headers: { host: AUTHORITY } });
+      assert.equal(bare.statusCode, 401);
+      assert.match(bare.body, /ends in a token/);
+      assert.ok(!bare.body.includes(harness.server.capability));
     } finally {
       await harness.dispose();
     }
   });
 
-  it('lets the browser that consumed the capability load the same URL again', async () => {
+  it('lets a browser that already has a session load the link again without a second one', async () => {
     const harness = await startHarness();
     try {
-      const url = `/?c=${harness.server.capability}`;
+      const url = `/${harness.server.capability}`;
       const first = await harness.server.app.inject({ method: 'GET', url, headers: { host: AUTHORITY } });
       const jar = cookieJar(first.cookies);
 
@@ -120,11 +128,11 @@ describe('U21 the page accepts only its own form', () => {
     }
   });
 
-  it('leaves the capability unused for a HEAD, a prefetch or a subresource fetch', async () => {
+  it('opens no session for a HEAD, a prefetch or a subresource fetch', async () => {
     const lines: string[] = [];
     const harness = await startHarness({ log: (line) => lines.push(line) });
     try {
-      const url = `/?c=${harness.server.capability}`;
+      const url = `/${harness.server.capability}`;
       const probes: Record<string, string>[] = [
         { 'sec-purpose': 'prefetch' },
         { purpose: 'prefetch' },
@@ -165,13 +173,13 @@ describe('U21 the page accepts only its own form', () => {
       });
       assert.doesNotMatch(refused.body, /cors|\u001b/);
       const echoed = lines.pop() ?? '';
-      assert.match(echoed, /not consumed: not a navigation \(Sec-Fetch-Mode\) \(sec-fetch-mode cors\?\[2Jy+,/);
+      assert.match(echoed, /not redeemed: not a navigation \(Sec-Fetch-Mode\) \(sec-fetch-mode cors\?\[2Jy+,/);
       assert.doesNotMatch(echoed, /[\u0000-\u001f\u007f]/);
       assert.ok(echoed.length < 800, 'the logged header is bounded');
 
       assert.equal(lines.length, probes.length + 2);
-      assert.match(lines[0] ?? '', /^page: HEAD \/\?c=… not consumed: a HEAD request/);
-      assert.match(lines.at(-1) ?? '', /GET \/\?c=… consumed .*sec-fetch-mode navigate/);
+      assert.match(lines[0] ?? '', /^page: HEAD \/<link> not redeemed: a HEAD request/);
+      assert.match(lines.at(-1) ?? '', /GET \/<link> redeemed .*sec-fetch-mode navigate/);
       for (const line of lines) assert.ok(!line.includes(harness.server.capability), line);
     } finally {
       await harness.dispose();
@@ -181,7 +189,7 @@ describe('U21 the page accepts only its own form', () => {
   it('does not count a probe that carries the session cookie as activity', async () => {
     const harness = await startHarness();
     try {
-      const url = `/?c=${harness.server.capability}`;
+      const url = `/${harness.server.capability}`;
       const first = await harness.server.app.inject({ method: 'GET', url, headers: { host: AUTHORITY } });
       const jar = cookieJar(first.cookies);
       const signed = first.cookies.find((cookie) => cookie.name === 'ambicode_session')?.value ?? '';
@@ -202,16 +210,20 @@ describe('U21 the page accepts only its own form', () => {
     }
   });
 
-  it('refuses a capability it never issued', async () => {
+  it('refuses a link token it never issued', async () => {
     const harness = await startHarness();
     try {
       const response = await harness.server.app.inject({
         method: 'GET',
-        url: `/?c=${'z'.repeat(40)}`,
+        url: `/${'z'.repeat(40)}`,
         headers: { host: AUTHORITY },
       });
       assert.equal(response.statusCode, 403);
-      assert.match(response.body, /not the one this server issued/);
+      assert.match(response.body, /printed by an earlier ambicode view/);
+
+      // Not shaped like a token at all: an ordinary 404, never a session.
+      const other = await harness.server.app.inject({ method: 'GET', url: '/favicon.ico', headers: { host: AUTHORITY } });
+      assert.equal(other.statusCode, 404);
     } finally {
       await harness.dispose();
     }
@@ -222,7 +234,7 @@ describe('U21 the page accepts only its own form', () => {
     try {
       const response = await harness.server.app.inject({
         method: 'GET',
-        url: `/?c=${harness.server.capability}`,
+        url: `/${harness.server.capability}`,
         headers: { host: 'review.example.com' },
       });
       assert.equal(response.statusCode, 400);
@@ -241,7 +253,7 @@ describe('U21 the page accepts only its own form', () => {
         headers: { host: AUTHORITY },
       });
       assert.equal(response.statusCode, 401);
-      assert.match(response.body, /needs the link your terminal printed/);
+      assert.match(response.body, /needs the review link./);
     } finally {
       await harness.dispose();
     }

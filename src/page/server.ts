@@ -40,6 +40,8 @@ import {
  */
 
 export const SESSION_COOKIE = 'ambicode_session';
+/** The link token's shape as `IdSource.capability` issues it; anything else is not a link. */
+export const LINK_TOKEN = '[A-Za-z0-9_-]{16,128}';
 /** The whole form, bounded. A review page's fields are text, not uploads. */
 export const MAX_BODY_BYTES = 512 * 1024;
 
@@ -235,24 +237,23 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
    * is redirected to a clean URL so the capability leaves the address bar,
    * history and any Referer.
    */
-  app.get('/', async (request, reply) => {
-    const presented = (request.query as Record<string, unknown> | undefined)?.['c'];
-    if (typeof presented === 'string') {
+  app.get(`/:token(^${LINK_TOKEN}$)`, async (request, reply) => {
+    const presented = (request.params as { token: string }).token;
+    {
       // First, so a probe carrying the cookie does not count as activity either.
       const notNavigation = nonNavigationReason(request);
       if (notNavigation !== null) {
-        logBootstrap(request, `not consumed: ${notNavigation}`);
+        logBootstrap(request, `not redeemed: ${notNavigation}`);
         // Not 2xx, so a prefetch is discarded rather than served as the page.
         await refuse(
           reply,
           503,
           'This link opens only as a page.',
-          `The request was ${notNavigation}, so the link was left unused. Open it in a browser tab.`,
+          `The request was ${notNavigation}, so no session was opened. Open the link in a browser tab.`,
         );
         return reply;
       }
-      // Before the capability is looked at: the browser that consumed it may
-      // load the same URL again, and its signed cookie already authenticates it.
+      // A browser that already holds a session keeps it rather than opening another.
       const existing = authenticate(request);
       if (existing !== null) {
         logBootstrap(request, 'already signed in, redirected');
@@ -261,13 +262,13 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
         reply.redirect('/', 303);
         return reply;
       }
-      const consumed = sessions.consumeCapability(presented);
+      const consumed = sessions.redeemCapability(presented);
       if (consumed.kind !== 'ok') {
         logBootstrap(request, `refused: ${consumed.reason}`);
-        await refuse(reply, 403, 'That link is no longer valid.', consumed.reason);
+        await refuse(reply, 403, 'That review link is no longer valid.', consumed.reason);
         return reply;
       }
-      logBootstrap(request, 'consumed');
+      logBootstrap(request, 'redeemed');
       reply.setCookie(SESSION_COOKIE, consumed.session.id, {
         httpOnly: true,
         sameSite: 'strict',
@@ -283,7 +284,9 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
       reply.redirect('/', 303);
       return reply;
     }
+  });
 
+  app.get('/', async (request, reply) => {
     const session = authenticate(request);
     if (session === null) {
       if (fromEarlierServer(request)) {
@@ -293,8 +296,8 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
       await refuse(
         reply,
         401,
-        'This page needs the link your terminal printed.',
-        'The session has expired, was never established, or belongs to an earlier run of the server.',
+        'This page needs the review link.',
+        'Open the link ambicode view printed, which ends in a token. It works in any browser on this machine while the page runs. This address alone carries no session.',
       );
       return reply;
     }
@@ -555,7 +558,7 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
       return typeof value === 'string' && value !== '' ? value.slice(0, 200) : '-';
     };
     const line =
-      `page: ${request.method} /?c=… ${outcome} ` +
+      `page: ${request.method} /<link> ${outcome} ` +
         `(sec-fetch-mode ${header('sec-fetch-mode')}, sec-fetch-dest ${header('sec-fetch-dest')}, ` +
         `sec-purpose ${header('sec-purpose')}, purpose ${header('purpose')}, ` +
         `session cookie ${request.cookies[SESSION_COOKIE] === undefined ? 'absent' : 'present'}, ` +

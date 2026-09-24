@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
 import { nodeFileSystem, type FileSystem } from '../ports/filesystem.ts';
-import { markOwned, sweepOwnedTemporaries, OWNERSHIP_MARKER } from './cleanup.ts';
+import { markOwned, sweepOwnedTemporaries, OWNED_PREFIXES, OWNERSHIP_MARKER } from './cleanup.ts';
 import { TAKEOVER_HEADER } from './takeover.ts';
 import {
   AUTHORITY,
@@ -124,7 +125,7 @@ describe('U24 reopening a saved review', () => {
 
       const oldCapability = await second.server.app.inject({
         method: 'GET',
-        url: `/?c=${firstCapability}`,
+        url: `/${firstCapability}`,
         headers: { host: AUTHORITY },
       });
       assert.equal(oldCapability.statusCode, 403);
@@ -232,7 +233,7 @@ describe('U24 a newer page takes over the fixed port', () => {
 
       const bootstrap = await harness.server.app.inject({
         method: 'GET',
-        url: `/?c=${harness.server.capability}`,
+        url: `/${harness.server.capability}`,
         headers: { host: AUTHORITY },
       });
       const signed = bootstrap.cookies.find((cookie) => cookie.name === 'ambicode_session')?.value ?? '';
@@ -287,6 +288,24 @@ describe('U24 a newer page takes over the fixed port', () => {
       await first.dispose();
       await second.dispose();
     }
+  });
+});
+
+describe('U24 test directories stay outside the sweep', () => {
+  it('gives no test directory a name the sweep reports as AMBICODE’s', async () => {
+    // Two `ambicode-page-test-*` directories from an interrupted run were
+    // reported as "left alone" by every `ambicode view` afterwards.
+    const src = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+    const call = /mkdtemp\(\s*path\.join\(\s*(?:os\.)?tmpdir\(\)\s*,\s*['"`]([^'"`$]+)/g;
+    const prefixes: string[] = [];
+    for (const entry of await readdir(src, { recursive: true })) {
+      if (!entry.endsWith('.ts') || (!entry.endsWith('.test.ts') && !entry.startsWith(`testing${path.sep}`))) continue;
+      for (const match of (await readFile(path.join(src, entry), 'utf8')).matchAll(call)) prefixes.push(match[1] as string);
+    }
+    // A prefix computed at run time is not seen; these two prove the scan reads the harnesses.
+    for (const known of ['ambicode-test-page-', 'ambicode-test-']) assert.ok(prefixes.includes(known), prefixes.join(', '));
+    const colliding = prefixes.filter((prefix) => OWNED_PREFIXES.some((owned) => prefix.startsWith(owned)));
+    assert.deepEqual(colliding, []);
   });
 });
 

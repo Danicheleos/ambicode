@@ -3,16 +3,15 @@ import type { Clock } from '../ports/clock.ts';
 import type { IdSource } from '../ports/ids.ts';
 
 /**
- * The one-time capability and the server-side sessions it becomes.
+ * The page's link token and the server-side sessions it becomes.
  *
  * Everything here lives in memory for the lifetime of one `ambicode view`
- * process and is never written to disk or to a log. The capability appears once,
- * in the URL printed to the terminal; after it is consumed the browser holds
- * only an opaque session id in a signed cookie, and the capability is dead.
+ * process and is never written to disk or to a log. The token is valid for
+ * that whole lifetime, from any browser on the machine, any number of times:
+ * a one-time link was spent by the browser launch, so the link the agent
+ * reported in chat always led to "needs the link" (MR 2719). It dies with the
+ * process, and the next `ambicode view` replaces the process.
  */
-
-/** A capability is short-lived on purpose: it exists to survive a browser launch. */
-export const CAPABILITY_TTL_MS = 5 * 60 * 1000;
 
 export interface Session {
   readonly id: string;
@@ -33,60 +32,44 @@ export interface SessionStoreOptions {
   clock: Clock;
   /** How long a session cookie stays valid without activity. */
   sessionTtlMs: number;
-  capabilityTtlMs?: number;
 }
 
 export class SessionStore {
   private readonly ids: IdSource;
   private readonly clock: Clock;
   private readonly sessionTtlMs: number;
-  private readonly capabilityTtlMs: number;
   private readonly sessions = new Map<string, Session>();
-  private capability: { value: string; issuedAt: number; consumed: boolean } | null = null;
+  private capability: string | null = null;
 
   constructor(options: SessionStoreOptions) {
     this.ids = options.ids;
     this.clock = options.clock;
     this.sessionTtlMs = options.sessionTtlMs;
-    this.capabilityTtlMs = options.capabilityTtlMs ?? CAPABILITY_TTL_MS;
   }
 
-  /** Issues the single capability this server will ever accept. */
+  /** Issues the single link token this server will ever accept. */
   issueCapability(): string {
-    const value = this.ids.capability();
-    this.capability = { value, issuedAt: this.clock.now().getTime(), consumed: false };
-    return value;
+    this.capability = this.ids.capability();
+    return this.capability;
   }
 
-  /**
-   * Consumes the capability exactly once. A second use of the same value, a
-   * value that was never issued, and an expired one all fail the same way: the
-   * page is reachable only by the browser that arrived first.
-   */
-  consumeCapability(presented: string): CapabilityResult {
+  /** Each visit with the issued token opens a new session; any other value is refused. */
+  redeemCapability(presented: string): CapabilityResult {
     const held = this.capability;
     if (held === null) {
-      return { kind: 'rejected', reason: 'This server has no capability to consume.' };
+      return { kind: 'rejected', reason: 'This review page is no longer serving.' };
     }
     // Bytes, not characters: `timingSafeEqual` throws on a length mismatch, and
     // four characters of `é` are eight bytes against the capability's four.
     const presentedBytes = Buffer.from(presented, 'utf8');
-    const heldBytes = Buffer.from(held.value, 'utf8');
+    const heldBytes = Buffer.from(held, 'utf8');
     if (presentedBytes.length !== heldBytes.length || !timingSafeEqual(presentedBytes, heldBytes)) {
-      return { kind: 'rejected', reason: 'That capability is not the one this server issued.' };
-    }
-    if (held.consumed) {
       return {
         kind: 'rejected',
-        reason: 'That capability has already been used. Reopen the review to get a new one.',
+        reason: 'It was printed by an earlier ambicode view, which has stopped or was replaced by a newer one.',
       };
     }
-    const now = this.clock.now().getTime();
-    if (now - held.issuedAt > this.capabilityTtlMs) {
-      return { kind: 'rejected', reason: 'That capability has expired. Reopen the review to get a new one.' };
-    }
-    held.consumed = true;
-    return { kind: 'ok', session: this.create(now) };
+    return { kind: 'ok', session: this.create(this.clock.now().getTime()) };
   }
 
   private create(now: number): Session {

@@ -488,15 +488,19 @@ The page is plain HTML with no script, so a tab cannot notice on its own that
 its server stopped; it finds out on its next request. If no page runs on the
 port any more, that request fails in the browser itself.
 
-The link consumes itself only on a page load. A `HEAD` request, a prefetch or
-a subresource fetch leaves it unused, and the same browser loading it twice
-lands on the page. Each request carrying the link is logged to stderr, without
-the link, so a link reported as already used shows what used it.
+The link is `http://127.0.0.1:45831/<token>`. It opens the page from any
+browser on this machine, as many times as needed, for as long as that page
+runs; each browser gets its own session cookie, and the address bar is
+cleaned to `/`. The bare `/` without a session says to use the link. Only a
+page load opens a session: a `HEAD` request, a prefetch or a subresource
+fetch does not. Each request carrying the link is logged to stderr, without
+the token.
 
-Reopening never reuses anything from the previous run. A fresh one-time
-capability is put only in the printed URL; the page consumes it on the first
-request, issues its own session, and the capability cannot be used again — so
-a leaked terminal log or shell history entry is not a standing way in.
+The token lives only in that process's memory and dies with it, and the next
+`ambicode view` replaces the process with a new token. While the page runs,
+anyone who can read the printed link on this machine can open it; it was
+one-time before 0.2.7, but the browser launch spent it, so the link reported
+in chat never opened anything.
 
 ### What the page shows
 

@@ -506,14 +506,19 @@ function usageOf(data: unknown): ReviewerUsage | null {
   if (data === null || typeof data !== 'object') return null;
   const envelope = data as Record<string, unknown>;
   const tokens = envelope['usage'];
-  const tokenCounts = tokens !== null && typeof tokens === 'object' ? (tokens as Record<string, unknown>) : {};
+  const tokenCounts = recordOf(tokens);
   const usage: ReviewerUsage = {
     turns: count(envelope['num_turns']),
     apiDurationMs: count(envelope['duration_api_ms']),
     outputTokens: count(tokenCounts['output_tokens']),
     costUsd: amount(envelope['total_cost_usd']),
+    thinkingTokens: count(recordOf(tokenCounts['output_tokens_details'])['thinking_tokens']),
   };
   return Object.values(usage).every((value) => value === null) ? null : usage;
+}
+
+function recordOf(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : {};
 }
 
 function count(value: unknown): number | null {

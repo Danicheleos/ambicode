@@ -71,7 +71,8 @@ function whatWasReviewed(options: ReportOptions): string[] {
         `               ${usage.turns ?? unknown} turn(s), ` +
           `model time ${usage.apiDurationMs === null ? unknown : `${Math.round(usage.apiDurationMs / 1000)}s`}, ` +
           `${usage.outputTokens ?? unknown} output token(s), ` +
-          `cost ${usage.costUsd === null ? unknown : `$${usage.costUsd.toFixed(2)}`}`,
+          `cost ${usage.costUsd === null ? unknown : `$${usage.costUsd.toFixed(2)}`}` +
+          (usage.thinkingTokens === null ? '' : `, ${usage.thinkingTokens} of them reasoning`),
       );
     }
     if (result.reviewer.detail !== null) lines.push(`               ${result.reviewer.detail}`);

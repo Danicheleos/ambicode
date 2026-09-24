@@ -70,5 +70,6 @@ change is correct, and you should not say that it does.
 
 ## Output
 
-Return only JSON matching the schema you were given. No prose before or after
-it, no code fence.
+Answer by calling the `StructuredOutput` tool once, with the answer object
+itself as its arguments: `findings` and `coverageNotes` at the top level, not
+wrapped in another key such as `input`. Any prose you write is not read.

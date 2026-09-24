@@ -92,7 +92,9 @@ export interface Harness {
 }
 
 export async function startHarness(options: HarnessOptions = {}): Promise<Harness> {
-  const directory = await mkdtemp(path.join(tmpdir(), 'ambicode-page-test-'));
+  // Not `ambicode-page-*`: that is a real page's prefix, so a directory left by
+  // an interrupted test run was reported by every `ambicode view` after it.
+  const directory = await mkdtemp(path.join(tmpdir(), 'ambicode-test-page-'));
   const clock = new FakeClock();
   const store = new ReviewStore(nodeFileSystem, clock, directory);
   const result = options.result ?? reviewResult();
@@ -182,7 +184,7 @@ export interface OpenedPage {
 export async function openPage(harness: Harness): Promise<OpenedPage> {
   const bootstrap = await harness.server.app.inject({
     method: 'GET',
-    url: `/?c=${harness.server.capability}`,
+    url: `/${harness.server.capability}`,
     headers: { host: AUTHORITY },
   });
   if (bootstrap.statusCode !== 303) {

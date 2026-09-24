@@ -133,6 +133,8 @@ export const ReviewerUsage = z.strictObject({
   apiDurationMs: z.number().int().nonnegative().nullable(),
   outputTokens: z.number().int().nonnegative().nullable(),
   costUsd: z.number().nonnegative().nullable(),
+  /** The hidden-reasoning share of `outputTokens`: 13,697 of 18,642 on MR 2719. */
+  thinkingTokens: z.number().int().nonnegative().nullable().default(null),
 });
 export type ReviewerUsage = z.infer<typeof ReviewerUsage>;
 

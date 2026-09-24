@@ -129,7 +129,7 @@ describe('U20 the review page shows what the result actually says', () => {
 
       const page = await harness.server.app.inject({
         method: 'GET',
-        url: `/?c=${harness.server.capability}`,
+        url: `/${harness.server.capability}`,
         headers: { host: AUTHORITY },
       });
       const csp = page.headers['content-security-policy'] as string;

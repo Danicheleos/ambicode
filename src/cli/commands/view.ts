@@ -167,7 +167,7 @@ export async function runView(
     const authority = `127.0.0.1:${port}`;
     server.setAuthority(authority);
     // The capability appears here and nowhere else: not in a log, not on disk.
-    url = `http://${authority}/?c=${server.capability}`;
+    url = `http://${authority}/${server.capability}`;
   }
 
   let browserOpened = false;
@@ -328,7 +328,7 @@ export function renderView(output: ViewOutput): string {
     output.browserOpened
       ? `The browser was opened (${output.browserDetail}).`
       : `The browser was not opened (${output.browserDetail}). Paste the URL above into a browser on this machine.`,
-    `The link works once. Stop the page with its "Close the page" button, with Ctrl-C, or leave it to idle out after ${output.idleTimeoutSeconds}s.`,
+    `The link works in any browser on this machine until the page stops. Stop the page with its "Close the page" button, with Ctrl-C, or leave it to idle out after ${output.idleTimeoutSeconds}s.`,
     output.publicationAvailable
       ? 'Selected comments can be published to the merge request from the page. Nothing is sent until you submit the form.'
       : 'This review has no remote publication action.',
