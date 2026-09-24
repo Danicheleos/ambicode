@@ -141,7 +141,12 @@ function verification(options: ReportOptions): string[] {
         `  complete=${check.selectionComplete}` +
         (check.exitCode === null ? '' : `  exit=${check.exitCode}`),
     );
-    if (check.argv.length > 0) lines.push(`     ran: ${check.argv.join(' ')}`);
+    // A skipped check can still carry the argv it was not allowed to run — a
+    // merge request with no container, a binary that is not installed. `ran:`
+    // on those read as execution in run a0e87d39.
+    if (check.argv.length > 0) {
+      lines.push(`     ${check.status === 'skipped' ? 'would have run' : 'ran'}: ${check.argv.join(' ')}`);
+    }
     if (check.outputRef !== null) lines.push(`     output: ${check.outputRef}`);
     for (const limitation of check.limitations) lines.push(`     - ${limitation}`);
     for (const mutation of check.mutations) lines.push(`     ! ${mutation}`);
