@@ -216,6 +216,16 @@ describe('P2.2/P2.3 shipped skill content', () => {
     }
   });
 
+  it('plan writes each iteration as a brief task can start from, not a one-line title', async () => {
+    const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
+    // plan_2026-09-24T09-19 gave each iteration one or two sentences of
+    // approach, which was too thin to implement from.
+    for (const field of ['Goal', 'Changes', 'Tests', 'Accept', 'Checks', 'Leaves out']) {
+      assert.match(plan, new RegExp(`^  - \\*${field}\\*:`, 'm'), `plan/SKILL.md iteration brief lacks *${field}*`);
+    }
+    assert.match(plan, /mini-prompt/);
+  });
+
   it('plan distinguishes draft from accepted status, and requires explicit human acceptance', async () => {
     const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
     assert.match(plan, /\bdraft\b/i);
