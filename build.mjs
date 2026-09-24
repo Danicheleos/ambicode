@@ -5,10 +5,19 @@ import { build } from 'esbuild';
 import { chmod, mkdir, rm, writeFile } from 'node:fs/promises';
 
 await rm(new URL('./scripts/ambicode.mjs', import.meta.url), { force: true });
+// A chunk left from an earlier build would otherwise be packaged beside the new ones.
+await rm(new URL('./scripts/chunks/', import.meta.url), { recursive: true, force: true });
 
 await build({
-  entryPoints: ['src/cli/main.ts'],
-  outfile: 'scripts/ambicode.mjs',
+  entryPoints: { ambicode: 'src/cli/main.ts' },
+  outdir: 'scripts',
+  outExtension: { '.js': '.mjs' },
+  // `view` is imported dynamically so its page server — Fastify, its plugins
+  // and Eta, 1.5 MB of a 3.4 MB bundle — is parsed by `view` alone rather than
+  // by every hook, `prepare` and `review`. Content-hashed names keep two builds
+  // of the same source byte-identical, which `package:reproducible` checks.
+  splitting: true,
+  chunkNames: 'chunks/[name]-[hash]',
   bundle: true,
   platform: 'node',
   target: 'node24',

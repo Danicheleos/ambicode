@@ -11,7 +11,8 @@ import { POLICY_OPTIONS, renderPolicy, runPolicy } from './commands/policy.ts';
 import { POLICY_CHECK_OPTIONS, renderPolicyCheck, runPolicyCheck } from './commands/policy-check.ts';
 import { PREPARE_OPTIONS, renderPrepare, runPrepare } from './commands/prepare.ts';
 import { REVIEW_OPTIONS, renderReview, runReview } from './commands/review.ts';
-import { VIEW_OPTIONS, renderView, runView, type ViewOutput } from './commands/view.ts';
+import type { ViewOutput } from './commands/view.ts';
+import { VIEW_OPTIONS } from './view-options.ts';
 import { validateTargetArgs } from './target-option.ts';
 
 /**
@@ -284,6 +285,8 @@ async function dispatch(command: string, args: ParsedArgs): Promise<Rendered> {
       return { text: renderBundle(output), data: output };
     }
     case 'view': {
+      // Loaded here and nowhere else: see `view-options.ts`.
+      const { renderView, runView } = await import('./commands/view.ts');
       const output = await runView(runtime, args);
       return {
         text: renderView(output),
