@@ -20,7 +20,7 @@ const SKILLS_DIR = path.join(repositoryRoot, 'skills');
  * Parses a shipped `SKILL.md`'s frontmatter with the same YAML parser Claude
  * Code uses, instead of matching lines with a regex. A per-line regex happily
  * reads a value the YAML spec rejects — an unquoted plain scalar containing
- * `": "` — which is exactly how two skills shipped in the 0.3.0 candidate with
+ * `": "` — which is exactly how two skills shipped in the 0.3.1 candidate with
  * no `name` and no `description` at all while this test stayed green (R1
  * defect 1). The `---` delimiters are not themselves YAML, so they are still
  * split off by hand, but with `\r?\n`: a Windows checkout of a repository

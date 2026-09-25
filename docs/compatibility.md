@@ -402,7 +402,7 @@ involved).
 ## Plugin validation
 
 `claude plugin validate <path> --strict --json` on 2.1.272 returns (observed
-this session against the packaged `dist/ambicode-0.3.0` candidate):
+this session against the packaged `dist/ambicode-0.3.1` candidate):
 
 ```json
 { "success": true, "strict": true,
@@ -414,7 +414,7 @@ this session against the packaged `dist/ambicode-0.3.0` candidate):
 
 `npm run verify` runs this (non-`--json`, for a readable pass/fail) against
 the source tree, and this session additionally ran it directly against the
-**packaged** candidate directory (`dist/ambicode-0.3.0`), confirming the
+**packaged** candidate directory (`dist/ambicode-0.3.1`), confirming the
 zipped, allowlist-filtered artifact — not only the source checkout — passes
 strict validation on its own. `claude plugin list --json` returns an array
 of `{ id, version, scope, enabled, installPath, installedAt, lastUpdated,

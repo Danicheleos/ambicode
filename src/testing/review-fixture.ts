@@ -48,7 +48,7 @@ export function reviewResult(options: FixtureOptions = {}): ReviewResult {
     schemaVersion: REVIEW_SCHEMA_VERSION,
     reviewId: REVIEW_ID,
     createdAt: '2026-09-20T10:00:00.000Z',
-    pluginVersion: '0.3.0',
+    pluginVersion: '0.3.1',
     reviewModel: 'sonnet',
     target: {
       kind,

@@ -37,7 +37,7 @@
 //
 // Example:
 //   npm run package:candidate
-//   node install-local.mjs install dist/ambicode-0.3.0
+//   node install-local.mjs install dist/ambicode-0.3.1
 //   node install-local.mjs inspect
 //   node install-local.mjs uninstall
 import { execaSync } from 'execa';
