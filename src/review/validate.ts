@@ -187,19 +187,28 @@ function resolveSupporting(
   };
 }
 
-/** Three lines of context around the location, from the snapshot or the diff. */
+const SNIPPET_RADIUS = 2;
+/** Marks the line the comment is anchored to. */
+const COMMENT_MARKER = ' <---';
+
+/** Up to five lines around the location from the snapshot, or the one line from the diff. */
 function snippetFor(located: Located, snapshotText: ReadonlyMap<string, string>): string {
   const { file, location } = located;
 
   if (location.side === 'new' && file.newPath !== null) {
     const text = snapshotText.get(file.newPath);
     if (text !== undefined) {
-      const lines = text.split('\n');
-      const from = Math.max(0, location.line - 2);
-      const to = Math.min(lines.length, location.line + 1);
+      // A CR left before the marker renders as a line break inside <pre>.
+      const lines = text.split(/\r?\n/);
+      if (lines.at(-1) === '') lines.pop();
+      const from = Math.max(0, location.line - 1 - SNIPPET_RADIUS);
+      const to = Math.min(lines.length, location.line + SNIPPET_RADIUS);
       return lines
         .slice(from, to)
-        .map((value, offset) => `${from + offset + 1}: ${value}`)
+        .map((value, offset) => {
+          const number = from + offset + 1;
+          return `${number}: ${value}${number === location.line ? COMMENT_MARKER : ''}`;
+        })
         .join('\n');
     }
   }
@@ -207,7 +216,7 @@ function snippetFor(located: Located, snapshotText: ReadonlyMap<string, string>)
   // Deleted or excluded content is not mirrored; the pinned diff still holds the
   // exact line, which is better evidence than nothing and still not the model's.
   const line = lineAt(file, location.side, location.line);
-  return line === null ? '' : `${location.line}: ${line.text}`;
+  return line === null ? '' : `${location.line}: ${line.text}${COMMENT_MARKER}`;
 }
 
 /**

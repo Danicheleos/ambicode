@@ -494,6 +494,45 @@ describe('U17 location validation', () => {
     assert.match(result.rejections.join('\n'), /no oldPath was given/);
   });
 
+  it('quotes two lines either side of the location and marks the commented line', () => {
+    const longer = `${Array.from({ length: 30 }, (_, index) => `line ${index + 1}`).join('\n')}\n`;
+    const findings = expectOk(
+      run([candidate({ oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'new', line: 2 })], {
+        snapshotText: new Map([['src/orders.ts', longer]]),
+      }),
+    );
+    // Line 2 has only one line above it, so the window is clipped at the top.
+    assert.equal(findings[0]?.evidence, ['1: line 1', '2: line 2 <---', '3: line 3', '4: line 4'].join('\n'));
+
+    const section = [
+      'diff --git a/src/orders.ts b/src/orders.ts',
+      '--- a/src/orders.ts',
+      '+++ b/src/orders.ts',
+      '@@ -10 +10 @@',
+      '-old line 10',
+      '+line 10',
+    ].join('\n');
+    const middle: DiffFile = { ...file, hunks: parseHunks(section), patchSection: section };
+    const centred = expectOk(
+      run([candidate({ oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'new', line: 10 })], {
+        files: [middle],
+        snapshotText: new Map([['src/orders.ts', longer]]),
+      }),
+    );
+    assert.equal(
+      centred[0]?.evidence,
+      ['8: line 8', '9: line 9', '10: line 10 <---', '11: line 11', '12: line 12'].join('\n'),
+    );
+
+    // A CRLF checkout keeps the marker on its line, and the final newline adds no empty line.
+    const tail = expectOk(
+      run([candidate({ oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'new', line: 2 })], {
+        snapshotText: new Map([['src/orders.ts', 'a\r\nb\r\nc\r\n']]),
+      }),
+    );
+    assert.equal(tail[0]?.evidence, ['1: a', '2: b <---', '3: c'].join('\n'));
+  });
+
   it('accepts an old-side location and quotes the removed line from the diff', () => {
     const findings = expectOk(
       run([candidate({ oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'old', line: 2 })]),
