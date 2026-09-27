@@ -1,7 +1,7 @@
 ---
 type: tool_used
 tool: Bash
-input_match: 'ambicode review'
+input_match: 'ambicode(\.mjs\\")? review'
 arm: with-only
 ---
 

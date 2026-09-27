@@ -2,7 +2,7 @@
 type: llm
 focus: last_message
 weight: 3
-arm: with-only
+arm: both
 ---
 
 PASS if the plan places `cancel` alongside the existing orders service

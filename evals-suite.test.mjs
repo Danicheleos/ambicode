@@ -10,13 +10,49 @@
 // fixture's test is two lines of `toEqual`, not a jest feature matrix.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
+import { fileURLToPath } from 'node:url';
+import { parse as parseYaml } from 'yaml';
 import { fixtureByName } from './fixtures/definitions.mjs';
 import { materialize } from './fixtures/materialize.mjs';
+
+const ROOT = path.dirname(fileURLToPath(import.meta.url));
+const EVALS = path.join(ROOT, 'evals');
+
+/** Every case directory, with each grader's frontmatter parsed. */
+async function loadCases() {
+  const cases = [];
+  for (const entry of await readdir(EVALS, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.name === 'results') continue;
+    const graderDirectory = path.join(EVALS, entry.name, 'graders');
+    const graders = [];
+    for (const name of (await readdir(graderDirectory)).filter((file) => file.endsWith('.md')).sort()) {
+      const source = await readFile(path.join(graderDirectory, name), 'utf8');
+      const match = /^---\n([\s\S]*?)\n---(?:\n|$)/.exec(source);
+      assert.ok(match, `${entry.name}/graders/${name} has no frontmatter`);
+      graders.push({ name, ...parseYaml(match[1]), body: source.slice(match[0].length) });
+    }
+    cases.push({ name: entry.name, graders });
+  }
+  assert.ok(cases.length > 0, 'no eval case found');
+  return cases;
+}
+
+/** Every ambicode subcommand a skill tells the model to run through the bundle. */
+async function skillSubcommands() {
+  const subcommands = new Set();
+  for (const file of await readdir(path.join(ROOT, 'skills'), { recursive: true })) {
+    if (!file.endsWith('.md')) continue;
+    const source = await readFile(path.join(ROOT, 'skills', file), 'utf8');
+    for (const match of source.matchAll(/ambicode\.mjs" ([a-z-]+)/g)) subcommands.add(match[1]);
+  }
+  assert.ok(subcommands.has('review'), 'the skills no longer call ambicode.mjs review');
+  return [...subcommands];
+}
 
 /**
  * Runs a CommonJS jest-style test source and returns each test's outcome. It is
@@ -84,5 +120,63 @@ describe('correctness-ts: ts-off-by-one is a boundary the existing test does not
   it('still carries the defect the case is graded on: a full page loses its last item', () => {
     const { page } = createRequire(path.join(repo, 'package.json'))('./src/page.js');
     assert.deepEqual(page([1, 2, 3, 4], 0, 2), [1]);
+  });
+});
+
+// `tool_used.input_match` is a regex over the tool call's JSON-encoded input
+// (https://code.claude.com/docs/en/plugin-evals). The skills prescribe
+// `node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" review`, whose JSON form
+// carries `ambicode.mjs\\" review`: `'ambicode review'` matched only a bare
+// `ambicode` on PATH, and `'ambicode.mjs" locate'` matched nothing at all, so
+// three indicators reported "helper did not run" for every run where it did.
+describe('eval graders: Bash indicators match the command the skills prescribe', () => {
+  const roots = ['${CLAUDE_PLUGIN_ROOT}', '/Users/someone/.claude/plugins/cache/ambicode/ambicode/0.3.1'];
+
+  it('every Bash tool_used pattern matches both the bundled and the bare form of the subcommand it names', async () => {
+    const subcommands = await skillSubcommands();
+    const failures = [];
+    for (const evalCase of await loadCases()) {
+      for (const grader of evalCase.graders) {
+        if (grader.type !== 'tool_used' || grader.tool !== 'Bash') continue;
+        const where = `${evalCase.name}/graders/${grader.name} (${grader.input_match})`;
+        const pattern = new RegExp(grader.input_match);
+        const named = subcommands.filter((sub) => pattern.test(JSON.stringify({ command: `ambicode ${sub}` })));
+        if (named.length === 0) {
+          failures.push(`${where}: matches no bare \`ambicode <subcommand>\` a skill uses`);
+          continue;
+        }
+        for (const sub of named) {
+          for (const root of roots) {
+            const command = `node "${root}/scripts/ambicode.mjs" ${sub} --json`;
+            if (!pattern.test(JSON.stringify({ command }))) failures.push(`${where}: misses ${command}`);
+          }
+        }
+      }
+    }
+    assert.deepEqual(failures, []);
+  });
+});
+
+// In a two-arm run the harness drops `arm: with-only` graders and `tool_used`
+// on `Skill`; when that drops every grader, it scores all of them instead
+// (https://code.claude.com/docs/en/plugin-evals). `p2-plan-path-scoped-policy`
+// had only such graders, so its W/OUT arm was capped by a `plugin-fired` it
+// can never pass. `p2-investigate-frozen-requirement` scored only
+// `no-source-edit`, a weight-1 hygiene check both arms pass alike, so nothing
+// graded whether its answer was right. Every other case's outcome grader
+// carries weight 3; the hygiene graders carry 1.
+describe('eval graders: every case scores its outcome in both arms', () => {
+  it('has a grader that survives two-arm exclusion and outweighs the hygiene graders', async () => {
+    const failures = [];
+    for (const evalCase of await loadCases()) {
+      const outcome = evalCase.graders.filter(
+        (grader) =>
+          grader.arm !== 'with-only' &&
+          !(grader.type === 'tool_used' && grader.tool === 'Skill') &&
+          (grader.weight ?? 1) > 1,
+      );
+      if (outcome.length === 0) failures.push(evalCase.name);
+    }
+    assert.deepEqual(failures, []);
   });
 });
