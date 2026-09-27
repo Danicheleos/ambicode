@@ -2,19 +2,29 @@
 /**
  * Replays a fixture definition into a real git repository.
  *
- *   node fixtures/materialize.mjs <name> <destination>
- *   node fixtures/materialize.mjs --all <destination-directory>
+ *   node fixtures/materialize.mjs <name> <destination> [--ambicode-init]
+ *   node fixtures/materialize.mjs --all <destination-directory> [--ambicode-init]
  *   node fixtures/materialize.mjs --list
  *
  * The destination must be empty. Nothing is installed and no project script runs.
+ *
+ * --ambicode-init runs the built `ambicode init` right after the fixture's last
+ * commit and commits what it wrote, before the uncommitted change is replayed.
+ * Eval cases need it: without a config `ambicode review` stops at
+ * `config-missing`, and running init inside the measured session puts the
+ * config file and its `.gitignore` lines into the change under review.
  */
 import { execFile } from 'node:child_process';
-import { mkdir, readdir, rm, utimes, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { FIXTURES, fixtureByName } from './definitions.mjs';
 
 const run = promisify(execFile);
+
+/** The built CLI, which is what an installed plugin runs; `scripts/` is build output. */
+const BUNDLE = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'ambicode.mjs');
 
 async function git(cwd, args) {
   await run('git', args, {
@@ -49,7 +59,26 @@ async function settle(destination) {
   await git(destination, ['update-index', '--refresh', '-q']);
 }
 
-export async function materialize(fixture, destination) {
+/** Writes the configuration `ambicode init` detects and commits it, index untouched otherwise. */
+async function commitAmbicodeInit(destination) {
+  try {
+    await stat(BUNDLE);
+  } catch (error) {
+    if (error.code === 'ENOENT') throw new Error(`${BUNDLE} does not exist; run "npm run build" first.`);
+    throw error;
+  }
+  await run(process.execPath, [BUNDLE, 'init', '--json'], { cwd: destination });
+  await git(destination, ['add', '-A']);
+  await git(destination, ['commit', '-q', '-m', 'configure ambicode']);
+  await settle(destination);
+}
+
+export async function materialize(fixture, destination, { ambicodeInit = false } = {}) {
+  const lastCommit = fixture.steps.findLastIndex((step) => step.commit !== undefined);
+  if (ambicodeInit && lastCommit === -1) {
+    throw new Error(`fixture ${fixture.name} has no commit to configure on top of`);
+  }
+
   await mkdir(destination, { recursive: true });
   const existing = await readdir(destination);
   if (existing.length > 0) {
@@ -64,7 +93,7 @@ export async function materialize(fixture, destination) {
   // ignore file does not get a say in what it contains.
   await git(destination, ['config', 'core.excludesFile', '/dev/null']);
 
-  for (const step of fixture.steps) {
+  for (const [index, step] of fixture.steps.entries()) {
     if (step.write !== undefined) {
       for (const [relative, contents] of Object.entries(step.write)) {
         const absolute = path.join(destination, relative);
@@ -90,6 +119,7 @@ export async function materialize(fixture, destination) {
       await git(destination, ['add', '-A']);
       await git(destination, ['commit', '-q', '-m', step.commit]);
       await settle(destination);
+      if (ambicodeInit && index === lastCommit) await commitAmbicodeInit(destination);
     }
     if (step.branch !== undefined) {
       await git(destination, ['checkout', '-q', '-b', step.branch]);
@@ -102,7 +132,9 @@ export async function materialize(fixture, destination) {
   return destination;
 }
 
-async function main(argv) {
+async function main(rawArgv) {
+  const options = { ambicodeInit: rawArgv.includes('--ambicode-init') };
+  const argv = rawArgv.filter((value) => value !== '--ambicode-init');
   if (argv.includes('--list') || argv.length === 0) {
     for (const fixture of FIXTURES) {
       process.stdout.write(`${fixture.name.padEnd(24)} ${fixture.summary}\n`);
@@ -119,7 +151,7 @@ async function main(argv) {
     }
     for (const fixture of FIXTURES) {
       const destination = path.resolve(root, fixture.name);
-      await materialize(fixture, destination);
+      await materialize(fixture, destination, options);
       process.stdout.write(`${fixture.name}\t${destination}\n`);
     }
     return 0;
@@ -135,7 +167,7 @@ async function main(argv) {
     process.stderr.write('a destination directory is required\n');
     return 2;
   }
-  await materialize(fixture, path.resolve(destination));
+  await materialize(fixture, path.resolve(destination), options);
   process.stdout.write(`${path.resolve(destination)}\n`);
   return 0;
 }

@@ -42,6 +42,23 @@ async function loadCases() {
   return cases;
 }
 
+/** Each case's scaffold source, and the fixture it materializes. */
+async function loadScaffolds() {
+  const scaffolds = [];
+  for (const entry of await readdir(EVALS, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.name === 'results') continue;
+    const source = await readFile(path.join(EVALS, entry.name, 'scaffold.sh'), 'utf8');
+    const fixture = /materialize\.mjs" ([a-z0-9-]+)/.exec(source)?.[1];
+    assert.ok(fixture, `${entry.name}/scaffold.sh materializes no fixture`);
+    scaffolds.push({ name: entry.name, source, fixture });
+  }
+  return scaffolds;
+}
+
+function gitOutput(cwd, args) {
+  return execFileSync('git', args, { cwd, encoding: 'utf8' });
+}
+
 /** Every ambicode subcommand a skill tells the model to run through the bundle. */
 async function skillSubcommands() {
   const subcommands = new Set();
@@ -178,5 +195,94 @@ describe('eval graders: every case scores its outcome in both arms', () => {
       if (outcome.length === 0) failures.push(evalCase.name);
     }
     assert.deepEqual(failures, []);
+  });
+});
+
+// Without a config, `ambicode review` stops at `config-missing`
+// (src/config/load.ts), so the `with` arm ran `init` inside the measured run:
+// setup turns out of `max_turns`, and a review target that also held the
+// config file and the `.gitignore` lines init appends — neither is excluded
+// (src/snapshot/exclusions.ts). For `clean-ts`/`clean-py`, where any finding
+// is a false positive, that is the plugin reviewing its own setup.
+describe('eval scaffolds: every fixture is configured before its change', () => {
+  let scratch;
+
+  before(async () => {
+    scratch = await mkdtemp(path.join(tmpdir(), 'ambicode-evals-init-'));
+  });
+
+  after(async () => {
+    await rm(scratch, { recursive: true, force: true });
+  });
+
+  it('passes --ambicode-init in every scaffold that does not write its own config', async () => {
+    const missing = (await loadScaffolds())
+      .filter((scaffold) => !scaffold.source.includes('.ambicode/config.yaml'))
+      .filter((scaffold) => !/materialize\.mjs" .*--ambicode-init/.test(scaffold.source))
+      .map((scaffold) => scaffold.name);
+    assert.deepEqual(missing, []);
+  });
+
+  it('commits the config on top of the fixture and leaves the uncommitted change byte-identical', async () => {
+    const fixtures = [...new Set((await loadScaffolds()).map((scaffold) => scaffold.fixture))].sort();
+    // Materialized concurrently: one after another this block took 13.0 s in
+    // the unit run, the slowest in the suite; concurrently 7.6 s. The whole run
+    // stayed at ~17.3 s either way, since other test files overlap it.
+    const pairs = await Promise.all(
+      fixtures.map(async (name) => ({
+        name,
+        plain: await materialize(fixtureByName(name), path.join(scratch, name, 'plain')),
+        configured: await materialize(fixtureByName(name), path.join(scratch, name, 'configured'), {
+          ambicodeInit: true,
+        }),
+      })),
+    );
+    for (const { name, plain, configured } of pairs) {
+      gitOutput(configured, ['ls-files', '--error-unmatch', '.ambicode/config.yaml']);
+      assert.equal(
+        gitOutput(configured, ['rev-parse', 'HEAD~1^{tree}']),
+        gitOutput(plain, ['rev-parse', 'HEAD^{tree}']),
+        `${name}: the commit under the config commit is not the fixture's own`,
+      );
+      assert.deepEqual(
+        gitOutput(configured, ['diff', '--name-only', 'HEAD~1', 'HEAD']).trim().split('\n'),
+        ['.ambicode/config.yaml', '.gitignore'],
+        `${name}: the config commit touches more than init writes`,
+      );
+      for (const args of [
+        ['status', '--porcelain=v1', '--untracked-files=all'],
+        ['diff', '--cached'],
+        ['diff'],
+      ]) {
+        assert.equal(gitOutput(configured, args), gitOutput(plain, args), `${name}: git ${args.join(' ')} differs`);
+      }
+    }
+  });
+
+  it('keeps clean-ts\'s same-length revert invisible and its staged/unstaged split', async () => {
+    const repo = await materialize(fixtureByName('ts-staged-unstaged'), path.join(scratch, 'split'), {
+      ambicodeInit: true,
+    });
+    // The index still holds the staged `99`; only the work tree is back to the
+    // committed bytes, so the file is in `status` but not in the working target.
+    assert.deepEqual(gitOutput(repo, ['diff', 'HEAD', '--name-only']).trim().split('\n'), [
+      'src/staged.ts',
+      'src/unstaged.ts',
+    ]);
+    const status = gitOutput(repo, ['status', '--porcelain=v1']);
+    assert.match(status, /^M  src\/staged\.ts$/m);
+    assert.match(status, /^ M src\/unstaged\.ts$/m);
+    assert.match(status, /^MM src\/reverted\.ts$/m);
+  });
+
+  it('takes the option on the command line the scaffolds use', () => {
+    const repo = path.join(scratch, 'cli');
+    execFileSync(
+      process.execPath,
+      [path.join(ROOT, 'fixtures', 'materialize.mjs'), 'ts-no-tests', repo, '--ambicode-init'],
+      { encoding: 'utf8' },
+    );
+    gitOutput(repo, ['ls-files', '--error-unmatch', '.ambicode/config.yaml']);
+    assert.equal(gitOutput(repo, ['log', '-1', '--format=%s']).trim(), 'configure ambicode');
   });
 });

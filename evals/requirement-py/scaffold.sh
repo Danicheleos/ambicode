@@ -4,7 +4,7 @@
 # The requirement evidence is frozen here because an eval session holds no
 # MCP connection (doc 07). Live retrieval is M05, not this case.
 set -e
-node "$(cd "$(dirname "$0")/../.." && pwd)/fixtures/materialize.mjs" py-requirement-mismatch "$PWD/repo"
+node "$(cd "$(dirname "$0")/../.." && pwd)/fixtures/materialize.mjs" py-requirement-mismatch "$PWD/repo" --ambicode-init
 cat > "$PWD/requirement-evidence.json" <<'JSON'
 {
   "mcpServer": "frozen-evidence",
