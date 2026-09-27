@@ -304,7 +304,7 @@ export const FIXTURES = [
           'src/page.js':
             'module.exports.page = (items, index, size) => items.slice(index * size, (index + 1) * size);\n',
           'tests/page.test.js':
-            "const { page } = require('../src/page');\n\ntest('first page', () => {\n  expect(page([1, 2, 3, 4], 0, 2)).toEqual([1, 2]);\n});\n",
+            "const { page } = require('../src/page');\n\ntest('last page', () => {\n  expect(page([1, 2, 3], 1, 2)).toEqual([3]);\n});\n",
         },
       },
       { commit: 'init' },

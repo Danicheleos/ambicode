@@ -6,9 +6,10 @@ Fixture: `ts-off-by-one`
 
 The pre-existing uncommitted change made `page()` end its slice at
 `index * size + size - 1`, dropping the last item of every page — a genuine
-defect the existing test does not cover (it only asserts a two-item first
-page). The task itself ("add pageCount") is small and independent of this
-defect, but because it touches the same file, `ambicode review`'s target
+defect the existing test does not cover (it only asserts a one-item last
+page, which the shortened slice still returns). The task itself ("add
+pageCount") is small and independent of this defect, but because it touches
+the same file, `ambicode review`'s target
 covers the whole uncommitted diff, so the defect is available for the
 reviewer to find.
 
