@@ -7,30 +7,19 @@ import { positionForLocation } from '../providers/position.ts';
 import { contentHash } from '../util/hash.ts';
 
 /**
- * Publishable positions are derived once, while the pinned diff is still in
- * hand, and written beside the review result.
- *
- * A review is reopened long after its temporary snapshot is gone, and the merge
- * request has usually moved on by then. Recomputing a position at that point
- * would place a comment against code the reviewer never saw, so it is never
- * done: a finding whose position was not derived here is displayed but cannot
- * be selected (doc 03 P1.6).
+ * Derived once, while the pinned diff is in hand. Never recomputed on reopen, when
+ * the merge request has moved on: a finding without a position is shown but not
+ * selectable.
  */
 
 export interface DerivePositionsOptions {
   reviewId: string;
   target: RemoteTarget;
-  /** The pinned diff, the authority for which lines exist on which side. */
   files: readonly DiffFile[];
   findings: readonly Finding[];
   derivedAt: string;
 }
 
-/**
- * A digest of everything that decides where a comment lands. It goes into the
- * hidden marker, so reconciliation can tell "the comment AMBICODE posted for
- * this finding, here" from "a comment quoting the same text somewhere else".
- */
 export function positionDigest(
   reviewId: string,
   findingId: string,

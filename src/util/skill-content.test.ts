@@ -5,27 +5,13 @@ import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
-/**
- * Structural checks on the shipped skill content itself (doc 04 P2.1). These
- * do not invoke the real `claude plugin validate`/`details` — that is a
- * native-CLI check the test guide (doc 07) keeps out of `test:unit` — but a
- * skill directory's name and its `SKILL.md` frontmatter are exactly what that
- * command reads, so a regression here is the same regression it would report.
- */
-
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SKILLS_DIR = path.join(repositoryRoot, 'skills');
 
 /**
- * Parses a shipped `SKILL.md`'s frontmatter with the same YAML parser Claude
- * Code uses, instead of matching lines with a regex. A per-line regex happily
- * reads a value the YAML spec rejects — an unquoted plain scalar containing
- * `": "` — which is exactly how two skills shipped in the 0.3.1 candidate with
- * no `name` and no `description` at all while this test stayed green (R1
- * defect 1). The `---` delimiters are not themselves YAML, so they are still
- * split off by hand, but with `\r?\n`: a Windows checkout of a repository
- * without `.gitattributes` has CRLF, and the LF-only form silently matched
- * nothing there (R1 defect 3).
+ * Parsed with the YAML parser Claude Code uses: a per-line regex accepts values YAML
+ * rejects, such as an unquoted scalar containing `": "`. The `---` delimiters are split
+ * with `\r?\n`, since a Windows checkout without `.gitattributes` has CRLF.
  */
 function frontmatter(content: string, what: string): Record<string, unknown> {
   const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content);
@@ -43,7 +29,6 @@ function frontmatter(content: string, what: string): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
-/** Reads one frontmatter key Claude Code relies on, and proves it is present. */
 function requiredString(fm: Record<string, unknown>, key: string, what: string): string {
   const value = fm[key];
   assert.equal(typeof value, 'string', `${what}: frontmatter must declare a string ${key}`);
@@ -51,7 +36,6 @@ function requiredString(fm: Record<string, unknown>, key: string, what: string):
   return value as string;
 }
 
-/** `${CLAUDE_PLUGIN_ROOT}/skills/shared/requirements-mcp.md` (doc 04 P2.2 correction B). */
 const PLUGIN_ROOT_SHARED_REFERENCE = '${CLAUDE_PLUGIN_ROOT}/skills/shared/requirements-mcp.md';
 
 describe('P2.2/P2.3 shipped skill content', () => {
@@ -70,19 +54,15 @@ describe('P2.2/P2.3 shipped skill content', () => {
     }
     assert.deepEqual(skillDirs.sort(), ['init', 'investigate', 'plan', 'review', 'rules', 'task']);
 
-    // Being registered is not the same as being triggerable: Claude Code
-    // matches on `name` and `description`, and a skill whose frontmatter fails
-    // to parse loads with neither. Assert the parse and both keys, not just a
-    // line that looks like a name.
+    // A skill whose frontmatter fails to parse is registered but loads with no `name`
+    // or `description`, so it can never trigger.
     for (const dir of skillDirs) {
       const content = await readFile(path.join(SKILLS_DIR, dir, 'SKILL.md'), 'utf8');
       const what = `${dir}/SKILL.md`;
       const fm = frontmatter(content, what);
-      // The directory name is only a fallback and an unstable one for a cached
-      // plugin, so every skill sets `name` explicitly (doc 08, "Skills").
+      // The directory name is only an unstable fallback for a cached plugin.
       assert.equal(requiredString(fm, 'name', what), dir, `${what} must declare name: ${dir}`);
       requiredString(fm, 'description', what);
-      // Only the two skills that take an argument declare a hint for it.
       if (dir === 'plan' || dir === 'task' || dir === 'rules') requiredString(fm, 'argument-hint', what);
     }
   });
@@ -91,22 +71,19 @@ describe('P2.2/P2.3 shipped skill content', () => {
     for (const dir of ['init', 'investigate', 'plan', 'review', 'rules', 'task']) {
       const what = `${dir}/SKILL.md`;
       const fm = frontmatter(await readFile(path.join(SKILLS_DIR, dir, 'SKILL.md'), 'utf8'), what);
-      // `allowed-tools` pre-approves for the skill's turn, it does not
-      // restrict; a bare `Bash` would silently pre-approve every shell
-      // command, so the grant must stay scoped to what the body instructs.
+      // `allowed-tools` pre-approves rather than restricts: a bare `Bash` would
+      // pre-approve every shell command, so the grant stays scoped.
       const tools = requiredString(fm, 'allowed-tools', what);
       assert.ok(/Bash\(.+\)/.test(tools), `${what}: Bash grant must be scoped`);
       assert.ok(!/(?:^|,)\s*Bash\s*(?:,|$)/.test(tools), `${what}: no unscoped Bash grant`);
-      // Write/Edit grants carry the path boundary the skill body promises
-      // (investigate/plan: its task note; rules: policies + config; init:
-      // config; task edits anything in the checkout, so its bound is `**` —
-      // the repository — rather than a directory).
+      // Write/Edit grants carry the path boundary the skill body promises; `task`
+      // edits anything in the checkout, so its bound is `**`.
       for (const grant of tools.split(',').map((entry) => entry.trim())) {
         if (!/^(Write|Edit)/.test(grant)) continue;
         assert.ok(/^(Write|Edit)\(.+\)/.test(grant), `${what}: ${grant} must be path-scoped`);
       }
-      // Setup-time skills are run by the user, never fired by the model, so
-      // their descriptions stay out of the always-on skill list.
+      // Setup-time skills are run by the user, never by the model, so their
+      // descriptions stay out of the always-on skill list.
       const setupOnly = dir === 'init' || dir === 'rules';
       assert.equal(
         fm['disable-model-invocation'] === true,
@@ -130,16 +107,13 @@ describe('P2.2/P2.3 shipped skill content', () => {
         content.includes(PLUGIN_ROOT_SHARED_REFERENCE),
         `${name}/SKILL.md must point at the shared MCP acquisition procedure through \${CLAUDE_PLUGIN_ROOT}, not a product-repository-relative path`,
       );
-      // No bare, non-substituted reference anywhere in the file: a plugin
-      // loaded from Claude Code's own cache has no product repository for a
+      // A plugin loaded from Claude Code's cache has no product repository for a
       // relative "skills/shared/..." path to resolve against.
       const bareReference = /(?<!\$\{CLAUDE_PLUGIN_ROOT\}\/)skills\/shared\/requirements-mcp\.md/;
       assert.ok(
         !bareReference.test(content),
         `${name}/SKILL.md references skills/shared/requirements-mcp.md by a path relative to the product repository`,
       );
-      // The full retrieval procedure (the numbered evidence-file steps) is not
-      // copied into any of the four skills; only the shared file has it.
       assert.ok(
         !/status.*is.*`retrieved`, `unavailable`, `forbidden`/s.test(content),
         `${name}/SKILL.md appears to duplicate the shared evidence-file procedure`,
@@ -161,10 +135,6 @@ describe('P2.2/P2.3 shipped skill content', () => {
   });
 
   it('no skill tells anyone to create, keep alive, or delete a requirement evidence file (R2 change 4)', async () => {
-    // The file lifecycle was roughly 40 lines across task, the shared
-    // procedure and review, and every line of it existed only because the
-    // envelope had to survive between two commands. `--evidence -` removes
-    // the object, so the protocol around it has nothing left to govern.
     const files = ['shared/requirements-mcp.md', 'task/SKILL.md', 'review/SKILL.md', 'plan/SKILL.md', 'investigate/SKILL.md', 'rules/SKILL.md'];
     for (const relative of files) {
       const content = (await readFile(path.join(SKILLS_DIR, relative), 'utf8')).replace(/\s+/g, ' ');
@@ -182,17 +152,11 @@ describe('P2.2/P2.3 shipped skill content', () => {
   });
 
   it('investigate documents its single note-writing boundary', async () => {
-    // doc 04 P2.2 correction E: the note-path boundary is documented here in
-    // prose, not enforced by a TypeScript helper — a skill's Write tool
-    // cannot call one, so `src/notes/path.ts` (unreachable from any real
-    // boundary) was removed rather than kept to justify a helper nothing calls.
     const investigate = await readFile(path.join(SKILLS_DIR, 'investigate', 'SKILL.md'), 'utf8');
     assert.match(investigate, /\.ambicode\/task\/<slug>\/investigation_/);
   });
 
   it('saves the investigation note unconditionally, without asking', async () => {
-    // Run 3c2188c8 discarded a 16,867-byte answer: the skill saved "only when
-    // the user asks" and nothing ever offered. plan step 3 reads this note.
     const investigate = (await readFile(path.join(SKILLS_DIR, 'investigate', 'SKILL.md'), 'utf8')).replace(
       /\s+/g,
       ' ',
@@ -204,13 +168,10 @@ describe('P2.2/P2.3 shipped skill content', () => {
       /only when the user asks you to save one/i,
       'investigate/SKILL.md must not gate the note on a request the user cannot know to make',
     );
-    // The file is a copy of the answer, not a replacement for it.
     assert.match(investigate, /in addition to the answer, never instead of it/i);
   });
 
   it('tells plan, task and investigate to pass the terms prepare needs for a shortlist (R4)', async () => {
-    // No argv template named `--term`, so a question with no ticket got no
-    // shortlist at all (run 3c2188c8). The option existed; nothing passed it.
     for (const name of ['plan', 'task', 'investigate']) {
       const content = await readFile(path.join(SKILLS_DIR, name, 'SKILL.md'), 'utf8');
       assert.match(content, /--term <term>/, `${name}/SKILL.md must offer --term in its prepare argv`);
@@ -236,8 +197,8 @@ describe('P2.2/P2.3 shipped skill content', () => {
   it('plan\'s public interface takes a repeatable --requirement, never a plural --requirements', async () => {
     const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
     assert.match(plan, /--requirement <url>/);
-    // No *usage example* (fenced code, or a frontmatter argument-hint) shows a
-    // plural flag; prose is allowed to name it only to explicitly rule it out.
+    // No usage example (fenced code or an argument-hint) may show a plural flag;
+    // prose may name it only to rule it out.
     const codeBlocks = [...plan.matchAll(/```[\s\S]*?```/g)].map((match) => match[0]);
     const hint = requiredString(frontmatter(plan, 'plan/SKILL.md'), 'argument-hint', 'plan/SKILL.md');
     for (const usage of [...codeBlocks, hint]) {
@@ -247,8 +208,6 @@ describe('P2.2/P2.3 shipped skill content', () => {
 
   it('plan writes each iteration as a brief task can start from, not a one-line title', async () => {
     const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
-    // plan_2026-09-24T09-19 gave each iteration one or two sentences of
-    // approach, which was too thin to implement from.
     for (const field of ['Goal', 'Changes', 'Tests', 'Accept', 'Checks', 'Leaves out']) {
       assert.match(plan, new RegExp(`^  - \\*${field}\\*:`, 'm'), `plan/SKILL.md iteration brief lacks *${field}*`);
     }
@@ -268,11 +227,8 @@ describe('P2.2/P2.3 shipped skill content', () => {
 
   it('plan names an acceptance gate that works outside plan mode, and offers a decline', async () => {
     const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
-    // A real run was not in plan mode, found `ExitPlanMode` to be the only
-    // mechanism the skill named, and fell back to printing the roadmap with no
-    // control on it — the human had to guess the word that ended the wait. Both
-    // paths must be named, and the decline with them: a gate whose only answer
-    // is yes is not a gate.
+    // Outside plan mode `ExitPlanMode` is not available, so both paths and the decline
+    // must be named: a gate whose only answer is yes is not a gate.
     assert.match(plan, /ExitPlanMode/);
     assert.match(plan, /AskUserQuestion/);
     assert.match(plan, /\bReject\b/);
@@ -307,8 +263,6 @@ describe('P2.2/P2.3 shipped skill content', () => {
       assert.match(normalized, /primary request is the complete argument span before the first recognized/i, `${name}/SKILL.md`);
       assert.match(normalized, /multiword/i, `${name}/SKILL.md`);
       assert.match(normalized, /preserve its whitespace/i, `${name}/SKILL.md`);
-      // The specific defect this correction fixes: describing the primary
-      // request as "the first token" of $ARGUMENTS.
       assert.ok(
         !/first token \(or the whole line/i.test(normalized),
         `${name}/SKILL.md must not describe the primary request as the first token`,
@@ -333,15 +287,10 @@ describe('P2.2/P2.3 shipped skill content', () => {
       /never.*(report|treat).*`observed`.*or.*`inherited`.*(content|guidance|rule).*(as a )?(policy )?violation/is,
       'must say observed/inherited guidance is never itself a policy violation',
     );
-    // The specific defect the original correction fixed: grouping observed
-    // together with team as if both were already "actual expectations".
     assert.ok(
       !/`team`\/`observed`/.test(content),
       'must not conflate "team" and "observed" as if both were approved requirements',
     );
-    // Workflow-neutral: nothing reviewer-only (finding/output rules) leaked
-    // into the shared contract (doc 04 P2.4 correction A5) — that stays in
-    // reviewer-role.md.
     assert.ok(!/suggestedComment|coverageNotes/i.test(content), 'must not carry reviewer-only finding/output vocabulary');
   });
 
@@ -353,16 +302,11 @@ describe('P2.2/P2.3 shipped skill content', () => {
         /sharedOperatingContract/,
         `${name}/SKILL.md must point at prepare's sharedOperatingContract field`,
       );
-      // R2 change 2: the text arrives once per session through the plugin
-      // hook, so a skill that still expected `.content` on every call would
-      // be describing a field the compact output no longer carries.
       assert.doesNotMatch(
         content,
         /sharedOperatingContract\.content/,
         `${name}/SKILL.md must not expect the contract's text on every prepare call`,
       );
-      // The full authority-label definitions are no longer copied into each
-      // skill file; the canonical contract is the one place that owns them.
       assert.ok(
         !/`observed`.*evidence of existing project practice/is.test(content),
         `${name}/SKILL.md must not duplicate the authority-label definitions the shared contract now owns`,
@@ -382,9 +326,6 @@ describe('P2.2/P2.3 shipped skill content', () => {
   });
 
   it('makes LSP-first navigation observable instead of silently claiming or skipping it', async () => {
-    // I4 dedup: each skill keeps the two evidence tokens its report format
-    // needs; the shared file owns the discipline around them (installed or
-    // recommended is not use, a broad search is reported with its reason).
     for (const name of ['plan', 'investigate', 'task']) {
       const content = await readFile(path.join(SKILLS_DIR, name, 'SKILL.md'), 'utf8');
       assert.match(content, /`navigation`/, `${name}/SKILL.md must read prepare's navigation contract`);
@@ -402,9 +343,6 @@ describe('P2.2/P2.3 shipped skill content', () => {
   });
 
   it('starts task and investigate from the boundary shortlist, and points at the shared shortlist discipline (R4, I4)', async () => {
-    // I4 dedup: the hypothesis/confirm/rejected/outside-it discipline lives
-    // once, in the shared file (asserted below); each skill starts from the
-    // shortlist and names the shared ownership.
     for (const name of ['investigate', 'task']) {
       const content = (await readFile(path.join(SKILLS_DIR, name, 'SKILL.md'), 'utf8')).replace(/\s+/g, ' ');
       assert.match(content, /navigation\.shortlist/, `${name}/SKILL.md must start from the shortlist`);
@@ -413,8 +351,6 @@ describe('P2.2/P2.3 shipped skill content', () => {
     const shared = (await readFile(path.join(SKILLS_DIR, 'shared', 'prepare-output.md'), 'utf8')).replace(/\s+/g, ' ');
     assert.match(shared, /hypothesis, not an answer/i);
     assert.match(shared, /confirm each candidate/i);
-    // Which candidates held, which did not, and what came from outside the
-    // list: without that the shortlist is unfalsifiable.
     assert.match(shared, /rejected/i);
     assert.match(shared, /outside it/i);
   });
@@ -424,10 +360,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.match(shared, /navigation\.shortlist/);
     assert.match(shared, /hypothesis, not an answer/i);
     assert.match(shared, /never "read everything"/i);
-    // The standalone command is reachable through the plugin root, like every
-    // other packaged entry point.
     assert.match(shared, /scripts\/ambicode\.mjs" locate <term>\.\.\. --json/);
-    // And it does not claim, anywhere, to build something it must not build.
     assert.match(shared, /no index, no cache, nothing written/i);
   });
 });
@@ -472,8 +405,6 @@ describe('P2.3 task skill', () => {
     assert.match(content, /ambicode prepare --activity task/);
     assert.match(content, /ambicode review/);
     assert.match(content, /do not create a second task-specific check selector, runner, or reviewer/i);
-    // I4 dedup: the no-second-parser rule lives once, in the shared file;
-    // task names the shared ownership beside its ambiguous-project line.
     assert.match(content, /no-second-parser/i);
     const shared = await readFile(path.join(SKILLS_DIR, 'shared', 'prepare-output.md'), 'utf8');
     assert.match(shared, /do not build a second requirement parser, policy resolver, or configuration\s+reader/i);
@@ -502,11 +433,8 @@ describe('P2.3 task skill', () => {
 
   it('never promises the review target is only this task\'s edits, and spends the dirty tree before the reviewer does', async () => {
     const content = await task();
-    // A run read "exactly this task's edits", took the target on trust, and
-    // shipped a review of a tree that had been dirty since before it started:
-    // 20 files reviewed, 16 its own, and both findings against the other four.
-    // The claim must not come back, and the warning has to land before the
-    // reviewer is paid for, not in the report afterwards.
+    // The target must not be taken on trust as "this task's edits": a tree dirty before
+    // the task started gets reviewed whole. The warning must land before the reviewer runs.
     assert.ok(
       !/exactly this task's edits/i.test(content),
       'task/SKILL.md must not claim the working-tree target is only this task\'s edits',
@@ -517,10 +445,8 @@ describe('P2.3 task skill', () => {
   });
   it('spends the reviewer only with the user\'s consent, and records a skip as unverified', async () => {
     const content = await task();
-    // One review of one change measured 276s: 73s of affected tests and 112s
-    // of isolated reviewer. That is the user's minute to spend, so the skill
-    // offers the skip rather than starting it — and a skip that reported as
-    // nothing-found would be worse than never asking.
+    // A review costs minutes of tests and reviewer, so the skill offers the skip rather
+    // than starting it; a skip must never report as nothing-found.
     assert.match(content, /Format what you wrote, then ask/i);
     assert.match(content, /offer the skip/i);
     assert.match(content, /a skipped, declined or incomplete independent review/i);
@@ -569,10 +495,8 @@ describe('P2.3 task skill', () => {
       content,
       /never commit,\s*\n?\s*push,\s*create a merge request,\s*publish a comment,\s*merge,\s*\n?\s*deploy,\s*or\s*transition a ticket automatically/i,
     );
-    // The description keeps a compact form of this for the model deciding
-    // whether to invoke this skill at all; the full list above stays in the
-    // body. The always-on description carries keywords, the body carries
-    // process.
+    // The description keeps a compact form of this list for deciding whether to invoke
+    // the skill; the body keeps the full list.
     const description = requiredString(frontmatter(content, 'task/SKILL.md'), 'description', 'task/SKILL.md');
     assert.match(description, /never commits, pushes, or publishes/i);
   });

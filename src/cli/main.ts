@@ -15,10 +15,6 @@ import type { ViewOutput } from './commands/view.ts';
 import { VIEW_OPTIONS } from './view-options.ts';
 import { validateTargetArgs } from './target-option.ts';
 
-/**
- * The helper the AMBICODE skills call. Every command prints a human summary or,
- * with `--json`, the same data structured, so the two cannot drift apart.
- */
 export const USAGE = `ambicode <command> [options]
 
   init                    Detect projects and write .ambicode/config.yaml.
@@ -157,10 +153,8 @@ type Rendered = {
   /** A command that keeps serving until this settles, e.g. the review page. */
   wait?: { until: Promise<string>; stop: (reason: string) => Promise<void> };
   /**
-   * A nonzero status for a command whose *finding* is the outcome, not a
-   * failure to run: `policy check` printed its report in full and then exits
-   * nonzero because a diagnostic was an error. An operator error still throws
-   * and still exits 2; this is neither that nor success.
+   * Nonzero when the *finding* is the outcome (e.g. `policy check` reported an
+   * error) rather than a failure to run; an operator error still throws and exits 2.
    */
   exitCode?: number;
 };
@@ -173,12 +167,8 @@ export async function main(argv: readonly string[]): Promise<number> {
     return 0;
   }
 
-  // The packaged PostToolUse/SessionStart/PostCompact/SessionEnd hook entry
-  // point (doc 04 P2.4 correction G): a completely different I/O contract
-  // from every other command — stdin JSON in, the exact hook JSON contract
-  // out, always exit 0, never the `{text, data}`/`--json` shape the rest of
-  // this dispatcher uses — so it is handled here, before `SPECS`/`dispatch`,
-  // rather than forced through option parsing it does not have.
+  // The hook entry point has its own I/O contract (stdin JSON in, hook JSON out,
+  // always exit 0), so it bypasses option parsing and `dispatch`.
   if (command === 'hook') {
     const { runHook, MAX_HOOK_INPUT_BYTES } = await import('../hook/run-hook.ts');
     const runtime = await createRuntime();
@@ -188,10 +178,8 @@ export async function main(argv: readonly string[]): Promise<number> {
     return 0;
   }
 
-  // The one two-word command. `policy`'s operands are paths, so the subcommand
-  // is recognized here, once, rather than by `runPolicy` inspecting its own
-  // operands: a path literally named "check" stays reachable as
-  // `policy -- check`, which does not match this.
+  // Recognized here rather than by `runPolicy` inspecting its operands, so a
+  // path literally named "check" stays reachable as `policy -- check`.
   const name = command === 'policy' && rest[0] === 'check' ? 'policy check' : command;
   const commandArgv = name === 'policy check' ? rest.slice(1) : rest;
 
@@ -202,12 +190,9 @@ export async function main(argv: readonly string[]): Promise<number> {
   }
 
   try {
-    // Parsed once, before any runtime exists: a bad argument must not reach a
-    // process, the filesystem or a provider, and a good one must not be re-judged.
+    // Parsed and validated before any runtime exists: a bad argument must not
+    // reach a process, the filesystem or a provider.
     const args = parseArgs(name, commandArgv, spec);
-    // Combination rules are decided here too, still before a runtime exists:
-    // a conflicting target must not create a temporary directory, start git,
-    // or reach a provider first.
     validateCombination(name, args);
     const rendered = await dispatch(name, args);
     process.stdout.write(
@@ -225,7 +210,6 @@ export async function main(argv: readonly string[]): Promise<number> {
 
 const VERSION_OPTIONS = { flags: ['json'] } as const;
 
-/** Every command accepts `--json`; the rest of each spec is the command's own. */
 export const SPECS: Record<string, OptionSpec | undefined> = {
   init: INIT_OPTIONS,
   config: CONFIG_OPTIONS,
@@ -239,7 +223,6 @@ export const SPECS: Record<string, OptionSpec | undefined> = {
   version: VERSION_OPTIONS,
 };
 
-/** Per-command rules that need more than one option to decide. */
 function validateCombination(command: string, args: ParsedArgs): void {
   if (command === 'review' || command === 'bundle') validateTargetArgs(command, args);
 }
@@ -262,14 +245,11 @@ async function dispatch(command: string, args: ParsedArgs): Promise<Rendered> {
     }
     case 'policy check': {
       const output = await runPolicyCheck(runtime, args);
-      // The report is the deliverable either way; the status says whether the
-      // candidate files are usable, so a skill can loop on it without parsing.
       return { text: renderPolicyCheck(output), data: output, ...(output.ok ? {} : { exitCode: 1 }) };
     }
     case 'locate': {
       const output = await runLocate(runtime, args);
-      // Compact, like `prepare`: its reader is a model deciding where to look,
-      // and indentation on a path list carries no information (R2).
+      // Compact: its reader is a model, and indentation on a path list carries no information.
       return { text: renderLocate(output), data: output, json: 'compact' };
     }
     case 'prepare': {
@@ -287,9 +267,8 @@ async function dispatch(command: string, args: ParsedArgs): Promise<Rendered> {
     case 'view': {
       // Loaded here and nowhere else: see `view-options.ts`.
       const { renderView, runView } = await import('./commands/view.ts');
-      // stderr, so a `--json` reader of stdout still receives one document. The
-      // page writes here for up to its idle timeout; a closed reader (EPIPE)
-      // must cost the diagnostic line, not the page.
+      // stderr, so a `--json` reader of stdout still receives one document; a
+      // closed reader (EPIPE) must cost the diagnostic line, not the page.
       process.stderr.on('error', () => undefined);
       const output = await runView(runtime, args, { log: (line) => process.stderr.write(`${line}\n`) });
       return {
@@ -306,7 +285,6 @@ async function dispatch(command: string, args: ParsedArgs): Promise<Rendered> {
 }
 
 
-/** The page runs until it idles out, is stopped, or the operator signals it. */
 async function serveUntilStopped(wait: {
   until: Promise<string>;
   stop: (reason: string) => Promise<void>;
@@ -349,9 +327,8 @@ async function versionOutput(
 }
 
 /**
- * An operator-facing failure prints its code, the field at fault, and what to
- * do; it never prints a stack trace, because a stack is not an instruction.
- * Anything unrecognized is a defect and keeps its stack.
+ * An operator-facing failure prints its code, field and remedy, never a stack;
+ * anything unrecognized is a defect and keeps its stack.
  */
 function reportFailure(error: unknown): number {
   if (isAmbicodeError(error)) {

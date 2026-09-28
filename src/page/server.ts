@@ -27,22 +27,8 @@ import {
   type LastSubmission,
 } from './view-model.ts';
 
-/**
- * The local selection page: ordinary server-rendered forms on 127.0.0.1, and
- * the only path by which a comment reaches a merge request.
- *
- * Fastify and its plugins own HTTP parsing, cookie mechanics, CSRF tokens and
- * security headers; Eta owns escaped interpolation. What this module owns is
- * the part a library cannot decide: that the capability is one-time, that the
- * position comes from server-held state and never from the form, that a
- * publication happens only on a valid POST, and that a stale revision stops
- * the run (doc 11, "Local page").
- */
-
 export const SESSION_COOKIE = 'ambicode_session';
-/** The link token's shape as `IdSource.capability` issues it; anything else is not a link. */
 export const LINK_TOKEN = '[A-Za-z0-9_-]{16,128}';
-/** The whole form, bounded. A review page's fields are text, not uploads. */
 export const MAX_BODY_BYTES = 512 * 1024;
 
 export interface PageServerOptions {
@@ -53,19 +39,14 @@ export interface PageServerOptions {
   result: ReviewResult;
   positions: PublicationPositions | null;
   record: PublicationRecord;
-  /** Null for a local review, which has no provider and no publication action. */
   provider: ReviewProvider | null;
   templatesDirectory: string;
   idleTimeoutSeconds: number;
-  /** The exact command that reopens this review, shown on refusal pages. */
   reopenCommand: string;
-  /** `host:port` this server answers for. Set after listen, or fixed in tests. */
   authority?: string;
-  /** This process's pid, recorded in the publication lease for diagnostics. */
   processId: number;
   /** Diagnostic lines for the terminal. Never given a capability or session value. */
   log?: (line: string) => void;
-  /** Presented by a newer `ambicode view` to stop this one. Absent: nothing can. */
   takeoverToken?: string;
   /**
    * Awaited before the listener closes, so a successor that binds the freed
@@ -77,19 +58,11 @@ export interface PageServerOptions {
 export interface PageServer {
   app: FastifyInstance;
   sessions: SessionStore;
-  /** The one-time capability, issued once at construction. */
   capability: string;
   setAuthority(authority: string): void;
-  /** Resolves with the reason the server stopped. */
   stopped: Promise<string>;
-  /**
-   * Stops accepting requests and drops every session, without closing the
-   * listener. `stop` does this and then closes; a test uses it directly to see
-   * the refusal a request racing the shutdown receives.
-   */
   beginShutdown(reason: string): void;
   stop(reason: string): Promise<void>;
-  /** Restarts the idle countdown; only valid authenticated requests do this. */
   noteActivity(): void;
 }
 
@@ -125,7 +98,6 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
     contentSecurityPolicy: {
       directives: {
         'default-src': ["'none'"],
-        // The one stylesheet this server serves itself. No CDN, no font host.
         'style-src': ["'self'"],
         'script-src': ["'none'"],
         'img-src': ["'none'"],
@@ -136,8 +108,6 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
       },
     },
     referrerPolicy: { policy: 'no-referrer' },
-    // Loopback HTTP: an HSTS header here would be a claim about a transport
-    // this page does not use.
     hsts: false,
     crossOriginEmbedderPolicy: false,
   });
@@ -151,8 +121,6 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
     shuttingDown = true;
     if (idleTimer !== null) clearTimeout(idleTimer);
     idleTimer = null;
-    // Every server-side session goes, so no cookie that was issued still names
-    // anything. The cookie in the browser becomes inert rather than trusted.
     sessions.clear();
     resolveStopped(reason);
   };
@@ -171,12 +139,9 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
     idleTimer = setTimeout(() => {
       void stop(`idle for ${options.idleTimeoutSeconds}s`);
     }, options.idleTimeoutSeconds * 1000);
-    // The listening socket is what keeps the process alive; this timer only
-    // decides when to stop, so it must not hold the process open by itself.
     idleTimer.unref();
   };
 
-  // A page that is never opened still stops on its own.
   noteActivity();
 
   app.addHook('onRequest', async (request, reply) => {
@@ -214,7 +179,6 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
     detail: string,
   ): Promise<void> => {
     reply.status(status).type('text/html; charset=utf-8');
-    // Never any credential, capability or session value on a refusal page.
     reply.send(
       await reply.view('error', {
         title,
@@ -227,15 +191,12 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
 
   app.get('/assets/page.css', async (_request, reply) => {
     reply.type('text/css; charset=utf-8');
-    // The stylesheet ships with the plugin, beside the templates.
     return await options.fs.readText(path.join(options.templatesDirectory, 'page.css'));
   });
 
   /**
-   * The bootstrap. The capability appears in the URL exactly once; it is
-   * consumed here, exchanged for an opaque server-side session, and the browser
-   * is redirected to a clean URL so the capability leaves the address bar,
-   * history and any Referer.
+   * The capability is exchanged for an opaque server-side session and the browser
+   * redirected to a clean URL, so it leaves the address bar, history and Referer.
    */
   app.get(`/:token(^${LINK_TOKEN}$)`, async (request, reply) => {
     const presented = (request.params as { token: string }).token;
@@ -253,7 +214,6 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
         );
         return reply;
       }
-      // A browser that already holds a session keeps it rather than opening another.
       const existing = authenticate(request);
       if (existing !== null) {
         logBootstrap(request, 'already signed in, redirected');
@@ -275,10 +235,8 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
         path: '/',
         signed: true,
         maxAge: options.idleTimeoutSeconds,
-        // `secure` is deliberately not set: this page is plain HTTP on
-        // 127.0.0.1, and a Secure cookie would simply never be sent back.
-        // Loopback is treated as a secure context by browsers, so the cookie
-        // is still not exposed to any network.
+        // `secure` is deliberately unset: this is plain HTTP on 127.0.0.1, where a
+        // Secure cookie would never be sent back. Browsers treat loopback as secure.
       });
       noteActivity();
       reply.redirect('/', 303);
@@ -310,17 +268,8 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
   });
 
   /**
-   * Ends the session and stops the server, from the page itself.
-   *
-   * Deciding to publish nothing is an ordinary outcome of a review, and until
-   * this existed it had no ending: the page went on serving until it idled out
-   * half an hour later, and Ctrl-C only reaches it when `ambicode view` is
-   * running in the foreground — which it is not when a skill started it. The
-   * reader needs a way to say "done" from the place they are already looking.
-   *
-   * It writes nothing and publishes nothing. It goes through the same guards
-   * as `/publish` anyway, so a page in another tab cannot close this one out
-   * from under its reader.
+   * Ends a publish-nothing review: Ctrl-C does not reach a `view` a skill started
+   * in the background. It passes the `/publish` guards so another tab cannot close it.
    */
   app.post('/close', { preHandler: [disconnectGuard, originGuard, app.csrfProtection] }, async (request, reply) => {
     const session = authenticate(request);
@@ -345,11 +294,6 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
     return reply;
   });
 
-  /**
-   * The only write path. It reaches a provider only from here, only with a
-   * valid CSRF token, a matching Origin and an authenticated session, and only
-   * for findings whose positions were saved at review time.
-   */
   app.post(
     '/publish',
     { preHandler: [disconnectGuard, originGuard, app.csrfProtection] },
@@ -386,16 +330,9 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
       });
 
       if (parsed.kind === 'invalid') {
-        // The CSRF token already proved this came from our own form, so the
-        // human's text is theirs and is shown back to them rather than lost.
-        // `parsed.drafts` already excludes anything unknown, duplicated,
-        // oversized or malformed — parsing rejected those before they ever
-        // reached this map — so what remains is safe to persist even though
-        // another field made the whole submission invalid (doc 03 P1.7
-        // correction E). Only this response redisplays the checkboxes the
-        // human had ticked; a freshly opened page never does, because
-        // `buildPageModel` only checks a box from an explicit `selected` set,
-        // never from a persisted draft.
+        // The CSRF token proved this came from our form, so the human's text is kept.
+        // `parsed.drafts` already excludes anything unknown or malformed, so it is safe
+        // to persist though another field made the submission invalid.
         let record = await options.store.readPublication(options.result.reviewId);
         record = await options.store.saveDrafts(record, draftsOf(parsed, options.clock));
         reply.status(400).type('text/html; charset=utf-8');
@@ -415,11 +352,9 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
         return reply;
       }
 
-      // The in-memory session lock above only serializes within this process;
-      // the same saved review can be opened by a second `ambicode view`
-      // (doc 03 P1.7 correction C). The lease is acquired only now, after
-      // authentication, CSRF/Origin and form validation all passed, and it
-      // covers everything from here through the recorded outcome.
+      // The session lock only serializes within this process; a second `ambicode view`
+      // can open the same review. The lease is taken only after every validation
+      // passed, and covers everything through the recorded outcome.
       const lease = await acquirePublicationLease({
         fs: options.fs,
         clock: options.clock,
@@ -466,17 +401,14 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
         sessions.endSubmission(session);
       }
 
-      // POST/Redirect/GET: a refresh re-reads the outcome instead of repeating
-      // the write.
       reply.redirect('/', 303);
       return reply;
     },
   );
 
   /**
-   * A newer `ambicode view` asking for the fixed port. Only the token this
-   * process wrote to its control file is accepted, and never while a
-   * publication is running: stopping then would leave comments half-posted.
+   * Only the token this process wrote to its control file is accepted, and never
+   * while a publication runs: stopping then would leave comments half-posted.
    */
   app.post('/takeover', async (request, reply) => {
     const presented = request.headers[TAKEOVER_HEADER];
@@ -510,7 +442,6 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
   app.setErrorHandler(async (error, request, reply) => {
     const code = (error as { code?: string }).code ?? '';
     if (code.startsWith('FST_CSRF')) {
-      // A forged or stale submission: its content is not echoed back.
       await refuse(
         reply,
         403,
@@ -547,11 +478,6 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
     return reply;
   });
 
-  /**
-   * One line per request carrying a capability, never the capability itself.
-   * Without it, a link reported as "already been used" on its first visible
-   * load could not say what had used it (MR 2719, both launches).
-   */
   function logBootstrap(request: FastifyRequest, outcome: string): void {
     const header = (name: string): string => {
       const value = request.headers[name];
@@ -569,10 +495,9 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
   }
 
   /**
-   * A signed cookie this server cannot verify was issued by an earlier one:
-   * each process signs with its own secret. On the fixed port that is the tab
-   * of a page that stopped or was replaced, and it gets said so rather than
-   * a CSRF or session refusal that reads like a bug.
+   * A signed cookie this server cannot verify came from an earlier process: on the
+   * fixed port that is the tab of a stopped or replaced page, and it is told so
+   * rather than given a CSRF or session refusal that reads like a bug.
    */
   function fromEarlierServer(request: FastifyRequest): boolean {
     const raw = request.cookies[SESSION_COOKIE];
@@ -602,21 +527,9 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
   }
 
   /**
-   * Refuses a state-changing request that did not come from this page.
-   *
-   * An `Origin` that names something else is always refused. An **absent**
-   * `Origin` is not the same thing, and treating it as a mismatch rejected
-   * legitimate submissions: a same-origin form POST is not required to carry
-   * one, and browsers differ on whether they send it. So when it is absent,
-   * same origin has to be established some other way — `Sec-Fetch-Site`,
-   * which every current browser sends and no page can forge, or a `Referer`
-   * on this exact origin.
-   *
-   * Dropping to that fallback gives up very little. This request has already
-   * passed the `Host` check in `onRequest`, and it still has to carry the CSRF
-   * token and an authenticated signed session cookie, which is what actually
-   * stops a cross-site post. `Origin` is the outermost of four checks, not the
-   * only one.
+   * An absent `Origin` is not a mismatch: same-origin form POSTs need not send it.
+   * Same origin is then taken from `Sec-Fetch-Site` or a same-origin `Referer`;
+   * the Host check, CSRF token and signed session still stop a cross-site post.
    */
   async function originGuard(request: FastifyRequest, reply: FastifyReply): Promise<void> {
     if (authority === '') return;
@@ -643,8 +556,6 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
     await reply.send(
       await reply.view('error', {
         title: 'That submission did not come from this page.',
-        // Say what actually arrived: the previous message named only what was
-        // wanted, which left a legitimate refusal indistinguishable from a bug.
         detail: `${refusal} Nothing was published.`,
         reopen: true,
         reopenCommand: options.reopenCommand,
@@ -673,7 +584,6 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
       drafts: record.drafts,
       outcomes: record.outcomes,
       lastSubmission,
-      // A per-render token bound to the session's CSRF secret cookie.
       csrfToken: reply.generateCsrf(),
       submissionId: options.ids.capability(),
       ...(extra.errors === undefined ? {} : { errors: extra.errors }),
@@ -697,11 +607,9 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
 }
 
 /**
- * Why a request presenting the capability must not consume it, or null for a
- * top-level page load. Fastify answers HEAD with the GET handler, and a
- * prefetch or subresource fetch would otherwise spend the link before the tab
- * does. `Sec-Fetch-*` is judged only when sent: a client that sends none is not
- * shown to be anything but a navigation.
+ * Why a capability request must not open a session, or null for a top-level load.
+ * Fastify answers HEAD with the GET handler, and prefetches would otherwise spend
+ * the link; `Sec-Fetch-*` is judged only when sent.
  */
 function nonNavigationReason(request: FastifyRequest): string | null {
   if (request.method === 'HEAD') return 'a HEAD request';
@@ -714,11 +622,6 @@ function nonNavigationReason(request: FastifyRequest): string | null {
   return null;
 }
 
-/**
- * Shared by the accepted and the rejected path: both carry the same
- * `drafts`/`selected` shape, and a rejected submission's known, bounded draft
- * text is preserved exactly like an accepted one's (doc 03 P1.7 correction E).
- */
 function draftsOf(parsed: Pick<ParsedSubmission, 'drafts' | 'selected'>, clock: Clock) {
   const at = clock.now().toISOString();
   return [...parsed.drafts.entries()].map(([findingId, body]) => ({

@@ -13,12 +13,6 @@ import { ReviewStore } from '../publication/store.ts';
 import { FakeProvider } from './fake-provider.ts';
 import { publicationPositions, reviewResult } from './review-fixture.ts';
 
-/**
- * Starts the page with Fastify's injection transport and no socket, so the
- * tests exercise the real routes, hooks, cookies, CSRF and templates without
- * binding a port or opening a browser.
- */
-
 export const AUTHORITY = '127.0.0.1:7777';
 export const ORIGIN = `http://${AUTHORITY}`;
 
@@ -29,7 +23,6 @@ export const templatesDirectory = path.resolve(
   'templates',
 );
 
-/** A clock a test moves deliberately, so nothing depends on wall time. */
 export class FakeClock implements Clock {
   private current: number;
   constructor(start = Date.parse('2026-09-20T12:00:00.000Z')) {
@@ -46,7 +39,6 @@ export class FakeClock implements Clock {
   }
 }
 
-/** Counted identifiers, so a test can name the capability it expects. */
 export class CountingIds implements IdSource {
   private counter = 0;
   private readonly prefix: string;
@@ -92,8 +84,8 @@ export interface Harness {
 }
 
 export async function startHarness(options: HarnessOptions = {}): Promise<Harness> {
-  // Not `ambicode-page-*`: that is a real page's prefix, so a directory left by
-  // an interrupted test run was reported by every `ambicode view` after it.
+  // Not `ambicode-page-*`, a real page's prefix: a directory left by an interrupted
+  // test run would be reported by every later `ambicode view`.
   const directory = await mkdtemp(path.join(tmpdir(), 'ambicode-test-page-'));
   const clock = new FakeClock();
   const store = new ReviewStore(nodeFileSystem, clock, directory);
@@ -137,10 +129,8 @@ export async function startHarness(options: HarnessOptions = {}): Promise<Harnes
 }
 
 /**
- * A second `ambicode view` process against the same saved review: a fresh
- * server, a fresh capability and session, reading whatever the first process
- * left on disk. Used to prove that persisted drafts survive a reopen while
- * checkbox selection does not (doc 03 P1.7 correction E).
+ * A second `ambicode view` process: a fresh server, capability and session
+ * reading whatever the first process left on disk.
  */
 export async function reopenHarness(harness: Harness): Promise<Harness> {
   const record = await harness.store.readPublication(harness.result.reviewId);
@@ -180,7 +170,6 @@ export interface OpenedPage {
   submissionId: string;
 }
 
-/** Consumes the capability and lands on the clean URL, as a browser would. */
 export async function openPage(harness: Harness): Promise<OpenedPage> {
   const bootstrap = await harness.server.app.inject({
     method: 'GET',
@@ -237,7 +226,6 @@ export function cookieJar(initial: readonly { name: string; value: string }[] = 
 
 export { SESSION_COOKIE };
 
-/** Encodes a form the way the page's own browser submission would. */
 export function form(fields: Record<string, string | string[]>): string {
   const parts: string[] = [];
   for (const [name, value] of Object.entries(fields)) {

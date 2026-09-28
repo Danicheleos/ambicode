@@ -15,12 +15,6 @@ import {
   reviewerEnvironment,
 } from './claude-reviewer.ts';
 
-/**
- * The P1.4 corrections that concern the reviewer process: what environment it
- * receives, what envelope its answer arrives in, and whether Claude Code is
- * allowed to repair a schema failure behind AMBICODE's back.
- */
-
 const fixtures = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '..',
@@ -40,21 +34,18 @@ function stubbedHelp(): FakeProcessRunner {
     stdout: [
       '--print --safe-mode --restricted --strict-mcp-config --tools --disallowedTools',
       '--no-session-persistence --permission-prompts --output-format --model --json-schema',
-      // Spelled as Claude Code's own --help spells it: the file variant is
-      // only mentioned inside the --bare description.
+      // As Claude Code's --help spells it: the file variant appears only inside the --bare description.
       '--append-system-prompt <prompt>  --append-system-prompt[-file]',
     ].join('\n'),
   });
 }
 
 describe('the reviewer receives only runtime and model authentication', () => {
-  /** A host environment holding exactly the kinds of secret a developer has. */
   const host = {
     PATH: '/usr/bin:/bin',
     HOME: '/home/dev',
     LANG: 'en_US.UTF-8',
     ANTHROPIC_API_KEY: 'sk-ant-test',
-    // Sentinels: every one of these must be absent from the child.
     GITLAB_TOKEN: 'glpat-SENTINEL-GITLAB',
     GLAB_TOKEN: 'glpat-SENTINEL-GLAB',
     GITHUB_TOKEN: 'ghp-SENTINEL-GITHUB',
@@ -81,7 +72,6 @@ describe('the reviewer receives only runtime and model authentication', () => {
     ]) {
       assert.equal(resolved[name], undefined, `${name} reached the reviewer`);
     }
-    // Not merely unset: the value itself appears nowhere in the environment.
     assert.ok(!serialized.includes('SENTINEL'), serialized);
   });
 
@@ -95,10 +85,8 @@ describe('the reviewer receives only runtime and model authentication', () => {
   });
 
   it("keeps Claude Code's own temp base, which it reads instead of TMPDIR", () => {
-    // Claude Code 2.1.283 takes its temp base from CLAUDE_CODE_TMPDIR and falls
-    // back to a literal "/tmp", never TMPDIR. Dropping it failed every reviewer
-    // in the `claude plugin eval` sandbox after 171 ms with
-    // "EPERM: operation not permitted, mkdir '/tmp/claude-502'" (E02, 2026-09-27).
+    // Claude Code takes its temp base from CLAUDE_CODE_TMPDIR and otherwise falls back
+    // to a literal "/tmp", never TMPDIR, which a sandbox may forbid.
     const resolved = resolveEnvironment(reviewerEnvironment(), {
       ...host,
       TMPDIR: '/sandbox/tmp',
@@ -106,8 +94,7 @@ describe('the reviewer receives only runtime and model authentication', () => {
       CLAUDE_CONFIG_DIR: '/sandbox/config',
     });
     assert.equal(resolved.CLAUDE_CODE_TMPDIR, '/sandbox/tmp');
-    // The host's Claude configuration stays out: settings, plugins and hooks
-    // are not the reviewer's to read (decided 2026-09-27).
+    // The host's Claude settings, plugins and hooks are not the reviewer's to read.
     assert.equal(resolved.CLAUDE_CONFIG_DIR, undefined);
   });
 
@@ -135,11 +122,8 @@ describe('the reviewer receives only runtime and model authentication', () => {
   });
 
   it('keeps the multi-line system prompt out of the argument vector entirely', async () => {
-    // The regression this guards: the operating contract plus the reviewer
-    // role is several kilobytes of Markdown. Passed as an argument it reaches
-    // `claude.cmd` through `cmd.exe` on Windows, which reads CR and LF as
-    // command separators and offers no escape — so the spawn is refused and
-    // every review on that platform fails before the model is ever asked.
+    // Several KiB of prompt passed as an argument reaches `claude.cmd` through
+    // `cmd.exe` on Windows, which reads CR and LF as command separators with no escape.
     const runner = stubbedHelp().stubArgv(['claude', '--print'], {
       stdout: await envelope('success-structured-output.json'),
     });
@@ -162,19 +146,15 @@ describe('the reviewer receives only runtime and model authentication', () => {
       assert.ok(!/[\r\n]/.test(value), `argument holds a line break: ${JSON.stringify(value)}`);
     }
 
-    // It was not dropped on the way: it went to the file the flag names.
     const file = call.argv[call.argv.indexOf('--append-system-prompt-file') + 1];
     assert.ok(file);
     assert.equal(io.written.get(file), systemPrompt);
 
-    // And the directory holding it is gone once the reviewer has answered.
     await assert.rejects(() => nodeFileSystem.readText(file));
   });
 
   it('carries USER, without which a keychain login reads as signed out', () => {
-    // Claude Code 2.1.283 on macOS: `claude auth status` under only PATH, HOME
-    // and TMPDIR said `"loggedIn": false`; adding USER alone made it true. Every
-    // reviewer this allowlist started printed "Not logged in" (2026-09-27).
+    // On macOS `claude auth status` reports logged out unless USER is in the environment.
     const host = { PATH: '/usr/bin', HOME: '/Users/dev', USER: 'dev', GITLAB_TOKEN: 'secret' };
     const resolved = resolveEnvironment(reviewerEnvironment(), host);
     assert.equal(resolved.USER, 'dev');
@@ -203,20 +183,15 @@ describe('the reviewer receives only runtime and model authentication', () => {
     assert.ok(call);
     assert.equal(call.env.kind, 'replacement');
     if (call.env.kind !== 'replacement') return;
-    // Claude Code retries a failed StructuredOutput call up to five times by
-    // default. The cap is set rather than inherited, and it is bounded: a
-    // re-ask lets the model serialize the same answer correctly, but it never
-    // becomes the gate on whether the answer is acceptable — that is
-    // `parseReviewerOutput`, below.
+    // Claude Code retries a failed StructuredOutput call up to five times by default. The
+    // cap is set explicitly, and a retry never decides acceptance: `parseReviewerOutput` does.
     assert.equal(call.env.set?.MAX_STRUCTURED_OUTPUT_RETRIES, STRUCTURED_OUTPUT_ATTEMPTS);
     assert.equal(STRUCTURED_OUTPUT_ATTEMPTS, '3');
   });
 
   it('classifies a nonzero exit from its result envelope, not from the exit code alone', async () => {
-    // Claude Code exits 1 for an errored run and still prints the envelope
-    // naming the failure. Checking the exit code first made every named
-    // failure unreachable, so exhausting the schema-retry budget after a full
-    // analysis was reported as an unexplained "nonzero-exit".
+    // Claude Code exits 1 for an errored run and still prints the envelope naming the
+    // failure, so the envelope is read before the exit code.
     const runner = stubbedHelp().stubArgv(['claude', '--print'], {
       exitCode: 1,
       stdout: JSON.stringify({
@@ -238,8 +213,6 @@ describe('the reviewer receives only runtime and model authentication', () => {
     assert.equal(invocation.kind, 'error');
     if (invocation.kind !== 'error') return;
     assert.equal(invocation.reason, 'structured-output-exhausted');
-    // It says what happened and what to do, and it does not pretend there is
-    // a partial finding list to salvage.
     assert.match(invocation.detail, /required shape/);
     assert.match(invocation.detail, /re-running reviews the identical change/);
   });
@@ -299,7 +272,6 @@ describe('the real Claude Code structured-output envelope', () => {
       thinkingTokens: null,
     });
 
-    // As the MR 2719 envelope reported it: 13,697 of 18,642 output tokens were reasoning.
     const reasoned = parseReviewerOutput(
       JSON.stringify({ ...base, usage: { output_tokens: 18642, output_tokens_details: { thinking_tokens: 13697 } } }),
       ARGV,
@@ -339,8 +311,8 @@ describe('the real Claude Code structured-output envelope', () => {
   });
 
   it('does not parse `result` when structured_output is present but invalid', async () => {
-    // The prose in `result` says "Findings returned." A parser that fell back
-    // to it on a schema failure would turn a rejected answer into a clean one.
+    // The prose in `result` says "Findings returned." Falling back to it on a schema
+    // failure would turn a rejected answer into a clean one.
     const invocation = parseReviewerOutput(await envelope('malformed-structured-output.json'), ARGV);
     assert.equal(invocation.kind, 'error');
     if (invocation.kind !== 'error') return;

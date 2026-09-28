@@ -11,20 +11,7 @@ import {
   type ReviewProvider,
 } from '../../contracts/provider.ts';
 
-/**
- * The GitHub extension point (D02). Phase 1 ships the registration and the
- * typed unsupported answer, not an API integration.
- *
- * This module has no process runner, no HTTP client and no import of the GitLab
- * adapter, so an unsupported answer cannot become a GitLab request by accident
- * and cannot resemble a remote success. Local working and branch review does
- * not pass through a provider at all, so registering this one changes nothing
- * about it.
- *
- * Making GitHub work means implementing these six methods here and changing
- * one line in the registry — not touching the reviewer, the snapshot, the
- * report or the page.
- */
+/** Deliberately imports no runner, HTTP client or GitLab code, so it can never reach a remote. */
 
 const GITHUB_HOSTS = new Set(['github.com', 'www.github.com', 'gist.github.com']);
 

@@ -1,14 +1,5 @@
-// Guards the claims the archived `claude plugin eval` suite
-// (`evals/evals-archived/typescript/`) makes about its
-// fixtures. Nothing checked them before: `correctness-ts` shipped a ground
-// truth saying the existing test "still passes" under the fixture's change,
-// while replaying the fixture showed `page([1,2,3,4],0,2)` returning `[1]`
-// against an expected `[1,2]` — the test failed, and the case was a second
-// regression case rather than the uncovered boundary it is filed under.
-//
-// The fixture's own test runs under a two-matcher `test`/`expect` shim rather
-// than jest: fixtures install nothing (`fixtures/materialize.mjs`), and a
-// fixture's test is two lines of `toEqual`, not a jest feature matrix.
+// Fixture tests run under a two-matcher `test`/`expect` shim rather than jest: fixtures install
+// nothing by default, and a fixture's test is two lines of `toEqual`.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
@@ -28,7 +19,6 @@ import { formatJsonOutput } from '../../../src/util/json-output.ts';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const EVALS = path.join(ROOT, 'evals', 'evals-archived', 'typescript');
 
-/** Every case directory, with each grader's frontmatter parsed. */
 async function loadCases() {
   const cases = [];
   for (const entry of await readdir(EVALS, { withFileTypes: true })) {
@@ -44,8 +34,8 @@ async function loadCases() {
     cases.push({ name: entry.name, graders });
   }
   assert.ok(cases.length > 0, 'no eval case found');
-  // The harness collects `<eval dir>/**/case.yaml`: a Python case moved in
-  // here would run with this suite again, with the unwired pytest check the 2026-09-27 run showed.
+  // The harness collects `<eval dir>/**/case.yaml`, so a Python case moved in here would run
+  // with this suite again.
   assert.deepEqual(
     cases.filter((evalCase) => evalCase.name.endsWith('-py')).map((evalCase) => evalCase.name),
     [],
@@ -58,7 +48,6 @@ function gitOutput(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8' });
 }
 
-/** Every ambicode subcommand a skill tells the model to run through the bundle. */
 async function skillSubcommands() {
   const subcommands = new Set();
   for (const file of await readdir(path.join(ROOT, 'skills'), { recursive: true })) {
@@ -71,10 +60,8 @@ async function skillSubcommands() {
 }
 
 /**
- * Runs a CommonJS jest-style test source and returns each test's outcome. It is
- * evaluated in this realm with `new Function` rather than `node:vm`: arrays
- * built by the module under test and by the test's literals must share one
- * `Array.prototype`, or `deepStrictEqual` fails on identical contents.
+ * `new Function` rather than `node:vm`: arrays built by the module and by the test's literals
+ * must share one `Array.prototype`, or `deepStrictEqual` fails on identical contents.
  */
 function runJestStyle(source, require) {
   const cases = [];
@@ -95,8 +82,6 @@ function runJestStyle(source, require) {
 }
 
 describe('a fixture has the same commits whenever and wherever it is built', () => {
-  // The replay reviewer keys a recording on the review's `snapshotId`, which
-  // hashes HEAD; unpinned commit dates gave a new HEAD every second.
   let scratch;
 
   before(async () => {
@@ -171,12 +156,8 @@ describe('correctness-ts: ts-off-by-one is a boundary the existing test does not
   });
 });
 
-// `tool_used.input_match` is a regex over the tool call's JSON-encoded input
-// (https://code.claude.com/docs/en/plugin-evals). The skills prescribe
-// `node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" review`, whose JSON form
-// carries `ambicode.mjs\\" review`: `'ambicode review'` matched only a bare
-// `ambicode` on PATH, and `'ambicode.mjs" locate'` matched nothing at all, so
-// three indicators reported "helper did not run" for every run where it did.
+// `tool_used.input_match` is a regex over the tool call's JSON-encoded input, in which the prescribed
+// `node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" review` appears as `ambicode.mjs\\" review`.
 describe('eval graders: Bash indicators match the command the skills prescribe', () => {
   const roots = ['${CLAUDE_PLUGIN_ROOT}', '/Users/someone/.claude/plugins/cache/ambicode/ambicode/0.3.1'];
 
@@ -205,14 +186,8 @@ describe('eval graders: Bash indicators match the command the skills prescribe',
   });
 });
 
-// In a two-arm run the harness drops `arm: with-only` graders and `tool_used`
-// on `Skill`; when that drops every grader, it scores all of them instead
-// (https://code.claude.com/docs/en/plugin-evals). `p2-plan-path-scoped-policy`
-// had only such graders, so its W/OUT arm was capped by a `plugin-fired` it
-// can never pass. `p2-investigate-frozen-requirement` scored only
-// `no-source-edit`, a weight-1 hygiene check both arms pass alike, so nothing
-// graded whether its answer was right. Every other case's outcome grader
-// carries weight 3; the hygiene graders carry 1.
+// In a two-arm run the harness drops `arm: with-only` graders and `tool_used` on `Skill`, and
+// scores all of them when that drops every grader. Outcome graders weigh 3, hygiene graders 1.
 describe('eval graders: every case scores its outcome in both arms', () => {
   it('has a grader that survives two-arm exclusion and outweighs the hygiene graders', async () => {
     const failures = [];
@@ -229,16 +204,8 @@ describe('eval graders: every case scores its outcome in both arms', () => {
   });
 });
 
-// Without a config, `ambicode review` stops at `config-missing`
-// (src/config/load.ts), so the `with` arm ran `init` inside the measured run:
-// setup turns out of `max_turns`, and a review target that also held the
-// config file and the `.gitignore` lines init appends — neither is excluded
-// (src/snapshot/exclusions.ts). For `clean-ts`, where any finding
-// is a false positive, that is the plugin reviewing its own setup.
-// A scaffold finds the repository by counting `../` from its own directory,
-// so moving a suite silently breaks every one of them (2026-09-28: the move
-// into evals/ left all 27 one level short). Checked structurally for every
-// tracked suite — the trigger suite has no other test that runs its scaffolds.
+// A scaffold finds the repository by counting `../` from its own directory, so moving a
+// suite silently breaks every one of them.
 describe('eval scaffolds: every tracked scaffold reaches the repository root', () => {
   const SUITES = ['evals/evals-archived', 'evals/evals-triggers'];
   const ROOT_EXPRESSION = /"\$\(cd "\$\(dirname "\$0"\)\/((?:\.\.\/)*\.\.)" && pwd\)\/fixtures\/materialize\.mjs"/g;
@@ -291,9 +258,6 @@ describe('eval scaffolds: every fixture is configured before its change', () => 
 
   it('commits the config on top of the fixture and leaves the uncommitted change byte-identical', async () => {
     const fixtures = [...new Set((await loadScaffolds()).map((scaffold) => scaffold.fixture))].sort();
-    // Materialized concurrently: one after another this block took 13.0 s in
-    // the unit run, the slowest in the suite; concurrently 7.6 s. The whole run
-    // stayed at ~17.3 s either way, since other test files overlap it.
     const pairs = await Promise.all(
       fixtures.map(async (name) => ({
         name,
@@ -353,13 +317,8 @@ describe('eval scaffolds: every fixture is configured before its change', () => 
   });
 });
 
-// The three verification cases grade whether the unchanged test that catches a
-// source regression was selected and run. Fixtures install nothing by default,
-// and `init` detects jest only in `node_modules/.bin` and pytest only in a
-// project `.venv` (src/config/detect.ts), so every unit command was null and
-// "was run and passed" (p2-task-regression-fix) could not happen in either arm.
-// Only these fixtures install: the human decision recorded in the plan keeps
-// every other case install-free.
+// `init` detects jest only in `node_modules/.bin` and pytest only in a project `.venv`, so
+// without an install every unit command is null and no test can run in either arm.
 describe('eval fixtures: the verification cases get a real test runner', () => {
   it('installs jest from the committed lockfile', () => {
     assert.deepEqual(installPlanFor(fixtureByName('ts-source-regression'), '/r'), [
@@ -394,7 +353,6 @@ describe('eval fixtures: the verification cases get a real test runner', () => {
       .map((scaffold) => scaffold.name);
     assert.deepEqual(wrong, []);
     const installing = (await loadScaffolds()).filter((scaffold) => /--install/.test(scaffold.source));
-    // `regression-py` installs too, and is archived (evals/evals-archived/README.md).
     assert.deepEqual(installing.map((scaffold) => scaffold.name).sort(), [
       'p2-task-regression-fix',
       'regression-ts',
@@ -402,12 +360,8 @@ describe('eval fixtures: the verification cases get a real test runner', () => {
   });
 });
 
-// Claude Code 2.1.283 runs a scaffold with a fixed environment that includes
-// NODE_ENV=production (function `rg` in the binary). npm then omits
-// devDependencies, which is all a fixture manifest declares: the install exited
-// 0, left nothing git could see, and init wired no check. Every run of the
-// 2026-09-27 suite reported `node_modules` missing in both arms. A local
-// `file:` devDependency reproduces it without the registry.
+// Claude Code runs a scaffold with NODE_ENV=production, under which npm omits devDependencies,
+// all a fixture manifest declares. A local `file:` devDependency reproduces it without the registry.
 describe('eval fixtures: an install that provides nothing fails the scaffold', () => {
   const tool = {
     'vendor/tool/package.json': JSON.stringify({ name: 'tool', version: '1.0.0', bin: { tool: 'bin/tool.js' } }),
@@ -507,19 +461,14 @@ describe('eval fixtures: an install that provides nothing fails the scaffold', (
           provides: ['node_modules/.bin/jest', 'node_modules/.bin/eslint'],
           wires: ['lint', 'unit'],
         },
-        // pytest cannot say which tests a change affects, so init leaves unit
-        // null by design (checkFor, src/config/init.ts).
         { name: 'py-source-regression', provides: ['.venv/bin/pytest', '.venv/bin/ruff'], wires: ['lint'] },
       ],
     );
   });
 });
 
-// Without a lockfile each run resolved `^30.0.0` against the registry of that
-// moment, so two arms of one sweep could grade different jest releases
-// (plan/07-test-guide.md:220). `npm ci` pins them, but only to a lockfile that
-// matches the manifest, and only harmlessly if the lockfile is not itself part
-// of the change the agent is asked about.
+// `npm ci` pins jest, but only to a lockfile that matches the manifest, and only harmlessly
+// if the lockfile is not itself part of the change the agent is asked about.
 describe('eval fixtures: the npm install is pinned by a committed lockfile', () => {
   const fixture = fixtureByName('ts-source-regression');
   const files = fixture.steps[0].write;
@@ -553,9 +502,8 @@ describe('eval fixtures: the npm install is pinned by a committed lockfile', () 
   });
 });
 
-// A judge given "PASS if A" and "PASS if B" on separate lines has to guess
-// whether both are needed. Every scored rubric states it once: a single
-// "PASS only if all of:" or "PASS if either:" block.
+// A judge given "PASS if A" and "PASS if B" on separate lines has to guess whether both are
+// needed, so every scored rubric has one "PASS only if all of:" or "PASS if either:" block.
 describe('eval graders: scored rubrics state how their conditions combine', () => {
   it('has at most one PASS line in every scored llm grader', async () => {
     const ambiguous = [];
@@ -576,11 +524,8 @@ function regexPasses(grader, text) {
   return new RegExp(grader.pattern, grader.flags ?? '').test(text);
 }
 
-// In the 2026-09-27 run every weight-3 grader read `last_message`, so a reply
-// saying "restored `a + b`" scored the same whether or not `src/math.js`
-// changed. Each task case now scores the file it asks for; the judge only
-// grades the report. The cases are replayed from their fixtures so a pattern
-// is shown to fail on exactly the state the agent starts from.
+// A reply can claim a fix the file lacks, so each task case scores the file it asks for. Cases are
+// replayed from their fixtures so a pattern is shown to fail on the agent's starting state.
 describe('eval graders: task cases grade the file, not the reply', () => {
   const cases = [
     {
@@ -589,7 +534,6 @@ describe('eval graders: task cases grade the file, not the reply', () => {
       fixture: 'ts-source-regression-feature',
       file: 'src/math.js',
       correct: [
-        // The fix as the case expects it: the break undone, the addition kept.
         'module.exports.add = (a, b) => a + b;\nmodule.exports.multiply = (a, b) => a * b;\n',
         'module.exports.add = (a, b) => a + b;\n',
         'module.exports.add = (a, b) => b + a;\n',
@@ -599,7 +543,6 @@ describe('eval graders: task cases grade the file, not the reply', () => {
       wrong: [
         'module.exports.add = (a, b) => a * b;\n',
         'module.exports.add = (a, b) => Math.abs(a - b);\n',
-        // The claim in a comment, the subtraction still in the code.
         'module.exports.add = (a, b) => a - b; // a + b\n',
         'module.exports.add = (a, b) => a * b;\nmodule.exports.multiply = (a, b) => a * b;\n',
       ],
@@ -689,22 +632,13 @@ describe('eval graders: task cases grade the file, not the reply', () => {
   });
 });
 
-// `helper-ran` matches the Bash input, so it passed in runs whose reviewer
-// printed "Not logged in" after 2 s and whose every check was `skipped` (the
-// kept trace of a 2026-09-27 `review` run). These two read what `review`
-// printed back. A trace is JSON per line, so the printed text arrives
-// JSON-escaped once; the skill bodies are in it too, and must not match.
+// `helper-ran` matches the Bash input, so it passes even when review did nothing; these read what
+// `review` printed. A trace is JSON per line, so printed text arrives JSON-escaped once.
 describe('eval graders: trace indicators match what review prints, and only a completed run', () => {
-  /** One trace line carrying `printed` as a Bash tool result. */
   const traced = (printed) =>
     JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', content: printed }] } });
 
-  /**
-   * `review`'s stdout, in the text form and in the `--json` form
-   * (`src/cli/main.ts`), with `unit` both before and after a failed `lint`.
-   * The fixture orders a check's keys as `src/checks/run.ts` does, and a
-   * replay's `source` last, as `src/cli/commands/review.ts` writes it.
-   */
+  /** Check keys ordered as `src/checks/run.ts` writes them, and a replay's `source` last. */
   function printed(options) {
     const plain = reviewResult({ reviewerStatus: options.reviewerStatus });
     const base = options.replay ? { ...plain, reviewer: { ...plain.reviewer, source: 'replay' } } : plain;
@@ -824,13 +758,8 @@ describe('eval graders: trace indicators match what review prints, and only a co
   });
 });
 
-// Running the fixture's pytest (possible once --install provides it) wrote
-// src/__pycache__/money.cpython-313.pyc and a tests/ twin, untracked. The
-// review target already excludes `__pycache__` (src/snapshot/exclusions.ts),
-// but mutation detection fingerprints porcelain status
-// (src/checks/mutations.ts), so the unit check was reported as mutating the
-// workspace. The same follows from an agent running a PATH pytest in any
-// Python case.
+// Running pytest writes untracked `__pycache__` files. The review target excludes them, but mutation
+// detection fingerprints porcelain status, so the unit check would be reported as mutating the workspace.
 describe('eval fixtures: running a Python test leaves nothing git can see', () => {
   it('ignores __pycache__ bytecode in every fixture', async () => {
     const scratch = await mkdtemp(path.join(tmpdir(), 'ambicode-evals-pyc-'));

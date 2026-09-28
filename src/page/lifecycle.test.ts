@@ -16,12 +16,6 @@ import {
   startHarness,
 } from '../testing/page-harness.ts';
 
-/**
- * U24. What the page does over time: it stops when nobody is using it, it
- * refuses everything once it has stopped, a reopened review gets a new
- * capability and session, and cleanup removes only what AMBICODE created.
- */
-
 describe('U24 the page stops on its own', () => {
   it('shuts down after the configured idle time', async () => {
     const harness = await startHarness({ idleTimeoutSeconds: 0.15 });
@@ -73,13 +67,11 @@ describe('U24 the page stops on its own', () => {
       const before = session.lastSeenAt;
 
       harness.clock.advance(5_000);
-      // A request naming the wrong host never reaches the session at all.
       await harness.server.app.inject({
         method: 'GET',
         url: '/',
         headers: { host: 'elsewhere.example.com', cookie: page.cookies },
       });
-      // Neither does one with no cookie.
       await harness.server.app.inject({ method: 'GET', url: '/', headers: { host: AUTHORITY } });
       assert.equal(session.lastSeenAt, before);
 
@@ -118,7 +110,6 @@ describe('U24 reopening a saved review', () => {
     const firstPage = await openPage(first);
     await first.server.stop('closed');
 
-    // A second server over the same review directory: a reopen.
     const second = await startHarness();
     try {
       assert.notEqual(second.server.capability, firstCapability);
@@ -130,7 +121,6 @@ describe('U24 reopening a saved review', () => {
       });
       assert.equal(oldCapability.statusCode, 403);
 
-      // Refused as before; since the fixed port, said to be a disconnect.
       const oldCookie = await second.server.app.inject({
         method: 'GET',
         url: '/',
@@ -176,7 +166,6 @@ describe('U24 reopening a saved review', () => {
       assert.equal(record.drafts.find((draft) => draft.findingId === 'f-bbbb')?.body, 'And a second one.');
       assert.equal(record.outcomes.find((o) => o.findingId === 'f-aaaa')?.state, 'published');
 
-      // The file on disk is what a reopen reads, and it holds no secret.
       const raw = await readFile(path.join(directory, 'publication.json'), 'utf8');
       assert.ok(raw.includes('A draft that must survive.'));
       assert.ok(!raw.includes(harness.server.capability));
@@ -293,8 +282,6 @@ describe('U24 a newer page takes over the fixed port', () => {
 
 describe('U24 test directories stay outside the sweep', () => {
   it('gives no test directory a name the sweep reports as AMBICODE’s', async () => {
-    // Two `ambicode-page-test-*` directories from an interrupted run were
-    // reported as "left alone" by every `ambicode view` afterwards.
     const src = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
     const call = /mkdtemp\(\s*path\.join\(\s*(?:os\.)?tmpdir\(\)\s*,\s*['"`]([^'"`$]+)/g;
     const prefixes: string[] = [];

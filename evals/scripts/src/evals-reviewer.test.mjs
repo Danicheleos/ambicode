@@ -1,7 +1,4 @@
-// Drives `evals-reviewer.mjs` end to end against a `claude` stub on PATH, so
-// no model is called: the AMBICODE arm is the real built `review`, whose
-// reviewer resolves `claude` from PATH, and the plain arm is `ClaudeReviewer`,
-// which does the same. The stub tells the arms apart by its working directory:
+// A `claude` stub on PATH answers both arms, told apart by working directory:
 // AMBICODE's reviewer runs in the snapshot, the plain one beside `repo/`.
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -61,7 +58,6 @@ async function caseDirectory(evals, name, skill, scaffoldLog) {
 }
 
 describe('evals-reviewer: the blind sheet', () => {
-  // Two cases, two arms, five findings each, in the order the harness records them.
   const runs = ['a-ts', 'b-ts'].flatMap((name) =>
     ['ambicode', 'plain'].map((arm) => ({
       case: name,
@@ -96,7 +92,6 @@ describe('evals-reviewer: the reviewer-quality harness', () => {
   let evals;
   let scaffoldLog;
 
-  /** Runs the harness with the stub answering `modes`, and reads back what it wrote. */
   async function harness(name, modes, runs) {
     await writeFile(path.join(stub, 'mode.json'), JSON.stringify(modes));
     await writeFile(path.join(stub, 'calls.jsonl'), '');

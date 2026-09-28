@@ -1,9 +1,3 @@
-// Assembles the installable AMBICODE plugin candidate under dist/, from an
-// explicit file allowlist, and records what went into it (doc 03 P1.7 §1-2).
-//
-// Deliberately a plain Node script, not a packaging framework: the allowlist
-// below is the actual contract for what ships, so it is easier to review as a
-// short list here than as configuration for a generic bundler plugin.
 import { createHash } from 'node:crypto';
 import { execFileSync, execSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises';
@@ -15,29 +9,17 @@ import { zipSync } from 'fflate';
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.join(ROOT, 'dist');
 
-// Directories copied wholesale, filtered to these extensions and skipping any
-// dotfile (so a stray `.DS_Store` or similar workstation file never ships).
-// This is the "everything required at runtime" list from doc 03 P1.7 §1.
-//
-// `docs/` is deliberately NOT copied wholesale (doc 03 P1.7 correction B): a
-// recursive copy picked up `docs/acceptance/**` — this repository's own dated
-// acceptance records — which is build evidence, not a shipped document, and
-// silently changed the candidate's file count between one packaging run and
-// the acceptance record that described it. Shipped documentation is instead
-// an explicit list in FILE_ALLOWLIST below, the same way the runtime files are.
+// Copied wholesale, filtered by extension, skipping dotfiles. `docs/` is not listed: it
+// holds this repository's acceptance records, which must not ship; shipped docs are
+// named individually in FILE_ALLOWLIST.
 const DIRECTORY_ALLOWLIST = [
   { from: 'skills', extensions: ['.md'] },
   { from: 'prompts', extensions: ['.md'] },
   { from: 'policies', extensions: ['.yaml', '.md'] },
   { from: 'templates', extensions: ['.eta', '.css'] },
-  // The code-split parts of `scripts/ambicode.mjs` (see build.mjs).
   { from: 'scripts/chunks', extensions: ['.mjs'] },
 ];
 
-// Individual files, each with the mode the installed copy must carry. This is
-// the complete shipped-document allowlist for `docs/`: acceptance records,
-// the release/pilot-owner checklist and anything else under `docs/` not named
-// here is deliberately excluded from the candidate.
 const FILE_ALLOWLIST = [
   { from: '.claude-plugin/plugin.json', mode: 0o644 },
   { from: 'bin/ambicode', mode: 0o755 },
@@ -50,13 +32,6 @@ const FILE_ALLOWLIST = [
   { from: 'docs/rule-migration.md', mode: 0o644 },
 ];
 
-// Fixed so two packaging runs of identical content produce identical zip
-// bytes (doc 03 P1.7 correction B): a freshly copied file's real mtime would
-// otherwise differ between two runs a second apart and change every zip entry
-// that carries a timestamp, even though nothing shipped actually changed.
-// ZIP's DOS timestamp has no timezone. fflate deliberately uses local Date
-// fields, so construct the fixed value in local time: every timezone then
-// writes the same 2020-01-01 00:00 bytes instead of shifting a UTC instant.
 const REPRODUCIBLE_MTIME = new Date(2020, 0, 1, 0, 0, 0, 0);
 
 async function readJson(relativePath) {
@@ -91,7 +66,7 @@ async function copyAllowedTree(fromDir, toDir, extensions) {
     throw error;
   }
   for (const entry of entries) {
-    if (entry.name.startsWith('.')) continue; // No dotfiles: workstation metadata never ships.
+    if (entry.name.startsWith('.')) continue;
     const from = path.join(fromDir, entry.name);
     const to = path.join(toDir, entry.name);
     if (entry.isDirectory()) {
@@ -117,8 +92,6 @@ async function buildCandidate(candidateDir) {
   await normalizeTimestamps(candidateDir);
 }
 
-/** Every shipped file gets the same fixed mtime, so byte-reproducibility does
- * not depend on how quickly two packaging runs happen one after another. */
 async function normalizeTimestamps(candidateDir) {
   for (const relativePath of await walkFiles(candidateDir)) {
     await utimes(path.join(candidateDir, relativePath), REPRODUCIBLE_MTIME, REPRODUCIBLE_MTIME);
@@ -155,7 +128,6 @@ async function inventoryOf(candidateDir) {
   return inventory;
 }
 
-/** Fails loudly rather than shipping a path that only works on this machine. */
 async function checkNoWorkstationPaths(candidateDir) {
   const forbidden = [ROOT, process.env.HOME ?? ''].filter((value) => value.length > 3);
   const files = await walkFiles(candidateDir);
@@ -173,13 +145,8 @@ async function checkNoWorkstationPaths(candidateDir) {
 }
 
 /**
- * The candidate-level version of doc 04 P2.2 correction B: every skill that
- * points at the shared MCP-acquisition procedure must do so through
- * `${CLAUDE_PLUGIN_ROOT}/skills/shared/requirements-mcp.md`, never a path
- * relative to the product repository — a plugin loaded from Claude Code's own
- * cache has no such repository. Checked against the assembled candidate
- * itself, not only the source tree, because that is what a real install
- * actually loads.
+ * Skills must reference the shared procedure via `${CLAUDE_PLUGIN_ROOT}/...`: a plugin loaded
+ * from Claude Code's cache has no product repository to be relative to.
  */
 async function checkSharedResourceReferences(candidateDir) {
   const SHARED_RESOURCE = 'skills/shared/requirements-mcp.md';
@@ -211,8 +178,6 @@ async function checkSharedResourceReferences(candidateDir) {
           'plugin-root substitution, so an installed plugin (not run from the product repository) could not resolve it.',
       );
     }
-    // A bare, non-substituted reference anywhere in the same file is a
-    // leftover source-checkout-relative path, not a second legitimate use.
     const bareReference = new RegExp(`(?<!\\$\\{CLAUDE_PLUGIN_ROOT\\}/)${SHARED_RESOURCE.replace(/\./g, '\\.')}`);
     if (bareReference.test(text)) {
       throw new Error(`${entry.name}/SKILL.md references ${SHARED_RESOURCE} by a path relative to the product repository.`);
@@ -226,12 +191,6 @@ async function checkSharedResourceReferences(candidateDir) {
   }
 }
 
-/**
- * Doc 04 P2.4 correction G2/I4: the packaged hook manifest ships, declares
- * every documented event this plugin uses, and routes each one through the
- * single bundled `ambicode hook` entry point — never a second executable or
- * a shell/jq parser — checked against the assembled candidate itself.
- */
 async function checkHooksManifest(candidateDir) {
   const manifestPath = path.join(candidateDir, 'hooks', 'hooks.json');
   let manifest;
@@ -288,11 +247,8 @@ async function checkNoForbiddenDependencies(candidateDir) {
 }
 
 /**
- * Zips the already-built `<stagingParent>/ambicode-<version>` directory with a
- * pure JavaScript ZIP implementation. The prior Info-ZIP subprocess made an
- * otherwise Node-only package fail on a normal Windows machine. Sorted input,
- * fixed timestamps and explicit Unix mode attributes keep the archive bytes
- * reproducible on every host without requiring an OS `zip` executable.
+ * Pure JavaScript zip, so packaging needs no OS `zip` executable (absent on Windows). Sorted
+ * input, fixed timestamps and explicit Unix modes keep the bytes reproducible on every host.
  */
 async function buildZip(stagingParent, version) {
   const entryName = `ambicode-${version}`;
@@ -314,9 +270,6 @@ async function buildZip(stagingParent, version) {
 }
 
 async function main() {
-  // Always packages a freshly compiled helper, never whatever `scripts/`
-  // happens to hold from an earlier run (doc 03 P1.7 §1: installation must
-  // not depend on an ignored local build output that nobody re-checked).
   execFileSync('node', ['build.mjs'], { cwd: ROOT, stdio: 'inherit' });
 
   const version = await canonicalVersion();
@@ -334,10 +287,6 @@ async function main() {
   const inventoryPath = path.join(DIST, `ambicode-${version}.inventory.json`);
   await writeFile(inventoryPath, `${JSON.stringify({ version, files: inventory }, null, 2)}\n`);
 
-  // The zip is an optional, byte-reproducible convenience artifact, not part
-  // of local installation: `install-local.mjs` installs the candidate
-  // directory itself (doc 03 P1.7 correction C — installation is local, and a
-  // local-path marketplace source needs no archive).
   const { zipPath, sha256: zipDigest } = await buildZip(DIST, version);
   await writeFile(path.join(DIST, `ambicode-${version}.zip.sha256`), `${zipDigest}  ambicode-${version}.zip\n`);
 
@@ -348,16 +297,7 @@ async function main() {
   return { candidateDir, inventoryPath, zipPath, zipDigest, version, inventory };
 }
 
-/**
- * Packages twice, into two independent temporary directories built from the
- * same checked-out source and the same lockfile, and asserts the resulting
- * file set, every content hash, and the zip's own bytes are identical (doc 03
- * P1.7 correction B: "compare the two zip SHA-256 values").
- */
 async function checkReproducible() {
-  // Rebuilds the bundle itself between the two packaging attempts, so this
-  // proves the whole pipeline — esbuild bundling included, not only the file
-  // copy — is deterministic from the same source and the same lockfile.
   execFileSync('node', ['build.mjs'], { cwd: ROOT, stdio: 'inherit' });
   const first = await packageInto(await mkdtemp(path.join(tmpdir(), 'ambicode-repro-a-')));
   execFileSync('node', ['build.mjs'], { cwd: ROOT, stdio: 'inherit' });
@@ -378,9 +318,6 @@ async function checkReproducible() {
   );
 }
 
-/** Builds into `<parentDir>/ambicode-<version>` so both reproducibility
- * attempts produce the same in-zip entry name regardless of their own
- * (necessarily distinct) temporary parent directory. */
 async function packageInto(parentDir) {
   const version = await canonicalVersion();
   const candidateDir = path.join(parentDir, `ambicode-${version}`);
@@ -388,8 +325,6 @@ async function packageInto(parentDir) {
   const inventory = await inventoryOf(candidateDir);
   const { sha256: zipSha256 } = await buildZip(parentDir, version);
   await rm(parentDir, { recursive: true, force: true });
-  // The version is not part of the file-set comparison; only the shipped
-  // content, which is what "the same file set" means here.
   return {
     inventory: inventory.map(({ path: p, bytes, sha256, mode }) => ({ path: p, bytes, sha256, mode })),
     zipSha256,
@@ -397,10 +332,8 @@ async function packageInto(parentDir) {
 }
 
 /**
- * Validates the candidate, not the checkout: the repository root is also its
- * own Claude Code project root, so `validate .` failed `--strict` on a root
- * CLAUDE.md that FILE_ALLOWLIST never ships. Same validation, no stronger —
- * with `name:` deleted from a skill, both targets still passed.
+ * Validates the candidate, not the checkout: the repository's root CLAUDE.md, which never
+ * ships, fails `validate . --strict`.
  */
 function validatePlugin(candidateDir) {
   // A command string, not an args array: `claude` is a PATH shim on Windows so
@@ -415,6 +348,5 @@ if (mode === '--check-reproducible') {
   await checkReproducible();
 } else {
   const { candidateDir } = await main();
-  // Opt-in, so packaging still works without a `claude` binary.
   if (mode === '--validate-plugin') validatePlugin(candidateDir);
 }

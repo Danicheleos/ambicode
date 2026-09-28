@@ -8,14 +8,6 @@ import { systemIds } from '../ports/ids.ts';
 import { FakeClock } from '../testing/page-harness.ts';
 import { acquirePublicationLease, LEASE_FILE } from './lease.ts';
 
-/**
- * P1.7 correction A. The in-memory session lock only serializes within one
- * process; these tests use the real filesystem so the atomic create-exclusive
- * primitive is genuinely exercised, and drive independent acquisitions
- * against the same on-disk review directory the way two separate
- * `ambicode view` processes would.
- */
-
 async function withDirectory<T>(run: (directory: string) => Promise<T>): Promise<T> {
   const directory = await mkdtemp(path.join(tmpdir(), 'ambicode-lease-test-'));
   try {
@@ -72,10 +64,8 @@ describe('P1.7 correction A: per-review publication lease', () => {
       if (second.kind === 'held') {
         assert.match(second.message, /submission s-1/);
         assert.match(second.message, /pid 111/);
-        // The refusal names manual recovery, never automatic age-based reclaim.
         assert.match(second.message, /never reclaimed automatically/);
         assert.match(second.message, /remove .* yourself/);
-        // No secret, capability or session id ever appears in the diagnostic.
         assert.ok(!/capability|session|token|secret/i.test(second.message));
       }
 
@@ -100,14 +90,13 @@ describe('P1.7 correction A: per-review publication lease', () => {
         });
         if (lease.kind === 'held') return false;
         try {
-          writes += 1; // Stands in for the call that would reach the provider.
+          writes += 1;
           return true;
         } finally {
           await lease.release();
         }
       };
 
-      // Two independent "processes" racing for the same review directory.
       const [a, b] = await Promise.all([attempt('s-a', 1), attempt('s-b', 2)]);
       assert.equal(writes, 1);
       assert.equal([a, b].filter(Boolean).length, 1);
@@ -128,9 +117,6 @@ describe('P1.7 correction A: per-review publication lease', () => {
       });
       assert.equal(first.kind, 'acquired');
 
-      // Ages the lease far past any duration a real publication run could take.
-      // The old design reclaimed automatically past a fixed threshold; v1 never
-      // does, so this must stay held no matter how old it gets.
       clock.advance(365 * 24 * 60 * 60 * 1000);
       const stillHeld = await acquirePublicationLease({
         fs: nodeFileSystem,
@@ -148,12 +134,6 @@ describe('P1.7 correction A: per-review publication lease', () => {
   });
 
   it('two independent recovery attempts on a manually-cleared lease never both succeed', async () => {
-    // Regression for the unsafe reclaim this replaces: two reclaimers reading
-    // the same old lease could each remove the other's fresh replacement and
-    // both believe they held it. Here a human has already done the manual
-    // recovery (removed the confirmed-abandoned lease file); two processes
-    // then race to create the replacement. The filesystem's atomic exclusive
-    // create must still let only one of them through.
     await withDirectory(async (directory) => {
       const clock = new FakeClock();
       const abandoned = await acquirePublicationLease({
@@ -167,8 +147,6 @@ describe('P1.7 correction A: per-review publication lease', () => {
       });
       assert.equal(abandoned.kind, 'acquired');
 
-      // Simulates the documented manual recovery: a human, not this module,
-      // removes the confirmed-abandoned lease file directly.
       await rm(path.join(directory, LEASE_FILE), { force: true });
 
       const attempt = async (submissionId: string, pid: number) =>
@@ -205,8 +183,6 @@ describe('P1.7 correction A: per-review publication lease', () => {
       });
       assert.equal(original.kind, 'acquired');
 
-      // A human confirms the original process is gone and manually recovers,
-      // per the refusal message's documented path.
       await rm(path.join(directory, LEASE_FILE), { force: true });
 
       const replacement = await acquirePublicationLease({
@@ -220,9 +196,6 @@ describe('P1.7 correction A: per-review publication lease', () => {
       });
       assert.equal(replacement.kind, 'acquired');
 
-      // The old holder, unaware that it was recovered out from under it, now
-      // calls release() from its original acquisition. It must not delete the
-      // replacement.
       if (original.kind === 'acquired') await original.release();
 
       const lockPath = path.join(directory, LEASE_FILE);

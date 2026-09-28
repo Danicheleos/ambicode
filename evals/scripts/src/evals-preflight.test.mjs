@@ -1,6 +1,3 @@
-// Guards the preflight's decision without running it: `judge` reads the same
-// `claude plugin eval --json` shape a real run writes, and the case files are
-// read to prove the gate names graders that exist.
 import assert from 'node:assert/strict';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -12,7 +9,6 @@ import { ARCHIVED_EVAL_DIR, PREFLIGHT, PREFLIGHT_MAX_COST_USD, RECORDINGS, judge
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const EVALS = path.join(ROOT, ARCHIVED_EVAL_DIR);
 
-/** A result in which every grader either case carries passed, except those named. */
 function result({ failing = {}, drop = [], partial = false, error = null, cases = PREFLIGHT.map((p) => p.case) } = {}) {
   return {
     partial,
@@ -111,8 +107,8 @@ describe('evals-preflight: the cases it runs', () => {
     const argv = preflightArgs('/tmp/out.json', ['--trust-plugin']);
     const after = (flag) => argv[argv.indexOf(flag) + 1];
     assert.deepEqual(argv.slice(0, 2), ['plugin', 'eval']);
-    // Without it the harness reads the manifest's eval directory, which is the
-    // benchmark set and carries no `preflight` case.
+    // Without it the harness reads the manifest's eval directory, which carries no
+    // `preflight` case.
     assert.equal(after('--eval-dir'), ARCHIVED_EVAL_DIR);
     assert.equal(after('--tag'), 'preflight');
     assert.equal(after('--runs'), '1');
@@ -126,9 +122,6 @@ describe('evals-preflight: the cases it runs', () => {
   });
 
   it('keeps the recordings where the sandboxed agent can read them, outside the eval directory', async () => {
-    // The sandbox's `denyRead` names `<plugin>/<eval dir>`; a recording there
-    // made every replay in the first preflight fail. Inside the plugin, so the
-    // agent can reach it at all.
     const fromEvals = path.relative(EVALS, RECORDINGS);
     const fromRoot = path.relative(ROOT, RECORDINGS);
     assert.ok(fromEvals.startsWith('..'), fromEvals);

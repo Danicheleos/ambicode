@@ -2,17 +2,10 @@ import { z } from 'zod';
 import type { DeliveryCertainty } from '../../contracts/provider.ts';
 import type { ProcessRunner } from '../../ports/process.ts';
 
-/**
- * Every GitLab request is `glab api` through the shared process port (doc 11).
- * There is no GitLab SDK, no direct HTTP client, no shell pipeline, and nothing
- * parses `glab mr view` or any other human-formatted output: the transport
- * returns JSON and every response is validated with Zod before it is used.
- */
-
 export const GLAB_TIMEOUT_MS = 60_000;
 export const GLAB_MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
 
-/** GitLab's own maximum; asking for more is silently capped, so it is not asked. */
+/** GitLab's own maximum; asking for more is silently capped. */
 export const PAGE_SIZE = 100;
 
 export type ApiResult<T> =
@@ -21,9 +14,7 @@ export type ApiResult<T> =
 
 export interface GitLabApiOptions {
   runner: ProcessRunner;
-  /** Host with its port, taken from the merge request URL. */
   host: string;
-  /** Where glab runs. Its configuration is per-host, never per-checkout. */
   cwd: string;
   executable?: string;
   timeoutMs?: number;
@@ -31,9 +22,7 @@ export interface GitLabApiOptions {
 }
 
 export interface ApiRequest {
-  /** Path after `/api/v4/`, already encoded by the caller. */
   path: string;
-  /** Appended as a query string; values are encoded here. */
   query?: Readonly<Record<string, string | number>>;
   method?: 'GET' | 'POST';
   /** POST body, sent as JSON on stdin so no value reaches the argument vector. */
@@ -57,7 +46,6 @@ export class GitLabApi {
     this.maxOutputBytes = options.maxOutputBytes ?? GLAB_MAX_OUTPUT_BYTES;
   }
 
-  /** The exact vector, so a test can assert the host and the encoded identity. */
   argvFor(request: ApiRequest): string[] {
     const query = Object.entries(request.query ?? {})
       .map(([name, value]) => `${encodeURIComponent(name)}=${encodeURIComponent(String(value))}`)
@@ -65,17 +53,13 @@ export class GitLabApi {
     return [
       this.executable,
       'api',
-      // Explicit on every request: glab otherwise infers a host from the
-      // current checkout's remote, which is not what the URL named (doc 03).
+      // glab otherwise infers the host from the checkout's remote, not the one the URL named.
       '--hostname',
       this.host,
       '--method',
       request.method ?? 'GET',
-      // `glab api --input -` sends the body with no Content-Type of its own,
-      // and GitLab answers HTTP 415 ("The provided content-type '' is not
-      // supported") before it looks at the request at all. Measured on glab
-      // 1.119.0 against gitlab.com: every publish failed this way, and the
-      // same request with this header is answered on its merits.
+      // `glab api --input -` sets no Content-Type of its own, and GitLab answers HTTP 415 before
+      // it looks at the request at all.
       ...(request.body === undefined
         ? []
         : ['--header', 'Content-Type: application/json', '--input', '-']),
@@ -90,42 +74,30 @@ export class GitLabApi {
       cwd: this.cwd,
       timeoutMs: this.timeoutMs,
       maxOutputBytes: this.maxOutputBytes,
-      // glab reads its own token store and the operator's proxy settings.
       env: { kind: 'inherited', overrides: { NO_COLOR: '1', GLAB_CHECK_UPDATE: 'false' } },
       ...(request.body === undefined ? {} : { stdin: JSON.stringify(request.body) }),
     });
 
     if (outcome.kind === 'spawn-failed') {
-      // The process never started, so no request reached GitLab: the only
-      // case this module can prove happened strictly before any send (doc 03
-      // P1.7 correction A).
+      // Never started, so provably nothing was sent: the only case allowed to claim `before-send`.
       return failed(
         `glab could not be started: ${outcome.failure ?? 'unknown spawn failure'}.`,
         ['AMBICODE talks to GitLab only through the glab CLI; install it and run `glab auth login` for this host.'],
         'before-send',
       );
     }
-    // Everything below started a process that GitLab may have already acted
-    // on, so none of it may claim `before-send`: a timeout, a truncated
-    // answer, a nonzero exit and an unparseable or schema-invalid body are all
-    // `uncertain` by default. Do not narrow this by matching message text —
-    // only a provider that returns structured proof of pre-send rejection may
-    // pass `before-send` explicitly, and none of these cases is that.
+    // A started process may already have been acted on by GitLab, so everything below is
+    // `uncertain`. Never narrow this by matching message text.
     if (outcome.kind === 'timed-out') {
       return failed(`glab api ${request.path} timed out after ${Math.round(this.timeoutMs / 1000)}s.`);
     }
-    // A capped response is not a short response: parsing a prefix would invent
-    // a complete answer out of an incomplete one (doc 11).
     if (outcome.truncated) {
       return failed(`glab api ${request.path} produced more output than AMBICODE reads, so it was not parsed.`, [
         'The response was not parsed and nothing was inferred from its prefix.',
       ]);
     }
     if (outcome.exitCode !== 0) {
-      // The diagnostic goes in the message, not only in the details: a
-      // publication outcome records the message alone, so `glab: HTTP 415` —
-      // the line that identified the bug that made every publish fail — never
-      // reached the operator, who saw only "failed with exit code 1".
+      // In the message, not only in details: a publication outcome records the message alone.
       const diagnostic =
         firstLine(outcome.stderr) || firstLine(outcome.stdout) || 'glab produced no diagnostic.';
       return failed(
@@ -155,16 +127,6 @@ export class GitLabApi {
     return { kind: 'ok', value: validated.data };
   }
 
-  /**
-   * One GraphQL query, for the cases where REST would be one request per item.
-   * `glab api graphql` is the same transport as everything else here — the
-   * `Content-Type` header above is what makes GitLab answer it at all.
-   *
-   * GraphQL reports failure in two shapes: `glab` exits nonzero and the body
-   * holds `errors`, or the body parses but does not match the schema. Both
-   * arrive here as a failure, and every caller of this treats a failure as
-   * "fall back to the per-item requests", never as an empty answer.
-   */
   async graphql<T>(
     query: string,
     variables: Readonly<Record<string, unknown>>,
@@ -174,16 +136,8 @@ export class GitLabApi {
   }
 
   /**
-   * Reads a paginated collection to its end. GitLab returns 20 items by default
-   * and never says "there is more" in the body, so the first page is not the
-   * collection (doc 03 P1.5): pages are requested until one comes back shorter
-   * than the page size, and a failure on any page fails the whole listing
-   * rather than returning a plausible prefix.
-   *
-   * `maxItems` is a hard ceiling on what is returned, whatever a page's size
-   * turns out to be: a page longer than the ceiling is cut to it and reported
-   * as capped, rather than handed back whole because it happened to be the
-   * last one (doc 03 P1.5 correction 4).
+   * GitLab never says "there is more", so pages are read until a short one; a failed page fails the
+   * whole listing, and `maxItems` is a hard ceiling even when one page exceeds it.
    */
   async collect<T>(
     request: ApiRequest,
@@ -213,24 +167,17 @@ export class GitLabApi {
 
       items.push(...result.value);
 
-      // The ceiling is applied before the short-page test, so a server that
-      // answers with more items than were asked for is cut to the ceiling and
-      // reported as capped rather than returned in full.
       if (items.length > maxItems) {
         return { kind: 'ok', value: { items: items.slice(0, maxItems), capped: true, pages: page } };
       }
-      // A final page that is short — including an empty one — ends the listing.
       if (result.value.length < PAGE_SIZE) {
         return { kind: 'ok', value: { items, capped: false, pages: page } };
       }
-      // Exactly at the ceiling on a full page is ambiguous, so the next page is
-      // requested to learn whether anything was actually left behind.
       page += 1;
     }
   }
 }
 
-/** `certainty` defaults to `uncertain`: see the call sites above for the one exception. */
 function failed<T>(
   message: string,
   details: string[] = [],

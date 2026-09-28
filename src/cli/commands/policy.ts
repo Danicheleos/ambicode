@@ -27,9 +27,8 @@ export interface PolicyOutput {
 }
 
 /**
- * The effective policy, printed from the same resolver the checks and the
- * reviewer use. Skills read this rather than reading packs themselves, so
- * there is exactly one answer to "what applies here" (D14).
+ * Printed from the same resolver the checks and the reviewer use; skills read
+ * this rather than the packs, so there is one answer to "what applies here".
  */
 export async function runPolicy(runtime: Runtime, args: ParsedArgs): Promise<PolicyOutput> {
   const workspace = await openWorkspace(runtime);

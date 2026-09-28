@@ -17,19 +17,16 @@ export interface InitOutput {
   changes: string[];
   notices: string[];
   /**
-   * Files that usually hold a team's written rules, detected by existence
-   * only (R3 part 3). They are migration candidates for `/ambicode:rules`,
-   * never rules init has understood: AMBICODE's runtime reads policy from
-   * YAML packs and from nothing else.
+   * Rule files detected by existence only: migration candidates for `/ambicode:rules`, never
+   * rules init has understood. The runtime reads policy only from YAML packs.
    */
   ruleSources: string[];
   projects: { id: string; root: string; ecosystem: string; configured: string[]; missing: string[]; navigation: NavigationGuidance }[];
 }
 
 /**
- * First run writes a configuration the user owns; every later run proposes
- * additions only. Nothing here executes a project script or installs anything,
- * so init is safe to run on a repository you have just cloned (doc 05).
+ * First run writes a configuration the user owns; later runs propose additions only. Runs no
+ * project script and installs nothing, so it is safe on a freshly cloned repository.
  */
 export async function runInit(runtime: Runtime, args: ParsedArgs): Promise<InitOutput> {
   const { fs } = runtime;
@@ -69,8 +66,6 @@ export async function runInit(runtime: Runtime, args: ParsedArgs): Promise<InitO
       root: project.root,
       ecosystem: project.ecosystem,
       navigation: navigationFor(project.ecosystem),
-      // "Show configured and missing checks" (P1.2 item 2): a slot that is null
-      // is stated as missing rather than left for the reader to infer.
       configured: Object.entries(project.checks)
         .filter(([, check]) => check !== null)
         .map(([id]) => id)
@@ -83,7 +78,6 @@ export async function runInit(runtime: Runtime, args: ParsedArgs): Promise<InitO
   };
 }
 
-/** Keeps review artifacts out of the product's history, without rewriting the file. */
 async function addIgnoreEntries(fs: FileSystem, repositoryRoot: string, notices: string[]): Promise<void> {
   const ignorePath = path.join(repositoryRoot, '.gitignore');
   let existing = '';
@@ -92,11 +86,7 @@ async function addIgnoreEntries(fs: FileSystem, repositoryRoot: string, notices:
   } catch {
     existing = '';
   }
-  // `/.ambicode/reviews/` and `.ambicode/reviews/` are the same rule to git:
-  // a pattern containing a slash is already anchored to the .gitignore's own
-  // directory, so the leading one adds nothing. Comparing the literal text
-  // made `init` append a second spelling of an entry that was already there,
-  // every time it ran.
+  // A pattern containing a slash is already anchored, so `/x/` and `x/` are the same rule to git.
   const anchored = (entry: string): string => entry.replace(/^\//, '');
   const lines = new Set(existing.split('\n').map((line) => anchored(line.trim())));
   const missing = IGNORE_ENTRIES.filter((entry) => !lines.has(anchored(entry)));
@@ -109,8 +99,6 @@ async function addIgnoreEntries(fs: FileSystem, repositoryRoot: string, notices:
 
 export function renderInit(output: InitOutput): string {
   const lines: string[] = [];
-  // Three outcomes, each in its own words: "Updated" followed by "nothing was
-  // written" read as a contradiction in run 2d344627.
   if (!output.written && !output.created && output.changes.length === 0) {
     lines.push(`Checked ${output.configPath}: nothing to change.`);
   } else {

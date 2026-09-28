@@ -8,18 +8,11 @@ import { suggestedPacks, type DetectedProject } from './detect.ts';
 import { parseConfig } from './load.ts';
 
 export interface InitPlan {
-  /** YAML to write, or null when nothing needs to change. */
   yaml: string | null;
   created: boolean;
   changes: string[];
   notices: string[];
-  /**
-   * Repository-relative paths that usually hold a team's written rules, found
-   * by existence alone (R3 part 3). Candidates for `/ambicode:rules`; nothing
-   * here has been opened, classified, or migrated.
-   */
   ruleSources: string[];
-  /** The configuration that results once `yaml` is written. */
   config: AmbicodeConfig;
 }
 
@@ -31,10 +24,6 @@ export interface PlanInitOptions {
   baselineNotice: string;
 }
 
-/**
- * First run writes an editable file; a later run proposes additions and never
- * replaces a value the user has edited (D06, doc 05).
- */
 export async function planInit(options: PlanInitOptions): Promise<InitPlan> {
   const filePath = path.join(options.repositoryRoot, CONFIG_FILE);
   let existingRaw: string | null = null;
@@ -51,12 +40,8 @@ export async function planInit(options: PlanInitOptions): Promise<InitPlan> {
 }
 
 /**
- * Where a team's rules are usually written, in the order a migration would
- * read them. This is a fixed list checked with `exists` and nothing more: init
- * does not read, classify, or migrate rule content, because deciding that a
- * paragraph is a rule and what it is scoped to is a judgement, and a judgement
- * belongs to `/ambicode:rules` with a human present, once, at setup — never to
- * a detector that runs on every init (R3 part 3).
+ * Checked with `exists` only: deciding what counts as a rule is a judgement for
+ * `/ambicode:rules` with a human present, not for a detector run on every init.
  */
 const RULE_SOURCE_CANDIDATES = [
   'CLAUDE.md',
@@ -85,11 +70,6 @@ function ruleSourceNotice(sources: readonly string[]): string {
   ].join('\n');
 }
 
-/**
- * The helper cannot see the session's MCP servers, so it states the binding it
- * needs and the setup skill asks the user which server to use when more than
- * one compatible one is connected (doc 03, P1.4).
- */
 const MCP_BINDING_NOTICE =
   'requirements.mcpServer is null: no Jira/Confluence MCP server is bound. Requirement-based review needs one named here. If more than one compatible server is connected, choose which of them this repository uses and write its name.';
 
@@ -103,7 +83,6 @@ function createFresh(options: PlanInitOptions): InitPlan {
   });
 
   if (projects.length === 0) {
-    // Without a detected root there is nothing to scope policy or commands to.
     projects.push({
       id: 'app',
       root: '.',
@@ -146,16 +125,11 @@ function updateExisting(existingRaw: string, options: PlanInitOptions): InitPlan
     notices.push(MCP_BINDING_NOTICE);
   }
 
-  // Doc 04 P2.4 correction F: an existing schema-version-1 config written
-  // before `authoring` existed gets the documented default added, once,
-  // never a destructive rewrite of a value the user already set.
   if (document.get('authoring') === undefined) {
     document.set('authoring', document.createNode({ ...DEFAULTS.authoring }));
     changes.push(`Added "authoring.editReminders: ${DEFAULTS.authoring.editReminders}" (the documented default).`);
   }
 
-  // Same for `page.port`, written so the fixed review-page port is visible
-  // and editable rather than an unlisted default.
   if (document.getIn(['page', 'port']) === undefined) {
     document.setIn(['page', 'port'], DEFAULTS.page.port);
     changes.push(`Added "page.port: ${DEFAULTS.page.port}" (the documented default).`);
@@ -191,13 +165,7 @@ function updateExisting(existingRaw: string, options: PlanInitOptions): InitPlan
   return { yaml, created: false, changes, notices, ruleSources: [], config: parseConfig(yaml) };
 }
 
-/**
- * A framework pack the dependencies call for is a missing entry, like a command
- * slot. A notice instead of the entry made a user recreate the whole file to
- * get the Angular packs, losing their mcpServer and review limits (run
- * 2d344627 → c41ef078). A pack deliberately removed does come back; the header
- * already says init adds what is missing.
- */
+/** Treated like a missing command slot, so a pack the user deliberately removed does come back. */
 function addMissingFrameworkPacks(
   document: Document,
   projectNodeMap: YAMLMap,
@@ -216,10 +184,7 @@ function addMissingFrameworkPacks(
   changes.push(`Enabled ${missing.join(', ')} for project "${detected.id}": its dependencies call for them.`);
 }
 
-/**
- * Adds only command slots the project does not already declare. A value the
- * user set, including an explicit null, is left exactly as it is.
- */
+/** A value the user set, including an explicit null, is left exactly as it is. */
 function addMissingCommands(
   document: Document,
   projectNodeMap: YAMLMap,
@@ -267,7 +232,6 @@ function projectNode(
   for (const slot of ['lint', 'unit', 'e2e'] as const) {
     const candidate = detected[slot];
     if (candidate?.argv == null) {
-      // Null with a notice, never a guessed command line (D06).
       commands[slot] = null;
       checks[slot] = null;
       notices.push(
@@ -295,10 +259,6 @@ function projectNode(
   };
 }
 
-/**
- * The check entry for a detected command, or null when AMBICODE has no way to
- * select the affected tests without the project supplying a mapping (doc 05).
- */
 function checkFor(slot: 'lint' | 'unit' | 'e2e', detected: DetectedProject): Record<string, unknown> | null {
   const candidate = detected[slot];
   const adapter = candidate?.adapter ?? 'eslint';
@@ -311,9 +271,8 @@ function checkFor(slot: 'lint' | 'unit' | 'e2e', detected: DetectedProject): Rec
     };
   }
 
-  // Jest and Vitest can be asked which tests a change affects; pytest and
-  // Playwright cannot. Rather than writing an empty mapping that selects
-  // nothing, the check is left unconfigured and init explains what to add.
+  // Only Jest and Vitest can say which tests a change affects; an empty mapping
+  // would select nothing, so the check is left null and init explains what to add.
   if (adapter !== 'jest' && adapter !== 'vitest') return null;
 
   return {

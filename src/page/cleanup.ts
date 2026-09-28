@@ -4,17 +4,13 @@ import type { Clock } from '../ports/clock.ts';
 import type { FileSystem } from '../ports/filesystem.ts';
 
 /**
- * Temporary directories AMBICODE created, and only those.
- *
- * A sweep that deleted every directory matching a name prefix would eventually
- * delete somebody else's, so a directory is removed only when it carries a
- * marker this tool wrote (doc 03 P1.6). A directory that cannot be read, or
- * whose marker does not validate, is left alone and reported.
+ * Removes a directory only when it carries a marker this tool wrote: a prefix
+ * match alone would eventually delete somebody else's. Unreadable or invalid
+ * markers leave the directory alone and reported.
  */
 
 export const OWNERSHIP_MARKER = '.ambicode-owned.json';
 
-/** Prefixes `FileSystem.temporaryDirectory` is called with. */
 export const OWNED_PREFIXES = [
   'ambicode-snapshot-',
   'ambicode-page-',
@@ -62,24 +58,16 @@ export async function readOwnership(fs: FileSystem, directory: string): Promise<
 export interface SweepOptions {
   fs: FileSystem;
   clock: Clock;
-  /** Directories older than this are candidates; younger ones may be in use. */
   maxAgeMs: number;
   prefixes?: readonly string[];
 }
 
 export interface SweepReport {
   removed: string[];
-  /** Directories that matched a prefix but carried no valid AMBICODE marker. */
   skipped: string[];
-  /** Removal attempts that failed, surfaced instead of retried elsewhere. */
   failures: string[];
 }
 
-/**
- * Removes expired AMBICODE temporary directories at startup. Saved review
- * results, drafts and publication history live in the repository and are never
- * touched by this.
- */
 export async function sweepOwnedTemporaries(options: SweepOptions): Promise<SweepReport> {
   const report: SweepReport = { removed: [], skipped: [], failures: [] };
   const root = options.fs.temporaryRoot();

@@ -10,14 +10,6 @@ import { TempRepo } from '../testing/temp-repo.ts';
 import { PREPARE_OPTIONS, runPrepare } from '../cli/commands/prepare.ts';
 import { runHook } from './run-hook.ts';
 
-/**
- * doc 04 P2.4 corrections G/H: the packaged PostToolUse/SessionStart/
- * PostCompact/SessionEnd hook entry point. Never invokes the real bundled
- * CLI process here (that is `hooks-artifact.test.mjs`'s job); this exercises
- * `runHook` directly against a real git fixture, exactly like every other
- * AMBICODE module test.
- */
-
 async function fixtureWithPack(options: { editReminders?: boolean } = {}): Promise<{ repo: TempRepo; dispose(): Promise<void> }> {
   const repo = await TempRepo.create();
   await repo.write('package.json', '{"name":"app","version":"1.0.0"}\n');
@@ -91,7 +83,7 @@ describe('G/H: ambicode hook (PostToolUse edit reminders)', () => {
       assert.match(text, /architecture/);
       assert.match(text, /Keep orders logic in the service layer\./);
       assert.match(text, /manual read of the diff/);
-      assert.match(text, /orders-reminders/); // pack provenance
+      assert.match(text, /orders-reminders/);
       assert.match(text, /content: sha256:/);
       assert.match(text, /reminder applied on your NEXT model request, not proof/i);
     } finally {
@@ -242,7 +234,6 @@ describe('G/H: ambicode hook (PostToolUse edit reminders)', () => {
       const first = await runHook(runtime, postToolUse({ sessionId, filePath, cwd: repo.root }));
       assert.ok('hookSpecificOutput' in (first as object));
 
-      // Change the rule's instruction text: same qualified id, new content hash.
       const packPath = path.join(repo.root, '.ambicode/policies/reminders.yaml');
       const pack = await nodeFileSystem.readText(packPath);
       await nodeFileSystem.writeText(
@@ -274,8 +265,6 @@ describe('G/H: ambicode hook (PostToolUse edit reminders)', () => {
         runtime,
         JSON.stringify({ hook_event_name: 'SessionStart', session_id: sessionId }),
       )) as Record<string, unknown>;
-      // The reset also carries the shared operating contract for the fresh
-      // epoch (R2 change 2); the reset itself is what this test is about.
       assert.ok('hookSpecificOutput' in reset);
 
       const afterReset = (await runHook(runtime, postToolUse({ sessionId, filePath, cwd: repo.root }))) as Record<string, unknown>;
@@ -300,30 +289,21 @@ describe('G/H: ambicode hook (PostToolUse edit reminders)', () => {
       const canonical = await nodeFileSystem.readText(
         path.join(runtime.pluginRoot, 'prompts', 'shared-operating-contract.md'),
       );
-      // The whole contract, not a summary of it: `prepare` stopped sending it,
-      // so this is the only copy the session gets.
       assert.ok(delivered.includes(canonical.trimEnd()));
       assert.match(delivered, /--with-contract/);
 
-      // A second event in the same epoch does not repeat it — that repetition
-      // is exactly the cost this change removes.
       const sameEpoch = await runHook(
         runtime,
         JSON.stringify({ hook_event_name: 'UserPromptSubmit', session_id: sessionId }),
       );
       assert.deepEqual(sameEpoch, {}, 'the contract is already in context for this epoch');
 
-      // `PostCompact` drops the earlier delivery, but it cannot carry the
-      // replacement: Claude Code's output schema has no `hookSpecificOutput`
-      // variant for that event, and returning one is a visible validation
-      // failure. It resets, silently.
       const compacted = await runHook(
         runtime,
         JSON.stringify({ hook_event_name: 'PostCompact', session_id: sessionId, agent_id: undefined }),
       );
       assert.deepEqual(compacted, {}, 'PostCompact cannot inject context, so it must return nothing');
 
-      // The first prompt after the compaction is what puts it back.
       const afterCompact = (await runHook(
         runtime,
         JSON.stringify({ hook_event_name: 'UserPromptSubmit', session_id: sessionId }),
@@ -331,7 +311,6 @@ describe('G/H: ambicode hook (PostToolUse edit reminders)', () => {
       assert.equal(afterCompact.hookSpecificOutput?.hookEventName, 'UserPromptSubmit');
       assert.ok((afterCompact.hookSpecificOutput?.additionalContext ?? '').includes(canonical.trimEnd()));
 
-      // And `prepare` in that session carries the contract by reference only.
       const prepared = await runPrepare(
         runtime,
         parseArgs('prepare', ['--activity', 'task'], PREPARE_OPTIONS),

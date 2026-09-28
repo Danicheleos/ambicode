@@ -1,8 +1,5 @@
-// Built-artifact check that the page server stays out of every path but
-// `view`. Measured when the split was made: import 157 → 115 ms, the hook
-// 170 → 137 ms, `config --json` 221 → 184 ms. One static import of
-// `commands/view.ts` from anywhere on those paths undoes all of it silently,
-// and no behavioural test would notice.
+// Checks the built bundle: one static import of `commands/view.ts` on a non-view
+// path would load the page server everywhere, and no behavioural test would notice.
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -28,12 +25,10 @@ function relativeImports(text, pattern) {
   return [...text.matchAll(pattern)].map((match) => match[1]);
 }
 
-/** Every file loaded, without a dynamic import, once `file` is. */
 async function staticClosure(file, seen = new Set()) {
   if (seen.has(file)) return seen;
   seen.add(file);
   const text = await source(file);
-  // `from "./x.mjs"` and `import "./x.mjs"`, never `import("./x.mjs")`.
   for (const specifier of relativeImports(text, /\b(?:from|import)\s*["'](\.{1,2}\/[^"']+)["']/g)) {
     await staticClosure(path.resolve(path.dirname(file), specifier), seen);
   }

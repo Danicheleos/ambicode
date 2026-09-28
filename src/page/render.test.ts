@@ -7,11 +7,6 @@ import {
 } from '../testing/page-harness.ts';
 import { HOSTILE, reviewResult } from '../testing/review-fixture.ts';
 
-/**
- * U20. The page is rendered by the real templates through the real Fastify
- * route, so what these tests read is what a browser would receive.
- */
-
 describe('U20 the review page shows what the result actually says', () => {
   it('shows the summary a reader needs before any finding', async () => {
     const harness = await startHarness();
@@ -21,7 +16,6 @@ describe('U20 the review page shows what the result actually says', () => {
       assert.match(page.html, /Review r-0001/);
       assert.match(page.html, /partial/);
       assert.match(page.html, /requirement-based/);
-      // Host, project, merge request link and the pinned SHAs.
       assert.match(page.html, /gitlab\.example\.com/);
       assert.match(page.html, /group\/sub\/project !42/);
       assert.match(page.html, /merge_requests\/42/);
@@ -29,15 +23,12 @@ describe('U20 the review page shows what the result actually says', () => {
       assert.match(page.html, new RegExp(`base <code>${'a'.repeat(40)}</code>`));
       assert.match(page.html, new RegExp(`start <code>${'b'.repeat(40)}</code>`));
       assert.match(page.html, new RegExp(`head <code>${'c'.repeat(40)}</code>`));
-      // Requirement sources and provenance.
       assert.match(page.html, /ORD-17/);
       assert.match(page.html, /mcp__atlassian__getJiraIssue/);
       assert.match(page.html, /\.ambicode\/config\.yaml/);
-      // Check results, selection completeness and mutations.
       assert.match(page.html, /web\/lint/);
       assert.match(page.html, /selection complete: true/);
       assert.match(page.html, /inside the disposable container workspace/);
-      // Ordinary omissions are shown too.
       assert.match(page.html, /An omission carrying hostile text/);
     } finally {
       await harness.dispose();
@@ -57,7 +48,6 @@ describe('U20 the review page shows what the result actually says', () => {
       assert.match(page.html, /The reduce has no initial value/);
       assert.match(page.html, /<textarea id="body_f-aaaa" name="body_f-aaaa"/);
       assert.match(page.html, /<input type="checkbox" name="select_f-aaaa" value="on">/);
-      // Nothing starts checked.
       assert.ok(!/checkbox[^>]*checked/.test(page.html));
     } finally {
       await harness.dispose();
@@ -81,14 +71,10 @@ describe('U20 the review page shows what the result actually says', () => {
     try {
       const page = await openPage(harness);
 
-      // The payload is present as text, with its angle brackets encoded...
       assert.ok(page.html.includes('&lt;img src=x onerror='));
-      // ...and never as markup: no tag from the payload survives, and the
-      // exact hostile string is nowhere in the document.
       assert.ok(!/<script/i.test(page.html));
       assert.ok(!/<img/i.test(page.html));
       assert.ok(!page.html.includes(HOSTILE));
-      // Each untrusted field is covered, not only the first one.
       assert.ok(page.html.includes('A note carrying hostile text'));
       assert.ok(page.html.includes('An explanation carrying hostile text'));
       assert.ok(page.html.includes('A suggested comment carrying hostile text'));
@@ -107,9 +93,7 @@ describe('U20 the review page shows what the result actually says', () => {
       assert.ok(!/https?:\/\/(?!gitlab\.example\.com|example\.atlassian\.net)/.test(page.html));
       assert.ok(!/<script/i.test(page.html));
       assert.ok(!/fonts\.googleapis|cdn\./i.test(page.html));
-      // The one-time capability never appears in a rendered page.
       assert.ok(!page.html.includes(harness.server.capability));
-      // Nor does any cookie or secret.
       assert.ok(!/ambicode_session/.test(page.html));
     } finally {
       await harness.dispose();
@@ -156,8 +140,7 @@ describe('U20 the review page shows what the result actually says', () => {
       const page = await openPage(harness);
       assert.match(page.html, /This is a local review/);
       assert.ok(!page.html.includes('type="checkbox"'));
-      // Nothing that publishes. The "Close the page" button is not that: it
-      // stops the local server and reaches no provider.
+      // The "Close the page" button stops the local server and reaches no provider.
       assert.ok(!page.html.includes('Publish the checked comments'));
       assert.ok(page.html.includes('action="/close"'));
     } finally {
@@ -174,8 +157,6 @@ describe('U20 the review page shows what the result actually says', () => {
       const page = await openPage(harness);
       assert.match(page.html, /did not produce a validated result/);
       assert.match(page.html, /This is not a clean review/);
-      // Nothing that publishes. The "Close the page" button is not that: it
-      // stops the local server and reaches no provider.
       assert.ok(!page.html.includes('Publish the checked comments'));
       assert.ok(page.html.includes('action="/close"'));
     } finally {

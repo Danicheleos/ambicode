@@ -1,43 +1,6 @@
-// The benchmark eval set: real tickets against real code, graded by the files
-// the merged change actually touched.
-//
-// The data lives in `benchmarks/` and never in git: it is under NDA, and
-// `.gitignore` excludes the whole directory. This file carries no word of it.
-// It reads, per side (one directory per codebase, e.g. `benchmarks/BE`):
-//
-//   <side>/src/                   a snapshot of the code
-//   <side>/.ambicode/config.yaml  the configuration the team uses on it
-//   <side>/assets/<ticket>.md     "## build:context prompt" (the ticket) and
-//                                 "## TRUE RELATED CODE" (the grader)
-//
-// and generates one `claude plugin eval` case per ticket under
-// `benchmarks/cases/`, so the cases stay inside the excluded directory too.
-// Running with `--eval-dir benchmarks` also puts the whole tree — snapshot,
-// tickets, ground truth — under the sandbox's `denyRead` for the evaluated
-// agent (it names `<plugin>/<eval dir>`; evals/evals-archived/typescript/README.md),
-// so neither arm can read the answer. The scaffold copies the snapshot into
-// the run as the operator, outside the sandbox.
-//
-// `select` writes the curated suite — the strongest, most provable cases,
-// chosen by measurable criteria only (SELECT below) — into
-// `evals/evals-core/cases/`, which `.gitignore` also excludes. That run uses
-// `--eval-dir evals/evals-core`, whose
-// `denyRead` covers the curated truth but not `benchmarks/`; every case
-// therefore carries `no-peek-*` graders that fail the run if any tool reaches
-// into the data directory.
-//
-// The harness scores pass/fail only, with no custom scorer (Claude Code
-// 2.1.283), so the in-harness score is coarse: did the answer name any true
-// file. `score` computes the measures that matter — precision, recall and F1 of
-// the answer's file list — from each run's final message, which the `llm`
-// grader's evidence carries whole (72 of 72 identical to the trace's final
-// result in the 2026-09-28 sweep, up to 5,082 characters).
-//
-// usage:
-//   node evals/scripts/src/evals-bench.mjs generate [--benchmarks <dir>]
-//   node evals/scripts/src/evals-bench.mjs select [--localize <n>] [--review <n>] [--benchmarks <dir>]
-//   node evals/scripts/src/evals-bench.mjs run [--set curated|full] [claude plugin eval options...]
-//   node evals/scripts/src/evals-bench.mjs score <eval-results.json> [--benchmarks <dir>]
+// Cases from `benchmarks/` (under NDA and gitignored: this file carries no word of it), graded by the
+// files the merged change touched. The data sits under the sandbox's `denyRead` only with
+// `--eval-dir benchmarks`, so curated cases carry `no-peek-*` graders. Commands: generate, select, run, score.
 import { spawn } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -47,40 +10,24 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 export const BENCHMARKS = path.join(ROOT, 'benchmarks');
 export const CASES_DIRECTORY = 'cases';
-/** Relative to the plugin root, as `--eval-dir` takes it. */
 export const BENCH_EVAL_DIR = 'benchmarks';
-/**
- * The curated suite's eval dir; everything under it but its README is
- * gitignored like benchmarks/. Never the bare `evals/`: discovery is recursive
- * (`<eval dir>/**\/case.yaml`), so that would sweep every suite at once.
- */
+/** Never the bare `evals/`: discovery is recursive, so that would sweep every suite at once. */
 export const CURATED_EVAL_DIR = 'evals/evals-core';
 export const CURATED_CASES = path.join(ROOT, CURATED_EVAL_DIR, CASES_DIRECTORY);
 
-// What `select` keeps, all measurable from the data alone so this tracked file
-// carries no word of it. Provenance:
-//  - 2..10 true files: a single file is named by luck or one grep hit, and past
-//    ten the merged change was a sweep, where naming any file proves little.
-//  - 300 ticket characters: shorter tickets are one-liners that test guessing,
-//    not localization.
-//  - 600 changed lines: a 1,623-line version timed out at the 300 s limit in
-//    the 2026-09-28 runs; 600 keeps a review inside the 900 s case timeout.
-//  - 5 localize + 4 review per side: 18 cases, 36 runs under --ablation
-//    with-without, about the archived suite's size per arm.
+// All measurable from the data alone. 2..10 true files: one is named by luck, past ten the change was a
+// sweep. 300 ticket characters: shorter ones test guessing. 600 changed lines keeps a review inside the
+// 900 s case timeout. 5 localize + 4 review per side is about the archived suite's size per arm.
 export const SELECT = { minTruth: 2, maxTruth: 10, minTicketChars: 300, maxChangedLines: 600, localize: 5, review: 4 };
 
 const PROMPT_HEADING = '## build:context prompt';
 const TRUTH_HEADING = '## TRUE RELATED CODE';
 
-// The ground-truth lists were pasted from a tool's console output, and some
-// carry its status lines as list items. They are not paths.
+// Some ground-truth lists carry a tool's console status lines as list items; they are not paths.
 const NOT_A_PATH = /^(Exit code:|Wall time:|Output:)/;
 
-// Same date as the fixtures (fixtures/materialize.mjs FIXTURE_DATE): a scaffold
-// built at any time has the same HEAD.
 const SNAPSHOT_DATE = '2026-01-01T00:00:00Z';
 
-/** A ticket's text and its ground-truth paths, or the reason it has none. */
 export function parseTicket(markdown) {
   const lines = markdown.split('\n');
   const at = (heading) => lines.map((line, i) => (line.trimEnd() === heading ? i : -1)).filter((i) => i >= 0);
@@ -111,10 +58,8 @@ function listFiles(directory, prefix = '') {
 }
 
 /**
- * The directory the snapshot sits under in the repository the truth was taken
- * from: the first path segment most ground-truth paths share, when the rest of
- * such a path exists in the snapshot. The snapshot is placed there, so the
- * truth's paths are the repository's paths unchanged.
+ * The first path segment most truth paths share, when the rest of such a path exists in the
+ * snapshot. The snapshot is placed there, so the truth's paths stay the repository's paths.
  */
 export function codeRoot(truthLists, snapshotFiles) {
   const present = new Set(snapshotFiles);
@@ -130,11 +75,8 @@ export function codeRoot(truthLists, snapshotFiles) {
 }
 
 /**
- * How much of the answer the ticket itself gives away: the fraction of true
- * files whose name (basename, last extension dropped) the ticket text never
- * mentions. 1 means every file must be found from the code's behaviour; 0
- * means grep over the ticket's own words reaches all of them, which the
- * 2026-09-28 grep baseline showed is the common, easy case.
+ * The fraction of true files whose name (basename, last extension dropped) the ticket never mentions:
+ * 1 means every file must be found from the code's behaviour, 0 that grep over the ticket reaches all.
  */
 export function localizeHardness(text, truth) {
   if (truth.length === 0) return 0;
@@ -143,17 +85,11 @@ export function localizeHardness(text, truth) {
   return truth.filter((p) => !haystack.includes(stem(p))).length / truth.length;
 }
 
-/** Lines a patch adds or removes, file headers not counted. */
 export function changedLines(patch) {
   return patch.split('\n').filter((line) => /^[+-]/.test(line) && !/^(\+\+\+|---) /.test(line)).length;
 }
 
-/**
- * How much proof the human threads carry that their concerns were real:
- * per thread, 1 for existing, +1 resolved (the author acted on it), +1 the
- * author replied (engaged with, not ignored), +1 a body of 120+ characters
- * (substance rather than a nit).
- */
+/** Per thread: 1 for existing, +1 resolved, +1 the author replied, +1 a body of 120+ characters. */
 export function reviewSubstance(threads) {
   return threads.reduce(
     (sum, t) => sum + 1 + (t.resolved ? 1 : 0) + ((t.replies ?? []).some((r) => r.byAuthor) ? 1 : 0) + ((t.body?.length ?? 0) >= 120 ? 1 : 0),
@@ -219,8 +155,7 @@ GIT_AUTHOR_DATE=${SNAPSHOT_DATE} GIT_COMMITTER_DATE=${SNAPSHOT_DATE} \\
 
 function graderFiles(truth, root) {
   const list = truth.map((p) => `- \`${p}\``).join('\n');
-  // The investigate skill writes its note under .ambicode/task/; only a write
-  // into the code counts as an edit.
+  // The investigate skill writes its note under .ambicode/task/; only a write into the code is an edit.
   const code = `"file_path":"[^"]*/repo/${regexEscape(root)}/`;
   return {
     'names-a-true-file.md': `---
@@ -287,12 +222,8 @@ call was attempted, not that its output was used.
 }
 
 /**
- * The curated suite's eval dir is `evals/`, so its `denyRead` does not cover
- * `benchmarks/` — where the tickets, ground truth and snapshots sit, every
- * path containing `benchmarks/`. The run's own repository never does (the
- * scaffold copies it to `repo/`), so any tool input reaching a `benchmarks/`
- * path is a peek at the answers and fails the case. Glob is included because
- * the truth here IS file names.
+ * The curated suite's `denyRead` does not cover `benchmarks/`, and the run's own repository is copied to
+ * `repo/`, so any tool input reaching a `benchmarks/` path is a peek. Glob too: the truth IS file names.
  */
 function peekGraders() {
   const files = {};
@@ -419,7 +350,6 @@ signs in (evals/evals-archived/typescript/README.md).
   return files;
 }
 
-/** Review versions prepared under <side>/reviews/<ticket>/<version>/. */
 function reviewVersions(base) {
   const reviews = path.join(base, 'reviews');
   if (!existsSync(reviews)) return [];
@@ -457,12 +387,6 @@ function writeCase(out, plan) {
   return { kind: 'review', name: plan.name, side: plan.side, threads: plan.threads.length };
 }
 
-/**
- * The strongest, most provable cases per side: localize cases whose whole
- * truth is still in the snapshot and within SELECT's bounds, ranked by how
- * little the ticket gives away; review cases whose change fits the case
- * timeout, ranked by how much proof the human threads carry.
- */
 function selectPlans(plans, pick) {
   const chosen = [];
   const sides = {};
@@ -503,12 +427,7 @@ function selectPlans(plans, pick) {
   return { chosen, selection: { criteria: { ...SELECT, localize: pick.localize, review: pick.review }, sides } };
 }
 
-/**
- * Writes every case (or, with `pick`, the selected strongest ones); returns
- * what it wrote and what it refused, with reasons.
- */
 export function generate({ benchmarks = BENCHMARKS, out = path.join(benchmarks, CASES_DIRECTORY), pick = null } = {}) {
-  // Generated output only: a stale case from a removed ticket must not run.
   rmSync(out, { recursive: true, force: true });
   const refused = [];
   const plans = [];
@@ -521,8 +440,6 @@ export function generate({ benchmarks = BENCHMARKS, out = path.join(benchmarks, 
     const base = path.join(benchmarks, side);
     for (const required of ['src', path.join('.ambicode', 'config.yaml')])
       if (!existsSync(path.join(base, required))) throw new Error(`${side}: ${required} is missing`);
-    // From a case directory (out/<name>/) to the side's data, as the scaffold
-    // walks it. POSIX: the scaffold is /bin/sh.
     const sideRel = path.relative(path.join(out, 'case'), base).split(path.sep).join('/');
     const snapshot = listFiles(path.join(base, 'src'));
     const tickets = readdirSync(path.join(base, 'assets'))
@@ -537,8 +454,6 @@ export function generate({ benchmarks = BENCHMARKS, out = path.join(benchmarks, 
         refused.push({ name, reason: ticket.error });
         continue;
       }
-      // A file the snapshot no longer has cannot be found; it is recorded,
-      // not graded.
       const truth = ticket.truth.filter((p) => present.has(p));
       if (truth.length === 0) {
         refused.push({ name, reason: `none of its ${ticket.truth.length} true file(s) exists in the snapshot` });
@@ -574,7 +489,6 @@ export function generate({ benchmarks = BENCHMARKS, out = path.join(benchmarks, 
   return { out, written, refused, selection };
 }
 
-/** The part of an answer that is its file list: the last `Files` heading's section, else all of it. */
 function fileSection(message) {
   const lines = message.split('\n');
   let start = -1;
@@ -592,10 +506,8 @@ function fileSection(message) {
 }
 
 /**
- * The files an answer names, mapped onto the truth where they mean the same
- * file: `./`, `repo/` and absolute prefixes are dropped, and a path missing
- * only the code root (`controllers/x.ts` for `src/controllers/x.ts`) matches
- * when exactly one true path ends that way.
+ * `./`, `repo/` and absolute prefixes are dropped, and a path missing only the code root
+ * (`controllers/x.ts` for `src/controllers/x.ts`) matches when exactly one true path ends that way.
  */
 export function namedFiles(message, truth, root) {
   const { text, sectioned } = fileSection(message);
@@ -622,11 +534,9 @@ export function scoreAnswer(message, truth, root) {
 
 const EVIDENCE_GRADER = 'names-a-true-file';
 
-/** Per-run and per-arm measures for a `claude plugin eval --json` result. */
 export function score(results, { benchmarks = BENCHMARKS } = {}) {
   const runs = [];
   for (const evalCase of results.cases ?? []) {
-    // A curated case carries the same truth as its full-set twin.
     const truthFile = [path.join(benchmarks, CASES_DIRECTORY), CURATED_CASES].map((dir) => path.join(dir, evalCase.name, 'truth.json')).find(existsSync);
     if (!truthFile) continue;
     const meta = JSON.parse(readFileSync(truthFile, 'utf8'));
@@ -646,8 +556,6 @@ export function score(results, { benchmarks = BENCHMARKS } = {}) {
           return;
         }
         const evidence = (run.graders ?? []).find((g) => g.name === EVIDENCE_GRADER)?.evidence;
-        // No final message is reported as absent, never as an empty answer
-        // that scored zero.
         if (typeof evidence !== 'string') runs.push({ ...base, absent: true });
         else runs.push({ ...base, absent: false, ...scoreAnswer(evidence, meta.truth, meta.root) });
       });
@@ -670,18 +578,14 @@ export function score(results, { benchmarks = BENCHMARKS } = {}) {
 }
 
 /**
- * The `claude plugin eval` argument vector, after `claude`. Never publishes,
- * and keeps the result JSON — which holds every prompt and final answer — in
- * an excluded directory: by default under the set's results/, and a `--json`
- * outside the excluded directories is refused. `set` picks the suite:
- * 'curated' runs evals/evals-core/cases/, 'full' runs benchmarks/cases/.
+ * Never publishes, and keeps the result JSON (every prompt and final answer) in an excluded
+ * directory: a `--json` outside the excluded directories is refused.
  */
 export function runArgs(extra = [], { now = new Date(), benchmarks = BENCHMARKS, set = 'curated' } = {}) {
   if (!['curated', 'full'].includes(set)) throw new Error(`--set takes curated or full, not ${set}`);
   if (extra.includes('--publish-report')) throw new Error('--publish-report is refused: the benchmark set is under NDA');
   if (extra.includes('--eval-dir')) throw new Error('--eval-dir is fixed by --set');
   const resultsDir = set === 'full' ? path.join(benchmarks, 'results') : path.join(ROOT, CURATED_EVAL_DIR, 'results');
-  // Both are gitignored: benchmarks/ as a whole, evals/evals-core/ but its README.
   const excluded = [benchmarks, path.join(ROOT, CURATED_EVAL_DIR, 'results')];
   for (const flag of ['--json', '--report', '--output-dir']) {
     const i = extra.indexOf(flag);
@@ -696,11 +600,6 @@ export function runArgs(extra = [], { now = new Date(), benchmarks = BENCHMARKS,
   return ['plugin', 'eval', ROOT, '--eval-dir', evalDir, '--scaffold', '--allow-tools', 'Bash', '--no-publish', ...json, ...extra];
 }
 
-/**
- * Where a run's traces go: `traces/` beside the run's `--json` result, so they
- * inherit the same excluded-directory guarantee `runArgs` enforces for the
- * result itself. `runArgs` always leaves a `--json <path>` in the vector.
- */
 export function harvestDir(argv) {
   const i = argv.indexOf('--json');
   if (i < 0 || !argv[i + 1]) throw new Error('no --json in the run arguments: nowhere safe to put traces');
@@ -708,40 +607,27 @@ export function harvestDir(argv) {
 }
 
 /**
- * Where the harness puts its sandboxes: observed at `/private/tmp/e-*` on
- * macOS in the 2026-09-28 sweeps (reached here as `/tmp`, its symlink), with
- * `os.tmpdir()` scanned too in case another platform places them there.
- * `harvestedOfResult` reports against the run's own `tracePath`s afterwards,
- * so a wrong root shows up as named-but-not-harvested rather than a quiet 0.
+ * Observed at `/private/tmp/e-*` on macOS (reached as `/tmp`); `os.tmpdir()` is scanned too. A wrong
+ * root shows up in `harvestedOfResult` as named-but-not-harvested rather than a quiet 0.
  */
 const SANDBOX_ROOTS = [...new Set(['/tmp', tmpdir()])];
 
 /**
- * One harvest pass: copy every live run's trace out of the harness sandboxes.
- * The harness deletes each sandbox when the eval finishes and has no flag to
- * keep it (verified 2026-09-28: both runs' `tracePath` directories were gone
- * minutes after the 06-29 sweep), so the only window is while it runs. Copy to
- * a temporary name and rename, so a reader never sees a half-written file, and
- * let later passes overwrite: the trace grows, so the last copy is the whole
- * one. A sandbox vanishing mid-pass is the harness cleaning up, not an error.
- * Sandboxes are shared machine state, so a concurrent sweep's traces can land
- * here too: they are keyed by sandbox id, overwrite nothing, and the summary's
- * `harvestedOfResult` line says which of them this run's result actually names.
+ * The harness deletes each sandbox when its eval finishes, so the only window is while it runs. Copies go
+ * to a temporary name then rename; later passes overwrite, since the trace grows and the last copy is whole.
  */
 export function harvestTraces(outDir, { sandboxRoots = SANDBOX_ROOTS } = {}) {
   mkdirSync(outDir, { recursive: true });
   let copied = 0;
-  // ENOENT is the benign race (no trace yet, or the sandbox deleted between
-  // listing and copying). Anything else — EACCES, ENOSPC — would silently
-  // degrade every pass, so the first one is thrown after the pass finishes:
-  // best effort for the rest of the copies, and the caller sees the cause.
+  // ENOENT is the benign race. Anything else (EACCES, ENOSPC) would silently degrade every pass,
+  // so the first one is thrown after the pass, best effort for the remaining copies.
   let failure = null;
   for (const root of sandboxRoots) {
     let names;
     try {
       names = readdirSync(root);
     } catch (error) {
-      if (error.code !== 'ENOENT') failure ??= error; // same contract as the copies: only a missing root is benign
+      if (error.code !== 'ENOENT') failure ??= error;
       continue;
     }
     for (const name of names) {
@@ -761,12 +647,6 @@ export function harvestTraces(outDir, { sandboxRoots = SANDBOX_ROOTS } = {}) {
   return copied;
 }
 
-/**
- * Harvest completeness, measured against the run's own result: which sandbox
- * ids the result JSON's `tracePath`s name, and how many of those were actually
- * kept. This is what tells "nothing ran" apart from "the sandboxes were
- * somewhere this harvest never looked".
- */
 export function harvestedOfResult(jsonPath, tracesDir) {
   const results = JSON.parse(readFileSync(jsonPath, 'utf8'));
   const named = new Set();
@@ -780,11 +660,7 @@ export function harvestedOfResult(jsonPath, tracesDir) {
   return { named: named.size, harvested };
 }
 
-/**
- * 2 s between passes: the cadence the manual harvest script used when it
- * caught 93 of 93 traces in the 2026-09-28T06-41 sweep. Faster buys nothing
- * (the final copy wins); slower risks missing a short run's whole window.
- */
+// Faster buys nothing (the final copy wins); slower risks missing a short run's whole window.
 const HARVEST_INTERVAL_MS = 2_000;
 
 async function main(argv) {
@@ -823,11 +699,8 @@ async function main(argv) {
     const args = runArgs(positional, { benchmarks, set });
     const tracesDir = harvestDir(args);
     const child = spawn('claude', args, { stdio: 'inherit' });
-    // A harvest failure is reported, never fatal: it must not take down a paid
-    // sweep that is otherwise running fine.
-    // Each distinct cause once: a pass every 2 s would flood the sweep's own
-    // output, but a cause that changes mid-sweep (ENOSPC, then EACCES) must not
-    // hide behind the first one.
+    // A harvest failure is reported, never fatal to a paid sweep. Each distinct cause is printed once:
+    // a pass every 2 s would flood the output, but a cause that changes mid-sweep must not hide.
     const harvestErrors = new Set();
     const pass = () => {
       try {
@@ -837,7 +710,7 @@ async function main(argv) {
         harvestErrors.add(error.message);
       }
     };
-    pass(); // the first tick of setInterval is a whole interval away; a sandbox that short-lived would be missed
+    pass(); // setInterval's first tick is a whole interval away; a short-lived sandbox would be missed.
     const timer = setInterval(pass, HARVEST_INTERVAL_MS);
     const status = await new Promise((resolve) => {
       child.on('error', (error) => {
@@ -854,7 +727,6 @@ async function main(argv) {
       const { named, harvested } = harvestedOfResult(args[args.indexOf('--json') + 1], tracesDir);
       completeness = `; the result names ${named}, ${harvested} of those harvested`;
     } catch (error) {
-      // carries the cause: a defect in the reader must not look like the routine missing-file case
       completeness = `; harvest completeness unknown (${error.message})`;
     }
     console.log(

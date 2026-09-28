@@ -1,6 +1,5 @@
-// Guards the benchmark eval set's generator and scorer on a synthetic
-// benchmark: the real one is under NDA and never in this repository. The last
-// block runs only where `benchmarks/` exists, and checks it cannot leak.
+// The real benchmark is under NDA and never in this repository; the last block
+// runs only where `benchmarks/` exists, and checks it cannot leak.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -69,9 +68,6 @@ describe('evals-bench: generate', () => {
     writeFileSync(path.join(side, '.ambicode', 'task', 'old-note', 'note.md'), 'the answer is app/orders/service.ts\n');
     writeFileSync(path.join(side, 'assets', 'T-1.md'), ticket('Discount the order total.', ['app/orders/service.ts', 'app/orders/gone.ts']));
     writeFileSync(path.join(side, 'assets', 'T-2.md'), ticket('Only a removed file.', ['app/orders/removed.ts']));
-    // One prepared review version: service.ts as it was at base, the change
-    // as the reviewer saw it (an edit plus a file that did not exist at base),
-    // and one reviewer thread.
     const version = path.join(side, 'reviews', 'T-1', '7-abcdef12');
     mkdirSync(path.join(version, 'base', 'app', 'orders'), { recursive: true });
     writeFileSync(path.join(version, 'base', 'app', 'orders', 'service.ts'), 'export const total = 0;\n');
@@ -79,7 +75,6 @@ describe('evals-bench: generate', () => {
     writeFileSync(path.join(version, 'change.patch'), CHANGE);
     writeFileSync(path.join(version, 'version.json'), '{}');
     writeFileSync(path.join(version, 'threads.json'), JSON.stringify([{ path: 'app/orders/service.ts', newLine: 1, body: 'Hard-coded total.\nUse the price.' }]));
-    // A version missing its patch is refused, not generated half-built.
     mkdirSync(path.join(side, 'reviews', 'T-1', '8-00000000'), { recursive: true });
     writeFileSync(path.join(side, 'reviews', 'T-1', '8-00000000', 'threads.json'), '[{"path":"app/x.ts","body":"b"}]');
     // A stale case from an earlier generation must not survive.
@@ -344,14 +339,14 @@ describe('evals-bench: harvesting traces', () => {
       const sandboxRoots = [sandboxRoot, path.join(sandboxRoot, 'missing-root')];
       mkdirSync(path.join(sandboxRoot, 'e-one', 'out'), { recursive: true });
       writeFileSync(path.join(sandboxRoot, 'e-one', 'out', 'trace.jsonl'), '{"turn":1}\n');
-      mkdirSync(path.join(sandboxRoot, 'e-two', 'out'), { recursive: true }); // scaffolded, no trace yet
+      mkdirSync(path.join(sandboxRoot, 'e-two', 'out'), { recursive: true });
       mkdirSync(path.join(sandboxRoot, 'not-a-run'), { recursive: true });
       assert.equal(harvestTraces(outDir, { sandboxRoots }), 1, 'a root that does not exist on this platform is skipped, not fatal');
       assert.deepEqual(readdirSync(outDir), ['e-one.jsonl']);
       writeFileSync(path.join(sandboxRoot, 'e-one', 'out', 'trace.jsonl'), '{"turn":1}\n{"turn":2}\n');
       assert.equal(harvestTraces(outDir, { sandboxRoots }), 1, 'a later pass overwrites: the trace grows, the last copy is the whole one');
       assert.equal(readFileSync(path.join(outDir, 'e-one.jsonl'), 'utf8'), '{"turn":1}\n{"turn":2}\n');
-      rmSync(path.join(sandboxRoot, 'e-one'), { recursive: true }); // the harness cleaning up mid-sweep
+      rmSync(path.join(sandboxRoot, 'e-one'), { recursive: true });
       assert.equal(harvestTraces(outDir, { sandboxRoots }), 0);
       assert.deepEqual(readdirSync(outDir), ['e-one.jsonl'], 'a deleted sandbox does not take its harvested trace with it');
       writeFileSync(path.join(sandboxRoot, 'e-two', 'out', 'trace.jsonl'), '{"turn":1}\n');
@@ -450,8 +445,6 @@ describe('evals-bench: select', () => {
       { path: 'app/orders/service.ts', newLine: 1, body: 'This recomputes the total on every call; cache it as before, which the profiler already flagged on the previous change.', resolved: true, replies: [{ byAuthor: true, body: 'Done.' }] },
       { path: 'app/orders/service.ts', newLine: 1, body: 'Missing test.', resolved: true },
     ]);
-    // The curated layout: cases three levels under the project root, beside
-    // benchmarks/, as evals/evals-core/cases/ sits in the repository.
     out = path.join(base, ...CURATED_EVAL_DIR.split('/'), 'cases');
     result = generate({ benchmarks, out, pick: { localize: 1, review: 1 } });
   });
@@ -496,16 +489,14 @@ describe('evals-bench: the curated cases stay out of git', () => {
     const manifest = JSON.parse(readFileSync(path.join(ROOT, '.claude-plugin', 'plugin.json'), 'utf8'));
     const bareDir = manifest.experimental?.evals ?? 'evals';
     assert.match(ignored(`${bareDir}/results/x`), /results/);
-    // Discovery is recursive (`<eval dir>/**/case.yaml`), so a bare dir that
-    // contains the curated one (`evals/`, `.`) sweeps the NDA cases as surely
-    // as one inside it.
+    // Discovery is recursive, so a bare dir that contains the curated one (`evals/`, `.`)
+    // sweeps the NDA cases as surely as one inside it.
     const within = (outer, inner) => !path.relative(outer, inner).startsWith('..');
     assert.ok(!within(bareDir, CURATED_EVAL_DIR) && !within(CURATED_EVAL_DIR, bareDir), `a bare run over ${bareDir}/ reaches the NDA curated suite`);
   });
 });
 
-// Only where the real data is present: it must stay out of git, and no file
-// git would take may carry one of its ticket identifiers.
+// No file git would take may carry one of the real benchmark's ticket identifiers.
 const REAL = path.join(ROOT, 'benchmarks');
 describe('evals-bench: the real benchmark stays out of git', { skip: !existsSync(REAL) && 'no benchmarks/ here' }, () => {
   it('is ignored as a whole', () => {

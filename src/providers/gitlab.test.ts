@@ -10,12 +10,6 @@ import { parseMergeRequestUrl } from './gitlab/url.ts';
 import { positionForLocation, toGitLabPositionFields } from './position.ts';
 import { FakeProcessRunner } from '../testing/fake-process-runner.ts';
 
-/**
- * U18. Every response is a fake `glab api` answer, so the whole adapter is
- * covered without a GitLab sandbox: what is verified here is the argument
- * vectors AMBICODE builds and the decisions it takes from a response.
- */
-
 const URL_BASE = 'https://gitlab.example.com/group/sub/project/-/merge_requests/42';
 
 describe('U18 merge request URL parsing', () => {
@@ -85,7 +79,6 @@ describe('U18 merge request URL parsing', () => {
   });
 });
 
-/** The shapes GitLab returns, reduced to what the adapter reads. */
 function project(id = 91, path = 'group/sub/project') {
   return { id, path_with_namespace: path };
 }
@@ -130,7 +123,6 @@ function versionDetail(diffs: unknown[], overrides: Record<string, unknown> = {}
   return { ...version(), diffs, ...overrides };
 }
 
-/** A runner stubbed with the standard resolve conversation. */
 function resolvingRunner(overrides: { versions?: unknown[]; mr?: unknown } = {}): FakeProcessRunner {
   const runner = new FakeProcessRunner();
   runner.stub(
@@ -158,7 +150,6 @@ describe('U18 resolving and pinning a merge request', () => {
     for (const argv of runner.argvs()) {
       assert.equal(argv[0], 'glab');
       assert.equal(argv[1], 'api');
-      // The host comes from the URL, never from the checkout glab runs in.
       assert.equal(argv[argv.indexOf('--hostname') + 1], 'gitlab.example.com');
       assert.ok(!argv.some((value) => value.includes('some-other-checkout')));
     }
@@ -201,8 +192,6 @@ describe('U18 resolving and pinning a merge request', () => {
     const overlapping = (payload: unknown) => async () => {
       inFlight += 1;
       peak = Math.max(peak, inFlight);
-      // One turn of the event loop: long enough for a request issued alongside
-      // to start, with no clock involved.
       await new Promise((resolve) => setImmediate(resolve));
       inFlight -= 1;
       return { stdout: JSON.stringify(payload) };
@@ -256,7 +245,6 @@ describe('U18 resolving and pinning a merge request', () => {
 });
 
 describe('U18 pagination', () => {
-  /** `count` discussions spread over full pages plus a short final one. */
   function pagedRunner(pages: unknown[][]): FakeProcessRunner {
     const runner = new FakeProcessRunner();
     pages.forEach((page, index) => {
@@ -285,7 +273,6 @@ describe('U18 pagination', () => {
     headSha: 'cccccccccccccccccccccccccccccccccccccccc',
   };
 
-  /** The merge request plus its version list, which the revision check reads. */
   function revisionRunner(options: { mr: unknown; versions: unknown[] }): FakeProcessRunner {
     const runner = new FakeProcessRunner();
     runner.stub((argv) => /merge_requests\/42$/.test(argv.at(-1) ?? ''), {
@@ -459,13 +446,6 @@ describe('U18 pagination', () => {
     assert.match(compared.differences.join('; '), /diff version 5 \u2192 6/);
   });
 
-  /**
-   * The race the P1.5 correction is about: a push has happened, so the merge
-   * request head has moved, but GitLab has not built the new diff version yet.
-   * The newest collected version is the one the review pinned, and every field
-   * an identity comparison looks at still matches it \u2014 which is exactly why
-   * "collecting" has to be its own answer rather than "current".
-   */
   it('refuses to call the pinned version current while GitLab is still collecting a newer head', async () => {
     const pushed = 'e'.repeat(40);
     const runner = revisionRunner({
@@ -473,7 +453,6 @@ describe('U18 pagination', () => {
         sha: pushed,
         diff_refs: { base_sha: 'a'.repeat(40), start_sha: 'b'.repeat(40), head_sha: pushed },
       }),
-      // Still only the version the review pinned.
       versions: [version()],
     });
     const provider = new GitLabProvider({ runner, cwd: '/work' });
@@ -521,11 +500,6 @@ describe('U18 pagination', () => {
     assert.match(cut.kind === 'ok' ? (cut.value.reason ?? '') : '', /more output than AMBICODE reads/);
   });
 
-  /**
-   * Correction 4: a ceiling is a ceiling. A server that answers with more items
-   * than the page size AMBICODE asked for must not slip past the limit because
-   * its page happened to be the last one.
-   */
   it('never returns more than maxItems, even when one page carries more', async () => {
     const sixty = Array.from({ length: 60 }, (_unused, index) => discussion(`d${index}`, 'x'));
     const runner = pagedRunner([sixty]);
@@ -575,10 +549,6 @@ describe('U18 fetching the pinned snapshot', () => {
       .stub((argv) => /versions\/5$/.test(argv.at(-1) ?? ''), {
         stdout: JSON.stringify(versionDetail(diffs, overrides)),
       })
-      // The neutral comparison: every changed file still differs from the
-      // target branch, so nothing is narrowed and these tests see the diff
-      // exactly as GitLab delivered it. A test about the narrowing itself
-      // overrides this with its own answer.
       .stub((argv) => (argv.at(-1) ?? '').includes('repository/compare'), {
         stdout: JSON.stringify({
           compare_timeout: false,
@@ -631,13 +601,6 @@ describe('U18 fetching the pinned snapshot', () => {
     assert.match(outcome.value.patch, /diff --git a\/src\/ünïcode-old\.ts b\/src\/--option-like\.ts/);
   });
 
-  /**
-   * MR 2677: GitLab's diff is against the merge base, which for a long-lived
-   * branch is far behind the target. 299 files were listed, 249 of them already
-   * byte-identical to the target branch — including package-lock.json and 15 of
-   * 16 translation bundles, which blocked the review twice on the per-file
-   * ceiling for changes that merging would not make.
-   */
   function comparing(diffs: unknown[], compare: unknown): FakeProcessRunner {
     // The compare stub goes on first: the fake answers with the earliest
     // matching stub, so it has to precede `detailRunner`'s neutral one.
@@ -664,13 +627,11 @@ describe('U18 fetching the pinned snapshot', () => {
     assert.equal(outcome.kind, 'ok');
     if (outcome.kind !== 'ok') return;
     assert.deepEqual(outcome.value.files.map((file) => file.newPath), ['src/orders.ts']);
-    // It leaves the patch as well, or the reviewer reads it anyway.
     assert.doesNotMatch(outcome.value.patch, /package-lock\.json/);
     assert.match(
       outcome.value.omissions.join('\n'),
       /1 of the merge request's 2 changed file\(s\) are already identical/,
     );
-    // The compare is one call, not one per file.
     assert.equal(
       runner.argvs().filter((argv) => (argv.at(-1) ?? '').includes('repository/compare')).length,
       1,
@@ -678,8 +639,6 @@ describe('U18 fetching the pinned snapshot', () => {
   });
 
   it('reviews the whole diff when GitLab could not finish the comparison', async () => {
-    // A partial answer would silently narrow the review, which is the one
-    // failure this narrowing is not allowed to cause.
     const runner = comparing(
       [
         { old_path: 'src/orders.ts', new_path: 'src/orders.ts', diff: MODIFIED_DIFF },
@@ -748,18 +707,10 @@ describe('U18 fetching the pinned snapshot', () => {
 
     const fileCall = runner.argvs().find((argv) => (argv.at(-1) ?? '').includes('repository/files'));
     assert.ok(fileCall);
-    // The fork, not the target project, and the pinned head, not a branch name.
     assert.match(fileCall.at(-1) ?? '', /^projects\/404\/repository\/files\/src%2Fa\.ts\?/);
     assert.match(fileCall.at(-1) ?? '', /ref=cccccccccccccccccccccccccccccccccccccccc/);
   });
 
-  /**
-   * One request per changed file was the largest cost of a merge-request
-   * review: 141 files mirrored as 160 `glab` calls, 61s. GraphQL answers a
-   * hundred paths at once — and answers a hundred however many were asked for,
-   * which is why every one of these tests is about what happens when it does
-   * not answer with the whole truth.
-   */
   describe('U18 batched blob reads', () => {
     const isGraphql = (argv: readonly string[]): boolean => (argv.at(-1) ?? '') === 'graphql';
     const isFileRead = (argv: readonly string[]): boolean => (argv.at(-1) ?? '').includes('repository/files');
@@ -773,7 +724,6 @@ describe('U18 fetching the pinned snapshot', () => {
       });
     }
 
-    /** Two changed files, and whatever the batch and the per-file read answer. */
     async function snapshotWith(runner: FakeProcessRunner) {
       const provider = new GitLabProvider({ runner, cwd: '/work' });
       const outcome = await provider.fetchSnapshot({ target, includeSiblingContext: false });
@@ -809,8 +759,6 @@ describe('U18 fetching the pinned snapshot', () => {
     });
 
     it('falls back to per-file reads when the page was capped', async () => {
-      // Asked for 141 paths, gitlab.com returned 124 and named none of the
-      // missing ones. `hasNextPage` is the only evidence that happened.
       const runner = changed()
         .stub(isGraphql, {
           stdout: blobs([{ path: 'src/a.ts', rawSize: '4', rawTextBlob: 'a=1\n' }], true),
@@ -829,16 +777,11 @@ describe('U18 fetching the pinned snapshot', () => {
       await snapshot.prime?.(['src/a.ts', 'src/b.ts']);
       const a = await snapshot.read('src/a.ts');
 
-      // Not the node from the capped page: a response that admits it is partial
-      // is not read for the part it did deliver.
       assert.equal(a?.kind === 'text' ? a.text : '', 'whole a\n');
       assert.equal(runner.argvs().filter(isFileRead).length, 1);
     });
 
     it('falls back for a blob whose body does not weigh what the blob does', async () => {
-      // A binary blob comes back as an empty string against a non-zero
-      // rawSize. Mirroring that would put an empty file in the snapshot and
-      // call it the file's content.
       const runner = changed()
         .stub(isGraphql, {
           stdout: blobs([{ path: 'src/a.ts', rawSize: '2011', rawTextBlob: '' }]),
@@ -857,8 +800,6 @@ describe('U18 fetching the pinned snapshot', () => {
       await snapshot.prime?.(['src/a.ts']);
       const a = await snapshot.read('src/a.ts');
 
-      // The per-file path classifies the bytes, which is the whole reason the
-      // fallback exists.
       assert.equal(a?.kind, 'binary');
       assert.equal(runner.argvs().filter(isFileRead).length, 1);
     });
@@ -895,8 +836,6 @@ describe('U18 fetching the pinned snapshot', () => {
     });
 
     it('does not spend a query on a fork whose path could not be resolved', async () => {
-      // An unreadable fork leaves the numeric id where the full path goes, and
-      // GraphQL addresses a project by path only.
       const runner = changed().stub(isGraphql, { stdout: blobs([]) });
       const provider = new GitLabProvider({ runner, cwd: '/work' });
       const outcome = await provider.fetchSnapshot({
@@ -946,7 +885,6 @@ describe('U18 fetching the pinned snapshot', () => {
       [...new Set(coverage.gaps.map((gap) => gap.kind))].sort(),
       ['aggregate-cap', 'omitted-files'],
     );
-    // The reader is told, not only the data model.
     assert.match(outcome.value.omissions.join('\n'), /declares 12 changed file\(s\).*delivered 1/);
   });
 
@@ -976,10 +914,6 @@ describe('U18 fetching the pinned snapshot', () => {
     assert.deepEqual(outcome.kind === 'ok' ? outcome.value.coverage.gaps : [{}], []);
   });
 
-  /**
-   * Correction 5: an empty diff body is normal for a change that has no hunks.
-   * Calling it a truncation would turn every renamed file into a coverage gap.
-   */
   it('accepts a pure rename with an empty diff as complete coverage', async () => {
     const runner = detailRunner(
       [
@@ -1034,11 +968,8 @@ describe('U18 fetching the pinned snapshot', () => {
     const [file] = outcome.value.files;
     assert.ok(file);
     assert.equal(file.symlink, true);
-    // A mode change from a regular file to a symlink is a type change.
     assert.equal(file.changeKind, 'type-changed');
 
-    // Reading it answers "symlink" without fetching anything, so the path it
-    // points at is never resolved and never followed out of the snapshot.
     const content = await outcome.value.read('config/link');
     assert.equal(content?.kind, 'symlink');
     assert.ok(!runner.argvs().some((argv) => (argv.at(-1) ?? '').includes('repository/files')));

@@ -13,21 +13,13 @@ import { AmbicodeError } from '../util/errors.ts';
 import { contentHash } from '../util/hash.ts';
 
 /**
- * Requirement evidence comes from the outer Claude session, which is the only
- * party holding an MCP connection. This module validates and normalizes what it
- * hands over; it never fetches anything, holds a credential, or speaks to
- * Atlassian (doc 02, doc 11).
+ * Validates what the outer session retrieved over MCP. This module never fetches
+ * anything, holds a credential, or speaks to Atlassian.
  */
 
-/** The envelope `/ambicode:review` writes after retrieving each URL over MCP. */
 export const RequirementEvidence = z.strictObject({
-  /** The MCP server the session bound to, checked against the configuration. */
   mcpServer: z.string().min(1).nullable().default(null),
   sources: z.array(RequirementSource).default([]),
-  /**
-   * Contradictions the session noticed while reading the documents. Code cannot
-   * find these in arbitrary prose, so the reader reports them (doc 05).
-   */
   conflicts: z
     .array(RequirementConflict.omit({ detectedBy: true }))
     .default([]),
@@ -41,27 +33,16 @@ export interface NormalizedRequirements {
   sources: RequirementSource[];
   conflicts: z.infer<typeof RequirementConflict>[];
   mcpServer: string | null;
-  /** Facts worth printing that are not failures, such as an unbound server. */
   notices: string[];
   provenance: ProvenanceEntry[];
 }
 
 export interface NormalizeOptions {
-  /** Requirement URLs the operator supplied, in the order given. */
   urls: readonly string[];
-  /** What the session retrieved, or null when it supplied nothing. */
   evidence: RequirementEvidence | null;
-  /** `requirements.mcpServer` from the configuration. */
   configuredServer: string | null;
 }
 
-/**
- * The activity-neutral "no source was supplied" result (canonical
- * `RequirementMode`, doc 04 P2.2 correction C). `review` maps this to its own
- * `quality-review` spelling only when building a `ReviewResult`
- * (`src/review/bundle.ts`); nothing upstream of that mapping should assume a
- * review-specific name for "no requirement" applies to every activity.
- */
 export const SOURCE_FREE: NormalizedRequirements = {
   mode: 'source-free',
   sources: [],
@@ -71,21 +52,13 @@ export const SOURCE_FREE: NormalizedRequirements = {
   provenance: [],
 };
 
-/**
- * Where a requirement envelope comes from. `-` means standard input, so a
- * skill that needs to pass the same evidence to two commands pipes it twice
- * instead of owning a temporary file's whole lifecycle across an arbitrary
- * number of consumers (R2 change 4). A path still works unchanged.
- */
 export type EvidenceSource = { kind: 'stdin' } | { kind: 'file'; path: string };
 
-/** Standard input reduced to what an envelope reader needs. */
 export interface EvidenceInput {
   fs: FileSystem;
   stdin: StandardInput;
 }
 
-/** The envelope, from wherever `--evidence` named. Failure to read is failure to run. */
 export async function loadRequirementEvidence(
   io: EvidenceInput,
   source: EvidenceSource,
@@ -119,7 +92,6 @@ export async function loadRequirementEvidence(
   return parseRequirementEvidence(raw, 'standard input');
 }
 
-/** Reads the envelope a skill wrote. Failure to read is failure to review. */
 export async function readRequirementEvidence(
   fs: FileSystem,
   filePath: string,
@@ -139,7 +111,6 @@ export async function readRequirementEvidence(
   return parseRequirementEvidence(raw, filePath);
 }
 
-/** One parser for both sources, so a piped envelope is judged identically to a file. */
 function parseRequirementEvidence(raw: string, where: string): RequirementEvidence {
   let document: unknown;
   try {
@@ -163,10 +134,8 @@ function parseRequirementEvidence(raw: string, where: string): RequirementEviden
 }
 
 /**
- * Turns supplied URLs plus retrieved evidence into the pinned requirement set.
- * Every failure here blocks the requirement-based review; none of them degrades
- * into a quality review, because a quality review would answer a question the
- * operator did not ask (D04).
+ * Every failure blocks the requirement-based review; none degrades into a quality
+ * review, which would answer a question the operator did not ask.
  */
 export function normalizeRequirements(options: NormalizeOptions): NormalizedRequirements {
   const urls = options.urls.map((value) => value.trim()).filter((value) => value !== '');
@@ -184,8 +153,6 @@ export function normalizeRequirements(options: NormalizeOptions): NormalizedRequ
         },
       );
     }
-    // No supplied source means a source-free run is the honest answer (D04);
-    // for review that reads as "quality review" once ReviewResult is built.
     return { ...SOURCE_FREE, notices: [] };
   }
 
@@ -245,8 +212,6 @@ export function normalizeRequirements(options: NormalizeOptions): NormalizedRequ
     conflicts: [],
     mcpServer: server,
     notices,
-    // The content is pinned by hash, so a later edit of the Jira issue cannot
-    // silently become the thing this review claimed to judge against.
     provenance: ordered.map((source) => ({
       kind: 'requirement' as const,
       reference: `${source.id} ${source.url}${source.sourceVersion === null ? '' : ` @${source.sourceVersion}`}`,
@@ -381,11 +346,6 @@ function assertContent(sources: readonly RequirementSource[]): void {
   );
 }
 
-/**
- * The conflicts code can see without reading prose: the same document retrieved
- * twice with different bytes. Anything semantic is the session's to report, and
- * AMBICODE does not claim to have found every contradiction (doc 05).
- */
 function structuralConflicts(
   sources: readonly RequirementSource[],
 ): z.infer<typeof RequirementConflict>[] {
@@ -424,7 +384,6 @@ function assertRetrievableUrl(url: string): void {
   }
 }
 
-/** Case-insensitive host, trailing slash ignored; everything else is significant. */
 function sameUrl(a: string, b: string): boolean {
   return canonicalUrl(a) === canonicalUrl(b);
 }

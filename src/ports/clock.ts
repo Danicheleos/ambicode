@@ -1,6 +1,5 @@
 export interface Clock {
   now(): Date;
-  /** Monotonic-ish millisecond counter for durations. */
   elapsed(): number;
 }
 

@@ -1,11 +1,8 @@
 import type { ProcessRunner } from '../ports/process.ts';
 
 /**
- * Opens the page in whatever the operator's desktop considers the browser.
- *
- * Failure is ordinary: a headless host, a remote session, or no handler
- * configured. It never stops the server, because the URL printed to the
- * terminal is the real interface and the browser launch is a convenience.
+ * Failure is ordinary (headless host, remote session, no handler) and never
+ * stops the server: the URL printed to the terminal is the real interface.
  */
 
 export interface OpenResult {
@@ -31,13 +28,9 @@ export async function openInBrowser(
     cwd,
     timeoutMs: 10_000,
     maxOutputBytes: 8_192,
-    // The operator's own desktop session decides which browser opens; this is
-    // their environment, not the reviewer's.
     env: { kind: 'inherited' },
-    // The browser inherits whatever pipes the opener has and keeps them open
-    // for its whole life. With pipes, every Windows run reached this deadline
-    // and reported "not opened" for a browser that had opened (runs 8335f588
-    // through a0e87d39); the opener's output carries nothing anyway.
+    // The browser inherits the opener's pipes and holds them open for its whole
+    // life, so on Windows a browser that had opened still hit this deadline.
     output: 'ignore',
   });
 

@@ -1,21 +1,6 @@
-// The reviewer-quality harness: plan/07 "Native model evaluation" (:236) asks
-// for the canonical reviewer prompt and bundle to be evaluated directly, with
-// the reviewer's restrictions intact. `claude plugin eval` cannot do that: its
-// Bash sandbox hides the operator's login, and every reviewer it started
-// printed "Not logged in" (2026-09-27). This runs as the operator instead, and
-// compares two arms per case and run, each on its own fresh scaffold:
-//
-// - `ambicode`: the built `scripts/ambicode.mjs review --json`, as shipped.
-// - `plain`: the same isolated `claude` process (`ClaudeReviewer`: tools,
-//   environment, output contract and parser), given the case's own prompt and
-//   the diff, without AMBICODE's system prompt, bundle, checks or validation.
-//
-// It writes counts and a blind adjudication sheet; the labels, and the
-// precision and recall derived from them, are a human's (evals/evals-archived/typescript/adjudication.md).
-//
-// `record <results-dir>` turns a run's `ambicode` answers into the recordings
-// the replay reviewer serves inside `claude plugin eval`
-// (src/review/replay-reviewer.ts), where no reviewer can sign in.
+// Runs as the operator because `claude plugin eval`'s sandbox hides the login. Compares `ambicode`
+// (the built `review --json`) with `plain`: the same isolated `claude` process without AMBICODE's
+// prompt, bundle, checks or validation. `record` turns `ambicode` answers into replay recordings.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash, randomInt } from 'node:crypto';
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
@@ -37,13 +22,10 @@ const ARMS = ['ambicode', 'plain'];
 // review runs before it; `regression-ts` runs jest and eslint.
 const AMBICODE_TIMEOUT_MS = (DEFAULTS.review.timeoutSeconds + 300) * 1000;
 
-// Appended to Claude Code's default system prompt, where AMBICODE appends its
-// operating contract and reviewer role. One neutral line rather than an empty
-// file, so the plain arm is "Claude Code, asked to review", not an untested
-// empty-prompt edge of the CLI.
+// One neutral line rather than an empty file, so the plain arm is "Claude Code, asked
+// to review", not an untested empty-prompt edge of the CLI.
 const PLAIN_SYSTEM_PROMPT = 'You are reviewing a code change for its author.';
 
-/** Each case's scaffold source, and the fixture it materializes. */
 export async function loadScaffolds(evalsDirectory = EVALS) {
   const scaffolds = [];
   for (const entry of await readdir(evalsDirectory, { withFileTypes: true })) {
@@ -57,7 +39,6 @@ export async function loadScaffolds(evalsDirectory = EVALS) {
   return scaffolds;
 }
 
-/** The review cases: those whose with-arm routes to the review skill. */
 async function reviewCases(evalsDirectory, only) {
   const cases = [];
   for (const scaffold of await loadScaffolds(evalsDirectory)) {
@@ -87,12 +68,7 @@ function random(seed) {
   };
 }
 
-/**
- * The blind sheet and its key. The sheet carries what an adjudicator needs —
- * the case, for its ground truth, and the finding — and nothing naming the
- * arm or the run; rows are shuffled across cases (evals/evals-archived/typescript/adjudication.md,
- * "Blind scoring").
- */
+/** The sheet names neither the arm nor the run; rows are shuffled across cases. */
 export function blindSheet(runs, seed) {
   const rows = runs.flatMap((run) =>
     (run.findings ?? []).map((finding, index) => ({ run, finding, index })),
@@ -132,7 +108,6 @@ function firstLines(text, count = 3) {
   return text.trim().split('\n').slice(0, count).join(' ').slice(0, 500);
 }
 
-/** The frozen requirement evidence a requirement case scaffolds beside `repo/`, if any. */
 async function requirementEvidence(directory) {
   const file = path.join(directory, 'requirement-evidence.json');
   const text = await readFile(file, 'utf8').catch(() => null);
@@ -140,7 +115,6 @@ async function requirementEvidence(directory) {
   return { text, urls: JSON.parse(text).sources.map((source) => source.url) };
 }
 
-/** `ambicode <command> --json` in the scaffold's `repo/`; `output` is null unless it answered as that command. */
 function ambicodeJson(directory, evidence, command, env = process.env) {
   const args = [AMBICODE, command, '--json'];
   for (const url of evidence?.urls ?? []) args.push('--requirement', url);
@@ -196,7 +170,6 @@ function gitText(cwd, args) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
 }
 
-/** The case's own prompt, plus the change it cannot run `git` to see. */
 function plainPrompt(evalCase, directory) {
   const repo = path.join(directory, 'repo');
   const diff = gitText(repo, ['diff', 'HEAD', '--no-color', '--no-ext-diff']);
@@ -245,7 +218,6 @@ async function runPlain(evalCase, directory, model) {
   return { ...common, status: 'ok', findings: invocation.output.findings.map(normalize) };
 }
 
-/** A fresh scaffold of the case for `use`, removed afterwards. */
 async function withScaffold(evalCase, use) {
   const directory = await mkdtemp(path.join(tmpdir(), `ambicode-reviewer-${evalCase.name}-`));
   try {
@@ -264,7 +236,6 @@ async function withScaffold(evalCase, use) {
   }
 }
 
-/** One run of one arm: a fresh scaffold, one review, the scaffold removed. */
 async function runOnce(evalCase, arm, model) {
   return await withScaffold(evalCase, (directory, evidence) =>
     arm === 'ambicode' ? runAmbicode(directory, evidence) : runPlain(evalCase, directory, model),
@@ -281,12 +252,8 @@ const BUNDLE_ONLY_OMISSION = 'No model review was run: this command produces the
 const CHANGE_INPUTS = ['changedFiles', 'changedLines', 'patchBytes', 'snapshotBytes', 'requirementBytes'];
 
 /**
- * One recording per review case, from the case's first `ambicode` run that
- * answered. A recording is keyed on the snapshot a fresh scaffold has now, so
- * the fresh `bundle` (no model call) must describe the same change the
- * recorded review did — same files, lines and bytes — or the case is
- * refused. The reviewer's coverage notes are what its review appended to the
- * bundle's omissions, so the bundle's must be their exact prefix.
+ * A recording is keyed on the snapshot a fresh scaffold has now, so the fresh `bundle`
+ * must describe the same change the recorded review did, or the case is refused.
  */
 export async function record(resultsDirectory, { evalsDirectory = EVALS } = {}) {
   const results = JSON.parse(await readFile(path.join(resultsDirectory, 'results.json'), 'utf8'));
@@ -314,8 +281,8 @@ export async function record(resultsDirectory, { evalsDirectory = EVALS } = {}) 
       refused.push(`${evalCase.name}: the change differs from the recorded one (${drift.join(', ')})`);
       continue;
     }
-    // `bundle` appends one omission of its own, last (src/cli/commands/bundle.ts:34),
-    // that `review` never has; anything else out of place refuses the case.
+    // `bundle` appends one omission of its own, last, that `review` never has;
+    // anything else out of place refuses the case.
     const before = now.omissions.slice(0, -1);
     if (!now.omissions.at(-1)?.startsWith(BUNDLE_ONLY_OMISSION)) {
       refused.push(`${evalCase.name}: the bundle's last omission is not its evidence-only notice`);

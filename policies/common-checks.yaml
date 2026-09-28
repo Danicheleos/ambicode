@@ -11,10 +11,8 @@ source:
 rules: []
 prompts: []
 
-# Enabling this pack authorizes the project's configured lint, unit, and e2e
-# commands to run during review and task work. A command configured as null
-# stays unavailable regardless of the decision below, and a read-only activity
-# does not run these merely because the decision exists.
+# A command configured as null stays unavailable regardless of the decision
+# below, and a read-only activity never runs these just because one exists.
 commandPolicy:
   - command: lint
     action: run

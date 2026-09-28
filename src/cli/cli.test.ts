@@ -24,9 +24,8 @@ const SPECS: Record<string, OptionSpec> = {
 };
 
 /**
- * The options each command block in the help text names. The help text is
- * authored, so this is what keeps it from documenting an option the parser
- * would reject (doc 11).
+ * The options each help-text command block names. The help text is authored, so this keeps
+ * it from documenting an option the parser would reject.
  */
 function documentedOptions(): Map<string, string[]> {
   const documented = new Map<string, string[]>();
@@ -57,8 +56,6 @@ function failure(command: string, argv: readonly string[], spec: OptionSpec): { 
 
 describe('U27 command line arguments', () => {
   it('accepts every option the usage text documents', () => {
-    // The regression: `init --dry-run` parsed against one spec and then failed
-    // against another, so a documented option ran the command and then errored.
     assert.equal(parseArgs('init', ['--dry-run'], INIT_OPTIONS).flag('dry-run'), true);
     assert.equal(parseArgs('init', ['--dry-run', '--json'], INIT_OPTIONS).flag('json'), true);
 
@@ -73,8 +70,7 @@ describe('U27 command line arguments', () => {
 
     assert.equal(parseArgs('config', ['--json'], CONFIG_OPTIONS).flag('json'), true);
 
-    // R3: `policy check` is the one two-word command; `main` strips the
-    // subcommand before parsing, so the spec sees only what follows it.
+    // `main` strips the `policy check` subcommand before parsing, so the spec sees only what follows it.
     const policyCheck = parseArgs(
       'policy check',
       ['--project', 'web', '--json', '.ambicode/policies/a.yaml'],
@@ -113,10 +109,8 @@ describe('U27 command line arguments', () => {
       assert.equal(error.code, 'bad-argument');
       assert.match(error.message, /takes no positional arguments/);
     }
-    // Policy, prepare and locate are the commands whose operands are data.
     assert.deepEqual(parseArgs('policy', ['src/app.ts'], POLICY_OPTIONS).positionals, ['src/app.ts']);
     assert.deepEqual(parseArgs('prepare', ['src/app.ts'], PREPARE_OPTIONS).positionals, ['src/app.ts']);
-    // R4: locate's operands are search terms, which may be multiword.
     const locate = parseArgs('locate', ['--limit', '5', 'invoice', 'negative amount'], LOCATE_OPTIONS);
     assert.deepEqual(locate.positionals, ['invoice', 'negative amount']);
     assert.equal(locate.value('limit'), '5');
@@ -136,7 +130,6 @@ describe('U27 command line arguments', () => {
   });
 
   it('has no flag that turns checks or the requirement mode off', () => {
-    // D03: the mode follows from whether a requirement URL was supplied.
     for (const spec of Object.values(SPECS)) {
       const declared = [...(spec.values ?? []), ...(spec.repeated ?? []), ...(spec.flags ?? [])];
       for (const banned of ['quality-only', 'no-checks', 'skip-checks', 'no-review']) {
@@ -149,7 +142,6 @@ describe('U27 command line arguments', () => {
     const args = parseArgs('bundle', ['--approve', 'web/unit', '--approve', 'api/lint'], BUNDLE_OPTIONS);
     assert.deepEqual(args.all('approve'), ['web/unit', 'api/lint']);
     assert.deepEqual(parseArgs('bundle', [], BUNDLE_OPTIONS).all('approve'), []);
-    // A single-valued option never answers `all`, so approvals cannot be faked.
     assert.deepEqual(parseArgs('bundle', ['--base', 'main'], BUNDLE_OPTIONS).all('base'), []);
   });
 
@@ -172,8 +164,8 @@ describe('U27 command line arguments', () => {
   });
 
   it('rejects an unknown option before the command can do anything', async () => {
-    // Nothing is constructed on this path: main parses before createRuntime, so
-    // a rejected argument cannot have spawned a process or written a file.
+    // main parses before createRuntime, so a rejected argument cannot have spawned a process or
+    // written a file.
     const { main } = await import('./main.ts');
     const written: string[] = [];
     const stdout = process.stdout.write.bind(process.stdout);

@@ -13,12 +13,6 @@ import { publicationPositions, reviewResult } from '../testing/review-fixture.ts
 import { buildMarker } from './marker.ts';
 import { reconcileUncertainOutcomes, runPublication } from './publish.ts';
 
-/**
- * U23. A marker on its own proves nothing: reconciliation confirms a comment
- * only when the marker, the posting identity and the exact pinned position all
- * agree, and it never turns a lost answer into a second POST.
- */
-
 const RESULT = reviewResult();
 const POSITIONS = publicationPositions(RESULT);
 const POSITION = POSITIONS.positions.find((entry) => entry.findingId === 'f-aaaa') as PersistedPosition;
@@ -27,7 +21,6 @@ function positionsMap(): Map<string, PersistedPosition> {
   return new Map(POSITIONS.positions.map((entry) => [entry.findingId, entry]));
 }
 
-/** A comment that looks exactly like one AMBICODE published. */
 function ourComment(overrides: { author?: string; line?: number; digest?: string } = {}) {
   const body = `Seed the reduce with zero.\n\n${buildMarker({
     reviewId: RESULT.reviewId,
@@ -71,7 +64,6 @@ describe('U23 reconciliation before any write', () => {
     assert.equal(outcome?.discussionId, 'existing');
     assert.equal(outcome?.noteId, 'n-existing');
     assert.match(outcome?.message ?? '', /never overwrites a published comment/);
-    // The retry text is kept as the human's own, but was not transmitted.
     assert.equal(outcome?.body, 'An edited retry that must not overwrite anything.');
   });
 
@@ -80,7 +72,6 @@ describe('U23 reconciliation before any write', () => {
     provider.discussions = [ourComment({ author: 'someone-else' })];
 
     const submission = await run(provider);
-    // Not recognized, so the comment is published for the first time.
     assert.equal(provider.published.length, 1);
     assert.equal(submission.outcomes[0]?.state, 'published');
   });
@@ -165,7 +156,6 @@ describe('U23 reconciliation before any write', () => {
 describe('U23 uncertain delivery', () => {
   it('confirms a lost response when the comment turns out to be there', async () => {
     const provider = new FakeProvider();
-    // The write "fails" with a timeout, but the comment exists afterwards.
     provider.publishFailures = ['glab api projects/91/... timed out after 60s.'];
     const original = provider.publishComment.bind(provider);
     provider.publishComment = async (request) => {
@@ -178,15 +168,12 @@ describe('U23 uncertain delivery', () => {
     const [outcome] = submission.outcomes;
     assert.equal(outcome?.state, 'published');
     assert.match(outcome?.message ?? '', /response to the write was lost, but the comment was found/);
-    // Exactly one attempt: reconciliation is a read, not a retry.
     assert.equal(provider.published.length, 1);
   });
 
   it('leaves a lost response uncertain when nothing matching is found, and does not resend', async () => {
     const provider = new FakeProvider();
     provider.publishFailures = ['glab api projects/91/... timed out after 60s.'];
-    // The fake's default behaviour records the comment; suppress that so the
-    // reconciliation genuinely finds nothing.
     provider.publishComment = async (request) => {
       provider.calls.push('publishComment');
       provider.published.push(request);
@@ -213,7 +200,6 @@ describe('U23 uncertain delivery', () => {
     let listed = 0;
     provider.publishComment = async (request) => {
       provider.published.push(request);
-      // After the write, the discussion listing stops working.
       provider.listFailure = 'HTTP 502';
       return {
         kind: 'failed',
@@ -233,7 +219,6 @@ describe('U23 uncertain delivery', () => {
     const submission = await run(provider);
     assert.equal(submission.outcomes[0]?.state, 'uncertain');
     assert.match(submission.outcomes[0]?.message ?? '', /Reconciliation could not complete/);
-    // One listing before the write, one after it; never a second write.
     assert.equal(listed, 2);
     assert.equal(provider.published.length, 1);
   });

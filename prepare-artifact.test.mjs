@@ -1,23 +1,3 @@
-// Built-artifact regression test for `ambicode prepare --json` (doc 04 P2.4
-// correction A2/B3): runs the actual bundled CLI (`scripts/ambicode.mjs`,
-// what a real installed plugin invokes), never the TypeScript source, so a
-// bundling regression that only breaks the shipped artifact is caught the
-// same way `install-local.smoke.mjs` catches installer regressions.
-//
-// Proves, against real stdout bytes:
-//   1. A project policy's distinctive before-work/before-checks/before-report
-//      prompt text reaches `ambicode prepare --json` stdout for an activity
-//      that stage applies to.
-//   2. A filtered stage's distinctive text does NOT appear for an activity
-//      `ambicode prepare` does not deliver it to (before-checks for
-//      "investigate"; before-review for any prepare caller at all).
-//   3. `contextBudget.measuredBytes` equals `Buffer.byteLength` of the exact
-//      stdout the real bundled CLI printed.
-//
-// Not part of the fast in-process unit suite's fixtures (`src/**/*.test.ts`)
-// because it must exercise `scripts/ambicode.mjs` itself; the `*.test.mjs`
-// glob in `npm run test:unit` already includes it, the same way
-// `install-local.test.mjs` is included.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdtemp, rm, stat, writeFile, mkdir } from 'node:fs/promises';
@@ -35,13 +15,8 @@ const BEFORE_REPORT_MARKER = 'DISTINCTIVE-BEFORE-REPORT-9d6a11';
 const BEFORE_REVIEW_MARKER = 'DISTINCTIVE-BEFORE-REVIEW-4e0c88';
 
 /**
- * Whether the built bundle is there, told apart from a stat that could not be
- * answered. The previous `stat().then(() => true, () => false)` reported both
- * as "not built": one gate run printed six failures telling the operator to run
- * `npm run build`, for a file that measured 3,408,246 bytes immediately
- * afterwards and whose build step had already succeeded (F5). A transient
- * EBUSY, EPERM or EMFILE under 60-odd concurrent test files is retried; ENOENT
- * is the only answer that means the bundle is missing.
+ * Tells a missing bundle (ENOENT) apart from a stat that failed transiently (EBUSY, EPERM,
+ * EMFILE under many concurrent test files), which is retried.
  */
 async function assertBundleBuilt(candidate) {
   for (let attempt = 0; ; attempt += 1) {
@@ -153,7 +128,6 @@ describe('built-artifact regression: ambicode prepare --json (P2.4 correction A2
     try {
       const taskStdout = runPrepare(repo, 'task');
       const taskOutput = JSON.parse(taskStdout);
-      // "task" gets before-work, before-checks and before-report, never before-review.
       assert.ok(taskStdout.includes(BEFORE_WORK_MARKER), 'task prepare must include before-work text');
       assert.ok(taskStdout.includes(BEFORE_CHECKS_MARKER), 'task prepare must include before-checks text');
       assert.ok(taskStdout.includes(BEFORE_REPORT_MARKER), 'task prepare must include before-report text');
@@ -161,8 +135,6 @@ describe('built-artifact regression: ambicode prepare --json (P2.4 correction A2
       assert.equal(taskOutput.activity, 'task');
 
       const investigateStdout = runPrepare(repo, 'investigate');
-      // "investigate" gets before-work and before-report, but a filtered
-      // stage (before-checks) must not leak through, and before-review never does.
       assert.ok(investigateStdout.includes(BEFORE_WORK_MARKER), 'investigate prepare must include before-work text');
       assert.ok(investigateStdout.includes(BEFORE_REPORT_MARKER), 'investigate prepare must include before-report text');
       assert.ok(!investigateStdout.includes(BEFORE_CHECKS_MARKER), 'investigate prepare must NOT include before-checks text (filtered stage)');

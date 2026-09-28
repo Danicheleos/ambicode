@@ -4,11 +4,7 @@ import { REVIEW_SCHEMA_VERSION, type Finding, type ReviewResult } from '../contr
 import { positionDigest } from '../publication/positions.ts';
 import { FAKE_TARGET } from './fake-provider.ts';
 
-/**
- * A saved review the page tests render and publish from. Hostile text is in
- * every untrusted field on purpose: the renderer's job is to show it, not to
- * run it.
- */
+/** Hostile text is in every untrusted field on purpose: the renderer's job is to show it, not run it. */
 
 export const HOSTILE = '<img src=x onerror="alert(1)"><script>fetch("//evil")</script>';
 
@@ -164,7 +160,6 @@ export function reviewResult(options: FixtureOptions = {}): ReviewResult {
   };
 }
 
-/** Positions for the findings that have one; `f-cccc` deliberately has none. */
 export function publicationPositions(
   result: ReviewResult,
   target: RemoteTarget = FAKE_TARGET,

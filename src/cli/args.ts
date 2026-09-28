@@ -6,13 +6,9 @@ import { AmbicodeError } from '../util/errors.ts';
  * can start with a dash.
  */
 export interface OptionSpec {
-  /** Flags taking a value, e.g. `--base <ref>`. */
   values?: readonly string[];
-  /** Flags that are present or absent. */
   flags?: readonly string[];
-  /** Value flags that may be repeated, collected in order. */
   repeated?: readonly string[];
-  /** Whether the command takes bare operands; a command that does not rejects them. */
   positionals?: boolean;
 }
 
@@ -61,9 +57,8 @@ export function parseArgs(command: string, argv: readonly string[], spec: Option
   const values = parsed.values as Record<string, string | boolean | string[] | undefined>;
   const single = new Set(spec.values ?? []);
 
-  // `multiple: true` on a repeatable option gives an array even for one use;
-  // a single-valued option used twice keeps only the last, which Node allows
-  // and the commands treat as the operator's final word.
+  // `multiple: true` gives an array even for one use; a single-valued option used twice keeps
+  // only the last, taken as the operator's final word.
   return {
     value: (name: string) => {
       const found = values[name];
@@ -81,7 +76,6 @@ export function parseArgs(command: string, argv: readonly string[], spec: Option
   };
 }
 
-/** Node's messages name the token; the command and its own options come from us. */
 function badArgument(command: string, spec: OptionSpec, error: unknown): AmbicodeError {
   const valued = [...(spec.values ?? []), ...(spec.repeated ?? [])];
   const message = error instanceof Error ? error.message : String(error);

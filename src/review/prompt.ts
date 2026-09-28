@@ -16,14 +16,8 @@ import { readSharedOperatingContract } from '../policy/shared-contract.ts';
 import type { ReviewBundle } from './bundle.ts';
 
 /**
- * The reviewer prompt is composed from files, not from strings in TypeScript:
- * calibration is a Markdown edit (doc 05). This module orders the sections and
- * marks the boundary between what is authoritative and what is evidence.
- *
- * The shared operating contract is read through the one canonical helper
- * (`src/policy/shared-contract.ts`) that `ambicode prepare` also uses (doc 04
- * P2.4 correction A4), so this file and every authoring skill agree on
- * exactly which bytes that contract is.
+ * Composed from Markdown files, so calibration is a Markdown edit. The shared
+ * contract is read via the helper `ambicode prepare` uses, so both agree on its bytes.
  */
 
 const REVIEWER_ROLE = 'reviewer-role.md';
@@ -33,21 +27,10 @@ const UNTRUSTED = 'UNTRUSTED EVIDENCE';
 
 export interface ComposedPrompt {
   /**
-   * Appended to the reviewer's default system prompt via
-   * `--append-system-prompt` (doc 04 P2.4 correction E1): only the canonical
-   * shared operating contract and the reviewer role, nothing that carries
-   * change data, requirements, prior discussion, or diff content. Kept as a
-   * distinct artifact from `user` so the two are stored, measured, and
-   * audited separately (correction E6).
+   * Appended to the reviewer's system prompt: only the shared operating contract and
+   * the reviewer role, never change data, requirements, discussion or diff content.
    */
   system: string;
-  /**
-   * The ordinary user prompt (correction E2): scope, scoped project
-   * guidance, requirements, discussions, check evidence, and the diff itself,
-   * each under its own explicit boundary. Trusted, pack-provenanced project
-   * guidance is visibly separated from the sections marked `UNTRUSTED
-   * EVIDENCE` (correction E3).
-   */
   user: string;
   provenance: ProvenanceEntry[];
 }
@@ -92,11 +75,9 @@ export async function composeReviewerPrompt(
 }
 
 /**
- * A lower bound on the composed prompt, measured before the snapshot is
- * planned so that unchanged sibling context is fitted into what is actually
- * left rather than into the patch alone. The sections written afterwards —
- * check results and omissions — are covered by a fixed reserve; the exact
- * measurement of the finished prompt is still the one that decides.
+ * A lower bound, measured before snapshot planning so sibling context fits what is
+ * actually left. Later sections are covered by a fixed reserve; the exact
+ * measurement of the finished prompt still decides.
  */
 export async function estimatePromptOverheadBytes(
   fs: FileSystem,
@@ -106,7 +87,6 @@ export async function estimatePromptOverheadBytes(
     requirements: readonly RequirementSource[];
     policies: readonly { policy: ResolvedPolicy }[];
     discussions: readonly RemoteDiscussion[];
-    /** The reviewable files, whose nameable-line ranges the prompt lists. */
     files: readonly DiffFile[];
   },
 ): Promise<number> {
@@ -192,7 +172,6 @@ async function guidanceSection(
     if (rules.length > 0) lines.push('');
 
     for (const prompt of prompts) {
-      // The bundle already recorded this file's provenance with its stage.
       const text = await fs.readText(prompt.absolutePath);
       lines.push(`### ${prompt.packId} — ${prompt.declaredPath}`, '', text.trim(), '');
     }
@@ -250,14 +229,9 @@ function requirementBlock(source: RequirementSource): string[] {
 }
 
 /**
- * Threads that already exist on the merge request. They are evidence and
- * nothing else: they can stop the reviewer repeating a point somebody has
- * already made, and they are not proof that anything was fixed — a comment
- * saying "done" is a claim, and a resolved thread is a decision somebody took,
- * not a verification of the code in this revision.
- *
- * Bounded by byte count as well as thread count; whatever is left out is
- * reported in the omissions the reviewer also reads.
+ * Existing threads are evidence only: they stop repeated points, but "done" is a
+ * claim and a resolved thread is a decision, not verification of this revision.
+ * Bounded by bytes and thread count; what is left out is reported as omitted.
  */
 function discussionSection(bundle: ReviewBundle): string | null {
   if (bundle.result.discussions.length === 0) return null;
@@ -313,7 +287,6 @@ function discussionSection(bundle: ReviewBundle): string | null {
   return lines.join('\n');
 }
 
-/** One comment, fenced, truncated at its own bound with the cut stated. */
 function bound(body: string): string[] {
   const text = fence(body);
   if (byteLength(text) <= MAX_DISCUSSION_NOTE_BYTES) {
@@ -327,11 +300,8 @@ function bound(body: string): string[] {
 }
 
 /**
- * The lines a finding may name in one file, per side, computed by the same
- * `addressableLines` the validator uses, so the prompt and the check cannot
- * disagree. Without them a reviewer reading whole files cited `build.mjs:29`,
- * six lines past its hunk, and that one location voided a 42-file review
- * (branch_origin-main_2026-09-24T12-25).
+ * Computed by the validator's own `addressableLines`, so the prompt and the check
+ * cannot disagree: one line cited outside its hunk voids the whole review.
  */
 export function nameableLines(file: DiffFile | undefined): string {
   if (file === undefined) return 'no line here may be named';
@@ -396,7 +366,6 @@ function evidenceSection(bundle: ReviewBundle): string {
   lines.push('', '## Omissions', '');
   for (const omission of bundle.result.omissions) lines.push(`- ${omission}`);
 
-  // The same bytes the snapshot holds as `changed.diff`.
   lines.push('', '## The change', '', '```diff', fence(bundle.patch), '```');
   return lines.join('\n');
 }
@@ -433,7 +402,6 @@ function outputSection(bundle: ReviewBundle): string {
   ].join('\n');
 }
 
-/** Keeps evidence from closing the fence it is inside. */
 function fence(value: string): string {
   return value.replaceAll('```', "''`");
 }

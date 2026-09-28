@@ -15,10 +15,6 @@ import { FakeProcessRunner } from '../testing/fake-process-runner.ts';
 import { TempRepo } from '../testing/temp-repo.ts';
 import { REVIEWER_REPLAY_VARIABLE, ReplayReviewer, type ReviewerRecordings } from './replay-reviewer.ts';
 
-/**
- * Real git, and a `claude` that is either refused or answered by stubs, so a
- * test can say exactly which reviewer processes ran: none, for a replay.
- */
 class ClaudeGuard implements ProcessRunner {
   readonly claudeCalls: ProcessRequest[] = [];
   private readonly inner = new NodeProcessRunner(process.env);
@@ -44,7 +40,6 @@ class ClaudeGuard implements ProcessRunner {
   }
 }
 
-/** The keys `ReviewerRun` had before replay existed, in order. */
 const ORDINARY_REVIEWER_KEYS = [
   'status',
   'model',
@@ -121,7 +116,6 @@ describe('replay reviewer, selected by EVAL_AMBICODE_REVIEWER_REPLAY', () => {
     return env;
   }
 
-  /** The snapshot this change has, read from an evidence-only run. */
   async function snapshotOfChange(): Promise<string> {
     const output = await review({ ...without(REVIEWER_REPLAY_VARIABLE), [REVIEWER_REPLAY_VARIABLE]: '/nonexistent' }, new ClaudeGuard());
     return output.result.target.snapshotId;
@@ -142,12 +136,9 @@ describe('replay reviewer, selected by EVAL_AMBICODE_REVIEWER_REPLAY', () => {
     assert.deepEqual(reviewer.tools, []);
     assert.deepEqual(reviewer.isolation, []);
     assert.match(reviewer.detail ?? '', /^replayed: no model was called in this run\. .*sonnet recording of orders/);
-    // Still validated against this bundle: the finding gains its id and the
-    // snapshot's own evidence, exactly as a model's answer would.
     assert.equal(output.result.findings.length, 1);
     assert.match(output.result.findings[0]?.evidence ?? '', /amounts\.reduce/);
     assert.ok(output.result.omissions.includes('Read src/orders.ts.'));
-    // A replay is not a review made now, so it can never be called complete.
     assert.equal(output.result.status, 'partial');
     assert.match(output.result.statusReason ?? '', /replayed from a recording; no model reviewed the change in this run/);
 

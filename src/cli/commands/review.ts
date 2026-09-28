@@ -27,48 +27,29 @@ export interface ReviewOutput {
   reportPath: string;
   result: ReviewResult;
   pendingApprovals: PendingApproval[];
-  /** Findings with an exact remote position saved for later publication. */
   publishablePositions: number;
   /**
-   * True when the run stopped at the evidence because a check is waiting for
-   * a human, so no reviewer was invoked. The bundle on disk is real and
-   * complete for everything that did run; the finding list is absent rather
-   * than empty.
+   * True when a check is waiting for a human, so no reviewer was invoked; the
+   * finding list is then absent rather than empty.
    */
   awaitingAuthorization: boolean;
 }
 
 export interface ReviewDependencies {
-  /** Injected by tests; production builds the Claude Code process reviewer. */
   reviewer?: Reviewer;
 }
 
 /**
- * The default review: assemble the pinned bundle, hand it to a fresh isolated
- * reviewer, validate what comes back against that same bundle, and report the
- * four parts. A failed or skipped check is evidence here, not a gate.
- *
- * A check *waiting for a human* is the one exception, and it is not a gate on
- * the change — it is a gate on spending the model. Check evidence is part of
- * the reviewer prompt, so reviewing now means paying for a review of evidence
- * that is about to change, and then paying again for the same review after
- * the answer arrives. Measured on a real task: a review ran for 187s with the
- * unit check skipped over a selection limit, the human approved it, and the
- * identical review ran again for 233s — 233s whose only new information was
- * one check result. Stopping here makes the first run cost what `bundle`
- * costs, and the answer arrives before the expensive half begins.
- *
- * `--decline <key>` is the other answer, so a human who does not want the
- * check run is not trapped in a question with one exit.
+ * A check waiting for a human stops the run before the reviewer: check evidence
+ * is part of the prompt, so reviewing now would pay for the same review twice.
  */
 export async function runReview(
   runtime: Runtime,
   args: ParsedArgs,
   dependencies: ReviewDependencies = {},
 ): Promise<ReviewOutput> {
-  // The bundle composes the canonical prompt and refuses the whole review if
-  // the measured input exceeds the limit, so nothing below can reach a model
-  // with more than the configuration allows.
+  // The bundle refuses the whole review if the measured prompt exceeds the
+  // limit, so nothing below can reach a model with more than configured.
   const bundle = await assembleBundle({ runtime, ...resolveTargetOptions('review', runtime, args) });
 
   if (bundle.pendingApprovals.length > 0) {
@@ -121,9 +102,8 @@ export async function runReview(
     ...(replayed ? { source: 'replay' as const } : {}),
   };
 
-  // Validation is part of whether the reviewer succeeded, not a filter applied
-  // afterwards: output that does not survive it makes the run a failure with a
-  // stated reason, never a shorter finding list presented as validated.
+  // Output that fails validation fails the run with a stated reason, never a
+  // shorter finding list presented as validated.
   let reviewerOk = invocation.kind === 'ok';
   if (invocation.kind === 'ok') {
     const validated = validateFindings({
@@ -158,9 +138,8 @@ export async function runReview(
   applyStatus(bundle, reviewerOk);
 
   await writeBundleArtifacts(runtime, bundle);
-  // Positions are derived here, while the pinned diff is still in hand. After
-  // this the snapshot is disposable and the merge request may move; a position
-  // is never recomputed from either (doc 03 P1.6).
+  // Derived while the pinned diff is in hand: afterwards the snapshot is
+  // disposable and the merge request may move, so a position is never recomputed.
   const positions = await persistPublicationPositions(runtime, bundle);
   const reportPath = path.join(bundle.reviewDirectory, 'report.txt');
   const report = renderReport({
@@ -185,13 +164,6 @@ export async function runReview(
   };
 }
 
-/**
- * The evidence bundle, written and reported, with no reviewer invoked and no
- * finding list presented. Everything that did run is here — the selection,
- * the exact argv each waiting check would execute, the limitations — so the
- * human deciding has what they need to decide, and a re-run with `--approve`
- * or `--decline` is the next and only remaining step.
- */
 async function stopForAuthorization(runtime: Runtime, bundle: ReviewBundle): Promise<ReviewOutput> {
   const keys = bundle.pendingApprovals.map((approval) => approval.approvalKey);
   bundle.result.status = 'partial';
@@ -228,11 +200,6 @@ async function stopForAuthorization(runtime: Runtime, bundle: ReviewBundle): Pro
   };
 }
 
-/**
- * Writes the exact remote position of every publishable finding beside the
- * result. Local and branch reviews have no remote, so there is nothing to
- * derive and nothing is written.
- */
 async function persistPublicationPositions(
   runtime: Runtime,
   bundle: ReviewBundle,
@@ -252,9 +219,8 @@ async function persistPublicationPositions(
 }
 
 /**
- * A check that failed or was skipped stays evidence: it narrows what the review
- * verified, so the status is `partial`, but it does not stop the model. Only a
- * reviewer that produced nothing usable makes the review an error.
+ * A failed or skipped check narrows what was verified (`partial`) but does not
+ * stop the model; only unusable reviewer output makes the review an error.
  */
 function applyStatus(bundle: ReviewBundle, reviewerOk: boolean): void {
   if (!reviewerOk) {
@@ -268,18 +234,12 @@ function applyStatus(bundle: ReviewBundle, reviewerOk: boolean): void {
   const unverified = bundle.result.checks.filter(
     (check) => check.status !== 'passed' || !check.selectionComplete,
   );
-  // An applicable policy diagnostic (correction B8) is coverage the review
-  // did not actually have, so it keeps the result honestly `partial` rather
-  // than `complete` — it does not stop the reviewer from examining the
-  // available change, which already ran by the time this is decided.
   const policyGaps = bundle.policies.reduce(
     (total, { policy }) => total + policy.diagnostics.filter((d) => d.severity === 'error').length,
     0,
   );
   const gaps = [
     ...(policyGaps > 0 ? [`${policyGaps} applicable policy diagnostic(s) could not be resolved`] : []),
-    // A file the remote did not deliver is a change nobody reviewed, so the
-    // result may not be called complete however well everything else went.
     ...(bundle.result.coverage.complete
       ? []
       : [
@@ -294,8 +254,6 @@ function applyStatus(bundle: ReviewBundle, reviewerOk: boolean): void {
     ...((bundle.result.reviewer?.rejections.length ?? 0) > 0
       ? ['some reviewer output was rejected as unverifiable']
       : []),
-    // A recorded answer for this exact snapshot, not a review made in this
-    // run, so the result may not be called complete (EVAL_AMBICODE_REVIEWER_REPLAY).
     ...(bundle.result.reviewer?.source === 'replay'
       ? ['the reviewer answer was replayed from a recording; no model reviewed the change in this run']
       : []),

@@ -4,11 +4,6 @@ import type { ProvenanceEntry } from '../contracts/requirements.ts';
 import type { FileSystem } from '../ports/filesystem.ts';
 import { contentHash } from '../util/hash.ts';
 
-/**
- * Pack/prompt and configuration provenance, shared by `review`/`bundle` and
- * `ambicode prepare` (doc 04 P2.2 correction D) so the two do not each derive
- * their own answer to "what produced this policy" from `ResolvedPolicy`.
- */
 export function policyProvenance(policies: readonly { policy: ResolvedPolicy }[]): ProvenanceEntry[] {
   const entries = new Map<string, ProvenanceEntry>();
   for (const entry of packProvenance(policies)) entries.set(entry.reference, entry);
@@ -22,12 +17,8 @@ export function policyProvenance(policies: readonly { policy: ResolvedPolicy }[]
 }
 
 /**
- * Pack provenance only, with no assumption about which prompt stages a
- * caller actually receives (doc 04 P2.3 correction B). `ambicode prepare`
- * uses this rather than `policyProvenance` and adds its own prompt provenance
- * from the stage-filtered, content-resolved prompts it actually delivers —
- * `review`/`bundle` compose every applicable stage directly from
- * `ResolvedPolicy` and so keep using `policyProvenance` unchanged.
+ * Pack provenance only: `prepare` adds prompt provenance from the stage-filtered
+ * prompts it actually delivers.
  */
 export function packProvenance(policies: readonly { policy: ResolvedPolicy }[]): ProvenanceEntry[] {
   const entries = new Map<string, ProvenanceEntry>();

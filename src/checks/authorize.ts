@@ -2,9 +2,8 @@ import type { ResolvedPolicy } from '../contracts/policy.ts';
 import { decisionFor, explainRefusal } from '../policy/resolve.ts';
 
 /**
- * Every external command passes through here. A selector script is project code
- * like the check it feeds, so one function means no call site can acquire
- * execution without a decision (doc 05, D08).
+ * Every external command, selector scripts included, passes through here, so no call site
+ * can acquire execution without a decision.
  */
 export type CommandAuthorization =
   | { kind: 'allowed' }
@@ -14,7 +13,6 @@ export type CommandAuthorization =
 export interface AuthorizeOptions {
   policy: ResolvedPolicy;
   commandId: string;
-  /** The token a human returns to authorize this one run (D08). */
   approvalKey: string;
   approvals: ReadonlySet<string>;
 }
@@ -39,10 +37,7 @@ export function authorizeCommand(options: AuthorizeOptions): CommandAuthorizatio
   return { kind: 'allowed' };
 }
 
-/**
- * Identifies exactly one check, so `--approve lint` cannot reach another
- * project's check of the same name.
- */
+/** Scoped by project, so `--approve lint` cannot reach another project's check of the same name. */
 export function checkApprovalKey(projectId: string, checkId: string): string {
   return `${projectId}/${checkId}`;
 }

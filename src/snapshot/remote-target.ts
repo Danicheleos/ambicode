@@ -11,12 +11,8 @@ import type { ContentSource, FileContent } from './content.ts';
 import type { TargetResolution } from './target.ts';
 
 /**
- * Resolves a merge-request URL into the same `TargetResolution` shape the local
- * targets produce, so the bundle, the snapshot, the prompt and the validator do
- * not know which kind of target they are working on.
- *
- * The developer's checkout is never touched: no fetch, no checkout, no stash,
- * no index write. Everything comes from the provider at the pinned revision.
+ * The developer's checkout is never touched: no fetch, no checkout, no stash, no
+ * index write. Everything comes from the provider at the pinned revision.
  */
 
 export interface RemoteTargetOptions {
@@ -24,7 +20,6 @@ export interface RemoteTargetOptions {
   url: string;
   /** The repository the command was run in; it supplies configuration only. */
   repositoryRoot: string;
-  /** That checkout's `origin` URL, or null when it has none. */
   checkoutOriginUrl: string | null;
   includeSiblingContext: boolean;
   /** Zero disables reading prior threads entirely. */
@@ -34,12 +29,8 @@ export interface RemoteTargetOptions {
 export interface RemoteTargetResolution extends TargetResolution {
   remote: RemoteTarget;
   discussions: RemoteDiscussion[];
-  /** Everything the remote could not supply, carried into the review result. */
   omissions: string[];
-  /**
-   * Whether the delivered diff is the whole change. Structural, so the review
-   * status can refuse `complete` without matching omission wording.
-   */
+  /** Structural, so the review status can refuse `complete` without matching omission wording. */
   coverage: ReviewCoverage;
 }
 
@@ -57,22 +48,19 @@ export async function resolveMergeRequestTarget(
   if (fetched.kind !== 'ok') throw providerError('fetch', fetched);
   const snapshot = fetched.value;
 
-  // The provider's file list is authoritative for identity; the rebuilt patch
-  // is split back into sections by the same code local diffs use, so hunk
-  // parsing and line addressing behave identically for both.
+  // The rebuilt patch is split back into sections by the same code local diffs use,
+  // so hunk parsing and line addressing behave identically for both.
   const changes: RawChange[] = snapshot.files.map((file) => ({
     oldPath: file.oldPath,
     newPath: file.newPath,
     changeKind: file.changeKind,
-    // GitLab's own modes, so a symlink or a type change is identified by what
-    // the remote recorded rather than guessed from the rebuilt patch.
+    // GitLab's own modes, not guessed from the rebuilt patch.
     oldMode: file.oldMode ?? '',
     newMode: file.newMode ?? '',
   }));
   const files = combineDiff(changes, snapshot.patch).map((file, index) => ({
     ...file,
-    // GitLab states binary-ness and truncation; the rebuilt patch body is not
-    // re-interpreted to second-guess it.
+    // GitLab states binary-ness and truncation; the rebuilt patch is not re-interpreted.
     binary: file.binary || (snapshot.files[index]?.binary ?? false),
   }));
 
@@ -91,8 +79,8 @@ export async function resolveMergeRequestTarget(
       discussions.push(...listed.value.discussions);
       omissions.push(...listed.value.omissions);
     } else {
-      // Prior discussion reduces duplicate noise; it is not evidence about the
-      // code, so failing to read it narrows the review rather than stopping it.
+      // Prior discussion is not evidence about the code, so failing to read it
+      // narrows the review rather than stopping it.
       omissions.push(
         `Existing merge request discussions could not be read (${listed.message}), so the reviewer may repeat a point that was already raised.`,
       );
@@ -105,9 +93,8 @@ export async function resolveMergeRequestTarget(
     read: async (relativePath: string): Promise<FileContent | null> => {
       const value = await snapshot.read(relativePath);
       if (value === null) return null;
-      // `unavailable` is already recorded as an omission by the provider; the
-      // planner only needs to know it has no bytes. A symlink stays a symlink,
-      // so it is reported rather than mirrored as an ordinary text file.
+      // `unavailable` is already an omission recorded by the provider. A symlink stays
+      // a symlink, so it is reported rather than mirrored as an ordinary text file.
       return value.kind === 'unavailable' ? null : value;
     },
     list: (directoryName: string) => snapshot.list(directoryName),
@@ -141,7 +128,7 @@ export async function resolveMergeRequestTarget(
     files,
     patch: snapshot.patch,
     content,
-    // The pre-image of the pinned version. Used for evidence, never checked out.
+    // Used for evidence, never checked out.
     preImageRevision: remote.baseSha,
     remote,
     discussions,
@@ -151,11 +138,8 @@ export async function resolveMergeRequestTarget(
 }
 
 /**
- * Whose configuration judged this merge request. The checkout supplies the
- * policy packs and check commands, and nothing ties it to the merge request's
- * project: run a0e87d39 reviewed a backend merge request from a frontend
- * checkout, and the frontend's prettier command selected nine
- * backend files, while the report said only that the checkout was not read.
+ * The checkout supplies policy packs and check commands, and nothing ties it to the
+ * merge request's project, so the result records whose configuration judged it.
  */
 function configurationProvenance(
   options: RemoteTargetOptions,

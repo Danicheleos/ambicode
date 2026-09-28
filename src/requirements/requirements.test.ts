@@ -131,8 +131,6 @@ describe('U16 requirement normalization and provenance', () => {
   });
 
   it('never turns a failed requirement retrieval into a quality review', () => {
-    // The offer of a quality review is advice in the message, never a fallback
-    // the helper takes on its own behalf (D04).
     const error = failure(() =>
       normalize({
         urls: [JIRA],
@@ -183,7 +181,7 @@ describe('U16 requirement normalization and provenance', () => {
         },
       }),
     );
-    // The duplicate is caught before the contents are compared; either way the
+    // The duplicate may be caught before contents are compared; either way the
     // review stops rather than choosing one of the two retrievals.
     assert.ok(['requirements-ambiguous', 'requirements-conflicting'].includes(error.code));
   });

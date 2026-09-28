@@ -6,9 +6,8 @@ import { contentHash } from '../util/hash.ts';
 import { isBinaryContent } from './exclusions.ts';
 
 /**
- * Where snapshot content comes from, and why it cannot change under the review.
- * A revision is immutable; the working tree is read once at target resolution
- * and held, so mirror, patch and identity describe the same bytes (doc 02).
+ * A revision is immutable; the working tree is read once at target resolution and
+ * held, so mirror, patch and identity describe the same bytes.
  */
 export type FileContent =
   | { kind: 'text'; text: string }
@@ -17,8 +16,8 @@ export type FileContent =
   | { kind: 'too-large'; bytes: number };
 
 /**
- * Bytes are classified before they are decoded (doc 11): a binary file never
- * becomes a string, and text in an unfamiliar extension stays reviewable.
+ * Bytes are classified before they are decoded: a binary file never becomes a
+ * string, and text in an unfamiliar extension stays reviewable.
  */
 export async function classifyBytes(bytes: Uint8Array): Promise<FileContent> {
   if (await isBinaryContent(bytes)) return { kind: 'binary' };
@@ -26,21 +25,17 @@ export async function classifyBytes(bytes: Uint8Array): Promise<FileContent> {
 }
 
 export interface ContentSource {
-  /** How these bytes are pinned, recorded in the review for the reader. */
   readonly pinning: string;
-  /** Identifies the exact bytes this source will serve. */
   readonly digest: string;
   read(relativePath: string): Promise<FileContent | null>;
   list(directoryName: string): Promise<string[]>;
   /**
-   * The paths the planner is about to read, given once so a remote source can
-   * fetch them together. Optional, and never authoritative: `read` still
-   * answers for every path, so a source that ignores this behaves identically.
+   * Lets a remote source fetch these together. Never authoritative: `read` still
+   * answers every path, so a source that ignores this behaves identically.
    */
   prime?(relativePaths: readonly string[]): Promise<void>;
 }
 
-/** Content at a committed revision, read through git rather than the checkout. */
 export function revisionContent(git: Git, revision: string): ContentSource {
   return {
     pinning: `Read from git at revision ${revision.slice(0, 12)}, so it cannot change while the review runs.`,
@@ -64,21 +59,16 @@ export interface CaptureOptions {
   repositoryRoot: string;
   /** Post-image paths of the change; their directories supply context candidates. */
   changedPaths: readonly string[];
-  /** Read unchanged files beside a changed one so they can serve as context. */
   includeSiblings: boolean;
 }
 
 export interface CapturedContent extends ContentSource {
-  /** Repository-relative paths whose bytes are held, in a stable order. */
   readonly capturedPaths: readonly string[];
-  /** Content hash per captured path, used to detect later mutation (doc 03). */
+  /** Content hash per captured path, used to detect later mutation. */
   hashOf(relativePath: string): string | null;
 }
 
-/**
- * Reads the working tree once and holds it. Nothing is written: no blob, no
- * index, so a capture leaves the checkout as it was found.
- */
+/** Nothing is written, no blob and no index, so a capture leaves the checkout as found. */
 export async function captureWorkingTree(options: CaptureOptions): Promise<CapturedContent> {
   const entries = new Map<string, FileContent>();
   const hashes = new Map<string, string>();
@@ -103,8 +93,7 @@ export async function captureWorkingTree(options: CaptureOptions): Promise<Captu
   }
 
   const capturedPaths = [...entries.keys()].sort();
-  // The digest covers every byte served, so two captures of different working
-  // trees can never share a snapshot identity.
+  // Covers every byte served, so captures of different working trees never share an identity.
   const digest = contentHash(
     capturedPaths.map((value) => `${value}\n${hashes.get(value) ?? describeKind(entries.get(value))}`).join('\n'),
   );
@@ -139,8 +128,7 @@ async function readWorkingFile(
     const stats = await fs.lstat(absolute);
     if (stats.isSymbolicLink()) return { kind: 'symlink' };
     if (!stats.isFile()) return null;
-    // The size guard runs first, so the read that follows is bounded; the bytes
-    // it returns decide text-or-binary before any of them are decoded.
+    // The size guard runs first, so the read that follows is bounded.
     if (stats.size > MAX_SNAPSHOT_FILE_BYTES) return { kind: 'too-large', bytes: stats.size };
     return await classifyBytes(await fs.readBytes(absolute));
   } catch {

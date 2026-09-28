@@ -13,12 +13,6 @@ import { INIT_OPTIONS, runInit } from './commands/init.ts';
 import { POLICY_OPTIONS, runPolicy } from './commands/policy.ts';
 import { POLICY_CHECK_OPTIONS, renderPolicyCheck, runPolicyCheck, type PolicyCheckOutput } from './commands/policy-check.ts';
 
-/**
- * R3 part 1: `ambicode policy check` on a candidate pack file that nothing in
- * `.ambicode/config.yaml` references yet, and the proof that it and the loader
- * apply one set of rules rather than two copies of them.
- */
-
 const CONFIG_TAIL = [
   'review: { model: sonnet, timeoutSeconds: 300, maxFindings: 7, maxChangedFiles: 50, maxChangedLines: 2000, maxContextBytes: 524288 }',
   'checks: { timeoutSeconds: 120, maxSelectedTestFiles: 20 }',
@@ -41,7 +35,6 @@ const ONE_PROJECT = [
   '    checks: {}',
 ];
 
-/** A repository with one project, a component and a service, and no packs yet. */
 async function repoWithLayout(): Promise<TempRepo> {
   const repo = await TempRepo.create();
   await repo.write('src/orders/order-list.component.ts', 'export class OrderListComponent {}\n');
@@ -98,15 +91,12 @@ describe('R3 ambicode policy check', () => {
       assert.equal(file?.packId, 'team-components');
       assert.equal(file?.authority, 'team');
       assert.equal(file?.rules, 1);
-      // The count and the examples are the project's real files, which the
-      // schema cannot see.
       assert.deepEqual(file?.appliesTo.map((glob) => glob.glob), ['src/**/*.component.ts']);
       assert.equal(file?.appliesTo[0]?.matched, 2);
       assert.deepEqual(file?.appliesTo[0]?.examples, [
         'src/orders/order-detail.component.ts',
         'src/orders/order-list.component.ts',
       ]);
-      // `.ambicode/config.yaml` still says nothing about the file.
       const workspace = await openWorkspace(runtime);
       assert.deepEqual(projectById(workspace.config, 'web').policyFiles, []);
     } finally {
@@ -133,8 +123,6 @@ describe('R3 ambicode policy check', () => {
 
       const output = await check(runtime, ['.ambicode/policies/ghost.yaml']);
 
-      // A warning, not an error: the pack is valid, it simply applies to
-      // nothing, so the command still exits zero.
       assert.equal(output.ok, true);
       const warning = output.diagnostics.find((diagnostic) => diagnostic.code === 'pack-glob-matches-nothing');
       assert.ok(warning !== undefined, renderPolicyCheck(output));
@@ -149,8 +137,6 @@ describe('R3 ambicode policy check', () => {
   it('catches every load-time rule the schema does not carry', async () => {
     const repo = await repoWithLayout();
     try {
-      // remindOnEdit on a pack that applies broadly, a prompt file that is not
-      // there, and a command the project does not declare.
       await repo.write(
         '.ambicode/policies/broad.yaml',
         pack([
@@ -170,7 +156,6 @@ describe('R3 ambicode policy check', () => {
           '    check: { kind: none, explanation: "Nothing verifies this." }',
         ]),
       );
-      // `replaces` must name `builtin/<id>`.
       await repo.write(
         '.ambicode/policies/bad-replaces.yaml',
         pack([
@@ -184,7 +169,6 @@ describe('R3 ambicode policy check', () => {
           'rules: []',
         ]),
       );
-      // Not YAML at all.
       await repo.write('.ambicode/policies/broken.yaml', 'appliesTo: [\n');
 
       const runtime = await createRuntime({ cwd: repo.root });
@@ -207,8 +191,6 @@ describe('R3 ambicode policy check', () => {
       ]) {
         assert.ok(found.has(expected), `expected a ${expected} diagnostic, got ${[...found].join(', ')}`);
       }
-      // A file that produced no usable pack is still listed, so the report
-      // accounts for every operand.
       assert.equal(output.files.length, 4);
       assert.deepEqual(
         output.files.filter((file) => file.packId === null).map((file) => path.posix.basename(file.path)),
@@ -256,7 +238,6 @@ describe('R3 ambicode policy check', () => {
       assert.ok(duplicate !== undefined, renderPolicyCheck(collision));
       assert.match(duplicate.message, /replaces: builtin\/common-quality/);
 
-      // Saying so explicitly resolves it, and the candidate becomes usable.
       await repo.write(
         '.ambicode/policies/mine.yaml',
         pack([
@@ -304,14 +285,7 @@ describe('R3 ambicode policy check', () => {
     }
   });
 
-  /**
-   * R3 acceptance 2. The rules a schema cannot express used to live inside the
-   * loader, so a candidate check could only re-implement them. Both paths now
-   * call `src/policy/validate.ts`: for the same file, the loader (with the pack
-   * wired into `policyFiles`) and `policy check` (with it not wired in) must
-   * report the same diagnostic codes. A rule added to only one of them breaks
-   * this.
-   */
+  /** Both paths call `src/policy/validate.ts`; a rule added to only one of them breaks this. */
   it('holds a candidate pack to exactly the rules the loader applies', async () => {
     const repo = await repoWithLayout();
     try {
@@ -393,7 +367,7 @@ describe('R3 ambicode policy check', () => {
       const undetermined = await check(runtime, ['.ambicode/policies/team-components.yaml']);
       assert.equal(undetermined.projectId, null);
       assert.ok(undetermined.diagnostics.some((diagnostic) => diagnostic.code === 'project-not-determined'));
-      // No glob count is claimed, rather than one measured against the wrong root.
+      // 0 means no count is claimed, rather than one measured against the wrong root.
       assert.equal(undetermined.files[0]?.appliesTo[0]?.matched, 0);
       assert.equal(undetermined.ok, true);
 
@@ -445,8 +419,6 @@ describe('R3 ambicode policy check', () => {
 
       assert.equal(clean, 0);
       assert.equal(dirty, 1, 'an error diagnostic must exit nonzero');
-      // The report is still the deliverable: the findings are printed, not
-      // swallowed by the status.
       const parsed = JSON.parse(printed) as PolicyCheckOutput;
       assert.equal(parsed.command, 'policy-check');
       assert.equal(parsed.ok, false);
@@ -463,7 +435,6 @@ describe('R3 ambicode policy check', () => {
       await repo.commitAll('a directory named check');
       const runtime = await createRuntime({ cwd: repo.root });
 
-      // `policy -- check` is the plain policy command with one path operand.
       const output = await runPolicy(runtime, parseArgs('policy', ['--', 'check'], POLICY_OPTIONS));
       assert.deepEqual(output.paths, ['check']);
     } finally {
@@ -472,14 +443,6 @@ describe('R3 ambicode policy check', () => {
   });
 });
 
-/**
- * R3 acceptance 4, on the machinery the `/ambicode:rules` skill targets: the
- * packs a `CLAUDE.md` migration produces are ordinary project packs, so the
- * resolver must scope them by path exactly as it scopes a built-in. What the
- * skill itself decides — which paragraph is a rule, whether it is `team` or
- * `observed`, which glob it belongs to — is a judgement with a human in the
- * loop and is not asserted here.
- */
 describe('R3 migrated packs resolve as scoped project policy', () => {
   it('applies a component pack to a component path and not to a service path', async () => {
     const repo = await repoWithLayout();
@@ -516,7 +479,6 @@ describe('R3 migrated packs resolve as scoped project policy', () => {
       await repo.commitAll('migrated packs');
       const runtime = await createRuntime({ cwd: repo.root });
 
-      // Clean before it is wired in, and still clean once it is.
       const checked = await check(runtime, [
         '--project',
         'web',
@@ -524,7 +486,6 @@ describe('R3 migrated packs resolve as scoped project policy', () => {
         '.ambicode/policies/team-components.yaml',
       ]);
       assert.equal(checked.ok, true, renderPolicyCheck(checked));
-      // Two packs with distinct globs, one of them not `**/*`.
       const globs = checked.files.map((file) => file.appliesTo.map((glob) => glob.glob).join(','));
       assert.deepEqual(globs, ['**/*', 'src/**/*.component.ts']);
 
@@ -536,7 +497,6 @@ describe('R3 migrated packs resolve as scoped project policy', () => {
         onComponent.policy.rules.map((rule) => rule.qualifiedId).sort(),
         ['team-components/no-transport-in-components', 'team-global/no-console'],
       );
-      // Provenance survives the migration: the rule still names where it came from.
       assert.match(
         onComponent.policy.rules.find((rule) => rule.packId === 'team-components')?.sourceLocation ?? '',
         /CLAUDE\.md/,
@@ -555,9 +515,6 @@ describe('R3 migrated packs resolve as scoped project policy', () => {
   it('resolves policy from the YAML packs alone, with no Markdown source in reach', async () => {
     const repo = await repoWithLayout();
     try {
-      // The source document the migration was authored from stays in the
-      // repository, and stays inert: deleting the pack removes the rule, and
-      // the CLAUDE.md that states it in prose contributes nothing.
       await repo.write('CLAUDE.md', '# Rules\n\n- Components must not call HTTP directly.\n');
       await repo.write(
         '.ambicode/config.yaml',
@@ -591,12 +548,8 @@ describe('R3 migrated packs resolve as scoped project policy', () => {
 });
 
 /**
- * R3 acceptance 6. Markdown is an input to a setup-time skill and never a
- * runtime format, so no shipped module may name a rule source at all —
- * `src/config/init.ts` excepted, and there only to test for its existence.
- * Asserted over the source text because the defect it guards against is a
- * future loader someone adds "just for CLAUDE.md", which no behavioural test
- * of today's code would catch.
+ * Asserted over the source text: the defect guarded against is a future loader
+ * added "just for CLAUDE.md", which no behavioural test of today's code catches.
  */
 describe('R3 no runtime path reads a Markdown rule source', () => {
   const RULE_SOURCE_NAMES = ['CLAUDE.md', 'CONTRIBUTING.md', '.cursor', 'copilot-instructions', '.github/instructions'];
@@ -608,9 +561,8 @@ describe('R3 no runtime path reads a Markdown rule source', () => {
       .filter((relative) => !relative.endsWith('.test.ts'))
       .sort();
 
-    // `src/config/init.ts` detects them; the reviewer names CLAUDE.md to say
-    // its sandbox refuses to load one, which is asserted below rather than
-    // exempted silently.
+    // The reviewer names CLAUDE.md only to make its sandbox refuse one, which
+    // is asserted below rather than exempted silently.
     const allowed = new Set(['src/config/init.ts', 'src/review/claude-reviewer.ts']);
     const offenders: string[] = [];
     for (const relative of sources) {
@@ -629,7 +581,6 @@ describe('R3 no runtime path reads a Markdown rule source', () => {
     const reviewer = await readFile(path.join(repositoryRoot, 'src', 'review', 'claude-reviewer.ts'), 'utf8');
     assert.match(reviewer, /No CLAUDE\.md[^\n]*\n\s*'--safe-mode'/, 'the reviewer must run with CLAUDE.md loading off');
 
-    // And in the one module that names them, the only thing done with them.
     const init = await readFile(path.join(repositoryRoot, 'src', 'config', 'init.ts'), 'utf8');
     const detector = /export async function detectRuleSources[\s\S]*?\n}/.exec(init)?.[0] ?? '';
     assert.ok(detector !== '', 'detectRuleSources not found');
@@ -642,9 +593,8 @@ describe('R3 no runtime path reads a Markdown rule source', () => {
   it('resolves prompt Markdown only from a path a pack declared', async () => {
     const { readFile } = await import('node:fs/promises');
     const repositoryRoot = path.resolve(import.meta.dirname, '..', '..');
-    // The single place a pack's Markdown is opened: inside the pack directory,
-    // after `resolveInsideBoundary`, for a `prompts[].file` the pack itself
-    // declared. Nothing derives a Markdown path from a repository convention.
+    // The single place a pack's Markdown is opened: a `prompts[].file` the pack
+    // declared, after `resolveInsideBoundary`.
     const validate = await readFile(path.join(repositoryRoot, 'src', 'policy', 'validate.ts'), 'utf8');
     assert.match(validate, /resolveInsideBoundary\(/);
     assert.equal((validate.match(/fs\.readText\(/g) ?? []).length, 2, 'the pack file and its declared prompts, nothing else');
@@ -683,7 +633,6 @@ describe('R3 init names rule sources without reading them', () => {
       assert.ok(notice !== undefined, output.notices.join('\n'));
       assert.match(notice, /Nothing above was read, classified, or migrated by init\./);
 
-      // Existence only: no rule source was opened.
       const opened = reads.filter((absolutePath) =>
         ['CLAUDE.md', 'CONTRIBUTING.md', 'style.mdc', 'architecture.md'].some((name) => absolutePath.endsWith(name)),
       );

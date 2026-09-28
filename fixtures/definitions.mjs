@@ -1,38 +1,17 @@
 /**
- * Fixture repositories as replayable git scripts, because a nested repository
- * would confuse every tool that walks this one. `materialize.mjs` replays them
- * into a throwaway directory, giving real merge bases, staged state and renames.
- *
- * Step kinds:
- *   write   { path: contents }            files written to the work tree
- *   delete  [paths]                       files removed from the work tree
- *   move    [[from, to]]                  git mv, so the rename is recorded
- *   stage   [paths]                       git add, leaving the change staged
- *   commit  "message"                     git add -A && git commit
- *   branch  "name"                        git checkout -b
- *   switch  "name"                        git checkout
- *
- * A fixture may also declare `install`: argv lists `materialize.mjs --install`
- * runs after the last commit. A relative executable path is resolved against
- * the fixture repository. Beside it, `provides` lists the paths the install
- * must leave behind and `wires` the check slots `--ambicode-init` must then
- * configure; `materialize.mjs` fails the scaffold when either does not hold.
+ * Replayable git scripts rather than nested repositories, which would confuse every tool walking this one.
+ * Steps: write {path: contents}, delete [paths], move [[from, to]], stage [paths], commit, branch, switch.
+ * `install` runs after the last commit; it must leave `provides`, and init must then wire `wires`.
  */
 import { readFileSync } from 'node:fs';
 
-/**
- * Fixtures carry their own ignore rules and materialize with the global ignore
- * file disabled, so a fixture contains the same paths on every machine.
- */
 const STANDARD_IGNORE = ['node_modules/', '.venv/', '__pycache__/', '*.log', ''].join('\n');
 
 /** eslint 9 refuses to run without a flat config, so every fixture carries one. */
 const ESLINT_CONFIG = 'export default [];\n';
 
-/** The Python dev group, declared once so an install cannot drift from the manifest. */
 const PYTHON_DEV = ['pytest>=9', 'ruff>=0.14'];
 
-/** Python fixtures carry the tool declarations their evaluation cases expect. */
 const PYPROJECT = [
   '[project]',
   'name = "fixture"',
@@ -50,21 +29,15 @@ const JEST_MANIFEST = JSON.stringify(
 );
 
 /**
- * JEST_MANIFEST resolved to exact versions and integrity hashes, so every run
- * of both arms installs the same tree (plan/07-test-guide.md:220). It lives in
- * a directory of its own under its real name, because the snapshot skips an
- * unchanged `package-lock.json` as context by basename; beside this file it
- * would be 195 KB of sibling context on every fixture change. Regenerate with
- * `npm install --package-lock-only` over JEST_MANIFEST when the manifest changes.
+ * In a directory of its own under its real name: the snapshot skips an unchanged
+ * `package-lock.json` by basename, so beside this file it would be sibling context.
+ * Regenerate with `npm install --package-lock-only` over JEST_MANIFEST.
  */
 const JEST_LOCKFILE = readFileSync(new URL('./jest-manifest/package-lock.json', import.meta.url), 'utf8');
 
 /**
- * Installs for the fixtures whose eval case grades a test actually running.
- * `npm ci` installs exactly the committed lockfile, refuses one out of step
- * with the manifest, and writes nothing git can see. `--include=dev` because
- * `claude plugin eval` runs a scaffold with NODE_ENV=production, under which
- * npm omits devDependencies and exits 0 having installed nothing.
+ * `--include=dev` because `claude plugin eval` runs a scaffold with
+ * NODE_ENV=production, under which npm omits devDependencies and still exits 0.
  */
 const NPM_INSTALL = [['npm', 'ci', '--include=dev', '--no-audit', '--no-fund']];
 const VENV_INSTALL = [
@@ -72,11 +45,6 @@ const VENV_INSTALL = [
   ['.venv/bin/pip', 'install', '--quiet', '--disable-pip-version-check', ...PYTHON_DEV],
 ];
 
-/**
- * The eight locale files of `ts-locale-decoys`, written together as a real
- * translation export writes them. They carry the ticket's own prose — the
- * words a requirement uses — and none of the code's identifiers.
- */
 const LOCALES = ['de', 'es', 'fr', 'it', 'ja', 'nl', 'pt', 'zh'];
 
 function localeFiles(maximum) {
@@ -97,10 +65,8 @@ function localeFiles(maximum) {
 
 
 /**
- * Unrelated feature code, so `ts-locale-decoys` is a project rather than a
- * handful of files. The breadth guard measures a term against the size of
- * what it searched, and in a sixteen-file repository ten matches genuinely
- * are most of the project — the guard would be right and the fixture wrong.
+ * The breadth guard measures a term's matches against the repository's size;
+ * in a sixteen-file repository ten matches really are most of the project.
  */
 function fillerFiles() {
   const files = {};
@@ -111,20 +77,13 @@ function fillerFiles() {
     files[`src/features/${feature}/${feature}.service.spec.ts`] =
       `import { ${feature} } from './${feature}.service.ts';\n\ntest('runs', () => { expect(${feature}()).toBe(0); });\n`;
   }
-  // Path coordinates, which are where a numeric term goes wrong: joining the
-  // words of "250.5" gives "2505", and the `41.2505` below contains it. Real
-  // illustrations put five such files in the top twenty of a shortlist for a
-  // ticket that raised a numeric limit.
+  // Joining the words of "250.5" gives "2505", which the `41.2505` below contains.
   files['src/assets/illustrations/outline.svg'] =
     '<svg><path d="M25 74V74.0856L28.7378 41.2505L25.6763 73.9141Z"/></svg>\n';
   return files;
 }
 
-/**
- * Unrelated code for `polyglot-spellings`, in the same three ecosystems and
- * under the same three roots as the files the terms are meant to find, so a
- * hit there is a hit on the name rather than on the language or the layout.
- */
+/** Same ecosystems and roots as the target files, so a hit is on the name, not the language or layout. */
 function polyglotFiller() {
   const files = {};
   for (const name of ['billing', 'catalog', 'profile', 'search', 'shipping', 'support']) {
@@ -135,7 +94,6 @@ function polyglotFiller() {
   return files;
 }
 
-/** jest and eslint installed from the committed lockfile, and both wired by init. */
 const MATH_PROJECT = {
   install: NPM_INSTALL,
   provides: ['node_modules/.bin/jest', 'node_modules/.bin/eslint'],
@@ -217,16 +175,12 @@ export const FIXTURES = [
     ...MATH_PROJECT,
     steps: [
       ...MATH_PROJECT_COMMITTED,
-      // Only the source changes; the test that catches it is untouched.
       { write: { 'src/math.js': 'module.exports.add = (a, b) => a - b;\n' } },
     ],
   },
   {
-    // The same break, inside a change that also adds something. Fixed, the
-    // break alone would leave the tree equal to HEAD, and `review` stops at
-    // nothing-to-review before any check runs (reproduced 2026-09-28), so a
-    // task case on `ts-source-regression` could never show the unchanged test
-    // running after the fix.
+    // Fixing the break alone would leave the tree equal to HEAD, and `review`
+    // stops at nothing-to-review before any check runs.
     name: 'ts-source-regression-feature',
     summary: 'A source change that adds a function and breaks an unchanged test; fixing the break leaves the addition.',
     covers: ['affected-test selection', 'unchanged regression test fails', 'fix inside a larger change'],
@@ -522,16 +476,13 @@ export const FIXTURES = [
           'package.json': JEST_MANIFEST,
           'eslint.config.mjs': ESLINT_CONFIG,
           'src/app.ts': "export const app = 'fixture';\n",
-          // The users feature gives the repository history that has nothing to
-          // do with invoices, so co-change has something to be wrong about.
           'src/users/model.ts': 'export interface User { id: string; name: string }\n',
           'src/users/service.ts':
             "import type { User } from './model.ts';\n\nexport const rename = (user: User, name: string): User => ({ ...user, name });\n",
           'src/routes/users.ts': "export const usersRoute = '/users';\n",
           'tests/users.test.ts':
             "import { rename } from '../src/users/service.ts';\n\ntest('renames', () => { expect(rename({ id: 'a', name: 'a' }, 'b').name).toBe('b'); });\n",
-          // Decoys. Each carries the keyword and none of them belongs to the
-          // boundary: one has it in its filename, two only in their prose.
+          // Decoys: each carries the keyword and none belongs to the boundary.
           'src/legacy/invoice-export.ts':
             '// Retired in 2019; kept so the old invoice export links still resolve.\nexport const legacyInvoiceExport = null;\n',
           'src/reports/monthly.ts':
@@ -540,7 +491,6 @@ export const FIXTURES = [
         },
       },
       { commit: 'init' },
-      // The boundary arrives whole: model, service, route and test together.
       {
         write: {
           'src/invoices/model.ts': 'export interface Invoice { id: string; amountCents: number }\n',
@@ -553,7 +503,6 @@ export const FIXTURES = [
         },
       },
       { commit: 'invoices: add the invoice boundary' },
-      // Twice more, all four at once: that habit is the co-change signal.
       {
         write: {
           'src/invoices/model.ts':
@@ -580,7 +529,6 @@ export const FIXTURES = [
         },
       },
       { commit: 'invoices: add tax to the total' },
-      // Unrelated work last, so the newest commit is not the feature's.
       {
         write: {
           'src/users/service.ts':
@@ -601,20 +549,15 @@ export const FIXTURES = [
           '.gitignore': STANDARD_IGNORE,
           'package.json': JEST_MANIFEST,
           'eslint.config.mjs': ESLINT_CONFIG,
-          // The translation family. Every locale carries the ticket's own
-          // words, and the export tooling rewrites the whole set together, so
-          // they co-change perfectly and that tells nobody which one to open.
           ...localeFiles('250.5'),
-          // The code the ticket is actually about. It never writes "Order/Refund":
-          // a directory spells it `order-refund` and an identifier `orderRefund`.
+          // The code the ticket is about never writes "Order/Refund", only `order-refund`/`orderRefund`.
           'src/features/orders/order-refund/services/order-refund-form.service.ts':
             "import { RefundThresholds } from '../../constants/refund-limits.constants.ts';\n\nexport const orderRefundForm = () => ({ refundLimit: RefundThresholds.max });\n",
           'src/features/orders/order-refund/services/order-refund-form.service.spec.ts':
             "import { orderRefundForm } from './order-refund-form.service.ts';\n\ntest('caps the refund limit', () => { expect(orderRefundForm().refundLimit).toBe(500); });\n",
           'src/features/orders/constants/refund-limits.constants.ts':
             'export const RefundThresholds = { min: 0.1, max: 500 };\n',
-          // The trap an agent's own guessed term walks into: directories named
-          // for the concept, holding nothing this ticket touches.
+          // Directories named for the concept that hold nothing this ticket touches.
           'src/features/orders/validators/order-frequency.validators.ts':
             'export const frequency = () => null;\n',
           'src/validators/number.validators.ts': 'export const number = () => null;\n',
@@ -646,19 +589,13 @@ export const FIXTURES = [
       {
         write: {
           '.gitignore': STANDARD_IGNORE,
-          // Python: a snake_case package directory.
           'services/order_refund/refund_limits.py':
             'ORDER_REFUND_MAX = 500.0\n\n\ndef refund_limit():\n    return ORDER_REFUND_MAX\n',
-          // Java: a package directory with the separator dropped entirely.
           'platform/src/main/java/com/acme/orderrefund/RefundLimits.java':
             'package com.acme.orderrefund;\n\npublic final class RefundLimits {\n  public static final double MAX = 500.0;\n}\n',
-          // Go: one lowercase word for the package, CamelCase for the export.
           'internal/orderrefund/limits.go': 'package orderrefund\n\nconst OrderRefundMax = 500.0\n',
-          // C: a snake_case directory and an upper-snake macro.
           'lib/order_refund/limits.c':
             '#define ORDER_REFUND_MAX 500.0\n\ndouble order_refund_max(void) { return ORDER_REFUND_MAX; }\n',
-          // Ruby: a hyphenated directory, which no compiler asks for and many
-          // projects use anyway.
           'app/order-refund/limits.rb': 'module OrderRefund\n  MAX = 500.0\nend\n',
           ...polyglotFiller(),
         },

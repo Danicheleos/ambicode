@@ -16,11 +16,6 @@ import { parseArgs } from './args.ts';
 import { INIT_OPTIONS, runInit } from './commands/init.ts';
 import { renderView, runView, VIEW_OPTIONS } from './commands/view.ts';
 
-/**
- * The reopen command itself: what it accepts, what it refuses, and that it
- * neither binds a socket nor launches a browser when a test says not to.
- */
-
 interface Fixture {
   repo: TempRepo;
   runtime: Runtime;
@@ -69,11 +64,6 @@ function view(runtime: Runtime, argv: string[]) {
   });
 }
 
-/**
- * A review saved beside the plan and the investigation of the same task. The
- * id stays short because `.ambicode/task/<slug>/` already names the ticket, so
- * resolving it means asking each task directory rather than reading the id.
- */
 async function taskFixture(slug: string, reviewId: string): Promise<Fixture> {
   const repo = await TempRepo.create();
   await repo.write('package.json', '{"name":"app","version":"1.0.0"}\n');
@@ -120,8 +110,6 @@ describe('the reopen command', () => {
   it('refuses an id two task directories both hold, rather than opening whichever came first', async () => {
     const context = await taskFixture('ORD-17', 'local_2026-09-22T14-35');
     try {
-      // Two tasks reviewed in the same minute: rare, and silently opening the
-      // wrong one would be worse than saying so.
       const twin = path.join(
         context.repo.root,
         '.ambicode',
@@ -270,7 +258,6 @@ describe('the reopen command', () => {
 });
 
 describe('the fixed review page port', () => {
-  /** A port nothing holds right now, so the test never touches the real default. */
   async function freePort(): Promise<number> {
     const probe = createServer();
     await new Promise<void>((resolve) => probe.listen(0, '127.0.0.1', resolve));
@@ -279,10 +266,7 @@ describe('the fixed review page port', () => {
     return port;
   }
 
-  /**
-   * A top-level navigation over a real socket. Node's `fetch` sends
-   * `Sec-Fetch-Mode: cors` whatever it is told, which the page rightly refuses.
-   */
+  /** Not `fetch`: it sends `Sec-Fetch-Mode: cors` whatever it is told, which the page refuses. */
   function browserGet(url: string, cookie?: string): Promise<{ status: number; body: string; setCookies: string[] }> {
     return new Promise((resolve, reject) => {
       const headers: Record<string, string> = { 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'document' };

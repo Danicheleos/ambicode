@@ -9,17 +9,11 @@ import {
   type PackWithPrompts,
 } from './validate.ts';
 
-/**
- * Re-exported so `src/policy/resolve.ts` and the commands keep importing the
- * loader's own vocabulary; the type itself belongs with the validation rules
- * that produce it.
- */
 export type { PackWithPrompts } from './validate.ts';
 
 export interface LoadPacksOptions {
   fs: FileSystem;
   project: ProjectConfig;
-  /** `<pluginRoot>/policies`. */
   builtinDirectory: string;
   repositoryRoot: string;
 }
@@ -30,13 +24,8 @@ export interface LoadedPacks {
 }
 
 /**
- * Loads exactly the packs a project enabled. Packs are never activated because
- * a file happens to exist on disk (doc 05).
- *
- * Reading a file and knowing which files to read is this module's work; every
- * judgement about the content is `src/policy/validate.ts`, shared with
- * `ambicode policy check` so a candidate pack is held to the same rules as an
- * enabled one (R3 part 1).
+ * Loads exactly the packs a project enabled, never one because its file exists.
+ * Content judgement is `validate.ts`, shared with `ambicode policy check`.
  */
 export async function loadPacksForProject(options: LoadPacksOptions): Promise<LoadedPacks> {
   const { fs, project, builtinDirectory, repositoryRoot } = options;

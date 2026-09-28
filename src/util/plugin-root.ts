@@ -4,9 +4,8 @@ import type { FileSystem } from '../ports/filesystem.ts';
 import { AmbicodeError } from './errors.ts';
 
 /**
- * Where the installed plugin's content lives: `CLAUDE_PLUGIN_ROOT` when Claude
- * Code exports it, else an upward search, so the same code runs from `src/` and
- * from `scripts/` without a developer-specific absolute path.
+ * `CLAUDE_PLUGIN_ROOT` when Claude Code exports it, else an upward search, so the
+ * same code runs from `src/` and from `scripts/`.
  */
 export async function resolvePluginRoot(
   fs: FileSystem,

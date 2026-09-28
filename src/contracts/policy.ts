@@ -1,8 +1,6 @@
 import { z } from 'zod';
 import { Activity, Authority, CommandAction, PromptStage, RuleCategory } from './primitives.ts';
 
-/** Policy pack file schema (doc 05, "Canonical policy pack"). */
-
 export const RuleCheck = z.discriminatedUnion('kind', [
   z.strictObject({
     kind: z.literal('reviewer'),
@@ -31,13 +29,8 @@ export const PolicyRule = z.strictObject({
   instruction: z.string().min(1),
   check: RuleCheck,
   /**
-   * Declares this rule as an edit-time reminder candidate (doc 04 P2.4
-   * correction F): the packaged PostToolUse hook may deliver it as
-   * `additionalContext` when an edited file matches the owning pack. Default
-   * `false` for backward compatibility with existing schema-version-1 packs.
-   * Allowed only on a path-specific pack — never one whose `appliesTo`
-   * includes `**\/*` — enforced in `policy/load.ts`, not here, because that
-   * check needs the pack's own `appliesTo` alongside this field.
+   * Allowed only on a path-specific pack (no `**\/*` in `appliesTo`); enforced in
+   * `policy/load.ts` because the check needs the pack's `appliesTo`.
    */
   remindOnEdit: z.boolean().default(false),
 });
@@ -69,7 +62,7 @@ export const PolicyPack = z.strictObject({
   rules: z.array(PolicyRule).default([]),
   prompts: z.array(PolicyPromptRef).default([]),
   commandPolicy: z.array(PolicyCommandDecision).default([]),
-  /** Only a project pack may declare this, and only as `builtin/<id>` (doc 05). */
+  /** Only a project pack may declare this. */
   replaces: z
     .string()
     .regex(/^builtin\/[a-z0-9]+(-[a-z0-9]+)*$/, { error: 'must be "builtin/<pack-id>"' })
@@ -77,10 +70,8 @@ export const PolicyPack = z.strictObject({
 });
 export type PolicyPack = z.infer<typeof PolicyPack>;
 
-/** A pack plus where it came from; provenance survives replacement. */
 export interface LoadedPack {
   pack: PolicyPack;
-  /** `builtin/<id>` or the repository-relative config path. */
   reference: string;
   origin: 'builtin' | 'project';
   /** Absolute path of the pack file; prompt references resolve against its directory. */
@@ -90,7 +81,6 @@ export interface LoadedPack {
 }
 
 export interface ResolvedRule {
-  /** `pack-id/rule-id`. */
   qualifiedId: string;
   packId: string;
   packReference: string;
@@ -100,7 +90,6 @@ export interface ResolvedRule {
   category: z.infer<typeof RuleCategory>;
   instruction: string;
   check: RuleCheck;
-  /** Doc 04 P2.4 correction F: this rule may be delivered as an edit-time reminder. */
   remindOnEdit: boolean;
 }
 
@@ -111,7 +100,6 @@ export interface ResolvedPromptRef {
   stage: z.infer<typeof PromptStage>;
   /** Absolute path, already proven to sit inside the pack directory. */
   absolutePath: string;
-  /** Path as written in the pack, for diagnostics. */
   declaredPath: string;
   contentHash: string;
 }
@@ -119,7 +107,6 @@ export interface ResolvedPromptRef {
 export interface ResolvedCommandDecision {
   command: string;
   action: z.infer<typeof CommandAction>;
-  /** Every pack that contributed, so a refusal can name it. */
   sources: Array<{ packId: string; packReference: string; action: z.infer<typeof CommandAction>; reason?: string }>;
 }
 
@@ -129,7 +116,6 @@ export interface Diagnostic {
   severity: DiagnosticSeverity;
   code: string;
   message: string;
-  /** Dotted config path or file path the problem belongs to. */
   where?: string;
 }
 

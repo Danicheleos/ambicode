@@ -4,16 +4,12 @@ import type { FileSystem } from '../ports/filesystem.ts';
 import { contentHash } from '../util/hash.ts';
 
 /**
- * Project commands run in the developer's checkout, so a formatter or a
- * selector script can change the code under review. AMBICODE reports what moved
- * and never undoes it (doc 03, P1.3 item 5).
+ * Commands run in the developer's checkout and can change the code under review. AMBICODE
+ * reports what moved and never undoes it.
  */
 export interface WorkspaceFingerprint {
-  /** Identity of `.git/index`; a command that staged something changes this. */
   indexHash: string | null;
-  /** Identity of porcelain status, which notices new and removed files. */
   statusHash: string;
-  /** Content identity per watched path; null when the path is absent. */
   fileHashes: ReadonlyMap<string, string | null>;
 }
 
@@ -21,7 +17,6 @@ export interface FingerprintOptions {
   fs: FileSystem;
   git: Git;
   repositoryRoot: string;
-  /** Repository-relative paths to watch byte-for-byte: those under review. */
   paths: readonly string[];
 }
 
@@ -47,9 +42,7 @@ export async function fingerprintWorkspace(options: FingerprintOptions): Promise
  * fingerprint per process that actually ran.
  */
 export interface WorkspaceWatch {
-  /** Records the current state unless one is already held. */
   baseline(): Promise<void>;
-  /** Changes since the last baseline; empty when no baseline was taken. */
   observe(actor: string): Promise<string[]>;
 }
 
@@ -97,8 +90,6 @@ export function describeMutations(
     mutations.push(`The git index changed while ${actor} ran, so something was staged or unstaged.`);
   }
   if (before.statusHash !== after.statusHash && mutations.length === 0) {
-    // Only worth saying when no specific file explains it; otherwise it repeats
-    // what the file lines already said.
     mutations.push(`The set of modified or untracked files in the repository changed while ${actor} ran.`);
   }
 

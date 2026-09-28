@@ -10,11 +10,7 @@ export function normalizeRelative(value: string): string {
   return trimmed === '.' ? '' : trimmed;
 }
 
-/**
- * A repository-relative path as seen from a project root (itself already
- * normalized; `''` is the repository root), or null when the path is outside
- * that project. The root itself is `''`.
- */
+/** The path relative to `projectRoot` (`''` is the repository root), or null when outside it. */
 export function toProjectRelative(projectRoot: string, repositoryRelativePath: string): string | null {
   const value = normalizeRelative(repositoryRelativePath);
   if (projectRoot === '') return value;
@@ -22,7 +18,6 @@ export function toProjectRelative(projectRoot: string, repositoryRelativePath: s
   return value.startsWith(`${projectRoot}/`) ? value.slice(projectRoot.length + 1) : null;
 }
 
-/** True when `child` is `parent` itself or sits beneath it. */
 export function isInside(parent: string, child: string): boolean {
   const relative = path.relative(parent, child);
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
@@ -30,7 +25,7 @@ export function isInside(parent: string, child: string): boolean {
 
 /**
  * Resolve a path that a pack or configuration file pointed at, and prove it is
- * still inside `boundary` after symlinks are followed (doc 05, "Resolution").
+ * still inside `boundary` after symlinks are followed.
  */
 export async function resolveInsideBoundary(
   fs: FileSystem,
@@ -62,10 +57,7 @@ export async function resolveInsideBoundary(
   return realCandidate;
 }
 
-/**
- * Pick the project whose root is the longest prefix of `filePath`
- * (doc 05, "Project membership uses the most-specific configured root").
- */
+/** The project whose root is the longest prefix of `filePath`. */
 export function mostSpecificRoot<T extends { root: string }>(
   projects: readonly T[],
   relativeFilePath: string,

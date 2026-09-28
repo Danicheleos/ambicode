@@ -26,7 +26,6 @@ const MINIMAL = [
   'remoteChecks: { image: null }',
 ].join('\n');
 
-/** A config written before `page.port` existed. */
 const BEFORE_PORT = MINIMAL.replace(', port: 45831 }', ' }');
 
 function withProjects(body: string): string {
@@ -111,7 +110,6 @@ test('U02 a repository path seen from a project root, the one definition every c
   assert.equal(toProjectRelative('apps/web', 'apps/web'), '');
   assert.equal(toProjectRelative('apps/web', 'apps/website/a.ts'), null);
   assert.equal(toProjectRelative('apps/web', 'services/api/a.ts'), null);
-  // The path is normalized; the root is the caller's, already normalized.
   assert.equal(toProjectRelative('apps/web', './apps/web/src/../lib/a.ts'), 'lib/a.ts');
   assert.equal(toProjectRelative('apps/web', 'apps/web/'), '');
 });
@@ -162,12 +160,10 @@ test('U01 init writes null commands with notices, and a second run preserves use
 
   assert.equal(first.created, true);
   assert.ok(first.yaml !== null);
-  // eslint is declared but not installed, so the command is null with a notice.
   assert.ok(first.notices.some((notice) => notice.includes('declared in package.json but not installed')));
   assert.equal(first.config.projects[0]?.commands['lint'], null);
   assert.equal(first.config.baseline, '');
 
-  // Write it, edit it by hand, then re-run.
   await mkdir(path.join(directory, '.ambicode'), { recursive: true });
   const edited = first.yaml.replace(
     'lint: null',
@@ -368,7 +364,6 @@ test('re-init enables the framework packs an existing project lacks, keeping the
     baselineNotice: 'x',
   });
 
-  // The user's own list first, then only what was missing, in the detected order.
   assert.deepEqual(plan.config.projects[0]?.packs, [
     'builtin/common-quality',
     'builtin/angular-style',
@@ -385,8 +380,7 @@ test('re-init enables the framework packs an existing project lacks, keeping the
     'a removed common pack stays the user\'s choice',
   );
   assert.ok(!plan.notices.some((notice) => notice.includes('not enabled')), plan.notices.join('\n'));
-  // Written in place: the flow-style list the user wrote is extended, not
-  // replaced. Whitespace collapsed, because yaml wraps a long flow list.
+  // Whitespace collapsed because yaml wraps a long flow list.
   assert.ok(plan.yaml !== null);
   assert.match(
     plan.yaml.replace(/\s+/g, ' '),
@@ -447,7 +441,6 @@ test('P2.4 correction F: fresh init writes the documented authoring.editReminder
 test('P2.4 correction F: re-init adds the missing authoring section to a pre-existing schema-version-1 config, without touching anything else', async (t) => {
   const directory = await sandbox(t);
   await mkdir(path.join(directory, '.ambicode'), { recursive: true });
-  // A config written before "authoring" existed: no such key at all.
   await writeFile(
     path.join(directory, '.ambicode', 'config.yaml'),
     withProjects(

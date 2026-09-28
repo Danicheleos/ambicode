@@ -1,6 +1,5 @@
-// Bundles the helper sources into one distributable entry point under scripts/.
-// Bundling (rather than shipping tsc output plus node_modules) keeps the
-// installed plugin runnable without an install step inside a product repository.
+// Bundled rather than tsc output plus node_modules, so the installed plugin
+// runs without an install step inside a product repository.
 import { build } from 'esbuild';
 import { chmod, mkdir, rm, writeFile } from 'node:fs/promises';
 
@@ -12,10 +11,8 @@ await build({
   entryPoints: { ambicode: 'src/cli/main.ts' },
   outdir: 'scripts',
   outExtension: { '.js': '.mjs' },
-  // `view` is imported dynamically so its page server — Fastify, its plugins
-  // and Eta, 1.5 MB of a 3.4 MB bundle — is parsed by `view` alone rather than
-  // by every hook, `prepare` and `review`. Content-hashed names keep two builds
-  // of the same source byte-identical, which `package:reproducible` checks.
+  // `view` is imported dynamically so its page server (Fastify, Eta) is parsed
+  // by `view` alone. Content-hashed names keep two builds byte-identical.
   splitting: true,
   chunkNames: 'chunks/[name]-[hash]',
   bundle: true,
@@ -36,9 +33,6 @@ await build({
   logLevel: 'info',
 });
 
-// Convenience launchers for interactive Bash/PowerShell use. Hooks and skills
-// call the bundled Node entry point directly, so correctness never depends on
-// PATH injection or on a POSIX shell being present.
 const binDirectory = new URL('./bin/', import.meta.url);
 await mkdir(binDirectory, { recursive: true });
 const launcher = new URL('./ambicode', binDirectory);

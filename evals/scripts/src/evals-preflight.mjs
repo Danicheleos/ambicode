@@ -1,13 +1,5 @@
-// The gate in front of a sweep (plan iteration 6): one run of the two cases
-// tagged `preflight`, and a refusal unless the plugin fired, the helper ran,
-// the review completed and a unit check executed. A full sweep is 78 runs (13
-// cases, two arms, three runs); the 2026-09-27 one, 114 runs, cost $18.26 over
-// 7,874 s and measured no AMBICODE review,
-// because every reviewer had failed to sign in and nothing looked before it
-// started.
-//
-// `npm run evals` runs this first. It needs model access and costs money:
-// about $0.4–0.7 at the per-run costs that sweep measured.
+// Gate in front of a sweep: refuses unless the plugin fired, the helper ran, the review
+// completed and a unit check executed. Needs model access; costs about $0.4–0.7.
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdtemp } from 'node:fs/promises';
@@ -17,14 +9,11 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 
-// The suite this gates, archived 2026-09-28 when `evals/` moved to the
-// benchmark set. Relative to the plugin root, as `--eval-dir` takes it.
+// Relative to the plugin root, as `--eval-dir` takes it.
 export const ARCHIVED_EVAL_DIR = 'evals/evals-archived/typescript';
 
-// Not under the eval directory: the sandbox denies the evaluated agent reading
-// it (`sandbox.filesystem.denyRead` named `<plugin>/evals`, from a kept run's
-// settings.json, 2026-09-28), so the first preflight's review could not read a
-// recording there and `reviewer-completed` failed.
+// Not under the eval directory: the sandbox's `denyRead` covers `<plugin>/evals`,
+// so the evaluated agent could not read a recording there.
 export const RECORDINGS = path.join(ROOT, 'fixtures', 'reviewer-recordings.json');
 
 // Above the $0.4–0.7 estimate, so a normal run never trips it, and far below
@@ -32,10 +21,8 @@ export const RECORDINGS = path.join(ROOT, 'fixtures', 'reviewer-recordings.json'
 export const PREFLIGHT_MAX_COST_USD = 1.5;
 
 /**
- * What each preflight case must show. `expectedToFail` is printed and never
- * counted as a pass: a task case's diff is written by the agent, so no
- * recording matches it (`replay-miss`), and no reviewer signs in inside the
- * sandbox (evals/evals-archived/typescript/README.md, the 2026-09-27 probe).
+ * `expectedToFail` is printed and never counted as a pass: no recording matches a task
+ * case's agent-written diff, and no reviewer signs in inside the sandbox.
  */
 export const PREFLIGHT = [
   { case: 'regression-ts', require: ['plugin-fired', 'helper-ran', 'reviewer-completed', 'unit-check-ran'] },
@@ -49,7 +36,6 @@ export const PREFLIGHT = [
   },
 ];
 
-/** The `claude plugin eval` argument vector, after `claude`. */
 export function preflightArgs(jsonPath, extra = []) {
   return [
     'plugin', 'eval', ROOT,
@@ -69,11 +55,7 @@ export function preflightArgs(jsonPath, extra = []) {
   ];
 }
 
-/**
- * Decides from `claude plugin eval --json`. Anything absent — a case, a run, a
- * grader — is a failure, never a pass: a renamed grader must not make the gate
- * vacuous.
- */
+/** Anything absent (a case, a run, a grader) is a failure, so a renamed grader cannot make the gate vacuous. */
 export function judge(result, preflight = PREFLIGHT) {
   const lines = [];
   let ok = true;

@@ -1,44 +1,28 @@
 import path from 'node:path';
 import type { AdapterId } from '../contracts/primitives.ts';
 
-/**
- * What each runner can do, at the versions in `docs/compatibility.md`. A
- * missing capability becomes an approval request or a mapping, never a silent
- * whole-suite run (doc 05).
- */
-
 export type EnumerationMode =
   | { kind: 'none' }
-  /** Enumerates from an explicit list of changed source files. */
   | { kind: 'from-files'; argv: (executable: string, files: readonly string[]) => string[] }
-  /** Enumerates from a git revision; the runner inspects the repository itself. */
   | { kind: 'from-revision'; argv: (executable: string, revision: string) => string[] };
 
 export interface CheckAdapter {
   id: AdapterId;
   role: 'lint' | 'test';
-  /** Basenames the configured command must use for enumeration to be trusted. */
   executableNames: readonly string[];
   enumeration: EnumerationMode;
-  /** Interprets the runner's own output when enumerating. */
   parseEnumeration?: (stdout: string, projectRootAbsolute: string) => string[];
-  /** Notes attached to every result this adapter produces. */
   limitations?: readonly string[];
   /**
-   * The verdict a killed run already published, or null when the output does
-   * not show it finished. Vitest reached its own summary at 60.85s and was then
-   * killed at the 120s ceiling during teardown (run 3c2188c8): the tests had
-   * run, one had genuinely failed, and reporting `timed-out` threw that away.
+   * The verdict a killed run already printed, or null when the output does not show it
+   * finished: a runner killed during teardown after its summary has a real outcome.
    */
   parseCompletedRun?: (output: string) => 'passed' | 'failed' | null;
 }
 
 /**
- * Vitest and Jest both print a per-file tally and then a per-test one, and only
- * once every selected file has run; a run killed part-way has neither. Both are
- * read, because either can carry the failure — a suite that throws on import
- * fails a file without failing a test. `Test Files` is vitest's label and
- * `Test Suites:` is jest's; the counts differ in punctuation, not in wording.
+ * Reads both the per-file and per-test tallies: a suite that throws on import fails a file
+ * without failing a test. A run killed part-way prints neither.
  */
 function parseTestSummary(output: string): 'passed' | 'failed' | null {
   const files = /^\s*Test (?:Files|Suites):?\s+(\S.*)$/m.exec(output)?.[1];
@@ -54,10 +38,8 @@ function linesToPaths(stdout: string, projectRootAbsolute: string): string[] {
   for (const rawLine of stdout.split('\n')) {
     const line = rawLine.trim();
     if (line === '') continue;
-    // Runners print either absolute paths (jest) or project-relative ones
-    // (vitest). Both are normalized to project-relative here.
     const relative = path.isAbsolute(line) ? path.relative(projectRootAbsolute, line) : line;
-    if (relative.startsWith('..')) continue; // outside the project: not ours to run
+    if (relative.startsWith('..')) continue;
     paths.push(relative.split(path.sep).join('/'));
   }
   return paths;
@@ -76,9 +58,6 @@ const ADAPTERS: Record<AdapterId, CheckAdapter> = {
     executableNames: ['ruff'],
     enumeration: { kind: 'none' },
   },
-  // Any file-scoped tool whose exit code is the verdict: prettier --check,
-  // stylelint, biome, tsc. A lint adapter contributes nothing but its name, and
-  // without this one a prettier command had to be labelled `eslint` (run c41ef078).
   generic: {
     id: 'generic',
     role: 'lint',

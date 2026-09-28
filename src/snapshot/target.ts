@@ -10,7 +10,6 @@ import { captureWorkingTree, revisionContent, type ContentSource } from './conte
 export interface TargetResolution {
   target: ReviewTarget;
   files: DiffFile[];
-  /** The patch the review is about, pinned together with `content`. */
   patch: string;
   /** The only place downstream code reads reviewed file bytes from. */
   content: ContentSource;
@@ -24,9 +23,8 @@ export interface WorkingTargetOptions {
 }
 
 /**
- * Working target: `HEAD` against the effective working tree. `git diff HEAD`
- * nets staged and unstaged edits; untracked files arrive as intent-to-add
- * entries in a throwaway index copy, leaving `.git/index` untouched (doc 02).
+ * `git diff HEAD` nets staged and unstaged edits; untracked files arrive as intent-to-add
+ * entries in a throwaway index copy, leaving `.git/index` untouched.
  */
 export async function resolveWorkingTarget(options: WorkingTargetOptions): Promise<TargetResolution> {
   const { fs, git, repositoryRoot } = options;
@@ -62,8 +60,7 @@ export async function resolveWorkingTarget(options: WorkingTargetOptions): Promi
     const files = combineDiff(changes, patch);
     notes.push('Untracked files that git does not ignore are included as additions.');
 
-    // The only content that can change while the review runs, so it is read
-    // once here and never again (doc 02).
+    // The only content that can change while the review runs, so it is read once here.
     const content = await captureWorkingTree({
       fs,
       repositoryRoot,
@@ -116,11 +113,10 @@ export async function resolveWorkingTarget(options: WorkingTargetOptions): Promi
 export interface BranchTargetOptions {
   git: Git;
   repositoryRoot: string;
-  /** Explicit `--base`, or the configured baseline; an empty baseline is not a guess. */
   baseRef: string;
 }
 
-/** Branch target: `merge-base(base, HEAD)` compared with committed `HEAD` (doc 02). */
+/** Branch target: `merge-base(base, HEAD)` compared with committed `HEAD`. */
 export async function resolveBranchTarget(options: BranchTargetOptions): Promise<TargetResolution> {
   const { git, repositoryRoot, baseRef } = options;
   await requireHead(git);
@@ -165,7 +161,6 @@ export async function resolveBranchTarget(options: BranchTargetOptions): Promise
 
   const notes = [`Compared merge-base(${baseRef}, HEAD) = ${mergeBase.slice(0, 12)} with committed HEAD.`];
   if (await git.isDirty()) {
-    // Stated rather than silently applied (doc 02).
     notes.push('Uncommitted working-tree changes exist and were excluded from this review.');
   }
 

@@ -13,13 +13,6 @@ import { runRemoteChecks } from './remote.ts';
 import { toPosix } from '../util/glob.ts';
 import type { ChangedPath } from './select.ts';
 
-/**
- * Merge request code is untrusted, so the question these tests answer is not
- * "does the check pass" but "what did AMBICODE start, and where". A missing
- * isolated environment must produce skipped results with reasons and no local
- * execution of any kind.
- */
-
 const PINNED = 'registry.example.com/ambicode/ci@sha256:' + 'a'.repeat(64);
 
 const project: ProjectConfig = {
@@ -126,7 +119,6 @@ describe('U18 remote executable checks', () => {
       result.limitations.join('\n'),
       /not executed in the developer checkout under any circumstances/,
     );
-    // Only the image probe was attempted; the configured linter never ran.
     assert.deepEqual(runner.argvs().map((argv) => argv.slice(0, 3)), [['docker', 'image', 'inspect']]);
     assert.ok(!runner.argvs().some((argv) => argv.join(' ').includes('eslint')));
   });
@@ -142,11 +134,6 @@ describe('U18 remote executable checks', () => {
     assert.ok(!runner.argvs().some((argv) => argv[1] === 'pull' || argv[1] === 'build'));
   });
 
-  /**
-   * Stands in for `docker cp <id>:/ambicode/work/. <dir>`: the fake runner
-   * writes the files the real command would have produced, so the mutation
-   * comparison runs against a real tree rather than against a parsed string.
-   */
   function copyOut(files: Record<string, string>): (runner: FakeProcessRunner) => FakeProcessRunner {
     return (runner) =>
       runner.stubEffect(
@@ -195,11 +182,8 @@ describe('U18 remote executable checks', () => {
     assert.equal(valueAfter('--user'), '65534:65534');
     assert.equal(valueAfter('--cap-drop'), 'ALL');
     assert.equal(valueAfter('--security-opt'), 'no-new-privileges');
-    // The container root cannot be written at all; the one writable place is
-    // the disposable workspace volume.
     assert.ok(create.includes('--read-only'));
     assert.equal(valueAfter('--mount'), 'type=volume,dst=/ambicode/work');
-    // Bounded CPU, memory, processes and time.
     assert.ok(create.includes('--pids-limit'));
     assert.ok(create.includes('--memory'));
     assert.ok(create.includes('--cpus'));
@@ -208,8 +192,6 @@ describe('U18 remote executable checks', () => {
       'the run itself is time-bounded',
     );
 
-    // No bind mount of any kind: not the source, not the host home, not a
-    // socket. The only mount is the anonymous volume asserted above.
     assert.ok(!create.some((value) => value === '-v' || value === '--volume'));
     assert.ok(!create.some((value) => value.startsWith('type=bind')));
     assert.ok(!create.some((value) => value.includes('docker.sock')));
@@ -217,13 +199,8 @@ describe('U18 remote executable checks', () => {
     if (home !== undefined) assert.ok(!create.some((value) => value.includes(home)));
     assert.ok(!create.includes('--privileged'));
 
-    // The snapshot arrives by copy into container-local storage. `--archive` is
-    // absent on purpose, so the copy is owned by the container's own user.
-    // Same decision as the prompt path in policy.test.ts: the argument is a
-    // host path and keeps the platform's separator, so the assertion
-    // normalizes rather than the production value (R1 defect 3). The trailing
-    // `/.` is not a separator at all — it is `docker cp`'s own marker for "the
-    // directory's contents", literal on every host — so it stays as written.
+    // argv[2] is a host path, hence toPosix; the trailing `/.` is `docker cp`'s literal
+    // "directory contents" marker on every host.
     const copy = runner.argvs().find((argv) => argv[1] === 'cp' && toPosix(argv[2] ?? '').endsWith('/files/.'));
     assert.ok(copy);
     assert.equal(copy[3], 'container-1:/ambicode/work');
@@ -234,14 +211,12 @@ describe('U18 remote executable checks', () => {
 
   it('reports no mutation when the check left its workspace exactly as it was', async (t) => {
     const runner = containerRunner();
-    // The workspace comes back byte-identical to the copied snapshot.
     copyOut({ 'src/orders.ts': SNAPSHOT_CONTENT })(runner);
 
     const outcome = await run(t, runner, PINNED);
     const [result] = outcome.results;
     assert.ok(result);
     assert.deepEqual(result.mutations, []);
-    // The snapshot copy that setup performed is not itself a mutation.
     assert.ok(!result.limitations.some((line) => /changed files inside/.test(line)));
     assert.ok(!result.limitations.some((line) => /could not be established/.test(line)));
   });
@@ -249,8 +224,6 @@ describe('U18 remote executable checks', () => {
   it('reports exactly what an actual rewrite changed', async (t) => {
     const runner = containerRunner();
     copyOut({
-      // Rewritten, plus a file the command created. `src/orders.ts` is the one
-      // the snapshot held, so the rewrite is a modification and not a creation.
       'src/orders.ts': 'export const a = 2;\n',
       'src/generated.ts': 'export const b = 3;\n',
     })(runner);
@@ -273,7 +246,6 @@ describe('U18 remote executable checks', () => {
     const outcome = await run(t, runner, PINNED);
     const [result] = outcome.results;
     assert.ok(result);
-    // The check still ran and still has its own outcome.
     assert.equal(result.status, 'passed');
     assert.deepEqual(result.mutations, []);
     assert.match(

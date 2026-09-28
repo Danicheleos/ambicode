@@ -13,7 +13,6 @@ export interface ConfigOutput {
   review: AmbicodeConfig['review'];
   checks: AmbicodeConfig['checks'];
   page: AmbicodeConfig['page'];
-  /** The MCP server requirement retrieval is bound to, or null when unbound. */
   requirements: AmbicodeConfig['requirements'];
   /** Limits that are not written into the file, so nobody has to guess them. */
   internalLimits: { snapshotFileBytes: number; snapshotTotalBytes: number };
@@ -28,7 +27,6 @@ export interface ConfigOutput {
   }[];
 }
 
-/** The effective values, so a guide never has to repeat a number (doc 05). */
 export async function runConfig(runtime: Runtime): Promise<ConfigOutput> {
   const workspace = await openWorkspace(runtime);
   const config = workspace.config;

@@ -5,10 +5,7 @@ import { Git } from '../git/git.ts';
 import { NodeProcessRunner } from '../ports/node-process-runner.ts';
 import type { ProcessRunner } from '../ports/process.ts';
 
-/**
- * A real git repository in a temporary directory: a fake would only re-state
- * the parser's own assumptions about git's output format.
- */
+/** A real git repository: a fake would only re-state the parser's own assumptions about git's output. */
 export class TempRepo {
   readonly root: string;
   readonly runner: ProcessRunner;
@@ -28,9 +25,8 @@ export class TempRepo {
     await repo.run(['git', 'config', 'user.email', 'test@example.invalid']);
     await repo.run(['git', 'config', 'user.name', 'AMBICODE Test']);
     await repo.run(['git', 'config', 'commit.gpgsign', 'false']);
-    // A developer's global ignore file would otherwise decide what these tests
-    // see: this machine's excludes `.env` and `node_modules`, which are exactly
-    // the paths several exclusion tests are about.
+    // A developer's global ignore file would otherwise decide what these tests see,
+    // and it commonly excludes `.env` and `node_modules`, which exclusion tests are about.
     await repo.run(['git', 'config', 'core.excludesFile', '/dev/null']);
     return repo;
   }

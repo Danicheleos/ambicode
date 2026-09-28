@@ -46,42 +46,25 @@ export const PREPARE_OPTIONS = {
 
 export type { PrepareOutput };
 
-/** Everything resolved, before either projection picks what to emit. */
 export interface PrepareDetail extends Omit<PrepareOutput, 'contextBudget'> {}
 
 export interface PrepareRun {
   /** Exactly what `--json` prints, and what `contextBudget` measures. */
   data: PrepareOutput | PrepareCompactOutput;
-  /** Everything resolved, for the human text summary. */
   detail: PrepareDetail;
   /**
-   * How `--json` serializes `data`. Always `'pretty'` since I5 — it stays a
-   * field, not a default at the print site, because `contextBudget
-   * .measuredBytes` is computed against exactly this format and main.ts must
-   * print with the same one; this is the thread that keeps them agreeing.
+   * A field rather than a print-site default: `contextBudget.measuredBytes` is
+   * computed against exactly this format, and main.ts must print with the same.
    */
   json: JsonFormat;
-  /**
-   * Which projection `data` is. Both serialize pretty since I5, so `json`
-   * no longer discriminates the union; this does, without duck-typing
-   * `policy.rules`.
-   */
+  /** Discriminates the union; `json` cannot, since both projections serialize the same way. */
   shape: 'compact' | 'verbose';
 }
 
 /**
- * The smallest shared preparation a skill needs before it starts navigating
- * code or asking a question (doc 04 P2.1): normalized requirement provenance
- * plus applicable policy for the given activity and paths. It makes no
- * provider, reviewer, or publication call, runs no project command or
- * configured check, and writes nothing — everything below is the same
- * configuration, requirement-normalization and policy-resolver code the
- * `review`/`bundle` commands use, composed for a caller that has not yet
- * decided what (if anything) to execute.
- *
- * Emits the compact projection by default and the full shape behind
- * `--verbose` (R2). Both carry the same resolved policy; they differ only in
- * how many bytes of framing they spend saying it.
+ * Makes no provider, reviewer or publication call, runs no project command and
+ * writes nothing. `--verbose` carries the same resolved policy as the default
+ * compact projection, only with more framing.
  */
 export async function runPrepare(runtime: Runtime, args: ParsedArgs): Promise<PrepareRun> {
   const workspace = await openWorkspace(runtime);
@@ -89,9 +72,8 @@ export async function runPrepare(runtime: Runtime, args: ParsedArgs): Promise<Pr
   const activity = requireActivity(args.value('activity'));
   const paths = await Promise.all(args.positionals.map((value) => toRepositoryRelative(workspace, value)));
 
-  // Requirements first, same order `bundle`/`review` use (doc 02, "Data
-  // flow"): an inaccessible or contradictory source must stop the run before
-  // policy is even resolved, let alone before any code investigation.
+  // Requirements first: an inaccessible or contradictory source must stop the
+  // run before policy is even resolved.
   const evidence = evidenceSource(runtime, args.value('evidence'));
   const requirements = normalizeRequirements({
     urls: args.all('requirement'),
@@ -104,11 +86,8 @@ export async function runPrepare(runtime: Runtime, args: ParsedArgs): Promise<Pr
   const policy = await resolvePolicyFor({ workspace, project, activity, paths });
   const policies = [{ project, policy }];
 
-  // Read once, here, so every authoring skill receives it through this one
-  // boundary rather than locating and reading it independently (doc 04 P2.4
-  // correction A4). An unreadable canonical contract is a packaging defect,
-  // not a per-project configuration gap, so it fails the whole preparation
-  // rather than becoming a silent omission.
+  // An unreadable canonical contract is a packaging defect, not a project
+  // configuration gap, so it fails the whole preparation.
   let sharedOperatingContract;
   try {
     sharedOperatingContract = await readSharedOperatingContract(runtime.fs, runtime.pluginRoot);
@@ -120,10 +99,8 @@ export async function runPrepare(runtime: Runtime, args: ParsedArgs): Promise<Pr
     );
   }
 
-  // The boundary shortlist, when this call was given something to search for
-  // (R4): stated `--term`s, or the retrieved requirement text when it was not
-  // told. It reads git and nothing else, builds no index and writes nothing;
-  // an empty shortlist stays empty rather than widening to the project.
+  // Reads git only, builds no index and writes nothing; an empty shortlist
+  // stays empty rather than widening to the project.
   const shortlist = await shortlistFor({
     git: workspace.git,
     project,
@@ -140,15 +117,8 @@ export async function runPrepare(runtime: Runtime, args: ParsedArgs): Promise<Pr
     policy,
     shortlist,
     sharedOperatingContract,
-    // Config and pack provenance alongside requirement provenance, the same
-    // composition `review`/`bundle` use for packs (doc 04 P2.2 correction D).
-    // Prompt provenance is deliberately *not* included here: unlike a pack —
-    // which is fully applicable once matched — a resolved prompt may still be
-    // filtered by stage or fail content resolution, and provenance must never
-    // claim content that was not actually delivered (doc 04 P2.3 correction
-    // B). `toDraftOutput` adds prompt provenance itself, from the
-    // stage-filtered, content-resolved prompts it actually returns. The shared
-    // contract's own provenance entry is added the same way, immediately below.
+    // No prompt provenance here: `toDraftOutput` adds it from the prompts it
+    // actually delivers.
     policyProvenance: [
       ...(await configProvenance(runtime.fs, workspace)),
       ...packProvenance(policies),
@@ -156,11 +126,8 @@ export async function runPrepare(runtime: Runtime, args: ParsedArgs): Promise<Pr
     ],
   });
 
-  // Blocking, not silently success-shaped (doc 04 P2.3 correction B): an
-  // `error` diagnostic means applicable trusted content — a pack, a rule, or
-  // a prompt this activity should have received — was omitted, not merely
-  // noted. `prepare` never hands back a policy that looks complete while
-  // quietly missing something applicable.
+  // An `error` diagnostic means applicable trusted content was omitted, so it
+  // blocks rather than returning a policy that looks complete.
   const blocking = detail.policy.diagnostics.filter((diagnostic) => diagnostic.severity === 'error');
   if (blocking.length > 0) {
     throw new AmbicodeError(
@@ -183,9 +150,6 @@ export async function runPrepare(runtime: Runtime, args: ParsedArgs): Promise<Pr
     return { data, detail, json: 'pretty', shape: 'verbose' };
   }
 
-  // The compact *projection*, serialized pretty since I5 — the truncation
-  // evidence and byte cost live in json-output.ts's `JsonFormat` note, the
-  // raised ceiling in context-cost.test.ts.
   const compact = toCompactOutput(detail, { includeContractContent: args.flag('with-contract') });
   const data = measureAgainstOwnBytes(
     (contextBudget) => PrepareCompactOutputSchema.parse({ ...compact, contextBudget }),
@@ -197,18 +161,9 @@ export async function runPrepare(runtime: Runtime, args: ParsedArgs): Promise<Pr
 }
 
 /**
- * Resolves the self-referential `contextBudget.measuredBytes` field to a
- * stable value and returns the exact object the `--json` path will print (doc
- * 04 P2.4 correction B1/B2): `measuredBytes` is itself part of the object it
- * measures, so it is computed by serializing a candidate with the previous
- * guess, re-measuring, and repeating until the value stops moving — which
- * happens immediately unless `measuredBytes`'s own digit count changes
- * between guesses, in which case one further pass converges it. Serialization
- * uses the one canonical `formatJsonOutput` the CLI's `--json` dispatch also
- * uses (`src/cli/main.ts`), in the same format that dispatch will choose, so
- * a test can assert `Buffer.byteLength(actualCliStdout) ===
- * parsed.contextBudget.measuredBytes` against the real bundled CLI for
- * whichever shape was emitted — compact or verbose.
+ * `measuredBytes` is part of the object it measures: re-serialize with the last
+ * guess until it stops moving, using the same `formatJsonOutput` and format the
+ * CLI prints with, so it equals the real stdout byte count.
  */
 function measureAgainstOwnBytes<T>(
   build: (contextBudget: PrepareContextBudget) => T,
@@ -234,11 +189,8 @@ function measureAgainstOwnBytes<T>(
 }
 
 /**
- * The compact projection (R2 change 1/2/3). Nothing here decides *what*
- * applies — the resolver already did — so this function only re-expresses the
- * same resolved policy without the per-rule constants, the defaults, the
- * hook-only metadata, the setup guidance, and the contract body that the
- * `SessionStart`/`PostCompact` hook already delivered once this epoch.
+ * Decides nothing about what applies; drops per-rule constants, defaults,
+ * hook-only metadata, setup guidance and the contract body the hook already delivered.
  */
 export function toCompactOutput(
   detail: PrepareDetail,
@@ -269,8 +221,6 @@ export function toCompactOutput(
   const commandDecisions = detail.policy.commandDecisions.map((decision) => {
     const [only] = decision.sources;
     if (decision.sources.length === 1 && only !== undefined) {
-      // With one declaring pack there is no precedence to show: the resolved
-      // action is that pack's action.
       return {
         command: decision.command,
         action: decision.action,
@@ -350,12 +300,6 @@ function throwPreparationTooLarge(detail: PrepareDetail, measuredBytes: number, 
   );
 }
 
-/**
- * The shortlist `prepare` carries, or nothing when this call named no terms
- * and retrieved no requirement to take them from. Half `locate`'s default
- * limit, because these bytes ride along on every call and R2 measures them;
- * `ambicode locate` is where a caller goes for the longer list.
- */
 async function shortlistFor(options: {
   git: Git;
   project: ProjectConfig;
@@ -373,10 +317,8 @@ async function shortlistFor(options: {
     terms,
     limit: PREPARE_SHORTLIST_LIMIT,
   });
-  // Every supplied term was unusable (all shorter than the minimum). There is
-  // no shortlist to carry and nothing was searched; `ambicode locate` is where
-  // that is reported in full, since a `prepare` payload is not the place to
-  // explain a malformed `--term`.
+  // Every term was shorter than the minimum; `ambicode locate` reports that in
+  // full, since a `prepare` payload is not the place to explain it.
   if (found.terms.length === 0) return undefined;
 
   const limitations =
@@ -406,10 +348,8 @@ async function toDraftOutput(options: {
 }): Promise<PrepareDetail> {
   const preparePolicy = await toPreparePolicy(options.fs, options.policy);
 
-  // Prompt provenance only for what `preparePolicy.prompts` actually
-  // delivers — stage-filtered and content-resolved — never for a prompt this
-  // activity's pack declared but that was filtered out or failed content
-  // resolution (doc 04 P2.3 correction B).
+  // Only prompts actually delivered (stage-filtered, content-resolved): provenance
+  // must never claim content that a filter or failed resolution withheld.
   const promptProvenance: PrepareOutput['provenance'] = preparePolicy.prompts.map((prompt) => ({
     kind: 'prompt' as const,
     reference: `${prompt.packReference}:${prompt.declaredPath}@${prompt.stage}`,
@@ -442,7 +382,7 @@ async function toPreparePolicy(fs: FileSystem, policy: ResolvedPolicy): Promise<
 
   const prompts: PreparePolicy['prompts'] = [];
   for (const prompt of policy.prompts) {
-    if (!stages.has(prompt.stage)) continue; // Not applicable to this activity (doc 04 P2.2 correction D).
+    if (!stages.has(prompt.stage)) continue; // Not applicable to this activity.
     const resolved = await resolvePreparePrompt(fs, prompt, diagnostics);
     if (resolved !== null) prompts.push(resolved);
   }
@@ -474,14 +414,9 @@ async function toPreparePolicy(fs: FileSystem, policy: ResolvedPolicy): Promise<
 }
 
 /**
- * Reads one prompt's bounded, hash-verified content (doc 04 P2.2 correction
- * D): bounded by the same configured limit a snapshot file uses — no second,
- * unbounded prompt-loading path — and the freshly read bytes must hash to
- * the same `contentHash` the resolver already recorded, so a caller applying
- * this content is never handed something that silently drifted from what was
- * resolved. Either failure is a diagnostic on the output, not a thrown error:
- * one oversized or unexpectedly-changed pack prompt should not fail every
- * other applicable rule and prompt this call would otherwise report.
+ * Bounded by the snapshot-file limit and must hash to the resolver's `contentHash`.
+ * Either failure is a diagnostic, not a throw, so one bad prompt does not fail
+ * every other rule and prompt.
  */
 async function resolvePreparePrompt(
   fs: FileSystem,
@@ -551,10 +486,8 @@ function requireActivity(value: string | null): Activity {
 }
 
 /**
- * The human summary, which always renders from everything that was resolved:
- * it is read by a person, not counted against the per-call byte budget, so it
- * says the same things whether `--json` would have emitted the compact shape
- * or the verbose one. The budget it reports is the emitted payload's.
+ * Renders from everything resolved whichever shape `--json` would emit; the
+ * budget it reports is the emitted payload's.
  */
 export function renderPrepare(run: PrepareRun): string {
   const output = run.detail;

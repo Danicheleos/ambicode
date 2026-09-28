@@ -1,10 +1,3 @@
-// Unit tests for install-local.mjs (doc 04 P2.3 correction A). These never
-// shell out to the real `claude` binary — every native marketplace/plugin
-// outcome is injected through a fake `NativeCommands` object, exactly like
-// the AMBICODE helper's own tests fake ProcessRunner/FileSystem. The real,
-// end-to-end lifecycle against the actual `claude` CLI stays covered by
-// `install-local.smoke.mjs` (`npm run smoke:install-local`), which this file
-// does not replace.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
@@ -28,26 +21,10 @@ async function freshConfigDir() {
   return mkdtemp(path.join(tmpdir(), 'ambicode-config-'));
 }
 
-/**
- * A stateful fake native adapter (P2.4 correction D12): rather than every
- * method returning an independent, fixed outcome regardless of call order,
- * this fake tracks whether the marketplace is registered and which
- * `name@scope` pairs are "installed", and it reads the *actual* staged
- * marketplace manifest from disk to answer `pluginList` — exactly like the
- * real `claude` CLI reads the live local-directory source rather than a
- * value pinned at install time — so a test can assert what native state
- * exists *after* a compensation ran, not only which functions were called.
- * Per-method `overrides` can still force a specific outcome (e.g. a
- * mid-sequence failure) while state tracking continues underneath it.
- */
 function fakeNative(overrides = {}) {
   const calls = [];
-  // `installed` maps `${name}@${scope}` to the version *pinned* at the last
-  // successful pluginInstall/pluginUpdate — not a live re-read of the
-  // marketplace directory on every `pluginList`, mirroring why
-  // `install-local.mjs` calls `claude plugin update` at all for a
-  // local-directory source: the registration's reported version does not
-  // silently follow newer content staged at the same path until told to.
+  // Versions pinned at the last install/update: like the real CLI, a registration does not
+  // follow newer content staged at the same path until `plugin update` runs.
   const state = { marketplaceRegistered: false, marketDir: null, installed: new Map(), projectPaths: new Map() };
 
   function currentIdentity() {
@@ -203,7 +180,6 @@ describe('install-local.mjs install/uninstall (P2.3 correction A)', () => {
       await install({ candidateDir, configDir, scope: 'user', projectDir: null }, fakeNative().native);
 
       const { native, calls } = fakeNative({
-        // Structured native state says this exact version is already installed.
         pluginList: () => ({ ok: true, plugins: [{ id: `ambicode@${MARKETPLACE_NAME}`, version: '0.1.0', scope: 'user' }] }),
         pluginInstall: () => {
           throw new Error('must not be called for an idempotent same-version reinstall');
@@ -257,10 +233,6 @@ describe('install-local.mjs install/uninstall (P2.3 correction A)', () => {
       const first = fakeNative();
       await install({ candidateDir: v1, configDir, scope: 'user', projectDir: null }, first.native);
 
-      // A fresh fake, seeded with the prior install's native state (a real
-      // second invocation of install-local.mjs would talk to the same live
-      // `claude` state, not a brand-new one) — `install()` itself will
-      // repoint `marketDir` to v2's staged content via `marketplaceAdd`.
       const { native, calls, state } = fakeNative();
       state.installed = first.state.installed;
       state.projectPaths = first.state.projectPaths;
@@ -292,7 +264,6 @@ describe('install-local.mjs install/uninstall (P2.3 correction A)', () => {
 
       assert.equal(result.ok, false);
       assert.equal(result.code, 'marketplace-update-failed');
-      // The previous working installation is intact, not partially overwritten.
       assert.equal(await readManifestVersion(configDir), '0.1.0');
       assert.equal((await readState(configDir)).version, '0.1.0');
     } finally {
@@ -365,7 +336,6 @@ describe('install-local.mjs install/uninstall (P2.3 correction A)', () => {
         assert.equal(result.ok, false);
         assert.equal(result.code, 'scope-mismatch');
         assert.deepEqual(calls, [], 'no native command should run once the scope conflict is detected');
-        // The recorded installation is untouched and still recoverable.
         assert.equal((await readState(configDir)).scope, 'user');
       } finally {
         await rm(projectDir, { recursive: true, force: true });
@@ -417,7 +387,6 @@ describe('install-local.mjs install/uninstall (P2.3 correction A)', () => {
 
       assert.equal(result.ok, false);
       assert.equal(result.code, 'marketplace-remove-failed');
-      // Retryable: state and the marketplace directory are both still there.
       assert.ok(await readState(configDir) !== null);
       assert.equal(await readManifestVersion(configDir), '0.1.0');
     } finally {
@@ -462,9 +431,7 @@ describe('install-local.mjs P2.4 correction D: failure-safe installation', () =>
       assert.equal(result.ok, false);
       assert.equal(result.code, 'scope-mismatch');
       assert.match(result.detail, /explicit.*uninstall.*followed by/i);
-      // No native call was attempted: refused before any mutation.
       assert.deepEqual(calls, []);
-      // Only the original user-scoped installation is recorded.
       assert.equal((await readState(configDir)).scope, 'user');
       assert.equal((await readState(configDir)).projectDir, null);
       assert.equal(await readManifestVersion(configDir), '0.1.0');
@@ -494,9 +461,6 @@ describe('install-local.mjs P2.4 correction D: failure-safe installation', () =>
       const result = await install({ candidateDir, configDir, scope: 'project', projectDir: aliasProjectDir }, native);
 
       assert.equal(result.ok, true, JSON.stringify(result));
-      // Recognized as the same installation: no scope-mismatch refusal, and
-      // this reinstall at the identical (canonical) project/version is a
-      // native no-op, not a fresh pluginInstall.
       assert.ok(!calls.includes('pluginInstall'));
     } finally {
       await rm(candidateDir, { recursive: true, force: true });
@@ -542,7 +506,6 @@ describe('install-local.mjs P2.4 correction D: failure-safe installation', () =>
 
       assert.equal(result.ok, false);
       assert.equal(result.code, 'plugin-list-failed');
-      // Never inferred "not installed" and proceeded to install anyway.
       assert.ok(!calls.includes('pluginInstall'));
     } finally {
       await rm(candidateDir, { recursive: true, force: true });
@@ -561,7 +524,6 @@ describe('install-local.mjs P2.4 correction D: failure-safe installation', () =>
 
       assert.equal(result.ok, false);
       assert.equal(result.code, 'plugin-validation-failed');
-      // Nothing native was touched: validation runs before publishing.
       assert.deepEqual(calls, ['pluginValidateStrict']);
       const marketplaceExists = await stat(path.join(configDir, 'ambicode-install', 'marketplace')).then(
         () => true,
@@ -587,10 +549,7 @@ describe('install-local.mjs P2.4 correction D: failure-safe installation', () =>
       assert.equal(result.code, 'plugin-install-failed');
       assert.ok(calls.includes('marketplaceAdd'));
       assert.ok(calls.includes('marketplaceRemove'), 'the dangling marketplace registration must be removed on a failed fresh install');
-      // Native state confirms the registration is actually gone, not merely
-      // that marketplaceRemove was invoked.
       assert.equal(state.marketplaceRegistered, false);
-      // No recovery journal needed: compensation fully succeeded.
       assert.equal(result.journal, null);
     } finally {
       await rm(candidateDir, { recursive: true, force: true });
@@ -679,20 +638,14 @@ describe('install-local.mjs P2.4 correction D: failure-safe installation', () =>
       const { native, calls } = fakeNative({
         marketplaceUpdate: (...args) => {
           updateCount += 1;
-          // Succeed on the way in; fail only the *compensating* refresh call
-          // is never distinguishable by call count alone here, so instead
-          // fail a later, distinguishable step (postcondition) to exercise
-          // the same compensation path deterministically.
           return { ok: true, stdout: '', stderr: '' };
         },
         pluginList: (function () {
           let call = 0;
           return (...args) => {
             call += 1;
-            // First call (existing-version check): report the old version so
-            // pluginUpdate runs. Second call (D8 postcondition): lie about
-            // the version, forcing a postcondition failure after the update
-            // already "succeeded" natively.
+            // Always reports the old version: the first call makes pluginUpdate run, the second
+            // fails the postcondition after the update "succeeded" natively.
             if (call === 1) return { ok: true, plugins: [{ id: `ambicode@${MARKETPLACE_NAME}`, scope: 'user', version: '0.1.0', enabled: true }] };
             return { ok: true, plugins: [{ id: `ambicode@${MARKETPLACE_NAME}`, scope: 'user', version: '0.1.0', enabled: true }] };
           };
@@ -703,9 +656,7 @@ describe('install-local.mjs P2.4 correction D: failure-safe installation', () =>
       assert.equal(result.ok, false);
       assert.equal(result.code, 'postcondition-failed');
       assert.ok(calls.includes('pluginUpdate'));
-      // The compensating refresh ran as part of unwinding.
       assert.ok(updateCount >= 2, 'marketplaceUpdate must run again as part of compensation');
-      // The live installation was not left on the failed v2 attempt.
       assert.equal(await readManifestVersion(configDir), '0.1.0');
     } finally {
       await rm(v1, { recursive: true, force: true });
@@ -719,7 +670,6 @@ describe('install-local.mjs P2.4 correction D: failure-safe installation', () =>
     const configDir = await freshConfigDir();
     try {
       await mkdir(path.join(configDir, 'ambicode-install'), { recursive: true });
-      // A live-looking lock (this test process's own pid is, definitionally, alive).
       await writeFile(
         path.join(configDir, 'ambicode-install', 'lock.json'),
         JSON.stringify({ pid: process.pid, acquiredAt: new Date().toISOString() }),
@@ -728,7 +678,6 @@ describe('install-local.mjs P2.4 correction D: failure-safe installation', () =>
       assert.equal(blocked.ok, false);
       assert.equal(blocked.code, 'locked');
 
-      // A stale lock (an all-but-impossible pid) is reclaimed rather than blocking forever.
       await writeFile(
         path.join(configDir, 'ambicode-install', 'lock.json'),
         JSON.stringify({ pid: 999999, acquiredAt: new Date().toISOString() }),

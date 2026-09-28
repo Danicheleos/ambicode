@@ -17,16 +17,8 @@ import { locate, pathHit, PREPARE_SHORTLIST_LIMIT, termsFromRequirements } from 
 import { matchesGlob } from '../util/glob.ts';
 
 /**
- * R4: the boundary shortlist has to beat the thing it replaces — an agent
- * grepping for a keyword — or it is not worth the git calls. These tests run
- * against `ts-feature-boundary`, a fixture built so that keyword matching
- * alone gets the answer wrong: the decoy `src/legacy/invoice-export.ts` has
- * the term in its filename and in its text, exactly like the route and the
- * test that really belong to the feature. Only co-change tells them apart.
- *
- * The fixture is materialized by the shipped `fixtures/materialize.mjs`, so
- * these tests exercise the same repository the eval case scaffolds rather
- * than a second copy that can drift from it.
+ * In `ts-feature-boundary` the decoy `src/legacy/invoice-export.ts` carries the
+ * term in its name and text like the real feature files; only co-change tells them apart.
  */
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -53,7 +45,6 @@ async function materialize(name: string): Promise<string> {
   return destination;
 }
 
-/** One project covering the whole repository, without needing a config file. */
 function wholeRepositoryProject(id = 'app'): ProjectConfig {
   return ProjectConfig.parse({ id, root: '.', ecosystem: 'typescript' });
 }
@@ -66,7 +57,6 @@ function rankOf(candidates: readonly LocateCandidate[], candidatePath: string): 
   return candidates.findIndex((candidate) => candidate.path === candidatePath);
 }
 
-/** Records every mutating call, so a write behind the port's back is visible. */
 function recording(inner: FileSystem): { fs: FileSystem; mutations: string[] } {
   const mutations: string[] = [];
   return {
@@ -133,10 +123,8 @@ describe('R4 boundary shortlist', () => {
         );
       }
 
-      // The decoy is in the list — it does hold the word — but below the
-      // boundary. Dropping it would be a different, less honest claim.
+      // The decoy does hold the word, so it stays in the list, below the boundary.
       assert.ok(paths.includes('src/legacy/invoice-export.ts'));
-      // And the shortlist is a shortlist: the users feature is not in it.
       assert.ok(!paths.some((candidate) => candidate.startsWith('src/users/')));
     } finally {
       await rm(path.dirname(root), { recursive: true, force: true });
@@ -164,8 +152,6 @@ describe('R4 boundary shortlist', () => {
         );
       }
 
-      // The decoy shares the keyword and nothing else: no co-change reason,
-      // which is exactly why it ranks below files with the same keyword score.
       const decoy = shortlist.candidates.find((entry) => entry.path === 'src/legacy/invoice-export.ts');
       assert.ok(decoy !== undefined);
       assert.ok(!decoy.reasons.some((reason) => reason.startsWith('changed with')));
@@ -214,8 +200,6 @@ describe('R4 boundary shortlist', () => {
   it('refuses to answer with the project when a term reaches most of it', async () => {
     const root = await materialize('ts-feature-boundary');
     try {
-      // "src" is in nearly every path here. A term that broad describes the
-      // project, not a boundary inside it, so it contributes nothing.
       const shortlist = await locate({
         git: gitFor(root),
         project: wholeRepositoryProject(),
@@ -292,7 +276,6 @@ describe('R4 boundary shortlist', () => {
         [],
         `locate mutated the filesystem: ${recorder.mutations.join(', ')}`,
       );
-      // And no candidate carries file contents: paths and reasons only.
       for (const candidate of output.candidates) {
         assert.deepEqual(Object.keys(candidate).sort(), ['path', 'reasons', 'score']);
       }
@@ -302,11 +285,7 @@ describe('R4 boundary shortlist', () => {
   });
 
   it('completes well inside a second on this repository', async () => {
-    // Acceptance 3. A generous ceiling: the point is that this is on-demand
-    // git work, not an indexing pass, and a regression into one would not be
-    // subtle. Measured on the AMBICODE repository (Windows 11, git 2.53) when
-    // this was written: 228ms in-process for three terms, and about 410ms for
-    // a real `ambicode locate` invocation including node's own start-up.
+    // A generous ceiling: a regression into an indexing pass would not be subtle.
     const started = Date.now();
     const shortlist = await locate({
       git: gitFor(repositoryRoot),
@@ -334,8 +313,6 @@ describe('R4 terms from requirement text', () => {
     assert.ok(terms.includes('InvoiceService'), terms.join(', '));
     assert.ok(terms.includes('order_total'), terms.join(', '));
     assert.ok(terms.includes('invoice') || terms.includes('Invoice'), terms.join(', '));
-    // Identifier-shaped tokens come first, because a requirement that names
-    // code is naming the boundary.
     assert.ok(terms.indexOf('InvoiceService') < terms.indexOf('negative'));
     for (const boilerplate of ['must', 'should', 'this', 'where', 'than']) {
       assert.ok(!terms.includes(boilerplate), `"${boilerplate}" should not be a search term`);
@@ -369,8 +346,6 @@ describe('R4 terms from requirement text', () => {
       for (const boundary of BOUNDARY) {
         assert.ok(paths.includes(boundary), `${boundary} is missing; got ${paths.join(', ')}`);
       }
-      // Derived terms are a heuristic, and the output says so rather than
-      // presenting them as the caller's own.
       assert.ok(
         output.limitations.some((limitation) => limitation.includes('derived from the requirement text')),
         output.limitations.join(' | '),
@@ -382,18 +357,8 @@ describe('R4 terms from requirement text', () => {
 });
 
 /**
- * The failure this fixture records happened in the field: a real ticket
- * ("raise the Order/Refund amount limit") produced a ten-candidate
- * shortlist of ten translation files, and the agent fell back to grepping for
- * the constant itself — the exact work the shortlist exists to replace.
- *
- * Two things went wrong, and both are general. The words a requirement uses
- * are the words a translation file holds, and three overlapping mentions
- * outscored a directory named for the feature. And a locale family that an
- * export rewrites as a block co-changes perfectly with itself, which looks
- * like the strongest possible boundary signal and carries no information at
- * all. Meanwhile the code spelled the ticket's name as `order-refund` and
- * `orderRefund`, neither of which a search for "Order/Refund" ever finds.
+ * Translation files hold the ticket's own words and a locale family co-changes
+ * perfectly with itself, while the code spells "Order/Refund" as `order-refund`.
  */
 describe('R4 shortlist against the prose of a ticket', () => {
   it('ranks the code above the translation family that carries the same words', async () => {
@@ -416,8 +381,7 @@ describe('R4 shortlist against the prose of a ticket', () => {
         );
       }
 
-      // Within the shortlist a caller actually receives, not merely somewhere
-      // in a longer list: `prepare` sends ten.
+      // Within the ten `prepare` actually sends, not merely somewhere in a longer list.
       assert.ok(
         shortlist.candidates.slice(0, PREPARE_SHORTLIST_LIMIT).some((candidate) => candidate.path === 'src/features/orders/order-refund/services/order-refund-form.service.ts'),
         `the form service is outside the first ${PREPARE_SHORTLIST_LIMIT} candidates`,
@@ -439,8 +403,6 @@ describe('R4 shortlist against the prose of a ticket', () => {
 
       const target = shortlist.candidates.find((candidate) => candidate.path === 'src/features/orders/order-refund/services/order-refund-form.service.ts');
       assert.ok(target !== undefined, 'the directory spelled `order-refund` was not found');
-      // The reason names the spelling that matched, not the term the caller
-      // typed: a reader has to be able to see why this file is here.
       assert.ok(
         target.reasons.some((reason) => reason.includes('"order-refund", a path spelling of "Order/Refund"')),
         target.reasons.join(' | '),
@@ -471,8 +433,6 @@ describe('R4 shortlist against the prose of a ticket', () => {
         `"2505" reached SVG path data: ${illustration?.reasons.join(' | ') ?? ''}`,
       );
 
-      // The guard is about digits, not about joining: a term that holds a word
-      // still gets its compact spelling.
       const compact = shortlist.candidates.find((candidate) =>
         candidate.reasons.some((reason) => reason.includes('"orderrefund", a compact spelling of "Order/Refund"')),
       );
@@ -496,8 +456,6 @@ describe('R4 shortlist against the prose of a ticket', () => {
         candidate.path.startsWith('src/assets/i18n/'),
       );
       assert.ok(locale !== undefined);
-      // Three mentions, and still worth less than one directory named for the
-      // term. Overlapping terms are not independent evidence.
       assert.equal(locale.reasons.filter((reason) => reason.startsWith('contains')).length, 3);
       assert.ok(locale.score < 5, `three mentions scored ${locale.score}`);
     } finally {
@@ -529,9 +487,6 @@ describe('R4 shortlist against the prose of a ticket', () => {
         shortlist.limitations.join(' | '),
       );
 
-      // And the signal still does the job it exists for: the constants file
-      // carries none of the ticket's words and is found only by moving with
-      // the code that does.
       const constants = shortlist.candidates.find((candidate) => candidate.path === 'src/features/orders/constants/refund-limits.constants.ts');
       assert.ok(constants !== undefined, 'co-change found nothing the terms did not already name');
     } finally {
@@ -541,11 +496,8 @@ describe('R4 shortlist against the prose of a ticket', () => {
 });
 
 /**
- * Nothing in the shortlist reads a language. Files come from `git ls-files`,
- * contents from `git grep -i -F`, paths from globs, and relatedness from the
- * commit history — none of which knows what a `.ts` file is. The spellings
- * are the one place a convention could hide, so this is where it is checked:
- * one name, the five ways five ecosystems write it, five unrelated roots.
+ * Spellings are the one place a language convention could hide, so one name is
+ * checked the five ways five ecosystems write it.
  */
 describe('R4 shortlist across ecosystems and layouts', () => {
   it('finds one name under the spelling each ecosystem uses', async () => {
@@ -572,8 +524,6 @@ describe('R4 shortlist across ecosystems and layouts', () => {
           candidate !== undefined,
           `${file} is missing: ${shortlist.candidates.map((entry) => entry.path).join(', ')}`,
         );
-        // The reason names the spelling that matched, so a reader can see
-        // that the shortlist understood the project's convention.
         assert.ok(
           candidate.reasons.some((reason) =>
             reason.includes(`"${spelling}", a path spelling of "Order/Refund"`),
@@ -588,7 +538,7 @@ describe('R4 shortlist across ecosystems and layouts', () => {
 });
 
 describe('R4 path signal without a glob per file', () => {
-  /** What `pathMatches` computed before, kept here as the reference. */
+  /** The glob-based reference `pathHit` must agree with. */
   function globHit(lowerPath: string, form: string): 'directory' | 'filename' | null {
     if (matchesGlob(lowerPath, `**/*${form}*/**`)) return 'directory';
     return matchesGlob(lowerPath, `**/*${form}*`) ? 'filename' : null;
@@ -603,8 +553,6 @@ describe('R4 path signal without a glob per file', () => {
       'a/bxc/d.ts', 'a/x.env', 'a/é/d.ts', 'a/order-refund/x.ts', 'a/order_refund.py',
     ];
     const paths = [...new Set([...tracked, ...edges])].map((value) => value.toLowerCase());
-    // Every segment word of the corpus is a form, so the fast path is checked
-    // against far more spellings than any one request would try.
     const forms = new Set(['foo', 'src/orders', '.env', 'b+c', 'b.c', 'é', 'order-refund', 'orderrefund', '.ts', 'x']);
     for (const value of paths) {
       for (const word of value.split(/[/._-]/)) if (word.length >= 3) forms.add(word);

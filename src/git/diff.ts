@@ -24,17 +24,13 @@ export interface DiffFile {
   addedLines: number;
   removedLines: number;
   hunks: DiffHunk[];
-  /**
-   * This file's own patch section, so a patch can be rebuilt from the reviewable
-   * files without re-parsing ambiguous `diff --git` paths.
-   */
   patchSection: string;
 }
 
 /**
- * Pairs the authoritative `--raw -z` change list with the patch body. The patch
- * is split on `diff --git` boundaries and never parsed for paths, which are
- * ambiguous; the two listings are zipped by position and a mismatch is an error.
+ * Pairs the `--raw -z` change list with the patch body. The patch is split on
+ * `diff --git` boundaries and never parsed for paths, which are ambiguous; the
+ * two listings are zipped by position and a mismatch is an error.
  */
 export function combineDiff(changes: readonly RawChange[], patch: string): DiffFile[] {
   const sections = splitPatchSections(patch);
@@ -124,18 +120,16 @@ export function parseHunks(section: string): DiffHunk[] {
       oldLine += 1;
       newLine += 1;
     } else if (line === '') {
-      // A trailing empty string from the final split is not a diff line.
       continue;
     } else {
-      // Anything else ends the hunk body (for example a following file header
-      // that survived sectioning); stop consuming rather than misattribute it.
+      // Anything else (e.g. a file header that survived sectioning) ends the hunk
+      // body; stop consuming rather than misattribute it.
       inHunks = false;
     }
   }
   return hunks;
 }
 
-/** Every line number that exists on a side of the post-review diff. */
 export function addressableLines(file: DiffFile, side: 'old' | 'new'): Set<number> {
   const lines = new Set<number>();
   for (const hunk of file.hunks) {
@@ -147,7 +141,6 @@ export function addressableLines(file: DiffFile, side: 'old' | 'new'): Set<numbe
   return lines;
 }
 
-/** The diff line at a position, used to build an exact remote comment position. */
 export function lineAt(file: DiffFile, side: 'old' | 'new', line: number): DiffLine | null {
   for (const hunk of file.hunks) {
     for (const candidate of hunk.lines) {

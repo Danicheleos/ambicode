@@ -21,23 +21,19 @@ import type { ParsedArgs } from '../args.ts';
 export const POLICY_CHECK_OPTIONS = {
   values: ['project'],
   flags: ['json'],
-  // The operands are the candidate pack files.
   positionals: true,
 } as const;
 
-/** How many matched paths a report names, per glob. */
 const EXAMPLES_PER_GLOB = 3;
 
 /**
- * Enumerated project paths a single glob is measured against before the report
- * gives up on an exact count. A setup-time command may walk a whole repository;
- * it may not hang on one.
+ * Paths one glob is measured against before the report gives up on an exact count: a
+ * setup-time command may walk a whole repository, not hang on one.
  */
 const MAX_GLOB_ENTRIES = 20_000;
 
 export interface GlobMatch {
   glob: string;
-  /** Project-relative files this glob matches today, after path exclusions. */
   matched: number;
   examples: string[];
   /** True when enumeration hit `MAX_GLOB_ENTRIES` and `matched` is a floor. */
@@ -45,9 +41,7 @@ export interface GlobMatch {
 }
 
 export interface CheckedPackFile {
-  /** Repository-relative, as it would be written into `policyFiles`. */
   path: string;
-  /** Null when the file could not be parsed or validated. */
   packId: string | null;
   authority: string | null;
   appliesTo: GlobMatch[];
@@ -58,25 +52,15 @@ export interface CheckedPackFile {
 
 export interface PolicyCheckOutput {
   command: 'policy-check';
-  /** The project whose root, layout and command catalog the check used. */
   projectId: string | null;
   files: CheckedPackFile[];
   diagnostics: Diagnostic[];
-  /** False when any diagnostic is an error; the process exits nonzero. */
   ok: boolean;
 }
 
 /**
- * Validates candidate policy pack files that are not yet referenced from
- * `.ambicode/config.yaml` (R3 part 1).
- *
- * `ambicode policy` answers "what applies here" for an already-configured
- * project. This answers the question that comes first, while a pack is being
- * authored: is this file a valid pack, and does its scope match anything that
- * actually exists? Both questions are answered by one set of rules — the
- * checks come from `src/policy/validate.ts`, which the loader also calls, and
- * glob matching uses `matchesGlob`, the resolver's own matcher — so a file
- * this command calls clean cannot be rejected once it is wired in.
+ * Validates candidate packs not yet referenced from config, using the loader's own validator
+ * and the resolver's `matchesGlob`, so a file called clean here cannot be rejected once wired in.
  */
 export async function runPolicyCheck(runtime: Runtime, args: ParsedArgs): Promise<PolicyCheckOutput> {
   const workspace = await openWorkspace(runtime);
@@ -175,11 +159,8 @@ function unreadable(relativePath: string): CheckedPackFile {
 }
 
 /**
- * The project whose layout and command catalog the candidate is judged
- * against. An explicit `--project` wins; a single-project repository needs no
- * flag; anything else is reported as undetermined rather than resolved to the
- * first project, because scoping a pack to the wrong root would make every
- * glob count meaningless.
+ * An explicit `--project` wins and a single project needs no flag; otherwise undetermined, not
+ * the first project, because the wrong root makes every glob count meaningless.
  */
 function resolveProject(config: AmbicodeConfig, requested: string | null): ProjectConfig | null {
   if (requested !== null) return projectById(config, requested);
@@ -187,11 +168,8 @@ function resolveProject(config: AmbicodeConfig, requested: string | null): Proje
 }
 
 /**
- * Duplicate ids and `replaces`, judged against the packs the project already
- * enables — the candidates are appended to that set exactly as wiring them in
- * would. Only diagnostics that name a candidate file are reported: a problem
- * in the project's existing configuration is `ambicode policy`'s subject, not
- * this command's, and blaming the candidate for it would be wrong.
+ * Judged against the packs the project already enables. Only diagnostics naming a candidate
+ * are reported: problems in the existing configuration are `ambicode policy`'s subject.
  */
 async function crossPackDiagnostics(
   workspace: Workspace,
@@ -226,17 +204,6 @@ async function crossPackDiagnostics(
   return diagnostics;
 }
 
-/**
- * What each `appliesTo` glob matches in the repository as it stands. The
- * schema cannot see this, and a glob scoped to a path that does not exist is
- * the most likely authoring mistake: the pack validates, is enabled, and never
- * applies to anything.
- *
- * `appliesTo` is project-relative (doc 05), so enumeration starts at the
- * project root. Discovery uses `fs.glob`; the decision uses `matchesGlob`,
- * which is what `src/policy/resolve.ts` itself matches with, so a count here
- * cannot claim a match the resolver would not make.
- */
 async function describeGlobs(
   fs: FileSystem,
   workspace: Workspace,
@@ -254,7 +221,6 @@ async function describeGlobs(
     try {
       entries = await fs.glob(glob, projectRoot);
     } catch {
-      // An unusable pattern matches nothing, which the caller reports as such.
       described.push({ glob, matched: 0, examples: [], truncated: false });
       continue;
     }
@@ -268,7 +234,6 @@ async function describeGlobs(
       if (relative === '') continue;
       if (pathExclusionReason(relative) !== null) continue;
       if (!matchesGlob(relative, glob)) continue;
-      // A glob such as `**/*` matches directories too; a rule applies to files.
       if (!(await isFile(fs, path.join(projectRoot, relative)))) continue;
       matched.push(relative);
     }

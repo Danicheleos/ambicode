@@ -5,12 +5,6 @@ import { FakeProcessRunner } from '../testing/fake-process-runner.ts';
 import { isAmbicodeError } from '../util/errors.ts';
 import { GitHubProvider } from './github/provider.ts';
 
-/**
- * U19. The GitHub registration exists so that a future implementation is one
- * module and one registry entry. What is verified here is that it answers, that
- * its answer cannot be mistaken for a success, and that it reaches nothing.
- */
-
 const PULL_REQUEST = 'https://github.com/acme/widgets/pull/12';
 const OPERATIONS = [
   'resolveTarget',
@@ -34,7 +28,6 @@ describe('U19 GitHub placeholder', () => {
       const typed = outcome as unknown as { provider: string; operation: string; message: string };
       assert.equal(typed.provider, 'github');
       assert.equal(typed.operation, operation);
-      // Actionable, and never phrased as though something remote happened.
       assert.match(typed.message, /does not support GitHub pull requests/);
       assert.match(typed.message, /ambicode review/);
     }
@@ -51,7 +44,6 @@ describe('U19 GitHub placeholder', () => {
         target: { provider: 'github' } as never,
       });
     }
-    // Not one glab invocation: there is no fall-through to the GitLab adapter.
     assert.deepEqual(runner.argvs(), []);
   });
 

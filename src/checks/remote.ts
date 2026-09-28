@@ -13,19 +13,12 @@ import { expandFiles, selectLintFiles, selectTestFiles, type ChangedPath, type S
 import { compareTrees, scanTree, summarizeMutations, type TreeEntry } from './workspace-diff.ts';
 
 /**
- * Executable checks for a merge request. The code under review is somebody
- * else's, so it never runs in the developer's checkout — not as a fallback, not
- * "just the linter", not at all (doc 05, "Executable remote checks").
- *
- * When the isolated environment is not configured or not available, every check
- * is skipped with the exact reason. A skipped check is a gap in verification
- * and says so; it is never quietly turned into a local run.
+ * Merge request code never runs in the developer's checkout, not even as a fallback. Without
+ * an isolated environment every check is skipped with the reason: a gap, never a local run.
  */
 
-/** The container-local path the snapshot is copied into before anything runs. */
 const WORKSPACE = '/ambicode/work';
 
-/** Writable scratch for tools that insist on one, separate from the workspace. */
 const SCRATCH = '/tmp';
 
 /** An unprivileged uid/gid that exists nowhere as a real account. */
@@ -42,15 +35,11 @@ export interface RemoteChecksOptions {
   config: AmbicodeConfig;
   runner: ProcessRunner;
   clock: Clock;
-  /** Per project, the changed paths the merge request carries. */
   projects: readonly { project: ProjectConfig; policy: ResolvedPolicy; changed: ChangedPath[] }[];
-  /** The read-only pinned snapshot; copied into the container, never mounted. */
   snapshotFilesDirectory: string;
   reviewDirectory: string;
   approvals: ReadonlySet<string>;
-  /** Overridable so a test can drive a fake container CLI. */
   containerExecutable?: string;
-  /** CPU, memory, process and wall-clock ceilings applied to every run. */
   limits?: Partial<ContainerLimits>;
 }
 
@@ -70,7 +59,6 @@ const DEFAULT_LIMITS: ContainerLimits = {
 
 export interface RemoteChecksOutcome {
   results: CheckResult[];
-  /** Facts about the isolation itself, carried into the review's omissions. */
   notes: string[];
 }
 
@@ -114,11 +102,6 @@ type Isolation =
   | { kind: 'available'; image: string }
   | { kind: 'unavailable'; reason: string };
 
-/**
- * Establishes whether the isolated environment exists before anything is run.
- * Nothing here pulls or builds an image or installs a dependency: an absent
- * image is a skip reason, not a task to perform (doc 05).
- */
 async function assessIsolation(
   options: RemoteChecksOptions,
   image: string | null,
@@ -266,11 +249,8 @@ type RemoteSelection =
   | { kind: 'refused'; limitations: string[] };
 
 /**
- * Selection for a merge request may not execute anything in the checkout, so
- * only the selectors that are pure computation are used: lint `include` globs
- * and the `mapping` selector. A `related` or `command` selector would run the
- * project's own runner or script against paths that are not checked out, which
- * is both wrong and exactly the execution this module exists to prevent.
+ * Only pure-computation selectors (lint `include` globs, `mapping`): a `related` or `command`
+ * selector would execute project code against paths that are not checked out.
  */
 async function selectForRemote(context: RunOneOptions, adapterId: string): Promise<RemoteSelection> {
   const { options, entry, checkId } = context;
@@ -282,7 +262,6 @@ async function selectForRemote(context: RunOneOptions, adapterId: string): Promi
     project: entry.project,
     check,
     changed: entry.changed,
-    // Selection reads globs only; nothing is executed from this directory.
     repositoryRoot: options.snapshotFilesDirectory,
     runner: options.runner,
     enumerationRevision: null,
@@ -321,14 +300,9 @@ interface ExecuteOptions {
 }
 
 /**
- * Create, copy, start, inspect, discard.
- *
- * The container root is read-only and the one writable place is a disposable
- * volume mounted at the workspace: not a host bind mount, so there is no path
- * by which a command can reach the developer's files at all. The pinned
- * snapshot is copied into that volume during trusted setup, before the project
- * command exists as a process, and `docker cp` without `--archive` gives the
- * copied files to the configured non-root user rather than to a host uid.
+ * The container root is read-only; the one writable place is a disposable volume, not a host
+ * bind mount, so a command cannot reach the developer's files. The snapshot is copied in
+ * during trusted setup, before the project command exists as a process.
  */
 async function executeInContainer(
   context: RunOneOptions,
@@ -342,8 +316,6 @@ async function executeInContainer(
     executable,
     'create',
     '--rm=false',
-    // No network at all: a check may not reach a registry, a service, or the
-    // merge request's own host from inside the sandbox.
     '--network',
     'none',
     '--user',
@@ -352,11 +324,7 @@ async function executeInContainer(
     'ALL',
     '--security-opt',
     'no-new-privileges',
-    // Nothing in the image may be rewritten, so a command cannot persist
-    // anything outside the disposable workspace it is given.
     '--read-only',
-    // An anonymous volume, not a bind mount: it exists only for this container
-    // and is destroyed with it.
     '--mount',
     `type=volume,dst=${WORKSPACE}`,
     '--tmpfs',
@@ -405,8 +373,7 @@ async function executeInContainer(
 
   try {
     const copied = await options.runner.run({
-      // The trailing `/.` copies the directory's contents, not the directory.
-      // `--archive` is deliberately not passed: without it the copied files are
+      // The trailing `/.` copies the contents, not the directory. No `--archive`, so the files are
       // owned by the container's configured user rather than by a host uid.
       argv: [executable, 'cp', `${options.snapshotFilesDirectory}/.`, `${containerId}:${WORKSPACE}`],
       cwd: options.reviewDirectory,
@@ -427,8 +394,7 @@ async function executeInContainer(
       return produced;
     }
 
-    // The baseline is taken after setup and before the project command, from
-    // the exact bytes setup copied in. The copy is therefore never a mutation.
+    // Taken from the exact bytes setup copied in, so the copy is never a mutation.
     const baseline = await scanTree(options.fs, options.snapshotFilesDirectory);
 
     const run = await options.runner.run({
@@ -492,8 +458,6 @@ async function executeInContainer(
     };
     return produced;
   } finally {
-    // Disposable means disposed, including after a timeout. `--volumes` takes
-    // the anonymous workspace volume with the container.
     const removed = await options.runner.run({
       argv: [executable, 'rm', '--force', '--volumes', containerId],
       cwd: options.reviewDirectory,
@@ -501,8 +465,6 @@ async function executeInContainer(
       maxOutputBytes: 65_536,
       env: { kind: 'inherited' },
     });
-    // A cleanup failure is added to the limitations rather than replacing the
-    // check's own outcome: the check still ran and its result still stands.
     const note = (line: string): void => {
       if (produced === null) return;
       produced.limitations = [...produced.limitations, line];
@@ -513,7 +475,6 @@ async function executeInContainer(
       );
     }
     if (inspectionDirectory !== null) {
-      // Only AMBICODE's own temporary inspection copy is deleted here.
       try {
         await options.fs.remove(inspectionDirectory);
       } catch (error) {
@@ -538,13 +499,8 @@ type MutationObservation =
   | { kind: 'unavailable'; reason: string };
 
 /**
- * What the command wrote inside its disposable workspace, compared against the
- * baseline by content, type, path and executable bit. Nothing is fed back: the
- * container and its volume are destroyed immediately afterwards.
- *
- * A failure to establish either side is reported as unavailable. Claiming "no
- * mutation" because the inspection failed would be the one answer the evidence
- * does not support.
+ * Compared against the baseline by content, type, path and executable bit. If either side
+ * cannot be read the answer is unavailable, never "no mutation".
  */
 async function observeMutations(observe: ObserveOptions): Promise<MutationObservation> {
   if (observe.baseline.kind !== 'ok') {

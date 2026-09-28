@@ -1,4 +1,3 @@
-# Dependencies and generated build output
 /node_modules/
 *.tsbuildinfo
 /scripts/*
@@ -10,26 +9,22 @@ tmp/
 .nyc_output/
 *.log
 
-# Python fixture/tool caches
 __pycache__/
 .pytest_cache/
 .ruff_cache/
 .venv/
 *.py[cod]
 
-# AMBICODE runtime and evaluation output
 /.ambicode/reviews/
 /.ambicode/notes/
 /evals/evals-core/*/*
 /evals/**/results/
 /eval-results.json
 
-# Local planning and research inputs
 /plan/
 /research/
 /review/
 
-# Operating-system and editor metadata (at any depth)
 .DS_Store
 Thumbs.db
 .idea/

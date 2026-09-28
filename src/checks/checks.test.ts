@@ -55,11 +55,7 @@ function changed(paths: Array<Partial<ChangedPath> & { newPath?: string | null; 
   }));
 }
 
-/**
- * A real repository, because runChecks fingerprints the index and porcelain
- * status around every command; a fake would only restate what the fingerprint
- * code already assumes.
- */
+/** A real repository, because runChecks fingerprints the index and porcelain status around every command. */
 async function sandbox(t: { after(fn: () => unknown): void }): Promise<string> {
   const directory = await mkdtemp(path.join(tmpdir(), 'ambicode-checks-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
@@ -315,7 +311,6 @@ test('U12/U13 an unmapped change is a gap that waits for authorization, not an e
   assert.ok(unattended.pendingApprovals[0]?.reason.includes('could not establish'));
   assert.deepEqual(runner.argvs(), [], 'nothing runs before a human authorizes it');
 
-  // Keyed by project, so this token cannot reach another project's "unit".
   assert.equal(unattended.pendingApprovals[0]?.approvalKey, 'api/unit');
   const approved = await runChecks({ ...options, runner, approvals: new Set(['api/unit']) });
   assert.equal(approved.results[0]?.status, 'passed');
@@ -448,7 +443,6 @@ test('U12 a wrapped runner cannot be enumerated and therefore waits for authoriz
       runner,
       project: {
         id: 'web', root: '.', ecosystem: 'typescript', packs: [], policyFiles: [],
-        // `npm run test` is not jest, so appending --listTests would be meaningless.
         commands: { unit: { argv: ['npm', 'run', 'test', '--', '{files}'] } },
         checks: { unit: { command: 'unit', adapter: 'jest', selector: { kind: 'related' } } },
       },
@@ -501,10 +495,6 @@ test('U15 passed, failed, timed-out, skipped and error stay distinct', async (t)
 
 test('U15 a check killed after its runner finished reporting keeps the result it produced', async (t) => {
   const directory = await sandbox(t);
-  // Measured in run 3c2188c8: unit.txt already held `Tests 1 failed | 14 passed
-  // (15)` when the 120s ceiling killed vitest at 121,051ms. A real assertion
-  // failure was reported as timed-out, so executed coverage counted as
-  // unestablished and the defect was invisible in the review.
   const vitestSummary = [
     ' ✓ src/a.spec.ts (14 tests) 1203ms',
     ' ✗ src/b.spec.ts (1 test | 1 failed) 88ms',
@@ -543,12 +533,9 @@ test('U15 a check killed after its runner finished reporting keeps the result it
     `the overrun must still be reported; got ${JSON.stringify(recovered?.limitations)}`,
   );
 
-  // A kill part-way through has no summary to read, so nothing is recovered.
   const partial = await run(' ✓ src/a.spec.ts (14 tests) 1203ms\n');
   assert.equal(partial?.status, 'timed-out');
 
-  // The selector seeds the adapter's notes and the result adds them again, so
-  // every vitest check reported its two limitations four times.
   assert.deepEqual(
     [...new Set(recovered?.limitations)],
     recovered?.limitations,
@@ -639,7 +626,6 @@ test('U14 a selector command no pack declares is refused, not silently run', asy
       reviewDirectory: directory,
       runner,
       project: selectorProject(),
-      // "unit" may run; nothing says anything about the selector script.
       policy: policy([['unit', 'run']]),
       changed: changed([{ newPath: 'src/a.ts' }]),
     }),
@@ -665,8 +651,6 @@ test('U14 a proposed selector needs its own approval, separate from the check', 
   assert.equal(unattended.pendingApprovals[0]?.approvalKey, 'web/unit:selector');
   assert.deepEqual(unattended.pendingApprovals[0]?.proposedArgv, ['./scripts/affected.sh', 'src/a.ts']);
 
-  // Approving the check itself is not approval for the script that decides
-  // what the check will run.
   const checkApproved = new FakeProcessRunner();
   const wrongKey = await runChecks({ ...options, runner: checkApproved, approvals: new Set(['web/unit']) });
   assert.deepEqual(checkApproved.argvs(), []);
@@ -713,8 +697,6 @@ test('U13 a deleted source is an unknown impact, not a proven empty selection', 
     }),
   );
 
-  // Observed on jest 30.5.2: --findRelatedTests on a deleted path exits 0 and
-  // prints nothing, so asking it would look exactly like "nothing is affected".
   assert.deepEqual(runner.argvs(), []);
   assert.equal(results[0]?.status, 'skipped');
   assert.equal(results[0]?.selectionComplete, false, 'a deletion never proves zero impact');
@@ -786,7 +768,6 @@ test('U15 a command that rewrites a reviewed file is reported, not reverted', as
   const watched = path.join(directory, 'src', 'a.ts');
   await writeFile(watched, 'const x=1\n', 'utf8');
 
-  // A formatter-style command: it really does rewrite the file it was given.
   const rewriting: ProcessRunner = {
     async run(request) {
       await writeFile(watched, 'const x = 1;\n', 'utf8');
@@ -813,7 +794,6 @@ test('U15 a command that rewrites a reviewed file is reported, not reverted', as
   assert.ok(results[0]?.mutations.some((line) => line.includes('does not undo it')));
   assert.ok(results[0]?.limitations.some((line) => line.includes('no longer exactly what was reviewed')));
 
-  // Reported, never reverted: the developer's file keeps the command's output.
   assert.equal(await readFile(watched, 'utf8'), 'const x = 1;\n');
 });
 
@@ -866,9 +846,6 @@ test('U14 a rename reaches the selector script under both of its names', async (
 
   const { results, pendingApprovals } = await runChecks(options);
 
-  // The pre-image is the half of a rename that can break a test: only the
-  // project's own script can find what imported the vanished name, and it
-  // cannot do that if it is never told the name.
   assert.deepEqual(runner.argvs()[0], [
     './scripts/affected.sh',
     'src/new-name.ts',
@@ -879,7 +856,6 @@ test('U14 a rename reaches the selector script under both of its names', async (
   assert.equal(results[0]?.status, 'passed');
   assert.deepEqual(pendingApprovals, []);
 
-  // What a human is asked to authorize is exactly what would run.
   const proposed = await runChecks({
     ...options,
     runner: new FakeProcessRunner(),
@@ -894,9 +870,6 @@ test('U15 a selector script that rewrites a reviewed file is reported too', asyn
   const watched = path.join(directory, 'src', 'a.ts');
   await writeFile(watched, 'const x=1\n', 'utf8');
 
-  // The script that decides what to run is project code like any other, and it
-  // executes before the check command. A fingerprint taken only around the
-  // command would never see this.
   const mutatingSelector: ProcessRunner = {
     async run(request) {
       if (request.argv[0] === './scripts/affected.sh') {
@@ -957,8 +930,6 @@ test('U15 a selector that mutates and then selects nothing still reports the mut
     }),
   );
 
-  // The check never ran, so there is no command to blame — and that is exactly
-  // the case where a fingerprint tied to the command would report nothing.
   assert.equal(results[0]?.status, 'skipped');
   assert.ok(results[0]?.mutations.some((line) => line.includes('src/a.ts was rewritten')));
   assert.ok(results[0]?.limitations.some((line) => line.includes('no longer exactly what was reviewed')));
@@ -993,7 +964,6 @@ test('U12 one project\'s approval does not authorize another project\'s check of
   const web = await run(lintProject('web', 'apps/web'), 'apps/web/a.ts', new Set());
   assert.equal(web.pendingApprovals[0]?.approvalKey, 'web/lint');
 
-  // The token names one project. Handing it to the other must not run anything.
   const api = await run(lintProject('api', 'services/api'), 'services/api/b.ts', new Set(['web/lint']));
   assert.deepEqual(api.runner.argvs(), []);
   assert.equal(api.results[0]?.status, 'skipped');

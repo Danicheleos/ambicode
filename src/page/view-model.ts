@@ -8,13 +8,9 @@ import type { CoverageGap } from '../contracts/provider.ts';
 import type { ReviewResult } from '../contracts/review.ts';
 
 /**
- * The data the page template renders. Every string in here is inserted with
- * Eta's escaping interpolation, so hostile text in a finding, a requirement, a
- * check's output, a provider error or the human's own draft is displayed rather
- * than executed.
- *
- * It carries no capability, no session id, no cookie or CSRF secret beyond the
- * per-form token, and no provider credential.
+ * Every string here is inserted with Eta's escaping interpolation, so hostile
+ * text is displayed rather than executed. It carries no capability, session id,
+ * cookie, credential or secret beyond the per-form CSRF token.
  */
 
 export interface PageModel {
@@ -34,13 +30,9 @@ export interface PageModel {
   reviewer: ReviewerSummary | null;
   publication: PublicationSummary;
   findings: FindingCard[];
-  /** Per-render CSRF token; not a secret that outlives the page. */
   csrfToken: string;
-  /** Identifies this form, so a replayed POST is refused. */
   submissionId: string;
-  /** Validation problems from the submission being redisplayed. */
   errors: string[];
-  /** What the last submission did, if there was one. */
   lastSubmission: LastSubmission | null;
 }
 
@@ -102,11 +94,8 @@ export interface ReviewerSummary {
 }
 
 export interface PublicationSummary {
-  /** Whether the form may offer a publish action at all. */
   available: boolean;
-  /** Why not, when it is not. Always shown when `available` is false. */
   unavailableReason: string | null;
-  /** The last revision check, when one has been made in this session. */
   revisionState: string | null;
   revisionReason: string | null;
   selectableCount: number;
@@ -137,7 +126,6 @@ export interface FindingCard {
   ruleRefs: string[];
   requirementRefs: string[];
   supporting: { path: string; line: number; side: string }[];
-  /** The editable text: the human's saved draft, or the suggested comment. */
   draft: string;
   /** Always false on a new session; the human checks it themselves. */
   selected: boolean;
@@ -157,9 +145,8 @@ export interface BuildModelOptions {
   csrfToken: string;
   submissionId: string;
   errors?: readonly string[];
-  /** Selections to redisplay after a rejected form; empty on a new session. */
   selected?: ReadonlySet<string>;
-  /** Draft text to redisplay after a rejected form, ahead of the saved drafts. */
+  /** Takes precedence over the saved drafts. */
   pendingDrafts?: ReadonlyMap<string, string>;
   revisionState?: string | null;
   revisionReason?: string | null;
@@ -208,7 +195,6 @@ export function buildPageModel(options: BuildModelOptions): PageModel {
         options.pendingDrafts?.get(finding.id) ??
         draftsById.get(finding.id)?.body ??
         finding.suggestedComment,
-      // Unchecked unless this very request is redisplaying a rejected form.
       selected: options.selected?.has(finding.id) ?? false,
       publishable: availability.available && placed && !isSettledState(state),
       notPublishableReason: !availability.available
@@ -311,10 +297,8 @@ function isSettledState(state: PublicationState): boolean {
 }
 
 /**
- * Whether this review can publish at all. A local or branch review has no
- * merge request to comment on; a provider AMBICODE does not implement has no
- * write path; and a review whose positions were never derived cannot place a
- * comment, because a position is never recomputed after the fact.
+ * A local or branch review has nothing to comment on, and a review whose
+ * positions were never derived cannot publish: a position is never recomputed.
  */
 export function publicationAvailability(
   result: ReviewResult,
@@ -343,7 +327,6 @@ export function publicationAvailability(
   return { available: true, unavailableReason: null };
 }
 
-/** Folds a submission's outcomes into the counts the page shows. */
 export function summarizeSubmission(
   submittedAt: string,
   stopped: boolean,

@@ -11,14 +11,6 @@ import { byteLength } from '../snapshot/limits.ts';
 import { TempRepo } from '../testing/temp-repo.ts';
 import { isAmbicodeError } from '../util/errors.ts';
 
-/**
- * `review.maxContextBytes` bounds everything the model is handed: the composed
- * canonical prompt — role and contract prompts, scoped policy, requirements,
- * prior discussion, check evidence and the patch — plus the mirrored tree the
- * reviewer can read. Requirement content is part of that, and a requirement
- * larger than the limit must refuse the review rather than be trimmed to fit.
- */
-
 const JIRA = 'https://example.atlassian.net/browse/ORD-17';
 
 class CountingReviewer implements Reviewer {
@@ -51,8 +43,8 @@ async function fixture(maxContextBytes: number): Promise<Fixture> {
     config.replace(/maxContextBytes: \d+/, `maxContextBytes: ${maxContextBytes}`),
   );
 
-  // Committed, so the working diff is the one source edit below rather than
-  // the configuration init just wrote.
+  // Committed, so the working diff is only the source edit below, not the
+  // configuration init just wrote.
   await repo.commitAll('ambicode setup');
 
   await repo.write('src/orders.ts', 'export const total = 1;\n');
@@ -99,7 +91,6 @@ describe('U17 the context limit covers the whole model input', () => {
   it('refuses a requirement larger than the limit before calling the reviewer', async () => {
     const context = await fixture(8_192);
     try {
-      // The patch is two lines; the requirement alone is over the limit.
       const huge = 'The orders service must reject negative amounts. '.repeat(400);
       assert.ok(byteLength(huge) > 8_192);
       const evidencePath = await evidence(context.repo, huge);
@@ -114,8 +105,6 @@ describe('U17 the context limit covers the whole model input', () => {
       );
 
       assert.equal(error.code, 'input-too-large');
-      // The reviewer was never started, and the measurement names the part
-      // that was large rather than only the total.
       assert.equal(reviewer.requests.length, 0);
       assert.match(error.details.join('\n'), /measured components:/);
       assert.match(error.details.join('\n'), /requirement content: \d+ bytes/);
@@ -126,8 +115,6 @@ describe('U17 the context limit covers the whole model input', () => {
   });
 
   it('counts the composed prompt, not only the patch, against the limit', async () => {
-    // The patch is tiny but the canonical prompts, policy and scaffolding are
-    // not: a limit that only saw the patch would let this through.
     const context = await fixture(4_096);
     try {
       const reviewer = new CountingReviewer();
@@ -152,8 +139,6 @@ describe('U17 the context limit covers the whole model input', () => {
         reviewer,
       });
 
-      // Correction E5: the limit and the recorded measurement cover both the
-      // appended system prompt and the ordinary user prompt, not only one.
       const sentSystem = reviewer.requests[0]?.systemPrompt ?? '';
       const sentUser = reviewer.requests[0]?.prompt ?? '';
       assert.equal(output.result.inputs.promptBytes, byteLength(sentSystem) + byteLength(sentUser));

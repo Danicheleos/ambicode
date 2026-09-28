@@ -1,20 +1,9 @@
-/**
- * Parsing a merge-request URL into the identity every later request is built
- * from. Nothing here touches a process or the network: a malformed or ambiguous
- * URL is rejected before `glab` is invoked at all (doc 03 P1.5).
- *
- * The host is taken from the URL and never from the current checkout or branch,
- * so reviewing a merge request on one GitLab while standing in a checkout of
- * another cannot silently ask the wrong server.
- */
+/** The host comes from the URL, never the checkout, so a review cannot silently ask the wrong server. */
 
 export interface GitLabMergeRequestRef {
-  /** Host with its port when the URL named one, e.g. `gitlab.example.com:8443`. */
   host: string;
-  /** Decoded `group/subgroup/project`, the canonical project identity. */
   projectPath: string;
   mergeRequestIid: number;
-  /** The URL as it identifies this merge request, without a view suffix. */
   canonicalUrl: string;
 }
 
@@ -22,7 +11,6 @@ export type ParsedMergeRequestUrl =
   | { kind: 'ok'; ref: GitLabMergeRequestRef }
   | { kind: 'invalid'; reason: string; details: string[] };
 
-/** Views GitLab appends to the same merge request; they do not change identity. */
 const VIEW_SUFFIXES = new Set(['diffs', 'commits', 'pipelines', 'reports', 'widget']);
 
 const MERGE_REQUEST_SEGMENT = 'merge_requests';
@@ -57,10 +45,8 @@ export function parseMergeRequestUrl(value: string): ParsedMergeRequestUrl {
   if (url.hostname === '') return invalid('The merge request URL has no host.');
 
   const segments = url.pathname.split('/').filter((segment) => segment !== '');
-  // The separator is the "-" that `merge_requests` follows. A project path
-  // cannot legitimately contain "-" as a whole segment, but looking for the
-  // pair keeps such a URL a project-path error rather than a "not a merge
-  // request" one.
+  // Matching the `-`, `merge_requests` pair keeps a stray `-` segment a project-path error
+  // rather than a "not a merge request" one.
   const marker = segments.findIndex(
     (segment, index) => segment === '-' && segments[index + 1] === MERGE_REQUEST_SEGMENT,
   );
@@ -77,7 +63,6 @@ export function parseMergeRequestUrl(value: string): ParsedMergeRequestUrl {
       'Expected "/-/merge_requests/<iid>", for example "/-/merge_requests/42".',
     ]);
   }
-  // A strict decimal form: "042", "+1", "1.0" and "1e3" all name nothing.
   if (!/^[1-9][0-9]*$/.test(iidSegment)) {
     return invalid(`"${iidSegment}" is not a merge request number.`, [
       'The merge request iid is a positive decimal integer without leading zeroes.',
@@ -113,10 +98,8 @@ export function parseMergeRequestUrl(value: string): ParsedMergeRequestUrl {
 }
 
 /**
- * Percent-encoding in a URL path is the author's, so it is decoded once and the
- * result validated. A segment that decodes into a separator, a traversal step
- * or a control character is refused rather than normalized into something the
- * user did not write.
+ * Decoded once and validated: a segment that decodes into a separator, a traversal step or a
+ * control character is refused rather than normalized into something the user did not write.
  */
 function decodeProjectPath(segments: readonly string[]): string[] | string {
   if (segments.length < 2) {
@@ -151,11 +134,6 @@ function decodeProjectPath(segments: readonly string[]): string[] | string {
   return decoded;
 }
 
-/**
- * GitLab addresses a project either by numeric id or by its full path, encoded
- * as one component: every `/` becomes `%2F`. Used for every request, so a
- * nested namespace cannot be mistaken for a route.
- */
 export function encodeProjectIdentity(pathOrId: string): string {
   return encodeURIComponent(pathOrId);
 }
