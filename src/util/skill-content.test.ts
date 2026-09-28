@@ -337,6 +337,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
       ' ',
     );
     assert.match(shared, /Navigation: LSP — <operations used>/);
+    assert.match(shared, /Navigation: no LSP tools in this session/);
     assert.match(shared, /Navigation: targeted-search fallback — <specific reason>/);
     assert.match(shared, /installed or recommended alone/i);
     assert.match(shared, /broad search is allowed and is reported with its reason/i);

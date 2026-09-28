@@ -75,7 +75,8 @@ debugging. It is not the shape to read routinely.
 ## Navigation evidence in your report
 
 One line —
-`Navigation: LSP — <operations used>` or
+`Navigation: LSP — <operations used>`,
+`Navigation: no LSP tools in this session` (that alone is complete), or
 `Navigation: targeted-search fallback — <specific reason>` — plus which
 shortlist candidates were confirmed, which rejected, and what came from
 outside the list. Installed or recommended alone is not evidence of use,

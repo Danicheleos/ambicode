@@ -15,6 +15,13 @@ export interface NavigationGuidance {
   readGuidance: string;
 }
 
+// The quoted one-liner is the COMPLETE no-LSP evidence (I6): sweep traces
+// showed 18/57 runs writing 100-360-char fallback justifications for
+// sandboxes that simply have no LSP tools. Kept under context-cost.test.ts's
+// 100-char one-clause ceiling (this is 99).
+const EVIDENCE_REQUIREMENT =
+  'Report the LSP operations used, or the fallback reason. "No LSP tools in this session" is complete.';
+
 const GUIDANCE: Record<Ecosystem, Omit<NavigationGuidance, 'ecosystem'>> = {
   typescript: {
     strategy: 'shortlist-then-known-paths-then-lsp-then-targeted-search',
@@ -25,8 +32,7 @@ const GUIDANCE: Record<Ecosystem, Omit<NavigationGuidance, 'ecosystem'>> = {
       'npm install -g typescript-language-server typescript',
     ],
     statusSource: 'current-session',
-    evidenceRequirement:
-      'Report the LSP operations used, or the targeted-search fallback reason.',
+    evidenceRequirement: EVIDENCE_REQUIREMENT,
     readGuidance: 'Read spans with offset/limit, not whole files.',
   },
   python: {
@@ -38,8 +44,7 @@ const GUIDANCE: Record<Ecosystem, Omit<NavigationGuidance, 'ecosystem'>> = {
       'pipx install pyright',
     ],
     statusSource: 'current-session',
-    evidenceRequirement:
-      'Report the LSP operations used, or the targeted-search fallback reason.',
+    evidenceRequirement: EVIDENCE_REQUIREMENT,
     readGuidance: 'Read spans with offset/limit, not whole files.',
   },
 };

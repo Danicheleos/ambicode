@@ -118,6 +118,15 @@ JSON while the sweep runs — the harness deletes its sandboxes at completion
 and has no flag to keep them, so a trace not copied during the run is gone.
 Error analysis starts from those traces, not from the scores.
 
+The sandbox loads only the plugin under test: user- and project-scope plugins
+are absent by design, no case field or CLI option loads a second one, and
+`--scaffold` runs outside the agent's sandbox against a child session with a
+temporary config dir ("How runs are isolated",
+code.claude.com/docs/en/plugin-evals). So an **LSP-armed eval environment is
+impossible today**: every run here exercises the no-LSP fallback path, and
+whether live LSP tools help or hurt cannot be measured by this harness —
+that data needs an ordinary session with an LSP plugin installed.
+
 An `llm` grader's verdict records `judgeVotes` (booleans) and `evidence` —
 the judged text itself, not the judge's reasoning; the harness offers no way
 to capture why a vote fell. Adjudicate a disputed verdict by reading the

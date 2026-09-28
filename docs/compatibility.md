@@ -472,7 +472,8 @@ server or build another index. One registry in
 plugin, server command and setup commands. `init`, `config`, and `prepare`
 surface that guidance. Authoring skills record actual LSP symbol operations or
 a specific targeted-search fallback reason because the helper cannot inspect
-the active conversation's tool inventory.
+the active conversation's tool inventory; a session with no LSP tools at all
+says exactly that, in one line, and owes no further justification.
 
 The step before LSP is `ambicode locate`: a ranked shortlist of candidate
 files for a request, from path shape, `git grep` contents and co-change over a
