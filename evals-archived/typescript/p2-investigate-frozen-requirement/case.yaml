@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: p2-investigate-frozen-requirement
+context:
+  scaffold_script: scaffold.sh
