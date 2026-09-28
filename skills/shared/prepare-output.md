@@ -65,9 +65,7 @@ debugging. It is not the shape to read routinely.
   code before relying on it, and state which you confirmed, which you
   rejected, and which files you needed from outside it. Empty `candidates`
   means nothing matched well enough to start from — never "read everything".
-  For a longer list, run
-  `node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" locate <term>... --json`.
-  It reads git only: no index, no cache, nothing written.
+  The shortlist reads git only: no index, no cache, nothing written.
 - **`requirements`, `provenance`, `notices`, `diagnostics`** — what was
   pinned and what is worth saying out loud. An empty list is omitted rather
   than emitted.

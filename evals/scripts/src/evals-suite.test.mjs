@@ -169,14 +169,16 @@ describe('eval graders: Bash indicators match the command the skills prescribe',
         if (grader.type !== 'tool_used' || grader.tool !== 'Bash') continue;
         const where = `${evalCase.name}/graders/${grader.name} (${grader.input_match})`;
         const pattern = new RegExp(grader.input_match);
-        const named = subcommands.filter((sub) => pattern.test(JSON.stringify({ command: `ambicode ${sub}` })));
+        // Only `prepare` takes `--term`, so only its probe carries it.
+        const probeArgs = (sub) => (sub === 'prepare' ? ' --term x' : '');
+        const named = subcommands.filter((sub) => pattern.test(JSON.stringify({ command: `ambicode ${sub}${probeArgs(sub)}` })));
         if (named.length === 0) {
           failures.push(`${where}: matches no bare \`ambicode <subcommand>\` a skill uses`);
           continue;
         }
         for (const sub of named) {
           for (const root of roots) {
-            const command = `node "${root}/scripts/ambicode.mjs" ${sub} --json`;
+            const command = `node "${root}/scripts/ambicode.mjs" ${sub} --json${probeArgs(sub)}`;
             if (!pattern.test(JSON.stringify({ command }))) failures.push(`${where}: misses ${command}`);
           }
         }

@@ -370,8 +370,18 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.match(shared, /navigation\.shortlist/);
     assert.match(shared, /hypothesis, not an answer/i);
     assert.match(shared, /never "read everything"/i);
-    assert.match(shared, /scripts\/ambicode\.mjs" locate <term>\.\.\. --json/);
     assert.match(shared, /no index, no cache, nothing written/i);
+  });
+
+  it('points authoring skills at the inline shortlist, not at a second locate call', async () => {
+    for (const relative of ['investigate/SKILL.md', 'plan/SKILL.md', 'task/SKILL.md', 'shared/prepare-output.md']) {
+      const content = await readFile(path.join(SKILLS_DIR, relative), 'utf8');
+      assert.doesNotMatch(content, /\blocate\b/, `${relative} must not advertise locate`);
+    }
+    for (const name of ['investigate', 'task']) {
+      const content = (await readFile(path.join(SKILLS_DIR, name, 'SKILL.md'), 'utf8')).replace(/\s+/g, ' ');
+      assert.match(content, /`prepare --term` asks for one/, `${name}/SKILL.md must say how to get a shortlist`);
+    }
   });
 });
 

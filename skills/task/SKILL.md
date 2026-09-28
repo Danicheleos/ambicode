@@ -80,7 +80,7 @@ from it.
 ## 4. Implement
 
 Navigate in `navigation`'s bounded order, starting from
-`navigation.shortlist` or `ambicode locate <term>...`. The shared file owns
+`navigation.shortlist` (`prepare --term` asks for one). The shared file owns
 the shortlist discipline; Evidence records its confirmed/rejected/outside-it
 breakdown and the navigation evidence line
 (`Navigation: LSP — …` or `Navigation: targeted-search fallback — …`).

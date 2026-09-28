@@ -57,7 +57,7 @@ either.
    `--project <id>` or narrow the paths rather than guessing which project
    was meant.
 4. **Navigate.** Follow `navigation`'s bounded order, starting from
-   `navigation.shortlist` or `ambicode locate <term>...`. The shared file
+   `navigation.shortlist` (`prepare --term` asks for one). The shared file
    owns the shortlist discipline; the final report records its
    confirmed/rejected/outside-it breakdown and the navigation evidence line
    (`Navigation: LSP — …` or `Navigation: targeted-search fallback — …`).
