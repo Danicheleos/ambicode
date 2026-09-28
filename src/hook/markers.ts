@@ -4,16 +4,9 @@ import type { IdSource } from '../ports/ids.ts';
 import { contentHash } from '../util/hash.ts';
 
 /**
- * Per-session hook delivery state (doc 04 P2.4 correction H). Never written
- * into the product repository (correction G9): it lives in the host-provided
- * per-session scratchpad when one is available, and in a safe, owned
- * temporary directory otherwise (correction H2) — keyed by a hash of the
- * session id, never the id itself, so the directory name carries no session
- * content.
- *
- * Two kinds of delivery share this machinery: an edit reminder for one rule
- * on one path, and the shared operating contract once per context epoch (R2
- * change 2). They differ only in what identifies the thing delivered.
+ * Per-session hook delivery state, never written into the product repository:
+ * it lives in the session scratchpad or an owned temporary directory, keyed by
+ * a hash of the session id so the directory name carries no session content.
  */
 
 const HOOK_STATE_DIR_NAME = 'ambicode-hook-state';
@@ -26,13 +19,7 @@ export function hookStateBaseDir(fs: FileSystem, sessionId: string, scratchpadDi
   return path.join(fs.temporaryRoot(), HOOK_STATE_DIR_NAME, sessionKey);
 }
 
-/**
- * The current context epoch, creating one on first use. Delivery markers are
- * scoped under this value, so resetting it (see `resetEpoch`) makes every
- * previously-delivered marker irrelevant without deleting anything itself —
- * `resetEpoch` still clears the marker directory to avoid unbounded growth
- * across a long session's many compactions.
- */
+/** Delivery markers are scoped under this value, so a new epoch invalidates all of them. */
 export async function currentEpoch(fs: FileSystem, ids: IdSource, baseDir: string): Promise<string> {
   const file = path.join(baseDir, EPOCH_FILE);
   try {
@@ -47,32 +34,21 @@ export async function currentEpoch(fs: FileSystem, ids: IdSource, baseDir: strin
   return fresh;
 }
 
-/**
- * Resets delivery on startup/resume/clear/fork and after compaction (doc 04
- * P2.4 correction H3): a fresh epoch value makes every marker recorded under
- * the previous one irrelevant, and removing the marker directory keeps a
- * long-running session's owned state bounded.
- */
 export async function resetEpoch(fs: FileSystem, ids: IdSource, baseDir: string): Promise<void> {
   await fs.mkdirp(baseDir);
   await fs.remove(path.join(baseDir, DELIVERED_DIR));
   await fs.writeText(path.join(baseDir, EPOCH_FILE), ids.capability());
 }
 
-/** Cleans up all owned state for this session (doc 04 P2.4 correction H3, "clean owned state on session end"). */
 export async function cleanupSessionState(fs: FileSystem, baseDir: string): Promise<void> {
   await fs.remove(baseDir);
 }
 
 export interface DeliveryKey {
   epoch: string;
-  /** `agent_id`, or a fixed sentinel for the main thread (correction H1). */
   agentKey: string;
-  /** What is being delivered: an edit reminder, or the shared contract. */
   kind: 'edit-reminder' | 'shared-contract';
-  /** Identifies the thing within its kind, e.g. `<path>::<qualified rule id>`. */
   subject: string;
-  /** Changed content is a different marker, delivered again (correction H4). */
   contentHash: string;
 }
 
@@ -84,12 +60,8 @@ function markerPath(baseDir: string, key: DeliveryKey): string {
 }
 
 /**
- * `true` if this exact (epoch, agent, kind, subject, content-hash) tuple was
- * already delivered — the same rule on the same path in one epoch is
- * delivered once (correction H5); a changed content hash is a different
- * marker and is delivered again without waiting for a new session
- * (correction H4); the same rule on another path is a different marker too
- * (correction H6).
+ * Keyed by (epoch, agent, kind, subject, content hash): a changed content hash
+ * or another path is a different marker and is delivered again.
  */
 export async function alreadyDelivered(fs: FileSystem, baseDir: string, key: DeliveryKey): Promise<boolean> {
   return fs.exists(markerPath(baseDir, key));

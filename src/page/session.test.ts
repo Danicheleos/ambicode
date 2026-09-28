@@ -13,7 +13,6 @@ describe('redeeming the link token', () => {
     const sessions = store(clock);
     const capability = sessions.issueCapability();
     const first = sessions.redeemCapability(capability);
-    // Long after the browser launch: the link in chat must still open the page.
     clock.advance(25 * 60 * 1000);
     const second = sessions.redeemCapability(capability);
     assert.equal(first.kind, 'ok');
@@ -37,8 +36,6 @@ describe('redeeming the link token', () => {
     assert.equal(sessions.redeemCapability(forged).kind, 'rejected');
   });
 
-  // The link arrives as untrusted URL input. Equal in characters, unequal in
-  // bytes: a comparison that assumed otherwise threw instead of refusing.
   it('refuses, rather than throwing on, a value of the same character count but more bytes', () => {
     const sessions = store();
     const capability = sessions.issueCapability();
@@ -48,7 +45,6 @@ describe('redeeming the link token', () => {
 
     const result = sessions.redeemCapability(wide);
     assert.equal(result.kind, 'rejected');
-    // The genuine link still works afterwards.
     assert.equal(sessions.redeemCapability(capability).kind, 'ok');
   });
 });

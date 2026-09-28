@@ -16,14 +16,8 @@ import { AmbicodeError } from '../../util/errors.ts';
 import type { ParsedArgs } from '../args.ts';
 
 /**
- * `ambicode view --review <review-id-or-result-path>`: opens a saved review in
- * a local page so a human can read it and, for a merge request review, select
- * comments to publish.
- *
- * It is an ordinary helper command, not a second slash skill. Everything it
- * serves comes from the saved result and the positions derived when the review
- * ran; nothing is recomputed from the current branch or the current merge
- * request (doc 03 P1.6).
+ * Everything served comes from the saved result and the positions derived when
+ * the review ran; nothing is recomputed from the current branch or merge request.
  */
 
 export { VIEW_OPTIONS } from '../view-options.ts';
@@ -45,19 +39,15 @@ export interface ViewOutput {
   publicationAvailable: boolean;
   notes: string[];
   cleanup: SweepReport;
-  /** Resolves with why the server stopped; awaited by the CLI, not by tests. */
   stopped: Promise<string>;
   stop(reason: string): Promise<void>;
 }
 
 export interface ViewDependencies {
-  /** Injected by tests so nothing binds a socket or launches a browser. */
   listen?: boolean;
   openBrowser?: boolean;
   platform?: string;
-  /** Where the page's diagnostic lines go; dropped when absent. */
   log?: (line: string) => void;
-  /** Overrides `page.port`, so a test binds a port it chose. */
   port?: number;
 }
 
@@ -77,9 +67,8 @@ export async function runView(
   const { repositoryRoot } = await openRepository(runtime);
   const reviewDirectory = await resolveReviewDirectory(runtime, repositoryRoot, requested.trim());
 
-  // Only AMBICODE's own expired temporary directories, and only ones carrying
-  // its ownership marker. Saved results, drafts and publication history are in
-  // the repository and are never touched.
+  // Only expired temporaries carrying AMBICODE's ownership marker; saved
+  // results, drafts and publication history are never touched.
   const cleanup = await sweepOwnedTemporaries({
     fs: runtime.fs,
     clock: runtime.clock,
@@ -91,9 +80,8 @@ export async function runView(
   const positions = await store.readPositions();
   let record = await store.readPublication(result.reviewId);
 
-  // Each file already validated against its own schema; this additionally
-  // proves the three agree with each other before a provider or the page
-  // server is built on them (doc 03 P1.7 correction D).
+  // Each file is schema-valid on its own; this proves the three agree before a
+  // provider or the page server is built on them.
   validateReviewAggregate({ result, positions, record });
 
   const provider = providerFor(runtime, result);
@@ -201,10 +189,8 @@ export async function runView(
 }
 
 /**
- * A review id names a directory under one of the repository's review
- * directories; a path is accepted too, and then checked to be inside one of
- * them. Neither form may escape: a saved review is repository state, not an
- * arbitrary file to serve.
+ * An id or a path, but either must resolve inside a review directory: a saved
+ * review is repository state, not an arbitrary file to serve.
  */
 async function resolveReviewDirectory(
   runtime: Runtime,
@@ -215,8 +201,8 @@ async function resolveReviewDirectory(
 
   let candidate: string;
   if (REVIEW_ID.test(requested) && !requested.includes(path.sep) && !requested.endsWith('.json')) {
-    // The id stays short because the task directory above it already names the
-    // ticket, so the id alone does not say which root holds it. Ask each.
+    // The task directory above it names the ticket, so the id alone does not
+    // say which root holds it.
     const found: string[] = [];
     for (const root of roots) {
       const attempt = path.join(root, requested);
@@ -228,17 +214,15 @@ async function resolveReviewDirectory(
         details: [...found, 'Pass the path instead of the id.'],
       });
     }
-    // Nothing found: point the not-found message at a real place rather than
-    // at whichever root happened to be enumerated first.
+    // Nothing found: point the not-found message at a real place, not the first root enumerated.
     candidate = found[0] ?? path.join(repositoryRoot, REVIEWS_DIR, requested);
   } else {
     const absolute = path.isAbsolute(requested) ? requested : path.resolve(runtime.cwd, requested);
     candidate = absolute.endsWith('.json') ? path.dirname(absolute) : absolute;
   }
 
-  // Both sides are resolved through their links before they are compared: a
-  // temporary directory reached by a symlinked path is the same directory, and
-  // a link out of the review directory must not become a way past this check.
+  // Both sides resolve links before comparing: a symlinked temporary path is
+  // the same directory, and a link out of the review directory must not pass.
   const normalized = await resolveLinks(runtime, path.resolve(candidate));
   let inside = false;
   for (const root of roots) {
@@ -266,16 +250,7 @@ async function resolveReviewDirectory(
   return normalized;
 }
 
-/**
- * The provider that owns this review's remote, or null for a local review and
- * for a provider that does not implement publication.
- */
-/**
- * Every directory a saved review can live in: the merge-request home under
- * `REVIEWS_DIR`, and one `reviews/` leaf per task directory. A task that has
- * no review yet contributes a path that does not exist, which costs one
- * `exists` call and keeps this free of special cases.
- */
+/** A task with no review yet contributes a nonexistent path: one `exists` call, no special case. */
 async function reviewRoots(runtime: Runtime, repositoryRoot: string): Promise<string[]> {
   const roots = [path.join(repositoryRoot, REVIEWS_DIR)];
   const tasks = path.join(repositoryRoot, TASKS_DIR);

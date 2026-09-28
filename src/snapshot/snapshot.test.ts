@@ -22,8 +22,7 @@ test('U09 a snapshot holds the reviewed bytes even after the working file change
   const resolution = await resolveWorkingTarget({ fs: nodeFileSystem, git: repo.git, repositoryRoot: repo.root });
   const reviewedSnapshotId = resolution.target.snapshotId;
 
-  // Exactly the race the snapshot has to survive: the developer keeps typing,
-  // or a watcher writes, after the target was resolved.
+  // The developer keeps typing, or a watcher writes, after the target was resolved.
   await repo.write('src/app.ts', 'export const value = 2; // changed after resolution\n');
 
   const snapshot = await buildSnapshot({
@@ -40,13 +39,11 @@ test('U09 a snapshot holds the reviewed bytes even after the working file change
   assert.match(mirrored, /reviewed version/);
   assert.doesNotMatch(mirrored, /changed after resolution/);
 
-  // The patch, the mirrored file, and the identity all describe one state.
   const patch = await readFile(path.join(snapshot.directory, 'changed.diff'), 'utf8');
   assert.match(patch, /reviewed version/);
   assert.doesNotMatch(patch, /changed after resolution/);
   assert.equal(resolution.target.snapshotId, reviewedSnapshotId);
 
-  // A later review of the edited tree is a different snapshot, not the same one.
   const second = await resolveWorkingTarget({ fs: nodeFileSystem, git: repo.git, repositoryRoot: repo.root });
   assert.notEqual(second.target.snapshotId, reviewedSnapshotId);
 });
@@ -153,8 +150,6 @@ test('U09 excluded content leaves the patch, not just the mirrored tree', async 
   const resolution = await resolveWorkingTarget({ fs: nodeFileSystem, git: repo.git, repositoryRoot: repo.root });
   const reviewable = partitionChange(resolution.files);
 
-  // The reason this matters: a file kept out of files/ but left in the diff
-  // would still put its contents in front of the model.
   assert.doesNotMatch(reviewable.patch, /super-secret-value/);
   assert.doesNotMatch(reviewable.patch, /left-pad/);
   assert.match(reviewable.patch, /export const value = 2/);
@@ -182,9 +177,8 @@ test('U09 the mirrored files count against the context limit, not just the patch
   const repo = await TempRepo.create();
   t.after(() => repo.dispose());
 
-  // A tiny edit to a big file: the patch is a few bytes, but the reviewer is
-  // handed the whole file. A limit that only measured the patch would pass this
-  // through and put 40 KiB of context in front of the model.
+  // A tiny edit to a big file: a limit that only measured the patch would put
+  // 40 KiB of context in front of the model.
   const body = `${'// filler\n'.repeat(4000)}export const value = 0;\n`;
   await repo.write('src/big.ts', body);
   await repo.commitAll('init');
@@ -239,8 +233,6 @@ test('U09 sibling context is trimmed to the budget instead of refusing the chang
     'src/neighbour-2.ts',
   ]);
 
-  // Only the changed file fits. The change itself is never dropped; the
-  // discretionary context is, and the omission says so.
   const trimmed = await planSnapshot({
     files: reviewable.files,
     content: resolution.content,
@@ -271,12 +263,9 @@ test('U09 an unchanged lockfile is not context, but a changed one is still revie
     content: sourceOnly.content,
   });
 
-  // It would otherwise be the largest thing the reviewer is handed, and it says
-  // nothing about the change.
   assert.ok(!context.entries.some((entry) => entry.path === 'package-lock.json'));
   assert.ok(context.totalBytes < 1_000);
 
-  // Changing it is a different matter: that is reviewable evidence (doc 02).
   await repo.write('package-lock.json', `{"packages": ${JSON.stringify('y'.repeat(50_000))}}\n`);
   const withChange = await resolveWorkingTarget({ fs: nodeFileSystem, git: repo.git, repositoryRoot: repo.root });
   const changed = await planSnapshot({
@@ -299,8 +288,6 @@ test('U09 a changed file that will not fit blocks the review instead of being om
   const resolution = await resolveWorkingTarget({ fs: nodeFileSystem, git: repo.git, repositoryRoot: repo.root });
   const reviewable = partitionChange(resolution.files);
 
-  // Mirroring src/small.ts and dropping src/huge.ts would report on part of a
-  // change as if it were the whole one.
   await assert.rejects(
     () => planSnapshot({ files: reviewable.files, content: resolution.content, includeSiblingContext: false }),
     (error: Error & { code: string; details: string[] }) => {
@@ -308,9 +295,6 @@ test('U09 a changed file that will not fit blocks the review instead of being om
       assert.ok(error.details.some((detail) => detail.includes('src/huge.ts')));
       assert.ok(error.details.some((detail) => detail.includes('not configurable')));
       assert.ok(error.details.some((detail) => detail.includes('does not review part of a change')));
-      // Run 21f23317 ended here: the refusal named no way out, so "ignore the
-      // limit" had nothing behind it and the only route left was editing the
-      // installed bundle.
       assert.ok(
         error.details.some((detail) => detail.includes('--exclude')),
         `the refusal must name the escape; got ${JSON.stringify(error.details)}`,
@@ -324,9 +308,6 @@ test('U09 a path the operator excludes leaves the review instead of blocking it'
   const repo = await TempRepo.create();
   t.after(() => repo.dispose());
 
-  // MR 2677 (run 21f23317): main/assets/i18n/cs.json is 390,029 bytes against
-  // the 262,144-byte per-file ceiling, so one generated translation file
-  // blocked a 299-file review and no configurable limit could unblock it.
   await repo.write('src/app.ts', 'export const value = 0;\n');
   await repo.commitAll('init');
   await repo.write('src/app.ts', 'export const value = 1;\n');
@@ -348,16 +329,12 @@ test('U09 a path the operator excludes leaves the review instead of blocking it'
   });
   assert.deepEqual(plan.changedPaths, ['src/app.ts']);
 
-  // It also stops counting against the limits it was blocking.
   const measured = measureInput(reviewable.files, reviewable.patch, { snapshotBytes: plan.totalBytes });
   assert.equal(measured.changedFiles, 1);
   assert.doesNotThrow(() => enforceReviewInputLimits(measured, DEFAULTS.review, reviewable.files));
 });
 
-/**
- * A `ContentSource` that counts reads, because for a merge request each one is
- * a `glab` subprocess measured at 1.52s (F6). The count is the cost.
- */
+/** Counts reads: for a merge request each one is a `glab` subprocess, so the count is the cost. */
 function countingSource(files: Map<string, string>, tree: Map<string, string[]>) {
   const reads: string[] = [];
   const lists: string[] = [];
@@ -397,9 +374,6 @@ function diffFile(newPath: string) {
 }
 
 test('U09 every file over the per-file ceiling is named in one refusal, not one per run', async () => {
-  // Run ce05d377 paid for this twice: 15.7s to be told about
-  // main/assets/i18n/cs.json, then 385.6s to be told about package-lock.json,
-  // with a question to the user between them. A third was still to come.
   const huge = 'x'.repeat(300_000);
   const files = new Map([
     ['src/app.ts', 'export const a = 1;\n'],
@@ -426,13 +400,10 @@ test('U09 every file over the per-file ceiling is named in one refusal, not one 
     },
   );
 
-  // One pass, not one pass per oversized file.
   assert.deepEqual(counted.reads, ['src/app.ts', 'assets/i18n/cs.json', 'package-lock.json']);
 });
 
 test('U09 sibling context stops reading once it cannot use what it reads', async () => {
-  // MR 2677: 181 directories holding 606 unchanged siblings, every one fetched
-  // at 1.52s and most discarded for budget — 15.4 minutes of thrown-away work.
   const files = new Map<string, string>([['src/app.ts', 'export const a = 1;\n']]);
   const siblings: string[] = [];
   for (let index = 0; index < 400; index += 1) {
@@ -462,9 +433,6 @@ test('U09 sibling context stops reading once it cannot use what it reads', async
 });
 
 test('U09 test files are told apart from product code by unambiguous markers only', () => {
-  // 60 of MR 2677's 299 changed files are `.spec.ts`; the rest is what the
-  // reviewer's budget should go to. The directory rules matched nothing in that
-  // repository and are here for the ecosystems that use them.
   const tests = [
     'main/components/assessment-form.component.spec.ts',
     'src/orders.test.tsx',
@@ -488,9 +456,6 @@ test('U09 test files are told apart from product code by unambiguous markers onl
     );
   }
 
-  // Not tests. A silent over-exclusion drops product code from a review, so
-  // "fixtures", "testdata" and a file merely *named* after testing are left in:
-  // this repository's own `fixtures/` holds shipped fixture repositories.
   const code = [
     'main/components/assessment-form.component.ts',
     'src/testing/fake-process-runner.ts',
@@ -508,8 +473,6 @@ test('U09 test files are told apart from product code by unambiguous markers onl
     );
   }
 
-  // Off unless asked for: a local review of your own work should see the tests
-  // it just wrote.
   assert.equal(pathExclusionReason('src/orders.spec.ts'), null);
 });
 
@@ -525,9 +488,6 @@ test('U09 a file kept out of the review does not come back as context beside it'
 
   const resolution = await resolveWorkingTarget({ fs: nodeFileSystem, git: repo.git, repositoryRoot: repo.root });
 
-  // Measured on MR 2677 before this: the result said "the change's test code
-  // was not reviewed" while six of those .spec.ts files were in the snapshot,
-  // put back as neighbours of a changed file and readable by the reviewer.
   const excluded = await planSnapshot({
     files: partitionChange(resolution.files).files,
     content: resolution.content,

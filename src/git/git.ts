@@ -4,7 +4,7 @@ import { AmbicodeError } from '../util/errors.ts';
 /**
  * Every git invocation goes through here with external diff drivers and
  * textconv filters disabled, so a repository's own configuration cannot change
- * what AMBICODE reads or run a program of its choosing (doc 02).
+ * what AMBICODE reads or run a program of its choosing.
  */
 const SAFE_CONFIG = [
   '-c', 'core.quotepath=false',
@@ -19,9 +19,7 @@ const GIT_MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
 export interface GitOptions {
   runner: ProcessRunner;
   repositoryRoot: string;
-  /** Overrides for the fetch store used by remote snapshots. */
   gitDir?: string;
-  /** Extra environment, used to point git at a throwaway index file. */
   extraEnv?: Record<string, string>;
 }
 
@@ -37,10 +35,8 @@ export class Git {
   }
 
   /**
-   * The same invocation, keeping the exit code. Only a caller for which a
-   * nonzero status is an *answer* rather than a failure needs it: `git grep`
-   * exits 1 to say "no file matched", which is a fact, while anything above 1
-   * is a real error that must not be read as an empty result (R4).
+   * Keeps the exit code for callers where nonzero is an answer: `git grep` exits
+   * 1 for "no match", while anything above 1 must not be read as an empty result.
    */
   private async execOutcome(
     args: readonly string[],
@@ -52,16 +48,13 @@ export class Git {
       cwd: this.options.repositoryRoot,
       timeoutMs: GIT_TIMEOUT_MS,
       maxOutputBytes: GIT_MAX_OUTPUT_BYTES,
-      // Git reads the operator's own configuration, credential helpers and
-      // ssh agent, so it runs with the inherited environment plus narrow
-      // overrides (doc 02). The reviewer's policy is a different one.
+      // Git needs the operator's own configuration, credential helpers and ssh
+      // agent, so it inherits the environment plus narrow overrides.
       env: {
         kind: 'inherited',
         overrides: {
           GIT_OPTIONAL_LOCKS: '0',
           GIT_TERMINAL_PROMPT: '0',
-          // git is translated. Pin the locale so diagnostics AMBICODE surfaces
-          // to the user are the messages this codebase was written against.
           LC_ALL: 'C',
           LANG: 'C',
           ...this.options.extraEnv,
@@ -89,15 +82,13 @@ export class Git {
   }
 
   /**
-   * A view of the same repository that writes index changes to `indexFile`
-   * instead of `.git/index`, so inspecting the working tree cannot alter the
-   * developer's staged state (doc 02, "Preserve index bytes").
+   * Writes index changes to `indexFile` instead of `.git/index`, so inspecting
+   * the working tree cannot alter the developer's staged state.
    */
   withIndexFile(indexFile: string): Git {
     return new Git({ ...this.options, extraEnv: { ...this.options.extraEnv, GIT_INDEX_FILE: indexFile } });
   }
 
-  /** Marks untracked, non-ignored files as intent-to-add in the current index. */
   async markIntentToAdd(): Promise<void> {
     await this.exec(['add', '--intent-to-add', '--', '.'], true);
   }
@@ -110,10 +101,6 @@ export class Git {
     return (await this.status()).trim() !== '';
   }
 
-  /**
-   * Porcelain status including untracked files, used to notice that a command
-   * created, removed, or staged something while it ran.
-   */
   async status(): Promise<string> {
     return await this.exec(['status', '--porcelain', '-z', '--untracked-files=all'], true);
   }
@@ -133,7 +120,6 @@ export class Git {
   }
 
   async revParse(ref: string): Promise<string | null> {
-    // `--` separates the revision from any path with the same name.
     const output = await this.exec(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], true);
     const sha = output.trim();
     return sha === '' ? null : sha;
@@ -145,7 +131,6 @@ export class Git {
     return sha === '' ? null : sha;
   }
 
-  /** The fetch URL of a remote, or null when the checkout has no such remote. */
   async remoteUrl(name: string): Promise<string | null> {
     const url = (await this.exec(['remote', 'get-url', '--', name], true)).trim();
     return url === '' ? null : url;
@@ -158,10 +143,7 @@ export class Git {
     return ref.replace(/^refs\/remotes\//, '');
   }
 
-  /** Paths git reports as unmerged. A non-empty list blocks working review. */
   async unmergedPaths(): Promise<string[]> {
-    // `ls-files --unmerged` reads the index directly, so it reports a conflict
-    // whether or not the working files have been touched since.
     const output = await this.exec(['ls-files', '--unmerged', '-z'], true);
     const paths = new Set<string>();
     for (const record of splitNul(output)) {
@@ -176,7 +158,6 @@ export class Git {
     return splitNul(output);
   }
 
-  /** `--raw -z`: the authoritative change list, free of path-quoting ambiguity. */
   async rawDiff(args: readonly string[]): Promise<RawChange[]> {
     const output = await this.exec(['diff', '--no-ext-diff', '--no-textconv', '-M', '--raw', '-z', ...args]);
     return parseRawZ(output);
@@ -194,7 +175,6 @@ export class Git {
     ]);
   }
 
-  /** File bytes at a revision. Returns null when the path is absent there. */
   async showFile(revision: string, repositoryRelativePath: string): Promise<string | null> {
     const spec = `${revision}:${repositoryRelativePath}`;
     const kind = (await this.exec(['cat-file', '-t', spec], true)).trim();
@@ -202,7 +182,6 @@ export class Git {
     return await this.exec(['show', spec]);
   }
 
-  /** Immediate file names inside a directory at a revision; directories are dropped. */
   async listTree(revision: string, directoryName: string): Promise<string[]> {
     const spec = directoryName === '' ? `${revision}:` : `${revision}:${directoryName}`;
     const output = await this.exec(['ls-tree', '-z', spec], true);
@@ -218,12 +197,6 @@ export class Git {
     return names;
   }
 
-  /**
-   * Every path in the work tree the developer can see: tracked files plus
-   * untracked ones their ignore rules do not exclude. Used by the boundary
-   * shortlist (R4), which must consider a file the author just created as
-   * readily as one that has been committed for years.
-   */
   async listFiles(pathspec: string | null): Promise<string[]> {
     const output = await this.exec([
       'ls-files',
@@ -238,14 +211,8 @@ export class Git {
   }
 
   /**
-   * Paths whose contents hold `term` as a fixed, case-insensitive string.
-   * Fixed (`-F`) because a term comes from a request or a requirement
-   * document and is not a regular expression the caller wrote; `-I` because a
-   * binary hit is not evidence a person can read.
-   *
-   * Exit 1 means git searched and found nothing, which is an answer. Anything
-   * above it is a failure and is raised, so an unreadable repository never
-   * arrives as "no file matched".
+   * Fixed-string (`-F`) because a term is not a regular expression the caller
+   * wrote; `-I` because a binary hit is not evidence a person can read.
    */
   async grepFiles(term: string, pathspec: string | null): Promise<string[]> {
     const outcome = await this.execOutcome(
@@ -272,13 +239,9 @@ export class Git {
   }
 
   /**
-   * The most recent non-merge commits that touched any of `paths`, newest
-   * first and never more than `limit` of them. A merge carries no file list of
-   * its own under `--name-only`, so excluding merges keeps the commit count
-   * and the per-file counts derived from it talking about the same thing.
-   *
-   * A repository with no commits yet answers with nothing rather than failing:
-   * "too little history" is a limitation the caller reports, not an error.
+   * Merges are excluded: under `--name-only` a merge lists no files, so commit
+   * and per-file counts would disagree. A repository with no commits yet makes
+   * git fail, which answers empty rather than raising.
    */
   async commitsTouching(paths: readonly string[], limit: number): Promise<string[]> {
     if (paths.length === 0 || limit <= 0) return [];
@@ -294,12 +257,8 @@ export class Git {
   }
 
   /**
-   * The paths each of `commits` changed, grouped by commit. `--no-walk`
-   * reports exactly the commits given rather than their ancestry, and under
-   * `-z` the stream is `<sha> NUL LF <path> NUL <path> NUL <sha> NUL ...`, so
-   * the commit list from `commitsTouching` is what tells a boundary record
-   * apart from a path, rather than a guess about what a 40-character name
-   * means.
+   * Under `-z` the stream is `<sha> NUL LF <path> NUL ... <sha> NUL ...`; the
+   * given `commits` tell a boundary record from a path, not a guess about names.
    */
   async commitFileLists(commits: readonly string[]): Promise<{ commit: string; paths: string[] }[]> {
     if (commits.length === 0) return [];
@@ -338,21 +297,16 @@ export interface RawChange {
 }
 
 /**
- * A pathspec that means exactly this path: git's wildcard and magic syntax is
- * off, and the path is read from the repository root whatever the process's
- * working directory is. Without it a file legitimately named `*.ts` would be
- * read as a pattern.
+ * A literal pathspec from the repository root: without it a file named `*.ts`
+ * would be read as a pattern.
  */
 export function literalPathspec(repositoryRelativePath: string): string {
   return `:(literal,top)${repositoryRelativePath}`;
 }
 
 /**
- * Host and project path of a remote URL, in any of git's three spellings:
- * `https://host/group/project.git`, `ssh://git@host:22/group/project.git` and
- * `git@host:group/project.git`. Null for anything else, such as a local path.
- * Deliberately returns no user, password or port: a remote URL can carry a
- * token, and what callers do with this is print it.
+ * Host and project path of an https, ssh or scp-like remote URL; null otherwise.
+ * Never returns user, password or port: a URL can carry a token, and callers print this.
  */
 export function parseRemoteProject(url: string): { host: string; path: string } | null {
   const trimmed = url.trim();
@@ -387,8 +341,7 @@ export function splitNul(output: string): string[] {
 
 /**
  * `:<oldmode> <newmode> <oldsha> <newsha> <status>\0<path>[\0<newpath>]\0`
- * Paths arrive as their own NUL-terminated fields, so spaces, newlines, and
- * option-like names need no escaping (doc 02).
+ * Paths are their own NUL-terminated fields, so no name needs escaping.
  */
 export function parseRawZ(output: string): RawChange[] {
   const fields = output.split('\0');

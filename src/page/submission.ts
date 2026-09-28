@@ -1,14 +1,10 @@
 /**
- * What a submitted form is allowed to contain, and nothing else.
- *
- * The server takes the target, the provider, the paths, the SHAs and the
- * positions from its own validated state. A form may carry only which findings
- * were checked, the text the human wrote, and the two fields that identify the
- * submission itself. Anything else is refused rather than ignored, because a
- * field that is ignored is a field somebody will eventually rely on.
+ * A form may carry only the checked findings, the human's text and the fields
+ * identifying the submission. Anything else is refused rather than ignored,
+ * because an ignored field is one somebody will eventually rely on.
  */
 
-/** One comment, bounded. Longer than this is a paste, not a review comment. */
+/** Longer than this is a paste, not a review comment. */
 export const MAX_FIELD_BYTES = 16 * 1024;
 export const SELECT_PREFIX = 'select_';
 export const BODY_PREFIX = 'body_';
@@ -18,14 +14,12 @@ export type ParsedSubmission =
   | {
       kind: 'ok';
       submissionId: string;
-      /** Finding id to the exact text submitted. */
       drafts: Map<string, string>;
       selected: Set<string>;
     }
   | {
       kind: 'invalid';
       errors: string[];
-      /** Preserved for redisplay: the human's own words are not thrown away. */
       drafts: Map<string, string>;
       selected: Set<string>;
     };
@@ -33,7 +27,6 @@ export type ParsedSubmission =
 export interface ParseSubmissionOptions {
   body: unknown;
   knownFindingIds: ReadonlySet<string>;
-  /** Findings with an exact saved position; only these may be selected. */
   publishableFindingIds: ReadonlySet<string>;
 }
 
@@ -101,8 +94,6 @@ export function parseSubmission(options: ParseSubmissionOptions): ParsedSubmissi
       continue;
     }
 
-    // Everything else, including any attempt to supply a target, a path, a
-    // SHA, a line or a provider.
     errors.push(
       `The field "${name}" is not part of this form. Positions, paths, revisions and the merge request are taken from the saved review, never from a submission.`,
     );

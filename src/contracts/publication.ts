@@ -3,22 +3,13 @@ import { PublicationState, ProviderId } from './primitives.ts';
 import { RemotePosition, RemoteTarget } from './provider.ts';
 
 /**
- * What survives a review's temporary snapshot: the exact remote position of
- * every publishable finding, the human's drafts, and what was actually
- * published (doc 03 P1.6).
- *
- * Positions are derived once, while the pinned diff is still in hand, and read
- * back verbatim afterwards. Reopening a saved review never recomputes a
- * position from the current branch or the current merge request, because the
- * current merge request is not what was reviewed.
- *
- * Nothing here may hold a capability, a session id, a cookie or CSRF secret, a
- * glab token, or any model or provider credential.
+ * Positions are derived once from the pinned diff and never recomputed on reopen:
+ * the current merge request is not what was reviewed. Nothing here may hold a
+ * capability, session id, cookie, CSRF secret, glab token, or any credential.
  */
 
 export const PUBLICATION_SCHEMA_VERSION = 1;
 
-/** One finding's pinned position, with the digest a marker carries. */
 export const PersistedPosition = z.strictObject({
   findingId: z.string().min(1),
   provider: ProviderId,
@@ -29,12 +20,10 @@ export const PersistedPosition = z.strictObject({
   webUrl: z.string().min(1),
   versionId: z.number().int().positive(),
   position: RemotePosition,
-  /** Stable over the review's lifetime; identifies this exact placement. */
   digest: z.string().min(1),
 });
 export type PersistedPosition = z.infer<typeof PersistedPosition>;
 
-/** A finding that has no exact remote position, and why. Never publishable. */
 export const UnplaceableFinding = z.strictObject({
   findingId: z.string().min(1),
   reason: z.string().min(1),
@@ -51,7 +40,6 @@ export const PublicationPositions = z.strictObject({
 });
 export type PublicationPositions = z.infer<typeof PublicationPositions>;
 
-/** The human's editable text for one finding, and whether they selected it. */
 export const CommentDraft = z.strictObject({
   findingId: z.string().min(1),
   body: z.string(),
@@ -60,11 +48,7 @@ export const CommentDraft = z.strictObject({
 });
 export type CommentDraft = z.infer<typeof CommentDraft>;
 
-/**
- * What happened to one comment. `body` is the human's visible text exactly as
- * they submitted it, without the hidden marker: a redisplay must show what they
- * wrote, not what was transmitted.
- */
+/** `body` excludes the hidden marker: a redisplay must show what the human wrote, not what was sent. */
 export const PublicationOutcome = z.strictObject({
   findingId: z.string().min(1),
   state: PublicationState,
@@ -79,14 +63,11 @@ export const PublicationOutcome = z.strictObject({
 });
 export type PublicationOutcome = z.infer<typeof PublicationOutcome>;
 
-/** One human submission. Several may exist: a retry is a new submission. */
 export const SubmissionRecord = z.strictObject({
   submissionId: z.string().min(1),
   submittedAt: z.string().min(1),
-  /** True when the run stopped before sending everything selected. */
   stopped: z.boolean(),
   stoppedReason: z.string().nullable().default(null),
-  /** The revision state observed immediately before the run. */
   revisionState: z.string().nullable().default(null),
   outcomes: z.array(PublicationOutcome).default([]),
 });
@@ -97,7 +78,7 @@ export const PublicationRecord = z.strictObject({
   reviewId: z.string().min(1),
   updatedAt: z.string().min(1),
   drafts: z.array(CommentDraft).default([]),
-  /** The current state of each finding: the newest outcome wins. */
+  /** The newest outcome per finding wins. */
   outcomes: z.array(PublicationOutcome).default([]),
   submissions: z.array(SubmissionRecord).default([]),
 });
@@ -114,11 +95,7 @@ export function emptyPublicationRecord(reviewId: string, at: string): Publicatio
   };
 }
 
-/**
- * Whether a state means the comment exists on the merge request. Re-sending one
- * of these would duplicate a published comment, so the publication run refuses
- * to, whatever the form asked for.
- */
+/** The comment exists on the merge request; re-sending it would duplicate it, so publication refuses. */
 export function isSettled(state: PublicationState): boolean {
   return state === 'published' || state === 'already-published';
 }

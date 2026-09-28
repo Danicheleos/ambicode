@@ -13,15 +13,11 @@ import { formatJsonOutput } from '../util/json-output.ts';
 import type { PrepareOutput } from '../contracts/prepare.ts';
 import { parseArgs as parseCliArgs, type OptionSpec, type ParsedArgs } from './args.ts';
 import { INIT_OPTIONS, runInit } from './commands/init.ts';
-import { PREPARE_OPTIONS, runPrepare as runPrepareCommand } from './commands/prepare.ts';
+import { PREPARE_OPTIONS, renderPrepare, runPrepare as runPrepareCommand } from './commands/prepare.ts';
 
 /**
- * R2 moved the full `prepare` shape behind `--verbose` and made a compact
- * projection the default. Every assertion in this file is about the full
- * shape — it is the one that still carries `policy.rules`, per-rule
- * authority, and the contract's text — so these two helpers add the flag
- * through the real parser once instead of at forty-six call sites. The
- * compact default has its own tests in `context-cost.test.ts`.
+ * Every assertion here is about the full shape, so these helpers add `--verbose`
+ * through the real parser; the compact default is tested in `context-cost.test.ts`.
  */
 function parseArgs(command: string, argv: readonly string[], spec: OptionSpec): ParsedArgs {
   return parseCliArgs(command, command === 'prepare' ? [...argv, '--verbose'] : [...argv], spec);
@@ -29,7 +25,7 @@ function parseArgs(command: string, argv: readonly string[], spec: OptionSpec): 
 
 async function runPrepare(runtime: Runtime, args: ParsedArgs): Promise<PrepareOutput> {
   const run = await runPrepareCommand(runtime, args);
-  assert.equal(run.json, 'pretty', 'this file exercises the verbose shape');
+  assert.equal(run.shape, 'verbose', 'this file exercises the verbose shape');
   return run.data as PrepareOutput;
 }
 
@@ -42,7 +38,6 @@ const CONFIG_TAIL = [
   'remoteChecks: { image: null }',
 ].join('\n');
 
-/** Records only the executables invoked, so a test can prove nothing but git ran. */
 function recordingRunner(inner: ProcessRunner): { runner: ProcessRunner; executables: string[] } {
   const executables: string[] = [];
   return {
@@ -161,8 +156,7 @@ describe('P2.1 ambicode prepare', () => {
       );
       assert.equal(output.command, 'prepare');
       assert.equal(output.activity, 'investigate');
-      // The canonical, activity-neutral value (doc 04 P2.2 correction C) —
-      // not review's own `quality-review` spelling, which only ReviewResult uses.
+      // The activity-neutral value, not the `quality-review` spelling only ReviewResult uses.
       assert.equal(output.requirementMode, 'source-free');
       assert.deepEqual(output.requirements, []);
       assert.ok(output.projectId.length > 0);
@@ -171,12 +165,9 @@ describe('P2.1 ambicode prepare', () => {
       assert.equal(output.navigation.serverCommand, 'typescript-language-server');
       assert.equal(output.navigation.statusSource, 'current-session');
       assert.match(output.navigation.evidenceRequirement, /Report the LSP operations used/);
-      // Run 3c2188c8 read 40 files whole for 207,655 bytes without opening
-      // prepare-output.md, where the span rule used to live alone.
+      assert.match(output.navigation.evidenceRequirement, /"No LSP tools in this session" is complete/);
       assert.match(output.navigation.readGuidance, /spans/i);
-      // R4: no terms and no requirement evidence, so there was nothing to
-      // build a shortlist from. Absent means "not asked for", never "nothing
-      // in this repository matches".
+      // Absent means "not asked for", never "nothing in this repository matches".
       assert.equal(output.navigation.shortlist, undefined);
     } finally {
       await repo.dispose();
@@ -193,21 +184,18 @@ describe('P2.1 ambicode prepare', () => {
         'ambiguous-project',
       );
 
-      // Resolved once an explicit --project is given.
       const byProject = await runPrepare(
         runtime,
         parseArgs('prepare', ['--activity', 'investigate', '--project', 'api'], PREPARE_OPTIONS),
       );
       assert.equal(byProject.projectId, 'api');
 
-      // Resolved once the given paths land inside exactly one project's root.
       const byPath = await runPrepare(
         runtime,
         parseArgs('prepare', ['--activity', 'investigate', 'web/src/app.ts'], PREPARE_OPTIONS),
       );
       assert.equal(byPath.projectId, 'web');
 
-      // Paths spanning two projects are exactly as ambiguous as no paths at all.
       assert.equal(
         await code(
           runPrepare(
@@ -378,7 +366,7 @@ describe('P2.1 ambicode prepare', () => {
                 'investigate',
                 '--requirement',
                 'https://example.atlassian.net/browse/ORD-1',
-                // Same document, trailing slash: canonically identical (case 05).
+                // Same document, trailing slash: canonically identical.
                 '--requirement',
                 'https://example.atlassian.net/browse/ORD-1/',
               ],
@@ -401,7 +389,6 @@ describe('P2.1 ambicode prepare', () => {
       const runtime = await createRuntime({ cwd: repo.root });
       await runInit(runtime, parseArgs('init', [], INIT_OPTIONS));
 
-      // No --evidence at all.
       assert.equal(
         await code(
           runPrepare(
@@ -416,7 +403,6 @@ describe('P2.1 ambicode prepare', () => {
         'requirements-not-retrieved',
       );
 
-      // --evidence names a file that does not exist.
       assert.equal(
         await code(
           runPrepare(
@@ -438,7 +424,6 @@ describe('P2.1 ambicode prepare', () => {
         'requirements-unreadable',
       );
 
-      // Evidence names a different MCP server than the one this repository is bound to.
       await repo.write(
         '.ambicode/config.yaml',
         (await nodeFileSystem.readText(path.join(repo.root, '.ambicode/config.yaml'))).replace(
@@ -502,7 +487,6 @@ describe('P2.1 ambicode prepare', () => {
         parseArgs('prepare', ['--activity', 'investigate'], PREPARE_OPTIONS),
       );
       assert.equal(output.policy.activity, 'investigate');
-      // common-quality is a builtin pack enabled by init and declares `investigate`.
       assert.ok(output.policy.packs.some((pack) => pack.reference === 'builtin/common-quality'));
     } finally {
       await repo.dispose();
@@ -523,7 +507,6 @@ describe('P2.1 ambicode prepare', () => {
 
       await runPrepare(runtime, parseArgs('prepare', ['--activity', 'investigate'], PREPARE_OPTIONS));
 
-      // Only git ran (repository/topLevel resolution) — no lint/test/reviewer/glab process.
       assert.ok(runner.executables.length > 0);
       assert.ok(runner.executables.every((exe) => exe === 'git'), `unexpected process: ${runner.executables.join(', ')}`);
       assert.deepEqual(fs.writes, []);
@@ -541,9 +524,7 @@ describe('P2.1 ambicode prepare', () => {
       const setup = await createRuntime({ cwd: repo.root });
       await runInit(setup, parseArgs('init', [], INIT_OPTIONS));
 
-      // Two distinct sources the retrieving session itself flagged as
-      // contradicting each other — the case code cannot find in prose on its
-      // own (doc 05, "conflicts is where you report a contradiction ...").
+      // A contradiction flagged by the retrieving session: code cannot find one in prose.
       await repo.write(
         'evidence.json',
         JSON.stringify({
@@ -597,8 +578,8 @@ describe('P2.1 ambicode prepare', () => {
         ),
         'requirements-conflicting',
       );
-      // Requirements are normalized before project/policy resolution, so
-      // nothing beyond the git calls `openWorkspace` itself needs even ran.
+      // Requirements are normalized before project/policy resolution, so only
+      // the git calls `openWorkspace` needs ran.
       assert.ok(runner.executables.every((exe) => exe === 'git'));
     } finally {
       await repo.dispose();
@@ -656,9 +637,7 @@ describe('P2.1 ambicode prepare', () => {
         ),
       );
 
-      // The requirement is carried as opaque evidence...
       assert.equal(withHostileRequirement.requirements[0]?.content, hostileContent);
-      // ...and never reaches, let alone changes, policy or its command decisions.
       assert.deepEqual(withHostileRequirement.policy.commandDecisions, baseline.policy.commandDecisions);
       assert.deepEqual(withHostileRequirement.policy.packs, baseline.policy.packs);
     } finally {
@@ -668,10 +647,8 @@ describe('P2.1 ambicode prepare', () => {
 });
 
 /**
- * A project-owned pack with one prompt per stage, so P2.2 correction D's
- * stage filtering and content delivery has something real to exercise: a
- * `before-work`/`before-report` pair `plan`/`investigate` should receive, and
- * a `before-review` prompt — reviewer-only — that neither should.
+ * One prompt per stage: a `before-work`/`before-report` pair `plan`/`investigate`
+ * should receive, and a reviewer-only `before-review` that neither should.
  */
 async function repoWithPlanningPack(): Promise<TempRepo> {
   const repo = await TempRepo.create();
@@ -749,8 +726,6 @@ describe('P2.2 ambicode prepare — plan policy resolution and prompt content', 
       for (const prompt of output.policy.prompts) {
         assert.equal(prompt.authority, 'team');
         assert.equal(prompt.packId, 'planning-guidance');
-        // The delivered content is exactly what hashes to the recorded contentHash:
-        // "hash-verified content matching the delivered content" (doc 04 P2.2).
         assert.equal(contentHash(prompt.content), prompt.contentHash);
       }
       const beforeWork = output.policy.prompts.find((prompt) => prompt.stage === 'before-work');
@@ -758,8 +733,6 @@ describe('P2.2 ambicode prepare — plan policy resolution and prompt content', 
       const beforeReport = output.policy.prompts.find((prompt) => prompt.stage === 'before-report');
       assert.ok(beforeReport?.content.includes('State assumptions'));
 
-      // Reviewer-only content must not leak into planning, even though the
-      // pack applies to `plan` and declares a before-review prompt too.
       assert.ok(!output.policy.prompts.some((prompt) => prompt.stage === 'before-review'));
     } finally {
       await repo.dispose();
@@ -953,7 +926,6 @@ describe('P2.2 ambicode prepare — plan policy resolution and prompt content', 
 
       await runPrepare(runtime, parseArgs('prepare', ['--activity', 'plan'], PREPARE_OPTIONS));
 
-      // Only git ran; no lint/test/reviewer/glab process, and no filesystem write.
       assert.ok(runner.executables.length > 0);
       assert.ok(runner.executables.every((exe) => exe === 'git'), `unexpected process: ${runner.executables.join(', ')}`);
       assert.deepEqual(fs.writes, []);
@@ -1005,7 +977,7 @@ describe('P2.3 ambicode prepare — correction B: complete and bounded policy', 
   it('blocks rather than silently omitting when an applicable prompt exceeds the per-file content limit', async () => {
     const repo = await repoWithPlanningPack();
     try {
-      // MAX_SNAPSHOT_FILE_BYTES is 262144; comfortably exceed it.
+      // MAX_SNAPSHOT_FILE_BYTES is 262144.
       await repo.write('.ambicode/policies/prompts/before-work.md', 'x'.repeat(300_000));
       const runtime = await createRuntime({ cwd: repo.root });
 
@@ -1024,13 +996,8 @@ describe('P2.3 ambicode prepare — correction B: complete and bounded policy', 
       const promptPath = path.join(repo.root, '.ambicode/policies/prompts/before-work.md');
       const original = await nodeFileSystem.readText(promptPath);
 
-      // A fake FileSystem that returns the original content on the resolver's
-      // own read (used to compute the recorded contentHash) and a changed
-      // body on every read after that, simulating a same-run race between
-      // policy resolution and content delivery without needing two processes.
-      // `resolveInsideBoundary` realpath-resolves the path before reading it,
-      // so match by suffix rather than by exact string identity with the
-      // (non-realpath'd) path this test built.
+      // The resolver's first read records contentHash; later reads see a changed
+      // body. Matched by suffix because `resolveInsideBoundary` realpaths first.
       let reads = 0;
       const racedFs: FileSystem = {
         ...nodeFileSystem,
@@ -1082,9 +1049,8 @@ describe('P2.3 ambicode prepare — correction B: complete and bounded policy', 
   it('blocks aggregate overflow from several individually valid prompts, even though none alone exceeds the per-file limit', async () => {
     const repo = await repoWithPlanningPack();
     try {
-      // Each pack/prompt is individually tiny and well under
-      // MAX_SNAPSHOT_FILE_BYTES; only the configured aggregate context budget
-      // is small enough for their sum to exceed it.
+      // Each prompt is well under MAX_SNAPSHOT_FILE_BYTES; only the configured
+      // aggregate budget is small enough for their sum to exceed.
       for (const n of [1, 2, 3]) {
         await repo.write(
           `.ambicode/policies/extra-${n}.yaml`,
@@ -1189,10 +1155,6 @@ describe('P2.3 ambicode prepare — correction B: complete and bounded policy', 
           !output.provenance.some((entry) => entry.kind === 'prompt' && entry.reference.includes('before-review')),
           `${activity} must not claim provenance for the filtered-out before-review prompt`,
         );
-        // Every prompt-kind provenance entry corresponds to actually-delivered
-        // content: either a stage-filtered pack prompt, or the canonical
-        // shared operating contract every activity receives (P2.4 correction
-        // A4), never a reference to something filtered out.
         const deliveredReferences = new Set([
           ...output.policy.prompts.map((prompt) => `${prompt.packReference}:${prompt.declaredPath}@${prompt.stage}`),
           output.sharedOperatingContract.reference,
@@ -1228,16 +1190,12 @@ describe('P2.4 correction A4: shared operating contract delivered through prepar
       assert.equal(output.sharedOperatingContract.contentHash, contentHash(actualContent));
       assert.equal(output.sharedOperatingContract.reference, 'builtin/prompts/shared-operating-contract.md');
 
-      // Counted in provenance, exactly once.
       const matches = output.provenance.filter(
         (entry) => entry.kind === 'prompt' && entry.reference === output.sharedOperatingContract.reference,
       );
       assert.equal(matches.length, 1);
       assert.equal(matches[0]?.contentHash, output.sharedOperatingContract.contentHash);
 
-      // Counted in the aggregate budget: the raw serialized draft already
-      // includes the field, so this is really asserting it was not measured
-      // as an afterthought bolted on outside the JSON that was actually sent.
       const serialized = JSON.stringify(output);
       assert.ok(serialized.includes(JSON.stringify(output.sharedOperatingContract.content)));
     } finally {
@@ -1258,14 +1216,10 @@ describe('P2.4 correction A4: shared operating contract delivered through prepar
         parseArgs('prepare', ['--activity', 'task'], PREPARE_OPTIONS),
       );
 
-      // The same canonical serializer the CLI's --json dispatch uses
-      // (src/cli/main.ts), applied to the exact object `runPrepare` returned.
+      // The serializer the CLI's `--json` dispatch uses.
       const actualCliStdout = formatJsonOutput(output);
       assert.equal(Buffer.byteLength(actualCliStdout, 'utf8'), output.contextBudget.measuredBytes);
 
-      // And round-tripping that exact text reproduces the same value again,
-      // proving the self-reference was actually resolved to a fixed point
-      // rather than merely happening to match once.
       const parsedBack = JSON.parse(actualCliStdout);
       assert.equal(parsedBack.contextBudget.measuredBytes, output.contextBudget.measuredBytes);
     } finally {
@@ -1287,6 +1241,115 @@ describe('P2.4 correction A4: shared operating contract delivered through prepar
         hashes.add(output.sharedOperatingContract.contentHash);
       }
       assert.equal(hashes.size, 1, 'every activity must receive the identical canonical content');
+    } finally {
+      await repo.dispose();
+    }
+  });
+});
+
+describe('prepare output shape', () => {
+  it('emits the default projection on one line, navigation before policy, with measuredBytes matching those bytes', async () => {
+    const repo = await TempRepo.create();
+    try {
+      await repo.write('src/app.ts', 'export const a = 1;\n');
+      await repo.commitAll('initial');
+      const runtime = await createRuntime({ cwd: repo.root });
+      await runInit(runtime, parseArgs('init', [], INIT_OPTIONS));
+
+      const run = await runPrepareCommand(
+        runtime,
+        parseCliArgs('prepare', ['--activity', 'task'], PREPARE_OPTIONS),
+      );
+      assert.equal(run.shape, 'compact', 'the default is still the compact projection');
+      assert.equal(run.json, 'compact', 'pretty-printing did not deter truncation, so the default is one line');
+
+      const emitted = formatJsonOutput(run.data, run.json);
+      assert.equal(emitted.indexOf('\n'), emitted.length - 1, 'one line, one trailing newline');
+      assert.equal(Buffer.byteLength(emitted, 'utf8'), run.data.contextBudget.measuredBytes);
+
+      const keys = Object.keys(JSON.parse(emitted) as Record<string, unknown>);
+      assert.ok(
+        keys.indexOf('navigation') !== -1 && keys.indexOf('navigation') < keys.indexOf('policy'),
+        `navigation must precede policy; got ${keys.join(', ')}`,
+      );
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it('marks a command the config sets to null as unavailable, in both shapes and in text', async () => {
+    const repo = await TempRepo.create();
+    try {
+      await repo.write('src/app.ts', 'export const a = 1;\n');
+      await repo.commitAll('initial');
+      const runtime = await createRuntime({ cwd: repo.root });
+      await runInit(runtime, parseArgs('init', [], INIT_OPTIONS));
+      // init nulls undetected commands while builtin/common-checks still declares `run`.
+      const config = await nodeFileSystem.readText(path.join(repo.root, '.ambicode/config.yaml'));
+      assert.match(config, /lint: null/);
+
+      const compact = await runPrepareCommand(runtime, parseCliArgs('prepare', ['--activity', 'task'], PREPARE_OPTIONS));
+      const compactDecisions = (compact.data as { policy: { commandDecisions?: Array<Record<string, unknown>> } }).policy
+        .commandDecisions ?? [];
+      const lint = compactDecisions.find((decision) => decision.command === 'lint');
+      assert.ok(lint !== undefined, 'the pack still declares lint');
+      assert.equal(lint.action, 'run', 'pack permission is reported unchanged');
+      assert.equal(lint.unavailable, true, 'but a null command must say it never runs');
+
+      const verboseRun = await runPrepareCommand(
+        runtime,
+        parseCliArgs('prepare', ['--activity', 'task', '--verbose'], PREPARE_OPTIONS),
+      );
+      const verboseLint = (verboseRun.data as PrepareOutput).policy.commandDecisions.find(
+        (decision) => decision.command === 'lint',
+      );
+      assert.equal(verboseLint?.unavailable, true);
+      assert.match(renderPrepare(verboseRun), /lint: run \(unavailable: null in config, never runs\)/);
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it('does not mark a configured command unavailable', async () => {
+    const repo = await TempRepo.create();
+    try {
+      await repo.write('src/app.ts', 'export const a = 1;\n');
+      await repo.commitAll('initial');
+      const runtime = await createRuntime({ cwd: repo.root });
+      await runInit(runtime, parseArgs('init', [], INIT_OPTIONS));
+      const configPath = path.join(repo.root, '.ambicode/config.yaml');
+      const config = await nodeFileSystem.readText(configPath);
+      // The first `lint: null` must be the command catalog's, not the project's `checks` entry.
+      const firstNull = config.indexOf('lint: null');
+      assert.ok(firstNull > config.indexOf('commands:') && firstNull < config.lastIndexOf('checks:'));
+      await nodeFileSystem.writeText(configPath, config.replace('lint: null', 'lint: { argv: ["node", "--version"] }'));
+
+      const verbose = await runPrepare(runtime, parseArgs('prepare', ['--activity', 'task'], PREPARE_OPTIONS));
+      const lint = verbose.policy.commandDecisions.find((decision) => decision.command === 'lint');
+      assert.ok(lint !== undefined);
+      assert.equal('unavailable' in lint, false);
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it('orders navigation before policy in the verbose shape too', async () => {
+    const repo = await TempRepo.create();
+    try {
+      await repo.write('src/app.ts', 'export const a = 1;\n');
+      await repo.commitAll('initial');
+      const runtime = await createRuntime({ cwd: repo.root });
+      await runInit(runtime, parseArgs('init', [], INIT_OPTIONS));
+
+      const run = await runPrepareCommand(
+        runtime,
+        parseCliArgs('prepare', ['--activity', 'task', '--verbose'], PREPARE_OPTIONS),
+      );
+      const keys = Object.keys(JSON.parse(formatJsonOutput(run.data, run.json)) as Record<string, unknown>);
+      assert.ok(
+        keys.indexOf('navigation') !== -1 && keys.indexOf('navigation') < keys.indexOf('policy'),
+        `navigation must precede policy; got ${keys.join(', ')}`,
+      );
     } finally {
       await repo.dispose();
     }

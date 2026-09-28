@@ -1,8 +1,3 @@
-// Runs the packaged candidate from outside this source checkout, the way a
-// second developer's machine would, with none of this repository's
-// node_modules or TypeScript source reachable (doc 03 P1.7 §2-3).
-//
-// Usage: node smoke-candidate.mjs [candidate-directory]
 import { execFileSync, spawn } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -30,8 +25,7 @@ async function checkVersionOutsideAnyRepo() {
     const output = run(['version'], { cwd });
     if (!output.includes('ambicode plugin root:')) throw new Error(`unexpected version output: ${output}`);
     if (output.includes(candidateDir.split('/').slice(0, -1).join('/')) === false) {
-      // Not an error by itself, but recorded: the plugin root should resolve
-      // to the candidate directory, not to this repository.
+      // Not an error by itself; the assertion below is the one that decides.
     }
     if (!output.includes(path.resolve(candidateDir))) {
       throw new Error(`plugin root did not resolve to the candidate directory:\n${output}`);
@@ -50,26 +44,17 @@ async function checkPoliciesAndPromptsResolve() {
     execFileSync('git', ['commit', '--quiet', '-m', 'seed'], { cwd });
 
     const initOutput = run(['init'], { cwd });
-    // `init` reports a host path, so on Windows it reads `.ambicode\config.yaml`.
-    // Same decision as the two assertions in R1 defect 3: the check accepts
-    // either separator rather than the production value being reshaped to
-    // suit it.
+    // On Windows `init` reports `.ambicode\config.yaml`, so either separator is accepted.
     if (!/\.ambicode[\\/]config\.yaml/.test(initOutput)) throw new Error(`init did not report writing config:\n${initOutput}`);
 
     const policyOutput = run(['policy'], { cwd });
-    // A built-in pack, shipped under policies/ in the candidate: proves the
-    // installed package's own policies (and, transitively, the prompt files
-    // they reference) resolve from CLAUDE_PLUGIN_ROOT / the upward search,
-    // not from this source checkout.
     if (!policyOutput.includes('common-quality')) {
       throw new Error(`resolved policy did not include the built-in common-quality pack:\n${policyOutput}`);
     }
     console.log('OK: `ambicode init` + `ambicode policy` resolve the installed candidate\'s built-in policies.');
 
-    // R3: the two-word `policy check` dispatch and the nonzero exit on an
-    // error diagnostic, through the bundled entry point rather than the source
-    // tree — a subcommand recognized only in `src/cli/main.ts` would look fine
-    // in a unit test and be unreachable in the shipped bundle.
+    // Through the bundle: a subcommand dispatched only in `src/cli/main.ts` would pass unit
+    // tests and be unreachable in the shipped bundle.
     await mkdir(path.join(cwd, '.ambicode', 'policies'), { recursive: true });
     const candidatePack = path.join('.ambicode', 'policies', 'smoke.yaml');
     await writeFile(
@@ -101,15 +86,11 @@ async function checkPoliciesAndPromptsResolve() {
     if (!failed) throw new Error('policy check accepted an invalid pack');
     console.log('OK: `ambicode policy check` validates a candidate pack and exits nonzero on an error.');
 
-    // R4: the boundary shortlist through the bundled entry point, for the same
-    // reason as `policy check` above. It also proves the command needs nothing
-    // but git — no index, no language server, no state carried from install.
     const locateOutput = run(['locate', 'app'], { cwd });
     if (!/app\.ts/.test(locateOutput) || !/filename matched "app"/.test(locateOutput)) {
       throw new Error(`locate did not return a reason-carrying candidate:\n${locateOutput}`);
     }
     const emptyOutput = run(['locate', 'kaleidoscope'], { cwd });
-    // Honest emptiness, not the whole repository.
     if (!/\(none/.test(emptyOutput) || /app\.ts/.test(emptyOutput)) {
       throw new Error(`locate widened an empty shortlist:\n${emptyOutput}`);
     }

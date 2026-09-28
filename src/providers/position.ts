@@ -3,15 +3,8 @@ import type { FindingLocation } from '../contracts/review.ts';
 import { lineAt, type DiffFile } from '../git/diff.ts';
 
 /**
- * Turns a validated finding location into an explicit diff position (doc 02).
- *
- * The SHAs come from the diff version the review was pinned to, never from the
- * working branch or from GitLab's current head: a comment must land on the code
- * that was reviewed, even if the merge request has moved since.
- *
- * An added line carries `new_line`, a removed line `old_line`, and a context
- * line both. A location that cannot be mapped to exactly one of those shapes is
- * refused rather than approximated.
+ * SHAs come from the pinned diff version, never GitLab's current head, so a comment lands on the
+ * reviewed code. A location that maps to no single line shape is refused, not approximated.
  */
 export type PositionResult =
   | { kind: 'ok'; position: RemotePosition }
@@ -46,7 +39,6 @@ export function positionForLocation(
 
   switch (line.kind) {
     case 'added':
-      // An added line exists only after the change, so only new_line is set.
       return {
         kind: 'ok',
         position: {
@@ -58,7 +50,6 @@ export function positionForLocation(
         },
       };
     case 'removed':
-      // A removed line exists only before the change, so only old_line is set.
       return {
         kind: 'ok',
         position: {
@@ -70,8 +61,7 @@ export function positionForLocation(
         },
       };
     case 'context':
-      // A context line exists on both sides and must carry both numbers, or
-      // GitLab attaches it to the wrong side of the diff.
+      // Without both numbers GitLab attaches a context line to the wrong side of the diff.
       return {
         kind: 'ok',
         position: {
@@ -85,7 +75,6 @@ export function positionForLocation(
   }
 }
 
-/** The wire shape GitLab's discussions API expects for a text position. */
 export function toGitLabPositionFields(position: RemotePosition): Record<string, string | number> {
   const fields: Record<string, string | number> = {
     position_type: 'text',

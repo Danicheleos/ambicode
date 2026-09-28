@@ -172,8 +172,9 @@ deliberately leaves installation guidance out of its per-call payload and
 carries only the search strategy, the evidence requirement, and the boundary
 shortlist when the call asked for one. During `investigate`, `plan`, and
 `task`, the skill must report the LSP operations it actually used or a
-specific targeted-search fallback reason. Installed state alone is not
-evidence that the current session used LSP.
+specific targeted-search fallback reason — and a session with no LSP tools
+reports that fact in one line, which is the complete fallback evidence.
+Installed state alone is not evidence that the current session used LSP.
 
 Nothing here is required for the shortlist. `ambicode locate <term>...` needs
 only git, and it is what narrows a repository to candidate files before LSP is

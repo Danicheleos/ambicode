@@ -5,12 +5,6 @@ import { TempRepo } from '../testing/temp-repo.ts';
 import { parseArgs } from './args.ts';
 import { INIT_OPTIONS, runInit } from './commands/init.ts';
 
-/**
- * P2.1: `.ambicode/notes/` is local, gitignored state (doc 02, "Storage and
- * ownership"), exactly like `.ambicode/reviews/`. Init must cover both so an
- * investigation note never lands in the product repository's history by
- * accident, and must never clobber a `.gitignore` the user already owns.
- */
 describe('init keeps optional notes out of the product repository history', () => {
   it('adds .ambicode/reviews/ and .ambicode/notes/ to a fresh .gitignore', async () => {
     const repo = await TempRepo.create();
@@ -44,7 +38,6 @@ describe('init keeps optional notes out of the product repository history', () =
       assert.match(ignore, /^# already here$/m);
       assert.match(ignore, /^node_modules\/$/m);
       assert.match(ignore, /^\.ambicode\/notes\/$/m);
-      // Not duplicated: the pre-existing entry appears exactly once.
       assert.equal(ignore.split('\n').filter((line) => line.trim() === '.ambicode/reviews/').length, 1);
     } finally {
       await repo.dispose();
@@ -53,9 +46,7 @@ describe('init keeps optional notes out of the product repository history', () =
 
   it('recognises the root-anchored spelling of an entry it would otherwise add', async () => {
     // `/.ambicode/reviews/` and `.ambicode/reviews/` are one rule to git: a
-    // pattern with a slash in it is already relative to the .gitignore's own
-    // directory. Comparing the literal text made `init` append a second
-    // spelling of an entry that was already in force — every time it ran.
+    // pattern with a slash in it is already relative to the .gitignore.
     const repo = await TempRepo.create();
     try {
       await repo.write('src/app.ts', 'export const a = 1;\n');

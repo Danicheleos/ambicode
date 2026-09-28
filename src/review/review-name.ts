@@ -1,18 +1,8 @@
 import type { ReviewTarget } from '../contracts/review.ts';
 
 /**
- * The name a review's directory gets under `.ambicode/reviews/`.
- *
- * It used to be a bare UUID, which is unique and says nothing: finding the
- * review of merge request !2716 meant opening `result.json` files one at a
- * time. The name now carries what a person actually searches by — which
- * merge request, which ticket, which day — so the directory listing is the
- * index.
- *
- * The name is also the review id (`view --review <name>`), so it has to stay
- * unique, stay a legal path segment on all three platforms, and stay short
- * enough that a deep repository path plus a snapshot file underneath it does
- * not run into Windows' path limit.
+ * The directory name is also the review id (`view --review <name>`), so it must stay
+ * unique, a legal path segment on every platform, and short enough for Windows' path limit.
  */
 
 /** Windows' limit is the binding one; this leaves room for what goes inside. */
@@ -29,11 +19,8 @@ function sanitize(value: string, maxLength: number): string {
 }
 
 /**
- * `2026-09-22T14-35` in the clock's own zone: the day and time the reader
- * remembers, not UTC. The time is there because reviewing the same merge
- * request twice in a day is ordinary — a re-run after a failure is exactly
- * that — and it makes the listing sort chronologically within a day. Hyphens
- * stand in for the colons a path segment cannot hold on Windows.
+ * `2026-09-22T14-35` in local time, not UTC: the day the reader remembers. Hyphens
+ * stand in for colons, which a Windows path segment cannot hold.
  */
 function localTimestamp(now: Date): string {
   const pad = (value: number): string => String(value).padStart(2, '0');
@@ -46,25 +33,11 @@ export interface ReviewNameInput {
   /** Requirement ids in the order supplied; only the first reaches the name. */
   requirementIds: readonly string[];
   now: Date;
-  /**
-   * True when the review directory sits inside its task folder, which already
-   * carries the ticket. Spelling it again in the directory underneath would
-   * put it twice in one path and add nothing to the listing.
-   */
+  /** The task folder already carries the ticket, so the name leaves it out. */
   insideTask?: boolean;
 }
 
-/**
- * The task directory a run belongs to, under `TASKS_DIR`, or `null` when the
- * run has no task identity and its artifacts stay where they were.
- *
- * A requirement id is the best slug available: it is what the work is called
- * in Jira, in the branch name and in the merge request, so a person looking
- * for it guesses right the first time. A caller working without a ticket
- * passes its own slug, which the authoring skills mint as a short kebab of
- * the request plus a timestamp — readable, and unique enough that two
- * unrelated requests phrased alike do not land in one directory.
- */
+/** The task directory under `TASKS_DIR`, or `null` when the run has no task identity. */
 export function taskSlugFor(input: {
   requirementIds: readonly string[];
   task: string | null;
@@ -75,18 +48,12 @@ export function taskSlugFor(input: {
   return ticket === "" ? null : ticket;
 }
 
-/**
- * The name before any collision suffix. Reviewing the same merge request twice
- * in one day is ordinary — a re-run after a failure is exactly that — so this
- * is not expected to be unique on its own; `uniqueReviewName` resolves that.
- */
+/** The name before any collision suffix; not unique on its own, see `uniqueReviewName`. */
 export function reviewNameBase(input: ReviewNameInput): string {
   const { target, requirementIds, now } = input;
   const parts: string[] = [];
 
   if (target.kind === 'merge-request' && target.remote !== null) {
-    // GitLab calls it a merge request and numbers it `!2716`; GitHub calls the
-    // same thing a pull request. Use the reader's own word for their host.
     parts.push(target.remote.provider === 'github' ? 'PR' : 'MR', String(target.remote.mergeRequestIid));
   } else if (target.kind === 'branch') {
     parts.push('branch');
@@ -107,12 +74,8 @@ export function reviewNameBase(input: ReviewNameInput): string {
 }
 
 /**
- * `reviewNameBase`, with `_2`, `_3` … appended until the name is not already
- * taken. `taken` is asked in order, so the caller decides what "taken" means
- * (a directory that exists, in practice).
- *
- * After `limit` attempts it gives up and returns a name carrying `fallback` —
- * the unique id source — rather than looping or overwriting somebody's review.
+ * After `limit` taken names it returns one carrying `fallback`, rather than
+ * looping or overwriting somebody's review.
  */
 export async function uniqueReviewName(
   input: ReviewNameInput,

@@ -6,13 +6,6 @@ import { FAKE_TARGET } from '../testing/fake-provider.ts';
 import { publicationPositions, reviewResult } from '../testing/review-fixture.ts';
 import { validateReviewAggregate } from './aggregate.ts';
 
-/**
- * P1.7 correction D. Each fixture below is individually schema-valid; the
- * point of every test is that `validateReviewAggregate` still refuses it,
- * because it disagrees with the others across a boundary no single file's
- * schema can see.
- */
-
 function refusalDetails(run: () => void): string[] {
   try {
     run();

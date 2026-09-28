@@ -19,13 +19,8 @@ export const LOCATE_OPTIONS = {
 export type { LocateOutput };
 
 /**
- * `ambicode locate` (R4): the candidate files a request is probably about, so
- * a task or investigation starts from a shortlist instead of from a search.
- *
- * It reads git and nothing else: no project command runs, nothing is written,
- * and no index or cache is created or consulted. The terms come from the
- * command line, or from the same requirement envelope every other command
- * accepts — there is no second evidence format.
+ * Shortlists the files a request is probably about. Reads git and nothing else: runs no
+ * project command, writes nothing, and creates or consults no index or cache.
  */
 export async function runLocate(runtime: Runtime, args: ParsedArgs): Promise<LocateOutput> {
   const workspace = await openWorkspace(runtime);
@@ -39,9 +34,8 @@ export async function runLocate(runtime: Runtime, args: ParsedArgs): Promise<Loc
     derived.push(...termsFromRequirements(envelope.sources));
   }
 
-  // Stated terms win outright. A caller who names the words is narrowing the
-  // search deliberately, and silently adding a frequency heuristic's guesses
-  // to that would widen what they asked for.
+  // Stated terms win outright: adding the frequency heuristic's guesses would widen what the
+  // caller deliberately narrowed.
   const supplied = args.positionals;
   if (supplied.length === 0 && derived.length === 0) {
     throw new AmbicodeError('bad-argument', '"locate" needs at least one term, or --evidence.', {
@@ -101,7 +95,6 @@ export function renderLocate(output: LocateOutput): string {
     lines.push(...candidate.reasons.map((reason) => `      ${reason}`));
   }
   if (output.candidates.length === 0) {
-    // An empty shortlist is an answer. It is never widened into the project.
     lines.push('  (none — no file matched well enough to be worth starting from)');
   }
 

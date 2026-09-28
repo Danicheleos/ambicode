@@ -3,11 +3,6 @@ import { describe, it } from 'node:test';
 import type { ReviewTarget } from '../contracts/review.ts';
 import { reviewNameBase, taskSlugFor, uniqueReviewName } from './review-name.ts';
 
-/**
- * A review directory is found by reading its name. These assert what a person
- * scanning `.ambicode/reviews/` can tell without opening anything.
- */
-
 const NOW = new Date('2026-09-22T14:35:00');
 
 function target(overrides: Partial<ReviewTarget> = {}): ReviewTarget {
@@ -86,12 +81,10 @@ describe('review directory names', () => {
     const afternoon = reviewNameBase({ target: mergeRequest(2716), requirementIds: [], now: NOW });
     assert.equal(morning, 'MR_2716_2026-09-22T09-04');
     assert.notEqual(morning, afternoon);
-    // Same day sorts chronologically, so the listing reads in order.
     assert.ok(morning < afternoon);
   });
 
   it('still refuses to reuse a directory if two land in the same minute', async () => {
-    // Re-running a review after a failure is exactly this case.
     const taken = new Set(['MR_2716_2026-09-22T14-35']);
     const input = { target: mergeRequest(2716), requirementIds: [], now: NOW };
     const second = await uniqueReviewName(input, async (name) => taken.has(name), 'fallback-id');
@@ -133,8 +126,6 @@ describe('the task a review belongs to', () => {
   it('leaves the ticket out of the name when the directory above already carries it', () => {
     const input = { target: target(), requirementIds: ['ORD-17'], now: NOW };
     assert.equal(reviewNameBase(input), 'local_ORD-17_2026-09-22T14-35');
-    // The same run saved inside `.ambicode/task/ORD-17/reviews/`: spelling
-    // the ticket again would put it twice in one path and add nothing.
     assert.equal(reviewNameBase({ ...input, insideTask: true }), 'local_2026-09-22T14-35');
   });
 });

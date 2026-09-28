@@ -52,18 +52,12 @@ test('U03 built-in packs parse, keep authority and provenance, and qualify rule 
   assert.ok(resolved.rules.every((rule) => rule.qualifiedId.startsWith('common-quality/')));
   assert.ok(resolved.rules.some((rule) => rule.qualifiedId === 'common-quality/reuse-before-reimplementing'));
   assert.equal(resolved.prompts.length, 1);
-  // `absolutePath` is a host path: it is handed to `fs.readText` and printed
-  // in diagnostics for an operator to open, so it keeps the platform's own
-  // separator and is `...\policies\prompts\...` on Windows. The assertion
-  // normalizes to compare; production is not reshaped to suit a test (R1
-  // defect 3).
+  // `absolutePath` is a host path, so it keeps the platform's separator; the
+  // assertion normalizes to compare rather than reshaping production.
   assert.ok(toPosix(resolved.prompts[0]?.absolutePath ?? '').endsWith('policies/prompts/review-smells.md'));
 });
 
 test('comment-reasons defaults to no comment, bounds its length, and refuses the same reason in several places', async () => {
-  // Run 3c2188c8 added 38 comment lines to 161 code lines, 4 of them for a
-  // 2-line change in a file that had none, and restated one reason in four
-  // files. "Comment the non-obvious reason" read as an obligation to add them.
   const { packs } = await loadPacksForProject({
     fs: nodeFileSystem,
     project: project({ packs: ['builtin/common-quality'] }),
@@ -76,7 +70,6 @@ test('comment-reasons defaults to no comment, bounds its length, and refuses the
   assert.match(instruction, /default to no comment/i, 'must make no comment the default');
   assert.match(instruction, /fewest words|shortest/i, 'must bound how long a comment may be');
   assert.match(instruction, /once rather than|once, not/i, 'must forbid restating one reason in several places');
-  // It rides every `prepare` call and the reviewer prompt.
   assert.ok(
     instruction.length < 320,
     `comment-reasons is ${instruction.length} characters; it is re-sent on every call and should stay short`,
@@ -232,11 +225,9 @@ test('U04 command precedence is forbid over propose over run, and silence is not
     paths: ['apps/web/src/orders/create.ts'],
   });
 
-  // common-checks says run; the project pack says forbid. Forbid wins.
   assert.equal(decisionFor(resolved, 'unit').action, 'forbid');
   assert.equal(decisionFor(resolved, 'e2e').action, 'propose');
   assert.equal(decisionFor(resolved, 'lint').action, 'run');
-  // A command nothing mentions is never run just because nothing forbade it.
   assert.equal(decisionFor(resolved, 'architecture-report').action, 'undeclared');
 
   assert.ok(explainRefusal(resolved, 'unit').includes('Snapshots must not be rewritten here.'));
@@ -329,7 +320,6 @@ test('U05 replacement is explicit and whole-pack, and an implicit duplicate fail
   assert.equal(first.packs[0]?.replacedReference, 'builtin/python-quality');
 
   const resolved = resolvePolicy({ activity: 'review', project: replacing, packs: first.packs, paths: [] });
-  // Whole-pack replacement: none of the built-in rules survive.
   assert.deepEqual(resolved.rules.map((rule) => rule.qualifiedId), ['python-quality/only-rule']);
   assert.equal(resolved.packs[0]?.replacedReference, 'builtin/python-quality');
 
@@ -371,8 +361,6 @@ test('U06 framework packs stay in their own scope', async () => {
     repositoryRoot: '/nowhere',
   });
 
-  // An Express controller in the API project must not pick up Angular rules,
-  // and a path belonging to the other project resolves to nothing here.
   const angularResolved = resolvePolicy({
     activity: 'review',
     project: angular,
@@ -422,10 +410,6 @@ test('U06 output ordering is deterministic and independent of declaration order'
   assert.deepEqual(resolveWith(forward, a.packs), resolveWith(reverse, b.packs));
 });
 
-// doc 04 P2.4 correction B6/B7: an error in an applicable rule/prompt/command
-// decision blocks; the same error in a valid pack that simply does not match
-// this request's activity/path does not — though it may remain visible.
-
 test('B6/B7 a broken review-only prompt/command does not block plan or investigate, but does block review', async (t) => {
   const directory = await sandbox(t);
   const packDirectory = path.join(directory, '.ambicode', 'policies');
@@ -455,18 +439,14 @@ test('B6/B7 a broken review-only prompt/command does not block plan or investiga
   assert.ok(diagnostics.some((d) => d.code === 'path-missing' && d.severity === 'error'));
   assert.ok(diagnostics.some((d) => d.code === 'pack-unknown-command' && d.severity === 'error'));
 
-  // Not applicable to "plan" (the pack only declares activities: [review]):
-  // both diagnostics become nonblocking, but stay visible.
   const forPlan = resolvePolicy({ activity: 'plan', project: config, packs, paths: [], diagnostics });
   assert.equal(forPlan.diagnostics.filter((d) => d.severity === 'error').length, 0);
   assert.ok(forPlan.diagnostics.some((d) => d.code === 'path-missing' && d.severity === 'notice'));
   assert.ok(forPlan.diagnostics.some((d) => d.code === 'pack-unknown-command' && d.severity === 'notice'));
 
-  // Not applicable to "investigate" either, for the same reason.
   const forInvestigate = resolvePolicy({ activity: 'investigate', project: config, packs, paths: [], diagnostics });
   assert.equal(forInvestigate.diagnostics.filter((d) => d.severity === 'error').length, 0);
 
-  // Applicable to "review": both diagnostics keep blocking.
   const forReview = resolvePolicy({ activity: 'review', project: config, packs, paths: [], diagnostics });
   assert.equal(forReview.diagnostics.filter((d) => d.severity === 'error').length, 2);
 });
@@ -498,7 +478,6 @@ test('B6/B7 a broken prompt in a pack scoped to another path does not block a re
   });
   assert.ok(diagnostics.some((d) => d.code === 'path-missing'));
 
-  // A nonmatching path pack: applicable activity, but the path is elsewhere.
   const outside = resolvePolicy({
     activity: 'task',
     project: config,
@@ -508,8 +487,6 @@ test('B6/B7 a broken prompt in a pack scoped to another path does not block a re
   });
   assert.equal(outside.diagnostics.filter((d) => d.severity === 'error').length, 0);
 
-  // An applicable task whose broken task prompt actually matches this path
-  // still blocks.
   const inside = resolvePolicy({
     activity: 'task',
     project: config,
@@ -519,9 +496,6 @@ test('B6/B7 a broken prompt in a pack scoped to another path does not block a re
   });
   assert.equal(inside.diagnostics.filter((d) => d.severity === 'error').length, 1);
 });
-
-// doc 04 P2.4 correction F: remindOnEdit defaults to false, and is only
-// allowed on a path-specific pack.
 
 test('F remindOnEdit defaults to false for a rule that does not declare it', async (t) => {
   const directory = await sandbox(t);
@@ -597,7 +571,6 @@ test('F a broadly-applying pack ("**/*") cannot mark a rule as remindOnEdit', as
   });
   assert.ok(diagnostics.some((d) => d.code === 'remind-on-edit-broad-pack' && d.severity === 'error'));
 
-  // Applicable to "task": blocks. Not applicable to "plan": downgraded (B6/B7).
   const forTask = resolvePolicy({ activity: 'task', project: config, packs, paths: [], diagnostics });
   assert.ok(forTask.diagnostics.some((d) => d.code === 'remind-on-edit-broad-pack' && d.severity === 'error'));
   const forPlan = resolvePolicy({ activity: 'plan', project: config, packs, paths: [], diagnostics });
@@ -620,8 +593,6 @@ test('B6/B7 an invalid pack whose applicability cannot be established keeps bloc
   assert.equal(packs.length, 0);
   assert.ok(diagnostics.some((d) => d.severity === 'error' && (d.code === 'pack-unparsable' || d.code === 'pack-invalid')));
 
-  // Its applicability can never be established (it never parsed), so it
-  // keeps blocking every activity, not only the ones it might have declared.
   for (const activity of ['review', 'task', 'plan', 'investigate'] as const) {
     const resolved = resolvePolicy({ activity, project: config, packs, paths: [], diagnostics });
     assert.ok(

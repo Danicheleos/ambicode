@@ -1,0 +1,211 @@
+{
+  "schemaVersion": 1,
+  "recordings": [
+    {
+      "snapshotId": "working-2212fc7f5db991cf",
+      "case": "clean-ts",
+      "model": "sonnet",
+      "recordedFrom": "evals/results/reviewer-2026-09-27T21-17-36Z/raw/clean-ts-ambicode-1.json",
+      "output": {
+        "findings": [],
+        "coverageNotes": [
+          "The three changed files are single-line constant exports (staged.ts, unstaged.ts, untracked.ts) with no logic, callers, or tests in the provided snapshot — there is no observable behavior to assess for correctness, security, or architecture.",
+          "The new export `fresh` in untracked.ts has no references anywhere in the files provided, but the snapshot is limited to these 3 files plus 2 unchanged neighbors, so I cannot confirm whether it is genuinely unused dead surface in the full repository or simply consumed elsewhere outside this snapshot.",
+          "All three checks (app/e2e, app/lint, app/unit) were skipped/unconfigured, so no automated verification (lint, type-check, or tests) was run against this change."
+        ]
+      }
+    },
+    {
+      "snapshotId": "working-b79e190ff61154af",
+      "case": "correctness-ts",
+      "model": "sonnet",
+      "recordedFrom": "evals/results/reviewer-2026-09-27T21-17-36Z/raw/correctness-ts-ambicode-1.json",
+      "output": {
+        "findings": [
+          {
+            "risk": "high",
+            "confidence": "high",
+            "category": "correctness",
+            "location": {
+              "oldPath": "src/page.js",
+              "newPath": "src/page.js",
+              "side": "new",
+              "line": 1
+            },
+            "supportingLocations": [],
+            "explanation": "The slice end was changed from `(index + 1) * size` (equivalent to `index * size + size`) to `index * size + size - 1`. This drops the last element of every page: e.g. page(['a','b','c','d','e','f'], 0, 3) now returns ['a','b'] instead of ['a','b','c']. Every caller of this pagination helper will silently receive one fewer item per page than requested.",
+            "suggestedComment": "This introduces an off-by-one: the slice end is now `size - 1` short, so each page returns one fewer item than `size` (e.g. page(items,0,3) yields 2 items instead of 3). Should this go back to `index*size + size` (or `(index+1)*size`)?",
+            "ruleRefs": [],
+            "requirementRefs": []
+          }
+        ],
+        "coverageNotes": [
+          "Only src/page.js was provided; callers of the `page` export elsewhere in the repo were not available to confirm the real-world blast radius of the off-by-one.",
+          "No tests were included in the changed files, so it cannot be confirmed whether existing tests would catch this regression."
+        ]
+      }
+    },
+    {
+      "snapshotId": "working-442ad769a8bb4a55",
+      "case": "degraded-ts",
+      "model": "sonnet",
+      "recordedFrom": "evals/results/reviewer-2026-09-27T21-17-36Z/raw/degraded-ts-ambicode-1.json",
+      "output": {
+        "findings": [],
+        "coverageNotes": [
+          "No requirement was supplied; requirement conformance was not assessed.",
+          "All three checks (e2e, lint, unit) were unconfigured/skipped, so no automated verification evidence is available for this change.",
+          "src/gone.js content is not available in the snapshot (excluded), so its deletion could only be verified via the diff hunk, not by reading the file directly.",
+          "Only src/keep.js (unchanged) and src/new-name.js were available in files/; the rest of the repository was not provided, so any other importers of src/gone.js or src/old-name.js outside this snapshot could not be checked."
+        ]
+      }
+    },
+    {
+      "snapshotId": "working-ac4dc80fda6d48e5",
+      "case": "duplication-ts",
+      "model": "sonnet",
+      "recordedFrom": "evals/results/reviewer-2026-09-27T21-17-36Z/raw/duplication-ts-ambicode-1.json",
+      "output": {
+        "findings": [
+          {
+            "risk": "low",
+            "confidence": "high",
+            "category": "Duplication",
+            "location": {
+              "oldPath": null,
+              "newPath": "src/receipt.js",
+              "side": "new",
+              "line": 1
+            },
+            "supportingLocations": [
+              {
+                "oldPath": "src/format.js",
+                "newPath": "src/format.js",
+                "side": "new",
+                "line": 1
+              },
+              {
+                "oldPath": "src/invoice.js",
+                "newPath": "src/invoice.js",
+                "side": "new",
+                "line": 3
+              }
+            ],
+            "explanation": "src/format.js already exports `currency(cents)` which formats cents into a `$X.XX` string, and src/invoice.js reuses it (`Total ${currency(cents)}`). receipt.js reimplements the same cents-to-dollar formatting inline instead of requiring and calling `currency`, so the formatting logic now exists in two places that must be kept in sync.",
+            "suggestedComment": "format.js already exports `currency(cents)` for this exact formatting (invoice.js uses it as `Total ${currency(cents)}`). Consider reusing it here as `Paid ${currency(cents)}` instead of reimplementing the cents-to-dollar conversion.",
+            "ruleRefs": [
+              "common-quality/reuse-before-reimplementing"
+            ],
+            "requirementRefs": []
+          }
+        ],
+        "coverageNotes": [
+          "Only src/receipt.js, src/format.js, and src/invoice.js were available in the snapshot; whether other callers or tests exist elsewhere in the repo could not be checked.",
+          "No requirements were supplied, so no assessment of whether the receipt output format is what was actually asked for.",
+          "Lint/unit/e2e checks were unconfigured and skipped, so no automated verification (e.g. for input validation on `cents`) is available beyond static reading."
+        ]
+      }
+    },
+    {
+      "snapshotId": "working-f790b91d48d6c20c",
+      "case": "regression-ts",
+      "model": "sonnet",
+      "recordedFrom": "evals/results/reviewer-2026-09-27T21-17-36Z/raw/regression-ts-ambicode-1.json",
+      "output": {
+        "findings": [
+          {
+            "risk": "critical",
+            "confidence": "high",
+            "category": "correctness",
+            "location": {
+              "oldPath": "src/math.js",
+              "newPath": "src/math.js",
+              "side": "new",
+              "line": 1
+            },
+            "supportingLocations": [],
+            "explanation": "The exported function is named `add` but its implementation now subtracts `b` from `a` instead of adding them, which contradicts the function's name and its documented behavior. This breaks every caller relying on `add` for addition, and the jest check for this file is reported as failed, consistent with this regression.",
+            "suggestedComment": "This changes `add` to perform subtraction (`a - b`), which contradicts the function's name and will break any caller expecting addition. Was this an intentional rename/behavior change, or a typo introduced during editing?",
+            "ruleRefs": [],
+            "requirementRefs": []
+          }
+        ],
+        "coverageNotes": [
+          "app/unit (jest) is reported as failed for this file, which is consistent with the add/subtract regression but the actual failing test output was not provided to confirm the exact assertion.",
+          "app/e2e is unconfigured/skipped, so no end-to-end verification of this change is available.",
+          "Only src/math.js was in scope; callers of `add` elsewhere in the repository were not available to assess downstream impact."
+        ]
+      }
+    },
+    {
+      "snapshotId": "working-0da9ce2a856084d8",
+      "case": "requirement-ts",
+      "model": "sonnet",
+      "recordedFrom": "evals/results/reviewer-2026-09-27T21-17-36Z/raw/requirement-ts-ambicode-1.json",
+      "output": {
+        "findings": [
+          {
+            "risk": "high",
+            "confidence": "high",
+            "category": "requirements",
+            "location": {
+              "oldPath": "src/send.js",
+              "newPath": "src/send.js",
+              "side": "new",
+              "line": 5
+            },
+            "supportingLocations": [],
+            "explanation": "SEND-14 asks for up to three retries with exponential backoff. This implementation makes exactly one retry attempt (the single `call()` in the catch block) with no delay or backoff logic at all, so it stops far short of the three-attempt, backed-off policy the ticket describes.",
+            "suggestedComment": "This only retries once with no delay, but SEND-14 calls for up to three attempts with exponential backoff. Can you add a retry loop/counter and a backoff delay between attempts?",
+            "ruleRefs": [],
+            "requirementRefs": [
+              "SEND-14"
+            ]
+          },
+          {
+            "risk": "medium",
+            "confidence": "high",
+            "category": "correctness",
+            "location": {
+              "oldPath": "src/send.js",
+              "newPath": "src/send.js",
+              "side": "new",
+              "line": 4
+            },
+            "supportingLocations": [],
+            "explanation": "The bare `catch {}` discards the original error entirely rather than capturing it. If the retry in line 5 also rejects, the caller sees that second rejection, not the original error the requirement says to give up with — the first failure's information (message, stack, cause) is lost.",
+            "suggestedComment": "The original error is dropped here (`catch {}`), so if the retry also fails the caller only ever sees the second error, not the original one SEND-14 says to surface. Capture the first error and rethrow/attach it when retries are exhausted.",
+            "ruleRefs": [
+              "common-quality/error-honesty"
+            ],
+            "requirementRefs": [
+              "SEND-14"
+            ]
+          },
+          {
+            "risk": "low",
+            "confidence": "medium",
+            "category": "test-behavior",
+            "location": {
+              "oldPath": "src/send.js",
+              "newPath": "src/send.js",
+              "side": "new",
+              "line": 1
+            },
+            "supportingLocations": [],
+            "explanation": "No test accompanies this retry-behavior change, and the unit/lint/e2e checks are all unconfigured (skipped), so there is no verification evidence that the new retry/catch path behaves as intended for either the success-after-retry or exhausted-retries cases.",
+            "suggestedComment": "Could you add a regression test covering both the retry-then-success path and the retry-exhausted path? There's currently no test evidence for this new behavior.",
+            "ruleRefs": [
+              "common-quality/test-behavior"
+            ],
+            "requirementRefs": []
+          }
+        ],
+        "coverageNotes": [
+          "app/unit, app/lint, and app/e2e checks were all skipped (unconfigured), so no automated verification of this change is available; findings on retry count and error behavior are based on static reading of the 7-line diff only.",
+          "Only src/send.js was in scope; any callers of send() that might depend on the shape of thrown errors were not available to check."
+        ]
+      }
+    }
+  ]
+}

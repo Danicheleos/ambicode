@@ -7,13 +7,9 @@ import { NodeProcessRunner } from '../ports/node-process-runner.ts';
 import { nodeFileSystem } from '../ports/filesystem.ts';
 
 /**
- * A literal control byte in a source file — a NUL above all — makes git treat
- * the file as binary: `git diff` stops showing it, and a reviewer of AMBICODE
- * itself stops being able to read the change. A character class or a separator
- * that needs one is written with a backslash escape instead of the byte.
- *
- * This is checked over the whole tree rather than one file, because the defect
- * is easy to reintroduce anywhere and invisible in an editor.
+ * A literal control byte, a NUL above all, makes git treat the file as binary and hide
+ * its diff from a reviewer; a backslash escape is used instead. Checked over the whole
+ * tree because the defect is easy to reintroduce and invisible in an editor.
  */
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -39,8 +35,7 @@ describe('source files stay text', () => {
 
   it('lets git diff src/review/validate.ts as text', async () => {
     const runner = new NodeProcessRunner();
-    // `--numstat` prints "-\t-" for a path git considers binary, and real
-    // counts for text, which is exactly the distinction being asserted.
+    // `--numstat` prints "-\t-" for a path git considers binary and real counts for text.
     const outcome = await runner.run({
       argv: ['git', 'diff', '--numstat', '--no-index', '--', '/dev/null', 'src/review/validate.ts'],
       cwd: repositoryRoot,

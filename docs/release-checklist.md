@@ -58,8 +58,9 @@ against evidence that already exists, not as open-ended advice.
   byte from a Linux one.
 - [ ] For each pilot language, install the official LSP plugin and server from
   `docs/installation.md`, then record one real definition/reference operation
-  from `/ambicode:investigate`, `/ambicode:plan`, or `/ambicode:task`. Record a
-  fallback reason if the current session exposes no LSP tools.
+  from `/ambicode:investigate`, `/ambicode:plan`, or `/ambicode:task`. If the
+  current session exposes no LSP tools, the one line saying so is the whole
+  record.
 - [ ] Have a second developer — not the person who built the candidate —
   install it in a fresh environment using only `docs/installation.md`, and
   complete one working-tree review end to end. Doc 08 makes this mandatory

@@ -43,10 +43,8 @@ test('U09 working target is the net of staged and unstaged edits plus untracked 
 
   assert.deepEqual(paths, ['.gitignore', 'src/brand-new.ts', 'src/unstaged.ts']);
   assert.equal(resolution.target.kind, 'working');
-  // Content is pinned at resolution, so the mirrored file cannot drift.
   assert.equal(await resolution.content.read('src/unstaged.ts').then((c) => c?.kind), 'text');
 
-  // The developer's staged state must survive the review untouched (doc 02).
   assert.equal(await digestOf(indexPath), indexBefore);
 });
 

@@ -1,6 +1,7 @@
 ---
 name: investigate
-description: "Answer a bounded question about this repository with cited evidence — code paths/lines and, when a Jira or Confluence URL is given, retrieved requirement text. Use when the user asks how something works, why something happens, whether something is feasible, what a change would cost, or hands over a Jira/Confluence URL to look into. Read-only apart from the investigation note it always saves under .ambicode/task/: proposes but never runs a diagnostic command without authorization, and never edits source, configuration, or tests."
+description: "Answer a question about the code with cited evidence, instead of reading the code directly — how something works, why it happens, which files a change would touch, what it would cost — editing nothing. Use when the user asks such a question, or hands over a Jira/Confluence URL to look into — including a bare URL with no other instruction."
+allowed-tools: Read, Grep, Glob, Write(.ambicode/task/**), Bash(node *ambicode.mjs*)
 ---
 
 # Investigate a question
@@ -55,16 +56,11 @@ either.
    there is nothing to filter out on your side. On `ambiguous-project`, pass
    `--project <id>` or narrow the paths rather than guessing which project
    was meant.
-4. **Navigate.** Follow `navigation`'s bounded order — the shortlist, then
-   known paths, then current-session LSP tools, then targeted search. Start
-   from `navigation.shortlist` when it is there, or `ambicode locate
-   <term>...` to get one. **The shortlist is a hypothesis, not an answer:**
-   confirm each candidate against the code before citing it, and say which
-   candidates were confirmed, which rejected, and which facts came from files
-   outside it. Record either `Navigation: LSP — <operations used>` or
-   `Navigation: targeted-search fallback — <specific reason>` in the final
-   report; a broad search is allowed and is reported with its reason.
-   Installed or recommended alone does not prove that LSP ran.
+4. **Navigate.** Follow `navigation`'s bounded order, starting from
+   `navigation.shortlist` (`prepare --term` asks for one). The shared file
+   owns the shortlist discipline; the final report records its
+   confirmed/rejected/outside-it breakdown and the navigation evidence line
+   (`Navigation: LSP — …` or `Navigation: targeted-search fallback — …`).
 5. **Compare, don't stop at the first match.** Form every candidate
    explanation the evidence actually supports and check each against the
    code and requirement evidence before settling on one. A single fact that

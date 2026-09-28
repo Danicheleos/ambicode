@@ -41,52 +41,20 @@ import {
 } from './schemas.ts';
 import { encodeProjectIdentity, parseMergeRequestUrl } from './url.ts';
 
-/**
- * The GitLab implementation of the provider contract. It owns pagination,
- * revision pinning and diff positions; it does not own prompts, HTML, or the
- * decision to publish anything.
- *
- * Nothing here touches the developer's checkout: no fetch, no checkout, no
- * stash, no index write. The merge request is read over the API and mirrored
- * into the review snapshot, which is why a dirty working tree is irrelevant to
- * a remote review.
- */
-
 const GITLAB_HOST_PATTERN = /(^|\.)gitlab\b/i;
 
 /** Git's mode for a symlink blob; its target is never read or followed. */
 const SYMLINK_MODE = '120000';
-/** Git's mode for a submodule entry, which has no blob to mirror. */
 const GITLINK_MODE = '160000';
 
-/**
- * Version collection states GitLab uses when it did not deliver everything.
- * `collected` and `empty` are the only complete ones; the rest are caps.
- */
 const CAPPED_VERSION_STATES = new Set(['overflow', 'without_files', 'timeout']);
 
 /**
- * Paths per batched blob query. Two separate ceilings sit just above it, both
- * measured against gitlab.com:
- *
- * - the connection returns at most 100 nodes however many paths were asked
- *   for, and says so only in `pageInfo`. Asked for 141, it answered 124 — one
- *   full page plus a second query's 24 — with no error naming the 17 it left
- *   out.
- * - the query complexity limit is 250, and this selection costs about 2 per
- *   path: 118 paths is "complexity of 252, which exceeds max complexity of
- *   250", 117 is accepted.
- *
- * So 100 is the real limit, and `hasNextPage` is still checked, because a
- * server with a smaller page is the same failure with a different number.
+ * The connection returns at most 100 nodes, admitting it only in `pageInfo`; the complexity limit
+ * (about 2 per path, max 250) sits just above. `hasNextPage` is still checked.
  */
 const MAX_BLOB_BATCH_PATHS = 100;
 
-/**
- * `rawTextBlob` is empty for anything GitLab does not serve as text, and
- * `rawSize` is the blob's own byte length — which is what makes the answer
- * checkable rather than trusted.
- */
 const BLOB_BATCH_QUERY =
   'query($project:ID!,$paths:[String!]!,$ref:String!){' +
   'project(fullPath:$project){repository{blobs(paths:$paths,ref:$ref){' +
@@ -94,10 +62,8 @@ const BLOB_BATCH_QUERY =
 
 export interface GitLabProviderOptions {
   runner: ProcessRunner;
-  /** Working directory for glab. Its configuration is per-host, not per-repo. */
   cwd: string;
   executable?: string;
-  /** Overridable in tests; production uses the module defaults. */
   timeoutMs?: number;
   maxOutputBytes?: number;
 }
@@ -110,12 +76,7 @@ export class GitLabProvider implements ReviewProvider {
     this.options = options;
   }
 
-  /**
-   * A GitLab merge request is recognized by its path shape, which GitHub and
-   * the other hosts do not use, so a self-hosted GitLab on any hostname is
-   * matched without a host allowlist. The `gitlab` hostname check only breaks
-   * the tie for a URL that both providers could claim.
-   */
+  /** Matched by path shape, so self-hosted GitLab on any hostname works; the hostname only breaks ties. */
   owns(url: string): boolean {
     const parsed = parseMergeRequestUrl(url);
     if (parsed.kind === 'ok') return true;
@@ -137,15 +98,9 @@ export class GitLabProvider implements ReviewProvider {
     });
   }
 
-  /**
-   * Resolves the URL to a fully pinned target: provider, host, target and
-   * source project, iid, web URL, the selected diff version and its base, start
-   * and head SHAs. The local HEAD is never consulted for any of them.
-   */
   async resolveTarget(request: ResolveTargetRequest): Promise<ProviderOutcome<RemoteTarget>> {
     const parsed = parseMergeRequestUrl(request.url);
     if (parsed.kind === 'invalid') {
-      // Refused before any process starts: an unusable URL costs nothing.
       return providerFailed('gitlab', 'resolveTarget', parsed.reason, [
         ...parsed.details,
         'No request was made to GitLab.',
@@ -160,9 +115,6 @@ export class GitLabProvider implements ReviewProvider {
     );
     if (project.kind !== 'ok') return this.fail('resolveTarget', project);
 
-    // Both need only the project id, and each is a `glab` process measured at
-    // 1.52s, so they run together. The merge request's failure is still the
-    // one reported when both fail: it is the more specific answer.
     const [mergeRequest, versions] = await Promise.all([
       api.request({ path: mergeRequestPath(project.value.id, ref.mergeRequestIid) }, GitLabMergeRequest),
       api.collect(
@@ -173,9 +125,8 @@ export class GitLabProvider implements ReviewProvider {
     if (mergeRequest.kind !== 'ok') return this.fail('resolveTarget', mergeRequest);
     if (versions.kind !== 'ok') return this.fail('resolveTarget', versions);
 
-    // GitLab lists versions newest first; the newest collected one is what the
-    // review pins to, and its own SHAs are used rather than the merge request's
-    // current `diff_refs`, which follow the branch.
+    // Newest first. The pinned SHAs are the version's own, not the merge request's current
+    // `diff_refs`, which follow the branch.
     const selected = versions.value.items[0];
     if (selected === undefined) {
       return providerFailed('gitlab', 'resolveTarget', 'This merge request has no collected diff version.', [
@@ -214,12 +165,6 @@ export class GitLabProvider implements ReviewProvider {
     });
   }
 
-  /**
-   * A fork's path is useful in the report but not load-bearing: blobs are
-   * fetched by numeric id, so an inaccessible fork leaves the id in place
-   * rather than failing resolution here. `fetchSnapshot` reports what it could
-   * not read as an omission.
-   */
   private async sourceProjectPath(api: GitLabApi, sourceProjectId: string): Promise<string> {
     const source = await api.request({ path: `projects/${encodeProjectIdentity(sourceProjectId)}` }, GitLabProject);
     return source.kind === 'ok' ? source.value.path_with_namespace : sourceProjectId;
@@ -237,7 +182,6 @@ export class GitLabProvider implements ReviewProvider {
     );
     if (version.kind !== 'ok') return this.fail('fetchSnapshot', version);
 
-    // The pinned version must still be the pinned version.
     if (version.value.head_commit_sha !== target.headSha) {
       return providerFailed(
         'gitlab',
@@ -266,12 +210,8 @@ export class GitLabProvider implements ReviewProvider {
     // narrows it: dropping a file here must never read as GitLab withholding one.
     const coverage = assessCoverage(version.value, delivered);
 
-    // A merge request's diff is against the merge base, which for a long-lived
-    // branch is far behind the target. Measured on MR 2677: 299 changed files,
-    // of which 249 were byte-identical to the target branch already — including
-    // package-lock.json and 15 of 16 translation bundles, which between them
-    // blocked the review twice on the per-file ceiling. Reviewing them asks the
-    // reader about work that merging would not change.
+    // The diff is against the merge base, so a long-lived branch lists files already identical on
+    // the target; reviewing them asks about work merging would not change.
     const stillDiffers = await this.pathsDifferingFromTarget(api, target);
     const files =
       stillDiffers === null
@@ -293,7 +233,7 @@ export class GitLabProvider implements ReviewProvider {
 
     const sections = files.map((file) => file.patchSection);
     for (const gap of coverage.gaps) {
-      if (gap.kind === 'file-truncated') continue; // Already reported above.
+      if (gap.kind === 'file-truncated') continue;
       omissions.push(gap.detail);
     }
 
@@ -317,13 +257,8 @@ export class GitLabProvider implements ReviewProvider {
   }
 
   /**
-   * The merge request as it is now, for the stale-revision checks.
-   *
-   * Both the merge request's own head and the newest collected diff version are
-   * read, because they disagree for as long as GitLab is still collecting a new
-   * push. Returning the newest collected version on its own would let
-   * publication treat a superseded revision as current (doc 03 P1.5
-   * correction 1).
+   * Reads both the merge request head and the newest collected version: they disagree while GitLab
+   * is still collecting a push, and the version alone would pass a superseded revision as current.
    */
   async getCurrentRevision(target: RemoteTarget): Promise<ProviderOutcome<RemoteRevision>> {
     const api = this.apiFor(target.host);
@@ -338,8 +273,6 @@ export class GitLabProvider implements ReviewProvider {
       { path: mergeRequestPath(target.projectId, target.mergeRequestIid) },
       GitLabMergeRequest,
     );
-    // A merge request that was deleted, or whose response could not be
-    // validated or was truncated, is unavailable — never "unchanged".
     if (mergeRequest.kind !== 'ok') {
       return providerOk({
         ...identity,
@@ -422,10 +355,6 @@ export class GitLabProvider implements ReviewProvider {
       });
     }
 
-    // The decisive comparison: the newest collected version must describe the
-    // head the merge request actually points at. When it does not, a newer push
-    // exists that GitLab has not collected yet, and the pinned version is not
-    // the current one however old or new its id happens to be.
     if (!sameSha(newest.head_commit_sha, currentHead)) {
       return providerOk({
         ...identity,
@@ -461,7 +390,6 @@ export class GitLabProvider implements ReviewProvider {
     });
   }
 
-  /** The account glab is authenticated as, for reconciliation identity checks. */
   async getIdentity(target: RemoteTarget): Promise<ProviderOutcome<ProviderIdentity>> {
     const api = this.apiFor(target.host);
     const user = await api.request({ path: 'user' }, GitLabUser);
@@ -491,10 +419,7 @@ export class GitLabProvider implements ReviewProvider {
     });
   }
 
-  /**
-   * Called only by the publication run the human form authorizes. The CLI, the
-   * review skill and the review command have no path that reaches it.
-   */
+  /** Reached only from the publication run the human form authorizes; no CLI or skill path calls it. */
   async publishComment(request: PublishCommentRequest): Promise<ProviderOutcome<PublishedComment>> {
     const api = this.apiFor(request.target.host);
     const created = await api.request(
@@ -524,19 +449,8 @@ export class GitLabProvider implements ReviewProvider {
   }
 
   /**
-   * The changed paths that still differ between the target branch and the
-   * merge request head, or null when that could not be established.
-   *
-   * One `repository/compare` call, not one read per file. Null rather than an
-   * empty set on any doubt — a partial answer would silently narrow the review,
-   * which is the one failure this is not allowed to cause. `compare_timeout` is
-   * GitLab saying so itself.
-   *
-   * This only ever removes files from GitLab's own diff, so it cannot invent a
-   * change: a file the branch never touched is not in that diff to begin with,
-   * and so cannot arrive here as a phantom revert of the target branch's work.
-   * Measured on MR 2677: of 50 paths differing from the target, 0 were absent
-   * from the merge request's own 299-file diff.
+   * Null, never a partial set, on any doubt: a partial answer would silently narrow the review.
+   * It only removes paths from GitLab's own diff, so it cannot invent a change.
    */
   private async pathsDifferingFromTarget(
     api: GitLabApi,
@@ -568,9 +482,8 @@ export class GitLabProvider implements ReviewProvider {
 }
 
 /**
- * GitLab abbreviates a sha in some payloads and spells it in full in others, so
- * two spellings of the same commit are compared on their common prefix. Seven
- * hex characters is git's own minimum for an unambiguous abbreviation.
+ * GitLab abbreviates a sha in some payloads, so two spellings are compared on their common prefix.
+ * Seven hex characters is git's own minimum for an unambiguous abbreviation.
  */
 export function sameSha(left: string | null, right: string | null): boolean {
   if (left === null || right === null) return false;
@@ -579,15 +492,6 @@ export function sameSha(left: string | null, right: string | null): boolean {
   return left.slice(0, length) === right.slice(0, length);
 }
 
-/**
- * Whether the delivered diff is the whole change. GitLab caps a merge request
- * diff in two independent ways: per file, with `collapsed` or `too_large`, and
- * in aggregate, by declaring a `real_size` larger than the list it sends or by
- * marking the version's collection state as an overflow.
- *
- * Both are material: a missing file is a change nobody reviewed, so the result
- * may not be called complete (doc 03 P1.5 correction 2).
- */
 export function assessCoverage(
   version: { real_size: string | null; state: string | null; diffs: readonly unknown[] },
   files: readonly RemoteFetchedFile[],
@@ -638,7 +542,6 @@ export function assessCoverage(
   };
 }
 
-/** GitLab writes `real_size` as a decimal string, sometimes suffixed with "+". */
 function parseRealSize(value: string | null): number | null {
   if (value === null) return null;
   const match = /^\s*(\d+)\s*\+?\s*$/.exec(value);
@@ -646,14 +549,6 @@ function parseRealSize(value: string | null): number | null {
   return Number.parseInt(match[1] as string, 10);
 }
 
-/**
- * Post-image blobs, read from the source project at the pinned head SHA. A fork
- * merge request's head commits exist only in the fork, so the target project is
- * not where the new content lives.
- *
- * Reads are memoized: the snapshot planner asks for changed files and then for
- * their neighbours, and an immutable revision cannot answer differently twice.
- */
 class RemoteContent {
   private readonly api: GitLabApi;
   private readonly target: RemoteTarget;
@@ -686,21 +581,10 @@ class RemoteContent {
   }
 
   /**
-   * Fetches what the planner is about to read in batches of
-   * `MAX_BLOB_BATCH_PATHS`, instead of one request per file. Measured on MR
-   * 2677's 47 changed files: 47 `repository/files` calls against one query of
-   * 282 KB answered in 1.9s.
-   *
-   * Nothing here is load-bearing. A path this does not resolve — a failed
-   * query, a short page, a blob GitLab will not serve as text, a body whose
-   * length disagrees with the blob's own `rawSize` — is simply left uncached,
-   * and `read` fetches it the old way, where bytes are classified before they
-   * are decoded. So the fast path can only be faster, never a different answer.
+   * A batched fast path only: any path it cannot verify stays uncached and `read` fetches it per
+   * file, where bytes are classified before decoding. So it can only be faster, never different.
    */
   async prime(relativePaths: readonly string[]): Promise<void> {
-    // GraphQL addresses a project by its full path. An unreadable fork leaves
-    // the numeric id in its place, which this cannot look up, so that case goes
-    // straight to the per-file reads rather than spending a query to find out.
     if (!this.target.sourceProjectPath.includes('/')) return;
     const wanted = relativePaths.filter(
       (relativePath) => !this.files.has(relativePath) && !this.symlinkPaths.has(relativePath),
@@ -719,9 +603,6 @@ class RemoteContent {
     if (result.kind !== 'ok') return;
 
     const blobs = result.value.data.project?.repository?.blobs;
-    // A capped page is not a short answer: the paths GitLab left out are not
-    // named anywhere, so nothing in this response identifies which of them are
-    // missing rather than absent from the repository.
     if (blobs === undefined || blobs.pageInfo.hasNextPage) return;
 
     for (const node of blobs.nodes) {
@@ -733,11 +614,8 @@ class RemoteContent {
         continue;
       }
       const text = node.rawTextBlob ?? '';
-      // GraphQL hands back a decoded string, so the byte-level binary test the
-      // per-file path runs cannot be applied here. This equality is the stand-in
-      // and it is strict: a binary blob comes back as an empty string against a
-      // non-zero `rawSize`, and anything GitLab re-encoded fails it too. Both
-      // fall through to `fetch`, which sees the actual bytes.
+      // GraphQL returns decoded text, so the byte-level binary test cannot run. This strict length
+      // check stands in; binary or re-encoded blobs fall through to `fetch`, which sees the bytes.
       if (Buffer.byteLength(text, 'utf8') !== rawSize) continue;
       this.files.set(node.path, rawSize === 0 ? { kind: 'text', text: '' } : { kind: 'text', text });
     }
@@ -757,8 +635,6 @@ class RemoteContent {
     );
 
     if (result.kind !== 'ok') {
-      // A fork whose repository the reviewer cannot read is the common case,
-      // and it is an omission, not a file that happens to be empty.
       this.note(
         `${relativePath}: its content at ${this.target.headSha.slice(0, 12)} could not be read from ${this.target.sourceProjectPath} (${result.message}).`,
       );
@@ -774,8 +650,6 @@ class RemoteContent {
 
     const bytes = Buffer.from(file.content, 'base64');
     if (bytes.length > MAX_SNAPSHOT_FILE_BYTES) return { kind: 'too-large', bytes: bytes.length };
-    // Classified on bytes before anything is decoded, exactly as local
-    // snapshots are (doc 11).
     if (await isBinaryContent(bytes)) return { kind: 'binary' };
     return { kind: 'text', text: bytes.toString('utf8') };
   }
@@ -823,14 +697,8 @@ function modeKind(mode: string | null): ModeKind {
 }
 
 /**
- * GitLab delivers a file's diff body without the `diff --git` header, so the
- * header is rebuilt from the authoritative `old_path`/`new_path` fields. The
- * header is never parsed back for identity — those fields are the identity.
- *
- * An empty body is not automatically a truncation: a pure rename and a
- * mode-only change both legitimately carry no hunks, and reporting them as
- * missing coverage would make every renamed file a gap (doc 03 P1.5
- * correction 5).
+ * The `diff --git` header is rebuilt from `old_path`/`new_path`, which remain the identity.
+ * An empty body is not a truncation: renames and mode-only changes carry no hunks.
  */
 function toFetchedFile(entry: GitLabVersionDiff): RemoteFetchedFile {
   const oldPath = entry.new_file ? null : entry.old_path;
@@ -854,8 +722,6 @@ function toFetchedFile(entry: GitLabVersionDiff): RemoteFetchedFile {
 
   const body = entry.diff;
   const binary = /^Binary files .* differ$/m.test(body) || /^GIT binary patch$/m.test(body);
-  // A rename or a mode change with no content change has nothing to put in a
-  // hunk, and GitLab says so by sending the entry with an empty body.
   const modeOnly = entry.a_mode !== entry.b_mode && entry.a_mode !== null && entry.b_mode !== null;
   const contentlessIsExpected = entry.renamed_file || modeOnly || symlink || entry.generated_file === true;
 
@@ -927,11 +793,9 @@ function toRemoteDiscussion(discussion: GitLabDiscussion): RemoteDiscussion {
   const resolvable = notes.filter((note) => note.resolvable);
   return {
     id: discussion.id,
-    // A thread nobody can resolve is not a resolved thread.
     resolved: resolvable.length > 0 && resolvable.every((note) => note.resolved === true),
     notes,
   };
 }
 
-/** Kept close to the schemas it validates, so a drift shows up as a type error. */
 export type GitLabCollectionSchema = z.ZodType<unknown>;

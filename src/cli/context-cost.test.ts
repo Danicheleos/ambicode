@@ -14,69 +14,29 @@ import { PREPARE_OPTIONS, runPrepare } from './commands/prepare.ts';
 import { evidenceSource } from './target-option.ts';
 
 /**
- * R2: "a small change stays cheap" is a product requirement of AMBICODE's own
- * core idea, and nothing else in the repository enforces it. Before this
- * file, one `/ambicode:task` call spent roughly 10k tokens of framework — a
- * 16 KiB `prepare` payload plus a 17 KiB `SKILL.md` — before a line of
- * project code was read, and any sentence added anywhere quietly made that
- * worse with nothing to notice.
- *
- * The ceilings below are therefore drift detectors, not budgets anyone should
- * aim at. They sit a little above what the implementation actually emits, so
- * a paragraph added on purpose fails loudly and gets a deliberate decision
- * rather than passing unmeasured.
+ * The ceilings below are drift detectors, not budgets: they sit just above what
+ * is emitted, so an added paragraph fails loudly and gets a deliberate decision.
  */
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
-/**
- * The compact `prepare --json` payload for the fixture below: the two
- * built-in packs plus a project pack of six rules and one `before-work`
- * prompt, 21 rules in all. It emitted 8,869 bytes when this was written; on
- * this repository's own policy (15 rules, no project pack) the same shape is
- * 6,942, down from 15,915.
- */
-const MAX_COMPACT_PREPARE_BYTES = 9_300;
+/** Compact `prepare --json` for the fixture below (21 rules), which emits 9,240 bytes. */
+const MAX_COMPACT_PREPARE_BYTES = 9_700;
 
-/**
- * The same payload with R4's boundary shortlist on it. The shortlist is paths
- * and reasons only — never file contents — and it is bounded by
- * `PREPARE_SHORTLIST_LIMIT`, so what it can add to a call is bounded too.
- * This ceiling is that bound made visible: it emitted 9,335 bytes for the
- * fixture below when this was written.
- */
-const MAX_COMPACT_PREPARE_WITH_SHORTLIST_BYTES = 10_400;
+/** With the shortlist (paths and reasons only, bounded by `PREPARE_SHORTLIST_LIMIT`); emits 9,691 bytes. */
+const MAX_COMPACT_PREPARE_WITH_SHORTLIST_BYTES = 10_200;
 
-/**
- * Per-skill `SKILL.md` ceilings. `task` is the one R2 set a number for; the
- * rest are held near what the same editing pass left them at.
- *
- * `task` and `shared/prepare-output.md` were raised deliberately by R4, which
- * added one genuinely new rule: a shortlist candidate is confirmed before it
- * is edited, and the report says which candidates were confirmed, rejected,
- * or found outside the list. The explanation of the field lives once in the
- * shared file, which a session reads once; each skill carries only the
- * sentences its own reader acts on. The alternative was to ship the field and
- * leave the discipline unstated, which is how a hypothesis turns into an
- * answer.
- */
+// `references/` files carry no ceiling: they are read on demand, not on every call.
 const MAX_SKILL_BYTES: Record<string, number> = {
   'init/SKILL.md': 4_200,
-  'investigate/SKILL.md': 7_600,
-  'plan/SKILL.md': 10_400,
-  // Raised from 11,800 in the F1-F7 fix pass, deliberately and by 100 bytes.
-  // The file gained `--only`, the `nothing-to-review` outcome and the
-  // context-bound omission; three passes of tightening its own new text plus
-  // cutting two genuine repetitions (GitHub stated in three places, `ambicode
-  // view` in two) recovered most but not all of it.
-  'review/SKILL.md': 11_900,
-  'task/SKILL.md': 10_500,
-  // R3: a setup-time skill, invoked by name and never on a per-call path, so
-  // its ceiling is about staying disciplined rather than about per-call cost.
-  // It is the longest because it is the only skill that has to teach a format.
-  'rules/SKILL.md': 11_600,
+  'investigate/SKILL.md': 7_100,
+  'plan/SKILL.md': 9_900,
+  'review/SKILL.md': 9_300,
+  'task/SKILL.md': 10_650,
+  // A setup-time skill, never on a per-call path: this ceiling is about discipline, not per-call cost.
+  'rules/SKILL.md': 10_000,
   'shared/requirements-mcp.md': 5_600,
-  'shared/prepare-output.md': 4_700,
+  'shared/prepare-output.md': 5_550,
 };
 
 const PACK_A = [
@@ -144,13 +104,11 @@ describe('R2 per-call context cost', () => {
         `compact prepare payload is ${Buffer.byteLength(emitted, 'utf8')} bytes, over the ${MAX_COMPACT_PREPARE_BYTES}-byte ceiling. ` +
           'Cutting rules is not the fix: cut framing, or raise the ceiling deliberately and say why.',
       );
-      // Cheaper than the shape it replaces, by a margin worth having.
       assert.ok(
         Buffer.byteLength(emitted, 'utf8') <
           Buffer.byteLength(formatJsonOutput(verbose.data, verbose.json), 'utf8') / 2,
       );
 
-      // Not one rule, instruction, or explanation was dropped to get there.
       const full = verbose.data as PrepareOutput;
       const compactData = compact.data as PrepareCompactOutput;
       const rules = compactRules(compactData);
@@ -164,7 +122,6 @@ describe('R2 per-call context cost', () => {
         assert.equal(match.instruction, rule.instruction);
         assert.equal(match.check, rule.checkExplanation);
       }
-      // Prompt content is policy, not framing, and survives untouched.
       assert.deepEqual(compactData.policy.prompts, full.policy.prompts);
       assert.deepEqual(compactData.provenance, full.provenance);
     } finally {
@@ -188,8 +145,7 @@ describe('R2 per-call context cost', () => {
           run.data.contextBudget.measuredBytes,
           `measuredBytes must equal the printed bytes for ${argv.join(' ')}`,
         );
-        // The value survives a round trip, so it is a fixed point rather than
-        // a number that happened to match once.
+        // `measuredBytes` is part of what it measures, so it must be a fixed point.
         assert.equal(JSON.parse(printed).contextBudget.measuredBytes, run.data.contextBudget.measuredBytes);
       }
     } finally {
@@ -211,9 +167,7 @@ describe('R2 per-call context cost', () => {
       assert.equal(cited.sharedOperatingContract.content, undefined);
       assert.ok(cited.sharedOperatingContract.contentHash.length > 0);
       assert.ok((inlined.sharedOperatingContract.content ?? '').includes('AMBICODE operating contract'));
-      // Same contract either way — the hash is what makes the citation usable.
       assert.equal(inlined.sharedOperatingContract.contentHash, cited.sharedOperatingContract.contentHash);
-      // And still in provenance, so the budget and the audit trail agree.
       assert.ok(
         cited.provenance.some((entry) => entry.reference === cited.sharedOperatingContract.reference),
       );
@@ -240,7 +194,6 @@ describe('R2 per-call context cost', () => {
         'the read guidance rides every call for the same reason and stays one clause',
       );
       assert.equal('setupCommands' in navigation, false);
-      // `init` and `config` still carry it; this is the per-call path only.
       assert.deepEqual(
         (run.detail.navigation.setupCommands ?? []).length > 0,
         true,
@@ -265,8 +218,6 @@ describe('R2 per-call context cost', () => {
       assert.deepEqual(shortlist.terms, ['app']);
       assert.ok(shortlist.candidates.some((candidate) => candidate.path === 'src/app.ts'));
       for (const candidate of shortlist.candidates) {
-        // Paths and reasons, never file contents: the shortlist says where to
-        // look, and the caller decides what is worth reading.
         assert.deepEqual(Object.keys(candidate).sort(), ['path', 'reasons', 'score']);
         assert.ok(candidate.reasons.length > 0, `${candidate.path} ranked without a reason`);
       }
@@ -366,7 +317,6 @@ describe('R2 per-call context cost', () => {
   });
 });
 
-/** The pack a compact rule sits under, which is what gives it its qualified id. */
 function packIdOf(output: PrepareCompactOutput, rule: { id: string }): string {
   const owner = output.policy.packs.find((pack) => (pack.rules ?? []).some((candidate) => candidate === rule));
   assert.ok(owner !== undefined);

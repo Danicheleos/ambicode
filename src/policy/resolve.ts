@@ -20,15 +20,10 @@ export interface ResolveOptions {
   activity: Activity;
   project: ProjectConfig;
   packs: readonly PackWithPrompts[];
-  /** Repository-relative paths under review; empty resolves activity-level content only. */
   paths: readonly string[];
   diagnostics?: readonly Diagnostic[];
 }
 
-/**
- * The one resolver. Skills, checks, the reviewer prompt, and the page all read
- * its output rather than re-deriving scope (D14).
- */
 export function resolvePolicy(options: ResolveOptions): ResolvedPolicy {
   const { activity, project, packs } = options;
   const diagnostics: Diagnostic[] = [...(options.diagnostics ?? [])];
@@ -66,13 +61,9 @@ export function resolvePolicy(options: ResolveOptions): ResolvedPolicy {
   const prompts: ResolvedPromptRef[] = [];
   const decisionsByCommand = new Map<string, ResolvedCommandDecision>();
 
-  // Tracked so a load-time diagnostic about a pack's *content* (an unknown
-  // command reference, an unreadable prompt file) can be told apart from one
-  // about a pack that is simply not applicable to this activity/paths (doc 04
-  // P2.4 correction B6/B7): a pack whose YAML never parsed has unknown
-  // applicability and its diagnostic keeps blocking regardless, but a pack
-  // that parsed fine and applies to some *other* activity, stage, project or
-  // path must not block a request it was never relevant to.
+  // Parsed pack files, so a content diagnostic from a pack that does not apply here
+  // can be downgraded. A pack whose YAML never parsed has unknown applicability and
+  // keeps blocking.
   const consideredFilePaths = new Set(packs.map((loaded) => loaded.filePath));
   const applicableFilePaths = new Set<string>();
 
@@ -81,7 +72,7 @@ export function resolvePolicy(options: ResolveOptions): ResolvedPolicy {
     if (!pack.activities.includes(activity)) continue;
 
     // With no paths, a pack contributes its activity-level content once; with
-    // paths, it contributes only when it actually matches one (doc 05).
+    // paths, only when it actually matches one.
     const matchedPaths = pathsSupplied
       ? projectRelativePaths.filter((value) => matchesAnyGlob(value, pack.appliesTo))
       : [];
@@ -144,7 +135,7 @@ export function resolvePolicy(options: ResolveOptions): ResolvedPolicy {
     }
   }
 
-  // Sorting is presentation, never precedence (doc 05).
+  // Sorting is presentation, never precedence.
   packEntries.sort((a, b) => a.id.localeCompare(b.id));
   rules.sort((a, b) => a.qualifiedId.localeCompare(b.qualifiedId));
   prompts.sort(
@@ -168,15 +159,6 @@ export function resolvePolicy(options: ResolveOptions): ResolvedPolicy {
   };
 }
 
-/**
- * A content-level diagnostic about a specific pack file (an unknown command
- * reference, an unreadable prompt) whose relevance depends on whether that
- * pack actually applies here. Structural diagnostics about the pack's own
- * validity (unparsable, duplicate id, replaces an unused built-in, ...) are
- * not in this set: those always block, because they are configuration
- * defects independent of any one activity/path request (doc 04 P2.4
- * correction B6).
- */
 const PACK_SCOPED_DIAGNOSTIC_CODES: ReadonlySet<string> = new Set([
   'pack-unknown-command',
   'prompt-unreadable',
@@ -186,15 +168,8 @@ const PACK_SCOPED_DIAGNOSTIC_CODES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Downgrades a pack-scoped diagnostic from `error` to `notice` when the pack
- * it belongs to parsed successfully but does not apply to this activity or
- * these paths (doc 04 P2.4 correction B6/B7): an error in an *applicable*
- * rule, prompt, or command decision still blocks; the same error in a valid
- * pack that simply does not match this request must not. A diagnostic whose
- * pack never parsed at all (`consideredFilePaths` does not know it) keeps
- * blocking, because its applicability genuinely cannot be established. The
- * diagnostic stays visible either way — only its severity, and therefore
- * whether it can block preparation, changes.
+ * Downgrades a pack-scoped error to a notice when its pack parsed but does not
+ * apply to this activity or these paths. It stays visible either way.
  */
 function scopeDiagnostics(
   diagnostics: readonly Diagnostic[],
@@ -215,17 +190,9 @@ function scopeDiagnostics(
 }
 
 /**
- * Which prompt stages `ambicode prepare` surfaces per activity (doc 04 P2.2
- * correction D; doc 04 P2.3 adds `task`). `review` composes its own reviewer
- * prompt directly from `ResolvedPolicy.prompts` (`src/review/prompt.ts`) and
- * never calls `prepare`, so it is not listed here. `investigate` and `plan`
- * read their activity's `before-work` guidance before analysis and
- * `before-report` guidance before presenting their result. `task` additionally
- * reads `before-checks` guidance before it runs checks/review, since — unlike
- * investigate/plan — it actually performs an implementation and check cycle;
- * `before-review` remains owned exclusively by the isolated reviewer prompt
- * and is never applicable content for any `prepare` caller, regardless of
- * which activities a pack itself declares.
+ * `review` builds its own prompt and never calls `prepare`. `before-review`
+ * belongs only to the isolated reviewer prompt; `task` alone adds `before-checks`
+ * because it runs checks.
  */
 export const PREPARE_PROMPT_STAGES: Readonly<Partial<Record<Activity, readonly PromptStage[]>>> = {
   investigate: ['before-work', 'before-report'],
@@ -233,7 +200,6 @@ export const PREPARE_PROMPT_STAGES: Readonly<Partial<Record<Activity, readonly P
   task: ['before-work', 'before-checks', 'before-report'],
 };
 
-/** The stages `ambicode prepare` includes prompt content for; empty for an activity it does not serve (doc 04 P2.2 correction D). */
 export function applicablePrepareStages(activity: Activity): readonly PromptStage[] {
   return PREPARE_PROMPT_STAGES[activity] ?? [];
 }
@@ -242,10 +208,7 @@ export function strongerAction(a: CommandAction, b: CommandAction): CommandActio
   return COMMAND_ACTION_PRECEDENCE[a] >= COMMAND_ACTION_PRECEDENCE[b] ? a : b;
 }
 
-/**
- * The decision for a command no pack mentions. Absence is not permission, so a
- * catalog command is never executed because nothing forbade it (doc 05).
- */
+/** Absence is not permission: a command no pack mentions is never executed. */
 export function decisionFor(policy: ResolvedPolicy, commandId: string): {
   action: CommandAction | 'undeclared';
   sources: ResolvedCommandDecision['sources'];
@@ -256,7 +219,6 @@ export function decisionFor(policy: ResolvedPolicy, commandId: string): {
     : { action: decision.action, sources: decision.sources };
 }
 
-/** Explains a refusal with the pack that caused it and how to change it (doc 05). */
 export function explainRefusal(policy: ResolvedPolicy, commandId: string): string {
   const { action, sources } = decisionFor(policy, commandId);
   if (action === 'forbid') {

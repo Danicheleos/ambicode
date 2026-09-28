@@ -1,7 +1,9 @@
 ---
 name: rules
-description: Turn a team's existing written rules — CLAUDE.md, CONTRIBUTING.md, docs, .cursor/rules, a Confluence page — into scoped AMBICODE YAML policy packs, once, at setup. Use when the user asks to migrate, import, or onboard their coding rules or conventions into AMBICODE, when init reports rule-source candidates, or when the team's rules have changed and the packs must follow. Never runs on a task, plan, investigation, or review path; it writes only .ambicode/policies/*.yaml and .ambicode/config.yaml, runs no project command, and commits nothing.
+description: "Turn a team's existing written rules — CLAUDE.md, CONTRIBUTING.md, docs, .cursor/rules, a Confluence page — into scoped AMBICODE YAML policy packs, once, at setup. Use when the user asks to migrate, import, or onboard their coding rules or conventions into AMBICODE, when init reports rule-source candidates, or when the team's rules have changed."
 argument-hint: <rule-source-paths-or-jira/confluence-url>...
+disable-model-invocation: true
+allowed-tools: Read, Grep, Glob, Write(.ambicode/policies/**), Edit(.ambicode/config.yaml), Bash(node *ambicode.mjs*)
 ---
 
 # Migrate written rules into scoped policy packs
@@ -109,30 +111,10 @@ rules:
       explanation: Judged from the changed component and the services in the snapshot.
 ```
 
-Field by field:
-
-- **`id`** — kebab-case and unique across every pack the project enables. A
-  collision with a built-in is an error unless you mean to replace it wholesale
-  with `replaces: builtin/<id>`.
-- **`authority`** — `team` for a rule the team states as a requirement;
-  `observed` for a convention you inferred from the code. The distinction is
-  defined in `${CLAUDE_PLUGIN_ROOT}/prompts/shared-operating-contract.md` and
-  the reviewer acts on it: an `observed` rule is never reported as a violation
-  on the strength of the label alone, a `team` rule is. Getting this wrong
-  changes review output. **When in doubt, `observed` — and say so.**
-- **`appliesTo`** — the verified globs from step 3.
-- **`activities`** — which of `review`, `task`, `plan`, `investigate` the rule
-  is content for. How code should be written is `review` and `task`; how work
-  is planned is `plan`.
-- **`category`** — `code-style`, `architecture`, `correctness`, `security`, or
-  `workflow`.
-- **`check.kind`** — `reviewer` when a model must judge it, `command` when one
-  of the project's **already declared** commands proves it (an undeclared
-  command id makes the pack an error), `none` when nothing verifies it. All
-  three need an `explanation`.
-- **`remindOnEdit`** — only on a path-scoped pack. It is rejected on a pack
-  whose `appliesTo` includes `**/*`, because such a reminder would fire on
-  every edit anywhere.
+Field by field, the reference is
+`${CLAUDE_PLUGIN_ROOT}/skills/rules/references/pack-format.md` — read it
+before drafting. The field that changes review output is `authority`
+(`team` vs `observed`): **when in doubt, `observed` — and say so.**
 
 ### 5. Record where each rule came from
 

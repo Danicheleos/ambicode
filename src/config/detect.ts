@@ -2,11 +2,6 @@ import type { DirectoryEntry, FileSystem } from '../ports/filesystem.ts';
 import path from 'node:path';
 import type { AdapterId, Ecosystem } from '../contracts/primitives.ts';
 
-/**
- * Detection reads manifests and looks for installed executables. It never runs
- * a project script and never installs anything (doc 05).
- */
-
 const SKIP_DIRECTORIES = new Set([
   '.git',
   'node_modules',
@@ -30,7 +25,6 @@ const MAX_DEPTH = 4;
 export interface DetectedCommand {
   argv: string[] | null;
   adapter: AdapterId;
-  /** Why the command is null, or how the executable was found. */
   notice: string;
 }
 
@@ -41,7 +35,6 @@ export interface DetectedProject {
   lint: DetectedCommand | null;
   unit: DetectedCommand | null;
   e2e: DetectedCommand | null;
-  /** Built-in packs the declared framework calls for, beyond `suggestedPacks`. */
   frameworkPacks: string[];
   notices: string[];
 }
@@ -147,11 +140,6 @@ function declaredDependencies(manifest: Record<string, unknown> | null): Set<str
   return names;
 }
 
-/**
- * `scripts` from package.json, read as evidence of which tools a project uses
- * and never turned into a configured command: a wrapper cannot be scoped to
- * changed files or asked what a change affects (doc 05, P1.2 item 2).
- */
 function packageScripts(manifest: Record<string, unknown> | null): Map<string, string> {
   const scripts = new Map<string, string>();
   const section = manifest?.['scripts'];
@@ -162,15 +150,13 @@ function packageScripts(manifest: Record<string, unknown> | null): Map<string, s
   return scripts;
 }
 
-/** The first script whose command line invokes one of these tools. */
 function scriptInvoking(
   scripts: ReadonlyMap<string, string>,
   tools: readonly string[],
 ): { name: string; tool: string } | null {
   for (const [name, line] of scripts) {
     for (const tool of tools) {
-      // Word-bounded so "eslint-config-x" in a script line is not read as a
-      // call to eslint.
+      // Word-bounded so "eslint-config-x" is not read as a call to eslint.
       if (new RegExp(`(^|[\\s/])${tool}([\\s]|$)`).test(line)) return { name, tool };
     }
   }
@@ -248,8 +234,6 @@ async function detectTypescript(
     const bin = await binary('playwright');
     const script = scriptInvoking(scripts, ['playwright']);
     if (bin === null && !declared.has('@playwright/test') && script === null) return null;
-    // Left null on purpose: an existing e2e setup may start services, so it is
-    // not treated as a bounded command without the owner saying so (doc 05).
     notices.push(
       'Playwright was detected but the e2e command is left null: an existing e2e setup may start services or depend on a running environment. Configure it deliberately if its scope is bounded.',
     );
@@ -395,7 +379,6 @@ const FRAMEWORKS = [
   },
 ] as const;
 
-/** Built-in packs offered for an ecosystem, before any framework packs. */
 export function suggestedPacks(ecosystem: Ecosystem): string[] {
   return ecosystem === 'python'
     ? ['builtin/common-quality', 'builtin/common-checks', 'builtin/python-quality']
@@ -410,7 +393,6 @@ export async function detectBaseline(
   if (originHead === null) {
     return {
       baseline: '',
-      // Never guess `main` (doc 05).
       notice:
         'No local refs/remotes/origin/HEAD was found, so no baseline was recorded. Branch review needs --base until you set one.',
     };

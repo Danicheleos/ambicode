@@ -1,8 +1,6 @@
 /**
- * `view`'s options, apart from the command. The dispatcher parses every
- * command's arguments up front, and importing `commands/view.ts` for this would
- * load the page server — Fastify and its plugins, 1.5 MB of the bundle — on
- * every hook and every `prepare`.
+ * Kept out of `commands/view.ts`: the dispatcher parses every command's
+ * arguments up front, and importing that would load Fastify on every hook.
  */
 export const VIEW_OPTIONS = {
   values: ['review'],

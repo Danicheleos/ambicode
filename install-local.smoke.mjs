@@ -1,24 +1,6 @@
-// A real isolated-config smoke test for durable local installation (doc 04
-// P2.2 correction A). Not part of `npm run test:unit` (doc 07: unit tests do
-// not chain a real CLI), and not a fake: it shells out to the real `claude`
-// binary against an isolated CLAUDE_CONFIG_DIR that is created and destroyed
-// here, exactly like `docs/installation.md` already documents by hand.
-//
-// What this proves, end to end:
-//   1. install-local.mjs installs a packaged candidate into a fresh
-//      CLAUDE_CONFIG_DIR.
-//   2. The candidate directory used for that install (standing in for the
-//      source checkout's `dist/`) is then deleted entirely.
-//   3. A brand new `claude` process — not the one that ran the install —
-//      still reports the plugin as installed and lists its skills. That new
-//      process is the "fresh invocation / reload" proof this environment can
-//      give non-interactively; it reads only what install-local.mjs
-//      persisted under CLAUDE_CONFIG_DIR, nothing from the deleted directory.
-//   4. install-local.mjs uninstalls cleanly without the deleted candidate
-//      directory, and the durable install directory it owned is gone
-//      afterward.
-//
-// Usage: node install-local.smoke.mjs
+// Smoke test against the real `claude` binary in an isolated CLAUDE_CONFIG_DIR: install a
+// candidate, delete the candidate dir, confirm a fresh `claude` process still lists the
+// plugin, then uninstall. Usage: node install-local.smoke.mjs
 import { execFileSync } from 'node:child_process';
 import { cp, mkdir, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -57,8 +39,7 @@ async function main() {
     throw new Error(`Expected packaged candidate at ${realCandidateDir}; run npm run package:candidate first.`);
   }
 
-  // A private copy standing in for "the source checkout's dist directory":
-  // this smoke test deletes *this* copy, never the developer's own dist/.
+  // A private copy: this test deletes it, never the developer's own dist/.
   const ephemeralCandidateDir = await mkdtemp(path.join(tmpdir(), 'ambicode-smoke-candidate-'));
   const candidateDir = path.join(ephemeralCandidateDir, `ambicode-${version}`);
   await cp(realCandidateDir, candidateDir, { recursive: true });

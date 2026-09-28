@@ -7,55 +7,31 @@ import { AmbicodeError } from '../util/errors.ts';
 import { contentHash } from '../util/hash.ts';
 import { resolveInsideBoundary } from '../util/paths.ts';
 
-/**
- * Everything a policy pack must satisfy beyond its Zod schema, in one place.
- *
- * `src/policy/load.ts` calls this while loading the packs a project enabled,
- * and `ambicode policy check` calls it on a candidate file that is not yet
- * referenced from `.ambicode/config.yaml` (R3 part 1). The two were one
- * function before, so the only way to give the candidate check the same rules
- * was to copy them; a rule added here is now enforced on both paths by
- * construction, which is what `src/cli/policy-check.test.ts` asserts.
- *
- * What lives here rather than in `src/contracts/policy.ts` is exactly the set
- * of checks a schema cannot express: they need the pack's own `appliesTo`
- * alongside one of its rules, the pack directory on disk, the project's
- * command catalog, or the other enabled packs.
- */
-
 export interface PackWithPrompts extends LoadedPack {
   resolvedPrompts: ResolvedPromptRef[];
 }
 
-/** The pack file as read, before anything has been decided about it. */
 export interface PackSource {
   raw: string;
-  /** Absolute path; prompt references resolve against its directory. */
   filePath: string;
-  /** `builtin/<id>` or the repository-relative config path. */
   reference: string;
   origin: 'builtin' | 'project';
 }
 
 export interface PackConstraints {
   /**
-   * The command catalog that a `commandPolicy` decision or a `command` check
-   * must name. `null` means no project owns this pack yet — a candidate file
-   * checked in a repository with more than one project and no `--project` —
-   * and that one check is then reported as skipped rather than guessed
-   * against an arbitrary project's catalog.
+   * `null` when no project owns the pack yet: command checks are then reported as skipped
+   * rather than guessed against an arbitrary project's catalog.
    */
   commands: Readonly<Record<string, unknown>> | null;
   projectId: string | null;
 }
 
 export interface PackValidation {
-  /** Null when the pack could not be understood well enough to be used. */
   pack: PackWithPrompts | null;
   diagnostics: Diagnostic[];
 }
 
-/** The file's text, or null when it is not there; the caller words the diagnostic. */
 export async function readPackText(fs: FileSystem, filePath: string): Promise<string | null> {
   try {
     return await fs.readText(filePath);
@@ -64,11 +40,6 @@ export async function readPackText(fs: FileSystem, filePath: string): Promise<st
   }
 }
 
-/**
- * Parses one pack and applies every non-schema rule that can be decided from
- * the pack alone. The cross-pack rules — duplicate ids and `replaces` — need
- * the whole enabled set and live in `validatePackSet`.
- */
 export async function validatePack(
   fs: FileSystem,
   source: PackSource,
@@ -130,8 +101,6 @@ export async function validatePack(
     }
   }
 
-  // A rule or decision naming a command the project does not declare is a
-  // configuration error the operator can act on, not a silent no-op (U03).
   if (constraints.commands === null) {
     if (pack.commandPolicy.length > 0 || pack.rules.some((rule) => rule.check.kind === 'command')) {
       diagnostics.push({
@@ -166,11 +135,7 @@ export async function validatePack(
     }
   }
 
-  // A reminder is allowed only for a path-specific pack (doc 04 P2.4
-  // correction F): a pack applying broadly to `**/*` would otherwise fire a
-  // reminder on every edit anywhere in the project, exactly the per-file
-  // noise `remindOnEdit` is meant to avoid — this is a configuration error,
-  // not a silently ignored flag.
+  // A `**/*` pack would remind on every edit anywhere, the very noise `remindOnEdit` exists to avoid.
   if (pack.appliesTo.includes('**/*')) {
     for (const rule of pack.rules) {
       if (rule.remindOnEdit) {
@@ -184,9 +149,7 @@ export async function validatePack(
     }
   }
 
-  // `replaces` is a project-pack mechanism. Its form (`builtin/<id>`) is in the
-  // schema; that a built-in must not carry it at all is not, because the schema
-  // cannot see where the file came from.
+  // The schema checks the form of `replaces` but cannot see where the file came from.
   if (pack.replaces !== undefined && origin !== 'project') {
     diagnostics.push({
       severity: 'error',
@@ -208,11 +171,6 @@ export interface PackSetValidation {
   diagnostics: Diagnostic[];
 }
 
-/**
- * The rules that only exist between packs. A project pack replaces a built-in
- * only when it says so explicitly; replacement is whole-pack, and the replaced
- * reference stays visible (doc 05).
- */
 export function validatePackSet(packs: readonly PackWithPrompts[]): PackSetValidation {
   const diagnostics: Diagnostic[] = [];
   const replacedIds = new Map<string, PackWithPrompts>();
@@ -238,7 +196,7 @@ export function validatePackSet(packs: readonly PackWithPrompts[]): PackSetValid
     const replacement = replacedIds.get(pack.reference);
     if (replacement !== undefined && pack.origin === 'builtin') {
       replacement.replacedReference = pack.reference;
-      continue; // Superseded whole, not merged.
+      continue;
     }
     const existing = seenIds.get(pack.pack.id);
     if (existing !== undefined) {

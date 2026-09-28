@@ -1,6 +1,8 @@
 ---
 name: init
-description: Set up AMBICODE in this repository — detect projects, write .ambicode/config.yaml, and explain which checks are configured and which are missing. Use when the user asks to set up, initialize, or configure AMBICODE, or when another AMBICODE skill reports that no configuration exists.
+description: "Set up AMBICODE — detect projects and write .ambicode/config.yaml. Run at setup, or when an AMBICODE skill reports no configuration."
+disable-model-invocation: true
+allowed-tools: Read, Grep, Glob, Write(.ambicode/config.yaml), Edit(.ambicode/config.yaml), Bash(node *ambicode.mjs*)
 ---
 
 # Set up AMBICODE

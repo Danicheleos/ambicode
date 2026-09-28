@@ -1,45 +1,6 @@
-// Installs a packaged AMBICODE candidate into a chosen CLAUDE_CONFIG_DIR
-// (doc 08 "Distribution"; doc 04 P2.2 correction A; doc 04 P2.3 correction A).
-//
-// AMBICODE is installed and used locally: there is no hosted, public, or
-// private remote marketplace. Claude Code's own mechanism for installing a
-// plugin from a directory is a marketplace whose one entry's `source` is a
-// local path. Claude Code loads that local-directory source *in place* —
-// the marketplace directory is not copied into a durable cache at install
-// time — so the marketplace this script drives `claude plugin marketplace
-// add`/`install` against must itself be durable, not a throwaway `/tmp`
-// directory the caller is told it may delete.
-//
-// This script therefore owns one durable install layout beneath the chosen
-// CLAUDE_CONFIG_DIR: `<config-dir>/ambicode-install/marketplace/`, holding a
-// copy of the candidate plus the marketplace manifest that points at it, and
-// `<config-dir>/ambicode-install/state.json`, the owned metadata that
-// records which plugin version, scope, and (where applicable) project
-// directory this script itself installed. That directory is never deleted
-// except by this script's own successful `uninstall`.
-//
-// P2.3 correction A: every mutating step below happens in this order —
-// build and validate the replacement in a sibling staging directory, publish
-// it by renaming it over the live marketplace path only once it is fully
-// validated (keeping the previous live content under a rollback name rather
-// than deleting it), drive the native marketplace/plugin operations, and
-// only *then* either discard the rollback copy and record success, or
-// restore the rollback copy and report failure. "installed"/"uninstalled" is
-// printed only once the whole operation has actually succeeded, and a
-// failure exits nonzero while leaving a working installation in place.
-//
-// Usage:
-//   node install-local.mjs install <candidate-dir> [--config-dir <dir>] \
-//     [--scope user|project|local] [--project-dir <dir>]
-//   node install-local.mjs uninstall [--config-dir <dir>] \
-//     [--scope user|project|local] [--project-dir <dir>]
-//   node install-local.mjs inspect [--config-dir <dir>]
-//
-// Example:
-//   npm run package:candidate
-//   node install-local.mjs install dist/ambicode-0.3.1
-//   node install-local.mjs inspect
-//   node install-local.mjs uninstall
+// Claude Code loads a local-directory marketplace source in place, so the marketplace
+// lives durably under <config-dir>/ambicode-install/, removed only by a successful uninstall.
+// Usage: install <candidate-dir> | uninstall | inspect  [--config-dir] [--scope user|project|local] [--project-dir]
 import { execaSync } from 'execa';
 import { createHash, randomBytes } from 'node:crypto';
 import { cp, mkdir, open, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
@@ -114,8 +75,6 @@ export function parseArgs(argv, env = process.env, home = homedir()) {
   }
 
   if (command === 'install') {
-    // Fresh installs need an explicit scope; there is no prior recorded state
-    // to fall back to, unlike uninstall.
     const effectiveScope = scopeExplicit ? scope : 'user';
     if ((effectiveScope === 'project' || effectiveScope === 'local') && !projectDirExplicit) {
       usageError(
@@ -135,9 +94,8 @@ export function parseArgs(argv, env = process.env, home = homedir()) {
   }
 
   if (command === 'uninstall') {
-    // Uninstall normally uses the recorded scope/project directory (P2.3
-    // correction A). An explicit --scope/--project-dir here is compared
-    // against that record, not a substitute for it.
+    // An explicit --scope/--project-dir is compared against the recorded installation,
+    // not a substitute for it.
     if (scopeExplicit && (scope === 'project' || scope === 'local') && !projectDirExplicit) {
       usageError(`--scope ${scope} needs an explicit --project-dir to compare against the recorded installation.`);
     }
@@ -155,7 +113,6 @@ export function parseArgs(argv, env = process.env, home = homedir()) {
   return { command, configDir, configDirExplicit };
 }
 
-/** `<config-dir>/ambicode-install/`: the one directory this script owns. */
 function installRoot(configDir) {
   return path.join(configDir, 'ambicode-install');
 }
@@ -215,7 +172,7 @@ async function candidateFingerprint(root) {
   return hash.digest('hex');
 }
 
-/** `null` when the source does not exist yet (e.g. a project dir not yet created); realpath'd otherwise so scope comparison is never fooled by a symlinked prefix (P2.4 correction D3). */
+/** Realpath'd so scope comparison is never fooled by a symlinked prefix; `null` when the path does not exist yet. */
 async function canonicalize(candidate) {
   if (candidate === null) return null;
   try {
@@ -225,13 +182,7 @@ async function canonicalize(candidate) {
   }
 }
 
-/**
- * An ownership lock so two installer processes never mutate the same install
- * root concurrently (P2.4 correction D11). A stale lock — its recorded pid no
- * longer running — is reclaimed; a live one is refused outright rather than
- * silently waited on, so a caller sees the conflict instead of two processes
- * racing to publish the same marketplace directory.
- */
+/** A stale lock (its pid no longer running) is reclaimed; a live one is refused rather than waited on. */
 async function acquireLock(configDir) {
   await mkdir(installRoot(configDir), { recursive: true });
   const target = lockPath(configDir);
@@ -259,7 +210,6 @@ async function acquireLock(configDir) {
           `${target}`,
       );
     }
-    // Stale: the recorded process is gone. Reclaim by removing it and retrying once.
     await rm(target, { force: true });
   }
   throw new InstallError('locked', `Could not acquire the install lock at ${target} after reclaiming a stale one.`);
@@ -270,7 +220,7 @@ function isProcessAlive(pid) {
     process.kill(pid, 0);
     return true;
   } catch (error) {
-    return error.code === 'EPERM'; // Exists, just not signalable by us — still alive.
+    return error.code === 'EPERM'; // EPERM: exists, just not signalable by us.
   }
 }
 
@@ -291,18 +241,8 @@ async function readCandidateIdentity(candidateDir) {
 const SUPPORTED_STATE_SCHEMA_VERSION = 1;
 
 /**
- * The owned metadata this script persists on every successful install (P2.3
- * correction A; P2.4 correction D4): enough to identify the installed
- * plugin version, scope, and explicit project directory, so a later
- * `uninstall` never has to guess or accept an arbitrary caller-supplied
- * scope for state it did not itself record.
- *
- * Returns a tagged result that keeps "absent" (nothing installed by this
- * script, a genuine no-op) strictly apart from "corrupt" (the file exists
- * but is unreadable, invalid JSON, missing required fields, or declares a
- * schema version this script does not understand) — the latter is an
- * actionable failure a caller must resolve, never silently treated the same
- * as "nothing to do here".
+ * Keeps "absent" (nothing installed, a genuine no-op) apart from "corrupt"
+ * (unreadable, invalid, or an unknown schema version), which a caller must resolve.
  */
 async function readStateStrict(configDir) {
   const target = statePath(configDir);
@@ -366,13 +306,6 @@ async function writeState(configDir, state) {
   }
 }
 
-/**
- * Builds the complete replacement marketplace content — the candidate copy
- * plus the manifest that points at it — at `targetDir`, which must not yet
- * exist. Nothing at the live marketplace path is touched by this step (P2.3
- * correction A, "build and validate a replacement in a sibling staging
- * directory").
- */
 async function buildMarketplaceContent(targetDir, candidateDir, name, version) {
   const pluginDirName = `${name}-${version}`;
   await mkdir(targetDir, { recursive: true });
@@ -390,13 +323,7 @@ async function buildMarketplaceContent(targetDir, candidateDir, name, version) {
   );
 }
 
-/**
- * Validates the staged content before it is ever published or handed to a
- * native command (P2.3 correction A: a malformed candidate must be caught
- * here, not misreported as an "already installed" native failure). Checks
- * that the manifest parses and that the copied plugin's own manifest agrees
- * with the identity this script read from the source candidate directory.
- */
+/** Catches a malformed candidate before it can be misreported as an "already installed" native failure. */
 async function validateMarketplaceContent(targetDir, name, version) {
   let manifest;
   try {
@@ -432,12 +359,7 @@ function describe(cause) {
   return cause instanceof Error ? cause.message : String(cause);
 }
 
-/**
- * Wraps a real `claude` invocation, in a plain shape a fake can produce
- * without shelling out (P2.3 correction A: "inject or fake native command
- * outcomes"). Never throws: a failing native command is data, not a thrown
- * error, so callers decide what a given failure means.
- */
+/** Never throws: a failing native command is data, so callers decide what a failure means. */
 function runClaude(args, { configDir, projectDir }) {
   const result = execaSync('claude', args, {
     cwd: projectDir ?? undefined,
@@ -459,10 +381,8 @@ function parseJsonCommandResult(raw) {
   try {
     json = JSON.parse(raw.stdout);
   } catch {
-    // No parseable JSON on stdout: a failure this script did not anticipate
-    // (e.g. the executable itself is missing). Never guessed as "already
-    // present" — that classification only ever comes from a real structured
-    // outcome (P2.3 correction A).
+    // No parseable JSON (e.g. the executable is missing): never guessed as
+    // "already present", which only a real structured outcome can say.
   }
   if (json !== null && typeof json === 'object' && typeof json.outcome === 'string') {
     return {
@@ -477,13 +397,6 @@ function parseJsonCommandResult(raw) {
   return { ok: false, outcome: 'failed', failureCode: null, message: raw.stderr || null, raw: null, stderr: raw.stderr };
 }
 
-/**
- * The real native command adapter. Every method returns a normalized,
- * never-throwing outcome so `install`/`uninstall` can react to *what actually
- * happened* — a structured `--json` result where the native CLI offers one,
- * otherwise a classified text outcome — rather than treating every nonzero
- * exit the same way.
- */
 export function createRealNativeCommands() {
   return {
     marketplaceAdd(dir, opts) {
@@ -496,8 +409,7 @@ export function createRealNativeCommands() {
     },
     marketplaceRemove(name, opts) {
       const r = runClaude(['plugin', 'marketplace', 'remove', name], opts);
-      // The real CLI's only distinguishable text signal for this case
-      // (`marketplace remove`/`marketplace update` have no --json form).
+      // `marketplace remove`/`update` have no --json form; this is their only text signal.
       const notFound = !r.ok && /not found/i.test(r.stderr);
       return { ok: r.ok, notFound, stdout: r.stdout, stderr: r.stderr };
     },
@@ -516,9 +428,7 @@ export function createRealNativeCommands() {
       try {
         const plugins = JSON.parse(r.stdout);
         if (!Array.isArray(plugins)) {
-          // Malformed/truncated structured data (P2.4 correction D5): never
-          // silently treated as "the empty list", which downstream logic
-          // would otherwise read as "nothing installed".
+          // Never read as the empty list, which downstream would take as "nothing installed".
           return { ok: false, plugins: [], stderr: '`claude plugin list --json` did not return a JSON array' };
         }
         return { ok: true, plugins, stderr: r.stderr };
@@ -526,12 +436,7 @@ export function createRealNativeCommands() {
         return { ok: false, plugins: [], stderr: `Could not parse \`claude plugin list --json\` output: ${describe(cause)}` };
       }
     },
-    /**
-     * Strict validation against the *staged* candidate, before it is ever
-     * published over the live marketplace path or handed to a native
-     * install/update (P2.4 correction D6): `claude plugin validate <dir>
-     * --strict --json` treats warnings as failures too.
-     */
+    /** `--strict` treats warnings as failures too. */
     pluginValidateStrict(pluginDir) {
       const result = execaSync('claude', ['plugin', 'validate', pluginDir, '--strict', '--json'], {
         encoding: 'utf8',
@@ -569,13 +474,8 @@ function failed(code, detail, native, journal) {
 }
 
 /**
- * Runs compensating actions in their explicit recovery order. Callers arrange
- * that order around the dependency they are restoring: a fresh install removes
- * plugin and marketplace registrations before removing their source; an
- * upgrade restores the prior source before refreshing/downgrading native
- * state from it. Every normalized `{ok:false}` result must be converted to a
- * thrown error by the action itself, because the native adapter deliberately
- * never throws. A failed compensation therefore always creates a journal.
+ * Runs compensations in the order given; callers arrange it around the dependency being restored.
+ * Each action must throw on `{ok:false}` itself, because the native adapter never throws.
  */
 async function failWithCompensation(configDir, code, detail, native, compensations) {
   const failures = [];
@@ -584,9 +484,8 @@ async function failWithCompensation(configDir, code, detail, native, compensatio
       await action.undo();
     } catch (error) {
       failures.push({ description: action.description, error: describe(error) });
-      // Later actions may remove state the failed action still depends on.
-      // Stop at the first failed compensation and leave the remaining source
-      // intact for the recovery journal's manual steps.
+      // Later actions may remove state the failed one still depends on; leave the
+      // rest for the recovery journal's manual steps.
       break;
     }
   }
@@ -615,12 +514,7 @@ async function failWithCompensation(configDir, code, detail, native, compensatio
   return failed(code, detail, native, journal);
 }
 
-/**
- * D8: the postcondition is verified through the same structured plugin state
- * a caller would inspect, not inferred from "the native command returned
- * ok" — exact plugin id, scope, project path where applicable, expected
- * version, enabled/loadable status, and no reported load errors.
- */
+/** Verified through structured plugin state, never inferred from a native command returning ok. */
 function verifyPostcondition(plugins, { name, version, scope, canonicalProjectDir }) {
   const id = `${name}@${MARKETPLACE_NAME}`;
   const entry = plugins.find((candidate) => candidate?.id === id && candidate?.scope === scope);
@@ -648,29 +542,8 @@ function verifyPostcondition(plugins, { name, version, scope, canonicalProjectDi
 }
 
 /**
- * Installs, or upgrades an existing installation in place (P2.3 correction
- * A; P2.4 correction D). One `CLAUDE_CONFIG_DIR/ambicode-install` is one
- * owned installation:
- *
- *  1. An ownership lock keeps two installer processes from racing (D11).
- *  2. Existing state is read and strictly validated *before* anything is
- *     changed (D1/D4): corruption is an actionable failure, not treated as
- *     "nothing installed".
- *  3. A scope or canonical project directory that differs from an existing
- *     installation's is refused before any mutation (D2/D3) — scope
- *     migration is an explicit uninstall followed by install, never this.
- *  4. The replacement is staged and strictly validated (`claude plugin
- *     validate --strict`) before it is ever published (D6), then published
- *     atomically over the live marketplace path, preserving the previous
- *     content under a rollback name rather than deleting it up front.
- *  5. Every native mutation pushes its own compensation before the next
- *     step runs, so a failure partway through unwinds exactly what
- *     happened, in the right order (D7).
- *  6. Success is proven by re-reading structured plugin state, never
- *     inferred from a native command's exit code alone (D5/D8).
- *  7. State is written before the rollback copy is discarded, so a
- *     state-write failure is itself compensated rather than losing the
- *     recovery path first (D9).
+ * A scope or project directory that differs from the existing installation is refused before any
+ * mutation. Every native mutation pushes its compensation before the next step runs.
  */
 export async function install({ candidateDir, configDir, scope, projectDir }, native = createRealNativeCommands()) {
   const canonicalProjectDir = await canonicalize(projectDir);
@@ -756,10 +629,8 @@ export async function install({ candidateDir, configDir, scope, projectDir }, na
     await rename(stagingDir, marketDir);
 
     const runOptions = { configDir, projectDir: canonicalProjectDir };
-    // Stored in the exact order recovery must run. Fresh-install native
-    // registrations are prepended before the filesystem restore. Upgrade
-    // refresh/downgrade actions are appended after the prior filesystem has
-    // been restored.
+    // Stored in the exact order recovery must run: fresh-install registrations before
+    // the filesystem restore, upgrade refresh/downgrade after it.
     const compensations = [
       {
         description: 'restore the previous marketplace directory content',
@@ -801,7 +672,6 @@ export async function install({ candidateDir, configDir, scope, projectDir }, na
 
     const listResult = await native.pluginList(runOptions);
     if (!listResult.ok) {
-      // D5: malformed/failed structured state is never read as "not installed".
       return await failWithCompensation(
         configDir,
         'plugin-list-failed',
@@ -846,9 +716,7 @@ export async function install({ candidateDir, configDir, scope, projectDir }, na
         return await failWithCompensation(configDir, 'plugin-update-failed', 'Updating the plugin failed.', updateResult, compensations);
       }
     }
-    // Else: already installed at the requested version and scope — an
-    // idempotent no-op, proven by native structured state rather than by
-    // swallowing an install failure (D10: no fake version bump needed).
+    // Else already installed at this version and scope: an idempotent no-op.
 
     const verifyResult = await native.pluginList(runOptions);
     if (!verifyResult.ok) {
@@ -865,10 +733,8 @@ export async function install({ candidateDir, configDir, scope, projectDir }, na
       return await failWithCompensation(configDir, 'postcondition-failed', `Postcondition failed: ${postcondition.reason}.`, verifyResult, compensations);
     }
 
-    // D9: state is written before the rollback copy is discarded. A
-    // state-write failure is itself compensated (the rollback directory is
-    // still there, so native state and the filesystem are unwound together)
-    // rather than losing the recovery path first.
+    // State is written before the rollback copy is discarded, so a state-write
+    // failure can still be unwound.
     try {
       await writeState(configDir, { name, version, scope, projectDir: canonicalProjectDir });
     } catch (error) {
@@ -884,14 +750,8 @@ export async function install({ candidateDir, configDir, scope, projectDir }, na
 }
 
 /**
- * Uninstalls using the recorded scope/project directory (P2.3 correction A;
- * P2.4 correction D). A caller-supplied `--scope`/`--project-dir` that
- * conflicts with the record is refused rather than honored — this script
- * will not operate on one scope while deleting the durable source another
- * scope's installation depends on. The durable directory is removed only
- * once both the native plugin uninstall and marketplace removal have
- * succeeded (or were already a no-op); any other failure leaves it in place
- * as a recovery path.
+ * A --scope/--project-dir that conflicts with the record is refused. The durable directory is
+ * removed only once native uninstall and marketplace removal have both succeeded.
  */
 export async function uninstall(
   { configDir, scope: requestedScope, scopeExplicit, projectDir: requestedProjectDir, projectDirExplicit },
@@ -960,9 +820,7 @@ export async function uninstall(
 
     return ok({ name: state.name, version: state.version, scope, projectDir });
   } finally {
-    // The lock file lives under installRoot(configDir), which a successful
-    // uninstall above already removed entirely; releasing a lock whose file
-    // is already gone is a harmless no-op (`rm(..., { force: true })`).
+    // A successful uninstall already removed installRoot, lock file included.
     await lock.release();
   }
 }
@@ -1052,7 +910,6 @@ function printResult(command, result, options) {
     return;
   }
 
-  // inspect
   if (!result.installed) {
     console.log(result.message);
     return;

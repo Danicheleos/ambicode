@@ -3,9 +3,8 @@ import type { PendingApproval } from '../checks/run.ts';
 import { reopenCommand } from '../page/reopen.ts';
 
 /**
- * The four-part local report (doc 03, P1.4): what was reviewed, the findings,
- * the verification evidence, and what was not covered. The fourth part is not
- * optional — a result without it reads like a clean bill of health.
+ * The last part, what was not covered, is not optional: a result without it reads
+ * like a clean bill of health.
  */
 export interface ReportOptions {
   result: ReviewResult;
@@ -14,11 +13,6 @@ export interface ReportOptions {
   pendingApprovals: readonly PendingApproval[];
 }
 
-/**
- * The split the limit was applied to. Once the prompt exists it is the prompt
- * plus the mirrored tree, with the patch and requirements inside the prompt
- * rather than counted twice.
- */
 function describeInputSplit(inputs: ReviewResult['inputs']): string {
   if (inputs.promptBytes === 0) {
     return `${inputs.patchBytes} patch + ${inputs.requirementBytes} requirements + ${inputs.snapshotBytes} mirrored`;
@@ -60,6 +54,9 @@ function whatWasReviewed(options: ReportOptions): string[] {
   if (result.reviewer !== null) {
     lines.push(
       `   reviewer    ${result.reviewer.status} — model ${result.reviewer.model}, ` +
+        // On the status line itself: a reader who stops there must not take a
+        // replayed answer for a review made now.
+        (result.reviewer.source === 'replay' ? 'REPLAYED from a recording (no model call), ' : '') +
         `tools ${result.reviewer.tools.join(',') || '(none)'}, ` +
         `timeout ${result.reviewer.timeoutSeconds}s` +
         (result.reviewer.durationMs === null ? '' : `, took ${Math.round(result.reviewer.durationMs / 1000)}s`),
@@ -156,9 +153,8 @@ function verification(options: ReportOptions): string[] {
         `  complete=${check.selectionComplete}` +
         (check.exitCode === null ? '' : `  exit=${check.exitCode}`),
     );
-    // A skipped check can still carry the argv it was not allowed to run — a
-    // merge request with no container, a binary that is not installed. `ran:`
-    // on those read as execution in run a0e87d39.
+    // A skipped check may still carry the argv it was not allowed to run (no
+    // container, binary missing); "ran:" would read as execution.
     if (check.argv.length > 0) {
       lines.push(`     ${check.status === 'skipped' ? 'would have run' : 'ran'}: ${check.argv.join(' ')}`);
     }
@@ -183,8 +179,6 @@ function uncovered(options: ReportOptions): string[] {
   const { result } = options;
   const lines = ['4. OMISSIONS, UNCERTAINTY AND UNAVAILABLE COVERAGE'];
 
-  // Structural gaps first: these are changes nobody reviewed, which is a
-  // different claim from "a check was skipped".
   if (!result.coverage.complete) {
     lines.push(
       `   coverage    ${result.coverage.deliveredFileCount} file(s) delivered` +

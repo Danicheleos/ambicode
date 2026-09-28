@@ -1,14 +1,5 @@
-// Built-artifact regression test for `ambicode hook` (doc 04 P2.4
-// correction G/H; K.5): runs the actual bundled CLI (`scripts/ambicode.mjs`),
-// piping real PostToolUse/SessionStart JSON to its stdin exactly the way
-// `hooks/hooks.json` invokes it, never the TypeScript source directly.
-//
-// Proves, against the real bundled artifact:
-//   1. A matching edit reminder is delivered once.
-//   2. A repeated edit of the same file is suppressed.
-//   3. A changed rule content hash redelivers it.
-//   4. A context reset (SessionStart) redelivers it, and carries the shared
-//      operating contract for the new epoch (R2 change 2).
+// Runs the bundled CLI (`scripts/ambicode.mjs`) with real hook JSON on stdin,
+// exactly as `hooks/hooks.json` invokes it, never the TypeScript source.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -22,13 +13,8 @@ const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const BUNDLE = path.join(ROOT, 'scripts', 'ambicode.mjs');
 
 /**
- * Whether the built bundle is there, told apart from a stat that could not be
- * answered. The previous `stat().then(() => true, () => false)` reported both
- * as "not built": one gate run printed six failures telling the operator to run
- * `npm run build`, for a file that measured 3,408,246 bytes immediately
- * afterwards and whose build step had already succeeded (F5). A transient
- * EBUSY, EPERM or EMFILE under 60-odd concurrent test files is retried; ENOENT
- * is the only answer that means the bundle is missing.
+ * ENOENT is the only answer that means the bundle is missing; a transient EBUSY,
+ * EPERM or EMFILE under many concurrent test files is retried.
  */
 async function assertBundleBuilt(candidate) {
   for (let attempt = 0; ; attempt += 1) {
@@ -161,10 +147,8 @@ describe('built-artifact regression: ambicode hook (P2.4 correction G/H)', () =>
   });
 
   it('PostCompact returns nothing, and the next UserPromptSubmit carries the contract', async () => {
-    // Claude Code's hook output schema has no `hookSpecificOutput` variant for
-    // `PostCompact`. Returning one is a validation failure the user sees on
-    // every compaction ("expected one of ... hookEventName"), not a silent
-    // no-op, so this asserts against the built bundle rather than the source.
+    // Claude Code's hook schema has no `hookSpecificOutput` variant for PostCompact;
+    // returning one is a validation error the user sees on every compaction.
     const repo = await makeFixtureRepo();
     const sessionId = randomUUID();
     try {
@@ -185,10 +169,6 @@ describe('built-artifact regression: ambicode hook (P2.4 correction G/H)', () =>
   });
 
   it('reports the packaged plugin\'s hooks when installed (companion to install-local.smoke.mjs)', async () => {
-    // The exact registration is proved end to end by install-local.smoke.mjs
-    // ("claude plugin details" reporting "Hooks (5)"); this just proves the
-    // manifest file itself is well-formed JSON with the five events wired to
-    // the same bundled entry point, since that is what ships in the candidate.
     const manifest = JSON.parse(await readFile(path.join(ROOT, 'hooks', 'hooks.json'), 'utf8'));
     const events = Object.keys(manifest.hooks);
     assert.deepEqual(events.sort(), [

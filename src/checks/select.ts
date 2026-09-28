@@ -9,7 +9,6 @@ import { adapterFor, enumerationExecutable } from './adapters.ts';
 import type { CommandAuthorization } from './authorize.ts';
 
 export interface SelectedFile {
-  /** Project-relative path handed to the runner. */
   path: string;
   reason: string;
 }
@@ -21,17 +20,13 @@ export interface ApprovalRequest {
 
 export interface Selection {
   files: SelectedFile[];
-  /** False when the selector could not establish the full affected set. */
   complete: boolean;
   limitations: string[];
-  /** Non-null when a human must authorize this specific run (D08). */
   approval: ApprovalRequest | null;
 }
 
 export interface ChangedPath {
-  /** Post-image path, or null for a deletion. */
   newPath: string | null;
-  /** Pre-image path, or null for an addition. */
   oldPath: string | null;
   changeKind: DiffFile['changeKind'];
 }
@@ -43,24 +38,18 @@ export interface SelectOptions {
   changed: readonly ChangedPath[];
   repositoryRoot: string;
   runner: ProcessRunner;
-  /** Revision a revision-based enumerator compares against. */
   enumerationRevision: string | null;
   maxSelectedTestFiles: number;
   timeoutMs: number;
   commandArgv: readonly string[] | null;
   /**
-   * The command-policy decision for any command selection itself would run.
-   * Required rather than optional so a call site cannot execute a project
-   * script without a decision having been taken (doc 05).
+   * Required rather than optional, so a call site cannot execute a project script without a
+   * command-policy decision.
    */
   authorize: (commandId: string) => CommandAuthorization;
 }
 
-/**
- * Lint: changed source files that still exist and match `include`.
- * A deleted file is dropped from the argument vector but its deletion stays in
- * the review evidence (doc 05).
- */
+/** A deleted file is dropped from the argument vector but its deletion stays in the review evidence. */
 export function selectLintFiles(options: SelectOptions): Selection {
   const projectRoot = normalizeRelative(options.project.root);
   const include = options.check.include ?? [];
@@ -105,10 +94,6 @@ export async function selectTestFiles(options: SelectOptions): Promise<Selection
   });
 }
 
-/**
- * Turns an incomplete, oversized, or out-of-project selection into an approval
- * request. Declining leaves the check skipped; it never widens the run (D08).
- */
 function applyLimits(
   selection: Selection,
   context: { maxFiles: number; projectRoot: string },
@@ -168,7 +153,6 @@ async function selectByMapping(
       .filter((value): value is string => value !== null);
     if (candidates.length === 0) continue;
 
-    // A changed test file selects itself.
     let matched = false;
     for (const candidate of candidates) {
       if (matchesAnyGlob(candidate, allTestGlobs)) {
@@ -195,8 +179,6 @@ async function selectByMapping(
     }
 
     if (!matched) {
-      // An unmatched implementation change is an evidence gap, never proof that
-      // nothing is affected (doc 05).
       complete = false;
       limitations.push(
         `${candidates[0] ?? 'a changed file'} matches no configured mapping, so its affected tests are unknown.`,
@@ -244,7 +226,6 @@ async function selectByRunner(options: SelectOptions): Promise<Selection> {
     .filter((value): value is string => value !== null);
 
   let argv: string[];
-  // True once part of the change cannot be put to the runner at all.
   let partial = false;
 
   if (adapter.enumeration.kind === 'from-files') {
@@ -265,7 +246,6 @@ async function selectByRunner(options: SelectOptions): Promise<Selection> {
     }
 
     if (sourcePaths.length === 0) {
-      // Empty only when nothing vanished; otherwise the affected set is unknown.
       return { files: [], complete: !partial, limitations, approval: null };
     }
     argv = adapter.enumeration.argv(executable, sourcePaths);
@@ -286,7 +266,6 @@ async function selectByRunner(options: SelectOptions): Promise<Selection> {
     cwd: absoluteRoot,
     timeoutMs: options.timeoutMs,
     maxOutputBytes: 1_048_576,
-    // A project's own test runner, in the developer's own environment.
     env: { kind: 'inherited' },
   });
 
@@ -311,18 +290,12 @@ async function selectByRunner(options: SelectOptions): Promise<Selection> {
   return { files: dedupe(files), complete: !partial, limitations, approval: null };
 }
 
-/**
- * The pre-image name a change removed from the tree: the path of a deletion, or
- * the source of a rename. Null for anything that still exists under its own
- * name, including an ordinary modification.
- */
 function vanishedPath(change: ChangedPath): string | null {
   if (change.oldPath === null) return null;
   if (change.newPath === null) return change.oldPath;
   return change.oldPath === change.newPath ? null : change.oldPath;
 }
 
-/** A project-owned selector script, subject to command policy like any check (doc 05). */
 async function selectByCommand(options: SelectOptions, commandId: string): Promise<Selection> {
   // Before the command is resolved: a forbidden selector must not run.
   const authorization = options.authorize(commandId);
@@ -358,7 +331,6 @@ async function selectByCommand(options: SelectOptions, commandId: string): Promi
     cwd: path.join(absoluteRoot, command.cwd ?? ''),
     timeoutMs: options.timeoutMs,
     maxOutputBytes: 262_144,
-    // A configured project script, in the developer's own environment.
     env: { kind: 'inherited' },
   });
 
@@ -405,10 +377,6 @@ async function selectByCommand(options: SelectOptions, commandId: string): Promi
   return { files: dedupe(files), complete: limitations.length === 0, limitations, approval: null };
 }
 
-/**
- * What a command selector would execute, so an approval shows the exact argv.
- * Null when the command is absent or intentionally unavailable.
- */
 export function selectorCommandPlan(options: {
   project: ProjectConfig;
   repositoryRoot: string;
@@ -425,11 +393,6 @@ export function selectorCommandPlan(options: {
   };
 }
 
-/**
- * Both names of every change, deduplicated. A rename contributes its source as
- * well as its destination: the tests that imported the old name are the ones it
- * can break, and only a project script can find them (doc 05).
- */
 function changedProjectPaths(projectRoot: string, changed: readonly ChangedPath[]): string[] {
   const seen = new Set<string>();
   const paths: string[] = [];
@@ -453,7 +416,6 @@ export function selectionRunsCommand(check: CheckSpec): boolean {
   return check.selector?.kind === 'command' || check.selector?.kind === 'related';
 }
 
-/** `{files}` occupies a whole argument and expands into separate filenames. */
 export function expandFiles(argv: readonly string[], files: readonly string[]): string[] {
   const expanded: string[] = [];
   for (const argument of argv) {

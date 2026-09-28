@@ -6,13 +6,9 @@ import { AmbicodeError } from '../util/errors.ts';
 import type { ParsedArgs } from './args.ts';
 
 /**
- * The target options `review` and `bundle` share, so the two commands cannot
- * disagree about what `--branch`, `--base` and `--mr` mean.
- *
- * `validateTargetArgs` decides every rule from the parsed arguments alone: no
- * filesystem, no git, no provider, no process. `main` calls it immediately
- * after parsing and before a runtime exists, so an invalid combination exits
- * before any of those (doc 02, "CLI execution contract").
+ * Shared by `review` and `bundle`. `validateTargetArgs` must stay pure: `main`
+ * calls it before a runtime exists, so an invalid combination exits before any
+ * filesystem, git or provider access.
  */
 export const TARGET_OPTIONS = {
   values: ['base', 'mr', 'evidence', 'task'],
@@ -25,53 +21,26 @@ export interface ResolvedTargetOptions {
   requirementUrls: string[];
   evidence: EvidenceSource | null;
   approvals: Set<string>;
-  /**
-   * `--decline <key>`: the other answer. `--approve` alone gives a human one
-   * way to end the question, and a check they do not want run would leave the
-   * review waiting forever.
-   */
+  /** `--decline <key>`: without it, a check the human does not want run would leave the review waiting forever. */
   declines: Set<string>;
-  /**
-   * `--task <slug>`: the task directory this run belongs to. A run carrying a
-   * requirement needs no slug — the ticket is one. This is for the rest: a
-   * plain request the authoring skill has already named, so its plan, its
-   * investigation and its reviews land in one directory instead of three.
-   */
+  /** `--task <slug>`: for a run with no requirement, so its plan, investigation and reviews share one directory. */
   task: string | null;
   /**
-   * `--exclude <glob>`: paths this run must not review, added to
-   * `review.excludePaths`. Without it a change is either reviewable whole or
-   * refused whole, and the per-file snapshot ceiling is not a configurable
-   * number — so one generated file could refuse a change with no way out but
-   * editing the installed plugin (run 21f23317).
+   * `--exclude <glob>`: added to `review.excludePaths`. The per-file snapshot
+   * ceiling is not configurable, so this is the only way past one oversized file.
    */
   excludePaths: string[];
-  /**
-   * `--only <glob>`: review nothing outside these paths. The counterpart of
-   * `--exclude`, for the case the working-tree target creates — a dirty tree
-   * whose review grew from 6 to 12 files over one session as unrelated edits
-   * accumulated (run 3c2188c8), covering `.gitignore` and `angular.json` that
-   * the task never touched.
-   */
+  /** `--only <glob>`: for a dirty working tree that holds edits unrelated to the task. */
   onlyPaths: string[];
-  /**
-   * `--with-tests`: review the change's test code too. Merge-request review
-   * leaves it out by default — the checks cannot run in the user's checkout, so
-   * nothing executes those files, and 60 of MR 2677's 299 changed files were
-   * `.spec.ts`. The flag is the way back: an exclusion nobody can undo is the
-   * same trap as a question with one answer.
-   */
+  /** `--with-tests`: merge-request review leaves test code out by default, since no check can run it there. */
   withTests: boolean;
 }
 
-/** Pure: the target the arguments name, or the reason they name none. */
 export function validateTargetArgs(command: string, args: ParsedArgs): TargetSelection {
   const branch = args.flag('branch');
   const mr = args.value('mr');
   const base = args.value('base');
 
-  // Three targets, one at a time. Two of them together is not a preference to
-  // resolve: it is two different reviews.
   if (branch && mr !== null) {
     throw new AmbicodeError(
       'conflicting-target',
@@ -108,7 +77,6 @@ export function validateTargetArgs(command: string, args: ParsedArgs): TargetSel
   return { kind: 'working' };
 }
 
-/** The same decision plus the values that need the runtime's working directory. */
 export function resolveTargetOptions(
   command: string,
   runtime: Runtime,
@@ -127,12 +95,7 @@ export function resolveTargetOptions(
   };
 }
 
-/**
- * Shared with `prepare`, so the two commands resolve `--evidence` identically.
- * `-` is standard input (R2 change 4): a skill that hands the same evidence to
- * `prepare` and then to `review` pipes it twice rather than writing a file it
- * must then keep alive and delete in exactly one place.
- */
+/** `-` is standard input, so a skill can pipe the same evidence to `prepare` and `review` without a temp file. */
 export function evidenceSource(runtime: Runtime, value: string | null): EvidenceSource | null {
   if (value === null) return null;
   if (value === '-') return { kind: 'stdin' };

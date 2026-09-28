@@ -29,18 +29,11 @@ import {
   type DeliveryKey,
 } from './markers.ts';
 
-/** A bounded read: a malformed or oversized hook payload never hangs or crashes the edit. */
 export const MAX_HOOK_INPUT_BYTES = 1_048_576;
 
 /**
- * The packaged plugin's one hook entry point (doc 04 P2.4 correction G):
- * dispatches on `hook_event_name` and never throws — any failure to parse,
- * resolve, or apply policy is a silent no-op, because a hook is advisory and
- * must never block, alter, or comment on the tool call that already
- * happened (correction G7). `PostToolUse` for `Edit`/`Write` is the only
- * branch that can produce visible output; every other branch only
- * maintains this hook's own owned, out-of-repository delivery state
- * (correction H3).
+ * Never throws: any failure is a silent no-op, because a hook is advisory and
+ * must never block or alter the tool call that already happened.
  */
 export async function runHook(runtime: Runtime, rawStdin: string): Promise<unknown> {
   let parsed: unknown;
@@ -61,12 +54,9 @@ export async function runHook(runtime: Runtime, rawStdin: string): Promise<unkno
         return await deliverSharedContract(runtime, input, base, 'SessionStart');
       }
       case 'PostCompact': {
-        // A compaction invalidates every earlier delivery, so the epoch is
-        // reset here — but this event has no `hookSpecificOutput` variant in
-        // Claude Code's schema, so it cannot carry the contract itself.
-        // Returning one is a validation failure the user sees. The next
-        // `UserPromptSubmit`, which is the first thing to happen after a
-        // compaction, delivers it into the fresh epoch instead.
+        // A compaction invalidates earlier deliveries, but this event has no
+        // `hookSpecificOutput` variant in Claude Code's schema (returning one fails
+        // validation), so the next `UserPromptSubmit` delivers the contract instead.
         const base = hookStateBaseDir(runtime.fs, input.session_id, input.scratchpad_dir);
         await resetEpoch(runtime.fs, runtime.ids, base);
         return EMPTY_HOOK_OUTPUT;
@@ -86,24 +76,13 @@ export async function runHook(runtime: Runtime, rawStdin: string): Promise<unkno
         return EMPTY_HOOK_OUTPUT;
     }
   } catch {
-    // Never let an internal failure surface as a broken edit (correction G7).
     return EMPTY_HOOK_OUTPUT;
   }
 }
 
 /**
- * Puts the canonical shared operating contract into context once per epoch
- * (R2 change 2). It used to be re-sent inside every `ambicode prepare`
- * payload — 2.3 KiB per call on the authoring path, for text that does not
- * change within a session. A fresh or compacted context is exactly when it
- * has to be said again, and that is exactly when these two events fire.
- *
- * The marker is still consulted after `resetEpoch`, not skipped as
- * redundant: two events can reach the same epoch (a `SessionStart` matcher
- * firing alongside a resume), and re-sending the same 2.3 KiB is the cost
- * this change exists to avoid. A failure to read it is not an error here —
- * the caller's `catch` turns it into a silent no-op, and `prepare
- * --with-contract` remains the escape for a session that never got it.
+ * The marker is still consulted after `resetEpoch`: two events can reach the
+ * same epoch (a `SessionStart` matcher firing alongside a resume).
  */
 async function deliverSharedContract(
   runtime: Runtime,
@@ -146,7 +125,7 @@ async function handlePostToolUse(runtime: Runtime, input: HookInput): Promise<un
   const hookRuntime = await createRuntime({ ...runtime, cwd: input.cwd ?? runtime.cwd });
 
   const repository = await openRepository(hookRuntime).catch(() => null);
-  if (repository === null) return EMPTY_HOOK_OUTPUT; // Not inside a git work tree.
+  if (repository === null) return EMPTY_HOOK_OUTPUT;
 
   const config = await loadConfig(hookRuntime.fs, repository.repositoryRoot)
     .then((loaded) => loaded.config)
@@ -154,17 +133,15 @@ async function handlePostToolUse(runtime: Runtime, input: HookInput): Promise<un
   if (config === null || !config.authoring.editReminders) return EMPTY_HOOK_OUTPUT;
 
   const workspace = { runtime: hookRuntime, git: repository.git, repositoryRoot: repository.repositoryRoot, config, configPath: '' };
-  // Realpath-aware, the same way every other AMBICODE path resolution is
-  // (`toRepositoryRelative`): a lexical `path.relative` alone would report a
-  // nonsense `../../..` path whenever the repository is reached through a
-  // symlinked prefix, which on macOS is `/tmp` and `/var` themselves.
+  // Realpath-aware: a lexical `path.relative` reports `../../..` when the
+  // repository is reached through a symlinked prefix, as macOS `/tmp` is.
   const relative = await toRepositoryRelative(workspace, absoluteFilePath);
   if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
-    return EMPTY_HOOK_OUTPUT; // Outside the repository.
+    return EMPTY_HOOK_OUTPUT;
   }
 
   const project = projectForPath(config, relative);
-  if (project === null) return EMPTY_HOOK_OUTPUT; // Outside every configured project.
+  if (project === null) return EMPTY_HOOK_OUTPUT;
 
   const policy = await resolvePolicyFor({ workspace, project, activity: 'task', paths: [relative] }).catch(() => null);
   if (policy === null) return EMPTY_HOOK_OUTPUT;

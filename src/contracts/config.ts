@@ -2,11 +2,6 @@ import { z } from 'zod';
 import { DEFAULTS } from '../config/defaults.ts';
 import { AdapterId, Ecosystem } from './primitives.ts';
 
-/**
- * `.ambicode/config.yaml`. Unknown fields are errors (doc 05): every object is
- * strict so a typo is reported at its own path rather than silently ignored.
- */
-
 const RelativePath = z
   .string()
   .min(1)
@@ -88,11 +83,8 @@ export const ReviewConfig = z.strictObject({
   maxChangedLines: z.number().int().positive(),
   maxContextBytes: z.number().int().positive(),
   /**
-   * Paths this repository never wants reviewed — generated translations, a
-   * committed bundle. Empty by default, and `--exclude` adds to it per run.
-   * The one way past the per-file snapshot ceiling, which no limit can raise:
-   * a single 390 KB generated file otherwise blocks the whole change.
-   * `.default([])` so a config written before this key existed still parses.
+   * The only way past the per-file snapshot ceiling, which no limit raises: one
+   * large generated file would otherwise block the whole change. `--exclude` adds to it.
    */
   excludePaths: z.array(z.string().min(1)).default([]),
 });
@@ -110,19 +102,9 @@ export const PageConfig = z.strictObject({
 });
 
 export const RemoteChecksConfig = z.strictObject({
-  /** Pinned by digest. Null keeps remote executable checks disabled (doc 05). */
   image: z.string().min(1).nullable(),
 });
 
-/**
- * Doc 04 P2.4 correction F: one explicit switch for the packaged edit-time
- * reminder hook. `editReminders: false` disables it entirely for this
- * repository, independent of any pack's own `remindOnEdit` declarations.
- * Defaults to `true` so an existing schema-version-1 config (written before
- * this field existed) receives the documented default without a destructive
- * rewrite — `AmbicodeConfig.parse` fills it in via `.default()` the same way
- * it already does for other additive fields.
- */
 export const AuthoringConfig = z.strictObject({
   editReminders: z.boolean().default(true),
 });
@@ -144,10 +126,6 @@ export const AmbicodeConfig = z.strictObject({
 });
 export type AmbicodeConfig = z.infer<typeof AmbicodeConfig>;
 
-/**
- * Parsed before schema validation so an unsupported future schemaVersion gets an
- * explicit upgrade message instead of a field-by-field mismatch report.
- */
 export const SchemaVersionProbe = z.looseObject({ schemaVersion: z.unknown() });
 
 export const SUPPORTED_SCHEMA_VERSION = 1;

@@ -4,11 +4,9 @@ export interface StubbedCall {
   /** Matched against the argument vector joined by a space. */
   match: (argv: readonly string[]) => boolean;
   outcome: Partial<ProcessOutcome>;
-  /** Lets a stub act, e.g. write the files a `docker cp` out would produce. */
   handler?: (request: ProcessRequest) => Promise<Partial<ProcessOutcome>>;
 }
 
-/** Records every invocation so a test can assert what did and did not run. */
 export class FakeProcessRunner implements ProcessRunner {
   readonly calls: ProcessRequest[] = [];
   private readonly stubs: StubbedCall[] = [];
@@ -18,7 +16,6 @@ export class FakeProcessRunner implements ProcessRunner {
     return this;
   }
 
-  /** A stub that performs a side effect the real command would have had. */
   stubEffect(
     match: StubbedCall['match'],
     handler: NonNullable<StubbedCall['handler']>,
@@ -41,9 +38,8 @@ export class FakeProcessRunner implements ProcessRunner {
     const kind = produced.kind ?? 'exited';
     return {
       kind,
-      // Only an `exited` process has one. The real runner reports null for a
-      // kill or a failed spawn, so a fake that defaulted to 0 let a test assert
-      // an exit code production never produces.
+      // Only an `exited` process has one: the real runner reports null for a kill or a
+      // failed spawn, so defaulting to 0 would assert an exit code production never produces.
       exitCode: produced.exitCode ?? (kind === 'exited' ? 0 : null),
       stdout: produced.stdout ?? '',
       stderr: produced.stderr ?? '',

@@ -16,12 +16,6 @@ import {
   type ReviewProvider,
 } from '../contracts/provider.ts';
 
-/**
- * A provider a test drives directly. It records every call, so "nothing was
- * published" and "the revision was re-checked before each comment" are
- * assertions rather than hopes.
- */
-
 export const FAKE_TARGET: RemoteTarget = {
   provider: 'gitlab',
   host: 'gitlab.example.com',
@@ -145,8 +139,6 @@ export class FakeProvider implements ReviewProvider {
     }
     const noteId = `n${this.published.length}`;
     const discussionId = `d${this.published.length}`;
-    // A confirmed write is visible to the next reconciliation, exactly as a
-    // real one would be.
     this.discussions = [
       ...this.discussions,
       thread(discussionId, [

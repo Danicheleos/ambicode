@@ -5,13 +5,9 @@ import { z } from 'zod';
 import type { FileSystem } from '../ports/filesystem.ts';
 
 /**
- * One review page per machine, on a fixed port, so a new `ambicode view`
- * replaces the previous one instead of leaving it serving a stale review.
- *
- * The running page records a shutdown token in a control file beside the
- * port. A newcomer that finds the port taken presents that token over
- * loopback; only a page that wrote it will stop. Anything else holding the
- * port is left alone, and the newcomer falls back to a port the OS picks.
+ * The running page records a shutdown token in a control file beside the port.
+ * A newcomer that finds the port taken presents it over loopback; only a page
+ * that wrote it stops, and anything else keeps the port.
  */
 
 export const TAKEOVER_HEADER = 'x-ambicode-takeover';
@@ -25,10 +21,8 @@ const ControlFile = z.strictObject({
 type ControlFile = z.infer<typeof ControlFile>;
 
 /**
- * In the host temporary root: the port is global to the machine, not to a
- * repository. On a shared `/tmp` another local user could read it and stop
- * the page, which costs a reopen; publishing still needs the session and CSRF
- * token, which never leave the browser.
+ * Machine-global, like the port. On a shared `/tmp` another local user could
+ * read it and stop the page; publishing still needs the session and CSRF token.
  */
 export function controlFilePath(fs: FileSystem, port: number): string {
   return path.join(fs.temporaryRoot(), `ambicode-view-${port}.json`);
@@ -56,7 +50,6 @@ async function readControlFile(fs: FileSystem, port: number): Promise<ControlFil
 
 export type TakeoverResult = { kind: 'stopped' } | { kind: 'refused'; reason: string };
 
-/** Asks the page on `port` to stop. Resolves once it has answered, not once the port is free. */
 export async function requestTakeover(
   fs: FileSystem,
   port: number,
@@ -83,19 +76,10 @@ export async function requestTakeover(
   return { kind: 'refused', reason: `port ${port} refused to stop (HTTP ${response.status})` };
 }
 
-/**
- * How long a replaced page gets to release the port: 20 × 100 ms. Measured on
- * Windows 11 with Fastify 5.12.5 and an idle keep-alive connection open: the
- * port was bindable 3 ms after close, because Fastify drops idle connections.
- */
+/** 2 s in all; the port is normally bindable within milliseconds of close, even on Windows. */
 const RELEASE_ATTEMPTS = 20;
 const RELEASE_INTERVAL_MS = 100;
 
-/**
- * The preferred port, taking it over from a previous review page if one holds
- * it. Anything that is not a review page keeps its port, and this page moves
- * to one the OS picks and says so, rather than failing to open.
- */
 export async function bindPort(
   app: FastifyInstance,
   fs: FileSystem,
@@ -122,7 +106,6 @@ export async function bindPort(
   const takeover = await requestTakeover(fs, preferred);
   let reason: string;
   if (takeover.kind === 'stopped') {
-    // It answers before it closes its listener.
     for (let attempt = 0; attempt < RELEASE_ATTEMPTS; attempt += 1) {
       await delay(RELEASE_INTERVAL_MS);
       const port = await tryListen(preferred);

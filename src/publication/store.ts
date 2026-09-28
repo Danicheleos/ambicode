@@ -13,14 +13,8 @@ import type { FileSystem } from '../ports/filesystem.ts';
 import { AmbicodeError } from '../util/errors.ts';
 
 /**
- * Everything the page reads and writes under a review's own gitignored
- * directory. Reads validate against the shared schema, and writes are atomic:
- * a temporary file in the same directory, then a rename, so a crash leaves the
- * previous version rather than half of the next one.
- *
  * Nothing written here may hold a capability, a session id, a cookie or CSRF
- * secret, a glab token or any model credential. Only review identifiers, the
- * human's own text, and what the remote answered.
+ * secret, a glab token or any model credential.
  */
 
 export const RESULT_FILE = 'result.json';
@@ -65,7 +59,6 @@ export class ReviewStore {
     return parsed.data;
   }
 
-  /** Null when the review had no remote target, so no position was derivable. */
   async readPositions(): Promise<PublicationPositions | null> {
     const raw = await this.readJson(POSITIONS_FILE);
     if (raw === null) return null;
@@ -112,7 +105,6 @@ export class ReviewStore {
     await this.writeJson(PUBLICATION_FILE, PublicationRecord.parse(record));
   }
 
-  /** Saves the human's edits before anything is sent, so a failure cannot lose them. */
   async saveDrafts(record: PublicationRecord, drafts: readonly CommentDraft[]): Promise<PublicationRecord> {
     const merged = new Map(record.drafts.map((draft) => [draft.findingId, draft]));
     for (const draft of drafts) merged.set(draft.findingId, draft);
@@ -125,10 +117,6 @@ export class ReviewStore {
     return next;
   }
 
-  /**
-   * Folds one submission into the record. Earlier confirmed publications are
-   * preserved: a later failure never rewrites a comment that was delivered.
-   */
   async recordSubmission(
     record: PublicationRecord,
     submission: SubmissionRecord,
@@ -136,8 +124,8 @@ export class ReviewStore {
     const outcomes = new Map(record.outcomes.map((outcome) => [outcome.findingId, outcome]));
     for (const outcome of submission.outcomes) {
       const previous = outcomes.get(outcome.findingId);
-      // A confirmed publication is terminal. A later "stale" or "failed" for
-      // the same finding describes an attempt that never happened remotely.
+      // A confirmed publication is terminal; a later "stale" or "failed" describes an
+      // attempt that never happened remotely.
       if (previous !== undefined && isTerminal(previous) && !isTerminal(outcome)) continue;
       outcomes.set(outcome.findingId, outcome);
     }
@@ -167,7 +155,7 @@ export class ReviewStore {
   private async writeJson(file: string, value: unknown): Promise<void> {
     await this.fs.mkdirp(this.directory);
     const destination = this.pathOf(file);
-    // Same directory, so the rename is on one filesystem and therefore atomic.
+    // Same directory, so the rename stays on one filesystem and is atomic.
     const temporary = `${destination}.writing`;
     await this.fs.writeText(temporary, `${JSON.stringify(value, null, 2)}\n`);
     await this.fs.rename(temporary, destination);

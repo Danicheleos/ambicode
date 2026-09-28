@@ -12,12 +12,6 @@ import {
   type OpenedPage,
 } from '../testing/page-harness.ts';
 
-/**
- * U21. What the server accepts, and what it refuses. Every refusal here has to
- * leave the merge request untouched, which the fake provider's call list
- * proves rather than implies.
- */
-
 async function post(
   harness: Harness,
   page: OpenedPage,
@@ -75,11 +69,9 @@ describe('U21 the page accepts only its own form', () => {
       assert.equal(session.path, '/');
       assert.equal(session.domain, undefined);
       assert.ok((session.maxAge ?? 0) > 0);
-      // The signed value is not the raw session id.
       assert.ok(session.value.includes('.'));
 
-      // Reusable by design since MR 2719: a second browser, with no cookie,
-      // gets its own session rather than "already used".
+      // Reusable by design: a second browser with no cookie gets its own session.
       const replay = await harness.server.app.inject({
         method: 'GET',
         url: `/${harness.server.capability}`,
@@ -91,7 +83,6 @@ describe('U21 the page accepts only its own form', () => {
       assert.notEqual(second.value, session.value);
       assert.equal(harness.server.sessions.sessionCount, 2);
 
-      // The bare address carries no session and says where the link is.
       const bare = await harness.server.app.inject({ method: 'GET', url: '/', headers: { host: AUTHORITY } });
       assert.equal(bare.statusCode, 401);
       assert.match(bare.body, /ends in a token/);
@@ -165,7 +156,6 @@ describe('U21 the page accepts only its own form', () => {
       assert.doesNotMatch(hostile, /[\u0000-\u001f\u007f]/);
       assert.match(hostile, /user-agent probe \?\]0;owned\? x+\)$/);
       assert.ok(hostile.length < 600, 'the header is bounded');
-      // The refusal names the header but never echoes its value, to the page or the log.
       const refused = await harness.server.app.inject({
         method: 'GET',
         url,
@@ -221,7 +211,6 @@ describe('U21 the page accepts only its own form', () => {
       assert.equal(response.statusCode, 403);
       assert.match(response.body, /printed by an earlier ambicode view/);
 
-      // Not shaped like a token at all: an ordinary 404, never a session.
       const other = await harness.server.app.inject({ method: 'GET', url: '/favicon.ico', headers: { host: AUTHORITY } });
       assert.equal(other.statusCode, 404);
     } finally {
@@ -269,8 +258,6 @@ describe('U21 the page accepts only its own form', () => {
         url: '/',
         headers: { host: AUTHORITY, cookie: page.cookies },
       });
-      // Still refused; since the fixed port this is how a replaced page's tab
-      // arrives, so it is named a disconnect rather than a missing link.
       assert.equal(response.statusCode, 410);
       assert.match(response.body, /This review page was disconnected./);
       assert.doesNotMatch(response.body, /Review r-0001/);
@@ -291,7 +278,6 @@ describe('U21 the page accepts only its own form', () => {
       assert.equal(response.statusCode, 403);
       assert.match(response.body, /form token was missing or did not match/);
       assert.deepEqual(harness.provider?.published, []);
-      // A refused forgery is not echoed back.
       assert.ok(!response.body.includes('Please seed the reduce.'));
     } finally {
       await harness.dispose();
@@ -307,8 +293,6 @@ describe('U21 the page accepts only its own form', () => {
       });
       assert.equal(response.statusCode, 403);
       assert.match(response.body, /accepts http:\/\/127\.0\.0\.1:7777/);
-      // The refusal names what actually arrived, so a genuine refusal reads
-      // differently from a guard that is rejecting its own page.
       assert.match(response.body, /attacker\.example\.com/);
       assert.deepEqual(harness.provider?.published, []);
     } finally {
@@ -320,7 +304,6 @@ describe('U21 the page accepts only its own form', () => {
     const harness = await startHarness();
     try {
       const page = await openPage(harness);
-      // No Origin, and nothing else that establishes where it came from.
       const response = await post(harness, page, validFields(page), { origin: null });
       assert.equal(response.statusCode, 403);
       assert.deepEqual(harness.provider?.published, []);
@@ -330,8 +313,6 @@ describe('U21 the page accepts only its own form', () => {
   });
 
   it('stops the server when the reader closes the page, publishing nothing', async () => {
-    // Deciding to publish nothing is an ordinary outcome, and it needs an
-    // ending. Ctrl-C does not reach a page a skill started in the background.
     const harness = await startHarness();
     try {
       const page = await openPage(harness);
@@ -381,10 +362,6 @@ describe('U21 the page accepts only its own form', () => {
   });
 
   it('accepts a same-origin submission that carries no Origin header', async () => {
-    // A same-origin form POST is not obliged to send `Origin`, and browsers
-    // differ on whether they do. Refusing on its absence rejected real
-    // submissions from the page the server had just opened itself. The CSRF
-    // token, the signed session cookie and the Host check all still apply.
     const harness = await startHarness();
     try {
       const page = await openPage(harness);
@@ -596,7 +573,6 @@ describe('U21 the page accepts only its own form', () => {
       assert.equal(response.statusCode, 400);
       assert.match(response.body, /A careful comment I do not want to lose\./);
       assert.match(response.body, /Another one with markup &lt;b&gt;kept as text&lt;\/b&gt;\./);
-      // Both boxes the human had checked are checked again.
       assert.match(response.body, /name="select_f-aaaa" value="on" checked/);
       assert.match(response.body, /name="select_f-bbbb" value="on" checked/);
       assert.deepEqual(harness.provider?.published, []);
@@ -618,18 +594,12 @@ describe('U21 the page accepts only its own form', () => {
       assert.equal(response.statusCode, 400);
       assert.match(response.body, /selected with an empty comment/);
 
-      // Persisted for a future load, not only redisplayed on this response
-      // (doc 03 P1.7 correction E).
       const record = await harness.store.readPublication(harness.result.reviewId);
       assert.equal(
         record.drafts.find((draft) => draft.findingId === 'f-aaaa')?.body,
         'A valid draft next to a field that will fail.',
       );
 
-      // A newly opened page — a second process reading the same saved
-      // review, with a fresh capability and session and no `selected`
-      // redisplay set — shows the preserved text but starts every checkbox
-      // unchecked.
       const second = await reopenHarness(harness);
       try {
         const reopened = await openPage(second);
@@ -695,7 +665,6 @@ describe('U21 the page accepts only its own form', () => {
       const replay = await post(harness, page, validFields(page));
       assert.equal(replay.statusCode, 409);
       assert.match(replay.body, /already submitted/);
-      // Exactly one comment was sent, not two.
       assert.equal(harness.provider?.published.length, 1);
     } finally {
       await harness.dispose();

@@ -20,7 +20,6 @@ async function node(script: string, maxOutputBytes = 1024, timeoutMs = 10_000): 
 
 describe('U29 process runner', () => {
   it('counts the ceiling in bytes, not in UTF-16 code units', async () => {
-    // Ten characters, twenty bytes. A ten-unit ceiling would retain all of them.
     const outcome = await node('process.stdout.write("é".repeat(10))', 10);
     assert.equal(Buffer.byteLength(outcome.stdout, 'utf8'), 10);
     assert.equal(outcome.stdout, 'é'.repeat(5));
@@ -28,7 +27,6 @@ describe('U29 process runner', () => {
   });
 
   it('never returns a broken character created by truncation alone', async () => {
-    // The ceiling falls in the middle of the third two-byte character.
     const outcome = await node('process.stdout.write("é".repeat(10))', 5);
     assert.equal(outcome.stdout, 'éé');
     assert.ok(!outcome.stdout.includes('�'));
@@ -77,14 +75,6 @@ describe('U29 process runner', () => {
     assert.match(spawnFailed.failure ?? '', /ENOENT/);
   });
 
-  /**
-   * `kind` is what tells "the tool is not installed" apart from "the tool ran
-   * and failed", and D06 turns only the first into a notice and a skipped
-   * result. Every case below asserts the same thing on Linux, Windows and
-   * macOS: on Windows the missing-command case used to arrive as a plain
-   * `exited` with code 1, so an uninstalled linter was reported to the user as
-   * a failing lint check (R1 defect 2).
-   */
   describe('a command that never starts is spawn-failed on every platform', () => {
     async function attempt(argv: readonly string[], cwd = process.cwd()): Promise<ProcessOutcome> {
       return await runner.run({ argv, cwd, timeoutMs: 10_000, maxOutputBytes: 1024, env: { kind: 'inherited' } });
@@ -94,8 +84,6 @@ describe('U29 process runner', () => {
       const outcome = await attempt(['ambicode-no-such-executable']);
       assert.equal(outcome.kind, 'spawn-failed');
       assert.match(outcome.failure ?? '', /ENOENT/);
-      // Never an exit code: an uninstalled tool did not run, so it cannot have
-      // "failed" — the distinction the whole check exists to preserve.
       assert.equal(outcome.exitCode, null);
     });
 
@@ -115,11 +103,8 @@ describe('U29 process runner', () => {
     });
 
     it('a path that exists but cannot be executed', async () => {
-      // A directory is the one "exists but is not runnable" case that behaves
-      // the same way everywhere: POSIX rejects it with EACCES at exec time,
-      // and on Windows it resolves to something that is not a file. A
-      // permission-denied *file* has no Windows equivalent — executability
-      // there is decided by extension, not by a mode bit.
+      // A directory is the one "exists but not runnable" case that behaves alike everywhere: Windows
+      // decides executability by extension, not by a mode bit.
       const outcome = await attempt([os.tmpdir()]);
       assert.equal(outcome.kind, 'spawn-failed');
       assert.equal(outcome.exitCode, null);
@@ -127,9 +112,7 @@ describe('U29 process runner', () => {
     });
 
     it('still reports a command that did run and failed as exited, not spawn-failed', async () => {
-      // The other half of the distinction: exit 1 is the most common "ran and
-      // found problems" code, and on Windows it is byte-for-byte what cmd.exe
-      // returns for a command it could not find. This must stay `exited`.
+      // On Windows exit 1 is byte-for-byte what cmd.exe returns for an unknown command; it must stay `exited`.
       const outcome = await attempt([process.execPath, '-e', 'process.exit(1)']);
       assert.equal(outcome.kind, 'exited');
       assert.equal(outcome.exitCode, 1);
@@ -137,9 +120,6 @@ describe('U29 process runner', () => {
     });
 
     it('resolves a command that is installed, rather than rejecting it', async () => {
-      // The pre-flight resolution must not turn a real tool into a false
-      // "not installed": the interpreter running this test is found by
-      // absolute path, and `node` by a bare name through PATH.
       assert.equal((await attempt([process.execPath, '-e', 'process.exit(0)'])).kind, 'exited');
       assert.equal((await attempt(['node', '-e', 'process.exit(0)'])).kind, 'exited');
     });
@@ -189,20 +169,13 @@ describe('U29 process runner', () => {
   });
 
   it('decodes only whole UTF-8 sequences', () => {
-    const four = Buffer.from('😀'); // one four-byte sequence
+    const four = Buffer.from('😀');
     assert.equal(decodeCompleteUtf8(four), '😀');
     assert.equal(decodeCompleteUtf8(four.subarray(0, 3)), '');
     assert.equal(decodeCompleteUtf8(Buffer.concat([Buffer.from('ok'), four.subarray(0, 2)])), 'ok');
   });
 });
 
-/**
- * The Windows pre-flight resolution in isolation (R1 defect 2). It takes its
- * environment and cwd as arguments and separates both `PATH` and `PATHEXT`
- * with `;` exactly as Windows does, so these run and mean the same thing on
- * every platform in the matrix — the behavior they pin down is only *used* on
- * Windows, but it is not only *checked* there.
- */
 describe('U29 Windows command resolution', () => {
   let directory = '';
 
@@ -227,9 +200,6 @@ describe('U29 Windows command resolution', () => {
   });
 
   it('finds a bare name whose file has no extension at all', () => {
-    // Wider than Execa on purpose: a resolution this function refuses is one
-    // Execa could not have made either, so it may never be the narrower of
-    // the two.
     assert.equal(windowsCommandExists('plain', env({ PATH: directory }), os.tmpdir()), true);
   });
 
@@ -243,7 +213,6 @@ describe('U29 Windows command resolution', () => {
 
   it('resolves a command carrying a path separator instead of searching PATH', () => {
     assert.equal(windowsCommandExists(path.join(directory, 'linter.EXE'), env(), os.tmpdir()), true);
-    // On PATH, but given as a path relative to a cwd it is not under.
     assert.equal(windowsCommandExists('./linter', env({ PATH: directory }), os.tmpdir()), false);
   });
 
@@ -252,8 +221,6 @@ describe('U29 Windows command resolution', () => {
   });
 
   it('skips an empty PATH entry rather than reading it as the current directory', () => {
-    // `directory` holds `linter.EXE`; reaching it through an empty entry would
-    // mean an attacker-planted file in the cwd wins a PATH lookup.
     assert.equal(windowsCommandExists('linter', env({ PATH: ';;' }), os.tmpdir()), false);
   });
 
@@ -262,7 +229,6 @@ describe('U29 Windows command resolution', () => {
   });
 
   it('reads PATH and PATHEXT case-insensitively, as Windows names them', () => {
-    // A child can be handed `Path` rather than `PATH`.
     assert.equal(windowsCommandExists('linter', { Path: directory, PathExt: '.EXE' }, os.tmpdir()), true);
   });
 
@@ -280,18 +246,12 @@ describe('U29 a timeout kills the whole process tree', () => {
     await rm(directory, { recursive: true, force: true });
   });
 
-  // An explicit timeout: without the fix this test does not fail, it hangs, and
-  // a gate that hangs is worse than one that goes red.
   it('returns promptly when the command leaves a running grandchild (F1)', { timeout: 30_000 }, async (t) => {
     if (process.platform !== 'win32') {
       t.skip('Unix kills the process group already; this is the Windows shim case');
       return;
     }
 
-    // Measured before this fix: a vitest.cmd shim whose node child held a timer
-    // ran 30,076ms against a 5s ceiling, and an unbounded one never returned at
-    // all — `ambicode bundle` was still waiting 18 minutes later, because the
-    // grandchild kept the inherited stdout and stderr pipes open.
     const child = path.join(directory, 'child.mjs');
     await writeFile(child, 'console.log("started"); setInterval(() => {}, 1000);', 'utf8');
     const shim = path.join(directory, 'wrapper.cmd');
@@ -313,14 +273,9 @@ describe('U29 a timeout kills the whole process tree', () => {
       elapsed < 15_000,
       `waited ${Math.round(elapsed)}ms for a 1,000ms timeout; the grandchild is still holding it open`,
     );
-    // Whatever the command managed to say is still evidence.
     assert.match(outcome.stdout, /started/);
   });
 
-  // The browser case: the command exits at once, but the program it started
-  // inherited the pipes. Measured with pipes: 6,138 ms against a 3 s ceiling,
-  // exit code 0, reported as timed-out. This is the same grandchild as above
-  // seen from the other side — there, the command itself never exits.
   describe('a command that exits and leaves a grandchild holding the pipes', () => {
     async function launcher(request: { output?: 'capture' | 'ignore'; timeoutMs: number }): Promise<{
       outcome: ProcessOutcome;

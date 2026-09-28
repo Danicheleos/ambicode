@@ -5,20 +5,9 @@ import { AmbicodeError } from '../util/errors.ts';
 import { positionDigest } from './positions.ts';
 
 /**
- * One saved review's three files, validated as a single unit (doc 03 P1.7
- * correction D).
- *
- * `ReviewStore` already validates `result.json`, `publication-positions.json`
- * and `publication.json` against their own schemas independently. That proves
- * each file is internally well-formed; it does not prove the three describe
- * the same review, the same remote target and the same findings. Three
- * individually valid files can still disagree with each other, and nothing
- * downstream — the page, the provider, a publication attempt — may be built
- * on a combination that was never true at once.
- *
- * A mismatch is refused with a precise error. This never repairs, merges or
- * recomputes suspicious state from the current merge request: the saved files
- * are either mutually consistent or the review is refused.
+ * Validates a saved review's three files as one unit: each can be schema-valid
+ * yet disagree with the others. A mismatch is refused, never repaired or
+ * recomputed from the current merge request.
  */
 export interface ReviewAggregate {
   result: ReviewResult;
@@ -58,10 +47,7 @@ function collectProblems(aggregate: ReviewAggregate): string[] {
   if (positions !== null) {
     problems.push(...positionProblems(positions, result, remote, findingIdSet));
   } else if (remote !== null) {
-    // A remote review with no positions file at all is an ordinary, honest
-    // state (e.g. every finding was unplaceable, or positions were never
-    // derived); it is not a cross-file mismatch. `publicationAvailability`
-    // already refuses to offer publication in that case.
+    // An honest state (nothing placeable), not a cross-file mismatch.
   }
 
   problems.push(...recordProblems(record, findingIdSet, remote, positions));

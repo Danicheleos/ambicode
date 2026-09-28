@@ -3,25 +3,16 @@ import { samePosition, type RemoteDiscussion } from '../contracts/provider.ts';
 import { findMarker, markerMatches } from './marker.ts';
 
 /**
- * Whether a comment AMBICODE would post is already on the merge request.
- *
- * Four things must agree, and any one of them missing means "not found" rather
- * than "probably the same" (doc 03 P1.6):
- *
- *  - the hidden marker, with this review, this finding and this position digest;
- *  - the posting identity, so a marker somebody else copied is not confirmation;
- *  - the exact pinned position, so the same marker on another line is not either;
- *  - the merge request the discussions were read from, which the caller pins by
- *    listing discussions for exactly that target.
+ * Already posted only when the marker (review, finding, position digest), the posting
+ * identity and the exact pinned position all match on the pinned merge request;
+ * anything missing means "not found", not "probably the same".
  */
 
 export interface ReconcileRequest {
   discussions: readonly RemoteDiscussion[];
-  /** True only when every remote thread was read. A capped listing proves nothing. */
   listingComplete: boolean;
   reviewId: string;
   position: PersistedPosition;
-  /** The account the provider is authenticated as, from the remote itself. */
   postedBy: string;
 }
 
@@ -41,7 +32,6 @@ export function reconcile(request: ReconcileRequest): ReconcileResult {
     for (const note of discussion.notes) {
       const found = findMarker(note.body);
       if (found === null || !markerMatches(found, expected)) continue;
-      // The marker is in a comment. Everything else decides whether it is ours.
       if (note.author !== request.postedBy) continue;
       if (note.position === null || !samePosition(note.position, request.position.position)) continue;
       return {
@@ -63,7 +53,6 @@ export function reconcile(request: ReconcileRequest): ReconcileResult {
   return { kind: 'absent' };
 }
 
-/** Why a marker that looked right was rejected, for the operator-facing record. */
 export function describeNearMiss(request: ReconcileRequest): string | null {
   const expected = {
     reviewId: request.reviewId,

@@ -3,25 +3,15 @@ import { addressableLines, lineAt, type DiffFile } from '../git/diff.ts';
 import { contentHash } from '../util/hash.ts';
 
 /**
- * Everything the reviewer returned is checked against the pinned bundle before
- * it becomes a finding. Nothing here is repaired and no second model call is
- * made (doc 02).
- *
- * A primary location outside the pinned diff, a supporting location that names
- * no line of the diff or of a mirrored file, a reference to a rule or
- * requirement this review does not hold, or more findings than the configured
- * limit make the whole reviewer result invalid — not a successful review with a
- * shorter list.
- * A reviewer that named a file the change does not contain has not demonstrated
- * that its other claims were checked against the same evidence, so presenting
- * the survivors as validated output would overstate what is known.
+ * Reviewer output is checked against the pinned bundle; nothing is repaired or re-asked.
+ * One invalid location, unknown rule or requirement, or finding over the limit voids the
+ * whole result: the survivors of an unverified answer are not validated output.
  */
 
 export interface ValidateOptions {
   output: ReviewerOutput;
   /** The files that entered the review: the only valid finding locations. */
   files: readonly DiffFile[];
-  /** Mirrored snapshot text by repository-relative path, for evidence snippets. */
   snapshotText: ReadonlyMap<string, string>;
   reviewId: string;
   maxFindings: number;
@@ -31,11 +21,7 @@ export interface ValidateOptions {
 
 export type ValidatedFindings =
   | { kind: 'ok'; findings: Finding[] }
-  /**
-   * The reviewer produced no usable result. `reason` is the operator-facing
-   * sentence; `rejections` are the individual diagnostics, persisted because a
-   * refusal is evidence about the review.
-   */
+  /** `rejections` are persisted, because a refusal is evidence about the review. */
   | { kind: 'invalid'; reason: string; rejections: string[] };
 
 export function validateFindings(options: ValidateOptions): ValidatedFindings {
@@ -72,8 +58,7 @@ export function validateFindings(options: ValidateOptions): ValidatedFindings {
       supporting.push(resolved);
     }
 
-    // The snippet is taken here, from the snapshot and the pinned diff. Text the
-    // model supplied is never quoted back as if it were the file's content.
+    // Excerpt taken from the snapshot and the pinned diff, never from text the model supplied.
     const evidence = snippetFor(located, options.snapshotText);
 
     for (const ref of candidate.ruleRefs) {
@@ -120,9 +105,8 @@ interface Located {
 }
 
 /**
- * A location is valid only if the bundle holds that file and that side carries
- * that line. The paths are taken from the bundle, not from the model, so a
- * plausible-looking near miss cannot become a comment position.
+ * Paths are taken from the bundle, not from the model, so a plausible-looking
+ * near miss cannot become a comment position.
  */
 function resolveLocation(
   location: FindingLocation,
@@ -155,11 +139,9 @@ function resolveLocation(
 }
 
 /**
- * A supporting location is evidence, never a comment position (positions are
- * derived from the primary location alone), so on the `new` side it may name
- * any line of a mirrored file: the consequence of a change often sits on a line
- * the change did not touch, and requiring the diff there left such a finding
- * no honest anchor. The old side is not mirrored, so it stays diff-only.
+ * Evidence, never a comment position, so on the `new` side it may name any line of a
+ * mirrored file: a change's consequence often sits on an untouched line. The old side
+ * is not mirrored, so it stays diff-only.
  */
 function resolveSupporting(
   location: FindingLocation,
@@ -176,8 +158,8 @@ function resolveSupporting(
   if (location.line > lineCount) {
     return `line ${location.line} is past the end of "${location.newPath}", which has ${lineCount} line(s).`;
   }
-  // Paths from the bundle, not from the model: a changed file keeps its own
-  // pre-image name, an unchanged neighbour is the same file on both sides.
+  // A changed file keeps its own pre-image name; an unchanged neighbour is the
+  // same file on both sides.
   const changed = files.find((file) => file.newPath === location.newPath);
   return {
     oldPath: changed === undefined ? location.newPath : changed.oldPath,
@@ -188,7 +170,6 @@ function resolveSupporting(
 }
 
 const SNIPPET_RADIUS = 2;
-/** Marks the line the comment is anchored to. */
 const COMMENT_MARKER = ' <---';
 
 /** Up to five lines around the location from the snapshot, or the one line from the diff. */
@@ -213,16 +194,14 @@ function snippetFor(located: Located, snapshotText: ReadonlyMap<string, string>)
     }
   }
 
-  // Deleted or excluded content is not mirrored; the pinned diff still holds the
-  // exact line, which is better evidence than nothing and still not the model's.
+  // Deleted or excluded content is not mirrored; the pinned diff still holds the exact line.
   const line = lineAt(file, location.side, location.line);
   return line === null ? '' : `${location.line}: ${line.text}${COMMENT_MARKER}`;
 }
 
 /**
- * Derived from where and what the finding is, so the same finding keeps its ID
- * across serializations and a re-read of the result. The review ID keeps IDs
- * from colliding between reviews.
+ * Derived from where and what the finding is, so it is stable across re-reads;
+ * the review ID keeps IDs from colliding between reviews.
  */
 function stableId(
   reviewId: string,

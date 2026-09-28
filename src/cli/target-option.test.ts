@@ -7,12 +7,6 @@ import { REVIEW_OPTIONS } from './commands/review.ts';
 import { validateTargetArgs } from './target-option.ts';
 import { isAmbicodeError } from '../util/errors.ts';
 
-/**
- * U27, extended for the merge request target. Every rule is decided from the
- * argument vector alone, and `main` applies it before a runtime exists, so an
- * invalid combination cannot create a directory, start git or reach a provider.
- */
-
 const MR = 'https://gitlab.example.com/group/project/-/merge_requests/42';
 
 function target(command: string, argv: string[], spec = REVIEW_OPTIONS) {
@@ -79,8 +73,6 @@ describe('U27 target options', () => {
   });
 
   it('exits nonzero on a conflicting target without touching anything', async () => {
-    // `main` builds no runtime for a refused argument vector: reaching a
-    // provider or the filesystem first is exactly what is being excluded.
     const code = await main(['review', '--branch', '--mr', MR]);
     assert.equal(code, 2);
   });

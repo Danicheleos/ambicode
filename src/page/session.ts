@@ -3,23 +3,16 @@ import type { Clock } from '../ports/clock.ts';
 import type { IdSource } from '../ports/ids.ts';
 
 /**
- * The page's link token and the server-side sessions it becomes.
- *
- * Everything here lives in memory for the lifetime of one `ambicode view`
- * process and is never written to disk or to a log. The token is valid for
- * that whole lifetime, from any browser on the machine, any number of times:
- * a one-time link was spent by the browser launch, so the link the agent
- * reported in chat always led to "needs the link" (MR 2719). It dies with the
- * process, and the next `ambicode view` replaces the process.
+ * In memory for one `ambicode view` process, never on disk or in a log. The
+ * token is reusable for that lifetime from any browser: a one-time link would
+ * be spent by the browser launch before the link reported in chat is opened.
  */
 
 export interface Session {
   readonly id: string;
   readonly createdAt: number;
   lastSeenAt: number;
-  /** The submission currently being published, if any. Serializes writes. */
   inFlightSubmissionId: string | null;
-  /** Submissions already accepted, so a replayed POST is rejected. */
   readonly seenSubmissions: Set<string>;
 }
 
@@ -30,7 +23,6 @@ export type CapabilityResult =
 export interface SessionStoreOptions {
   ids: IdSource;
   clock: Clock;
-  /** How long a session cookie stays valid without activity. */
   sessionTtlMs: number;
 }
 
@@ -47,13 +39,11 @@ export class SessionStore {
     this.sessionTtlMs = options.sessionTtlMs;
   }
 
-  /** Issues the single link token this server will ever accept. */
   issueCapability(): string {
     this.capability = this.ids.capability();
     return this.capability;
   }
 
-  /** Each visit with the issued token opens a new session; any other value is refused. */
   redeemCapability(presented: string): CapabilityResult {
     const held = this.capability;
     if (held === null) {
@@ -84,7 +74,6 @@ export class SessionStore {
     return session;
   }
 
-  /** The session a cookie names, if it exists and has not idled out. */
   get(sessionId: string | undefined): Session | null {
     if (sessionId === undefined) return null;
     const session = this.sessions.get(sessionId);
@@ -96,15 +85,13 @@ export class SessionStore {
     return session;
   }
 
-  /** Activity is recorded only for requests that already authenticated. */
   touch(session: Session): void {
     session.lastSeenAt = this.clock.now().getTime();
   }
 
   /**
    * Claims the session's single publication slot. A concurrent submission and a
-   * replay of one already accepted are both refused, so a double-click cannot
-   * become two sets of comments.
+   * replay are both refused, so a double-click cannot become two sets of comments.
    */
   beginSubmission(session: Session, submissionId: string): { ok: true } | { ok: false; reason: string } {
     if (session.inFlightSubmissionId !== null) {
@@ -128,13 +115,11 @@ export class SessionStore {
     session.inFlightSubmissionId = null;
   }
 
-  /** Drops every session, e.g. at shutdown, so no cookie stays valid. */
   clear(): void {
     this.sessions.clear();
     this.capability = null;
   }
 
-  /** Whether any session holds its publication slot right now. */
   get publishing(): boolean {
     for (const session of this.sessions.values()) {
       if (session.inFlightSubmissionId !== null) return true;

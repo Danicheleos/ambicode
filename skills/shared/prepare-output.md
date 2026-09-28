@@ -8,7 +8,7 @@ result is identical.
 Always pass `--json`. The default text output is a human-readable overview,
 not this contract.
 
-## The default output is compact
+## The default output is compact — and bounded. Read it whole.
 
 `prepare` emits a compact projection, because a small change has to stay
 cheap. It carries every applicable pack, rule, prompt and command decision in
@@ -16,6 +16,11 @@ full; what it leaves out is framing. Two things you reconstruct:
 
 - a rule's **qualified id** is `` `<pack.id>/<rule.id>` ``;
 - a rule's **authority** is the `authority` of the pack it sits under.
+
+The payload is bounded: `contextBudget` self-reports its bytes, and the
+command fails rather than emit past the configured limit. **Read it whole —
+never truncate it** (`head -c`, a byte cap): every field is applicable, and
+truncation is how the navigation block gets lost. Run it once per activity.
 
 `--verbose` emits the same policy with every field spelled out, for
 debugging. It is not the shape to read routinely.
@@ -37,7 +42,8 @@ debugging. It is not the shape to read routinely.
   yourself. `prepare` never returns `before-review` content to an authoring
   skill: that stays owned by the isolated reviewer prompt.
 - **`policy.commandDecisions`** — what `ambicode review`'s checks are allowed
-  to run. Informational to an authoring skill; it enforces nothing itself.
+  to run. Informational: it enforces nothing itself.
+  `unavailable: true`: config nulls it, so it never runs — never say it will.
 - **`navigation`** — the bounded search order: the shortlist first, then known
   paths, then current-session LSP tools for definitions, references, callers
   and symbol lookup, then targeted Grep/Glob/Read only where LSP is absent or
@@ -59,20 +65,28 @@ debugging. It is not the shape to read routinely.
   code before relying on it, and state which you confirmed, which you
   rejected, and which files you needed from outside it. Empty `candidates`
   means nothing matched well enough to start from — never "read everything".
-  For a longer list, run
-  `node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" locate <term>... --json`.
-  It reads git only: no index, no cache, nothing written.
+  The shortlist reads git only: no index, no cache, nothing written.
 - **`requirements`, `provenance`, `notices`, `diagnostics`** — what was
   pinned and what is worth saying out loud. An empty list is omitted rather
   than emitted.
+
+## Navigation evidence in your report
+
+One line —
+`Navigation: LSP — <operations used>`,
+`Navigation: no LSP tools in this session` (that alone is complete), or
+`Navigation: targeted-search fallback — <specific reason>` — plus which
+shortlist candidates were confirmed, which rejected, and what came from
+outside the list. Installed or recommended alone is not evidence of use,
+and a broad search is allowed and is reported with its reason.
 
 ## Failures
 
 - `ambiguous-project` means this repository configures more than one project
   and the request identifies none of them. Ask which project, or narrow the
   paths. Never pick the first configured one.
-- `config-missing` means the repository has no `.ambicode/config.yaml`; use
-  `/ambicode:init` first.
+- `config-missing` means the repository has no `.ambicode/config.yaml`; ask
+  the user to run `/ambicode:init`.
 - `preparation-blocked` means applicable content could not be delivered. It
   is a stop, not a warning: a policy that looks complete while quietly
   missing something applicable is worse than no policy.

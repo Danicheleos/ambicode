@@ -21,10 +21,8 @@ export interface BundleOutput {
 }
 
 /**
- * The evidence stage on its own: pinned target, immutable snapshot, applicable
- * policy, requirements and check evidence, with no model involved. It stops at
- * the evidence and says so, rather than emitting a finding list that reads
- * clean. `review` uses the same assembly and then invokes the reviewer.
+ * The evidence stage alone, with no model: it stops at the evidence and says so, rather than
+ * emitting a finding list that reads clean.
  */
 export async function runBundle(runtime: Runtime, args: ParsedArgs): Promise<BundleOutput> {
   const bundle = await assembleBundle({ runtime, ...resolveTargetOptions('bundle', runtime, args) });

@@ -2,25 +2,13 @@ import path from 'node:path';
 import type { FileSystem } from '../ports/filesystem.ts';
 import { contentHash } from '../util/hash.ts';
 
-/**
- * Evidence about what a check wrote inside its disposable container workspace.
- *
- * The baseline is taken from the immutable snapshot that trusted setup copies
- * in, so the copy itself is never reported as a mutation; the comparison after
- * the run is against the workspace as the command left it. When either side
- * cannot be read, the answer is `unavailable` — silence would be indistinct
- * from "the command changed nothing" (doc 03 P1.5 correction 3).
- */
-
 /** Bounds the inspection: a command that filled the workspace is reported, not walked. */
 export const MAX_WORKSPACE_ENTRIES = 5_000;
 export const MAX_WORKSPACE_BYTES = 64 * 1024 * 1024;
-/** How many individual mutations are listed before the rest are summarized. */
 export const MAX_REPORTED_MUTATIONS = 50;
 
 export interface TreeEntry {
   kind: 'file' | 'symlink' | 'directory' | 'other';
-  /** Content digest for a regular file; null for anything without bytes. */
   hash: string | null;
   /** The only mode bit git tracks, and the only one a check can meaningfully flip. */
   executable: boolean;
@@ -31,11 +19,7 @@ export type TreeScan =
   | { kind: 'ok'; entries: Map<string, TreeEntry> }
   | { kind: 'unavailable'; reason: string };
 
-/**
- * Walks a directory into a comparable map. Symlinks are recorded as symlinks
- * and never followed, so a link planted inside the workspace cannot make the
- * scan read the host tree it points at.
- */
+/** Symlinks are recorded, never followed, so a link planted in the workspace cannot make the scan read the host tree. */
 export async function scanTree(fs: FileSystem, root: string): Promise<TreeScan> {
   const entries = new Map<string, TreeEntry>();
   let totalBytes = 0;
@@ -92,16 +76,14 @@ export async function scanTree(fs: FileSystem, root: string): Promise<TreeScan> 
   return { kind: 'ok', entries };
 }
 
-/** Node's stats carry `mode`; the port's minimal shape does not declare it. */
 function isExecutable(stats: unknown): boolean {
   const mode = (stats as { mode?: unknown }).mode;
   return typeof mode === 'number' && (mode & 0o111) !== 0;
 }
 
 /**
- * Created, deleted, rewritten, retyped and mode-changed files, in a stable
- * order. Directories are compared only for their existence, because a command
- * that made a directory and nothing else has still changed the tree.
+ * Stable order. Directories are compared only for existence: a command that made a directory
+ * and nothing else has still changed the tree.
  */
 export function compareTrees(
   baseline: ReadonlyMap<string, TreeEntry>,
@@ -137,7 +119,6 @@ export function compareTrees(
   return mutations;
 }
 
-/** The list a reader sees, bounded so a runaway command cannot flood the report. */
 export function summarizeMutations(mutations: readonly string[]): string[] {
   if (mutations.length <= MAX_REPORTED_MUTATIONS) return [...mutations];
   return [

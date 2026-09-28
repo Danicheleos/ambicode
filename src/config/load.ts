@@ -9,7 +9,6 @@ import { CONFIG_FILE } from './defaults.ts';
 
 export interface LoadedConfig {
   config: AmbicodeConfig;
-  /** Absolute path of the file the configuration came from. */
   filePath: string;
   raw: string;
 }
@@ -45,8 +44,8 @@ export function parseConfig(raw: string): AmbicodeConfig {
     });
   }
 
-  // Before field validation, so a future file yields an upgrade instruction
-  // rather than a list of mismatched fields (doc 05).
+  // Before field validation, so a newer file yields an upgrade instruction
+  // rather than a list of mismatched fields.
   const declared = (document as Record<string, unknown>)['schemaVersion'];
   if (typeof declared === 'number' && declared > SUPPORTED_SCHEMA_VERSION) {
     throw new AmbicodeError(
@@ -67,7 +66,7 @@ export function parseConfig(raw: string): AmbicodeConfig {
   return parsed.data;
 }
 
-/** Reports the field and the expected shape, never the offending value (doc 05). */
+/** Reports the field and the expected shape, never the offending value. */
 export function describeIssues(error: z.ZodError): string[] {
   return error.issues.map((issue) => {
     const where = issue.path.length === 0 ? '(root)' : issue.path.join('.');
@@ -92,8 +91,6 @@ function validateCrossFieldRules(config: AmbicodeConfig): void {
 
     for (const [checkId, check] of Object.entries(project.checks)) {
       if (check === null) continue;
-      // A missing command ID is a configuration error; a null command is an
-      // intentionally unavailable command (doc 05).
       if (!Object.hasOwn(project.commands, check.command)) {
         details.push(
           `projects.${project.id}.checks.${checkId}.command: "${check.command}" is not declared in projects.${project.id}.commands`,
@@ -131,10 +128,7 @@ function validateCrossFieldRules(config: AmbicodeConfig): void {
   }
 }
 
-/**
- * `{files}` must occupy a whole argument. Anything that only makes sense to a
- * shell is rejected rather than partially interpreted (doc 05).
- */
+/** `{files}` must be a whole argument; shell-only syntax is rejected, never partially interpreted. */
 export function validateArgv(field: string, argv: readonly string[]): string[] {
   const details: string[] = [];
   let filesPlaceholders = 0;

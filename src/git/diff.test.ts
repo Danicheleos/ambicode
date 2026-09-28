@@ -7,14 +7,14 @@ import { combineDiff, addressableLines, lineAt, parseHunks, splitPatchSections }
 import { parseRawZ, parseRemoteProject } from './git.ts';
 
 test('a remote URL reduces to host and project path in all three spellings, and never to its credentials', () => {
-  const expected = { host: 'gitlab.com', path: 'inseer/front/inseer-frontend' };
+  const expected = { host: 'gitlab.com', path: 'example-group/front/example-frontend' };
   for (const url of [
-    'https://gitlab.com/inseer/front/inseer-frontend.git',
-    'https://gitlab.com/inseer/front/inseer-frontend/',
-    'https://oauth2:glpat-SECRET@GitLab.com/inseer/front/inseer-frontend.git',
-    'ssh://git@gitlab.com:2222/inseer/front/inseer-frontend.git',
-    'git@gitlab.com:inseer/front/inseer-frontend.git',
-    'gitlab.com:inseer/front/inseer-frontend',
+    'https://gitlab.com/example-group/front/example-frontend.git',
+    'https://gitlab.com/example-group/front/example-frontend/',
+    'https://oauth2:glpat-SECRET@GitLab.com/example-group/front/example-frontend.git',
+    'ssh://git@gitlab.com:2222/example-group/front/example-frontend.git',
+    'git@gitlab.com:example-group/front/example-frontend.git',
+    'gitlab.com:example-group/front/example-frontend',
   ]) {
     const parsed = parseRemoteProject(url);
     assert.deepEqual(parsed, expected, url);
@@ -25,8 +25,6 @@ test('a remote URL reduces to host and project path in all three spellings, and 
   }
 });
 
-// U08: added, deleted, renamed files and old/new positions, with Unicode,
-// spaces and option-like names.
 test('U08 diff parsing handles adversarial paths and every change kind', async (t) => {
   const repo = await TempRepo.create();
   t.after(() => repo.dispose());
@@ -63,17 +61,15 @@ test('U08 diff parsing handles adversarial paths and every change kind', async (
   assert.equal(renamed?.changeKind, 'renamed');
   assert.equal(renamed?.oldPath, 'src/to-rename.ts');
 
-  // Paths that would break a shell or a path-parsing patch reader.
   assert.equal(byPath.get('src/with space.ts')?.changeKind, 'modified');
   assert.equal(byPath.get('src/--option-like.ts')?.changeKind, 'modified');
   assert.equal(byPath.get('src/ünicode-ß.ts')?.changeKind, 'modified');
 
   const normal = byPath.get('src/normal.ts');
   assert.ok(normal !== undefined);
-  assert.equal(normal.addedLines, 2); // "B" replaces "b", and "d" is appended
+  assert.equal(normal.addedLines, 2);
   assert.equal(normal.removedLines, 1);
 
-  // Positions: line 2 exists on both sides but holds different content.
   assert.equal(lineAt(normal, 'new', 2)?.text, 'B');
   assert.equal(lineAt(normal, 'old', 2)?.text, 'b');
   assert.equal(lineAt(normal, 'new', 4)?.text, 'd');

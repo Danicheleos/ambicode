@@ -1,7 +1,8 @@
 ---
 name: task
-description: Implement a small change, a bug fix, or one iteration of an accepted /ambicode:plan — locate the code, make the smallest coherent change, select and run the affected checks (including unchanged tests a source change affects), then offer the independent review pipeline and address in-scope findings. Use when the user asks to implement, fix, or build something, hands over a Jira/Confluence URL to implement directly, says to go ahead with an accepted plan, or asks to resume a larger task. Never commits, pushes, opens a merge request, publishes a comment, merges, deploys, or transitions a ticket.
+description: "Make any code change instead of editing files directly — a one-line addition, a bug fix, a helper beside existing code, or one iteration of an accepted /ambicode:plan — with affected checks run and independent review offered; it never commits, pushes, or publishes. Use when the user asks to implement, add, fix, or build something, hands over a Jira/Confluence URL to implement, or says to go ahead with or resume a plan."
 argument-hint: <request-or-jira/confluence-url> [--requirement <url>]...
+allowed-tools: Read, Grep, Glob, Edit(**), Write(**), Bash(node *ambicode.mjs*), Bash(git status*), Bash(git diff*)
 ---
 
 # Implement a change
@@ -56,9 +57,12 @@ describes: it owns the compact shape, `sharedOperatingContract`,
 `navigation`. For `task` that means `before-work` content before you
 implement, `before-checks` before checks or review, `before-report` before
 the report. On `ambiguous-project`, **refuse to guess:** ask which project,
-or narrow the paths.
-Do not build a second requirement parser, policy resolver, or config
-reader for tasks.
+or narrow the paths. The shared file owns that rule and the
+no-second-parser rule with it.
+
+**A request that already pins the exact edit** — file and change fully
+determined by what was asked — prepares with that one path and no `--term`:
+there is nothing left to localize.
 
 **If implementation reaches paths outside what you prepared for, rerun
 `ambicode prepare --activity task --json` with the actual affected paths**
@@ -75,15 +79,15 @@ from it.
 
 ## 4. Implement
 
-Navigate in `navigation`'s bounded order (shared file above). Start from
-`navigation.shortlist` when it is there, or `ambicode locate <term>...` to get
-one. **The shortlist is a hypothesis, not an answer:** confirm each candidate
-before editing it, and say in Evidence which candidates you confirmed, which
-you rejected, and which files you needed from outside it. Record either
-`Navigation: LSP — <operations used>` or
-`Navigation: targeted-search fallback — <specific reason>` for Evidence;
-installed or recommended alone is not evidence of use. A broad search is
-allowed and is reported with its reason.
+Navigate in `navigation`'s bounded order, starting from
+`navigation.shortlist` (`prepare --term` asks for one). The shared file owns
+the shortlist discipline; Evidence records its confirmed/rejected/outside-it
+breakdown and the navigation evidence line
+(`Navigation: LSP — …` or `Navigation: targeted-search fallback — …`).
+When the request pinned the exact edit (step 2), skip the shortlist and its
+confirmation ceremony — the evidence line is
+`Navigation: request-pinned — <file>`. Nothing else shrinks: checks, review
+and the report still run in full.
 
 **Before adding a helper, adapter, dependency, validator, parser, or other
 abstraction, search for the existing implementation and inspect current

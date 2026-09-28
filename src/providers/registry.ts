@@ -2,11 +2,7 @@ import type { ProviderId } from '../contracts/primitives.ts';
 import type { ReviewProvider } from '../contracts/provider.ts';
 import { AmbicodeError } from '../util/errors.ts';
 
-/**
- * The one place a provider is chosen. Consumers hold a `ProviderRegistry` and
- * ask it for the provider that owns a URL; no other module contains a
- * provider-name switch (doc 02).
- */
+/** The only place a provider is chosen; no other module may switch on a provider name. */
 export class ProviderRegistry {
   private readonly providers: readonly ReviewProvider[];
 
@@ -22,11 +18,6 @@ export class ProviderRegistry {
     return found;
   }
 
-  /**
-   * The provider that owns a URL. No provider claiming it is an actionable
-   * error, not a silent choice of the first one: reviewing a Bitbucket URL
-   * through the GitLab adapter would produce confident nonsense.
-   */
   forUrl(url: string): ReviewProvider {
     const found = this.providers.find((provider) => provider.owns(url));
     if (found === undefined) {

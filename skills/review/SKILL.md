@@ -1,6 +1,7 @@
 ---
 name: review
-description: Run an AMBICODE review — of uncommitted work, of a branch, or of a GitLab merge request by URL. It pins the target, snapshots it, runs the affected lint and test checks, and puts the result to an independent reviewer that can only read the snapshot. Optionally judges the change against Jira or Confluence requirements. Use when the user asks to review their changes, check a branch before a merge request, review a merge request URL somebody sent them, verify a change against a ticket, or see which tests a change affects.
+description: "Run an AMBICODE review — of uncommitted work, of a branch, or of a GitLab merge request by URL — through the affected checks and an independent reviewer. Use when the user asks to review or check their changes, a branch, or a merge request URL, or to verify a change against a Jira/Confluence ticket."
+allowed-tools: Read, Grep, Glob, Bash(node *ambicode.mjs*)
 ---
 
 # Review the current change
@@ -37,7 +38,8 @@ through the packaged cross-platform entry point:
    `--approve <key>` for each they agree to, `--decline <key>` for each they
    refuse. Both repeat; one key answers one run, and an unanswered key stops
    the run again.
-5. If `ambicode` reports `config-missing`, use the `/ambicode:init` skill first.
+5. If `ambicode` reports `config-missing`, ask the user to run
+   `/ambicode:init` first (it is user-invoked only).
 
 `ambicode bundle` is the same work without the model: target, snapshot,
 requirements and checks only. It takes the same target options, including
@@ -161,59 +163,10 @@ as covering the whole change.
 
 ## Common outcomes
 
-**`requirements-not-retrieved` / `requirements-unavailable`.** A requirement URL
-has no usable evidence. Fix the access or the envelope; do not fall back.
-
-**`requirements-conflicting`.** Two requirements disagree, so there is no single
-contract to review against. Nothing ran. Take it back to the user.
-
-**`requirements-server-mismatch`.** The evidence names a different MCP server
-than the configuration binds. Retrieve through the bound one, or change the
-binding deliberately.
-
-**`reviewer-isolation-unavailable`.** The installed Claude Code no longer offers
-an option the reviewer's sandbox is built from. AMBICODE refuses rather than
-running with weaker isolation than it reports.
-
-**`input-too-large`.** The change exceeds the configured limits. The error names
-the largest contributors. Usually something uncommitted and generated — a
-lockfile, build output — is in the working tree. Commit or ignore it, or split
-the change. Raising the limit is a deliberate decision, not the default advice.
-
-**`snapshot-too-large`.** Changed files exceed a per-file ceiling no setting
-raises. Every one is named: ask once, re-run once with `--exclude <glob>`,
-repeatable (`review.excludePaths` makes it permanent). `--only <glob>` narrows
-from the other side, for a dirty tree. Neither may empty the review.
-
-**`nothing-to-review`.** Nothing changed, or the patterns took all of it. No
-reviewer ran. Say which; do not widen the patterns without asking.
-
-**`working-tree-changed`.** Something wrote to the working tree while the target
-was being captured. Nothing was reviewed and nothing was modified. Wait for the
-build or editor to settle and run it again.
-
-**`baseline-missing`.** Branch review needs a baseline. AMBICODE will not guess a
-default branch name. Pass `--base <ref>`.
-
-**`conflicting-target` / `baseline-not-applicable`.** One target per run, and
-`--base` belongs to `--branch`. Ask which target the user meant.
-
-**`unsupported-target` / `provider-unsupported`.** GitLab merge requests and
-local targets are what Phase 1 reviews; GitHub is recognized and refused. Do not
-translate the URL or work around it — offer the local `--branch` review instead.
-
-**`provider-resolve-failed` / `provider-fetch-failed`.** `glab` could not answer.
-Usually the host is not authorized (`glab auth login <host>`), `glab` is not
-installed, or the merge request is not readable by this account. Nothing was
-reviewed and the checkout was not modified.
-
-**`unmerged-index`.** There is a conflict in progress, so there is no single
-working state to review. Resolve it first.
-
-**A command was refused.** Policy declares commands as run, propose, or forbid,
-and a command no pack declares is not run either — absence is not permission. The
-message names the pack and the reason. Changing it is a deliberate edit to that
-pack's `commandPolicy`, not something to work around.
+Every outcome id this pipeline emits, and what to do about each, is in
+`${CLAUDE_PLUGIN_ROOT}/skills/review/references/outcomes.md`. Read it when a
+run ends in anything but a completed review, and act on the id rather than
+working around it.
 
 ## Scope
 

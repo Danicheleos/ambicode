@@ -15,13 +15,11 @@ import {
 } from './exclusions.ts';
 
 /**
- * A disposable directory holding exactly what the reviewer may read: paths
- * mirrored under `files/`, outside the checkout and without `.git` (doc 02).
- * Every byte comes from the pinned `ContentSource`, never from the checkout.
+ * Exactly what the reviewer may read, mirrored under `files/` outside the checkout and
+ * without `.git`. Every byte comes from the pinned `ContentSource`, never the checkout.
  */
 export interface Snapshot {
   directory: string;
-  /** Directory the reviewer runs in; also the root of the mirrored tree. */
   filesDirectory: string;
   included: string[];
   omissions: string[];
@@ -31,7 +29,6 @@ export interface Snapshot {
 
 export const SNAPSHOT_PREFIX = 'ambicode-snapshot-';
 
-/** One mirrored file, decided and read but not yet written. */
 export interface SnapshotEntry {
   path: string;
   text: string;
@@ -39,27 +36,19 @@ export interface SnapshotEntry {
 }
 
 /**
- * Everything the snapshot would contain, before any of it exists on disk, so
- * the whole input can be measured against the configured limits first. The
- * mirrored files are reviewer context as much as the patch is (doc 05).
+ * Everything the snapshot would contain, so the whole input can be measured
+ * against the limits before any of it exists on disk.
  */
 export interface SnapshotPlan {
   entries: SnapshotEntry[];
-  /** Post-image paths of the change, in the order the diff listed them. */
   changedPaths: string[];
   omissions: string[];
-  /** Bytes the mirrored tree will occupy. */
   totalBytes: number;
 }
 
 /**
- * A changed file that will not fit stops the review: omitting it would hand the
- * reviewer a change it cannot see all of (doc 02).
- *
- * Every oversized file at once, not the first one. Run `ce05d377` paid 15.7s to
- * be told about one 390 KB translation file and then 385.6s to be told about a
- * 1 MB lockfile, with a question to the operator between them, because the plan
- * threw on the first and a merge-request read costs 1.52s per file.
+ * A changed file that will not fit stops the review: the reviewer would not see all of
+ * the change. Every oversized file is named at once, since each remote read costs ~1.5s.
  */
 function oversizedRefusal(oversized: readonly { path: string; bytes: number }[]): AmbicodeError {
   const many = oversized.length > 1;
@@ -104,27 +93,18 @@ function totalTooLarge(relativePath: string, measuredBytes: number): AmbicodeErr
 }
 
 /**
- * Remote reads in flight at once. Each one is a `glab` subprocess measured at
- * 1.52s against gitlab.com, and a 299-file merge request needs one per file, so
- * serial reads cost 7.6 minutes before anything else happens. Eight bounds the
- * subprocesses as well as the remote; a local source ignores this, being fast
- * enough that the batching is invisible.
+ * Remote reads in flight at once. Each is a `glab` subprocess (~1.5 s), too slow to run
+ * serially; eight bounds both the subprocesses and the load on the remote.
  */
 const CONTENT_READ_CONCURRENCY = 8;
 
 /**
- * Ceilings on what unchanged context may cost. MR 2677 listed 181 directories
- * and then read all 606 unchanged siblings in them — 20 minutes of remote calls
- * for files the byte budget had already stopped accepting, because the old loop
- * read each one before testing whether it fit and then `continue`d.
- *
  * Counts, not seconds: a wall-clock budget would make the same review produce
  * different context on a slower network.
  */
 const MAX_CONTEXT_DIRECTORY_LISTS = 25;
 const MAX_CONTEXT_FILE_READS = 100;
 
-/** Reads in bounded parallel, preserving the caller's order in the result. */
 async function readAll(
   content: ContentSource,
   paths: readonly string[],
@@ -142,21 +122,16 @@ async function readAll(
 
 export interface PlanSnapshotOptions {
   files: readonly DiffFile[];
-  /** Pinned content for the reviewed revision; see `content.ts`. */
   content: ContentSource;
-  /** Include unchanged files sitting beside a changed one as review context. */
   includeSiblingContext?: boolean;
   /**
-   * The patterns that decided what is reviewed. Context is filtered through
-   * them too: a merge-request review reported that the change's test code was
-   * not reviewed while six of those exact `.spec.ts` files sat in the snapshot
-   * as neighbours of a changed file, readable by the reviewer. A file kept out
-   * of the review does not come back in beside it.
+   * Context is filtered through these too: a file kept out of the review does
+   * not come back in beside it.
    */
   operator?: OperatorPatterns;
   /**
-   * Absolute ceiling on `totalBytes` at which unchanged sibling context stops
-   * being added. Changed files are mirrored regardless of it.
+   * Ceiling on `totalBytes` past which sibling context stops being added.
+   * Changed files are mirrored regardless of it.
    */
   contextBudgetBytes?: number;
 }
@@ -188,14 +163,12 @@ export async function planSnapshot(options: PlanSnapshotOptions): Promise<Snapsh
     if (pathExclusionReason(target) !== null) continue;
     needed.push(target);
   }
-  // Named all at once before the first read, so a remote source can fetch them
-  // in one request instead of one per file. Measured on MR 2677: 47 changed
-  // files as 47 `repository/files` calls took ~18s; as one batched query, 1.9s.
+  // Named before the first read so a remote source can batch them: 47 changed files
+  // took ~18s as separate calls and 1.9s as one query.
   await options.content.prime?.(needed);
   const changedContent = await readAll(options.content, needed);
 
-  // Collected, not thrown on: one pass names every file the operator has to
-  // decide about, instead of one run per file.
+  // Collected, not thrown on: one pass names every file the operator has to decide about.
   const oversized: { path: string; bytes: number }[] = [];
 
   for (const file of options.files) {
@@ -252,9 +225,8 @@ export async function planSnapshot(options: PlanSnapshotOptions): Promise<Snapsh
 
   let contextCapped = false;
 
-  // The listing still happens when the budget is already full: what was left
-  // out has to be reported, and that needs the candidates counted. Only the
-  // reads are skipped, and those are what cost.
+  // The listing still happens when the budget is full: what was left out has to be
+  // reported, which needs the candidates counted. Only the reads are skipped.
   if (options.includeSiblingContext !== false) {
     const directories = uniqueDirectories(changedPaths);
     const listed = directories.slice(0, MAX_CONTEXT_DIRECTORY_LISTS);
@@ -272,8 +244,7 @@ export async function planSnapshot(options: PlanSnapshotOptions): Promise<Snapsh
     if (candidates.length > MAX_CONTEXT_FILE_READS) contextCapped = true;
     const wanted = candidates.slice(0, MAX_CONTEXT_FILE_READS);
 
-    // In batches, so a full budget stops the reads instead of paying for every
-    // remaining candidate and discarding it.
+    // In batches, so a full budget stops the reads instead of paying for every candidate.
     for (let start = 0; start < wanted.length; start += CONTENT_READ_CONCURRENCY) {
       if (totalBytes >= siblingCeiling) {
         contextTrimmed += wanted.length - start;

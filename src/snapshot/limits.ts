@@ -6,39 +6,27 @@ import { describeExclusion, isExcludedFromReview, type OperatorPatterns } from '
 export interface MeasuredInput {
   changedFiles: number;
   changedLines: number;
-  /** Bytes of the patch, which the composed prompt carries. */
   patchBytes: number;
-  /** Bytes of the files mirrored into the snapshot for the reviewer to read. */
   snapshotBytes: number;
-  /** Bytes of retrieved requirement content, which the composed prompt carries. */
   requirementBytes: number;
-  /**
-   * Bytes of the composed canonical prompt: role and contract prompts, scoped
-   * policy and prompt files, requirements, prior discussion evidence, check
-   * evidence and the patch. Zero before the prompt has been composed.
-   */
+  /** Bytes of the composed canonical prompt; zero before it has been composed. */
   promptBytes: number;
   /**
-   * Everything available to the model. Once the prompt exists that is the
-   * prompt plus the mirrored tree, and the patch and requirements are inside
-   * the prompt rather than counted again. Before then it is the sum of the
-   * parts that are already known, which is a lower bound on the same number.
+   * Once the prompt exists: the prompt plus the mirrored tree, since the patch and
+   * requirements are inside the prompt. Before then, the sum of the known parts (a lower bound).
    */
   contextBytes: number;
 }
 
 export interface ReviewableChange {
-  /** Files that enter the review: mirrored, measured, and present in the patch. */
   files: DiffFile[];
-  /** Files kept out, with the reason, so their absence is visible not silent. */
   excluded: { path: string; reason: string }[];
   /** The patch rebuilt from the included files only. */
   patch: string;
 }
 
 /**
- * Splits a change into what the review may see and what it may not. The
- * excluded part leaves the patch as well as the mirror, so a `.env` cannot
+ * The excluded part leaves the patch as well as the mirror, so a `.env` cannot
  * reach the model through the diff.
  */
 export function partitionChange(
@@ -98,15 +86,14 @@ export function measureInput(
   };
 }
 
-/** Encoded UTF-8 bytes, which is what a limit in bytes means (doc 10). */
+/** Encoded UTF-8 bytes, not UTF-16 code units: that is what a limit in bytes means. */
 export function byteLength(value: string): number {
   return Buffer.byteLength(value, 'utf8');
 }
 
 /**
- * Blocks a review whose input exceeds the configured limits, naming what was
- * measured. The change is never truncated to fit, and neither is a requirement
- * (doc 02); only unchanged sibling context is discretionary.
+ * The change is never truncated to fit, and neither is a requirement; only
+ * unchanged sibling context is discretionary.
  */
 export function enforceReviewInputLimits(
   measured: MeasuredInput,
@@ -156,7 +143,6 @@ export function enforceReviewInputLimits(
   );
 }
 
-/** Every component of the measurement, so a refusal can be acted on. */
 function describeComponents(measured: MeasuredInput): string[] {
   const lines =
     measured.promptBytes > 0
