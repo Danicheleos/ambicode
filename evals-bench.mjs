@@ -14,13 +14,14 @@
 // `benchmarks/cases/`, so the cases stay inside the excluded directory too.
 // Running with `--eval-dir benchmarks` also puts the whole tree — snapshot,
 // tickets, ground truth — under the sandbox's `denyRead` for the evaluated
-// agent (it names `<plugin>/<eval dir>`; evals-archived/typescript/README.md),
+// agent (it names `<plugin>/<eval dir>`; evals/evals-archived/typescript/README.md),
 // so neither arm can read the answer. The scaffold copies the snapshot into
 // the run as the operator, outside the sandbox.
 //
 // `select` writes the curated suite — the strongest, most provable cases,
-// chosen by measurable criteria only (SELECT below) — into `evals/cases/`,
-// which `.gitignore` also excludes. That run uses `--eval-dir evals`, whose
+// chosen by measurable criteria only (SELECT below) — into
+// `evals/evals-core/cases/`, which `.gitignore` also excludes. That run uses
+// `--eval-dir evals/evals-core`, whose
 // `denyRead` covers the curated truth but not `benchmarks/`; every case
 // therefore carries `no-peek-*` graders that fail the run if any tool reaches
 // into the data directory.
@@ -37,8 +38,9 @@
 //   node evals-bench.mjs select [--localize <n>] [--review <n>] [--benchmarks <dir>]
 //   node evals-bench.mjs run [--set curated|full] [claude plugin eval options...]
 //   node evals-bench.mjs score <eval-results.json> [--benchmarks <dir>]
-import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -47,8 +49,12 @@ export const BENCHMARKS = path.join(ROOT, 'benchmarks');
 export const CASES_DIRECTORY = 'cases';
 /** Relative to the plugin root, as `--eval-dir` takes it. */
 export const BENCH_EVAL_DIR = 'benchmarks';
-/** The curated suite's eval dir; its cases/ is gitignored like benchmarks/. */
-export const CURATED_EVAL_DIR = 'evals';
+/**
+ * The curated suite's eval dir; everything under it but its README is
+ * gitignored like benchmarks/. Never the bare `evals/`: discovery is recursive
+ * (`<eval dir>/**\/case.yaml`), so that would sweep every suite at once.
+ */
+export const CURATED_EVAL_DIR = 'evals/evals-core';
 export const CURATED_CASES = path.join(ROOT, CURATED_EVAL_DIR, CASES_DIRECTORY);
 
 // What `select` keeps, all measurable from the data alone so this tracked file
@@ -408,7 +414,7 @@ arm: with-only
 
 The agent ran \`ambicode review\`. It proves the call was attempted, not that
 the independent reviewer answered: inside the eval sandbox no nested reviewer
-signs in (evals-archived/typescript/README.md).
+signs in (evals/evals-archived/typescript/README.md).
 `;
   return files;
 }
@@ -668,14 +674,14 @@ export function score(results, { benchmarks = BENCHMARKS } = {}) {
  * and keeps the result JSON — which holds every prompt and final answer — in
  * an excluded directory: by default under the set's results/, and a `--json`
  * outside the excluded directories is refused. `set` picks the suite:
- * 'curated' runs evals/cases/, 'full' runs benchmarks/cases/.
+ * 'curated' runs evals/evals-core/cases/, 'full' runs benchmarks/cases/.
  */
 export function runArgs(extra = [], { now = new Date(), benchmarks = BENCHMARKS, set = 'curated' } = {}) {
   if (!['curated', 'full'].includes(set)) throw new Error(`--set takes curated or full, not ${set}`);
   if (extra.includes('--publish-report')) throw new Error('--publish-report is refused: the benchmark set is under NDA');
   if (extra.includes('--eval-dir')) throw new Error('--eval-dir is fixed by --set');
   const resultsDir = set === 'full' ? path.join(benchmarks, 'results') : path.join(ROOT, CURATED_EVAL_DIR, 'results');
-  // Both are gitignored: benchmarks/ as a whole, /evals/results/ by name.
+  // Both are gitignored: benchmarks/ as a whole, evals/evals-core/ but its README.
   const excluded = [benchmarks, path.join(ROOT, CURATED_EVAL_DIR, 'results')];
   for (const flag of ['--json', '--report', '--output-dir']) {
     const i = extra.indexOf(flag);
@@ -690,7 +696,98 @@ export function runArgs(extra = [], { now = new Date(), benchmarks = BENCHMARKS,
   return ['plugin', 'eval', ROOT, '--eval-dir', evalDir, '--scaffold', '--allow-tools', 'Bash', '--no-publish', ...json, ...extra];
 }
 
-function main(argv) {
+/**
+ * Where a run's traces go: `traces/` beside the run's `--json` result, so they
+ * inherit the same excluded-directory guarantee `runArgs` enforces for the
+ * result itself. `runArgs` always leaves a `--json <path>` in the vector.
+ */
+export function harvestDir(argv) {
+  const i = argv.indexOf('--json');
+  if (i < 0 || !argv[i + 1]) throw new Error('no --json in the run arguments: nowhere safe to put traces');
+  return path.join(path.dirname(path.resolve(argv[i + 1])), 'traces');
+}
+
+/**
+ * Where the harness puts its sandboxes: observed at `/private/tmp/e-*` on
+ * macOS in the 2026-09-28 sweeps (reached here as `/tmp`, its symlink), with
+ * `os.tmpdir()` scanned too in case another platform places them there.
+ * `harvestedOfResult` reports against the run's own `tracePath`s afterwards,
+ * so a wrong root shows up as named-but-not-harvested rather than a quiet 0.
+ */
+const SANDBOX_ROOTS = [...new Set(['/tmp', tmpdir()])];
+
+/**
+ * One harvest pass: copy every live run's trace out of the harness sandboxes.
+ * The harness deletes each sandbox when the eval finishes and has no flag to
+ * keep it (verified 2026-09-28: both runs' `tracePath` directories were gone
+ * minutes after the 06-29 sweep), so the only window is while it runs. Copy to
+ * a temporary name and rename, so a reader never sees a half-written file, and
+ * let later passes overwrite: the trace grows, so the last copy is the whole
+ * one. A sandbox vanishing mid-pass is the harness cleaning up, not an error.
+ * Sandboxes are shared machine state, so a concurrent sweep's traces can land
+ * here too: they are keyed by sandbox id, overwrite nothing, and the summary's
+ * `harvestedOfResult` line says which of them this run's result actually names.
+ */
+export function harvestTraces(outDir, { sandboxRoots = SANDBOX_ROOTS } = {}) {
+  mkdirSync(outDir, { recursive: true });
+  let copied = 0;
+  // ENOENT is the benign race (no trace yet, or the sandbox deleted between
+  // listing and copying). Anything else — EACCES, ENOSPC — would silently
+  // degrade every pass, so the first one is thrown after the pass finishes:
+  // best effort for the rest of the copies, and the caller sees the cause.
+  let failure = null;
+  for (const root of sandboxRoots) {
+    let names;
+    try {
+      names = readdirSync(root);
+    } catch (error) {
+      if (error.code !== 'ENOENT') failure ??= error; // same contract as the copies: only a missing root is benign
+      continue;
+    }
+    for (const name of names) {
+      if (!name.startsWith('e-')) continue;
+      const trace = path.join(root, name, 'out', 'trace.jsonl');
+      const to = path.join(outDir, `${name}.jsonl`);
+      try {
+        copyFileSync(trace, `${to}.tmp`);
+        renameSync(`${to}.tmp`, to);
+        copied += 1;
+      } catch (error) {
+        if (error.code !== 'ENOENT') failure ??= error;
+      }
+    }
+  }
+  if (failure) throw failure;
+  return copied;
+}
+
+/**
+ * Harvest completeness, measured against the run's own result: which sandbox
+ * ids the result JSON's `tracePath`s name, and how many of those were actually
+ * kept. This is what tells "nothing ran" apart from "the sandboxes were
+ * somewhere this harvest never looked".
+ */
+export function harvestedOfResult(jsonPath, tracesDir) {
+  const results = JSON.parse(readFileSync(jsonPath, 'utf8'));
+  const named = new Set();
+  for (const evalCase of results.cases ?? [])
+    for (const runs of Object.values(evalCase.arms ?? {}))
+      for (const run of runs ?? []) {
+        const id = /[/\\](e-[^/\\]+)[/\\]/.exec(run.tracePath ?? '');
+        if (id) named.add(id[1]);
+      }
+  const harvested = [...named].filter((id) => existsSync(path.join(tracesDir, `${id}.jsonl`))).length;
+  return { named: named.size, harvested };
+}
+
+/**
+ * 2 s between passes: the cadence the manual harvest script used when it
+ * caught 93 of 93 traces in the 2026-09-28T06-41 sweep. Faster buys nothing
+ * (the final copy wins); slower risks missing a short run's whole window.
+ */
+const HARVEST_INTERVAL_MS = 2_000;
+
+async function main(argv) {
   const [command, ...rest] = argv;
   const taken = new Set();
   const option = (name) => {
@@ -723,7 +820,48 @@ function main(argv) {
     const positional = rest.filter((_, i) => !taken.has(i));
     const cases = set === 'full' ? path.join(benchmarks, CASES_DIRECTORY) : CURATED_CASES;
     if (!existsSync(cases)) throw new Error(`no generated cases at ${cases}: run \`node evals-bench.mjs ${set === 'full' ? 'generate' : 'select'}\` first`);
-    return spawnSync('claude', runArgs(positional, { benchmarks, set }), { stdio: 'inherit' }).status ?? 1;
+    const args = runArgs(positional, { benchmarks, set });
+    const tracesDir = harvestDir(args);
+    const child = spawn('claude', args, { stdio: 'inherit' });
+    // A harvest failure is reported, never fatal: it must not take down a paid
+    // sweep that is otherwise running fine.
+    // Each distinct cause once: a pass every 2 s would flood the sweep's own
+    // output, but a cause that changes mid-sweep (ENOSPC, then EACCES) must not
+    // hide behind the first one.
+    const harvestErrors = new Set();
+    const pass = () => {
+      try {
+        harvestTraces(tracesDir);
+      } catch (error) {
+        if (!harvestErrors.has(error.message)) console.error(`trace harvest failing: ${error.message}`);
+        harvestErrors.add(error.message);
+      }
+    };
+    pass(); // the first tick of setInterval is a whole interval away; a sandbox that short-lived would be missed
+    const timer = setInterval(pass, HARVEST_INTERVAL_MS);
+    const status = await new Promise((resolve) => {
+      child.on('error', (error) => {
+        console.error(error.message);
+        resolve(1);
+      });
+      child.on('close', (code) => resolve(code ?? 1));
+    });
+    clearInterval(timer);
+    pass();
+    const kept = existsSync(tracesDir) ? readdirSync(tracesDir).filter((f) => f.endsWith('.jsonl')).length : 0;
+    let completeness;
+    try {
+      const { named, harvested } = harvestedOfResult(args[args.indexOf('--json') + 1], tracesDir);
+      completeness = `; the result names ${named}, ${harvested} of those harvested`;
+    } catch (error) {
+      // carries the cause: a defect in the reader must not look like the routine missing-file case
+      completeness = `; harvest completeness unknown (${error.message})`;
+    }
+    console.log(
+      `harvested ${kept} trace(s) to ${tracesDir}${completeness}` +
+        `${harvestErrors.size ? ` (harvest reported ${harvestErrors.size} distinct failure(s): the set is incomplete)` : ''}`,
+    );
+    return status;
   }
   if (command === 'score') {
     const [file] = rest.filter((_, i) => !taken.has(i));
@@ -736,7 +874,7 @@ function main(argv) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    process.exitCode = main(process.argv.slice(2));
+    process.exitCode = await main(process.argv.slice(2));
   } catch (error) {
     console.error(error.message);
     process.exitCode = 1;

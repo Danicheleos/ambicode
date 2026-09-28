@@ -20,8 +20,8 @@ __pycache__/
 # AMBICODE runtime and evaluation output
 /.ambicode/reviews/
 /.ambicode/notes/
-/evals/results/
-/evals/cases/
+/evals/evals-core/*/*
+/evals/**/results/
 /eval-results.json
 
 # Local planning and research inputs

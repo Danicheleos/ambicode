@@ -9,7 +9,7 @@ import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
-import { BENCH_EVAL_DIR, CURATED_EVAL_DIR, SELECT, changedLines, codeRoot, generate, localizeHardness, namedFiles, parseTicket, reviewSubstance, runArgs, score, scoreAnswer } from './evals-bench.mjs';
+import { BENCH_EVAL_DIR, CURATED_EVAL_DIR, SELECT, changedLines, codeRoot, generate, harvestDir, harvestTraces, harvestedOfResult, localizeHardness, namedFiles, parseTicket, reviewSubstance, runArgs, score, scoreAnswer } from './evals-bench.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 
@@ -317,12 +317,74 @@ describe('evals-bench: running', () => {
     const argv = runArgs([], { now: new Date('2026-01-02T03:04:05.678Z'), benchmarks, set: 'full' });
     assert.equal(argv[argv.indexOf('--json') + 1], path.join(benchmarks, 'results', 'eval-2026-01-02T03-04-05-678Z.json'));
     const curated = runArgs([], { now: new Date('2026-01-02T03:04:05.678Z'), benchmarks });
-    assert.equal(curated[curated.indexOf('--json') + 1], path.join(ROOT, 'evals', 'results', 'eval-2026-01-02T03-04-05-678Z.json'));
+    assert.equal(curated[curated.indexOf('--json') + 1], path.join(ROOT, 'evals', 'evals-core', 'results', 'eval-2026-01-02T03-04-05-678Z.json'));
     assert.equal(runArgs(['--json', path.join(benchmarks, 'r.json')], { benchmarks }).filter((a) => a === '--json').length, 1);
-    assert.ok(runArgs(['--json', path.join(ROOT, 'evals', 'results', 'r.json')], { benchmarks }).includes('--json'), 'evals/results/ is gitignored and allowed');
+    assert.ok(runArgs(['--json', path.join(ROOT, 'evals', 'evals-core', 'results', 'r.json')], { benchmarks }).includes('--json'), 'evals/evals-core/results/ is gitignored and allowed');
+    assert.throws(() => runArgs(['--json', path.join(ROOT, 'evals', 'evals-triggers', 'results', 'r.json')], { benchmarks }), /must stay under/, 'another suite\'s results dir is not the curated excluded dir');
     for (const flag of ['--json', '--report', '--output-dir']) {
       assert.throws(() => runArgs([flag, path.join(tmpdir(), 'elsewhere.json')], { benchmarks }), /must stay under/);
       assert.throws(() => runArgs([flag], { benchmarks }), /needs a path/);
+    }
+  });
+});
+
+describe('evals-bench: harvesting traces', () => {
+  it('puts traces beside the run result, so they share its excluded-directory guarantee', () => {
+    const argv = runArgs([], { now: new Date('2026-01-02T03:04:05.678Z') });
+    assert.equal(harvestDir(argv), path.join(ROOT, 'evals', 'evals-core', 'results', 'traces'));
+    const benchmarks = path.join(tmpdir(), 'b');
+    assert.equal(harvestDir(runArgs(['--json', path.join(benchmarks, 'r.json')], { benchmarks })), path.join(benchmarks, 'traces'));
+    assert.throws(() => harvestDir(['plugin', 'eval']), /nowhere safe/);
+  });
+
+  it('copies each live sandbox trace whole, overwrites with growth, and skips what has no trace yet', () => {
+    const sandboxRoot = mkdtempSync(path.join(tmpdir(), 'harvest-'));
+    const outDir = path.join(sandboxRoot, 'kept');
+    try {
+      const sandboxRoots = [sandboxRoot, path.join(sandboxRoot, 'missing-root')];
+      mkdirSync(path.join(sandboxRoot, 'e-one', 'out'), { recursive: true });
+      writeFileSync(path.join(sandboxRoot, 'e-one', 'out', 'trace.jsonl'), '{"turn":1}\n');
+      mkdirSync(path.join(sandboxRoot, 'e-two', 'out'), { recursive: true }); // scaffolded, no trace yet
+      mkdirSync(path.join(sandboxRoot, 'not-a-run'), { recursive: true });
+      assert.equal(harvestTraces(outDir, { sandboxRoots }), 1, 'a root that does not exist on this platform is skipped, not fatal');
+      assert.deepEqual(readdirSync(outDir), ['e-one.jsonl']);
+      writeFileSync(path.join(sandboxRoot, 'e-one', 'out', 'trace.jsonl'), '{"turn":1}\n{"turn":2}\n');
+      assert.equal(harvestTraces(outDir, { sandboxRoots }), 1, 'a later pass overwrites: the trace grows, the last copy is the whole one');
+      assert.equal(readFileSync(path.join(outDir, 'e-one.jsonl'), 'utf8'), '{"turn":1}\n{"turn":2}\n');
+      rmSync(path.join(sandboxRoot, 'e-one'), { recursive: true }); // the harness cleaning up mid-sweep
+      assert.equal(harvestTraces(outDir, { sandboxRoots }), 0);
+      assert.deepEqual(readdirSync(outDir), ['e-one.jsonl'], 'a deleted sandbox does not take its harvested trace with it');
+      writeFileSync(path.join(sandboxRoot, 'e-two', 'out', 'trace.jsonl'), '{"turn":1}\n');
+      mkdirSync(path.join(outDir, 'e-two.jsonl.tmp')); // copy destination occupied by a directory: EISDIR, not the benign ENOENT
+      assert.throws(() => harvestTraces(outDir, { sandboxRoots }), (e) => e.code !== 'ENOENT', 'a persistent failure surfaces instead of degrading every pass silently');
+      rmSync(path.join(outDir, 'e-two.jsonl.tmp'), { recursive: true });
+      const rootIsAFile = path.join(sandboxRoot, 'root-file');
+      writeFileSync(rootIsAFile, '');
+      assert.throws(() => harvestTraces(outDir, { sandboxRoots: [rootIsAFile] }), (e) => e.code !== 'ENOENT', 'an unlistable root surfaces too; only a missing one is benign');
+    } finally {
+      rmSync(sandboxRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('tells a complete harvest from one that missed traces the result names', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'harvest-check-'));
+    try {
+      const result = {
+        cases: [
+          {
+            arms: {
+              with: [{ tracePath: '/private/tmp/e-kept/out/trace.jsonl' }, { tracePath: '/private/tmp/e-gone/out/trace.jsonl' }],
+              without: [{ tracePath: '/private/tmp/e-kept/out/trace.jsonl' }], // the same sandbox twice counts once
+            },
+          },
+        ],
+      };
+      writeFileSync(path.join(dir, 'r.json'), JSON.stringify(result));
+      writeFileSync(path.join(dir, 'e-kept.jsonl'), '{}\n');
+      writeFileSync(path.join(dir, 'e-stray.jsonl'), '{}\n'); // another sweep's trace changes nothing
+      assert.deepEqual(harvestedOfResult(path.join(dir, 'r.json'), dir), { named: 2, harvested: 1 });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });
@@ -388,9 +450,9 @@ describe('evals-bench: select', () => {
       { path: 'app/orders/service.ts', newLine: 1, body: 'This recomputes the total on every call; cache it as before, which the profiler already flagged on the previous change.', resolved: true, replies: [{ byAuthor: true, body: 'Done.' }] },
       { path: 'app/orders/service.ts', newLine: 1, body: 'Missing test.', resolved: true },
     ]);
-    // The curated layout: cases two levels under the project root, beside
-    // benchmarks/, as evals/cases/ sits in the repository.
-    out = path.join(base, 'evals', 'cases');
+    // The curated layout: cases three levels under the project root, beside
+    // benchmarks/, as evals/evals-core/cases/ sits in the repository.
+    out = path.join(base, ...CURATED_EVAL_DIR.split('/'), 'cases');
     result = generate({ benchmarks, out, pick: { localize: 1, review: 1 } });
   });
   after(() => rmSync(base, { recursive: true, force: true }));
@@ -408,7 +470,7 @@ describe('evals-bench: select', () => {
 
   it('anchors the scaffold from the curated directory back to the data', () => {
     const scaffold = readFileSync(path.join(out, 'side-t-hard', 'scaffold.sh'), 'utf8');
-    assert.match(scaffold, /\.\.\/\.\.\/\.\.\/benchmarks\/SIDE/);
+    assert.match(scaffold, /"\$\(dirname "\$0"\)\/\.\.\/\.\.\/\.\.\/\.\.\/benchmarks\/SIDE"/);
     const run = mkdtempSync(path.join(tmpdir(), 'bench-curated-run-'));
     try {
       execFileSync('sh', [path.join(out, 'side-t-hard', 'scaffold.sh')], { cwd: run, env: { PATH: process.env.PATH, HOME: run } });
@@ -420,9 +482,25 @@ describe('evals-bench: select', () => {
 });
 
 describe('evals-bench: the curated cases stay out of git', () => {
-  it('evals/cases/ is ignored, wherever the data it is generated from lives', () => {
-    // check-ignore exits non-zero when the path is not ignored, which throws.
-    assert.match(execFileSync('git', ['check-ignore', '-v', 'evals/cases/x'], { cwd: ROOT, encoding: 'utf8' }), /evals\/cases/);
+  // check-ignore exits non-zero when the path is not ignored, which throws.
+  const ignored = (p) => execFileSync('git', ['check-ignore', '-v', p], { cwd: ROOT, encoding: 'utf8' });
+
+  it('ignores the curated cases and their results, wherever the data they are generated from lives', () => {
+    assert.match(ignored(`${CURATED_EVAL_DIR}/cases/x`), /evals-core/);
+    assert.match(ignored(`${CURATED_EVAL_DIR}/results/x`), /evals-core|results/);
+  });
+
+  it('ignores the results of whichever suite a bare `claude plugin eval .` runs', () => {
+    // A bare run writes to <manifest eval dir>/results/ and publishes by
+    // default; the results must never be taken by git whatever that dir is.
+    const manifest = JSON.parse(readFileSync(path.join(ROOT, '.claude-plugin', 'plugin.json'), 'utf8'));
+    const bareDir = manifest.experimental?.evals ?? 'evals';
+    assert.match(ignored(`${bareDir}/results/x`), /results/);
+    // Discovery is recursive (`<eval dir>/**/case.yaml`), so a bare dir that
+    // contains the curated one (`evals/`, `.`) sweeps the NDA cases as surely
+    // as one inside it.
+    const within = (outer, inner) => !path.relative(outer, inner).startsWith('..');
+    assert.ok(!within(bareDir, CURATED_EVAL_DIR) && !within(CURATED_EVAL_DIR, bareDir), `a bare run over ${bareDir}/ reaches the NDA curated suite`);
   });
 });
 

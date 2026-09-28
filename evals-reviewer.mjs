@@ -11,7 +11,7 @@
 //   the diff, without AMBICODE's system prompt, bundle, checks or validation.
 //
 // It writes counts and a blind adjudication sheet; the labels, and the
-// precision and recall derived from them, are a human's (evals-archived/typescript/adjudication.md).
+// precision and recall derived from them, are a human's (evals/evals-archived/typescript/adjudication.md).
 //
 // `record <results-dir>` turns a run's `ambicode` answers into the recordings
 // the replay reviewer serves inside `claude plugin eval`
@@ -29,7 +29,7 @@ import { NodeProcessRunner } from './src/ports/node-process-runner.ts';
 import { ClaudeReviewer } from './src/review/claude-reviewer.ts';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
-const EVALS = path.join(ROOT, 'evals-archived', 'typescript');
+const EVALS = path.join(ROOT, 'evals', 'evals-archived', 'typescript');
 const AMBICODE = path.join(ROOT, 'scripts', 'ambicode.mjs');
 const ARMS = ['ambicode', 'plain'];
 
@@ -90,7 +90,7 @@ function random(seed) {
 /**
  * The blind sheet and its key. The sheet carries what an adjudicator needs —
  * the case, for its ground truth, and the finding — and nothing naming the
- * arm or the run; rows are shuffled across cases (evals-archived/typescript/adjudication.md,
+ * arm or the run; rows are shuffled across cases (evals/evals-archived/typescript/adjudication.md,
  * "Blind scoring").
  */
 export function blindSheet(runs, seed) {
@@ -392,8 +392,8 @@ function report(results) {
     '',
     '## Adjudication',
     '',
-    'Label every row of `adjudication-sheet.csv` per `evals-archived/typescript/adjudication.md`, against each case\'s',
-    '`evals-archived/typescript/<case>/ground-truth.md`. The sheet names no arm and is shuffled across cases;',
+    'Label every row of `adjudication-sheet.csv` per `evals/evals-archived/typescript/adjudication.md`, against each case\'s',
+    '`evals/evals-archived/typescript/<case>/ground-truth.md`. The sheet names no arm and is shuffled across cases;',
     '`adjudication-key.csv` maps each row back and must stay closed until labelling is done.',
     'Each claim is the reviewer\'s own words: where one gives its arm away, record that the blind failed for it.',
     'Actionable precision and recall are not computed here; they need the labels.',

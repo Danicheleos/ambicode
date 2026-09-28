@@ -1,5 +1,5 @@
 // Guards the claims the archived `claude plugin eval` suite
-// (`evals-archived/typescript/`) makes about its
+// (`evals/evals-archived/typescript/`) makes about its
 // fixtures. Nothing checked them before: `correctness-ts` shipped a ground
 // truth saying the existing test "still passes" under the fixture's change,
 // while replaying the fixture showed `page([1,2,3,4],0,2)` returning `[1]`
@@ -26,7 +26,7 @@ import { reviewResult } from './src/testing/review-fixture.ts';
 import { formatJsonOutput } from './src/util/json-output.ts';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
-const EVALS = path.join(ROOT, 'evals-archived', 'typescript');
+const EVALS = path.join(ROOT, 'evals', 'evals-archived', 'typescript');
 
 /** Every case directory, with each grader's frontmatter parsed. */
 async function loadCases() {
@@ -49,7 +49,7 @@ async function loadCases() {
   assert.deepEqual(
     cases.filter((evalCase) => evalCase.name.endsWith('-py')).map((evalCase) => evalCase.name),
     [],
-    'Python cases are archived in evals-archived/, beside this suite',
+    'Python cases are archived in evals/evals-archived/, beside this suite',
   );
   return cases;
 }
@@ -235,6 +235,41 @@ describe('eval graders: every case scores its outcome in both arms', () => {
 // config file and the `.gitignore` lines init appends — neither is excluded
 // (src/snapshot/exclusions.ts). For `clean-ts`, where any finding
 // is a false positive, that is the plugin reviewing its own setup.
+// A scaffold finds the repository by counting `../` from its own directory,
+// so moving a suite silently breaks every one of them (2026-09-28: the move
+// into evals/ left all 27 one level short). Checked structurally for every
+// tracked suite — the trigger suite has no other test that runs its scaffolds.
+describe('eval scaffolds: every tracked scaffold reaches the repository root', () => {
+  const SUITES = ['evals/evals-archived', 'evals/evals-triggers'];
+  const ROOT_EXPRESSION = /"\$\(cd "\$\(dirname "\$0"\)\/((?:\.\.\/)*\.\.)" && pwd\)\/fixtures\/materialize\.mjs"/g;
+
+  async function scaffoldsUnder(directory) {
+    const found = [];
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      if (entry.name === 'results') continue;
+      const full = path.join(directory, entry.name);
+      if (entry.isDirectory()) found.push(...(await scaffoldsUnder(full)));
+      else if (entry.name === 'scaffold.sh') found.push(full);
+    }
+    return found;
+  }
+
+  it('resolves each scaffold\'s one root expression to fixtures/materialize.mjs', async () => {
+    const wrong = [];
+    let checked = 0;
+    for (const suite of SUITES)
+      for (const file of await scaffoldsUnder(path.join(ROOT, suite))) {
+        checked += 1;
+        const hits = [...(await readFile(file, 'utf8')).matchAll(ROOT_EXPRESSION)];
+        const where = path.relative(ROOT, file);
+        if (hits.length !== 1) wrong.push(`${where}: ${hits.length} root expressions`);
+        else if (path.resolve(path.dirname(file), hits[0][1]) !== ROOT) wrong.push(`${where}: ${hits[0][1]} lands at ${path.resolve(path.dirname(file), hits[0][1])}`);
+      }
+    assert.deepEqual(wrong, []);
+    assert.ok(checked >= 27, `found only ${checked} scaffolds: a suite moved out from under this test`);
+  });
+});
+
 describe('eval scaffolds: every fixture is configured before its change', () => {
   let scratch;
 
@@ -359,7 +394,7 @@ describe('eval fixtures: the verification cases get a real test runner', () => {
       .map((scaffold) => scaffold.name);
     assert.deepEqual(wrong, []);
     const installing = (await loadScaffolds()).filter((scaffold) => /--install/.test(scaffold.source));
-    // `regression-py` installs too, and is archived (evals-archived/README.md).
+    // `regression-py` installs too, and is archived (evals/evals-archived/README.md).
     assert.deepEqual(installing.map((scaffold) => scaffold.name).sort(), [
       'p2-task-regression-fix',
       'regression-ts',
