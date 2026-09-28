@@ -1,0 +1,60 @@
+be-vs-3571-review-1128-957b6388 [with] turns=14 $0.66 raised=0/1 missed=raises-01
+be-vs-3571-review-1128-957b6388 [without] turns=21 $0.78 raised=0/1 missed=raises-01
+be-vs-5075 [with] turns=14 $0.43 named=8 correct=4/7 P=0.50 R=0.57 F1=0.53
+    extra:  src/api/validators/AnalyticsValidators.ts, src/models/Scoring.ts, src/features/score-types/ge-adv/models/dto/ge-adv-results.dto.ts, src/features/score-types/ge-adv/models/schemas/ge-adv-results.schema.ts
+    missed: src/api/middleware/abort-signal.middleware.ts, src/app.ts, src/errors.ts
+be-vs-5075 [without] turns=11 $0.34 named=5 correct=4/7 P=0.80 R=0.57 F1=0.67
+    extra:  src/models/Scoring.ts
+    missed: src/api/middleware/abort-signal.middleware.ts, src/app.ts, src/errors.ts
+be-vs-5075-review-1054-3b24bb74 [with] turns=17 $0.55 raised=0/1 missed=raises-01
+be-vs-5075-review-1054-3b24bb74 [without] turns=12 $0.44 raised=0/1 missed=raises-01
+be-vs-5546 [with] turns=12 $0.43 named=6 correct=6/6 P=1.00 R=1.00 F1=1.00
+be-vs-5546 [without] turns=8 $0.22 named=8 correct=6/6 P=0.75 R=1.00 F1=0.86
+    extra:  src/utils/TranslationsHelper.ts, src/api/middleware/permissions/permissions.middleware.ts
+be-vs-5546-review-996-d520e3ca [with] turns=9 $0.36 raised=0/2 missed=raises-01,raises-02
+be-vs-5546-review-996-d520e3ca [without] turns=9 $0.34 raised=0/2 missed=raises-01,raises-02
+be-vs-5766 [with] turns=11 $0.39 named=4 correct=4/7 P=1.00 R=0.57 F1=0.73
+    missed: src/features/score-types/reba-rula/reba/models/dto/reba-data.dto.ts, src/features/score-types/reba-rula/reba/validators/reba.validators.ts, src/models/Scoring.ts
+be-vs-5766 [without] turns=16 $0.34 named=2 correct=2/7 P=1.00 R=0.29 F1=0.44
+    missed: src/features/score-types/reba-rula/reba/mocks/reba.mocks.ts, src/features/score-types/reba-rula/reba/models/dto/reba-data.dto.ts, src/features/score-types/reba-rula/reba/services/reba-manual-override.service.ts, src/features/score-types/reba-rula/reba/validators/reba.validators.ts, src/models/Scoring.ts
+be-vs-5928 [with] turns=10 $0.42 named=6 correct=6/6 P=1.00 R=1.00 F1=1.00
+be-vs-5928 [without] turns=7 $0.31 named=2 correct=2/6 P=1.00 R=0.33 F1=0.50
+    missed: src/features/score-types/ge-adv/mocks/ge-adv.mocks.ts, src/features/score-types/ge-adv/models/dto/ge-adv-fingers.dto.ts, src/features/score-types/ge-adv/models/schemas/ge-adv-fingers.schema.ts, src/features/score-types/ge-adv/models/shared/ge-adv-fingers.ts
+be-vs-6140 [with] turns=15 $0.44 named=6 correct=3/3 P=0.50 R=1.00 F1=0.67
+    extra:  src/utils/ReportHelper.ts, src/features/score-types/niosh/services/niosh-backup.service.ts, src/features/score-types/niosh/niosh.service.spec.ts
+be-vs-6140 [without] turns=10 $0.36 named=4 correct=3/3 P=0.75 R=1.00 F1=0.86
+    extra:  src/features/score-types/niosh/niosh.service.spec.ts
+be-vs-6261-review-1141-f14493f1 [with] turns=12 $0.53 raised=1/2 missed=raises-01
+be-vs-6261-review-1141-f14493f1 [without] turns=12 $0.54 raised=1/2 missed=raises-01
+fe-vs-5164 [with] turns=10 $0.39 named=7 correct=4/4 P=0.57 R=1.00 F1=0.73
+    extra:  main/features/score-types/ge-adv/state/ge-adv.facade.ts, main/features/score-types/gm-rfc/components/wizard/gm-rfc-wizard.component.ts, main/features/score-types/gm-rfc/components/wizard/gm-rfc-wizard.component.spec.ts
+fe-vs-5164 [without] turns=10 $0.51 named=6 correct=4/4 P=0.67 R=1.00 F1=0.80
+    extra:  main/features/score-types/ge-adv/state/ge-adv.facade.ts, main/features/score-types/ge-adv/components/wizard/ge-adv-wizard.component.html
+fe-vs-6086-review-2553-d1f112e5 [with] turns=23 $0.85 raised=0/4 missed=raises-01,raises-02,raises-03,raises-04
+fe-vs-6086-review-2553-d1f112e5 [without] turns=20 $0.68 raised=2/4 missed=raises-01,raises-04
+fe-vs-6086-review-2553-d7c43dc5 [with] turns=28 $1.07 raised=0/2 missed=raises-01,raises-02
+fe-vs-6086-review-2553-d7c43dc5 [without] turns=21 $0.78 raised=0/2 missed=raises-01,raises-02
+fe-vs-6181 [with] turns=13 $0.36 named=3 correct=3/3 P=1.00 R=1.00 F1=1.00
+fe-vs-6181 [without] turns=10 $0.31 named=3 correct=3/3 P=1.00 R=1.00 F1=1.00
+fe-vs-6253 [with] turns=14 $0.57 named=4 correct=3/4 P=0.75 R=0.75 F1=0.75
+    extra:  main/components/ui/steppers/stepper-buttons/stepper-previous.directive.ts
+    missed: main/components/ui/steppers/accordion-stepper/accordion-step/accordion-step.component.ts
+fe-vs-6253 [without] turns=11 $0.47 named=6 correct=3/4 P=0.50 R=0.75 F1=0.60
+    extra:  main/components/ui/steppers/stepper-buttons/stepper-previous.directive.ts, main/components/ui/steppers/stepper/stepper.component.ts, main/features/score-types/nom/nom-wizard/nom-wizard/nom-wizard.component.spec.ts
+    missed: main/components/ui/steppers/accordion-stepper/accordion-step/accordion-step.component.ts
+fe-vs-6253-review-2557-1b0a7eaf [with] turns=13 $0.45 raised=0/3 missed=raises-01,raises-02,raises-03
+fe-vs-6253-review-2557-1b0a7eaf [without] turns=6 $0.37 raised=0/3 missed=raises-01,raises-02,raises-03
+fe-vs-6269 [with] turns=15 $0.51 named=11 correct=2/3 P=0.18 R=0.67 F1=0.29
+    extra:  main/features/score-types/nom/shared/wizards/nom-general-data/services/nom-general-data-form.service.ts, main/features/score-types/nom/shared/wizards/nom-general-data/nom-general-data-wizard.component.html, main/features/score-types/nom/components/score-card/components/general-data/nom-general-data-detail.component.ts, main/features/score-types/nom/components/score-card/components/general-data/nom-general-data-detail.component.html, main/features/score-types/nom/components/score-card/components/general-data/nom-general-data-detail.component.spec.ts, main/features/score-types/nom/shared/wizards/nom-general-data/services/nom-general-data-form.service.spec.ts, main/features/score-types/nom/nom-wizard/nom-wizard/nom-wizard.component.spec.ts, main/features/score-types/nom/components/score-card/nom-score-card.mocks.ts, main/features/score-types/nom/nom-wizard/nom-wizard/nom-wizard.component.stories.ts
+    missed: main/features/score-types/nom/shared/wizards/nom-general-data/nom-general-data-wizard.component.ts
+fe-vs-6269 [without] turns=14 $0.49 named=10 correct=2/3 P=0.20 R=0.67 F1=0.31
+    extra:  main/features/score-types/nom/shared/wizards/nom-general-data/services/nom-general-data-form.service.ts, main/features/score-types/nom/shared/wizards/nom-general-data/nom-general-data-wizard.component.html, main/features/score-types/nom/nom-wizard/nom-wizard/nom-wizard.component.ts, main/features/score-types/nom/components/score-card/components/general-data/nom-general-data-detail.component.ts, main/features/score-types/nom/components/score-card/components/general-data/nom-general-data-detail.component.html, main/features/score-types/nom/shared/wizards/nom-general-data/services/nom-general-data-form.service.spec.ts, main/features/score-types/nom/nom-wizard/nom-wizard/nom-wizard.component.spec.ts, main/features/score-types/nom/components/score-card/components/general-data/nom-general-data-detail.component.spec.ts
+    missed: main/features/score-types/nom/shared/wizards/nom-general-data/nom-general-data-wizard.component.ts
+fe-vs-6292-review-2537-3a49a0d3 [with] turns=18 $0.77 raised=1/4 missed=raises-01,raises-02,raises-03
+fe-vs-6292-review-2537-3a49a0d3 [without] turns=15 $0.61 raised=1/4 missed=raises-01,raises-02,raises-03
+fe-vs-6334 [with] turns=28 $0.86 named=6 correct=2/10 P=0.33 R=0.20 F1=0.25
+    extra:  main/screens/report/services/report-score-types.service.spec.ts, main/features/score-types/nom/shared/models/nom-data.interface.ts, main/features/score-types/nom/nom-wizard/nom-wizard/nom-wizard.component.spec.ts, main/screens/report/components/new-assessment-type-dialog/tooltype-filter.service.spec.ts
+    missed: main/features/score-types/nom/shared/constants/nom-general-data.constants.ts, main/features/score-types/nom/shared/wizards/nom-carry/services/nom-carry-form.service.ts, main/features/score-types/nom/shared/wizards/nom-general-data/services/nom-general-data-form.service.ts, main/features/score-types/nom/shared/wizards/nom-lift/services/nom-lift-form.service.ts, main/features/score-types/nom/shared/wizards/nom-push-pull/services/nom-push-pull-form.service.ts, main/features/score-types/nom/shared/wizards/nom-team/services/nom-team-form.service.ts, main/screens/org-admin/org-settings/mocks/org-settings-form.mock.ts, main/screens/org-admin/org-settings/org-settings.component.ts
+fe-vs-6334 [without] turns=22 $0.86 named=5 correct=2/10 P=0.40 R=0.20 F1=0.27
+    extra:  main/screens/report/services/report-score-types.service.spec.ts, main/features/score-types/nom/shared/models/nom-data.interface.ts, main/screens/report/components/new-assessment-type-dialog/new-assessment-type-dialog.component.ts
+    missed: main/features/score-types/nom/shared/constants/nom-general-data.constants.ts, main/features/score-types/nom/shared/wizards/nom-carry/services/nom-carry-form.service.ts, main/features/score-types/nom/shared/wizards/nom-general-data/services/nom-general-data-form.service.ts, main/features/score-types/nom/shared/wizards/nom-lift/services/nom-lift-form.service.ts, main/features/score-types/nom/shared/wizards/nom-push-pull/services/nom-push-pull-form.service.ts, main/features/score-types/nom/shared/wizards/nom-team/services/nom-team-form.service.ts, main/screens/org-admin/org-settings/mocks/org-settings-form.mock.ts, main/screens/org-admin/org-settings/org-settings.component.ts
