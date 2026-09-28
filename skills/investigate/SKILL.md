@@ -1,6 +1,6 @@
 ---
 name: investigate
-description: "Answer a bounded question about this repository with cited evidence — code paths/lines and, when a Jira or Confluence URL is given, retrieved requirement text. Use when the user asks how something works, why something happens, whether something is feasible, what a change would cost, or hands over a Jira/Confluence URL to look into. Read-only apart from the investigation note it always saves under .ambicode/task/: proposes but never runs a diagnostic command without authorization, and never edits source, configuration, or tests."
+description: "Answer any question about the code in a repository that has .ambicode/config.yaml, with cited evidence, instead of reading the code directly — how something works, why it happens, which files a change would touch, whether behavior matches a Jira/Confluence requirement, what a change would cost. Use when the user asks such a question or hands over a Jira/Confluence URL to look into. It never edits source, configuration, or tests and never runs a diagnostic command without authorization; its only write is its own note under .ambicode/task/."
 ---
 
 # Investigate a question

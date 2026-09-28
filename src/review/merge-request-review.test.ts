@@ -502,11 +502,11 @@ describe('U18 reviewing a merge request', () => {
     });
 
     it('records a gap when the checkout is another project, without printing its credentials', async () => {
-      const { context, output } = await withOrigin('https://oauth2:glpat-SECRET@gitlab.example.com/inseer/inseer-frontend.git');
+      const { context, output } = await withOrigin('https://oauth2:glpat-SECRET@gitlab.example.com/other-group/other-project.git');
       try {
         const gap = output.result.omissions.find((line) => line.includes('written for another project'));
         assert.ok(gap !== undefined, output.result.omissions.join('\n'));
-        assert.match(gap, /This checkout is gitlab\.example\.com\/inseer\/inseer-frontend, not gitlab\.example\.com\/group\/sub\/project/);
+        assert.match(gap, /This checkout is gitlab\.example\.com\/other-group\/other-project, not gitlab\.example\.com\/group\/sub\/project/);
         assert.ok(!JSON.stringify(output.result).includes('SECRET'));
         const report = await nodeFileSystem.readText(output.reportPath);
         assert.match(report, /written for another project/);

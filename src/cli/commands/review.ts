@@ -4,6 +4,7 @@ import type { Runtime } from '../../composition/root.ts';
 import type { ReviewResult, ReviewerRun } from '../../contracts/review.ts';
 import type { Reviewer } from '../../ports/reviewer.ts';
 import { ClaudeReviewer, REVIEWER_TOOLS } from '../../review/claude-reviewer.ts';
+import { REVIEWER_REPLAY_VARIABLE, ReplayReviewer } from '../../review/replay-reviewer.ts';
 import { assembleBundle, writeBundleArtifacts, type ReviewBundle } from '../../review/bundle.ts';
 import { renderReport } from '../../review/report.ts';
 import { validateFindings } from '../../review/validate.ts';
@@ -75,14 +76,18 @@ export async function runReview(
   }
 
   const reviewConfig = bundle.workspace.config.review;
-  const reviewer =
+  const replayPath = runtime.env[REVIEWER_REPLAY_VARIABLE];
+  const reviewer: Reviewer =
     dependencies.reviewer ??
-    new ClaudeReviewer({
-      runner: runtime.runner,
-      fs: runtime.fs,
-      clock: runtime.clock,
-      cwd: runtime.cwd,
-    });
+    (replayPath === undefined || replayPath === ''
+      ? new ClaudeReviewer({
+          runner: runtime.runner,
+          fs: runtime.fs,
+          clock: runtime.clock,
+          cwd: runtime.cwd,
+        })
+      : new ReplayReviewer({ fs: runtime.fs, recordingsPath: replayPath, snapshotId: bundle.result.target.snapshotId }));
+  const replayed = reviewer.source === 'replay';
 
   // Refuses before the prompt is built if the boundary cannot be established.
   await reviewer.assertIsolationAvailable?.();
@@ -102,14 +107,18 @@ export async function runReview(
     status: invocation.kind === 'ok' ? 'ok' : 'failed',
     model: reviewConfig.model,
     timeoutSeconds: reviewConfig.timeoutSeconds,
-    // Read back from the vector that actually ran, not from the constant.
-    tools: toolsOf(invocation.argv),
-    isolation: isolationOf(invocation.argv),
+    // Read back from the vector that actually ran, not from the constant. A
+    // replay started no process, so it had no tools and no isolation to claim.
+    tools: replayed ? [] : toolsOf(invocation.argv),
+    isolation: replayed ? [] : isolationOf(invocation.argv),
     rejections: [],
-    detail: invocation.kind === 'ok' ? null : `${invocation.reason}: ${invocation.detail}`,
+    detail: invocation.kind === 'ok' ? (invocation.detail ?? null) : `${invocation.reason}: ${invocation.detail}`,
     durationMs,
     usage: invocation.usage ?? null,
     rejectedOutputRef: null,
+    // Last, and only when true: an ordinary result keeps its bytes, and
+    // `status` stays the first key the eval trace indicators read.
+    ...(replayed ? { source: 'replay' as const } : {}),
   };
 
   // Validation is part of whether the reviewer succeeded, not a filter applied
@@ -284,6 +293,11 @@ function applyStatus(bundle: ReviewBundle, reviewerOk: boolean): void {
       : []),
     ...((bundle.result.reviewer?.rejections.length ?? 0) > 0
       ? ['some reviewer output was rejected as unverifiable']
+      : []),
+    // A recorded answer for this exact snapshot, not a review made in this
+    // run, so the result may not be called complete (EVAL_AMBICODE_REVIEWER_REPLAY).
+    ...(bundle.result.reviewer?.source === 'replay'
+      ? ['the reviewer answer was replayed from a recording; no model reviewed the change in this run']
       : []),
   ];
 

@@ -11,16 +11,26 @@
  *   commit  "message"                     git add -A && git commit
  *   branch  "name"                        git checkout -b
  *   switch  "name"                        git checkout
+ *
+ * A fixture may also declare `install`: argv lists `materialize.mjs --install`
+ * runs after the last commit. A relative executable path is resolved against
+ * the fixture repository. Beside it, `provides` lists the paths the install
+ * must leave behind and `wires` the check slots `--ambicode-init` must then
+ * configure; `materialize.mjs` fails the scaffold when either does not hold.
  */
+import { readFileSync } from 'node:fs';
 
 /**
  * Fixtures carry their own ignore rules and materialize with the global ignore
  * file disabled, so a fixture contains the same paths on every machine.
  */
-const STANDARD_IGNORE = ['node_modules/', '.venv/', '*.log', ''].join('\n');
+const STANDARD_IGNORE = ['node_modules/', '.venv/', '__pycache__/', '*.log', ''].join('\n');
 
 /** eslint 9 refuses to run without a flat config, so every fixture carries one. */
 const ESLINT_CONFIG = 'export default [];\n';
+
+/** The Python dev group, declared once so an install cannot drift from the manifest. */
+const PYTHON_DEV = ['pytest>=9', 'ruff>=0.14'];
 
 /** Python fixtures carry the tool declarations their evaluation cases expect. */
 const PYPROJECT = [
@@ -29,7 +39,7 @@ const PYPROJECT = [
   'version = "0.0.0"',
   '',
   '[dependency-groups]',
-  'dev = ["pytest>=9", "ruff>=0.14"]',
+  `dev = [${PYTHON_DEV.map((entry) => `"${entry}"`).join(', ')}]`,
   '',
 ].join('\n');
 
@@ -38,6 +48,29 @@ const JEST_MANIFEST = JSON.stringify(
   null,
   2,
 );
+
+/**
+ * JEST_MANIFEST resolved to exact versions and integrity hashes, so every run
+ * of both arms installs the same tree (plan/07-test-guide.md:220). It lives in
+ * a directory of its own under its real name, because the snapshot skips an
+ * unchanged `package-lock.json` as context by basename; beside this file it
+ * would be 195 KB of sibling context on every fixture change. Regenerate with
+ * `npm install --package-lock-only` over JEST_MANIFEST when the manifest changes.
+ */
+const JEST_LOCKFILE = readFileSync(new URL('./jest-manifest/package-lock.json', import.meta.url), 'utf8');
+
+/**
+ * Installs for the fixtures whose eval case grades a test actually running.
+ * `npm ci` installs exactly the committed lockfile, refuses one out of step
+ * with the manifest, and writes nothing git can see. `--include=dev` because
+ * `claude plugin eval` runs a scaffold with NODE_ENV=production, under which
+ * npm omits devDependencies and exits 0 having installed nothing.
+ */
+const NPM_INSTALL = [['npm', 'ci', '--include=dev', '--no-audit', '--no-fund']];
+const VENV_INSTALL = [
+  ['python3', '-m', 'venv', '.venv'],
+  ['.venv/bin/pip', 'install', '--quiet', '--disable-pip-version-check', ...PYTHON_DEV],
+];
 
 /**
  * The eight locale files of `ts-locale-decoys`, written together as a real
@@ -102,6 +135,28 @@ function polyglotFiller() {
   return files;
 }
 
+/** jest and eslint installed from the committed lockfile, and both wired by init. */
+const MATH_PROJECT = {
+  install: NPM_INSTALL,
+  provides: ['node_modules/.bin/jest', 'node_modules/.bin/eslint'],
+  wires: ['lint', 'unit'],
+};
+
+const MATH_PROJECT_COMMITTED = [
+  {
+    write: {
+      '.gitignore': STANDARD_IGNORE,
+      'package.json': JEST_MANIFEST,
+      'package-lock.json': JEST_LOCKFILE,
+      'eslint.config.mjs': ESLINT_CONFIG,
+      'src/math.js': 'module.exports.add = (a, b) => a + b;\n',
+      'tests/math.test.js':
+        "const { add } = require('../src/math.js');\ntest('adds', () => { expect(add(2, 2)).toBe(4); });\n",
+    },
+  },
+  { commit: 'init' },
+];
+
 export const FIXTURES = [
   {
     name: 'ts-staged-unstaged',
@@ -159,20 +214,30 @@ export const FIXTURES = [
     name: 'ts-source-regression',
     summary: 'A source-only change that breaks an unchanged test.',
     covers: ['affected-test selection', 'unchanged regression test fails'],
+    ...MATH_PROJECT,
     steps: [
-      {
-        write: {
-          '.gitignore': STANDARD_IGNORE,
-          'package.json': JEST_MANIFEST,
-          'eslint.config.mjs': ESLINT_CONFIG,
-          'src/math.js': 'module.exports.add = (a, b) => a + b;\n',
-          'tests/math.test.js':
-            "const { add } = require('../src/math.js');\ntest('adds', () => { expect(add(2, 2)).toBe(4); });\n",
-        },
-      },
-      { commit: 'init' },
+      ...MATH_PROJECT_COMMITTED,
       // Only the source changes; the test that catches it is untouched.
       { write: { 'src/math.js': 'module.exports.add = (a, b) => a - b;\n' } },
+    ],
+  },
+  {
+    // The same break, inside a change that also adds something. Fixed, the
+    // break alone would leave the tree equal to HEAD, and `review` stops at
+    // nothing-to-review before any check runs (reproduced 2026-09-28), so a
+    // task case on `ts-source-regression` could never show the unchanged test
+    // running after the fix.
+    name: 'ts-source-regression-feature',
+    summary: 'A source change that adds a function and breaks an unchanged test; fixing the break leaves the addition.',
+    covers: ['affected-test selection', 'unchanged regression test fails', 'fix inside a larger change'],
+    ...MATH_PROJECT,
+    steps: [
+      ...MATH_PROJECT_COMMITTED,
+      {
+        write: {
+          'src/math.js': 'module.exports.add = (a, b) => a - b;\nmodule.exports.multiply = (a, b) => a * b;\n',
+        },
+      },
     ],
   },
   {
@@ -344,6 +409,10 @@ export const FIXTURES = [
     name: 'py-source-regression',
     summary: 'A source-only change to a Python module that breaks an unchanged test.',
     covers: ['affected-test selection', 'unchanged regression test fails'],
+    install: VENV_INSTALL,
+    provides: ['.venv/bin/pytest', '.venv/bin/ruff'],
+    // Not unit: init wires no pytest check, which cannot select affected tests.
+    wires: ['lint'],
     steps: [
       {
         write: {

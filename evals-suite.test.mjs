@@ -10,15 +10,19 @@
 // fixture's test is two lines of `toEqual`, not a jest feature matrix.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
+import { loadScaffolds } from './evals-reviewer.mjs';
 import { fixtureByName } from './fixtures/definitions.mjs';
-import { materialize } from './fixtures/materialize.mjs';
+import { FIXTURE_DATE, installPlanFor, materialize } from './fixtures/materialize.mjs';
+import { renderReport } from './src/review/report.ts';
+import { reviewResult } from './src/testing/review-fixture.ts';
+import { formatJsonOutput } from './src/util/json-output.ts';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const EVALS = path.join(ROOT, 'evals');
@@ -39,20 +43,14 @@ async function loadCases() {
     cases.push({ name: entry.name, graders });
   }
   assert.ok(cases.length > 0, 'no eval case found');
+  // The harness collects `evals/**/case.yaml`: a Python case back in evals/
+  // would run again, with the unwired pytest check the 2026-09-27 run showed.
+  assert.deepEqual(
+    cases.filter((evalCase) => evalCase.name.endsWith('-py')).map((evalCase) => evalCase.name),
+    [],
+    'Python cases are archived in evals-archived/',
+  );
   return cases;
-}
-
-/** Each case's scaffold source, and the fixture it materializes. */
-async function loadScaffolds() {
-  const scaffolds = [];
-  for (const entry of await readdir(EVALS, { withFileTypes: true })) {
-    if (!entry.isDirectory() || entry.name === 'results') continue;
-    const source = await readFile(path.join(EVALS, entry.name, 'scaffold.sh'), 'utf8');
-    const fixture = /materialize\.mjs" ([a-z0-9-]+)/.exec(source)?.[1];
-    assert.ok(fixture, `${entry.name}/scaffold.sh materializes no fixture`);
-    scaffolds.push({ name: entry.name, source, fixture });
-  }
-  return scaffolds;
 }
 
 function gitOutput(cwd, args) {
@@ -94,6 +92,38 @@ function runJestStyle(source, require) {
     }
   });
 }
+
+describe('a fixture has the same commits whenever and wherever it is built', () => {
+  // The replay reviewer keys a recording on the review's `snapshotId`, which
+  // hashes HEAD; unpinned commit dates gave a new HEAD every second.
+  let scratch;
+
+  before(async () => {
+    scratch = await mkdtemp(path.join(tmpdir(), 'ambicode-evals-'));
+  });
+
+  after(async () => {
+    await rm(scratch, { recursive: true, force: true });
+  });
+
+  it('dates every commit at the fixed fixture date, so HEAD is reproducible', async () => {
+    const heads = [];
+    for (const name of ['first', 'second']) {
+      const repo = path.join(scratch, name);
+      await materialize(fixtureByName('ts-off-by-one'), repo);
+      const dates = execFileSync('git', ['log', '--format=%aI %cI'], { cwd: repo, encoding: 'utf8' }).trim().split('\n');
+      assert.ok(dates.length > 0);
+      for (const line of dates) {
+        assert.deepEqual(line.split(' ').map((date) => new Date(date).toISOString()), [
+          new Date(FIXTURE_DATE).toISOString(),
+          new Date(FIXTURE_DATE).toISOString(),
+        ]);
+      }
+      heads.push(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim());
+    }
+    assert.equal(heads[0], heads[1]);
+  });
+});
 
 describe('correctness-ts: ts-off-by-one is a boundary the existing test does not cover', () => {
   let scratch;
@@ -202,7 +232,7 @@ describe('eval graders: every case scores its outcome in both arms', () => {
 // (src/config/load.ts), so the `with` arm ran `init` inside the measured run:
 // setup turns out of `max_turns`, and a review target that also held the
 // config file and the `.gitignore` lines init appends — neither is excluded
-// (src/snapshot/exclusions.ts). For `clean-ts`/`clean-py`, where any finding
+// (src/snapshot/exclusions.ts). For `clean-ts`, where any finding
 // is a false positive, that is the plugin reviewing its own setup.
 describe('eval scaffolds: every fixture is configured before its change', () => {
   let scratch;
@@ -284,5 +314,500 @@ describe('eval scaffolds: every fixture is configured before its change', () => 
     );
     gitOutput(repo, ['ls-files', '--error-unmatch', '.ambicode/config.yaml']);
     assert.equal(gitOutput(repo, ['log', '-1', '--format=%s']).trim(), 'configure ambicode');
+  });
+});
+
+// The three verification cases grade whether the unchanged test that catches a
+// source regression was selected and run. Fixtures install nothing by default,
+// and `init` detects jest only in `node_modules/.bin` and pytest only in a
+// project `.venv` (src/config/detect.ts), so every unit command was null and
+// "was run and passed" (p2-task-regression-fix) could not happen in either arm.
+// Only these fixtures install: the human decision recorded in the plan keeps
+// every other case install-free.
+describe('eval fixtures: the verification cases get a real test runner', () => {
+  it('installs jest from the committed lockfile', () => {
+    assert.deepEqual(installPlanFor(fixtureByName('ts-source-regression'), '/r'), [
+      ['npm', 'ci', '--include=dev', '--no-audit', '--no-fund'],
+    ]);
+  });
+
+  it('installs the Python dev group the fixture declares into a project .venv', () => {
+    const fixture = fixtureByName('py-source-regression');
+    const declared = /^dev = \[(.*)\]$/m
+      .exec(fixture.steps[0].write['pyproject.toml'])[1]
+      .split(', ')
+      .map((entry) => JSON.parse(entry));
+    assert.deepEqual(declared, ['pytest>=9', 'ruff>=0.14']);
+    assert.deepEqual(installPlanFor(fixture, '/r'), [
+      ['python3', '-m', 'venv', '.venv'],
+      [path.join('/r', '.venv', 'bin', 'pip'), 'install', '--quiet', '--disable-pip-version-check', ...declared],
+    ]);
+  });
+
+  it('installs nothing for any other fixture', () => {
+    assert.deepEqual(installPlanFor(fixtureByName('ts-off-by-one'), '/r'), []);
+  });
+
+  it('passes --install in exactly the scaffolds whose fixture declares an install', async () => {
+    const wrong = (await loadScaffolds())
+      .filter(
+        (scaffold) =>
+          (installPlanFor(fixtureByName(scaffold.fixture), '/r').length > 0) !==
+          /materialize\.mjs" .*--install/.test(scaffold.source),
+      )
+      .map((scaffold) => scaffold.name);
+    assert.deepEqual(wrong, []);
+    const installing = (await loadScaffolds()).filter((scaffold) => /--install/.test(scaffold.source));
+    // `regression-py` installs too, and is archived (evals-archived/README.md).
+    assert.deepEqual(installing.map((scaffold) => scaffold.name).sort(), [
+      'p2-task-regression-fix',
+      'regression-ts',
+    ]);
+  });
+});
+
+// Claude Code 2.1.283 runs a scaffold with a fixed environment that includes
+// NODE_ENV=production (function `rg` in the binary). npm then omits
+// devDependencies, which is all a fixture manifest declares: the install exited
+// 0, left nothing git could see, and init wired no check. Every run of the
+// 2026-09-27 suite reported `node_modules` missing in both arms. A local
+// `file:` devDependency reproduces it without the registry.
+describe('eval fixtures: an install that provides nothing fails the scaffold', () => {
+  const tool = {
+    'vendor/tool/package.json': JSON.stringify({ name: 'tool', version: '1.0.0', bin: { tool: 'bin/tool.js' } }),
+    'vendor/tool/bin/tool.js': '#!/usr/bin/env node\n',
+  };
+  const manifest = JSON.stringify({ name: 'probe', private: true, devDependencies: { tool: 'file:./vendor/tool' } });
+  // `npm ci` installs nothing without a lockfile; npm writes it, offline, so
+  // its format follows whichever npm runs the suite.
+  let lockfile;
+  const fixture = (overrides) => ({
+    name: 'install-probe',
+    steps: [
+      {
+        write: {
+          // npm marks the linked bin executable, a mode change git would report.
+          '.gitignore': 'node_modules/\nvendor/\n',
+          'package.json': manifest,
+          'package-lock.json': lockfile,
+          ...tool,
+        },
+      },
+      { commit: 'init' },
+    ],
+    ...overrides,
+  });
+  let scratch;
+  const saved = {};
+  const harnessEnvironment = { NODE_ENV: 'production', npm_config_offline: 'true', npm_config_update_notifier: 'false' };
+
+  before(async () => {
+    scratch = await mkdtemp(path.join(tmpdir(), 'ambicode-evals-install-'));
+    const locking = path.join(scratch, 'lock');
+    for (const [relative, contents] of Object.entries({ 'package.json': manifest, ...tool })) {
+      await mkdir(path.dirname(path.join(locking, relative)), { recursive: true });
+      await writeFile(path.join(locking, relative), contents);
+    }
+    execFileSync('npm', ['install', '--package-lock-only', '--offline', '--no-audit', '--no-fund'], {
+      cwd: locking,
+      stdio: 'ignore',
+    });
+    lockfile = await readFile(path.join(locking, 'package-lock.json'), 'utf8');
+    for (const [name, value] of Object.entries(harnessEnvironment)) {
+      saved[name] = process.env[name];
+      process.env[name] = value;
+    }
+  });
+
+  after(async () => {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    await rm(scratch, { recursive: true, force: true });
+  });
+
+  it('installs devDependencies under NODE_ENV=production with the npm install the fixtures use', async () => {
+    const npmInstall = fixtureByName('ts-source-regression').install;
+    const repo = await materialize(
+      fixture({ install: npmInstall, provides: ['node_modules/.bin/tool'] }),
+      path.join(scratch, 'npm'),
+      { install: true },
+    );
+    await stat(path.join(repo, 'node_modules', '.bin', 'tool'));
+  });
+
+  it('refuses an install that exits 0 without what the fixture says it provides', async () => {
+    await assert.rejects(
+      materialize(
+        fixture({ install: [['true']], provides: ['node_modules/.bin/tool'] }),
+        path.join(scratch, 'empty'),
+        { install: true },
+      ),
+      /install-probe.*did not provide node_modules\/\.bin\/tool/,
+    );
+  });
+
+  it('refuses an init that leaves a check the install was for unwired', async () => {
+    await assert.rejects(
+      materialize(
+        fixture({ install: [['mkdir', 'node_modules']], provides: ['node_modules'], wires: ['unit'] }),
+        path.join(scratch, 'unwired'),
+        { install: true, ambicodeInit: true },
+      ),
+      /install-probe.*init left checks\.unit unwired/,
+    );
+  });
+
+  it('declares what every installing fixture provides and which checks init must wire', () => {
+    assert.deepEqual(
+      ['ts-source-regression', 'py-source-regression'].map((name) => {
+        const { provides, wires } = fixtureByName(name);
+        return { name, provides, wires };
+      }),
+      [
+        {
+          name: 'ts-source-regression',
+          provides: ['node_modules/.bin/jest', 'node_modules/.bin/eslint'],
+          wires: ['lint', 'unit'],
+        },
+        // pytest cannot say which tests a change affects, so init leaves unit
+        // null by design (checkFor, src/config/init.ts).
+        { name: 'py-source-regression', provides: ['.venv/bin/pytest', '.venv/bin/ruff'], wires: ['lint'] },
+      ],
+    );
+  });
+});
+
+// Without a lockfile each run resolved `^30.0.0` against the registry of that
+// moment, so two arms of one sweep could grade different jest releases
+// (plan/07-test-guide.md:220). `npm ci` pins them, but only to a lockfile that
+// matches the manifest, and only harmlessly if the lockfile is not itself part
+// of the change the agent is asked about.
+describe('eval fixtures: the npm install is pinned by a committed lockfile', () => {
+  const fixture = fixtureByName('ts-source-regression');
+  const files = fixture.steps[0].write;
+  let scratch;
+
+  before(async () => {
+    scratch = await mkdtemp(path.join(tmpdir(), 'ambicode-evals-lockfile-'));
+  });
+
+  after(async () => {
+    await rm(scratch, { recursive: true, force: true });
+  });
+
+  it('locks exactly the manifest it is committed beside, down to each tarball', () => {
+    const manifest = JSON.parse(files['package.json']);
+    const lockfile = JSON.parse(files['package-lock.json']);
+    assert.equal(lockfile.name, manifest.name);
+    assert.deepEqual(lockfile.packages[''].devDependencies, manifest.devDependencies);
+    const unpinned = Object.entries(lockfile.packages)
+      .filter(([key, entry]) => key !== '' && !(entry.resolved && entry.integrity))
+      .map(([key]) => key);
+    assert.deepEqual(unpinned, []);
+  });
+
+  it('commits the lockfile before the change, so the change is still one source file', async () => {
+    const repo = await materialize(fixture, path.join(scratch, 'repo'));
+    const git = (args) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' });
+    assert.equal(git(['log', '--format=%s', '--', 'package-lock.json']), 'init\n');
+    assert.equal(git(['show', 'HEAD:package-lock.json']), files['package-lock.json']);
+    assert.equal(git(['status', '--porcelain=v1', '--untracked-files=all']), ' M src/math.js\n');
+  });
+});
+
+// A judge given "PASS if A" and "PASS if B" on separate lines has to guess
+// whether both are needed. Every scored rubric states it once: a single
+// "PASS only if all of:" or "PASS if either:" block.
+describe('eval graders: scored rubrics state how their conditions combine', () => {
+  it('has at most one PASS line in every scored llm grader', async () => {
+    const ambiguous = [];
+    for (const evalCase of await loadCases()) {
+      for (const grader of evalCase.graders) {
+        if (grader.type !== 'llm' || grader.arm === 'with-only') continue;
+        if (grader.body.split('\n').filter((line) => /^PASS\b/.test(line)).length > 1) {
+          ambiguous.push(`${evalCase.name}/graders/${grader.name}`);
+        }
+      }
+    }
+    assert.deepEqual(ambiguous, []);
+  });
+});
+
+/** Whether a `regex` grader passes on `text`, as the harness evaluates it (`match` unset: contains). */
+function regexPasses(grader, text) {
+  return new RegExp(grader.pattern, grader.flags ?? '').test(text);
+}
+
+// In the 2026-09-27 run every weight-3 grader read `last_message`, so a reply
+// saying "restored `a + b`" scored the same whether or not `src/math.js`
+// changed. Each task case now scores the file it asks for; the judge only
+// grades the report. The cases are replayed from their fixtures so a pattern
+// is shown to fail on exactly the state the agent starts from.
+describe('eval graders: task cases grade the file, not the reply', () => {
+  const cases = [
+    {
+      name: 'p2-task-regression-fix',
+      grader: 'add-restored.md',
+      fixture: 'ts-source-regression-feature',
+      file: 'src/math.js',
+      correct: [
+        // The fix as the case expects it: the break undone, the addition kept.
+        'module.exports.add = (a, b) => a + b;\nmodule.exports.multiply = (a, b) => a * b;\n',
+        'module.exports.add = (a, b) => a + b;\n',
+        'module.exports.add = (a, b) => b + a;\n',
+        'function add(a, b) {\n  return a + b;\n}\nmodule.exports.add = add;\n',
+        '// was `a - b`, which subtracted\nmodule.exports.add = (a, b) => a + b;\n',
+      ],
+      wrong: [
+        'module.exports.add = (a, b) => a * b;\n',
+        'module.exports.add = (a, b) => Math.abs(a - b);\n',
+        // The claim in a comment, the subtraction still in the code.
+        'module.exports.add = (a, b) => a - b; // a + b\n',
+        'module.exports.add = (a, b) => a * b;\nmodule.exports.multiply = (a, b) => a * b;\n',
+      ],
+    },
+    {
+      name: 'p2-task-finding-fix-rereview',
+      grader: 'page-count-added.md',
+      fixture: 'ts-off-by-one',
+      file: 'src/page.js',
+      correct: [
+        'module.exports.page = (items, index, size) => items.slice(index * size, (index + 1) * size);\n' +
+          'module.exports.pageCount = (items, size) => Math.ceil(items.length / size);\n',
+        'const page = (items, index, size) => items.slice(index * size, index * size + size - 1);\n' +
+          'const pageCount = (items, size) => Math.ceil(items.length / size);\n' +
+          'module.exports = { page, pageCount };\n',
+      ],
+      wrong: [
+        // The helper replaced the file instead of being added next to `page`.
+        'module.exports.pageCount = (items, size) => Math.ceil(items.length / size);\n',
+        // Defined but never exported: the tests `require` the module.
+        'module.exports.page = (items, index, size) => items.slice(index * size, (index + 1) * size);\n' +
+          'const pageCount = (items, size) => Math.ceil(items.length / size);\n',
+      ],
+    },
+    {
+      name: 'p2-task-trivial',
+      grader: 'implemented.md',
+      fixture: 'ts-no-tests',
+      // The scaffold's `git checkout -- .`: the case starts from the committed file.
+      reset: true,
+      file: 'src/index.ts',
+      correct: [
+        'export const value = 1;\nexport const double = (n: number): number => n * 2;\n',
+        'export const value = 1;\n\nexport function double(value: number): number {\n  return 2 * value;\n}\n',
+      ],
+      wrong: [
+        'export const value = 1;\nconst double = (n: number): number => n * 2;\n',
+        'export const value = 1;\nexport const double = (n: number): number => n + 2;\n',
+        'export const value = 1;\nexport const triple = (n: number): number => n * 3;\n',
+      ],
+    },
+  ];
+
+  it('has a scored regex grader over a repository file in every task case', async () => {
+    const taskCases = (await loadCases()).filter((evalCase) => evalCase.name.startsWith('p2-task-'));
+    assert.deepEqual(taskCases.map((evalCase) => evalCase.name).sort(), cases.map((c) => c.name).sort());
+    const missing = taskCases
+      .filter(
+        (evalCase) =>
+          !evalCase.graders.some(
+            (grader) =>
+              grader.type === 'regex' &&
+              grader.target?.source === 'file' &&
+              /^repo\//.test(grader.target.path) &&
+              grader.arm !== 'with-only' &&
+              (grader.weight ?? 1) > 1,
+          ),
+      )
+      .map((evalCase) => evalCase.name);
+    assert.deepEqual(missing, []);
+  });
+
+  it('fails each on the state the agent starts from, and passes only on a correct result', async () => {
+    const byName = new Map((await loadCases()).map((evalCase) => [evalCase.name, evalCase]));
+    const scratch = await mkdtemp(path.join(tmpdir(), 'ambicode-evals-file-graders-'));
+    try {
+      const failures = [];
+      for (const c of cases) {
+        const grader = byName.get(c.name)?.graders.find((candidate) => candidate.name === c.grader);
+        assert.ok(grader, `${c.name}/graders/${c.grader} is missing`);
+        assert.deepEqual(grader.target, { source: 'file', path: `repo/${c.file}` }, `${c.name}/graders/${c.grader}`);
+        const repo = await materialize(fixtureByName(c.fixture), path.join(scratch, c.name));
+        if (c.reset) gitOutput(repo, ['checkout', '-q', '--', '.']);
+        const start = await readFile(path.join(repo, c.file), 'utf8');
+        if (regexPasses(grader, start)) failures.push(`${c.name}: passes on the scaffolded ${c.file}`);
+        for (const text of c.correct) {
+          if (!regexPasses(grader, text)) failures.push(`${c.name}: fails ${JSON.stringify(text)}`);
+        }
+        for (const text of c.wrong) {
+          if (regexPasses(grader, text)) failures.push(`${c.name}: passes ${JSON.stringify(text)}`);
+        }
+      }
+      assert.deepEqual(failures, []);
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
+    }
+  });
+});
+
+// `helper-ran` matches the Bash input, so it passed in runs whose reviewer
+// printed "Not logged in" after 2 s and whose every check was `skipped` (the
+// kept trace of a 2026-09-27 `review` run). These two read what `review`
+// printed back. A trace is JSON per line, so the printed text arrives
+// JSON-escaped once; the skill bodies are in it too, and must not match.
+describe('eval graders: trace indicators match what review prints, and only a completed run', () => {
+  /** One trace line carrying `printed` as a Bash tool result. */
+  const traced = (printed) =>
+    JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', content: printed }] } });
+
+  /**
+   * `review`'s stdout, in the text form and in the `--json` form
+   * (`src/cli/main.ts`), with `unit` both before and after a failed `lint`.
+   * The fixture orders a check's keys as `src/checks/run.ts` does, and a
+   * replay's `source` last, as `src/cli/commands/review.ts` writes it.
+   */
+  function printed(options) {
+    const plain = reviewResult({ reviewerStatus: options.reviewerStatus });
+    const base = options.replay ? { ...plain, reviewer: { ...plain.reviewer, source: 'replay' } } : plain;
+    const [lint] = base.checks;
+    const unit = { ...lint, checkId: 'unit', adapter: 'jest', status: options.unitStatus };
+    return [
+      [lint, unit],
+      [unit, lint],
+    ].flatMap((checks) => {
+      const output = {
+        command: 'review',
+        result: { ...base, checks },
+        snapshotDirectory: '/tmp/snapshot',
+        resultPath: '/work/repo/.ambicode/reviews/r-0001/result.json',
+        pendingApprovals: [],
+      };
+      return [renderReport(output), formatJsonOutput(output)].map(traced);
+    });
+  }
+
+  async function skillBodies() {
+    const bodies = [];
+    for (const directory of ['skills', path.join('skills', 'shared')]) {
+      for (const entry of await readdir(path.join(ROOT, directory), { withFileTypes: true })) {
+        const file = entry.isDirectory()
+          ? path.join(directory, entry.name, 'SKILL.md')
+          : path.join(directory, entry.name);
+        if (!file.endsWith('.md')) continue;
+        const text = await readFile(path.join(ROOT, file), 'utf8').catch(() => null);
+        if (text !== null) bodies.push(traced(text));
+      }
+    }
+    assert.ok(bodies.length > 5, 'no skill body found');
+    return bodies;
+  }
+
+  async function indicator(name) {
+    const copies = (await loadCases()).flatMap((evalCase) =>
+      evalCase.graders.filter((grader) => grader.name === `${name}.md`).map((grader) => ({ evalCase, grader })),
+    );
+    assert.ok(copies.length > 0, `no case carries ${name}`);
+    for (const { evalCase, grader } of copies) {
+      const { body: _body, ...frontmatter } = grader;
+      const { body: _first, ...expected } = copies[0].grader;
+      assert.deepEqual(frontmatter, expected, `${evalCase.name}/graders/${name}.md differs from its other copies`);
+    }
+    assert.equal(copies[0].grader.type, 'regex');
+    assert.equal(copies[0].grader.target, 'trace');
+    assert.equal(copies[0].grader.arm, 'with-only');
+    return { grader: copies[0].grader, cases: copies.map(({ evalCase }) => evalCase.name).sort() };
+  }
+
+  it('reviewer-completed matches an ok reviewer and never a failed or skipped one, or a skill body', async () => {
+    const { grader } = await indicator('reviewer-completed');
+    for (const line of printed({ reviewerStatus: 'ok', unitStatus: 'skipped' })) {
+      assert.ok(regexPasses(grader, line), line.slice(0, 200));
+    }
+    for (const reviewerStatus of ['failed', 'not-run']) {
+      for (const line of printed({ reviewerStatus, unitStatus: 'passed' })) {
+        assert.ok(!regexPasses(grader, line), reviewerStatus);
+      }
+    }
+    for (const body of await skillBodies()) assert.ok(!regexPasses(grader, body), body.slice(0, 120));
+  });
+
+  it('reviewer-completed reads a replayed answer as completed, and a failed replay as not', async () => {
+    // Deliberate: in `claude plugin eval` every review is a replay, and this
+    // indicator says the workflow reached a validated answer. Which kind it
+    // was is `source`, on the same line of both forms.
+    const { grader } = await indicator('reviewer-completed');
+    for (const line of printed({ reviewerStatus: 'ok', unitStatus: 'skipped', replay: true })) {
+      assert.ok(regexPasses(grader, line), line.slice(0, 200));
+      assert.match(line, /REPLAYED from a recording|\\"source\\": \\"replay\\"/);
+    }
+    for (const line of printed({ reviewerStatus: 'failed', unitStatus: 'passed', replay: true })) {
+      assert.ok(!regexPasses(grader, line));
+    }
+  });
+
+  it('unit-check-ran matches a unit check that executed, and never a skipped one beside an executed lint', async () => {
+    const { grader } = await indicator('unit-check-ran');
+    for (const unitStatus of ['passed', 'failed']) {
+      for (const line of printed({ reviewerStatus: 'failed', unitStatus })) {
+        assert.ok(regexPasses(grader, line), unitStatus);
+      }
+    }
+    // `lint` is `failed` in every one of these, so a pattern not anchored to
+    // the unit check's own status would pass them.
+    for (const unitStatus of ['skipped', 'timed-out', 'error']) {
+      for (const line of printed({ reviewerStatus: 'ok', unitStatus })) {
+        assert.ok(!regexPasses(grader, line), unitStatus);
+      }
+    }
+    for (const body of await skillBodies()) assert.ok(!regexPasses(grader, body), body.slice(0, 120));
+  });
+
+  it('sits in every case whose run needs what it reports', async () => {
+    const reviewing = (await loadCases())
+      .filter((evalCase) =>
+        evalCase.graders.some(
+          (grader) => grader.type === 'tool_used' && grader.tool === 'Bash' && /review/.test(grader.input_match),
+        ),
+      )
+      .map((evalCase) => evalCase.name);
+    const { cases: withReviewer } = await indicator('reviewer-completed');
+    assert.deepEqual(
+      reviewing.filter((name) => !withReviewer.includes(name)),
+      [],
+    );
+    // Only a fixture that wires `unit` can pass it; anywhere else it would be
+    // a with-arm indicator that is false by construction.
+    const wiringUnit = (await loadScaffolds())
+      .filter((scaffold) => fixtureByName(scaffold.fixture).wires?.includes('unit'))
+      .map((scaffold) => scaffold.name)
+      .sort();
+    assert.deepEqual((await indicator('unit-check-ran')).cases, wiringUnit);
+  });
+});
+
+// Running the fixture's pytest (possible once --install provides it) wrote
+// src/__pycache__/money.cpython-313.pyc and a tests/ twin, untracked. The
+// review target already excludes `__pycache__` (src/snapshot/exclusions.ts),
+// but mutation detection fingerprints porcelain status
+// (src/checks/mutations.ts), so the unit check was reported as mutating the
+// workspace. The same follows from an agent running a PATH pytest in any
+// Python case.
+describe('eval fixtures: running a Python test leaves nothing git can see', () => {
+  it('ignores __pycache__ bytecode in every fixture', async () => {
+    const scratch = await mkdtemp(path.join(tmpdir(), 'ambicode-evals-pyc-'));
+    try {
+      const repo = await materialize(fixtureByName('py-source-regression'), path.join(scratch, 'repo'));
+      const before = gitOutput(repo, ['status', '--porcelain=v1', '--untracked-files=all']);
+      for (const directory of ['src', 'tests']) {
+        await mkdir(path.join(repo, directory, '__pycache__'), { recursive: true });
+        await writeFile(path.join(repo, directory, '__pycache__', 'module.cpython-313.pyc'), '');
+      }
+      assert.equal(gitOutput(repo, ['status', '--porcelain=v1', '--untracked-files=all']), before);
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
+    }
   });
 });

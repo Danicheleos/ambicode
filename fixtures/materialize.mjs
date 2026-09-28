@@ -2,11 +2,17 @@
 /**
  * Replays a fixture definition into a real git repository.
  *
- *   node fixtures/materialize.mjs <name> <destination> [--ambicode-init]
- *   node fixtures/materialize.mjs --all <destination-directory> [--ambicode-init]
+ *   node fixtures/materialize.mjs <name> <destination> [--install] [--ambicode-init]
+ *   node fixtures/materialize.mjs --all <destination-directory> [--install] [--ambicode-init]
  *   node fixtures/materialize.mjs --list
  *
- * The destination must be empty. Nothing is installed and no project script runs.
+ * The destination must be empty. Without --install nothing is installed and no
+ * project script runs.
+ *
+ * --install runs the fixture's declared `install` right after its last commit,
+ * so the runner its eval case needs exists. It needs network, and fails if the
+ * install leaves anything `git status` can see, does not leave the fixture's
+ * `provides`, or (with --ambicode-init) init does not wire its `wires`.
  *
  * --ambicode-init runs the built `ambicode init` right after the fixture's last
  * commit and commits what it wrote, before the uncommitted change is replayed.
@@ -15,10 +21,11 @@
  * config file and its `.gitignore` lines into the change under review.
  */
 import { execFile } from 'node:child_process';
-import { mkdir, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { parse as parseYaml } from 'yaml';
 import { FIXTURES, fixtureByName } from './definitions.mjs';
 
 const run = promisify(execFile);
@@ -37,9 +44,18 @@ async function git(cwd, args) {
       GIT_AUTHOR_EMAIL: 'fixture@example.invalid',
       GIT_COMMITTER_NAME: 'AMBICODE Fixture',
       GIT_COMMITTER_EMAIL: 'fixture@example.invalid',
+      // Fixed, so the same fixture has the same commits and so the same
+      // review `snapshotId` whenever it is built: the replay reviewer keys on
+      // it. Unpinned, two `correctness-ts` scaffolds 2 s apart got
+      // working-a128ac3e… and working-c456caad…; pinned, both got
+      // working-7966745c… (2026-09-27).
+      GIT_AUTHOR_DATE: FIXTURE_DATE,
+      GIT_COMMITTER_DATE: FIXTURE_DATE,
     },
   });
 }
+
+export const FIXTURE_DATE = '2026-01-01T00:00:00Z';
 
 /**
  * Ages every tracked file past git's racy-index window: a same-length rewrite
@@ -59,8 +75,39 @@ async function settle(destination) {
   await git(destination, ['update-index', '--refresh', '-q']);
 }
 
-/** Writes the configuration `ambicode init` detects and commits it, index untouched otherwise. */
-async function commitAmbicodeInit(destination) {
+/** The fixture's install steps as argv lists, relative executables resolved against the destination. */
+export function installPlanFor(fixture, destination) {
+  return (fixture.install ?? []).map(([executable, ...args]) => [
+    executable.includes('/') ? path.join(destination, executable) : executable,
+    ...args,
+  ]);
+}
+
+async function install(fixture, destination) {
+  for (const [executable, ...args] of installPlanFor(fixture, destination)) {
+    await run(executable, args, { cwd: destination, maxBuffer: 16 * 1024 * 1024 });
+  }
+  // A zero exit is not an install: under the eval harness's NODE_ENV=production
+  // npm skipped every devDependency, exited 0, and the case ran with no runner.
+  const missing = [];
+  for (const relative of fixture.provides ?? []) {
+    await stat(path.join(destination, relative)).catch(() => missing.push(relative));
+  }
+  if (missing.length > 0) {
+    throw new Error(`installing ${fixture.name} exited 0 but did not provide ${missing.join(', ')}`);
+  }
+  const { stdout } = await run('git', ['status', '--porcelain=v1', '--untracked-files=all'], { cwd: destination });
+  if (stdout !== '') {
+    throw new Error(`installing ${fixture.name} left changes git can see:\n${stdout}`);
+  }
+}
+
+/**
+ * Writes the configuration `ambicode init` detects and commits it, index
+ * untouched otherwise. `wires` holds only after an install, so it is empty
+ * without one.
+ */
+async function commitAmbicodeInit(fixture, destination, wires) {
   try {
     await stat(BUNDLE);
   } catch (error) {
@@ -68,15 +115,24 @@ async function commitAmbicodeInit(destination) {
     throw error;
   }
   await run(process.execPath, [BUNDLE, 'init', '--json'], { cwd: destination });
+  if (wires.length > 0) {
+    const config = parseYaml(await readFile(path.join(destination, '.ambicode', 'config.yaml'), 'utf8'));
+    const root = config.projects.find((project) => project.root === '.');
+    if (root === undefined) throw new Error(`${fixture.name}: init configured no project at the repository root`);
+    const unwired = wires.filter((slot) => root.checks?.[slot] == null).map((slot) => `checks.${slot}`);
+    if (unwired.length > 0) {
+      throw new Error(`${fixture.name}: init left ${unwired.join(', ')} unwired after the install`);
+    }
+  }
   await git(destination, ['add', '-A']);
   await git(destination, ['commit', '-q', '-m', 'configure ambicode']);
   await settle(destination);
 }
 
-export async function materialize(fixture, destination, { ambicodeInit = false } = {}) {
+export async function materialize(fixture, destination, { install: installing = false, ambicodeInit = false } = {}) {
   const lastCommit = fixture.steps.findLastIndex((step) => step.commit !== undefined);
-  if (ambicodeInit && lastCommit === -1) {
-    throw new Error(`fixture ${fixture.name} has no commit to configure on top of`);
+  if ((ambicodeInit || installing) && lastCommit === -1) {
+    throw new Error(`fixture ${fixture.name} has no commit to install or configure on top of`);
   }
 
   await mkdir(destination, { recursive: true });
@@ -119,7 +175,11 @@ export async function materialize(fixture, destination, { ambicodeInit = false }
       await git(destination, ['add', '-A']);
       await git(destination, ['commit', '-q', '-m', step.commit]);
       await settle(destination);
-      if (ambicodeInit && index === lastCommit) await commitAmbicodeInit(destination);
+      // Install before init, so init detects the runner the install provides.
+      if (installing && index === lastCommit) await install(fixture, destination);
+      if (ambicodeInit && index === lastCommit) {
+        await commitAmbicodeInit(fixture, destination, installing ? (fixture.wires ?? []) : []);
+      }
     }
     if (step.branch !== undefined) {
       await git(destination, ['checkout', '-q', '-b', step.branch]);
@@ -133,8 +193,8 @@ export async function materialize(fixture, destination, { ambicodeInit = false }
 }
 
 async function main(rawArgv) {
-  const options = { ambicodeInit: rawArgv.includes('--ambicode-init') };
-  const argv = rawArgv.filter((value) => value !== '--ambicode-init');
+  const options = { install: rawArgv.includes('--install'), ambicodeInit: rawArgv.includes('--ambicode-init') };
+  const argv = rawArgv.filter((value) => value !== '--install' && value !== '--ambicode-init');
   if (argv.includes('--list') || argv.length === 0) {
     for (const fixture of FIXTURES) {
       process.stdout.write(`${fixture.name.padEnd(24)} ${fixture.summary}\n`);

@@ -60,6 +60,9 @@ function whatWasReviewed(options: ReportOptions): string[] {
   if (result.reviewer !== null) {
     lines.push(
       `   reviewer    ${result.reviewer.status} — model ${result.reviewer.model}, ` +
+        // On the status line itself: a reader who stops there must not take a
+        // replayed answer for a review made now.
+        (result.reviewer.source === 'replay' ? 'REPLAYED from a recording (no model call), ' : '') +
         `tools ${result.reviewer.tools.join(',') || '(none)'}, ` +
         `timeout ${result.reviewer.timeoutSeconds}s` +
         (result.reviewer.durationMs === null ? '' : `, took ${Math.round(result.reviewer.durationMs / 1000)}s`),

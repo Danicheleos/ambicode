@@ -1,6 +1,6 @@
 ---
 name: task
-description: Implement a small change, a bug fix, or one iteration of an accepted /ambicode:plan — locate the code, make the smallest coherent change, select and run the affected checks (including unchanged tests a source change affects), then offer the independent review pipeline and address in-scope findings. Use when the user asks to implement, fix, or build something, hands over a Jira/Confluence URL to implement directly, says to go ahead with an accepted plan, or asks to resume a larger task. Never commits, pushes, opens a merge request, publishes a comment, merges, deploys, or transitions a ticket.
+description: "Make any code change in a repository with .ambicode/config.yaml, instead of editing files directly: a one-line addition, a bug fix, a helper beside existing code, or one iteration of an accepted /ambicode:plan. Makes the smallest coherent change, runs the affected checks, unchanged affected tests included, then offers the independent review. Use when the user asks to implement, add, fix, or build something, hands over a Jira/Confluence URL, or says to go ahead with or resume a plan. Never commits, pushes, opens a merge request, publishes a comment, merges, deploys, or transitions a ticket."
 argument-hint: <request-or-jira/confluence-url> [--requirement <url>]...
 ---
 

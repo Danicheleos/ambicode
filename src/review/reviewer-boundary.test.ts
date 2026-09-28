@@ -94,6 +94,23 @@ describe('the reviewer receives only runtime and model authentication', () => {
     assert.equal(resolved.ANTHROPIC_API_KEY, 'sk-ant-test');
   });
 
+  it("keeps Claude Code's own temp base, which it reads instead of TMPDIR", () => {
+    // Claude Code 2.1.283 takes its temp base from CLAUDE_CODE_TMPDIR and falls
+    // back to a literal "/tmp", never TMPDIR. Dropping it failed every reviewer
+    // in the `claude plugin eval` sandbox after 171 ms with
+    // "EPERM: operation not permitted, mkdir '/tmp/claude-502'" (E02, 2026-09-27).
+    const resolved = resolveEnvironment(reviewerEnvironment(), {
+      ...host,
+      TMPDIR: '/sandbox/tmp',
+      CLAUDE_CODE_TMPDIR: '/sandbox/tmp',
+      CLAUDE_CONFIG_DIR: '/sandbox/config',
+    });
+    assert.equal(resolved.CLAUDE_CODE_TMPDIR, '/sandbox/tmp');
+    // The host's Claude configuration stays out: settings, plugins and hooks
+    // are not the reviewer's to read (decided 2026-09-27).
+    assert.equal(resolved.CLAUDE_CONFIG_DIR, undefined);
+  });
+
   it('carries the same policy into the real spawn request, not only the helper', async () => {
     const runner = stubbedHelp().stubArgv(['claude', '--print'], {
       stdout: await envelope('success-structured-output.json'),
@@ -152,6 +169,16 @@ describe('the reviewer receives only runtime and model authentication', () => {
 
     // And the directory holding it is gone once the reviewer has answered.
     await assert.rejects(() => nodeFileSystem.readText(file));
+  });
+
+  it('carries USER, without which a keychain login reads as signed out', () => {
+    // Claude Code 2.1.283 on macOS: `claude auth status` under only PATH, HOME
+    // and TMPDIR said `"loggedIn": false`; adding USER alone made it true. Every
+    // reviewer this allowlist started printed "Not logged in" (2026-09-27).
+    const host = { PATH: '/usr/bin', HOME: '/Users/dev', USER: 'dev', GITLAB_TOKEN: 'secret' };
+    const resolved = resolveEnvironment(reviewerEnvironment(), host);
+    assert.equal(resolved.USER, 'dev');
+    assert.equal(resolved.GITLAB_TOKEN, undefined);
   });
 
   it('names no provider or ticket variable in its allowlist at all', () => {

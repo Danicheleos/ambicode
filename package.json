@@ -1,6 +1,6 @@
 {
   "name": "ambicode",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "private": true,
   "description": "AMBICODE Claude Code plugin helpers: scoped policy, evidence checks, independent review, human-selected publication.",
   "license": "UNLICENSED",
@@ -14,7 +14,9 @@
     "test:unit": "node --test --test-reporter=spec \"src/**/*.test.ts\" \"*.test.mjs\"",
     "validate:plugin": "node package-candidate.mjs --validate-plugin",
     "fixtures": "node fixtures/materialize.mjs",
-    "evals": "claude plugin eval . --runs 3 --ablation with-without --scaffold --allow-tools Bash --no-publish",
+    "evals": "npm run evals:preflight && EVAL_AMBICODE_REVIEWER_REPLAY=\"$PWD/fixtures/reviewer-recordings.json\" claude plugin eval . --runs 3 --ablation with-without -j 4 --scaffold --allow-tools Bash 'WebFetch(domain:api.anthropic.com)' --no-publish",
+    "evals:preflight": "node evals-preflight.mjs",
+    "evals:reviewer": "node evals-reviewer.mjs",
     "package:candidate": "node package-candidate.mjs",
     "package:reproducible": "node package-candidate.mjs --check-reproducible",
     "smoke:candidate": "node smoke-candidate.mjs",

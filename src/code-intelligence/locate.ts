@@ -262,7 +262,7 @@ function compactForm(term: string): string {
  * of `**\/*form*\/**` and then `**\/*form*`, including that a segment starting
  * with a dot anywhere in the path defeats both, but computed as substring
  * tests: `matchesGlob` compiles its pattern on every call. Measured on
- * inseer-frontend's 4,427 files and twelve spellings: 441 ms against 15 ms,
+ * a 4,427-file frontend repository and twelve spellings: 441 ms against 15 ms,
  * the same 520 hits, on every `locate` and `prepare`.
  * A literal spelling that holds `/` spans segments, and keeps the glob.
  */

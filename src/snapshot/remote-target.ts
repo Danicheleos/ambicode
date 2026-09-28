@@ -153,8 +153,8 @@ export async function resolveMergeRequestTarget(
 /**
  * Whose configuration judged this merge request. The checkout supplies the
  * policy packs and check commands, and nothing ties it to the merge request's
- * project: run a0e87d39 reviewed an inseer-api merge request from the
- * inseer-frontend checkout, and the frontend's prettier command selected nine
+ * project: run a0e87d39 reviewed a backend merge request from a frontend
+ * checkout, and the frontend's prettier command selected nine
  * backend files, while the report said only that the checkout was not read.
  */
 function configurationProvenance(

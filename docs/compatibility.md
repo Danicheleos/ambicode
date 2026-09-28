@@ -61,12 +61,16 @@ CLI) or `replacement` (the reviewer). There is no default, so a new call site
 cannot acquire the operator's whole environment by saying nothing.
 
 The reviewer's allowlist is in `REVIEWER_ENV_ALLOWLIST`: `PATH`, `HOME`,
-`TMPDIR`, `LANG`, `LC_ALL`, `TERM`, the `XDG_*` locations, TLS trust
+`USER`, `TMPDIR`, `CLAUDE_CODE_TMPDIR` (Claude Code's own temp base, which it reads
+instead of `TMPDIR`), `LANG`, `LC_ALL`, `TERM`, the `XDG_*` locations, TLS trust
 (`NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `SSL_CERT_DIR`), proxy settings, and
 model authentication only (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
 `ANTHROPIC_BASE_URL`, `CLAUDE_CODE_OAUTH_TOKEN`). `HOME` and the XDG locations
 stay because subscription/keychain authentication — the supported
-configuration here — reads them.
+configuration here — reads them. So does `USER`: on macOS, Claude Code
+2.1.283 with only `PATH`, `HOME` and `TMPDIR` reported `"loggedIn": false`
+from `claude auth status`, and `USER` alone restored the login. Without it
+every reviewer printed "Not logged in".
 
 Everything else is absent from the child process rather than merely unused:
 `GITLAB_TOKEN`, `GLAB_TOKEN`, GitHub, Jira, package-registry, database and

@@ -171,6 +171,15 @@ export const ReviewerRun = z.strictObject({
    * alone named `build.mjs:29` but not what the reviewer claimed there.
    */
   rejectedOutputRef: z.string().nullable().default(null),
+  /**
+   * Present only when the answer was replayed from a recording rather than
+   * produced by a model call in this run (`EVAL_AMBICODE_REVIEWER_REPLAY`).
+   * Absent otherwise, so an ordinary result is unchanged byte for byte. The
+   * `claude plugin eval` sandbox signs the nested reviewer out even with the
+   * full environment (probe, 2026-09-27), so evaluation replays; this field is
+   * what keeps a replay from reading as a review.
+   */
+  source: z.literal('replay').optional(),
 });
 export type ReviewerRun = z.infer<typeof ReviewerRun>;
 

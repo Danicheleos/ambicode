@@ -7,14 +7,14 @@ import { combineDiff, addressableLines, lineAt, parseHunks, splitPatchSections }
 import { parseRawZ, parseRemoteProject } from './git.ts';
 
 test('a remote URL reduces to host and project path in all three spellings, and never to its credentials', () => {
-  const expected = { host: 'gitlab.com', path: 'inseer/front/inseer-frontend' };
+  const expected = { host: 'gitlab.com', path: 'example-group/front/example-frontend' };
   for (const url of [
-    'https://gitlab.com/inseer/front/inseer-frontend.git',
-    'https://gitlab.com/inseer/front/inseer-frontend/',
-    'https://oauth2:glpat-SECRET@GitLab.com/inseer/front/inseer-frontend.git',
-    'ssh://git@gitlab.com:2222/inseer/front/inseer-frontend.git',
-    'git@gitlab.com:inseer/front/inseer-frontend.git',
-    'gitlab.com:inseer/front/inseer-frontend',
+    'https://gitlab.com/example-group/front/example-frontend.git',
+    'https://gitlab.com/example-group/front/example-frontend/',
+    'https://oauth2:glpat-SECRET@GitLab.com/example-group/front/example-frontend.git',
+    'ssh://git@gitlab.com:2222/example-group/front/example-frontend.git',
+    'git@gitlab.com:example-group/front/example-frontend.git',
+    'gitlab.com:example-group/front/example-frontend',
   ]) {
     const parsed = parseRemoteProject(url);
     assert.deepEqual(parsed, expected, url);

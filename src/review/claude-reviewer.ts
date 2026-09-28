@@ -96,7 +96,15 @@ export const REVIEWER_ENV_ALLOWLIST = [
   // Runtime.
   'PATH',
   'HOME',
+  // The keychain account a claude.ai login is stored under. Without it Claude
+  // Code 2.1.283 on macOS read that login as absent: every reviewer printed
+  // "Not logged in" (2026-09-27). A user name, not a secret.
+  'USER',
   'TMPDIR',
+  // Claude Code's temp base: it reads this, else a literal "/tmp", and never
+  // TMPDIR. Without it every reviewer in the `claude plugin eval` sandbox died
+  // on "EPERM: mkdir '/tmp/claude-502'" (E02, 2026-09-27). A path, not a secret.
+  'CLAUDE_CODE_TMPDIR',
   'LANG',
   'LC_ALL',
   'TERM',

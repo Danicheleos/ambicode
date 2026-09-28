@@ -1,7 +1,7 @@
 ---
 name: regression-ts
 description: Working-tree review and verification of a TypeScript source-only change.
-tags: ["regression", "typescript", "verification"]
+tags: ["regression", "typescript", "verification", "preflight"]
 runs: 3
 max_turns: 30
 timeout_seconds: 600

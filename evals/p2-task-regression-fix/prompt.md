@@ -1,7 +1,7 @@
 ---
 name: p2-task-regression-fix
 description: A source-only bug-fix task that must select and run an unchanged affected test.
-tags: ["p2", "task", "typescript", "verification"]
+tags: ["p2", "task", "typescript", "verification", "preflight"]
 runs: 3
 max_turns: 30
 timeout_seconds: 600
