@@ -1,7 +1,8 @@
 ---
 name: task
-description: "Make any code change in a repository with .ambicode/config.yaml, instead of editing files directly: a one-line addition, a bug fix, a helper beside existing code, or one iteration of an accepted /ambicode:plan. Makes the smallest coherent change, runs the affected checks, unchanged affected tests included, then offers the independent review. Use when the user asks to implement, add, fix, or build something, hands over a Jira/Confluence URL, or says to go ahead with or resume a plan. Never commits, pushes, opens a merge request, publishes a comment, merges, deploys, or transitions a ticket."
+description: "Make any code change instead of editing files directly — a one-line addition, a bug fix, a helper beside existing code, or one iteration of an accepted /ambicode:plan — with affected checks run and independent review offered; it never commits, pushes, or publishes. Use when the user asks to implement, add, fix, or build something, hands over a Jira/Confluence URL to implement, or says to go ahead with or resume a plan."
 argument-hint: <request-or-jira/confluence-url> [--requirement <url>]...
+allowed-tools: Read, Grep, Glob, Edit(**), Write(**), Bash(node *ambicode.mjs*), Bash(git status*), Bash(git diff*)
 ---
 
 # Implement a change

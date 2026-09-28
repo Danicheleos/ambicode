@@ -1,6 +1,7 @@
 ---
 name: review
-description: Run an AMBICODE review — of uncommitted work, of a branch, or of a GitLab merge request by URL. It pins the target, snapshots it, runs the affected lint and test checks, and puts the result to an independent reviewer that can only read the snapshot. Optionally judges the change against Jira or Confluence requirements. Use when the user asks to review their changes, check a branch before a merge request, review a merge request URL somebody sent them, verify a change against a ticket, or see which tests a change affects.
+description: "Run an AMBICODE review — of uncommitted work, of a branch, or of a GitLab merge request by URL — through the affected checks and an independent reviewer. Use when the user asks to review or check their changes, a branch, or a merge request URL, or to verify a change against a Jira/Confluence ticket."
+allowed-tools: Read, Grep, Glob, Bash(node *ambicode.mjs*)
 ---
 
 # Review the current change
@@ -37,7 +38,8 @@ through the packaged cross-platform entry point:
    `--approve <key>` for each they agree to, `--decline <key>` for each they
    refuse. Both repeat; one key answers one run, and an unanswered key stops
    the run again.
-5. If `ambicode` reports `config-missing`, use the `/ambicode:init` skill first.
+5. If `ambicode` reports `config-missing`, ask the user to run
+   `/ambicode:init` first (it is user-invoked only).
 
 `ambicode bundle` is the same work without the model: target, snapshot,
 requirements and checks only. It takes the same target options, including

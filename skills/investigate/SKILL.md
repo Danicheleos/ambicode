@@ -1,6 +1,7 @@
 ---
 name: investigate
-description: "Answer any question about the code in a repository that has .ambicode/config.yaml, with cited evidence, instead of reading the code directly — how something works, why it happens, which files a change would touch, whether behavior matches a Jira/Confluence requirement, what a change would cost. Use when the user asks such a question or hands over a Jira/Confluence URL to look into. It never edits source, configuration, or tests and never runs a diagnostic command without authorization; its only write is its own note under .ambicode/task/."
+description: "Answer a question about the code with cited evidence, instead of reading the code directly — how something works, why it happens, which files a change would touch, what it would cost — editing nothing. Use when the user asks such a question, or hands over a Jira/Confluence URL to look into — including a bare URL with no other instruction."
+allowed-tools: Read, Grep, Glob, Write(.ambicode/task/**), Bash(node *ambicode.mjs*)
 ---
 
 # Investigate a question

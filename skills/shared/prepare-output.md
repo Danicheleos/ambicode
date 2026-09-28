@@ -71,8 +71,8 @@ debugging. It is not the shape to read routinely.
 - `ambiguous-project` means this repository configures more than one project
   and the request identifies none of them. Ask which project, or narrow the
   paths. Never pick the first configured one.
-- `config-missing` means the repository has no `.ambicode/config.yaml`; use
-  `/ambicode:init` first.
+- `config-missing` means the repository has no `.ambicode/config.yaml`; ask
+  the user to run `/ambicode:init`.
 - `preparation-blocked` means applicable content could not be delivered. It
   is a stop, not a warning: a policy that looks complete while quietly
   missing something applicable is worse than no policy.

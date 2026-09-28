@@ -1,7 +1,8 @@
 ---
 name: plan
-description: "Turn a request or a Jira/Confluence URL into a reviewed implementation roadmap — cited requirements, confirmed repository facts, material design alternatives with a recommendation, ordered iterations, and acceptance criteria — that a human explicitly accepts before /ambicode:task implements it. Use when the user asks for a plan, a roadmap, an implementation approach, wants to think through a feature or change before coding it, or hands over a Jira/Confluence URL to plan from. Never implements and never invokes the independent reviewer: there is no diff yet."
+description: "Turn a request into an implementation roadmap a human accepts before /ambicode:task implements it; it never implements. Use when the user asks for a plan, a roadmap, or an implementation approach — for a described change or a Jira/Confluence URL — or wants to think through a feature or change before coding it."
 argument-hint: <request-or-jira/confluence-url> [--requirement <url>]...
+allowed-tools: Read, Grep, Glob, Write(.ambicode/task/**), Bash(node *ambicode.mjs*)
 ---
 
 # Plan a change

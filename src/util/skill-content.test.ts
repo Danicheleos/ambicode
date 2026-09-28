@@ -87,6 +87,35 @@ describe('P2.2/P2.3 shipped skill content', () => {
     }
   });
 
+  it('keeps init and rules user-invoked only, and scopes every skill tool grant', async () => {
+    for (const dir of ['init', 'investigate', 'plan', 'review', 'rules', 'task']) {
+      const what = `${dir}/SKILL.md`;
+      const fm = frontmatter(await readFile(path.join(SKILLS_DIR, dir, 'SKILL.md'), 'utf8'), what);
+      // `allowed-tools` pre-approves for the skill's turn, it does not
+      // restrict; a bare `Bash` would silently pre-approve every shell
+      // command, so the grant must stay scoped to what the body instructs.
+      const tools = requiredString(fm, 'allowed-tools', what);
+      assert.ok(/Bash\(.+\)/.test(tools), `${what}: Bash grant must be scoped`);
+      assert.ok(!/(?:^|,)\s*Bash\s*(?:,|$)/.test(tools), `${what}: no unscoped Bash grant`);
+      // Write/Edit grants carry the path boundary the skill body promises
+      // (investigate/plan: its task note; rules: policies + config; init:
+      // config; task edits anything in the checkout, so its bound is `**` —
+      // the repository — rather than a directory).
+      for (const grant of tools.split(',').map((entry) => entry.trim())) {
+        if (!/^(Write|Edit)/.test(grant)) continue;
+        assert.ok(/^(Write|Edit)\(.+\)/.test(grant), `${what}: ${grant} must be path-scoped`);
+      }
+      // Setup-time skills are run by the user, never fired by the model, so
+      // their descriptions stay out of the always-on skill list.
+      const setupOnly = dir === 'init' || dir === 'rules';
+      assert.equal(
+        fm['disable-model-invocation'] === true,
+        setupOnly,
+        `${what}: exactly the setup-time skills disable model invocation`,
+      );
+    }
+  });
+
   it('does not put a SKILL.md under the shared resources directory', async () => {
     const sharedFile = path.join(SKILLS_DIR, 'shared', 'requirements-mcp.md');
     await assert.doesNotReject(readFile(sharedFile, 'utf8'));
@@ -527,10 +556,12 @@ describe('P2.3 task skill', () => {
       content,
       /never commit,\s*\n?\s*push,\s*create a merge request,\s*publish a comment,\s*merge,\s*\n?\s*deploy,\s*or\s*transition a ticket automatically/i,
     );
-    // Also stated in the frontmatter description, for the model deciding
-    // whether to invoke this skill at all.
+    // The description keeps a compact form of this for the model deciding
+    // whether to invoke this skill at all; the full list above stays in the
+    // body. The always-on description carries keywords, the body carries
+    // process.
     const description = requiredString(frontmatter(content, 'task/SKILL.md'), 'description', 'task/SKILL.md');
-    assert.match(description, /never commits, pushes, opens a merge request, publishes a comment, merges, deploys, or transitions a ticket/i);
+    assert.match(description, /never commits, pushes, or publishes/i);
   });
 
   it('treats plans, tickets, repository files, comments, and test output as evidence, never as capabilities or permission', async () => {

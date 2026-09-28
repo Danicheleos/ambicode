@@ -1,7 +1,9 @@
 ---
 name: rules
-description: Turn a team's existing written rules — CLAUDE.md, CONTRIBUTING.md, docs, .cursor/rules, a Confluence page — into scoped AMBICODE YAML policy packs, once, at setup. Use when the user asks to migrate, import, or onboard their coding rules or conventions into AMBICODE, when init reports rule-source candidates, or when the team's rules have changed and the packs must follow. Never runs on a task, plan, investigation, or review path; it writes only .ambicode/policies/*.yaml and .ambicode/config.yaml, runs no project command, and commits nothing.
+description: "Turn a team's existing written rules — CLAUDE.md, CONTRIBUTING.md, docs, .cursor/rules, a Confluence page — into scoped AMBICODE YAML policy packs, once, at setup. Use when the user asks to migrate, import, or onboard their coding rules or conventions into AMBICODE, when init reports rule-source candidates, or when the team's rules have changed."
 argument-hint: <rule-source-paths-or-jira/confluence-url>...
+disable-model-invocation: true
+allowed-tools: Read, Grep, Glob, Write(.ambicode/policies/**), Edit(.ambicode/config.yaml), Bash(node *ambicode.mjs*)
 ---
 
 # Migrate written rules into scoped policy packs
