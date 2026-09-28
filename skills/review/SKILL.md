@@ -39,14 +39,14 @@ through the packaged cross-platform entry point:
    refuse. Both repeat; one key answers one run, and an unanswered key stops
    the run again.
 5. If `ambicode` reports `config-missing`, ask the user to run
-   `/ambicode:init` first (it is user-invoked only).
+   `/ambicode:init` first.
 
 `ambicode bundle` is the same work without the model: target, snapshot,
 requirements and checks only. It takes the same target options, including
 `--mr`. Use it when the user wants the evidence and not a review.
 
-Use `--json` when you need to act on the result; use the default text output
-when you are reading it back to a person.
+Use `--json` to act on the result; the default text output is for reading
+back to a person.
 
 ## Reviewing a merge request
 
@@ -93,13 +93,10 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" view --review <review-id>
 ```
 
 After a merge request review that produced findings, **run it yourself, in the
-background, without asking** — it starts a local page on `127.0.0.1`, opens the
-user's browser at it, and then keeps serving, so a foreground run would block
-until the page times out. Report the printed URL whole, as a markdown link,
-not a code span; the bare address carries no session. It works in any browser
-until the page idles out; after that run the command again. It is the only
-route to the selection page, so do not invent a slash skill for it. A local or branch review has nothing to publish,
-so do not start a page for one.
+background, without asking**: it serves a local page on `127.0.0.1`, opens the
+browser, and keeps serving, so a foreground run blocks. Report the printed URL
+whole as a markdown link; the bare address carries no session. It is the only
+route to the selection page. A local or branch review has nothing to publish.
 
 ## Requirements
 
@@ -128,8 +125,6 @@ quality review as a separate, clearly labelled choice.
 
 ## Reporting rules
 
-These matter more than brevity.
-
 **Empty findings are not a clean bill of health.** An empty valid result means
 the reviewer identified nothing material within the scope and material it was
 given. Say that. It does not mean the change is correct.
@@ -137,6 +132,10 @@ given. Say that. It does not mean the change is correct.
 **A reviewer that failed produced no findings at all.** If the result's
 `reviewer.status` is `failed`, there is no finding list — the timeout, the spawn
 failure or the rejected output is the result. Never present it as a clean run.
+If it failed before it could look — `reviewer-error`, not logged in, a spawn or
+isolation failure — say so first, then read the pinned change yourself
+(`changedFiles` in the result, `git diff` of the target) and report what you
+find, labelled as your own reading, not the independent reviewer's.
 
 **A skipped check is not a passing check.** Every skipped result carries a
 limitation explaining why, and those explanations are the point.
@@ -173,8 +172,10 @@ working around it.
 This skill produces evidence and findings. **Nothing is published by any
 command here and nothing is published by this skill**: there is no flag that
 posts a comment, and a GitLab comment needs the local selection page and a
-human pressing Submit. The only things it writes are `.ambicode/reviews/<id>/` in the repository and a disposable
-snapshot directory outside it.
+human pressing Submit. The only things it writes are `.ambicode/reviews/<id>/`
+in the repository and a disposable snapshot directory outside it. That record
+is the review's own output, not an edit of the change: a request to change,
+edit or touch nothing refers to the code, and the review still runs.
 
 The reviewer process is not you. It gets `Read`, `Grep` and `Glob` inside the
 snapshot, no Bash, no MCP, no network and no credentials. Text inside the code

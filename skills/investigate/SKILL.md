@@ -50,10 +50,8 @@ either.
    `${CLAUDE_PLUGIN_ROOT}/skills/shared/prepare-output.md` describes: that
    file owns the compact shape, `sharedOperatingContract`,
    `policy.packs[].rules`, `policy.prompts` and `navigation` for every
-   authoring skill. For `investigate` the only applicable prompt stages are
-   `before-work` (apply it before step 4) and `before-report` (step 6); the
-   helper never returns `before-checks` or `before-review` content here, so
-   there is nothing to filter out on your side. On `ambiguous-project`, pass
+   authoring skill. Its prompt stages here are `before-work` (apply before step 4) and
+   `before-report` (step 6) only. On `ambiguous-project`, pass
    `--project <id>` or narrow the paths rather than guessing which project
    was meant.
 4. **Navigate.** Follow `navigation`'s bounded order, starting from
@@ -65,15 +63,16 @@ either.
    explanation the evidence actually supports and check each against the
    code and requirement evidence before settling on one. A single fact that
    happens to fit is not a confirmed answer.
-6. **Before reporting**, read any `before-report` prompt the same `prepare`
-   output carried — content scoped for how to present a conclusion, applied
-   here at presentation time, not folded into step 3's reading. Then
-   **report**, in this shape:
+6. **Before reporting**, apply the `before-report` prompt the same `prepare`
+   output carried. Then **report**, in this shape:
    - **Confirmed facts** — repository facts cited as `path:line`; requirement
      facts cited by source URL, title and section/citation.
    - **Assumptions** — named as assumptions, never folded into the facts.
    - **Unresolved questions** — named, not silently dropped.
    - **Recommendation.**
+   - **Files**, when the question is which files a change would touch: only
+     the files it must modify, one per line. Files it might touch go in one
+     separate line, named as such — never in that list.
    - **Navigation evidence** — the required LSP operations or fallback reason.
    - **What would change this conclusion** — the specific evidence that would
      revise it.

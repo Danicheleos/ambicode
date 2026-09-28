@@ -8,7 +8,7 @@ import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
-import { BENCH_EVAL_DIR, CURATED_EVAL_DIR, SELECT, changedLines, codeRoot, generate, harvestDir, harvestTraces, harvestedOfResult, localizeHardness, namedFiles, parseTicket, reviewSubstance, runArgs, score, scoreAnswer } from './evals-bench.mjs';
+import { BENCH_EVAL_DIR, CURATED_EVAL_DIR, SELECT, changedLines, codeRoot, generate, harvestDir, harvestTraces, harvestedOfResult, localizeHardness, namedFiles, parseTicket, reviewSubstance, REVIEWER_RECORDINGS, REVIEWER_REPLAY_VARIABLE, runArgs, runEnv, score, scoreAnswer } from './evals-bench.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 
@@ -305,6 +305,20 @@ describe('evals-bench: running', () => {
     assert.throws(() => runArgs(['--publish-report']), /NDA/);
     assert.throws(() => runArgs(['--eval-dir', 'evals']), /fixed/);
     assert.throws(() => runArgs([], { set: 'both' }), /curated or full/);
+  });
+
+  it('replays recorded reviewer answers only when a recordings file exists, and never overrides the caller', () => {
+    const benchmarks = mkdtempSync(path.join(tmpdir(), 'bench-env-'));
+    try {
+      assert.equal(runEnv({ PATH: 'p' }, { benchmarks })[REVIEWER_REPLAY_VARIABLE], undefined, 'no recordings: the variable is absent, not empty');
+      const recordings = path.join(benchmarks, REVIEWER_RECORDINGS);
+      writeFileSync(recordings, '{"schemaVersion":1,"recordings":[]}\n');
+      assert.equal(runEnv({ PATH: 'p' }, { benchmarks })[REVIEWER_REPLAY_VARIABLE], recordings);
+      assert.equal(runEnv({ PATH: 'p', [REVIEWER_REPLAY_VARIABLE]: '/elsewhere.json' }, { benchmarks })[REVIEWER_REPLAY_VARIABLE], '/elsewhere.json');
+      assert.equal(runEnv({ PATH: 'p' }, { benchmarks }).PATH, 'p');
+    } finally {
+      rmSync(benchmarks, { recursive: true, force: true });
+    }
   });
 
   it('keeps the result JSON inside the excluded directories', () => {

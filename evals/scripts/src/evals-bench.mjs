@@ -600,6 +600,20 @@ export function runArgs(extra = [], { now = new Date(), benchmarks = BENCHMARKS,
   return ['plugin', 'eval', ROOT, '--eval-dir', evalDir, '--scaffold', '--allow-tools', 'Bash', '--no-publish', ...json, ...extra];
 }
 
+export const REVIEWER_REPLAY_VARIABLE = 'EVAL_AMBICODE_REVIEWER_REPLAY';
+export const REVIEWER_RECORDINGS = 'reviewer-recordings.json';
+
+/**
+ * The sandbox passes EVAL_* variables through, and the reviewer in it cannot sign in, so
+ * a recording made by `evals-record-core.mjs` is the only way the with arm's `ambicode
+ * review` answers. A caller's own variable wins; without a recordings file none is set.
+ */
+export function runEnv(base, { benchmarks = BENCHMARKS } = {}) {
+  const recordings = path.join(benchmarks, REVIEWER_RECORDINGS);
+  if (base[REVIEWER_REPLAY_VARIABLE] || !existsSync(recordings)) return { ...base };
+  return { ...base, [REVIEWER_REPLAY_VARIABLE]: recordings };
+}
+
 export function harvestDir(argv) {
   const i = argv.indexOf('--json');
   if (i < 0 || !argv[i + 1]) throw new Error('no --json in the run arguments: nowhere safe to put traces');
@@ -698,7 +712,10 @@ async function main(argv) {
     if (!existsSync(cases)) throw new Error(`no generated cases at ${cases}: run \`npm run evals:${set === 'full' ? 'generate' : 'select'}\` first`);
     const args = runArgs(positional, { benchmarks, set });
     const tracesDir = harvestDir(args);
-    const child = spawn('claude', args, { stdio: 'inherit' });
+    const env = runEnv(process.env, { benchmarks });
+    if (env[REVIEWER_REPLAY_VARIABLE]) console.log(`reviewer replay: ${env[REVIEWER_REPLAY_VARIABLE]}`);
+    else console.log('reviewer replay: none (no recordings; the sandbox reviewer cannot sign in, so every `ambicode review` fails there)');
+    const child = spawn('claude', args, { stdio: 'inherit', env });
     // A harvest failure is reported, never fatal to a paid sweep. Each distinct cause is printed once:
     // a pass every 2 s would flood the output, but a cause that changes mid-sweep must not hide.
     const harvestErrors = new Set();

@@ -171,6 +171,26 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.match(investigate, /in addition to the answer, never instead of it/i);
   });
 
+  it('answers a which-files question with must-touch files only, and keeps may-touch files out of that list', async () => {
+    const investigate = (await readFile(path.join(SKILLS_DIR, 'investigate', 'SKILL.md'), 'utf8')).replace(/\s+/g, ' ');
+    assert.match(investigate, /\*\*Files\*\*, when the question is which files a change would touch: only the files it must modify/i);
+    assert.match(investigate, /Files it might touch go in one separate line, named as such — never in that list/i);
+  });
+
+  it('review runs when asked to edit nothing, and reviews the pinned change itself, labelled, when the reviewer cannot start', async () => {
+    // Observed 15/16 armed eval runs: the agent read ".ambicode/reviews/<id>/" as an edit and
+    // refused the pipeline under a "do not edit anything" prompt.
+    const review = (await readFile(path.join(SKILLS_DIR, 'review', 'SKILL.md'), 'utf8')).replace(/\s+/g, ' ');
+    assert.match(review, /That record is the review's own output, not an edit of the change/i);
+    assert.match(review, /a request to change, edit or touch nothing refers to the code, and the review still runs/i);
+    assert.match(review, /If it failed before it could look — `reviewer-error`, not logged in, a spawn or isolation failure — say so first/i);
+    assert.match(review, /labelled as your own reading, not the independent reviewer's/i);
+    const outcomes = (await readFile(path.join(SKILLS_DIR, 'review', 'references', 'outcomes.md'), 'utf8')).replace(/\s+/g, ' ');
+    assert.match(outcomes, /When every named file is a locale bundle, a lockfile or build output/i);
+    assert.match(outcomes, /re-run at once with `--exclude <glob>` for them/i);
+    assert.match(outcomes, /When a named file is source, ask once before excluding it/i);
+  });
+
   it('tells plan, task and investigate to pass the terms prepare needs for a shortlist (R4)', async () => {
     for (const name of ['plan', 'task', 'investigate']) {
       const content = await readFile(path.join(SKILLS_DIR, name, 'SKILL.md'), 'utf8');
