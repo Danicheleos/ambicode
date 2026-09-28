@@ -22,13 +22,13 @@ import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DEFAULTS } from './src/config/defaults.ts';
-import { systemClock } from './src/ports/clock.ts';
-import { nodeFileSystem } from './src/ports/filesystem.ts';
-import { NodeProcessRunner } from './src/ports/node-process-runner.ts';
-import { ClaudeReviewer } from './src/review/claude-reviewer.ts';
+import { DEFAULTS } from '../../../src/config/defaults.ts';
+import { systemClock } from '../../../src/ports/clock.ts';
+import { nodeFileSystem } from '../../../src/ports/filesystem.ts';
+import { NodeProcessRunner } from '../../../src/ports/node-process-runner.ts';
+import { ClaudeReviewer } from '../../../src/review/claude-reviewer.ts';
 
-const ROOT = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const EVALS = path.join(ROOT, 'evals', 'evals-archived', 'typescript');
 const AMBICODE = path.join(ROOT, 'scripts', 'ambicode.mjs');
 const ARMS = ['ambicode', 'plain'];

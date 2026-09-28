@@ -15,7 +15,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ROOT = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 
 // The suite this gates, archived 2026-09-28 when `evals/` moved to the
 // benchmark set. Relative to the plugin root, as `--eval-dir` takes it.

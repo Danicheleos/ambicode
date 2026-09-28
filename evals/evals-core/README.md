@@ -6,7 +6,8 @@ The previous suite (13 synthetic TypeScript cases) is archived in
 `../evals-archived/typescript/` and still runs with `npm run evals:archived`;
 the trigger-boundary suite is `../evals-triggers/`.
 
-The suite that runs by default is **curated**: `evals-bench.mjs select` picks
+The suite that runs by default is **curated**: `evals-bench.mjs select`
+(`evals/scripts/src/`, like every eval harness script) picks
 the strongest, most provable cases per side (5 localize + 4 review; 18 in the
 2026-09-28 data) into `cases/` here, by measurable criteria only (`SELECT` in
 `evals-bench.mjs`):

@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 import { ARCHIVED_EVAL_DIR, PREFLIGHT, PREFLIGHT_MAX_COST_USD, RECORDINGS, judge, preflightArgs } from './evals-preflight.mjs';
 
-const ROOT = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const EVALS = path.join(ROOT, ARCHIVED_EVAL_DIR);
 
 /** A result in which every grader either case carries passed, except those named. */

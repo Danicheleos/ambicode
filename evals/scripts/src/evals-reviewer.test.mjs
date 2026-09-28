@@ -11,9 +11,10 @@ import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { blindSheet } from './evals-reviewer.mjs';
-import { REQUIRED_FLAGS } from './src/review/claude-reviewer.ts';
+import { REQUIRED_FLAGS } from '../../../src/review/claude-reviewer.ts';
 
-const ROOT = path.dirname(fileURLToPath(import.meta.url));
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.resolve(HERE, '../../..');
 
 const STUB = `#!/usr/bin/env node
 const fs = require('fs');
@@ -101,7 +102,7 @@ describe('evals-reviewer: the reviewer-quality harness', () => {
     await writeFile(path.join(stub, 'calls.jsonl'), '');
     await writeFile(scaffoldLog, '');
     const out = path.join(scratch, name);
-    execFileSync(process.execPath, [path.join(ROOT, 'evals-reviewer.mjs'), '--evals', evals, '--out', out, '--runs', String(runs), '--seed', '7'], {
+    execFileSync(process.execPath, [path.join(HERE, 'evals-reviewer.mjs'), '--evals', evals, '--out', out, '--runs', String(runs), '--seed', '7'], {
       env: { ...process.env, PATH: `${stub}${path.delimiter}${process.env.PATH}` },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -189,7 +190,7 @@ describe('evals-reviewer: the reviewer-quality harness', () => {
     before(async () => {
       await harness('to-record', { ambicode: 'finding', plain: 'empty' }, 2);
       out = path.join(scratch, 'to-record');
-      execFileSync(process.execPath, [path.join(ROOT, 'evals-reviewer.mjs'), 'record', out, '--evals', evals], {
+      execFileSync(process.execPath, [path.join(HERE, 'evals-reviewer.mjs'), 'record', out, '--evals', evals], {
         env: stubbed(),
         stdio: ['ignore', 'pipe', 'pipe'],
       });
@@ -236,7 +237,7 @@ describe('evals-reviewer: the reviewer-quality harness', () => {
       const raw = JSON.parse(await readFile(path.join(out, 'raw', 'demo-ts-ambicode-1.json'), 'utf8'));
       raw.stdout.result.inputs.changedLines += 1;
       await writeFile(path.join(drifted, 'raw', 'demo-ts-ambicode-1.json'), JSON.stringify(raw));
-      const child = spawnSync(process.execPath, [path.join(ROOT, 'evals-reviewer.mjs'), 'record', drifted, '--evals', evals], {
+      const child = spawnSync(process.execPath, [path.join(HERE, 'evals-reviewer.mjs'), 'record', drifted, '--evals', evals], {
         env: stubbed(),
         encoding: 'utf8',
       });

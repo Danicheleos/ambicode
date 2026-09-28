@@ -34,17 +34,17 @@
 // result in the 2026-09-28 sweep, up to 5,082 characters).
 //
 // usage:
-//   node evals-bench.mjs generate [--benchmarks <dir>]
-//   node evals-bench.mjs select [--localize <n>] [--review <n>] [--benchmarks <dir>]
-//   node evals-bench.mjs run [--set curated|full] [claude plugin eval options...]
-//   node evals-bench.mjs score <eval-results.json> [--benchmarks <dir>]
+//   node evals/scripts/src/evals-bench.mjs generate [--benchmarks <dir>]
+//   node evals/scripts/src/evals-bench.mjs select [--localize <n>] [--review <n>] [--benchmarks <dir>]
+//   node evals/scripts/src/evals-bench.mjs run [--set curated|full] [claude plugin eval options...]
+//   node evals/scripts/src/evals-bench.mjs score <eval-results.json> [--benchmarks <dir>]
 import { spawn } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ROOT = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 export const BENCHMARKS = path.join(ROOT, 'benchmarks');
 export const CASES_DIRECTORY = 'cases';
 /** Relative to the plugin root, as `--eval-dir` takes it. */
@@ -819,7 +819,7 @@ async function main(argv) {
     const set = option('--set') ?? 'curated';
     const positional = rest.filter((_, i) => !taken.has(i));
     const cases = set === 'full' ? path.join(benchmarks, CASES_DIRECTORY) : CURATED_CASES;
-    if (!existsSync(cases)) throw new Error(`no generated cases at ${cases}: run \`node evals-bench.mjs ${set === 'full' ? 'generate' : 'select'}\` first`);
+    if (!existsSync(cases)) throw new Error(`no generated cases at ${cases}: run \`npm run evals:${set === 'full' ? 'generate' : 'select'}\` first`);
     const args = runArgs(positional, { benchmarks, set });
     const tracesDir = harvestDir(args);
     const child = spawn('claude', args, { stdio: 'inherit' });
