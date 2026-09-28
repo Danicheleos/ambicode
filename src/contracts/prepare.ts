@@ -152,8 +152,12 @@ export const PrepareOutput = z.strictObject({
   requirements: z.array(RequirementSource),
   provenance: z.array(ProvenanceEntry),
   notices: z.array(z.string()),
-  policy: PreparePolicy,
+  // `navigation` before `policy` in both shapes (I5): a truncated read loses
+  // the tail, and the navigation block is what agents were losing (evidence in
+  // json-output.ts's `JsonFormat` note). Zod's parse re-emits keys in shape
+  // order, so this declaration is what fixes the printed order.
   navigation: PrepareNavigation,
+  policy: PreparePolicy,
   sharedOperatingContract: PrepareSharedContract,
   contextBudget: PrepareContextBudget,
 });
@@ -274,8 +278,9 @@ export const PrepareCompactOutput = z.strictObject({
   requirementMode: RequirementMode,
   requirements: z.array(RequirementSource).min(1).optional(),
   notices: z.array(z.string()).min(1).optional(),
-  policy: PrepareCompactPolicy,
+  // Same order as the verbose shape, for the same truncation evidence.
   navigation: PrepareCompactNavigation,
+  policy: PrepareCompactPolicy,
   sharedOperatingContract: PrepareCompactSharedContract,
   provenance: z.array(ProvenanceEntry),
   contextBudget: PrepareContextBudget,

@@ -336,7 +336,7 @@ describe('G/H: ambicode hook (PostToolUse edit reminders)', () => {
         runtime,
         parseArgs('prepare', ['--activity', 'task'], PREPARE_OPTIONS),
       );
-      assert.equal(prepared.json, 'compact');
+      assert.equal(prepared.shape, 'compact', 'prepare must emit the compact projection by default');
       assert.equal(
         (prepared.data as { sharedOperatingContract: { content?: string } }).sharedOperatingContract.content,
         undefined,

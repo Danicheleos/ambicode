@@ -8,7 +8,7 @@ result is identical.
 Always pass `--json`. The default text output is a human-readable overview,
 not this contract.
 
-## The default output is compact
+## The default output is compact — and bounded. Read it whole.
 
 `prepare` emits a compact projection, because a small change has to stay
 cheap. It carries every applicable pack, rule, prompt and command decision in
@@ -16,6 +16,12 @@ full; what it leaves out is framing. Two things you reconstruct:
 
 - a rule's **qualified id** is `` `<pack.id>/<rule.id>` ``;
 - a rule's **authority** is the `authority` of the pack it sits under.
+
+The payload is bounded: `contextBudget` self-reports its bytes, and the
+command fails rather than emit past the configured limit. **Read it whole —
+never truncate it** (`head -c`, a byte cap): every field is applicable, and
+truncation is how the navigation block gets lost. Run it once per activity;
+`navigation` arrives before the longer `policy`.
 
 `--verbose` emits the same policy with every field spelled out, for
 debugging. It is not the shape to read routinely.

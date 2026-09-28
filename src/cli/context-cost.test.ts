@@ -32,20 +32,23 @@ const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 /**
  * The compact `prepare --json` payload for the fixture below: the two
  * built-in packs plus a project pack of six rules and one `before-work`
- * prompt, 21 rules in all. It emitted 8,869 bytes when this was written; on
- * this repository's own policy (15 rules, no project pack) the same shape is
- * 6,942, down from 15,915.
+ * prompt, 21 rules in all. It emitted 8,869 bytes one-line when this was
+ * written; I5 moved the default emission to 2-space pretty (rationale in
+ * json-output.ts's `JsonFormat` note), which re-measured this fixture at
+ * 11,585 bytes — a deliberate +2,716 for indentation, ceiling raised to
+ * match.
  */
-const MAX_COMPACT_PREPARE_BYTES = 9_300;
+const MAX_COMPACT_PREPARE_BYTES = 12_100;
 
 /**
  * The same payload with R4's boundary shortlist on it. The shortlist is paths
  * and reasons only — never file contents — and it is bounded by
  * `PREPARE_SHORTLIST_LIMIT`, so what it can add to a call is bounded too.
- * This ceiling is that bound made visible: it emitted 9,335 bytes for the
- * fixture below when this was written.
+ * This ceiling is that bound made visible: 9,335 bytes one-line when written,
+ * 12,422 after I5's pretty emission (same deliberate indentation raise as
+ * above).
  */
-const MAX_COMPACT_PREPARE_WITH_SHORTLIST_BYTES = 10_400;
+const MAX_COMPACT_PREPARE_WITH_SHORTLIST_BYTES = 13_000;
 
 /**
  * Per-skill `SKILL.md` ceilings. `task` is the one R2 set a number for; the
@@ -79,7 +82,10 @@ const MAX_SKILL_BYTES: Record<string, number> = {
   // its ceiling is about staying disciplined rather than about per-call cost.
   'rules/SKILL.md': 10_000,
   'shared/requirements-mcp.md': 5_600,
-  'shared/prepare-output.md': 5_100,
+  // Raised 5,100 -> 5,550 by I5, deliberately: the file gained the bounded-
+  // size / read-whole / navigation-first paragraph (384 bytes, 5,079 -> 5,463)
+  // that the pretty-emission change depends on agents actually reading.
+  'shared/prepare-output.md': 5_550,
 };
 
 const PACK_A = [
@@ -147,10 +153,13 @@ describe('R2 per-call context cost', () => {
         `compact prepare payload is ${Buffer.byteLength(emitted, 'utf8')} bytes, over the ${MAX_COMPACT_PREPARE_BYTES}-byte ceiling. ` +
           'Cutting rules is not the fix: cut framing, or raise the ceiling deliberately and say why.',
       );
-      // Cheaper than the shape it replaces, by a margin worth having.
+      // Cheaper than the shape it replaces, by a margin worth having. The
+      // margin was "< half" while the default also serialized one-line; I5
+      // made both shapes pretty, so this now measures the projection alone:
+      // 11,585 vs 20,244 bytes on this fixture (ratio 0.572).
       assert.ok(
         Buffer.byteLength(emitted, 'utf8') <
-          Buffer.byteLength(formatJsonOutput(verbose.data, verbose.json), 'utf8') / 2,
+          Buffer.byteLength(formatJsonOutput(verbose.data, verbose.json), 'utf8') * 0.65,
       );
 
       // Not one rule, instruction, or explanation was dropped to get there.

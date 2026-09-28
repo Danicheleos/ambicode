@@ -29,7 +29,7 @@ function parseArgs(command: string, argv: readonly string[], spec: OptionSpec): 
 
 async function runPrepare(runtime: Runtime, args: ParsedArgs): Promise<PrepareOutput> {
   const run = await runPrepareCommand(runtime, args);
-  assert.equal(run.json, 'pretty', 'this file exercises the verbose shape');
+  assert.equal(run.shape, 'verbose', 'this file exercises the verbose shape');
   return run.data as PrepareOutput;
 }
 
@@ -1287,6 +1287,64 @@ describe('P2.4 correction A4: shared operating contract delivered through prepar
         hashes.add(output.sharedOperatingContract.contentHash);
       }
       assert.equal(hashes.size, 1, 'every activity must receive the identical canonical content');
+    } finally {
+      await repo.dispose();
+    }
+  });
+});
+
+/**
+ * I5 output reshape (rationale in json-output.ts's `JsonFormat` note): the
+ * default emission is 2-space pretty with `navigation` ahead of `policy`,
+ * and the self-reported budget must measure those exact pretty bytes.
+ */
+describe('prepare output shape (I5)', () => {
+  it('emits the default projection pretty-printed, navigation before policy, with measuredBytes matching those bytes', async () => {
+    const repo = await TempRepo.create();
+    try {
+      await repo.write('src/app.ts', 'export const a = 1;\n');
+      await repo.commitAll('initial');
+      const runtime = await createRuntime({ cwd: repo.root });
+      await runInit(runtime, parseArgs('init', [], INIT_OPTIONS));
+
+      const run = await runPrepareCommand(
+        runtime,
+        parseCliArgs('prepare', ['--activity', 'task'], PREPARE_OPTIONS),
+      );
+      assert.equal(run.shape, 'compact', 'the default is still the compact projection');
+      assert.equal(run.json, 'pretty', 'the default projection serializes pretty, not one-line');
+
+      const emitted = formatJsonOutput(run.data, run.json);
+      assert.ok(emitted.startsWith('{\n  "command"'), 'the payload is 2-space indented across lines');
+      assert.equal(Buffer.byteLength(emitted, 'utf8'), run.data.contextBudget.measuredBytes);
+
+      const keys = Object.keys(JSON.parse(emitted) as Record<string, unknown>);
+      assert.ok(
+        keys.indexOf('navigation') !== -1 && keys.indexOf('navigation') < keys.indexOf('policy'),
+        `navigation must precede policy; got ${keys.join(', ')}`,
+      );
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it('orders navigation before policy in the verbose shape too', async () => {
+    const repo = await TempRepo.create();
+    try {
+      await repo.write('src/app.ts', 'export const a = 1;\n');
+      await repo.commitAll('initial');
+      const runtime = await createRuntime({ cwd: repo.root });
+      await runInit(runtime, parseArgs('init', [], INIT_OPTIONS));
+
+      const run = await runPrepareCommand(
+        runtime,
+        parseCliArgs('prepare', ['--activity', 'task', '--verbose'], PREPARE_OPTIONS),
+      );
+      const keys = Object.keys(JSON.parse(formatJsonOutput(run.data, run.json)) as Record<string, unknown>);
+      assert.ok(
+        keys.indexOf('navigation') !== -1 && keys.indexOf('navigation') < keys.indexOf('policy'),
+        `navigation must precede policy; got ${keys.join(', ')}`,
+      );
     } finally {
       await repo.dispose();
     }

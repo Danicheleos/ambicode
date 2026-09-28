@@ -54,8 +54,19 @@ export interface PrepareRun {
   data: PrepareOutput | PrepareCompactOutput;
   /** Everything resolved, for the human text summary. */
   detail: PrepareDetail;
-  /** How `--json` serializes `data`. */
+  /**
+   * How `--json` serializes `data`. Always `'pretty'` since I5 — it stays a
+   * field, not a default at the print site, because `contextBudget
+   * .measuredBytes` is computed against exactly this format and main.ts must
+   * print with the same one; this is the thread that keeps them agreeing.
+   */
   json: JsonFormat;
+  /**
+   * Which projection `data` is. Both serialize pretty since I5, so `json`
+   * no longer discriminates the union; this does, without duck-typing
+   * `policy.rules`.
+   */
+  shape: 'compact' | 'verbose';
 }
 
 /**
@@ -169,17 +180,20 @@ export async function runPrepare(runtime: Runtime, args: ParsedArgs): Promise<Pr
       limitBytes,
       detail,
     );
-    return { data, detail, json: 'pretty' };
+    return { data, detail, json: 'pretty', shape: 'verbose' };
   }
 
+  // The compact *projection*, serialized pretty since I5 — the truncation
+  // evidence and byte cost live in json-output.ts's `JsonFormat` note, the
+  // raised ceiling in context-cost.test.ts.
   const compact = toCompactOutput(detail, { includeContractContent: args.flag('with-contract') });
   const data = measureAgainstOwnBytes(
     (contextBudget) => PrepareCompactOutputSchema.parse({ ...compact, contextBudget }),
-    'compact',
+    'pretty',
     limitBytes,
     detail,
   );
-  return { data, detail, json: 'compact' };
+  return { data, detail, json: 'pretty', shape: 'compact' };
 }
 
 /**
@@ -283,18 +297,18 @@ export function toCompactOutput(
     requirementMode: detail.requirementMode,
     ...(detail.requirements.length === 0 ? {} : { requirements: detail.requirements }),
     ...(detail.notices.length === 0 ? {} : { notices: detail.notices }),
-    policy: {
-      packs,
-      ...(detail.policy.prompts.length === 0 ? {} : { prompts: detail.policy.prompts }),
-      ...(commandDecisions.length === 0 ? {} : { commandDecisions }),
-      ...(detail.policy.diagnostics.length === 0 ? {} : { diagnostics: detail.policy.diagnostics }),
-    },
     navigation: {
       strategy: detail.navigation.strategy,
       ecosystem: detail.navigation.ecosystem,
       evidenceRequirement: detail.navigation.evidenceRequirement,
       readGuidance: detail.navigation.readGuidance,
       ...(detail.navigation.shortlist === undefined ? {} : { shortlist: detail.navigation.shortlist }),
+    },
+    policy: {
+      packs,
+      ...(detail.policy.prompts.length === 0 ? {} : { prompts: detail.policy.prompts }),
+      ...(commandDecisions.length === 0 ? {} : { commandDecisions }),
+      ...(detail.policy.diagnostics.length === 0 ? {} : { diagnostics: detail.policy.diagnostics }),
     },
     sharedOperatingContract: {
       reference: detail.sharedOperatingContract.reference,
@@ -413,11 +427,11 @@ async function toDraftOutput(options: {
       `${a.kind}${a.reference}`.localeCompare(`${b.kind}${b.reference}`),
     ),
     notices: options.requirements.notices,
-    policy: preparePolicy,
     navigation: {
       ...navigationFor(options.project.ecosystem),
       ...(options.shortlist === undefined ? {} : { shortlist: options.shortlist }),
     },
+    policy: preparePolicy,
     sharedOperatingContract: options.sharedOperatingContract,
   };
 }
@@ -607,7 +621,7 @@ export function renderPrepare(run: PrepareRun): string {
 
   lines.push(
     '',
-    `context budget: ${run.data.contextBudget.measuredBytes}/${run.data.contextBudget.limitBytes} bytes (review.maxContextBytes, ${run.json} --json shape)`,
+    `context budget: ${run.data.contextBudget.measuredBytes}/${run.data.contextBudget.limitBytes} bytes (review.maxContextBytes, ${run.shape} --json shape)`,
   );
   return lines.join('\n');
 }
