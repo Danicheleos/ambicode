@@ -24,10 +24,12 @@ should a long-running autonomous training campaign measure and move?
   `~/.claude/ambicode-install/marketplace/ambicode-0.3.4/`), an artifact
   under `gym/planing/investigation/cache/` (below: `cache/`), a session
   transcript, or a command with its output quoted here.
-- Recompute the session numbers with
-  `cache/scripts/session-stats.py <transcript.jsonl>` and dump any tool result
-  with `cache/scripts/session-dump-tool-results.py <transcript> <ToolName>
-  [substring] [maxChars]`. Commands for the other numbers are in §6.
+- Recompute the session numbers from the transcripts directly; they are
+  JSONL. Sum `message.usage.*` over rows with `type == "assistant"`; count
+  `message.content[]` blocks with `type == "tool_use"` by `name`; take wall
+  time from the first and last `timestamp`; take human-wait from each
+  `AskUserQuestion` tool_use to the `tool_result` that answers it (matched
+  by `tool_use_id`). Commands for the other numbers are in §6.
 - Two of the six same-day transcripts are **not in the cache**. They are at
   `~/.claude/projects/-Users-KillBill-Documents-projects-inseer-inseer-frontend/`:
   `8efdbd08-d9f5-45e9-b69e-98333a4275eb.jsonl` (the iterations 1–3 task
@@ -535,7 +537,7 @@ is known about run-to-run variation.
 |---|---|---|---|
 | Shortlist precision / recall@10 with caller terms | 0.90–1.00 / 0.15–0.26 | `prepare --json --term …`; truth = files changed by the accepted plan's commits; script in §3.2 | 5 runs, 1 repo; unknown across repos |
 | Shortlist recall@10 with auto-derived terms | 0.04–0.06 | same, without `--term` | 2 runs |
-| LSP calls per session / correct answers | 1 / 0 | `session-stats.py` (`lsp/mcp calls`) | 4 sessions |
+| LSP calls per session / correct answers | 1 / 0 | count `tool_use` blocks with `name == "LSP"`; judge the answer from the matching `tool_result` | 4 sessions |
 | Ranged reads (`Read` with offset/limit) per session | 0 of 7 | regex over Bash and Read inputs (§3.2 N9 command) | — |
 | Human questions per session; human-wait | 1 / 5 / 1 / 1; 8–539 s | `AskUserQuestion` tool_use → tool_result timestamps | — |
 | Requirement re-fetches per cycle | 15 for 4 tickets | count `getJiraIssue` tool_use | — |
@@ -550,7 +552,7 @@ is known about run-to-run variation.
 | Plan-prescribed `tsc` gate on baseline | 133 errors / 52 files, 0 in touched files | `npx tsc -p tsconfig.spec.json --noEmit` in the FE repo | deterministic |
 | Committed lint errors introduced by the agent | 0 (1 pre-existing) | `eslint` on the failing file at base and HEAD | deterministic |
 | Agent-active minutes per plan iteration | 9.6 (it1–3), 6.3 (it4–6) | session wall minus human-wait, divided by iterations | 2 points |
-| Output tokens per session | 65 k / 116 k / 364 k / 290 k | `session-stats.py` | — |
+| Output tokens per session | 65 k / 116 k / 364 k / 290 k | sum `message.usage.output_tokens` over assistant rows | — |
 
 ## 7. Assumptions, unverified items and evidence gaps
 
@@ -595,9 +597,9 @@ cheap measurements say otherwise.
 ## Navigation evidence
 
 Navigation: targeted search over the artifacts (no LSP needed for JSONL and
-Markdown). Transcript facts come from `cache/scripts/session-stats.py` and
-`session-dump-tool-results.py` run over the four cycle transcripts plus the
-three same-day sessions; review facts from Python over each `result.json`
+Markdown). Transcript facts come from throwaway Python over the four cycle
+transcripts plus the three same-day sessions, using the JSONL fields named
+in §0 (not kept); review facts from Python over each `result.json`
 and `report.txt`; shortlist recall from the `prepare` outputs against `git
 diff --name-only 2576456cc 873ec3923`; repository facts from `grep -n` on
 `src/contracts/requirements.ts`, `src/review/report.ts`,
