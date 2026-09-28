@@ -20,14 +20,11 @@ import { evidenceSource } from './target-option.ts';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
-/** Compact `prepare --json` for the fixture below (21 rules), which emits 11,585 bytes. */
-const MAX_COMPACT_PREPARE_BYTES = 12_100;
+/** Compact `prepare --json` for the fixture below (21 rules), which emits 9,240 bytes. */
+const MAX_COMPACT_PREPARE_BYTES = 9_700;
 
-/**
- * With the boundary shortlist, which is paths and reasons only and bounded by
- * `PREPARE_SHORTLIST_LIMIT`; emits 12,422 bytes.
- */
-const MAX_COMPACT_PREPARE_WITH_SHORTLIST_BYTES = 13_000;
+/** With the shortlist (paths and reasons only, bounded by `PREPARE_SHORTLIST_LIMIT`); emits 9,691 bytes. */
+const MAX_COMPACT_PREPARE_WITH_SHORTLIST_BYTES = 10_200;
 
 // `references/` files carry no ceiling: they are read on demand, not on every call.
 const MAX_SKILL_BYTES: Record<string, number> = {
@@ -35,7 +32,7 @@ const MAX_SKILL_BYTES: Record<string, number> = {
   'investigate/SKILL.md': 7_100,
   'plan/SKILL.md': 9_900,
   'review/SKILL.md': 9_300,
-  'task/SKILL.md': 10_200,
+  'task/SKILL.md': 10_650,
   // A setup-time skill, never on a per-call path: this ceiling is about discipline, not per-call cost.
   'rules/SKILL.md': 10_000,
   'shared/requirements-mcp.md': 5_600,
@@ -107,11 +104,9 @@ describe('R2 per-call context cost', () => {
         `compact prepare payload is ${Buffer.byteLength(emitted, 'utf8')} bytes, over the ${MAX_COMPACT_PREPARE_BYTES}-byte ceiling. ` +
           'Cutting rules is not the fix: cut framing, or raise the ceiling deliberately and say why.',
       );
-      // Both shapes are pretty, so this measures the projection alone: 11,585 vs
-      // 20,244 bytes on this fixture (ratio 0.572).
       assert.ok(
         Buffer.byteLength(emitted, 'utf8') <
-          Buffer.byteLength(formatJsonOutput(verbose.data, verbose.json), 'utf8') * 0.65,
+          Buffer.byteLength(formatJsonOutput(verbose.data, verbose.json), 'utf8') / 2,
       );
 
       const full = verbose.data as PrepareOutput;

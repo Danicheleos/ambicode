@@ -15,10 +15,7 @@ export interface NavigationGuidance {
   readGuidance: string;
 }
 
-// The quoted one-liner is the COMPLETE no-LSP evidence (I6): sweep traces
-// showed 18/57 runs writing 100-360-char fallback justifications for
-// sandboxes that simply have no LSP tools. Kept under context-cost.test.ts's
-// 100-char one-clause ceiling (this is 99).
+// Sent on every call; context-cost.test.ts caps it under 100 chars.
 const EVIDENCE_REQUIREMENT =
   'Report the LSP operations used, or the fallback reason. "No LSP tools in this session" is complete.';
 

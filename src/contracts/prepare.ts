@@ -59,6 +59,8 @@ const PrepareCommandDecisionSource = z.strictObject({
 const PrepareCommandDecision = z.strictObject({
   command: z.string().min(1),
   action: CommandAction,
+  /** Config sets the command to null: it never runs, whatever `action` allows. */
+  unavailable: z.literal(true).optional(),
   sources: z.array(PrepareCommandDecisionSource),
 });
 
@@ -154,12 +156,14 @@ const PrepareCompactCommandDecision = z.union([
   z.strictObject({
     command: z.string().min(1),
     action: CommandAction,
+    unavailable: z.literal(true).optional(),
     pack: z.string().min(1),
     reason: z.string().min(1).optional(),
   }),
   z.strictObject({
     command: z.string().min(1),
     action: CommandAction,
+    unavailable: z.literal(true).optional(),
     sources: z.array(PrepareCompactCommandSource).min(2),
   }),
 ]);

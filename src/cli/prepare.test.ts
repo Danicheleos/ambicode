@@ -13,7 +13,7 @@ import { formatJsonOutput } from '../util/json-output.ts';
 import type { PrepareOutput } from '../contracts/prepare.ts';
 import { parseArgs as parseCliArgs, type OptionSpec, type ParsedArgs } from './args.ts';
 import { INIT_OPTIONS, runInit } from './commands/init.ts';
-import { PREPARE_OPTIONS, runPrepare as runPrepareCommand } from './commands/prepare.ts';
+import { PREPARE_OPTIONS, renderPrepare, runPrepare as runPrepareCommand } from './commands/prepare.ts';
 
 /**
  * Every assertion here is about the full shape, so these helpers add `--verbose`
@@ -1247,8 +1247,8 @@ describe('P2.4 correction A4: shared operating contract delivered through prepar
   });
 });
 
-describe('prepare output shape (I5)', () => {
-  it('emits the default projection pretty-printed, navigation before policy, with measuredBytes matching those bytes', async () => {
+describe('prepare output shape', () => {
+  it('emits the default projection on one line, navigation before policy, with measuredBytes matching those bytes', async () => {
     const repo = await TempRepo.create();
     try {
       await repo.write('src/app.ts', 'export const a = 1;\n');
@@ -1261,10 +1261,10 @@ describe('prepare output shape (I5)', () => {
         parseCliArgs('prepare', ['--activity', 'task'], PREPARE_OPTIONS),
       );
       assert.equal(run.shape, 'compact', 'the default is still the compact projection');
-      assert.equal(run.json, 'pretty', 'the default projection serializes pretty, not one-line');
+      assert.equal(run.json, 'compact', 'pretty-printing did not deter truncation, so the default is one line');
 
       const emitted = formatJsonOutput(run.data, run.json);
-      assert.ok(emitted.startsWith('{\n  "command"'), 'the payload is 2-space indented across lines');
+      assert.equal(emitted.indexOf('\n'), emitted.length - 1, 'one line, one trailing newline');
       assert.equal(Buffer.byteLength(emitted, 'utf8'), run.data.contextBudget.measuredBytes);
 
       const keys = Object.keys(JSON.parse(emitted) as Record<string, unknown>);
@@ -1272,6 +1272,62 @@ describe('prepare output shape (I5)', () => {
         keys.indexOf('navigation') !== -1 && keys.indexOf('navigation') < keys.indexOf('policy'),
         `navigation must precede policy; got ${keys.join(', ')}`,
       );
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it('marks a command the config sets to null as unavailable, in both shapes and in text', async () => {
+    const repo = await TempRepo.create();
+    try {
+      await repo.write('src/app.ts', 'export const a = 1;\n');
+      await repo.commitAll('initial');
+      const runtime = await createRuntime({ cwd: repo.root });
+      await runInit(runtime, parseArgs('init', [], INIT_OPTIONS));
+      // init nulls undetected commands while builtin/common-checks still declares `run`.
+      const config = await nodeFileSystem.readText(path.join(repo.root, '.ambicode/config.yaml'));
+      assert.match(config, /lint: null/);
+
+      const compact = await runPrepareCommand(runtime, parseCliArgs('prepare', ['--activity', 'task'], PREPARE_OPTIONS));
+      const compactDecisions = (compact.data as { policy: { commandDecisions?: Array<Record<string, unknown>> } }).policy
+        .commandDecisions ?? [];
+      const lint = compactDecisions.find((decision) => decision.command === 'lint');
+      assert.ok(lint !== undefined, 'the pack still declares lint');
+      assert.equal(lint.action, 'run', 'pack permission is reported unchanged');
+      assert.equal(lint.unavailable, true, 'but a null command must say it never runs');
+
+      const verboseRun = await runPrepareCommand(
+        runtime,
+        parseCliArgs('prepare', ['--activity', 'task', '--verbose'], PREPARE_OPTIONS),
+      );
+      const verboseLint = (verboseRun.data as PrepareOutput).policy.commandDecisions.find(
+        (decision) => decision.command === 'lint',
+      );
+      assert.equal(verboseLint?.unavailable, true);
+      assert.match(renderPrepare(verboseRun), /lint: run \(unavailable: null in config, never runs\)/);
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it('does not mark a configured command unavailable', async () => {
+    const repo = await TempRepo.create();
+    try {
+      await repo.write('src/app.ts', 'export const a = 1;\n');
+      await repo.commitAll('initial');
+      const runtime = await createRuntime({ cwd: repo.root });
+      await runInit(runtime, parseArgs('init', [], INIT_OPTIONS));
+      const configPath = path.join(repo.root, '.ambicode/config.yaml');
+      const config = await nodeFileSystem.readText(configPath);
+      // The first `lint: null` must be the command catalog's, not the project's `checks` entry.
+      const firstNull = config.indexOf('lint: null');
+      assert.ok(firstNull > config.indexOf('commands:') && firstNull < config.lastIndexOf('checks:'));
+      await nodeFileSystem.writeText(configPath, config.replace('lint: null', 'lint: { argv: ["node", "--version"] }'));
+
+      const verbose = await runPrepare(runtime, parseArgs('prepare', ['--activity', 'task'], PREPARE_OPTIONS));
+      const lint = verbose.policy.commandDecisions.find((decision) => decision.command === 'lint');
+      assert.ok(lint !== undefined);
+      assert.equal('unavailable' in lint, false);
     } finally {
       await repo.dispose();
     }

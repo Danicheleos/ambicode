@@ -57,7 +57,7 @@ export interface PrepareRun {
    * computed against exactly this format, and main.ts must print with the same.
    */
   json: JsonFormat;
-  /** Discriminates the union; `json` cannot, since both projections serialize the same way. */
+  /** Discriminates the union. */
   shape: 'compact' | 'verbose';
 }
 
@@ -153,11 +153,11 @@ export async function runPrepare(runtime: Runtime, args: ParsedArgs): Promise<Pr
   const compact = toCompactOutput(detail, { includeContractContent: args.flag('with-contract') });
   const data = measureAgainstOwnBytes(
     (contextBudget) => PrepareCompactOutputSchema.parse({ ...compact, contextBudget }),
-    'pretty',
+    'compact',
     limitBytes,
     detail,
   );
-  return { data, detail, json: 'pretty', shape: 'compact' };
+  return { data, detail, json: 'compact', shape: 'compact' };
 }
 
 /**
@@ -224,6 +224,7 @@ export function toCompactOutput(
       return {
         command: decision.command,
         action: decision.action,
+        ...(decision.unavailable === true ? { unavailable: true as const } : {}),
         pack: only.packReference,
         ...(only.reason === undefined ? {} : { reason: only.reason }),
       };
@@ -231,6 +232,7 @@ export function toCompactOutput(
     return {
       command: decision.command,
       action: decision.action,
+      ...(decision.unavailable === true ? { unavailable: true as const } : {}),
       sources: decision.sources.map((source) => ({
         pack: source.packReference,
         ...(source.action === decision.action ? {} : { action: source.action }),
@@ -346,7 +348,7 @@ async function toDraftOutput(options: {
   sharedOperatingContract: PrepareOutput['sharedOperatingContract'];
   policyProvenance: PrepareOutput['provenance'];
 }): Promise<PrepareDetail> {
-  const preparePolicy = await toPreparePolicy(options.fs, options.policy);
+  const preparePolicy = await toPreparePolicy(options.fs, options.policy, options.project.commands);
 
   // Only prompts actually delivered (stage-filtered, content-resolved): provenance
   // must never claim content that a filter or failed resolution withheld.
@@ -376,7 +378,11 @@ async function toDraftOutput(options: {
   };
 }
 
-async function toPreparePolicy(fs: FileSystem, policy: ResolvedPolicy): Promise<PreparePolicy> {
+async function toPreparePolicy(
+  fs: FileSystem,
+  policy: ResolvedPolicy,
+  commands: ProjectConfig['commands'],
+): Promise<PreparePolicy> {
   const stages = new Set(applicablePrepareStages(policy.activity));
   const diagnostics = [...policy.diagnostics.map((diagnostic) => ({ ...diagnostic }))];
 
@@ -407,6 +413,7 @@ async function toPreparePolicy(fs: FileSystem, policy: ResolvedPolicy): Promise<
     commandDecisions: policy.commandDecisions.map((decision) => ({
       command: decision.command,
       action: decision.action,
+      ...(commands[decision.command] === null ? { unavailable: true as const } : {}),
       sources: decision.sources.map((source) => ({ ...source })),
     })),
     diagnostics,
@@ -539,7 +546,9 @@ export function renderPrepare(run: PrepareRun): string {
 
   lines.push('', 'command decisions');
   for (const decision of output.policy.commandDecisions) {
-    lines.push(`  ${decision.command}: ${decision.action}`);
+    lines.push(
+      `  ${decision.command}: ${decision.action}${decision.unavailable === true ? ' (unavailable: null in config, never runs)' : ''}`,
+    );
   }
   if (output.policy.commandDecisions.length === 0) {
     lines.push('  (none declared — an undeclared command is not run)');

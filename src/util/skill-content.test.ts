@@ -343,7 +343,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.match(shared, /broad search is allowed and is reported with its reason/i);
   });
 
-  it('starts task and investigate from the boundary shortlist, and points at the shared shortlist discipline (R4, I4)', async () => {
+  it('starts task and investigate from the boundary shortlist, and points at the shared shortlist discipline (R4)', async () => {
     for (const name of ['investigate', 'task']) {
       const content = (await readFile(path.join(SKILLS_DIR, name, 'SKILL.md'), 'utf8')).replace(/\s+/g, ' ');
       assert.match(content, /navigation\.shortlist/, `${name}/SKILL.md must start from the shortlist`);
@@ -354,6 +354,15 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.match(shared, /confirm each candidate/i);
     assert.match(shared, /rejected/i);
     assert.match(shared, /outside it/i);
+  });
+
+  it('lets a request that pins the exact edit skip localization, without shrinking checks or review', async () => {
+    const content = (await readFile(path.join(SKILLS_DIR, 'task', 'SKILL.md'), 'utf8')).replace(/\s+/g, ' ');
+    assert.match(content, /pins the exact edit/, 'step 2 must name the fast path');
+    assert.match(content, /that one path and no `--term`/, 'the fast path prepares with the affected path only');
+    assert.match(content, /skip the shortlist and its confirmation ceremony/, 'step 4 must skip the ceremony');
+    assert.match(content, /Navigation: request-pinned — <file>/, 'the fast path carries its own literal evidence line');
+    assert.match(content, /checks, review and the report still run in full/i, 'the fast path must not weaken honest reporting');
   });
 
   it('documents the shortlist once, in the shared file every authoring skill reads (R4)', async () => {

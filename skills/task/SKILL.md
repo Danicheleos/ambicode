@@ -60,6 +60,10 @@ the report. On `ambiguous-project`, **refuse to guess:** ask which project,
 or narrow the paths. The shared file owns that rule and the
 no-second-parser rule with it.
 
+**A request that already pins the exact edit** — file and change fully
+determined by what was asked — prepares with that one path and no `--term`:
+there is nothing left to localize.
+
 **If implementation reaches paths outside what you prepared for, rerun
 `ambicode prepare --activity task --json` with the actual affected paths**
 before continuing — a narrow first guess must not be why a path-sensitive
@@ -80,6 +84,10 @@ Navigate in `navigation`'s bounded order, starting from
 the shortlist discipline; Evidence records its confirmed/rejected/outside-it
 breakdown and the navigation evidence line
 (`Navigation: LSP — …` or `Navigation: targeted-search fallback — …`).
+When the request pinned the exact edit (step 2), skip the shortlist and its
+confirmation ceremony — the evidence line is
+`Navigation: request-pinned — <file>`. Nothing else shrinks: checks, review
+and the report still run in full.
 
 **Before adding a helper, adapter, dependency, validator, parser, or other
 abstraction, search for the existing implementation and inspect current

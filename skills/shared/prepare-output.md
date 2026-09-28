@@ -20,8 +20,7 @@ full; what it leaves out is framing. Two things you reconstruct:
 The payload is bounded: `contextBudget` self-reports its bytes, and the
 command fails rather than emit past the configured limit. **Read it whole —
 never truncate it** (`head -c`, a byte cap): every field is applicable, and
-truncation is how the navigation block gets lost. Run it once per activity;
-`navigation` arrives before the longer `policy`.
+truncation is how the navigation block gets lost. Run it once per activity.
 
 `--verbose` emits the same policy with every field spelled out, for
 debugging. It is not the shape to read routinely.
@@ -43,7 +42,8 @@ debugging. It is not the shape to read routinely.
   yourself. `prepare` never returns `before-review` content to an authoring
   skill: that stays owned by the isolated reviewer prompt.
 - **`policy.commandDecisions`** — what `ambicode review`'s checks are allowed
-  to run. Informational to an authoring skill; it enforces nothing itself.
+  to run. Informational: it enforces nothing itself.
+  `unavailable: true`: config nulls it, so it never runs — never say it will.
 - **`navigation`** — the bounded search order: the shortlist first, then known
   paths, then current-session LSP tools for definitions, references, callers
   and symbol lookup, then targeted Grep/Glob/Read only where LSP is absent or
