@@ -9,7 +9,7 @@ import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
-import { BENCH_EVAL_DIR, codeRoot, generate, namedFiles, parseTicket, runArgs, score, scoreAnswer } from './evals-bench.mjs';
+import { BENCH_EVAL_DIR, CURATED_EVAL_DIR, SELECT, changedLines, codeRoot, generate, localizeHardness, namedFiles, parseTicket, reviewSubstance, runArgs, score, scoreAnswer } from './evals-bench.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 
@@ -131,6 +131,17 @@ describe('evals-bench: generate', () => {
     assert.ok(new RegExp(all['helper-ran'].input_match).test(JSON.stringify({ command: 'node "/p/scripts/ambicode.mjs" prepare --activity investigate' })));
   });
 
+  it('fails any run whose tools reach into the data directory', () => {
+    const graders = path.join(benchmarks, 'cases', 'side-t-1', 'graders');
+    for (const tool of ['read', 'grep', 'glob', 'bash']) {
+      const meta = frontmatter(path.join(graders, `no-peek-${tool}.md`));
+      assert.equal(meta.max, 0);
+      assert.equal(meta.arm, 'both');
+      assert.ok(new RegExp(meta.input_match).test('{"file_path":"/x/benchmarks/S/assets/t.md"}'));
+      assert.ok(!new RegExp(meta.input_match).test('{"file_path":"/x/run/repo/app/a.ts"}'));
+    }
+  });
+
   it('scaffolds a clean committed repository at the truth root, with the config and without earlier task notes', () => {
     const run = mkdtempSync(path.join(tmpdir(), 'bench-run-'));
     try {
@@ -152,7 +163,7 @@ describe('evals-bench: generate', () => {
     assert.match(prompt, /Discount the order total\./);
     assert.doesNotMatch(prompt, /Hard-coded/, 'the human comment is the answer, not the question');
     const graders = readdirSync(path.join(directory, 'graders')).sort();
-    assert.deepEqual(graders, ['helper-ran.md', 'plugin-fired.md', 'raises-01.md']);
+    assert.deepEqual(graders, ['helper-ran.md', 'no-peek-bash.md', 'no-peek-glob.md', 'no-peek-grep.md', 'no-peek-read.md', 'plugin-fired.md', 'raises-01.md']);
     const raises = readFileSync(path.join(directory, 'graders', 'raises-01.md'), 'utf8');
     assert.match(raises, /`app\/orders\/service\.ts:1`/);
     assert.match(raises, /> Hard-coded total\.\n> Use the price\./);
@@ -289,24 +300,129 @@ describe('evals-bench: scoring a review run', () => {
 });
 
 describe('evals-bench: running', () => {
-  it('always runs the benchmark directory and never publishes', () => {
+  it('runs the curated suite by default, the full set with --set full, and never publishes', () => {
     const argv = runArgs(['--case', 'x', '-j', '4']);
     assert.deepEqual(argv.slice(0, 2), ['plugin', 'eval']);
-    assert.equal(argv[argv.indexOf('--eval-dir') + 1], BENCH_EVAL_DIR);
+    assert.equal(argv[argv.indexOf('--eval-dir') + 1], CURATED_EVAL_DIR);
     assert.ok(argv.includes('--no-publish'));
+    const full = runArgs([], { set: 'full' });
+    assert.equal(full[full.indexOf('--eval-dir') + 1], BENCH_EVAL_DIR);
     assert.throws(() => runArgs(['--publish-report']), /NDA/);
     assert.throws(() => runArgs(['--eval-dir', 'evals']), /fixed/);
+    assert.throws(() => runArgs([], { set: 'both' }), /curated or full/);
   });
 
-  it('keeps the result JSON inside the excluded directory', () => {
+  it('keeps the result JSON inside the excluded directories', () => {
     const benchmarks = path.join(tmpdir(), 'b');
-    const argv = runArgs([], { now: new Date('2026-01-02T03:04:05.678Z'), benchmarks });
+    const argv = runArgs([], { now: new Date('2026-01-02T03:04:05.678Z'), benchmarks, set: 'full' });
     assert.equal(argv[argv.indexOf('--json') + 1], path.join(benchmarks, 'results', 'eval-2026-01-02T03-04-05-678Z.json'));
+    const curated = runArgs([], { now: new Date('2026-01-02T03:04:05.678Z'), benchmarks });
+    assert.equal(curated[curated.indexOf('--json') + 1], path.join(ROOT, 'evals', 'results', 'eval-2026-01-02T03-04-05-678Z.json'));
     assert.equal(runArgs(['--json', path.join(benchmarks, 'r.json')], { benchmarks }).filter((a) => a === '--json').length, 1);
+    assert.ok(runArgs(['--json', path.join(ROOT, 'evals', 'results', 'r.json')], { benchmarks }).includes('--json'), 'evals/results/ is gitignored and allowed');
     for (const flag of ['--json', '--report', '--output-dir']) {
       assert.throws(() => runArgs([flag, path.join(tmpdir(), 'elsewhere.json')], { benchmarks }), /must stay under/);
       assert.throws(() => runArgs([flag], { benchmarks }), /needs a path/);
     }
+  });
+});
+
+describe('evals-bench: selection strength', () => {
+  it('measures how little the ticket gives away: the fraction of true files it never names', () => {
+    const truth = ['app/orders/service.ts', 'app/billing/rates.ts'];
+    assert.equal(localizeHardness('Fix the order Service total.', truth), 0.5);
+    assert.equal(localizeHardness('Totals are wrong on annual plans.', truth), 1);
+    assert.equal(localizeHardness('rates and service', truth), 0);
+    assert.equal(localizeHardness('mentions order.service by its dotted stem', ['app/x/order.service.ts']), 0);
+  });
+
+  it('counts a patch’s changed lines without its file headers', () => {
+    assert.equal(changedLines(CHANGE), 3);
+  });
+
+  it('weighs a thread by the proof it carries: resolved, engaged, substantive', () => {
+    assert.equal(reviewSubstance([{ body: 'nit' }]), 1);
+    assert.equal(reviewSubstance([{ body: 'x'.repeat(120), resolved: true, replies: [{ byAuthor: true, body: 'fixed' }] }]), 4);
+    assert.equal(reviewSubstance([{ body: 'nit', replies: [{ byAuthor: false, body: 'same' }] }, { body: 'y', resolved: true }]), 3);
+  });
+});
+
+describe('evals-bench: select', () => {
+  let base;
+  let out;
+  let result;
+  before(() => {
+    base = mkdtempSync(path.join(tmpdir(), 'bench-select-'));
+    const benchmarks = path.join(base, 'benchmarks');
+    const side = path.join(benchmarks, 'SIDE');
+    mkdirSync(path.join(side, 'src', 'orders'), { recursive: true });
+    mkdirSync(path.join(side, 'src', 'billing'), { recursive: true });
+    mkdirSync(path.join(side, 'assets'), { recursive: true });
+    mkdirSync(path.join(side, '.ambicode'), { recursive: true });
+    writeFileSync(path.join(side, 'src', 'orders', 'service.ts'), 'export const total = 1;\n');
+    writeFileSync(path.join(side, 'src', 'orders', 'model.ts'), 'export type Order = {};\n');
+    writeFileSync(path.join(side, 'src', 'billing', 'charges.ts'), 'export const charge = 1;\n');
+    writeFileSync(path.join(side, 'src', 'billing', 'rates.ts'), 'export const rate = 1;\n');
+    writeFileSync(path.join(side, '.ambicode', 'config.yaml'), 'schemaVersion: 1\n');
+    const pad = ' The steps to reproduce and the acceptance criteria follow in detail.'.repeat(5);
+    // Easy: both true files are named in the text. Hard: neither is.
+    writeFileSync(path.join(side, 'assets', 'T-EASY.md'), ticket(`Update the order service and the order model.${pad}`, ['app/orders/service.ts', 'app/orders/model.ts']));
+    writeFileSync(path.join(side, 'assets', 'T-HARD.md'), ticket(`Buying an annual plan computes the wrong final amount.${pad}`, ['app/billing/charges.ts', 'app/billing/rates.ts']));
+    writeFileSync(path.join(side, 'assets', 'T-SHORT.md'), ticket('Too short.', ['app/billing/charges.ts', 'app/billing/rates.ts']));
+    writeFileSync(path.join(side, 'assets', 'T-ONE.md'), ticket(`A single-file ticket cannot separate luck from skill.${pad}`, ['app/billing/rates.ts']));
+    const version = (name, patch, threads) => {
+      const dir = path.join(side, 'reviews', 'T-EASY', name);
+      mkdirSync(path.join(dir, 'base', 'app', 'orders'), { recursive: true });
+      writeFileSync(path.join(dir, 'base', 'app', 'orders', 'service.ts'), 'export const total = 0;\n');
+      writeFileSync(path.join(dir, 'absent.txt'), '');
+      writeFileSync(path.join(dir, 'change.patch'), patch);
+      writeFileSync(path.join(dir, 'threads.json'), JSON.stringify(threads));
+    };
+    version('7-abcdef12', CHANGE, [
+      { path: 'app/orders/service.ts', newLine: 1, body: 'This recomputes the total on every call, which the profiler already flagged; cache it as the previous implementation did.', resolved: true, replies: [{ byAuthor: true, body: 'Done.' }] },
+      { path: 'app/orders/service.ts', newLine: 1, body: 'Missing test.', resolved: true },
+    ]);
+    // Same threads would win on substance, but the change is too large to
+    // review inside the case timeout.
+    version('9-ffffffff', `--- a/x\n+++ b/x\n${'+line\n'.repeat(SELECT.maxChangedLines + 1)}`, [
+      { path: 'app/orders/service.ts', newLine: 1, body: 'This recomputes the total on every call; cache it as before, which the profiler already flagged on the previous change.', resolved: true, replies: [{ byAuthor: true, body: 'Done.' }] },
+      { path: 'app/orders/service.ts', newLine: 1, body: 'Missing test.', resolved: true },
+    ]);
+    // The curated layout: cases two levels under the project root, beside
+    // benchmarks/, as evals/cases/ sits in the repository.
+    out = path.join(base, 'evals', 'cases');
+    result = generate({ benchmarks, out, pick: { localize: 1, review: 1 } });
+  });
+  after(() => rmSync(base, { recursive: true, force: true }));
+
+  it('keeps the hardest eligible ticket and the most substantiated review that fits the timeout', () => {
+    assert.deepEqual(result.written.map((w) => w.name).sort(), ['side-t-easy-review-7-abcdef12', 'side-t-hard']);
+    const s = result.selection.sides.SIDE;
+    assert.deepEqual([s.localize.eligible, s.localize.of, s.review.eligible, s.review.of], [2, 4, 1, 2]);
+    assert.equal(s.localize.chosen[0].hardness, 1);
+    assert.deepEqual([s.review.chosen[0].substance, s.review.chosen[0].threads], [6, 2]);
+    const onDisk = JSON.parse(readFileSync(path.join(out, 'selection.json'), 'utf8'));
+    assert.deepEqual(onDisk, result.selection);
+    assert.equal(onDisk.criteria.maxChangedLines, SELECT.maxChangedLines);
+  });
+
+  it('anchors the scaffold from the curated directory back to the data', () => {
+    const scaffold = readFileSync(path.join(out, 'side-t-hard', 'scaffold.sh'), 'utf8');
+    assert.match(scaffold, /\.\.\/\.\.\/\.\.\/benchmarks\/SIDE/);
+    const run = mkdtempSync(path.join(tmpdir(), 'bench-curated-run-'));
+    try {
+      execFileSync('sh', [path.join(out, 'side-t-hard', 'scaffold.sh')], { cwd: run, env: { PATH: process.env.PATH, HOME: run } });
+      assert.ok(existsSync(path.join(run, 'repo', 'app', 'billing', 'rates.ts')));
+    } finally {
+      rmSync(run, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('evals-bench: the curated cases stay out of git', () => {
+  it('evals/cases/ is ignored, wherever the data it is generated from lives', () => {
+    // check-ignore exits non-zero when the path is not ignored, which throws.
+    assert.match(execFileSync('git', ['check-ignore', '-v', 'evals/cases/x'], { cwd: ROOT, encoding: 'utf8' }), /evals\/cases/);
   });
 });
 

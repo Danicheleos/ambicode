@@ -21,6 +21,7 @@ __pycache__/
 /.ambicode/reviews/
 /.ambicode/notes/
 /evals/results/
+/evals/cases/
 /eval-results.json
 
 # Local planning and research inputs

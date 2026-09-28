@@ -1,19 +1,44 @@
 # Benchmark evaluation suite
 
 Real tickets against real code. The data is under NDA and is not in this
-repository: `benchmarks/` is gitignored as a whole, and the cases are generated
-into it. The previous suite (13 synthetic TypeScript cases) is archived in
+repository: `benchmarks/` and the generated `cases/` here are both gitignored.
+The previous suite (13 synthetic TypeScript cases) is archived in
 `../evals-archived/typescript/` and still runs with `npm run evals:archived`.
+
+The suite that runs by default is **curated**: `evals-bench.mjs select` picks
+the strongest, most provable cases per side (5 localize + 4 review; 18 in the
+2026-09-28 data) into `cases/` here, by measurable criteria only (`SELECT` in
+`evals-bench.mjs`):
+
+- **Localize**: every true file still in the snapshot, 2–10 of them, a ticket
+  of 300+ characters — ranked by *hardness*, the fraction of true files whose
+  name the ticket never mentions. Every selected case scores 1.0: grep over
+  the ticket's own words reaches none of its files, so naming them requires
+  actual localization.
+- **Review**: the change fits the case timeout (≤600 changed lines; a
+  1,623-line version timed out at 300 s) — ranked by *substance*, how much
+  proof the human threads carry (resolved by the author, replied to,
+  120+-character bodies).
+
+`cases/selection.json` records the criteria and each chosen case's numbers.
 
 ```sh
 npm run build
-npm run evals:generate        # benchmarks/cases/, from benchmarks/<side>/
-npm run evals                 # generate, then run with --ablation with-without
-npm run evals:score -- benchmarks/results/eval-<ts>.json
+npm run evals                 # select, then run curated with --ablation with-without
+npm run evals:select          # evals/cases/ only, no run
+npm run evals:score -- evals/results/eval-<ts>.json
+npm run evals:full            # all ~200 cases from benchmarks/cases/
+npm run evals:generate        # benchmarks/cases/ only, no run
 ```
 
-`evals-bench.mjs` holds no word of the data, and `evals-bench.test.mjs` fails
-if any file git would take names one of its ticket identifiers.
+`evals-bench.mjs` holds no word of the data — the selection is criteria, not a
+list — and `evals-bench.test.mjs` fails if `evals/cases/` is not gitignored or
+any file git would take names a ticket identifier.
+
+**Do not run `claude plugin eval .` directly on this repository**: the manifest
+points it at `evals/`, so it would run the curated cases and, by default,
+publish the HTML report — the NDA prompts included — to claude.ai. `npm run
+evals` always passes `--no-publish` and refuses `--publish-report`.
 
 ## Layout of `benchmarks/`
 
@@ -25,9 +50,12 @@ One directory per codebase ("side"):
 <side>/assets/<ticket>.md     "## build:context prompt" (the ticket) and
                               "## TRUE RELATED CODE" (files the merged change touched)
 <side>/reviews/<ticket>/<iid>-<head8>/   prepared review versions (below)
-cases/                        generated; never edit
+cases/                        generated full set; never edit
 results/                      run output
 ```
+
+The curated set is generated into `evals/cases/` (also gitignored, never edit)
+with the same layout per case; its scaffolds reach back into `benchmarks/`.
 
 ## Two kinds of case
 
@@ -73,12 +101,16 @@ live in `benchmarks/` because they name the projects.
 ## Running safely
 
 `npm run evals` goes through `evals-bench.mjs run`, which always passes
-`--eval-dir benchmarks --no-publish`, refuses `--publish-report`, and refuses
-`--json`, `--report` or `--output-dir` outside `benchmarks/`. The manifest's
-`experimental.evals` still names `evals/`, which holds no case, so a bare
-`claude plugin eval .` runs nothing rather than publishing the benchmark's
-prompts. `--eval-dir benchmarks` also puts the snapshot, tickets and ground
-truth under the sandbox's `denyRead` for the evaluated agent.
+`--no-publish`, refuses `--publish-report`, and refuses `--json`, `--report`
+or `--output-dir` outside the gitignored directories (`benchmarks/`,
+`evals/results/`).
+
+The full set runs with `--eval-dir benchmarks`, which puts the snapshot,
+tickets and ground truth under the sandbox's `denyRead` for the evaluated
+agent. The curated set runs with `--eval-dir evals`, whose `denyRead` covers
+the curated truth and graders but **not** `benchmarks/` — so every case
+carries four `no-peek-*` graders (Read, Grep, Glob, Bash; `max: 0`) that fail
+any run whose tool input reaches a path containing `benchmarks/`.
 
 Cost is unmeasured for this set: the archived suite ran at $0.13–0.28 per run;
 these repositories are far larger.
