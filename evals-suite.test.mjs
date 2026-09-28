@@ -1,4 +1,5 @@
-// Guards the claims the `claude plugin eval` suite (`evals/`) makes about its
+// Guards the claims the archived `claude plugin eval` suite
+// (`evals-archived/typescript/`) makes about its
 // fixtures. Nothing checked them before: `correctness-ts` shipped a ground
 // truth saying the existing test "still passes" under the fixture's change,
 // while replaying the fixture showed `page([1,2,3,4],0,2)` returning `[1]`
@@ -25,7 +26,7 @@ import { reviewResult } from './src/testing/review-fixture.ts';
 import { formatJsonOutput } from './src/util/json-output.ts';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
-const EVALS = path.join(ROOT, 'evals');
+const EVALS = path.join(ROOT, 'evals-archived', 'typescript');
 
 /** Every case directory, with each grader's frontmatter parsed. */
 async function loadCases() {
@@ -43,12 +44,12 @@ async function loadCases() {
     cases.push({ name: entry.name, graders });
   }
   assert.ok(cases.length > 0, 'no eval case found');
-  // The harness collects `evals/**/case.yaml`: a Python case back in evals/
-  // would run again, with the unwired pytest check the 2026-09-27 run showed.
+  // The harness collects `<eval dir>/**/case.yaml`: a Python case moved in
+  // here would run with this suite again, with the unwired pytest check the 2026-09-27 run showed.
   assert.deepEqual(
     cases.filter((evalCase) => evalCase.name.endsWith('-py')).map((evalCase) => evalCase.name),
     [],
-    'Python cases are archived in evals-archived/',
+    'Python cases are archived in evals-archived/, beside this suite',
   );
   return cases;
 }

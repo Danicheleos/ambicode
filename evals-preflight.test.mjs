@@ -7,9 +7,10 @@ import path from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
-import { PREFLIGHT, PREFLIGHT_MAX_COST_USD, RECORDINGS, judge, preflightArgs } from './evals-preflight.mjs';
+import { ARCHIVED_EVAL_DIR, PREFLIGHT, PREFLIGHT_MAX_COST_USD, RECORDINGS, judge, preflightArgs } from './evals-preflight.mjs';
 
-const EVALS = path.join(path.dirname(fileURLToPath(import.meta.url)), 'evals');
+const ROOT = path.dirname(fileURLToPath(import.meta.url));
+const EVALS = path.join(ROOT, ARCHIVED_EVAL_DIR);
 
 /** A result in which every grader either case carries passed, except those named. */
 function result({ failing = {}, drop = [], partial = false, error = null, cases = PREFLIGHT.map((p) => p.case) } = {}) {
@@ -110,6 +111,9 @@ describe('evals-preflight: the cases it runs', () => {
     const argv = preflightArgs('/tmp/out.json', ['--trust-plugin']);
     const after = (flag) => argv[argv.indexOf(flag) + 1];
     assert.deepEqual(argv.slice(0, 2), ['plugin', 'eval']);
+    // Without it the harness reads the manifest's eval directory, which is the
+    // benchmark set and carries no `preflight` case.
+    assert.equal(after('--eval-dir'), ARCHIVED_EVAL_DIR);
     assert.equal(after('--tag'), 'preflight');
     assert.equal(after('--runs'), '1');
     assert.equal(after('--ablation'), 'none');
@@ -121,11 +125,14 @@ describe('evals-preflight: the cases it runs', () => {
     assert.ok(path.isAbsolute(RECORDINGS));
   });
 
-  it('keeps the recordings where the sandboxed agent can read them, outside evals/', async () => {
-    // The sandbox's `denyRead` names `<plugin>/evals`; a recording there made
-    // every replay in the first preflight fail.
-    const relative = path.relative(path.dirname(EVALS), RECORDINGS);
-    assert.ok(!relative.startsWith(`evals${path.sep}`) && !relative.startsWith('..'), relative);
+  it('keeps the recordings where the sandboxed agent can read them, outside the eval directory', async () => {
+    // The sandbox's `denyRead` names `<plugin>/<eval dir>`; a recording there
+    // made every replay in the first preflight fail. Inside the plugin, so the
+    // agent can reach it at all.
+    const fromEvals = path.relative(EVALS, RECORDINGS);
+    const fromRoot = path.relative(ROOT, RECORDINGS);
+    assert.ok(fromEvals.startsWith('..'), fromEvals);
+    assert.ok(!fromRoot.startsWith('..') && !path.isAbsolute(fromRoot), fromRoot);
     const recordings = JSON.parse(await readFile(RECORDINGS, 'utf8')).recordings;
     assert.ok(recordings.some((recording) => recording.case === 'regression-ts'), 'the preflight case has no recording');
   });

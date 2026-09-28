@@ -1,5 +1,10 @@
 # Archived evaluation cases
 
+- `typescript/`: the 13-case TypeScript suite, archived 2026-09-28 when
+  `evals/` became the benchmark suite. It has its own README and runs with
+  `npm run evals:archived`.
+- The Python cases below.
+
 The six Python review cases, moved out of `evals/` on 2026-09-27 while the
 suite focuses on TypeScript. `claude plugin eval` collects every
 `evals/**/case.yaml`, so they had to leave that tree to stop running.

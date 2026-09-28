@@ -1,0 +1,337 @@
+// Guards the benchmark eval set's generator and scorer on a synthetic
+// benchmark: the real one is under NDA and never in this repository. The last
+// block runs only where `benchmarks/` exists, and checks it cannot leak.
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { after, before, describe, it } from 'node:test';
+import { fileURLToPath } from 'node:url';
+import { parse as parseYaml } from 'yaml';
+import { BENCH_EVAL_DIR, codeRoot, generate, namedFiles, parseTicket, runArgs, score, scoreAnswer } from './evals-bench.mjs';
+
+const ROOT = path.dirname(fileURLToPath(import.meta.url));
+
+const CHANGE = `diff --git a/app/orders/service.ts b/app/orders/service.ts
+--- a/app/orders/service.ts
++++ b/app/orders/service.ts
+@@ -1 +1 @@
+-export const total = 0;
++export const total = 2;
+diff --git a/app/orders/model.ts b/app/orders/model.ts
+new file mode 100644
+--- /dev/null
++++ b/app/orders/model.ts
+@@ -0,0 +1 @@
++export type Order = { discount: number };
+`;
+
+const ticket = (text, truth) => `# T\n\n## build:context prompt\n\n${text}\n\n## TRUE RELATED CODE\n\n${truth.map((p) => `- \`${p}\``).join('\n')}\n`;
+
+function frontmatter(file) {
+  const source = readFileSync(file, 'utf8');
+  return parseYaml(/^---\n([\s\S]*?)\n---/.exec(source)[1]);
+}
+
+describe('evals-bench: tickets', () => {
+  it('takes the ticket text and the true paths, and drops the console lines pasted into the list', () => {
+    const parsed = parseTicket(ticket('Make totals right.\n\n## Detail\nmore', ['Exit code: 0', 'Wall time: 1.1 seconds', 'Output:', 'app/a.ts', 'app/a.ts', 'app/b.ts']));
+    assert.equal(parsed.text, 'Make totals right.\n\n## Detail\nmore');
+    assert.deepEqual(parsed.truth, ['app/a.ts', 'app/b.ts']);
+  });
+
+  it('refuses a ticket whose sections are missing or out of order', () => {
+    assert.ok(parseTicket('## TRUE RELATED CODE\n- a/b.ts\n').error);
+    assert.ok(parseTicket('## TRUE RELATED CODE\n- a/b.ts\n## build:context prompt\nx\n').error);
+    assert.ok(parseTicket('## build:context prompt\n\n## TRUE RELATED CODE\n- a/b.ts\n').error, 'an empty ticket is refused');
+  });
+
+  it('places the snapshot under the leading directory the truth resolves through', () => {
+    assert.equal(codeRoot([['app/x/a.ts', 'app/b.ts'], ['other/c.ts']], ['x/a.ts', 'b.ts', 'c.ts']), 'app');
+    assert.throws(() => codeRoot([['app/zzz.ts']], ['a.ts']), /no ground-truth path resolves/);
+  });
+});
+
+describe('evals-bench: generate', () => {
+  let benchmarks;
+  let result;
+  before(() => {
+    benchmarks = mkdtempSync(path.join(tmpdir(), 'bench-'));
+    const side = path.join(benchmarks, 'SIDE');
+    mkdirSync(path.join(side, 'src', 'orders'), { recursive: true });
+    mkdirSync(path.join(side, '.ambicode', 'task', 'old-note'), { recursive: true });
+    mkdirSync(path.join(side, 'assets'), { recursive: true });
+    writeFileSync(path.join(side, 'src', 'orders', 'service.ts'), 'export const total = 1;\n');
+    writeFileSync(path.join(side, 'src', 'orders', 'model.ts'), 'export type Order = {};\n');
+    writeFileSync(path.join(side, 'src', '.DS_Store'), 'x');
+    writeFileSync(path.join(side, '.ambicode', 'config.yaml'), 'schemaVersion: 1\n');
+    writeFileSync(path.join(side, '.ambicode', 'task', 'old-note', 'note.md'), 'the answer is app/orders/service.ts\n');
+    writeFileSync(path.join(side, 'assets', 'T-1.md'), ticket('Discount the order total.', ['app/orders/service.ts', 'app/orders/gone.ts']));
+    writeFileSync(path.join(side, 'assets', 'T-2.md'), ticket('Only a removed file.', ['app/orders/removed.ts']));
+    // One prepared review version: service.ts as it was at base, the change
+    // as the reviewer saw it (an edit plus a file that did not exist at base),
+    // and one reviewer thread.
+    const version = path.join(side, 'reviews', 'T-1', '7-abcdef12');
+    mkdirSync(path.join(version, 'base', 'app', 'orders'), { recursive: true });
+    writeFileSync(path.join(version, 'base', 'app', 'orders', 'service.ts'), 'export const total = 0;\n');
+    writeFileSync(path.join(version, 'absent.txt'), 'app/orders/model.ts\n');
+    writeFileSync(path.join(version, 'change.patch'), CHANGE);
+    writeFileSync(path.join(version, 'version.json'), '{}');
+    writeFileSync(path.join(version, 'threads.json'), JSON.stringify([{ path: 'app/orders/service.ts', newLine: 1, body: 'Hard-coded total.\nUse the price.' }]));
+    // A version missing its patch is refused, not generated half-built.
+    mkdirSync(path.join(side, 'reviews', 'T-1', '8-00000000'), { recursive: true });
+    writeFileSync(path.join(side, 'reviews', 'T-1', '8-00000000', 'threads.json'), '[{"path":"app/x.ts","body":"b"}]');
+    // A stale case from an earlier generation must not survive.
+    mkdirSync(path.join(benchmarks, 'cases', 'side-t-9'), { recursive: true });
+    result = generate({ benchmarks });
+  });
+  after(() => rmSync(benchmarks, { recursive: true, force: true }));
+
+  it('writes one case per ticket with a true file in the snapshot, and says why it refused the rest', () => {
+    assert.deepEqual(result.written.map((w) => w.name), ['side-t-1', 'side-t-1-review-7-abcdef12']);
+    assert.deepEqual(result.refused, [
+      { name: 'side-t-2', reason: 'none of its 1 true file(s) exists in the snapshot' },
+      { name: 'side-t-1-review-8-00000000', reason: 'change.patch is missing from the prepared version' },
+    ]);
+    assert.deepEqual(readdirSync(path.join(benchmarks, 'cases')).sort(), ['side-t-1', 'side-t-1-review-7-abcdef12']);
+  });
+
+  it('grades only the true files the snapshot still has, and records the others', () => {
+    const truth = JSON.parse(readFileSync(path.join(benchmarks, 'cases', 'side-t-1', 'truth.json'), 'utf8'));
+    assert.deepEqual(truth, { kind: 'localize', side: 'SIDE', ticket: 'T-1', root: 'app', truth: ['app/orders/service.ts'], missingFromSnapshot: ['app/orders/gone.ts'] });
+  });
+
+  it('puts the ticket in the prompt and the answer only in the graders', () => {
+    const directory = path.join(benchmarks, 'cases', 'side-t-1');
+    const prompt = readFileSync(path.join(directory, 'prompt.md'), 'utf8');
+    assert.match(prompt, /Discount the order total\./);
+    assert.doesNotMatch(prompt, /service\.ts/);
+    const meta = frontmatter(path.join(directory, 'prompt.md'));
+    assert.equal(meta.name, 'side-t-1');
+    assert.deepEqual(meta.allowed_tools, ['Read', 'Glob', 'Grep', 'Bash', 'Skill']);
+    assert.match(readFileSync(path.join(directory, 'graders', 'names-a-true-file.md'), 'utf8'), /`app\/orders\/service\.ts`/);
+  });
+
+  it('scores the answer with both arms, and records the plugin only as a with-only indicator', () => {
+    const graders = path.join(benchmarks, 'cases', 'side-t-1', 'graders');
+    const all = Object.fromEntries(readdirSync(graders).map((f) => [f.replace(/\.md$/, ''), frontmatter(path.join(graders, f))]));
+    assert.equal(all['names-a-true-file'].type, 'llm');
+    assert.equal(all['names-a-true-file'].focus, 'last_message');
+    assert.equal(all['names-a-true-file'].arm, 'both');
+    for (const name of ['no-code-edit', 'no-code-write']) {
+      assert.equal(all[name].arm, 'both');
+      assert.equal(all[name].max, 0);
+      // Only the code: the investigate skill's own note under .ambicode/ is not an edit.
+      assert.ok(new RegExp(all[name].input_match).test('{"file_path":"/tmp/x/repo/app/orders/service.ts"}'));
+      assert.ok(!new RegExp(all[name].input_match).test('{"file_path":"/tmp/x/repo/.ambicode/task/n.md"}'));
+    }
+    assert.equal(all['plugin-fired'].arm, 'with-only');
+    assert.equal(all['helper-ran'].arm, 'with-only');
+    assert.ok(new RegExp(all['helper-ran'].input_match).test(JSON.stringify({ command: 'node "/p/scripts/ambicode.mjs" prepare --activity investigate' })));
+  });
+
+  it('scaffolds a clean committed repository at the truth root, with the config and without earlier task notes', () => {
+    const run = mkdtempSync(path.join(tmpdir(), 'bench-run-'));
+    try {
+      execFileSync('sh', [path.join(benchmarks, 'cases', 'side-t-1', 'scaffold.sh')], { cwd: run, env: { PATH: process.env.PATH, HOME: run } });
+      const repo = path.join(run, 'repo');
+      assert.ok(existsSync(path.join(repo, 'app', 'orders', 'service.ts')));
+      assert.ok(existsSync(path.join(repo, '.ambicode', 'config.yaml')));
+      assert.ok(!existsSync(path.join(repo, '.ambicode', 'task')), 'earlier task notes could hand an arm the answer');
+      assert.ok(!existsSync(path.join(repo, 'app', '.DS_Store')));
+      assert.equal(execFileSync('git', ['status', '--porcelain'], { cwd: repo, encoding: 'utf8' }), '');
+      assert.equal(execFileSync('git', ['log', '--format=%aI'], { cwd: repo, encoding: 'utf8' }).trim(), '2026-01-01T00:00:00Z');
+    } finally {
+      rmSync(run, { recursive: true, force: true });
+    }
+  });
+  it('writes a review case whose graders are the human threads, one each', () => {
+    const directory = path.join(benchmarks, 'cases', 'side-t-1-review-7-abcdef12');
+    const prompt = readFileSync(path.join(directory, 'prompt.md'), 'utf8');
+    assert.match(prompt, /Discount the order total\./);
+    assert.doesNotMatch(prompt, /Hard-coded/, 'the human comment is the answer, not the question');
+    const graders = readdirSync(path.join(directory, 'graders')).sort();
+    assert.deepEqual(graders, ['helper-ran.md', 'plugin-fired.md', 'raises-01.md']);
+    const raises = readFileSync(path.join(directory, 'graders', 'raises-01.md'), 'utf8');
+    assert.match(raises, /`app\/orders\/service\.ts:1`/);
+    assert.match(raises, /> Hard-coded total\.\n> Use the price\./);
+    assert.equal(frontmatter(path.join(directory, 'graders', 'raises-01.md')).arm, 'both');
+    assert.equal(frontmatter(path.join(directory, 'graders', 'plugin-fired.md')).input_match, '"ambicode:review"');
+    assert.deepEqual(JSON.parse(readFileSync(path.join(directory, 'truth.json'), 'utf8')), { kind: 'review', side: 'SIDE', ticket: 'T-1', version: '7-abcdef12', root: 'app', threads: 1 });
+  });
+
+  it('scaffolds the change as the reviewer saw it: base committed, the change uncommitted on top', () => {
+    const run = mkdtempSync(path.join(tmpdir(), 'bench-review-'));
+    try {
+      execFileSync('sh', [path.join(benchmarks, 'cases', 'side-t-1-review-7-abcdef12', 'scaffold.sh')], { cwd: run, env: { PATH: process.env.PATH, HOME: run } });
+      const repo = path.join(run, 'repo');
+      const at = (args) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' });
+      // The snapshot had `total = 1`; the base put back `0`; the change makes it `2`.
+      assert.equal(at(['show', 'HEAD:app/orders/service.ts']), 'export const total = 0;\n');
+      assert.throws(() => at(['show', 'HEAD:app/orders/model.ts']), 'a file absent at base is not committed');
+      assert.equal(at(['status', '--porcelain']), ' M app/orders/service.ts\n?? app/orders/model.ts\n');
+      assert.equal(readFileSync(path.join(repo, 'app', 'orders', 'model.ts'), 'utf8'), 'export type Order = { discount: number };\n');
+    } finally {
+      rmSync(run, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('evals-bench: scoring an answer', () => {
+  const truth = ['app/orders/service.ts', 'app/orders/model.ts', 'app/routes/orders.ts'];
+
+  it('reads the Files section only, so files named as out of scope do not count', () => {
+    const message = [
+      'The total lives in `app/orders/service.ts`.',
+      '',
+      '## Files',
+      '- `app/orders/service.ts` — the arithmetic',
+      '- `repo/app/orders/model.ts` — the shape',
+      '- ./app/legacy/export.ts — mentioned',
+      '',
+      '## Not part of the work',
+      '- `app/routes/orders.ts`',
+    ].join('\n');
+    const { named, sectioned } = namedFiles(message, truth, 'app');
+    assert.equal(sectioned, true);
+    assert.deepEqual(named, ['app/orders/service.ts', 'app/orders/model.ts', 'app/legacy/export.ts']);
+    const s = scoreAnswer(message, truth, 'app');
+    assert.equal(s.correct, 2);
+    assert.equal(s.precision, 2 / 3);
+    assert.equal(s.recall, 2 / 3);
+    assert.equal(s.hit, 1);
+  });
+
+  it('matches a path written without the code root, and only when one true file ends that way', () => {
+    assert.deepEqual(namedFiles('## Files\n- orders/service.ts\n', truth, 'app').named, ['app/orders/service.ts']);
+    assert.deepEqual(namedFiles('## Files\n- `/abs/run/repo/app/routes/orders.ts:12`\n', truth, 'app').named, ['app/routes/orders.ts']);
+  });
+
+  it('falls back to the whole message when there is no Files section, and says so', () => {
+    const s = scoreAnswer('Touch app/orders/model.ts only.', truth, 'app');
+    assert.equal(s.sectioned, false);
+    assert.equal(s.correct, 1);
+    assert.equal(s.precision, 1);
+  });
+
+  it('scores an answer that names nothing as zero precision, not as undefined', () => {
+    const s = scoreAnswer('## Files\nNone found.', truth, 'app');
+    assert.deepEqual([s.named, s.precision, s.recall, s.f1, s.hit], [0, 0, 0, 0, 0]);
+  });
+});
+
+describe('evals-bench: scoring a run', () => {
+  let benchmarks;
+  before(() => {
+    benchmarks = mkdtempSync(path.join(tmpdir(), 'bench-score-'));
+    mkdirSync(path.join(benchmarks, 'cases', 'side-t-1'), { recursive: true });
+    writeFileSync(path.join(benchmarks, 'cases', 'side-t-1', 'truth.json'), JSON.stringify({ side: 'SIDE', ticket: 'T-1', root: 'app', truth: ['app/a.ts', 'app/b.ts'] }));
+  });
+  after(() => rmSync(benchmarks, { recursive: true, force: true }));
+
+  it('reports a run with no final message as absent, not as an answer that scored zero', () => {
+    const graders = (evidence, fired) => [
+      { name: 'names-a-true-file', passed: true, ...(evidence === undefined ? {} : { evidence }) },
+      ...(fired === undefined ? [] : [{ name: 'plugin-fired', passed: fired }]),
+    ];
+    const results = {
+      cases: [
+        {
+          name: 'side-t-1',
+          arms: {
+            with: [{ graders: graders('## Files\n- app/a.ts\n', true), costUsd: 0.2, turns: 5 }, { graders: graders(undefined, false), error: 'timeout' }],
+            without: [{ graders: graders('## Files\n- app/a.ts\n- app/b.ts\n- app/c.ts\n'), costUsd: 0.1, turns: 3 }],
+          },
+        },
+        { name: 'not-a-benchmark-case', arms: { with: [{ graders: [] }] } },
+      ],
+    };
+    const { runs, arms } = score(results, { benchmarks });
+    assert.equal(runs.length, 3, 'a case with no truth.json is not a benchmark case');
+    assert.deepEqual(runs.filter((r) => r.absent).map((r) => [r.arm, r.error]), [['with', 'timeout']]);
+    const w = arms['localize/with'];
+    assert.deepEqual([w.runs, w.scored, w.absent], [2, 1, 1]);
+    assert.equal(w.recall, 0.5);
+    assert.equal(w['plugin-fired'], 1);
+    assert.equal(arms['localize/without'].precision, 2 / 3);
+    assert.equal(arms['localize/without'].recall, 1);
+    assert.ok('localize/with/SIDE' in arms);
+  });
+});
+
+describe('evals-bench: scoring a review run', () => {
+  let benchmarks;
+  before(() => {
+    benchmarks = mkdtempSync(path.join(tmpdir(), 'bench-review-score-'));
+    mkdirSync(path.join(benchmarks, 'cases', 'side-t-1-review-7-x'), { recursive: true });
+    writeFileSync(path.join(benchmarks, 'cases', 'side-t-1-review-7-x', 'truth.json'), JSON.stringify({ kind: 'review', side: 'SIDE', ticket: 'T-1', version: '7-x', root: 'app', threads: 2 }));
+  });
+  after(() => rmSync(benchmarks, { recursive: true, force: true }));
+
+  it('scores recall against the human threads, and a run whose judges did not run as absent', () => {
+    const raised = (a, b) => [{ name: 'raises-01', passed: a }, { name: 'raises-02', passed: b }];
+    const results = {
+      cases: [
+        {
+          name: 'side-t-1-review-7-x',
+          arms: {
+            with: [{ graders: raised(true, false) }, { graders: raised(false, false), skippedPaidGraders: true }],
+            without: [{ graders: [{ name: 'raises-01', passed: true }] }],
+          },
+        },
+      ],
+    };
+    const { arms } = score(results, { benchmarks });
+    assert.deepEqual([arms['review/with'].scored, arms['review/with'].absent, arms['review/with'].recall], [1, 1, 0.5]);
+    assert.equal(arms['review/without'].absent, 1, 'a missing thread grader is not a thread the run failed to raise');
+  });
+});
+
+describe('evals-bench: running', () => {
+  it('always runs the benchmark directory and never publishes', () => {
+    const argv = runArgs(['--case', 'x', '-j', '4']);
+    assert.deepEqual(argv.slice(0, 2), ['plugin', 'eval']);
+    assert.equal(argv[argv.indexOf('--eval-dir') + 1], BENCH_EVAL_DIR);
+    assert.ok(argv.includes('--no-publish'));
+    assert.throws(() => runArgs(['--publish-report']), /NDA/);
+    assert.throws(() => runArgs(['--eval-dir', 'evals']), /fixed/);
+  });
+
+  it('keeps the result JSON inside the excluded directory', () => {
+    const benchmarks = path.join(tmpdir(), 'b');
+    const argv = runArgs([], { now: new Date('2026-01-02T03:04:05.678Z'), benchmarks });
+    assert.equal(argv[argv.indexOf('--json') + 1], path.join(benchmarks, 'results', 'eval-2026-01-02T03-04-05-678Z.json'));
+    assert.equal(runArgs(['--json', path.join(benchmarks, 'r.json')], { benchmarks }).filter((a) => a === '--json').length, 1);
+    for (const flag of ['--json', '--report', '--output-dir']) {
+      assert.throws(() => runArgs([flag, path.join(tmpdir(), 'elsewhere.json')], { benchmarks }), /must stay under/);
+      assert.throws(() => runArgs([flag], { benchmarks }), /needs a path/);
+    }
+  });
+});
+
+// Only where the real data is present: it must stay out of git, and no file
+// git would take may carry one of its ticket identifiers.
+const REAL = path.join(ROOT, 'benchmarks');
+describe('evals-bench: the real benchmark stays out of git', { skip: !existsSync(REAL) && 'no benchmarks/ here' }, () => {
+  it('is ignored as a whole', () => {
+    assert.match(execFileSync('git', ['check-ignore', '-v', 'benchmarks/'], { cwd: ROOT, encoding: 'utf8' }), /benchmarks/);
+  });
+
+  it('has no ticket identifier in any tracked or addable file', () => {
+    const ids = new Set();
+    for (const side of readdirSync(REAL, { withFileTypes: true }).filter((e) => e.isDirectory() && existsSync(path.join(REAL, e.name, 'assets'))))
+      for (const f of readdirSync(path.join(REAL, side.name, 'assets'), { withFileTypes: true }).filter((e) => e.name.endsWith('.md')))
+        ids.add(path.basename(f.name, '.md'));
+    assert.ok(ids.size > 0);
+    const files = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { cwd: ROOT, encoding: 'utf8' }).split('\0').filter(Boolean);
+    const leaks = [];
+    for (const file of files) {
+      const full = path.join(ROOT, file);
+      if (!existsSync(full)) continue;
+      const text = readFileSync(full, 'latin1');
+      for (const id of ids) if (new RegExp(`\\b${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(text)) leaks.push(`${file}: ${id}`);
+    }
+    assert.deepEqual(leaks, []);
+  });
+});

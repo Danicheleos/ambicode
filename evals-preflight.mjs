@@ -17,10 +17,14 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 
-// Not under evals/: the sandbox denies the evaluated agent reading the plugin's
-// eval directory (`sandbox.filesystem.denyRead` names `<plugin>/evals`, from a
-// kept run's settings.json, 2026-09-28), so the first preflight's review could
-// not read a recording there and `reviewer-completed` failed.
+// The suite this gates, archived 2026-09-28 when `evals/` moved to the
+// benchmark set. Relative to the plugin root, as `--eval-dir` takes it.
+export const ARCHIVED_EVAL_DIR = 'evals-archived/typescript';
+
+// Not under the eval directory: the sandbox denies the evaluated agent reading
+// it (`sandbox.filesystem.denyRead` named `<plugin>/evals`, from a kept run's
+// settings.json, 2026-09-28), so the first preflight's review could not read a
+// recording there and `reviewer-completed` failed.
 export const RECORDINGS = path.join(ROOT, 'fixtures', 'reviewer-recordings.json');
 
 // Above the $0.4–0.7 estimate, so a normal run never trips it, and far below
@@ -31,7 +35,7 @@ export const PREFLIGHT_MAX_COST_USD = 1.5;
  * What each preflight case must show. `expectedToFail` is printed and never
  * counted as a pass: a task case's diff is written by the agent, so no
  * recording matches it (`replay-miss`), and no reviewer signs in inside the
- * sandbox (evals/README.md, the 2026-09-27 probe).
+ * sandbox (evals-archived/typescript/README.md, the 2026-09-27 probe).
  */
 export const PREFLIGHT = [
   { case: 'regression-ts', require: ['plugin-fired', 'helper-ran', 'reviewer-completed', 'unit-check-ran'] },
@@ -49,6 +53,7 @@ export const PREFLIGHT = [
 export function preflightArgs(jsonPath, extra = []) {
   return [
     'plugin', 'eval', ROOT,
+    '--eval-dir', ARCHIVED_EVAL_DIR,
     '--tag', 'preflight',
     '--runs', '1',
     '--ablation', 'none',
