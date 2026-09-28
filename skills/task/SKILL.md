@@ -57,9 +57,8 @@ describes: it owns the compact shape, `sharedOperatingContract`,
 `navigation`. For `task` that means `before-work` content before you
 implement, `before-checks` before checks or review, `before-report` before
 the report. On `ambiguous-project`, **refuse to guess:** ask which project,
-or narrow the paths.
-Do not build a second requirement parser, policy resolver, or config
-reader for tasks.
+or narrow the paths. The shared file owns that rule and the
+no-second-parser rule with it.
 
 **If implementation reaches paths outside what you prepared for, rerun
 `ambicode prepare --activity task --json` with the actual affected paths**
@@ -76,15 +75,11 @@ from it.
 
 ## 4. Implement
 
-Navigate in `navigation`'s bounded order (shared file above). Start from
-`navigation.shortlist` when it is there, or `ambicode locate <term>...` to get
-one. **The shortlist is a hypothesis, not an answer:** confirm each candidate
-before editing it, and say in Evidence which candidates you confirmed, which
-you rejected, and which files you needed from outside it. Record either
-`Navigation: LSP — <operations used>` or
-`Navigation: targeted-search fallback — <specific reason>` for Evidence;
-installed or recommended alone is not evidence of use. A broad search is
-allowed and is reported with its reason.
+Navigate in `navigation`'s bounded order, starting from
+`navigation.shortlist` or `ambicode locate <term>...`. The shared file owns
+the shortlist discipline; Evidence records its confirmed/rejected/outside-it
+breakdown and the navigation evidence line
+(`Navigation: LSP — …` or `Navigation: targeted-search fallback — …`).
 
 **Before adding a helper, adapter, dependency, validator, parser, or other
 abstraction, search for the existing implementation and inspect current

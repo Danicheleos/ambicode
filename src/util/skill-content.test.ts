@@ -382,32 +382,41 @@ describe('P2.2/P2.3 shipped skill content', () => {
   });
 
   it('makes LSP-first navigation observable instead of silently claiming or skipping it', async () => {
+    // I4 dedup: each skill keeps the two evidence tokens its report format
+    // needs; the shared file owns the discipline around them (installed or
+    // recommended is not use, a broad search is reported with its reason).
     for (const name of ['plan', 'investigate', 'task']) {
       const content = await readFile(path.join(SKILLS_DIR, name, 'SKILL.md'), 'utf8');
       assert.match(content, /`navigation`/, `${name}/SKILL.md must read prepare's navigation contract`);
       assert.match(content, /Navigation: LSP/);
       assert.match(content, /targeted-search fallback/);
-      assert.match(content, /installed or recommended alone/i);
     }
+    const shared = (await readFile(path.join(SKILLS_DIR, 'shared', 'prepare-output.md'), 'utf8')).replace(
+      /\s+/g,
+      ' ',
+    );
+    assert.match(shared, /Navigation: LSP — <operations used>/);
+    assert.match(shared, /Navigation: targeted-search fallback — <specific reason>/);
+    assert.match(shared, /installed or recommended alone/i);
+    assert.match(shared, /broad search is allowed and is reported with its reason/i);
   });
 
-  it('starts task and investigate from the boundary shortlist, and treats it as a hypothesis rather than an answer (R4)', async () => {
+  it('starts task and investigate from the boundary shortlist, and points at the shared shortlist discipline (R4, I4)', async () => {
+    // I4 dedup: the hypothesis/confirm/rejected/outside-it discipline lives
+    // once, in the shared file (asserted below); each skill starts from the
+    // shortlist and names the shared ownership.
     for (const name of ['investigate', 'task']) {
       const content = (await readFile(path.join(SKILLS_DIR, name, 'SKILL.md'), 'utf8')).replace(/\s+/g, ' ');
       assert.match(content, /navigation\.shortlist/, `${name}/SKILL.md must start from the shortlist`);
-      assert.match(
-        content,
-        /shortlist is a hypothesis, not an answer/i,
-        `${name}/SKILL.md must not present the shortlist as the answer`,
-      );
-      assert.match(content, /confirm each candidate/i, `${name}/SKILL.md`);
-      // Which candidates held, which did not, and what came from outside the
-      // list: without that the shortlist is unfalsifiable.
-      assert.match(content, /rejected/i, `${name}/SKILL.md`);
-      assert.match(content, /outside it/i, `${name}/SKILL.md`);
-      // A broad search stays allowed; it is reported, not forbidden.
-      assert.match(content, /broad search is\s*allowed and is reported with its reason/i, `${name}/SKILL.md`);
+      assert.match(content, /shared file owns the shortlist discipline/i, `${name}/SKILL.md`);
     }
+    const shared = (await readFile(path.join(SKILLS_DIR, 'shared', 'prepare-output.md'), 'utf8')).replace(/\s+/g, ' ');
+    assert.match(shared, /hypothesis, not an answer/i);
+    assert.match(shared, /confirm each candidate/i);
+    // Which candidates held, which did not, and what came from outside the
+    // list: without that the shortlist is unfalsifiable.
+    assert.match(shared, /rejected/i);
+    assert.match(shared, /outside it/i);
   });
 
   it('documents the shortlist once, in the shared file every authoring skill reads (R4)', async () => {
@@ -463,7 +472,11 @@ describe('P2.3 task skill', () => {
     assert.match(content, /ambicode prepare --activity task/);
     assert.match(content, /ambicode review/);
     assert.match(content, /do not create a second task-specific check selector, runner, or reviewer/i);
-    assert.match(content, /do not build a second requirement parser, policy resolver, or config\s+reader for tasks/i);
+    // I4 dedup: the no-second-parser rule lives once, in the shared file;
+    // task names the shared ownership beside its ambiguous-project line.
+    assert.match(content, /no-second-parser/i);
+    const shared = await readFile(path.join(SKILLS_DIR, 'shared', 'prepare-output.md'), 'utf8');
+    assert.match(shared, /do not build a second requirement parser, policy resolver, or configuration\s+reader/i);
   });
 
   it('refuses ambiguous monorepository project selection instead of guessing', async () => {

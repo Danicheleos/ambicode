@@ -60,23 +60,26 @@ const MAX_COMPACT_PREPARE_WITH_SHORTLIST_BYTES = 10_400;
  * leave the discipline unstated, which is how a hypothesis turns into an
  * answer.
  */
+// I4 lowered every ceiling its dedup pass shrank, so the gains cannot
+// silently erode: review lost its inline outcome catalogue (now
+// review/references/outcomes.md), rules its field-by-field pack reference
+// (now rules/references/pack-format.md), and investigate/plan/task their
+// copies of the shortlist, navigation-evidence, ambiguous-project and
+// no-second-parser blocks. prepare-output.md was raised deliberately by the
+// ~330 bytes of navigation-evidence text it now owns for everyone. The
+// references/ files carry no ceiling here: they are read on demand, not on
+// every call, which is the cost this test guards.
 const MAX_SKILL_BYTES: Record<string, number> = {
   'init/SKILL.md': 4_200,
-  'investigate/SKILL.md': 7_600,
-  'plan/SKILL.md': 10_400,
-  // Raised from 11,800 in the F1-F7 fix pass, deliberately and by 100 bytes.
-  // The file gained `--only`, the `nothing-to-review` outcome and the
-  // context-bound omission; three passes of tightening its own new text plus
-  // cutting two genuine repetitions (GitHub stated in three places, `ambicode
-  // view` in two) recovered most but not all of it.
-  'review/SKILL.md': 11_900,
-  'task/SKILL.md': 10_500,
+  'investigate/SKILL.md': 7_100,
+  'plan/SKILL.md': 9_900,
+  'review/SKILL.md': 9_300,
+  'task/SKILL.md': 10_200,
   // R3: a setup-time skill, invoked by name and never on a per-call path, so
   // its ceiling is about staying disciplined rather than about per-call cost.
-  // It is the longest because it is the only skill that has to teach a format.
-  'rules/SKILL.md': 11_600,
+  'rules/SKILL.md': 10_000,
   'shared/requirements-mcp.md': 5_600,
-  'shared/prepare-output.md': 4_700,
+  'shared/prepare-output.md': 5_100,
 };
 
 const PACK_A = [

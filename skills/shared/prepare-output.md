@@ -66,6 +66,15 @@ debugging. It is not the shape to read routinely.
   pinned and what is worth saying out loud. An empty list is omitted rather
   than emitted.
 
+## Navigation evidence in your report
+
+One line —
+`Navigation: LSP — <operations used>` or
+`Navigation: targeted-search fallback — <specific reason>` — plus which
+shortlist candidates were confirmed, which rejected, and what came from
+outside the list. Installed or recommended alone is not evidence of use,
+and a broad search is allowed and is reported with its reason.
+
 ## Failures
 
 - `ambiguous-project` means this repository configures more than one project
