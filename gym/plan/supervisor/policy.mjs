@@ -38,7 +38,7 @@ function unquote(t) {
 /** Paths a command writes: redirect targets, and the file arguments of known writing verbs. Variables are not resolved. */
 export function writeTargets(raw) {
   // A heredoc body read by cat/tee/git is data: R1 session 0469c51a was denied for "<dir>/<case>/run-<k>.json" in a brief.
-  const command = stripDataHeredocs(raw);
+  const command = stripDataHeredocs(raw, true);
   const targets = [];
   for (const m of command.matchAll(/(?:^|[^<0-9&>])>{1,2}\s*([^\s;&|<>]+)/g)) targets.push(unquote(m[1]));
   for (const segment of command.split(/&&|\|\||[;|\n]/)) {
@@ -150,14 +150,18 @@ function kill(rule, reason) {
 const AT_COMMAND = String.raw`(?:^|[\n;&|(\x60]|\$\()\s*(?:(?:then|do|else|!|\{|env(?:\s+\w+=\S*)*|nohup|time|exec|command|nice)\s+)*`;
 const atCommand = (words) => String.raw`${AT_COMMAND}(?:${words})(?=\s|$|[;&|)])`;
 
-/** Heredoc bodies read by cat, tee or git are data (notes, commit messages); a body fed to a shell or interpreter stays code. */
-export function stripDataHeredocs(c) {
+/**
+ * Heredoc bodies read by cat, tee or git are data (notes, commit messages); a body fed to a shell or interpreter stays code.
+ * Redirect scanning passes shellOnly: node/python code is not shell, so its `=>` or `>` is no redirect (R1 session 8 denial).
+ */
+export function stripDataHeredocs(c, shellOnly = false) {
   const lines = c.split('\n');
   const out = [];
   for (let i = 0; i < lines.length; i++) {
     out.push(lines[i]);
     const m = /<<-?\s*(['"]?)([A-Za-z_]\w*)\1/.exec(lines[i]);
-    if (!m || /(^|[\s;&|(])((ba|z|da|k)?sh|python\d*|node|ruby|perl|osascript|eval|source|sudo|ssh)\b/.test(lines[i])) continue;
+    const code = shellOnly ? /(^|[\s;&|(])((ba|z|da|k)?sh|eval|source|sudo|ssh)\b/ : /(^|[\s;&|(])((ba|z|da|k)?sh|python\d*|node|ruby|perl|osascript|eval|source|sudo|ssh)\b/;
+    if (!m || code.test(lines[i])) continue;
     let j = i + 1;
     while (j < lines.length && lines[j].replace(/^\t+/, '') !== m[2]) j++;
     if (j < lines.length) {

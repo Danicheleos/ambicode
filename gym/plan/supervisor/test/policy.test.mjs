@@ -48,6 +48,9 @@ describe('guard policy: what the lead may run', () => {
     'echo "the guard may halt or shutdown the session" > /tmp/note.txt',
     // Session 0469c51a was denied for "`<dir>/<case>/run-<k>.json`" inside a brief: heredoc text is not a redirect.
     "cat > gym/runs/c1/it-005/brief.md <<'EOF'\n1. `--keep-runs <dir>` writes `<dir>/<case>/run-<k>.json` = `{case, run}` -> / and >= 2 runs\nEOF",
+    // R1 session 8 was denied for an arrow function in a read-only node script: interpreter code is not shell.
+    "node - <<'EOF'\nconst fs=require('fs');\nconsole.log(fs.readdirSync('.').filter(f=>/^run-\\d+\\.json$/.test(f)).sort().map(f=>f))\nEOF",
+    "python3 - <<'EOF'\nprint([x for x in range(3) if 2>1 and x>0])\nEOF",
   ];
   for (const command of allowed) it(`allows: ${command.split('\n')[0]}`, () => assert.equal(level(bash(command)), 'allow'));
 
@@ -63,6 +66,7 @@ describe('guard policy: what the lead may run', () => {
     ['echo x > /Users/owner/notes.txt', 'deny:write-outside-roots'],
     ["cat > /Users/owner/notes.txt <<'EOF'\nhello\nEOF", 'deny:write-outside-roots'],
     ["bash <<'EOF'\necho x > /Users/owner/notes.txt\nEOF", 'deny:write-outside-roots'],
+    ["node - <<'EOF' > /Users/owner/out.txt\nconsole.log(1)\nEOF", 'deny:write-outside-roots'],
     ['cat /Users/owner/inseer/frontend/src/app.ts', 'deny:forbidden-repo'],
     ['ls ~/.claude/projects', 'deny:claude-home'],
     ['rm -rf node_modules', 'deny:protected-delete'],
