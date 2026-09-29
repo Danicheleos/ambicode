@@ -143,6 +143,24 @@ describe('supervisor loop against a stub claude', () => {
     } finally { s.cleanup(); }
   });
 
+  it('sleeps through a subscription session limit instead of halting (R1 sessions 7-9)', () => {
+    const limited = { exitCode: 1, isError: true, apiErrorStatus: 429, resultText: "You've hit your session limit · resets 9:20am (Europe/Warsaw)", phase: 'measure', tokens: 1 };
+    const s = scenario([limited, limited, limited, { phase: 'measure', tokens: 1 }, { status: 'done' }]);
+    try {
+      assert.equal(s.r.status, 0, s.r.stdout + s.r.stderr);
+      assert.deepEqual(s.decisions, ['sleep', 'sleep', 'sleep', 'resume', 'exit']);
+    } finally { s.cleanup(); }
+  });
+
+  it('counts a resumed session once: total_cost_usd is cumulative per session id', () => {
+    // R1 sessions 6-8 resumed one id; each reported 18.168202099999995 and the ledger tripled it.
+    const s = scenario([{ exitCode: 1, isError: true, phase: 'measure', tokens: 1, cost: 10 }, { cost: 12, status: 'done' }]);
+    try {
+      assert.deepEqual(s.decisions, ['resume', 'exit']);
+      assert.equal(JSON.parse(readFileSync(path.join(s.campaign, 'supervisor', 'state.json'), 'utf8')).spentUsd, 12);
+    } finally { s.cleanup(); }
+  });
+
   it('does not sleep when a healthy session merely mentions a rate limit', () => {
     const s = scenario([{ phase: 'handoff', tokens: 320_000, progress: true, resultText: 'noted: rate limit on eval runs' }, { status: 'done' }]);
     try { assert.deepEqual(s.decisions, ['fresh', 'exit']); } finally { s.cleanup(); }

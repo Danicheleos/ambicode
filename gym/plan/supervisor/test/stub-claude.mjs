@@ -21,5 +21,5 @@ if (step.status) writeFileSync(path.join(campaign, 'CAMPAIGN.md'), `status: ${st
 if (step.kill) writeFileSync(path.join(state, 'KILL'), JSON.stringify({ at: 'now', event: 'PreToolUse', rule: step.kill, reason: 'test', sessionId, agentId: null, tool: 'Bash', input: 'x' }));
 if (step.sleepMs) await new Promise((r) => setTimeout(r, step.sleepMs));
 process.stdout.write(JSON.stringify({ type: 'system', subtype: 'init', session_id: sessionId }) + '\n');
-if (!step.noResult) process.stdout.write(JSON.stringify({ type: 'result', subtype: step.isError ? 'error' : 'success', is_error: step.isError === true, total_cost_usd: step.cost ?? 0.01, result: step.resultText ?? '' }) + '\n');
+if (!step.noResult) process.stdout.write(JSON.stringify({ type: 'result', subtype: step.isError ? 'error' : 'success', is_error: step.isError === true, total_cost_usd: step.cost ?? 0.01, result: step.resultText ?? '', ...(step.apiErrorStatus ? { api_error_status: step.apiErrorStatus } : {}) }) + '\n');
 process.exit(step.exitCode ?? 0);

@@ -10,7 +10,7 @@ import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSyn
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parsePhase, superviseDecision } from './policy.mjs';
+import { parsePhase, superviseDecision, usageLimitWaitMinutes } from './policy.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const POLL_MS = 2_000;
@@ -50,6 +50,7 @@ function loadConfig(opts) {
     idleMinutes: num(opts.idleMinutes, defaults.idleMinutes),
     maxSessions: num(opts.maxSessions, Infinity),
     sleepMinutes: opts.sleepSeconds !== undefined ? [Number(opts.sleepSeconds) / 60] : defaults.sleepMinutes,
+    fixedSleep: opts.sleepSeconds !== undefined,
     claudeBin: process.env.GYM_CLAUDE_BIN ?? 'claude',
     dryRun: opts.dryRun === true,
     resetViolations: opts.resetViolations === true,
@@ -252,7 +253,10 @@ function runSession(cfg, launch) {
         costUsd: typeof result?.total_cost_usd === 'number' ? result.total_cost_usd : 0,
         resultIsError: result === null ? reason === null : result.is_error === true,
         // Only a failed session is scanned: a healthy lead's report may mention limits in passing.
-        rateLimited: (code !== 0 || result === null || result.is_error === true) && /usage limit|rate limit|rate_limit|\b429\b|overloaded/i.test(text),
+        // A subscription says "You've hit your session limit" with api_error_status 429 (R1 sessions 7-9).
+        rateLimited: (code !== 0 || result === null || result.is_error === true) &&
+          (result?.api_error_status === 429 || /usage limit|session limit|hit your limit|rate limit|rate_limit|\b429\b|overloaded/i.test(text)),
+        waitMinutes: usageLimitWaitMinutes(text),
       });
     });
   });
@@ -340,7 +344,11 @@ async function run(cfg) {
     const outcome = await runSession(cfg, launch);
     state.sessions += 1;
     state.sessionId = outcome.sessionId;
-    state.spentUsd += outcome.costUsd;
+    // total_cost_usd of a resumed session is cumulative for its id: R1 sessions 6-8 each reported 18.168202099999995.
+    state.costBySession ??= {};
+    const prior = state.costBySession[outcome.sessionId] ?? 0;
+    state.spentUsd += outcome.costUsd >= prior ? outcome.costUsd - prior : outcome.costUsd;
+    state.costBySession[outcome.sessionId] = outcome.costUsd;
     const progressed = progressSignature(cfg) !== before;
     const killMarker = readJson(path.join(cfg.stateDir, 'KILL'), null);
     // A usage-limit window (5 h on a subscription) is waited out, not counted as a failed session.
@@ -391,7 +399,9 @@ async function run(cfg) {
       return 2;
     }
     if (decision.action === 'sleep') {
-      const minutes = cfg.sleepMinutes[Math.min(state.sleepIndex, cfg.sleepMinutes.length - 1)];
+      const minutes = !cfg.fixedSleep && outcome.waitMinutes !== null
+        ? outcome.waitMinutes
+        : cfg.sleepMinutes[Math.min(state.sleepIndex, cfg.sleepMinutes.length - 1)];
       state.sleepIndex += 1;
       writeFileSync(stateFile, JSON.stringify(state, null, 2) + '\n');
       log(cfg, { event: 'sleep', minutes, reason: decision.reason });

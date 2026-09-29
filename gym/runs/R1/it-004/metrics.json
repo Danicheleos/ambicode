@@ -1,0 +1,24 @@
+{
+  "iteration": "it-004",
+  "commit": "2f4376e (no plugin change; git diff gym/R1/it-003 -- . ':!gym' empty)",
+  "pluginVersion": "0.3.4",
+  "capturedAt": "2026-09-29T06:30:00Z",
+  "models": { "agent": null, "reviewer": null, "judge": null, "worker": "claude-sonnet-5-5" },
+  "G1": { "exit": 0, "tests": 776, "pass": 775, "fail": 0, "skipped": 1, "log": "verify.log" },
+  "G2": { "exit": 0, "zipSha256": "bee92a9a930c0cb4701473541c02ae910697df039f03a07cd69c7789e5487033", "note": "identical to it-003" },
+  "G3": { "exit": 0, "files": 505 },
+  "T1": null,
+  "T2": null,
+  "T3": null,
+  "T4": null,
+  "investigation": {
+    "handoff": "handoffs/worker-1.md",
+    "envelopeCarriesToolCalls": "no evidence in the repo: reviewer runs --output-format json (claude-reviewer.ts:266-267); only num_turns is per-call information",
+    "archivedReviewerTurns": [14, 3, 2],
+    "options": ["A stream-json + tool_use count (unverified shape; needs one paid capture for a fixture)", "B infer upper bound from num_turns (keeps every contract)", "C reviewer self-reports filesRead (untrusted; re-record all T3)", "D recorder usage sidecar (measurement only)"],
+    "recommendation": "WP3 item 2: B as an inferred upper bound + D; A only after a budgeted real capture",
+    "costDrop": "unexplained from files: no reviewer code/default change between eras; 0.3.3 recordings ran from uncommitted state; recordings store no usage"
+  },
+  "costUsd": 0,
+  "notes": "T1/T2/T3 skipped: no plugin change. T4: no human cycle. costUsd is eval spend (none); session costs are counted by the supervisor."
+}

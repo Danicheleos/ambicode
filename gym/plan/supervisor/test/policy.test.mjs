@@ -9,6 +9,7 @@ import {
   parsePhase,
   stopDecision,
   superviseDecision,
+  usageLimitWaitMinutes,
   writeTargets,
 } from '../policy.mjs';
 
@@ -195,6 +196,20 @@ describe('stop hook: safe points only', () => {
     assert.equal(stopDecision({ ...base, phase: 'measure', tokens: 1, stopHookActive: true }), null);
     assert.equal(stopDecision({ ...base, phase: 'measure', tokens: 1, stopFile: true }), null);
     assert.equal(stopDecision({ ...base, phase: 'measure', tokens: 1, campaignStatus: 'done' }), null);
+  });
+});
+
+describe('usage-limit reset time', () => {
+  const text = "You've hit your session limit · resets 9:20am (Europe/Warsaw)";
+  it('waits until the stated reset in the stated zone, plus a margin', () => {
+    // 06:06:52Z is 08:06:52 in Warsaw (CEST): 73 min 8 s to 09:20.
+    assert.equal(usageLimitWaitMinutes(text, new Date('2026-09-29T06:06:52Z')), 76);
+    assert.equal(usageLimitWaitMinutes('resets 12pm (America/New_York)', new Date('2026-09-29T15:30:00Z')), 32);
+    assert.equal(usageLimitWaitMinutes('limit · resets 12am (UTC)', new Date('2026-09-29T23:00:00Z')), 62);
+  });
+  it('returns null without a reset time, or when it lies beyond one 5-hour window', () => {
+    assert.equal(usageLimitWaitMinutes('Claude usage limit reached', new Date()), null);
+    assert.equal(usageLimitWaitMinutes(text, new Date('2026-09-29T07:30:00Z')), null);
   });
 });
 

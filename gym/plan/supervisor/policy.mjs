@@ -312,6 +312,26 @@ export function stopDecision({ phase, tokens, soft, stopHookActive, stopFile, ca
   return null;
 }
 
+// The limit lifts on the stated minute; relaunching two minutes later avoids a second 429 at the boundary.
+const USAGE_RESET_MARGIN_MIN = 2;
+
+/** Minutes until a stated usage-limit reset ("resets 9:20am (Europe/Warsaw)"), with the margin; null if absent or beyond one 5-hour window. */
+export function usageLimitWaitMinutes(text, now = new Date()) {
+  const m = /resets\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b(?:\s*\(([^)]+)\))?/i.exec(text ?? '');
+  if (!m) return null;
+  const target = ((Number(m[1]) % 12) + (m[3].toLowerCase() === 'pm' ? 12 : 0)) * 60 + Number(m[2] ?? 0);
+  const clock = { hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' };
+  let parts;
+  try {
+    parts = new Intl.DateTimeFormat('en-GB', { ...clock, timeZone: m[4] }).formatToParts(now);
+  } catch {
+    parts = new Intl.DateTimeFormat('en-GB', clock).formatToParts(now);
+  }
+  const get = (type) => Number(parts.find((p) => p.type === type).value);
+  const wait = (target - (get('hour') * 60 + get('minute') + get('second') / 60) + 1440) % 1440;
+  return wait > 300 ? null : Math.ceil(wait) + USAGE_RESET_MARGIN_MIN;
+}
+
 /**
  * Supervisor decision after a lead session ends. Pure: the caller supplies the observed state.
  * Returns { action: 'exit'|'halt'|'fresh'|'resume'|'sleep', reason, rollback?: boolean }.
