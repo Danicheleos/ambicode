@@ -32,3 +32,12 @@ Where: `gym/runs/R1/archive/gym__planing__investigation__cache__VS-6735/reviews/
 
 Needed for: WP4's T4 baseline "findings about later plan iterations" (01 §3 T4: 4 of 6 by the audit, a single judgement, not yet a human label) and cp-4 ("later-iteration findings ≤ 1 of N (human label or documented heuristic)").
 Default if unanswered by it-005: rubric class `correct-but-inert` (does not count as recall, 02 §6), and `laterIteration` = the audit's judgement, with L-003 counted as false. That gives the WP4 baseline 4 of 6, marked "audit judgement, not a human label" in every decision that uses it.
+
+## L-009  (asked after cp-1, 2026-09-29)
+Question: WP2 cannot be decided within the $150 ceiling. Which of these do you want?
+(a) Raise the ceiling. One WP2 iteration costs ≈ $85: T2 screening ≈ $19.7 + T2 decision ≈ $59.0 (from the baseline's measured per-run costs: localize with $0.544 × 30, without $0.418 × 30, review with $0.630 × 24, without $0.627 × 24) + preflight $0.40 + worker/lead ≈ $5. A ceiling of **≥ $190** covers one WP2 iteration; WP2 + WP3 + WP4 at one iteration each need **≥ $375**. Answer with the number.
+(b) Keep $150 and end cycle 1 at cp-1. The remaining ≈ $55 stays unspent.
+(c) Approve a cheaper T2 control for WP2 through a replan (09 §2, human confirmation needed for R1/R7). For example, 3 runs/arm on the localize arm only (≈ $29), with review recall control carried from cp-0. This changes measurement mechanics and weakens the control, so it needs your line.
+Why: spend is ≈ $80.4 of $150 (`cp-1.md`); the stop is $135, so ≈ $54.6 remains. WP2's row requires T2 as a must-not-move control (01 §4), and a control decision needs ≥ 3 runs/arm (02 §5). WP2's claimed metric (T4: fabricated provenance 4/4 → 0) moves only with a human-run cycle after the change (01 §3 T4), so WP2 also needs you to run one VS-* cycle with the new build before it can be accepted.
+Needed for: WP2 (next in order), and hence WP3 and WP4 (01 §4 order).
+Default if unanswered: (b). Nothing more is spent. The lead stays `blocked`; the supervisor exits on that phase (10 §4 row 7).
