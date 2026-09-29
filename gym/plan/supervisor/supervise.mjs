@@ -330,8 +330,10 @@ async function run(cfg) {
     state.sessionId = outcome.sessionId;
     state.spentUsd += outcome.costUsd;
     const progressed = progressSignature(cfg) !== before;
-    state.consecutiveFailures = progressed ? 0 : state.consecutiveFailures + 1;
     const killMarker = readJson(path.join(cfg.stateDir, 'KILL'), null);
+    // A usage-limit window (5 h on a subscription) is waited out, not counted as a failed session.
+    const waitedOut = outcome.rateLimited && !killMarker;
+    state.consecutiveFailures = progressed ? 0 : waitedOut ? state.consecutiveFailures : state.consecutiveFailures + 1;
     const context = readJson(path.join(cfg.stateDir, 'context.json'), {});
 
     const decision = superviseDecision({

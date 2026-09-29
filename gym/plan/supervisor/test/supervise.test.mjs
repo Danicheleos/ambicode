@@ -108,6 +108,15 @@ describe('supervisor loop against a stub claude', () => {
     } finally { s.cleanup(); }
   });
 
+  it('usage-limit sessions do not count toward the no-progress halt', () => {
+    const limited = { exitCode: 1, isError: true, resultText: 'Claude usage limit reached', phase: 'measure', tokens: 1 };
+    const s = scenario([limited, limited, limited, { phase: 'measure', tokens: 1 }, { status: 'done' }]);
+    try {
+      assert.equal(s.r.status, 0, s.r.stdout + s.r.stderr);
+      assert.deepEqual(s.decisions, ['sleep', 'sleep', 'sleep', 'resume', 'exit']);
+    } finally { s.cleanup(); }
+  });
+
   it('does not sleep when a healthy session merely mentions a rate limit', () => {
     const s = scenario([{ phase: 'handoff', tokens: 320_000, progress: true, resultText: 'noted: rate limit on eval runs' }, { status: 'done' }]);
     try { assert.deepEqual(s.decisions, ['fresh', 'exit']); } finally { s.cleanup(); }
