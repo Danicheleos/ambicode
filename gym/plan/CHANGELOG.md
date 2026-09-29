@@ -86,3 +86,24 @@
 ### Not revised (owner's call)
 
 - The T3 floor is 0.0 (it-006 A/A, be-vs-6261), so T3 stability stays reported-only; a different floor is a threshold change (03 §2) and is not in this revision. Stale text listed under R-1 stays stale. L-013 (d) not answered: no new T1 case.
+
+## R-3 (2026-09-29, trigger R7)
+
+**01-goals-and-metrics.md**
+
+- R-3 header: `Supersedes` names the R-2 digest. Evidence: `labels.json` L-015, 2026-09-29T11:58:24.482Z; `gym/runs/R1/replan/R-3-2026-09-29T11-59-31Z.md`.
+- §4 WPH row, H2-repair: "the prompt of `p2-task-regression-fix` asks for the change with 'implement the fix'" -> the prompt names the ambicode task skill ("Find it. Use the ambicode task skill to implement the fix, and verify the fix."); `plugin-fired` and `helper-ran` stay required and test the skill's mechanics, not whether it triggers (T1's job); still-failing preflight: B2 stop with no fallback to dropping a grader or gating on `regression-ts` alone without a new owner label; after a Sonnet pass one Opus preflight; claims add "then one Opus preflight that passes"; seam note "its wording fixed by R-3". Evidence: `labels.json` L-015, 2026-09-29T11:58:24.482Z; it-008 preflight 2 of 2 failed on "implement the fix" (`gym/runs/R1/it-008/decision.md`).
+
+**02-loop-protocol.md**
+
+- R-3 header and §3.2 template: `Supersedes` names the R-2 digest; `Plan revision: R-2` -> `Plan revision: R-3`. Evidence: `labels.json` L-015, 2026-09-29T11:58:24.482Z; `gym/runs/R1/replan/R-3-2026-09-29T11-59-31Z.md`.
+- §3.3: the R-2 allowance for `p2-task-regression-fix/prompt.md` (wording not fixed; R-2's rationale was the verb "implement") -> the wording is fixed: "Find it, fix it, and verify the fix." becomes "Find it. Use the ambicode task skill to implement the fix, and verify the fix.", nothing else in the file changes; other eval case files still need their own confirmed replan. Evidence: `labels.json` L-015, 2026-09-29T11:58:24.482Z ("This wording is outside R-2's allowance (it names 'implement' only)"); it-008 preflight 2 of 2 failed on "implement the fix" (`gym/runs/R1/it-008/decision.md`).
+- §3.5 step 2: (R-2 text) -> plus: the prompt names the skill, so `plugin-fired` and `helper-ran` of that case measure the skill's mechanics, never trigger evidence (T1's job); a still-failing preflight is a B2 stop that also forbids gating on `regression-ts` alone and editing the prompt again, until a new owner label; after a Sonnet pass the Opus preflight runs once before H2-T2. Evidence: `labels.json` L-015, 2026-09-29T11:58:24.482Z.
+
+**README.md**
+
+- Revisions table: (rows rev 0, rev 1, rev 2) -> added row rev 3 (2026-09-29, trigger R7: L-015 b; planDigest after computed by the owner after apply). Evidence: `labels.json` L-015, 2026-09-29T11:58:24.482Z; `gym/runs/R1/replan/R-3-2026-09-29T11-59-31Z.md`.
+
+### Not revised (owner's call)
+
+- `unit-check-ran` on Sonnet stays a NOTE (L-013 a, R-2); if it passes on the first Sonnet preflight after this change, the iteration's decision says so and restoring the gate is the owner's call (03 §2). Stale text listed under R-1 stays stale; no T1 case (L-013 d default); the T3 floor is untouched.

@@ -67,9 +67,11 @@ for a blocker.
 | 0 | 2026-09-28 | initial | — → (computed by the lead at iteration 0: `sha256sum gym/plan/*.md \| sha256sum`) | — |
 | 1 | 2026-09-29 | R7 (L-011, L-012, owner-directive-1) | ca5d65f2... -> (computed by the owner after apply) | T3 count withdrawn as a control, medium+ stability added; T4p proxy planned; T2 decision sweeps only at checkpoints; Sonnet 5.5 baseline cp-S0; budget $400; context 150k/200k |
 | 2 | 2026-09-29 | R7 (L-013 a+b) | a7feb66f... -> (computed by the owner after apply) | preflight repair for Sonnet: case prompt of p2-task-regression-fix names "implement", its unit-check-ran is a NOTE on Sonnet, H2 split into measure/repair/T2; 02 §3.3 exception for that one file |
+| 3 | 2026-09-29 | R7 (L-015 b) | c7d037a1... -> (computed by the owner after apply) | preflight repair, second wording: the case prompt of p2-task-regression-fix names the ambicode task skill (it-008 showed "implement the fix" does not fire it on Sonnet); plugin-fired and helper-ran stay required and test mechanics, not triggering; still-failing preflight is a B2 stop with no fallback without a new label; one Opus preflight after a Sonnet pass |
 
 ## Changes
 
 - Files table, row 10-supervisor.md: "context budget 300k/500k" -> "context budget 150k/200k". Evidence: `labels.json` owner-directive-1, 2026-09-29T09:23:24.943Z (item 3).
 - Revisions table: (one row, rev 0) -> added row rev 1 (2026-09-29, trigger R7: L-011, L-012, owner-directive-1; planDigest after computed by the owner after apply). Evidence: `gym/plan/09-replan.md` §3 (README keeps the Revisions table); `gym/runs/R1/replan/R-1-2026-09-29T09-30-00Z.md`.
 - Revisions table: (rows rev 0, rev 1) -> added row rev 2 (2026-09-29, trigger R7: L-013 a+b; planDigest after computed by the owner after apply). Evidence: `labels.json` L-013, 2026-09-29T11:00:46.395Z; `gym/runs/R1/replan/R-2-2026-09-29T11-08-14Z.md`.
+- Revisions table: (rows rev 0, rev 1, rev 2) -> added row rev 3 (2026-09-29, trigger R7: L-015 b; planDigest after computed by the owner after apply). Evidence: `labels.json` L-015, 2026-09-29T11:58:24.482Z; `gym/runs/R1/replan/R-3-2026-09-29T11-59-31Z.md`.

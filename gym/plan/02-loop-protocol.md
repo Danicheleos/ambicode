@@ -1,6 +1,6 @@
 # 02 — Loop protocol
 
-Supersedes: gym/plan/02-loop-protocol.md @ a7feb66fef5cf1d2ecff7ba3aee4eb57e6e8f217c64abc2a21bd7f1e81c9ca5f (replan R-2; R-1's Changes stay below, R-2's follow them)
+Supersedes: gym/plan/02-loop-protocol.md @ c7d037a1911594eb921dbc9890437b1f1f3e8108b98002c48f5b10550d406317 (replan R-3; R-1's and R-2's Changes stay below, R-3's follow them)
 
 One evaluate → improve → evaluate iteration, step by step. Metric ids and commands are in
 [01-goals-and-metrics.md](01-goals-and-metrics.md); file locations in
@@ -47,7 +47,7 @@ allowed; merging two WPs into one iteration is not.
 
 ```markdown
 # it-NNN — <one line>
-Plan revision: R-2
+Plan revision: R-3
 WP: WP2   Seam: src/cli/commands/prepare.ts:446-454, src/snapshot/snapshot.ts:56-87
 Claim: T4 refused launches 1/session → 0; G1 tests +2
 Must not move: T2 localize F1 (control), T1
@@ -64,8 +64,11 @@ The brief is committed BEFORE the first measure step, so git shows the order (au
 `version`. New behaviour ships with its test (CLAUDE.md "New behaviour ships with its
 test"). R-2 (owner, L-013 b) allows one file outside this list:
 `evals/evals-archived/typescript/p2-task-regression-fix/prompt.md`, in the iteration that
-repairs the preflight; any other eval case file (`prompt.md`, `case.yaml`, `graders/`) needs
-the same route, an owner-confirmed replan that names it. Use a worker in a worktree
+repairs the preflight. R-3 (owner, L-015 b) fixes its wording: the task sentence "Find it, fix
+it, and verify the fix." becomes "Find it. Use the ambicode task skill to implement the fix,
+and verify the fix." and nothing else in the file changes. Any other eval case file
+(`prompt.md`, `case.yaml`, `graders/`) needs the same route, an owner-confirmed replan that
+names it. Use a worker in a worktree
 ([04 §3](04-orchestration.md#3-workers)) or the
 `/ambicode:task` skill; the lead never edits `src/` itself ([04 §1](04-orchestration.md#1-lead)).
 
@@ -75,7 +78,7 @@ every structural edit; run the full suite before saying done" (CLAUDE.md).
 
 **3.5 Measure.** Exactly what the brief listed, in this order, each into `metrics.json`:
 1. T1 if `skills/*/SKILL.md` frontmatter, `hooks/`, or `src/hook/` changed; else `null` with `notes: "T1 skipped: no trigger surface touched"`.
-2. `npm run evals:preflight` before any T2 (refuses when the plugin does not fire; $0.4–0.7). `plugin-fired` and `helper-ran` are required for both preflight cases, on every model. On Sonnet (the result's own `suite.modelOverride`), `unit-check-ran` of `p2-task-regression-fix` is printed as a NOTE with its observed state and is not gated (R-2, L-013 a). A preflight that still fails after that repair is a B2 stop: the lead reports it, files a label, and neither drops another grader nor runs T2 behind it.
+2. `npm run evals:preflight` before any T2 (refuses when the plugin does not fire; $0.4–0.7). `plugin-fired` and `helper-ran` are required for both preflight cases, on every model. On Sonnet (the result's own `suite.modelOverride`), `unit-check-ran` of `p2-task-regression-fix` is printed as a NOTE with its observed state and is not gated (R-2, L-013 a). The prompt of `p2-task-regression-fix` names the ambicode task skill (R-3, L-015 b), so its `plugin-fired` and `helper-ran` measure the skill's mechanics once called, not whether the description makes it fire; T1 is the trigger metric, and a passing preflight is never read as trigger evidence. A preflight that still fails after that repair is a B2 stop: the lead reports it, files a label, and neither drops another grader, nor gates on `regression-ts` alone, nor edits the prompt again, nor runs T2 behind it; only a new owner label changes that. After a Sonnet pass, the Opus preflight runs once before H2-T2 (the new prompt has not been seen by an Opus run).
 3. T2 screening at 1 run/arm on Sonnet for every iteration that touches a seam a T2 case can see. If the with-arm is worse than the Sonnet baseline minus 0.05 on the claimed or control metric, stop here: the iteration is a reject (no sweep is spent on a change that already lost). If not worse, do NOT run a 3-run sweep in the iteration: the verdict is a provisional accept (§5) and the 3 runs/arm decision sweep runs at the next checkpoint ([03 §1](03-checkpoints-and-gates.md#1-checkpoints)). An iteration whose brief claims a T2 metric that a screening cannot decide (claimed movement smaller than 0.05) is brought forward: run the 3 runs/arm sweep in that iteration.
 4. T3 re-record only if `prompts/`, `policies/` or `src/review/` changed: 3 recordings per case with the keep-runs option ([01 §3](01-goals-and-metrics.md#3-measured-metrics)); report the findings counts and the medium-and-above stability. T3 is not a control until the stability floor exists (01 §3).
 5. T4p when the brief claims a T4 metric and T4p exists (01 §3), else `null`; the human T4 only at cp-5 ([03 §1](03-checkpoints-and-gates.md#1-checkpoints)).
@@ -164,3 +167,6 @@ A label whose answer only a human cycle can give (L-010) does not gate an iterat
 - §3.3: (list of allowed paths only) -> plus one named eval case file, `evals/evals-archived/typescript/p2-task-regression-fix/prompt.md`, and the rule that any other eval case file needs an owner-confirmed replan naming it. Evidence: `labels.json` L-013, 2026-09-29T11:00:46.395Z; `gym/runs/R1/replan/R-2-2026-09-29T11-08-14Z.md`.
 - §3.5 step 2: preflight required graders unstated in the plan -> `plugin-fired` and `helper-ran` required for both cases on every model; on Sonnet `unit-check-ran` of `p2-task-regression-fix` is a NOTE with its observed state, not gated; a preflight that still fails after the repair is a B2 stop with a label, no further grader dropped, no T2 behind it. The relaxation is data-driven (`suite.modelOverride` of the result), so Opus stays strict. Evidence: `labels.json` L-013, 2026-09-29T11:00:46.395Z; `gym/runs/R1/replan/R-2-2026-09-29T11-08-14Z.md`.
 - §4 table: new row for eval case files (only the file a confirmed replan names; G1 + preflight). Evidence: `labels.json` L-013, 2026-09-29T11:00:46.395Z; `gym/runs/R1/replan/R-2-2026-09-29T11-08-14Z.md`.
+- R-3 header and §3.2 template: `Supersedes` names the R-2 digest; `Plan revision: R-2` -> `Plan revision: R-3`. Evidence: `labels.json` L-015, 2026-09-29T11:58:24.482Z; `gym/runs/R1/replan/R-3-2026-09-29T11-59-31Z.md`.
+- §3.3: the R-2 allowance for `p2-task-regression-fix/prompt.md` (wording not fixed; R-2's rationale was the verb "implement") -> the wording is fixed: "Find it, fix it, and verify the fix." becomes "Find it. Use the ambicode task skill to implement the fix, and verify the fix.", nothing else in the file changes; other eval case files still need their own confirmed replan. Evidence: `labels.json` L-015, 2026-09-29T11:58:24.482Z ("This wording is outside R-2's allowance (it names 'implement' only)"); it-008 preflight 2 of 2 failed on "implement the fix" (`gym/runs/R1/it-008/decision.md`).
+- §3.5 step 2: (R-2 text) -> plus: the prompt names the skill, so `plugin-fired` and `helper-ran` of that case measure the skill's mechanics, never trigger evidence (T1's job); a still-failing preflight is a B2 stop that also forbids gating on `regression-ts` alone and editing the prompt again, until a new owner label; after a Sonnet pass the Opus preflight runs once before H2-T2. Evidence: `labels.json` L-015, 2026-09-29T11:58:24.482Z.
