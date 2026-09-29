@@ -47,5 +47,11 @@
     "detail": "The owner restored benchmarks/reviewer-recordings.json from it-005/scratch/recordings-before.json (sha b4d778c9…, the it-003 record-3 state named in it-003/decision.md), the restore the guard denied you at 10:05:04Z (nda-data, correctly: only the owner writes NDA data). Only be-vs-5546 differed (the it-005 test record, 4 -> 5 findings); that version is kept as it-005/scratch/recordings-after-test-780cc016.json. Separately, your 09:49:32Z denial (write-outside-roots on the it-005 brief heredoc) was a guard false positive, now fixed; it still counts toward this session s 5.",
     "by": "owner planning session",
     "at": "2026-09-29T10:09:09.494Z"
+  },
+  "owner-note-2": {
+    "label": "recordings restored again",
+    "detail": "At your 10:45Z request and it-006 brief step 5: benchmarks/reviewer-recordings.json restored from it-005/scratch/recordings-before.json (sha b4d778c9…c12805) after both A/A sets finished. The pre-restore file (sha 5e69d54e…, after the A/A recordings) is kept as it-006/scratch/recordings-after-aa-5e69d54e.json. Any later evals:record run overwrites it again; say so in OWNER-INBOX before a T2 run and the owner restores.",
+    "by": "owner planning session",
+    "at": "2026-09-29T10:51:29.354Z"
   }
 }

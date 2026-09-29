@@ -64,3 +64,9 @@ Needed for: WP3 behaviour item, WP4, cp-3 to cp-5.
 Default if unanswered by it-006: (b). Only the WP3 investigation item ($0 eval) runs; the lead sets PHASE `blocked` afterwards.
 
 Status: answered 2026-09-29T08:54:57.804Z in labels.json (a, "400"). Ceiling $400, stop at $360 (90 %); budget checkpoints at $200 (50 %) and $300 (75 %). Applied to `CAMPAIGN.md` at it-004. The supervisor's `--budget-usd` is the owner's to restart with; the lead's own stop at $360 is operative until then.
+
+## L-013  (asked it-006, 2026-09-29)
+Question: The preflight fails on Sonnet, so H2's T2 (3 runs/arm) is gated. Which of these do you want? (a) Replan the preflight requirement for Sonnet: p2-task-regression-fix stays in the run, but its three graders (plugin-fired, helper-ran, unit-check-ran) are not required, because the T2 curated set has no task-skill case; regression-ts still gates. (b) Change the case prompt of p2-task-regression-fix so that it asks for the change with a verb the task skill's description names (for example "implement the fix"), which is a fixture change outside 02 section 3.3's list. (c) Keep the gate as it is: T2 on Sonnet never runs, cp-S0 is never tagged, and cycle 1 ends after H3. Separately: (d) do you want a T1 case for a bug-fix prompt without the word "implement" (the task skill did not fire on it in 4 of 4 Sonnet runs)? That changes T1's definition.
+Why: measured in it-006 (decision.md): 4 of 4 Sonnet preflights fail on that case, and the kept trace shows the agent fixing the bug directly without the Skill; regression-ts passes 4 of 4; T1 verb-implement fires the task skill 3 of 3 on Sonnet.
+Needed for: H2's T2 and cp-S0; every screening verdict from WP3 on (02 section 5 needs a Sonnet reference).
+Default if unanswered by it-008: (c). The gate stays; the lead runs H3 (no T2 needed), then sets PHASE blocked.
