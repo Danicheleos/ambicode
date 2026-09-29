@@ -1,7 +1,8 @@
 import type { FileSystem } from '../ports/filesystem.ts';
 import path from 'node:path';
-import { Document, isSeq, parseDocument, type YAMLMap, type YAMLSeq } from 'yaml';
+import { Document, isMap, isSeq, parseDocument, type YAMLMap, type YAMLSeq } from 'yaml';
 import type { AmbicodeConfig } from '../contracts/config.ts';
+import { AmbicodeError } from '../util/errors.ts';
 import { normalizeRelative } from '../util/paths.ts';
 import { CONFIG_FILE, DEFAULTS } from './defaults.ts';
 import { suggestedPacks, type DetectedProject } from './detect.ts';
@@ -22,9 +23,12 @@ export interface PlanInitOptions {
   detected: readonly DetectedProject[];
   baseline: string;
   baselineNotice: string;
+  /** `--mcp-server`: the server to pin `requirements.mcpServer` to; null or absent leaves it alone. */
+  mcpServer?: string | null;
 }
 
 export async function planInit(options: PlanInitOptions): Promise<InitPlan> {
+  if (options.mcpServer != null) requireServerName(options.mcpServer);
   const filePath = path.join(options.repositoryRoot, CONFIG_FILE);
   let existingRaw: string | null = null;
   try {
@@ -73,9 +77,28 @@ function ruleSourceNotice(sources: readonly string[]): string {
 const MCP_BINDING_NOTICE =
   'requirements.mcpServer is null: no Jira/Confluence MCP server is bound. Requirement-based review needs one named here. If more than one compatible server is connected, choose which of them this repository uses and write its name.';
 
+/** The binding is compared as an exact string, so a name that only differs by padding would never match. */
+function requireServerName(name: string): void {
+  if (name.trim() !== '' && name === name.trim()) return;
+  throw new AmbicodeError('bad-argument', '"--mcp-server" needs the exact name of the MCP server.', {
+    field: '--mcp-server',
+    details: [
+      'Give the server name as the session shows it, with no leading or trailing whitespace.',
+      'The name is compared to what a requirement envelope declares, character for character.',
+    ],
+  });
+}
+
+function pinnedChange(name: string): string {
+  return `Set "requirements.mcpServer: ${name}".`;
+}
+
 function createFresh(options: PlanInitOptions): InitPlan {
   const changes: string[] = [];
-  const notices: string[] = [options.baselineNotice, MCP_BINDING_NOTICE];
+  const pinned = options.mcpServer ?? null;
+  const notices: string[] = [options.baselineNotice];
+  if (pinned === null) notices.push(MCP_BINDING_NOTICE);
+  else changes.push(pinnedChange(pinned));
 
   const projects = options.detected.map((detected) => {
     notices.push(...detected.notices.map((notice) => `${detected.id}: ${notice}`));
@@ -103,7 +126,7 @@ function createFresh(options: PlanInitOptions): InitPlan {
     review: { ...DEFAULTS.review },
     checks: { ...DEFAULTS.checks },
     page: { ...DEFAULTS.page },
-    requirements: { mcpServer: null },
+    requirements: { mcpServer: pinned },
     projects,
     remoteChecks: { image: null },
     authoring: { ...DEFAULTS.authoring },
@@ -120,10 +143,7 @@ function updateExisting(existingRaw: string, options: PlanInitOptions): InitPlan
   const changes: string[] = [];
   const notices: string[] = [];
 
-  const requirementsNode = document.get('requirements') as YAMLMap | undefined;
-  if (requirementsNode === undefined || requirementsNode.get('mcpServer') == null) {
-    notices.push(MCP_BINDING_NOTICE);
-  }
+  pinMcpServer(document, options.mcpServer ?? null, changes, notices);
 
   if (document.get('authoring') === undefined) {
     document.set('authoring', document.createNode({ ...DEFAULTS.authoring }));
@@ -163,6 +183,41 @@ function updateExisting(existingRaw: string, options: PlanInitOptions): InitPlan
 
   const yaml = document.toString({ lineWidth: 100 });
   return { yaml, created: false, changes, notices, ruleSources: [], config: parseConfig(yaml) };
+}
+
+/** Never overwrites: a value that differs is the user's decision to change, in the file. */
+function pinMcpServer(document: Document, requested: string | null, changes: string[], notices: string[]): void {
+  const requirementsNode = document.get('requirements');
+  const current = isMap(requirementsNode) ? requirementsNode.get('mcpServer') : null;
+
+  if (current == null) {
+    if (requested === null) {
+      notices.push(MCP_BINDING_NOTICE);
+      return;
+    }
+    if (isMap(requirementsNode)) requirementsNode.set('mcpServer', requested);
+    else document.set('requirements', document.createNode({ mcpServer: requested }));
+    changes.push(pinnedChange(requested));
+    return;
+  }
+  if (requested === null) return;
+
+  if (current === requested) {
+    notices.push(`requirements.mcpServer is already "${requested}"; --mcp-server changed nothing.`);
+    return;
+  }
+  throw new AmbicodeError(
+    'requirements-server-bound',
+    'requirements.mcpServer is already bound to a different MCP server, so it was not changed.',
+    {
+      field: 'requirements.mcpServer',
+      details: [
+        `Bound: "${String(current)}". Requested: "${requested}".`,
+        'Evidence from any server other than the bound one is refused, so the binding is not overwritten.',
+        'To change it deliberately, edit requirements.mcpServer in .ambicode/config.yaml yourself.',
+      ],
+    },
+  );
 }
 
 /** Treated like a missing command slot, so a pack the user deliberately removed does come back. */

@@ -62,6 +62,13 @@ every retrieved source's content, citations, and provenance are carried into
 the saved review result (`.ambicode/reviews/<id>/result.json`), which is what
 makes a requirement-based review reopenable.
 
+The report, the review page and the reviewer's prompt say when AMBICODE received
+each source: `received <time> by AMBICODE via <tool>`. That time is stamped by
+the command from its own clock; an envelope that sets `receivedAt` is refused.
+A session-supplied `retrievedAt` is optional and shown as `retrieved <time> by
+the session` only when the MCP tool's response carried one. Results saved before
+`receivedAt` existed still open and print as they always did.
+
 Every `--requirement` URL must have an entry in that envelope, and the
 envelope must hold nothing else. A URL whose entry says `forbidden`, `not-found` or
 `unavailable` **stops the review**. It does not quietly become a quality review:
@@ -88,6 +95,14 @@ unpinned and the review records that in its omissions. If more than one
 compatible server is connected, `/ambicode:init` asks which one this repository
 should use rather than choosing. Evidence produced by a different server than
 the binding names is refused.
+
+`ambicode init --mcp-server <name>` writes the binding, keeping the comments in
+an existing config (`--dry-run` shows it without writing). The skills run it
+once the server is known, so later runs are pinned and the question is not asked
+again. The name must be exactly what the envelope's `mcpServer` says. Setting
+the value it already has changes nothing and says so; a different value than the
+bound one is refused (`requirements-server-bound`) and never overwritten: edit
+`.ambicode/config.yaml` yourself to change a binding.
 
 ## Reviewing a GitLab merge request
 
@@ -387,6 +402,12 @@ Two snapshot ceilings sit below the configurable limits and are not settings:
 `review.maxContextBytes` does not move them, so one oversized generated file
 can make a whole change unreviewable — measured on a 299-file merge request
 that stopped at a 390,029-byte translation JSON.
+
+`ambicode prepare` checks this before a review is attempted: it stats the paths
+it was given and the files `git status` lists as changed, and adds one notice
+naming each file over 262,144 bytes with its byte count and the `--exclude`
+line the refusal would print. Paths that `review.excludePaths` already leaves
+out are not named, and nothing is read or written to find out.
 
 `--exclude <glob>`, repeatable, and `review.excludePaths` are the way through.
 Matching paths join the built-in exclusions: out of the patch, out of the

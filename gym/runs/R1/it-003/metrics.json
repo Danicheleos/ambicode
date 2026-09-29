@@ -1,0 +1,264 @@
+{
+  "iteration": "it-003",
+  "commit": "01f626f + it-003/diff.patch (uncommitted at measure time; worker commit c4ec3d5 on gym/R1-it-003-worker, same content)",
+  "pluginVersion": "0.3.4",
+  "capturedAt": "2026-09-29T05:20:00Z",
+  "models": {
+    "agent": "claude-opus-5-5",
+    "agentEvidence": "108 of 108 traces named by scratch/t2-merged.json, system/init row",
+    "reviewer": "sonnet",
+    "judge": null,
+    "worker": "claude-sonnet-5-5"
+  },
+  "G1": {
+    "exit": 0,
+    "tests": 776,
+    "pass": 775,
+    "fail": 0,
+    "skipped": 1,
+    "seconds": 59,
+    "log": "verify.log",
+    "note": "cp-1 752 → 776: the diff adds 24 test declarations (verifier). The worker's worktree showed 774 because its tree lacks the gitignored benchmarks/, so 2 existing benchmark-presence tests (evals/scripts/src/evals-bench.test.mjs:515) do not register there (752 − 2 + 24). The lead's first note attributed the +2 to those tests; corrected after the verifier. cp-2 needs ≥ 755"
+  },
+  "G2": {
+    "exit": 0,
+    "zipSha256": "bee92a9a930c0cb4701473541c02ae910697df039f03a07cd69c7789e5487033",
+    "log": "scratch/g2.log"
+  },
+  "G3": {
+    "exit": 0,
+    "files": 491,
+    "newUntrackedFilesCr": 0,
+    "log": "scratch/g3.log",
+    "note": "the checker counts tracked files only; the 4 new files were checked for CR bytes separately (0 each)"
+  },
+  "T1": {
+    "scoredMean": 1,
+    "scoredCases": 7,
+    "urlBarePattern": "investigate 3/3",
+    "urlBareScore": 0.4,
+    "runs": 3,
+    "costUsd": 4.1767642,
+    "seconds": 268,
+    "partial": false,
+    "harnessExit": 1,
+    "harnessExitNote": "baseline t1.log also ends exit=1 (url-bare is diagnostic, not gated)",
+    "resultDir": "scratch/triggers/2026-09-29T03-59-23-433Z"
+  },
+  "preflight": {
+    "exit": 0,
+    "costUsd": 0.4,
+    "log": "scratch/preflight.log"
+  },
+  "T2": {
+    "runsPerArm": 3,
+    "screening": null,
+    "screeningNote": "no screening sweep; brief 'Measurement plan' step 4",
+    "resultFiles": [
+      "scratch/eval-2026-09-29T04-05-40-882Z.json",
+      "scratch/eval-2026-09-29T04-59-55-467Z.json"
+    ],
+    "merged": "scratch/t2-merged.json (tools/t2-merge.mjs; log scratch/t2-merge.log)",
+    "cases": 18,
+    "missing": 0,
+    "partial": false,
+    "runErrors": {
+      "sweep": 1,
+      "which": "be-vs-5075 with-arm run 3 of 3, started 2026-09-29T04:09:32.647Z, 13 s, $0: 'a plugin, case or version-control path could not be examined (ENOENT)'",
+      "cause": "unknown (not usage/rate limit, 03 S5 not triggered)",
+      "remedy": "be-vs-5075 rerun alone, both arms, 3 runs each, 0 errors (07 B2: 1 rerun per sweep); the merge takes the complete rerun case"
+    },
+    "localize": {
+      "with": {
+        "f1Median": 0.6328,
+        "f1Sweeps": [
+          0.6328,
+          0.6417,
+          0.6248
+        ],
+        "f1Pooled": 0.6331,
+        "precision": 0.6941,
+        "recall": 0.6667,
+        "helperRan": 27,
+        "helperRanOf": 30,
+        "helperRanMedian": 9,
+        "helperRanMedianOf": 10,
+        "costUsdPerRun": 0.5373,
+        "turns": 16.4
+      },
+      "without": {
+        "f1Median": 0.6408,
+        "f1Sweeps": [
+          0.6403,
+          0.6408,
+          0.6563
+        ],
+        "f1Pooled": 0.6458,
+        "precision": 0.6731,
+        "recall": 0.7045,
+        "costUsdPerRun": 0.4136,
+        "turns": 11.7
+      }
+    },
+    "review": {
+      "with": {
+        "recallMedian": 0.1563,
+        "recallSweeps": [
+          0.0938,
+          0.1563,
+          0.1875
+        ],
+        "recallPooled": 0.1458,
+        "helperRan": 23,
+        "helperRanOf": 24,
+        "helperRanMedian": 8,
+        "helperRanMedianOf": 8,
+        "costUsdPerRun": 0.6652,
+        "turns": 18.46
+      },
+      "without": {
+        "recallMedian": 0.0938,
+        "recallSweeps": [
+          0.0938,
+          0.0938,
+          0.0938
+        ],
+        "recallPooled": 0.0938,
+        "costUsdPerRun": 0.5806,
+        "turns": 14.71
+      }
+    },
+    "replayedRecordings": "sha256 6b7157a5…d0463c = it-001 T3.fileSha256After (scratch/recordings-before.sha256), i.e. the 8 recordings of it-001, not the baseline's 5",
+    "costUsd": 60.6534702,
+    "seconds": 3430,
+    "judgeCostUsd": 0.8803,
+    "judgeCostNote": "per-run judgeCostUsd, not inside the harness costUsd: sweep 0.8561 + rerun 0.0242 (verifier)"
+  },
+  "T3": {
+    "recordings": 8,
+    "of": 8,
+    "recordingRunsPerCase": 3,
+    "newRecordings": 24,
+    "refused": 0,
+    "rejections": 0,
+    "exclude": "main/assets/i18n/**",
+    "logs": [
+      "scratch/record-1.log",
+      "scratch/record-2.log",
+      "scratch/record-3.log"
+    ],
+    "perCase": [
+      {
+        "case": "be-vs-3571-review-1128-957b6388",
+        "findings": [
+          7,
+          6,
+          1
+        ],
+        "median": 6,
+        "cp1Median": 4,
+        "delta": 2
+      },
+      {
+        "case": "be-vs-5075-review-1054-3b24bb74",
+        "findings": [
+          5,
+          4,
+          3
+        ],
+        "median": 4,
+        "cp1Median": 4,
+        "delta": 0
+      },
+      {
+        "case": "be-vs-5546-review-996-d520e3ca",
+        "findings": [
+          3,
+          3,
+          4
+        ],
+        "median": 3,
+        "cp1Median": 6,
+        "delta": -3
+      },
+      {
+        "case": "be-vs-6261-review-1141-f14493f1",
+        "findings": [
+          1,
+          3,
+          1
+        ],
+        "median": 1,
+        "cp1Median": 2,
+        "delta": -1
+      },
+      {
+        "case": "fe-vs-6086-review-2553-d1f112e5",
+        "findings": [
+          5,
+          4,
+          5
+        ],
+        "median": 5,
+        "cp1Median": 3,
+        "delta": 2
+      },
+      {
+        "case": "fe-vs-6253-review-2557-1b0a7eaf",
+        "findings": [
+          3,
+          4,
+          3
+        ],
+        "median": 3,
+        "cp1Median": 4,
+        "delta": -1
+      },
+      {
+        "case": "fe-vs-6086-review-2553-d7c43dc5",
+        "findings": [
+          2,
+          4,
+          3
+        ],
+        "median": 3,
+        "cp1Median": 3,
+        "delta": 0
+      },
+      {
+        "case": "fe-vs-6292-review-2537-3a49a0d3",
+        "findings": [
+          4,
+          2,
+          4
+        ],
+        "median": 4,
+        "cp1Median": 2,
+        "delta": 2
+      }
+    ],
+    "reviewerInputIdentical": {
+      "prompts": 16,
+      "identical": 16,
+      "different": 0,
+      "nondeterministic": 0,
+      "how": "scratch/prompt-diff.mjs: per case, `ambicode bundle --json --exclude 'main/assets/i18n/**'` twice at 01f626f (worktree ../ambicode-it-003-base, npm run build) and twice at the it-003 tree; sha256 of reviewer-system-prompt.md and reviewer-user-prompt.md",
+      "positiveControl": "shipped scripts: base 0 'receivedAt' / 0 'mcp-server' mentions, it-003 5 / 6",
+      "log": "scratch/prompt-diff.log"
+    },
+    "costUsd": 2.37,
+    "seconds": 2409,
+    "fileSha256After": "b4d778c9ab0e3a6d8264dc0ac31bb92f3abf9b8e399f1c59ce36cfb6d4c12805"
+  },
+  "T4": null,
+  "costUsd": 68.48,
+  "costBreakdown": {
+    "T1": 4.1768,
+    "preflight": 0.4,
+    "T2sweep": 57.8306,
+    "T2rerun": 2.8229,
+    "T3": 2.37,
+    "T2judge": 0.8803
+  },
+  "notes": "Eval spend including T2 judge cost ($0.88, verifier); lead and helper session costs are counted by the supervisor. T4 null: no human-run cycle after this build (L-010 filed). T2 went straight to 3 runs/arm without screening (brief). T3 re-record was required because src/review/ changed (prompt.ts, report.ts, bundle.ts). The recorded cases carry no requirement sources, so the reviewer prompts are byte-identical to the base (T3.reviewerInputIdentical), and the T3 median moves (be-vs-5546 −3; three cases +2) are reviewer sampling on identical input. After this iteration benchmarks/reviewer-recordings.json holds record-3's recordings (sha256 b4d778c9…); later T2 sweeps replay those. A guard denial occurred during measure (claude-home rule): a Bash heredoc for the L-010 label text contained the literal home-directory path; no read was attempted; the label was then written with the Edit tool, without that path."
+}

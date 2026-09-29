@@ -2,11 +2,13 @@ import { z } from 'zod';
 import { describeIssues } from '../config/load.ts';
 import {
   RequirementConflict,
+  RequirementEnvelopeSource,
   RequirementSource,
   type ProvenanceEntry,
   type RequirementMode,
 } from '../contracts/requirements.ts';
 import { MAX_EVIDENCE_BYTES } from '../config/defaults.ts';
+import type { Clock } from '../ports/clock.ts';
 import type { FileSystem } from '../ports/filesystem.ts';
 import type { StandardInput } from '../ports/stdin.ts';
 import { AmbicodeError } from '../util/errors.ts';
@@ -19,7 +21,7 @@ import { contentHash } from '../util/hash.ts';
 
 export const RequirementEvidence = z.strictObject({
   mcpServer: z.string().min(1).nullable().default(null),
-  sources: z.array(RequirementSource).default([]),
+  sources: z.array(RequirementEnvelopeSource).default([]),
   conflicts: z
     .array(RequirementConflict.omit({ detectedBy: true }))
     .default([]),
@@ -41,6 +43,8 @@ export interface NormalizeOptions {
   urls: readonly string[];
   evidence: RequirementEvidence | null;
   configuredServer: string | null;
+  /** Read once, after validation: every source of one run shares the time the envelope arrived. */
+  clock: Clock;
 }
 
 export const SOURCE_FREE: NormalizedRequirements = {
@@ -205,7 +209,10 @@ export function normalizeRequirements(options: NormalizeOptions): NormalizedRequ
     );
   }
 
-  const ordered = [...sources].sort((a, b) => a.id.localeCompare(b.id));
+  const receivedAt = options.clock.now().toISOString();
+  const ordered = sources
+    .map((source) => RequirementSource.parse({ ...source, receivedAt }))
+    .sort((a, b) => a.id.localeCompare(b.id));
   return {
     mode: 'requirement-based',
     sources: ordered,

@@ -42,3 +42,9 @@ Why: spend is ≈ $80.4 of $150 (`cp-1.md`); the stop is $135, so ≈ $54.6 rema
 Needed for: WP2 (next in order), and hence WP3 and WP4 (01 §4 order).
 Default if unanswered: (b). Nothing more is spent. The lead stays `blocked`; the supervisor exits on that phase (10 §4 row 7).
 Status: answered 2026-09-29T03:24:22.933Z in labels.json ("250", i.e. option (a)). Stop moves to $225. The ledger was ≈ $81 at that point, so ≈ $144 remains: one WP2 iteration with a T2 decision (≈ $85) fits, a second T2-decision iteration does not. Applied to `CAMPAIGN.md` in session 6.
+
+## L-010  (asked it-003, 2026-09-29)
+Question: After it-003 is tagged, please run one human cycle on a VS-* ticket with that build, in the FE repository. That means investigate, plan and task sessions, with at least one `/ambicode:review` launch. Then copy the cycle's session transcripts into `gym/runs/R1/archive/` and append their sha256 lines to `archive/MANIFEST.txt`, the same way as for L-001. Answer in labels.json with the ticket key and the transcript file names.
+Why: WP2's claims are T4 only (fabricated provenance fields 4/4 → 0, refused review launches 1 per task session → 0, MCP-server questions 3/4 → 0 after the first answer). T4 moves only with a human-run cycle (01 §3 T4; 01 §1 item 6: "T4 on the first human-run cycle after WP2"). Agents may not enter the FE repository or read the Claude Code home directory (08 §4). For the MCP-server question to be measured, the FE config should still have `requirements.mcpServer: null` when the cycle starts, as it did on VS-6735 (00-audit.md:113). The first requirement fetch then pins it through `init --mcp-server`.
+Needed for: 01 §1 item 6 (cycle-1 exit, cp-5). One cycle makes the T4 targets "observed"; "achieved" needs ≥ 2 cycles (01 §3 T4 rule).
+Default if unanswered by it-006: the WP2 T4 rows stay `null`, cp-5 cannot pass item 6, and the handover says so. Nothing is substituted.

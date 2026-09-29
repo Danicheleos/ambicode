@@ -1,0 +1,1235 @@
+diff --git a/docs/review.md b/docs/review.md
+index 335ba7c..984bd9f 100644
+--- a/docs/review.md
++++ b/docs/review.md
+@@ -62,6 +62,13 @@ every retrieved source's content, citations, and provenance are carried into
+ the saved review result (`.ambicode/reviews/<id>/result.json`), which is what
+ makes a requirement-based review reopenable.
+ 
++The report, the review page and the reviewer's prompt say when AMBICODE received
++each source: `received <time> by AMBICODE via <tool>`. That time is stamped by
++the command from its own clock; an envelope that sets `receivedAt` is refused.
++A session-supplied `retrievedAt` is optional and shown as `retrieved <time> by
++the session` only when the MCP tool's response carried one. Results saved before
++`receivedAt` existed still open and print as they always did.
++
+ Every `--requirement` URL must have an entry in that envelope, and the
+ envelope must hold nothing else. A URL whose entry says `forbidden`, `not-found` or
+ `unavailable` **stops the review**. It does not quietly become a quality review:
+@@ -89,6 +96,14 @@ compatible server is connected, `/ambicode:init` asks which one this repository
+ should use rather than choosing. Evidence produced by a different server than
+ the binding names is refused.
+ 
++`ambicode init --mcp-server <name>` writes the binding, keeping the comments in
++an existing config (`--dry-run` shows it without writing). The skills run it
++once the server is known, so later runs are pinned and the question is not asked
++again. The name must be exactly what the envelope's `mcpServer` says. Setting
++the value it already has changes nothing and says so; a different value than the
++bound one is refused (`requirements-server-bound`) and never overwritten: edit
++`.ambicode/config.yaml` yourself to change a binding.
++
+ ## Reviewing a GitLab merge request
+ 
+ ```sh
+@@ -388,6 +403,12 @@ Two snapshot ceilings sit below the configurable limits and are not settings:
+ can make a whole change unreviewable — measured on a 299-file merge request
+ that stopped at a 390,029-byte translation JSON.
+ 
++`ambicode prepare` checks this before a review is attempted: it stats the paths
++it was given and the files `git status` lists as changed, and adds one notice
++naming each file over 262,144 bytes with its byte count and the `--exclude`
++line the refusal would print. Paths that `review.excludePaths` already leaves
++out are not named, and nothing is read or written to find out.
++
+ `--exclude <glob>`, repeatable, and `review.excludePaths` are the way through.
+ Matching paths join the built-in exclusions: out of the patch, out of the
+ mirror, out of every count. `--only <glob>` is its counterpart, for a working
+diff --git a/skills/shared/requirements-mcp.md b/skills/shared/requirements-mcp.md
+index fa4f4d6..2a995d4 100644
+--- a/skills/shared/requirements-mcp.md
++++ b/skills/shared/requirements-mcp.md
+@@ -16,12 +16,16 @@ you got.
+ 1. Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" config` and check
+    `requirements.mcpServer`. That is the server this repository is bound to.
+    - If it is `null` and exactly one compatible Jira/Confluence MCP server is
+-     connected, use it and tell the user to record it in
+-     `.ambicode/config.yaml` so later runs are pinned to it.
++     connected, use it.
+    - If it is `null` and **more than one** compatible server is connected, ask
+      the user which one to use before retrieving anything. Do not pick one.
+    - If it names a server that is not connected, say so and stop. Do not
+      substitute another server.
++
++   If it was `null`, pin it:
++   `node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" init --mcp-server <name>`,
++   with the envelope's exact `mcpServer` as `<name>`. Tell the user: recorded
++   in `.ambicode/config.yaml`, editable there.
+ 2. Retrieve each URL with that server's read tools.
+ 3. Build this envelope, holding exactly the URLs you were asked about:
+ 
+@@ -33,7 +37,6 @@ you got.
+       "id": "ORD-17",
+       "url": "https://example.atlassian.net/browse/ORD-17",
+       "title": "Reject negative order amounts",
+-      "retrievedAt": "2026-09-20T09:00:00.000Z",
+       "sourceVersion": "12",
+       "updatedAt": "2026-09-19T17:30:00.000Z",
+       "content": "…the text you retrieved, verbatim…",
+@@ -50,6 +53,7 @@ you got.
+    - `id` is a short stable handle the command cites back to you.
+    - `sourceVersion` and `updatedAt` are the source's own, or `null`. Never
+      invent one.
++   - Omit `retrievedAt` unless the tool gave one; never invent it.
+    - `status` is `retrieved`, `unavailable`, `forbidden` or `not-found`. If you
+      could not read it, say so here with a `failureReason` rather than leaving
+      it out or summarizing from memory.
+diff --git a/src/cli/cli.test.ts b/src/cli/cli.test.ts
+index b8101dc..7aa8bf3 100644
+--- a/src/cli/cli.test.ts
++++ b/src/cli/cli.test.ts
+@@ -194,3 +194,10 @@ describe('U27 command line arguments', () => {
+     assert.match(text, /Unknown command "nope"/);
+   });
+ });
++
++describe('the usage text names the value options init declares', () => {
++  it('lists --mcp-server under init', () => {
++    const init = documentedOptions().get('init') ?? [];
++    for (const name of INIT_OPTIONS.values) assert.ok(init.includes(name), `--${name} is not in the init help`);
++  });
++});
+diff --git a/src/cli/commands/init.ts b/src/cli/commands/init.ts
+index 2d30b28..3b72392 100644
+--- a/src/cli/commands/init.ts
++++ b/src/cli/commands/init.ts
+@@ -7,7 +7,7 @@ import type { FileSystem } from '../../ports/filesystem.ts';
+ import type { ParsedArgs } from '../args.ts';
+ import { navigationFor, type NavigationGuidance } from '../../code-intelligence/navigation.ts';
+ 
+-export const INIT_OPTIONS = { flags: ['json', 'dry-run'] } as const;
++export const INIT_OPTIONS = { values: ['mcp-server'], flags: ['json', 'dry-run'] } as const;
+ 
+ export interface InitOutput {
+   command: 'init';
+@@ -40,6 +40,7 @@ export async function runInit(runtime: Runtime, args: ParsedArgs): Promise<InitO
+     detected,
+     baseline: baseline.baseline,
+     baselineNotice: baseline.notice,
++    mcpServer: args.value('mcp-server'),
+   });
+ 
+   const configPath = path.join(repositoryRoot, CONFIG_FILE);
+diff --git a/src/cli/commands/prepare.ts b/src/cli/commands/prepare.ts
+index e2bed5e..b856f2e 100644
+--- a/src/cli/commands/prepare.ts
++++ b/src/cli/commands/prepare.ts
+@@ -23,6 +23,7 @@ import { configProvenance, packProvenance } from '../../policy/provenance.ts';
+ import { loadRequirementEvidence, normalizeRequirements } from '../../requirements/normalize.ts';
+ import { readSharedOperatingContract } from '../../policy/shared-contract.ts';
+ import { byteLength } from '../../snapshot/limits.ts';
++import { findOversizedFiles, oversizedNotice, statusPaths } from '../../snapshot/preflight.ts';
+ import { AmbicodeError } from '../../util/errors.ts';
+ import { contentHash } from '../../util/hash.ts';
+ import { formatJsonOutput, type JsonFormat } from '../../util/json-output.ts';
+@@ -79,10 +80,20 @@ export async function runPrepare(runtime: Runtime, args: ParsedArgs): Promise<Pr
+     urls: args.all('requirement'),
+     evidence: evidence === null ? null : await loadRequirementEvidence(runtime, evidence),
+     configuredServer: workspace.config.requirements.mcpServer,
++    clock: runtime.clock,
+   });
+ 
+   const project = projectForRequest(workspace.config, args.value('project'), paths);
+ 
++  // Stat only, so a file the review would refuse is named now rather than after a session
++  // has planned around it.
++  const oversized = await findOversizedFiles({
++    fs: runtime.fs,
++    repositoryRoot: workspace.repositoryRoot,
++    paths: [...new Set([...paths, ...statusPaths(await workspace.git.status())])],
++    excludePaths: workspace.config.review.excludePaths,
++  });
++
+   const policy = await resolvePolicyFor({ workspace, project, activity, paths });
+   const policies = [{ project, policy }];
+ 
+@@ -114,6 +125,7 @@ export async function runPrepare(runtime: Runtime, args: ParsedArgs): Promise<Pr
+     project,
+     paths,
+     requirements,
++    sizeNotices: oversized.length === 0 ? [] : [oversizedNotice(oversized)],
+     policy,
+     shortlist,
+     sharedOperatingContract,
+@@ -343,6 +355,7 @@ async function toDraftOutput(options: {
+   project: ProjectConfig;
+   paths: readonly string[];
+   requirements: ReturnType<typeof normalizeRequirements>;
++  sizeNotices: readonly string[];
+   policy: ResolvedPolicy;
+   shortlist: PrepareDetail['navigation']['shortlist'];
+   sharedOperatingContract: PrepareOutput['sharedOperatingContract'];
+@@ -368,7 +381,7 @@ async function toDraftOutput(options: {
+     provenance: [...options.policyProvenance, ...promptProvenance, ...options.requirements.provenance].sort((a, b) =>
+       `${a.kind}${a.reference}`.localeCompare(`${b.kind}${b.reference}`),
+     ),
+-    notices: options.requirements.notices,
++    notices: [...options.requirements.notices, ...options.sizeNotices],
+     navigation: {
+       ...navigationFor(options.project.ecosystem),
+       ...(options.shortlist === undefined ? {} : { shortlist: options.shortlist }),
+@@ -524,7 +537,7 @@ export function renderPrepare(run: PrepareRun): string {
+   }
+   if (output.notices.length > 0) {
+     lines.push('', 'notices');
+-    lines.push(...output.notices.map((notice) => `  ${notice}`));
++    lines.push(...output.notices.map((notice) => `  ${notice.split('\n').join('\n  ')}`));
+   }
+ 
+   lines.push('', 'packs');
+diff --git a/src/cli/init-mcp-server.test.ts b/src/cli/init-mcp-server.test.ts
+new file mode 100644
+index 0000000..0e014cb
+--- /dev/null
++++ b/src/cli/init-mcp-server.test.ts
+@@ -0,0 +1,78 @@
++import assert from 'node:assert/strict';
++import { readFile } from 'node:fs/promises';
++import path from 'node:path';
++import { describe, it } from 'node:test';
++import { createRuntime } from '../composition/root.ts';
++import { isAmbicodeError } from '../util/errors.ts';
++import { TempRepo } from '../testing/temp-repo.ts';
++import { parseArgs } from './args.ts';
++import { INIT_OPTIONS, renderInit, runInit } from './commands/init.ts';
++
++async function init(repo: TempRepo, argv: string[]) {
++  const runtime = await createRuntime({ cwd: repo.root });
++  return await runInit(runtime, parseArgs('init', argv, INIT_OPTIONS));
++}
++
++async function withRepo(run: (repo: TempRepo, configPath: string) => Promise<void>): Promise<void> {
++  const repo = await TempRepo.create();
++  try {
++    await repo.write('src/app.ts', 'export const a = 1;\n');
++    await repo.commitAll('initial');
++    await run(repo, path.join(repo.root, '.ambicode', 'config.yaml'));
++  } finally {
++    await repo.dispose();
++  }
++}
++
++describe('ambicode init --mcp-server', () => {
++  it('is a declared value option, so the parser accepts it and rejects it without a value', () => {
++    assert.equal(parseArgs('init', ['--mcp-server', 'atlassian'], INIT_OPTIONS).value('mcp-server'), 'atlassian');
++    assert.throws(() => parseArgs('init', ['--mcp-server'], INIT_OPTIONS), (error) => {
++      assert.ok(isAmbicodeError(error));
++      assert.equal(error.code, 'bad-argument');
++      return true;
++    });
++  });
++
++  it('binds the server on the first run and on a later run, showing the change in both outputs', async () => {
++    await withRepo(async (repo, configPath) => {
++      const first = await init(repo, ['--mcp-server', 'atlassian']);
++      assert.match(await readFile(configPath, 'utf8'), /mcpServer: atlassian/);
++      assert.ok(first.changes.includes('Set "requirements.mcpServer: atlassian".'));
++      assert.match(renderInit(first), /Set "requirements\.mcpServer: atlassian"\./);
++
++      const again = await init(repo, ['--mcp-server', 'atlassian']);
++      assert.equal(again.written, false);
++      assert.deepEqual(again.changes, []);
++      assert.match(renderInit(again), /requirements\.mcpServer is already "atlassian"/);
++      assert.match(JSON.stringify(again), /requirements\.mcpServer is already \\"atlassian\\"/);
++    });
++  });
++
++  it('with --dry-run reports the binding and writes nothing', async () => {
++    await withRepo(async (repo, configPath) => {
++      await init(repo, []);
++      const before = await readFile(configPath, 'utf8');
++
++      const dry = await init(repo, ['--mcp-server', 'atlassian', '--dry-run']);
++      assert.equal(dry.written, false);
++      assert.ok(dry.changes.includes('Set "requirements.mcpServer: atlassian".'));
++      assert.match(renderInit(dry), /dry run: nothing was written/);
++      assert.equal(await readFile(configPath, 'utf8'), before);
++    });
++  });
++
++  it('refuses a different server than the bound one and leaves the file as it was', async () => {
++    await withRepo(async (repo, configPath) => {
++      await init(repo, ['--mcp-server', 'atlassian']);
++      const before = await readFile(configPath, 'utf8');
++
++      await assert.rejects(init(repo, ['--mcp-server', 'other']), (error: unknown) => {
++        assert.ok(isAmbicodeError(error));
++        assert.equal(error.code, 'requirements-server-bound');
++        return true;
++      });
++      assert.equal(await readFile(configPath, 'utf8'), before);
++    });
++  });
++});
+diff --git a/src/cli/main.ts b/src/cli/main.ts
+index f2cb07d..50a29c0 100644
+--- a/src/cli/main.ts
++++ b/src/cli/main.ts
+@@ -19,6 +19,9 @@ export const USAGE = `ambicode <command> [options]
+ 
+   init                    Detect projects and write .ambicode/config.yaml.
+                             --dry-run    Report what would change, write nothing.
++                            --mcp-server <name>   Pin requirements.mcpServer to this
++                                                  server (exact envelope name); a
++                                                  different bound value is refused.
+ 
+   config                  Print the effective configuration, including limits
+                           that are not stored in the file.
+diff --git a/src/cli/prepare-size.test.ts b/src/cli/prepare-size.test.ts
+new file mode 100644
+index 0000000..f7d87e5
+--- /dev/null
++++ b/src/cli/prepare-size.test.ts
+@@ -0,0 +1,141 @@
++import assert from 'node:assert/strict';
++import { readFile, rm, writeFile } from 'node:fs/promises';
++import path from 'node:path';
++import { describe, it } from 'node:test';
++import { MAX_SNAPSHOT_FILE_BYTES } from '../config/defaults.ts';
++import { createRuntime } from '../composition/root.ts';
++import { nodeFileSystem, type FileSystem } from '../ports/filesystem.ts';
++import { TempRepo } from '../testing/temp-repo.ts';
++import { parseArgs } from './args.ts';
++import { INIT_OPTIONS, runInit } from './commands/init.ts';
++import { PREPARE_OPTIONS, renderPrepare, runPrepare } from './commands/prepare.ts';
++import { statusPaths } from '../snapshot/preflight.ts';
++
++const BIG = 'x'.repeat(MAX_SNAPSHOT_FILE_BYTES + 1);
++const BIG_BYTES = MAX_SNAPSHOT_FILE_BYTES + 1;
++
++async function prepared(repo: TempRepo, argv: string[] = [], fs: FileSystem = nodeFileSystem) {
++  const runtime = await createRuntime({ cwd: repo.root, fs });
++  return await runPrepare(runtime, parseArgs('prepare', ['--activity', 'review', ...argv], PREPARE_OPTIONS));
++}
++
++/** One committed, initialised repository; the config itself is left untracked, as init leaves it. */
++async function withRepo(run: (repo: TempRepo) => Promise<void>): Promise<void> {
++  const repo = await TempRepo.create();
++  try {
++    await repo.write('src/app.ts', 'export const a = 1;\n');
++    await repo.write('src/committed-big.json', BIG);
++    await repo.write('src/doomed-big.json', BIG);
++    await repo.commitAll('initial');
++    const runtime = await createRuntime({ cwd: repo.root });
++    await runInit(runtime, parseArgs('init', [], INIT_OPTIONS));
++    await run(repo);
++  } finally {
++    await repo.dispose();
++  }
++}
++
++function sizeNotices(notices: readonly string[] | undefined): string[] {
++  return (notices ?? []).filter((notice) => notice.includes('per-file snapshot ceiling'));
++}
++
++describe('prepare warns about files the review snapshot would refuse', () => {
++  it('names a positional path over the ceiling with its byte count and the --exclude line the refusal gives', async () => {
++    await withRepo(async (repo) => {
++      const run = await prepared(repo, ['src/committed-big.json']);
++      const [notice, ...rest] = sizeNotices(run.data.notices);
++      assert.deepEqual(rest, [], 'one notice per run');
++      assert.ok(notice !== undefined, 'expected a size notice');
++      assert.match(notice, new RegExp(`src/committed-big\\.json is ${BIG_BYTES} bytes, above the ${MAX_SNAPSHOT_FILE_BYTES}-byte per-file snapshot ceiling\\.`));
++      assert.match(notice, /^ {2}--exclude "src\/committed-big\.json"$/m);
++      assert.match(renderPrepare(run), /src\/committed-big\.json is 262145 bytes/);
++    });
++  });
++
++  it('checks the working-tree changed paths in one notice, and skips small, unchanged, deleted and at-ceiling files', async () => {
++    await withRepo(async (repo) => {
++      await repo.write('src/new-big.json', BIG);
++      await repo.write('src/other-big.txt', BIG);
++      await repo.write('src/at-ceiling.txt', 'y'.repeat(MAX_SNAPSHOT_FILE_BYTES));
++      await repo.write('src/small.ts', 'export const b = 2;\n');
++      await rm(path.join(repo.root, 'src/doomed-big.json'));
++
++      const run = await prepared(repo);
++      const notices = sizeNotices(run.data.notices);
++      assert.equal(notices.length, 1, notices.join('\n---\n'));
++      const [notice] = notices;
++      assert.ok(notice !== undefined);
++      assert.match(notice, /src\/new-big\.json is 262145 bytes/);
++      assert.match(notice, /src\/other-big\.txt is 262145 bytes/);
++      assert.match(notice, /^ {2}--exclude "src\/new-big\.json"$/m);
++      assert.match(notice, /^ {2}--exclude "src\/other-big\.txt"$/m);
++      assert.doesNotMatch(notice, /committed-big|doomed-big|at-ceiling|small\.ts/);
++    });
++  });
++
++  it('does not flag a path that review.excludePaths already leaves out', async () => {
++    await withRepo(async (repo) => {
++      const configPath = path.join(repo.root, '.ambicode', 'config.yaml');
++      const config = await readFile(configPath, 'utf8');
++      const excluded = config.replace(/excludePaths: \[\]/, 'excludePaths:\n    - "generated/**"');
++      assert.notEqual(excluded, config, 'the fixture must actually configure an exclusion');
++      await writeFile(configPath, excluded, 'utf8');
++      await repo.write('generated/table.json', BIG);
++
++      const notices = sizeNotices((await prepared(repo, ['generated/table.json'])).data.notices);
++      assert.deepEqual(notices, []);
++
++      await repo.write('src/kept-big.json', BIG);
++      const [notice] = sizeNotices((await prepared(repo, ['generated/table.json'])).data.notices);
++      assert.ok(notice !== undefined);
++      assert.match(notice, /src\/kept-big\.json/);
++      assert.doesNotMatch(notice, /generated\/table\.json/);
++    });
++  });
++
++  it('adds no notice when nothing is over the ceiling, and writes nothing while checking', async () => {
++    await withRepo(async (repo) => {
++      assert.deepEqual(sizeNotices((await prepared(repo, ['src/app.ts'])).data.notices), []);
++
++      await repo.write('src/new-big.json', BIG);
++      const writes: string[] = [];
++      const fs: FileSystem = {
++        ...nodeFileSystem,
++        writeText: async (absolutePath, contents) => {
++          writes.push(absolutePath);
++          await nodeFileSystem.writeText(absolutePath, contents);
++        },
++        mkdirp: async (absolutePath) => {
++          writes.push(absolutePath);
++          await nodeFileSystem.mkdirp(absolutePath);
++        },
++      };
++      const run = await prepared(repo, [], fs);
++      assert.equal(sizeNotices(run.data.notices).length, 1);
++      assert.deepEqual(writes, []);
++    });
++  });
++
++  it('reads a renamed file by its new name only, and never treats the rename origin as a change', async () => {
++    await withRepo(async (repo) => {
++      await repo.run(['git', 'mv', 'src/committed-big.json', 'src/renamed-big.json']);
++      const [notice] = sizeNotices((await prepared(repo)).data.notices);
++      assert.ok(notice !== undefined);
++      assert.match(notice, /^src\/renamed-big\.json is 262145 bytes/m);
++      assert.doesNotMatch(notice, /committed-big/);
++    });
++  });
++});
++
++describe('statusPaths', () => {
++  it('lists the current name of each record and skips the origin that follows a rename or copy', () => {
++    assert.deepEqual(statusPaths(' M a.ts\0R  new.ts\0old.ts\0?? b c.ts\0C  copy.ts\0source.ts\0 D gone.ts\0'), [
++      'a.ts',
++      'new.ts',
++      'b c.ts',
++      'copy.ts',
++      'gone.ts',
++    ]);
++    assert.deepEqual(statusPaths(''), []);
++  });
++});
+diff --git a/src/config/config.test.ts b/src/config/config.test.ts
+index bdbf9a1..27a890a 100644
+--- a/src/config/config.test.ts
++++ b/src/config/config.test.ts
+@@ -1,6 +1,6 @@
+ import { test } from 'node:test';
+ import assert from 'node:assert/strict';
+-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
++import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+ import { tmpdir } from 'node:os';
+ import path from 'node:path';
+ import { detectProjects } from './detect.ts';
+@@ -9,6 +9,7 @@ import { parseConfig, validateArgv } from './load.ts';
+ import { loadPacksForProject } from '../policy/load.ts';
+ import { mostSpecificRoot, normalizeRelative, toProjectRelative } from '../util/paths.ts';
+ import { nodeFileSystem } from '../ports/filesystem.ts';
++import { isAmbicodeError } from '../util/errors.ts';
+ 
+ async function sandbox(t: { after(fn: () => unknown): void }): Promise<string> {
+   const directory = await mkdtemp(path.join(tmpdir(), 'ambicode-config-'));
+@@ -522,3 +523,78 @@ test('path normalization keeps repository-relative form', () => {
+   assert.equal(normalizeRelative('.'), '');
+   assert.equal(normalizeRelative('apps//web'), 'apps/web');
+ });
++
++test('init --mcp-server on a fresh config writes the binding and drops the "unbound" notice', async (t) => {
++  const directory = await sandbox(t);
++  const plan = await planInit({
++    fs: nodeFileSystem,
++    repositoryRoot: directory,
++    detected: [],
++    baseline: '',
++    baselineNotice: 'x',
++    mcpServer: 'atlassian',
++  });
++  assert.equal(plan.config.requirements.mcpServer, 'atlassian');
++  assert.match(plan.yaml ?? '', /requirements:\s*\n\s*mcpServer: atlassian/);
++  assert.ok(plan.changes.includes('Set "requirements.mcpServer: atlassian".'), plan.changes.join('\n'));
++  assert.ok(!plan.notices.some((notice) => notice.includes('requirements.mcpServer is null')));
++});
++
++test('init --mcp-server pins a server in an existing config, keeps its comments, and reports a repeat as no change', async (t) => {
++  const directory = await sandbox(t);
++  await mkdir(path.join(directory, '.ambicode'), { recursive: true });
++  const configPath = path.join(directory, '.ambicode', 'config.yaml');
++  const project =
++    '  - id: app\n    root: .\n    ecosystem: typescript\n    packs: []\n    policyFiles: []\n    commands: {}\n    checks: {}\n';
++  const authored = withProjects(project)
++    .replace('requirements: { mcpServer: null }', '# my note: pinned by hand later\nrequirements: { mcpServer: null } # trailing\n')
++    .replace('remoteChecks', 'authoring: { editReminders: true }\nremoteChecks');
++  await writeFile(configPath, authored, 'utf8');
++  const options = { fs: nodeFileSystem, repositoryRoot: directory, detected: [], baseline: '', baselineNotice: 'x' };
++
++  const pinned = await planInit({ ...options, mcpServer: 'atlassian' });
++  assert.equal(pinned.config.requirements.mcpServer, 'atlassian');
++  assert.ok(pinned.changes.includes('Set "requirements.mcpServer: atlassian".'), pinned.changes.join('\n'));
++  assert.match(pinned.yaml ?? '', /# my note: pinned by hand later/);
++  assert.match(pinned.yaml ?? '', /# trailing/);
++  assert.ok(!pinned.notices.some((notice) => notice.includes('requirements.mcpServer is null')));
++
++  await writeFile(configPath, pinned.yaml ?? '', 'utf8');
++  const repeated = await planInit({ ...options, mcpServer: 'atlassian' });
++  assert.equal(repeated.yaml, null, 'the same value is not a change, so nothing is rewritten');
++  assert.deepEqual(repeated.changes, []);
++  assert.ok(
++    repeated.notices.some((notice) => notice.includes('requirements.mcpServer is already "atlassian"')),
++    repeated.notices.join('\n'),
++  );
++});
++
++test('init --mcp-server refuses to overwrite a different bound server, naming both, and refuses an empty name', async (t) => {
++  const directory = await sandbox(t);
++  await mkdir(path.join(directory, '.ambicode'), { recursive: true });
++  const configPath = path.join(directory, '.ambicode', 'config.yaml');
++  const project =
++    '  - id: app\n    root: .\n    ecosystem: typescript\n    packs: []\n    policyFiles: []\n    commands: {}\n    checks: {}\n';
++  const bound = withProjects(project).replace('mcpServer: null', 'mcpServer: atlassian');
++  await writeFile(configPath, bound, 'utf8');
++  const options = { fs: nodeFileSystem, repositoryRoot: directory, detected: [], baseline: '', baselineNotice: 'x' };
++
++  await assert.rejects(planInit({ ...options, mcpServer: 'other-atlassian' }), (error: unknown) => {
++    assert.ok(isAmbicodeError(error));
++    assert.equal(error.code, 'requirements-server-bound');
++    const text = [error.message, ...error.details].join('\n');
++    assert.match(text, /atlassian/);
++    assert.match(text, /other-atlassian/);
++    assert.match(text, /config\.yaml/);
++    return true;
++  });
++  assert.equal(await readFile(configPath, 'utf8'), bound, 'the binding is not overwritten');
++
++  for (const name of ['', '   ', ' atlassian']) {
++    await assert.rejects(planInit({ ...options, mcpServer: name }), (error: unknown) => {
++      assert.ok(isAmbicodeError(error));
++      assert.equal(error.code, 'bad-argument');
++      return true;
++    });
++  }
++});
+diff --git a/src/config/init.ts b/src/config/init.ts
+index 6f13d19..ac46f5d 100644
+--- a/src/config/init.ts
++++ b/src/config/init.ts
+@@ -1,7 +1,8 @@
+ import type { FileSystem } from '../ports/filesystem.ts';
+ import path from 'node:path';
+-import { Document, isSeq, parseDocument, type YAMLMap, type YAMLSeq } from 'yaml';
++import { Document, isMap, isSeq, parseDocument, type YAMLMap, type YAMLSeq } from 'yaml';
+ import type { AmbicodeConfig } from '../contracts/config.ts';
++import { AmbicodeError } from '../util/errors.ts';
+ import { normalizeRelative } from '../util/paths.ts';
+ import { CONFIG_FILE, DEFAULTS } from './defaults.ts';
+ import { suggestedPacks, type DetectedProject } from './detect.ts';
+@@ -22,9 +23,12 @@ export interface PlanInitOptions {
+   detected: readonly DetectedProject[];
+   baseline: string;
+   baselineNotice: string;
++  /** `--mcp-server`: the server to pin `requirements.mcpServer` to; null or absent leaves it alone. */
++  mcpServer?: string | null;
+ }
+ 
+ export async function planInit(options: PlanInitOptions): Promise<InitPlan> {
++  if (options.mcpServer != null) requireServerName(options.mcpServer);
+   const filePath = path.join(options.repositoryRoot, CONFIG_FILE);
+   let existingRaw: string | null = null;
+   try {
+@@ -73,9 +77,28 @@ function ruleSourceNotice(sources: readonly string[]): string {
+ const MCP_BINDING_NOTICE =
+   'requirements.mcpServer is null: no Jira/Confluence MCP server is bound. Requirement-based review needs one named here. If more than one compatible server is connected, choose which of them this repository uses and write its name.';
+ 
++/** The binding is compared as an exact string, so a name that only differs by padding would never match. */
++function requireServerName(name: string): void {
++  if (name.trim() !== '' && name === name.trim()) return;
++  throw new AmbicodeError('bad-argument', '"--mcp-server" needs the exact name of the MCP server.', {
++    field: '--mcp-server',
++    details: [
++      'Give the server name as the session shows it, with no leading or trailing whitespace.',
++      'The name is compared to what a requirement envelope declares, character for character.',
++    ],
++  });
++}
++
++function pinnedChange(name: string): string {
++  return `Set "requirements.mcpServer: ${name}".`;
++}
++
+ function createFresh(options: PlanInitOptions): InitPlan {
+   const changes: string[] = [];
+-  const notices: string[] = [options.baselineNotice, MCP_BINDING_NOTICE];
++  const pinned = options.mcpServer ?? null;
++  const notices: string[] = [options.baselineNotice];
++  if (pinned === null) notices.push(MCP_BINDING_NOTICE);
++  else changes.push(pinnedChange(pinned));
+ 
+   const projects = options.detected.map((detected) => {
+     notices.push(...detected.notices.map((notice) => `${detected.id}: ${notice}`));
+@@ -103,7 +126,7 @@ function createFresh(options: PlanInitOptions): InitPlan {
+     review: { ...DEFAULTS.review },
+     checks: { ...DEFAULTS.checks },
+     page: { ...DEFAULTS.page },
+-    requirements: { mcpServer: null },
++    requirements: { mcpServer: pinned },
+     projects,
+     remoteChecks: { image: null },
+     authoring: { ...DEFAULTS.authoring },
+@@ -120,10 +143,7 @@ function updateExisting(existingRaw: string, options: PlanInitOptions): InitPlan
+   const changes: string[] = [];
+   const notices: string[] = [];
+ 
+-  const requirementsNode = document.get('requirements') as YAMLMap | undefined;
+-  if (requirementsNode === undefined || requirementsNode.get('mcpServer') == null) {
+-    notices.push(MCP_BINDING_NOTICE);
+-  }
++  pinMcpServer(document, options.mcpServer ?? null, changes, notices);
+ 
+   if (document.get('authoring') === undefined) {
+     document.set('authoring', document.createNode({ ...DEFAULTS.authoring }));
+@@ -165,6 +185,41 @@ function updateExisting(existingRaw: string, options: PlanInitOptions): InitPlan
+   return { yaml, created: false, changes, notices, ruleSources: [], config: parseConfig(yaml) };
+ }
+ 
++/** Never overwrites: a value that differs is the user's decision to change, in the file. */
++function pinMcpServer(document: Document, requested: string | null, changes: string[], notices: string[]): void {
++  const requirementsNode = document.get('requirements');
++  const current = isMap(requirementsNode) ? requirementsNode.get('mcpServer') : null;
++
++  if (current == null) {
++    if (requested === null) {
++      notices.push(MCP_BINDING_NOTICE);
++      return;
++    }
++    if (isMap(requirementsNode)) requirementsNode.set('mcpServer', requested);
++    else document.set('requirements', document.createNode({ mcpServer: requested }));
++    changes.push(pinnedChange(requested));
++    return;
++  }
++  if (requested === null) return;
++
++  if (current === requested) {
++    notices.push(`requirements.mcpServer is already "${requested}"; --mcp-server changed nothing.`);
++    return;
++  }
++  throw new AmbicodeError(
++    'requirements-server-bound',
++    'requirements.mcpServer is already bound to a different MCP server, so it was not changed.',
++    {
++      field: 'requirements.mcpServer',
++      details: [
++        `Bound: "${String(current)}". Requested: "${requested}".`,
++        'Evidence from any server other than the bound one is refused, so the binding is not overwritten.',
++        'To change it deliberately, edit requirements.mcpServer in .ambicode/config.yaml yourself.',
++      ],
++    },
++  );
++}
++
+ /** Treated like a missing command slot, so a pack the user deliberately removed does come back. */
+ function addMissingFrameworkPacks(
+   document: Document,
+diff --git a/src/contracts/requirements.ts b/src/contracts/requirements.ts
+index 3d365d1..2efa3ec 100644
+--- a/src/contracts/requirements.ts
++++ b/src/contracts/requirements.ts
+@@ -4,11 +4,15 @@ import { z } from 'zod';
+ export const RequirementMode = z.enum(['source-free', 'requirement-based']);
+ export type RequirementMode = z.infer<typeof RequirementMode>;
+ 
+-export const RequirementSource = z.strictObject({
++const sourceHead = {
+   id: z.string().min(1),
+   url: z.string().min(1),
+   title: z.string(),
+-  retrievedAt: z.string().min(1),
++  /** The retrieval time the MCP tool's own response carried; absent when it carried none. */
++  retrievedAt: z.string().min(1).nullable().default(null),
++};
++
++const sourceBody = {
+   sourceVersion: z.string().nullable().default(null),
+   updatedAt: z.string().nullable().default(null),
+   content: z.string(),
+@@ -16,6 +20,20 @@ export const RequirementSource = z.strictObject({
+   status: z.enum(['retrieved', 'unavailable', 'forbidden', 'not-found']),
+   failureReason: z.string().nullable().default(null),
+   retrievedVia: z.string().min(1),
++};
++
++/** What a session may put in an envelope: `receivedAt` is absent, so an envelope that sets it is refused. */
++export const RequirementEnvelopeSource = z.strictObject({ ...sourceHead, ...sourceBody });
++export type RequirementEnvelopeSource = z.infer<typeof RequirementEnvelopeSource>;
++
++/**
++ * A normalized source as stored. `receivedAt` is stamped by the CLI when it receives the
++ * envelope; results written before it existed lack it and stay readable.
++ */
++export const RequirementSource = z.strictObject({
++  ...sourceHead,
++  receivedAt: z.string().min(1).optional(),
++  ...sourceBody,
+ });
+ export type RequirementSource = z.infer<typeof RequirementSource>;
+ 
+diff --git a/src/page/render.test.ts b/src/page/render.test.ts
+index a373a99..ab49edc 100644
+--- a/src/page/render.test.ts
++++ b/src/page/render.test.ts
+@@ -189,3 +189,32 @@ describe('U20 the review page shows what the result actually says', () => {
+     }
+   });
+ });
++
++describe('the page says when AMBICODE received each requirement', () => {
++  async function pageWith(overrides: Record<string, unknown>): Promise<string> {
++    const base = reviewResult();
++    const result = { ...base, requirements: [{ ...base.requirements[0], ...overrides }] } as ReturnType<typeof reviewResult>;
++    const harness = await startHarness({ result });
++    try {
++      return (await openPage(harness)).html;
++    } finally {
++      await harness.dispose();
++    }
++  }
++
++  it('shows the receipt time, and a retrieval time only when the session supplied one', async () => {
++    const both = await pageWith({ receivedAt: '2026-09-21T08:15:00.000Z' });
++    assert.match(both, /received 2026-09-21T08:15:00\.000Z by AMBICODE via mcp__atlassian__getJiraIssue/);
++    assert.match(both, /retrieved 2026-09-20T09:00:00\.000Z by the session/);
++
++    const receiptOnly = await pageWith({ receivedAt: '2026-09-21T08:15:00.000Z', retrievedAt: null });
++    assert.match(receiptOnly, /received 2026-09-21T08:15:00\.000Z by AMBICODE/);
++    assert.doesNotMatch(receiptOnly, /retrieved 20|retrieved null|by the session/);
++  });
++
++  it('shows a result stored before receivedAt existed as it was, with no receipt claim', async () => {
++    const html = await pageWith({});
++    assert.match(html, /retrieved 2026-09-20T09:00:00\.000Z via mcp__atlassian__getJiraIssue/);
++    assert.doesNotMatch(html, /by AMBICODE via/);
++  });
++});
+diff --git a/src/page/view-model.ts b/src/page/view-model.ts
+index fcde934..5002175 100644
+--- a/src/page/view-model.ts
++++ b/src/page/view-model.ts
+@@ -6,6 +6,7 @@ import type {
+ import type { PublicationState } from '../contracts/primitives.ts';
+ import type { CoverageGap } from '../contracts/provider.ts';
+ import type { ReviewResult } from '../contracts/review.ts';
++import { describeReceipt } from '../requirements/receipt.ts';
+ 
+ /**
+  * Every string here is inserted with Eta's escaping interpolation, so hostile
+@@ -59,8 +60,7 @@ export interface RequirementSummary {
+   title: string;
+   status: string;
+   sourceVersion: string | null;
+-  retrievedAt: string;
+-  retrievedVia: string;
++  receipt: string;
+   failureReason: string | null;
+ }
+ 
+@@ -243,8 +243,7 @@ export function buildPageModel(options: BuildModelOptions): PageModel {
+       title: source.title,
+       status: source.status,
+       sourceVersion: source.sourceVersion,
+-      retrievedAt: source.retrievedAt,
+-      retrievedVia: source.retrievedVia,
++      receipt: describeReceipt(source),
+       failureReason: source.failureReason,
+     })),
+     provenance: result.provenance.map((entry) => ({ ...entry })),
+diff --git a/src/requirements/normalize.ts b/src/requirements/normalize.ts
+index f21db72..1d0a192 100644
+--- a/src/requirements/normalize.ts
++++ b/src/requirements/normalize.ts
+@@ -2,11 +2,13 @@ import { z } from 'zod';
+ import { describeIssues } from '../config/load.ts';
+ import {
+   RequirementConflict,
++  RequirementEnvelopeSource,
+   RequirementSource,
+   type ProvenanceEntry,
+   type RequirementMode,
+ } from '../contracts/requirements.ts';
+ import { MAX_EVIDENCE_BYTES } from '../config/defaults.ts';
++import type { Clock } from '../ports/clock.ts';
+ import type { FileSystem } from '../ports/filesystem.ts';
+ import type { StandardInput } from '../ports/stdin.ts';
+ import { AmbicodeError } from '../util/errors.ts';
+@@ -19,7 +21,7 @@ import { contentHash } from '../util/hash.ts';
+ 
+ export const RequirementEvidence = z.strictObject({
+   mcpServer: z.string().min(1).nullable().default(null),
+-  sources: z.array(RequirementSource).default([]),
++  sources: z.array(RequirementEnvelopeSource).default([]),
+   conflicts: z
+     .array(RequirementConflict.omit({ detectedBy: true }))
+     .default([]),
+@@ -41,6 +43,8 @@ export interface NormalizeOptions {
+   urls: readonly string[];
+   evidence: RequirementEvidence | null;
+   configuredServer: string | null;
++  /** Read once, after validation: every source of one run shares the time the envelope arrived. */
++  clock: Clock;
+ }
+ 
+ export const SOURCE_FREE: NormalizedRequirements = {
+@@ -205,7 +209,10 @@ export function normalizeRequirements(options: NormalizeOptions): NormalizedRequ
+     );
+   }
+ 
+-  const ordered = [...sources].sort((a, b) => a.id.localeCompare(b.id));
++  const receivedAt = options.clock.now().toISOString();
++  const ordered = sources
++    .map((source) => RequirementSource.parse({ ...source, receivedAt }))
++    .sort((a, b) => a.id.localeCompare(b.id));
+   return {
+     mode: 'requirement-based',
+     sources: ordered,
+diff --git a/src/requirements/receipt.ts b/src/requirements/receipt.ts
+new file mode 100644
+index 0000000..18d85b1
+--- /dev/null
++++ b/src/requirements/receipt.ts
+@@ -0,0 +1,16 @@
++import type { RequirementSource } from '../contracts/requirements.ts';
++
++/**
++ * One wording for every place a source's timing is printed. `retrievedAt` is shown only when
++ * the session supplied it, and a result stored before `receivedAt` existed prints as it did.
++ */
++export function describeReceipt(
++  source: Pick<RequirementSource, 'receivedAt' | 'retrievedAt' | 'retrievedVia'>,
++): string {
++  const retrieved = source.retrievedAt ?? null;
++  if (source.receivedAt === undefined) {
++    return retrieved === null ? `via ${source.retrievedVia}` : `retrieved ${retrieved} via ${source.retrievedVia}`;
++  }
++  const received = `received ${source.receivedAt} by AMBICODE via ${source.retrievedVia}`;
++  return retrieved === null ? received : `${received}; retrieved ${retrieved} by the session`;
++}
+diff --git a/src/requirements/requirements.test.ts b/src/requirements/requirements.test.ts
+index 03b0dc5..7d6b09c 100644
+--- a/src/requirements/requirements.test.ts
++++ b/src/requirements/requirements.test.ts
+@@ -1,22 +1,31 @@
+ import assert from 'node:assert/strict';
+ import { describe, it } from 'node:test';
+-import type { RequirementSource } from '../contracts/review.ts';
++import { REVIEW_SCHEMA_VERSION, ReviewResult } from '../contracts/review.ts';
++import type { Clock } from '../ports/clock.ts';
++import { reviewResult } from '../testing/review-fixture.ts';
+ import { isAmbicodeError } from '../util/errors.ts';
+ import {
+   canonicalUrl,
++  loadRequirementEvidence,
+   normalizeRequirements,
+   type NormalizeOptions,
++  type RequirementEvidence,
+ } from './normalize.ts';
+ 
+ const JIRA = 'https://example.atlassian.net/browse/ORD-17';
+ const CONFLUENCE = 'https://example.atlassian.net/wiki/spaces/ENG/pages/42/Orders';
+ 
+-function source(overrides: Partial<RequirementSource> & { url: string }): RequirementSource {
++type EnvelopeSource = RequirementEvidence['sources'][number];
++
++const RECEIVED_AT = '2026-09-21T08:15:00.000Z';
++const fixedClock: Clock = { now: () => new Date(RECEIVED_AT), elapsed: () => 0 };
++
++function source(overrides: Partial<EnvelopeSource> & { url: string }): EnvelopeSource {
+   return {
+     id: overrides.id ?? 'ORD-17',
+     url: overrides.url,
+     title: overrides.title ?? 'Reject negative order amounts',
+-    retrievedAt: overrides.retrievedAt ?? '2026-09-20T09:00:00.000Z',
++    retrievedAt: 'retrievedAt' in overrides ? overrides.retrievedAt ?? null : '2026-09-20T09:00:00.000Z',
+     sourceVersion: overrides.sourceVersion ?? '12',
+     updatedAt: overrides.updatedAt ?? '2026-09-19T17:30:00.000Z',
+     content: overrides.content ?? 'A negative order amount is rejected with a validation error.',
+@@ -32,6 +41,7 @@ function normalize(options: Partial<NormalizeOptions> = {}) {
+     urls: options.urls ?? [],
+     evidence: options.evidence ?? null,
+     configuredServer: 'configuredServer' in options ? options.configuredServer ?? null : 'atlassian',
++    clock: options.clock ?? fixedClock,
+   });
+ }
+ 
+@@ -235,4 +245,80 @@ describe('U16 requirement normalization and provenance', () => {
+     assert.equal(canonicalUrl('https://Example.Atlassian.NET/browse/ORD-17/'), canonicalUrl(JIRA));
+     assert.notEqual(canonicalUrl(JIRA), canonicalUrl(CONFLUENCE));
+   });
++
++  it('stamps receivedAt from the injected clock and accepts an envelope with no retrievedAt', () => {
++    const normalized = normalize({
++      urls: [JIRA, CONFLUENCE],
++      evidence: {
++        mcpServer: 'atlassian',
++        sources: [
++          source({ url: JIRA, retrievedAt: null }),
++          source({ url: CONFLUENCE, id: 'ENG-orders-page', content: 'Orders are validated at the edge.' }),
++        ],
++        conflicts: [],
++      },
++    });
++    assert.deepEqual(
++      normalized.sources.map((entry) => [entry.id, entry.receivedAt, entry.retrievedAt]),
++      [
++        ['ENG-orders-page', RECEIVED_AT, '2026-09-20T09:00:00.000Z'],
++        ['ORD-17', RECEIVED_AT, null],
++      ],
++    );
++  });
++
++  it('parses an envelope that omits retrievedAt as null, never as an invented time', async () => {
++    const { retrievedAt: _dropped, ...withoutTime } = source({ url: JIRA });
++    const raw = JSON.stringify({ mcpServer: 'atlassian', sources: [withoutTime], conflicts: [] });
++    const evidence = await loadRequirementEvidence(
++      { fs: {} as never, stdin: { read: async () => raw } },
++      { kind: 'stdin' },
++    );
++    assert.equal(evidence.sources[0]?.retrievedAt, null);
++    assert.equal('receivedAt' in (evidence.sources[0] ?? {}), false);
++  });
++
++  it('refuses an envelope that supplies receivedAt: only the CLI records when it received one', async () => {
++    const raw = JSON.stringify({
++      mcpServer: 'atlassian',
++      sources: [{ ...source({ url: JIRA }), receivedAt: '2020-01-01T00:00:00.000Z' }],
++      conflicts: [],
++    });
++    const error = await failureAsync(() =>
++      loadRequirementEvidence({ fs: {} as never, stdin: { read: async () => raw } }, { kind: 'stdin' }),
++    );
++    assert.equal(error.code, 'requirements-invalid');
++    assert.ok(error.details.some((detail) => detail.includes('receivedAt')), error.details.join('\n'));
++  });
++});
++
++async function failureAsync(run: () => Promise<unknown>): Promise<{ code: string; details: string[] }> {
++  try {
++    await run();
++  } catch (error) {
++    assert.ok(isAmbicodeError(error), `expected an AmbicodeError, got ${String(error)}`);
++    return { code: error.code, details: error.details };
++  }
++  assert.fail('expected the envelope to be refused');
++}
++
++describe('a stored review result survives the receivedAt change', () => {
++  it('still parses a result written before receivedAt existed, and re-emits it unchanged', () => {
++    const legacy = JSON.parse(JSON.stringify(reviewResult())) as { requirements: Record<string, unknown>[] };
++    assert.equal(typeof legacy.requirements[0]?.['retrievedAt'], 'string');
++    assert.equal('receivedAt' in (legacy.requirements[0] ?? {}), false);
++
++    const parsed = ReviewResult.parse(legacy);
++    assert.equal(parsed.schemaVersion, REVIEW_SCHEMA_VERSION);
++    assert.equal(parsed.requirements[0]?.receivedAt, undefined);
++    assert.deepEqual(JSON.parse(JSON.stringify(parsed)).requirements, legacy.requirements);
++  });
++
++  it('parses a result whose source carries receivedAt and a null retrievedAt', () => {
++    const fresh = JSON.parse(JSON.stringify(reviewResult())) as { requirements: Record<string, unknown>[] };
++    Object.assign(fresh.requirements[0] ?? {}, { retrievedAt: null, receivedAt: RECEIVED_AT });
++    const parsed = ReviewResult.parse(fresh);
++    assert.equal(parsed.requirements[0]?.retrievedAt, null);
++    assert.equal(parsed.requirements[0]?.receivedAt, RECEIVED_AT);
++  });
+ });
+diff --git a/src/review/bundle.ts b/src/review/bundle.ts
+index adee456..6aa0f89 100644
+--- a/src/review/bundle.ts
++++ b/src/review/bundle.ts
+@@ -135,6 +135,7 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
+         ? null
+         : await loadRequirementEvidence(runtime, options.evidence),
+     configuredServer: workspace.config.requirements.mcpServer,
++    clock: runtime.clock,
+   });
+   const requirementBytes = requirements.sources.reduce(
+     (total, source) => total + byteLength(source.content),
+diff --git a/src/review/prompt.ts b/src/review/prompt.ts
+index cecb90d..2d8634d 100644
+--- a/src/review/prompt.ts
++++ b/src/review/prompt.ts
+@@ -13,6 +13,7 @@ import { byteLength } from '../snapshot/limits.ts';
+ import { promptsDirectory } from '../util/plugin-root.ts';
+ import { contentHash } from '../util/hash.ts';
+ import { readSharedOperatingContract } from '../policy/shared-contract.ts';
++import { describeReceipt } from '../requirements/receipt.ts';
+ import type { ReviewBundle } from './bundle.ts';
+ 
+ /**
+@@ -216,7 +217,7 @@ function requirementBlock(source: RequirementSource): string[] {
+     `## ${source.id} — ${collapse(source.title)}`,
+     '',
+     `Source: ${source.url}${version}${updated}.`,
+-    `Retrieved ${source.retrievedAt} via ${source.retrievedVia}.`,
++    `${describeReceipt(source).replace(/^./, (first) => first.toUpperCase())}.`,
+     ...(source.citations.length === 0 ? [] : [`Citations: ${source.citations.join(', ')}.`]),
+     '',
+     '```text',
+diff --git a/src/review/report.test.ts b/src/review/report.test.ts
+index 67997d8..abfbff1 100644
+--- a/src/review/report.test.ts
++++ b/src/review/report.test.ts
+@@ -44,3 +44,37 @@ describe('the verification section says whether a command executed', () => {
+     assert.doesNotMatch(text, /ran:/);
+   });
+ });
++
++describe('the requirements section says when AMBICODE received a source', () => {
++  function requirementLines(overrides: Record<string, unknown>): string {
++    const base = reviewResult();
++    const result = { ...base, requirements: [{ ...base.requirements[0], ...overrides }] } as ReviewResult;
++    const lines = renderReport({
++      result,
++      snapshotDirectory: '/tmp/snapshot',
++      resultPath: '/work/app/.ambicode/reviews/r-0001/result.json',
++      pendingApprovals: [],
++    }).split('\n');
++    const start = lines.indexOf('   requirements');
++    assert.notEqual(start, -1);
++    const block = lines.slice(start + 1);
++    const end = block.findIndex((line) => !line.startsWith('     '));
++    return block.slice(0, end === -1 ? undefined : end).join('\n');
++  }
++
++  it('prints the CLI receipt time, and the session retrieval time only when it supplied one', () => {
++    const both = requirementLines({ receivedAt: '2026-09-21T08:15:00.000Z' });
++    assert.match(both, /received 2026-09-21T08:15:00\.000Z by AMBICODE via mcp__atlassian__getJiraIssue/);
++    assert.match(both, /retrieved 2026-09-20T09:00:00\.000Z by the session/);
++
++    const receiptOnly = requirementLines({ receivedAt: '2026-09-21T08:15:00.000Z', retrievedAt: null });
++    assert.match(receiptOnly, /received 2026-09-21T08:15:00\.000Z by AMBICODE via mcp__atlassian__getJiraIssue/);
++    assert.doesNotMatch(receiptOnly, /retrieved 20|null/);
++  });
++
++  it('prints a result stored before receivedAt existed without inventing a receipt time', () => {
++    const legacy = requirementLines({});
++    assert.match(legacy, /retrieved 2026-09-20T09:00:00\.000Z via mcp__atlassian__getJiraIssue/);
++    assert.doesNotMatch(legacy, /received|null|undefined/);
++  });
++});
+diff --git a/src/review/report.ts b/src/review/report.ts
+index fc37b28..56147bd 100644
+--- a/src/review/report.ts
++++ b/src/review/report.ts
+@@ -1,6 +1,7 @@
+ import type { ReviewResult } from '../contracts/review.ts';
+ import type { PendingApproval } from '../checks/run.ts';
+ import { reopenCommand } from '../page/reopen.ts';
++import { describeReceipt } from '../requirements/receipt.ts';
+ 
+ /**
+  * The last part, what was not covered, is not optional: a result without it reads
+@@ -85,7 +86,7 @@ function whatWasReviewed(options: ReportOptions): string[] {
+     for (const source of result.requirements) {
+       const version = source.sourceVersion === null ? '' : ` @${source.sourceVersion}`;
+       lines.push(`     ${source.id}${version}  ${source.url}`);
+-      lines.push(`       ${source.title || '(untitled)'} — retrieved ${source.retrievedAt} via ${source.retrievedVia}`);
++      lines.push(`       ${source.title || '(untitled)'} — ${describeReceipt(source)}`);
+     }
+   } else {
+     lines.push('   requirements  none supplied; this is a quality review');
+diff --git a/src/review/review.test.ts b/src/review/review.test.ts
+index 46ea30e..9be3991 100644
+--- a/src/review/review.test.ts
++++ b/src/review/review.test.ts
+@@ -134,6 +134,30 @@ describe('U16 requirement modes end to end', () => {
+     }
+   });
+ 
++  it('records when AMBICODE received the envelope, and no retrieval time the session never supplied', async () => {
++    const context = await fixture();
++    try {
++      const { retrievedAt: _dropped, ...withoutTime } = retrieved(JIRA, 'ORD-17', 'Totals sum the amounts.');
++      const evidence = await writeEvidence(context.repo, { mcpServer: null, sources: [withoutTime], conflicts: [] });
++      const clock = new FakeClock(Date.parse('2026-09-21T08:15:00.000Z'));
++      const runtime = await createRuntime({ cwd: context.repo.root, clock });
++
++      const reviewer = new FakeReviewer(ok());
++      const output = await review(runtime, ['--requirement', JIRA, '--evidence', evidence], reviewer);
++
++      const [source] = output.result.requirements;
++      assert.equal(source?.receivedAt, '2026-09-21T08:15:00.000Z');
++      assert.equal(source?.retrievedAt, null);
++      const [request] = reviewer.requests;
++      assert.ok(request);
++      assert.match(request.prompt, /Received 2026-09-21T08:15:00\.000Z by AMBICODE via mcp__atlassian__getJiraIssue\./);
++      assert.doesNotMatch(request.prompt, /Retrieved (null|\d)/);
++      await nodeFileSystem.remove(output.snapshotDirectory);
++    } finally {
++      await context.dispose();
++    }
++  });
++
+   it('carries several requirements and their provenance into the result', async () => {
+     const context = await fixture();
+     try {
+diff --git a/src/snapshot/preflight.ts b/src/snapshot/preflight.ts
+new file mode 100644
+index 0000000..8ddae79
+--- /dev/null
++++ b/src/snapshot/preflight.ts
+@@ -0,0 +1,59 @@
++import path from 'node:path';
++import { MAX_SNAPSHOT_FILE_BYTES } from '../config/defaults.ts';
++import type { FileSystem } from '../ports/filesystem.ts';
++import { pathExclusionReason } from './exclusions.ts';
++import { excludeLines, oversizedFileLines, type OversizedFile } from './snapshot.ts';
++
++/**
++ * Paths out of `git status --porcelain -z`, by current name. A rename or copy is followed by
++ * its origin as a record of its own; a deleted path is listed and left to the caller's stat.
++ */
++export function statusPaths(porcelain: string): string[] {
++  const records = porcelain.split('\0').filter((record) => record !== '');
++  const paths: string[] = [];
++  for (let index = 0; index < records.length; index += 1) {
++    const record = records[index] as string;
++    paths.push(record.slice(3));
++    if (/[RC]/.test(record.slice(0, 2))) index += 1;
++  }
++  return paths;
++}
++
++export interface FindOversizedOptions {
++  fs: FileSystem;
++  repositoryRoot: string;
++  paths: readonly string[];
++  excludePaths: readonly string[];
++}
++
++/**
++ * Sizes come from `lstat`, so nothing is read. A path the review would leave out anyway, a
++ * symlink, a directory and a path that no longer exists are not the ceiling's concern.
++ */
++export async function findOversizedFiles(options: FindOversizedOptions): Promise<OversizedFile[]> {
++  const oversized: OversizedFile[] = [];
++  for (const relativePath of options.paths) {
++    if (relativePath === '' || pathExclusionReason(relativePath, { exclude: options.excludePaths }) !== null) continue;
++    try {
++      const stats = await options.fs.lstat(path.join(options.repositoryRoot, relativePath));
++      if (stats.isFile() && stats.size > MAX_SNAPSHOT_FILE_BYTES) {
++        oversized.push({ path: relativePath, bytes: stats.size });
++      }
++    } catch {
++      continue;
++    }
++  }
++  return oversized;
++}
++
++/** One notice for the run, in the words and `--exclude` lines the review's own refusal uses. */
++export function oversizedNotice(oversized: readonly OversizedFile[]): string {
++  return [
++    oversized.length === 1
++      ? 'A file in this preparation would stop `ambicode review`: it does not fit in the review snapshot.'
++      : `${oversized.length} files in this preparation would stop \`ambicode review\`: they do not fit in the review snapshot.`,
++    ...oversizedFileLines(oversized),
++    'This ceiling is not configurable. Leave the path out deliberately when you review:',
++    ...excludeLines(oversized),
++  ].join('\n');
++}
+diff --git a/src/snapshot/snapshot.ts b/src/snapshot/snapshot.ts
+index 0d65b3d..f15acc0 100644
+--- a/src/snapshot/snapshot.ts
++++ b/src/snapshot/snapshot.ts
+@@ -46,11 +46,30 @@ export interface SnapshotPlan {
+   totalBytes: number;
+ }
+ 
++export interface OversizedFile {
++  path: string;
++  bytes: number;
++}
++
++export function oversizedFileLines(oversized: readonly OversizedFile[]): string[] {
++  return oversized.map(
++    (entry) =>
++      `${entry.path} is ${entry.bytes} bytes, above the ${MAX_SNAPSHOT_FILE_BYTES}-byte per-file snapshot ceiling.`,
++  );
++}
++
++export function excludeLines(oversized: readonly OversizedFile[]): string[] {
++  return [
++    ...oversized.map((entry) => `  --exclude "${entry.path}"`),
++    '(--exclude is repeatable; review.excludePaths makes it permanent.)',
++  ];
++}
++
+ /**
+  * A changed file that will not fit stops the review: the reviewer would not see all of
+  * the change. Every oversized file is named at once, since each remote read costs ~1.5s.
+  */
+-function oversizedRefusal(oversized: readonly { path: string; bytes: number }[]): AmbicodeError {
++function oversizedRefusal(oversized: readonly OversizedFile[]): AmbicodeError {
+   const many = oversized.length > 1;
+   return new AmbicodeError(
+     'snapshot-too-large',
+@@ -59,16 +78,12 @@ function oversizedRefusal(oversized: readonly { path: string; bytes: number }[])
+       : 'A changed file does not fit in the review snapshot, so the change was not reviewed.',
+     {
+       details: [
+-        ...oversized.map(
+-          (entry) =>
+-            `${entry.path} is ${entry.bytes} bytes, above the ${MAX_SNAPSHOT_FILE_BYTES}-byte per-file snapshot ceiling.`,
+-        ),
++        ...oversizedFileLines(oversized),
+         'This ceiling is not configurable: raising review.maxContextBytes will not change it.',
+         many
+           ? 'Split the change so each part fits, or leave these paths out deliberately:'
+           : 'Split the change so each part fits, or leave this path out deliberately:',
+-        ...oversized.map((entry) => `  --exclude "${entry.path}"`),
+-        '(--exclude is repeatable; review.excludePaths makes it permanent.)',
++        ...excludeLines(oversized),
+         'An excluded path is not reviewed and the report says so, which is why it has to be asked for.',
+         'AMBICODE does not review part of a change and report it as a whole.',
+       ],
+@@ -169,7 +184,7 @@ export async function planSnapshot(options: PlanSnapshotOptions): Promise<Snapsh
+   const changedContent = await readAll(options.content, needed);
+ 
+   // Collected, not thrown on: one pass names every file the operator has to decide about.
+-  const oversized: { path: string; bytes: number }[] = [];
++  const oversized: OversizedFile[] = [];
+ 
+   for (const file of options.files) {
+     const target = file.newPath;
+diff --git a/templates/review.eta b/templates/review.eta
+index 2dcd905..a8fffe6 100644
+--- a/templates/review.eta
++++ b/templates/review.eta
+@@ -85,7 +85,7 @@
+       <% if (source.sourceVersion !== null) { %>@<%= source.sourceVersion %><% } %>
+       &mdash; <%= source.title %>
+       <span class="tag"><%= source.status %></span>
+-      retrieved <%= source.retrievedAt %> via <%= source.retrievedVia %>
++      <%= source.receipt %>
+       <% if (source.failureReason !== null) { %><span class="problem-text"><%= source.failureReason %></span><% } %>
+     </li>
+     <% }) %>

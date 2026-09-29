@@ -1,6 +1,7 @@
 import type { ReviewResult } from '../contracts/review.ts';
 import type { PendingApproval } from '../checks/run.ts';
 import { reopenCommand } from '../page/reopen.ts';
+import { describeReceipt } from '../requirements/receipt.ts';
 
 /**
  * The last part, what was not covered, is not optional: a result without it reads
@@ -85,7 +86,7 @@ function whatWasReviewed(options: ReportOptions): string[] {
     for (const source of result.requirements) {
       const version = source.sourceVersion === null ? '' : ` @${source.sourceVersion}`;
       lines.push(`     ${source.id}${version}  ${source.url}`);
-      lines.push(`       ${source.title || '(untitled)'} — retrieved ${source.retrievedAt} via ${source.retrievedVia}`);
+      lines.push(`       ${source.title || '(untitled)'} — ${describeReceipt(source)}`);
     }
   } else {
     lines.push('   requirements  none supplied; this is a quality review');

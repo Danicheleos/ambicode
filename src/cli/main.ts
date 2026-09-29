@@ -19,6 +19,9 @@ export const USAGE = `ambicode <command> [options]
 
   init                    Detect projects and write .ambicode/config.yaml.
                             --dry-run    Report what would change, write nothing.
+                            --mcp-server <name>   Pin requirements.mcpServer to this
+                                                  server (exact envelope name); a
+                                                  different bound value is refused.
 
   config                  Print the effective configuration, including limits
                           that are not stored in the file.

@@ -194,3 +194,10 @@ describe('U27 command line arguments', () => {
     assert.match(text, /Unknown command "nope"/);
   });
 });
+
+describe('the usage text names the value options init declares', () => {
+  it('lists --mcp-server under init', () => {
+    const init = documentedOptions().get('init') ?? [];
+    for (const name of INIT_OPTIONS.values) assert.ok(init.includes(name), `--${name} is not in the init help`);
+  });
+});

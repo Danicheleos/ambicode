@@ -6,6 +6,7 @@ import type {
 import type { PublicationState } from '../contracts/primitives.ts';
 import type { CoverageGap } from '../contracts/provider.ts';
 import type { ReviewResult } from '../contracts/review.ts';
+import { describeReceipt } from '../requirements/receipt.ts';
 
 /**
  * Every string here is inserted with Eta's escaping interpolation, so hostile
@@ -59,8 +60,7 @@ export interface RequirementSummary {
   title: string;
   status: string;
   sourceVersion: string | null;
-  retrievedAt: string;
-  retrievedVia: string;
+  receipt: string;
   failureReason: string | null;
 }
 
@@ -243,8 +243,7 @@ export function buildPageModel(options: BuildModelOptions): PageModel {
       title: source.title,
       status: source.status,
       sourceVersion: source.sourceVersion,
-      retrievedAt: source.retrievedAt,
-      retrievedVia: source.retrievedVia,
+      receipt: describeReceipt(source),
       failureReason: source.failureReason,
     })),
     provenance: result.provenance.map((entry) => ({ ...entry })),

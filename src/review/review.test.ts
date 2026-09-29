@@ -134,6 +134,30 @@ describe('U16 requirement modes end to end', () => {
     }
   });
 
+  it('records when AMBICODE received the envelope, and no retrieval time the session never supplied', async () => {
+    const context = await fixture();
+    try {
+      const { retrievedAt: _dropped, ...withoutTime } = retrieved(JIRA, 'ORD-17', 'Totals sum the amounts.');
+      const evidence = await writeEvidence(context.repo, { mcpServer: null, sources: [withoutTime], conflicts: [] });
+      const clock = new FakeClock(Date.parse('2026-09-21T08:15:00.000Z'));
+      const runtime = await createRuntime({ cwd: context.repo.root, clock });
+
+      const reviewer = new FakeReviewer(ok());
+      const output = await review(runtime, ['--requirement', JIRA, '--evidence', evidence], reviewer);
+
+      const [source] = output.result.requirements;
+      assert.equal(source?.receivedAt, '2026-09-21T08:15:00.000Z');
+      assert.equal(source?.retrievedAt, null);
+      const [request] = reviewer.requests;
+      assert.ok(request);
+      assert.match(request.prompt, /Received 2026-09-21T08:15:00\.000Z by AMBICODE via mcp__atlassian__getJiraIssue\./);
+      assert.doesNotMatch(request.prompt, /Retrieved (null|\d)/);
+      await nodeFileSystem.remove(output.snapshotDirectory);
+    } finally {
+      await context.dispose();
+    }
+  });
+
   it('carries several requirements and their provenance into the result', async () => {
     const context = await fixture();
     try {

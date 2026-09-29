@@ -7,7 +7,7 @@ import type { FileSystem } from '../../ports/filesystem.ts';
 import type { ParsedArgs } from '../args.ts';
 import { navigationFor, type NavigationGuidance } from '../../code-intelligence/navigation.ts';
 
-export const INIT_OPTIONS = { flags: ['json', 'dry-run'] } as const;
+export const INIT_OPTIONS = { values: ['mcp-server'], flags: ['json', 'dry-run'] } as const;
 
 export interface InitOutput {
   command: 'init';
@@ -40,6 +40,7 @@ export async function runInit(runtime: Runtime, args: ParsedArgs): Promise<InitO
     detected,
     baseline: baseline.baseline,
     baselineNotice: baseline.notice,
+    mcpServer: args.value('mcp-server'),
   });
 
   const configPath = path.join(repositoryRoot, CONFIG_FILE);

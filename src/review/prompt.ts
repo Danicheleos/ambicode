@@ -13,6 +13,7 @@ import { byteLength } from '../snapshot/limits.ts';
 import { promptsDirectory } from '../util/plugin-root.ts';
 import { contentHash } from '../util/hash.ts';
 import { readSharedOperatingContract } from '../policy/shared-contract.ts';
+import { describeReceipt } from '../requirements/receipt.ts';
 import type { ReviewBundle } from './bundle.ts';
 
 /**
@@ -216,7 +217,7 @@ function requirementBlock(source: RequirementSource): string[] {
     `## ${source.id} — ${collapse(source.title)}`,
     '',
     `Source: ${source.url}${version}${updated}.`,
-    `Retrieved ${source.retrievedAt} via ${source.retrievedVia}.`,
+    `${describeReceipt(source).replace(/^./, (first) => first.toUpperCase())}.`,
     ...(source.citations.length === 0 ? [] : [`Citations: ${source.citations.join(', ')}.`]),
     '',
     '```text',

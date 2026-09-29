@@ -4,11 +4,15 @@ import { z } from 'zod';
 export const RequirementMode = z.enum(['source-free', 'requirement-based']);
 export type RequirementMode = z.infer<typeof RequirementMode>;
 
-export const RequirementSource = z.strictObject({
+const sourceHead = {
   id: z.string().min(1),
   url: z.string().min(1),
   title: z.string(),
-  retrievedAt: z.string().min(1),
+  /** The retrieval time the MCP tool's own response carried; absent when it carried none. */
+  retrievedAt: z.string().min(1).nullable().default(null),
+};
+
+const sourceBody = {
   sourceVersion: z.string().nullable().default(null),
   updatedAt: z.string().nullable().default(null),
   content: z.string(),
@@ -16,6 +20,20 @@ export const RequirementSource = z.strictObject({
   status: z.enum(['retrieved', 'unavailable', 'forbidden', 'not-found']),
   failureReason: z.string().nullable().default(null),
   retrievedVia: z.string().min(1),
+};
+
+/** What a session may put in an envelope: `receivedAt` is absent, so an envelope that sets it is refused. */
+export const RequirementEnvelopeSource = z.strictObject({ ...sourceHead, ...sourceBody });
+export type RequirementEnvelopeSource = z.infer<typeof RequirementEnvelopeSource>;
+
+/**
+ * A normalized source as stored. `receivedAt` is stamped by the CLI when it receives the
+ * envelope; results written before it existed lack it and stay readable.
+ */
+export const RequirementSource = z.strictObject({
+  ...sourceHead,
+  receivedAt: z.string().min(1).optional(),
+  ...sourceBody,
 });
 export type RequirementSource = z.infer<typeof RequirementSource>;
 
