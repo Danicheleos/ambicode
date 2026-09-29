@@ -1,0 +1,394 @@
+diff --git a/evals/scripts/src/evals-record-core.mjs b/evals/scripts/src/evals-record-core.mjs
+index 468c5c1..b9f895c 100644
+--- a/evals/scripts/src/evals-record-core.mjs
++++ b/evals/scripts/src/evals-record-core.mjs
+@@ -3,13 +3,16 @@
+ // EVAL_AMBICODE_REVIEWER_REPLAY, so the with arm measures the pipeline's reviewer instead of
+ // the agent's hand review. Keyed on the snapshot id a fresh scaffold produces (deterministic:
+ // fixed commit dates, exact base files), the same one the sandbox's scaffold produces.
+-// Usage: node evals-record-core.mjs [case...] [-j N] [--exclude <glob>]...
++// Usage: node evals-record-core.mjs [case...] [-j N] [--exclude <glob>]... [--runs N] [--keep-runs <dir>]
+ // `--exclude` is passed to both `bundle` and `review`, for a change the snapshot refuses
+ // (`snapshot-too-large`); the id is patch-derived, so any spelling that removes the same
+ // files replays.
++// `--runs N` records each case N times; the recordings file gets the highest run index that
++// succeeded. `--keep-runs <dir>` writes every run, a stability summary and a usage sidecar;
++// the runs hold the reviewer's output, so <dir> must sit under a `scratch` directory.
+ import { spawnSync } from 'node:child_process';
+ import { existsSync } from 'node:fs';
+-import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
++import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+ import { tmpdir } from 'node:os';
+ import path from 'node:path';
+ import { fileURLToPath } from 'node:url';
+@@ -26,6 +29,7 @@ export const RECORDINGS = path.join(ROOT, 'benchmarks', REVIEWER_RECORDINGS);
+ const BUNDLE_ONLY_OMISSION = 'No model review was run: this command produces the evidence bundle only.';
+ // The FE config allows a 900 s reviewer; the review's checks are all null here.
+ const AMBICODE_TIMEOUT_MS = 1000 * 1000;
++const MEDIUM_PLUS = new Set(['medium', 'high']);
+ 
+ async function reviewCases(only) {
+   const cases = [];
+@@ -108,6 +112,8 @@ async function recordCase(evalCase, excludes) {
+       output: { findings: review.findings.map(reviewerFinding), coverageNotes: review.omissions.slice(before.length) },
+     },
+     findings: review.findings.length,
++    findingList: review.findings,
++    usage: review.reviewer.usage ?? null,
+     rejections: review.reviewer.rejections.length,
+     costUsd: review.reviewer.usage?.costUsd ?? null,
+     wallMs: Date.now() - started,
+@@ -128,32 +134,151 @@ async function pool(items, concurrency, worker) {
+   return results;
+ }
+ 
+-async function main(argv) {
++export function parseOptions(argv) {
++  const value = (flag) => {
++    const index = argv.indexOf(flag);
++    if (index < 0) return undefined;
++    if (argv[index + 1] === undefined) throw new Error(`${flag} needs a value`);
++    return argv[index + 1];
++  };
+   const jIndex = argv.indexOf('-j');
+   const concurrency = jIndex >= 0 ? Number(argv[jIndex + 1]) : 2;
+   const excludes = argv.flatMap((arg, i) => (arg === '--exclude' && argv[i + 1] ? [argv[i + 1]] : []));
+-  const consumed = new Set(argv.flatMap((arg, i) => (arg === '-j' || arg === '--exclude' ? [i, i + 1] : [])));
++  const runsText = value('--runs') ?? '1';
++  if (!/^[1-9]\d*$/.test(runsText)) throw new Error(`--runs needs a positive integer, got ${runsText}`);
++  const flags = new Set(['-j', '--exclude', '--runs', '--keep-runs']);
++  const consumed = new Set(argv.flatMap((arg, i) => (flags.has(arg) ? [i, i + 1] : [])));
+   const only = argv.filter((_, i) => !consumed.has(i));
++  return { concurrency, excludes, runs: Number(runsText), keepRuns: value('--keep-runs') ?? null, only };
++}
++
++// Exit 128 (a path outside the repository) reads as not ignored, so it is refused.
++function gitIgnores(file) {
++  return spawnSync('git', ['check-ignore', '-q', file], { cwd: ROOT }).status === 0;
++}
++
++/** The runs embed the reviewer's output on NDA code, so only a gitignored `scratch` tree may hold them. */
++export function keepRunsDirectory(directory, isIgnored = gitIgnores) {
++  const resolved = path.resolve(directory);
++  if (!resolved.split(path.sep).includes('scratch')) throw new Error(`--keep-runs ${directory}: refused, no path segment is "scratch"`);
++  if (!isIgnored(path.join(resolved, 'x'))) throw new Error(`--keep-runs ${directory}: refused, git does not ignore it`);
++  return resolved;
++}
++
++/** The sidecars are rebuilt from one invocation, so a second call into the same directory would drop the first call's cases. */
++export function assertFreshKeepDirectory(directory) {
++  for (const sidecar of ['summary.json', 'usage.json']) {
++    if (existsSync(path.join(directory, sidecar))) throw new Error(`--keep-runs ${directory}: ${sidecar} already exists; use a new directory`);
++  }
++}
++
++const findingKey = (finding) => finding.location.newPath ?? finding.location.oldPath;
++
++function mediumPlus(findings) {
++  return findings.filter((finding) => MEDIUM_PLUS.has(finding.risk));
++}
++
++/** Share of medium-and-above file paths that recur in at least two runs; null when there is none. */
++export function stability(runFindings) {
++  const seen = new Map();
++  for (const findings of runFindings) {
++    for (const key of new Set(mediumPlus(findings).map(findingKey))) seen.set(key, (seen.get(key) ?? 0) + 1);
++  }
++  if (seen.size === 0) return null;
++  return [...seen.values()].filter((runs) => runs >= 2).length / seen.size;
++}
++
++const succeeded = (runs) => runs.filter((run) => run.ok).sort((a, b) => a.run - b.run);
++
++/** The highest successful run index, so the recordings file does not depend on completion order. */
++export function chooseRecording(runs) {
++  return succeeded(runs).at(-1)?.recording ?? null;
++}
++
++/** `cases` is `[{case, runs: [{run, ok, findings, detail}]}]`; a case with no successful run is `refused`. */
++export function buildSummary(cases) {
++  const summary = { schemaVersion: 1, cases: [], refused: [] };
++  for (const { case: name, runs } of cases) {
++    const failedRuns = runs.filter((run) => !run.ok).map(({ run, detail }) => ({ run, detail }));
++    const good = succeeded(runs);
++    if (good.length === 0) {
++      summary.refused.push({ case: name, failedRuns });
++      continue;
++    }
++    summary.cases.push({
++      case: name,
++      k: good.length,
++      runs: good.map((run) => run.run),
++      counts: good.map((run) => run.findings.length),
++      mediumPlusCounts: good.map((run) => mediumPlus(run.findings).length),
++      stability: good.length >= 2 ? stability(good.map((run) => run.findings)) : null,
++      failedRuns,
++    });
++  }
++  return summary;
++}
++
++/** `cases` as for `buildSummary`; a field the envelope lacked stays null, and a failed run has no entry. */
++export function buildUsage(cases) {
++  return {
++    schemaVersion: 1,
++    cases: cases.map(({ case: name, runs }) => ({
++      case: name,
++      runs: succeeded(runs).map(({ run, usage }) => ({
++        run,
++        turns: usage?.turns ?? null,
++        apiDurationMs: usage?.apiDurationMs ?? null,
++        outputTokens: usage?.outputTokens ?? null,
++        costUsd: usage?.costUsd ?? null,
++      })),
++    })),
++  };
++}
++
++async function main(argv) {
++  const { concurrency, excludes, runs, keepRuns, only } = parseOptions(argv);
++  const keepDirectory = keepRuns === null ? null : keepRunsDirectory(keepRuns);
++  if (keepDirectory !== null) assertFreshKeepDirectory(keepDirectory);
+   const cases = await reviewCases(only);
+   if (cases.length === 0) throw new Error(`no curated review case under ${CASES}; run evals:select first`);
++  if (keepDirectory !== null) await mkdir(keepDirectory, { recursive: true });
+   const existing = existsSync(RECORDINGS) ? JSON.parse(await readFile(RECORDINGS, 'utf8')) : { schemaVersion: 1, recordings: [] };
+   const kept = new Map(existing.recordings.map((r) => [r.snapshotId, r]));
+-  const outcomes = await pool(cases, concurrency, async (evalCase) => {
++  const jobs = cases.flatMap((evalCase) => Array.from({ length: runs }, (_, index) => ({ evalCase, run: index + 1 })));
++  const outcomes = await pool(jobs, concurrency, async ({ evalCase, run }) => {
++    const label = runs > 1 ? `${evalCase.name} run ${run}/${runs}` : evalCase.name;
+     try {
+       const done = await recordCase(evalCase, excludes);
+-      kept.set(done.recording.snapshotId, done.recording);
+-      process.stderr.write(`${evalCase.name}: ok, ${done.findings} finding(s), ${done.rejections} rejection(s), $${done.costUsd?.toFixed(2) ?? '?'}, ${Math.round(done.wallMs / 1000)} s\n`);
+-      return { case: evalCase.name, ok: true, ...done, recording: undefined };
++      if (keepDirectory !== null) {
++        const { recording, findingList, usage, costUsd, wallMs } = done;
++        await mkdir(path.join(keepDirectory, evalCase.name), { recursive: true });
++        await writeFile(
++          path.join(keepDirectory, evalCase.name, `run-${run}.json`),
++          `${JSON.stringify({ case: evalCase.name, snapshotId: recording.snapshotId, run, recording, findings: findingList, usage, costUsd, wallMs }, null, 2)}\n`,
++        );
++      }
++      process.stderr.write(`${label}: ok, ${done.findings} finding(s), ${done.rejections} rejection(s), $${done.costUsd?.toFixed(2) ?? '?'}, ${Math.round(done.wallMs / 1000)} s\n`);
++      return { case: evalCase.name, run, ok: true, recording: done.recording, findings: done.findingList, usage: done.usage };
+     } catch (error) {
+-      process.stderr.write(`${evalCase.name}: REFUSED — ${error.message}\n`);
+-      return { case: evalCase.name, ok: false, detail: error.message };
++      process.stderr.write(`${label}: REFUSED — ${error.message}\n`);
++      return { case: evalCase.name, run, ok: false, detail: error.message };
+     }
+   });
++  const perCase = cases.map((evalCase) => ({ case: evalCase.name, runs: outcomes.filter((o) => o.case === evalCase.name) }));
++  for (const { runs: caseRuns } of perCase) {
++    const recording = chooseRecording(caseRuns);
++    if (recording !== null) kept.set(recording.snapshotId, recording);
++  }
+   const document = { schemaVersion: 1, recordings: [...kept.values()].sort((a, b) => a.case.localeCompare(b.case) || a.snapshotId.localeCompare(b.snapshotId)) };
+   await writeFile(RECORDINGS, `${JSON.stringify(document, null, 2)}\n`);
+-  const refused = outcomes.filter((o) => !o.ok);
+-  process.stderr.write(`wrote ${document.recordings.length} recording(s) to ${RECORDINGS}; refused ${refused.length}\n`);
+-  return refused.length > 0 ? 1 : 0;
++  const refused = perCase.filter(({ runs: caseRuns }) => succeeded(caseRuns).length === 0);
++  const failedRuns = outcomes.filter((o) => !o.ok).length;
++  process.stderr.write(`wrote ${document.recordings.length} recording(s) to ${RECORDINGS}; refused ${refused.length}${runs > 1 ? `; failed run(s) ${failedRuns}` : ''}\n`);
++  if (keepDirectory !== null) {
++    await writeFile(path.join(keepDirectory, 'summary.json'), `${JSON.stringify(buildSummary(perCase), null, 2)}\n`);
++    await writeFile(path.join(keepDirectory, 'usage.json'), `${JSON.stringify(buildUsage(perCase), null, 2)}\n`);
++  }
++  return failedRuns > 0 ? 1 : 0;
+ }
+ 
+ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+diff --git a/evals/scripts/src/evals-record-core.test.mjs b/evals/scripts/src/evals-record-core.test.mjs
+new file mode 100644
+index 0000000..5177cba
+--- /dev/null
++++ b/evals/scripts/src/evals-record-core.test.mjs
+@@ -0,0 +1,185 @@
++// The recorder spawns the reviewer and costs money, so only its pure parts are tested here.
++import assert from 'node:assert/strict';
++import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import path from 'node:path';
++import { describe, it } from 'node:test';
++import { fileURLToPath } from 'node:url';
++import { assertFreshKeepDirectory, buildSummary, buildUsage, chooseRecording, keepRunsDirectory, parseOptions, stability } from './evals-record-core.mjs';
++
++const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
++
++const finding = (risk, newPath, oldPath = null) => ({ risk, location: { oldPath, newPath, side: 'new', line: 1 } });
++const good = (run, findings, usage = null, recording = { run }) => ({ run, ok: true, findings, usage, recording });
++const bad = (run, detail = 'reviewer failed: x') => ({ run, ok: false, detail });
++
++describe('evals-record-core: options', () => {
++  it('keeps today’s defaults and leaves case names and the flag values apart', () => {
++    assert.deepEqual(parseOptions([]), { concurrency: 2, excludes: [], runs: 1, keepRuns: null, only: [] });
++    assert.deepEqual(parseOptions(['be-a', '-j', '4', '--exclude', '*.lock', 'fe-b', '--exclude', 'dist/**']), {
++      concurrency: 4,
++      excludes: ['*.lock', 'dist/**'],
++      runs: 1,
++      keepRuns: null,
++      only: ['be-a', 'fe-b'],
++    });
++  });
++
++  it('reads --runs and --keep-runs without treating their values as case names', () => {
++    const options = parseOptions(['--runs', '3', 'be-a', '--keep-runs', 'x/scratch/keep', '-j', '6']);
++    assert.deepEqual(options, { concurrency: 6, excludes: [], runs: 3, keepRuns: 'x/scratch/keep', only: ['be-a'] });
++  });
++
++  it('refuses a --runs that is not a positive integer and a flag with no value', () => {
++    for (const bogus of ['0', '-1', '2.5', 'two', '']) assert.throws(() => parseOptions(['--runs', bogus]), /--runs needs a positive integer/);
++    assert.throws(() => parseOptions(['--runs']), /--runs needs a value/);
++    assert.throws(() => parseOptions(['be-a', '--keep-runs']), /--keep-runs needs a value/);
++  });
++});
++
++describe('evals-record-core: --keep-runs directory', () => {
++  const ignored = () => true;
++
++  it('accepts a path with a scratch segment that git ignores, resolved from the working directory', () => {
++    assert.equal(keepRunsDirectory('gym/runs/R1/it-005/scratch/keep', ignored), path.resolve('gym/runs/R1/it-005/scratch/keep'));
++    assert.equal(keepRunsDirectory(path.join(path.sep, 'tmp', 'scratch'), ignored), path.join(path.sep, 'tmp', 'scratch'));
++  });
++
++  it('refuses one outside scratch, including a lookalike segment and a `..` that leaves it', () => {
++    for (const outside of ['gym/runs/R1/it-005/keep', 'benchmarks', 'scratchpad/keep', 'my-scratch', 'scratch/../keep']) {
++      assert.throws(() => keepRunsDirectory(outside, ignored), /refused, no path segment is "scratch"/, outside);
++    }
++  });
++
++  it('refuses a scratch path when git does not ignore a file inside it, and asks about that file', () => {
++    const asked = [];
++    assert.throws(
++      () => keepRunsDirectory('evals/scratch/keep', (file) => (asked.push(file), false)),
++      /refused, git does not ignore it/,
++    );
++    assert.deepEqual(asked, [path.resolve('evals/scratch/keep', 'x')]);
++  });
++
++  it('asks the real git: the gym scratch tree is ignored, evals/scratch is not', () => {
++    const ignoredDirectory = path.join(ROOT, 'gym', 'runs', 'R1', 'it-005', 'scratch', 'keep');
++    assert.equal(keepRunsDirectory(ignoredDirectory), ignoredDirectory);
++    assert.throws(() => keepRunsDirectory(path.join(ROOT, 'evals', 'scratch', 'keep')), /git does not ignore it/);
++    assert.throws(() => keepRunsDirectory(path.join(ROOT, 'src', 'scratch')), /git does not ignore it/);
++  });
++});
++
++describe('evals-record-core: reusing a --keep-runs directory', () => {
++  it('passes for a missing or run-files-only directory and refuses once summary.json or usage.json exists', () => {
++    const directory = mkdtempSync(path.join(tmpdir(), 'record-core-keep-'));
++    try {
++      assert.doesNotThrow(() => assertFreshKeepDirectory(path.join(directory, 'missing')));
++      writeFileSync(path.join(directory, 'run-1.json'), '{}');
++      assert.doesNotThrow(() => assertFreshKeepDirectory(directory));
++      for (const sidecar of ['summary.json', 'usage.json']) {
++        writeFileSync(path.join(directory, sidecar), '{}');
++        assert.throws(() => assertFreshKeepDirectory(directory), new RegExp(`${sidecar}.*use a new directory`), sidecar);
++        rmSync(path.join(directory, sidecar));
++      }
++    } finally {
++      rmSync(directory, { recursive: true, force: true });
++    }
++  });
++});
++
++describe('evals-record-core: stability', () => {
++  it('is null when no run has a medium or high finding', () => {
++    assert.equal(stability([]), null);
++    assert.equal(stability([[], []]), null);
++    assert.equal(stability([[finding('low', 'a.ts')], [finding('low', 'a.ts')], []]), null);
++  });
++
++  it('counts a path seen in one of three runs as unstable', () => {
++    assert.equal(stability([[finding('high', 'a.ts')], [], []]), 0);
++  });
++
++  it('is the share of distinct paths present in at least two runs', () => {
++    const runs = [
++      [finding('high', 'a.ts'), finding('medium', 'b.ts')],
++      [finding('medium', 'a.ts'), finding('high', 'c.ts')],
++      [finding('high', 'a.ts'), finding('medium', 'd.ts')],
++    ];
++    assert.equal(stability(runs), 1 / 4);
++  });
++
++  it('works for k = 2 and is 1 when every path recurs', () => {
++    assert.equal(stability([[finding('high', 'a.ts'), finding('medium', 'b.ts')], [finding('medium', 'b.ts'), finding('high', 'a.ts')]]), 1);
++    assert.equal(stability([[finding('high', 'a.ts'), finding('high', 'b.ts')], [finding('high', 'a.ts')]]), 1 / 2);
++  });
++
++  it('ignores low findings, keys a deleted file by its old path, and counts a path once per run', () => {
++    const runs = [
++      [finding('medium', null, 'gone.ts'), finding('high', null, 'gone.ts'), finding('low', 'noise.ts')],
++      [finding('high', null, 'gone.ts')],
++    ];
++    assert.equal(stability(runs), 1);
++  });
++});
++
++describe('evals-record-core: which run goes to the recordings file', () => {
++  it('takes the highest successful run index whatever the completion order', () => {
++    const runs = [good(2, [], null, { run: 2 }), good(3, [], null, { run: 3 }), good(1, [], null, { run: 1 })];
++    assert.deepEqual(chooseRecording(runs), { run: 3 });
++    assert.deepEqual(chooseRecording([...runs].reverse()), { run: 3 });
++  });
++
++  it('skips a failed higher run, and is null when no run succeeded', () => {
++    assert.deepEqual(chooseRecording([good(1, [], null, { run: 1 }), good(2, [], null, { run: 2 }), bad(3)]), { run: 2 });
++    assert.equal(chooseRecording([bad(1), bad(2)]), null);
++  });
++});
++
++describe('evals-record-core: summary and usage', () => {
++  const cases = [
++    {
++      case: 'be-a',
++      runs: [
++        good(2, [finding('high', 'a.ts'), finding('low', 'b.ts')], { turns: 4, apiDurationMs: 9000, outputTokens: 700, costUsd: 0.25 }),
++        good(1, [finding('medium', 'a.ts'), finding('high', 'c.ts')], { turns: 3, apiDurationMs: null, outputTokens: 500, costUsd: 0.2 }),
++        bad(3),
++      ],
++    },
++    { case: 'fe-b', runs: [bad(1, 'reviewer failed: timeout'), bad(2, 'snapshot ids differ')] },
++    { case: 'be-c', runs: [good(1, [finding('low', 'a.ts')])] },
++  ];
++
++  it('reports per case the successful runs, both counts and the stability', () => {
++    const summary = buildSummary(cases);
++    assert.deepEqual(summary.cases.map((c) => [c.case, c.k, c.runs, c.counts, c.mediumPlusCounts, c.stability]), [
++      ['be-a', 2, [1, 2], [2, 2], [2, 1], 1 / 2],
++      ['be-c', 1, [1], [1], [0], null],
++    ]);
++    assert.deepEqual(summary.cases[0].failedRuns, [{ run: 3, detail: 'reviewer failed: x' }]);
++  });
++
++  it('leaves stability null, not 0, when fewer than two runs succeeded', () => {
++    const summary = buildSummary([{ case: 'be-a', runs: [good(1, [finding('high', 'a.ts')]), bad(2)] }]);
++    assert.deepEqual(summary.cases.map((c) => [c.k, c.mediumPlusCounts, c.stability]), [[1, [1], null]]);
++  });
++
++  it('lists a case with no successful run as refused, not as an empty result', () => {
++    assert.deepEqual(buildSummary(cases).refused, [
++      {
++        case: 'fe-b',
++        failedRuns: [
++          { run: 1, detail: 'reviewer failed: timeout' },
++          { run: 2, detail: 'snapshot ids differ' },
++        ],
++      },
++    ]);
++  });
++
++  it('writes usage per run with null, never 0, for what the envelope lacked, and nothing for a failed run', () => {
++    const usage = buildUsage(cases);
++    assert.deepEqual(usage.cases[0].runs, [
++      { run: 1, turns: 3, apiDurationMs: null, outputTokens: 500, costUsd: 0.2 },
++      { run: 2, turns: 4, apiDurationMs: 9000, outputTokens: 700, costUsd: 0.25 },
++    ]);
++    assert.deepEqual(usage.cases[1].runs, []);
++    assert.deepEqual(usage.cases[2].runs, [{ run: 1, turns: null, apiDurationMs: null, outputTokens: null, costUsd: null }]);
++  });
++});

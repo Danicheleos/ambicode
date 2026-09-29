@@ -1,0 +1,61 @@
+{
+  "iteration": "it-005",
+  "commit": "(this commit; base gym/R1/it-004)",
+  "pluginVersion": "0.3.4",
+  "capturedAt": "2026-09-29T10:35:00Z",
+  "models": {
+    "agent": null,
+    "reviewer": "from the review config; the recorder has no --model (H2)",
+    "judge": null,
+    "worker": "claude-sonnet-5-5"
+  },
+  "G1": {
+    "exit": 0,
+    "tests": 795,
+    "pass": 794,
+    "fail": 0,
+    "skipped": 1,
+    "log": "verify.log",
+    "base": "776 / 775 / 0 / 1 at it-004, re-measured on the unmodified tree in base-verify.log (exit 0)",
+    "note": "+19 tests, all in evals/scripts/src/evals-record-core.test.mjs (15 first version + 4 after the verifier's three defects). The worker measured 774 as its own base inside its worktree; the main tree measures 776."
+  },
+  "G2": {
+    "exit": 0,
+    "zipSha256": "bee92a9a930c0cb4701473541c02ae910697df039f03a07cd69c7789e5487033",
+    "note": "identical to it-003 and it-004; re-run after the fixes"
+  },
+  "G3": {
+    "exit": 0,
+    "files": 514,
+    "note": "514 when run, before this iteration's own tracked files (diff.patch, metrics.json, decision.md, handoffs, logs) were added; re-run after the fixes"
+  },
+  "T1": null,
+  "T2": null,
+  "T3": {
+    "proofRun": {
+      "case": "be-vs-5546-review-996-d520e3ca",
+      "build": "final (after the verifier's fixes), scratch/keep2",
+      "runs": 2,
+      "counts": [4, 5],
+      "mediumPlusCounts": [2, 2],
+      "stability": 0.3333333333333333,
+      "turns": [2, 2],
+      "costUsd": [0.0668692, 0.0678852],
+      "files": "scratch/keep2/{summary.json,usage.json,<case>/run-1.json,run-2.json}",
+      "firstBuildRun": "scratch/keep (before the fixes): counts 5,5; medium+ 3,1; stability 0.5; turns 4,2; cost 0.0997412, 0.0731992. The final build refuses to write into that directory (summary.json already exists): checked, exit 1, no spend."
+    },
+    "note": "a functional proof of the option, not a T3 measurement: 1 case, 2 runs, no comparison"
+  },
+  "T4": null,
+  "preflightSonnet": {
+    "command": "npm run evals:preflight -- --model claude-sonnet-5-5",
+    "runs": 3,
+    "result": "FAILED 3 of 3: p2-task-regression-fix plugin-fired (Skill called 0x), helper-ran (Bash called 0x), unit-check-ran (pattern not found); regression-ts 4/4 PASS each time",
+    "p2CaseTurns": [5, 5, 5],
+    "opusReference": "it-003/scratch/preflight.log (2026-09-29T04:04Z, Opus): PASS on the same case",
+    "costUsd": [0.162, 0.171, 0.169],
+    "logs": ["scratch/preflight.log", "scratch/preflight-2.log", "scratch/preflight-3.log"]
+  },
+  "costUsd": 0.81,
+  "notes": "T1 skipped: no trigger surface touched. T2 screening NOT run: 02 §3.5 step 2 (preflight before any T2) refuses on Sonnet, 3 of 3, in a case and code path this change does not touch (nothing imports evals-record-core.mjs; evals-preflight.mjs, evals-bench.mjs and the cases are unmodified per git status). The 02 §4 requirement for evals/scripts changes ('one T2 screening to prove the harness still runs') is therefore UNMET, named in decision.md. Substitute evidence, weaker than the requirement: preflight regression-ts 4/4 PASS x3 on the changed tree. benchmarks/reviewer-recordings.json was NOT restored after the proof runs (the guard denied the write, denial 2 of 5): its be-vs-5546-review-996-d520e3ca entry is the last proof run's run 2 (5 findings; before 4); the other 7 entries are unchanged (jq comparison against scratch/recordings-before.json; sha256 b4d778c9...c12805 before, db893056...94f3 after). costUsd = proofs 0.173 + 0.135, preflights 0.502; session costs are counted by the supervisor."
+}

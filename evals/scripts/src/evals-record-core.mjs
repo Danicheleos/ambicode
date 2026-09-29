@@ -3,13 +3,16 @@
 // EVAL_AMBICODE_REVIEWER_REPLAY, so the with arm measures the pipeline's reviewer instead of
 // the agent's hand review. Keyed on the snapshot id a fresh scaffold produces (deterministic:
 // fixed commit dates, exact base files), the same one the sandbox's scaffold produces.
-// Usage: node evals-record-core.mjs [case...] [-j N] [--exclude <glob>]...
+// Usage: node evals-record-core.mjs [case...] [-j N] [--exclude <glob>]... [--runs N] [--keep-runs <dir>]
 // `--exclude` is passed to both `bundle` and `review`, for a change the snapshot refuses
 // (`snapshot-too-large`); the id is patch-derived, so any spelling that removes the same
 // files replays.
+// `--runs N` records each case N times; the recordings file gets the highest run index that
+// succeeded. `--keep-runs <dir>` writes every run, a stability summary and a usage sidecar;
+// the runs hold the reviewer's output, so <dir> must sit under a `scratch` directory.
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,6 +29,7 @@ export const RECORDINGS = path.join(ROOT, 'benchmarks', REVIEWER_RECORDINGS);
 const BUNDLE_ONLY_OMISSION = 'No model review was run: this command produces the evidence bundle only.';
 // The FE config allows a 900 s reviewer; the review's checks are all null here.
 const AMBICODE_TIMEOUT_MS = 1000 * 1000;
+const MEDIUM_PLUS = new Set(['medium', 'high']);
 
 async function reviewCases(only) {
   const cases = [];
@@ -108,6 +112,8 @@ async function recordCase(evalCase, excludes) {
       output: { findings: review.findings.map(reviewerFinding), coverageNotes: review.omissions.slice(before.length) },
     },
     findings: review.findings.length,
+    findingList: review.findings,
+    usage: review.reviewer.usage ?? null,
     rejections: review.reviewer.rejections.length,
     costUsd: review.reviewer.usage?.costUsd ?? null,
     wallMs: Date.now() - started,
@@ -128,32 +134,151 @@ async function pool(items, concurrency, worker) {
   return results;
 }
 
-async function main(argv) {
+export function parseOptions(argv) {
+  const value = (flag) => {
+    const index = argv.indexOf(flag);
+    if (index < 0) return undefined;
+    if (argv[index + 1] === undefined) throw new Error(`${flag} needs a value`);
+    return argv[index + 1];
+  };
   const jIndex = argv.indexOf('-j');
   const concurrency = jIndex >= 0 ? Number(argv[jIndex + 1]) : 2;
   const excludes = argv.flatMap((arg, i) => (arg === '--exclude' && argv[i + 1] ? [argv[i + 1]] : []));
-  const consumed = new Set(argv.flatMap((arg, i) => (arg === '-j' || arg === '--exclude' ? [i, i + 1] : [])));
+  const runsText = value('--runs') ?? '1';
+  if (!/^[1-9]\d*$/.test(runsText)) throw new Error(`--runs needs a positive integer, got ${runsText}`);
+  const flags = new Set(['-j', '--exclude', '--runs', '--keep-runs']);
+  const consumed = new Set(argv.flatMap((arg, i) => (flags.has(arg) ? [i, i + 1] : [])));
   const only = argv.filter((_, i) => !consumed.has(i));
+  return { concurrency, excludes, runs: Number(runsText), keepRuns: value('--keep-runs') ?? null, only };
+}
+
+// Exit 128 (a path outside the repository) reads as not ignored, so it is refused.
+function gitIgnores(file) {
+  return spawnSync('git', ['check-ignore', '-q', file], { cwd: ROOT }).status === 0;
+}
+
+/** The runs embed the reviewer's output on NDA code, so only a gitignored `scratch` tree may hold them. */
+export function keepRunsDirectory(directory, isIgnored = gitIgnores) {
+  const resolved = path.resolve(directory);
+  if (!resolved.split(path.sep).includes('scratch')) throw new Error(`--keep-runs ${directory}: refused, no path segment is "scratch"`);
+  if (!isIgnored(path.join(resolved, 'x'))) throw new Error(`--keep-runs ${directory}: refused, git does not ignore it`);
+  return resolved;
+}
+
+/** The sidecars are rebuilt from one invocation, so a second call into the same directory would drop the first call's cases. */
+export function assertFreshKeepDirectory(directory) {
+  for (const sidecar of ['summary.json', 'usage.json']) {
+    if (existsSync(path.join(directory, sidecar))) throw new Error(`--keep-runs ${directory}: ${sidecar} already exists; use a new directory`);
+  }
+}
+
+const findingKey = (finding) => finding.location.newPath ?? finding.location.oldPath;
+
+function mediumPlus(findings) {
+  return findings.filter((finding) => MEDIUM_PLUS.has(finding.risk));
+}
+
+/** Share of medium-and-above file paths that recur in at least two runs; null when there is none. */
+export function stability(runFindings) {
+  const seen = new Map();
+  for (const findings of runFindings) {
+    for (const key of new Set(mediumPlus(findings).map(findingKey))) seen.set(key, (seen.get(key) ?? 0) + 1);
+  }
+  if (seen.size === 0) return null;
+  return [...seen.values()].filter((runs) => runs >= 2).length / seen.size;
+}
+
+const succeeded = (runs) => runs.filter((run) => run.ok).sort((a, b) => a.run - b.run);
+
+/** The highest successful run index, so the recordings file does not depend on completion order. */
+export function chooseRecording(runs) {
+  return succeeded(runs).at(-1)?.recording ?? null;
+}
+
+/** `cases` is `[{case, runs: [{run, ok, findings, detail}]}]`; a case with no successful run is `refused`. */
+export function buildSummary(cases) {
+  const summary = { schemaVersion: 1, cases: [], refused: [] };
+  for (const { case: name, runs } of cases) {
+    const failedRuns = runs.filter((run) => !run.ok).map(({ run, detail }) => ({ run, detail }));
+    const good = succeeded(runs);
+    if (good.length === 0) {
+      summary.refused.push({ case: name, failedRuns });
+      continue;
+    }
+    summary.cases.push({
+      case: name,
+      k: good.length,
+      runs: good.map((run) => run.run),
+      counts: good.map((run) => run.findings.length),
+      mediumPlusCounts: good.map((run) => mediumPlus(run.findings).length),
+      stability: good.length >= 2 ? stability(good.map((run) => run.findings)) : null,
+      failedRuns,
+    });
+  }
+  return summary;
+}
+
+/** `cases` as for `buildSummary`; a field the envelope lacked stays null, and a failed run has no entry. */
+export function buildUsage(cases) {
+  return {
+    schemaVersion: 1,
+    cases: cases.map(({ case: name, runs }) => ({
+      case: name,
+      runs: succeeded(runs).map(({ run, usage }) => ({
+        run,
+        turns: usage?.turns ?? null,
+        apiDurationMs: usage?.apiDurationMs ?? null,
+        outputTokens: usage?.outputTokens ?? null,
+        costUsd: usage?.costUsd ?? null,
+      })),
+    })),
+  };
+}
+
+async function main(argv) {
+  const { concurrency, excludes, runs, keepRuns, only } = parseOptions(argv);
+  const keepDirectory = keepRuns === null ? null : keepRunsDirectory(keepRuns);
+  if (keepDirectory !== null) assertFreshKeepDirectory(keepDirectory);
   const cases = await reviewCases(only);
   if (cases.length === 0) throw new Error(`no curated review case under ${CASES}; run evals:select first`);
+  if (keepDirectory !== null) await mkdir(keepDirectory, { recursive: true });
   const existing = existsSync(RECORDINGS) ? JSON.parse(await readFile(RECORDINGS, 'utf8')) : { schemaVersion: 1, recordings: [] };
   const kept = new Map(existing.recordings.map((r) => [r.snapshotId, r]));
-  const outcomes = await pool(cases, concurrency, async (evalCase) => {
+  const jobs = cases.flatMap((evalCase) => Array.from({ length: runs }, (_, index) => ({ evalCase, run: index + 1 })));
+  const outcomes = await pool(jobs, concurrency, async ({ evalCase, run }) => {
+    const label = runs > 1 ? `${evalCase.name} run ${run}/${runs}` : evalCase.name;
     try {
       const done = await recordCase(evalCase, excludes);
-      kept.set(done.recording.snapshotId, done.recording);
-      process.stderr.write(`${evalCase.name}: ok, ${done.findings} finding(s), ${done.rejections} rejection(s), $${done.costUsd?.toFixed(2) ?? '?'}, ${Math.round(done.wallMs / 1000)} s\n`);
-      return { case: evalCase.name, ok: true, ...done, recording: undefined };
+      if (keepDirectory !== null) {
+        const { recording, findingList, usage, costUsd, wallMs } = done;
+        await mkdir(path.join(keepDirectory, evalCase.name), { recursive: true });
+        await writeFile(
+          path.join(keepDirectory, evalCase.name, `run-${run}.json`),
+          `${JSON.stringify({ case: evalCase.name, snapshotId: recording.snapshotId, run, recording, findings: findingList, usage, costUsd, wallMs }, null, 2)}\n`,
+        );
+      }
+      process.stderr.write(`${label}: ok, ${done.findings} finding(s), ${done.rejections} rejection(s), $${done.costUsd?.toFixed(2) ?? '?'}, ${Math.round(done.wallMs / 1000)} s\n`);
+      return { case: evalCase.name, run, ok: true, recording: done.recording, findings: done.findingList, usage: done.usage };
     } catch (error) {
-      process.stderr.write(`${evalCase.name}: REFUSED — ${error.message}\n`);
-      return { case: evalCase.name, ok: false, detail: error.message };
+      process.stderr.write(`${label}: REFUSED — ${error.message}\n`);
+      return { case: evalCase.name, run, ok: false, detail: error.message };
     }
   });
+  const perCase = cases.map((evalCase) => ({ case: evalCase.name, runs: outcomes.filter((o) => o.case === evalCase.name) }));
+  for (const { runs: caseRuns } of perCase) {
+    const recording = chooseRecording(caseRuns);
+    if (recording !== null) kept.set(recording.snapshotId, recording);
+  }
   const document = { schemaVersion: 1, recordings: [...kept.values()].sort((a, b) => a.case.localeCompare(b.case) || a.snapshotId.localeCompare(b.snapshotId)) };
   await writeFile(RECORDINGS, `${JSON.stringify(document, null, 2)}\n`);
-  const refused = outcomes.filter((o) => !o.ok);
-  process.stderr.write(`wrote ${document.recordings.length} recording(s) to ${RECORDINGS}; refused ${refused.length}\n`);
-  return refused.length > 0 ? 1 : 0;
+  const refused = perCase.filter(({ runs: caseRuns }) => succeeded(caseRuns).length === 0);
+  const failedRuns = outcomes.filter((o) => !o.ok).length;
+  process.stderr.write(`wrote ${document.recordings.length} recording(s) to ${RECORDINGS}; refused ${refused.length}${runs > 1 ? `; failed run(s) ${failedRuns}` : ''}\n`);
+  if (keepDirectory !== null) {
+    await writeFile(path.join(keepDirectory, 'summary.json'), `${JSON.stringify(buildSummary(perCase), null, 2)}\n`);
+    await writeFile(path.join(keepDirectory, 'usage.json'), `${JSON.stringify(buildUsage(perCase), null, 2)}\n`);
+  }
+  return failedRuns > 0 ? 1 : 0;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

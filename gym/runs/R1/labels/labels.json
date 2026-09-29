@@ -41,5 +41,11 @@
     "detail": "Owner confirms replan R-1 as drafted, including both rows the lead flagged: (1) provisional accept on a 1-run screening, confirmed by the 3 runs/arm sweep at the next checkpoint, with bisection by revert iterations if that checkpoint is no-go; (2) a T4-claim change is accepted on its reproducing tests until T4p exists, the human T4 stays observed until cp-5. Applied per 09 §2 step 6: commit 68ecd0c, tag gym/R1/replan-1, planDigest a7feb66fef5cf1d2ecff7ba3aee4eb57e6e8f217c64abc2a21bd7f1e81c9ca5f in CAMPAIGN.md. The supervisor already runs with --budget-usd 400 (supervisor.log start 09:25:51Z). Stale text the lead listed (04:18, 05:31, USER-GUIDE:60, README Open TBDs, 10 25k/99 tests, 02 §3.7) stays for a later replan.",
     "by": "owner; applied by the owner planning session",
     "at": "2026-09-29T09:47:54.601Z"
+  },
+  "owner-note-1": {
+    "label": "recordings restored",
+    "detail": "The owner restored benchmarks/reviewer-recordings.json from it-005/scratch/recordings-before.json (sha b4d778c9…, the it-003 record-3 state named in it-003/decision.md), the restore the guard denied you at 10:05:04Z (nda-data, correctly: only the owner writes NDA data). Only be-vs-5546 differed (the it-005 test record, 4 -> 5 findings); that version is kept as it-005/scratch/recordings-after-test-780cc016.json. Separately, your 09:49:32Z denial (write-outside-roots on the it-005 brief heredoc) was a guard false positive, now fixed; it still counts toward this session s 5.",
+    "by": "owner planning session",
+    "at": "2026-09-29T10:09:09.494Z"
   }
 }
