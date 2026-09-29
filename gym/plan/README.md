@@ -1,6 +1,6 @@
 # gym/plan — training-campaign plan for the ambicode plugin
 
-Supersedes: gym/plan/README.md @ ca5d65f25e77a6307bdcd1db0fe7bfe453d58a5034d96c5e326dbddfb5a71096 (replan R-1; see the Changes section at the end)
+Supersedes: gym/plan/README.md @ c2c756c67bbaf32eb70c26ccff900b8711c74e2af6b29de965411c4eed66dd64 (replan R-4; see the Changes section at the end)
 
 Written 2026-09-28 against branch `tuning`, HEAD `3e5e146`, plugin 0.3.4, from the two
 investigation notes under `gym/planing/investigation/` after auditing every claim in
@@ -68,6 +68,7 @@ for a blocker.
 | 1 | 2026-09-29 | R7 (L-011, L-012, owner-directive-1) | ca5d65f2... -> (computed by the owner after apply) | T3 count withdrawn as a control, medium+ stability added; T4p proxy planned; T2 decision sweeps only at checkpoints; Sonnet 5.5 baseline cp-S0; budget $400; context 150k/200k |
 | 2 | 2026-09-29 | R7 (L-013 a+b) | a7feb66f... -> (computed by the owner after apply) | preflight repair for Sonnet: case prompt of p2-task-regression-fix names "implement", its unit-check-ran is a NOTE on Sonnet, H2 split into measure/repair/T2; 02 §3.3 exception for that one file |
 | 3 | 2026-09-29 | R7 (L-015 b) | c7d037a1... -> (computed by the owner after apply) | preflight repair, second wording: the case prompt of p2-task-regression-fix names the ambicode task skill (it-008 showed "implement the fix" does not fire it on Sonnet); plugin-fired and helper-ran stay required and test mechanics, not triggering; still-failing preflight is a B2 stop with no fallback without a new label; one Opus preflight after a Sonnet pass |
+| 4 | 2026-09-29 | R7 (L-016 a and d) | c2c756c6... -> (computed by the owner after apply) | H4: the T2 review prompt names the review skill and the review arm is re-measured (T2review); T3 stability floor 0.3333 on ownStability, qualifying cases only |
 
 ## Changes
 
@@ -75,3 +76,4 @@ for a blocker.
 - Revisions table: (one row, rev 0) -> added row rev 1 (2026-09-29, trigger R7: L-011, L-012, owner-directive-1; planDigest after computed by the owner after apply). Evidence: `gym/plan/09-replan.md` §3 (README keeps the Revisions table); `gym/runs/R1/replan/R-1-2026-09-29T09-30-00Z.md`.
 - Revisions table: (rows rev 0, rev 1) -> added row rev 2 (2026-09-29, trigger R7: L-013 a+b; planDigest after computed by the owner after apply). Evidence: `labels.json` L-013, 2026-09-29T11:00:46.395Z; `gym/runs/R1/replan/R-2-2026-09-29T11-08-14Z.md`.
 - Revisions table: (rows rev 0, rev 1, rev 2) -> added row rev 3 (2026-09-29, trigger R7: L-015 b; planDigest after computed by the owner after apply). Evidence: `labels.json` L-015, 2026-09-29T11:58:24.482Z; `gym/runs/R1/replan/R-3-2026-09-29T11-59-31Z.md`.
+- Revisions table: (rows rev 0, rev 1, rev 2, rev 3) -> added row rev 4 (2026-09-29, trigger R7: L-016 a and d; planDigest after computed by the owner after apply). Evidence: `labels.json` L-016, 2026-09-29T13:23:56.307Z; `gym/runs/R1/replan/R-4-2026-09-29T13-55-00Z.md`.
