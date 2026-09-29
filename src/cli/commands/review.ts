@@ -219,6 +219,12 @@ async function persistPublicationPositions(
 }
 
 /**
+ * Two turns is one tool call plus the answer. An upper bound: at 3 or more turns
+ * the count cannot tell no file read from one. Live runs measured 2 in 24 of 46, never 1.
+ */
+const SHORT_REVIEWER_TURNS = 2;
+
+/**
  * A failed or skipped check narrows what was verified (`partial`) but does not
  * stop the model; only unusable reviewer output makes the review an error.
  */
@@ -238,6 +244,7 @@ function applyStatus(bundle: ReviewBundle, reviewerOk: boolean): void {
     (total, { policy }) => total + policy.diagnostics.filter((d) => d.severity === 'error').length,
     0,
   );
+  const turns = bundle.result.reviewer?.usage?.turns;
   const gaps = [
     ...(policyGaps > 0 ? [`${policyGaps} applicable policy diagnostic(s) could not be resolved`] : []),
     ...(bundle.result.coverage.complete
@@ -256,6 +263,11 @@ function applyStatus(bundle: ReviewBundle, reviewerOk: boolean): void {
       : []),
     ...(bundle.result.reviewer?.source === 'replay'
       ? ['the reviewer answer was replayed from a recording; no model reviewed the change in this run']
+      : []),
+    ...(turns !== null && turns !== undefined && turns <= SHORT_REVIEWER_TURNS
+      ? [
+          `the reviewer ran at most ${SHORT_REVIEWER_TURNS} turn(s), so it made at most one tool call, the answer itself; it may have read no file`,
+        ]
       : []),
   ];
 

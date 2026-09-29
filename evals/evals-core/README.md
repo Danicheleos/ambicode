@@ -92,10 +92,18 @@ version a human reviewer commented on.
   did the answer raise the same concern about the same code. The score is
   recall against the humans. Precision is not measured: a concern no human
   raised may be right or wrong, and nothing here can tell which.
-- Inside the eval sandbox no nested reviewer signs in, and there is no
-  recording for these changes, so the with arm's independent reviewer does not
-  answer. What this measures is the agent with AMBICODE against the agent
-  without it, not the reviewer.
+- Inside the eval sandbox no nested reviewer signs in, so the with arm's
+  `ambicode review` ends in `reviewer-error` unless a recording answers for
+  it. `npm run evals:record` (`evals-record-core.mjs`) runs the real reviewer
+  once per curated review case as the operator and stores its answer in
+  `benchmarks/reviewer-recordings.json`, keyed on the snapshot id a fresh
+  scaffold produces (deterministic: fixed commit dates, exact base files).
+  When that file exists, `npm run evals` sets `EVAL_AMBICODE_REVIEWER_REPLAY`
+  and the sandbox replays it, so the with arm measures the pipeline's own
+  reviewer. Without it, the with arm measures the agent with AMBICODE's skill
+  text against the agent without it — not the reviewer. Re-record after any
+  change to the reviewer prompt, the packs, or the plugin's review pipeline;
+  a stale recording still replays.
 
 ## Preparing review versions
 

@@ -1,0 +1,377 @@
+{
+  "iteration": "it-006",
+  "reference": "R-1 Sonnet baseline (partial: T2 not run)",
+  "status": "partial",
+  "commit": "14e4c0b (campaign files only since gym/R1/it-005; product surfaces byte-identical to gym/R1/it-003)",
+  "pluginVersion": "0.3.4",
+  "capturedAt": "2026-09-29T10:50:00Z",
+  "models": {
+    "agent": "claude-sonnet-5-5",
+    "reviewer": "sonnet",
+    "judge": null
+  },
+  "modelProof": "agent: `\"model\":\"claude-sonnet-5-5\"` in the kept trace.jsonl of the two diagnostic preflight runs (/private/tmp/e-8O6FlV, /private/tmp/e-CVJ88T; 9 and 7 occurrences); T1's traces were deleted, so the T1 sweep is evidenced by `suite.modelOverride: \"claude-sonnet-5-5\"` in its aggregate-result.json (the harness's record of the flag, not of the model that answered) and by cost ($2.09 against $4.21 on Opus). reviewer: the recorded `run-<k>.json` `recording.model` is `sonnet` (review config), not affected by --model",
+  "G1": {
+    "exit": 0,
+    "tests": 795,
+    "pass": 794,
+    "fail": 0,
+    "skipped": 1,
+    "log": "verify.log"
+  },
+  "G2": {
+    "exit": 0,
+    "zipSha256": "bee92a9a930c0cb4701473541c02ae910697df039f03a07cd69c7789e5487033",
+    "note": "identical to it-005"
+  },
+  "G3": {
+    "exit": 0,
+    "files": 521,
+    "filesNote": "it-005 recorded 514 before its campaign files were committed; the count includes tracked text files under gym/ committed since (it-005 record, it-006 brief); plugin unchanged",
+    "log": "g3.log"
+  },
+  "T1": {
+    "model": "claude-sonnet-5-5",
+    "runs": 3,
+    "scoredMean": 1.0,
+    "scoredMeanOver": "the 7 scored cases (01 \u00a71 item 2); url-bare is diagnostic",
+    "casesPassed": 7,
+    "casesTotal": 8,
+    "urlBare": {
+      "score": 0.4,
+      "investigate": "3/3",
+      "plan": "0/3",
+      "review": "0/3",
+      "task": "0/3"
+    },
+    "verbImplement": "task-fired 3/3",
+    "costUsd": 2.0854708,
+    "seconds": 133,
+    "partial": false,
+    "claudeVersion": "2.1.284",
+    "resultDir": "scratch/triggers/2026-09-29T10-26-31-324Z",
+    "opusReference": "baseline/metrics.json T1: 7 scored 1.0, url-bare 0.4 (investigate 3/3), $4.21, 209 s: history, not a control"
+  },
+  "preflight": {
+    "model": "claude-sonnet-5-5",
+    "attempts": 4,
+    "result": "FAILED 4 of 4 (3 in it-005, 1 here with --keep-temp)",
+    "failingCase": "p2-task-regression-fix",
+    "failing": [
+      "plugin-fired: Skill called 0x (expects `ambicode:task`)",
+      "helper-ran: no `ambicode review` Bash call",
+      "unit-check-ran: no `unit` check executed by `review`"
+    ],
+    "passingCase": "regression-ts, 4/4 graders, every attempt",
+    "cause": "measured from the kept trace (it-006/scratch/preflight-keep.log; /private/tmp/e-8O6FlV): Sonnet read the diff, fixed `add` with sed and ran jest and eslint directly, never invoking the task skill; the prompt (`Find it, fix it, and verify the fix.`) names no skill and no `implement`. The task skill's description says \"Use when the user asks to implement, add, fix, or build something\"; T1 verb-implement (\"implement\") fires it 3/3 on Sonnet. The three graders that fail are all consequences of the Skill not being called. Opus called the skill on the same case at 04:04Z (it-003/scratch/preflight.log)",
+    "costUsd": 0.17
+  },
+  "T2": null,
+  "T2Reason": "not run: preflight failed 4 of 4 on Sonnet (02 \u00a73.5 step 2). A sweep behind a failed gate was refused; the gate was not changed. The T2 curated cases are localize and review cases (no task-skill case), so the failing check does not exercise what T2 measures, but that is an argument for the owner to accept, not a licence for the lead (label L-013)",
+  "T3": {
+    "buildNote": "A/A on this HEAD; recorder of it-005 (`--runs 3 --keep-runs`), `--exclude 'main/assets/i18n/**'`, 8 cases, two independent sets",
+    "sets": [
+      "scratch/aa-1",
+      "scratch/aa-2"
+    ],
+    "successfulRuns": [
+      23,
+      23
+    ],
+    "failedRuns": [
+      {
+        "set": 1,
+        "case": "fe-vs-6253-review-2557-1b0a7eaf",
+        "run": 2,
+        "reason": "reviewer failed: invalid-output"
+      },
+      {
+        "set": 2,
+        "case": "be-vs-5075-review-1054-3b24bb74",
+        "run": 3,
+        "reason": "reviewer failed: invalid-output"
+      }
+    ],
+    "perCase": [
+      {
+        "case": "be-vs-3571-review-1128-957b6388",
+        "counts": [
+          [
+            5,
+            4,
+            4
+          ],
+          [
+            3,
+            2,
+            1
+          ]
+        ],
+        "mediumPlus": [
+          [
+            2,
+            2,
+            1
+          ],
+          [
+            2,
+            2,
+            1
+          ]
+        ],
+        "ownStability": [
+          0.3333,
+          0.6667
+        ],
+        "setAgreement": 1.0
+      },
+      {
+        "case": "be-vs-5075-review-1054-3b24bb74",
+        "counts": [
+          [
+            5,
+            4,
+            4
+          ],
+          [
+            5,
+            5
+          ]
+        ],
+        "mediumPlus": [
+          [
+            2,
+            1,
+            2
+          ],
+          [
+            2,
+            2
+          ]
+        ],
+        "ownStability": [
+          1.0,
+          1.0
+        ],
+        "setAgreement": 1.0
+      },
+      {
+        "case": "be-vs-5546-review-996-d520e3ca",
+        "counts": [
+          [
+            3,
+            4,
+            4
+          ],
+          [
+            5,
+            2,
+            3
+          ]
+        ],
+        "mediumPlus": [
+          [
+            1,
+            2,
+            2
+          ],
+          [
+            2,
+            1,
+            1
+          ]
+        ],
+        "ownStability": [
+          1.0,
+          0.5
+        ],
+        "setAgreement": 1.0
+      },
+      {
+        "case": "be-vs-6261-review-1141-f14493f1",
+        "counts": [
+          [
+            2,
+            1,
+            1
+          ],
+          [
+            1,
+            1,
+            2
+          ]
+        ],
+        "mediumPlus": [
+          [
+            1,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            1
+          ]
+        ],
+        "ownStability": [
+          0.0,
+          0.0
+        ],
+        "setAgreement": 0.0
+      },
+      {
+        "case": "fe-vs-6086-review-2553-d1f112e5",
+        "counts": [
+          [
+            3,
+            5,
+            4
+          ],
+          [
+            4,
+            2,
+            2
+          ]
+        ],
+        "mediumPlus": [
+          [
+            1,
+            1,
+            2
+          ],
+          [
+            2,
+            1,
+            1
+          ]
+        ],
+        "ownStability": [
+          0.5,
+          0.3333
+        ],
+        "setAgreement": 0.6667
+      },
+      {
+        "case": "fe-vs-6086-review-2553-d7c43dc5",
+        "counts": [
+          [
+            2,
+            3,
+            4
+          ],
+          [
+            3,
+            3,
+            5
+          ]
+        ],
+        "mediumPlus": [
+          [
+            1,
+            1,
+            2
+          ],
+          [
+            1,
+            2,
+            1
+          ]
+        ],
+        "ownStability": [
+          0.5,
+          1.0
+        ],
+        "setAgreement": 1.0
+      },
+      {
+        "case": "fe-vs-6253-review-2557-1b0a7eaf",
+        "counts": [
+          [
+            3,
+            3
+          ],
+          [
+            3,
+            3,
+            2
+          ]
+        ],
+        "mediumPlus": [
+          [
+            1,
+            1
+          ],
+          [
+            1,
+            1,
+            1
+          ]
+        ],
+        "ownStability": [
+          1.0,
+          0.5
+        ],
+        "setAgreement": 0.5
+      },
+      {
+        "case": "fe-vs-6292-review-2537-3a49a0d3",
+        "counts": [
+          [
+            4,
+            3,
+            4
+          ],
+          [
+            4,
+            4,
+            2
+          ]
+        ],
+        "mediumPlus": [
+          [
+            3,
+            2,
+            2
+          ],
+          [
+            2,
+            2,
+            1
+          ]
+        ],
+        "ownStability": [
+          1.0,
+          1.0
+        ],
+        "setAgreement": 1.0
+      }
+    ],
+    "floor": {
+      "literalRule": 0.0,
+      "reading": "01 \u00a73: floor := the lowest per-case stability observed between the A/A sets. Both readings give 0.0, from be-vs-6261: its medium-and-above finding appears in one run of three in each set and at a different path in each set (ownStability 0 and 0, setAgreement 0)",
+      "withoutBeVs6261": {
+        "ownStability": 0.3333,
+        "setAgreement": 0.5
+      },
+      "consequence": "A floor of 0.0 can reject nothing. T3 stability stays reported-only. Choosing a nonzero floor (for example per case, or excluding cases with a medium-and-above finding in fewer than 2 of 3 runs) is a threshold change: owner only (03 \u00a72)"
+    },
+    "turnsDistribution": "sets 1+2, 46 runs: turns 2: 24, 3: 11, 4: 6, 5: 3, 6: 1, 7: 1",
+    "turnsLe2": "24 of 46 successful runs (52 %) used at most 2 turns (WP3 item 2 would flag these `partial`)",
+    "reviewerInvalidOutput": "2 of 48 runs (4 %)",
+    "costUsd": 4.4222724,
+    "costNote": "sum of usage.json over the 46 successful runs; the 2 failed runs report no cost",
+    "reviewerSystemPromptMd5": null,
+    "reviewerSystemPromptNote": "absent: the prompt exists only inside the deleted scaffold; the tracked copies under .ambicode/ are outputs of older reviews, not the current prompt",
+    "policiesTreeHash": "20234210a0364ace4b522a56a0b9a61a6e781c7f9fdcf2aaf70b2f0b251c5d7a",
+    "policiesTreeHashDefinition": "lead's definition (the plan has none): `git ls-files -s policies | shasum -a 256`",
+    "recordingsFileAfter": "sha256 5e69d54e6122a0570f1587c14f72dd7939d56727016ee19850ac50aa304ea8b1; the recorder overwrote benchmarks/reviewer-recordings.json (NDA data, gitignored); the owner then restored it from it-005/scratch/recordings-before.json (labels.json owner-note-2, 10:51:29Z); shasum of the live file at 10:54Z is b4d778c9ab0e3a6d8264dc0ac31bb92f3abf9b8e399f1c59ce36cfb6d4c12805; the post-A/A state is kept as scratch/recordings-after-aa-5e69d54e.json"
+  },
+  "T4": null,
+  "T4p": null,
+  "costUsd": 6.6777,
+  "costBreakdown": {
+    "T1": 2.0855,
+    "preflightKeepTemp": 0.17,
+    "T3AA": 4.4222
+  }
+}

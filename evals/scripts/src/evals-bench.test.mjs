@@ -8,7 +8,7 @@ import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
-import { BENCH_EVAL_DIR, CURATED_EVAL_DIR, SELECT, changedLines, codeRoot, generate, harvestDir, harvestTraces, harvestedOfResult, localizeHardness, namedFiles, parseTicket, reviewSubstance, runArgs, score, scoreAnswer } from './evals-bench.mjs';
+import { BENCH_EVAL_DIR, CURATED_EVAL_DIR, SELECT, changedLines, codeRoot, generate, harvestDir, harvestTraces, harvestedOfResult, localizeHardness, namedFiles, parseTicket, reviewSubstance, REVIEWER_RECORDINGS, REVIEWER_REPLAY_VARIABLE, runArgs, runEnv, score, scoreAnswer } from './evals-bench.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 
@@ -167,6 +167,45 @@ describe('evals-bench: generate', () => {
     assert.deepEqual(JSON.parse(readFileSync(path.join(directory, 'truth.json'), 'utf8')), { kind: 'review', side: 'SIDE', ticket: 'T-1', version: '7-abcdef12', root: 'app', threads: 1 });
   });
 
+  it('opens the review prompt by naming the review skill, and keeps the rest of the task sentence', () => {
+    const prompt = readFileSync(path.join(benchmarks, 'cases', 'side-t-1-review-7-abcdef12', 'prompt.md'), 'utf8');
+    const flat = prompt.replace(/\s+/g, ' ');
+    assert.ok(flat.includes('Use the ambicode review skill to review the change before it merges: report the problems a reviewer should raise, each with its file and line.'));
+    assert.ok(!flat.includes('Review the change before it merges'), 'the sentence no longer starts without the skill');
+    assert.ok(flat.includes('Do not edit anything.'));
+  });
+
+  it('pins the localize prompt byte for byte', () => {
+    // The localize arm is the control for the review-wording change; any drift here breaks the comparison.
+    const prompt = readFileSync(path.join(benchmarks, 'cases', 'side-t-1', 'prompt.md'), 'utf8');
+    assert.equal(prompt, `---
+name: side-t-1
+description: Localize the files a real ticket's change touches, in a real codebase.
+tags: ["bench", "localize", "side"]
+runs: 1
+max_turns: 40
+timeout_seconds: 900
+allowed_tools: [Read, Glob, Grep, Bash, Skill]
+---
+
+In the repository at \`repo/\`, the ticket below is about to be implemented.
+
+<ticket>
+Discount the order total.
+</ticket>
+
+Which files would that change have to touch? End your answer with a
+\`## Files\` section that lists each file by its path relative to \`repo/\`,
+one per line as a bullet, with a few words on what it contributes. List only
+files that already exist; leave out files the change would create.
+
+\`repo/\` is the repository under investigation. Change into it with \`cd repo\`
+before running anything, and run every command from there.
+
+Answer the question; do not edit anything.
+`);
+  });
+
   it('scaffolds the change as the reviewer saw it: base committed, the change uncommitted on top', () => {
     const run = mkdtempSync(path.join(tmpdir(), 'bench-review-'));
     try {
@@ -305,6 +344,20 @@ describe('evals-bench: running', () => {
     assert.throws(() => runArgs(['--publish-report']), /NDA/);
     assert.throws(() => runArgs(['--eval-dir', 'evals']), /fixed/);
     assert.throws(() => runArgs([], { set: 'both' }), /curated or full/);
+  });
+
+  it('replays recorded reviewer answers only when a recordings file exists, and never overrides the caller', () => {
+    const benchmarks = mkdtempSync(path.join(tmpdir(), 'bench-env-'));
+    try {
+      assert.equal(runEnv({ PATH: 'p' }, { benchmarks })[REVIEWER_REPLAY_VARIABLE], undefined, 'no recordings: the variable is absent, not empty');
+      const recordings = path.join(benchmarks, REVIEWER_RECORDINGS);
+      writeFileSync(recordings, '{"schemaVersion":1,"recordings":[]}\n');
+      assert.equal(runEnv({ PATH: 'p' }, { benchmarks })[REVIEWER_REPLAY_VARIABLE], recordings);
+      assert.equal(runEnv({ PATH: 'p', [REVIEWER_REPLAY_VARIABLE]: '/elsewhere.json' }, { benchmarks })[REVIEWER_REPLAY_VARIABLE], '/elsewhere.json');
+      assert.equal(runEnv({ PATH: 'p' }, { benchmarks }).PATH, 'p');
+    } finally {
+      rmSync(benchmarks, { recursive: true, force: true });
+    }
   });
 
   it('keeps the result JSON inside the excluded directories', () => {

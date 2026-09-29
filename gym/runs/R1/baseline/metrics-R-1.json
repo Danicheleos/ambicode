@@ -1,0 +1,520 @@
+{
+  "iteration": "it-006",
+  "reference": "R-1 Sonnet baseline (cp-S0 inputs complete)",
+  "status": "complete",
+  "commit": "8606622 (campaign files only since gym/R1/it-009; product surfaces byte-identical to gym/R1/it-003)",
+  "pluginVersion": "0.3.4",
+  "capturedAt": "2026-09-29T12:45:18Z",
+  "models": {
+    "agent": "claude-sonnet-5-5",
+    "reviewer": "sonnet",
+    "judge": null
+  },
+  "modelProof": "agent: `\"model\":\"claude-sonnet-5-5\"` in the kept trace.jsonl of the two diagnostic preflight runs (/private/tmp/e-8O6FlV, /private/tmp/e-CVJ88T; 9 and 7 occurrences); T1's traces were deleted, so the T1 sweep is evidenced by `suite.modelOverride: \"claude-sonnet-5-5\"` in its aggregate-result.json (the harness's record of the flag, not of the model that answered) and by cost ($2.09 against $4.21 on Opus). reviewer: the recorded `run-<k>.json` `recording.model` is `sonnet` (review config), not affected by --model",
+  "G1": {
+    "exit": 0,
+    "tests": 804,
+    "pass": 803,
+    "fail": 0,
+    "skipped": 1,
+    "log": "../it-009/verify.log",
+    "note": "corrected at cp-S0 (auditor F1): this block said 795 with log verify.log, which resolves to the cp-0 log (752 tests). 795 was it-006's count (it-006/verify.log); 804 is the tree the T2 sweep and the tag ran on (it-009/verify.log, product surfaces unchanged since)"
+  },
+  "G2": {
+    "exit": 0,
+    "zipSha256": "bee92a9a930c0cb4701473541c02ae910697df039f03a07cd69c7789e5487033",
+    "note": "identical to it-005"
+  },
+  "G3": {
+    "exit": 0,
+    "files": 554,
+    "filesNote": "corrected at cp-S0 (auditor F1): 521 was it-006's count and its log path 'g3.log' did not exist in baseline/. 554 is it-009's count (it-009/metrics.json); the count grows with tracked text files under gym/, the plugin is unchanged",
+    "log": "../it-009/g3.log"
+  },
+  "T1": {
+    "model": "claude-sonnet-5-5",
+    "runs": 3,
+    "scoredMean": 1,
+    "scoredMeanOver": "the 7 scored cases (01 §1 item 2); url-bare is diagnostic",
+    "casesPassed": 7,
+    "casesTotal": 8,
+    "urlBare": {
+      "score": 0.4,
+      "investigate": "3/3",
+      "plan": "0/3",
+      "review": "0/3",
+      "task": "0/3"
+    },
+    "verbImplement": "task-fired 3/3",
+    "costUsd": 2.0854708,
+    "seconds": 133,
+    "partial": false,
+    "claudeVersion": "2.1.284",
+    "resultDir": "scratch/triggers/2026-09-29T10-26-31-324Z",
+    "opusReference": "baseline/metrics.json T1: 7 scored 1.0, url-bare 0.4 (investigate 3/3), $4.21, 209 s: history, not a control"
+  },
+  "preflight": {
+    "model": "claude-sonnet-5-5",
+    "attempts": 4,
+    "result": "FAILED 4 of 4 (3 in it-005, 1 here with --keep-temp)",
+    "failingCase": "p2-task-regression-fix",
+    "failing": [
+      "plugin-fired: Skill called 0x (expects `ambicode:task`)",
+      "helper-ran: no `ambicode review` Bash call",
+      "unit-check-ran: no `unit` check executed by `review`"
+    ],
+    "passingCase": "regression-ts, 4/4 graders, every attempt",
+    "cause": "measured from the kept trace (it-006/scratch/preflight-keep.log; /private/tmp/e-8O6FlV): Sonnet read the diff, fixed `add` with sed and ran jest and eslint directly, never invoking the task skill; the prompt (`Find it, fix it, and verify the fix.`) names no skill and no `implement`. The task skill's description says \"Use when the user asks to implement, add, fix, or build something\"; T1 verb-implement (\"implement\") fires it 3/3 on Sonnet. The three graders that fail are all consequences of the Skill not being called. Opus called the skill on the same case at 04:04Z (it-003/scratch/preflight.log)",
+    "costUsd": 0.17,
+    "laterPreflights": "added at cp-S0 (auditor F6). The four failures above ran with the pre-R-3 prompt. After the R-3 prompt repair (it-009) the Sonnet preflight passed on its first run (it-009/preflight-sonnet.log, $0.21), the Opus preflight passed (it-009/preflight-opus.log, $0.40), and the Sonnet preflight passed again before the T2 sweep (it-010/scratch/preflight.log, $0.21). That prompt names the ambicode task skill, so those passes are not trigger evidence (02 §3.5 step 2)."
+  },
+  "T2": {
+    "runsPerArm": 3,
+    "cases": 18,
+    "partial": false,
+    "assembled": "one uninterrupted invocation, no reruns, no merge: t2-merge.mjs was run on the single result only to print per-run-index medians",
+    "resultFiles": [
+      "evals/evals-core/results/eval-2026-09-29T12-17-46-139Z.json"
+    ],
+    "copiedTo": "gym/runs/R1/it-010/scratch/t2-sonnet.json",
+    "claudeVersion": "2.1.284",
+    "modelOverride": "claude-sonnet-5-5",
+    "agentModelProof": "108 of 108 system/init rows in the 108 traces this result names are claude-sonnet-5-5 (it-010/trace-summary.mjs; missingTraces 0)",
+    "exitStatus": "claude plugin eval exited 1 with threshold 1 (some case scored below it); the baseline sweeps showed the same exit=1 on review cases. The result has partial false and 0 run errors.",
+    "localize": {
+      "with": {
+        "f1Median": 0.5417,
+        "f1Sweeps": [
+          0.5359,
+          0.6397,
+          0.5417
+        ],
+        "f1Pooled": 0.5724,
+        "precision": 0.6485,
+        "recall": 0.6101,
+        "helperRan": 1,
+        "helperRanOf": 30,
+        "helperRanMedian": 0,
+        "helperRanMedianOf": 10,
+        "pluginFired": 28,
+        "skillCalls": {
+          "ambicode:investigate": 28
+        },
+        "costUsdPerRun": 0.2205,
+        "turns": 11.8667
+      },
+      "without": {
+        "f1Median": 0.5715,
+        "f1Sweeps": [
+          0.6082,
+          0.5506,
+          0.5715
+        ],
+        "f1Pooled": 0.5768,
+        "precision": 0.5687,
+        "recall": 0.7161,
+        "costUsdPerRun": 0.1763,
+        "turns": 9.2
+      }
+    },
+    "review": {
+      "with": {
+        "recallMedian": 0.0938,
+        "recallSweeps": [
+          0.0938,
+          0.0938,
+          0.0625
+        ],
+        "recallPooled": 0.0833,
+        "helperRan": 0,
+        "helperRanOf": 24,
+        "helperRanMedian": 0,
+        "helperRanMedianOf": 8,
+        "pluginFired": 0,
+        "skillCalls": {},
+        "costUsdPerRun": 0.1982,
+        "turns": 8.75
+      },
+      "without": {
+        "recallMedian": 0.0938,
+        "recallSweeps": [
+          0.0938,
+          0.0625,
+          0.0938
+        ],
+        "recallPooled": 0.0833,
+        "costUsdPerRun": 0.1917,
+        "turns": 8.5833
+      }
+    },
+    "runErrors": 0,
+    "skippedPaidGraders": 0,
+    "costUsd": 21.2623,
+    "seconds": 1571,
+    "opusReference": "baseline/metrics.json T2 (history, not a control): $60.56 assembled ($57.83 for the one 3-run sweep of it-003), 3,202-3,232 s; localize with F1 0.6565, without 0.6198, helper-ran 28/30; review with recall 0.1563, without 0.1250, helper-ran 23/24"
+  },
+  "T3": {
+    "buildNote": "A/A on this HEAD; recorder of it-005 (`--runs 3 --keep-runs`), `--exclude 'main/assets/i18n/**'`, 8 cases, two independent sets",
+    "sets": [
+      "scratch/aa-1",
+      "scratch/aa-2"
+    ],
+    "successfulRuns": [
+      23,
+      23
+    ],
+    "failedRuns": [
+      {
+        "set": 1,
+        "case": "fe-vs-6253-review-2557-1b0a7eaf",
+        "run": 2,
+        "reason": "reviewer failed: invalid-output"
+      },
+      {
+        "set": 2,
+        "case": "be-vs-5075-review-1054-3b24bb74",
+        "run": 3,
+        "reason": "reviewer failed: invalid-output"
+      }
+    ],
+    "perCase": [
+      {
+        "case": "be-vs-3571-review-1128-957b6388",
+        "counts": [
+          [
+            5,
+            4,
+            4
+          ],
+          [
+            3,
+            2,
+            1
+          ]
+        ],
+        "mediumPlus": [
+          [
+            2,
+            2,
+            1
+          ],
+          [
+            2,
+            2,
+            1
+          ]
+        ],
+        "ownStability": [
+          0.3333,
+          0.6667
+        ],
+        "setAgreement": 1
+      },
+      {
+        "case": "be-vs-5075-review-1054-3b24bb74",
+        "counts": [
+          [
+            5,
+            4,
+            4
+          ],
+          [
+            5,
+            5
+          ]
+        ],
+        "mediumPlus": [
+          [
+            2,
+            1,
+            2
+          ],
+          [
+            2,
+            2
+          ]
+        ],
+        "ownStability": [
+          1,
+          1
+        ],
+        "setAgreement": 1
+      },
+      {
+        "case": "be-vs-5546-review-996-d520e3ca",
+        "counts": [
+          [
+            3,
+            4,
+            4
+          ],
+          [
+            5,
+            2,
+            3
+          ]
+        ],
+        "mediumPlus": [
+          [
+            1,
+            2,
+            2
+          ],
+          [
+            2,
+            1,
+            1
+          ]
+        ],
+        "ownStability": [
+          1,
+          0.5
+        ],
+        "setAgreement": 1
+      },
+      {
+        "case": "be-vs-6261-review-1141-f14493f1",
+        "counts": [
+          [
+            2,
+            1,
+            1
+          ],
+          [
+            1,
+            1,
+            2
+          ]
+        ],
+        "mediumPlus": [
+          [
+            1,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            1
+          ]
+        ],
+        "ownStability": [
+          0,
+          0
+        ],
+        "setAgreement": 0
+      },
+      {
+        "case": "fe-vs-6086-review-2553-d1f112e5",
+        "counts": [
+          [
+            3,
+            5,
+            4
+          ],
+          [
+            4,
+            2,
+            2
+          ]
+        ],
+        "mediumPlus": [
+          [
+            1,
+            1,
+            2
+          ],
+          [
+            2,
+            1,
+            1
+          ]
+        ],
+        "ownStability": [
+          0.5,
+          0.3333
+        ],
+        "setAgreement": 0.6667
+      },
+      {
+        "case": "fe-vs-6086-review-2553-d7c43dc5",
+        "counts": [
+          [
+            2,
+            3,
+            4
+          ],
+          [
+            3,
+            3,
+            5
+          ]
+        ],
+        "mediumPlus": [
+          [
+            1,
+            1,
+            2
+          ],
+          [
+            1,
+            2,
+            1
+          ]
+        ],
+        "ownStability": [
+          0.5,
+          1
+        ],
+        "setAgreement": 1
+      },
+      {
+        "case": "fe-vs-6253-review-2557-1b0a7eaf",
+        "counts": [
+          [
+            3,
+            3
+          ],
+          [
+            3,
+            3,
+            2
+          ]
+        ],
+        "mediumPlus": [
+          [
+            1,
+            1
+          ],
+          [
+            1,
+            1,
+            1
+          ]
+        ],
+        "ownStability": [
+          1,
+          0.5
+        ],
+        "setAgreement": 0.5
+      },
+      {
+        "case": "fe-vs-6292-review-2537-3a49a0d3",
+        "counts": [
+          [
+            4,
+            3,
+            4
+          ],
+          [
+            4,
+            4,
+            2
+          ]
+        ],
+        "mediumPlus": [
+          [
+            3,
+            2,
+            2
+          ],
+          [
+            2,
+            2,
+            1
+          ]
+        ],
+        "ownStability": [
+          1,
+          1
+        ],
+        "setAgreement": 1
+      }
+    ],
+    "floor": {
+      "literalRule": 0,
+      "reading": "01 §3: floor := the lowest per-case stability observed between the A/A sets. Both readings give 0.0, from be-vs-6261: its medium-and-above finding appears in one run of three in each set and at a different path in each set (ownStability 0 and 0, setAgreement 0)",
+      "withoutBeVs6261": {
+        "ownStability": 0.3333,
+        "setAgreement": 0.5
+      },
+      "consequence": "A floor of 0.0 can reject nothing. T3 stability stays reported-only. Choosing a nonzero floor (for example per case, or excluding cases with a medium-and-above finding in fewer than 2 of 3 runs) is a threshold change: owner only (03 §2)"
+    },
+    "turnsDistribution": "sets 1+2, 46 runs: turns 2: 24, 3: 11, 4: 6, 5: 3, 6: 1, 7: 1",
+    "turnsLe2": "24 of 46 successful runs (52 %) used at most 2 turns (WP3 item 2 would flag these `partial`)",
+    "reviewerInvalidOutput": "2 of 48 runs (4 %)",
+    "costUsd": 4.4222724,
+    "costNote": "sum of usage.json over the 46 successful runs; the 2 failed runs report no cost",
+    "reviewerSystemPromptMd5": null,
+    "reviewerSystemPromptNote": "absent: the prompt exists only inside the deleted scaffold; the tracked copies under .ambicode/ are outputs of older reviews, not the current prompt",
+    "policiesTreeHash": "20234210a0364ace4b522a56a0b9a61a6e781c7f9fdcf2aaf70b2f0b251c5d7a",
+    "policiesTreeHashDefinition": "lead's definition (the plan has none): `git ls-files -s policies | shasum -a 256`",
+    "recordingsFileAfter": "sha256 5e69d54e6122a0570f1587c14f72dd7939d56727016ee19850ac50aa304ea8b1; the recorder overwrote benchmarks/reviewer-recordings.json (NDA data, gitignored); the owner then restored it from it-005/scratch/recordings-before.json (labels.json owner-note-2, 10:51:29Z); shasum of the live file at 10:54Z is b4d778c9ab0e3a6d8264dc0ac31bb92f3abf9b8e399f1c59ce36cfb6d4c12805; the post-A/A state is kept as scratch/recordings-after-aa-5e69d54e.json"
+  },
+  "T4": null,
+  "T4p": null,
+  "costUsd": 27.94,
+  "costBreakdown": {
+    "T1": 2.0855,
+    "preflightKeepTemp": 0.17,
+    "T3AA": 4.4222,
+    "T2": 21.2623
+  },
+  "T2review": {
+    "runsPerArm": 3,
+    "cases": 8,
+    "partial": false,
+    "iteration": "it-013",
+    "promptSentence": "Use the ambicode review skill to review the change before it merges: report the problems a reviewer should raise, each with its file and line. (both arms read it)",
+    "assembled": "one uninterrupted invocation, no reruns, no merge: t2-merge.mjs was run on the single result only to print per-run-index medians",
+    "resultFiles": [
+      "evals/evals-core/results/eval-2026-09-29T13-42-27-702Z.json"
+    ],
+    "copiedTo": "gym/runs/R1/it-013/scratch/t2review-sonnet.json",
+    "claudeVersion": "2.1.284",
+    "modelOverride": "claude-sonnet-5-5",
+    "agentModelProof": "48 of 48 system/init rows in the 48 traces this result names are claude-sonnet-5-5 (it-010/trace-summary.mjs; missingTraces 0)",
+    "exitStatus": "claude plugin eval exited 1 with threshold 1 (some case scored below it), as at cp-S0; the result has partial false and 0 run errors",
+    "review": {
+      "with": {
+        "recallMedian": 0.125,
+        "recallSweeps": [
+          0.125,
+          0.1563,
+          0.0938
+        ],
+        "recallPooled": 0.125,
+        "helperRan": 24,
+        "helperRanOf": 24,
+        "helperRanMedian": 8,
+        "helperRanMedianOf": 8,
+        "pluginFired": 24,
+        "skillCalls": {
+          "ambicode:review": 24
+        },
+        "costUsdPerRun": 0.1452,
+        "turns": 6.625
+      },
+      "without": {
+        "recallMedian": 0.0938,
+        "recallSweeps": [
+          0.0938,
+          0.0625,
+          0.125
+        ],
+        "recallPooled": 0.0938,
+        "costUsdPerRun": 0.2047,
+        "turns": 9.75,
+        "skillCalls": {
+          "ambicode:review": 2
+        },
+        "skillCallRuns": 2,
+        "note": "the without arm has no plugin; the prompt names a skill it cannot call, and it tried in skillCallRuns of 24 runs"
+      }
+    },
+    "runErrors": 0,
+    "costUsd": 8.3958,
+    "seconds": 731,
+    "reference": "T2.review of this file (cp-S0, old prompt sentence): with recall median 0.0938, helper-ran 0 of 24; without 0.0938"
+  }
+}

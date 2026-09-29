@@ -16,12 +16,16 @@ you got.
 1. Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" config` and check
    `requirements.mcpServer`. That is the server this repository is bound to.
    - If it is `null` and exactly one compatible Jira/Confluence MCP server is
-     connected, use it and tell the user to record it in
-     `.ambicode/config.yaml` so later runs are pinned to it.
+     connected, use it.
    - If it is `null` and **more than one** compatible server is connected, ask
      the user which one to use before retrieving anything. Do not pick one.
    - If it names a server that is not connected, say so and stop. Do not
      substitute another server.
+
+   If it was `null`, pin it:
+   `node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" init --mcp-server <name>`,
+   with the envelope's exact `mcpServer` as `<name>`. Tell the user: recorded
+   in `.ambicode/config.yaml`, editable there.
 2. Retrieve each URL with that server's read tools.
 3. Build this envelope, holding exactly the URLs you were asked about:
 
@@ -33,7 +37,6 @@ you got.
       "id": "ORD-17",
       "url": "https://example.atlassian.net/browse/ORD-17",
       "title": "Reject negative order amounts",
-      "retrievedAt": "2026-09-20T09:00:00.000Z",
       "sourceVersion": "12",
       "updatedAt": "2026-09-19T17:30:00.000Z",
       "content": "…the text you retrieved, verbatim…",
@@ -50,6 +53,7 @@ you got.
    - `id` is a short stable handle the command cites back to you.
    - `sourceVersion` and `updatedAt` are the source's own, or `null`. Never
      invent one.
+   - Omit `retrievedAt` unless the tool gave one; never invent it.
    - `status` is `retrieved`, `unavailable`, `forbidden` or `not-found`. If you
      could not read it, say so here with a `failureReason` rather than leaving
      it out or summarizing from memory.

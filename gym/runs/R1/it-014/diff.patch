@@ -1,0 +1,104 @@
+diff --git a/evals/scripts/src/evals-record-core.mjs b/evals/scripts/src/evals-record-core.mjs
+index b9f895c..ea94901 100644
+--- a/evals/scripts/src/evals-record-core.mjs
++++ b/evals/scripts/src/evals-record-core.mjs
+@@ -218,19 +218,30 @@ export function buildSummary(cases) {
+   return summary;
+ }
+ 
+-/** `cases` as for `buildSummary`; a field the envelope lacked stays null, and a failed run has no entry. */
++// Copied from src/cli/commands/review.ts: this .mjs cannot import the TypeScript constant.
++// A test pins equality, so a recording's flag and a live review's `partial` agree on "short".
++export const SHORT_REVIEWER_TURNS = 2;
++
++/**
++ * `cases` as for `buildSummary`; a field the envelope lacked stays null, and a failed run has no entry.
++ * `atMostOneToolCall` is null, never false, when the turn count is unknown.
++ */
+ export function buildUsage(cases) {
+   return {
+     schemaVersion: 1,
+     cases: cases.map(({ case: name, runs }) => ({
+       case: name,
+-      runs: succeeded(runs).map(({ run, usage }) => ({
+-        run,
+-        turns: usage?.turns ?? null,
+-        apiDurationMs: usage?.apiDurationMs ?? null,
+-        outputTokens: usage?.outputTokens ?? null,
+-        costUsd: usage?.costUsd ?? null,
+-      })),
++      runs: succeeded(runs).map(({ run, usage }) => {
++        const turns = usage?.turns ?? null;
++        return {
++          run,
++          turns,
++          apiDurationMs: usage?.apiDurationMs ?? null,
++          outputTokens: usage?.outputTokens ?? null,
++          costUsd: usage?.costUsd ?? null,
++          atMostOneToolCall: turns === null ? null : turns <= SHORT_REVIEWER_TURNS,
++        };
++      }),
+     })),
+   };
+ }
+diff --git a/evals/scripts/src/evals-record-core.test.mjs b/evals/scripts/src/evals-record-core.test.mjs
+index 5177cba..89fcec3 100644
+--- a/evals/scripts/src/evals-record-core.test.mjs
++++ b/evals/scripts/src/evals-record-core.test.mjs
+@@ -1,11 +1,20 @@
+ // The recorder spawns the reviewer and costs money, so only its pure parts are tested here.
+ import assert from 'node:assert/strict';
+-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
++import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+ import { tmpdir } from 'node:os';
+ import path from 'node:path';
+ import { describe, it } from 'node:test';
+ import { fileURLToPath } from 'node:url';
+-import { assertFreshKeepDirectory, buildSummary, buildUsage, chooseRecording, keepRunsDirectory, parseOptions, stability } from './evals-record-core.mjs';
++import {
++  assertFreshKeepDirectory,
++  buildSummary,
++  buildUsage,
++  chooseRecording,
++  keepRunsDirectory,
++  parseOptions,
++  SHORT_REVIEWER_TURNS,
++  stability,
++} from './evals-record-core.mjs';
+ 
+ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+ 
+@@ -176,10 +185,30 @@ describe('evals-record-core: summary and usage', () => {
+   it('writes usage per run with null, never 0, for what the envelope lacked, and nothing for a failed run', () => {
+     const usage = buildUsage(cases);
+     assert.deepEqual(usage.cases[0].runs, [
+-      { run: 1, turns: 3, apiDurationMs: null, outputTokens: 500, costUsd: 0.2 },
+-      { run: 2, turns: 4, apiDurationMs: 9000, outputTokens: 700, costUsd: 0.25 },
++      { run: 1, turns: 3, apiDurationMs: null, outputTokens: 500, costUsd: 0.2, atMostOneToolCall: false },
++      { run: 2, turns: 4, apiDurationMs: 9000, outputTokens: 700, costUsd: 0.25, atMostOneToolCall: false },
+     ]);
+     assert.deepEqual(usage.cases[1].runs, []);
+-    assert.deepEqual(usage.cases[2].runs, [{ run: 1, turns: null, apiDurationMs: null, outputTokens: null, costUsd: null }]);
++    assert.deepEqual(usage.cases[2].runs, [
++      { run: 1, turns: null, apiDurationMs: null, outputTokens: null, costUsd: null, atMostOneToolCall: null },
++    ]);
++  });
++
++  it('flags a run of at most SHORT_REVIEWER_TURNS turns and leaves the flag null, never false, when turns is unknown', () => {
++    const flags = (usage) => buildUsage([{ case: 'be-a', runs: [good(1, [], usage)] }]).cases[0].runs[0].atMostOneToolCall;
++    assert.equal(flags({ turns: 1 }), true);
++    assert.equal(flags({ turns: 2 }), true);
++    assert.equal(flags({ turns: 3 }), false);
++    assert.equal(flags({ turns: 7 }), false);
++    assert.equal(flags({ turns: null }), null);
++    assert.equal(flags(null), null);
++    assert.equal(flags(undefined), null);
++  });
++
++  it('pins the recorder threshold to the product constant it cannot import', () => {
++    const source = readFileSync(path.join(ROOT, 'src', 'cli', 'commands', 'review.ts'), 'utf8');
++    const match = /SHORT_REVIEWER_TURNS\s*=\s*(\d+)/.exec(source);
++    assert.notEqual(match, null, 'SHORT_REVIEWER_TURNS not found in src/cli/commands/review.ts');
++    assert.equal(SHORT_REVIEWER_TURNS, Number(match[1]));
+   });
+ });

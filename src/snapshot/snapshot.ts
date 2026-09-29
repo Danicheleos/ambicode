@@ -46,11 +46,30 @@ export interface SnapshotPlan {
   totalBytes: number;
 }
 
+export interface OversizedFile {
+  path: string;
+  bytes: number;
+}
+
+export function oversizedFileLines(oversized: readonly OversizedFile[]): string[] {
+  return oversized.map(
+    (entry) =>
+      `${entry.path} is ${entry.bytes} bytes, above the ${MAX_SNAPSHOT_FILE_BYTES}-byte per-file snapshot ceiling.`,
+  );
+}
+
+export function excludeLines(oversized: readonly OversizedFile[]): string[] {
+  return [
+    ...oversized.map((entry) => `  --exclude "${entry.path}"`),
+    '(--exclude is repeatable; review.excludePaths makes it permanent.)',
+  ];
+}
+
 /**
  * A changed file that will not fit stops the review: the reviewer would not see all of
  * the change. Every oversized file is named at once, since each remote read costs ~1.5s.
  */
-function oversizedRefusal(oversized: readonly { path: string; bytes: number }[]): AmbicodeError {
+function oversizedRefusal(oversized: readonly OversizedFile[]): AmbicodeError {
   const many = oversized.length > 1;
   return new AmbicodeError(
     'snapshot-too-large',
@@ -59,16 +78,12 @@ function oversizedRefusal(oversized: readonly { path: string; bytes: number }[])
       : 'A changed file does not fit in the review snapshot, so the change was not reviewed.',
     {
       details: [
-        ...oversized.map(
-          (entry) =>
-            `${entry.path} is ${entry.bytes} bytes, above the ${MAX_SNAPSHOT_FILE_BYTES}-byte per-file snapshot ceiling.`,
-        ),
+        ...oversizedFileLines(oversized),
         'This ceiling is not configurable: raising review.maxContextBytes will not change it.',
         many
           ? 'Split the change so each part fits, or leave these paths out deliberately:'
           : 'Split the change so each part fits, or leave this path out deliberately:',
-        ...oversized.map((entry) => `  --exclude "${entry.path}"`),
-        '(--exclude is repeatable; review.excludePaths makes it permanent.)',
+        ...excludeLines(oversized),
         'An excluded path is not reviewed and the report says so, which is why it has to be asked for.',
         'AMBICODE does not review part of a change and report it as a whole.',
       ],
@@ -169,7 +184,7 @@ export async function planSnapshot(options: PlanSnapshotOptions): Promise<Snapsh
   const changedContent = await readAll(options.content, needed);
 
   // Collected, not thrown on: one pass names every file the operator has to decide about.
-  const oversized: { path: string; bytes: number }[] = [];
+  const oversized: OversizedFile[] = [];
 
   for (const file of options.files) {
     const target = file.newPath;

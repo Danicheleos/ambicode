@@ -1,0 +1,26 @@
+file:///Users/KillBill/Documents/projects/mine/ai/ambicode/evals/scripts/src/evals-record-core.test.mjs:15
+  SHORT_REVIEWER_TURNS,
+  ^^^^^^^^^^^^^^^^^^^^
+SyntaxError: The requested module './evals-record-core.mjs' does not provide an export named 'SHORT_REVIEWER_TURNS'
+    at #asyncInstantiate (node:internal/modules/esm/module_job:326:21)
+    at async ModuleJob.run (node:internal/modules/esm/module_job:429:5)
+    at async node:internal/modules/esm/loader:639:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+
+Node.js v24.15.0
+✖ evals/scripts/src/evals-record-core.test.mjs (39.527042ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 43.638625
+
+✖ failing tests:
+
+test at evals/scripts/src/evals-record-core.test.mjs:1:1
+✖ evals/scripts/src/evals-record-core.test.mjs (39.527042ms)
+  'test failed'
+exit=1

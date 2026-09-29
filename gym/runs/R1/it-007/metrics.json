@@ -1,0 +1,35 @@
+{
+  "iteration": "it-007",
+  "item": "WPH H3: T4p feasibility probe (stub MCP server in the eval harness)",
+  "status": "complete for the question asked; T4p does not exist",
+  "commit": "campaign files only; non-gym tree byte-identical to b8e8aaf (git diff b8e8aaf --stat -- . ':!gym' is empty after the probe files were removed)",
+  "pluginVersion": "0.3.4",
+  "capturedAt": "2026-09-29T11:05:00Z",
+  "models": { "agent": "claude-sonnet-5-5", "reviewer": null, "judge": null },
+  "modelProof": "system/init model in the two kept traces (probe2, probe3); probe1's trace was not captured",
+  "G1": { "exit": 0, "tests": 795, "pass": 794, "fail": 0, "skipped": 1, "log": "verify.log", "note": "final tree. With the probe files present the same gate ran 800 tests / 799 pass / 0 fail / 1 skipped (verify-with-probe.log): +5 = the stub server's unit tests" },
+  "G2": { "exit": 0, "zipSha256": "bee92a9a930c0cb4701473541c02ae910697df039f03a07cd69c7789e5487033", "note": "identical to it-005 and it-006, on the final tree and (verify-with-probe.log) with the probe files present" },
+  "G3": { "exit": 0, "files": 530, "log": "g3.log", "note": "printed by `node check-line-endings.mjs` after the removal; the count is tracked text files, which includes gym/ files committed since it-006" },
+  "T1": null,
+  "T1Reason": "skipped: no trigger surface touched",
+  "T2": null,
+  "T3": null,
+  "T4": null,
+  "T4p": null,
+  "T4pFeasibility": {
+    "halfOne": "transcript-metrics.py parses eval traces: 350 of 350 parsed with no exception (all 350 files are in evals-core/results/traces; it-006/scratch has no .jsonl files); all assistant and user rows carry `timestamp`",
+    "halfTwo": "the harness does not present a project-scope MCP server: 0 of 3 probe runs",
+    "traceFactsAllHarnessRuns": "system/init mcp_servers is [] and permissionMode is dontAsk in 350 of 350 traces in evals-core/results/traces before the probe, and in both kept probe traces",
+    "runs": [
+      { "id": "probe1", "settingsFile": false, "keepTemp": false, "turns": 2, "costUsd": 0.0493914, "graders": { "tool-called": false, "marker-returned": false, "init-lists-stub": false }, "trace": null },
+      { "id": "probe2", "settingsFile": false, "keepTemp": true, "turns": 2, "costUsd": 0.0497646, "graders": { "tool-called": false, "marker-returned": false, "init-lists-stub": false }, "trace": "scratch/probe2/traces/e-zKVWJG.jsonl" },
+      { "id": "probe3", "settingsFile": true, "keepTemp": true, "turns": 2, "costUsd": 0.0499792, "graders": { "tool-called": false, "marker-returned": false, "init-lists-stub": false }, "trace": "scratch/probe3/traces/e-4HP7Xt.jsonl" }
+    ],
+    "keptTraces": "init.mcp_servers [], tools Task Bash Glob Grep Read Skill TaskStop ToolSearch, no permission_denials; the agent ran ToolSearch 'getJiraIssue jira', got 'No matching deferred tools found' and reported the tool unavailable",
+    "confoundChecked": "the scaffold writes to $PWD; the core cases scaffold to $PWD/repo and their traces show the repository at <agent cwd>/repo (442 tool inputs in the first 150 core traces), so $PWD is the agent's cwd and .mcp.json sat where the agent starts (inferred from the same scaffold mechanism; the sandbox home/ is sealed and was not opened)",
+    "notTried": "a plugin-bundled server (would change the shipped plugin), an `--mcp-config` flag on `claude plugin eval` (the lead cannot run `claude --help`; the guard denies `claude` commands), a global or user-scope server (the sandbox has no user settings, and the lead may not touch Claude configuration)"
+  },
+  "costUsd": 0.1491352,
+  "costBreakdown": { "probe1": 0.0493914, "probe2": 0.0497646, "probe3": 0.0499792 },
+  "notes": "Deviation from '$0 eval' in 01 §4 declared in the brief: the fact was not readable on disk. Product surfaces unchanged; the probe suite was removed and a copy is kept in it-007/probe-suite/ for reproduction."
+}

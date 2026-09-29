@@ -85,7 +85,7 @@
       <% if (source.sourceVersion !== null) { %>@<%= source.sourceVersion %><% } %>
       &mdash; <%= source.title %>
       <span class="tag"><%= source.status %></span>
-      retrieved <%= source.retrievedAt %> via <%= source.retrievedVia %>
+      <%= source.receipt %>
       <% if (source.failureReason !== null) { %><span class="problem-text"><%= source.failureReason %></span><% } %>
     </li>
     <% }) %>

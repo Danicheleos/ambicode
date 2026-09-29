@@ -24,9 +24,13 @@ lockfile, build output — is in the working tree. Commit or ignore it, or split
 the change. Raising the limit is a deliberate decision, not the default advice.
 
 **`snapshot-too-large`.** Changed files exceed a per-file ceiling no setting
-raises. Every one is named: ask once, re-run once with `--exclude <glob>`,
-repeatable (`review.excludePaths` makes it permanent). `--only <glob>` narrows
-from the other side, for a dirty tree. Neither may empty the review.
+raises. Every one is named. When every named file is a locale bundle, a
+lockfile or build output (`assets/i18n/*.json`, `*.lock`, `dist/`), re-run at
+once with `--exclude <glob>` for them — the reviewer could not read them
+anyway — and report them in part 4 as not reviewed. When a named file is
+source, ask once before excluding it. `--exclude` repeats;
+`review.excludePaths` makes it permanent; `--only <glob>` narrows from the
+other side, for a dirty tree. Neither may empty the review.
 
 **`nothing-to-review`.** Nothing changed, or the patterns took all of it. No
 reviewer ran. Say which; do not widen the patterns without asking.

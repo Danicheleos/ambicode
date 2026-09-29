@@ -1,0 +1,40 @@
+{
+  "iteration": "it-014",
+  "commit": "1e892bd (brief) + it-012/diff.patch applied as it is; reset out of the tree after the decision (no tag); the record commit is the one that first holds this file",
+  "pluginVersion": "0.3.4",
+  "capturedAt": "2026-09-29T14:20:00Z",
+  "models": { "agent": "claude-sonnet-5-5", "reviewer": null, "judge": null },
+  "G1": { "exit": 0, "tests": 815, "pass": 814, "fail": 0, "skipped": 1, "log": "verify.log", "note": "813 (it-013) + 2 new tests of the patch; no assertion removed (13 deleted lines are stricter replacements: the sidecar deepEqual entries gain the field)" },
+  "G2": { "exit": 0, "zipSha256": "1585ac05ebf11f65d34674b82b7de99c0d353a22d3be6e676e9f0e8d213086ad", "note": "identical to it-011, it-012, it-013; reproducible across two runs", "log": "g2.log" },
+  "G3": { "exit": 0, "files": 602, "log": "g3.log" },
+  "reproduction": { "log": "before.log", "note": "code hunk reverted, test file kept: evals-record-core.test.mjs fails at import (the export SHORT_REVIEWER_TURNS is missing), 0 of 1 files pass; with the patch it passes (same form as it-012)" },
+  "preflight": { "model": "claude-sonnet-5-5", "passed": true, "attempts": 1, "costUsd": 0.21, "log": "preflight.log" },
+  "T1": null,
+  "T1note": "T1 skipped: no trigger surface touched",
+  "T2": {
+    "kind": "screening, 1 run/arm (02 §3.5 step 3); never decides an accept",
+    "runsPerArm": 1, "cases": 18, "partial": false, "runErrors": 0, "modelOverride": "claude-sonnet-5-5", "claudeVersion": "2.1.284",
+    "agentModelProof": "36 of 36 traces claude-sonnet-5-5 (it-010/trace-summary.mjs; missingTraces 0)",
+    "resultFile": "evals/evals-core/results/eval-2026-09-29T14-01-02-672Z.json",
+    "copiedTo": "gym/runs/R1/it-014/scratch/t2screen-sonnet.json",
+    "scoreOutput": "scratch/screen-numbers.json (screen-numbers.mjs; t2-merge.mjs cannot score 1-run cases)",
+    "costUsd": 6.8888,
+    "seconds": 672,
+    "localize": {
+      "with": { "f1": 0.4754, "precision": 0.5234, "recall": 0.4974, "runs": 10, "pluginFired": 9, "helperRan": 2, "costUsdPerRun": 0.2443, "turns": 13.4 },
+      "without": { "f1": 0.6231, "costUsdPerRun": 0.1543, "turns": 7.5 },
+      "reference": "baseline/metrics-R-1.json T2.localize: with 0.5417 (per-run-index 0.5359, 0.6397, 0.5417), without 0.5715; bound 0.5417 - 0.05 = 0.4917"
+    },
+    "review": {
+      "with": { "recall": 0.125, "runs": 8, "pluginFired": 8, "helperRan": 8, "costUsdPerRun": 0.1286, "turns": 5.875 },
+      "without": { "recall": 0.0938, "costUsdPerRun": 0.2342, "turns": 10.125 },
+      "reference": "baseline/metrics-R-1.json T2review: with 0.1250, without 0.0938; bound 0.1250 - 0.05 = 0.0750"
+    }
+  },
+  "T3": null,
+  "T4": null,
+  "T4p": null,
+  "costUsd": 7.10,
+  "costBreakdown": { "preflight": 0.21, "t2Screening": 6.8888 },
+  "notes": "Eval spend only, judge cost not in the result's costUsd (it-011's screening had 0.2942 judge cost on 7.4556; unmeasured here, about $0.3 by analogy, unverified). Lead and verifier are counted by the supervisor. Verifier (handoffs/verifier.md): 0 disagreements on every T2 field, model proof, bounds, imports and G1-G3."
+}

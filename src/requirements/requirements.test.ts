@@ -1,22 +1,31 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import type { RequirementSource } from '../contracts/review.ts';
+import { REVIEW_SCHEMA_VERSION, ReviewResult } from '../contracts/review.ts';
+import type { Clock } from '../ports/clock.ts';
+import { reviewResult } from '../testing/review-fixture.ts';
 import { isAmbicodeError } from '../util/errors.ts';
 import {
   canonicalUrl,
+  loadRequirementEvidence,
   normalizeRequirements,
   type NormalizeOptions,
+  type RequirementEvidence,
 } from './normalize.ts';
 
 const JIRA = 'https://example.atlassian.net/browse/ORD-17';
 const CONFLUENCE = 'https://example.atlassian.net/wiki/spaces/ENG/pages/42/Orders';
 
-function source(overrides: Partial<RequirementSource> & { url: string }): RequirementSource {
+type EnvelopeSource = RequirementEvidence['sources'][number];
+
+const RECEIVED_AT = '2026-09-21T08:15:00.000Z';
+const fixedClock: Clock = { now: () => new Date(RECEIVED_AT), elapsed: () => 0 };
+
+function source(overrides: Partial<EnvelopeSource> & { url: string }): EnvelopeSource {
   return {
     id: overrides.id ?? 'ORD-17',
     url: overrides.url,
     title: overrides.title ?? 'Reject negative order amounts',
-    retrievedAt: overrides.retrievedAt ?? '2026-09-20T09:00:00.000Z',
+    retrievedAt: 'retrievedAt' in overrides ? overrides.retrievedAt ?? null : '2026-09-20T09:00:00.000Z',
     sourceVersion: overrides.sourceVersion ?? '12',
     updatedAt: overrides.updatedAt ?? '2026-09-19T17:30:00.000Z',
     content: overrides.content ?? 'A negative order amount is rejected with a validation error.',
@@ -32,6 +41,7 @@ function normalize(options: Partial<NormalizeOptions> = {}) {
     urls: options.urls ?? [],
     evidence: options.evidence ?? null,
     configuredServer: 'configuredServer' in options ? options.configuredServer ?? null : 'atlassian',
+    clock: options.clock ?? fixedClock,
   });
 }
 
@@ -234,5 +244,81 @@ describe('U16 requirement normalization and provenance', () => {
   it('treats host case and a trailing slash as the same document', () => {
     assert.equal(canonicalUrl('https://Example.Atlassian.NET/browse/ORD-17/'), canonicalUrl(JIRA));
     assert.notEqual(canonicalUrl(JIRA), canonicalUrl(CONFLUENCE));
+  });
+
+  it('stamps receivedAt from the injected clock and accepts an envelope with no retrievedAt', () => {
+    const normalized = normalize({
+      urls: [JIRA, CONFLUENCE],
+      evidence: {
+        mcpServer: 'atlassian',
+        sources: [
+          source({ url: JIRA, retrievedAt: null }),
+          source({ url: CONFLUENCE, id: 'ENG-orders-page', content: 'Orders are validated at the edge.' }),
+        ],
+        conflicts: [],
+      },
+    });
+    assert.deepEqual(
+      normalized.sources.map((entry) => [entry.id, entry.receivedAt, entry.retrievedAt]),
+      [
+        ['ENG-orders-page', RECEIVED_AT, '2026-09-20T09:00:00.000Z'],
+        ['ORD-17', RECEIVED_AT, null],
+      ],
+    );
+  });
+
+  it('parses an envelope that omits retrievedAt as null, never as an invented time', async () => {
+    const { retrievedAt: _dropped, ...withoutTime } = source({ url: JIRA });
+    const raw = JSON.stringify({ mcpServer: 'atlassian', sources: [withoutTime], conflicts: [] });
+    const evidence = await loadRequirementEvidence(
+      { fs: {} as never, stdin: { read: async () => raw } },
+      { kind: 'stdin' },
+    );
+    assert.equal(evidence.sources[0]?.retrievedAt, null);
+    assert.equal('receivedAt' in (evidence.sources[0] ?? {}), false);
+  });
+
+  it('refuses an envelope that supplies receivedAt: only the CLI records when it received one', async () => {
+    const raw = JSON.stringify({
+      mcpServer: 'atlassian',
+      sources: [{ ...source({ url: JIRA }), receivedAt: '2020-01-01T00:00:00.000Z' }],
+      conflicts: [],
+    });
+    const error = await failureAsync(() =>
+      loadRequirementEvidence({ fs: {} as never, stdin: { read: async () => raw } }, { kind: 'stdin' }),
+    );
+    assert.equal(error.code, 'requirements-invalid');
+    assert.ok(error.details.some((detail) => detail.includes('receivedAt')), error.details.join('\n'));
+  });
+});
+
+async function failureAsync(run: () => Promise<unknown>): Promise<{ code: string; details: string[] }> {
+  try {
+    await run();
+  } catch (error) {
+    assert.ok(isAmbicodeError(error), `expected an AmbicodeError, got ${String(error)}`);
+    return { code: error.code, details: error.details };
+  }
+  assert.fail('expected the envelope to be refused');
+}
+
+describe('a stored review result survives the receivedAt change', () => {
+  it('still parses a result written before receivedAt existed, and re-emits it unchanged', () => {
+    const legacy = JSON.parse(JSON.stringify(reviewResult())) as { requirements: Record<string, unknown>[] };
+    assert.equal(typeof legacy.requirements[0]?.['retrievedAt'], 'string');
+    assert.equal('receivedAt' in (legacy.requirements[0] ?? {}), false);
+
+    const parsed = ReviewResult.parse(legacy);
+    assert.equal(parsed.schemaVersion, REVIEW_SCHEMA_VERSION);
+    assert.equal(parsed.requirements[0]?.receivedAt, undefined);
+    assert.deepEqual(JSON.parse(JSON.stringify(parsed)).requirements, legacy.requirements);
+  });
+
+  it('parses a result whose source carries receivedAt and a null retrievedAt', () => {
+    const fresh = JSON.parse(JSON.stringify(reviewResult())) as { requirements: Record<string, unknown>[] };
+    Object.assign(fresh.requirements[0] ?? {}, { retrievedAt: null, receivedAt: RECEIVED_AT });
+    const parsed = ReviewResult.parse(fresh);
+    assert.equal(parsed.requirements[0]?.retrievedAt, null);
+    assert.equal(parsed.requirements[0]?.receivedAt, RECEIVED_AT);
   });
 });

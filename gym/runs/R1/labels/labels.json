@@ -1,0 +1,111 @@
+{
+  "L-001": {
+    "label": "done",
+    "detail": "The 3 transcripts (5326e45c investigate, 6c376603 plan, ce1efd4c task it4-6) are in archive/, byte-identical to ~/.claude/projects originals; MANIFEST.txt deduplicated to 318 entries, sha256sum -c all OK.",
+    "by": "owner (copied the files); archive and manifest completed by the owner's planning session",
+    "at": "2026-09-29T02:05:11.470Z"
+  },
+  "L-002": {
+    "label": "150",
+    "detail": "Campaign budget ceiling is 150 USD (90 % stop = 135). Neither 3000 in CAMPAIGN.md nor 1000 in OWNER-INBOX is the decision; replace both with 150. Owner: sweeps run into the 5-hour usage limit, so economize — prefer the cheapest measurement the signal rules (01 §3) accept, and do not repeat spend that already produced usable evidence. The supervisor is restarted with --budget-usd 150 at its next halt. Guard kill 2026-09-29T02:16:40 (system-change) was a guard false positive: the word \"halt\" in the heredoc text was matched as a command; the rule now matches command position only (policy.mjs, tests added). It interrupted the T2 sweep eval-2026-09-29T01-43-58-769Z (partial: interrupted, 14 of 18 cases, $41.04).",
+    "by": "owner (value); written by the owner's planning session",
+    "at": "2026-09-29T02:23:04.018Z"
+  },
+  "L-009": {
+    "label": "250",
+    "by": "owner",
+    "at": "2026-09-29T03:24:22.933Z"
+  },
+  "L-012": {
+    "label": "a",
+    "detail": "Raise the ceiling to 400 USD (90 % stop = 360). Keep economizing: cheapest measurement the signal rules accept.",
+    "by": "owner (value); written by the owner planning session",
+    "at": "2026-09-29T08:54:57.804Z"
+  },
+  "L-011": {
+    "label": "a: drop T3 count as a control; b: accept WP2 on gates + tests; replan",
+    "a": "Do not confirm or reject it-003 on T3: the T3 finding count is not a valid control. Same build, same day, byte-identical prompts gave be-vs-5546 2/5/4 and be-vs-3571 3/3/6 (it-003/scratch/t3-same-day-ab.txt); the count says nothing about quality (be-vs-5546 stored recording: 1 medium correctness bug + 3 low items; the human MR comments were 2 style/structure items). Replace T3 as a control with stability of medium-and-above findings across runs, and make the recorder keep every run instead of overwriting by snapshot id (only counts survive in record-*.log today).",
+    "b": "Accept WP2 on gates plus its reproducing tests. Do not make a human VS-* cycle a per-iteration condition: product changes per iteration are small and the owner will not run the work repository for each. Replace per-iteration T4 with an automated proxy: headless investigate/plan/task sessions on a fixture repository (fixtures/materialize.mjs) with a stub requirements MCP server, scored by tools/transcript-metrics.py (fabricated provenance, refused review launches, MCP-server questions). The owner human cycle (L-010) becomes one confirmation at the end of cycle 1, not a gate for each WP.",
+    "also": "Measurement costs dominate (~$136 of ~$161 on sweeps): run the full 3-run/arm T2 decision sweep only at checkpoints, with a 1-run screening per iteration. This changes 01/02/03, so do it through a replan (09 §2); this label is the owner confirmation it needs.",
+    "by": "owner (decision); written by the owner planning session",
+    "at": "2026-09-29T09:14:36.733Z"
+  },
+  "owner-directive-1": {
+    "label": "evaluated model -> claude-sonnet-5-5; new baseline; context 150k/200k",
+    "detail": "Owner directive, not an answer to a queued question; applies from now and belongs in the L-011 replan. (1) Every eval suite the campaign runs (T1 triggers, T2 curated sweeps, preflight, any screening) uses --model claude-sonnet-5-5 instead of claude-opus-5-5. Reason: cost; recomputed from R1 traces, an Opus T2 run costs ~$0.45-0.80, mostly 1-hour cache writes at $8/MTok. (2) Before the next comparison, measure a new Sonnet baseline on the current accepted build (gym/R1/it-003): T1 once and T2 at 3 runs/arm; tag it as the new reference checkpoint. cp-0..cp-2 Opus numbers stay as history and are not compared with Sonnet numbers. (3) The lead itself now runs on claude-sonnet-5-5, and the supervisor context limits are soft 150000 / hard 200000 (were 300000 / 500000); the plan text in 10-supervisor.md still says 300k/500k, the guard enforces the new values.",
+    "by": "owner (decision); written by the owner planning session",
+    "at": "2026-09-29T09:23:24.943Z"
+  },
+  "R-1": {
+    "decision": "confirmed and applied",
+    "detail": "Owner confirms replan R-1 as drafted, including both rows the lead flagged: (1) provisional accept on a 1-run screening, confirmed by the 3 runs/arm sweep at the next checkpoint, with bisection by revert iterations if that checkpoint is no-go; (2) a T4-claim change is accepted on its reproducing tests until T4p exists, the human T4 stays observed until cp-5. Applied per 09 §2 step 6: commit 68ecd0c, tag gym/R1/replan-1, planDigest a7feb66fef5cf1d2ecff7ba3aee4eb57e6e8f217c64abc2a21bd7f1e81c9ca5f in CAMPAIGN.md. The supervisor already runs with --budget-usd 400 (supervisor.log start 09:25:51Z). Stale text the lead listed (04:18, 05:31, USER-GUIDE:60, README Open TBDs, 10 25k/99 tests, 02 §3.7) stays for a later replan.",
+    "by": "owner; applied by the owner planning session",
+    "at": "2026-09-29T09:47:54.601Z"
+  },
+  "owner-note-1": {
+    "label": "recordings restored",
+    "detail": "The owner restored benchmarks/reviewer-recordings.json from it-005/scratch/recordings-before.json (sha b4d778c9…, the it-003 record-3 state named in it-003/decision.md), the restore the guard denied you at 10:05:04Z (nda-data, correctly: only the owner writes NDA data). Only be-vs-5546 differed (the it-005 test record, 4 -> 5 findings); that version is kept as it-005/scratch/recordings-after-test-780cc016.json. Separately, your 09:49:32Z denial (write-outside-roots on the it-005 brief heredoc) was a guard false positive, now fixed; it still counts toward this session s 5.",
+    "by": "owner planning session",
+    "at": "2026-09-29T10:09:09.494Z"
+  },
+  "owner-note-2": {
+    "label": "recordings restored again",
+    "detail": "At your 10:45Z request and it-006 brief step 5: benchmarks/reviewer-recordings.json restored from it-005/scratch/recordings-before.json (sha b4d778c9…c12805) after both A/A sets finished. The pre-restore file (sha 5e69d54e…, after the A/A recordings) is kept as it-006/scratch/recordings-after-aa-5e69d54e.json. Any later evals:record run overwrites it again; say so in OWNER-INBOX before a T2 run and the owner restores.",
+    "by": "owner planning session",
+    "at": "2026-09-29T10:51:29.354Z"
+  },
+  "L-013": {
+    "label": "a+b",
+    "detail": "Both (a) and (b). (a): drop only the unit-check-ran grader for p2-task-regression-fix on Sonnet; plugin-fired and helper-ran stay required, since Sonnet in the owner's local sessions does call the plugin and its scripts. (b): change the case prompt of p2-task-regression-fix so it asks for the change with a verb the task skill's description names (e.g. \"implement the fix\"); the owner accepts this fixture change outside 02 section 3.3's list. Measured cause: preflight failed 4 of 4 with Skill 0x and Bash 0x, the kept trace shows the fix done directly; regression-ts passes 4 of 4. Both go through one replan; after it, rerun the preflight on Sonnet (expected: plugin-fired and helper-ran pass), then T2 for H2 and tag cp-S0. If the preflight still fails with the new prompt, stop and report; do not weaken plugin-fired or helper-ran. (d) not answered; default applies (no new T1 case). Note: the prompt change also applies to the Opus arm of T2, so its baseline for this case must be re-measured or the case excluded from the Opus comparison.",
+    "by": "owner (choice); written by the owner's planning session",
+    "at": "2026-09-29T11:00:46.395Z"
+  },
+  "R-2": {
+    "label": "applied",
+    "detail": "Replan R-2 applied: commit bd93959, tag gym/R1/replan-2, planDigest c7d037a1911594eb921dbc9890437b1f1f3e8108b98002c48f5b10550d406317 (was a7feb66f...; matched the Supersedes line before apply). gym/plan/rev-2 moved over gym/plan; CAMPAIGN.md updated. Next: H2-repair, then H2-T2.",
+    "by": "owner's planning session",
+    "at": "2026-09-29T11:21:53.171Z"
+  },
+  "L-014": {
+    "label": "not-documented",
+    "detail": "Per https://code.claude.com/docs/en/plugin-evals.md (read by a docs agent, not tested here): there is no --mcp-config flag, no case-file field (prompt.md, case.yaml) and no suite-level setting to attach an external MCP server. The docs say the sandbox reads no project-scoped .mcp.json above it, which matches your two failed routes. Documented MCP handling is only for the plugin's own servers: mocks at evals/mocks/<server>/<tool>.md, --allow-real-servers to start the plugin's real servers, --mocks off to start all plugin servers. If T4p still wants an MCP-server-question event, that is the only route to try, and only if the plugin declares the server (ambicode's own MCP server from init --mcp-server is the candidate); otherwise T4p stays null as per the default. Not verified by a run.",
+    "by": "owner (asked to look it up); written by the owner's planning session",
+    "at": "2026-09-29T11:22:46.186Z"
+  },
+  "L-015": {
+    "label": "b",
+    "detail": "Option (b): name the skill in the case prompt of p2-task-regression-fix (e.g. \"Use the ambicode task skill to implement the fix\"). plugin-fired and helper-ran stay required on Sonnet; the gate is not weakened and regression-ts is not made the only gate. The owner accepts that this tests the skill's mechanics, not whether it triggers (T1's job). This wording is outside R-2's allowance (it names 'implement' only), so draft replan R-3 (owner applies), start from it-008/diff.patch, then rerun the Sonnet preflight (expected ≈ $0.2). If it still fails, stop and report (B2); do not fall back to (a) without a new label. After a pass: Opus preflight, then H2-T2 (3 runs/arm) and cp-S0.",
+    "by": "owner (choice); written by the owner's planning session",
+    "at": "2026-09-29T11:58:24.482Z"
+  },
+  "R-3": {
+    "label": "applied",
+    "detail": "Replan R-3 applied: tag gym/R1/replan-3, planDigest c2c756c67bbaf32eb70c26ccff900b8711c74e2af6b29de965411c4eed66dd64 (was c7d037a1...; matched the Supersedes line before apply). gym/plan/rev-3 moved over gym/plan; CAMPAIGN.md updated. Next: H2-repair with the prompt wording fixed in 02 §3.3.",
+    "by": "owner's planning session",
+    "at": "2026-09-29T12:04:21.659Z"
+  },
+  "L-016": {
+    "label": "a",
+    "detail": "Option (a): a replan (R-4, lead drafts, owner applies) that makes the T2 review cases invoke the review skill on Sonnet, by wording in the T2 review prompt template (evals-bench.mjs and the generated evals-core review cases) that names the ambicode review skill, as R-3 did for p2-task-regression-fix. Fix the wording in the plan text so the iteration has no discretion; name every file it may touch (02 section 3.3). Then re-measure the Sonnet reference for the review arm only (the 8 review cases, 3 runs/arm) and record it as the new review reference next to cp-S0; do not overwrite the localize reference. Order: this before WP3 item 2's T2 control is relied on. If review with-arm helper-ran is still ~0 after the wording change, stop and report (B2); do not fall back to (b) without a new label. The cause was untested (regression-ts fires the skill on Sonnet), so record in the decision which of prompt template vs model it was. (d), owner decision on the T3 floor, set by the owner's planning session (threshold change, 03 section 2): starting floor 0.3333 (1/3) on ownStability, applied only to cases whose medium-and-above finding appears in at least 2 of 3 runs in the reference sets; be-vs-6261 (1 of 3 runs in both A/A sets, ownStability 0 and 0, setAgreement 0) is excluded from the control and stays reported. Basis: lowest per-case ownStability in the A/A among the other 7 cases is 0.3333 (be-vs-3571 set 1, fe-vs-6086-d1f112e5 set 2), so no A/A case is below it (measured from baseline/metrics-R-1.json T3.perCase). It is deliberately loose; the owner raises it when T3 shows progress, through a label, not by the lead. Put the floor text in the same R-4 (01 section 3 'TBD', 03 cp-3/cp-4 rows), and from the iteration after R-4 cp-3 and cp-4 use it as a control.",
+    "by": "owner (choice a; delegated the starting floor); written by the owner's planning session",
+    "at": "2026-09-29T13:23:56.307Z"
+  },
+  "L-017": {
+    "label": "c",
+    "detail": "Option (c): no change to the helper-ran grader and no preflight retry. Every iteration that needs a T2 screening starts with its ordinary preflight and stops at B2 when it fails. Do not fold the input_match widening (a) or a second attempt (b) into R-4. it-012/diff.patch is re-applied by the next iteration that gets a passing preflight.",
+    "by": "owner (choice); written by the owner's planning session",
+    "at": "2026-09-29T13:29:36.378Z"
+  },
+  "owner-directive-2": {
+    "label": "finish-r1",
+    "detail": "Bring R1 to its end and evaluate it, so the result feeds R2. (1) Continue the plan as far as the budget stop ($360) allows: R-4 (owner applies), the review-only Sonnet re-measure, WP3, WP4, in plan order; do not open work that cannot finish before the stop. Budget guard is unchanged: no raise without a label. (2) When the work is done, or blocked with no owner-answerable item, or the stop is near, write gym/runs/R1/FINAL-REPORT.md, committed, and set PHASE to a closing state. It must contain, each with a number and its source file: goals in 01 section 1 against the measured value at the last checkpoint (met, not met, not measurable); cost per iteration and per metric (ledger restated from files, not from the supervisor alone) and what each metric cost against what it decided; every iteration's verdict and every B2/blocked stop with its cause; measurement defects found in the harness (preflight flakiness, recorder overwriting the NDA reference, T3 floor 0.0, judge/ledger understatement, guard false positives with counts); what was decided on Sonnet vs. what only had an Opus reference; and the list of stale or wrong text in gym/plan/*.md for the next replan (owner list: 04:18 model TBD, 05:31 '300-500k', USER-GUIDE:60, README Open TBDs, 10-supervisor '25k tokens'/'99 tests', 02 section 3.7 provisional accept recording, 01 section 1 items 5-6; add what you found). (3) Then a section 'Inputs for R2': what to keep, what to drop, which measurements were worth their cost, proposed changes with the evidence for each, open owner decisions. Do not draft R2 itself and do not change gym/plan/*.md outside a replan. Facts only where you have a number; mark the rest as an unverified guess. (4) Do not start the closing phase early to save budget; the owner decides if R1 stops before the plan is done.",
+    "by": "owner (via the owner's planning session)",
+    "at": "2026-09-29T13:29:36.378Z"
+  },
+  "R-4": {
+    "label": "applied",
+    "detail": "Replan R-4 applied: tag gym/R1/replan-4, planDigest 33895be5e4b98099a4a8611774b9b0517a007b2bec41a024256e017fbb0873b5 (was c2c756c6...; matched the Supersedes line before apply). gym/plan/rev-4 moved over gym/plan; CAMPAIGN.md updated. Owner confirms the lead-proposed reading in 01 section 4 H4: review with-arm helper-ran at most 2 of 24 after the wording change is the B2 stop. L-017 (c) is not folded in. Next: H4.",
+    "by": "owner's planning session",
+    "at": "2026-09-29T13:37:13.644Z"
+  }
+}

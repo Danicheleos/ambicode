@@ -1,0 +1,86 @@
+fatal: path 'app/orders/model.ts' exists on disk, but not in 'HEAD'
+▶ evals-bench: tickets
+  ✔ takes the ticket text and the true paths, and drops the console lines pasted into the list (0.815375ms)
+  ✔ refuses a ticket whose sections are missing or out of order (0.096041ms)
+  ✔ places the snapshot under the leading directory the truth resolves through (0.260833ms)
+✔ evals-bench: tickets (1.896333ms)
+▶ evals-bench: generate
+  ✔ writes one case per ticket with a true file in the snapshot, and says why it refused the rest (0.213417ms)
+  ✔ grades only the true files the snapshot still has, and records the others (0.13075ms)
+  ✔ puts the ticket in the prompt and the answer only in the graders (3.83675ms)
+  ✔ scores the answer with both arms, and records the plugin only as a with-only indicator (2.429416ms)
+  ✔ fails any run whose tools reach into the data directory (0.794917ms)
+  ✔ scaffolds a clean committed repository at the truth root, with the config and without earlier task notes (101.523042ms)
+  ✔ writes a review case whose graders are the human threads, one each (0.718084ms)
+  ✖ opens the review prompt by naming the review skill, and keeps the rest of the task sentence (2.417ms)
+  ✔ pins the localize prompt byte for byte (0.109166ms)
+  ✔ scaffolds the change as the reviewer saw it: base committed, the change uncommitted on top (108.110417ms)
+✖ evals-bench: generate (237.272834ms)
+▶ evals-bench: scoring an answer
+  ✔ reads the Files section only, so files named as out of scope do not count (0.576541ms)
+  ✔ matches a path written without the code root, and only when one true file ends that way (0.143166ms)
+  ✔ falls back to the whole message when there is no Files section, and says so (0.054042ms)
+  ✔ scores an answer that names nothing as zero precision, not as undefined (0.057625ms)
+✔ evals-bench: scoring an answer (0.908042ms)
+▶ evals-bench: scoring a run
+  ✔ reports a run with no final message as absent, not as an answer that scored zero (0.549541ms)
+✔ evals-bench: scoring a run (1.27725ms)
+▶ evals-bench: scoring a review run
+  ✔ scores recall against the human threads, and a run whose judges did not run as absent (0.209833ms)
+✔ evals-bench: scoring a review run (0.920916ms)
+▶ evals-bench: running
+  ✔ runs the curated suite by default, the full set with --set full, and never publishes (0.819833ms)
+  ✔ replays recorded reviewer answers only when a recordings file exists, and never overrides the caller (0.430917ms)
+  ✔ keeps the result JSON inside the excluded directories (0.636542ms)
+✔ evals-bench: running (1.941958ms)
+▶ evals-bench: harvesting traces
+  ✔ puts traces beside the run result, so they share its excluded-directory guarantee (0.139417ms)
+  ✔ copies each live sandbox trace whole, overwrites with growth, and skips what has no trace yet (2.669417ms)
+  ✔ tells a complete harvest from one that missed traces the result names (0.762ms)
+✔ evals-bench: harvesting traces (3.616166ms)
+▶ evals-bench: selection strength
+  ✔ measures how little the ticket gives away: the fraction of true files it never names (0.111ms)
+  ✔ counts a patch’s changed lines without its file headers (0.081791ms)
+  ✔ weighs a thread by the proof it carries: resolved, engaged, substantive (0.064292ms)
+✔ evals-bench: selection strength (0.296958ms)
+▶ evals-bench: select
+  ✔ keeps the hardest eligible ticket and the most substantiated review that fits the timeout (0.134291ms)
+  ✔ anchors the scaffold from the curated directory back to the data (76.552083ms)
+✔ evals-bench: select (87.711958ms)
+▶ evals-bench: the curated cases stay out of git
+  ✔ ignores the curated cases and their results, wherever the data they are generated from lives (12.474125ms)
+  ✔ ignores the results of whichever suite a bare `claude plugin eval .` runs (6.68225ms)
+✔ evals-bench: the curated cases stay out of git (19.221416ms)
+▶ evals-bench: the real benchmark stays out of git
+  ✔ is ignored as a whole (5.743083ms)
+  ✔ has no ticket identifier in any tracked or addable file (184.369625ms)
+✔ evals-bench: the real benchmark stays out of git (190.180125ms)
+ℹ tests 34
+ℹ suites 11
+ℹ pass 33
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 627.025041
+
+✖ failing tests:
+
+test at evals/scripts/src/evals-bench.test.mjs:170:3
+✖ opens the review prompt by naming the review skill, and keeps the rest of the task sentence (2.417ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+  
+    assert.ok(flat.includes('Use the ambicode review skill to review the change before it merges: report the problems a reviewer should raise, each with its file and line.'))
+  
+      at TestContext.<anonymous> (file:///Users/KillBill/Documents/projects/mine/ai/ambicode/evals/scripts/src/evals-bench.test.mjs:173:12)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1201:25)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+exit=1

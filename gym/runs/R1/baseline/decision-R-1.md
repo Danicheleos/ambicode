@@ -1,0 +1,3 @@
+# Sonnet reference (R-1): complete inputs, cp-S0 not yet tagged
+
+`baseline/metrics-R-1.json` holds T1 (once) and the T3 A/A on Sonnet from it-006, and the T2 3 runs/arm sweep from it-010 (`it-010/decision.md`; `partial: false`, 108 runs, 0 errors, 108 of 108 traces on claude-sonnet-5-5). The cp-S0 tag is decided by the next session after the auditor's handoff (03 §1). On this reference the plugin's helper does not run in T2 on Sonnet (review with-arm helper-ran 0 of 24, localize 1 of 30), so T2 review recall is equal in both arms; details and consequences in `it-010/decision.md`. Never merged into `baseline/metrics.json` (09 section 3).

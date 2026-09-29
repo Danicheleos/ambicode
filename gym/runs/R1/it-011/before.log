@@ -1,0 +1,154 @@
+▶ U16 requirement modes end to end
+  ✔ reviews without a requirement URL and labels the result a quality review (225.148208ms)
+  ✔ records when AMBICODE received the envelope, and no retrieval time the session never supplied (194.573959ms)
+  ✔ carries several requirements and their provenance into the result (183.547959ms)
+  ✔ blocks the review when a supplied requirement was not retrieved (111.185584ms)
+  ✔ stops on contradictory requirements before any check or model call (115.049833ms)
+✔ U16 requirement modes end to end (830.1855ms)
+▶ U17 reviewer result validation
+  ✔ accepts an empty finding list as a valid result and says what it means (180.858583ms)
+  ✔ takes the evidence snippet from the snapshot, not from the model (181.44375ms)
+  ✔ treats a reviewer failure as a review error, never as zero findings (726.962083ms)
+  ✔ does not let a failed check stop the reviewer (181.801125ms)
+✔ U17 reviewer result validation (1271.335208ms)
+▶ U17 location validation
+  ✔ makes a path that is not in the reviewed change an invalid reviewer result (0.205833ms)
+  ✔ makes a line the change does not address an invalid reviewer result (0.053417ms)
+  ✔ does not expose the surviving findings when one location is unverifiable (0.075166ms)
+  ✔ makes an unverifiable supporting location invalid too (0.1025ms)
+  ▶ a supporting location may name code the change affects without touching
+    ✔ accepts an unchanged line of a changed file on the new side (0.140625ms)
+    ✔ accepts a line of an unchanged mirrored neighbour, naming it on both sides (0.073625ms)
+    ✔ still refuses the same line as the primary location, which is where a comment would go (0.045625ms)
+    ✔ refuses a line past the end of the mirrored file (0.053708ms)
+    ✔ keeps the old side to the diff, because the pre-image is not mirrored (0.049042ms)
+  ✔ a supporting location may name code the change affects without touching (0.42275ms)
+  ✔ rejects a side the location does not name a path for (0.039709ms)
+  ✔ quotes two lines either side of the location and marks the commented line (0.133875ms)
+  ✔ accepts an old-side location and quotes the removed line from the diff (0.06425ms)
+  ✔ takes the paths from the bundle rather than from the model (0.039125ms)
+  ✔ invalidates the result rather than rewriting a reference it does not know (0.049875ms)
+  ✔ keeps references the review does know (0.049417ms)
+  ✔ rejects an oversized result instead of trimming it into a complete-looking one (0.066875ms)
+  ✔ gives the same finding the same id twice (0.057375ms)
+✔ U17 location validation (1.494583ms)
+▶ U17 reviewer output parsing
+  ✔ accepts the envelope around a valid answer (0.606542ms)
+  ✔ rejects output that is not JSON (0.054917ms)
+  ✔ rejects JSON that does not match the schema (0.74275ms)
+  ✔ rejects an unknown field rather than ignoring it (0.073084ms)
+  ✔ reports an error the reviewer itself declared (0.068709ms)
+✔ U17 reviewer output parsing (1.603375ms)
+▶ B8 an applicable policy diagnostic becomes an explicit coverage omission, not a silent drop
+  ✔ surfaces an unreadable applicable review prompt as an omission and keeps the reviewer running, but marks the result partial (186.435875ms)
+  ✔ does not surface a diagnostic from a pack that does not apply to this review as an omission (180.5125ms)
+✔ B8 an applicable policy diagnostic becomes an explicit coverage omission, not a silent drop (367.059042ms)
+▶ U17 reviewer isolation
+  ✔ starts the process with three read tools, no MCP and the snapshot as cwd (1.530292ms)
+  ✔ refuses the review when the installed CLI lacks an isolation option (0.280042ms)
+  ✔ reports a missing Claude Code as an unavailable reviewer, not as a clean run (0.074334ms)
+  ✔ turns a timeout, a spawn failure and a truncated answer into distinct errors (2.497208ms)
+✔ U17 reviewer isolation (4.470292ms)
+▶ U17 instruction-like content is evidence
+  ✔ gains no capability from an instruction planted in the code or a requirement (178.563667ms)
+  ✔ never lets code or requirement text reach the appended system prompt (P2.4 correction E7) (183.264208ms)
+✔ U17 instruction-like content is evidence (361.944333ms)
+▶ U17 an unverifiable location makes the review an error
+  ✔ records the reviewer as failed and exposes no reduced finding list (177.151458ms)
+  ✔ treats an oversized finding list as a failed review, not a trimmed one (176.529083ms)
+✔ U17 an unverifiable location makes the review an error (353.801458ms)
+▶ what the reviewer is told, and what is kept about its run
+  ✔ records how long the reviewer took, and keeps nothing extra when its answer is valid (179.9635ms)
+  ✔ keeps what the envelope said about the run, and prints an absent field as unknown (259.619417ms)
+  ▶ a review whose reviewer ran at most two turns
+    ✖ is partial, and says the reviewer made at most one tool call, at 2 turn(s) (179.819625ms)
+    ✖ is partial, and says the reviewer made at most one tool call, at 1 turn(s) (176.519708ms)
+    ✖ is partial, and says the reviewer made at most one tool call, at 0 turn(s) (176.351958ms)
+    ✔ is complete at 3 turns, when nothing else is a gap (229.074375ms)
+    ✔ is complete when the turn count is unknown or no usage came back (250.974833ms)
+    ✔ does not flag a replay, which carries no usage, as a short live review (182.735459ms)
+    ✔ leaves a failed reviewer an error with its own reason, whatever the turn count (175.678833ms)
+  ✖ a review whose reviewer ran at most two turns (1371.456541ms)
+  ✔ says one unverifiable location voids the whole review, in both prompts (177.007667ms)
+  ✔ asks for the answer as the StructuredOutput arguments themselves, and for rules only where one is breached (184.286208ms)
+  ✔ lists, for each changed file, the lines a finding may name (177.725916ms)
+✖ what the reviewer is told, and what is kept about its run (2350.323625ms)
+▶ the nameable lines of one file
+  ✔ joins consecutive lines into ranges and keeps separate hunks apart, per side (0.186917ms)
+  ✔ names only the side a deletion has (0.047334ms)
+  ✔ says so when no line can be named, for a binary file or one left out of the review (0.048625ms)
+✔ the nameable lines of one file (0.337083ms)
+▶ a check waiting for authorization
+  ✔ stops at the evidence and never invokes the reviewer (220.787083ms)
+  ✔ takes --decline as an answer, so one run covers the whole review (220.261666ms)
+  ✔ takes --approve as the other answer, and then runs both halves once (276.483334ms)
+✔ a check waiting for authorization (717.64975ms)
+ℹ tests 59
+ℹ suites 13
+ℹ pass 56
+ℹ fail 3
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6487.717291
+
+✖ failing tests:
+
+test at src/review/review.test.ts:1117:7
+✖ is partial, and says the reviewer made at most one tool call, at 2 turn(s) (179.819625ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'complete'
+  - 'partial'
+  
+      at TestContext.<anonymous> (file:///Users/KillBill/Documents/projects/mine/ai/ambicode-it-011/src/review/review.test.ts:1124:18)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Promise.all (index 0)
+      at async Suite.run (node:internal/test_runner/test:1619:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'complete',
+    expected: 'partial',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src/review/review.test.ts:1117:7
+✖ is partial, and says the reviewer made at most one tool call, at 1 turn(s) (176.519708ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'complete'
+  - 'partial'
+  
+      at TestContext.<anonymous> (file:///Users/KillBill/Documents/projects/mine/ai/ambicode-it-011/src/review/review.test.ts:1124:18)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'complete',
+    expected: 'partial',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src/review/review.test.ts:1117:7
+✖ is partial, and says the reviewer made at most one tool call, at 0 turn(s) (176.351958ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'complete'
+  - 'partial'
+  
+      at TestContext.<anonymous> (file:///Users/KillBill/Documents/projects/mine/ai/ambicode-it-011/src/review/review.test.ts:1124:18)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'complete',
+    expected: 'partial',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

@@ -1,0 +1,65 @@
+diff --git a/evals/scripts/src/evals-bench.mjs b/evals/scripts/src/evals-bench.mjs
+index 014dff7..fe06d43 100644
+--- a/evals/scripts/src/evals-bench.mjs
++++ b/evals/scripts/src/evals-bench.mjs
+@@ -264,8 +264,8 @@ the ticket below.
+ ${text}
+ </ticket>
+ 
+-Review the change before it merges: report the problems a reviewer should
+-raise, each with its file and line.
++Use the ambicode review skill to review the change before it merges: report
++the problems a reviewer should raise, each with its file and line.
+ 
+ \`repo/\` is the repository under review. Change into it with \`cd repo\` before
+ running anything, and run every command from there.
+diff --git a/evals/scripts/src/evals-bench.test.mjs b/evals/scripts/src/evals-bench.test.mjs
+index 27a2b94..817af17 100644
+--- a/evals/scripts/src/evals-bench.test.mjs
++++ b/evals/scripts/src/evals-bench.test.mjs
+@@ -167,6 +167,45 @@ describe('evals-bench: generate', () => {
+     assert.deepEqual(JSON.parse(readFileSync(path.join(directory, 'truth.json'), 'utf8')), { kind: 'review', side: 'SIDE', ticket: 'T-1', version: '7-abcdef12', root: 'app', threads: 1 });
+   });
+ 
++  it('opens the review prompt by naming the review skill, and keeps the rest of the task sentence', () => {
++    const prompt = readFileSync(path.join(benchmarks, 'cases', 'side-t-1-review-7-abcdef12', 'prompt.md'), 'utf8');
++    const flat = prompt.replace(/\s+/g, ' ');
++    assert.ok(flat.includes('Use the ambicode review skill to review the change before it merges: report the problems a reviewer should raise, each with its file and line.'));
++    assert.ok(!flat.includes('Review the change before it merges'), 'the sentence no longer starts without the skill');
++    assert.ok(flat.includes('Do not edit anything.'));
++  });
++
++  it('pins the localize prompt byte for byte', () => {
++    // The localize arm is the control for the review-wording change; any drift here breaks the comparison.
++    const prompt = readFileSync(path.join(benchmarks, 'cases', 'side-t-1', 'prompt.md'), 'utf8');
++    assert.equal(prompt, `---
++name: side-t-1
++description: Localize the files a real ticket's change touches, in a real codebase.
++tags: ["bench", "localize", "side"]
++runs: 1
++max_turns: 40
++timeout_seconds: 900
++allowed_tools: [Read, Glob, Grep, Bash, Skill]
++---
++
++In the repository at \`repo/\`, the ticket below is about to be implemented.
++
++<ticket>
++Discount the order total.
++</ticket>
++
++Which files would that change have to touch? End your answer with a
++\`## Files\` section that lists each file by its path relative to \`repo/\`,
++one per line as a bullet, with a few words on what it contributes. List only
++files that already exist; leave out files the change would create.
++
++\`repo/\` is the repository under investigation. Change into it with \`cd repo\`
++before running anything, and run every command from there.
++
++Answer the question; do not edit anything.
++`);
++  });
++
+   it('scaffolds the change as the reviewer saw it: base committed, the change uncommitted on top', () => {
+     const run = mkdtempSync(path.join(tmpdir(), 'bench-review-'));
+     try {

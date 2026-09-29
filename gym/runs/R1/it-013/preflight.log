@@ -1,0 +1,19 @@
+
+> ambicode@0.3.4 evals:preflight
+> node evals/scripts/src/evals-preflight.mjs --model claude-sonnet-5-5
+
+Note: --scaffold runs each case's scaffold_script as you. Only use it on case files you (or your org) authored.
+Wrote /var/folders/nx/xb7v_m614s50z6c43bmbj5j40000gp/T/ambicode-preflight-hhN4tc/result.json
+Report: /Users/KillBill/Documents/projects/mine/ai/ambicode/evals/evals-archived/typescript/results/2026-09-29T13-41-39-449Z/report.html
+
+preflight ($0.19, /var/folders/nx/xb7v_m614s50z6c43bmbj5j40000gp/T/ambicode-preflight-hhN4tc/result.json)
+PASS  regression-ts plugin-fired
+PASS  regression-ts helper-ran
+PASS  regression-ts reviewer-completed
+PASS  regression-ts unit-check-ran
+PASS  p2-task-regression-fix plugin-fired
+PASS  p2-task-regression-fix helper-ran
+NOTE  p2-task-regression-fix unit-check-ran: passed, not gated on Sonnet: Sonnet ran jest itself and never called the task skill on 6 of 6 preflights (old prompt 4, "implement the fix" 2); the prompt now names the skill
+NOTE  p2-task-regression-fix reviewer-completed: failed, not gated: the agent writes this diff, so no recording matches it (replay-miss), and no reviewer signs in inside the sandbox
+preflight passed
+exit=0

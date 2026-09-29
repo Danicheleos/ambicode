@@ -1,0 +1,35 @@
+# it-012 before.log: the three new/extended tests run against the UNMODIFIED evals-record-core.mjs (test file with the SHORT_REVIEWER_TURNS import replaced by undefined, because the unmodified module lacks the export and the file would fail at import)
+  ✖ writes usage per run with null, never 0, for what the envelope lacked, and nothing for a failed run (0.762625ms)
+  ✖ flags a run of at most SHORT_REVIEWER_TURNS turns and leaves the flag null, never false, when turns is unknown (0.169417ms)
+  ✖ pins the recorder threshold to the product constant it cannot import (0.224375ms)
+✖ evals-record-core: summary and usage (1.526417ms)
+✖ failing tests:
+✖ writes usage per run with null, never 0, for what the envelope lacked, and nothing for a failed run (0.762625ms)
+✖ flags a run of at most SHORT_REVIEWER_TURNS turns and leaves the flag null, never false, when turns is unknown (0.169417ms)
+✖ pins the recorder threshold to the product constant it cannot import (0.224375ms)
+# worker's first run, same tests, with the import kept:
+file:///Users/KillBill/Documents/projects/mine/ai/ambicode/.claude/worktrees/agent-a21c0c8e882cf1657/evals/scripts/src/evals-record-core.test.mjs:15
+  SHORT_REVIEWER_TURNS,
+  ^^^^^^^^^^^^^^^^^^^^
+SyntaxError: The requested module './evals-record-core.mjs' does not provide an export named 'SHORT_REVIEWER_TURNS'
+    at #asyncInstantiate (node:internal/modules/esm/module_job:326:21)
+    at async ModuleJob.run (node:internal/modules/esm/module_job:429:5)
+    at async node:internal/modules/esm/loader:639:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+
+Node.js v24.15.0
+✖ evals/scripts/src/evals-record-core.test.mjs (41.58175ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 46.01875
+
+✖ failing tests:
+
+test at evals/scripts/src/evals-record-core.test.mjs:1:1
+✖ evals/scripts/src/evals-record-core.test.mjs (41.58175ms)
+  'test failed'

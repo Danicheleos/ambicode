@@ -1,0 +1,42 @@
+{
+  "iteration": "it-001",
+  "commit": "1a693ba",
+  "pluginVersion": "0.3.4",
+  "capturedAt": "2026-09-29T03:06:00Z",
+  "models": { "agent": null, "reviewer": "sonnet", "judge": null },
+  "G1": { "exit": 0, "tests": 752, "pass": 751, "fail": 0, "skipped": 1, "seconds": 26 },
+  "G2": { "exit": 0, "zipSha256": "c8c5b7b3f57e8785fb26207e4beac2aea8f00eaaa3dc8ee61591f08c0efdec7f" },
+  "G3": { "exit": 0, "files": 480 },
+  "T1": null,
+  "T2": null,
+  "T3": {
+    "recordings": 8,
+    "of": 8,
+    "recordingRunsPerCase": 3,
+    "storedRecordings": 8,
+    "storedNote": "the recorder keeps one recording per snapshotId (evals-record-core.mjs:140-152); earlier runs survive only as finding counts in the logs; T2 replays 1 per case",
+    "newRecordings": 19,
+    "reusedRecordings": 5,
+    "reusedFrom": "baseline/metrics.json T3 (evals-record-core 2026-09-28T16:52-17:07Z plugin 0.3.3, no --exclude)",
+    "exclude": "main/assets/i18n/**",
+    "logs": ["scratch/record-1.log", "scratch/record-2.log", "scratch/record-3.log"],
+    "perCase": [
+      { "case": "be-vs-3571-review-1128-957b6388", "findings": [4, 2, 6], "median": 4, "newCostUsd": [0.14, 0.18], "newSeconds": [87, 104] },
+      { "case": "be-vs-5075-review-1054-3b24bb74", "findings": [4, 4, 5], "median": 4, "newCostUsd": [0.07, 0.06], "newSeconds": [87, 80] },
+      { "case": "be-vs-5546-review-996-d520e3ca", "findings": [6, 6, 5], "median": 6, "newCostUsd": [0.10, 0.07], "newSeconds": [80, 80] },
+      { "case": "be-vs-6261-review-1141-f14493f1", "findings": [1, 2, 2], "median": 2, "newCostUsd": [0.09, 0.07], "newSeconds": [101, 90] },
+      { "case": "fe-vs-6253-review-2557-1b0a7eaf", "findings": [6, 3, 4], "median": 4, "newCostUsd": [0.07, 0.10], "newSeconds": [114, 123] },
+      { "case": "fe-vs-6086-review-2553-d1f112e5", "findings": [3, 2, 5], "median": 3, "newCostUsd": [0.12, 0.10, 0.10], "newSeconds": [121, 133, 104] },
+      { "case": "fe-vs-6086-review-2553-d7c43dc5", "findings": [4, 3, 2], "median": 3, "newCostUsd": [0.09, 0.10, 0.10], "newSeconds": [114, 133, 104] },
+      { "case": "fe-vs-6292-review-2537-3a49a0d3", "findings": [2, 2, 5], "median": 2, "newCostUsd": [0.14, 0.14, 0.19], "newSeconds": [100, 109, 104] }
+    ],
+    "refused": 0,
+    "rejections": 0,
+    "costUsd": 2.03,
+    "seconds": 518,
+    "fileSha256After": "6b7157a5bdfbc58b7050546211da14b15c0b3884b8778d64b6b7703596d0463c"
+  },
+  "T4": null,
+  "costUsd": 2.03,
+  "notes": "T1 skipped: no trigger surface touched. T2 skipped: no plugin change (git diff outside gym/ empty). T4: no new human cycle. costUsd is the sum of the recorder's per-case log values, printed to 2 decimals (the recorder writes no JSON with costs), so it is accurate to about ±$0.10. Reused recordings: the first of 3 for the 5 cases recorded at baseline. prompts/, policies/ and src/review/ are unchanged since the commit they were made at, but those were made on plugin 0.3.3 without --exclude and cost $0.33–0.67 / 126–772 s (01 §3), while the 19 new ones cost $0.06–0.19 / 80–133 s. A 3–5× drop with the reviewer code unchanged is unexplained: not investigated (WP3's subject; the recorder deletes its temp dirs, so the per-review usage is gone). The snapshot ids of the 5 reused cases did not change under --exclude: record-1 wrote 8 recordings, replacing the 5 old ones, not 13. After this iteration benchmarks/reviewer-recordings.json holds record-2's recordings for 5 cases and record-3's for 3; T2 sweeps from here replay those, not the baseline's 5 (brief, 'Known side effect')."
+}

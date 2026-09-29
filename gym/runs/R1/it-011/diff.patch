@@ -1,0 +1,206 @@
+diff --git a/docs/review.md b/docs/review.md
+index 984bd9f..57ad7e3 100644
+--- a/docs/review.md
++++ b/docs/review.md
+@@ -298,7 +298,9 @@ survive validation. It is not a review that found nothing.
+ 
+ **A failed or skipped check does not block the review.** It narrows what was
+ verified, which makes the result `partial` and puts the reason in part 4. Only a
+-reviewer that produced nothing usable makes the result an `error`.
++reviewer that produced nothing usable makes the result an `error`. A review whose
++reviewer ran at most two turns is also `partial`, because it can have made at
++most one tool call, the answer itself.
+ 
+ **An unverifiable claim invalidates the result.** If the reviewer named a path
+ or a line the pinned change does not contain, cited a rule or requirement this
+diff --git a/src/cli/commands/review.ts b/src/cli/commands/review.ts
+index 387e9b6..7d2ff56 100644
+--- a/src/cli/commands/review.ts
++++ b/src/cli/commands/review.ts
+@@ -218,6 +218,12 @@ async function persistPublicationPositions(
+   return derived.positions.length;
+ }
+ 
++/**
++ * Two turns is one tool call plus the answer. An upper bound: at 3 or more turns
++ * the count cannot tell no file read from one. Live runs measured 2 in 24 of 46, never 1.
++ */
++const SHORT_REVIEWER_TURNS = 2;
++
+ /**
+  * A failed or skipped check narrows what was verified (`partial`) but does not
+  * stop the model; only unusable reviewer output makes the review an error.
+@@ -238,6 +244,7 @@ function applyStatus(bundle: ReviewBundle, reviewerOk: boolean): void {
+     (total, { policy }) => total + policy.diagnostics.filter((d) => d.severity === 'error').length,
+     0,
+   );
++  const turns = bundle.result.reviewer?.usage?.turns;
+   const gaps = [
+     ...(policyGaps > 0 ? [`${policyGaps} applicable policy diagnostic(s) could not be resolved`] : []),
+     ...(bundle.result.coverage.complete
+@@ -257,6 +264,11 @@ function applyStatus(bundle: ReviewBundle, reviewerOk: boolean): void {
+     ...(bundle.result.reviewer?.source === 'replay'
+       ? ['the reviewer answer was replayed from a recording; no model reviewed the change in this run']
+       : []),
++    ...(turns !== null && turns !== undefined && turns <= SHORT_REVIEWER_TURNS
++      ? [
++          `the reviewer ran at most ${SHORT_REVIEWER_TURNS} turn(s), so it made at most one tool call, the answer itself; it may have read no file`,
++        ]
++      : []),
+   ];
+ 
+   if (gaps.length === 0) {
+diff --git a/src/review/review.test.ts b/src/review/review.test.ts
+index 9be3991..7691c8a 100644
+--- a/src/review/review.test.ts
++++ b/src/review/review.test.ts
+@@ -1059,6 +1059,149 @@ describe('what the reviewer is told, and what is kept about its run', () => {
+     }
+   });
+ 
++  describe('a review whose reviewer ran at most two turns', () => {
++    const AT_MOST_ONE_CALL = /at most one tool call, the answer itself/;
++    const usageWith = (turns: number | null) => ({
++      turns,
++      apiDurationMs: 20_000,
++      outputTokens: null,
++      costUsd: 0.1,
++      thinkingTokens: null,
++    });
++
++    /** The default fixture has three checks that cannot pass, so `complete` needs a project that declares none. */
++    async function checklessFixture(): Promise<Fixture> {
++      const context = await fixture();
++      await context.repo.write(
++        '.ambicode/config.yaml',
++        [
++          'schemaVersion: 1',
++          'baseline: ""',
++          'review:',
++          '  model: sonnet',
++          '  timeoutSeconds: 300',
++          '  maxFindings: 7',
++          '  maxChangedFiles: 50',
++          '  maxChangedLines: 2000',
++          '  maxContextBytes: 524288',
++          'checks:',
++          '  timeoutSeconds: 120',
++          '  maxSelectedTestFiles: 20',
++          'page:',
++          '  idleTimeoutSeconds: 1800',
++          'requirements:',
++          '  mcpServer: null',
++          'remoteChecks:',
++          '  image: null',
++          'authoring:',
++          '  editReminders: true',
++          'projects:',
++          '  - id: app',
++          '    root: .',
++          '    ecosystem: typescript',
++          '    packs: []',
++          '    policyFiles: []',
++          '    commands: {}',
++          '    checks: {}',
++          '',
++        ].join('\n'),
++      );
++      return context;
++    }
++
++    class ReplayFake extends FakeReviewer {
++      readonly source = 'replay' as const;
++    }
++
++    for (const turns of [2, 1, 0]) {
++      it(`is partial, and says the reviewer made at most one tool call, at ${turns} turn(s)`, async () => {
++        const context = await checklessFixture();
++        try {
++          const usage = usageWith(turns);
++          const output = await review(context.runtime, [], new FakeReviewer({ ...ok(), usage }));
++
++          assert.equal(output.result.reviewer?.status, 'ok');
++          assert.equal(output.result.status, 'partial');
++          assert.match(output.result.statusReason ?? '', AT_MOST_ONE_CALL);
++          assert.match(output.result.statusReason ?? '', /the reviewer ran at most 2 turn\(s\)/);
++          assert.match(output.result.statusReason ?? '', /it may have read no file/);
++          await nodeFileSystem.remove(output.snapshotDirectory);
++        } finally {
++          await context.dispose();
++        }
++      });
++    }
++
++    it('is complete at 3 turns, when nothing else is a gap', async () => {
++      const context = await checklessFixture();
++      try {
++        const output = await review(context.runtime, [], new FakeReviewer({ ...ok(), usage: usageWith(3) }));
++
++        assert.equal(output.result.status, 'complete');
++        assert.equal(output.result.statusReason, null);
++        await nodeFileSystem.remove(output.snapshotDirectory);
++      } finally {
++        await context.dispose();
++      }
++    });
++
++    it('is complete when the turn count is unknown or no usage came back', async () => {
++      const context = await checklessFixture();
++      try {
++        const unknown = await review(context.runtime, [], new FakeReviewer({ ...ok(), usage: usageWith(null) }));
++        const absent = await review(context.runtime, [], new FakeReviewer(ok()));
++
++        assert.equal(unknown.result.status, 'complete');
++        assert.equal(unknown.result.statusReason, null);
++        assert.equal(absent.result.reviewer?.usage, null);
++        assert.equal(absent.result.status, 'complete');
++        assert.equal(absent.result.statusReason, null);
++        await nodeFileSystem.remove(unknown.snapshotDirectory);
++        await nodeFileSystem.remove(absent.snapshotDirectory);
++      } finally {
++        await context.dispose();
++      }
++    });
++
++    it('does not flag a replay, which carries no usage, as a short live review', async () => {
++      const context = await fixture();
++      try {
++        const output = await review(context.runtime, [], new ReplayFake(ok()));
++
++        assert.equal(output.result.reviewer?.source, 'replay');
++        assert.equal(output.result.reviewer?.usage, null);
++        assert.equal(output.result.status, 'partial');
++        assert.match(output.result.statusReason ?? '', /replayed from a recording/);
++        assert.doesNotMatch(output.result.statusReason ?? '', AT_MOST_ONE_CALL);
++        await nodeFileSystem.remove(output.snapshotDirectory);
++      } finally {
++        await context.dispose();
++      }
++    });
++
++    it('leaves a failed reviewer an error with its own reason, whatever the turn count', async () => {
++      const context = await fixture();
++      try {
++        const failed: ReviewerInvocation = {
++          kind: 'error',
++          reason: 'timeout',
++          detail: 'the reviewer did not answer in time',
++          argv: ['claude', '--print'],
++          usage: usageWith(2),
++        };
++        const output = await review(context.runtime, [], new FakeReviewer(failed));
++
++        assert.equal(output.result.status, 'error');
++        assert.equal(output.result.reviewer?.status, 'failed');
++        assert.match(output.result.statusReason ?? '', /timeout: the reviewer did not answer in time/);
++        assert.doesNotMatch(output.result.statusReason ?? '', AT_MOST_ONE_CALL);
++        await nodeFileSystem.remove(output.snapshotDirectory);
++      } finally {
++        await context.dispose();
++      }
++    });
++  });
++
+   it('says one unverifiable location voids the whole review, in both prompts', async () => {
+     const context = await fixture();
+     try {

@@ -135,6 +135,7 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
         ? null
         : await loadRequirementEvidence(runtime, options.evidence),
     configuredServer: workspace.config.requirements.mcpServer,
+    clock: runtime.clock,
   });
   const requirementBytes = requirements.sources.reduce(
     (total, source) => total + byteLength(source.content),

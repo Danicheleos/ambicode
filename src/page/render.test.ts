@@ -189,3 +189,32 @@ describe('U20 the review page shows what the result actually says', () => {
     }
   });
 });
+
+describe('the page says when AMBICODE received each requirement', () => {
+  async function pageWith(overrides: Record<string, unknown>): Promise<string> {
+    const base = reviewResult();
+    const result = { ...base, requirements: [{ ...base.requirements[0], ...overrides }] } as ReturnType<typeof reviewResult>;
+    const harness = await startHarness({ result });
+    try {
+      return (await openPage(harness)).html;
+    } finally {
+      await harness.dispose();
+    }
+  }
+
+  it('shows the receipt time, and a retrieval time only when the session supplied one', async () => {
+    const both = await pageWith({ receivedAt: '2026-09-21T08:15:00.000Z' });
+    assert.match(both, /received 2026-09-21T08:15:00\.000Z by AMBICODE via mcp__atlassian__getJiraIssue/);
+    assert.match(both, /retrieved 2026-09-20T09:00:00\.000Z by the session/);
+
+    const receiptOnly = await pageWith({ receivedAt: '2026-09-21T08:15:00.000Z', retrievedAt: null });
+    assert.match(receiptOnly, /received 2026-09-21T08:15:00\.000Z by AMBICODE/);
+    assert.doesNotMatch(receiptOnly, /retrieved 20|retrieved null|by the session/);
+  });
+
+  it('shows a result stored before receivedAt existed as it was, with no receipt claim', async () => {
+    const html = await pageWith({});
+    assert.match(html, /retrieved 2026-09-20T09:00:00\.000Z via mcp__atlassian__getJiraIssue/);
+    assert.doesNotMatch(html, /by AMBICODE via/);
+  });
+});

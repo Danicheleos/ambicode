@@ -1,0 +1,32 @@
+{
+  "iteration": "it-013",
+  "commit": "79cfa87 (brief) + the change; the record commit is the one that first holds this file and is tagged gym/R1/it-013",
+  "pluginVersion": "0.3.4",
+  "capturedAt": "2026-09-29T14:05:00Z",
+  "models": { "agent": "claude-sonnet-5-5", "reviewer": null, "judge": null },
+  "G1": { "exit": 0, "tests": 813, "pass": 812, "fail": 0, "skipped": 1, "log": "verify.log", "note": "811 (it-011, the base; it-012 is reset) + 2 new tests of this diff (review sentence, localize pin); no assertion removed" },
+  "G2": { "exit": 0, "zipSha256": "1585ac05ebf11f65d34674b82b7de99c0d353a22d3be6e676e9f0e8d213086ad", "note": "identical to it-011 and it-012 (evals/ is not in the plugin zip); reproducible across two runs", "log": "g2.log" },
+  "G3": { "exit": 0, "files": 591, "log": "g3.log", "note": "node check-line-endings.mjs; 591 tracked text files (it-012: 582, the difference is gym/runs files committed since)" },
+  "reproduction": { "log": "before.log", "note": "with the code hunk reverted the review-sentence test fails and the localize pin passes (evals-bench.test.mjs 34 tests, 33 pass, 1 fail); with the hunk all pass" },
+  "casesRegenerated": { "command": "npm run evals:select", "reviewPromptsChanged": 8, "localizePromptsIdentical": 10, "selectionJson": "byte-identical, chosen names identical", "hashes": "scratch/cases-before.sha, scratch/cases-after.sha" },
+  "preflight": { "model": "claude-sonnet-5-5", "passed": true, "attempts": 1, "costUsd": 0.19, "log": "preflight.log", "note": "p2-task-regression-fix helper-ran passed (it failed 2 of 2 in it-012; L-017 c: no retry, no grader change)" },
+  "T1": null,
+  "T1note": "T1 skipped: no trigger surface touched",
+  "T2": null,
+  "T2note": "the localize reference was not re-run (H4 re-measures review only); the review-only result is the T2review block of baseline/metrics-R-1.json",
+  "T2review": {
+    "ref": "baseline/metrics-R-1.json T2review",
+    "cases": 8, "runsPerArm": 3, "partial": false, "runErrors": 0,
+    "with": { "helperRan": 24, "helperRanOf": 24, "pluginFired": 24, "recallMedian": 0.125, "costUsdPerRun": 0.1452, "turns": 6.625 },
+    "without": { "recallMedian": 0.0938, "costUsdPerRun": 0.2047, "turns": 9.75, "skillCallRuns": 2 },
+    "atCpS0": { "withHelperRan": "0 of 24", "withRecallMedian": 0.0938, "withoutRecallMedian": 0.0938 },
+    "resultFile": "scratch/t2review-sonnet.json",
+    "sweepCostUsd": 8.3958
+  },
+  "T3": null,
+  "T4": null,
+  "T4p": null,
+  "costUsd": 8.59,
+  "costBreakdown": { "preflight": 0.19, "t2reviewSweep": 8.3958 },
+  "notes": "Eval spend only. Lead, worker and verifier are counted by the supervisor (session spend at the time of writing about $1.8)."
+}

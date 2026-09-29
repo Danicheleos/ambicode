@@ -23,6 +23,7 @@ import { configProvenance, packProvenance } from '../../policy/provenance.ts';
 import { loadRequirementEvidence, normalizeRequirements } from '../../requirements/normalize.ts';
 import { readSharedOperatingContract } from '../../policy/shared-contract.ts';
 import { byteLength } from '../../snapshot/limits.ts';
+import { findOversizedFiles, oversizedNotice, statusPaths } from '../../snapshot/preflight.ts';
 import { AmbicodeError } from '../../util/errors.ts';
 import { contentHash } from '../../util/hash.ts';
 import { formatJsonOutput, type JsonFormat } from '../../util/json-output.ts';
@@ -79,9 +80,19 @@ export async function runPrepare(runtime: Runtime, args: ParsedArgs): Promise<Pr
     urls: args.all('requirement'),
     evidence: evidence === null ? null : await loadRequirementEvidence(runtime, evidence),
     configuredServer: workspace.config.requirements.mcpServer,
+    clock: runtime.clock,
   });
 
   const project = projectForRequest(workspace.config, args.value('project'), paths);
+
+  // Stat only, so a file the review would refuse is named now rather than after a session
+  // has planned around it.
+  const oversized = await findOversizedFiles({
+    fs: runtime.fs,
+    repositoryRoot: workspace.repositoryRoot,
+    paths: [...new Set([...paths, ...statusPaths(await workspace.git.status())])],
+    excludePaths: workspace.config.review.excludePaths,
+  });
 
   const policy = await resolvePolicyFor({ workspace, project, activity, paths });
   const policies = [{ project, policy }];
@@ -114,6 +125,7 @@ export async function runPrepare(runtime: Runtime, args: ParsedArgs): Promise<Pr
     project,
     paths,
     requirements,
+    sizeNotices: oversized.length === 0 ? [] : [oversizedNotice(oversized)],
     policy,
     shortlist,
     sharedOperatingContract,
@@ -343,6 +355,7 @@ async function toDraftOutput(options: {
   project: ProjectConfig;
   paths: readonly string[];
   requirements: ReturnType<typeof normalizeRequirements>;
+  sizeNotices: readonly string[];
   policy: ResolvedPolicy;
   shortlist: PrepareDetail['navigation']['shortlist'];
   sharedOperatingContract: PrepareOutput['sharedOperatingContract'];
@@ -368,7 +381,7 @@ async function toDraftOutput(options: {
     provenance: [...options.policyProvenance, ...promptProvenance, ...options.requirements.provenance].sort((a, b) =>
       `${a.kind}${a.reference}`.localeCompare(`${b.kind}${b.reference}`),
     ),
-    notices: options.requirements.notices,
+    notices: [...options.requirements.notices, ...options.sizeNotices],
     navigation: {
       ...navigationFor(options.project.ecosystem),
       ...(options.shortlist === undefined ? {} : { shortlist: options.shortlist }),
@@ -524,7 +537,7 @@ export function renderPrepare(run: PrepareRun): string {
   }
   if (output.notices.length > 0) {
     lines.push('', 'notices');
-    lines.push(...output.notices.map((notice) => `  ${notice}`));
+    lines.push(...output.notices.map((notice) => `  ${notice.split('\n').join('\n  ')}`));
   }
 
   lines.push('', 'packs');

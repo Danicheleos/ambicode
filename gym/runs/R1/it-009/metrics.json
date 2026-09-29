@@ -1,0 +1,36 @@
+{
+  "iteration": "it-009",
+  "commit": "15f7efb (brief); the change is committed with this record",
+  "pluginVersion": "0.3.4",
+  "capturedAt": "2026-09-29T12:20:00Z",
+  "models": { "agent": "claude-sonnet-5-5", "reviewer": null, "judge": null },
+  "G1": { "exit": 0, "tests": 804, "pass": 803, "fail": 0, "skipped": 1, "log": "verify.log", "note": "+9 over it-007's 795; same count as it-008's patch, because (g) is replaced 1-for-1" },
+  "G2": { "exit": 0, "zipSha256": "bee92a9a930c0cb4701473541c02ae910697df039f03a07cd69c7789e5487033", "note": "identical to it-005..it-008" },
+  "G3": { "exit": 0, "files": 554, "log": "g3.log" },
+  "preflight": {
+    "sonnet": {
+      "model": "claude-sonnet-5-5",
+      "modelSource": "suite.modelOverride of scratch/preflight-sonnet-result.json",
+      "passed": true,
+      "costUsd": 0.2097236,
+      "p2-task-regression-fix": { "plugin-fired": true, "helper-ran": true, "unit-check-ran": true, "add-restored": false, "fixed-and-verified": false, "reviewer-completed": false, "turns": 8 },
+      "regression-ts": { "plugin-fired": true, "helper-ran": true, "reviewer-completed": true, "unit-check-ran": true, "finding": true, "helper-output-used": true, "turns": 6 },
+      "unit-check-ran-note": "printed as NOTE 'passed, not gated on Sonnet'"
+    },
+    "opus": {
+      "model": "claude-opus-5-5",
+      "passed": true,
+      "costUsd": 0.4024604,
+      "p2-task-regression-fix": { "plugin-fired": true, "helper-ran": true, "unit-check-ran": true, "add-restored": true, "fixed-and-verified": true, "reviewer-completed": false, "turns": 7 },
+      "regression-ts": { "plugin-fired": true, "helper-ran": true, "reviewer-completed": true, "unit-check-ran": true, "finding": true, "helper-output-used": true, "turns": 5 }
+    },
+    "resultFiles": ["scratch/preflight-sonnet-result.json", "scratch/preflight-opus-result.json", "scratch/aggregate-sonnet.json", "scratch/aggregate-opus.json"],
+    "logs": ["preflight-sonnet.log", "preflight-opus.log"]
+  },
+  "T1": null,
+  "T2": null,
+  "T3": null,
+  "T4": null,
+  "costUsd": 0.612184,
+  "notes": "T1 skipped: no trigger surface touched; T2/T3 not run: no seam they see. Skill-call counts were not read: the preflights ran without --keep-temp and the sandbox traces were already deleted, so plugin-fired/helper-ran are the graders' results only. Sonnet's ungated p2 graders add-restored and fixed-and-verified failed. Lead and worker session cost is counted by the supervisor, not here."
+}

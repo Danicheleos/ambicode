@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { detectProjects } from './detect.ts';
@@ -9,6 +9,7 @@ import { parseConfig, validateArgv } from './load.ts';
 import { loadPacksForProject } from '../policy/load.ts';
 import { mostSpecificRoot, normalizeRelative, toProjectRelative } from '../util/paths.ts';
 import { nodeFileSystem } from '../ports/filesystem.ts';
+import { isAmbicodeError } from '../util/errors.ts';
 
 async function sandbox(t: { after(fn: () => unknown): void }): Promise<string> {
   const directory = await mkdtemp(path.join(tmpdir(), 'ambicode-config-'));
@@ -521,4 +522,79 @@ test('path normalization keeps repository-relative form', () => {
   assert.equal(normalizeRelative('./apps/web/'), 'apps/web');
   assert.equal(normalizeRelative('.'), '');
   assert.equal(normalizeRelative('apps//web'), 'apps/web');
+});
+
+test('init --mcp-server on a fresh config writes the binding and drops the "unbound" notice', async (t) => {
+  const directory = await sandbox(t);
+  const plan = await planInit({
+    fs: nodeFileSystem,
+    repositoryRoot: directory,
+    detected: [],
+    baseline: '',
+    baselineNotice: 'x',
+    mcpServer: 'atlassian',
+  });
+  assert.equal(plan.config.requirements.mcpServer, 'atlassian');
+  assert.match(plan.yaml ?? '', /requirements:\s*\n\s*mcpServer: atlassian/);
+  assert.ok(plan.changes.includes('Set "requirements.mcpServer: atlassian".'), plan.changes.join('\n'));
+  assert.ok(!plan.notices.some((notice) => notice.includes('requirements.mcpServer is null')));
+});
+
+test('init --mcp-server pins a server in an existing config, keeps its comments, and reports a repeat as no change', async (t) => {
+  const directory = await sandbox(t);
+  await mkdir(path.join(directory, '.ambicode'), { recursive: true });
+  const configPath = path.join(directory, '.ambicode', 'config.yaml');
+  const project =
+    '  - id: app\n    root: .\n    ecosystem: typescript\n    packs: []\n    policyFiles: []\n    commands: {}\n    checks: {}\n';
+  const authored = withProjects(project)
+    .replace('requirements: { mcpServer: null }', '# my note: pinned by hand later\nrequirements: { mcpServer: null } # trailing\n')
+    .replace('remoteChecks', 'authoring: { editReminders: true }\nremoteChecks');
+  await writeFile(configPath, authored, 'utf8');
+  const options = { fs: nodeFileSystem, repositoryRoot: directory, detected: [], baseline: '', baselineNotice: 'x' };
+
+  const pinned = await planInit({ ...options, mcpServer: 'atlassian' });
+  assert.equal(pinned.config.requirements.mcpServer, 'atlassian');
+  assert.ok(pinned.changes.includes('Set "requirements.mcpServer: atlassian".'), pinned.changes.join('\n'));
+  assert.match(pinned.yaml ?? '', /# my note: pinned by hand later/);
+  assert.match(pinned.yaml ?? '', /# trailing/);
+  assert.ok(!pinned.notices.some((notice) => notice.includes('requirements.mcpServer is null')));
+
+  await writeFile(configPath, pinned.yaml ?? '', 'utf8');
+  const repeated = await planInit({ ...options, mcpServer: 'atlassian' });
+  assert.equal(repeated.yaml, null, 'the same value is not a change, so nothing is rewritten');
+  assert.deepEqual(repeated.changes, []);
+  assert.ok(
+    repeated.notices.some((notice) => notice.includes('requirements.mcpServer is already "atlassian"')),
+    repeated.notices.join('\n'),
+  );
+});
+
+test('init --mcp-server refuses to overwrite a different bound server, naming both, and refuses an empty name', async (t) => {
+  const directory = await sandbox(t);
+  await mkdir(path.join(directory, '.ambicode'), { recursive: true });
+  const configPath = path.join(directory, '.ambicode', 'config.yaml');
+  const project =
+    '  - id: app\n    root: .\n    ecosystem: typescript\n    packs: []\n    policyFiles: []\n    commands: {}\n    checks: {}\n';
+  const bound = withProjects(project).replace('mcpServer: null', 'mcpServer: atlassian');
+  await writeFile(configPath, bound, 'utf8');
+  const options = { fs: nodeFileSystem, repositoryRoot: directory, detected: [], baseline: '', baselineNotice: 'x' };
+
+  await assert.rejects(planInit({ ...options, mcpServer: 'other-atlassian' }), (error: unknown) => {
+    assert.ok(isAmbicodeError(error));
+    assert.equal(error.code, 'requirements-server-bound');
+    const text = [error.message, ...error.details].join('\n');
+    assert.match(text, /atlassian/);
+    assert.match(text, /other-atlassian/);
+    assert.match(text, /config\.yaml/);
+    return true;
+  });
+  assert.equal(await readFile(configPath, 'utf8'), bound, 'the binding is not overwritten');
+
+  for (const name of ['', '   ', ' atlassian']) {
+    await assert.rejects(planInit({ ...options, mcpServer: name }), (error: unknown) => {
+      assert.ok(isAmbicodeError(error));
+      assert.equal(error.code, 'bad-argument');
+      return true;
+    });
+  }
 });
