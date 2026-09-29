@@ -13,11 +13,12 @@
   "modelProof": "agent: `\"model\":\"claude-sonnet-5-5\"` in the kept trace.jsonl of the two diagnostic preflight runs (/private/tmp/e-8O6FlV, /private/tmp/e-CVJ88T; 9 and 7 occurrences); T1's traces were deleted, so the T1 sweep is evidenced by `suite.modelOverride: \"claude-sonnet-5-5\"` in its aggregate-result.json (the harness's record of the flag, not of the model that answered) and by cost ($2.09 against $4.21 on Opus). reviewer: the recorded `run-<k>.json` `recording.model` is `sonnet` (review config), not affected by --model",
   "G1": {
     "exit": 0,
-    "tests": 795,
-    "pass": 794,
+    "tests": 804,
+    "pass": 803,
     "fail": 0,
     "skipped": 1,
-    "log": "verify.log"
+    "log": "../it-009/verify.log",
+    "note": "corrected at cp-S0 (auditor F1): this block said 795 with log verify.log, which resolves to the cp-0 log (752 tests). 795 was it-006's count (it-006/verify.log); 804 is the tree the T2 sweep and the tag ran on (it-009/verify.log, product surfaces unchanged since)"
   },
   "G2": {
     "exit": 0,
@@ -26,9 +27,9 @@
   },
   "G3": {
     "exit": 0,
-    "files": 521,
-    "filesNote": "it-005 recorded 514 before its campaign files were committed; the count includes tracked text files under gym/ committed since (it-005 record, it-006 brief); plugin unchanged",
-    "log": "g3.log"
+    "files": 554,
+    "filesNote": "corrected at cp-S0 (auditor F1): 521 was it-006's count and its log path 'g3.log' did not exist in baseline/. 554 is it-009's count (it-009/metrics.json); the count grows with tracked text files under gym/, the plugin is unchanged",
+    "log": "../it-009/g3.log"
   },
   "T1": {
     "model": "claude-sonnet-5-5",
@@ -64,7 +65,8 @@
     ],
     "passingCase": "regression-ts, 4/4 graders, every attempt",
     "cause": "measured from the kept trace (it-006/scratch/preflight-keep.log; /private/tmp/e-8O6FlV): Sonnet read the diff, fixed `add` with sed and ran jest and eslint directly, never invoking the task skill; the prompt (`Find it, fix it, and verify the fix.`) names no skill and no `implement`. The task skill's description says \"Use when the user asks to implement, add, fix, or build something\"; T1 verb-implement (\"implement\") fires it 3/3 on Sonnet. The three graders that fail are all consequences of the Skill not being called. Opus called the skill on the same case at 04:04Z (it-003/scratch/preflight.log)",
-    "costUsd": 0.17
+    "costUsd": 0.17,
+    "laterPreflights": "added at cp-S0 (auditor F6). The four failures above ran with the pre-R-3 prompt. After the R-3 prompt repair (it-009) the Sonnet preflight passed on its first run (it-009/preflight-sonnet.log, $0.21), the Opus preflight passed (it-009/preflight-opus.log, $0.40), and the Sonnet preflight passed again before the T2 sweep (it-010/scratch/preflight.log, $0.21). That prompt names the ambicode task skill, so those passes are not trigger evidence (02 §3.5 step 2)."
   },
   "T2": {
     "runsPerArm": 3,

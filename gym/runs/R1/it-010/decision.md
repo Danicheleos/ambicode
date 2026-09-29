@@ -36,3 +36,10 @@ agent model                   108 of 108 traces claude-sonnet-5-5 (missing trace
 - The `claude plugin eval` exit status was 1 (threshold 1). The Opus baseline showed exit=1 on its review cases too. The result has `partial: false`.
 - `metrics-R-1.json` was rewritten with `JSON.stringify`: number formatting changed (`1.0` to `1`, `§` to `§`) and nothing else outside T2, `status`, `reference`, `capturedAt`, `commit` and the top-level `costUsd` (6.6777 to 27.94, the verifier caught that it excluded the sweep).
 - Two small stale items: the brief lists `OWNER-INBOX.md` at the root (it is `gym/runs/R1/OWNER-INBOX.md`); the tree carries the owner's uncommitted `gym/plan/supervisor/*` edits and `supervisor.out`, untouched and not in this commit.
+
+## Corrections after the auditor (cp-S0, `handoffs/auditor.md`)
+
+- **Wording of the headline.** "On Sonnet the plugin's helper almost never runs in T2" is what was measured, on the T2 review prompt template. That the cause is the model is not established: `regression-ts` fires the review skill and runs the helper on Sonnet in every recorded preflight (F2). Read every "T2 cannot see review-pipeline changes on Sonnet" in this iteration's files as "for T2 as configured". L-016 asks the owner.
+- **Cost.** The eval cost 21.4723 omits the sweep's judge cost, 0.8508 (`t2-sonnet.json`, sum of per-run `judgeCostUsd`); the ledger is restated in `cp-S0.md` note 6 (F3).
+- **Recall granularity (F7).** "Steps of 1/32" holds only for the 4-thread cases; the 8 review cases have 1, 1, 2, 2, 2, 3, 4, 4 threads, so a sweep mean can step by up to 1/8. The conclusion that 0.105 is a coarse threshold stands. One Sonnet without-arm localize sweep (0.6082) is +0.037 from its own median (0.5715), so a single sweep would fail the ±0.03 without-arm control band of 01 §3.
+- **Gates.** G1/G2/G3 are `null` in this iteration's `metrics.json`; they are inherited from it-009 because no non-gym file changed between the it-009 tag and HEAD (auditor F4 ran that diff; the verifier only checked `git status`).
