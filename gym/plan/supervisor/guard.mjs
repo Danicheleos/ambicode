@@ -12,6 +12,7 @@ import {
   contextTokensFromTranscript,
   findSecret,
   isHeavyStart,
+  parsePhase,
   stopDecision,
 } from './policy.mjs';
 
@@ -61,8 +62,7 @@ function tail(file, bytes) {
 
 function phaseOf(cfg) {
   try {
-    const line = readFileSync(path.join(cfg.campaignDir, 'PHASE'), 'utf8').trim().split('\n').pop() ?? '';
-    return line.split(/\s+/).pop() || null;
+    return parsePhase(readFileSync(path.join(cfg.campaignDir, 'PHASE'), 'utf8'));
   } catch {
     return null;
   }

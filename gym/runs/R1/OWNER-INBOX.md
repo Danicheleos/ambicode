@@ -1,0 +1,1 @@
+- 2026-09-29T01:24:44.842Z supervisor: HALTED: 3 consecutive sessions ended without progress. Remove gym/runs/R1/STOP after review to resume.

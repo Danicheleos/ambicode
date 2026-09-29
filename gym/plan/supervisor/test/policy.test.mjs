@@ -6,6 +6,7 @@ import {
   contextTokensFromTranscript,
   findSecret,
   isHeavyStart,
+  parsePhase,
   stopDecision,
   superviseDecision,
   writeTargets,
@@ -153,6 +154,15 @@ describe('guard policy: secrets, context and heavy work', () => {
     assert.ok(isHeavyStart('Agent', { prompt: 'worker' }));
     assert.equal(isHeavyStart('Bash', { command: 'npm run verify' }), false);
     assert.equal(isHeavyStart('Bash', { command: 'npm run evals:score -- x.json' }), false);
+  });
+});
+
+describe('phase file parsing', () => {
+  it('takes the last known phase word and ignores punctuation and unknown words', () => {
+    assert.equal(parsePhase('it-000 handoff .'), 'handoff');
+    assert.equal(parsePhase('it-003 boot\nit-003 measure\n'), 'measure');
+    assert.equal(parsePhase('it-003 banana'), null);
+    assert.equal(parsePhase(''), null);
   });
 });
 

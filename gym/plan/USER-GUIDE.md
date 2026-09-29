@@ -48,7 +48,7 @@ and kills and rolls back on dangerous actions ([10-supervisor.md](10-supervisor.
 Commit or stash the staged `gym/planing` changes, create the campaign branch, then:
 
 ```
-node --test gym/plan/supervisor/test/*.test.mjs                      # 96 tests, all must pass
+node --test gym/plan/supervisor/test/*.test.mjs                      # 99 tests, all must pass
 node gym/plan/supervisor/supervise.mjs archive --campaign <id>       # copies volatile inputs; exit 1 names anything missing
 node gym/plan/supervisor/supervise.mjs run --campaign <id> --dry-run --budget-usd <n>   # prints the exact claude argv
 export GYM_NOTIFY_CMD='<your command; the text is in $GYM_MESSAGE>'   # optional: halts reach your phone

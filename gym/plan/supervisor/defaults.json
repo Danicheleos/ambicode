@@ -9,7 +9,7 @@
   "maxFailures": 3,
   "maxDenialsPerSession": 5,
   "sleepMinutes": [15, 30, 60, 120],
-  "loadPluginFromRepo": true,
+  "loadPluginCandidate": true,
   "forbiddenRoots": ["/Users/KillBill/Documents/projects/inseer"],
   "allowedTools": ["Bash", "Read", "Edit", "Write", "Glob", "Grep", "Agent", "Skill", "TodoWrite", "ToolSearch", "Monitor"],
   "volatileInputs": [

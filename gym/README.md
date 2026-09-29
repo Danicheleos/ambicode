@@ -21,7 +21,7 @@ their cached evidence. `gym/plan/` holds the audited plan a lead agent executes.
 | `gym/plan/08-safety-and-rollback.md` | E1–E8, shutdown, rollback, constraints, post-incident audit |
 | `gym/plan/09-replan.md` | R1–R10, procedure, history |
 | `gym/plan/10-supervisor.md` | unattended runs: supervisor, guard, context budget, safe points, restart table |
-| `gym/plan/supervisor/` | `supervise.mjs`, `guard.mjs`, `policy.mjs`, `defaults.json`, 96 tests (`node --test gym/plan/supervisor/test/*.test.mjs`) |
+| `gym/plan/supervisor/` | `supervise.mjs`, `guard.mjs`, `policy.mjs`, `defaults.json`, 99 tests (`node --test gym/plan/supervisor/test/*.test.mjs`) |
 | `gym/plan/USER-GUIDE.md` | owner's setup, supervisor start, monitoring, stop/resume |
 
 Unresolved assumptions: **6** (A1–A6 in [00 Assumptions](plan/00-audit.md#assumptions)).

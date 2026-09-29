@@ -134,6 +134,19 @@ describe('supervisor loop against a stub claude', () => {
     } finally { s.cleanup(); }
   });
 
+  it('loads the built dist candidate as the plugin, not the repository', () => {
+    const s = scenario([{ status: 'done' }], ['--dry-run'], (repo) => {
+      spawnSync('mkdir', ['-p', path.join(repo, 'dist', 'ambicode-9.9.9', '.claude-plugin')]);
+      writeFileSync(path.join(repo, 'dist', 'ambicode-9.9.9', '.claude-plugin', 'plugin.json'), '{}');
+      writeFileSync(path.join(repo, 'package.json'), '{"version":"9.9.9"}');
+    });
+    try {
+      const line = readFileSync(path.join(s.campaign, 'supervisor', 'supervisor.log'), 'utf8').split('\n').find((l) => l.includes('dry-run'));
+      const argv = JSON.parse(line).argv;
+      assert.equal(argv[argv.indexOf('--plugin-dir') + 1], path.join(s.repo, 'dist', 'ambicode-9.9.9'));
+    } finally { s.cleanup(); }
+  });
+
   it('the dry run shows the locked-down argv and ignores supervisor state in git', () => {
     const s = scenario([{ status: 'done' }], ['--dry-run']);
     try {
@@ -141,6 +154,7 @@ describe('supervisor loop against a stub claude', () => {
       const argv = JSON.parse(line).argv;
       for (const flag of ['--settings', '--strict-mcp-config', '--setting-sources', '--max-budget-usd']) assert.ok(argv.includes(flag), flag);
       assert.equal(argv[argv.indexOf('--permission-mode') + 1], 'dontAsk');
+      assert.equal(argv.includes('--plugin-dir') && argv[argv.indexOf('--plugin-dir') + 1] === s.repo, false, 'the repository root must never be the plugin dir: it becomes read-only');
       assert.match(readFileSync(path.join(s.repo, 'gym', 'runs', '.gitignore'), 'utf8'), /\*\*\/supervisor\//);
     } finally { s.cleanup(); }
   });

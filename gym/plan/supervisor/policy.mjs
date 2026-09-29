@@ -16,6 +16,15 @@ export const DEFAULTS = {
 };
 
 export const SAFE_PHASES = new Set(['idle', 'handoff', 'blocked']);
+export const PHASES = ['boot', 'select', 'brief', 'implement', 'gate', 'measure', 'decide', 'record', 'idle', 'handoff', 'blocked'];
+
+/** The last known phase word on the last non-empty line; stray punctuation (seen: "it-000 handoff .") is ignored. */
+export function parsePhase(text) {
+  const line = (text ?? '').trim().split('\n').pop() ?? '';
+  const words = line.toLowerCase().match(/[a-z]+/g) ?? [];
+  for (let i = words.length - 1; i >= 0; i -= 1) if (PHASES.includes(words[i])) return words[i];
+  return null;
+}
 
 const ALL_ARGS_WRITE = new Set(['rm', 'rmdir', 'unlink', 'chmod', 'chown', 'touch', 'truncate', 'tee', 'mkdir']);
 const LAST_ARG_WRITE = new Set(['cp', 'mv', 'ln', 'install', 'rsync']);

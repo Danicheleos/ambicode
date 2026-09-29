@@ -15,14 +15,14 @@ kickoff in [USER-GUIDE §4](USER-GUIDE.md#4-starting-the-lead) for unattended ru
 | Guard | `supervisor/guard.mjs` | Claude command hook on SessionStart, PreToolUse, PostToolUse, Stop, PreCompact | allows, denies or kills each tool call; scans tool output for credentials; measures context; blocks stops that are not at a safe point; re-primes after compaction |
 | Policy | `supervisor/policy.mjs` | imported by both | pure rules, unit-tested |
 | Defaults | `supervisor/defaults.json` | read by the supervisor | model, limits, forbidden roots, volatile inputs |
-| Tests | `supervisor/test/*.test.mjs` | `node --test gym/plan/supervisor/test/*.test.mjs` | 96 tests: 79 policy cases, 8 guard-process cases, 9 supervisor scenarios against a stub `claude` |
+| Tests | `supervisor/test/*.test.mjs` | `node --test gym/plan/supervisor/test/*.test.mjs` | 99 tests: policy cases, guard-process cases, and supervisor scenarios against a stub `claude` |
 
 The lead session is started as:
 `claude -p <prompt> --session-id <uuid> | --resume <uuid>`, `--settings <generated hooks + permission denies>`,
 `--setting-sources project,local` (no user plugins, hooks or MCP servers), `--strict-mcp-config` with an
 empty server list, `--permission-mode dontAsk` (no prompts to hang on), `--allowedTools` from
 `defaults.json`, `--max-budget-usd <per session>`, `--output-format stream-json`, and
-`--plugin-dir <repo>` so the working-copy ambicode skills are available. Print the exact
+`--plugin-dir dist/ambicode-<version>` (the candidate `npm run verify` last built) so the ambicode skills are available. Never the repository root: in dontAsk mode a directory loaded as a plugin is read-only to the session, and campaign R1's first three sessions (2026-09-29) had every write refused for that reason. Print the exact
 argv with `--dry-run`.
 
 ## 2. Context budget
@@ -99,6 +99,7 @@ guard kill      cat <canary>/.env → PreToolUse kill, session ended; Stop hook 
 stop hook       stop at PHASE measure → blocked; the model set PHASE blocked and was allowed to stop
 resume          -p --resume <id> rejoined the same session id and recalled the earlier command
 supervisor e2e  kill → incident + fresh session; kill → stash of the edit, halt, STOP, 3 inbox lines; exit 2
+plugin-dir      repo root as --plugin-dir → Write refused inside the repo, allowed in /tmp; dist/ambicode-0.3.4 → allowed in gym/runs and src
 ```
 
 ## 7. Limits (read before trusting it)

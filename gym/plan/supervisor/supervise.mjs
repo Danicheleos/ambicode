@@ -10,7 +10,7 @@ import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSyn
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { superviseDecision } from './policy.mjs';
+import { parsePhase, superviseDecision } from './policy.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const POLL_MS = 2_000;
@@ -53,7 +53,7 @@ function loadConfig(opts) {
     claudeBin: process.env.GYM_CLAUDE_BIN ?? 'claude',
     dryRun: opts.dryRun === true,
     resetViolations: opts.resetViolations === true,
-    loadPluginFromRepo: opts.noPlugin === true ? false : defaults.loadPluginFromRepo,
+    loadPluginCandidate: opts.noPlugin === true ? false : defaults.loadPluginCandidate,
     // Smoke runs only: replaces the fresh-session prompt; the incident note is still appended.
     promptOverride: opts.prompt ?? null,
   };
@@ -158,8 +158,18 @@ function claudeArgs(cfg, launch) {
     '--max-budget-usd', String(cfg.sessionBudgetUsd),
     '--output-format', 'stream-json', '--verbose',
   );
-  if (cfg.loadPluginFromRepo) args.push('--plugin-dir', cfg.repoRoot);
+  // Never the repository root: a directory loaded with --plugin-dir becomes read-only to the session
+  // in dontAsk mode, so every campaign write was refused (R1, 2026-09-29). The built candidate is a copy.
+  const candidate = pluginCandidate(cfg);
+  if (candidate) args.push('--plugin-dir', candidate);
   return args;
+}
+
+function pluginCandidate(cfg) {
+  if (!cfg.loadPluginCandidate) return null;
+  const version = readJson(path.join(cfg.repoRoot, 'package.json'), {})?.version;
+  const dir = version ? path.join(cfg.repoRoot, 'dist', `ambicode-${version}`) : null;
+  return dir && existsSync(path.join(dir, '.claude-plugin', 'plugin.json')) ? dir : null;
 }
 
 function progressSignature(cfg) {
@@ -169,7 +179,7 @@ function progressSignature(cfg) {
 }
 
 function phaseOf(cfg) {
-  return (readText(path.join(cfg.campaignDir, 'PHASE')) ?? '').trim().split('\n').pop()?.split(/\s+/).pop() || null;
+  return parsePhase(readText(path.join(cfg.campaignDir, 'PHASE')));
 }
 
 function campaignStatus(cfg) {
