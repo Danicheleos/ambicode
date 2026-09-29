@@ -1,5 +1,7 @@
 # 02 — Loop protocol
 
+Supersedes: gym/plan/02-loop-protocol.md @ ca5d65f25e77a6307bdcd1db0fe7bfe453d58a5034d96c5e326dbddfb5a71096 (replan R-1; see the Changes section at the end)
+
 One evaluate → improve → evaluate iteration, step by step. Metric ids and commands are in
 [01-goals-and-metrics.md](01-goals-and-metrics.md); file locations in
 [06-data-and-state.md](06-data-and-state.md); roles in [04-orchestration.md](04-orchestration.md).
@@ -15,7 +17,7 @@ All must hold before `it-NNN/brief.md` is written.
 | Last accepted tag exists | `git tag -l 'gym/<campaign-id>/it-*' \| tail -1` | equals the last `accepted` row of `STATE.md` |
 | No stop | `test ! -e gym/runs/<campaign-id>/STOP` | true |
 | Budget | sum of `costUsd` over `it-*/metrics.json` | < 90 % of `CAMPAIGN.md` ceiling |
-| Baseline exists | `test -s gym/runs/<campaign-id>/baseline/metrics.json` | true (else run §2) |
+| Baseline exists | `test -s gym/runs/<campaign-id>/baseline/metrics.json` | true (else run §2); `baseline/metrics-R-1.json` is also accepted as the reference for Sonnet comparisons |
 | Plan digest | `sha256sum gym/plan/*.md \| sha256sum` | equals `CAMPAIGN.md` `planDigest`; if not, stop and read [09](09-replan.md) |
 
 ## 2. Iteration 0 (baseline)
@@ -45,13 +47,16 @@ allowed; merging two WPs into one iteration is not.
 
 ```markdown
 # it-NNN — <one line>
+Plan revision: R-1
 WP: WP2   Seam: src/cli/commands/prepare.ts:446-454, src/snapshot/snapshot.ts:56-87
 Claim: T4 refused launches 1/session → 0; G1 tests +2
 Must not move: T2 localize F1 (control), T1
-Measurement plan: G1-G3; T1 (skill text touched: yes/no); T2 screening 1 run/arm → decision 3 runs/arm only if screening is not worse than baseline − 0.05
+Measurement plan: G1-G3; T1 (skill text touched: yes/no); every eval with `--model claude-sonnet-5-5`; T2 screening 1 run/arm → decision 3 runs/arm only if screening is not worse than baseline − 0.05
 Budget for this iteration: $<n>   Files allowed to change: <globs>
 Rollback: git reset --hard gym/<campaign-id>/it-<last>
 ```
+
+The brief is committed BEFORE the first measure step, so git shows the order (auditor finding F10, `it-003/handoffs/auditor.md`).
 
 **3.3 Implement.** Scope per turn: only the files named in the brief, under `src/`,
 `skills/`, `prompts/`, `policies/`, `evals/scripts/`, `fixtures/`, `docs/`; never
@@ -67,9 +72,9 @@ every structural edit; run the full suite before saying done" (CLAUDE.md).
 **3.5 Measure.** Exactly what the brief listed, in this order, each into `metrics.json`:
 1. T1 if `skills/*/SKILL.md` frontmatter, `hooks/`, or `src/hook/` changed; else `null` with `notes: "T1 skipped: no trigger surface touched"`.
 2. `npm run evals:preflight` before any T2 (refuses when the plugin does not fire; $0.4–0.7).
-3. T2 screening at 1 run/arm. If the with-arm is not worse than baseline − 0.05 on the claimed metric, run T2 at 3 runs/arm. Otherwise stop here: the iteration is a reject (no decision sweep is spent on a change that already lost).
-4. T3 re-record only if `prompts/`, `policies/` or `src/review/` changed (3 recordings per case, medians).
-5. T4 only when a new human-run cycle exists in `labels/labels.json`; otherwise `null`.
+3. T2 screening at 1 run/arm on Sonnet for every iteration that touches a seam a T2 case can see. If the with-arm is worse than the Sonnet baseline minus 0.05 on the claimed or control metric, stop here: the iteration is a reject (no sweep is spent on a change that already lost). If not worse, do NOT run a 3-run sweep in the iteration: the verdict is a provisional accept (§5) and the 3 runs/arm decision sweep runs at the next checkpoint ([03 §1](03-checkpoints-and-gates.md#1-checkpoints)). An iteration whose brief claims a T2 metric that a screening cannot decide (claimed movement smaller than 0.05) is brought forward: run the 3 runs/arm sweep in that iteration.
+4. T3 re-record only if `prompts/`, `policies/` or `src/review/` changed: 3 recordings per case with the keep-runs option ([01 §3](01-goals-and-metrics.md#3-measured-metrics)); report the findings counts and the medium-and-above stability. T3 is not a control until the stability floor exists (01 §3).
+5. T4p when the brief claims a T4 metric and T4p exists (01 §3), else `null`; the human T4 only at cp-5 ([03 §1](03-checkpoints-and-gates.md#1-checkpoints)).
 
 The verifier ([04 §2](04-orchestration.md#2-verifier)) re-runs G1 and re-extracts every
 T-number from the result files independently before step 3.6; a mismatch is a red flag
@@ -98,7 +103,7 @@ rejected, plus a `labels/pending.md` entry if a human label would settle it.
 
 ## 5. Decision table
 
-Applies to medians over ≥ 3 runs/arm (T2), 3 recordings (T3). Screening sweeps never decide.
+Applies to medians over ≥ 3 runs/arm (T2), 3 recordings (T3: counts reported, stability once its floor exists). Screening sweeps never decide an accept: at most they leave a provisional accept.
 
 | Gates | Claimed metric | Control metrics (must-not-move) | Verdict |
 |---|---|---|---|
@@ -107,8 +112,10 @@ Applies to medians over ≥ 3 runs/arm (T2), 3 recordings (T3). Screening sweeps
 | green | moved ≥ threshold | one control moved beyond noise **against** | **reject** — record the trade-off |
 | green | within noise | all within noise | **inconclusive** — one retry allowed with a sharper brief, else reject |
 | green | moved ≥ threshold **against** | — | **reject** |
-| green | not measured (skipped step) | — | **inconclusive**, never accept; the skipped step is named in `decision.md` |
+| green | not measured (skipped step) | — | **inconclusive**, never accept; the skipped step is named in `decision.md`; a claim with no proxy and no reproducing test named in the brief is still **inconclusive** |
 | green | WP0-type change (tooling, no behaviour claim) | all within noise | **accept** on gates + control |
+| green | T2 screening (1 run/arm) not worse than the Sonnet baseline − 0.05 on the claimed or control metric; no T2 claim smaller than 0.05 (that one is brought forward, §3.5 step 3) | within noise, or not measurable per iteration (T2 by screening only; T3 stability before its floor exists) | **provisional accept**: tag `gym/R1/it-NNN` is created; `STATE.md` says "provisional"; the next checkpoint's 3 runs/arm sweep either confirms it (the row becomes accept) or a control moved beyond noise against, which makes that checkpoint **no-go** and the iterations since the last confirmed checkpoint are bisected with a revert iteration (tags never move, 09 §3) |
+| green | the claim is a T4 metric, measured by T4p when it exists, otherwise by the reproducing tests the brief names before the change | all within noise (T2 control: screening not worse than the Sonnet baseline − 0.05; the checkpoint sweep covers it) | **accept**; the human T4 stays "observed" until cp-5 |
 
 Cost rule: an accept whose with-arm cost rose > 25 % over baseline without the brief
 predicting it becomes **reject** (01 §3, T2).
@@ -126,6 +133,7 @@ Default if unanswered by it-008: treat as correct-but-inert (does not count as r
 
 Answers go to `labels/labels.json` (`{"L-007": {"label": "...", "by": "...", "at": "..."}}`).
 An unanswered label past its default iteration takes the default and the decision says so.
+A label whose answer only a human cycle can give (L-010) does not gate an iteration; its default only affects cp-5.
 
 ## 7. Exit conditions
 
@@ -133,3 +141,17 @@ An unanswered label past its default iteration takes the default and the decisio
 - **WP exit:** every item of the WP row in 01 §4 accepted or explicitly dropped in `decision.md`.
 - **Campaign exit:** [01 §1](01-goals-and-metrics.md#1-definition-of-trained-cycle-1) all true on one tagged commit → write `CAMPAIGN.md` `status: done` and the handover note ([USER-GUIDE §6](USER-GUIDE.md)).
 - **Forced exit:** any trigger in [03 §3](03-checkpoints-and-gates.md#3-stop-and-escalate) or [08 §2](08-safety-and-rollback.md#2-emergency-shutdown).
+
+## Changes
+
+- §1 baseline row, required: "true (else run §2)" -> "true (else run §2); `baseline/metrics-R-1.json` is also accepted as the reference for Sonnet comparisons". Evidence: `labels.json` owner-directive-1, 2026-09-29T09:23:24.943Z.
+- §3.2 brief template: (no revision header; Measurement plan without a model) -> header line `Plan revision: R-1`; Measurement plan names `--model claude-sonnet-5-5` for every eval. Evidence: `labels.json` owner-directive-1, 2026-09-29T09:23:24.943Z.
+- §3.2 after the template: (none) -> "The brief is committed BEFORE the first measure step, so git shows the order". Lead-proposed, not an owner line. Evidence: `gym/runs/R1/it-003/handoffs/auditor.md` F10.
+- §3.5 step 3: "T2 screening at 1 run/arm. If the with-arm is not worse than baseline − 0.05 on the claimed metric, run T2 at 3 runs/arm. Otherwise stop here: the iteration is a reject" -> screening at 1 run/arm on Sonnet for every iteration that touches a seam a T2 case can see; worse than the Sonnet baseline − 0.05 on the claimed or control metric: reject; not worse: no 3-run sweep in the iteration, the verdict is a provisional accept and the 3 runs/arm decision sweep runs at the next checkpoint (03); a brief that claims a T2 metric a screening cannot decide (claimed movement smaller than 0.05) is brought forward to a 3 runs/arm sweep in that iteration. Evidence: `labels.json` L-011 also, 2026-09-29T09:14:36.733Z.
+- §3.5 step 4: "T3 re-record only if `prompts/`, `policies/` or `src/review/` changed (3 recordings per case, medians)" -> the same trigger; 3 recordings per case with the keep-runs option; report counts and medium-and-above stability; T3 is not a control until the floor exists. Evidence: `labels.json` L-011 a, 2026-09-29T09:14:36.733Z.
+- §3.5 step 5: "T4 only when a new human-run cycle exists in `labels/labels.json`; otherwise `null`" -> "T4p when the brief claims a T4 metric and T4p exists, else `null`; the human T4 only at cp-5". Evidence: `labels.json` L-011 b, 2026-09-29T09:14:36.733Z.
+- §5 intro: "Applies to medians over ≥ 3 runs/arm (T2), 3 recordings (T3). Screening sweeps never decide." -> "3 recordings (T3: counts reported, stability once its floor exists). Screening sweeps never decide an accept: at most they leave a provisional accept." Evidence: `labels.json` L-011 a, L-011 also, 2026-09-29T09:14:36.733Z.
+- §5 row "not measured (skipped step)": "inconclusive, never accept; the skipped step is named in `decision.md`" -> the same, plus "a claim with no proxy and no reproducing test named in the brief is still inconclusive". Evidence: `gym/plan/09-replan.md` §4 (an inconclusive is not turned into an accept).
+- §5 new verdict row **provisional accept** (gates green, screening not worse than the Sonnet baseline − 0.05, controls within noise or not measurable per iteration; tag `gym/R1/it-NNN` created, `STATE.md` says "provisional", the next checkpoint's 3 runs/arm sweep confirms it or a control moved beyond noise against makes that checkpoint no-go with the iterations since the last confirmed checkpoint bisected by a revert iteration, tags never move). Evidence: `labels.json` L-011 also, 2026-09-29T09:14:36.733Z. This row is the lead's reading of the owner's split between screening and checkpoint sweeps and needs the owner's confirmation.
+- §5 new row for a T4 claim: (none) -> claim is a T4 metric, measured by T4p when it exists, otherwise by the reproducing tests the brief names before the change; controls within noise; verdict accept, the human T4 stays "observed" until cp-5. Evidence: `labels.json` L-011 b, 2026-09-29T09:14:36.733Z ("Accept WP2 on gates plus its reproducing tests"). This row is the lead's reading of the owner's line and needs the owner's confirmation.
+- §6 label queue: (none) -> "A label whose answer only a human cycle can give (L-010) does not gate an iteration; its default only affects cp-5." Evidence: `labels.json` L-011 b, 2026-09-29T09:14:36.733Z.

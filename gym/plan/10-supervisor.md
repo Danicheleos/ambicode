@@ -1,5 +1,7 @@
 # 10 — Supervisor, guard and context budget
 
+Supersedes: gym/plan/10-supervisor.md @ ca5d65f25e77a6307bdcd1db0fe7bfe453d58a5034d96c5e326dbddfb5a71096 (replan R-1; see the Changes section at the end)
+
 How the lead runs unattended. A supervisor process outside Claude launches the lead
 as headless sessions. It restarts the lead after failures and unexpected stops, and
 terminates it on a dangerous action. A guard hook inside the session enforces
@@ -14,7 +16,7 @@ kickoff in [USER-GUIDE §4](USER-GUIDE.md#4-starting-the-lead) for unattended ru
 | Supervisor | `supervisor/supervise.mjs` | owner's shell, outside Claude | launches, watches, classifies each session end, restarts / resumes / sleeps / halts, rolls back, writes incidents, notifies |
 | Guard | `supervisor/guard.mjs` | Claude command hook on SessionStart, PreToolUse, PostToolUse, Stop, PreCompact | allows, denies or kills each tool call; scans tool output for credentials; measures context; blocks stops that are not at a safe point; re-primes after compaction |
 | Policy | `supervisor/policy.mjs` | imported by both | pure rules, unit-tested |
-| Defaults | `supervisor/defaults.json` | read by the supervisor | model, limits, forbidden roots, volatile inputs |
+| Defaults | `supervisor/defaults.json` | read by the supervisor | model (the lead runs on `claude-sonnet-5-5`), limits, forbidden roots, volatile inputs |
 | Tests | `supervisor/test/*.test.mjs` | `node --test gym/plan/supervisor/test/*.test.mjs` | 99 tests: policy cases, guard-process cases, and supervisor scenarios against a stub `claude` |
 
 The lead session is started as:
@@ -33,8 +35,8 @@ session for several iterations and rolls over only at these limits:
 
 | Level | Default | Measured how | Effect |
 |---|---|---|---|
-| soft | 300,000 tokens | guard, after every tool call: `input + cache_read + cache_creation` of the last assistant row in the session transcript | advice injected next to the tool result, repeated every 25k: finish this iteration, do not start another, then hand off |
-| hard | 500,000 tokens | same | guard **denies new heavy starts**: sweeps (`evals-bench.mjs run`, `npm run evals*`), recordings, preflight, `claude plugin eval`, and helper spawns (`Agent`). Everything needed to finish and record the running step stays allowed |
+| soft | 150,000 tokens | guard, after every tool call: `input + cache_read + cache_creation` of the last assistant row in the session transcript | advice injected next to the tool result, repeated every 25k: finish this iteration, do not start another, then hand off |
+| hard | 200,000 tokens | same | guard **denies new heavy starts**: sweeps (`evals-bench.mjs run`, `npm run evals*`), recordings, preflight, `claude plugin eval`, and helper spawns (`Agent`). Everything needed to finish and record the running step stays allowed |
 
 Change the limits with `--soft` and `--hard`, or in `defaults.json`. For scale: one
 3-iteration feature session reached 313,178 tokens without compaction. The limits are
@@ -110,3 +112,9 @@ plugin-dir      repo root as --plugin-dir → Write refused inside the repo, all
 - Subagents trip the same hooks (documented behaviour); the whole process group is terminated on a kill.
 - The watchdog needs 120 min of silence; a hung sweep is caught late by design, because a T2 decision sweep takes about 50 min.
 - Desktop notifications do not reach you when you are away. Set `GYM_NOTIFY_CMD` to your own command (for example a push-notification webhook) to get halts on your phone. It receives the text in `$GYM_MESSAGE`, and nothing is sent anywhere unless you set it.
+
+## Changes
+
+- §2 table, soft limit: "soft | 300,000 tokens" -> "soft | 150,000 tokens". Evidence: `labels.json` owner-directive-1, 2026-09-29T09:23:24.943Z (item 3); `gym/plan/supervisor/defaults.json` `softTokens: 150000`.
+- §2 table, hard limit: "hard | 500,000 tokens" -> "hard | 200,000 tokens". Evidence: `labels.json` owner-directive-1, 2026-09-29T09:23:24.943Z (item 3); `gym/plan/supervisor/defaults.json` `hardTokens: 200000`. The sentences "rolls over only at these limits" and "one 3-iteration feature session reached 313,178 tokens without compaction" stay true and are unchanged.
+- §1 Defaults row: "model, limits, forbidden roots, volatile inputs" -> "model (the lead runs on `claude-sonnet-5-5`), limits, forbidden roots, volatile inputs". The file named no lead model before. Evidence: `labels.json` owner-directive-1, 2026-09-29T09:23:24.943Z (item 3); `gym/plan/supervisor/defaults.json` `model: claude-sonnet-5-5`.

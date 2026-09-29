@@ -1,5 +1,7 @@
 # gym/plan — training-campaign plan for the ambicode plugin
 
+Supersedes: gym/plan/README.md @ ca5d65f25e77a6307bdcd1db0fe7bfe453d58a5034d96c5e326dbddfb5a71096 (replan R-1; see the Changes section at the end)
+
 Written 2026-09-28 against branch `tuning`, HEAD `3e5e146`, plugin 0.3.4, from the two
 investigation notes under `gym/planing/investigation/` after auditing every claim in
 them ([00-audit.md](00-audit.md)). Evidence rule for every file here: a factual statement
@@ -21,7 +23,7 @@ anything else is labelled ASSUMPTION and listed in [00 Assumptions](00-audit.md#
 | [07-blockers.md](07-blockers.md) | Blocker types B1–B9, playbooks, retry limits, known blockers K1–K8, replan triggers |
 | [08-safety-and-rollback.md](08-safety-and-rollback.md) | Emergency triggers E1–E8, shutdown steps, rollback to any tag, security constraints, post-incident audit |
 | [09-replan.md](09-replan.md) | Replan triggers R1–R10, procedure, superseding without losing history, what a replan may not do |
-| [10-supervisor.md](10-supervisor.md) | Unattended runs: supervisor loop, guard hook (allow/deny/kill), context budget 300k/500k, safe points and PHASE, restart/resume/halt table, verified behaviour, limits; code in `supervisor/` |
+| [10-supervisor.md](10-supervisor.md) | Unattended runs: supervisor loop, guard hook (allow/deny/kill), context budget 150k/200k, safe points and PHASE, restart/resume/halt table, verified behaviour, limits; code in `supervisor/` |
 | [USER-GUIDE.md](USER-GUIDE.md) | For the owner: prerequisites, decisions, kickoff prompt, monitoring, labels, stop/resume/handover |
 
 ## Reading order for a lead starting cold
@@ -63,3 +65,9 @@ for a blocker.
 | Rev | Date | Trigger | planDigest before → after | Change |
 |---|---|---|---|---|
 | 0 | 2026-09-28 | initial | — → (computed by the lead at iteration 0: `sha256sum gym/plan/*.md \| sha256sum`) | — |
+| 1 | 2026-09-29 | R7 (L-011, L-012, owner-directive-1) | ca5d65f2... -> (computed by the owner after apply) | T3 count withdrawn as a control, medium+ stability added; T4p proxy planned; T2 decision sweeps only at checkpoints; Sonnet 5.5 baseline cp-S0; budget $400; context 150k/200k |
+
+## Changes
+
+- Files table, row 10-supervisor.md: "context budget 300k/500k" -> "context budget 150k/200k". Evidence: `labels.json` owner-directive-1, 2026-09-29T09:23:24.943Z (item 3).
+- Revisions table: (one row, rev 0) -> added row rev 1 (2026-09-29, trigger R7: L-011, L-012, owner-directive-1; planDigest after computed by the owner after apply). Evidence: `gym/plan/09-replan.md` §3 (README keeps the Revisions table); `gym/runs/R1/replan/R-1-2026-09-29T09-30-00Z.md`.
