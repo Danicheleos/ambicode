@@ -1,0 +1,33 @@
+{
+  "iteration": "it-010",
+  "commit": "8606622 (brief); no product change, this record adds campaign files only",
+  "pluginVersion": "0.3.4",
+  "capturedAt": "2026-09-29T13:00:00Z",
+  "models": { "agent": "claude-sonnet-5-5", "reviewer": null, "judge": null },
+  "G1": null,
+  "G2": null,
+  "G3": null,
+  "gatesNote": "not re-run: no file outside gym/ changed since it-009 (git status --short -- . ':!gym' empty, verifier check 7); it-009 recorded G1 804/0 fail, G2 bee92a9a…7033, G3 554",
+  "preflight": { "model": "claude-sonnet-5-5", "passed": true, "costUsd": 0.21, "log": "scratch/preflight.log", "note": "unit-check-ran of p2 passed again (2 of 2 Sonnet preflights with the R-3 prompt); NOTE, not gated" },
+  "T1": null,
+  "T2": {
+    "reference": "baseline/metrics-R-1.json T2 (this iteration wrote it)",
+    "runsPerArm": 3,
+    "cases": 18,
+    "partial": false,
+    "runErrors": 0,
+    "costUsd": 21.2622628,
+    "seconds": 1571,
+    "localizeWithF1Median": 0.5417,
+    "localizeWithoutF1Median": 0.5715,
+    "reviewWithRecallMedian": 0.0938,
+    "reviewWithoutRecallMedian": 0.0938,
+    "helperRanLocalizeWith": "1 of 30",
+    "helperRanReviewWith": "0 of 24",
+    "agentModelProof": "108 of 108 system/init rows claude-sonnet-5-5"
+  },
+  "T3": null,
+  "T4": null,
+  "costUsd": 21.4723,
+  "notes": "Eval cost = preflight 0.21 + sweep 21.2623. Lead and verifier session cost is counted by the supervisor. T1/T3 not run (nothing changed). The sweep's process exit status was 1 (threshold 1), as on the Opus review cases; the result has partial false."
+}

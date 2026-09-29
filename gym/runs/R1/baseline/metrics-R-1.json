@@ -1,10 +1,10 @@
 {
   "iteration": "it-006",
-  "reference": "R-1 Sonnet baseline (partial: T2 not run)",
-  "status": "partial",
-  "commit": "14e4c0b (campaign files only since gym/R1/it-005; product surfaces byte-identical to gym/R1/it-003)",
+  "reference": "R-1 Sonnet baseline (cp-S0 inputs complete)",
+  "status": "complete",
+  "commit": "8606622 (campaign files only since gym/R1/it-009; product surfaces byte-identical to gym/R1/it-003)",
   "pluginVersion": "0.3.4",
-  "capturedAt": "2026-09-29T10:50:00Z",
+  "capturedAt": "2026-09-29T12:45:18Z",
   "models": {
     "agent": "claude-sonnet-5-5",
     "reviewer": "sonnet",
@@ -33,8 +33,8 @@
   "T1": {
     "model": "claude-sonnet-5-5",
     "runs": 3,
-    "scoredMean": 1.0,
-    "scoredMeanOver": "the 7 scored cases (01 \u00a71 item 2); url-bare is diagnostic",
+    "scoredMean": 1,
+    "scoredMeanOver": "the 7 scored cases (01 §1 item 2); url-bare is diagnostic",
     "casesPassed": 7,
     "casesTotal": 8,
     "urlBare": {
@@ -66,8 +66,91 @@
     "cause": "measured from the kept trace (it-006/scratch/preflight-keep.log; /private/tmp/e-8O6FlV): Sonnet read the diff, fixed `add` with sed and ran jest and eslint directly, never invoking the task skill; the prompt (`Find it, fix it, and verify the fix.`) names no skill and no `implement`. The task skill's description says \"Use when the user asks to implement, add, fix, or build something\"; T1 verb-implement (\"implement\") fires it 3/3 on Sonnet. The three graders that fail are all consequences of the Skill not being called. Opus called the skill on the same case at 04:04Z (it-003/scratch/preflight.log)",
     "costUsd": 0.17
   },
-  "T2": null,
-  "T2Reason": "not run: preflight failed 4 of 4 on Sonnet (02 \u00a73.5 step 2). A sweep behind a failed gate was refused; the gate was not changed. The T2 curated cases are localize and review cases (no task-skill case), so the failing check does not exercise what T2 measures, but that is an argument for the owner to accept, not a licence for the lead (label L-013)",
+  "T2": {
+    "runsPerArm": 3,
+    "cases": 18,
+    "partial": false,
+    "assembled": "one uninterrupted invocation, no reruns, no merge: t2-merge.mjs was run on the single result only to print per-run-index medians",
+    "resultFiles": [
+      "evals/evals-core/results/eval-2026-09-29T12-17-46-139Z.json"
+    ],
+    "copiedTo": "gym/runs/R1/it-010/scratch/t2-sonnet.json",
+    "claudeVersion": "2.1.284",
+    "modelOverride": "claude-sonnet-5-5",
+    "agentModelProof": "108 of 108 system/init rows in the 108 traces this result names are claude-sonnet-5-5 (it-010/trace-summary.mjs; missingTraces 0)",
+    "exitStatus": "claude plugin eval exited 1 with threshold 1 (some case scored below it); the baseline sweeps showed the same exit=1 on review cases. The result has partial false and 0 run errors.",
+    "localize": {
+      "with": {
+        "f1Median": 0.5417,
+        "f1Sweeps": [
+          0.5359,
+          0.6397,
+          0.5417
+        ],
+        "f1Pooled": 0.5724,
+        "precision": 0.6485,
+        "recall": 0.6101,
+        "helperRan": 1,
+        "helperRanOf": 30,
+        "helperRanMedian": 0,
+        "helperRanMedianOf": 10,
+        "pluginFired": 28,
+        "skillCalls": {
+          "ambicode:investigate": 28
+        },
+        "costUsdPerRun": 0.2205,
+        "turns": 11.8667
+      },
+      "without": {
+        "f1Median": 0.5715,
+        "f1Sweeps": [
+          0.6082,
+          0.5506,
+          0.5715
+        ],
+        "f1Pooled": 0.5768,
+        "precision": 0.5687,
+        "recall": 0.7161,
+        "costUsdPerRun": 0.1763,
+        "turns": 9.2
+      }
+    },
+    "review": {
+      "with": {
+        "recallMedian": 0.0938,
+        "recallSweeps": [
+          0.0938,
+          0.0938,
+          0.0625
+        ],
+        "recallPooled": 0.0833,
+        "helperRan": 0,
+        "helperRanOf": 24,
+        "helperRanMedian": 0,
+        "helperRanMedianOf": 8,
+        "pluginFired": 0,
+        "skillCalls": {},
+        "costUsdPerRun": 0.1982,
+        "turns": 8.75
+      },
+      "without": {
+        "recallMedian": 0.0938,
+        "recallSweeps": [
+          0.0938,
+          0.0625,
+          0.0938
+        ],
+        "recallPooled": 0.0833,
+        "costUsdPerRun": 0.1917,
+        "turns": 8.5833
+      }
+    },
+    "runErrors": 0,
+    "skippedPaidGraders": 0,
+    "costUsd": 21.2623,
+    "seconds": 1571,
+    "opusReference": "baseline/metrics.json T2 (history, not a control): $60.56 assembled ($57.83 for the one 3-run sweep of it-003), 3,202-3,232 s; localize with F1 0.6565, without 0.6198, helper-ran 28/30; review with recall 0.1563, without 0.1250, helper-ran 23/24"
+  },
   "T3": {
     "buildNote": "A/A on this HEAD; recorder of it-005 (`--runs 3 --keep-runs`), `--exclude 'main/assets/i18n/**'`, 8 cases, two independent sets",
     "sets": [
@@ -123,7 +206,7 @@
           0.3333,
           0.6667
         ],
-        "setAgreement": 1.0
+        "setAgreement": 1
       },
       {
         "case": "be-vs-5075-review-1054-3b24bb74",
@@ -150,10 +233,10 @@
           ]
         ],
         "ownStability": [
-          1.0,
-          1.0
+          1,
+          1
         ],
-        "setAgreement": 1.0
+        "setAgreement": 1
       },
       {
         "case": "be-vs-5546-review-996-d520e3ca",
@@ -182,10 +265,10 @@
           ]
         ],
         "ownStability": [
-          1.0,
+          1,
           0.5
         ],
-        "setAgreement": 1.0
+        "setAgreement": 1
       },
       {
         "case": "be-vs-6261-review-1141-f14493f1",
@@ -214,10 +297,10 @@
           ]
         ],
         "ownStability": [
-          0.0,
-          0.0
+          0,
+          0
         ],
-        "setAgreement": 0.0
+        "setAgreement": 0
       },
       {
         "case": "fe-vs-6086-review-2553-d1f112e5",
@@ -279,9 +362,9 @@
         ],
         "ownStability": [
           0.5,
-          1.0
+          1
         ],
-        "setAgreement": 1.0
+        "setAgreement": 1
       },
       {
         "case": "fe-vs-6253-review-2557-1b0a7eaf",
@@ -308,7 +391,7 @@
           ]
         ],
         "ownStability": [
-          1.0,
+          1,
           0.5
         ],
         "setAgreement": 0.5
@@ -340,20 +423,20 @@
           ]
         ],
         "ownStability": [
-          1.0,
-          1.0
+          1,
+          1
         ],
-        "setAgreement": 1.0
+        "setAgreement": 1
       }
     ],
     "floor": {
-      "literalRule": 0.0,
-      "reading": "01 \u00a73: floor := the lowest per-case stability observed between the A/A sets. Both readings give 0.0, from be-vs-6261: its medium-and-above finding appears in one run of three in each set and at a different path in each set (ownStability 0 and 0, setAgreement 0)",
+      "literalRule": 0,
+      "reading": "01 §3: floor := the lowest per-case stability observed between the A/A sets. Both readings give 0.0, from be-vs-6261: its medium-and-above finding appears in one run of three in each set and at a different path in each set (ownStability 0 and 0, setAgreement 0)",
       "withoutBeVs6261": {
         "ownStability": 0.3333,
         "setAgreement": 0.5
       },
-      "consequence": "A floor of 0.0 can reject nothing. T3 stability stays reported-only. Choosing a nonzero floor (for example per case, or excluding cases with a medium-and-above finding in fewer than 2 of 3 runs) is a threshold change: owner only (03 \u00a72)"
+      "consequence": "A floor of 0.0 can reject nothing. T3 stability stays reported-only. Choosing a nonzero floor (for example per case, or excluding cases with a medium-and-above finding in fewer than 2 of 3 runs) is a threshold change: owner only (03 §2)"
     },
     "turnsDistribution": "sets 1+2, 46 runs: turns 2: 24, 3: 11, 4: 6, 5: 3, 6: 1, 7: 1",
     "turnsLe2": "24 of 46 successful runs (52 %) used at most 2 turns (WP3 item 2 would flag these `partial`)",
@@ -368,10 +451,11 @@
   },
   "T4": null,
   "T4p": null,
-  "costUsd": 6.6777,
+  "costUsd": 27.94,
   "costBreakdown": {
     "T1": 2.0855,
     "preflightKeepTemp": 0.17,
-    "T3AA": 4.4222
+    "T3AA": 4.4222,
+    "T2": 21.2623
   }
 }
