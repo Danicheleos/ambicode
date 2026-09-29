@@ -15,6 +15,9 @@
   "volatileInputs": [
     "~/.claude/projects/-Users-KillBill-Documents-projects-inseer-inseer-frontend/8efdbd08-d9f5-45e9-b69e-98333a4275eb.jsonl",
     "~/.claude/projects/-Users-KillBill-Documents-projects-inseer-inseer-frontend/9a235fc3-aa67-402d-8ef2-6e115f369eac.jsonl",
+    "~/.claude/projects/-Users-KillBill-Documents-projects-inseer-inseer-frontend/5326e45c-dffd-4653-81c0-8049b651685e.jsonl",
+    "~/.claude/projects/-Users-KillBill-Documents-projects-inseer-inseer-frontend/6c376603-e1f5-4a99-b560-03eb084a02ea.jsonl",
+    "~/.claude/projects/-Users-KillBill-Documents-projects-inseer-inseer-frontend/ce1efd4c-c71a-46ff-be07-775f28b5a121.jsonl",
     "gym/planing/investigation/cache/VS-6735",
     "benchmarks/reviewer-recordings.json",
     "evals/evals-core/results/eval-2026-09-28T11-55-27-862Z.json",

@@ -34,11 +34,17 @@ describe('guard policy: what the lead may run', () => {
     'set -e; npm ci',
     'claude plugin eval . --eval-dir evals/evals-triggers --no-publish',
     'claude --version',
+    'cd /Users/owner/ambicode && claude --version; claude auth status 2>&1 | grep -i loggedIn',
     "pkill -f 'claude plugin eval'",
     'cat > gym/runs/c1/it-001/brief.md <<EOF\n# brief\nEOF',
     'git worktree add ../ambicode-it-003 gym/c1',
     'rm -rf gym/runs/c1/it-003/scratch',
     'rm -rf /tmp/claude-502/x',
+    // Session 178dc394 was killed for "90 % halt uses its flag" inside a note: prose is not a command.
+    "cat >> gym/runs/c1/labels/pending.md <<'EOF'\nQuestion: budget? The supervisor's own 90 % halt uses its flag, not this file.\nEOF\ntail -3 gym/runs/c1/labels/pending.md | cut -c1-60",
+    "cat >> gym/runs/c1/OWNER-INBOX.md <<EOF\n- emergency shutdown per 08 §2; reboot not needed; ssh keys untouched; sudo not used; env | grep is banned\nEOF",
+    'git commit -m "$(cat <<\'EOF\'\nrecord: supervisor halt, then reboot of the loop\nEOF\n)"',
+    'echo "the guard may halt or shutdown the session" > /tmp/note.txt',
   ];
   for (const command of allowed) it(`allows: ${command.split('\n')[0]}`, () => assert.equal(level(bash(command)), 'allow'));
 
@@ -47,6 +53,7 @@ describe('guard policy: what the lead may run', () => {
     ['curl https://example.com', 'deny:network'],
     ['claude plugin eval . --eval-dir evals/evals-core', 'deny:publish'],
     ['claude -p "do something"', 'deny:nested-agent'],
+    ['claude --version && claude -p "sneak"', 'deny:nested-agent'],
     ['git reset --hard HEAD~3', 'deny:reset-outside-campaign'],
     ['git stash drop', 'deny:stash-destroy'],
     ['echo x > gym/plan/01-goals-and-metrics.md', 'deny:plan-read-only'],
@@ -87,6 +94,15 @@ describe('guard policy: what the lead may run', () => {
     ['rm -rf /Users/owner/ambicode', 'kill:mass-delete'],
     ['rm -rf benchmarks', 'kill:mass-delete'],
     ['launchctl load ~/Library/LaunchAgents/x.plist', 'kill:system-change'],
+    ['npm test; halt', 'kill:system-change'],
+    ['npm test\nshutdown -h now', 'kill:system-change'],
+    ['if true; then reboot; fi', 'kill:system-change'],
+    ['env FOO=1 crontab /tmp/cron.txt', 'kill:system-change'],
+    ['x=$(osascript -e "do shell script")', 'kill:system-change'],
+    ["bash <<'EOF'\nlaunchctl load ~/Library/LaunchAgents/x.plist\nEOF", 'kill:system-change'],
+    ["cat <<'EOF' | sh\necho hi\nEOF", 'kill:obfuscation'],
+    ['ls && sudo ls', 'kill:privilege-escalation'],
+    ['cd /tmp && ssh me@host', 'kill:network-exfiltration'],
     ['git filter-branch --tree-filter x HEAD', 'kill:history-destruction'],
   ];
   for (const [command, expected] of killed) it(`kills: ${command}`, () => assert.equal(level(bash(command)), expected));

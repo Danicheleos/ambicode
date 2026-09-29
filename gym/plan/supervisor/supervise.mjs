@@ -61,7 +61,8 @@ function loadConfig(opts) {
 
 function budgetFromCampaign(campaignDir) {
   try {
-    const m = /^budgetUsd:\s*([\d.]+)/m.exec(readFileSync(path.join(campaignDir, 'CAMPAIGN.md'), 'utf8'));
+    // The lead writes CAMPAIGN.md as a table (R1: "| budgetUsd | 100 | …"); a missed match leaves the campaign uncapped.
+    const m = /^\|?\s*budgetUsd\s*[:|]\s*([\d.]+)/m.exec(readFileSync(path.join(campaignDir, 'CAMPAIGN.md'), 'utf8'));
     return m ? Number(m[1]) : null;
   } catch {
     return null;
@@ -261,7 +262,8 @@ function rollback(cfg, why) {
   const branch = git(cfg, ['branch', '--show-current']).stdout.trim();
   if (branch !== `gym/${cfg.campaign}`) return { ok: false, detail: `not on gym/${cfg.campaign} (on "${branch}"); git left untouched` };
   // Campaign records under gym/runs stay in place: they are the evidence the incident audit needs.
-  const outsideRuns = ['--', '.', ':(exclude)gym/runs'];
+  // gym/plan is owner-only (the guard denies lead writes there); R1 guard kill #1 stashed the owner's uncommitted guard fix.
+  const outsideRuns = ['--', '.', ':(exclude)gym/runs', ':(exclude)gym/plan'];
   const dirty = git(cfg, ['status', '--porcelain', ...outsideRuns]).stdout.trim();
   if (!dirty) return { ok: true, detail: 'no uncommitted plugin changes; nothing to roll back' };
   const name = `gym ${cfg.campaign} ${why} ${stamp()}`;

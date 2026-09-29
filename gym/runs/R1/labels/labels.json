@@ -1,0 +1,14 @@
+{
+  "L-001": {
+    "label": "done",
+    "detail": "The 3 transcripts (5326e45c investigate, 6c376603 plan, ce1efd4c task it4-6) are in archive/, byte-identical to ~/.claude/projects originals; MANIFEST.txt deduplicated to 318 entries, sha256sum -c all OK.",
+    "by": "owner (copied the files); archive and manifest completed by the owner's planning session",
+    "at": "2026-09-29T02:05:11.470Z"
+  },
+  "L-002": {
+    "label": "150",
+    "detail": "Campaign budget ceiling is 150 USD (90 % stop = 135). Neither 3000 in CAMPAIGN.md nor 1000 in OWNER-INBOX is the decision; replace both with 150. Owner: sweeps run into the 5-hour usage limit, so economize — prefer the cheapest measurement the signal rules (01 §3) accept, and do not repeat spend that already produced usable evidence. The supervisor is restarted with --budget-usd 150 at its next halt. Guard kill 2026-09-29T02:16:40 (system-change) was a guard false positive: the word \"halt\" in the heredoc text was matched as a command; the rule now matches command position only (policy.mjs, tests added). It interrupted the T2 sweep eval-2026-09-29T01-43-58-769Z (partial: interrupted, 14 of 18 cases, $41.04).",
+    "by": "owner (value); written by the owner's planning session",
+    "at": "2026-09-29T02:23:04.018Z"
+  }
+}

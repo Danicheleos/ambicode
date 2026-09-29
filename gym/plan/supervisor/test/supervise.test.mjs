@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
@@ -80,6 +80,32 @@ describe('supervisor loop against a stub claude', () => {
       assert.match(s.argv[1][1], /terminated by the guard \(secret-path/);
       assert.equal(resumed(s.argv[1]), false, 'a session that tripped the guard is never resumed');
       assert.ok(existsSync(path.join(s.campaign, 'STOP')));
+    } finally { s.cleanup(); }
+  });
+
+  it('a guard-kill rollback leaves the owner\'s uncommitted gym/plan edits in place', () => {
+    // R1 guard kill #1 stashed the owner's uncommitted guard fix along with the lead's work.
+    const s = scenario([{ kill: 'secret-path', dirty: true, phase: 'implement' }, { status: 'done' }], [], (repo) => {
+      mkdirSync(path.join(repo, 'gym', 'plan', 'supervisor'), { recursive: true });
+      writeFileSync(path.join(repo, 'gym', 'plan', 'supervisor', 'policy.mjs'), 'owner fix\n');
+    });
+    try {
+      assert.equal(existsSync(path.join(s.repo, 'src-change.txt')), false, 'the lead\'s edit was stashed');
+      assert.equal(readFileSync(path.join(s.repo, 'gym', 'plan', 'supervisor', 'policy.mjs'), 'utf8'), 'owner fix\n');
+    } finally { s.cleanup(); }
+  });
+
+  it('reads the budget from the CAMPAIGN.md table row when --budget-usd is absent', () => {
+    const s = scenario([{ status: 'done' }], ['--dry-run']);
+    try {
+      writeFileSync(path.join(s.campaign, 'CAMPAIGN.md'), '| key | value |\n|---|---|\n| budgetUsd | 150 | owner, L-002 |\n');
+      const r = spawnSync(process.execPath, [SUPERVISE, 'run', '--campaign', 'c1', '--repo', s.repo, '--dry-run'], {
+        env: { ...process.env, GYM_CLAUDE_BIN: STUB, GYM_NO_DESKTOP_NOTIFY: '1', GYM_NOTIFY_CMD: '' },
+        encoding: 'utf8',
+      });
+      assert.equal(r.status, 0, r.stdout + r.stderr);
+      const starts = readFileSync(path.join(s.campaign, 'supervisor', 'supervisor.log'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((e) => e.event === 'start');
+      assert.equal(starts.at(-1).budgetUsd, 150);
     } finally { s.cleanup(); }
   });
 

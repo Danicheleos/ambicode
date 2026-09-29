@@ -142,29 +142,53 @@ function kill(rule, reason) {
   return { level: LEVEL.kill, rule, reason };
 }
 
+// A command word counts only where a command starts. Matching it after any space killed session
+// 178dc394 (R1) for the word "halt" in a note it was appending with a heredoc.
+const AT_COMMAND = String.raw`(?:^|[\n;&|(\x60]|\$\()\s*(?:(?:then|do|else|!|\{|env(?:\s+\w+=\S*)*|nohup|time|exec|command|nice)\s+)*`;
+const atCommand = (words) => String.raw`${AT_COMMAND}(?:${words})(?=\s|$|[;&|)])`;
+
+/** Heredoc bodies read by cat, tee or git are data (notes, commit messages); a body fed to a shell or interpreter stays code. */
+export function stripDataHeredocs(c) {
+  const lines = c.split('\n');
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    out.push(lines[i]);
+    const m = /<<-?\s*(['"]?)([A-Za-z_]\w*)\1/.exec(lines[i]);
+    if (!m || /(^|[\s;&|(])((ba|z|da|k)?sh|python\d*|node|ruby|perl|osascript|eval|source|sudo|ssh)\b/.test(lines[i])) continue;
+    let j = i + 1;
+    while (j < lines.length && lines[j].replace(/^\t+/, '') !== m[2]) j++;
+    if (j < lines.length) {
+      out.push(lines[j]);
+      i = j;
+    }
+  }
+  return out.join('\n');
+}
+
 /** Bash rules. Regex tripwires, not a sandbox: an obfuscated command can evade them, so obfuscation itself is a kill. */
 export function classifyBash(command, ctx) {
   const c = command.replace(/\\\n/g, ' ');
   const home = ctx.home;
   const mentions = (root) => c.includes(root) || (root.startsWith(home) && c.includes('~' + root.slice(home.length)));
   const roots = protectedRoots(ctx);
+  const code = stripDataHeredocs(c);
 
   const killRules = [
-    [/(^|[\s;&|(])(sudo|doas)\s|(^|[\s;&|(])su\s+-?\w*/, 'privilege-escalation', 'runs sudo/su'],
+    [new RegExp(atCommand('sudo|doas|su')), 'privilege-escalation', 'runs sudo/su'],
     [/--dangerously-skip-permissions|bypassPermissions|disableAllHooks|--permission-mode|--setting-sources|--settings\b|(^|\s)claude\s+[^|;&]*--bare/, 'agent-escape', 'starts Claude with weaker permissions or without hooks'],
     [/\b(pkill|killall|kill)\b[^;&|]*(supervise|guard\.mjs|caffeinate|\bclaude\b(?![^;&|]*plugin eval))/, 'agent-escape', 'kills the supervisor, guard or Claude process'],
-    [/(^|[\s;&|(])(launchctl|crontab|osascript|diskutil|mkfs\S*|csrutil|spctl|nvram|systemsetup|pmset|shutdown|reboot|halt|chflags)\b|defaults\s+write|\bdd\b[^;&|]*of=\/dev/, 'system-change', 'changes the operating system or schedules work outside the session'],
+    [new RegExp(atCommand(String.raw`launchctl|crontab|osascript|diskutil|mkfs\S*|csrutil|spctl|nvram|systemsetup|pmset|shutdown|reboot|halt|chflags`) + String.raw`|defaults\s+write|\bdd\b[^;&|]*of=\/dev`), 'system-change', 'changes the operating system or schedules work outside the session'],
     [/base64\s+(-d|-D|--decode)[^;&]*\|\s*\w*sh\b|\|\s*(ba|z|da|k)?sh(\s|$)|(^|[;&|(])\s*eval\s|(^|[\s;&|(])(ba|z)?sh\s+-c\s+["']?\$\(|\bsource\s+<\(/, 'obfuscation', 'executes generated or piped shell code'],
     [/(python3?|node|ruby|perl)\s+-[a-zA-Z]*[ec]\s[^;&]*(socket|urllib|requests\.|http\.client|https?:\/\/|net\.connect|fetch\()/, 'network-exfiltration', 'opens a network connection from inline code'],
-    [/(^|[\s;&|(])(nc|ncat|netcat|socat|ssh|scp|sftp|telnet|ftp)\s|rsync\s[^;&|]*\S+:/, 'network-exfiltration', 'opens a remote shell or copies to a remote host'],
+    [new RegExp(atCommand('nc|ncat|netcat|socat|ssh|scp|sftp|telnet|ftp') + String.raw`|rsync\s[^;&|]*\S+:`), 'network-exfiltration', 'opens a remote shell or copies to a remote host'],
     [/(curl|wget)\b[^;&|]*\s(-d|--data[\w-]*|-F|--form|-T|--upload-file|--post-file|-X\s*(POST|PUT|PATCH))(\s|=|$)/, 'network-exfiltration', 'uploads data over HTTP'],
-    [/(^|[\s;&|(])(printenv|env)\s*($|[|;&>])|(^|[\s;&|(])(set|export\s+-p|declare\s+-x)\s*($|[|;&>])/, 'secret-dump', 'dumps the environment, which carries credentials'],
+    [new RegExp(String.raw`${AT_COMMAND}(printenv|env|set|export\s+-p|declare\s+-x)\s*($|[|;&>\n])`), 'secret-dump', 'dumps the environment, which carries credentials'],
     [/\bsecurity\s+(find|dump|export)-/, 'secret-dump', 'reads the macOS keychain'],
     [/git\s+config\s+[^;&|]*(--global|--system|credential|core\.hookspath|core\.sshcommand|core\.fsmonitor)/i, 'git-config-tamper', 'changes global git configuration or git hooks'],
     [/git\s+(filter-branch|filter-repo|update-ref\s+-d|reflog\s+expire|gc\s+--prune=now)/, 'history-destruction', 'rewrites or prunes git history'],
     [/(unset|export)\s+[^;&|]*GYM_/, 'agent-escape', 'changes the supervisor environment'],
   ];
-  for (const [re, rule, reason] of killRules) if (re.test(c)) return kill(rule, reason);
+  for (const [re, rule, reason] of killRules) if (re.test(code)) return kill(rule, reason);
 
   if (isSecretPath(c)) return kill('secret-path', 'touches a credential-shaped path');
   if (/git\s+(checkout|restore|rm|mv|apply|stash\s+push)\b[^;&|]*gym\/plan\/supervisor/.test(c)) return kill('guard-tamper', 'rewrites the campaign guard or supervisor through git');
@@ -204,8 +228,10 @@ export function classifyBash(command, ctx) {
   if (/(^|[;&|(])\s*claude\s+plugin\s+eval\b/.test(c) && !/--no-publish/.test(c)) return deny('publish', 'claude plugin eval without --no-publish publishes the report');
   const reset = /git\s+reset\s+[^;&|]*--hard\s+(\S+)?/.exec(c);
   if (reset && !(reset[1] ?? '').startsWith('gym/')) return deny('reset-outside-campaign', 'git reset --hard only to a gym/<campaign>/ tag (08 §3)');
-  const claudeCall = /(^|[;&|(])\s*claude\s+(\S+)/.exec(c);
-  if (claudeCall && !/^(plugin|--version|-v|auth)$/.test(claudeCall[2])) return deny('nested-agent', 'the lead may not start other Claude sessions; spawn helpers with the Agent tool');
+  // Every invocation is checked; the subcommand stops at a separator (seen in R1: "claude --version; …" was denied).
+  for (const call of c.matchAll(/(^|[;&|(])\s*claude\s+([^\s;&|)]+)/g)) {
+    if (!/^(plugin|--version|-v|auth)$/.test(call[2])) return deny('nested-agent', 'the lead may not start other Claude sessions; spawn helpers with the Agent tool');
+  }
   for (const f of ctx.forbiddenRoots ?? []) if (mentions(f)) return deny('forbidden-repo', 'touches a repository agents may not enter');
   if (mentions(roots.claudeHome)) return deny('claude-home', 'reads ~/.claude; use the archive copies (06 §5)');
   return allow();
