@@ -1,0 +1,34 @@
+{
+  "iteration": "it-008",
+  "commit": "fddb5d0 (brief); the change was never committed",
+  "pluginVersion": "0.3.4",
+  "capturedAt": "2026-09-29T11:32:00Z",
+  "models": { "agent": "claude-sonnet-5-5", "reviewer": null, "judge": null },
+  "G1": { "exit": 0, "tests": 804, "pass": 803, "fail": 0, "skipped": 1, "log": "verify.log", "note": "+9 tests over it-007's 795; measured with the change applied, before the reset" },
+  "G2": { "exit": 0, "zipSha256": "bee92a9a930c0cb4701473541c02ae910697df039f03a07cd69c7789e5487033", "note": "identical to it-005, it-006, it-007" },
+  "G3": { "exit": 0, "files": 546, "log": "g3.log" },
+  "preflight": {
+    "model": "claude-sonnet-5-5",
+    "modelSource": "suite.modelOverride of both result JSONs; agent model in both kept traces' system/init",
+    "attempts": 2,
+    "attempt2Change": "--keep-temp, to read the trace (brief step 3); the prompt and code were identical",
+    "passed": 0,
+    "of": 2,
+    "p2-task-regression-fix": {
+      "attempt1": { "plugin-fired": false, "helper-ran": false, "unit-check-ran": false, "fixed-and-verified": false, "add-restored": true },
+      "attempt2": { "plugin-fired": false, "helper-ran": false, "unit-check-ran": false, "fixed-and-verified": true, "add-restored": true },
+      "skillCalls": 0,
+      "cause": "kept trace (scratch/trace-B.jsonl): Sonnet fixed `add` with sed and ran jest and eslint through Bash; no Skill call. The result's report shows the new prompt text ('implement the fix', 2 files per run); the old phrase appears in 0."
+    },
+    "regression-ts": { "attempt1": "all gated graders passed", "attempt2": "all gated graders passed (finding grader false; not in the preflight gate)" },
+    "costUsd": [0.1627064, 0.1704064],
+    "resultFiles": ["scratch/preflight-sonnet-1.json", "scratch/preflight-sonnet-2.json"]
+  },
+  "opusPreflight": null,
+  "T1": null,
+  "T2": null,
+  "T3": null,
+  "T4": null,
+  "costUsd": 0.3331128,
+  "notes": "Opus preflight not run: brief step 4 runs only after the Sonnet preflight passes. T1/T2/T3 not applicable or gated. Worker session is counted by the supervisor, not here."
+}

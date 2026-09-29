@@ -65,5 +65,11 @@
     "detail": "Replan R-2 applied: commit bd93959, tag gym/R1/replan-2, planDigest c7d037a1911594eb921dbc9890437b1f1f3e8108b98002c48f5b10550d406317 (was a7feb66f...; matched the Supersedes line before apply). gym/plan/rev-2 moved over gym/plan; CAMPAIGN.md updated. Next: H2-repair, then H2-T2.",
     "by": "owner's planning session",
     "at": "2026-09-29T11:21:53.171Z"
+  },
+  "L-014": {
+    "label": "not-documented",
+    "detail": "Per https://code.claude.com/docs/en/plugin-evals.md (read by a docs agent, not tested here): there is no --mcp-config flag, no case-file field (prompt.md, case.yaml) and no suite-level setting to attach an external MCP server. The docs say the sandbox reads no project-scoped .mcp.json above it, which matches your two failed routes. Documented MCP handling is only for the plugin's own servers: mocks at evals/mocks/<server>/<tool>.md, --allow-real-servers to start the plugin's real servers, --mocks off to start all plugin servers. If T4p still wants an MCP-server-question event, that is the only route to try, and only if the plugin declares the server (ambicode's own MCP server from init --mcp-server is the candidate); otherwise T4p stays null as per the default. Not verified by a run.",
+    "by": "owner (asked to look it up); written by the owner's planning session",
+    "at": "2026-09-29T11:22:46.186Z"
   }
 }

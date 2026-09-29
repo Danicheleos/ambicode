@@ -76,3 +76,11 @@ Question: Does `claude plugin eval` document a way to attach an MCP server to an
 Why: T4p's fabricated-provenance and MCP-server-question events need a stub requirements server in a harness session. Without a documented route, T4p is limited to refused launches and reviewer turns.
 Needed for: 01 §3 T4p scope only. Nothing else waits on it.
 Default if unanswered by it-009: T4p stays `null`; the lead builds nothing for it.
+
+## L-015  (asked it-008, 2026-09-29)
+Question: With the prompt changed to "Find it, implement the fix, and verify the fix." the Sonnet preflight still fails `p2-task-regression-fix` `plugin-fired` and `helper-ran` (2 of 2 runs, Skill 0x; on the old prompt 0 of 4). `regression-ts` passes every gated grader both times. Which do you want? (a) Gate the Sonnet preflight on `regression-ts` alone (it already proves the plugin fires, the helper runs, the review completes and a unit check runs on Sonnet: 2 of 2 here, 4 of 4 in it-006) and drop `p2-task-regression-fix` from the Sonnet preflight. That weakens the gate as you said not to, so it needs your line. (b) Name the skill in the case prompt (for example "Use the ambicode task skill to implement the fix"), which tests the skill's mechanics, not whether it triggers; trigger behaviour is T1's job (`verb-implement` fires it 3 of 3 on Sonnet). (c) Keep the gate as it is: T2 on Sonnet never runs, cp-S0 is never tagged, cycle 1 ends after H3.
+Why: `it-008/decision.md`. The kept trace shows Sonnet fixing `add` with `sed` and running jest and eslint through Bash; the harness report shows the new prompt text ran. The verb "implement" is not sufficient here, although it fires the task skill in T1.
+Needed for: H2-T2 and cp-S0; every screening verdict from WP3 on (02 §5 needs a Sonnet reference); therefore WP3 item 2 and WP4.
+Default if unanswered by it-010: (c). The gate stays; nothing further is spent; the lead stays `blocked`.
+
+Status L-014: answered 2026-09-29T11:22:46.186Z in labels.json ("not-documented"): no documented way to attach an external MCP server to a case; only the plugin's own servers via `evals/mocks/` and `--allow-real-servers`. T4p stays null (the default); the lead builds nothing for it. The owner's read of the docs was not tested by a run.
