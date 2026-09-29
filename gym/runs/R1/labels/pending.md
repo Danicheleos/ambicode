@@ -70,3 +70,9 @@ Question: The preflight fails on Sonnet, so H2's T2 (3 runs/arm) is gated. Which
 Why: measured in it-006 (decision.md): 4 of 4 Sonnet preflights fail on that case, and the kept trace shows the agent fixing the bug directly without the Skill; regression-ts passes 4 of 4; T1 verb-implement fires the task skill 3 of 3 on Sonnet.
 Needed for: H2's T2 and cp-S0; every screening verdict from WP3 on (02 section 5 needs a Sonnet reference).
 Default if unanswered by it-008: (c). The gate stays; the lead runs H3 (no T2 needed), then sets PHASE blocked.
+
+## L-014  (asked it-007, 2026-09-29)
+Question: Does `claude plugin eval` document a way to attach an MCP server to an eval case (an `--mcp-config` option, a case-file field, or a supported settings route)? The lead cannot run `claude --help` (guard) and tracked text says nothing. Two routes failed in it-007 (project `.mcp.json`, with and without `enableAllProjectMcpServers` in project settings): `mcp_servers: []` in the kept traces.
+Why: T4p's fabricated-provenance and MCP-server-question events need a stub requirements server in a harness session. Without a documented route, T4p is limited to refused launches and reviewer turns.
+Needed for: 01 §3 T4p scope only. Nothing else waits on it.
+Default if unanswered by it-009: T4p stays `null`; the lead builds nothing for it.

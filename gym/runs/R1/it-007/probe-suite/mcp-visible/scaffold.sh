@@ -6,3 +6,5 @@ node "$SUITE/../../fixtures/materialize.mjs" ts-staged-unstaged "$PWD/repo"
 cat > "$PWD/.mcp.json" <<JSON
 {"mcpServers":{"stub":{"command":"node","args":["$SUITE/stub-mcp/server.mjs"]}}}
 JSON
+mkdir -p "$PWD/.claude"
+printf '{"enableAllProjectMcpServers":true}\n' > "$PWD/.claude/settings.json"
