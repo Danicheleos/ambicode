@@ -13,3 +13,22 @@ Why: four sources disagree. (1) The supervisor kickoff text says "budget 100 USD
 Spend so far (files on disk): sessions 1–4 $5.76 (`supervisor/state.json`); T1 $4.21; preflight $0.39; the T2 baseline sweep killed with session 4 $41.04 (`eval-2026-09-29T01-43-58-769Z.json` `costUsd`). Total $51.40 before session 5.
 Needed for: every T2 decision iteration (about $65–70 each, 01 §5). At $100 the stop is $90, so none fits after the baseline. WP1's T3 re-record is the only item left that fits.
 Default if unanswered by it-001: $100, the value the supervisor enforces. After iteration 0 the lead does only T3-measured work and then sets PHASE `blocked` on replan trigger R1 (budget).
+Status: answered 2026-09-29T02:23:04Z in labels.json ("150"). Applied to `CAMPAIGN.md` and `OWNER-INBOX.md` in the it-000 commit.
+
+## L-003 … L-008: the six local VS-6735 review findings  (asked it-002, 2026-09-29)
+Each finding gets two answers. Use one `labels.json` key per finding, e.g. `{"L-003": {"label": "actionable", "laterIteration": true, "by": "...", "at": "..."}}`.
+1. Rubric class (`evals/evals-archived/typescript/adjudication.md:11-14`): actionable / correct-but-inert / unfounded / unverifiable.
+2. `laterIteration`: does the finding concern work that the accepted plan (`gym/planing/investigation/cache/VS-6735/plan_2026-09-28T21-06.md`) schedules for a later iteration than the one under review (it1–3)? true / false.
+Where: `gym/runs/R1/archive/gym__planing__investigation__cache__VS-6735/reviews/<review>/result.json`, field `findings[]`, matched by `id`. The paths are in the FE repository (`main/…`).
+
+| Label | Review | Finding id | Category / risk / confidence | Location (new side) | Audit's judgement (00-audit.md:108) |
+|---|---|---|---|---|---|
+| L-003 | local_2026-09-28T21-30 | f-a1246fa40c25 | correctness / high / high | `…/advanced-table-views/advanced-table-views-storage.service.ts:128` | borderline (plan `:164`) |
+| L-004 | local_2026-09-28T21-30 | f-b146665e78f8 | correctness / medium / high | `…/advanced-table-views/advanced-table-view.service.ts:352` | not named on line 108; "not later-iteration" is inferred from its count (4 later + 1 borderline of 6) |
+| L-005 | local_2026-09-28T21-30 | f-676ea7fc4aa4 | correctness / medium / medium | `…/manage-views/advanced-table-manage-views-dialog.component.html:21` | later-iteration |
+| L-006 | local_2026-09-28T21-38 | f-414213252434 | requirements / high / high | `main/screens/reports-list-new/providers/assessments-table-views.provider.ts:12` | later-iteration |
+| L-007 | local_2026-09-28T21-38 | f-065de7f5a308 | dead-surface / medium / high | `…/advanced-table-views/advanced-table-view.service.ts:88` | later-iteration |
+| L-008 | local_2026-09-28T21-38 | f-299cc3942107 | correctness / low / medium | `…/view-bar/advanced-table-view-bar.component.html:78` | later-iteration |
+
+Needed for: WP4's T4 baseline "findings about later plan iterations" (01 §3 T4: 4 of 6 by the audit, a single judgement, not yet a human label) and cp-4 ("later-iteration findings ≤ 1 of N (human label or documented heuristic)").
+Default if unanswered by it-005: rubric class `correct-but-inert` (does not count as recall, 02 §6), and `laterIteration` = the audit's judgement, with L-003 counted as false. That gives the WP4 baseline 4 of 6, marked "audit judgement, not a human label" in every decision that uses it.

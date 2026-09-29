@@ -1,0 +1,17 @@
+{
+  "iteration": "it-002",
+  "commit": "468b258",
+  "pluginVersion": "0.3.4",
+  "capturedAt": "2026-09-29T03:15:00Z",
+  "models": { "agent": null, "reviewer": null, "judge": null },
+  "G1": { "exit": 0, "tests": 752, "pass": 751, "fail": 0, "skipped": 1, "seconds": 27 },
+  "G2": { "exit": 0, "zipSha256": "c8c5b7b3f57e8785fb26207e4beac2aea8f00eaaa3dc8ee61591f08c0efdec7f" },
+  "G3": { "exit": 0, "files": 485 },
+  "T1": null,
+  "T2": null,
+  "T3": null,
+  "T4": null,
+  "labelsQueued": ["L-003", "L-004", "L-005", "L-006", "L-007", "L-008"],
+  "costUsd": 0,
+  "notes": "Label-queue iteration: no plugin change (diff.patch empty), no eval spend. T1/T2/T3/T4 not applicable: no trigger surface, no code, no recording input, no new human cycle."
+}
