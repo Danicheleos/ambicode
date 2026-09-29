@@ -77,5 +77,11 @@
     "detail": "Option (b): name the skill in the case prompt of p2-task-regression-fix (e.g. \"Use the ambicode task skill to implement the fix\"). plugin-fired and helper-ran stay required on Sonnet; the gate is not weakened and regression-ts is not made the only gate. The owner accepts that this tests the skill's mechanics, not whether it triggers (T1's job). This wording is outside R-2's allowance (it names 'implement' only), so draft replan R-3 (owner applies), start from it-008/diff.patch, then rerun the Sonnet preflight (expected ≈ $0.2). If it still fails, stop and report (B2); do not fall back to (a) without a new label. After a pass: Opus preflight, then H2-T2 (3 runs/arm) and cp-S0.",
     "by": "owner (choice); written by the owner's planning session",
     "at": "2026-09-29T11:58:24.482Z"
+  },
+  "R-3": {
+    "label": "applied",
+    "detail": "Replan R-3 applied: tag gym/R1/replan-3, planDigest c2c756c67bbaf32eb70c26ccff900b8711c74e2af6b29de965411c4eed66dd64 (was c7d037a1...; matched the Supersedes line before apply). gym/plan/rev-3 moved over gym/plan; CAMPAIGN.md updated. Next: H2-repair with the prompt wording fixed in 02 §3.3.",
+    "by": "owner's planning session",
+    "at": "2026-09-29T12:04:21.659Z"
   }
 }
