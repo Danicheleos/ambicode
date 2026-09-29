@@ -1,6 +1,12 @@
 # it-003 — WP2 items 1–3 (pin the MCP server, CLI-stamped `receivedAt`, size pre-flight in `prepare`) — decision
 
-**Verdict: accept.** Gates are green. The claims are reproduced as tests that failed before the change and pass after it. The T2 and T1 controls are within noise. One T3 case, `be-vs-5546`, moved outside the brief's ±2 band (median 6 → 3). That is a decision by the lead, not a row of the table read off mechanically, and the grounds are below. The verifier's independent numbers match on every field the decision rests on (`handoffs/verifier.md`).
+**Verdict: accepted with an unconfirmed deviation, pending the owner's answer to L-011.** The cp-2 audit ran after the commit and tag (`handoffs/auditor.md`) and found two blocks against this decision. Both are right about authority:
+- **F1:** a must-not-move control, T3, was outside its band, and 02 §5 row 3 makes that a reject.
+- **F2:** the claimed metric, T4, was not measured, and 02 §5 row 6 says "never accept".
+
+The lead accepted anyway. For F1 the ground is that the reviewer's input is provably unchanged. For F2 it is that 03 §1 cp-2 and 01 §1 item 6 expect WP2 accepted before the first human cycle. That reading of cp-2 against row 6 is the lead's, and the decision did not cite row 6 when it was made. Both are judgments on ground 03 §2 reserves for the owner, so the tags stay (09 §3: tags are never moved) and the status is the owner's call.
+
+The evidence below is unchanged, and the verifier reproduced it (`handoffs/verifier.md`). After the audit, a same-day A/A on the base build was added ("Same-day A/A", below).
 
 ## Evidence
 
@@ -28,7 +34,7 @@ Claims, as reproductions (`handoffs/worker-1.md`, `worker-1-delta.md`): the befo
 - item 2: `receivedAt` undefined; `requirements-invalid` on an envelope without `retrievedAt`.
 - item 3: no size notice.
 
-## Why the T3 band breach does not reject
+## The lead's grounds for accepting despite the T3 band breach (as written before the audit)
 
 1. **The reviewer's input did not change.** The recorder builds the reviewer's input with `ambicode bundle` and then `review`. For all 8 cases, both prompt files are byte-identical between the base build and the it-003 build: 16 of 16, twice per build. The positive control shows the two builds do differ: `receivedAt` and `mcp-server` appear 0/0 times in the base's shipped scripts and 5/6 times in it-003's. `claude-reviewer.ts`, `prompts/` and `policies/` are unchanged. The verifier could not check the `review` path without a model call. The diff closes that gap. Every changed line under `src/review/` is the `clock` argument (`bundle.ts`) or sits inside a loop over requirement sources (`prompt.ts` `requirementBlock`, `report.ts`). None of the 18 cases carries a source.
 2. **The reviewer's own spread on identical input is wider than the band.** `src/review/`, `prompts/` and `policies/` did not change between it-001's commit and 01f626f, so it-001's new recordings (2 per BE case, 3 per FE case) and this iteration's three were all made on identical input:
@@ -40,6 +46,25 @@ Claims, as reproductions (`handoffs/worker-1.md`, `worker-1-delta.md`): the befo
 3. **cp-3's own no-go rule is not met.** That rule is a median drop of ≥ 3 on ≥ 2 cases; one case dropped by 3.
 
 What remains open: for be-vs-5546, all 3 new recordings fall below both of it-001's. With exchangeable draws, the chance of that ordering is 1 in 10. That is weak evidence for a shift in the reviewer model or service over the day, and none for an effect of this change. It is not investigated here. Because the reviewer's output varies this much on fixed input, the 01 §3 T3 rule ("a difference of ≥ 2 findings is real") needs recalibrating. A threshold is the owner's call (03 §2), so this goes to `OWNER-INBOX.md` rather than being applied.
+
+## Same-day A/A (added after the audit, $2.42)
+
+The auditor noted that the cp-1 reference is hours older and that an A/B against the base on the same day was never run. The lead recorded all 8 cases 3 times with the base build (`gym/R1/it-002`), in a separate worktree, right after the audit (`metrics.json` `T3.sameDayBaseControl`, `scratch/t3-same-day-ab.txt`). The reviewer prompts are byte-identical between the two builds, so this is an A/A:
+
+```
+be-vs-3571 base 3 → it-003 6 (+3)   be-vs-5075 5 → 4 (−1)   be-vs-5546 4 → 3 (−1)   be-vs-6261 2 → 1 (−1)
+fe-6086-d1f 2 → 5 (+3)              fe-6086-d7c 3 → 3 (0)    fe-6253 3 → 3 (0)       fe-6292 3 → 4 (+1)
+```
+
+be-vs-5546 is within ±2 against the same-day base, so its 6 → 3 against cp-1 did not come from this change. Two other cases, however, sit at +3, and there no cause is possible. Under the literal rule this A/A fails too. That makes the T3 control, as written, unable to tell a change from reviewer sampling at 3 recordings. It does not make the lead's acceptance rule-compliant. L-011(a) carries both facts to the owner.
+
+## Audit findings the lead accepts, for later iterations
+
+- **F4:** bundling three items was weakly argued. T2 sees only item 3, so items 1–2 had no measured control either way. Split iterations would have cost about the same, and a T3 move would have been attributable. From it-004 on, one item per iteration.
+- **F5:** skipping T2 screening was declared in the brief before any spend, but it is not an allowed push-through (03 §4). The "optional-stopping bias" argument does not hold as stated. Screening stays in the protocol for later iterations.
+- **F6:** `cp-2.md` left out caveats; they are added there.
+- **F7:** the "17 failed before" log was not kept (`/tmp`). The before-failure lines survive only in the worker's handoff.
+- **F3:** the auditor ran after the tag, not before it, and did not run at cp-0 or cp-1. From here on it runs before a checkpoint is tagged.
 
 ## Not measured, and caveats
 

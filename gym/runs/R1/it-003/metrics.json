@@ -248,17 +248,120 @@
     },
     "costUsd": 2.37,
     "seconds": 2409,
-    "fileSha256After": "b4d778c9ab0e3a6d8264dc0ac31bb92f3abf9b8e399f1c59ce36cfb6d4c12805"
+    "fileSha256After": "b4d778c9ab0e3a6d8264dc0ac31bb92f3abf9b8e399f1c59ce36cfb6d4c12805",
+    "sameDayBaseControl": {
+      "why": "auditor F1 (handoffs/auditor.md): the cp-1 reference is hours older; an A/A on the base build the same day separates the change from time and sampling",
+      "commit": "gym/R1/it-002 (plugin identical to 01f626f), worktree ../ambicode-t3base, npm run build; cases copied, benchmarks/{BE,FE} symlinked, reviewer-recordings.json copied so the campaign file is untouched (sha256 b4d778c9… before and after)",
+      "logs": [
+        "scratch/base-record-1.log",
+        "scratch/base-record-2.log",
+        "scratch/base-record-3.log"
+      ],
+      "table": "scratch/t3-same-day-ab.txt",
+      "perCase": [
+        {
+          "case": "be-vs-3571-review-1128-957b6388",
+          "base": [
+            3,
+            3,
+            6
+          ],
+          "baseMedian": 3,
+          "it003Median": 6,
+          "delta": 3
+        },
+        {
+          "case": "be-vs-5075-review-1054-3b24bb74",
+          "base": [
+            5,
+            6,
+            5
+          ],
+          "baseMedian": 5,
+          "it003Median": 4,
+          "delta": -1
+        },
+        {
+          "case": "be-vs-5546-review-996-d520e3ca",
+          "base": [
+            2,
+            5,
+            4
+          ],
+          "baseMedian": 4,
+          "it003Median": 3,
+          "delta": -1
+        },
+        {
+          "case": "be-vs-6261-review-1141-f14493f1",
+          "base": [
+            2,
+            1,
+            2
+          ],
+          "baseMedian": 2,
+          "it003Median": 1,
+          "delta": -1
+        },
+        {
+          "case": "fe-vs-6086-review-2553-d1f112e5",
+          "base": [
+            4,
+            2,
+            2
+          ],
+          "baseMedian": 2,
+          "it003Median": 5,
+          "delta": 3
+        },
+        {
+          "case": "fe-vs-6086-review-2553-d7c43dc5",
+          "base": [
+            3,
+            5,
+            3
+          ],
+          "baseMedian": 3,
+          "it003Median": 3,
+          "delta": 0
+        },
+        {
+          "case": "fe-vs-6253-review-2557-1b0a7eaf",
+          "base": [
+            4,
+            3,
+            3
+          ],
+          "baseMedian": 3,
+          "it003Median": 3,
+          "delta": 0
+        },
+        {
+          "case": "fe-vs-6292-review-2537-3a49a0d3",
+          "base": [
+            3,
+            2,
+            4
+          ],
+          "baseMedian": 3,
+          "it003Median": 4,
+          "delta": 1
+        }
+      ],
+      "reading": "reviewer prompts are byte-identical between the two builds (16/16), so this is an A/A: be-vs-5546 is within ±2 (−1), but be-vs-3571 and fe-vs-6086-d1f112e5 are +3. The ±2 band at 3 recordings flags 2 of 8 cases with no possible cause",
+      "costUsd": 2.42
+    }
   },
   "T4": null,
-  "costUsd": 68.48,
+  "costUsd": 70.9,
   "costBreakdown": {
     "T1": 4.1768,
     "preflight": 0.4,
     "T2sweep": 57.8306,
     "T2rerun": 2.8229,
     "T3": 2.37,
-    "T2judge": 0.8803
+    "T2judge": 0.8803,
+    "T3sameDayBase": 2.42
   },
   "notes": "Eval spend including T2 judge cost ($0.88, verifier); lead and helper session costs are counted by the supervisor. T4 null: no human-run cycle after this build (L-010 filed). T2 went straight to 3 runs/arm without screening (brief). T3 re-record was required because src/review/ changed (prompt.ts, report.ts, bundle.ts). The recorded cases carry no requirement sources, so the reviewer prompts are byte-identical to the base (T3.reviewerInputIdentical), and the T3 median moves (be-vs-5546 −3; three cases +2) are reviewer sampling on identical input. After this iteration benchmarks/reviewer-recordings.json holds record-3's recordings (sha256 b4d778c9…); later T2 sweeps replay those. A guard denial occurred during measure (claude-home rule): a Bash heredoc for the L-010 label text contained the literal home-directory path; no read was attempted; the label was then written with the Edit tool, without that path."
 }
