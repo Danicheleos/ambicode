@@ -23,7 +23,7 @@ From the AMBICODE checkout:
 ```text
 npm ci
 npm run package:candidate
-node install-local.mjs install dist/ambicode-0.4.0
+node install-local.mjs install dist/ambicode-0.4.1
 ```
 
 The default configuration directory is the same one ordinary Claude Code

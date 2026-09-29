@@ -1,6 +1,6 @@
 {
   "name": "ambicode",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Scoped project policy, evidence-backed checks, and independent code review for Codex.",
   "skills": "./skills/",
   "author": { "name": "Daniil Mikhailau" },

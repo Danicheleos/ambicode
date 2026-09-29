@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "ambicode",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Scoped project policy, evidence-backed checks, and independent code review for Claude Code and Codex.",
   "author": { "name": "Daniil Mikhailau" },
   "license": "UNLICENSED",

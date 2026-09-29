@@ -2313,7 +2313,7 @@ async function planSnapshot(options) {
     }
   }
   omissions.push(
-    contextCount === 0 ? "Only changed files are present. Unchanged code elsewhere in the repository was not available to the reviewer." : `Besides the changed files, ${contextCount} unchanged file(s) sitting in the same directories were included. The rest of the repository was not available to the reviewer.`
+    contextCount === 0 ? "Only changed files are present in the snapshot. Unchanged code elsewhere in the repository was not included." : `Besides the changed files, ${contextCount} unchanged file(s) sitting in the same directories were included. The rest of the repository was not included in the snapshot.`
   );
   if (contextTrimmed > 0) {
     omissions.push(
@@ -2499,7 +2499,7 @@ async function requireHead(git) {
 import path10 from "node:path";
 var REVIEWER_ROLE = "reviewer-role.md";
 var UNTRUSTED = "UNTRUSTED EVIDENCE";
-async function composeReviewerPrompt(fs, pluginRoot, bundle) {
+async function composeReviewerPrompt(fs, pluginRoot, bundle, reviewerHost = "claude") {
   const provenance = [];
   const systemSections = [];
   const shared = await readSharedOperatingContract(fs, pluginRoot);
@@ -2520,7 +2520,7 @@ async function composeReviewerPrompt(fs, pluginRoot, bundle) {
   const discussions = discussionSection(bundle);
   if (discussions !== null) userSections.push(discussions);
   userSections.push(evidenceSection(bundle));
-  userSections.push(outputSection(bundle));
+  userSections.push(outputSection(bundle, reviewerHost));
   return {
     system: `${systemSections.join("\n\n---\n\n")}
 `,
@@ -2572,7 +2572,7 @@ function scopeSection(bundle) {
     "",
     "Your working directory holds a sanitized copy of the reviewed revision under",
     "`files/`, the change itself as `changed.diff`, and the changed paths in",
-    "`CHANGED-FILES.txt`. Nothing outside that directory is available to you."
+    "`CHANGED-FILES.txt`. Only those files are in review scope; do not inspect outside it."
   ];
   for (const note2 of target.notes) lines.push(`- ${note2}`);
   return lines.join("\n");
@@ -2757,7 +2757,7 @@ function evidenceSection(bundle) {
   lines.push("", "## The change", "", "```diff", fence(bundle.patch), "```");
   return lines.join("\n");
 }
-function outputSection(bundle) {
+function outputSection(bundle, reviewerHost) {
   const limit = bundle.result.inputs.limits.maxFindings;
   const ruleIds = bundle.result.policySummary.ruleIds;
   const requirementIds = bundle.result.requirements.map((source) => source.id);
@@ -2765,7 +2765,7 @@ function outputSection(bundle) {
     "# Output",
     "",
     `Return at most ${limit} findings, the ones that most deserve a human's time.`,
-    "Answer with one `StructuredOutput` call whose arguments are the answer object itself,",
+    reviewerHost === "claude" ? "Answer with one `StructuredOutput` call whose arguments are the answer object itself," : "Return the answer object as your final JSON response,",
     "`findings` and `coverageNotes` at the top level, not wrapped in any key such as `input`.",
     "",
     "Every finding needs a `location` with a path, a `side` (`old` or `new`) and a",
@@ -2996,7 +2996,7 @@ async function assembleBundle(options) {
     prompt: { system: "", user: "", provenance: [] },
     result
   };
-  bundle.prompt = await composeReviewerPrompt(runtime.fs, runtime.pluginRoot, bundle);
+  bundle.prompt = await composeReviewerPrompt(runtime.fs, runtime.pluginRoot, bundle, options.reviewerHost ?? "claude");
   bundle.result.provenance = [...bundle.result.provenance, ...bundle.prompt.provenance].sort(
     (a, b) => `${a.kind}${a.reference}`.localeCompare(`${b.kind}${b.reference}`)
   );
@@ -5928,7 +5928,9 @@ var CodexReviewer = class {
         timeoutMs: request.timeoutMs,
         maxOutputBytes: OUTPUT_LIMIT,
         env: codexEnvironment(),
-        stdin: `${request.systemPrompt}
+        stdin: `Review only the evidence and files under your working directory. Do not inspect other paths.
+
+${request.systemPrompt}
 
 ${request.prompt}`
       });
@@ -6235,7 +6237,7 @@ async function runReview(runtime, args, dependencies = {}) {
   if (selectedReviewer !== "claude" && selectedReviewer !== "codex") {
     throw new AmbicodeError("bad-argument", `Unknown reviewer: ${selectedReviewer}.`, { field: "--reviewer" });
   }
-  const bundle = await assembleBundle({ runtime, ...resolveTargetOptions("review", runtime, args) });
+  const bundle = await assembleBundle({ runtime, reviewerHost: selectedReviewer, ...resolveTargetOptions("review", runtime, args) });
   const reviewConfig = bundle.workspace.config.review;
   const model = selectedReviewer === "codex" ? reviewConfig.codexModel : reviewConfig.model;
   bundle.result.reviewModel = model;
@@ -6260,7 +6262,7 @@ async function runReview(runtime, args, dependencies = {}) {
   const invocation = await reviewer.invoke({
     systemPrompt: bundle.prompt.system,
     prompt: bundle.prompt.user,
-    // The sanitized snapshot, which is also the reviewer's only readable tree.
+    // The sanitized snapshot is the reviewer's working tree. Codex may read beyond it.
     workingDirectory: bundle.snapshot.directory,
     model,
     timeoutMs: reviewConfig.timeoutSeconds * 1e3
