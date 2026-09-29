@@ -1,0 +1,49 @@
+{
+  "iteration": "it-011",
+  "commit": "6a531da (brief) + diff.patch on top; the tagged record commit is the one that first holds this file",
+  "pluginVersion": "0.3.4",
+  "capturedAt": "2026-09-29T13:20:00Z",
+  "models": { "agent": "claude-sonnet-5-5", "reviewer": null, "judge": null },
+  "G1": { "exit": 0, "tests": 811, "pass": 810, "fail": 0, "skipped": 1, "log": "verify.log", "note": "+7 over it-009's 804: the 7 new tests of this diff; the worker's own verify failed one test (bundle-split 'still ships Fastify') only because its worktree symlinked node_modules; in the main tree verify exits 0 (verify.log)" },
+  "G2": { "exit": 0, "zipSha256": "1585ac05ebf11f65d34674b82b7de99c0d353a22d3be6e676e9f0e8d213086ad", "note": "reproducible across two runs; differs from it-003..it-010's bee92a9a…7033 because src/cli/commands/review.ts changed", "log": "g2.log" },
+  "G3": { "exit": 0, "files": 573, "log": "g3.log" },
+  "reproduction": { "log": "before.log", "note": "the 3 new tests for turns 2, 1, 0 fail without the change (59 tests, 56 pass, 3 fail); the 4 guard tests (turns 3, null, replay, failed reviewer) pass before and after" },
+  "preflight": { "model": "claude-sonnet-5-5", "passed": true, "costUsd": 0.19, "log": "scratch/preflight.log" },
+  "T1": null,
+  "T1note": "T1 skipped: no trigger surface touched (no skills/*/SKILL.md, hooks/ or src/hook/ change)",
+  "T2": {
+    "kind": "screening, 1 run/arm (02 §3.5 step 3); never decides an accept",
+    "runsPerArm": 1,
+    "cases": 18,
+    "partial": false,
+    "runErrors": 0,
+    "modelOverride": "claude-sonnet-5-5",
+    "claudeVersion": "2.1.284",
+    "resultFile": "evals/evals-core/results/eval-2026-09-29T13-05-42-582Z.json",
+    "copiedTo": "gym/runs/R1/it-011/scratch/t2-screen.json",
+    "scoreOutput": "scratch/score.out",
+    "costUsd": 7.4556,
+    "judgeCostUsd": 0.2942,
+    "seconds": 600,
+    "localize": {
+      "with": { "f1": 0.6015, "runs": 10, "helperRan": 1, "pluginFired": 10 },
+      "without": { "f1": 0.5692, "runs": 10 },
+      "reference": "baseline/metrics-R-1.json: with median 0.5417 (sweeps 0.5359 0.6397 0.5417, pooled 0.5724), without median 0.5715",
+      "bound": "with-arm worse than reference minus 0.05 rejects: 0.5417 - 0.05 = 0.4917 (median), 0.5724 - 0.05 = 0.5224 (pooled); observed 0.6015 is above both"
+    },
+    "review": {
+      "with": { "recall": 0.0938, "runs": 8, "helperRan": 0, "pluginFired": 0 },
+      "without": { "recall": 0.1667, "runs": 8 },
+      "reference": "baseline/metrics-R-1.json: with 0.0938, without 0.0938 (sweeps 0.0938 0.0625 0.0938)",
+      "reading": "not measurable: helper-ran 0 of 8, so the with-arm never ran the review pipeline (cp-S0.md note 1); the T2 review replay also returns usage null, so the new flag cannot fire in it. The without-arm 0.1667 is above its reference sweeps (0.0625 to 0.0938) with no plugin in that arm; reported, not read as an effect"
+    },
+    "note": "1 run/arm is a smoke: the reference's own localize with-arm spread across run indices is 0.104, so this can only catch a gross break"
+  },
+  "T3": null,
+  "T3note": "T3 not run: prompts/, policies/ and src/review/ untouched; reviewer input and output do not change; a re-record would measure reviewer sampling noise (it-003 A/A: ±3 on identical prompts), not this change",
+  "T4": null,
+  "T4p": null,
+  "costUsd": 7.9398,
+  "costBreakdown": { "preflight": 0.19, "t2Screening": 7.4556, "t2Judge": 0.2942 },
+  "notes": "Lead, worker and verifier session cost is counted by the supervisor. The sweep's process exit status was 1 (threshold 1), as at the reference; the result has partial false and 0 run errors."
+}

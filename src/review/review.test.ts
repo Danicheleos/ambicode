@@ -1059,6 +1059,149 @@ describe('what the reviewer is told, and what is kept about its run', () => {
     }
   });
 
+  describe('a review whose reviewer ran at most two turns', () => {
+    const AT_MOST_ONE_CALL = /at most one tool call, the answer itself/;
+    const usageWith = (turns: number | null) => ({
+      turns,
+      apiDurationMs: 20_000,
+      outputTokens: null,
+      costUsd: 0.1,
+      thinkingTokens: null,
+    });
+
+    /** The default fixture has three checks that cannot pass, so `complete` needs a project that declares none. */
+    async function checklessFixture(): Promise<Fixture> {
+      const context = await fixture();
+      await context.repo.write(
+        '.ambicode/config.yaml',
+        [
+          'schemaVersion: 1',
+          'baseline: ""',
+          'review:',
+          '  model: sonnet',
+          '  timeoutSeconds: 300',
+          '  maxFindings: 7',
+          '  maxChangedFiles: 50',
+          '  maxChangedLines: 2000',
+          '  maxContextBytes: 524288',
+          'checks:',
+          '  timeoutSeconds: 120',
+          '  maxSelectedTestFiles: 20',
+          'page:',
+          '  idleTimeoutSeconds: 1800',
+          'requirements:',
+          '  mcpServer: null',
+          'remoteChecks:',
+          '  image: null',
+          'authoring:',
+          '  editReminders: true',
+          'projects:',
+          '  - id: app',
+          '    root: .',
+          '    ecosystem: typescript',
+          '    packs: []',
+          '    policyFiles: []',
+          '    commands: {}',
+          '    checks: {}',
+          '',
+        ].join('\n'),
+      );
+      return context;
+    }
+
+    class ReplayFake extends FakeReviewer {
+      readonly source = 'replay' as const;
+    }
+
+    for (const turns of [2, 1, 0]) {
+      it(`is partial, and says the reviewer made at most one tool call, at ${turns} turn(s)`, async () => {
+        const context = await checklessFixture();
+        try {
+          const usage = usageWith(turns);
+          const output = await review(context.runtime, [], new FakeReviewer({ ...ok(), usage }));
+
+          assert.equal(output.result.reviewer?.status, 'ok');
+          assert.equal(output.result.status, 'partial');
+          assert.match(output.result.statusReason ?? '', AT_MOST_ONE_CALL);
+          assert.match(output.result.statusReason ?? '', /the reviewer ran at most 2 turn\(s\)/);
+          assert.match(output.result.statusReason ?? '', /it may have read no file/);
+          await nodeFileSystem.remove(output.snapshotDirectory);
+        } finally {
+          await context.dispose();
+        }
+      });
+    }
+
+    it('is complete at 3 turns, when nothing else is a gap', async () => {
+      const context = await checklessFixture();
+      try {
+        const output = await review(context.runtime, [], new FakeReviewer({ ...ok(), usage: usageWith(3) }));
+
+        assert.equal(output.result.status, 'complete');
+        assert.equal(output.result.statusReason, null);
+        await nodeFileSystem.remove(output.snapshotDirectory);
+      } finally {
+        await context.dispose();
+      }
+    });
+
+    it('is complete when the turn count is unknown or no usage came back', async () => {
+      const context = await checklessFixture();
+      try {
+        const unknown = await review(context.runtime, [], new FakeReviewer({ ...ok(), usage: usageWith(null) }));
+        const absent = await review(context.runtime, [], new FakeReviewer(ok()));
+
+        assert.equal(unknown.result.status, 'complete');
+        assert.equal(unknown.result.statusReason, null);
+        assert.equal(absent.result.reviewer?.usage, null);
+        assert.equal(absent.result.status, 'complete');
+        assert.equal(absent.result.statusReason, null);
+        await nodeFileSystem.remove(unknown.snapshotDirectory);
+        await nodeFileSystem.remove(absent.snapshotDirectory);
+      } finally {
+        await context.dispose();
+      }
+    });
+
+    it('does not flag a replay, which carries no usage, as a short live review', async () => {
+      const context = await fixture();
+      try {
+        const output = await review(context.runtime, [], new ReplayFake(ok()));
+
+        assert.equal(output.result.reviewer?.source, 'replay');
+        assert.equal(output.result.reviewer?.usage, null);
+        assert.equal(output.result.status, 'partial');
+        assert.match(output.result.statusReason ?? '', /replayed from a recording/);
+        assert.doesNotMatch(output.result.statusReason ?? '', AT_MOST_ONE_CALL);
+        await nodeFileSystem.remove(output.snapshotDirectory);
+      } finally {
+        await context.dispose();
+      }
+    });
+
+    it('leaves a failed reviewer an error with its own reason, whatever the turn count', async () => {
+      const context = await fixture();
+      try {
+        const failed: ReviewerInvocation = {
+          kind: 'error',
+          reason: 'timeout',
+          detail: 'the reviewer did not answer in time',
+          argv: ['claude', '--print'],
+          usage: usageWith(2),
+        };
+        const output = await review(context.runtime, [], new FakeReviewer(failed));
+
+        assert.equal(output.result.status, 'error');
+        assert.equal(output.result.reviewer?.status, 'failed');
+        assert.match(output.result.statusReason ?? '', /timeout: the reviewer did not answer in time/);
+        assert.doesNotMatch(output.result.statusReason ?? '', AT_MOST_ONE_CALL);
+        await nodeFileSystem.remove(output.snapshotDirectory);
+      } finally {
+        await context.dispose();
+      }
+    });
+  });
+
   it('says one unverifiable location voids the whole review, in both prompts', async () => {
     const context = await fixture();
     try {

@@ -298,7 +298,9 @@ survive validation. It is not a review that found nothing.
 
 **A failed or skipped check does not block the review.** It narrows what was
 verified, which makes the result `partial` and puts the reason in part 4. Only a
-reviewer that produced nothing usable makes the result an `error`.
+reviewer that produced nothing usable makes the result an `error`. A review whose
+reviewer ran at most two turns is also `partial`, because it can have made at
+most one tool call, the answer itself.
 
 **An unverifiable claim invalidates the result.** If the reviewer named a path
 or a line the pinned change does not contain, cited a rule or requirement this
