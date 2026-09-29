@@ -1,0 +1,52 @@
+schemaVersion: 1
+id: angular-components
+authority: inherited
+appliesTo:
+  - "**/*.component.ts"
+  - "**/*.directive.ts"
+activities: [review, task, plan]
+
+source:
+  location: >-
+    AMBICODE Angular baseline, adapted from grahpt angular-components. The
+    framework-API expectations in the original (signal inputs, inject(), host
+    bindings, new control flow, OnPush) were not carried over as rules: they
+    depend on the Angular version a project runs and on the project adopting
+    them. Adopt them by adding a project pack once both are established.
+  externalVersion: "angular-v1"
+
+rules:
+  - id: component-responsibility
+    category: architecture
+    instruction: >-
+      A component owns rendering, local UI state, and user interaction. Transport
+      concerns and long-lived application state belong to the project's approved
+      service or facade layer, not to the component.
+    check:
+      kind: reviewer
+      explanation: >-
+        Assess against the consumers in the snapshot and the project's declared
+        structure. Report the ownership question when no structure is declared.
+
+  - id: component-size
+    category: architecture
+    instruction: >-
+      Where a component has grown to cover several independent interactions,
+      say which part would move to a sub-component, a directive, or a service,
+      and why that boundary exists.
+    check:
+      kind: reviewer
+      explanation: >-
+        Argue from the responsibilities present, not from a line count.
+
+  - id: template-duplication
+    category: architecture
+    instruction: >-
+      Repeated markup and repeated view logic across components are a reuse
+      question before they are a style question.
+    check:
+      kind: reviewer
+      explanation: Requires locating the other occurrence in the snapshot.
+
+prompts: []
+commandPolicy: []

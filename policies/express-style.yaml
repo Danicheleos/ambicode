@@ -1,0 +1,47 @@
+schemaVersion: 1
+id: express-style
+authority: inherited
+appliesTo:
+  - "**/*.ts"
+activities: [review, task]
+
+source:
+  location: >-
+    AMBICODE service style baseline, adapted from grahpt
+    express-typescript-style. Module-resolution and import-suffix expectations
+    depend on the project's own module configuration, so this pack defers to it
+    instead of prescribing a scheme. Review never invokes a formatter.
+  externalVersion: "express-v1"
+
+rules:
+  - id: configured-style
+    category: code-style
+    instruction: >-
+      Follow the project's configured lint and formatting rules, including its
+      module resolution and import conventions.
+    check:
+      kind: command
+      command: lint
+      explanation: The configured linter proves only the rules the project enabled.
+
+  - id: untrusted-boundary-typing
+    category: security
+    instruction: >-
+      Use `unknown` at an untrusted or catch boundary and narrow it explicitly.
+      A type that asserts unvalidated request data is already safe moves the
+      failure rather than preventing it.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed boundary.
+
+  - id: declared-return-types
+    category: code-style
+    instruction: >-
+      Declare the return type of an exported function or public method. Inline
+      callbacks may rely on inference where that reads better.
+    check:
+      kind: reviewer
+      explanation: Visible in the changed signatures.
+
+prompts: []
+commandPolicy: []

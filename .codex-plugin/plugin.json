@@ -1,0 +1,16 @@
+{
+  "name": "ambicode",
+  "version": "0.4.0",
+  "description": "Scoped project policy, evidence-backed checks, and independent code review for Codex.",
+  "skills": "./skills/",
+  "author": { "name": "Daniil Mikhailau" },
+  "interface": {
+    "displayName": "AMBICODE",
+    "shortDescription": "Evidence-backed project policy and code review",
+    "longDescription": "Apply scoped project policy, collect check evidence, and run independent code reviews from Codex.",
+    "developerName": "Daniil Mikhailau",
+    "category": "Developer Tools",
+    "capabilities": ["Read", "Write"],
+    "defaultPrompt": ["Review my changes with AMBICODE."]
+  }
+}

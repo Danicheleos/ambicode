@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AMBICODE &mdash; page closed</title>
+<link rel="stylesheet" href="/assets/page.css">
+</head>
+<body>
+<main>
+<section class="panel">
+<h1>The page is closed.</h1>
+<p>The local server has stopped. Nothing further was published, and the saved review is untouched on disk.</p>
+<p>You can close this tab. To look at the review again, run this in your terminal for a fresh link:</p>
+<pre class="argv"><%= it.reopenCommand %></pre>
+</section>
+</main>
+</body>
+</html>

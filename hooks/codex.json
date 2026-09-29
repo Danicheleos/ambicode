@@ -1,0 +1,21 @@
+{
+  "hooks": {
+    "SessionStart": [{
+      "matcher": "startup|resume|clear|compact",
+      "hooks": [{ "type": "command", "command": "node \"${PLUGIN_ROOT}/scripts/ambicode.mjs\" hook codex", "additionalContextLimit": 10000 }]
+    }],
+    "UserPromptSubmit": [{
+      "hooks": [{ "type": "command", "command": "node \"${PLUGIN_ROOT}/scripts/ambicode.mjs\" hook codex", "additionalContextLimit": 10000 }]
+    }],
+    "PostCompact": [{
+      "hooks": [{ "type": "command", "command": "node \"${PLUGIN_ROOT}/scripts/ambicode.mjs\" hook codex" }]
+    }],
+    "PostToolUse": [{
+      "matcher": "Edit|Write",
+      "hooks": [{ "type": "command", "command": "node \"${PLUGIN_ROOT}/scripts/ambicode.mjs\" hook codex", "additionalContextLimit": 5000 }]
+    }],
+    "SessionEnd": [{
+      "hooks": [{ "type": "command", "command": "node \"${PLUGIN_ROOT}/scripts/ambicode.mjs\" hook codex" }]
+    }]
+  }
+}

@@ -1,0 +1,91 @@
+schemaVersion: 1
+id: python-quality
+authority: inherited
+appliesTo:
+  - "**/*.py"
+activities: [review, task, plan, investigate]
+
+source:
+  location: >-
+    AMBICODE Python baseline, written for this release rather than translated
+    from the TypeScript rule packs.
+
+rules:
+  - id: exception-specificity
+    category: correctness
+    instruction: >-
+      Catch the exception types the code can actually handle. A bare `except:`
+      also catches KeyboardInterrupt and SystemExit; a bare `except Exception`
+      that logs and continues turns a failure into a silent one. Re-raise with
+      `raise` to keep the traceback, or `raise NewError(...) from original` when
+      translating.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed except clauses and what they do.
+
+  - id: resource-lifetime
+    category: correctness
+    instruction: >-
+      Acquire files, sockets, locks, database sessions, and subprocesses through
+      a context manager or an explicit close in a finally block, so the resource
+      is released on the failure path too.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed acquisition sites.
+
+  - id: mutable-default-arguments
+    category: correctness
+    instruction: >-
+      A default argument is evaluated once at definition time, so a list, dict,
+      or set default is shared by every call. Use None and build the value in
+      the body.
+    check:
+      kind: reviewer
+      explanation: Visible in the changed signature; verifiable by reading it.
+
+  - id: typing-at-boundaries
+    category: correctness
+    instruction: >-
+      Annotate the public functions, methods, and dataclasses a change adds.
+      Annotations are not enforced at runtime, so data arriving from a request,
+      a file, or a queue still needs validation where it enters.
+    check:
+      kind: reviewer
+      explanation: >-
+        Whether a type checker runs at all depends on the project's configured
+        commands; this rule does not assume one.
+
+  - id: async-blocking-calls
+    category: correctness
+    instruction: >-
+      A synchronous call inside a coroutine blocks the whole event loop. Use the
+      asynchronous client, or move the blocking work to an executor, and give
+      every outbound call a timeout.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed coroutines.
+
+  - id: project-configured-style
+    category: code-style
+    instruction: >-
+      Follow the formatting and lint configuration the project already has.
+      AMBICODE does not introduce a new opinionated style, and review never runs
+      an autofix.
+    check:
+      kind: command
+      command: lint
+      explanation: >-
+        The configured linter proves only the rules the project enabled.
+
+  - id: import-side-effects
+    category: architecture
+    instruction: >-
+      Keep work out of module import time. Configuration reads, network calls,
+      and singleton construction at import make behaviour depend on import
+      order and make tests hard to isolate.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed module level statements.
+
+prompts: []
+commandPolicy: []
