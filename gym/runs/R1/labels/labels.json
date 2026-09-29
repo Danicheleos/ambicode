@@ -59,5 +59,11 @@
     "detail": "Both (a) and (b). (a): drop only the unit-check-ran grader for p2-task-regression-fix on Sonnet; plugin-fired and helper-ran stay required, since Sonnet in the owner's local sessions does call the plugin and its scripts. (b): change the case prompt of p2-task-regression-fix so it asks for the change with a verb the task skill's description names (e.g. \"implement the fix\"); the owner accepts this fixture change outside 02 section 3.3's list. Measured cause: preflight failed 4 of 4 with Skill 0x and Bash 0x, the kept trace shows the fix done directly; regression-ts passes 4 of 4. Both go through one replan; after it, rerun the preflight on Sonnet (expected: plugin-fired and helper-ran pass), then T2 for H2 and tag cp-S0. If the preflight still fails with the new prompt, stop and report; do not weaken plugin-fired or helper-ran. (d) not answered; default applies (no new T1 case). Note: the prompt change also applies to the Opus arm of T2, so its baseline for this case must be re-measured or the case excluded from the Opus comparison.",
     "by": "owner (choice); written by the owner's planning session",
     "at": "2026-09-29T11:00:46.395Z"
+  },
+  "R-2": {
+    "label": "applied",
+    "detail": "Replan R-2 applied: commit bd93959, tag gym/R1/replan-2, planDigest c7d037a1911594eb921dbc9890437b1f1f3e8108b98002c48f5b10550d406317 (was a7feb66f...; matched the Supersedes line before apply). gym/plan/rev-2 moved over gym/plan; CAMPAIGN.md updated. Next: H2-repair, then H2-T2.",
+    "by": "owner's planning session",
+    "at": "2026-09-29T11:21:53.171Z"
   }
 }
