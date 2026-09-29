@@ -9,8 +9,8 @@ allowed_tools: [Read, Glob, Grep, Bash, Skill]
 ---
 
 In the repository at `repo/`, there is an uncommitted change to `src/math.js`
-that a teammate believes introduced a bug in `add`. Find it, fix it, and
-verify the fix.
+that a teammate believes introduced a bug in `add`. Find it.
+Use the ambicode task skill to implement the fix, and verify the fix.
 
 `repo/` is the repository under review. Change into it with `cd repo` before
 running anything, and run every command from there; a command run anywhere
