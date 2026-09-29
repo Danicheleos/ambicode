@@ -2,6 +2,7 @@
 // Stand-in for `claude -p` in supervisor tests: plays one scripted step per invocation.
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 const plan = JSON.parse(readFileSync(process.env.GYM_STUB_PLAN, 'utf8'));
 const counter = process.env.GYM_STUB_PLAN + '.n';
 const n = existsSync(counter) ? Number(readFileSync(counter, 'utf8')) : 0;
@@ -20,6 +21,11 @@ if (step.dirty) writeFileSync(path.join(process.env.GYM_REPO_ROOT, 'src-change.t
 if (step.status) writeFileSync(path.join(campaign, 'CAMPAIGN.md'), `status: ${step.status}\n`);
 if (step.kill) writeFileSync(path.join(state, 'KILL'), JSON.stringify({ at: 'now', event: 'PreToolUse', rule: step.kill, reason: 'test', sessionId, agentId: null, tool: 'Bash', input: 'x' }));
 if (step.sleepMs) await new Promise((r) => setTimeout(r, step.sleepMs));
+// The owner acting after the session ended: [path under the campaign dir, content, delay ms].
+if (step.writeLater) {
+  const [rel, content, ms] = step.writeLater;
+  spawn(process.execPath, ['-e', `setTimeout(() => require('fs').writeFileSync(${JSON.stringify(path.join(campaign, rel))}, ${JSON.stringify(content)}), ${ms})`], { detached: true, stdio: 'ignore' }).unref();
+}
 process.stdout.write(JSON.stringify({ type: 'system', subtype: 'init', session_id: sessionId }) + '\n');
 if (!step.noResult) process.stdout.write(JSON.stringify({ type: 'result', subtype: step.isError ? 'error' : 'success', is_error: step.isError === true, total_cost_usd: step.cost ?? 0.01, result: step.resultText ?? '', ...(step.apiErrorStatus ? { api_error_status: step.apiErrorStatus } : {}) }) + '\n');
 process.exit(step.exitCode ?? 0);

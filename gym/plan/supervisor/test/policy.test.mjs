@@ -240,12 +240,12 @@ describe('supervisor decision table', () => {
     const second = superviseDecision({ ...base, violations: 1, killMarker: { rule: 'agent-escape' } });
     assert.deepEqual([second.action, second.rollback], ['halt', true]);
   });
-  it('sleeps on a rate limit, halts at 90% of budget, exits on STOP, done and blocked', () => {
+  it('sleeps on a rate limit, halts at 90% of budget, exits on STOP and done, waits when blocked', () => {
     assert.equal(act({ rateLimited: true, exitCode: 1 }), 'sleep');
     assert.equal(act({ spentUsd: 450 }), 'halt');
     assert.equal(act({ stopFile: true }), 'exit');
     assert.equal(act({ campaignStatus: 'done' }), 'exit');
-    assert.equal(act({ phase: 'blocked' }), 'exit');
+    assert.equal(act({ phase: 'blocked' }), 'wait');
   });
   it('a kill outranks a rate limit and the budget', () => {
     assert.equal(act({ killMarker: { rule: 'x' }, rateLimited: true, spentUsd: 499 }), 'fresh');

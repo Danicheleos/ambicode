@@ -15,5 +15,25 @@
     "label": "250",
     "by": "owner",
     "at": "2026-09-29T03:24:22.933Z"
+  },
+  "L-012": {
+    "label": "a",
+    "detail": "Raise the ceiling to 400 USD (90 % stop = 360). Keep economizing: cheapest measurement the signal rules accept.",
+    "by": "owner (value); written by the owner planning session",
+    "at": "2026-09-29T08:54:57.804Z"
+  },
+  "L-011": {
+    "label": "a: drop T3 count as a control; b: accept WP2 on gates + tests; replan",
+    "a": "Do not confirm or reject it-003 on T3: the T3 finding count is not a valid control. Same build, same day, byte-identical prompts gave be-vs-5546 2/5/4 and be-vs-3571 3/3/6 (it-003/scratch/t3-same-day-ab.txt); the count says nothing about quality (be-vs-5546 stored recording: 1 medium correctness bug + 3 low items; the human MR comments were 2 style/structure items). Replace T3 as a control with stability of medium-and-above findings across runs, and make the recorder keep every run instead of overwriting by snapshot id (only counts survive in record-*.log today).",
+    "b": "Accept WP2 on gates plus its reproducing tests. Do not make a human VS-* cycle a per-iteration condition: product changes per iteration are small and the owner will not run the work repository for each. Replace per-iteration T4 with an automated proxy: headless investigate/plan/task sessions on a fixture repository (fixtures/materialize.mjs) with a stub requirements MCP server, scored by tools/transcript-metrics.py (fabricated provenance, refused review launches, MCP-server questions). The owner human cycle (L-010) becomes one confirmation at the end of cycle 1, not a gate for each WP.",
+    "also": "Measurement costs dominate (~$136 of ~$161 on sweeps): run the full 3-run/arm T2 decision sweep only at checkpoints, with a 1-run screening per iteration. This changes 01/02/03, so do it through a replan (09 §2); this label is the owner confirmation it needs.",
+    "by": "owner (decision); written by the owner planning session",
+    "at": "2026-09-29T09:14:36.733Z"
+  },
+  "owner-directive-1": {
+    "label": "evaluated model -> claude-sonnet-5-5; new baseline; context 150k/200k",
+    "detail": "Owner directive, not an answer to a queued question; applies from now and belongs in the L-011 replan. (1) Every eval suite the campaign runs (T1 triggers, T2 curated sweeps, preflight, any screening) uses --model claude-sonnet-5-5 instead of claude-opus-5-5. Reason: cost; recomputed from R1 traces, an Opus T2 run costs ~$0.45-0.80, mostly 1-hour cache writes at $8/MTok. (2) Before the next comparison, measure a new Sonnet baseline on the current accepted build (gym/R1/it-003): T1 once and T2 at 3 runs/arm; tag it as the new reference checkpoint. cp-0..cp-2 Opus numbers stay as history and are not compared with Sonnet numbers. (3) The lead itself now runs on claude-sonnet-5-5, and the supervisor context limits are soft 150000 / hard 200000 (were 300000 / 500000); the plan text in 10-supervisor.md still says 300k/500k, the guard enforces the new values.",
+    "by": "owner (decision); written by the owner planning session",
+    "at": "2026-09-29T09:23:24.943Z"
   }
 }

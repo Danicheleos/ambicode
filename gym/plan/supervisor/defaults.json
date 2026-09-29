@@ -1,8 +1,8 @@
 {
-  "model": "claude-opus-5-5",
+  "model": "claude-sonnet-5-5",
   "effort": "high",
-  "softTokens": 300000,
-  "hardTokens": 500000,
+  "softTokens": 150000,
+  "hardTokens": 200000,
   "sessionBudgetUsd": 80,
   "idleMinutes": 120,
   "maxViolations": 2,

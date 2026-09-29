@@ -51,6 +51,8 @@ function loadConfig(opts) {
     maxSessions: num(opts.maxSessions, Infinity),
     sleepMinutes: opts.sleepSeconds !== undefined ? [Number(opts.sleepSeconds) / 60] : defaults.sleepMinutes,
     fixedSleep: opts.sleepSeconds !== undefined,
+    // Reading one small file every 30 s costs nothing; the owner answers in minutes at best.
+    labelPollMs: num(opts.labelPollSeconds, 30) * 1000,
     claudeBin: process.env.GYM_CLAUDE_BIN ?? 'claude',
     dryRun: opts.dryRun === true,
     resetViolations: opts.resetViolations === true,
@@ -122,6 +124,23 @@ function settingsFile(cfg) {
   const file = path.join(cfg.stateDir, 'lead-settings.json');
   writeFileSync(file, JSON.stringify(settings, null, 2) + '\n');
   return file;
+}
+
+function labelsDigest(cfg) {
+  try {
+    return createHash('sha256').update(readFileSync(path.join(cfg.campaignDir, 'labels', 'labels.json'))).digest('hex');
+  } catch {
+    return null;
+  }
+}
+
+/** Blocked on the owner: wait for an answer in labels.json (changed since the session started) or for STOP. */
+async function waitForOwner(cfg, digestAtLaunch) {
+  for (;;) {
+    if (existsSync(path.join(cfg.campaignDir, 'STOP'))) return 'stop';
+    if (labelsDigest(cfg) !== digestAtLaunch) return 'answered';
+    await new Promise((r) => setTimeout(r, cfg.labelPollMs));
+  }
 }
 
 function freshPrompt(cfg, incident) {
@@ -340,6 +359,7 @@ async function run(cfg) {
     const launch = { index: state.sessions + 1, resume: next.resume, sessionId, prompt: next.prompt };
     if (cfg.dryRun) { log(cfg, { event: 'dry-run', argv: [cfg.claudeBin, ...claudeArgs(cfg, launch)] }); return 0; }
     const before = progressSignature(cfg);
+    const labelsAtLaunch = labelsDigest(cfg);
     log(cfg, { event: 'launch', index: launch.index, resume: launch.resume, sessionId });
     const outcome = await runSession(cfg, launch);
     state.sessions += 1;
@@ -397,6 +417,17 @@ async function run(cfg) {
       notify(cfg, `HALTED: ${decision.reason}. Remove ${path.relative(cfg.repoRoot, cfg.campaignDir)}/STOP after review to resume.`);
       log(cfg, { event: 'halt', reason: decision.reason });
       return 2;
+    }
+    if (decision.action === 'wait') {
+      // Exiting here left R1 stopped overnight after the owner had answered L-009 (restart by hand at 05:24).
+      notify(cfg, decision.reason);
+      log(cfg, { event: 'wait', reason: decision.reason });
+      if (await waitForOwner(cfg, labelsAtLaunch) === 'stop') { log(cfg, { event: 'exit', reason: 'STOP file while waiting for the owner' }); return 0; }
+      state.consecutiveFailures = 0;
+      writeFileSync(stateFile, JSON.stringify(state, null, 2) + '\n');
+      log(cfg, { event: 'owner-answered' });
+      next = { resume: false, prompt: `${freshPrompt(cfg, null)}\nThe owner changed ${path.relative(cfg.repoRoot, cfg.campaignDir)}/labels/labels.json while you were blocked; read it first.` };
+      continue;
     }
     if (decision.action === 'sleep') {
       const minutes = !cfg.fixedSleep && outcome.waitMinutes !== null

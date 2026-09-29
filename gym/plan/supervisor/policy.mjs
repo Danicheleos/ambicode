@@ -4,11 +4,12 @@ import path from 'node:path';
 
 export const LEVEL = { allow: 'allow', deny: 'deny', kill: 'kill' };
 
-// Defaults requested by the owner (2026-09-29): wrap up from ~300k, hard stop of new work at 500k.
-// Measured for scale: one 3-iteration task session reached 313,178 tokens with no compaction.
+// Owner, 2026-09-29: wrap up from 150k, no new heavy work at 200k. Every call re-reads the whole context:
+// R1 lead session 84590080 made 144 calls at ~160k and read 23M cached tokens ($4.61 of its $9.21 Opus share).
+// The earlier 300k/500k let late calls cost twice as much; a fresh session rebuilds state in ~50-60k.
 export const DEFAULTS = {
-  softTokens: 300_000,
-  hardTokens: 500_000,
+  softTokens: 150_000,
+  hardTokens: 200_000,
   // Advice is re-sent each time context grows this much past a threshold, not on every tool call.
   adviceStepTokens: 25_000,
   // Persistent probing of denied actions is treated as an escape attempt.
@@ -334,7 +335,7 @@ export function usageLimitWaitMinutes(text, now = new Date()) {
 
 /**
  * Supervisor decision after a lead session ends. Pure: the caller supplies the observed state.
- * Returns { action: 'exit'|'halt'|'fresh'|'resume'|'sleep', reason, rollback?: boolean }.
+ * Returns { action: 'exit'|'halt'|'fresh'|'resume'|'sleep'|'wait', reason, rollback?: boolean }.
  */
 export function superviseDecision(s) {
   if (s.stopFile) return { action: 'exit', reason: 'STOP file present' };
@@ -353,7 +354,7 @@ export function superviseDecision(s) {
   const tokens = s.tokens ?? 0;
   const normal = s.exitCode === 0 && !s.signal && !s.watchdog && !s.resultIsError;
   if (normal) {
-    if (s.phase === 'blocked') return { action: 'exit', reason: 'lead is blocked on the owner (PHASE blocked)', notify: true };
+    if (s.phase === 'blocked') return { action: 'wait', reason: 'lead is blocked on the owner (PHASE blocked); waiting for labels/labels.json to change', notify: true };
     if (s.phase === 'handoff' || (s.phase === 'idle' && tokens >= s.soft)) return { action: 'fresh', reason: `planned rollover at ${tokens} tokens` };
     if (tokens >= s.hard) return { action: 'fresh', reason: `unexpected stop in phase ${s.phase ?? 'unknown'} above the hard limit` };
     return { action: 'resume', reason: `unexpected stop in phase ${s.phase ?? 'unknown'} at ${tokens} tokens` };

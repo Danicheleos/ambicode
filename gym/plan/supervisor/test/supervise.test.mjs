@@ -161,6 +161,28 @@ describe('supervisor loop against a stub claude', () => {
     } finally { s.cleanup(); }
   });
 
+  it('waits while blocked on the owner and continues fresh once labels.json changes', () => {
+    const s = scenario([{ phase: 'blocked', writeLater: ['labels/labels.json', '{"L-001":{"label":"400"}}\n', 300] }, { status: 'done' }], ['--label-poll-seconds', '0.05'], (repo) => {
+      mkdirSync(path.join(repo, 'gym', 'runs', 'c1', 'labels'), { recursive: true });
+      writeFileSync(path.join(repo, 'gym', 'runs', 'c1', 'labels', 'labels.json'), '{}\n');
+    });
+    try {
+      assert.equal(s.r.status, 0, s.r.stdout + s.r.stderr);
+      assert.deepEqual(s.decisions, ['wait', 'exit']);
+      assert.equal(resumed(s.argv[1]), false);
+      assert.match(s.argv[1][1], /changed .*labels\/labels\.json while you were blocked/);
+    } finally { s.cleanup(); }
+  });
+
+  it('a STOP file ends the wait for the owner without another launch', () => {
+    const s = scenario([{ phase: 'blocked', writeLater: ['STOP', 'owner\n', 300] }], ['--label-poll-seconds', '0.05']);
+    try {
+      assert.equal(s.r.status, 0, s.r.stdout + s.r.stderr);
+      assert.deepEqual(s.decisions, ['wait']);
+      assert.equal(s.argv.length, 1);
+    } finally { s.cleanup(); }
+  });
+
   it('does not sleep when a healthy session merely mentions a rate limit', () => {
     const s = scenario([{ phase: 'handoff', tokens: 320_000, progress: true, resultText: 'noted: rate limit on eval runs' }, { status: 'done' }]);
     try { assert.deepEqual(s.decisions, ['fresh', 'exit']); } finally { s.cleanup(); }
