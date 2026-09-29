@@ -35,5 +35,11 @@
     "detail": "Owner directive, not an answer to a queued question; applies from now and belongs in the L-011 replan. (1) Every eval suite the campaign runs (T1 triggers, T2 curated sweeps, preflight, any screening) uses --model claude-sonnet-5-5 instead of claude-opus-5-5. Reason: cost; recomputed from R1 traces, an Opus T2 run costs ~$0.45-0.80, mostly 1-hour cache writes at $8/MTok. (2) Before the next comparison, measure a new Sonnet baseline on the current accepted build (gym/R1/it-003): T1 once and T2 at 3 runs/arm; tag it as the new reference checkpoint. cp-0..cp-2 Opus numbers stay as history and are not compared with Sonnet numbers. (3) The lead itself now runs on claude-sonnet-5-5, and the supervisor context limits are soft 150000 / hard 200000 (were 300000 / 500000); the plan text in 10-supervisor.md still says 300k/500k, the guard enforces the new values.",
     "by": "owner (decision); written by the owner planning session",
     "at": "2026-09-29T09:23:24.943Z"
+  },
+  "R-1": {
+    "decision": "confirmed and applied",
+    "detail": "Owner confirms replan R-1 as drafted, including both rows the lead flagged: (1) provisional accept on a 1-run screening, confirmed by the 3 runs/arm sweep at the next checkpoint, with bisection by revert iterations if that checkpoint is no-go; (2) a T4-claim change is accepted on its reproducing tests until T4p exists, the human T4 stays observed until cp-5. Applied per 09 §2 step 6: commit 68ecd0c, tag gym/R1/replan-1, planDigest a7feb66fef5cf1d2ecff7ba3aee4eb57e6e8f217c64abc2a21bd7f1e81c9ca5f in CAMPAIGN.md. The supervisor already runs with --budget-usd 400 (supervisor.log start 09:25:51Z). Stale text the lead listed (04:18, 05:31, USER-GUIDE:60, README Open TBDs, 10 25k/99 tests, 02 §3.7) stays for a later replan.",
+    "by": "owner; applied by the owner planning session",
+    "at": "2026-09-29T09:47:54.601Z"
   }
 }
