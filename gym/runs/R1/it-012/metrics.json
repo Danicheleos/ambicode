@@ -1,0 +1,32 @@
+{
+  "iteration": "it-012",
+  "commit": "65f5aaa (brief) + diff.patch on top; the change is reset out of the tree (no tag); the record commit is the one that first holds this file",
+  "pluginVersion": "0.3.4",
+  "capturedAt": "2026-09-29T13:30:00Z",
+  "models": { "agent": "claude-sonnet-5-5", "reviewer": null, "judge": null },
+  "G1": { "exit": 0, "tests": 813, "pass": 812, "fail": 0, "skipped": 1, "log": "verify.log", "note": "+2 over it-011's 811: the two new tests of this diff (the flag test, the drift test); the extended sidecar test replaced an assertion with a stricter one, none removed" },
+  "G2": { "exit": 0, "zipSha256": "1585ac05ebf11f65d34674b82b7de99c0d353a22d3be6e676e9f0e8d213086ad", "note": "identical to it-011 (evals/ is not in the plugin zip); reproducible across two runs", "log": "g2.log" },
+  "G3": { "exit": 0, "files": 582, "log": "g3.log", "note": "node check-line-endings.mjs; 582 tracked text files (it-011: 573, the difference is gym/runs files committed since)" },
+  "reproduction": { "log": "before.log", "note": "the three new or extended tests fail against the unmodified evals-record-core.mjs (test file with the SHORT_REVIEWER_TURNS import replaced by undefined, because the unmodified module lacks the export and the file otherwise fails at import); they pass with the diff (recorder file 21 of 21, all evals/scripts tests 110 of 110 in the worker's worktree)" },
+  "flagReach": { "source": "it-006/scratch/aa-{1,2}/usage.json", "atMostOneToolCall": { "true": 24, "false": 22, "null": 0 }, "note": "lead's own count with a 6-line node script over the two A/A sidecars, matching the brief's 24 of 46" },
+  "preflight": {
+    "model": "claude-sonnet-5-5",
+    "passed": false,
+    "runs": [
+      { "log": "scratch/preflight-1.log", "costUsd": 0.2, "failed": "p2-task-regression-fix helper-ran: Bash called 0x" },
+      { "log": "scratch/preflight-2.log", "costUsd": 0.19, "failed": "p2-task-regression-fix helper-ran: Bash called 0x", "keepTemp": true, "trace": "/private/tmp/e-065zM5/out/trace.jsonl" }
+    ],
+    "cause": "second run only (first run's trace was not kept): the agent called Skill ambicode:task once and Bash 6 times, one of them `node /Users/KillBill/Documents/projects/mine/ai/ambicode/scripts/ambicode.mjs review 2>&1 | tail -40`. The grader's input_match `ambicode(\\.mjs\\\\\")? review` matches `ambicode review` and a quoted `...ambicode.mjs\" review`, not an unquoted path: 0 of 6 Bash inputs match, 1 of 6 ran the helper (evals-preflight.mjs imports nothing local, so the diff cannot reach this path)",
+    "history": "same case, same prompt, Sonnet: it-009 pass, it-011 pass, it-012 fail 2 of 2"
+  },
+  "T1": null,
+  "T1note": "T1 skipped: no trigger surface touched",
+  "T2": null,
+  "T2note": "T2 screening NOT RUN: 02 §3.5 step 2 requires a passing preflight first, and 02 §3.5 forbids running T2 behind a failing one (B2 stop). This is the required check of 02 §4 for evals/scripts/** and it is a gap in verification, not a null result",
+  "T3": null,
+  "T4": null,
+  "T4p": null,
+  "costUsd": 0.39,
+  "costBreakdown": { "preflight1": 0.2, "preflight2": 0.19, "t2Screening": 0 },
+  "notes": "Eval spend only. Lead, worker and the (absent) verifier are counted by the supervisor."
+}
