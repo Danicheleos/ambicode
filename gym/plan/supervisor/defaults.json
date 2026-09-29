@@ -1,0 +1,26 @@
+{
+  "model": "claude-opus-5-5",
+  "effort": "high",
+  "softTokens": 300000,
+  "hardTokens": 500000,
+  "sessionBudgetUsd": 80,
+  "idleMinutes": 120,
+  "maxViolations": 2,
+  "maxFailures": 3,
+  "maxDenialsPerSession": 5,
+  "sleepMinutes": [15, 30, 60, 120],
+  "loadPluginFromRepo": true,
+  "forbiddenRoots": ["/Users/KillBill/Documents/projects/inseer"],
+  "allowedTools": ["Bash", "Read", "Edit", "Write", "Glob", "Grep", "Agent", "Skill", "TodoWrite", "ToolSearch", "Monitor"],
+  "volatileInputs": [
+    "~/.claude/projects/-Users-KillBill-Documents-projects-inseer-inseer-frontend/8efdbd08-d9f5-45e9-b69e-98333a4275eb.jsonl",
+    "~/.claude/projects/-Users-KillBill-Documents-projects-inseer-inseer-frontend/9a235fc3-aa67-402d-8ef2-6e115f369eac.jsonl",
+    "gym/planing/investigation/cache/VS-6735",
+    "benchmarks/reviewer-recordings.json",
+    "evals/evals-core/results/eval-2026-09-28T11-55-27-862Z.json",
+    "evals/evals-core/results/eval-2026-09-28T13-30-05-452Z.json",
+    "evals/evals-core/results/eval-2026-09-28T16-18-49-737Z.json",
+    "evals/evals-core/results/traces",
+    "@snapshots:gym/planing/investigation/cache/VS-6735/reviews"
+  ]
+}

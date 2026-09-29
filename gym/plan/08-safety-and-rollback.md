@@ -23,6 +23,8 @@ worker, human):
 
 ## 2. Emergency shutdown
 
+**Automatic path (unattended runs).** The guard ([10 §5](10-supervisor.md#5-guard-levels)) turns a kill-level trigger into an immediate session stop, and the supervisor carries out steps 2–7 below itself: it terminates the process group, stashes uncommitted plugin changes, writes the incident, notifies, and restarts fresh. On the second kill in a campaign it halts, and the owner's decision (2026-09-29) replaces step 7's "no further spend" for the first kill only ([10 §4](10-supervisor.md#4-what-the-supervisor-does-when-a-session-ends)). The manual steps apply when a human or a role other than the guard invokes the stop.
+
 Who may invoke: anyone in §1. Steps, in order, none skipped:
 
 1. `touch gym/runs/<campaign-id>/STOP` — every role checks this before each tool call that spends or writes; presence ends the loop ([02 §1](02-loop-protocol.md#1-entry-conditions)).

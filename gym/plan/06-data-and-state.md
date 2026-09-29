@@ -30,6 +30,9 @@ gym/runs/<campaign-id>/
   incidents/                       one file per emergency stop or rollback (08 §5)
   archive/                         NOT committed: durable copies of volatile inputs (§5)
   STOP                             presence = emergency stop requested (08 §2); never committed
+  PHASE                            `<it-NNN> <phase>`, the lead's current step (10 §3); never committed
+  OWNER-INBOX.md                   supervisor notices for the owner (10 §4); committed
+  supervisor/                      NOT committed: guard.log, supervisor.log, session streams, context.json, KILL marker, state.json
 ```
 
 Campaign id: `<YYYY-MM-DD>-<slug>` of the start date, e.g. `2026-09-29-c1`.
@@ -40,15 +43,19 @@ Campaign id: `<YYYY-MM-DD>-<slug>` of the start date, e.g. `2026-09-29-c1`.
 |---|---|---|
 | `CAMPAIGN.md`, `STATE.md`, `it-NNN/{brief,decision}.md`, `it-NNN/metrics.json`, `it-NNN/handoffs/*.md`, `labels/*`, `incidents/*` | yes | Reconstruction needs them; they carry numbers and paths, not NDA content |
 | `it-NNN/diff.patch`, `it-NNN/verify.log` | yes | Diff of this repository only (`':!gym'` excludes campaign files); verify output has no NDA content |
-| `it-NNN/scratch/**`, `archive/**`, `STOP` | no | Eval result JSON embeds benchmark prompts (NDA, `evals/evals-core/README.md:3-4`); traces embed code; recordings and snapshots embed the FE repository |
+| `it-NNN/scratch/**`, `archive/**` (except `archive/MANIFEST.txt`), `STOP`, `PHASE`, `supervisor/**` | no | Eval result JSON embeds benchmark prompts (NDA, `evals/evals-core/README.md:3-4`); traces embed code; recordings and snapshots embed the FE repository |
 
-The lead adds, in iteration 0, a `gym/runs/.gitignore` containing exactly:
+The supervisor writes `gym/runs/.gitignore` before the first launch (`ensureIgnored`, `supervisor/supervise.mjs`), containing:
 
 ```gitignore
 **/scratch/
 **/archive/
 **/STOP
+**/PHASE
+**/supervisor/
 ```
+
+`archive/MANIFEST.txt` is committed with `git add -f`; the session streams under `supervisor/` can carry NDA text.
 
 Rule for every committed file: it may name a case id (`be-vs-5928`), a ticket key
 (`VS-6735`) or a file path, because tracked notes already do
@@ -105,8 +112,10 @@ judgeCostUsd, passed, score, skippedPaidGraders, startedAt, tracePath, turns`).
 
 ## 5. Volatile inputs to archive before iteration 1
 
-Copied once into `gym/runs/<campaign-id>/archive/` (not committed), with a
-`sha256sum` manifest in `archive/MANIFEST.txt` that **is** committed:
+Copied once into `gym/runs/<campaign-id>/archive/` (not committed) by the owner with
+`node gym/plan/supervisor/supervise.mjs archive --campaign <campaign-id>` (list in
+`supervisor/defaults.json` → `volatileInputs`), with a sha256 manifest in
+`archive/MANIFEST.txt` that **is** committed:
 
 | Source (exists at planning time) | Why volatile |
 |---|---|
@@ -122,7 +131,7 @@ Copied once into `gym/runs/<campaign-id>/archive/` (not committed), with a
 2. `cat gym/runs/<campaign-id>/STATE.md` — the iteration table; its last row is where work stopped.
 3. `ls gym/runs/<campaign-id>/it-*/` — a directory with `brief.md` but no `decision.md` is an iteration in flight; treat it as rejected unless `metrics.json` is complete and `verify.log` ends with `exit=0`.
 4. `test -e gym/runs/<campaign-id>/STOP` — if present, the campaign is stopped; read `incidents/` before anything else.
-5. `sha256sum -c gym/runs/<campaign-id>/archive/MANIFEST.txt` — confirms the volatile inputs are intact.
+5. `(cd gym/runs/<campaign-id> && sha256sum -c archive/MANIFEST.txt)` — confirms the volatile inputs are intact.
 6. `git status --short` must be empty apart from `gym/runs/**/scratch` and `archive` — anything else is an unrecorded change: diff it, then discard or record it before continuing.
 
 Nothing in the lead's or a helper's memory counts as state. If it is not on disk under

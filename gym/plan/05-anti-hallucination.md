@@ -26,6 +26,12 @@ After any compaction, restart or resume, the lead re-enters through
 [01](01-goals-and-metrics.md) and the current `brief.md` before its next tool call. A
 lead that "remembers" a number it cannot find on disk treats it as unknown.
 
+The guard enforces the re-entry: after a compaction its SessionStart hook tells the lead
+that the summary is not evidence and to rebuild from disk. The context budget in
+[10 §2](10-supervisor.md#2-context-budget) makes the lead hand off at 300–500k tokens,
+so compaction should be rare. Every compaction is logged in
+`supervisor/compactions.jsonl`.
+
 ## 3. Cross-checks
 
 - **Verifier vs lead:** every T-number in `metrics.json` is re-extracted by the verifier from the same result files with different commands ([04 §2](04-orchestration.md#2-verifier)). Disagreement → inconclusive.

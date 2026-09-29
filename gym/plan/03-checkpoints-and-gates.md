@@ -53,6 +53,8 @@ Any one of these stops the loop before the next iteration starts; the lead write
 | S8 | Plan drift | `planDigest` mismatch; a helper report cites a file that does not exist ([05 §5](05-anti-hallucination.md#5-red-flags)) twice in one iteration |
 | S9 | Unanswered labels | ≥ 3 label defaults taken in a row on decisions that turned on them |
 
+In unattended runs the supervisor applies S2, S3 (as "3 sessions without progress") and S7 itself and halts with a `STOP` file; see [10 §4](10-supervisor.md#4-what-the-supervisor-does-when-a-session-ends).
+
 Escalation = the incident file plus a one-paragraph message to the owner in the channel
 named in `CAMPAIGN.md` (**TBD: the owner's channel**). No further model spend until a
 human line clears it.

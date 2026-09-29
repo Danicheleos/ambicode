@@ -150,7 +150,7 @@ Every X and U row above, with the step that resolves it.
 | Q6 | Should `partial` be reported when only a null-configured check is missing? | Product decision; default in this plan: **no change** | human |
 | Q7 | Does LSP index the FE project in a fresh session? | One `findReferences` on `advanced-table-view.model.ts:14` in a fresh FE session; count references | human |
 | Q8 | Token cost per real session (Opus 5.5 pricing) | Not derivable from the repo; TBD: pricing source | human |
-| Q9 | "cache-stable" hook contract | No repo evidence; drop the claim | — |
+| Q9 | "cache-stable" hook contract | **Resolved 2026-09-29.** Stable within a session: the text depends only on the contract file (`src/hook/run-hook.ts:104-116`) and is delivered once per epoch; guarded by the test "delivers byte-identical contract text regardless of session, agent, epoch or event" (`src/hook/run-hook.test.ts`, fails when a session id is appended; `npm run verify` 752 tests). Not reusable across sessions: it is injected as a `hook_additional_context` attachment in the first user turn, and five same-day Opus sessions share an identical first-turn `cache_read` of 25,424 tokens, so the cached prefix ends before it (inferred). Worth ≈ 640 tokens per session; not a lever | — |
 | Q10 | Which model and effort ran the real sessions vs the sandbox | traces say `claude-opus-5-5`; effort not recorded anywhere; TBD: pass `--model` explicitly (WP0) | lead |
 
 ## Assumptions

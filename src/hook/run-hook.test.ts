@@ -325,6 +325,38 @@ describe('G/H: ambicode hook (PostToolUse edit reminders)', () => {
     }
   });
 
+  it('delivers byte-identical contract text regardless of session, agent, epoch or event', async () => {
+    // Any per-session byte in this text breaks prompt-cache reuse of the turn that carries it.
+    const { repo, dispose } = await fixtureWithPack();
+    try {
+      const runtime = await createRuntime({ cwd: repo.root });
+      const first = randomUUID();
+      const second = randomUUID();
+      const contextOf = async (event: Record<string, unknown>): Promise<string> => {
+        const output = (await runHook(runtime, JSON.stringify(event))) as {
+          hookSpecificOutput?: { additionalContext?: string };
+        };
+        const text = output.hookSpecificOutput?.additionalContext;
+        assert.ok(text, `no contract delivered for ${JSON.stringify(event)}`);
+        return text;
+      };
+
+      const deliveries = [
+        await contextOf({ hook_event_name: 'SessionStart', session_id: first }),
+        await contextOf({ hook_event_name: 'SessionStart', session_id: second }),
+        await contextOf({ hook_event_name: 'UserPromptSubmit', session_id: first, agent_id: 'subagent-1' }),
+      ];
+      await runHook(runtime, JSON.stringify({ hook_event_name: 'PostCompact', session_id: second }));
+      deliveries.push(await contextOf({ hook_event_name: 'UserPromptSubmit', session_id: second }));
+
+      const [reference, ...rest] = deliveries as [string, ...string[]];
+      for (const text of rest) assert.equal(text, reference);
+      for (const varying of [first, second, 'subagent-1']) assert.ok(!reference.includes(varying));
+    } finally {
+      await dispose();
+    }
+  });
+
   it('stays a silent no-op when the contract cannot be read, rather than failing the session event', async () => {
     const { repo, dispose } = await fixtureWithPack();
     try {

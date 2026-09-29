@@ -21,6 +21,7 @@ anything else is labelled ASSUMPTION and listed in [00 Assumptions](00-audit.md#
 | [07-blockers.md](07-blockers.md) | Blocker types B1–B9, playbooks, retry limits, known blockers K1–K8, replan triggers |
 | [08-safety-and-rollback.md](08-safety-and-rollback.md) | Emergency triggers E1–E8, shutdown steps, rollback to any tag, security constraints, post-incident audit |
 | [09-replan.md](09-replan.md) | Replan triggers R1–R10, procedure, superseding without losing history, what a replan may not do |
+| [10-supervisor.md](10-supervisor.md) | Unattended runs: supervisor loop, guard hook (allow/deny/kill), context budget 300k/500k, safe points and PHASE, restart/resume/halt table, verified behaviour, limits; code in `supervisor/` |
 | [USER-GUIDE.md](USER-GUIDE.md) | For the owner: prerequisites, decisions, kickoff prompt, monitoring, labels, stop/resume/handover |
 
 ## Reading order for a lead starting cold
@@ -29,7 +30,7 @@ anything else is labelled ASSUMPTION and listed in [00 Assumptions](00-audit.md#
 2. [06-data-and-state.md](06-data-and-state.md) — where things go; if `gym/runs/<campaign-id>/` exists, run §6 reconstruction now and skip to step 6.
 3. [01-goals-and-metrics.md](01-goals-and-metrics.md) — the definition, metrics, signal rules, WP order.
 4. [02-loop-protocol.md](02-loop-protocol.md) — iteration 0 and the loop.
-5. [04-orchestration.md](04-orchestration.md) and [05-anti-hallucination.md](05-anti-hallucination.md) — before spawning anyone.
+5. [04-orchestration.md](04-orchestration.md), [05-anti-hallucination.md](05-anti-hallucination.md) and [10-supervisor.md §2–§3](10-supervisor.md#2-context-budget) — before spawning anyone; §3 defines when you may end your turn.
 6. [03-checkpoints-and-gates.md](03-checkpoints-and-gates.md), [07-blockers.md](07-blockers.md), [08-safety-and-rollback.md](08-safety-and-rollback.md) — keep open; consult at every decision, blocker or stop.
 7. [00-audit.md](00-audit.md) — when a brief cites the notes or a seam; use its rows, not the notes.
 8. [09-replan.md](09-replan.md) — only when a trigger fires.
@@ -54,7 +55,7 @@ for a blocker.
 
 - Metric ids: G1–G3 gates, T1 triggers, T2 curated sweep, T3 recordings, T4 real sessions.
 - Work packages WP0–WP7 in [01 §4](01-goals-and-metrics.md#4-work-packages); cycle 1 = WP0–WP4.
-- Blockers B1–B9, known blockers K1–K8, stops S1–S9, emergencies E1–E8, replan triggers R1–R10, labels L-NNN, replans R-n.
+- Blockers B1–B10, known blockers K1–K8, stops S1–S9, emergencies E1–E8, replan triggers R1–R10, labels L-NNN, replans R-n.
 - `gym/plan/` is read-only during a campaign; [09 §2](09-replan.md#2-procedure) is the only way to change it.
 
 ## Revisions

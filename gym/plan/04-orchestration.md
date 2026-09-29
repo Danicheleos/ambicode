@@ -27,6 +27,8 @@ May: run every command in [01](01-goals-and-metrics.md); commit and tag on
 `gym/<campaign-id>`; `git reset --hard` to an accepted tag after the diff check;
 create files under `gym/runs/`.
 
+The guard ([10 §5](10-supervisor.md#5-guard-levels)) enforces the network, secret, publish and tamper rules below for the lead and every helper; subagent tool calls trip the same hooks.
+
 May not: edit `src/`, `skills/`, `prompts/`, `policies/` directly (a worker does, so the
 lead reviews a diff it did not write); edit `gym/plan/` (only [09](09-replan.md) does);
 accept an iteration whose numbers the verifier has not reproduced; push; publish an

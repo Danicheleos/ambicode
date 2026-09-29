@@ -18,6 +18,7 @@ replan trigger ([09](09-replan.md)). Every blocker is logged as one line in
 | B7 human | a label, decision or permission only the owner can give | `labels/pending.md` entry with no answer past its default iteration; a permission prompt the lead cannot answer |
 | B8 helper | a helper timed out, returned an incomplete handoff, or touched files outside scope | [04 §5](04-orchestration.md#5-replacing-a-helper) |
 | B9 integrity | state on disk disagrees with git or with itself | 03 S6, S8; manifest mismatch; `STATE.md` vs tags |
+| B10 context | the session reached the soft or hard context limit | guard advice text; `supervisor/context.json`; heavy start denied with `context-hard-limit` ([10 §2](10-supervisor.md#2-context-budget)) |
 
 ## 2. Playbooks and retry limits
 
@@ -32,6 +33,7 @@ replan trigger ([09](09-replan.md)). Every blocker is logged as one line in
 | B7 | file the label with a default and its expiry iteration (02 §6); continue with other items that do not depend on it | wait ≤ 3 iterations | take the default and say so; 3 defaults in a row on decisive labels → S9 stop |
 | B8 | [04 §5](04-orchestration.md#5-replacing-a-helper) | 1 respawn | do the step with a fresh brief in the next iteration; 3 helper failures in one WP → R6 |
 | B9 | stop everything; run [06 §6](06-data-and-state.md#6-reconstructing-state-from-disk); diff what disagrees | none | incident file; if git and disk cannot be reconciled from tags, [08 §3](08-safety-and-rollback.md#3-rollback-to-a-checkpoint) to the last checkpoint |
+| B10 | soft: finish the iteration, no new one; hard: finish only the running step, record it (an in-flight note in `STATE.md` if the iteration is unfinished), PHASE `handoff`, end the turn | none | the supervisor starts a fresh session, which resumes from the in-flight note per 06 §6 step 3 |
 
 Common to all: a retry is only a retry if the brief says what changed since the failed
 attempt; identical retries are not allowed ("a denied call means the user declined it —

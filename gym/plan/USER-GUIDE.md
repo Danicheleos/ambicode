@@ -32,18 +32,35 @@ Optional, only for WP7 or re-preparing review versions: `glab auth status`.
 
 ## 3. Decisions to make before starting (write them down; the lead copies them into `CAMPAIGN.md`)
 
-1. Campaign id: `<YYYY-MM-DD>-<slug>`, e.g. `2026-09-29-c1`.
-2. Budget ceiling in USD and where you read your usage (**TBD** in [08 §5](08-safety-and-rollback.md#5-post-incident-audit)).
-3. The channel where the lead escalates (a file path such as `gym/runs/<campaign-id>/OWNER-INBOX.md` works; the lead appends, you read).
-4. Model for the lead and helpers (your `~/.claude/settings.json` sets `claude-fable-5-1` at `xhigh` for interactive sessions; the eval sandbox agent is pinned to `claude-opus-5-5` by the plan, [01 §3 T2](01-goals-and-metrics.md#t2-curated-benchmark-sweep)).
-5. Whether the lead may `git push` the campaign branch to `origin` (default: no).
-6. Whether the lead may install candidates into an **isolated** Claude config for smoke tests (default: no; never the normal config).
-7. Fix `CLAUDE.md:115` ("751 tests" → 751) yourself if you want; the lead may not edit `CLAUDE.md`.
+1. Campaign id: `2026-09-29_R1`, e.g. `2026-09-29-c1`.
+2. Budget ceiling in USD and where you read your usage (**TBD** in [08 §5](08-safety-and-rollback.md#5-post-incident-audit)). I'm using claude team x5 with subscription
+3. The channel where the lead escalates (a file path such as `gym/runs/<campaign-id>/OWNER-INBOX.md` works; the lead appends, you read). OK
+4. Model for the lead and helpers (your `~/.claude/settings.json` sets `claude-fable-5-1` at `xhigh` for interactive sessions; the eval sandbox agent is pinned to `claude-opus-5-5` by the plan, [01 §3 T2](01-goals-and-metrics.md#t2-curated-benchmark-sweep)). claude-opus-5-5 for a lead, claude-sonnet-5-5 for helpers, effort=hight
+5. Whether the lead may `git push` the campaign branch to `origin` (default: no, do not remove drop already commited data. If need to rollback create a separate branch).
+6. Whether the lead may install candidates into an **isolated** Claude config for smoke tests (default: no; never the normal config). Mostly not. Why?
+7. Fix `CLAUDE.md:115` ("751 tests" → 751) yourself if you want; the lead may not edit `CLAUDE.md`. Fixed
 
 ## 4. Starting the lead
 
-Commit or stash the staged `gym/planing` changes, then open an interactive session at
-the repository root:
+**Unattended (recommended when you are away).** The supervisor runs the lead as headless
+sessions. It restarts the lead on failures, keeps each session up to the context limits,
+and kills and rolls back on dangerous actions ([10-supervisor.md](10-supervisor.md)).
+Commit or stash the staged `gym/planing` changes, create the campaign branch, then:
+
+```
+node --test gym/plan/supervisor/test/*.test.mjs                      # 96 tests, all must pass
+node gym/plan/supervisor/supervise.mjs archive --campaign <id>       # copies volatile inputs; exit 1 names anything missing
+node gym/plan/supervisor/supervise.mjs run --campaign <id> --dry-run --budget-usd <n>   # prints the exact claude argv
+export GYM_NOTIFY_CMD='<your command; the text is in $GYM_MESSAGE>'   # optional: halts reach your phone
+nohup node gym/plan/supervisor/supervise.mjs run --campaign <id> --budget-usd <n> > gym/runs/<id>/supervisor.out 2>&1 &
+```
+
+It keeps the Mac awake while a session runs (`caffeinate -i -w <pid>`), but it cannot
+survive a reboot or a lid-close sleep. Keep the machine on power with the lid open, or run
+it under `tmux`. Defaults (model `claude-opus-5-5` at `high`, soft 300k / hard 500k tokens,
+$80 per session) are in `gym/plan/supervisor/defaults.json` and can be overridden by flags.
+
+**Interactive (when you are at the keyboard).** Open a session at the repository root:
 
 ```
 claude
@@ -58,16 +75,10 @@ reading order before any other action. Campaign id: <id>. Budget ceiling: $<n>. 
 gym/plan/02-loop-protocol.md §2, then loop per §3. Stop on any condition in 03 §3 or 08 §1.
 ```
 
-Headless alternative, one iteration per invocation, with a hard spend cap:
-
-```
-claude -p --max-budget-usd 80 --permission-mode acceptEdits \
-  "Lead agent of the ambicode campaign <id>: read gym/plan/README.md, reconstruct state per 06 §6, run exactly one iteration per 02 §3, then stop."
-```
-
-The headless form cannot answer permission prompts; if a run stops on one, use the
-interactive form. Either way the ambicode plugin's own hook injects its operating
-contract into the session (`hooks/hooks.json`); that is expected and harmless.
+An interactive session has no guard unless you add `--settings gym/runs/<id>/supervisor/lead-settings.json`
+(written by any supervisor run, including `--dry-run`) and export the same `GYM_*` variables the
+supervisor sets (10 §1). The ambicode plugin's own hook injects its operating contract into every
+session (`hooks/hooks.json`); that is expected and harmless.
 
 ## 5. While it runs
 
@@ -90,8 +101,8 @@ Things only you can do, queued from the audit ([00 §6](00-audit.md#6-open-quest
 
 ## 6. Stopping, pausing, resuming, handing over
 
-- **Stop now:** `touch gym/runs/<id>/STOP` (any shell). The lead finishes nothing else; see [08 §2](08-safety-and-rollback.md#2-emergency-shutdown).
-- **Pause:** same file; remove it to resume after reading `incidents/`.
+- **Stop now:** `touch gym/runs/<id>/STOP` (any shell). The supervisor terminates the running session within 2 s and exits; see [08 §2](08-safety-and-rollback.md#2-emergency-shutdown).
+- **After a halt** (the supervisor wrote `STOP` itself: second guard kill, budget, or 3 sessions without progress): read `OWNER-INBOX.md`, `incidents/`, `git stash list` and `gym/runs/<id>/supervisor/guard.log`; fill the `## Audit` section of each incident (08 §5); then `rm gym/runs/<id>/STOP` and start the supervisor again with `--reset-violations` if you cleared the kills. It starts a fresh session; spend and history carry over in `supervisor/state.json`.
 - **Resume in a new session:** the kickoff prompt of §4 with "reconstruct state per 06 §6 before anything" — the lead must not rely on memory.
 - **Roll back:** [08 §3](08-safety-and-rollback.md#3-rollback-to-a-checkpoint); you can run it yourself.
 - **Handover / end:** `CAMPAIGN.md` `status: done` plus `gym/runs/<id>/HANDOVER.md` (the lead writes it: accepted iterations, tags, what changed in the plugin, open labels, spend). To ship, follow `docs/release-checklist.md` yourself; the campaign does not release.

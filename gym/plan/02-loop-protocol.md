@@ -22,8 +22,8 @@ All must hold before `it-NNN/brief.md` is written.
 
 Once per campaign.
 
-1. `git switch -c gym/<campaign-id> tuning` (from `3e5e146` or the owner-named commit); write `CAMPAIGN.md` (start commit, `planDigest`, budget ceiling, model ids, owner contact) and `gym/runs/.gitignore` ([06 §2](06-data-and-state.md#2-committed-vs-scratch)).
-2. Archive the volatile inputs and write `archive/MANIFEST.txt` ([06 §5](06-data-and-state.md#5-volatile-inputs-to-archive-before-iteration-1)). Fail loudly if any source is missing; that is Q-class blocker B5 ([07](07-blockers.md)).
+1. Be on `gym/<campaign-id>`: the owner creates it from `tuning` before starting the supervisor (`git switch -c gym/<campaign-id> tuning`); otherwise create it now. Write `CAMPAIGN.md` (start commit, `planDigest`, `budgetUsd: <n>`, `status: open`, model ids, owner channel) and confirm `gym/runs/.gitignore` has the five lines of [06 §2](06-data-and-state.md#2-committed-vs-scratch).
+2. Verify the archive: the owner creates it before the first launch with `node gym/plan/supervisor/supervise.mjs archive --campaign <campaign-id>` ([10 §1](10-supervisor.md#1-components)), because the guard denies agent reads of `~/.claude`. The lead runs `(cd gym/runs/<campaign-id> && sha256sum -c archive/MANIFEST.txt)` and commits the manifest with `git add -f`. A missing archive or a failed check is blocker B5 ([07](07-blockers.md)).
 3. Write `tools/transcript-metrics.py` from the audited scripts and run it on the VS-6735 transcripts; its output must reproduce the T4 baseline row for row before it is trusted.
 4. Run G1–G3, T1, `npm run evals:preflight`, then T2 at 3 runs/arm with `--model claude-opus-5-5`, then T3 (`jq` over the existing recordings; no re-record yet).
 5. Write `baseline/metrics.json`, `baseline/verify.log`; copy result JSON and traces into `baseline/scratch/`.
@@ -34,6 +34,8 @@ Once per campaign.
 ```text
 select ─▶ brief ─▶ implement ─▶ gate ─▶ measure ─▶ decide ─▶ record ─▶ (commit+tag | reset)
 ```
+
+**Phase file.** At every step below the lead first writes `gym/runs/<campaign-id>/PHASE` (`<it-NNN> <phase>`: select, brief, implement, gate, measure, decide, record, then idle). The session may end only at a safe point ([10 §3](10-supervisor.md#3-safe-points-and-the-phase-file)).
 
 **3.1 Select.** Take the next open item of the current WP in [01 §4](01-goals-and-metrics.md#4-work-packages)
 order. One iteration changes one thing: one seam, one claimed metric. Splitting is
