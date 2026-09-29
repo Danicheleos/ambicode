@@ -1,0 +1,38 @@
+
+> ambicode@0.3.4 package:reproducible
+> node package-candidate.mjs --check-reproducible
+
+
+  scripts/chunks/view-E2Z26BPW.mjs         1.5mb ⚠️
+  scripts/chunks/chunk-JN54JA3H.mjs     1007.0kb
+  scripts/chunks/chunk-NEH3SO44.mjs      338.5kb
+  scripts/ambicode.mjs                   257.3kb
+  scripts/chunks/chunk-7RCZR7QW.mjs       22.5kb
+  scripts/chunks/chunk-7M5UXPHU.mjs       11.0kb
+  scripts/chunks/run-hook-RP6OP25Y.mjs     8.2kb
+  scripts/chunks/dist-WQG4KMNO.mjs         7.3kb
+  scripts/chunks/chunk-PSIR5CTP.mjs        2.2kb
+  scripts/chunks/chunk-TT7DL65A.mjs        810b 
+  scripts/chunks/chunk-WZ6VODTW.mjs        631b 
+  scripts/chunks/git-KVBE3IGL.mjs          408b 
+  scripts/chunks/load-YIVB3D3U.mjs         388b 
+
+⚡ Done in 84ms
+
+  scripts/chunks/view-E2Z26BPW.mjs         1.5mb ⚠️
+  scripts/chunks/chunk-JN54JA3H.mjs     1007.0kb
+  scripts/chunks/chunk-NEH3SO44.mjs      338.5kb
+  scripts/ambicode.mjs                   257.3kb
+  scripts/chunks/chunk-7RCZR7QW.mjs       22.5kb
+  scripts/chunks/chunk-7M5UXPHU.mjs       11.0kb
+  scripts/chunks/run-hook-RP6OP25Y.mjs     8.2kb
+  scripts/chunks/dist-WQG4KMNO.mjs         7.3kb
+  scripts/chunks/chunk-PSIR5CTP.mjs        2.2kb
+  scripts/chunks/chunk-TT7DL65A.mjs        810b 
+  scripts/chunks/chunk-WZ6VODTW.mjs        631b 
+  scripts/chunks/git-KVBE3IGL.mjs          408b 
+  scripts/chunks/load-YIVB3D3U.mjs         388b 
+
+⚡ Done in 83ms
+Reproducible: 50 files, identical paths/sizes/sha256 digests, and identical zip sha256 (1585ac05ebf11f65d34674b82b7de99c0d353a22d3be6e676e9f0e8d213086ad) across two independent runs.
+exit=0

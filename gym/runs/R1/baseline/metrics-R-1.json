@@ -459,5 +459,62 @@
     "preflightKeepTemp": 0.17,
     "T3AA": 4.4222,
     "T2": 21.2623
+  },
+  "T2review": {
+    "runsPerArm": 3,
+    "cases": 8,
+    "partial": false,
+    "iteration": "it-013",
+    "promptSentence": "Use the ambicode review skill to review the change before it merges: report the problems a reviewer should raise, each with its file and line. (both arms read it)",
+    "assembled": "one uninterrupted invocation, no reruns, no merge: t2-merge.mjs was run on the single result only to print per-run-index medians",
+    "resultFiles": [
+      "evals/evals-core/results/eval-2026-09-29T13-42-27-702Z.json"
+    ],
+    "copiedTo": "gym/runs/R1/it-013/scratch/t2review-sonnet.json",
+    "claudeVersion": "2.1.284",
+    "modelOverride": "claude-sonnet-5-5",
+    "agentModelProof": "48 of 48 system/init rows in the 48 traces this result names are claude-sonnet-5-5 (it-010/trace-summary.mjs; missingTraces 0)",
+    "exitStatus": "claude plugin eval exited 1 with threshold 1 (some case scored below it), as at cp-S0; the result has partial false and 0 run errors",
+    "review": {
+      "with": {
+        "recallMedian": 0.125,
+        "recallSweeps": [
+          0.125,
+          0.1563,
+          0.0938
+        ],
+        "recallPooled": 0.125,
+        "helperRan": 24,
+        "helperRanOf": 24,
+        "helperRanMedian": 8,
+        "helperRanMedianOf": 8,
+        "pluginFired": 24,
+        "skillCalls": {
+          "ambicode:review": 24
+        },
+        "costUsdPerRun": 0.1452,
+        "turns": 6.625
+      },
+      "without": {
+        "recallMedian": 0.0938,
+        "recallSweeps": [
+          0.0938,
+          0.0625,
+          0.125
+        ],
+        "recallPooled": 0.0938,
+        "costUsdPerRun": 0.2047,
+        "turns": 9.75,
+        "skillCalls": {
+          "ambicode:review": 2
+        },
+        "skillCallRuns": 2,
+        "note": "the without arm has no plugin; the prompt names a skill it cannot call, and it tried in skillCallRuns of 24 runs"
+      }
+    },
+    "runErrors": 0,
+    "costUsd": 8.3958,
+    "seconds": 731,
+    "reference": "T2.review of this file (cp-S0, old prompt sentence): with recall median 0.0938, helper-ran 0 of 24; without 0.0938"
   }
 }

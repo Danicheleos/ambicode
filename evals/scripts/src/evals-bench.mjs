@@ -264,8 +264,8 @@ the ticket below.
 ${text}
 </ticket>
 
-Review the change before it merges: report the problems a reviewer should
-raise, each with its file and line.
+Use the ambicode review skill to review the change before it merges: report
+the problems a reviewer should raise, each with its file and line.
 
 \`repo/\` is the repository under review. Change into it with \`cd repo\` before
 running anything, and run every command from there.
