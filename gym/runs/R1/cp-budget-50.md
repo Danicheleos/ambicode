@@ -1,19 +1,22 @@
 # cp-budget-50 — R1
 
-Written 2026-09-29 by the lead, session 5, during iteration 0 (03 §1 "Budget checkpoints"). This checkpoint was due during session 4. It was not written then, because the T2 sweep's cost was only known after the sweep was killed.
+Written 2026-09-29 by the lead, session 5, at the end of iteration 0 (03 §1 "Budget checkpoints"). A first version was written against a $100 ceiling before L-002 was answered. This version replaces it.
 
-Ceiling: **$100** (operative). It is what the running supervisor enforces (`supervisor/supervisor.log` session-4 start: `"budgetUsd":100`). Four sources disagree, filed as L-002 (`labels/pending.md`). Stop at 90 % = $90 (03 §3 S2).
+Ceiling: **$150** (`labels/labels.json` L-002, owner, 2026-09-29T02:23:04Z). Stop at 90 % = $135 (03 §3 S2).
 
 | Item | costUsd | Source |
 |---|---|---|
 | Lead sessions 1–4 (incl. helpers) | 5.7554 | `supervisor/state.json` `spentUsd` |
 | T1 baseline sweep | 4.2107 | `evals/evals-triggers/results/2026-09-29T01-38-53-501Z/aggregate-result.json` |
-| preflight | 0.39 | `baseline/scratch/preflight.log` |
-| T2 baseline sweep, killed with session 4 (`partial: true`, `interrupted`) | 41.0374 | `evals/evals-core/results/eval-2026-09-29T01-43-58-769Z.json` `costUsd` |
-| **Total before session 5** | **51.39** | 51.4 % of $100 |
+| preflight, session 4 | 0.39 | `baseline/scratch/preflight.log` |
+| preflight, session 5 | 0.40 | `baseline/scratch/preflight-s5.log` |
+| T2 sweep killed with session 4 (`partial: true`, `interrupted`, 13 of 18 cases usable) | 41.0374 | `eval-2026-09-29T01-43-58-769Z.json` |
+| T2 reruns of the 5 unfinished cases | 19.5257 | the five `eval-2026-09-29T02-*.json` files |
+| Lead session 5 up to this checkpoint (incl. verifier) | ≈ 4.4 | session budget meter; exact value lands in `supervisor/state.json` at session end |
+| **Total** | **≈ 75.7** | **≈ 50.5 % of $150** |
 
-Iterations accepted: 0. Rejected: 0. Cost per accepted iteration: undefined (none accepted).
+Iterations accepted: 1 (it-000, baseline). Rejected: 0.
 
-Plan for what remains:
-- Complete T2 by running only the 5 cases the killed sweep did not finish, at 3 runs/arm (`--case`, one invocation per case, because `--case` is not repeatable: `evals/scripts/src/evals-preflight.test.mjs:119`). Estimate: $41.04 / 13.x completed cases ≈ $3 per case → about $15. A full 18-case rerun (≈ $57, 01 §5) would reach about $110, over the $90 stop.
-- After iteration 0 the projected total is about $70. That leaves about $20: enough for WP1's T3 re-record, not for any T2 decision iteration (≈ $65–70). Replan trigger R1 applies unless L-002 raises the ceiling.
+The baseline cost $65.56 in eval spend against the plan's ≈ $62 (01 §5: T1 $4 + preflight $0.7 + T2 decision $57). The $41.04 sweep lost to the guard kill was mostly recovered: its 13 complete cases were kept, and only 5 cases ($19.53) were rerun. A full rerun would have been about $57.
+
+What remains: $135 − 75.7 ≈ **$59**. One T2 decision iteration costs ≈ $65–70 (01 §5), so none fits. What fits: T3 re-records ($0.33–0.67 per recording), T1 ($4), T2 screening ($19, never decides, 01 §3), and gate-only work ($0). The owner's L-002 instruction applies: use the cheapest measurement the signal rules accept.

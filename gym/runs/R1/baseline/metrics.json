@@ -1,0 +1,85 @@
+{
+  "iteration": "it-000",
+  "commit": "2c63668c658b79868621316cbeba3fa0fd804cce",
+  "pluginVersion": "0.3.4",
+  "capturedAt": "2026-09-29T02:42:00Z",
+  "models": { "agent": "claude-opus-5-5", "reviewer": "sonnet", "judge": null },
+  "G1": { "exit": 0, "tests": 752, "pass": 751, "fail": 0, "skipped": 1, "seconds": 26 },
+  "G2": { "exit": 0, "zipSha256": "c8c5b7b3f57e8785fb26207e4beac2aea8f00eaaa3dc8ee61591f08c0efdec7f", "files": 50 },
+  "G3": { "exit": 0, "files": 466, "filesVerifier": 474, "filesNote": "count includes campaign files under gym/ that changed between the lead's run and the verifier's; plugin unchanged", "seconds": 0.21 },
+  "T1": {
+    "scoredMean": 1.0,
+    "scoredMeanOver": "the 7 scored cases (01 §1 item 2); url-bare is diagnostic, mean 0.4",
+    "overallScore": 0.925,
+    "urlBarePattern": "investigate 3/3",
+    "runs": 3,
+    "casesPassed": 7,
+    "casesTotal": 8,
+    "costUsd": 4.2106728,
+    "seconds": 209,
+    "partial": false,
+    "resultDir": "scratch/triggers/2026-09-29T01-38-53-501Z"
+  },
+  "T2": {
+    "runsPerArm": 3,
+    "cases": 18,
+    "partial": false,
+    "assembled": "13 cases from eval-2026-09-29T01-43-58-769Z.json (partial: true, interrupted by the session-4 guard kill) + 5 cases rerun one --case at a time; merged by tools/t2-merge.mjs into scratch/t2-merged.json",
+    "resultFiles": [
+      "evals/evals-core/results/eval-2026-09-29T01-43-58-769Z.json",
+      "evals/evals-core/results/eval-2026-09-29T02-22-58-590Z.json",
+      "evals/evals-core/results/eval-2026-09-29T02-26-29-610Z.json",
+      "evals/evals-core/results/eval-2026-09-29T02-32-36-859Z.json",
+      "evals/evals-core/results/eval-2026-09-29T02-35-46-856Z.json",
+      "evals/evals-core/results/eval-2026-09-29T02-39-02-581Z.json"
+    ],
+    "mergedFile": "scratch/t2-merged.json",
+    "claudeVersion": "2.1.284",
+    "localize": {
+      "with": { "f1Median": 0.6565, "f1Sweeps": [0.6840, 0.6565, 0.6140], "f1Pooled": 0.6515, "precision": 0.6785, "recall": 0.7006, "helperRan": 28, "helperRanOf": 30, "helperRanMedian": 9, "helperRanMedianOf": 10, "costUsdPerRun": 0.5442, "turns": 16.7 },
+      "without": { "f1Median": 0.6198, "f1Sweeps": [0.6762, 0.6142, 0.6198], "f1Pooled": 0.6367, "precision": 0.7241, "recall": 0.6684, "costUsdPerRun": 0.4176, "turns": 12.5 }
+    },
+    "review": {
+      "with": { "recallMedian": 0.1563, "recallSweeps": [0.1979, 0.0938, 0.1563], "recallPooled": 0.1493, "helperRan": 23, "helperRanOf": 24, "helperRanMedian": 8, "helperRanMedianOf": 8, "costUsdPerRun": 0.6305, "turns": 16.96 },
+      "without": { "recallMedian": 0.125, "recallSweeps": [0.1563, 0.125, 0.0938], "recallPooled": 0.125, "costUsdPerRun": 0.6271, "turns": 16.29 }
+    },
+    "runErrors": 0,
+    "skippedPaidGraders": 0,
+    "costUsd": 60.563123,
+    "seconds": 3232
+  },
+  "T3": {
+    "recordings": 5,
+    "of": 8,
+    "perCase": [
+      { "case": "be-vs-3571-review-1128-957b6388", "findings": 4, "turns": null, "costUsd": null, "seconds": null },
+      { "case": "be-vs-5075-review-1054-3b24bb74", "findings": 4, "turns": null, "costUsd": null, "seconds": null },
+      { "case": "be-vs-5546-review-996-d520e3ca", "findings": 6, "turns": null, "costUsd": null, "seconds": null },
+      { "case": "be-vs-6261-review-1141-f14493f1", "findings": 1, "turns": null, "costUsd": null, "seconds": null },
+      { "case": "fe-vs-6253-review-2557-1b0a7eaf", "findings": 6, "turns": null, "costUsd": null, "seconds": null }
+    ],
+    "recordedFrom": "evals-record-core 2026-09-28T16:52-17:07Z plugin 0.3.3",
+    "sha256": "c6022188b670773cc15e27d254270e87ed3ec3fa5ae4ef8932b9442a0ac666af"
+  },
+  "T4": {
+    "cycle": "VS-6735",
+    "script": "tools/transcript-metrics.py",
+    "output": "scratch/t4-s5.json",
+    "sessions": ["5326e45c (investigate)", "6c376603 (plan)", "8efdbd08 (task it1-3)", "ce1efd4c (task it4-6)"],
+    "fabricatedProvenanceSessions": 4,
+    "fabricatedProvenanceOf": 4,
+    "mcpServerQuestionSessions": 3,
+    "requirementFetches": 15,
+    "requirementKeys": 4,
+    "reviewLaunchesRefused": [0, 0, 1, 1],
+    "humanQuestions": [1, 5, 1, 1],
+    "humanWaitSecondsFloored": [8, 536, 4, 35],
+    "permissionDenials": [1, 1, 1, 1],
+    "selfRunChecks": { "tsc": [0, 0, 0, 1], "vitest": [0, 0, 0, 0], "eslint": [0, 0, 0, 0], "prettier": [0, 0, 3, 1] },
+    "lspCalls": [1, 0, 0, 0],
+    "reviewerTurns": [14, 3, 2],
+    "reviewerCostUsd": [1.1074444, 0.4019738, 0.3264772]
+  },
+  "costUsd": 65.563796,
+  "notes": "costUsd = eval-harness spend of iteration 0 (T1 4.2107 + preflight 0.39 (session 4) + preflight 0.40 (session 5) + T2 60.5631, of which 41.0374 is the interrupted sweep); lead session costs are counted by the supervisor, not here. T2 medians are over the 3 run indexes, each index being one sweep across all cases of the arm (tools/t2-merge.mjs perRunIndex); f1Pooled/recallPooled are `evals-bench.mjs score` means over all runs. Review with-arm helper-ran 23/24 contradicts the plan's 0/8 premise (01 §4 WP1, 07 K2), which was measured on 0.3.2/0.3.3 at 1 run/arm. models.judge not recorded by the result JSON; the 10 claude-haiku-4-5 rows in the traces are auxiliary calls, not the agent. T3 recordings carry no turns/cost/duration, hence null. T4: rows, responses, tool calls, dedup tokens, fetches, retrievedAt values and times, questions, denials, labels and refusals match 00-audit.md §4:94-116. Wait sum 536 floored vs the audit's 539 (5 floored values). The audit's it4-6 'prettier ×4' is 1 in it4-6 here, and 3+1=4 across both task sessions: likely aggregated, unverified. The earlier scratch/t4.json also included 9a235fc3 (MR session, not part of the cycle); t4-s5.json excludes it. G1/G2 are from session 4's logs at the same plugin commit (0 diff lines outside gym/)."
+}
