@@ -64,3 +64,25 @@
 - `05-anti-hallucination.md:31` "300-500k tokens".
 - `USER-GUIDE.md:60` "claude-opus-5-5 ... soft 300k / hard 500k".
 - 01 §1 item 6 wording about cycle 2 is unchanged.
+
+## R-2 (2026-09-29, trigger R7)
+
+**01-goals-and-metrics.md**
+
+- R-2 header: `Supersedes` names the R-1 digest. Evidence: `labels.json` L-013, 2026-09-29T11:00:46.395Z; `gym/runs/R1/replan/R-2-2026-09-29T11-08-14Z.md`.
+- §4 WPH row: H2 (one item: Sonnet baseline, cp-S0) -> H2-measure (done in it-006), H2-repair (L-013: case prompt names "implement", `unit-check-ran` a NOTE on Sonnet, `plugin-fired` and `helper-ran` stay required, stop and report if the preflight still fails), H2-T2 (T2 at 3 runs/arm, tag cp-S0); seam adds `evals-preflight.mjs` (+ test) and the one case prompt; claims add the `judge` tests and a passing Sonnet preflight; note that the archived case is not in the T2 set, so the Opus T2 history is unaffected. Evidence: `labels.json` L-013, 2026-09-29T11:00:46.395Z; `gym/runs/R1/replan/R-2-2026-09-29T11-08-14Z.md`.
+
+**02-loop-protocol.md**
+
+- R-2 header and §3.2 template: `Supersedes` names the R-1 digest; `Plan revision: R-1` -> `Plan revision: R-2`. Evidence: `labels.json` L-013, 2026-09-29T11:00:46.395Z; `gym/runs/R1/replan/R-2-2026-09-29T11-08-14Z.md`.
+- §3.3: (list of allowed paths only) -> plus one named eval case file, `evals/evals-archived/typescript/p2-task-regression-fix/prompt.md`, and the rule that any other eval case file needs an owner-confirmed replan naming it. Evidence: `labels.json` L-013, 2026-09-29T11:00:46.395Z; `gym/runs/R1/replan/R-2-2026-09-29T11-08-14Z.md`.
+- §3.5 step 2: preflight required graders unstated in the plan -> `plugin-fired` and `helper-ran` required for both cases on every model; on Sonnet `unit-check-ran` of `p2-task-regression-fix` is a NOTE with its observed state, not gated; a preflight that still fails after the repair is a B2 stop with a label, no further grader dropped, no T2 behind it. The relaxation is data-driven (`suite.modelOverride` of the result), so Opus stays strict. Evidence: `labels.json` L-013, 2026-09-29T11:00:46.395Z; `gym/runs/R1/replan/R-2-2026-09-29T11-08-14Z.md`.
+- §4 table: new row for eval case files (only the file a confirmed replan names; G1 + preflight). Evidence: `labels.json` L-013, 2026-09-29T11:00:46.395Z; `gym/runs/R1/replan/R-2-2026-09-29T11-08-14Z.md`.
+
+**README.md**
+
+- Revisions table: (rows rev 0, rev 1) -> added row rev 2 (2026-09-29, trigger R7: L-013 a+b; planDigest after computed by the owner after apply). Evidence: `labels.json` L-013, 2026-09-29T11:00:46.395Z; `gym/runs/R1/replan/R-2-2026-09-29T11-08-14Z.md`.
+
+### Not revised (owner's call)
+
+- The T3 floor is 0.0 (it-006 A/A, be-vs-6261), so T3 stability stays reported-only; a different floor is a threshold change (03 §2) and is not in this revision. Stale text listed under R-1 stays stale. L-013 (d) not answered: no new T1 case.
