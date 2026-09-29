@@ -41,3 +41,4 @@ Question: WP2 cannot be decided within the $150 ceiling. Which of these do you w
 Why: spend is ≈ $80.4 of $150 (`cp-1.md`); the stop is $135, so ≈ $54.6 remains. WP2's row requires T2 as a must-not-move control (01 §4), and a control decision needs ≥ 3 runs/arm (02 §5). WP2's claimed metric (T4: fabricated provenance 4/4 → 0) moves only with a human-run cycle after the change (01 §3 T4), so WP2 also needs you to run one VS-* cycle with the new build before it can be accepted.
 Needed for: WP2 (next in order), and hence WP3 and WP4 (01 §4 order).
 Default if unanswered: (b). Nothing more is spent. The lead stays `blocked`; the supervisor exits on that phase (10 §4 row 7).
+Status: answered 2026-09-29T03:24:22.933Z in labels.json ("250", i.e. option (a)). Stop moves to $225. The ledger was ≈ $81 at that point, so ≈ $144 remains: one WP2 iteration with a T2 decision (≈ $85) fits, a second T2-decision iteration does not. Applied to `CAMPAIGN.md` in session 6.

@@ -8,7 +8,7 @@
 | forkedFrom | `tuning` (`bfadeef`), ancestor of startCommit | `git merge-base --is-ancestor tuning HEAD` → true; `git log --oneline tuning..HEAD` → `2c63668`, `8265a27` (both supervisor/gitignore only) |
 | planDigest | `ca5d65f25e77a6307bdcd1db0fe7bfe453d58a5034d96c5e326dbddfb5a71096` | `sha256sum gym/plan/*.md \| sha256sum` at iteration 0 |
 | pluginVersion | 0.3.4 | `jq -r .version .claude-plugin/plugin.json` |
-| budgetUsd | 150 | owner, `labels/labels.json` L-002 (2026-09-29T02:23:04Z); stop at 90 % = $135 (03 §3 S2). The lead's ledger counts lead session costs + every eval-harness `costUsd`, baseline included (`cp-budget-*.md`). The running supervisor still has `--budget-usd 100` and counts only session costs + `it-*/metrics.json`; L-002: restarted with 150 at its next halt |
+| budgetUsd | 250 | owner, `labels/labels.json` L-009 answer (a) "250" (2026-09-29T03:24:22.933Z); stop at 90 % = $225 (03 §3 S2); budget checkpoints at $125 (50 %) and $187.5 (75 %). Previously 150 (L-002, 2026-09-29T02:23:04Z). The lead's ledger counts lead session costs + every eval-harness `costUsd`, baseline included (`cp-budget-*.md`). The supervisor restarted at 03:24:23Z with `"budgetUsd":250` (`supervisor/supervisor.log`); it counts only session costs + `it-*/metrics.json` |
 | spentBeforeIteration0 | $1.70 (sessions 1–3, no progress, all writes refused) | `gym/runs/R1/supervisor/state.json` `spentUsd` 1.7028 |
 | models | lead `claude-opus-5-5` (effort high); helpers `claude-sonnet-5-5` (effort high); eval agent pinned `claude-opus-5-5` (`--model`) | USER-GUIDE §3 item 4 (owner's answer); `gym/plan/supervisor/defaults.json` |
 | ownerChannel | `gym/runs/R1/OWNER-INBOX.md` (lead appends) | supervisor kickoff; USER-GUIDE §3 item 3 "OK" |
