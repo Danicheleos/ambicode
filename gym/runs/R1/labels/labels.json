@@ -71,5 +71,11 @@
     "detail": "Per https://code.claude.com/docs/en/plugin-evals.md (read by a docs agent, not tested here): there is no --mcp-config flag, no case-file field (prompt.md, case.yaml) and no suite-level setting to attach an external MCP server. The docs say the sandbox reads no project-scoped .mcp.json above it, which matches your two failed routes. Documented MCP handling is only for the plugin's own servers: mocks at evals/mocks/<server>/<tool>.md, --allow-real-servers to start the plugin's real servers, --mocks off to start all plugin servers. If T4p still wants an MCP-server-question event, that is the only route to try, and only if the plugin declares the server (ambicode's own MCP server from init --mcp-server is the candidate); otherwise T4p stays null as per the default. Not verified by a run.",
     "by": "owner (asked to look it up); written by the owner's planning session",
     "at": "2026-09-29T11:22:46.186Z"
+  },
+  "L-015": {
+    "label": "b",
+    "detail": "Option (b): name the skill in the case prompt of p2-task-regression-fix (e.g. \"Use the ambicode task skill to implement the fix\"). plugin-fired and helper-ran stay required on Sonnet; the gate is not weakened and regression-ts is not made the only gate. The owner accepts that this tests the skill's mechanics, not whether it triggers (T1's job). This wording is outside R-2's allowance (it names 'implement' only), so draft replan R-3 (owner applies), start from it-008/diff.patch, then rerun the Sonnet preflight (expected ≈ $0.2). If it still fails, stop and report (B2); do not fall back to (a) without a new label. After a pass: Opus preflight, then H2-T2 (3 runs/arm) and cp-S0.",
+    "by": "owner (choice); written by the owner's planning session",
+    "at": "2026-09-29T11:58:24.482Z"
   }
 }
