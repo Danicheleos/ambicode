@@ -22,6 +22,7 @@
     "evals:record": "node evals/scripts/src/evals-record-core.mjs -j 4",
     "evals:archived": "npm run evals:preflight && EVAL_AMBICODE_REVIEWER_REPLAY=\"$PWD/fixtures/reviewer-recordings.json\" claude plugin eval . --eval-dir evals/evals-archived/typescript --runs 3 --ablation with-without -j 4 --scaffold --allow-tools Bash 'WebFetch(domain:api.anthropic.com)' --no-publish",
     "evals:triggers": "EVAL_AMBICODE_REVIEWER_REPLAY=\"$PWD/fixtures/reviewer-recordings.json\" claude plugin eval . --eval-dir evals/evals-triggers --runs 3 -j 4 --ablation none --scaffold --allow-tools Bash --no-publish",
+    "evals:t4p-probe": "claude plugin eval . --eval-dir evals/evals-t4p --runs 1 -j 1 --ablation none --scaffold --allow-tools Bash --no-publish",
     "evals:preflight": "node evals/scripts/src/evals-preflight.mjs",
     "evals:reviewer": "node evals/scripts/src/evals-reviewer.mjs",
     "package:candidate": "node package-candidate.mjs",

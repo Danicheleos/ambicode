@@ -36,7 +36,9 @@ function unquote(t) {
 }
 
 /** Paths a command writes: redirect targets, and the file arguments of known writing verbs. Variables are not resolved. */
-export function writeTargets(command) {
+export function writeTargets(raw) {
+  // A heredoc body read by cat/tee/git is data: R1 session 0469c51a was denied for "<dir>/<case>/run-<k>.json" in a brief.
+  const command = stripDataHeredocs(raw);
   const targets = [];
   for (const m of command.matchAll(/(?:^|[^<0-9&>])>{1,2}\s*([^\s;&|<>]+)/g)) targets.push(unquote(m[1]));
   for (const segment of command.split(/&&|\|\||[;|\n]/)) {

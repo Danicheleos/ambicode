@@ -183,6 +183,35 @@ describe('supervisor loop against a stub claude', () => {
     } finally { s.cleanup(); }
   });
 
+  it('writes a heartbeat to supervisor.log while a session runs', () => {
+    // R1: an hour-long session left supervisor.log and OWNER-INBOX.md silent, and the owner read that as a stall.
+    const s = scenario([{ sleepMs: 600, status: 'done' }], ['--heartbeat-seconds', '0.1']);
+    try {
+      const beats = readFileSync(path.join(s.campaign, 'supervisor', 'supervisor.log'), 'utf8').split('\n').filter((l) => l.includes('"heartbeat"'));
+      assert.ok(beats.length >= 2, `heartbeats: ${beats.length}`);
+      assert.match(beats[0], /"index":1/);
+    } finally { s.cleanup(); }
+  });
+
+  it('status prints the phase, context and the lead\'s latest actions', () => {
+    const s = scenario([{ phase: 'measure', tokens: 116_000, status: 'done' }]);
+    try {
+      const transcript = path.join(s.campaign, 'supervisor', 't.jsonl');
+      const row = (ts, content) => JSON.stringify({ type: 'assistant', timestamp: ts, message: { content } });
+      writeFileSync(transcript, [
+        row('2026-09-29T10:05:18.000Z', [{ type: 'tool_use', name: 'Bash', input: { command: 'npm run evals:preflight', description: 'Run preflight on Sonnet' } }]),
+        row('2026-09-29T10:06:01.000Z', [{ type: 'text', text: 'Preflight passed; recording next.' }]),
+      ].join('\n') + '\n');
+      writeFileSync(path.join(s.campaign, 'supervisor', 'session.json'), JSON.stringify({ sessionId: 'abc12345-x', transcriptPath: transcript, at: '2026-09-29T09:48:15.000Z' }));
+      const r = spawnSync(process.execPath, [SUPERVISE, 'status', '--campaign', 'c1', '--repo', s.repo], { encoding: 'utf8' });
+      assert.equal(r.status, 0, r.stderr);
+      assert.match(r.stdout, /phase\s+it-001 measure/);
+      assert.match(r.stdout, /context\s+116000 \/ soft 150000/);
+      assert.match(r.stdout, /10:05:18 Bash: Run preflight on Sonnet/);
+      assert.match(r.stdout, /10:06:01 says: Preflight passed; recording next\./);
+    } finally { s.cleanup(); }
+  });
+
   it('does not sleep when a healthy session merely mentions a rate limit', () => {
     const s = scenario([{ phase: 'handoff', tokens: 320_000, progress: true, resultText: 'noted: rate limit on eval runs' }, { status: 'done' }]);
     try { assert.deepEqual(s.decisions, ['fresh', 'exit']); } finally { s.cleanup(); }

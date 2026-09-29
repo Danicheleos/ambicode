@@ -4,9 +4,10 @@
 //   node gym/plan/supervisor/supervise.mjs run     --campaign <id> [--budget-usd N] [--model M] [--effort E] [--soft N] [--hard N]
 //        [--session-budget-usd N] [--idle-minutes N] [--max-sessions N] [--dry-run] [--no-plugin] [--prompt TEXT] [--repo DIR] [--reset-violations]
 //   node gym/plan/supervisor/supervise.mjs archive --campaign <id>
+//   node gym/plan/supervisor/supervise.mjs status  --campaign <id>   (phase, context, spend, the lead's latest actions)
 import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID, createHash } from 'node:crypto';
-import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync, createWriteStream } from 'node:fs';
+import { appendFileSync, closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, statSync, writeFileSync, createWriteStream } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -53,6 +54,8 @@ function loadConfig(opts) {
     fixedSleep: opts.sleepSeconds !== undefined,
     // Reading one small file every 30 s costs nothing; the owner answers in minutes at best.
     labelPollMs: num(opts.labelPollSeconds, 30) * 1000,
+    // Session events can be an hour apart; a line every 10 min shows the loop is alive without flooding the log.
+    heartbeatMs: num(opts.heartbeatSeconds, 600) * 1000,
     claudeBin: process.env.GYM_CLAUDE_BIN ?? 'claude',
     dryRun: opts.dryRun === true,
     resetViolations: opts.resetViolations === true,
@@ -199,6 +202,62 @@ function progressSignature(cfg) {
   return createHash('sha256').update(state).update(tags).digest('hex');
 }
 
+/** The lead's latest tool calls and remarks, newest last, from the tail of its transcript. */
+function leadActivity(transcriptPath, limit) {
+  let text = '';
+  try {
+    const size = statSync(transcriptPath).size;
+    const fd = openSync(transcriptPath, 'r');
+    const buffer = Buffer.alloc(Math.min(size, 512 * 1024));
+    readSync(fd, buffer, 0, buffer.length, size - buffer.length);
+    closeSync(fd);
+    text = buffer.toString('utf8');
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const line of text.split('\n')) {
+    let row;
+    try { row = JSON.parse(line); } catch { continue; }
+    if (row.type !== 'assistant' || !Array.isArray(row.message?.content)) continue;
+    const at = String(row.timestamp ?? '').slice(11, 19);
+    for (const c of row.message.content) {
+      const oneLine = (s) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, 140);
+      if (c.type === 'tool_use') {
+        const i = c.input ?? {};
+        out.push(`${at} ${c.name}: ${oneLine(i.description ?? i.file_path ?? i.command ?? i.pattern ?? i.prompt ?? JSON.stringify(i))}`);
+      } else if (c.type === 'text' && c.text?.trim()) {
+        out.push(`${at} says: ${oneLine(c.text)}`);
+      }
+    }
+  }
+  return out.slice(-limit);
+}
+
+function status(cfg) {
+  const state = readJson(path.join(cfg.stateDir, 'state.json'), {});
+  const session = readJson(path.join(cfg.stateDir, 'session.json'), {});
+  const context = readJson(path.join(cfg.stateDir, 'context.json'), {});
+  const lastLine = (file) => (readText(file) ?? '').trim().split('\n').filter(Boolean).at(-1) ?? '(none)';
+  const lastDeny = (readText(path.join(cfg.stateDir, 'guard.log')) ?? '').trim().split('\n').filter((l) => /"level":"(deny|kill)"/.test(l)).at(-1);
+  const running = (spawnSync('ps', ['-ax', '-o', 'pid=,etime=,command='], { encoding: 'utf8' }).stdout ?? '').split('\n')
+    .filter((l) => /^\s*\d+\s+\S+\s+(node|claude)\s.*(evals-bench\.mjs run|plugin eval|evals-record|evals-preflight)/.test(l)).map((l) => l.trim().slice(0, 150));
+  const lines = [
+    `campaign  ${cfg.campaign}${existsSync(path.join(cfg.campaignDir, 'STOP')) ? '   STOP present' : ''}`,
+    `phase     ${(readText(path.join(cfg.campaignDir, 'PHASE')) ?? '(none)').trim()}`,
+    `session   ${state.sessions ?? 0} launched; current ${String(session.sessionId ?? '-').slice(0, 8)} since ${session.at ?? '-'}`,
+    `context   ${context.tokens ?? '-'} / soft ${cfg.softTokens} / hard ${cfg.hardTokens}`,
+    `spend     supervisor ledger $${(Number(state.spentUsd ?? 0) + metricsSpend(cfg)).toFixed(2)} of $${cfg.budgetUsd ?? '-'} (lead sessions + it-*/metrics.json; excludes the running session)`,
+    `running   ${running.length ? running.join('\n          ') : 'no eval process'}`,
+    `last deny ${lastDeny ? lastDeny.slice(0, 200) : '(none)'}`,
+    `sup. log  ${lastLine(path.join(cfg.stateDir, 'supervisor.log')).slice(0, 200)}`,
+    `inbox     ${lastLine(path.join(cfg.campaignDir, 'OWNER-INBOX.md')).slice(0, 200)}`,
+    'lead, latest actions (UTC):',
+    ...(session.transcriptPath ? leadActivity(session.transcriptPath, 12) : []).map((l) => `  ${l}`),
+  ];
+  process.stdout.write(lines.join('\n') + '\n');
+}
+
 function phaseOf(cfg) {
   return parsePhase(readText(path.join(cfg.campaignDir, 'PHASE')));
 }
@@ -255,9 +314,14 @@ function runSession(cfg, launch) {
         if (Date.now() - Math.max(lastActivity, touched) > cfg.idleMinutes * 60_000) terminate('watchdog');
       }
     }, POLL_MS);
+    const heartbeat = setInterval(() => {
+      const transcript = readJson(path.join(cfg.stateDir, 'session.json'), {})?.transcriptPath;
+      log(cfg, { event: 'heartbeat', index: n, phase: phaseOf(cfg), tokens: readJson(path.join(cfg.stateDir, 'context.json'), {})?.tokens ?? null, last: transcript ? leadActivity(transcript, 1)[0] ?? null : null });
+    }, cfg.heartbeatMs);
 
     child.on('close', (code, signal) => {
       clearInterval(timer);
+      clearInterval(heartbeat);
       stream.end();
       writeFileSync(out.replace(/\.jsonl$/, '.err'), stderr);
       const events = (readText(out) ?? '').split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
@@ -457,9 +521,11 @@ if (opts.command === 'archive') {
   const result = archive(cfg);
   process.stdout.write(JSON.stringify(result, null, 2) + '\n');
   process.exitCode = result.missing.length ? 1 : 0;
+} else if (opts.command === 'status') {
+  status(cfg);
 } else if (opts.command === 'run') {
   process.exitCode = await run(cfg);
 } else {
-  process.stderr.write('usage: supervise.mjs run|archive --campaign <id> [options]\n');
+  process.stderr.write('usage: supervise.mjs run|archive|status --campaign <id> [options]\n');
   process.exitCode = 2;
 }

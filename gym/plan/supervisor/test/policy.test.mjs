@@ -46,6 +46,8 @@ describe('guard policy: what the lead may run', () => {
     "cat >> gym/runs/c1/OWNER-INBOX.md <<EOF\n- emergency shutdown per 08 §2; reboot not needed; ssh keys untouched; sudo not used; env | grep is banned\nEOF",
     'git commit -m "$(cat <<\'EOF\'\nrecord: supervisor halt, then reboot of the loop\nEOF\n)"',
     'echo "the guard may halt or shutdown the session" > /tmp/note.txt',
+    // Session 0469c51a was denied for "`<dir>/<case>/run-<k>.json`" inside a brief: heredoc text is not a redirect.
+    "cat > gym/runs/c1/it-005/brief.md <<'EOF'\n1. `--keep-runs <dir>` writes `<dir>/<case>/run-<k>.json` = `{case, run}` -> / and >= 2 runs\nEOF",
   ];
   for (const command of allowed) it(`allows: ${command.split('\n')[0]}`, () => assert.equal(level(bash(command)), 'allow'));
 
@@ -59,6 +61,8 @@ describe('guard policy: what the lead may run', () => {
     ['git stash drop', 'deny:stash-destroy'],
     ['echo x > gym/plan/01-goals-and-metrics.md', 'deny:plan-read-only'],
     ['echo x > /Users/owner/notes.txt', 'deny:write-outside-roots'],
+    ["cat > /Users/owner/notes.txt <<'EOF'\nhello\nEOF", 'deny:write-outside-roots'],
+    ["bash <<'EOF'\necho x > /Users/owner/notes.txt\nEOF", 'deny:write-outside-roots'],
     ['cat /Users/owner/inseer/frontend/src/app.ts', 'deny:forbidden-repo'],
     ['ls ~/.claude/projects', 'deny:claude-home'],
     ['rm -rf node_modules', 'deny:protected-delete'],
