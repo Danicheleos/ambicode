@@ -55,8 +55,12 @@ Why: `it-003/decision.md` and `cp-2.md` record accept and go; the auditor's find
 Needed for: whether it-004 and later T3 comparisons treat it-003 as a settled reference, and how 01 §3's T3 rule is applied to WP3 (cp-3 uses the same ±2).
 Default if unanswered by it-005: it-003 stays tagged but is recorded as "accepted with an unconfirmed deviation"; the T3 rule stays as written (≥ 2 findings is real) and is applied literally from it-004, with no waiver on grounds of reviewer noise; WP2 counts as inconclusive for cp-5 until L-010 is answered.
 
+Status: answered 2026-09-29T09:14:36.733Z in labels.json (a: T3 count dropped as a control; b: WP2 accepts on gates + reproducing tests; also: full T2 only at checkpoints). The default did not apply. it-003 is recorded as accepted (STATE.md). Consequences go through replan R-1 (`replan/R-1-2026-09-29T09-30-00Z.md`, draft in `gym/plan/rev-1/`).
+
 ## L-012  (asked by the cp-2 audit, 2026-09-29)
 Question: WP3 and WP4 each need a T2 control decision (≈ $61 eval in it-003, ≈ $70 with sessions). The ledger is ≈ $161 of $250 with the stop at $225, so ≈ $64 remains: one such iteration does not fit with margin, two do not fit. L-009 costed WP2 + WP3 + WP4 at ≥ $375. Which do you want? (a) Raise the ceiling to a number. (b) Keep $250 and end cycle 1 after WP3's investigation item, with the rest unspent. (c) Approve a cheaper T2 control through a replan (09 §2 step 5).
 Why: the lead noted the shortfall only in `OWNER-INBOX.md`, which carries no default. The supervisor counts only session costs plus `it-*/metrics.json` (about $77 now) and will not stop at the lead's ledger figure, so the lead's own stop at $225 is the operative one.
 Needed for: WP3 behaviour item, WP4, cp-3 to cp-5.
 Default if unanswered by it-006: (b). Only the WP3 investigation item ($0 eval) runs; the lead sets PHASE `blocked` afterwards.
+
+Status: answered 2026-09-29T08:54:57.804Z in labels.json (a, "400"). Ceiling $400, stop at $360 (90 %); budget checkpoints at $200 (50 %) and $300 (75 %). Applied to `CAMPAIGN.md` at it-004. The supervisor's `--budget-usd` is the owner's to restart with; the lead's own stop at $360 is operative until then.

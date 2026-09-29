@@ -63,3 +63,8 @@ Minimal files for B: `src/cli/commands/review.ts`, `src/review/report.ts`, `src/
 
 ## Claims without evidence
 - (none; unverified CLI behaviour is marked "inferred" in Findings)
+
+## Corrections after the verifier (lead, 2026-09-29; the text above is unchanged)
+- Recorder cost: read at `evals-record-core.mjs:112`, printed to stderr at `:145` (the cited `127,129,152-154` are wrong; 152-154 write the recordings file).
+- Env allowlist: 25 names at `claude-reviewer.ts:74-104` (not 26). `--safe-mode` is line 248; the comment at 247 says it loads no hooks.
+- "509c0a5 is the only non-gym commit between the eras" is false as written: `3b01dc0` (`.gitignore`), `1935b4d` (`CLAUDE.md`) and `bfadeef` (`src/hook/run-hook.test.ts`) also touch non-gym paths. None is in a reviewer path; the empty `git log` over `src/review prompts policies src/config src/cli src/ports src/contracts hooks scripts` stands.
