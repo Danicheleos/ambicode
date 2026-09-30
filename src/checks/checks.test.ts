@@ -672,6 +672,29 @@ test('U14 a proposed selector needs its own approval, separate from the check', 
   ]);
 });
 
+test('U14 a declined selector releases the wait: the check is a chosen gap, not a pending approval', async (t) => {
+  const directory = await sandbox(t);
+  const runner = new FakeProcessRunner();
+
+  const { results, pendingApprovals } = await runChecks(
+    baseOptions({
+      reviewDirectory: directory,
+      runner,
+      project: selectorProject(),
+      policy: policy([['unit', 'run'], ['select-tests', 'propose']]),
+      changed: changed([{ newPath: 'src/a.ts' }]),
+      declines: new Set(['web/unit:selector']),
+    }),
+  );
+
+  assert.deepEqual(pendingApprovals, [], 'an answered question is not asked again');
+  assert.deepEqual(runner.argvs(), []);
+  assert.equal(results[0]?.status, 'skipped');
+  assert.equal(results[0]?.selectionComplete, false);
+  assert.ok(results[0]?.limitations.some((line) => line.includes('declined')));
+  assert.ok(results[0]?.limitations.some((line) => line.includes('gap in verification')));
+});
+
 function jestProject(): ProjectConfig {
   return {
     id: 'web',

@@ -139,6 +139,17 @@ export async function runChecks(options: RunChecksOptions): Promise<RunChecksOut
           commandId: selectorCommandId,
         });
 
+        const declined = selectorAuthorization.kind === 'needs-approval' && options.declines.has(selectorKey);
+        if (declined) {
+          results.push(
+            skipped(checkId, options.project.id, check.command, check.adapter, [
+              `The selector command "${selectorCommandId}" was not run: ${selectorAuthorization.reason}. A human was asked and declined it.`,
+              'Nothing could be selected, so the check was skipped. This is a gap in verification that somebody chose, not a passing check.',
+            ]),
+          );
+          continue;
+        }
+
         if (selectorAuthorization.kind === 'needs-approval') {
           pendingApprovals.push({
             checkId,

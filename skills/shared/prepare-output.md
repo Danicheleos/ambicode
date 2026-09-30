@@ -90,6 +90,8 @@ and a broad search is allowed and is reported with its reason.
 - `preparation-blocked` means applicable content could not be delivered. It
   is a stop, not a warning: a policy that looks complete while quietly
   missing something applicable is worse than no policy.
+- Any other code is in
+  `${CLAUDE_PLUGIN_ROOT}/skills/review/references/outcomes.md`.
 
 ## What no skill does with this
 

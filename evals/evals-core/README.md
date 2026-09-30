@@ -26,10 +26,16 @@ the strongest, most provable cases per side (5 localize + 4 review; 18 in the
 
 ```sh
 npm run build
-npm run evals                 # select, then run curated with --ablation with-without
+npm run evals                 # = evals:walk
+npm run evals:walk            # 6 walk-tagged cases, plugin arm, 1 run, Sonnet 5.5, $2 cap, writes walk-<ts>.md
+npm run evals:walk:haiku      # the same on Haiku 4.5
+npm run evals:baseline        # all 26 cases, both arms, 3 runs, Sonnet 5.5, $35 cap: once per Claude Code version
+npm run evals:decide          # all 26 cases, plugin arm, 3 runs, Sonnet 5.5, $20 cap: gate it against the baseline
 npm run evals:select          # evals/evals-core/cases/ only, no run
-npm run evals:score -- evals/evals-core/results/eval-<ts>.json
-npm run evals:full            # all ~200 cases from benchmarks/cases/
+npm run evals:score -- evals/evals-core/results/eval-<ts>.json [--baseline <eval-baseline>.json]
+npm run evals:gate -- evals/evals-core/results/eval-<ts>.json [--baseline <eval-baseline>.json]
+npm run evals:walk-report -- evals/evals-core/results/eval-<ts>.json
+npm run evals:full            # all ~200 cases from benchmarks/cases/, plugin arm, 1 run, $45 cap
 npm run evals:generate        # benchmarks/cases/ only, no run
 ```
 
@@ -140,5 +146,113 @@ the curated truth and graders but **not** `benchmarks/` — so every case
 carries four `no-peek-*` graders (Read, Grep, Glob, Bash; `max: 0`) that fail
 any run whose tool input reaches a path containing `benchmarks/`.
 
-Cost is unmeasured for this set: the archived suite ran at $0.13–0.28 per run;
-these repositories are far larger.
+## Deciding with it
+
+`run` refuses a sweep without `--model`. On 2026-09-29, four runs of one
+plugin build read as plugin changes. In fact the model had changed from Opus
+5.5 to Sonnet 5.5, and the investigate body was byte-identical in every trace.
+On Opus the agent ran `prepare` in 26 of 29 runs; on Sonnet, in 3 of 50.
+
+`run` also refuses a sweep without `--max-cost-usd`. Campaign R1 (2026-09-29)
+ran uncapped for 13.5 h. It spent about $221 API-equivalent ($56 on its lead
+agent, $165 on the evals the lead started) and used up a weekly plan limit.
+
+**Three tiers, cheapest first.** Only go up a tier when the one below says the
+change is worth it.
+
+1. **Walk** (`evals:walk`, about $1.1–1.3 and 2 min, measured). This runs
+   one case per kind per side, from the `walk` tag (the top pick of each), with
+   one run and the plugin arm only. `walk-<ts>.md` then lists each run's cost,
+   turns, skills, `prepare` use and score, plus its **first deviation** in trace
+   order:
+   - a `benchmarks/` peek;
+   - an edit to the code;
+   - `prepare` cut by `head`/`tail`/`cut`;
+   - a review re-run;
+   - a helper that printed an error code;
+   - no skill fired, or a skill but no `prepare`;
+   - the turn limit.
+
+   After that summary come the compact steps, one line per tool call. Read the
+   first deviation of each run and note what you saw, not why. This is the
+   error-analysis method of the ai-evals-course `evals-skills`. It makes no
+   model call beyond the runs themselves.
+2. **Decide** (`evals:decide`, about $14 projected, unmeasured). All 26 cases,
+   3 runs, the plugin arm only. `evals:gate -- <decide>.json --baseline
+   <baseline>.json` takes the no-plugin arm from the baseline. That arm depends
+   on the model, the Claude Code version and the prompt, and not on the plugin.
+   A baseline that differs in any of those, or one that is partial, is
+   refused. The gate prints which baseline it used and how old it is. It
+   reports `meanDelta` as **GAP**, since the harness computes that only with
+   both arms in one run; the recall check is the Δ check.
+3. **Baseline** (`evals:baseline`, about $28 projected from $0.18 per run).
+   Both arms, run once per Claude Code version. Its plugin arm is also a
+   decision sample.
+
+Opus has no script. A run costs 2.5–3× a Sonnet run, and Opus uses up plan
+limits fastest. Run it by hand, at a release, with an explicit `--max-cost-usd`.
+
+**Haiku is not the cheap tier.** Measured on 2026-09-30, one case per kind:
+- On localize, Haiku 4.5 took 3–4× Sonnet's turns and cost 1.7–1.9× as much.
+- On review, it cost 0.6× as much.
+- It fired the review skill unforced; Sonnet did so 0 times in 24.
+
+So a Haiku run predicts neither a Sonnet run's cost nor its behaviour.
+Effort and thinking cannot be set from the harness. Eval children do not read
+the user's settings, and `MAX_THINKING_TOKENS=0` did not stop thinking.
+Thinking was about 4.5% of a Sonnet run's cost anyway. Details are in
+`gym/planing/investigation/probes-2026-09-30.md` §5.
+
+The curated scripts set `EVAL_AMBICODE_REVIEWER_REPLAY` to
+`benchmarks/reviewer-recordings.json`. Inside the sandbox, no nested reviewer
+signs in: without the replay, every review failed with `reviewer-error: Not
+logged in` (2026-09-30).
+
+`score` reads the harvested traces beside the result and adds what the
+agent actually did, counted from its tool calls:
+- `skill-fired`, `prepare-ran` and `prepare-truncated` (piped into
+  `head`/`tail`/`cut`);
+- `review-runs` per run;
+- `bash-reads` against `read-calls`.
+
+`traced` counts the runs with a trace. The rest are left out of those
+numbers and are not counted as runs that did nothing.
+
+`eval-gate.mjs` turns a result into pass or fail:
+- the model is pinned and confirmed by the traces;
+- there are ≥3 runs per case, and the run is not partial;
+- no arm has more than 20% absent runs;
+- recall with the plugin is no lower than without, beyond the noise band
+  (how far an arm's mean moves between repetitions);
+- cost is ≤1.1× and turns are ≤+2 against the no-plugin arm;
+- `meanDelta` is no lower than 0 beyond the widest band.
+
+A run that replayed the reviewer (`EVAL_AMBICODE_REVIEWER_REPLAY`)
+reports its cost as **GAP**, not pass: the reviewer's own cost ($0.33–0.67
+per recording, `record-*.log`) is not in the arm.
+
+`select --forced` adds a twin of each review case whose prompt names the
+skill ("Use the ambicode review skill …"), scored as `review-forced`. The
+neutral case measures whether the skill is picked and whether it helps. The
+forced twin measures only whether it helps once picked.
+
+Cost, measured:
+
+```
+2026-09-29  Opus 5.5    18 cases × 3 runs × 2 arms  $57.83  53 min  ≈ $0.54 per run
+2026-09-29  Sonnet 5.5  18 cases × 3 runs × 2 arms  $21.26  26 min  ≈ $0.20 per run
+2026-09-30  Sonnet 5.5  walk: 6 cases × 1 run × 1 arm  $1.28 / $1.12   2 min
+```
+
+Where a Sonnet run's money goes, from the 09-30 run's 32 traces (list prices;
+they sum to $6.86 against $6.44 reported):
+
+```
+cache write  0.92M tok  ~50%
+cache read   6.23M tok  ~28%
+output       0.10M tok  ~22%   (thinking ~4.5%)
+judge (Haiku, 3 votes)   ~2%
+```
+
+The number of runs and turns × context drive the cost. Thinking and the judge
+barely do.

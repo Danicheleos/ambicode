@@ -139,11 +139,26 @@ reports and run it again. **Do not proceed to step 7 until it is clean.**
 A warning is not a blocker but is usually a real problem:
 `pack-glob-matches-nothing` means the rule you just wrote will never apply.
 
-### 7. Wire the packs in
+### 7. Show the disposition table and ask about the drops
 
-Add each file to the right project's `policyFiles` in `.ambicode/config.yaml`,
-preserving everything else in that file — its comments, its formatting, and
-every value the user has set. Use the `yaml` package's document editing API if
+Present every rule from every source and what became of it. Model it on
+`docs/rule-migration.md`, the same table for the built-in packs:
+
+| Source rule | Disposition |
+|---|---|
+| `CLAUDE.md` "Components must not call HTTP" | `team-components/no-transport-in-components`, `authority: team` |
+| `CLAUDE.md` "Use meaningful names" | Dropped — `builtin/common-quality/naming` already covers it |
+| `CLAUDE.md` "All interfaces start with I" | **Not migrated — needs your decision.** A project-policy choice, not a defect |
+| `docs/api.md` "Use `res.status().json()`" | Dropped — names a framework API AMBICODE cannot version-check |
+
+Then **ask the user to confirm the table.** Nothing is live yet, so a no
+costs nothing: change the packs and show it again.
+
+### 8. Wire the packs in
+
+Only after the user confirms. Add each file to the right project's
+`policyFiles` in `.ambicode/config.yaml`, preserving everything else in that
+file — its comments, its formatting, and every value the user has set. Use the `yaml` package's document editing API if
 you edit programmatically. Never splice YAML with a regex or rewrite the file
 from a parsed object.
 
@@ -158,21 +173,7 @@ projects:
 
 Then run `ambicode policy --project <id> <path>` on a path the pack should
 cover and on one it should not, and confirm the rules appear only in the first.
-
-### 8. Show the disposition table and ask about the drops
-
-Present every rule from every source and what became of it. Model it on
-`docs/rule-migration.md`, the same table for the built-in packs:
-
-| Source rule | Disposition |
-|---|---|
-| `CLAUDE.md` "Components must not call HTTP" | `team-components/no-transport-in-components`, `authority: team` |
-| `CLAUDE.md` "Use meaningful names" | Dropped — `builtin/common-quality/naming` already covers it |
-| `CLAUDE.md` "All interfaces start with I" | **Not migrated — needs your decision.** A project-policy choice, not a defect |
-| `docs/api.md` "Use `res.status().json()`" | Dropped — names a framework API AMBICODE cannot version-check |
-
-Then **ask the user to confirm the drops and the deferred decisions.** The table
-is not a report of a finished job; it is the last review gate.
+To undo, remove those `policyFiles` entries; the pack files can stay.
 
 ## Rules this skill follows
 
@@ -215,7 +216,7 @@ it.
   resolve policy from YAML packs only, and that must stay true.
 - No pack is enabled by existing on disk. It applies only once a project's
   `policyFiles` names it.
-- No auto-migration. Every drop and deferred rule is confirmed by the user.
+- No auto-migration. The user confirms every drop and deferred rule.
 - No change to the pack schema, the resolver, precedence, or provenance. If a
   rule genuinely cannot be expressed in the format, say so rather than
   approximating it.

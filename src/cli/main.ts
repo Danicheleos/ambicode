@@ -100,6 +100,14 @@ export const USAGE = `ambicode <command> [options]
                                                   input. Required whenever
                                                   --requirement is used.
                             --approve <key>       Authorize one proposed run; repeatable.
+                            --decline <key>       Refuse one proposed run; repeatable.
+                                                  The check is reported as a gap
+                                                  somebody chose, and the review
+                                                  goes on without it.
+                            --task <slug>         Save under this task's directory.
+                                                  Without it, the first --requirement
+                                                  names the directory, and a run with
+                                                  neither belongs to no task.
                             --exclude <glob>      Do not review paths matching this
                                                   glob; repeatable, added to
                                                   review.excludePaths. The way past a
@@ -126,6 +134,8 @@ export const USAGE = `ambicode <command> [options]
                             --evidence <file|->   The retrieved requirement evidence,
                                                   or "-" for standard input.
                             --approve <key>       Authorize one proposed run; repeatable.
+                            --decline <key>       Refuse one proposed run; repeatable.
+                            --task <slug>         Save under this task's directory.
                             --exclude <glob>      Do not review matching paths; repeatable.
                             --only <glob>         Review only matching paths; repeatable.
                             --with-tests          Include the change's test code (--mr).

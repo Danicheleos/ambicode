@@ -23,15 +23,19 @@ const SPECS: Record<string, OptionSpec> = {
   bundle: BUNDLE_OPTIONS,
 };
 
+const GLOBAL = 'Global:';
+
 /**
- * The options each help-text command block names. The help text is authored, so this keeps
- * it from documenting an option the parser would reject.
+ * The options each help-text command block names, with the options every command takes under
+ * `GLOBAL`. The help text is authored, so this keeps it from documenting an option the parser
+ * would reject. `policy check` is its own block: read as `policy`, it hid policy's options.
  */
 function documentedOptions(): Map<string, string[]> {
   const documented = new Map<string, string[]>();
   let current: string | null = null;
   for (const line of USAGE.split('\n')) {
-    const command = /^  ([a-z]+)(?: |$)/.exec(line);
+    if (line === GLOBAL) documented.set((current = GLOBAL), []);
+    const command = /^  ([a-z]+(?: check)?)(?: |$)/.exec(line);
     if (command !== null) {
       current = command[1] ?? null;
       if (current !== null) documented.set(current, []);
@@ -89,6 +93,7 @@ describe('U27 command line arguments', () => {
 
   it('accepts every option the help text documents', () => {
     for (const [command, options] of documentedOptions()) {
+      if (command === GLOBAL) continue;
       const spec = COMMAND_SPECS[command];
       assert.ok(spec !== undefined, `the help text documents "${command}", which is not a command`);
       for (const option of options) {
@@ -99,6 +104,19 @@ describe('U27 command line arguments', () => {
         );
       }
     }
+  });
+
+  it('documents every option each command accepts', () => {
+    const documented = documentedOptions();
+    const missing: string[] = [];
+    for (const [command, spec] of Object.entries(COMMAND_SPECS)) {
+      assert.ok(spec !== undefined, `${command} has no option spec`);
+      const names = [...(documented.get(command) ?? []), ...(documented.get(GLOBAL) ?? [])];
+      for (const option of [...(spec.values ?? []), ...(spec.repeated ?? []), ...(spec.flags ?? [])]) {
+        if (!names.includes(option)) missing.push(`${command} --${option}`);
+      }
+    }
+    assert.deepEqual(missing, [], 'an option only the parser knows is one no agent will use');
   });
 
   it('rejects an operand on a command that takes none', () => {

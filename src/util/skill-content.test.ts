@@ -528,3 +528,65 @@ describe('P2.3 task skill', () => {
     assert.match(normalized, /not a grant of any tool, capability, commit, deploy, publish, or/i);
   });
 });
+
+/**
+ * Every code the CLI can raise, read from the source. A code built at run time is listed by
+ * hand, and the test fails if a new one appears, so the list cannot fall silently behind.
+ */
+async function emittedErrorCodes(): Promise<Set<string>> {
+  const DYNAMIC: Record<string, string[]> = {
+    'snapshot/remote-target.ts': ['provider-unsupported', 'provider-resolve-failed', 'provider-fetch-failed'],
+  };
+  const codes = new Set<string>();
+  const sourceDir = path.join(repositoryRoot, 'src');
+  for (const file of await readdir(sourceDir, { recursive: true })) {
+    if (!file.endsWith('.ts') || file.endsWith('.test.ts')) continue;
+    const text = await readFile(path.join(sourceDir, file), 'utf8');
+    for (const match of text.matchAll(/new AmbicodeError\(\s*([^,]+),/g)) {
+      const literal = /^'([a-z0-9-]+)'$/.exec(match[1]!.trim());
+      if (literal) codes.add(literal[1]!);
+      else {
+        const known = DYNAMIC[file.split(path.sep).join('/')];
+        assert.ok(known, `${file} raises an AmbicodeError with a computed code (${match[1]!.trim()}); list its codes in DYNAMIC`);
+        known.forEach((code) => codes.add(code));
+      }
+    }
+  }
+  return codes;
+}
+
+describe('F3 documented outcomes', () => {
+  it('documents every error code the CLI raises in a file the skills read', async () => {
+    const codes = await emittedErrorCodes();
+    assert.ok(codes.size > 40, `expected the whole set of codes, found ${codes.size}`);
+    let documentation = '';
+    for (const file of await readdir(SKILLS_DIR, { recursive: true })) {
+      if (file.endsWith('.md')) documentation += await readFile(path.join(SKILLS_DIR, file), 'utf8');
+    }
+    const missing = [...codes].filter((code) => !documentation.includes(`\`${code}\``)).sort();
+    assert.deepEqual(missing, [], 'an agent that meets an undocumented code has nothing to act on but the message');
+  });
+
+  it('review outcomes cover every requirements, baseline and reviewer code, the ones a review run meets', async () => {
+    const outcomes = await readFile(path.join(SKILLS_DIR, 'review', 'references', 'outcomes.md'), 'utf8');
+    const reviewPath = [...(await emittedErrorCodes())].filter((code) =>
+      /^(requirements-|baseline-|reviewer-|provider-|config-)|^(no-merge-base|no-head|not-a-repository)$/.test(code),
+    );
+    const missing = reviewPath.filter((code) => !outcomes.includes(`\`${code}\``)).sort();
+    assert.deepEqual(missing, []);
+  });
+});
+
+describe('F7 rules confirmation gate', () => {
+  it('asks for confirmation before any pack is wired in, and states how to undo the wiring', async () => {
+    const content = await readFile(path.join(SKILLS_DIR, 'rules', 'SKILL.md'), 'utf8');
+    const steps = [...content.matchAll(/^### (\d+)\. (.+)$/gm)].map((m) => ({ n: Number(m[1]), title: m[2]!, at: m.index }));
+    const confirm = steps.find((s) => /disposition table/i.test(s.title));
+    const wire = steps.find((s) => /wire the packs in/i.test(s.title));
+    assert.ok(confirm && wire, 'both steps exist');
+    assert.ok(confirm.at < wire.at, 'a gate after the change it guards cannot stop it');
+    const wiring = content.slice(wire.at, steps.find((s) => s.n === wire.n + 1)?.at ?? content.indexOf('\n## ', wire.at));
+    assert.match(wiring, /policyFiles/);
+    assert.match(wiring.replace(/\s+/g, ' '), /to undo|roll back|rollback/i);
+  });
+});

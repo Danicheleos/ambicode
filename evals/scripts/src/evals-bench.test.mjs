@@ -8,9 +8,10 @@ import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
-import { BENCH_EVAL_DIR, CURATED_EVAL_DIR, SELECT, changedLines, codeRoot, generate, harvestDir, harvestTraces, harvestedOfResult, localizeHardness, namedFiles, parseTicket, reviewSubstance, runArgs, score, scoreAnswer } from './evals-bench.mjs';
+import { BENCH_EVAL_DIR, CURATED_EVAL_DIR, SELECT, changedLines, codeRoot, generate, harvestDir, harvestTraces, harvestedOfResult, localizeHardness, namedFiles, parseTicket, reviewSubstance, runArgs, score, scoreAnswer, traceMetrics, walkReport, walkRuns, withBaseline } from './evals-bench.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+const M = ['--model', 'claude-sonnet-5-5', '--max-cost-usd', '1'];
 
 const CHANGE = `diff --git a/app/orders/service.ts b/app/orders/service.ts
 --- a/app/orders/service.ts
@@ -266,6 +267,181 @@ describe('evals-bench: scoring a run', () => {
   });
 });
 
+const event = (type, extra) => JSON.stringify({ type, ...extra });
+const toolUse = (name, input) => event('assistant', { message: { content: [{ type: 'tool_use', name, input }] } });
+const HELPER = 'node "/p/scripts/ambicode.mjs"';
+const TRACE = [
+  event('system', { subtype: 'init', model: 'claude-sonnet-5-5' }),
+  toolUse('Skill', { skill: 'ambicode:investigate', args: 'q' }),
+  // The skill body is in the trace too, and names the helper: it is not a call.
+  event('user', { message: { content: [{ type: 'text', text: `Run ${HELPER} prepare --activity investigate --json` }] } }),
+  toolUse('Bash', { command: `cd repo && ${HELPER} prepare --activity investigate --json 2>&1 | head -c 6000` }),
+  toolUse('Bash', { command: `${HELPER} prepare --activity investigate --json --term x` }),
+  toolUse('Bash', { command: 'cd repo && grep -rn amount src | head -20' }),
+  toolUse('Bash', { command: 'sed -n 1,40p src/a.ts; cat src/b.ts' }),
+  toolUse('Bash', { command: 'npm test' }),
+  toolUse('Bash', { command: `${HELPER} review --branch 2>&1 | tail -150` }),
+  event('user', { message: { content: [{ type: 'tool_result', content: 'reviewer    ok — model sonnet, REPLAYED from a recording (no model call)' }] } }),
+  toolUse('Read', { file_path: 'src/a.ts' }),
+  toolUse('Grep', { pattern: 'x' }),
+  'not json',
+].join('\n');
+
+describe('evals-bench: measures taken from the trace', () => {
+  it('counts the agent\'s own calls, never the skill text that names the helper', () => {
+    assert.deepEqual(traceMetrics(TRACE), {
+      model: 'claude-sonnet-5-5',
+      toolCalls: 9,
+      skills: ['ambicode:investigate'],
+      prepareRuns: 2,
+      prepareTruncated: 1,
+      reviewRuns: 1,
+      replayedReviews: 1,
+      bashReads: 2,
+      readCalls: 1,
+      grepCalls: 1,
+    });
+  });
+
+  it('attaches them to the scored runs, and leaves an untraced run out of the counts', () => {
+    const benchmarks = mkdtempSync(path.join(tmpdir(), 'bench-trace-score-'));
+    try {
+      mkdirSync(path.join(benchmarks, 'cases', 'side-t-1'), { recursive: true });
+      writeFileSync(path.join(benchmarks, 'cases', 'side-t-1', 'truth.json'), JSON.stringify({ side: 'SIDE', ticket: 'T-1', root: 'app', truth: ['app/a.ts'] }));
+      const tracesDir = path.join(benchmarks, 'traces');
+      mkdirSync(tracesDir);
+      writeFileSync(path.join(tracesDir, 'e-abc.jsonl'), TRACE);
+      const graders = [{ name: 'names-a-true-file', passed: true, evidence: '## Files\n- app/a.ts\n' }];
+      const results = { cases: [{ name: 'side-t-1', arms: { with: [{ graders, tracePath: '/private/tmp/e-abc/out/trace.jsonl' }, { graders, tracePath: '/private/tmp/e-gone/out/trace.jsonl' }] } }] };
+      const w = score(results, { benchmarks, tracesDir }).arms['localize/with'];
+      assert.deepEqual([w.runs, w.traced, w['skill-fired'], w['prepare-ran'], w['prepare-truncated'], w['review-runs'], w['bash-reads']], [2, 1, 1, 1, 1, 1, 2]);
+      assert.deepEqual(w.models, ['claude-sonnet-5-5']);
+      assert.equal(score(results, { benchmarks }).arms['localize/with'].traced, 0, 'no traces directory: nothing is traced, nothing is invented');
+    } finally {
+      rmSync(benchmarks, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('evals-bench: a cached no-plugin arm', () => {
+  const PROMPT = 'Which files?';
+  const result = (arms, extra = {}) => ({
+    partial: false,
+    claudeVersion: '2.1.285',
+    startedAt: '2026-09-30T00:00:00.000Z',
+    suite: { modelOverride: 'claude-sonnet-5-5' },
+    cases: [{ name: 'side-t-1', promptMarkdown: PROMPT, arms }],
+    ...extra,
+  });
+  const withOnly = result({ with: [{ turns: 9 }] });
+  const baseline = result({ with: [{ turns: 1 }], without: [{ turns: 7 }] }, { startedAt: '2026-09-29T00:00:00.000Z' });
+
+  it('takes the without arm from the baseline, and keeps where it came from', () => {
+    const merged = withBaseline(withOnly, baseline, { baselinePath: 'b.json' });
+    assert.deepEqual(merged.cases[0].arms, { with: [{ turns: 9 }], without: [{ turns: 7 }] });
+    assert.deepEqual(merged.baseline, { file: 'b.json', startedAt: '2026-09-29T00:00:00.000Z' });
+    assert.equal(withOnly.cases[0].arms.without, undefined, 'the run it was given is not modified');
+  });
+
+  it('refuses a baseline that differs in anything the no-plugin arm depends on', () => {
+    const refuse = (b, pattern, r = withOnly) => assert.throws(() => withBaseline(r, b, { baselinePath: 'b.json' }), pattern);
+    refuse({ ...baseline, suite: { modelOverride: 'claude-opus-5-5' } }, /model/);
+    refuse({ ...baseline, claudeVersion: '2.1.300' }, /Claude Code version/);
+    refuse({ ...baseline, partial: true }, /partial/);
+    refuse({ ...baseline, cases: [{ ...baseline.cases[0], promptMarkdown: 'Other prompt' }] }, /prompt/);
+    refuse({ ...baseline, cases: [] }, /side-t-1/);
+    refuse({ ...baseline, cases: [{ ...baseline.cases[0], arms: { with: [] } }] }, /no without arm/);
+    refuse(baseline, /its own without arm/, baseline);
+  });
+});
+
+describe('evals-bench: the walkthrough', () => {
+  let benchmarks;
+  before(() => {
+    benchmarks = mkdtempSync(path.join(tmpdir(), 'bench-walk-'));
+    mkdirSync(path.join(benchmarks, 'cases', 'side-t-1'), { recursive: true });
+    writeFileSync(path.join(benchmarks, 'cases', 'side-t-1', 'truth.json'), JSON.stringify({ side: 'SIDE', ticket: 'T-1', root: 'app', truth: ['app/a.ts', 'app/b.ts'] }));
+    mkdirSync(path.join(benchmarks, 'traces'));
+    writeFileSync(path.join(benchmarks, 'traces', 'e-walk.jsonl'), TRACE);
+    const quiet = [event('system', { subtype: 'init', model: 'claude-sonnet-5-5' }), toolUse('Bash', { command: 'grep -rn total app' })].join('\n');
+    writeFileSync(path.join(benchmarks, 'traces', 'e-quiet.jsonl'), quiet);
+  });
+  after(() => rmSync(benchmarks, { recursive: true, force: true }));
+
+  const graders = [{ name: 'names-a-true-file', passed: true, evidence: '## Files\n- app/a.ts\n' }];
+  const results = {
+    suite: { modelOverride: 'claude-sonnet-5-5' },
+    cases: [
+      {
+        name: 'side-t-1',
+        maxTurns: 40,
+        arms: {
+          with: [
+            { graders, costUsd: 0.2, turns: 12, tracePath: '/private/tmp/e-walk/out/trace.jsonl' },
+            { graders, costUsd: 0.1, turns: 40, tracePath: '/private/tmp/e-quiet/out/trace.jsonl' },
+            { graders: [], costUsd: 0.1, turns: 3, error: 'timeout', tracePath: '/private/tmp/e-gone/out/trace.jsonl' },
+          ],
+        },
+      },
+    ],
+  };
+
+  it('names the first thing that went wrong in each run, in trace order', () => {
+    const walk = walkRuns(results, { benchmarks, tracesDir: path.join(benchmarks, 'traces') });
+    assert.deepEqual(
+      walk.map((w) => w.deviations[0] ?? null),
+      ['prepare output cut with head/tail/cut (step 2)', 'no AMBICODE skill fired', 'the run ended in an error: timeout'],
+    );
+    assert.deepEqual(walk[1].deviations, ['no AMBICODE skill fired', 'stopped at the 40-turn limit']);
+    assert.ok(!walk[0].deviations.some((d) => d.startsWith('review re-run')), 'one review call is not a re-run');
+    const rerun = [
+      event('system', { subtype: 'init', model: 'claude-sonnet-5-5' }),
+      toolUse('Skill', { skill: 'ambicode:review' }),
+      toolUse('Bash', { command: `${HELPER} review --branch` }),
+      toolUse('Bash', { command: `${HELPER} review --branch --exclude 'i18n/**'` }),
+      toolUse('Edit', { file_path: '/s/repo/app/a.ts' }),
+      toolUse('Read', { file_path: '/data/benchmarks/BE/assets/T-1.md' }),
+    ].join('\n');
+    writeFileSync(path.join(benchmarks, 'traces', 'e-rerun.jsonl'), rerun);
+    const [again] = walkRuns({ cases: [{ name: 'side-t-1', arms: { with: [{ graders, tracePath: '/tmp/e-rerun/out/trace.jsonl' }] } }] }, { benchmarks, tracesDir: path.join(benchmarks, 'traces') });
+    assert.deepEqual(again.deviations, [
+      'review re-run (step 3)',
+      'edit attempted: /s/repo/app/a.ts (step 4)',
+      'reached into benchmarks/ (step 5)',
+      'a skill fired but prepare never ran',
+    ]);
+    assert.equal(walk[0].steps[0], '1. Skill ambicode:investigate q');
+    assert.ok(walk[0].steps.every((line) => line.length <= 120 && !line.includes('\n')));
+    assert.equal(walk[2].steps, null, 'an untraced run has no steps, not an empty list');
+  });
+
+  it('names a helper call that failed, by the code it printed', () => {
+    const call = (id, command) => event('assistant', { message: { content: [{ type: 'tool_use', id, name: 'Bash', input: { command } }] } });
+    const answer = (id, content, isError) => event('user', { message: { content: [{ type: 'tool_result', tool_use_id: id, content, is_error: isError }] } });
+    const failing = [
+      event('system', { subtype: 'init', model: 'claude-sonnet-5-5' }),
+      toolUse('Skill', { skill: 'ambicode:review' }),
+      call('t1', `${HELPER} review`),
+      answer('t1', 'Exit code 2\nerror [snapshot-too-large]: 15 changed files do not fit', true),
+      call('t2', `${HELPER} review --exclude 'i18n/**'`),
+      answer('t2', '1. WHAT WAS REVIEWED\n   review      local_x  (error: reviewer-error: Not logged in · Please run /login)', false),
+      call('t3', 'grep -n x app/a.ts'),
+      answer('t3', 'error [not-ours]: grep output is not a helper failure', false),
+    ].join('\n');
+    writeFileSync(path.join(benchmarks, 'traces', 'e-failing.jsonl'), failing);
+    const [walk] = walkRuns({ cases: [{ name: 'side-t-1', arms: { with: [{ graders, tracePath: '/tmp/e-failing/out/trace.jsonl' }] } }] }, { benchmarks, tracesDir: path.join(benchmarks, 'traces') });
+    assert.deepEqual(walk.deviations.slice(0, 3), ['review failed: snapshot-too-large (step 2)', 'review re-run (step 3)', 'review failed: reviewer-error (step 3)']);
+  });
+
+  it('writes one summary row per run, then each run with its steps', () => {
+    const markdown = walkReport(results, { benchmarks, tracesDir: path.join(benchmarks, 'traces'), source: 'eval-x.json' });
+    assert.match(markdown, /^# Walkthrough: eval-x\.json/m);
+    assert.match(markdown, /\| side-t-1 \| with \| 0 \| 0\.200 \| 12 \| ambicode:investigate \| 2 \(1 cut\) \| P 1\.00 R 0\.50 \| prepare output cut/);
+    assert.match(markdown, /trace not harvested/);
+    assert.match(markdown, /```\n1\. Skill ambicode:investigate q\n2\. Bash cd repo && node/);
+  });
+});
+
 describe('evals-bench: scoring a review run', () => {
   let benchmarks;
   before(() => {
@@ -296,39 +472,49 @@ describe('evals-bench: scoring a review run', () => {
 
 describe('evals-bench: running', () => {
   it('runs the curated suite by default, the full set with --set full, and never publishes', () => {
-    const argv = runArgs(['--case', 'x', '-j', '4']);
+    const argv = runArgs([...M, '--case', 'x', '-j', '4']);
     assert.deepEqual(argv.slice(0, 2), ['plugin', 'eval']);
     assert.equal(argv[argv.indexOf('--eval-dir') + 1], CURATED_EVAL_DIR);
     assert.ok(argv.includes('--no-publish'));
-    const full = runArgs([], { set: 'full' });
+    const full = runArgs([...M], { set: 'full' });
     assert.equal(full[full.indexOf('--eval-dir') + 1], BENCH_EVAL_DIR);
-    assert.throws(() => runArgs(['--publish-report']), /NDA/);
-    assert.throws(() => runArgs(['--eval-dir', 'evals']), /fixed/);
-    assert.throws(() => runArgs([], { set: 'both' }), /curated or full/);
+    assert.throws(() => runArgs([...M, '--publish-report']), /NDA/);
+    assert.throws(() => runArgs([...M, '--eval-dir', 'evals']), /fixed/);
+    assert.throws(() => runArgs([...M], { set: 'both' }), /curated or full/);
+  });
+
+  it('refuses a run whose model is not pinned', () => {
+    assert.throws(() => runArgs(['--case', 'x']), /--model is required/);
+    assert.equal(runArgs([...M])[runArgs([...M]).indexOf('--model') + 1], 'claude-sonnet-5-5');
+  });
+
+  it('refuses a run with no cost ceiling', () => {
+    assert.throws(() => runArgs(['--model', 'claude-sonnet-5-5']), /--max-cost-usd is required/);
+    assert.throws(() => runArgs(['--model', 'claude-sonnet-5-5', '--max-cost-usd']), /--max-cost-usd is required/);
   });
 
   it('keeps the result JSON inside the excluded directories', () => {
     const benchmarks = path.join(tmpdir(), 'b');
-    const argv = runArgs([], { now: new Date('2026-01-02T03:04:05.678Z'), benchmarks, set: 'full' });
+    const argv = runArgs([...M], { now: new Date('2026-01-02T03:04:05.678Z'), benchmarks, set: 'full' });
     assert.equal(argv[argv.indexOf('--json') + 1], path.join(benchmarks, 'results', 'eval-2026-01-02T03-04-05-678Z.json'));
-    const curated = runArgs([], { now: new Date('2026-01-02T03:04:05.678Z'), benchmarks });
+    const curated = runArgs([...M], { now: new Date('2026-01-02T03:04:05.678Z'), benchmarks });
     assert.equal(curated[curated.indexOf('--json') + 1], path.join(ROOT, 'evals', 'evals-core', 'results', 'eval-2026-01-02T03-04-05-678Z.json'));
-    assert.equal(runArgs(['--json', path.join(benchmarks, 'r.json')], { benchmarks }).filter((a) => a === '--json').length, 1);
-    assert.ok(runArgs(['--json', path.join(ROOT, 'evals', 'evals-core', 'results', 'r.json')], { benchmarks }).includes('--json'), 'evals/evals-core/results/ is gitignored and allowed');
-    assert.throws(() => runArgs(['--json', path.join(ROOT, 'evals', 'evals-triggers', 'results', 'r.json')], { benchmarks }), /must stay under/, 'another suite\'s results dir is not the curated excluded dir');
+    assert.equal(runArgs([...M, '--json', path.join(benchmarks, 'r.json')], { benchmarks }).filter((a) => a === '--json').length, 1);
+    assert.ok(runArgs([...M, '--json', path.join(ROOT, 'evals', 'evals-core', 'results', 'r.json')], { benchmarks }).includes('--json'), 'evals/evals-core/results/ is gitignored and allowed');
+    assert.throws(() => runArgs([...M, '--json', path.join(ROOT, 'evals', 'evals-triggers', 'results', 'r.json')], { benchmarks }), /must stay under/, 'another suite\'s results dir is not the curated excluded dir');
     for (const flag of ['--json', '--report', '--output-dir']) {
-      assert.throws(() => runArgs([flag, path.join(tmpdir(), 'elsewhere.json')], { benchmarks }), /must stay under/);
-      assert.throws(() => runArgs([flag], { benchmarks }), /needs a path/);
+      assert.throws(() => runArgs([...M, flag, path.join(tmpdir(), 'elsewhere.json')], { benchmarks }), /must stay under/);
+      assert.throws(() => runArgs([...M, flag], { benchmarks }), /needs a path/);
     }
   });
 });
 
 describe('evals-bench: harvesting traces', () => {
   it('puts traces beside the run result, so they share its excluded-directory guarantee', () => {
-    const argv = runArgs([], { now: new Date('2026-01-02T03:04:05.678Z') });
+    const argv = runArgs([...M], { now: new Date('2026-01-02T03:04:05.678Z') });
     assert.equal(harvestDir(argv), path.join(ROOT, 'evals', 'evals-core', 'results', 'traces'));
     const benchmarks = path.join(tmpdir(), 'b');
-    assert.equal(harvestDir(runArgs(['--json', path.join(benchmarks, 'r.json')], { benchmarks })), path.join(benchmarks, 'traces'));
+    assert.equal(harvestDir(runArgs([...M, '--json', path.join(benchmarks, 'r.json')], { benchmarks })), path.join(benchmarks, 'traces'));
     assert.throws(() => harvestDir(['plugin', 'eval']), /nowhere safe/);
   });
 
@@ -446,12 +632,12 @@ describe('evals-bench: select', () => {
       { path: 'app/orders/service.ts', newLine: 1, body: 'Missing test.', resolved: true },
     ]);
     out = path.join(base, ...CURATED_EVAL_DIR.split('/'), 'cases');
-    result = generate({ benchmarks, out, pick: { localize: 1, review: 1 } });
+    result = generate({ benchmarks, out, pick: { localize: 1, review: 1 }, forced: true });
   });
   after(() => rmSync(base, { recursive: true, force: true }));
 
   it('keeps the hardest eligible ticket and the most substantiated review that fits the timeout', () => {
-    assert.deepEqual(result.written.map((w) => w.name).sort(), ['side-t-easy-review-7-abcdef12', 'side-t-hard']);
+    assert.deepEqual(result.written.map((w) => w.name).sort(), ['side-t-easy-review-7-abcdef12', 'side-t-easy-review-7-abcdef12-forced', 'side-t-hard']);
     const s = result.selection.sides.SIDE;
     assert.deepEqual([s.localize.eligible, s.localize.of, s.review.eligible, s.review.of], [2, 4, 1, 2]);
     assert.equal(s.localize.chosen[0].hardness, 1);
@@ -459,6 +645,28 @@ describe('evals-bench: select', () => {
     const onDisk = JSON.parse(readFileSync(path.join(out, 'selection.json'), 'utf8'));
     assert.deepEqual(onDisk, result.selection);
     assert.equal(onDisk.criteria.maxChangedLines, SELECT.maxChangedLines);
+  });
+
+  it('writes a neutral review prompt, and a forced twin scored as its own kind', () => {
+    const neutral = readFileSync(path.join(out, 'side-t-easy-review-7-abcdef12', 'prompt.md'), 'utf8');
+    const forced = readFileSync(path.join(out, 'side-t-easy-review-7-abcdef12-forced', 'prompt.md'), 'utf8');
+    assert.doesNotMatch(neutral, /ambicode/);
+    assert.match(neutral, /^Review the change before it merges/m);
+    assert.match(forced, /^Use the ambicode review skill to review the change before it merges/m);
+    assert.match(forced, /tags: \[.*"forced"\]/);
+    assert.equal(JSON.parse(readFileSync(path.join(out, 'side-t-easy-review-7-abcdef12-forced', 'truth.json'), 'utf8')).variant, 'forced');
+  });
+
+  it('tags the top pick of each kind per side, and its forced twin, for the walkthrough', () => {
+    const wider = path.join(base, 'wider');
+    generate({ benchmarks: path.join(base, 'benchmarks'), out: wider, pick: { localize: 2, review: 1 }, forced: true });
+    const walkTag = /^tags: \[[^\]\n]*"walk"/m;
+    const tagged = (name) => walkTag.test(readFileSync(path.join(wider, name, 'prompt.md'), 'utf8'));
+    assert.deepEqual(
+      ['side-t-hard', 'side-t-easy', 'side-t-easy-review-7-abcdef12', 'side-t-easy-review-7-abcdef12-forced'].map(tagged),
+      [true, false, true, true],
+    );
+    assert.ok(walkTag.test(readFileSync(path.join(out, 'side-t-hard', 'prompt.md'), 'utf8')), 'with one pick per kind, that pick is the walkthrough');
   });
 
   it('anchors the scaffold from the curated directory back to the data', () => {
