@@ -103,7 +103,7 @@ so do not start a page for one.
 
 ## Requirements
 
-Follow `${CLAUDE_PLUGIN_ROOT}/skills/shared/requirements-mcp.md` (read it now
+Follow `${CLAUDE_PLUGIN_ROOT}/resources/shared/requirements-mcp.md` (read it now
 if you have not already this session) to retrieve every named source and
 build the evidence envelope. It covers the MCP binding, the envelope format,
 and what a failure means; `investigate`, `plan` and `task` follow the same

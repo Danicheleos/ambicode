@@ -37,3 +37,5 @@ archive
 
 .ambicode/task/
 benchmarks
+
+gym/

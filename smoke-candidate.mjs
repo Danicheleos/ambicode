@@ -1,5 +1,6 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { get } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -121,7 +122,7 @@ async function checkViewTemplatesResolve() {
       const timeout = setTimeout(() => reject(new Error(`view did not print a URL in time; stdout so far:\n${stdout}\nstderr:\n${stderr}`)), 15_000);
       child.stdout.on('data', (chunk) => {
         stdout += chunk.toString();
-        const match = /http:\/\/127\.0\.0\.1:\d+\/\?c=\S+/.exec(stdout);
+        const match = /http:\/\/127\.0\.0\.1:\d+\/[A-Za-z0-9_-]+/.exec(stdout);
         if (match) {
           clearTimeout(timeout);
           resolve(match[0]);
@@ -138,8 +139,13 @@ async function checkViewTemplatesResolve() {
     });
 
     try {
-      const response = await fetch(url, { redirect: 'manual' });
-      if (response.status !== 303) throw new Error(`expected 303 from the bootstrap URL, got ${response.status}`);
+      const status = await new Promise((resolve, reject) => {
+        get(url, { headers: { 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'document' } }, (response) => {
+          response.resume();
+          resolve(response.statusCode);
+        }).on('error', reject);
+      });
+      if (status !== 303) throw new Error(`expected 303 from the bootstrap URL, got ${status}`);
       console.log('OK: `ambicode view` serves a page rendered from the candidate\'s own templates directory.');
     } finally {
       child.kill('SIGINT');

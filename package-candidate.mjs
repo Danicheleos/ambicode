@@ -13,7 +13,8 @@ const DIST = path.join(ROOT, 'dist');
 // holds this repository's acceptance records, which must not ship; shipped docs are
 // named individually in FILE_ALLOWLIST.
 const DIRECTORY_ALLOWLIST = [
-  { from: 'skills', extensions: ['.md'] },
+  { from: 'skills', extensions: ['.md', '.yaml'] },
+  { from: 'resources', extensions: ['.md'] },
   { from: 'prompts', extensions: ['.md'] },
   { from: 'policies', extensions: ['.yaml', '.md'] },
   { from: 'templates', extensions: ['.eta', '.css'] },
@@ -21,6 +22,7 @@ const DIRECTORY_ALLOWLIST = [
 ];
 
 const FILE_ALLOWLIST = [
+  { from: '.codex-plugin/plugin.json', mode: 0o644 },
   { from: '.claude-plugin/plugin.json', mode: 0o644 },
   { from: 'bin/ambicode', mode: 0o755 },
   { from: 'bin/ambicode.cmd', mode: 0o644 },
@@ -28,6 +30,7 @@ const FILE_ALLOWLIST = [
   { from: 'hooks/hooks.json', mode: 0o644 },
   { from: 'docs/installation.md', mode: 0o644 },
   { from: 'docs/compatibility.md', mode: 0o644 },
+  { from: 'docs/codex.md', mode: 0o644 },
   { from: 'docs/review.md', mode: 0o644 },
   { from: 'docs/rule-migration.md', mode: 0o644 },
 ];
@@ -41,6 +44,10 @@ async function readJson(relativePath) {
 async function canonicalVersion() {
   const pkg = await readJson('package.json');
   const plugin = await readJson('.claude-plugin/plugin.json');
+  const codex = await readJson('.codex-plugin/plugin.json');
+  if (codex.version !== pkg.version) {
+    throw new Error('Codex plugin version must match package.json.');
+  }
   if (pkg.version !== plugin.version) {
     throw new Error(
       `package.json version "${pkg.version}" and .claude-plugin/plugin.json version "${plugin.version}" disagree. ` +
@@ -89,7 +96,23 @@ async function buildCandidate(candidateDir) {
   for (const dir of DIRECTORY_ALLOWLIST) {
     await copyAllowedTree(path.join(ROOT, dir.from), path.join(candidateDir, dir.from), dir.extensions);
   }
+  await writeCodexHooks(candidateDir);
   await normalizeTimestamps(candidateDir);
+}
+
+async function writeCodexHooks(candidateDir) {
+  const source = JSON.parse(await readFile(path.join(candidateDir, 'hooks/hooks.json'), 'utf8'));
+  const hooks = Object.fromEntries(Object.entries(source.hooks).map(([event, groups]) => [
+    event,
+    groups.map((group) => ({
+      ...group,
+      hooks: group.hooks.map(({ command, args, ...hook }) => ({
+        ...hook,
+        command: 'node "${PLUGIN_ROOT}/scripts/ambicode.mjs" hook',
+      })),
+    })),
+  ]));
+  await writeFile(path.join(candidateDir, 'hooks/codex.json'), `${JSON.stringify({ hooks }, null, 2)}\n`);
 }
 
 async function normalizeTimestamps(candidateDir) {
@@ -149,8 +172,8 @@ async function checkNoWorkstationPaths(candidateDir) {
  * from Claude Code's cache has no product repository to be relative to.
  */
 async function checkSharedResourceReferences(candidateDir) {
-  const SHARED_RESOURCE = 'skills/shared/requirements-mcp.md';
-  const PLUGIN_ROOT_REFERENCE = '${CLAUDE_PLUGIN_ROOT}/skills/shared/requirements-mcp.md';
+  const SHARED_RESOURCE = 'resources/shared/requirements-mcp.md';
+  const PLUGIN_ROOT_REFERENCE = '${CLAUDE_PLUGIN_ROOT}/resources/shared/requirements-mcp.md';
   const EXPECTED_REFERRERS = ['review', 'investigate', 'plan', 'task', 'rules'];
 
   const sharedFile = path.join(candidateDir, SHARED_RESOURCE);
@@ -222,6 +245,29 @@ async function checkHooksManifest(candidateDir) {
   }
 }
 
+async function checkCodexPackage(candidateDir) {
+  const overlay = JSON.parse(await readFile(path.join(candidateDir, '.codex-plugin/plugin.json'), 'utf8'));
+  const codexHooks = JSON.parse(await readFile(path.join(candidateDir, 'hooks/codex.json'), 'utf8'));
+  const claudeHooks = JSON.parse(await readFile(path.join(candidateDir, 'hooks/hooks.json'), 'utf8'));
+  if (overlay.name !== 'ambicode' || overlay.skills !== './skills/' || overlay.hooks !== './hooks/codex.json') {
+    throw new Error('Codex compatibility manifest or version is inconsistent.');
+  }
+  for (const event of ['PostToolUse', 'SessionStart', 'UserPromptSubmit', 'PostCompact', 'SessionEnd']) {
+    const handlers = codexHooks.hooks?.[event];
+    if (!Array.isArray(handlers) || !handlers.some((group) =>
+      group.hooks?.some((hook) => hook.type === 'command' && hook.command === 'node "${PLUGIN_ROOT}/scripts/ambicode.mjs" hook'))) {
+      throw new Error(`Codex hook configuration is missing ${event}.`);
+    }
+    if (JSON.stringify(handlers.map((group) => group.matcher ?? null)) !==
+        JSON.stringify(claudeHooks.hooks[event].map((group) => group.matcher ?? null))) {
+      throw new Error(`Codex hook matchers diverged from the Claude hook configuration for ${event}.`);
+    }
+  }
+  if (!(await stat(path.join(candidateDir, 'scripts/ambicode.mjs')).then(() => true, () => false))) {
+    throw new Error('Codex plugin is missing the built helper.');
+  }
+}
+
 async function checkLauncherExecutable(candidateDir) {
   if (process.platform === 'win32') {
     const windowsLauncher = await readFile(path.join(candidateDir, 'bin/ambicode.cmd'), 'utf8');
@@ -281,6 +327,7 @@ async function main() {
   await checkNoWorkstationPaths(candidateDir);
   await checkSharedResourceReferences(candidateDir);
   await checkHooksManifest(candidateDir);
+  await checkCodexPackage(candidateDir);
 
   const inventory = await inventoryOf(candidateDir);
   await mkdir(DIST, { recursive: true });

@@ -71,13 +71,63 @@ export async function runHook(runtime: Runtime, rawStdin: string): Promise<unkno
         return EMPTY_HOOK_OUTPUT;
       }
       case 'PostToolUse':
-        return await handlePostToolUse(runtime, input);
+        return input.tool_name === 'apply_patch'
+          ? await handlePatchEdit(runtime, input)
+          : await handlePostToolUse(runtime, input);
       default:
         return EMPTY_HOOK_OUTPUT;
     }
   } catch {
     return EMPTY_HOOK_OUTPUT;
   }
+}
+
+async function handlePatchEdit(runtime: Runtime, input: HookInput): Promise<unknown> {
+  if (input.tool_input?.command === undefined || !patchSucceeded(input.tool_response)) return EMPTY_HOOK_OUTPUT;
+  const paths = editedPathsFromPatch(input.tool_input.command, input.cwd ?? runtime.cwd);
+  const contexts: string[] = [];
+  for (const filePath of paths) {
+    const output = await handlePostToolUse(runtime, {
+      ...input,
+      tool_name: 'Edit',
+      tool_input: { file_path: filePath },
+    }) as PostToolUseHookOutput | typeof EMPTY_HOOK_OUTPUT;
+    if ('hookSpecificOutput' in output) contexts.push(output.hookSpecificOutput.additionalContext);
+  }
+  if (contexts.length === 0) return EMPTY_HOOK_OUTPUT;
+  return { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: contexts.join('\n\n') } };
+}
+
+function patchSucceeded(response: unknown): boolean {
+  if (response === undefined || response === null) return false;
+  if (typeof response === 'string') return !/^(?:error|failed|patch failed)\b/im.test(response);
+  if (typeof response !== 'object') return false;
+  const result = response as Record<string, unknown>;
+  return result['isError'] !== true && result['success'] !== false && result['status'] !== 'failed' && result['error'] === undefined;
+}
+
+export function editedPathsFromPatch(command: string, cwd: string): string[] {
+  const paths: string[] = [];
+  let updated: string | null = null;
+  for (const line of command.split('\n')) {
+    const update = /^\*\*\* Update File: (.+)$/.exec(line);
+    const added = /^\*\*\* Add File: (.+)$/.exec(line);
+    const moved = /^\*\*\* Move to: (.+)$/.exec(line);
+    if (update !== null) {
+      updated = update[1]!;
+      paths.push(path.resolve(cwd, updated));
+    } else if (added !== null) {
+      updated = null;
+      paths.push(path.resolve(cwd, added[1]!));
+    } else if (moved !== null && updated !== null) {
+      paths.pop();
+      paths.push(path.resolve(cwd, moved[1]!));
+      updated = null;
+    } else if (line.startsWith('*** ')) {
+      updated = null;
+    }
+  }
+  return [...new Set(paths)];
 }
 
 /**
