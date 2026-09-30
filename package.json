@@ -28,6 +28,7 @@
     "evals:archived": "npm run evals:preflight && EVAL_AMBICODE_REVIEWER_REPLAY=\"$PWD/fixtures/reviewer-recordings.json\" claude plugin eval . --eval-dir evals/evals-archived/typescript --runs 3 --model claude-sonnet-5-5 --ablation with-without -j 4 --max-cost-usd 10 --scaffold --allow-tools Bash 'WebFetch(domain:api.anthropic.com)' --no-publish",
     "evals:triggers": "EVAL_AMBICODE_REVIEWER_REPLAY=\"$PWD/fixtures/reviewer-recordings.json\" claude plugin eval . --eval-dir evals/evals-triggers --runs 1 --model claude-sonnet-5-5 -j 4 --ablation none --max-cost-usd 4 --scaffold --allow-tools Bash --no-publish",
     "evals:triggers:gate": "EVAL_AMBICODE_REVIEWER_REPLAY=\"$PWD/fixtures/reviewer-recordings.json\" claude plugin eval . --eval-dir evals/evals-triggers --tag test --runs 3 --model claude-sonnet-5-5 -j 4 --ablation none --max-cost-usd 4 --scaffold --allow-tools Bash --no-publish",
+    "evals:shortlist-recall": "node evals/scripts/src/shortlist-recall.mjs",
     "evals:preflight": "node evals/scripts/src/evals-preflight.mjs",
     "evals:reviewer": "node evals/scripts/src/evals-reviewer.mjs",
     "package:candidate": "node package-candidate.mjs",

@@ -17,6 +17,7 @@ import {
   type AdditionalContextHookOutput,
   type PostToolUseHookOutput,
 } from '../contracts/hook.ts';
+import { prepareForSkill } from './prepare-on-skill.ts';
 import { readSharedOperatingContract } from '../policy/shared-contract.ts';
 import { contentHash } from '../util/hash.ts';
 import {
@@ -118,6 +119,7 @@ async function deliverSharedContract(
 }
 
 async function handlePostToolUse(runtime: Runtime, input: HookInput): Promise<unknown> {
+  if (input.tool_name === 'Skill') return (await prepareForSkill(runtime, input)) ?? EMPTY_HOOK_OUTPUT;
   if (input.tool_name !== 'Edit' && input.tool_name !== 'Write') return EMPTY_HOOK_OUTPUT;
   const absoluteFilePath = input.tool_input?.file_path;
   if (absoluteFilePath === undefined) return EMPTY_HOOK_OUTPUT;

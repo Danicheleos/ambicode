@@ -45,29 +45,28 @@ task: that answers a different, unasked question.
 
 ## 2. Prepare and scope
 
+A hook runs `prepare` when this skill loads: read its message (`AMBICODE ran \`prepare\``); do not rerun it. Rerun only for requirement URLs, other paths, or a message saying it could not run:
+
 ```sh
 node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" prepare --activity task --json [likely paths...] [--project <id>] \
   [--requirement <url>]... [--evidence -] [--term <term>]...
 ```
 
-Pass step 1's URLs and envelope, plus your first guess at affected paths.
+Pass step 1's URLs, envelope and your first guess at affected paths.
 Read the result as `${CLAUDE_PLUGIN_ROOT}/skills/shared/prepare-output.md`
 describes: it owns the compact shape, `sharedOperatingContract`,
 `policy.packs[].rules`, `policy.prompts`, `policy.commandDecisions` and
 `navigation`. For `task` that means `before-work` content before you
 implement, `before-checks` before checks or review, `before-report` before
 the report. On `ambiguous-project`, **refuse to guess:** ask which project,
-or narrow the paths. The shared file owns that rule and the
-no-second-parser rule with it.
+or narrow the paths. The shared file owns that rule and the no-second-parser rule.
 
-**A request that already pins the exact edit** — file and change fully
-determined by what was asked — prepares with that one path and no `--term`:
-there is nothing left to localize.
+**A request that pins the exact edit** (file and change fully determined)
+prepares with that one path and no `--term`.
 
 **If implementation reaches paths outside what you prepared for, rerun
 `ambicode prepare --activity task --json` with the actual affected paths**
-before continuing — a narrow first guess must not be why a path-sensitive
-pack, rule, or command decision was missed.
+before continuing: a narrow first guess must not hide a path-sensitive rule.
 
 ## 3. Git state before editing
 

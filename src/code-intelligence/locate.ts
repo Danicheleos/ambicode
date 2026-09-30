@@ -14,8 +14,14 @@ import { normalizeRelative, toProjectRelative } from '../util/paths.ts';
 
 export const DEFAULT_LOCATE_LIMIT = 20;
 
-/** Half the default: `prepare`'s payload is re-sent on every call; `ambicode locate` gives the long list. */
-export const PREPARE_SHORTLIST_LIMIT = 10;
+/**
+ * Offline recall over 116 localize tickets: @10 0.269, @15 0.314, @20 0.346 (shortlist-recall.mjs).
+ * 15 is what fits beside the 5.5KB policy in the hook's 9,800-character inline window; `ambicode locate` gives the long list.
+ */
+export const PREPARE_SHORTLIST_LIMIT = 15;
+
+/** Two reasons cut a 10-candidate BE payload from 9,165 to 8,531 bytes; the third reason repeats what the first two imply. */
+export const PREPARE_REASONS_PER_CANDIDATE = 2;
 
 /** Terms beyond this are dropped: an unbounded term list is an unbounded scan. */
 const MAX_TERMS = 12;
@@ -124,11 +130,12 @@ export async function locate(request: LocateRequest): Promise<LocateShortlist> {
       continue;
     }
 
+    const weight = specificity(touched.size, files.length);
     for (const match of matchedPaths) {
-      add(ranked, match.path, match.kind === 'directory' ? SCORE_DIRECTORY : SCORE_FILENAME, match.reason);
+      add(ranked, match.path, weight * (match.kind === 'directory' ? SCORE_DIRECTORY : SCORE_FILENAME), match.reason);
     }
     for (const match of matchedContents) {
-      mention(ranked, match.path, match.reason);
+      mention(ranked, match.path, match.reason, weight);
     }
   }
 
@@ -367,8 +374,8 @@ function add(ranked: Map<string, Ranked>, path: string, score: number, reason: s
   note(ranked, path, reason);
 }
 
-function mention(ranked: Map<string, Ranked>, path: string, reason: string): void {
-  entryFor(ranked, path).contentHits += 1;
+function mention(ranked: Map<string, Ranked>, path: string, reason: string, weight: number): void {
+  entryFor(ranked, path).contentHits += weight;
   note(ranked, path, reason);
 }
 
@@ -391,6 +398,11 @@ function note(ranked: Map<string, Ranked>, path: string, reason: string): void {
  */
 const TOO_BROAD_SHARE = 0.6;
 const TOO_BROAD_MIN_FILES = 5;
+
+/** 1 for a term naming one file, toward 0 as it reaches the whole project: a rare term says more about the boundary. */
+function specificity(matched: number, total: number): number {
+  return total <= 1 ? 1 : Math.max(0, Math.log(total / Math.max(1, matched)) / Math.log(total));
+}
 
 function isTooBroad(matched: number, total: number): boolean {
   return matched >= TOO_BROAD_MIN_FILES && matched > total * TOO_BROAD_SHARE;
@@ -464,6 +476,10 @@ function tokenize(text: string): string[] {
     if (/^\p{N}+$/u.test(token)) continue;
     if (isIdentifierLike(token)) {
       tokens.push(token);
+      // `MO-REBA-11` names the REBA module and `manuallyOverriddenCvValues` the override code: the parts are what paths carry.
+      for (const word of wordsOf(token)) {
+        if (word.length >= 4 && !/^\p{N}+$/u.test(word) && !STOPWORDS.has(word)) tokens.push(word);
+      }
       continue;
     }
     if (token.length < 4 || STOPWORDS.has(token.toLowerCase())) continue;

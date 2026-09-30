@@ -36,24 +36,23 @@ either.
      question, informed by what you just retrieved. Never ask before reading.
    - A direct code question with no URL is already bounded: there is nothing
      to retrieve and nothing to ask before starting.
-3. **Prepare.** Run:
+3. **Prepare.** A hook runs `prepare` when this skill loads: read its message (`AMBICODE ran \`prepare\``); do not
+   rerun it. Rerun only if you retrieved requirement URLs, need other paths, or the message says it could not run:
 
    ```sh
    node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" prepare --activity investigate --json [paths...] [--project <id>] \
      [--requirement <url>]... [--evidence -] [--term <term>]...
    ```
 
-   with the same requirement URLs and envelope from step 1, and your first
-   guess at the paths the question touches. Pass `--term` for the terms the
-   question is about: `navigation.shortlist` is otherwise guessed from
-   requirement text, and a question with no URL has none. Read its output as
+   with step 1's URLs and envelope and your first guess at the paths. `--term`
+   names what the question is about; a bare question gives the shortlist no
+   other terms. Read the output as
    `${CLAUDE_PLUGIN_ROOT}/skills/shared/prepare-output.md` describes: that
    file owns the compact shape, `sharedOperatingContract`,
    `policy.packs[].rules`, `policy.prompts` and `navigation` for every
    authoring skill. For `investigate` the only applicable prompt stages are
    `before-work` (apply it before step 4) and `before-report` (step 6); the
-   helper never returns `before-checks` or `before-review` content here, so
-   there is nothing to filter out on your side. On `ambiguous-project`, pass
+   helper returns no reviewer-only content here. On `ambiguous-project`, pass
    `--project <id>` or narrow the paths rather than guessing which project
    was meant.
 4. **Navigate.** Follow `navigation`'s bounded order, starting from

@@ -32,6 +32,7 @@ import { navigationFor } from '../../code-intelligence/navigation.ts';
 import {
   locate,
   termsFromRequirements,
+  PREPARE_REASONS_PER_CANDIDATE,
   PREPARE_SHORTLIST_LIMIT,
   type LocateShortlist,
 } from '../../code-intelligence/locate.ts';
@@ -66,7 +67,11 @@ export interface PrepareRun {
  * writes nothing. `--verbose` carries the same resolved policy as the default
  * compact projection, only with more framing.
  */
-export async function runPrepare(runtime: Runtime, args: ParsedArgs): Promise<PrepareRun> {
+export async function runPrepare(
+  runtime: Runtime,
+  args: ParsedArgs,
+  options: { shortlistLimit?: number } = {},
+): Promise<PrepareRun> {
   const workspace = await openWorkspace(runtime);
 
   const activity = requireActivity(args.value('activity'));
@@ -106,6 +111,7 @@ export async function runPrepare(runtime: Runtime, args: ParsedArgs): Promise<Pr
     project,
     statedTerms: args.all('term'),
     requirements: requirements.sources,
+    limit: options.shortlistLimit ?? PREPARE_SHORTLIST_LIMIT,
   });
 
   const detail = await toDraftOutput({
@@ -307,6 +313,7 @@ async function shortlistFor(options: {
   project: ProjectConfig;
   statedTerms: readonly string[];
   requirements: readonly { title: string; content: string }[];
+  limit: number;
 }): Promise<PrepareDetail['navigation']['shortlist']> {
   const stated = options.statedTerms.filter((term) => term.trim() !== '');
   const derived = stated.length > 0 ? [] : termsFromRequirements(options.requirements);
@@ -317,7 +324,7 @@ async function shortlistFor(options: {
     git: options.git,
     project: options.project,
     terms,
-    limit: PREPARE_SHORTLIST_LIMIT,
+    limit: options.limit,
   });
   // Every term was shorter than the minimum; `ambicode locate` reports that in
   // full, since a `prepare` payload is not the place to explain it.
@@ -332,7 +339,10 @@ async function shortlistFor(options: {
         ];
   return {
     terms: found.terms,
-    candidates: found.candidates,
+    candidates: found.candidates.map((candidate) => ({
+      ...candidate,
+      reasons: candidate.reasons.slice(0, PREPARE_REASONS_PER_CANDIDATE),
+    })),
     ...(limitations.length === 0 ? {} : { limitations }),
   };
 }

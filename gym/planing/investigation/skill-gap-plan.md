@@ -433,6 +433,64 @@ above.
   Count it with `prepare-ran` > 1 per run, and state in the skill that the
   hook already did it.
 
+**Results, 2026-09-30 (hook and shortlist only; the rest of this iteration is not started).**
+
+What is built: the `Skill` hook, `prepare` run with terms from the skill args,
+delivered whole. Not built: the 5-line header and deleting
+`prepare-output.md`, `--task-open`, `requirements template`, the 30,000-character cap.
+
+- **Delivery limit, probed.** Hook context of at most 9,800 characters arrives
+  inline; 10,400 or more is saved to a file behind a preview and a path. The FE
+  scaffold's payload was 10,215 bytes at 10 candidates, so it would have arrived
+  as a file. The hook now drops the lowest-ranked candidates until the message
+  fits (`INLINE_LIMIT`), and a test fails without that.
+- **The mechanics worked and recall did not move.** First hook walk, 6 localize
+  runs, $1.85: P 0.21 R 0.20 against A's P 0.22 R 0.23. Cause: the shortlist
+  built from model-written skill args had 0 hits on the true files (0 of 10 FE,
+  0 of 7 BE). The shortlist was the weak link, not delivery.
+- **Shortlist recall, measured offline and free** (`npm run
+  evals:shortlist-recall -- <BE repo> <FE repo> [limit]`: terms from the 116
+  real tickets, does `locate`'s top N hold the true files):
+
+```
+variant                                   recall@10   any-hit of 116
+baseline                                  0.197       54
+E1+E2 (term weighted by how few files
+  it hits; identifier word parts as terms)  0.269       68   (kept)
+E3 E1+E2 + stemming                         no gain          (reverted)
+
+E1+E2 at other limits: @15 0.314 (72)   @20 0.346 (79)   @30 0.396 (85)
+BE @15 0.499 (46 of 59 any-hit)   FE @15 0.123 (26 of 57)
+```
+
+  FE stays weak: its true files share no vocabulary with the ticket, which is
+  a job for LSP and the model, not for term matching.
+- **Payload, to afford 15 candidates.** Two reasons per candidate instead of
+  all of them, limit 10 to 15:
+
+```
+6 terms                     BE bytes   FE bytes
+limit 10, all reasons       9,165      10,215
+limit 10, 2 reasons         8,531       9,345
+limit 15, 2 reasons         9,389      10,389   -> hook trims
+limit 20, 2 reasons        10,316      11,447   rejected
+hook output, real          BE 9,640 (14 kept)   FE 9,754 (10 kept)
+```
+
+- **Walk, Sonnet, 10 localize cases x 1 run, `with` only, $1.93** (after the
+  locate change): BE P 0.62 R 0.80, FE P 0.49 R 0.75, overall P 0.55 R 0.78.
+  The walk report says "prepare never ran" for every run. That is the report
+  counting Bash calls only; eval traces carry no hook events, so hook delivery
+  cannot be seen there.
+- **Not a result: the same ten cases without the plugin.** The contrast run hit
+  the account's session limit (resets 11:10pm Europe/Warsaw); 12 of 20 runs
+  ended in one turn at $0. The 3 BE cases with both arms valid (be-vs-5075,
+  5546, 5766) give with R 0.51, without R 0.47: no signal. The 6 earlier runs are a
+  different case set, so 0.20 to 0.78 is not a controlled improvement. The
+  contrast has to be rerun before this is called a win over the naked model.
+- Run-to-run spread is large: be-vs-5546 gave R 1.00 and 0.67 on two
+  identical `with` runs.
+
 ### Iteration 5: an enforcement layer (root cause 3)
 Effort M, about 1 week. Spend: unit tests, then one `evals:walk` for the regression check (≈ $1.2).
 

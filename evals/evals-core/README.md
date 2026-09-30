@@ -146,6 +146,13 @@ the curated truth and graders but **not** `benchmarks/` — so every case
 carries four `no-peek-*` graders (Read, Grep, Glob, Bash; `max: 0`) that fail
 any run whose tool input reaches a path containing `benchmarks/`.
 
+## Shortlist recall, free
+
+`npm run evals:shortlist-recall -- <BE snapshot repo> <FE snapshot repo> [limit]`
+asks, for each localize ticket, whether `locate`'s top N holds the true files.
+No model runs; it prints counts and per-case numbers, never ticket text.
+Use it before spending on a walk when the change is to `locate` or its terms.
+
 ## Deciding with it
 
 `run` refuses a sweep without `--model`. On 2026-09-29, four runs of one

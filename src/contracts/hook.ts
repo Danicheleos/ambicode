@@ -15,6 +15,8 @@ export const HookInput = z.looseObject({
   tool_input: z
     .looseObject({
       file_path: z.string().min(1).optional(),
+      skill: z.string().min(1).optional(),
+      args: z.string().optional(),
     })
     .optional(),
 });

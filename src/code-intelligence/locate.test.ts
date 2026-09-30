@@ -11,6 +11,7 @@ import { createRuntime } from '../composition/root.ts';
 import { ProjectConfig } from '../contracts/config.ts';
 import type { LocateCandidate } from '../contracts/locate.ts';
 import { Git } from '../git/git.ts';
+import { TempRepo } from '../testing/temp-repo.ts';
 import { nodeFileSystem, type FileSystem } from '../ports/filesystem.ts';
 import { NodeProcessRunner } from '../ports/node-process-runner.ts';
 import { locate, pathHit, PREPARE_SHORTLIST_LIMIT, termsFromRequirements } from './locate.ts';
@@ -577,5 +578,35 @@ describe('R4 path signal without a glob per file', () => {
     assert.deepEqual(disagreements, []);
     // Equality means nothing unless every answer the glob can give was given.
     for (const [outcome, count] of Object.entries(seen)) assert.ok(count > 0, `no case produced ${outcome}`);
+  });
+});
+
+describe('R4 ranking by how specific a term is', () => {
+  it('ranks the file holding the rare term above files holding the common one', async () => {
+    const repo = await TempRepo.create();
+    try {
+      for (let index = 1; index <= 12; index += 1) {
+        const name = `src/f${String(index).padStart(2, '0')}.ts`;
+        const body = index <= 6 ? 'export const common = 1;\n' : index === 12 ? 'export const rare = 1;\n' : 'export const other = 1;\n';
+        await repo.write(name, body);
+      }
+      await repo.commitAll('initial');
+
+      const shortlist = await locate({ git: gitFor(repo.root), project: wholeRepositoryProject(), terms: ['common', 'rare'], limit: 20 });
+
+      // f01 sorts first on a tie; only the term's reach puts f12 ahead of it.
+      assert.equal(shortlist.candidates[0]?.path, 'src/f12.ts', shortlist.candidates.map((c) => `${c.path}:${c.score}`).join(' '));
+    } finally {
+      await repo.dispose();
+    }
+  });
+});
+
+describe('R4 terms from the words inside an identifier', () => {
+  it('offers the words of a compound identifier beside the identifier', () => {
+    const terms = termsFromRequirements([{ title: '', content: 'OrderRefundService rejects a negative amount' }]);
+
+    assert.ok(terms.includes('OrderRefundService'), terms.join(', '));
+    for (const word of ['order', 'refund']) assert.ok(terms.includes(word), `"${word}" missing from ${terms.join(', ')}`);
   });
 });

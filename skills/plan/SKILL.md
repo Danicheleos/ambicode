@@ -47,19 +47,19 @@ cancellation reasons to order history` is one primary request, not just
 
 ### 2. Prepare
 
+A hook runs `prepare` when this skill loads: read its message (`AMBICODE ran \`prepare\``); do not rerun it. Rerun only if you retrieved requirement URLs, need other paths, or the message says it could not run:
+
 ```sh
 node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" prepare --activity plan --json [paths...] [--project <id>] \
   [--requirement <url>]... [--evidence -] [--term <term>]...
 ```
 
-with the same requirement URLs and envelope from step 1, and your first guess
-at the paths the request touches. Read its output as
-`${CLAUDE_PLUGIN_ROOT}/skills/shared/prepare-output.md` describes: that file
-owns the compact shape, `sharedOperatingContract`, `policy.packs[].rules`,
-`policy.prompts` and `navigation` for every authoring skill. For `plan`,
-apply `before-work` content before you investigate and any `before-report`
-content before you present the plan; the helper never returns reviewer-only
-(`before-checks`/`before-review`) content here.
+with step 1's URLs and envelope and your first guess at the paths. Read the
+output as `${CLAUDE_PLUGIN_ROOT}/skills/shared/prepare-output.md` describes:
+it owns the compact shape, `sharedOperatingContract`,
+`policy.packs[].rules`, `policy.prompts` and `navigation`. For `plan`, apply
+`before-work` content before you investigate and `before-report` content
+before you present the plan; no reviewer-only content is returned here.
 
 On `ambiguous-project`, **refuse to guess:** ask the user which project, or
 narrow the paths. The shared file owns that rule and the no-second-parser
