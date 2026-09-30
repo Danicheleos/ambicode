@@ -1,6 +1,6 @@
 ---
 name: review
-description: "Run an AMBICODE review — of uncommitted work, of a branch, or of a GitLab merge request by URL — through the affected checks and an independent reviewer. Use when the user asks to review or check their changes, a branch, or a merge request URL, or to verify a change against a Jira/Confluence ticket."
+description: "Review a code change instead of reading the diff yourself — uncommitted work, a branch, or a GitLab merge request by URL — by running the repository's affected checks and an independent reviewer that returns findings with file and line. Use whenever the user asks to review, check, or verify a change, before it merges or is pushed, including 'report the problems a reviewer should raise' and checking a change against a Jira/Confluence ticket."
 allowed-tools: Read, Grep, Glob, Bash(node *ambicode.mjs*)
 ---
 

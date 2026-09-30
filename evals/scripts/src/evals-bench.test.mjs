@@ -370,7 +370,7 @@ describe('evals-bench: the walkthrough', () => {
 
   const graders = [{ name: 'names-a-true-file', passed: true, evidence: '## Files\n- app/a.ts\n' }];
   const results = {
-    suite: { modelOverride: 'claude-sonnet-5-5' },
+    suite: { modelOverride: 'claude-sonnet-5-5', plugins: [{ name: 'ambicode', path: '/some/variant' }] },
     cases: [
       {
         name: 'side-t-1',
@@ -436,6 +436,7 @@ describe('evals-bench: the walkthrough', () => {
   it('writes one summary row per run, then each run with its steps', () => {
     const markdown = walkReport(results, { benchmarks, tracesDir: path.join(benchmarks, 'traces'), source: 'eval-x.json' });
     assert.match(markdown, /^# Walkthrough: eval-x\.json/m);
+    assert.match(markdown, /Plugin \/some\/variant\b/);
     assert.match(markdown, /\| side-t-1 \| with \| 0 \| 0\.200 \| 12 \| ambicode:investigate \| 2 \(1 cut\) \| P 1\.00 R 0\.50 \| prepare output cut/);
     assert.match(markdown, /trace not harvested/);
     assert.match(markdown, /```\n1\. Skill ambicode:investigate q\n2\. Bash cd repo && node/);
@@ -491,6 +492,17 @@ describe('evals-bench: running', () => {
   it('refuses a run with no cost ceiling', () => {
     assert.throws(() => runArgs(['--model', 'claude-sonnet-5-5']), /--max-cost-usd is required/);
     assert.throws(() => runArgs(['--model', 'claude-sonnet-5-5', '--max-cost-usd']), /--max-cost-usd is required/);
+  });
+
+  it('evaluates a variant plugin directory in place of the repository, and refuses a directory that is no plugin', () => {
+    const variant = mkdtempSync(path.join(tmpdir(), 'variant-'));
+    assert.throws(() => runArgs([...M], { plugin: variant }), /is not a plugin/);
+    mkdirSync(path.join(variant, '.claude-plugin'));
+    writeFileSync(path.join(variant, '.claude-plugin', 'plugin.json'), '{}');
+    const argv = runArgs([...M], { plugin: variant });
+    assert.equal(argv[2], variant);
+    assert.equal(runArgs([...M])[2], ROOT);
+    rmSync(variant, { recursive: true });
   });
 
   it('keeps the result JSON inside the excluded directories', () => {

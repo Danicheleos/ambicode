@@ -269,6 +269,41 @@ without ever running the CLI. Build three variants cheaply and measure them
 Apply the same typography and pointer hygiene to plan, task and review only
 after B wins, and measure again.
 
+**Walk result, 2026-09-30.** `run --plugin` on copies of the packaged plugin,
+Sonnet 5.5, 2 localize cases × 2 runs per variant, $1.01–1.53 each, $6.3 in all
+including one discarded round (B's first walk, invalidated below). This is a
+mechanics read, not a decision: n=4, and recall differences of 0.05 sit inside
+the noise.
+
+```
+variant                          prepare ran   prepare cut   turns   P     R     F1    $ (4 runs)
+A  current, 1,053 words          0/4           —             18.0    0.22  0.23  0.21  1.26
+B  slim, 287 words               3/4           3/3           19.0    0.26  0.29  0.25  1.01
+B2 B + the reason for "bare"     4/4           0/4           20.3    0.35  0.31  0.32  1.18
+C  not model-invocable           0/4           —             25.3    0.31* 0.17* 0.21* 1.53
+```
+`*` C's fe-vs-6334 run 1 named no files (absent), counted as 0.
+
+- The body size is not what fixed `prepare`. **B ran it but piped it through
+  `head` in 3 of 3 runs**, with "read all of its output" in the text. B2 adds the
+  measured reason (about 6.5 KB against a 30,000-character limit, so a cut only
+  drops the policy at the end) and the cut vanished, 0 of 4. That is the
+  earlier "never truncate failed 28/31" finding, reproduced, and also the
+  first text-only wording that held. Four runs is a signal to confirm, not proof.
+- B lost the skill trigger in 1 of 4 runs with an unchanged description, so
+  firing is not deterministic; iteration 3 owns that.
+- C (skill off) cost the most, 1.53 against 1.26 (A) and 1.18 (B2), with 25
+  turns against 18–20, and had one run with no answer. The skill helps
+  efficiency even where `prepare` never ran; on this evidence "drop
+  investigate for localization" is not the way to go.
+- **B2 does not land yet.** Swapping it into `skills/investigate/SKILL.md`
+  fails 5 shipped-content tests (unconditional note, shared-contract pointer,
+  LSP navigation evidence line, shortlist discipline and pointer). Each pins a
+  decision the slim body dropped. Landing B2 means deciding which of those
+  five to keep in it. The text is saved as
+  `gym/planing/investigation/investigate-B2-candidate.md`. The decision-tier
+  confirmation below has not been run.
+
 **Confirm.** `eval-gate` on Sonnet against the cached baseline:
 - recall(with) ≥ recall(without) − spread;
 - cost ≤ 1.1×;
@@ -304,6 +339,37 @@ queries × 3 runs on Sonnet).
 - Rewrite the descriptions in `skills/*/SKILL.md` frontmatter keyword-first.
   The review description should state what the built-in lacks: GitLab MR,
   Jira ticket, policy checks.
+
+**Result, 2026-09-30** (Sonnet 5.5, structural graders, $8.0 in all; suite now
+28 cases, split 15 dev / 12 test / 1 diagnostic, README in `evals/evals-triggers/`):
+
+```
+                         before (1 run)   after D1 (1 run)   after D1 (test, 3 runs)
+dev   (15 cases)         14/15            15/15              —
+test  (12 cases)         12/12            12/12              36/36
+diag  url-bare           0/1 (known)      0/1 (known)        —
+review-bench-shape       0/4              3/3 + 1/1          —
+```
+
+- Explicit phrasings ("review my change", "which files would I touch", a verb plus
+  a ticket URL) already fired the right skill on the old descriptions, in 26 of
+  27 runs. The 56% no-invoke rate from the sources did not reproduce here, so the
+  rewrite of all five descriptions the plan proposed was not needed. One
+  description changed.
+- The one gap is the *neutral review prompt*, the one the curated review cases
+  use. The model read `git status` and `git diff` first and reviewed by itself
+  (4 of 4 runs, traces read). The review description, unlike investigate's and
+  task's, never said "instead of doing it yourself". D1 says so and names the
+  phrasing (`skills/review/SKILL.md`).
+- **On the core eval, the neutral review prompts now fire `ambicode:review`**: a
+  `evals:walk` after D1 shows the skill in both unforced review cases, which
+  fired it 0 of 24 times before. That walk also shows what comes next: the FE
+  review case still hits `snapshot-too-large` at step 2, and `prepare` still does
+  not run in the localize cases (iteration 4).
+- Limits: one description iteration of the 5 allowed, and D1 was written after
+  reading the failing prompt, so `review-bench-shape` is a dev case that D1 was
+  fitted to. The held-out `test` split has no case that failed before, so it
+  shows no regression, not a gain. 36/36 is over 12 cases × 3 runs.
 
 **Confirm.** ≥95% per positive case on Sonnet over 3 runs, and 0 fires on
 the negatives.

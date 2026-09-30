@@ -177,6 +177,17 @@ change is worth it.
    first deviation of each run and note what you saw, not why. This is the
    error-analysis method of the ai-evals-course `evals-skills`. It makes no
    model call beyond the runs themselves.
+
+   **Trying a variant of a skill.** `run --plugin <dir> --trust-plugin` evaluates
+   a copy of the plugin in place of the repository. The harness resolves
+   `--eval-dir` inside the plugin and refuses symlinks there, so the copy needs
+   its own `evals/evals-core/cases/` (real files) and a `benchmarks` symlink
+   (the case scaffolds `cd` to `../../../../benchmarks/BE`). Do not put the copy
+   under a path containing `benchmarks/`: the no-peek graders match that text in
+   the plugin's own script path and fail every run (seen 2026-09-30). `.tmp/` is
+   gitignored and safe. `--case <glob>` takes one glob, so braces do not
+   select two cases; run once per case. The result records the plugin path,
+   and the walk header prints it.
 2. **Decide** (`evals:decide`, about $14 projected, unmeasured). All 26 cases,
    3 runs, the plugin arm only. `evals:gate -- <decide>.json --baseline
    <baseline>.json` takes the no-plugin arm from the baseline. That arm depends

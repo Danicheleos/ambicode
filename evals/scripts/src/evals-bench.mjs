@@ -801,7 +801,7 @@ export function walkReport(results, { benchmarks = BENCHMARKS, tracesDir = null,
   const lines = [
     `# Walkthrough: ${source}`,
     '',
-    `Model ${results.suite?.modelOverride ?? 'unpinned'}, ${walk.length} run(s), $${total.toFixed(2)}${results.partial ? ', **partial run**' : ''}.`,
+    `Plugin ${results.suite?.plugins?.[0]?.path ?? 'unknown'}, model ${results.suite?.modelOverride ?? 'unpinned'}, ${walk.length} run(s), $${total.toFixed(2)}${results.partial ? ', **partial run**' : ''}.`,
     'Read each run\'s first deviation and write down what you saw, not why. Later deviations often follow from the first.',
     '',
     '| case | arm | run | $ | turns | skills | prepare | score | first deviation |',
@@ -826,7 +826,7 @@ export function walkReport(results, { benchmarks = BENCHMARKS, tracesDir = null,
  * Never publishes, and keeps the result JSON (every prompt and final answer) in an excluded
  * directory: a `--json` outside the excluded directories is refused.
  */
-export function runArgs(extra = [], { now = new Date(), benchmarks = BENCHMARKS, set = 'curated' } = {}) {
+export function runArgs(extra = [], { now = new Date(), benchmarks = BENCHMARKS, set = 'curated', plugin = ROOT } = {}) {
   if (!['curated', 'full'].includes(set)) throw new Error(`--set takes curated or full, not ${set}`);
   if (extra.includes('--publish-report')) throw new Error('--publish-report is refused: the benchmark set is under NDA');
   if (extra.includes('--eval-dir')) throw new Error('--eval-dir is fixed by --set');
@@ -835,6 +835,7 @@ export function runArgs(extra = [], { now = new Date(), benchmarks = BENCHMARKS,
   // Campaign R1 (2026-09-29) ran uncapped sweeps for 13.5 h, about $221, and used up a weekly plan limit.
   const cap = extra[extra.indexOf('--max-cost-usd') + 1];
   if (!extra.includes('--max-cost-usd') || !cap || cap.startsWith('--')) throw new Error('--max-cost-usd is required: an uncapped sweep can spend a week of plan usage in a day');
+  if (!existsSync(path.join(plugin, '.claude-plugin', 'plugin.json'))) throw new Error(`${plugin} is not a plugin: no .claude-plugin/plugin.json`);
   const resultsDir = set === 'full' ? path.join(benchmarks, 'results') : path.join(ROOT, CURATED_EVAL_DIR, 'results');
   const excluded = [benchmarks, path.join(ROOT, CURATED_EVAL_DIR, 'results')];
   for (const flag of ['--json', '--report', '--output-dir']) {
@@ -847,7 +848,7 @@ export function runArgs(extra = [], { now = new Date(), benchmarks = BENCHMARKS,
   }
   const json = extra.includes('--json') ? [] : ['--json', path.join(resultsDir, `eval-${now.toISOString().replace(/[:.]/g, '-')}.json`)];
   const evalDir = set === 'full' ? BENCH_EVAL_DIR : CURATED_EVAL_DIR;
-  return ['plugin', 'eval', ROOT, '--eval-dir', evalDir, '--scaffold', '--allow-tools', 'Bash', '--no-publish', ...json, ...extra];
+  return ['plugin', 'eval', plugin, '--eval-dir', evalDir, '--scaffold', '--allow-tools', 'Bash', '--no-publish', ...json, ...extra];
 }
 
 export function harvestDir(argv) {
@@ -951,12 +952,13 @@ async function main(argv) {
   }
   if (command === 'run') {
     const set = option('--set') ?? 'curated';
+    const pluginAt = option('--plugin');
     const walkIndex = rest.indexOf('--walk');
     if (walkIndex >= 0) taken.add(walkIndex);
     const positional = rest.filter((_, i) => !taken.has(i));
     const cases = set === 'full' ? path.join(benchmarks, CASES_DIRECTORY) : CURATED_CASES;
     if (!existsSync(cases)) throw new Error(`no generated cases at ${cases}: run \`npm run evals:${set === 'full' ? 'generate' : 'select'}\` first`);
-    const args = runArgs(positional, { benchmarks, set });
+    const args = runArgs(positional, { benchmarks, set, ...(pluginAt === undefined ? {} : { plugin: path.resolve(pluginAt) }) });
     const tracesDir = harvestDir(args);
     const child = spawn('claude', args, { stdio: 'inherit' });
     // A harvest failure is reported, never fatal to a paid sweep. Each distinct cause is printed once:
@@ -1017,7 +1019,7 @@ async function main(argv) {
     return 0;
   }
   throw new Error(
-    'usage: evals-bench.mjs generate | select [--localize <n>] [--review <n>] [--forced] | run [--set curated|full] --model <m> --max-cost-usd <usd> [--walk] [options] | score <eval-results.json> [--traces <dir>] [--baseline <file>] | walk <eval-results.json> [--traces <dir>]',
+    'usage: evals-bench.mjs generate | select [--localize <n>] [--review <n>] [--forced] | run [--set curated|full] [--plugin <dir>] --model <m> --max-cost-usd <usd> [--walk] [options] | score <eval-results.json> [--traces <dir>] [--baseline <file>] | walk <eval-results.json> [--traces <dir>]',
   );
 }
 
