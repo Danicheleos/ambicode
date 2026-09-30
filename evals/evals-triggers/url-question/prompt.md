@@ -1,7 +1,7 @@
 ---
 name: url-question
 description: A how-does-it-work question plus a Jira URL should route to investigate, not its siblings.
-tags: ["trigger"]
+tags: ["trigger", "dev"]
 runs: 3
 max_turns: 8
 timeout_seconds: 300

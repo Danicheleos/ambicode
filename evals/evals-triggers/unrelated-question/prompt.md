@@ -1,7 +1,7 @@
 ---
 name: unrelated-question
 description: A general knowledge question must fire no ambicode skill and no helper.
-tags: ["trigger"]
+tags: ["trigger", "dev"]
 runs: 3
 max_turns: 3
 timeout_seconds: 300

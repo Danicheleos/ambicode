@@ -1,7 +1,7 @@
 ---
 name: url-plan
 description: An approach-before-code request plus a Jira URL should route to plan.
-tags: ["trigger"]
+tags: ["trigger", "test"]
 runs: 3
 max_turns: 8
 timeout_seconds: 300

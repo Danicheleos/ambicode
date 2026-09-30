@@ -1,7 +1,7 @@
 ---
 name: url-implement
 description: An implement request plus a Jira URL should route to task.
-tags: ["trigger"]
+tags: ["trigger", "dev"]
 runs: 3
 max_turns: 8
 timeout_seconds: 300

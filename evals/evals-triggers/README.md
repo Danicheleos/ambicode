@@ -11,10 +11,18 @@ description edits: run it before and after changing any SKILL.md
 I2/I3).
 
 ```sh
-npm run evals:triggers
+npm run evals:triggers        # all 28 cases, 1 run: $2.2–2.3, about 3 min (measured)
+npm run evals:triggers:gate   # the held-out `test` split, 3 runs: $2.96, about 4 min (measured)
 ```
 
-Eight cases, all on the `ts-staged-unstaged` fixture with `ambicode init`
+Every case carries a split tag. Edit a description while looking at `dev` results
+only, and confirm on `test` (`--tag dev`, `--tag test` select them). `diag` is the
+bare-URL diagnostic and belongs to neither. The new cases run at `max_turns: 4`: the
+Skill call is the measure, so a case that reaches the turn limit after the skill
+fired still passes (its `exit 1` is noise, not a miss). The eight older cases keep
+their 8 turns.
+
+Twenty-eight cases (eight hand-written, twenty added 2026-09-30), all on the `ts-staged-unstaged` fixture with `ambicode init`
 run:
 
 - `url-question`, `url-plan`, `url-implement`, `url-review` — a verb plus a
@@ -40,3 +48,20 @@ without it. Grading is structural
 needed. Retrieval failures inside a fired skill are expected and irrelevant:
 the Skill call is in the trace before the skill discovers the URL is not
 retrievable.
+
+## The added cases
+
+Twelve mixed-intent phrasings, four negatives, and three collisions with built-in
+skills, each with an expected skill and the sibling graders of the older cases:
+
+- `fix-ticket`, `fix-bug-plain`, `build-ticket-casual` → task;
+- `why-question`, `which-files`, `how-much-work`, `casual-look` → investigate;
+- `plan-roadmap`, `plan-think` → plan;
+- `review-bench-shape`, `review-check-push`, `review-mr`, `review-vs-ticket` → review.
+  `review-bench-shape` is the neutral prompt of the curated review cases in
+  `evals-core`: on the 2026-09-30 description it fired the review skill 0 of 4
+  times, and the model read `git diff` and reviewed on its own;
+- `neg-regex`, `neg-git-concept`, `neg-shell-oneliner`, `neg-http` → no AMBICODE
+  skill;
+- `collide-code-review`, `collide-verify` → review; `collide-security` only asserts
+  that no *wrong* sibling fires (the built-in security review may reasonably win).

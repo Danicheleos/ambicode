@@ -1,7 +1,7 @@
 ---
 name: verb-implement
 description: A plain implement request with no URL should route to task.
-tags: ["trigger"]
+tags: ["trigger", "test"]
 runs: 3
 max_turns: 8
 timeout_seconds: 300

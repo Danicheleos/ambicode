@@ -1,7 +1,7 @@
 ---
 name: url-bare
 description: "A bare Jira URL with no verb: which skill claims it? Diagnostic — read the per-grader pattern, not the score."
-tags: ["trigger"]
+tags: ["trigger", "diag"]
 runs: 3
 max_turns: 8
 timeout_seconds: 300
