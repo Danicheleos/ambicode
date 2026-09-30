@@ -15,8 +15,10 @@ export const HookInput = z.looseObject({
   tool_input: z
     .looseObject({
       file_path: z.string().min(1).optional(),
+      command: z.string().optional(),
     })
     .optional(),
+  tool_response: z.unknown().optional(),
 });
 export type HookInput = z.infer<typeof HookInput>;
 

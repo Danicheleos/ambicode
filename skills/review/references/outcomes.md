@@ -21,7 +21,10 @@ running with weaker isolation than it reports.
 **`input-too-large`.** The change exceeds the configured limits. The error names
 the largest contributors. Usually something uncommitted and generated — a
 lockfile, build output — is in the working tree. Commit or ignore it, or split
-the change. Raising the limit is a deliberate decision, not the default advice.
+the change. Show the measured count and limit, then ask whether to narrow the
+review, split the change, or deliberately raise the specific limit. Do not
+change a limit or drop files before the user chooses. Raising the limit is a
+deliberate decision, not the default advice.
 
 **`snapshot-too-large`.** Changed files exceed a per-file ceiling no setting
 raises. Every one is named: ask once, re-run once with `--exclude <glob>`,

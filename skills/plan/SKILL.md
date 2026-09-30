@@ -30,7 +30,7 @@ cancellation reasons to order history` is one primary request, not just
   look up later.
 - Retrieve every source — the primary URL, if any, and every
   `--requirement` — through
-  `${CLAUDE_PLUGIN_ROOT}/skills/shared/requirements-mcp.md` (read it now if
+  `${CLAUDE_PLUGIN_ROOT}/resources/shared/requirements-mcp.md` (read it now if
   you have not already this session). Keep the envelope it describes in
   context and pipe it to `--evidence -`; there is no file to write or clean
   up.
@@ -54,7 +54,7 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" prepare --activity plan --json
 
 with the same requirement URLs and envelope from step 1, and your first guess
 at the paths the request touches. Read its output as
-`${CLAUDE_PLUGIN_ROOT}/skills/shared/prepare-output.md` describes: that file
+`${CLAUDE_PLUGIN_ROOT}/resources/shared/prepare-output.md` describes: that file
 owns the compact shape, `sharedOperatingContract`, `policy.packs[].rules`,
 `policy.prompts` and `navigation` for every authoring skill. For `plan`,
 apply `before-work` content before you investigate and any `before-report`

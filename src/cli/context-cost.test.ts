@@ -35,8 +35,8 @@ const MAX_SKILL_BYTES: Record<string, number> = {
   'task/SKILL.md': 10_650,
   // A setup-time skill, never on a per-call path: this ceiling is about discipline, not per-call cost.
   'rules/SKILL.md': 10_000,
-  'shared/requirements-mcp.md': 5_600,
-  'shared/prepare-output.md': 5_550,
+  '../resources/shared/requirements-mcp.md': 5_600,
+  '../resources/shared/prepare-output.md': 5_550,
 };
 
 const PACK_A = [

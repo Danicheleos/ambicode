@@ -34,7 +34,7 @@ it conflicts with the request or the evidence, ask which governs.
 
 **A primary Jira/Confluence URL is itself a requirement source.** Retrieve it,
 and every `--requirement`, through
-`${CLAUDE_PLUGIN_ROOT}/skills/shared/requirements-mcp.md` (read it now if you
+`${CLAUDE_PLUGIN_ROOT}/resources/shared/requirements-mcp.md` (read it now if you
 have not this session). Keep its envelope in context and pipe it to
 `--evidence -` again for each command that needs it.
 
@@ -51,7 +51,7 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" prepare --activity task --json
 ```
 
 Pass step 1's URLs and envelope, plus your first guess at affected paths.
-Read the result as `${CLAUDE_PLUGIN_ROOT}/skills/shared/prepare-output.md`
+Read the result as `${CLAUDE_PLUGIN_ROOT}/resources/shared/prepare-output.md`
 describes: it owns the compact shape, `sharedOperatingContract`,
 `policy.packs[].rules`, `policy.prompts`, `policy.commandDecisions` and
 `navigation`. For `task` that means `before-work` content before you

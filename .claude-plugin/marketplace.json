@@ -1,0 +1,16 @@
+{
+  "name": "ambicode-private",
+  "description": "Private AMBICODE releases for Claude Code.",
+  "owner": { "name": "Daniil Mikhailau" },
+  "plugins": [
+    {
+      "name": "ambicode",
+      "description": "Scoped project policy, evidence-backed checks, and independent code review.",
+      "source": {
+        "source": "url",
+        "url": "git@github.com:Danicheleos/ambicode.git",
+        "ref": "ambicode-plugin-v0.4.1"
+      }
+    }
+  ]
+}

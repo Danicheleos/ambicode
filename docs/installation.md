@@ -1,7 +1,7 @@
 # Local installation and testing
 
 AMBICODE is installed from this checkout into Claude Code's local plugin
-configuration. Nothing is published to a hosted marketplace. The installer
+configuration. The Claude installer
 copies the packaged candidate into a durable local-directory marketplace under
 the selected Claude configuration, then asks Claude Code to install it.
 
@@ -23,7 +23,7 @@ From the AMBICODE checkout:
 ```text
 npm ci
 npm run package:candidate
-node install-local.mjs install dist/ambicode-0.3.1
+node install-local.mjs install dist/ambicode-0.4.1
 ```
 
 The default configuration directory is the same one ordinary Claude Code
@@ -55,6 +55,8 @@ In the target repository, start or restart Claude Code and run:
 `/ambicode:init` creates the repository-owned `.ambicode/config.yaml`. That
 configuration file is the expected repository-visible result of initialization;
 the installed plugin itself remains in Claude's plugin storage.
+
+For private GitHub marketplace installation in Codex, see [Codex integration](codex.md).
 
 ## Windows PowerShell
 

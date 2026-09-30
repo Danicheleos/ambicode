@@ -44,7 +44,7 @@ List what you found and ask which of them state rules the team wants enforced.
 A file being present is not a mandate to migrate it.
 
 A Confluence page or Jira issue arrives through the shared procedure in
-`${CLAUDE_PLUGIN_ROOT}/skills/shared/requirements-mcp.md` — use its steps 1
+`${CLAUDE_PLUGIN_ROOT}/resources/shared/requirements-mcp.md` — use its steps 1
 to 3 to bind the server and retrieve the content. There is no fourth step
 here: no AMBICODE command consumes a requirement envelope for this work, so
 nothing is passed with `--requirement` and no envelope is built. You read the

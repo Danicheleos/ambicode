@@ -19,7 +19,7 @@ either.
      `--requirement <url>` — not "just an identifier" to read later.
    - Retrieve every Jira/Confluence URL — the primary argument and every
      `--requirement` — through
-     `${CLAUDE_PLUGIN_ROOT}/skills/shared/requirements-mcp.md` (read it now
+     `${CLAUDE_PLUGIN_ROOT}/resources/shared/requirements-mcp.md` (read it now
      if you have not this session), **before** looking at any code. Keep its
      envelope in context and pipe it to `--evidence -`.
    - If retrieval fails for any of them, stop and say precisely which URL
@@ -47,7 +47,7 @@ either.
    guess at the paths the question touches. Pass `--term` for the terms the
    question is about: `navigation.shortlist` is otherwise guessed from
    requirement text, and a question with no URL has none. Read its output as
-   `${CLAUDE_PLUGIN_ROOT}/skills/shared/prepare-output.md` describes: that
+   `${CLAUDE_PLUGIN_ROOT}/resources/shared/prepare-output.md` describes: that
    file owns the compact shape, `sharedOperatingContract`,
    `policy.packs[].rules`, `policy.prompts` and `navigation` for every
    authoring skill. For `investigate` the only applicable prompt stages are

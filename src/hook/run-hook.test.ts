@@ -8,7 +8,7 @@ import { createRuntime } from '../composition/root.ts';
 import { nodeFileSystem } from '../ports/filesystem.ts';
 import { TempRepo } from '../testing/temp-repo.ts';
 import { PREPARE_OPTIONS, runPrepare } from '../cli/commands/prepare.ts';
-import { runHook } from './run-hook.ts';
+import { editedPathsFromPatch, runHook } from './run-hook.ts';
 
 async function fixtureWithPack(options: { editReminders?: boolean } = {}): Promise<{ repo: TempRepo; dispose(): Promise<void> }> {
   const repo = await TempRepo.create();
@@ -66,6 +66,42 @@ function postToolUse(options: {
 }
 
 describe('G/H: ambicode hook (PostToolUse edit reminders)', () => {
+  it('uses the destination path for a successful Codex move', async () => {
+    const { repo, dispose } = await fixtureWithPack();
+    try {
+      await repo.write('src/orders/moved.ts', 'export const moved = true;\n');
+      const patch = '*** Begin Patch\n*** Update File: src/unrelated.ts\n*** Move to: src/orders/moved.ts\n@@\n*** End Patch';
+      assert.deepEqual(editedPathsFromPatch(patch, repo.root), [path.join(repo.root, 'src/orders/moved.ts')]);
+      const runtime = await createRuntime({ cwd: repo.root });
+      const output = await runHook(runtime, JSON.stringify({
+        hook_event_name: 'PostToolUse', session_id: randomUUID(), cwd: repo.root,
+        tool_name: 'apply_patch', tool_input: { command: patch }, tool_response: {},
+      })) as { hookSpecificOutput?: { additionalContext: string } };
+      assert.match(output.hookSpecificOutput?.additionalContext ?? '', /orders-reminders\/service-boundary/);
+    } finally {
+      await dispose();
+    }
+  });
+
+  it('does not consume an edit reminder for a failed Codex patch', async () => {
+    const { repo, dispose } = await fixtureWithPack();
+    try {
+      const runtime = await createRuntime({ cwd: repo.root });
+      const input = {
+        hook_event_name: 'PostToolUse', session_id: randomUUID(), cwd: repo.root,
+        tool_name: 'apply_patch',
+        tool_input: { command: '*** Begin Patch\n*** Update File: src/orders/service.ts\n@@\n*** End Patch' },
+      };
+      assert.deepEqual(await runHook(runtime, JSON.stringify({ ...input, tool_response: { isError: true } })), {});
+      const output = await runHook(runtime, JSON.stringify({ ...input, tool_response: {} })) as {
+        hookSpecificOutput?: { additionalContext: string };
+      };
+      assert.match(output.hookSpecificOutput?.additionalContext ?? '', /orders-reminders\/service-boundary/);
+    } finally {
+      await dispose();
+    }
+  });
+
   it('delivers a matching reminder with qualified id, authority, category, instruction, check, provenance, hash and the "not proof" disclaimer', async () => {
     const { repo, dispose } = await fixtureWithPack();
     try {
