@@ -47,7 +47,7 @@ cancellation reasons to order history` is one primary request, not just
 
 ### 2. Prepare
 
-A hook runs `prepare` when this skill loads: read its message (`AMBICODE ran \`prepare\``); do not rerun it. Rerun only if you retrieved requirement URLs, need other paths, or the message says it could not run:
+A hook runs `prepare` when this skill loads: read its message (`AMBICODE ran \`prepare --activity plan\``); do not rerun it. Rerun for requirement URLs, other paths, or a message that names another activity or says it could not run:
 
 ```sh
 node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" prepare --activity plan --json [paths...] [--project <id>] \
@@ -59,7 +59,7 @@ output as `${CLAUDE_PLUGIN_ROOT}/skills/shared/prepare-output.md` describes:
 it owns the compact shape, `sharedOperatingContract`,
 `policy.packs[].rules`, `policy.prompts` and `navigation`. For `plan`, apply
 `before-work` content before you investigate and `before-report` content
-before you present the plan; no reviewer-only content is returned here.
+before you present the plan.
 
 On `ambiguous-project`, **refuse to guess:** ask the user which project, or
 narrow the paths. The shared file owns that rule and the no-second-parser

@@ -26,6 +26,7 @@ export const USAGE = `ambicode <command> [options]
   policy [paths...]       Print the policy that applies.
                             --project <id>
                             --activity <review|task|plan|investigate>
+                            --rule <pack/rule>   repeatable: print only those rules
 
   policy check <file...>  Validate candidate policy pack files that are not yet
                           referenced from .ambicode/config.yaml: the schema, the

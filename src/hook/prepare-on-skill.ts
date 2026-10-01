@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { createRuntime, openRepository, type Runtime } from '../composition/root.ts';
+import { loadConfig } from '../config/load.ts';
 import { parseArgs } from '../cli/args.ts';
 import { PREPARE_OPTIONS, runPrepare } from '../cli/commands/prepare.ts';
 import { termsFromRequirements } from '../code-intelligence/locate.ts';
@@ -34,27 +35,117 @@ export async function prepareForSkill(
   const match = typeof skill === 'string' ? PREPARING_SKILLS.exec(skill) : null;
   if (match === null) return null;
   const activity = match[1]!;
-  const sessionDirectory = input.cwd ?? runtime.cwd;
   const skillArgs = typeof input.tool_input?.args === 'string' ? input.tool_input.args : '';
 
-  const found = await findRepository(runtime, sessionDirectory);
-  if (typeof found === 'string') return contextOutput(unavailable(found));
+  // Args that only name a ticket have no question in them: terms from `VS-001` find nothing, and the
+  // fetch that follows carries the real text, which the ticket hook prepares from.
+  // Any reference defers to the fetch, even with a question beside it: "ORD-17 which files would this touch?"
+  // gave terms like `files` and `touch`, and okta files at ranks 5-15 (2026-10-01 session).
+  if (/https?:\/\/\S+|\b[A-Z][A-Z0-9]+-\d+\b/.test(skillArgs)) {
+    return contextOutput(
+      'AMBICODE did not run prepare: your skill args name a ticket. Fetch the ticket; a hook then runs prepare ' +
+        "on its text. If that message does not appear, run prepare yourself, as the skill's prepare step says.",
+    );
+  }
 
   const terms = termsFromRequirements([{ title: '', content: skillArgs }]);
+  return contextOutput(await preparedMessage(runtime, input.cwd ?? runtime.cwd, activity, terms, 'your skill args'));
+}
+
+/**
+ * Tools that return one ticket or page. A bare `get` prefix also took `getAccessibleAtlassianResources`,
+ * the site lookup that precedes every fetch: terms `read-write`, `read`, `write` and a 9,899-character
+ * payload of unrelated files (2026-10-01 session).
+ */
+const TICKET_TOOL = /^mcp__(.+)__(get(?!Transitions)\w*(?:Issue|Page|Ticket)|fetch\w*|read\w*)$/i;
+const ATLASSIAN_SERVER = /atlassian|jira|confluence|rovo/i;
+
+/** A fetched ticket is far larger than any term list needs; the ranking reads the head. */
+const MAX_TICKET_CHARS = 60_000;
+
+/**
+ * Runs `prepare` on the text a Jira/Confluence read tool returned, because that text, verbatim, is the
+ * question: the model's own paraphrase in the skill args lost the ticket's nouns (0 of 17 true files
+ * in the shortlist). Always the `investigate` shape, which carries no rules; `plan` and `task` run
+ * their own `prepare` for theirs.
+ */
+export async function prepareForTicket(
+  runtime: Runtime,
+  input: { cwd?: string | undefined; tool_name?: string | undefined; tool_response?: unknown },
+): Promise<PostToolUseHookOutput | null> {
+  const match = input.tool_name === undefined ? null : TICKET_TOOL.exec(input.tool_name);
+  if (match === null) return null;
+  const server = match[1]!;
+  const sessionDirectory = input.cwd ?? runtime.cwd;
+
+  const found = await findRepository(runtime, sessionDirectory);
+  if (typeof found === 'string') return null;
+  const bound = await loadConfig(runtime.fs, found.repositoryRoot)
+    .then((loaded) => loaded.config.requirements.mcpServer)
+    .catch(() => null);
+  const ours = bound === null ? ATLASSIAN_SERVER.test(server) : server.toLowerCase().includes(bound.toLowerCase());
+  if (!ours) return null;
+
+  const text = withoutNoise(textOf(input.tool_response)).slice(0, MAX_TICKET_CHARS);
+  const terms = termsFromRequirements([{ title: '', content: text }]);
+  if (terms.length === 0) return null;
+  return contextOutput(await preparedMessage(runtime, sessionDirectory, 'investigate', terms, `the result of ${input.tool_name}`));
+}
+
+/**
+ * Fields of a Jira response that are not the question. The first real Rovo fetch put
+ * `data-type`, `data-id`, UUIDs, gitlab URLs and timestamps from comments into the 12 term slots,
+ * and the shortlist held 0 of 6 true files. The `evidence` view added custom fields (build counters),
+ * the assignee's name and ticket keys, and the shortlist held none of them again.
+ */
+const NOT_THE_TICKET = new Set(['customFields', 'assignee', 'reporter', 'creator', 'status', 'priority', 'issuetype', 'type', 'id', 'self', 'expand', 'accountId', 'created', 'updated', 'updateAuthor', 'author', 'comment', 'comments', 'changelog', 'renderedFields']);
+
+/** Markup and identifiers that survive in the text of a field: tags, links, ids and timestamps are not vocabulary. */
+function withoutNoise(text: string): string {
+  return text
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/https?:\/\/\S+/g, ' ')
+    .replace(/\b[A-Z][A-Z0-9]+-\d+\b/g, ' ')
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, ' ')
+    .replace(/\b\d{4}-\d{2}-\d{2}T[\d:.+]+Z?/g, ' ');
+}
+
+/** The string leaves of a tool response, with JSON carried inside a string opened: keys and structure are not the ticket. */
+function textOf(value: unknown, depth = 0): string {
+  if (typeof value === 'string') {
+    const trimmed = value.trimStart();
+    if (depth < 4 && (trimmed.startsWith('{') || trimmed.startsWith('['))) {
+      try {
+        return textOf(JSON.parse(value), depth + 1);
+      } catch {
+        // Not JSON after all: it is text.
+      }
+    }
+    return value;
+  }
+  if (Array.isArray(value)) return value.map((item) => textOf(item, depth)).join('\n');
+  if (value !== null && typeof value === 'object') return Object.entries(value).filter(([key]) => !NOT_THE_TICKET.has(key)).map(([, item]) => textOf(item, depth)).join('\n');
+  return '';
+}
+
+async function preparedMessage(runtime: Runtime, sessionDirectory: string, activity: string, terms: readonly string[], source: string): Promise<string> {
+  const found = await findRepository(runtime, sessionDirectory);
+  if (typeof found === 'string') return unavailable(found);
+
   const argv = ['--activity', activity, '--json', ...terms.flatMap((term) => ['--term', term])];
   const command = `prepare --activity ${activity} --json`;
-  const where = found.where;
   try {
     const hookRuntime = await createRuntime({ ...runtime, cwd: found.repositoryRoot });
     const header = [
-      `AMBICODE ran \`${command}\` for you, in \`${where}\`, with terms from your skill args (navigation.shortlist.terms).`,
+      `AMBICODE ran \`${command}\` for you, in \`${found.where}\`, with terms from ${source} (navigation.shortlist.terms).`,
       'Its complete output follows; do not run it again.',
     ].join('\n');
     const prepare = async (shortlistLimit?: number) => {
       const run = await runPrepare(hookRuntime, parseArgs('prepare', argv, PREPARE_OPTIONS), { shortlistLimit });
       return { run, message: `${header}\n${formatJsonOutput(run.data, run.json).trimEnd()}` };
     };
-    let { run, message } = await prepare();
+    const whole = await prepare();
+    let { run, message } = whole;
     for (let attempt = 0; attempt < FIT_ATTEMPTS && message.length > INLINE_LIMIT; attempt += 1) {
       const candidates = run.data.navigation.shortlist?.candidates ?? [];
       if (candidates.length === 0) break;
@@ -62,9 +153,11 @@ export async function prepareForSkill(
       const keep = Math.max(0, candidates.length - Math.ceil((message.length - INLINE_LIMIT) / average));
       ({ run, message } = await prepare(keep));
     }
-    return contextOutput(message);
+    // Trimming only pays when it reaches the window: the task payload is 16,252 bytes of rules alone,
+    // and a shortlist stripped to nothing still lands in a file, having lost the part worth reading.
+    return message.length > INLINE_LIMIT ? whole.message : message;
   } catch (error) {
-    return contextOutput(unavailable(isAmbicodeError(error) ? `${error.code}: ${error.message.replace(/\.$/, '')}` : 'an unexpected error'));
+    return unavailable(isAmbicodeError(error) ? `${error.code}: ${error.message.replace(/\.$/, '')}` : 'an unexpected error');
   }
 }
 

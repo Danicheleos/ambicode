@@ -81,6 +81,9 @@ the file down.
 does not exist, or resolves outside the repository. The message names which.
 Fix the declaration; AMBICODE will not follow it anywhere else.
 
+**`unknown-rule`.** A `--rule` id names no rule that applies to this activity and
+paths. The error lists the ids that do.
+
 **`unknown-project`.** The `--project` id is not configured, or no path places
 the request inside a configured project root. Ask which project.
 

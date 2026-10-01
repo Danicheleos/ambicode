@@ -17,7 +17,7 @@ import {
   type AdditionalContextHookOutput,
   type PostToolUseHookOutput,
 } from '../contracts/hook.ts';
-import { prepareForSkill } from './prepare-on-skill.ts';
+import { prepareForSkill, prepareForTicket } from './prepare-on-skill.ts';
 import { readSharedOperatingContract } from '../policy/shared-contract.ts';
 import { contentHash } from '../util/hash.ts';
 import {
@@ -120,6 +120,7 @@ async function deliverSharedContract(
 
 async function handlePostToolUse(runtime: Runtime, input: HookInput): Promise<unknown> {
   if (input.tool_name === 'Skill') return (await prepareForSkill(runtime, input)) ?? EMPTY_HOOK_OUTPUT;
+  if (input.tool_name?.startsWith('mcp__')) return (await dedupedTicketPrepare(runtime, input)) ?? EMPTY_HOOK_OUTPUT;
   if (input.tool_name !== 'Edit' && input.tool_name !== 'Write') return EMPTY_HOOK_OUTPUT;
   const absoluteFilePath = input.tool_input?.file_path;
   if (absoluteFilePath === undefined) return EMPTY_HOOK_OUTPUT;
@@ -171,6 +172,23 @@ async function handlePostToolUse(runtime: Runtime, input: HookInput): Promise<un
 
   if (undelivered.length === 0) return EMPTY_HOOK_OUTPUT;
   return buildOutput(relative, undelivered);
+}
+
+/** The same ticket read twice in one epoch is prepared once; the second message would repeat the first. */
+async function dedupedTicketPrepare(runtime: Runtime, input: HookInput): Promise<PostToolUseHookOutput | null> {
+  const output = await prepareForTicket(runtime, input);
+  if (output === null) return null;
+  const base = hookStateBaseDir(runtime.fs, input.session_id, input.scratchpad_dir);
+  const key: DeliveryKey = {
+    epoch: await currentEpoch(runtime.fs, runtime.ids, base),
+    agentKey: input.agent_id ?? 'main',
+    kind: 'ticket-prepare',
+    subject: input.tool_name ?? '',
+    contentHash: contentHash(output.hookSpecificOutput.additionalContext),
+  };
+  if (await alreadyDelivered(runtime.fs, base, key)) return null;
+  await markDelivered(runtime.fs, base, key);
+  return output;
 }
 
 function ruleContentHash(rule: ResolvedRule): string {

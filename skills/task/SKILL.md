@@ -45,14 +45,14 @@ task: that answers a different, unasked question.
 
 ## 2. Prepare and scope
 
-A hook runs `prepare` when this skill loads: read its message (`AMBICODE ran \`prepare\``); do not rerun it. Rerun only for requirement URLs, other paths, or a message saying it could not run:
+A hook runs `prepare` when this skill loads: read its message (`AMBICODE ran \`prepare --activity task\``); do not rerun it. Rerun for requirement URLs, other paths, or a message naming another activity or that it could not run:
 
 ```sh
 node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" prepare --activity task --json [likely paths...] [--project <id>] \
   [--requirement <url>]... [--evidence -] [--term <term>]...
 ```
 
-Pass step 1's URLs, envelope and your first guess at affected paths.
+Pass step 1's URLs, envelope and likely paths.
 Read the result as `${CLAUDE_PLUGIN_ROOT}/skills/shared/prepare-output.md`
 describes: it owns the compact shape, `sharedOperatingContract`,
 `policy.packs[].rules`, `policy.prompts`, `policy.commandDecisions` and

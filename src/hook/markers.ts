@@ -47,7 +47,7 @@ export async function cleanupSessionState(fs: FileSystem, baseDir: string): Prom
 export interface DeliveryKey {
   epoch: string;
   agentKey: string;
-  kind: 'edit-reminder' | 'shared-contract';
+  kind: 'edit-reminder' | 'shared-contract' | 'ticket-prepare';
   subject: string;
   contentHash: string;
 }

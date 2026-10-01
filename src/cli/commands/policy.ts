@@ -13,6 +13,8 @@ import type { ParsedArgs } from '../args.ts';
 
 export const POLICY_OPTIONS = {
   values: ['project', 'activity'],
+  /** Qualified ids (`pack/rule`): read just those rules, once, instead of the whole set. */
+  repeated: ['rule'],
   flags: ['json'],
   // The one command whose operands are data: the paths policy is resolved for.
   positionals: true,
@@ -63,7 +65,25 @@ export async function runPolicy(runtime: Runtime, args: ParsedArgs): Promise<Pol
     paths,
   });
 
-  return { command: 'policy', projectId: project.id, activity: activity.data, paths, policy };
+  const wanted = args.all('rule');
+  if (wanted.length === 0) return { command: 'policy', projectId: project.id, activity: activity.data, paths, policy };
+
+  const known = new Set(policy.rules.map((rule) => rule.qualifiedId));
+  const unknown = wanted.filter((id) => !known.has(id));
+  if (unknown.length > 0) {
+    throw new AmbicodeError('unknown-rule', `No rule applies here with id ${unknown.map((id) => `"${id}"`).join(', ')}.`, {
+      field: '--rule',
+      details: [`Rules that apply: ${[...known].join(', ') || '(none)'}.`],
+    });
+  }
+  const only = new Set(wanted);
+  return {
+    command: 'policy',
+    projectId: project.id,
+    activity: activity.data,
+    paths,
+    policy: { ...policy, rules: policy.rules.filter((rule) => only.has(rule.qualifiedId)) },
+  };
 }
 
 export function renderPolicy(output: PolicyOutput): string {

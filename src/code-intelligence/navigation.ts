@@ -30,7 +30,7 @@ const GUIDANCE: Record<Ecosystem, Omit<NavigationGuidance, 'ecosystem'>> = {
     ],
     statusSource: 'current-session',
     evidenceRequirement: EVIDENCE_REQUIREMENT,
-    readGuidance: 'Read spans with offset/limit, not whole files.',
+    readGuidance: 'Read spans with offset/limit. LSP is a deferred tool: ToolSearch select:LSP first.',
   },
   python: {
     strategy: 'shortlist-then-known-paths-then-lsp-then-targeted-search',
@@ -42,7 +42,7 @@ const GUIDANCE: Record<Ecosystem, Omit<NavigationGuidance, 'ecosystem'>> = {
     ],
     statusSource: 'current-session',
     evidenceRequirement: EVIDENCE_REQUIREMENT,
-    readGuidance: 'Read spans with offset/limit, not whole files.',
+    readGuidance: 'Read spans with offset/limit. LSP is a deferred tool: ToolSearch select:LSP first.',
   },
 };
 

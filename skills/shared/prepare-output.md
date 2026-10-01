@@ -22,9 +22,6 @@ command fails rather than emit past the configured limit. **Read it whole —
 never truncate it** (`head -c`, a byte cap): every field is applicable, and
 truncation is how the navigation block gets lost. Run it once per activity.
 
-`--verbose` emits the same policy with every field spelled out, for
-debugging. It is not the shape to read routinely.
-
 ## Fields
 
 - **`sharedOperatingContract`** — the canonical operating contract (evidence,
@@ -35,7 +32,8 @@ debugging. It is not the shape to read routinely.
   each call; if it is not in your context, rerun with `--with-contract`.
   Follow it, and do not restate its rules in your own output.
 - **`policy.packs[].rules`** — the rules that apply to this activity and
-  these paths. Apply them; cite them by qualified id.
+  these paths. Apply them; cite them by qualified id. `policy.rulesOmitted`
+  counts rules left out for `investigate` and `plan`, and names the command that reads them.
 - **`policy.prompts`** — scoped prompt content, already resolved and
   hash-verified. Read each entry's `content` directly at the stage its
   `stage` names; never resolve `declaredPath` against a local checkout path

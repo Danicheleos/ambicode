@@ -170,6 +170,8 @@ const PrepareCompactCommandDecision = z.union([
 
 const PrepareCompactPolicy = z.strictObject({
   packs: z.array(PrepareCompactPack),
+  /** Present only when rules were left out for this activity; `read` is the command that returns them. */
+  rulesOmitted: z.strictObject({ count: z.number().int().positive(), read: z.string().min(1) }).optional(),
   prompts: z.array(PreparePrompt).min(1).optional(),
   commandDecisions: z.array(PrepareCompactCommandDecision).min(1).optional(),
   diagnostics: z.array(PrepareDiagnostic).min(1).optional(),

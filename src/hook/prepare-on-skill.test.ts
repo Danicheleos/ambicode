@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { mkdir, mkdtemp, rename, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
@@ -203,6 +203,109 @@ describe('PostToolUse on the Skill tool runs prepare by construction', () => {
       assert.ok(context.length <= 9_800, `${context.length} characters`);
       const kept = preparedJson(context).navigation.shortlist?.candidates.length ?? 0;
       assert.ok(kept > 0 && kept < 15, `kept ${kept} candidates`);
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it('says so, instead of preparing from a bare ticket key, and leaves the preparing to the fetch', async () => {
+    const repo = await initializedRepo();
+    try {
+      for (const args of ['VS-001', 'https://example.atlassian.net/browse/ORD-17', 'ORD-17 which files would this change touch?']) {
+        const context = (await contextOf(repo.root, 'ambicode:investigate', args)) ?? '';
+        assert.match(context, /^AMBICODE did not run prepare: your skill args name a ticket/, args);
+        assert.ok(!context.includes('\n{'), 'no prepare payload');
+      }
+    } finally {
+      await repo.dispose();
+    }
+  });
+});
+
+describe('PostToolUse on an Atlassian read tool prepares from the ticket text', () => {
+  const comment = { id: '21338', body: 'merged <custom data-type="smartlink" data-id="id-0">https://git.example.com/org/web/-/merge_requests/2287</custom> by 2e85882c-a5c4-4172-936e-e485b219000a', created: '2026-03-20T16:27:05.286+0000' };
+  const ticket = (text: string) => [{ type: 'text', text: JSON.stringify({ key: 'ORD-17', fields: { customfield_10001: 'x', description: { content: [{ text }] }, comment: { comments: [comment] } } }) }];
+
+  async function afterFetch(cwd: string, toolName: string, response: unknown, session = randomUUID()): Promise<string | null> {
+    const runtime = await createRuntime({ cwd });
+    const output = (await runHook(
+      runtime,
+      JSON.stringify({ hook_event_name: 'PostToolUse', session_id: session, cwd, tool_name: toolName, tool_input: {}, tool_response: response }),
+    )) as { hookSpecificOutput?: { additionalContext: string } };
+    return output.hookSpecificOutput?.additionalContext ?? null;
+  }
+
+  it('takes its terms from the ticket text, however the server nests it, and carries no rules', async () => {
+    const repo = await initializedRepo();
+    try {
+      const context = await afterFetch(repo.root, 'mcp__claude_ai_Atlassian_Rovo__getJiraIssue', ticket('Why does reserveStock double count an order?'));
+      assert.ok(context !== null);
+      assert.match(context, /^AMBICODE ran `prepare --activity investigate --json`.*getJiraIssue/);
+      const prepared = preparedJson(context) as { navigation: { shortlist?: { terms: string[]; candidates: { path: string }[] } }; policy?: { rulesOmitted?: unknown } };
+      assert.equal(prepared.navigation.shortlist?.candidates[0]?.path, 'src/orders/service.ts');
+      assert.ok(!prepared.navigation.shortlist?.terms.some((term) => /customfield|fields|^text$|data-|smartlink|merge_requests|git\.example|2e85882c|2026-03/i.test(term)), `noise in ${prepared.navigation.shortlist?.terms.join(', ')}`);
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it('prepares from the Atlassian plugin\'s server, whose tool names carry a plugin_ prefix, and honors a binding to another server', async () => {
+    const repo = await initializedRepo();
+    try {
+      const response = ticket('Why does reserveStock double count an order?');
+      const tool = 'mcp__plugin_atlassian_atlassian__getJiraIssue';
+      assert.ok((await afterFetch(repo.root, tool, response)) !== null);
+      const config = path.join(repo.root, '.ambicode', 'config.yaml');
+      await writeFile(config, (await readFile(config, 'utf8')).replace('mcpServer: null', 'mcpServer: claude_ai_Atlassian_Rovo'));
+      assert.equal(await afterFetch(repo.root, tool, response), null);
+      assert.ok((await afterFetch(repo.root, 'mcp__claude_ai_Atlassian_Rovo__getJiraIssue', response)) !== null);
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it('stays silent for Atlassian tools that are not a ticket: the site lookup that precedes a fetch gave read-write terms and a 9,899-character payload', async () => {
+    const repo = await initializedRepo();
+    try {
+      const sites = [{ type: 'text', text: JSON.stringify({ data: { resources: [{ cloudId: 'c1', url: 'https://example.atlassian.net', products: [{ id: 'jira', access: 'read-write' }] }] } }) }];
+      for (const tool of ['mcp__plugin_atlassian_atlassian__getAccessibleAtlassianResources', 'mcp__plugin_atlassian_atlassian__getJiraIssueRemoteIssueLinks', 'mcp__plugin_atlassian_atlassian__getTransitionsForJiraIssue']) {
+        assert.equal(await afterFetch(repo.root, tool, sites), null, tool);
+      }
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it('reads the summary and description, not the assignee, ticket keys or build counters a Jira response also carries', async () => {
+    const repo = await initializedRepo();
+    try {
+      const response = [{ type: 'text', text: JSON.stringify({ data: { key: 'ORD-17', fields: {
+        summary: 'Why does reserveStock double count an order?',
+        description: 'Orders are counted twice after a retry.',
+        assignee: { accountId: '712020:3088', displayName: 'Pat.Smith' },
+        parent: { key: 'ORD-9', fields: { summary: 'Order accounting' } },
+        customFields: { Development: { value: { failedBuildCount: 1, unknownBuildCount: 0, byInstanceType: {} } } },
+      } } }) }];
+      const context = await afterFetch(repo.root, 'mcp__plugin_atlassian_atlassian__getJiraIssue', response);
+      assert.ok(context !== null);
+      const prepared = preparedJson(context) as { navigation: { shortlist?: { terms: string[]; candidates: { path: string }[] } } };
+      const terms = prepared.navigation.shortlist?.terms ?? [];
+      assert.ok(!terms.some((term) => /pat|smith|ORD-|BuildCount|byInstanceType|dataType/i.test(term)), `noise in ${terms.join(', ')}`);
+      assert.equal(prepared.navigation.shortlist?.candidates[0]?.path, 'src/orders/service.ts');
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it('stays silent for other servers, for search, and for a ticket it already prepared from', async () => {
+    const repo = await initializedRepo();
+    try {
+      const response = ticket('Why does reserveStock double count an order?');
+      assert.equal(await afterFetch(repo.root, 'mcp__github__get_issue', response), null);
+      assert.equal(await afterFetch(repo.root, 'mcp__atlassian__searchJiraIssues', response), null);
+      const session = randomUUID();
+      assert.ok((await afterFetch(repo.root, 'mcp__atlassian__getJiraIssue', response, session)) !== null);
+      assert.equal(await afterFetch(repo.root, 'mcp__atlassian__getJiraIssue', response, session), null);
     } finally {
       await repo.dispose();
     }

@@ -43,7 +43,7 @@ run    model            plugin  arm   localize R   prepare ran  prepare piped/tr
   "each run tested a different plugin version", which was wrong, as was its
   claim that the traces were gone. Both are now corrected there.
 - **What was measured is not HEAD.** The traces carry version 0.3.4.
-  `plugin.json` at HEAD says 0.3.3, and the investigate body differs from
+  `plugin.json` at HEAD says 0.4.0, and the investigate body differs from
   `skills/investigate/SKILL.md`. So the baseline must be re-run on HEAD.
 - **The skill's procedure depends on the model.**
   - With Opus, the agent runs `prepare` and the review skill fires.
@@ -490,6 +490,19 @@ hook output, real          BE 9,640 (14 kept)   FE 9,754 (10 kept)
   contrast has to be rerun before this is called a win over the naked model.
 - Run-to-run spread is large: be-vs-5546 gave R 1.00 and 0.67 on two
   identical `with` runs.
+
+**Flow change, 2026-10-01.**
+- `prepare` carries only the rules the activity acts on: `investigate` none,
+  `plan` all but `code-style`, `task` all. `policy.rulesOmitted` gives the count and
+  the command; `ambicode policy --rule <pack/rule>` (repeatable) reads just those.
+  BE investigate payload 9,165 -> 3,817 bytes. `task` is 16,252 bytes and `plan` 13,734 on the
+  same scaffold, both over the 9,800 inline window, so those arrive as a file behind a preview
+  (the hook no longer trims a shortlist to nothing trying to fit them).
+- A `PostToolUse` hook on Atlassian read tools (`get*`, `fetch*`, `read*`) runs
+  `prepare --activity investigate` with terms from the verbatim ticket text: BE 4,273
+  characters with 15 candidates, FE 5,704. A bare ticket key or URL in the `Skill` args no
+  longer runs `prepare` (terms from `VS-001` find nothing); the hook says so.
+- Unmeasured: whether recall moves with terms from the ticket text through this path.
 
 ### Iteration 5: an enforcement layer (root cause 3)
 Effort M, about 1 week. Spend: unit tests, then one `evals:walk` for the regression check (≈ $1.2).

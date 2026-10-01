@@ -5,7 +5,7 @@ import {
   toRepositoryRelative,
   type Runtime,
 } from '../../composition/root.ts';
-import { Activity } from '../../contracts/primitives.ts';
+import { Activity, RuleCategory } from '../../contracts/primitives.ts';
 import type { ResolvedPolicy, ResolvedPromptRef } from '../../contracts/policy.ts';
 import {
   PrepareCompactOutput as PrepareCompactOutputSchema,
@@ -195,6 +195,19 @@ function measureAgainstOwnBytes<T>(
 }
 
 /**
+ * Rules were 5.5KB of a 9.4KB BE payload (58%). Investigate edits nothing and plan writes no code, so
+ * neither acts on them; `task` and `review` carry all. Left out with a count and the command that reads them.
+ */
+const RULE_CATEGORIES_NOT_CARRIED: Partial<Record<Activity, readonly RuleCategory[]>> = {
+  investigate: RuleCategory.options,
+  plan: ['code-style'],
+};
+
+function ruleCarriedFor(activity: Activity, category: RuleCategory): boolean {
+  return !(RULE_CATEGORIES_NOT_CARRIED[activity] ?? []).includes(category);
+}
+
+/**
  * Decides nothing about what applies; drops per-rule constants, defaults,
  * hook-only metadata, setup guidance and the contract body the hook already delivered.
  */
@@ -202,8 +215,10 @@ export function toCompactOutput(
   detail: PrepareDetail,
   options: { includeContractContent: boolean },
 ): Omit<PrepareCompactOutput, 'contextBudget'> {
+  const carried = detail.policy.rules.filter((rule) => ruleCarriedFor(detail.activity, rule.category));
+  const omitted = detail.policy.rules.length - carried.length;
   const packs = detail.policy.packs.map((pack) => {
-    const rules = detail.policy.rules
+    const rules = carried
       .filter((rule) => rule.packId === pack.id)
       .map((rule) => ({
         id: rule.qualifiedId.startsWith(`${rule.packId}/`)
@@ -264,6 +279,9 @@ export function toCompactOutput(
     },
     policy: {
       packs,
+      ...(omitted === 0
+        ? {}
+        : { rulesOmitted: { count: omitted, read: `ambicode policy --activity ${detail.activity} --json [--rule <pack/rule>]...` } }),
       ...(detail.policy.prompts.length === 0 ? {} : { prompts: detail.policy.prompts }),
       ...(commandDecisions.length === 0 ? {} : { commandDecisions }),
       ...(detail.policy.diagnostics.length === 0 ? {} : { diagnostics: detail.policy.diagnostics }),

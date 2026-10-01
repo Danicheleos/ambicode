@@ -36,8 +36,9 @@ either.
      question, informed by what you just retrieved. Never ask before reading.
    - A direct code question with no URL is already bounded: there is nothing
      to retrieve and nothing to ask before starting.
-3. **Prepare.** A hook runs `prepare` when this skill loads: read its message (`AMBICODE ran \`prepare\``); do not
-   rerun it. Rerun only if you retrieved requirement URLs, need other paths, or the message says it could not run:
+3. **Prepare.** A hook runs `prepare` when this skill loads, or once you fetch the ticket: read its message
+   (`AMBICODE ran \`prepare\``); do not rerun it. Rerun only to pin requirement URLs, for other paths, or if it says it
+   could not run:
 
    ```sh
    node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" prepare --activity investigate --json [paths...] [--project <id>] \
@@ -51,8 +52,7 @@ either.
    file owns the compact shape, `sharedOperatingContract`,
    `policy.packs[].rules`, `policy.prompts` and `navigation` for every
    authoring skill. For `investigate` the only applicable prompt stages are
-   `before-work` (apply it before step 4) and `before-report` (step 6); the
-   helper returns no reviewer-only content here. On `ambiguous-project`, pass
+   `before-work` (apply it before step 4) and `before-report` (step 6). On `ambiguous-project`, pass
    `--project <id>` or narrow the paths rather than guessing which project
    was meant.
 4. **Navigate.** Follow `navigation`'s bounded order, starting from
