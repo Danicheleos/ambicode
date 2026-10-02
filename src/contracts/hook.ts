@@ -12,6 +12,8 @@ export const HookInput = z.looseObject({
   cwd: z.string().min(1).optional(),
   scratchpad_dir: z.string().min(1).optional(),
   tool_name: z.string().min(1).optional(),
+  /** The text a `UserPromptSubmit` event carries. */
+  prompt: z.string().optional(),
   /** What an MCP read tool returned; its shape is the server's, so nothing is assumed of it. */
   tool_response: z.unknown().optional(),
   tool_input: z

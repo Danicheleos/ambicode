@@ -17,7 +17,7 @@ import {
   type AdditionalContextHookOutput,
   type PostToolUseHookOutput,
 } from '../contracts/hook.ts';
-import { prepareForSkill, prepareForTicket } from './prepare-on-skill.ts';
+import { prepareForSkill, prepareForSlashCommand, prepareForTicket } from './prepare-on-skill.ts';
 import { readSharedOperatingContract } from '../policy/shared-contract.ts';
 import { contentHash } from '../util/hash.ts';
 import {
@@ -64,7 +64,13 @@ export async function runHook(runtime: Runtime, rawStdin: string): Promise<unkno
       }
       case 'UserPromptSubmit': {
         const base = hookStateBaseDir(runtime.fs, input.session_id, input.scratchpad_dir);
-        return await deliverSharedContract(runtime, input, base, 'UserPromptSubmit');
+        const contract = (await deliverSharedContract(runtime, input, base, 'UserPromptSubmit')) as {
+          hookSpecificOutput?: { additionalContext: string };
+        };
+        const prepared = await prepareForSlashCommand(runtime, input);
+        if (prepared === null) return contract;
+        const context = [contract.hookSpecificOutput?.additionalContext, prepared.hookSpecificOutput.additionalContext].filter(Boolean).join('\n\n');
+        return { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: context } };
       }
       case 'SessionEnd': {
         const base = hookStateBaseDir(runtime.fs, input.session_id, input.scratchpad_dir);

@@ -165,7 +165,7 @@ describe('P2.1 ambicode prepare', () => {
       assert.equal(output.navigation.serverCommand, 'typescript-language-server');
       assert.equal(output.navigation.statusSource, 'current-session');
       assert.match(output.navigation.evidenceRequirement, /Report the LSP operations used/);
-      assert.match(output.navigation.evidenceRequirement, /"No LSP tools in this session" is complete/);
+      assert.match(output.navigation.evidenceRequirement, /"No LSP tools" counts only if ToolSearch select:LSP found none/);
       assert.match(output.navigation.readGuidance, /spans/i);
       assert.match(output.navigation.readGuidance, /ToolSearch select:LSP/);
       // Absent means "not asked for", never "nothing in this repository matches".

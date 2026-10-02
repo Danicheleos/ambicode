@@ -4,6 +4,7 @@ import { loadConfig } from '../config/load.ts';
 import { parseArgs } from '../cli/args.ts';
 import { PREPARE_OPTIONS, runPrepare } from '../cli/commands/prepare.ts';
 import { termsFromRequirements } from '../code-intelligence/locate.ts';
+import { READING_ORDER } from '../code-intelligence/navigation.ts';
 import type { PostToolUseHookOutput } from '../contracts/hook.ts';
 import { isAmbicodeError } from '../util/errors.ts';
 import { formatJsonOutput } from '../util/json-output.ts';
@@ -34,8 +35,23 @@ export async function prepareForSkill(
   const skill = input.tool_input?.skill;
   const match = typeof skill === 'string' ? PREPARING_SKILLS.exec(skill) : null;
   if (match === null) return null;
-  const activity = match[1]!;
   const skillArgs = typeof input.tool_input?.args === 'string' ? input.tool_input.args : '';
+  return prepareForActivity(runtime, input.cwd ?? runtime.cwd, match[1]!, skillArgs);
+}
+
+/** A typed slash command is expanded by Claude Code without a Skill tool call, so no PostToolUse fires for it (2026-10-02 headless runs). */
+const SLASH_COMMAND = /^\/ambicode:(investigate|plan|task)(?:\s+([\s\S]*))?$/;
+
+export async function prepareForSlashCommand(
+  runtime: Runtime,
+  input: { cwd?: string | undefined; prompt?: string | undefined },
+): Promise<PostToolUseHookOutput | null> {
+  const match = SLASH_COMMAND.exec((input.prompt ?? '').trim());
+  if (match === null) return null;
+  return prepareForActivity(runtime, input.cwd ?? runtime.cwd, match[1]!, match[2] ?? '');
+}
+
+async function prepareForActivity(runtime: Runtime, sessionDirectory: string, activity: string, skillArgs: string): Promise<PostToolUseHookOutput> {
 
   // Args that only name a ticket have no question in them: terms from `VS-001` find nothing, and the
   // fetch that follows carries the real text, which the ticket hook prepares from.
@@ -49,7 +65,7 @@ export async function prepareForSkill(
   }
 
   const terms = termsFromRequirements([{ title: '', content: skillArgs }]);
-  return contextOutput(await preparedMessage(runtime, input.cwd ?? runtime.cwd, activity, terms, 'your skill args'));
+  return contextOutput(await preparedMessage(runtime, sessionDirectory, activity, terms, 'your skill args'));
 }
 
 /**
@@ -139,6 +155,7 @@ async function preparedMessage(runtime: Runtime, sessionDirectory: string, activ
     const header = [
       `AMBICODE ran \`${command}\` for you, in \`${found.where}\`, with terms from ${source} (navigation.shortlist.terms).`,
       'Its complete output follows; do not run it again.',
+      READING_ORDER,
     ].join('\n');
     const prepare = async (shortlistLimit?: number) => {
       const run = await runPrepare(hookRuntime, parseArgs('prepare', argv, PREPARE_OPTIONS), { shortlistLimit });

@@ -9,6 +9,7 @@ import { INIT_OPTIONS, runInit } from '../cli/commands/init.ts';
 import { PREPARE_OPTIONS, runPrepare } from '../cli/commands/prepare.ts';
 import { createRuntime } from '../composition/root.ts';
 import { TempRepo } from '../testing/temp-repo.ts';
+import { READING_ORDER } from '../code-intelligence/navigation.ts';
 import { runHook } from './run-hook.ts';
 
 async function initializedRepo(): Promise<TempRepo> {
@@ -54,6 +55,9 @@ describe('PostToolUse on the Skill tool runs prepare by construction', () => {
       assert.ok(context !== null);
       assert.match(context, /^AMBICODE ran `prepare --activity investigate --json/);
       assert.match(context, /do not run it again/i);
+      assert.match(context, /ToolSearch select:LSP/);
+      assert.match(context, /link-block/);
+      assert.match(context, /Whole-file Read is the last resort/);
       const prepared = preparedJson(context);
       assert.ok(prepared.navigation.shortlist?.terms.some((term) => /reserveStock/i.test(term)));
       assert.equal(prepared.navigation.shortlist?.candidates[0]?.path, 'src/orders/service.ts');
@@ -171,11 +175,33 @@ describe('PostToolUse on the Skill tool runs prepare by construction', () => {
     }
   });
 
+  it('prepares for a typed slash command too, which Claude Code expands without a Skill tool call', async () => {
+    const repo = await initializedRepo();
+    try {
+      const run = async (prompt: string): Promise<string> => {
+        const runtime = await createRuntime({ cwd: repo.root });
+        const raw = JSON.stringify({ hook_event_name: 'UserPromptSubmit', session_id: randomUUID(), cwd: repo.root, prompt });
+        const output = (await runHook(runtime, raw)) as { hookSpecificOutput?: { additionalContext: string } };
+        return output.hookSpecificOutput?.additionalContext ?? '';
+      };
+      const typed = await run('/ambicode:investigate How does reserveStock in the orders service handle an order?');
+      assert.match(typed, /AMBICODE ran `prepare --activity investigate --json`/);
+      assert.match(typed, /Whole-file Read is the last resort/);
+      assert.equal(preparedJson(typed).navigation.shortlist?.candidates[0]?.path, 'src/orders/service.ts');
+      assert.doesNotMatch(await run('/ambicode:review --branch'), /AMBICODE ran/);
+      assert.doesNotMatch(await run('how does reserveStock work?'), /AMBICODE ran/);
+      assert.match(await run('/ambicode:plan ORD-17 add a limit'), /did not run prepare: your skill args name a ticket/);
+    } finally {
+      await repo.dispose();
+    }
+  });
+
   it('keeps its header short, because the payload plus header must stay under the 9,800 characters measured to arrive whole', async () => {
     const repo = await initializedRepo();
     try {
       const context = (await contextOf(repo.root, 'ambicode:investigate', 'What does reserveStock do?')) ?? '';
-      const header = context.slice(0, context.indexOf('\n{'));
+      assert.ok(context.includes(READING_ORDER));
+      const header = context.slice(0, context.indexOf('\n{')).replace(`\n${READING_ORDER}`, '');
       assert.ok(header.length <= 260, `${header.length} characters: ${header}`);
     } finally {
       await repo.dispose();

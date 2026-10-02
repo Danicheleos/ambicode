@@ -15,8 +15,7 @@ either.
 
 1. **Establish the sources, before anything else.**
    - The primary argument is either a question or a URL. A URL there is
-     itself a requirement source, exactly like one passed with
-     `--requirement <url>` — not "just an identifier" to read later.
+     itself a requirement source, like one passed with `--requirement <url>`.
    - Retrieve every Jira/Confluence URL — the primary argument and every
      `--requirement` — through
      `${CLAUDE_PLUGIN_ROOT}/skills/shared/requirements-mcp.md` (read it now
@@ -28,14 +27,11 @@ either.
      different, unasked question.
 2. **Establish the question.**
    - Read every retrieved source first.
-   - If a URL already states a concrete question — an issue titled "Reject
-     negative order amounts", a page describing exactly what to check — keep
-     going. Do not ask the user to restate what the source already says.
+   - If a URL already states a concrete question — an issue titled "Reject negative order amounts" — keep going.
    - If it does not — a vague ticket, a page that only gives background, or a
      bare question with no URL that is itself unclear — ask **one** focused
      question, informed by what you just retrieved. Never ask before reading.
-   - A direct code question with no URL is already bounded: there is nothing
-     to retrieve and nothing to ask before starting.
+   - A direct code question with no URL is already bounded.
 3. **Prepare.** A hook runs `prepare` when this skill loads, or once you fetch the ticket: read its message
    (`AMBICODE ran \`prepare\``); do not rerun it. Rerun only to pin requirement URLs, for other paths, or if it says it
    could not run:
@@ -55,18 +51,17 @@ either.
    `before-work` (apply it before step 4) and `before-report` (step 6). On `ambiguous-project`, pass
    `--project <id>` or narrow the paths rather than guessing which project
    was meant.
-4. **Navigate.** Follow `navigation`'s bounded order, starting from
-   `navigation.shortlist` (`prepare --term` asks for one). The shared file
-   owns the shortlist discipline; the final report records its
-   confirmed/rejected/outside-it breakdown and the navigation evidence line
-   (`Navigation: LSP — …` or `Navigation: targeted-search fallback — …`).
+4. **Navigate** in the order the hook message gives: LSP link-blocks first; if LSP finds nothing, ask for the scope and skip the note.
+   The shared file owns the shortlist discipline; start from
+   `navigation.shortlist` (`prepare --term` asks for one). Report the
+   confirmed/rejected/outside-it breakdown and `Navigation: LSP — …` or
+   `Navigation: targeted-search fallback — …`.
 5. **Compare, don't stop at the first match.** Form every candidate
    explanation the evidence actually supports and check each against the
    code and requirement evidence before settling on one. A single fact that
    happens to fit is not a confirmed answer.
 6. **Before reporting**, read any `before-report` prompt the same `prepare`
-   output carried — content scoped for how to present a conclusion, applied
-   here at presentation time, not folded into step 3's reading. Then
+   output carried — presentation guidance, applied now and not at step 3. Then
    **report**, in this shape:
    - **Confirmed facts** — repository facts cited as `path:line`; requirement
      facts cited by source URL, title and section/citation.
@@ -85,9 +80,7 @@ either.
 
 Investigation never edits product source, configuration, tests, or generated
 files. It does not run an application script, test, selector, or other
-configured command merely because it exists, or because a policy pack lists
-it as `run` — that authorizes automated checks during review/task work, not
-an investigation deciding to run something on its own.
+configured command merely because it exists, or because a pack lists it as `run`: that authorizes review/task checks, not investigation.
 
 If answering the question genuinely needs a diagnostic — reproducing a
 report, printing a value, checking an installed version — propose it: the
@@ -95,8 +88,7 @@ exact argv, the reason, and the evidence it would produce. Run it only after
 the user explicitly authorizes that specific command, and only when
 `ambicode policy` for the owning project actually permits it. `forbid` wins
 over any authorization the user gives, and a command no pack declares is not
-implicitly permitted — absence is not permission, exactly as in review and
-task work. There is no bypass flag.
+implicitly permitted — absence is not permission.
 
 Investigation never commits, pushes, opens a merge request, publishes a
 comment, or updates Jira or Confluence. It answers a question; it does not
@@ -105,18 +97,15 @@ act on one.
 ## The note
 
 **Save the note every time**, in addition to the answer, never instead of
-it. **Do not ask** — minutes of reading went into it, `/ambicode:plan` reads
-it next, and a question whose wrong answer discards the work is not worth the
-turn. Say in one line where you saved it.
+it. **Do not ask** — `/ambicode:plan` reads it next. Say in one line where you saved it.
 
 - Save it as `.ambicode/task/<slug>/investigation_<YYYY-MM-DDTHH-MM>.md` —
   slug = the requirement id, or a short kebab of the question plus that
-  timestamp. One directory per task, so it sits beside the plan it feeds.
+  timestamp.
   Never write outside it. `ambicode init` gitignores that directory.
 - Label it clearly, at the top, as an **investigation note** — not an
   accepted plan, not a task, not a decision record.
-- Carry step 6's shape, as prose and lists rather than a machine format. A
-  plain file is the whole mechanism: no task database, no note ID.
+- Carry step 6's shape, as prose and lists, in a plain file.
 
 ## Scope
 

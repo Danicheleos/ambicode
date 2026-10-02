@@ -19,17 +19,13 @@ full; what it leaves out is framing. Two things you reconstruct:
 
 The payload is bounded: `contextBudget` self-reports its bytes, and the
 command fails rather than emit past the configured limit. **Read it whole —
-never truncate it** (`head -c`, a byte cap): every field is applicable, and
-truncation is how the navigation block gets lost. Run it once per activity.
+never truncate it** (`head -c`, a byte cap): every field applies, and truncation loses the navigation block.
 
 ## Fields
 
 - **`sharedOperatingContract`** — the canonical operating contract (evidence,
   untrusted content, and how to weigh authority labels) that governs every
-  AMBICODE skill, cited by `reference` and `contentHash`. The plugin's
-  hook puts its text into context once per context epoch — at session start,
-  and again on the first prompt after a compaction — so it is not re-sent on
-  each call; if it is not in your context, rerun with `--with-contract`.
+  AMBICODE skill, cited by `reference` and `contentHash`. The hook puts it into context at session start and after a compaction; if it is not in yours, rerun with `--with-contract`.
   Follow it, and do not restate its rules in your own output.
 - **`policy.packs[].rules`** — the rules that apply to this activity and
   these paths. Apply them; cite them by qualified id. `policy.rulesOmitted`
@@ -42,23 +38,13 @@ truncation is how the navigation block gets lost. Run it once per activity.
 - **`policy.commandDecisions`** — what `ambicode review`'s checks are allowed
   to run. Informational: it enforces nothing itself.
   `unavailable: true`: config nulls it, so it never runs — never say it will.
-- **`navigation`** — the bounded search order: the shortlist first, then known
-  paths, then current-session LSP tools for definitions, references, callers
-  and symbol lookup, then targeted Grep/Glob/Read only where LSP is absent or
-  insufficient. The helper cannot see this session's tool inventory, so
-  observe it yourself; `ambicode config` names the ecosystem's official
-  Claude Code LSP plugin when you need to recommend one.
-- **`navigation.readGuidance`** — **read spans, not whole files.** Ask LSP
-  where a symbol is defined or used and open only those lines with
-  `offset`/`limit`. Read whole only what you are about to edit; to learn
-  whether a behaviour is covered, grep the spec rather than reading it.
+- **`navigation`** — how every skill finds and reads code: LSP link-blocks
+  (`path:lineA-lineB`) first, whole files last. The hook message carries the
+  order; `ambicode config` names the LSP plugin to recommend.
 - **`navigation.shortlist`** — the candidate files for this request, present
   when the call passed `--term <term>`, or requirement text to take terms from
   by word frequency. **State them yourself** — with no requirement there is
-  nothing to derive. Each candidate carries its `path`, a `score` comparable only inside
-  that one call, and the `reasons` it ranked: a matching directory or
-  filename, a content hit, or that it habitually changes together with a file
-  the terms matched. `limitations` says what it could not establish.
+  nothing to derive. Each candidate has a `path`, a `score` (comparable only within one call) and the `reasons` it ranked; `limitations` says what it could not establish.
   **It is a hypothesis, not an answer.** Confirm each candidate against the
   code before relying on it, and state which you confirmed, which you
   rejected, and which files you needed from outside it. Empty `candidates`
@@ -72,10 +58,10 @@ truncation is how the navigation block gets lost. Run it once per activity.
 
 One line —
 `Navigation: LSP — <operations used>`,
-`Navigation: no LSP tools in this session` (that alone is complete), or
+`Navigation: no LSP tools in this session` (only if `ToolSearch select:LSP` found none), or
 `Navigation: targeted-search fallback — <specific reason>` — plus which
 shortlist candidates were confirmed, which rejected, and what came from
-outside the list. Installed or recommended alone is not evidence of use,
+outside it. Installed or recommended alone is not evidence of use,
 and a broad search is allowed and is reported with its reason.
 
 ## Failures
