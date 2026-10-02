@@ -120,6 +120,25 @@ test('U10 lint selects only matching changed files that still exist', () => {
   assert.ok(selection.limitations.some((line) => line.includes('gone.ts')));
 });
 
+test('U10 many deleted files are one limitation with a count, not one line each', () => {
+  const paths = ['a', 'b', 'c', 'd', 'e'].map((name) => ({ oldPath: `src/${name}.ts`, changeKind: 'deleted' as const }));
+  const selection = selectLintFiles({
+    fs: nodeFileSystem,
+    project: { id: 'web', root: '.', ecosystem: 'typescript', packs: [], policyFiles: [], commands: {}, checks: {} },
+    check: { command: 'lint', adapter: 'eslint', include: ['**/*.ts'] },
+    changed: changed(paths),
+    repositoryRoot: '/repo',
+    runner: new FakeProcessRunner(),
+    enumerationRevision: null,
+    maxSelectedTestFiles: 20,
+    timeoutMs: 1000,
+    commandArgv: ['eslint'],
+    authorize: () => ({ kind: 'allowed' }),
+  });
+  assert.equal(selection.limitations.length, 1);
+  assert.match(selection.limitations[0]!, /^5 files were deleted, so they were not checked: src\/a\.ts, src\/b\.ts, src\/c\.ts and 2 more\.$/);
+});
+
 test('U10 an empty lint selection never invokes the command', async (t) => {
   const directory = await sandbox(t);
   const runner = new FakeProcessRunner();

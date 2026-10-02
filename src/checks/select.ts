@@ -55,10 +55,11 @@ export function selectLintFiles(options: SelectOptions): Selection {
   const include = options.check.include ?? [];
   const files: SelectedFile[] = [];
   const limitations: string[] = [];
+  const deleted: string[] = [];
 
   for (const change of options.changed) {
     if (change.newPath === null) {
-      limitations.push(`${change.oldPath ?? 'a deleted file'} was deleted, so it was not linted.`);
+      deleted.push(change.oldPath ?? 'a deleted file');
       continue;
     }
     const relative = toProjectRelative(projectRoot, change.newPath);
@@ -67,7 +68,18 @@ export function selectLintFiles(options: SelectOptions): Selection {
     files.push({ path: relative, reason: `changed in this review (${change.changeKind})` });
   }
 
+  limitations.push(...describeDeleted(deleted));
   return { files: dedupe(files), complete: true, limitations, approval: null };
+}
+
+/** A 57-file change that deletes 40 files printed 40 identical lines per check and buried the result. */
+const LISTED_DELETIONS = 3;
+
+function describeDeleted(paths: readonly string[]): string[] {
+  if (paths.length <= LISTED_DELETIONS) return paths.map((entry) => `${entry} was deleted, so it was not checked.`);
+  return [
+    `${paths.length} files were deleted, so they were not checked: ${paths.slice(0, LISTED_DELETIONS).join(', ')} and ${paths.length - LISTED_DELETIONS} more.`,
+  ];
 }
 
 export async function selectTestFiles(options: SelectOptions): Promise<Selection> {

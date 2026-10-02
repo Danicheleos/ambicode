@@ -231,8 +231,9 @@ function applyStatus(bundle: ReviewBundle, reviewerOk: boolean): void {
     return;
   }
 
+  // A check configured as null says the project has nothing to run there; a declined or failed one is still a gap.
   const unverified = bundle.result.checks.filter(
-    (check) => check.status !== 'passed' || !check.selectionComplete,
+    (check) => check.adapter !== 'unconfigured' && (check.status !== 'passed' || !check.selectionComplete),
   );
   const policyGaps = bundle.policies.reduce(
     (total, { policy }) => total + policy.diagnostics.filter((d) => d.severity === 'error').length,
@@ -260,8 +261,11 @@ function applyStatus(bundle: ReviewBundle, reviewerOk: boolean): void {
   ];
 
   if (gaps.length === 0) {
+    const narrowed = bundle.result.omissions.some((line) => line.startsWith('This review was narrowed on request'));
     bundle.result.status = 'complete';
-    bundle.result.statusReason = null;
+    bundle.result.statusReason = narrowed
+      ? 'Complete for the paths reviewed only: --only or --exclude left part of the change unexamined (see section 4).'
+      : null;
     return;
   }
   bundle.result.status = 'partial';

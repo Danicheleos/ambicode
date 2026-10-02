@@ -307,6 +307,31 @@ describe('U17 reviewer result validation', () => {
     }
   });
 
+  it('does not count a check configured as null against completeness', async () => {
+    const context = await fixture();
+    try {
+      const output = await review(context.runtime, [], new FakeReviewer(ok()));
+      assert.ok(output.result.checks.length > 0);
+      assert.ok(output.result.checks.every((check) => check.adapter === 'unconfigured' && check.status === 'skipped'));
+      assert.equal(output.result.status, 'complete', output.result.statusReason ?? '');
+      await nodeFileSystem.remove(output.snapshotDirectory);
+    } finally {
+      await context.dispose();
+    }
+  });
+
+  it('says in the status that a narrowed review is complete only for the paths it reviewed', async () => {
+    const context = await fixture();
+    try {
+      const output = await review(context.runtime, ['--only', 'src/**'], new FakeReviewer(ok()));
+      assert.equal(output.result.status, 'complete');
+      assert.match(output.result.statusReason ?? '', /paths reviewed only/);
+      await nodeFileSystem.remove(output.snapshotDirectory);
+    } finally {
+      await context.dispose();
+    }
+  });
+
   it('does not let a failed check stop the reviewer', async () => {
     const context = await fixture();
     try {
