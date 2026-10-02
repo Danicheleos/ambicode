@@ -20,6 +20,8 @@ export interface WorkingTargetOptions {
   fs: FileSystem;
   git: Git;
   repositoryRoot: string;
+  /** Unchanged files to capture with the change, chosen from the change itself. */
+  extraPaths?: (files: readonly DiffFile[]) => Promise<readonly string[]>;
 }
 
 /**
@@ -68,6 +70,7 @@ export async function resolveWorkingTarget(options: WorkingTargetOptions): Promi
         .map((file) => file.newPath)
         .filter((value): value is string => value !== null),
       includeSiblings: true,
+      extraPaths: (await options.extraPaths?.(files)) ?? [],
     });
 
     // A build or editor can write during the read. If the diff moved, capture

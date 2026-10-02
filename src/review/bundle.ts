@@ -43,6 +43,7 @@ import {
 } from '../snapshot/target.ts';
 import { AmbicodeError } from '../util/errors.ts';
 import { normalizeRelative } from '../util/paths.ts';
+import { findDependents, type Dependent } from '../code-intelligence/dependents.ts';
 import { composeReviewerPrompt, estimatePromptOverheadBytes, type ComposedPrompt } from './prompt.ts';
 
 /**
@@ -59,6 +60,8 @@ export interface ReviewBundle {
   resultPath: string;
   snapshot: Snapshot;
   plan: SnapshotPlan;
+  /** Unchanged files the reviewer was given because they rely on the change, with why. */
+  dependents: Dependent[];
   measured: MeasuredInput;
   files: DiffFile[];
   patch: string;
@@ -86,6 +89,8 @@ export interface AssembleOptions {
   excludePaths?: readonly string[];
   onlyPaths?: readonly string[];
   withTests?: boolean;
+  /** `--context <path>`: unchanged files the caller found relying on the change, e.g. by LSP references. */
+  contextPaths?: readonly string[];
 }
 
 function quoteAll(globs: readonly string[]): string {
@@ -144,7 +149,17 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
     0,
   );
 
-  const resolution = await resolveTarget(workspace, options);
+  // A merge request's code is not the checkout, so a name search there would describe the wrong tree.
+  // The working tree is read once, so what relies on the change is chosen before that read.
+  const named = (options.contextPaths ?? []).map((entry) => ({ path: normalizeRelative(entry), reasons: ['named with --context'] }));
+  let lookedUp: Dependent[] | null = null;
+  const lookUp = async (files: readonly DiffFile[]): Promise<Dependent[]> => {
+    const found = await findDependents({ git: workspace.git, projects: groupByProject(workspace, files).map(({ project }) => project), files });
+    lookedUp = [...named, ...found.dependents.filter((entry) => !named.some((other) => other.path === entry.path))];
+    return lookedUp;
+  };
+
+  const resolution = await resolveTarget(workspace, options, async (files) => (await lookUp(files)).map((entry) => entry.path));
   const discussions = 'discussions' in resolution ? resolution.discussions : [];
   const remoteOmissions = 'omissions' in resolution ? resolution.omissions : [];
   const coverage = 'coverage' in resolution ? resolution.coverage : COMPLETE_COVERAGE;
@@ -183,12 +198,16 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
     files: reviewable.files,
   });
 
+  const local = resolution.target.kind !== 'merge-request';
+  const wanted: Dependent[] = !local ? [] : lookedUp ?? (await lookUp(resolution.files));
+
   const plan = await planSnapshot({
     files: reviewable.files,
     content: resolution.content,
-    includeSiblingContext: resolution.target.kind !== 'merge-request',
+    includeSiblingContext: local,
     operator: patterns,
     contextBudgetBytes: Math.max(0, limits.maxContextBytes - overheadBytes),
+    dependentPaths: wanted.map((entry) => entry.path),
   });
 
   const snapshot = await writeSnapshot(runtime.fs, plan, reviewable.patch, runtime.clock);
@@ -326,6 +345,7 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
     resultPath: path.join(reviewDirectory, 'result.json'),
     snapshot,
     plan,
+    dependents: wanted.filter((entry) => plan.dependentPaths.includes(entry.path)),
     measured,
     files: reviewable.files,
     patch: reviewable.patch,
@@ -385,6 +405,7 @@ export async function writeBundleArtifacts(runtime: Runtime, bundle: ReviewBundl
 async function resolveTarget(
   workspace: Workspace,
   options: AssembleOptions,
+  dependentPaths: (files: readonly DiffFile[]) => Promise<readonly string[]>,
 ): Promise<TargetResolution | Awaited<ReturnType<typeof resolveMergeRequestTarget>>> {
   const target = options.target;
   if (target.kind === 'merge-request') {
@@ -409,6 +430,7 @@ async function resolveTarget(
     fs: workspace.runtime.fs,
     git: workspace.git,
     repositoryRoot: workspace.repositoryRoot,
+    extraPaths: dependentPaths,
   });
 }
 

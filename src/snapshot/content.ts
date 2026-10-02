@@ -60,6 +60,8 @@ export interface CaptureOptions {
   /** Post-image paths of the change; their directories supply context candidates. */
   changedPaths: readonly string[];
   includeSiblings: boolean;
+  /** Unchanged files wanted beside the change; read now, because the capture is the only read. */
+  extraPaths?: readonly string[];
 }
 
 export interface CapturedContent extends ContentSource {
@@ -83,6 +85,7 @@ export async function captureWorkingTree(options: CaptureOptions): Promise<Captu
   };
 
   for (const relativePath of options.changedPaths) await capture(relativePath);
+  for (const relativePath of options.extraPaths ?? []) await capture(relativePath);
 
   if (options.includeSiblings) {
     for (const directoryName of uniqueDirectories(options.changedPaths)) {

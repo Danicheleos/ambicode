@@ -44,6 +44,8 @@ export interface SnapshotPlan {
   changedPaths: string[];
   omissions: string[];
   totalBytes: number;
+  /** Unchanged files included because they rely on the change; a subset of `entries`. */
+  dependentPaths: string[];
 }
 
 /**
@@ -134,6 +136,11 @@ export interface PlanSnapshotOptions {
    * Changed files are mirrored regardless of it.
    */
   contextBudgetBytes?: number;
+  /**
+   * Unchanged files named because they rely on the change. Read before the directory neighbours,
+   * which are the first to be trimmed when the budget runs out.
+   */
+  dependentPaths?: readonly string[];
 }
 
 export async function planSnapshot(options: PlanSnapshotOptions): Promise<SnapshotPlan> {
@@ -225,6 +232,29 @@ export async function planSnapshot(options: PlanSnapshotOptions): Promise<Snapsh
 
   let contextCapped = false;
 
+  const dependentPaths: string[] = [];
+  const dependentsLeftOut: string[] = [];
+  const dependentsWanted = (options.dependentPaths ?? []).filter((candidate) => !changedSet.has(candidate));
+  if (dependentsWanted.length > 0) {
+    const read = await readAll(options.content, dependentsWanted);
+    for (const dependent of dependentsWanted) {
+      const contents = read.get(dependent) ?? null;
+      const size = contents?.kind === 'text' ? Buffer.byteLength(contents.text, 'utf8') : 0;
+      if (
+        contents === null ||
+        contents.kind !== 'text' ||
+        pathExclusionReason(dependent, options.operator ?? {}) !== null ||
+        size > MAX_SNAPSHOT_FILE_BYTES ||
+        totalBytes + size > siblingCeiling
+      ) {
+        dependentsLeftOut.push(dependent);
+        continue;
+      }
+      add(dependent, contents.text);
+      dependentPaths.push(dependent);
+    }
+  }
+
   // The listing still happens when the budget is full: what was left out has to be
   // reported, which needs the candidates counted. Only the reads are skipped.
   if (options.includeSiblingContext !== false) {
@@ -235,7 +265,7 @@ export async function planSnapshot(options: PlanSnapshotOptions): Promise<Snapsh
     const candidates: string[] = [];
     for (const directoryName of listed) {
       for (const sibling of await options.content.list(directoryName)) {
-        if (changedSet.has(sibling)) continue;
+        if (changedSet.has(sibling) || dependentPaths.includes(sibling)) continue;
         if (pathExclusionReason(sibling, options.operator ?? {}) !== null) continue;
         if (isUselessAsContext(sibling)) continue;
         candidates.push(sibling);
@@ -267,9 +297,22 @@ export async function planSnapshot(options: PlanSnapshotOptions): Promise<Snapsh
     }
   }
 
+  if (dependentPaths.length > 0) {
+    omissions.push(
+      `${dependentPaths.length} unchanged file(s) that mention names this change adds, removes or renames were included so the reviewer could check them: ${dependentPaths.join(', ')}. They were found by name, not by type: a caller that reaches the code another way is not among them.`,
+    );
+  }
+  if (dependentsLeftOut.length > 0) {
+    omissions.push(
+      `${dependentsLeftOut.length} unchanged file(s) that mention names this change touches could not be included (unreadable, excluded, or over the input limit): ${dependentsLeftOut.join(', ')}. Whether the change breaks them was not checked.`,
+    );
+  }
+
   omissions.push(
     contextCount === 0
-      ? 'Only changed files are present. Unchanged code elsewhere in the repository was not available to the reviewer.'
+      ? dependentPaths.length === 0
+        ? 'Only changed files are present. Unchanged code elsewhere in the repository was not available to the reviewer.'
+        : 'Besides the changed files and the files that rely on them, no unchanged code was available to the reviewer.'
       : `Besides the changed files, ${contextCount} unchanged file(s) sitting in the same directories were included. The rest of the repository was not available to the reviewer.`,
   );
   if (contextTrimmed > 0) {
@@ -283,7 +326,7 @@ export async function planSnapshot(options: PlanSnapshotOptions): Promise<Snapsh
     );
   }
 
-  return { entries, changedPaths, omissions, totalBytes };
+  return { entries, changedPaths, omissions, totalBytes, dependentPaths };
 }
 
 /** Materializes a plan. Nothing is decided here, so nothing can differ from what was measured. */

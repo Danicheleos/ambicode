@@ -345,6 +345,17 @@ function evidenceSection(bundle: ReviewBundle): string {
     );
   }
 
+  if (bundle.dependents.length > 0 && bundle.plan.dependentPaths.length > 0) {
+    lines.push(
+      '',
+      '## Unchanged files that rely on the change',
+      '',
+      'Not in the diff; each mentions a name the change adds, removes or renames. They sit under files/.',
+      '',
+    );
+    for (const entry of bundle.dependents) lines.push(`- ${entry.path} — ${entry.reasons.join('; ')}`);
+  }
+
   lines.push('', '## Checks', '');
   if (bundle.result.checks.length === 0) {
     lines.push('No configured check covered this change. Nothing was verified by execution.');
@@ -386,6 +397,16 @@ function outputSection(bundle: ReviewBundle): string {
     'cannot be verified makes this whole review invalid: every finding is discarded,',
     'not only that one. Check each location against the ranges before answering.',
     '',
+    ...(bundle.dependents.length > 0 && bundle.plan.dependentPaths.length > 0
+      ? [
+          'The section "Unchanged files that rely on the change" lists files found by name, not',
+          'by type. Check whether the change breaks them: a removed or renamed name they still use,',
+          'a changed signature or return shape, a behaviour they depended on. Report a break at the',
+          'changed line, with the dependent as a `supportingLocation`. Say nothing about a file that',
+          'turns out to be unrelated.',
+          '',
+        ]
+      : []),
     '`supportingLocations` on the `new` side may name any line of a file under',
     '`files/`, changed or not, such as code the change affects without touching.',
     'On the `old` side they must be in the listed ranges too, so a file the change',

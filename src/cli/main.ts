@@ -137,6 +137,11 @@ export const USAGE = `ambicode <command> [options]
                                                   more than the work in hand.
                                                   Both state the gap in the report,
                                                   and neither may empty the review.
+                            --context <path>      An unchanged file that relies on the
+                                                  change, for the reviewer to check;
+                                                  repeatable. Local targets only. The
+                                                  review also looks up files that
+                                                  mention names the change touches.
                             --with-tests          Review the change's test code too.
                                                   --mr leaves it out by default: no
                                                   check executes it there, so it costs
@@ -156,6 +161,7 @@ export const USAGE = `ambicode <command> [options]
                             --task <slug>         Save under this task's directory.
                             --exclude <glob>      Do not review matching paths; repeatable.
                             --only <glob>         Review only matching paths; repeatable.
+                            --context <path>      Unchanged file relying on the change; repeatable.
                             --with-tests          Include the change's test code (--mr).
 
   view                  Open a saved review in a local page on 127.0.0.1, to

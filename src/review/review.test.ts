@@ -233,6 +233,72 @@ describe('U16 requirement modes end to end', () => {
   });
 });
 
+describe('files that rely on the change', () => {
+  async function dependentsFixture(): Promise<Fixture> {
+    const repo = await TempRepo.create();
+    await repo.write('package.json', '{"name":"app","version":"1.0.0"}\n');
+    await repo.write('src/pricing/pricing.service.ts', 'export function computeShipping(weight: number) {\n  return weight * 2;\n}\n');
+    await repo.write('src/checkout/checkout.ts', "import { computeShipping } from '../pricing/pricing.service';\nexport const fee = computeShipping(3);\n");
+    await repo.write('src/checkout/checkout.spec.ts', "import { computeShipping } from '../pricing/pricing.service';\ncomputeShipping(1);\n");
+    await repo.write('docs/pricing.md', 'computeShipping is documented here\n');
+    await repo.write('src/other/legacy.ts', 'export const legacy = 1;\n');
+    for (let index = 0; index < 20; index += 1) await repo.write(`src/other/f${index}.ts`, `export const other${index} = ${index};\n`);
+    await repo.commitAll('initial');
+    await runInit(await createRuntime({ cwd: repo.root }), parseArgs('init', [], INIT_OPTIONS));
+    await repo.write('src/pricing/pricing.service.ts', 'export function shippingFee(weight: number) {\n  return weight * 3;\n}\n');
+    return { repo, runtime: await createRuntime({ cwd: repo.root }), dispose: () => repo.dispose() };
+  }
+
+  it('gives the reviewer the unchanged source files that use a name the change removed, and says so', async () => {
+    const context = await dependentsFixture();
+    try {
+      const reviewer = new FakeReviewer(ok());
+      const output = await review(context.runtime, [], reviewer);
+
+      assert.ok(await nodeFileSystem.exists(path.join(output.snapshotDirectory, 'files', 'src/checkout/checkout.ts')), output.result.omissions.join(' | '));
+      assert.ok(!(await nodeFileSystem.exists(path.join(output.snapshotDirectory, 'files', 'docs/pricing.md'))), 'prose is not a dependent');
+      assert.ok(
+        output.result.omissions.some((line) => line.includes('mention names this change adds, removes or renames') && line.includes('src/checkout/checkout.ts')),
+        output.result.omissions.join(' | '),
+      );
+      const prompt = reviewer.requests[0]?.prompt ?? '';
+      assert.match(prompt, /## Unchanged files that rely on the change/);
+      assert.match(prompt, /- src\/checkout\/checkout\.ts — contains "computeShipping"/);
+      assert.match(reviewer.requests[0]?.systemPrompt + prompt, /Check whether the change breaks them/);
+      assert.ok(!prompt.includes('- docs/pricing.md'));
+      await nodeFileSystem.remove(output.snapshotDirectory);
+    } finally {
+      await context.dispose();
+    }
+  });
+
+  it('finds them for a branch review too, reading the committed revision', async () => {
+    const context = await dependentsFixture();
+    try {
+      await context.repo.commitAll('rename the function');
+      const output = await review(context.runtime, ['--branch', '--base', 'HEAD~1'], new FakeReviewer(ok()));
+      assert.ok(await nodeFileSystem.exists(path.join(output.snapshotDirectory, 'files', 'src/checkout/checkout.ts')), output.result.omissions.join(' | '));
+      await nodeFileSystem.remove(output.snapshotDirectory);
+    } finally {
+      await context.dispose();
+    }
+  });
+
+  it('adds the files --context names, and refuses --context for a merge request', async () => {
+    const context = await dependentsFixture();
+    try {
+      const output = await review(context.runtime, ['--context', 'src/other/legacy.ts'], new FakeReviewer(ok()));
+      assert.ok(await nodeFileSystem.exists(path.join(output.snapshotDirectory, 'files', 'src/other/legacy.ts')));
+      await nodeFileSystem.remove(output.snapshotDirectory);
+
+      const refused = await failure(() => review(context.runtime, ['--mr', 'https://gitlab.example.com/g/p/-/merge_requests/1', '--context', 'src/a.ts'], new FakeReviewer(ok())));
+      assert.equal(refused.code, 'bad-argument');
+    } finally {
+      await context.dispose();
+    }
+  });
+});
+
 describe('U17 reviewer result validation', () => {
   it('accepts an empty finding list as a valid result and says what it means', async () => {
     const context = await fixture();

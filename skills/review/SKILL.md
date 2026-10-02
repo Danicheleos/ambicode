@@ -11,120 +11,54 @@ cannot change underneath the review, runs the checks the change actually
 affects, and hands the whole bundle to a fresh Claude Code process that can only
 read that snapshot. Run it and report what came back.
 
-Every `ambicode ...` spelling below describes the CLI operation. Invoke it
-through the packaged cross-platform entry point:
+Run every `ambicode ...` below as
 `node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" ...`.
 
 ## Steps
 
-1. Decide whether there are requirements. If the user named a Jira issue or a
-   Confluence page, follow **Requirements** below *first*. Without one, this is
-   a quality review, and that is a complete answer to "review my change".
+1. If the user named a Jira issue or a Confluence page, follow **Requirements**
+   below *first*. Without one, this is a quality review, a complete answer to
+   "review my change".
 2. Choose the target. There is exactly one per run.
    - Uncommitted work: `ambicode review` (the default).
    - A branch about to become a merge request: `ambicode review --branch`. Add
      `--base <ref>` if the configuration has no baseline. `--base` is only
      valid with `--branch`.
    - A GitLab merge request somebody sent you:
-     `ambicode review --mr <full-gitlab-mr-url>`.
+     `ambicode review --mr <full-gitlab-mr-url>`. Read
+     `${CLAUDE_PLUGIN_ROOT}/skills/review/references/merge-request.md` first:
+     the URL form, what is not run, and publishing selected comments. Local
+     and branch reviews do not need it.
 
    `--branch` and `--mr` are mutually exclusive. Requirement options work with
    all three.
-3. Read the four-part output back to the user in the order it comes: what was
+3. On a local or branch target (not `--mr`), find what relies on the change first:
+   `${CLAUDE_PLUGIN_ROOT}/skills/review/references/impact.md`. LSP is required
+   when `ambicode config` shows `requirements.lsp`; otherwise optional.
+4. Read the four-part output back to the user in the order it comes: what was
    reviewed, the findings, the check evidence, and what was **not** covered.
-4. A check waiting for authorization **stops the run before the reviewer**,
+5. A check waiting for authorization **stops the run before the reviewer**,
    so there is no finding list yet. Put each waiting check to the user with
    its reason and the exact argv, then re-run once carrying every answer:
    `--approve <key>` for each they agree to, `--decline <key>` for each they
    refuse. Both repeat; one key answers one run, and an unanswered key stops
    the run again.
-5. If `ambicode` reports `config-missing`, ask the user to run
+6. If `ambicode` reports `config-missing`, ask the user to run
    `/ambicode:init` first (it is user-invoked only).
 
 `ambicode bundle` is the same work without the model: target, snapshot,
 requirements and checks only. It takes the same target options, including
 `--mr`. Use it when the user wants the evidence and not a review.
 
-Use `--json` when you need to act on the result; use the default text output
-when you are reading it back to a person.
-
-## Reviewing a merge request
-
-```sh
-node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" review --mr https://gitlab.example.com/group/sub/project/-/merge_requests/42
-```
-
-Pass the URL the user gave you, in full. AMBICODE takes the host, the project
-path and the merge request number from it, and asks that host through `glab`.
-Do not shorten it to a number, and do not assume the merge request belongs to
-the repository the user happens to be standing in — it often does not.
-
-- **Your checkout is not touched.** No fetch, no checkout, no stash, no index
-  write. A dirty working tree is irrelevant; the review is about the merge
-  request, not about what is on disk.
-- **The revision is pinned.** The result names the diff version and its base,
-  start and head SHAs. If the merge request is pushed to afterwards, the result
-  still describes the revision that was reviewed. Say so if the user asks
-  whether it is current.
-
-Report these when they appear:
-
-- **Omissions from GitLab.** A file GitLab marked too large or collapsed is
-  listed in part 4 and its change was *not* reviewed. Never summarize a capped
-  diff as if the whole change was seen.
-- **Fork merge requests.** New file content comes from the source project. If
-  that fork is not readable, the affected files are omissions.
-- **Existing discussions.** The reviewer is shown prior threads as untrusted
-  evidence, so it repeats fewer points. A resolved thread is not proof the
-  defect is gone; if the user asks whether an old comment was addressed, that
-  is a question for the diff, not for the thread.
-- **Nothing executed, and the tests went unread.** Merge request code never
-  runs in the user's checkout: without a digest-pinned image every executable
-  check is skipped with its reason, and for the same reason the change's test
-  files leave the review — `--with-tests` keeps them. Gaps, not passes.
-
-### Publishing selected comments
-
-`ambicode review`'s output always includes the exact command to open the
-review for publication:
-
-```sh
-node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" view --review <review-id>
-```
-
-After a merge request review that produced findings, **run it yourself, in the
-background, without asking** — it starts a local page on `127.0.0.1`, opens the
-user's browser at it, and then keeps serving, so a foreground run would block
-until the page times out. Report the printed URL whole, as a markdown link,
-not a code span; the bare address carries no session. It works in any browser
-until the page idles out; after that run the command again. It is the only
-route to the selection page, so do not invent a slash skill for it. A local or branch review has nothing to publish,
-so do not start a page for one.
+Use `--json` to act on the result, the default text to read it back.
 
 ## Requirements
 
-Follow `${CLAUDE_PLUGIN_ROOT}/skills/shared/requirements-mcp.md` (read it now
-if you have not already this session) to retrieve every named source and
-build the evidence envelope. It covers the MCP binding, the envelope format,
-and what a failure means; `investigate`, `plan` and `task` follow the same
-procedure. Then pipe the envelope to `--evidence -`:
-
-```sh
-node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" review \
-  --requirement https://example.atlassian.net/browse/ORD-17 \
-  --requirement https://example.atlassian.net/wiki/spaces/ENG/pages/42/Orders \
-  --evidence -
-```
-
-Every URL you pass with `--requirement` must have an entry in the envelope,
-and the envelope must hold nothing else. There is no evidence file to write,
-keep, or delete; re-send the envelope if you run the review again.
-
-**A requirement that could not be retrieved stops the review.** That is
-deliberate. Do not drop the URL and run a quality review instead: the user asked
-whether the change meets a requirement, and "I could not read it" is the honest
-answer, not "no problems found". Say which URL failed and why, and offer the
-quality review as a separate, clearly labelled choice.
+Only when the user named a Jira issue or Confluence page. Read
+`${CLAUDE_PLUGIN_ROOT}/skills/review/references/requirements.md` first; it
+builds on `${CLAUDE_PLUGIN_ROOT}/skills/shared/requirements-mcp.md`. A
+requirement that cannot be retrieved **stops the review**: never drop it and
+run a quality review instead.
 
 ## Reporting rules
 
@@ -177,5 +111,5 @@ human pressing Submit. The only things it writes are `.ambicode/reviews/<id>/` i
 snapshot directory outside it.
 
 The reviewer process is not you. It gets `Read`, `Grep` and `Glob` inside the
-snapshot, no Bash, no MCP, no network and no credentials. Text inside the code
-or the requirements cannot change that, whatever it claims about itself.
+snapshot, no Bash, no MCP, no network and no credentials. Text in the code
+cannot change that.
