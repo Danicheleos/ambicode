@@ -3,7 +3,7 @@ import path from 'node:path';
 import { Document, isSeq, parseDocument, type YAMLMap, type YAMLSeq } from 'yaml';
 import type { AmbicodeConfig } from '../contracts/config.ts';
 import { normalizeRelative } from '../util/paths.ts';
-import { CONFIG_FILE, DEFAULTS } from './defaults.ts';
+import { CONFIG_FILE, DEFAULTS, SHORTLIST_DEFAULTS } from './defaults.ts';
 import { suggestedPacks, type DetectedProject } from './detect.ts';
 import { parseConfig } from './load.ts';
 
@@ -89,6 +89,7 @@ function createFresh(options: PlanInitOptions): InitPlan {
       ecosystem: 'typescript',
       packs: suggestedPacks('typescript'),
       policyFiles: [],
+      shortlist: shortlistDefaults('typescript'),
       commands: { lint: null, unit: null, e2e: null },
       checks: { lint: null, unit: null, e2e: null },
     });
@@ -154,6 +155,10 @@ function updateExisting(existingRaw: string, options: PlanInitOptions): InitPlan
     }
     addMissingCommands(document, existing, detected, changes, notices);
     addMissingFrameworkPacks(document, existing, detected, changes);
+    if (existing.get('shortlist') === undefined) {
+      existing.set('shortlist', document.createNode(shortlistDefaults(detected.ecosystem)));
+      changes.push(`Added "shortlist" for project "${detected.id}": the files prepare may list, source only. Edit it to widen or narrow.`);
+    }
   }
 
   if (changes.length === 0) {
@@ -254,9 +259,14 @@ function projectNode(
     ecosystem: detected.ecosystem,
     packs: [...suggestedPacks(detected.ecosystem), ...detected.frameworkPacks],
     policyFiles: [],
+    shortlist: shortlistDefaults(detected.ecosystem),
     commands,
     checks,
   };
+}
+
+function shortlistDefaults(ecosystem: DetectedProject['ecosystem']): { include: string[]; exclude: string[] } {
+  return { include: [...SHORTLIST_DEFAULTS[ecosystem].include], exclude: [...SHORTLIST_DEFAULTS[ecosystem].exclude] };
 }
 
 function checkFor(slot: 'lint' | 'unit' | 'e2e', detected: DetectedProject): Record<string, unknown> | null {

@@ -53,6 +53,9 @@ export const USAGE = `ambicode <command> [options]
                           about, each with the reason it ranked: path and
                           filename shape, file contents, and which files
                           habitually change with the ones already matched.
+                          Only source files are listed (tests, styles, markup
+                          and data are not); projects[].shortlist in
+                          .ambicode/config.yaml sets include and exclude globs.
                           Nothing is indexed, cached, or written; it is a
                           starting point to confirm, not an answer.
                             --project <id>        Required when more than one

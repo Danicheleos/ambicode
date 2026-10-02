@@ -1,9 +1,10 @@
-import type { ProjectConfig } from '../contracts/config.ts';
+import { SHORTLIST_DEFAULTS } from '../config/defaults.ts';
+import type { ProjectConfig, ShortlistConfig } from '../contracts/config.ts';
 import type { LocateCandidate } from '../contracts/locate.ts';
 import type { RequirementSource } from '../contracts/requirements.ts';
 import { literalPathspec, type Git } from '../git/git.ts';
 import { pathExclusionReason } from '../snapshot/exclusions.ts';
-import { matchesGlob } from '../util/glob.ts';
+import { matchesAnyGlob, matchesGlob } from '../util/glob.ts';
 import { normalizeRelative, toProjectRelative } from '../util/paths.ts';
 
 /**
@@ -141,9 +142,17 @@ export async function locate(request: LocateRequest): Promise<LocateShortlist> {
 
   await addCoChange(request, ranked, fileSet, limitations);
 
-  const ordered = [...ranked.values()]
+  const scored = [...ranked.values()]
     .map((entry) => ({ ...entry, score: entry.score + contentScore(entry.contentHits) }))
     .sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
+  // Filtered after scoring so a test still seeds co-change toward the code it covers.
+  const rules = shortlistRules(request.project);
+  const ordered = scored.filter((entry) => shortlistable(toProjectRelative(projectRoot, entry.path) ?? entry.path, rules));
+  if (ordered.length < scored.length) {
+    limitations.push(
+      `${scored.length - ordered.length} matching file(s) are not listed: they fall outside projects[].shortlist in .ambicode/config.yaml (tests, styles, markup and data by default).`,
+    );
+  }
   if (ordered.length > request.limit) {
     limitations.push(
       `${ordered.length - request.limit} further candidate(s) scored but are not listed; raise --limit to see them.`,
@@ -159,6 +168,14 @@ export async function locate(request: LocateRequest): Promise<LocateShortlist> {
     })),
     limitations,
   };
+}
+
+export function shortlistRules(project: ProjectConfig): ShortlistConfig {
+  return project.shortlist ?? { include: [...SHORTLIST_DEFAULTS[project.ecosystem].include], exclude: [...SHORTLIST_DEFAULTS[project.ecosystem].exclude] };
+}
+
+export function shortlistable(projectRelativePath: string, rules: ShortlistConfig): boolean {
+  return (rules.include.length === 0 || matchesAnyGlob(projectRelativePath, rules.include)) && !matchesAnyGlob(projectRelativePath, rules.exclude);
 }
 
 /**

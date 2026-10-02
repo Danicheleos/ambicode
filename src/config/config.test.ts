@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { SHORTLIST_DEFAULTS } from './defaults.ts';
 import { detectProjects } from './detect.ts';
 import { planInit } from './init.ts';
 import { parseConfig, validateArgv } from './load.ts';
@@ -404,6 +405,7 @@ test('re-init leaves a project that already has every framework pack untouched',
         '    root: .',
         '    ecosystem: typescript',
         `    packs: [builtin/common-quality, builtin/common-checks, ${ANGULAR_PACKS.join(', ')}]`,
+        '    shortlist: { include: ["**/*.ts"], exclude: [] }',
         '    commands: { lint: null, unit: null, e2e: null }',
         '    checks: { lint: null, unit: null, e2e: null }',
         'authoring: { editReminders: true }',
@@ -493,6 +495,51 @@ test('re-init adds page.port to an existing config, and never overwrites one alr
   const kept = await planInit(options);
   assert.ok(!kept.changes.some((change) => change.includes('page.port')));
   assert.equal(kept.config.page.port, 0);
+});
+
+test('fresh init writes the shortlist the project type calls for, visibly', async (t) => {
+  const directory = await sandbox(t);
+  await writeFile(path.join(directory, 'package.json'), JSON.stringify({ name: 'x' }), 'utf8');
+  const plan = await planInit({
+    fs: nodeFileSystem,
+    repositoryRoot: directory,
+    detected: await detectProjects(nodeFileSystem, directory),
+    baseline: '',
+    baselineNotice: 'x',
+  });
+  assert.match(plan.yaml ?? '', /shortlist:\s*\n\s*include:/);
+  assert.deepEqual(plan.config.projects[0]?.shortlist, {
+    include: [...SHORTLIST_DEFAULTS.typescript.include],
+    exclude: [...SHORTLIST_DEFAULTS.typescript.exclude],
+  });
+});
+
+test('re-init adds the shortlist to a project without one, and never rewrites one already set', async (t) => {
+  const directory = await sandbox(t);
+  await writeFile(path.join(directory, 'package.json'), JSON.stringify({ name: 'x' }), 'utf8');
+  await mkdir(path.join(directory, '.ambicode'), { recursive: true });
+  const configPath = path.join(directory, '.ambicode', 'config.yaml');
+  const project = (extra: string) =>
+    withProjects(
+      `  - id: app\n    root: .\n    ecosystem: typescript\n    packs: []\n${extra}    commands: { lint: null, unit: null, e2e: null }\n    checks: { lint: null, unit: null, e2e: null }\nauthoring: { editReminders: true }`,
+    );
+  const options = async () => ({
+    fs: nodeFileSystem,
+    repositoryRoot: directory,
+    detected: await detectProjects(nodeFileSystem, directory),
+    baseline: '',
+    baselineNotice: 'x',
+  });
+
+  await writeFile(configPath, project(''), 'utf8');
+  const added = await planInit(await options());
+  assert.ok(added.changes.some((change) => change.startsWith('Added "shortlist" for project "app"')), added.changes.join('\n'));
+  assert.deepEqual(added.config.projects[0]?.shortlist?.include, [...SHORTLIST_DEFAULTS.typescript.include]);
+
+  await writeFile(configPath, project('    shortlist: { include: ["**/*.html"], exclude: [] }\n'), 'utf8');
+  const kept = await planInit(await options());
+  assert.ok(!kept.changes.some((change) => change.includes('shortlist')));
+  assert.deepEqual(kept.config.projects[0]?.shortlist?.include, ['**/*.html']);
 });
 
 test('P2.4 correction F: re-init never overwrites an explicit authoring.editReminders: false', async (t) => {

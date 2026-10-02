@@ -14,7 +14,7 @@ import { Git } from '../git/git.ts';
 import { TempRepo } from '../testing/temp-repo.ts';
 import { nodeFileSystem, type FileSystem } from '../ports/filesystem.ts';
 import { NodeProcessRunner } from '../ports/node-process-runner.ts';
-import { locate, pathHit, PREPARE_SHORTLIST_LIMIT, termsFromRequirements } from './locate.ts';
+import { locate, pathHit, PREPARE_SHORTLIST_LIMIT, shortlistRules, termsFromRequirements } from './locate.ts';
 import { matchesGlob } from '../util/glob.ts';
 
 /**
@@ -47,7 +47,8 @@ async function materialize(name: string): Promise<string> {
 }
 
 function wholeRepositoryProject(id = 'app'): ProjectConfig {
-  return ProjectConfig.parse({ id, root: '.', ecosystem: 'typescript' });
+  // Ranking tests see every file; what may be listed at all is tested in 'R4 which files may be listed'.
+  return ProjectConfig.parse({ id, root: '.', ecosystem: 'typescript', shortlist: {} });
 }
 
 function gitFor(root: string): Git {
@@ -244,7 +245,7 @@ describe('R4 boundary shortlist', () => {
       const git = gitFor(root);
       const shortlist = await locate({
         git,
-        project: ProjectConfig.parse({ id: 'api', root: 'services/api', ecosystem: 'python' }),
+        project: ProjectConfig.parse({ id: 'api', root: 'services/api', ecosystem: 'python', shortlist: {} }),
         terms: ['handle'],
         limit: 20,
       });
@@ -343,10 +344,12 @@ describe('R4 terms from requirement text', () => {
       const runtime = await createRuntime({ cwd: root, stdin: { read: async () => envelope } });
       const output = await runLocate(runtime, parseArgs('locate', ['--evidence', '-'], LOCATE_OPTIONS));
 
+      // The configuration init wrote lists source only, so the boundary's test file is not on the list.
       const paths = output.candidates.map((candidate) => candidate.path);
-      for (const boundary of BOUNDARY) {
+      for (const boundary of BOUNDARY.filter((file) => !file.includes('.test.'))) {
         assert.ok(paths.includes(boundary), `${boundary} is missing; got ${paths.join(', ')}`);
       }
+      assert.ok(!paths.includes('tests/invoices.test.ts'), paths.join(', '));
       assert.ok(
         output.limitations.some((limitation) => limitation.includes('derived from the requirement text')),
         output.limitations.join(' | '),
@@ -578,6 +581,62 @@ describe('R4 path signal without a glob per file', () => {
     assert.deepEqual(disagreements, []);
     // Equality means nothing unless every answer the glob can give was given.
     for (const [outcome, count] of Object.entries(seen)) assert.ok(count > 0, `no case produced ${outcome}`);
+  });
+});
+
+describe('R4 which files may be listed', () => {
+  const FILES: Record<string, string> = {
+    'src/cart/cart.service.ts': 'export const cart = 1;\n',
+    'src/cart/cart.service.spec.ts': 'cart\n',
+    'src/cart/cart.component.html': '<p>cart</p>\n',
+    'src/cart/cart.component.scss': '.cart {}\n',
+    'src/cart/cart.d.ts': 'declare const cart: 1;\n',
+    'src/cart/cart.vue': '<template>cart</template>\n',
+    'src/cart/__tests__/cart.ts': 'cart\n',
+    'docs/cart.md': 'cart\n',
+    'src/assets/i18n/cart.json': '{"cart": 1}\n',
+  };
+
+  async function shortlistOf(project: Record<string, unknown>): Promise<{ paths: string[]; limitations: string[] }> {
+    const repo = await TempRepo.create();
+    try {
+      for (const [file, body] of Object.entries(FILES)) await repo.write(file, body);
+      for (let index = 0; index < 20; index += 1) await repo.write(`src/other/f${index}.ts`, 'export const other = 1;\n');
+      await repo.commitAll('initial');
+      const found = await locate({
+        git: gitFor(repo.root),
+        project: ProjectConfig.parse({ id: 'app', root: '.', ecosystem: 'typescript', ...project }),
+        terms: ['cart'],
+        limit: 20,
+      });
+      return { paths: found.candidates.map((c) => c.path).sort(), limitations: found.limitations };
+    } finally {
+      await repo.dispose();
+    }
+  }
+
+  it('lists only source files by default, and says how many it left out', async () => {
+    const { paths, limitations } = await shortlistOf({});
+    assert.deepEqual(paths, ['src/cart/cart.service.ts', 'src/cart/cart.vue']);
+    assert.ok(limitations.some((line) => /^7 matching file\(s\) are not listed: .*projects\[\]\.shortlist/.test(line)), limitations.join(' | '));
+  });
+
+  it('follows the include and exclude lists in config.yaml', async () => {
+    const widened = await shortlistOf({ shortlist: { include: ['**/*.ts', '**/*.html'], exclude: ['**/*.spec.ts', '**/*.d.ts', '**/__tests__/**'] } });
+    assert.deepEqual(widened.paths, ['src/cart/cart.component.html', 'src/cart/cart.service.ts']);
+  });
+
+  it('lists everything when both lists are empty', async () => {
+    const { paths, limitations } = await shortlistOf({ shortlist: {} });
+    assert.equal(paths.length, Object.keys(FILES).length);
+    assert.ok(!limitations.some((line) => line.includes('are not listed')));
+  });
+
+  it('has a default for every ecosystem the config accepts', () => {
+    for (const ecosystem of ['typescript', 'python'] as const) {
+      const rules = shortlistRules(ProjectConfig.parse({ id: 'app', root: '.', ecosystem }));
+      assert.ok(rules.include.length > 0 && rules.exclude.length > 0, ecosystem);
+    }
   });
 });
 

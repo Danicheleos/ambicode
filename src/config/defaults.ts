@@ -30,6 +30,27 @@ export const DEFAULTS = {
   },
 } as const;
 
+/**
+ * What a shortlist may name: source an editor's language server can open. Markup, styles, data and
+ * docs are left out because on 116 tickets tests and stylesheets alone took 18% of the 15 slots
+ * (314 of 1,724) and the shortlist's recall of navigable files rose from 0.319 to 0.347 without them.
+ * Written into config.yaml by init so a repository can widen it (`**\/*.html`, `**\/*.sql`).
+ */
+export const SHORTLIST_DEFAULTS = {
+  typescript: {
+    include: ['**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs,vue,svelte,astro,graphql,gql}'],
+    exclude: [
+      '**/*.{spec,test,cy,stories}.*',
+      '**/*.d.ts',
+      '**/{__tests__,__mocks__,test,tests,e2e,cypress}/**',
+    ],
+  },
+  python: {
+    include: ['**/*.{py,pyi}'],
+    exclude: ['**/test_*.py', '**/*_test.py', '**/conftest.py', '**/{test,tests}/**'],
+  },
+} as const;
+
 export const MAX_COMMAND_OUTPUT_BYTES = 262_144;
 
 /**

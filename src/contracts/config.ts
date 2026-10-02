@@ -61,6 +61,16 @@ export const CheckSpec = z.strictObject({
 });
 export type CheckSpec = z.infer<typeof CheckSpec>;
 
+/**
+ * Which files `prepare` and `locate` may put on the shortlist. A file must match `include` (empty
+ * means any) and no `exclude`. Absent, the ecosystem default applies, so an older config keeps working.
+ */
+export const ShortlistConfig = z.strictObject({
+  include: z.array(Glob).default([]),
+  exclude: z.array(Glob).default([]),
+});
+export type ShortlistConfig = z.infer<typeof ShortlistConfig>;
+
 export const ProjectConfig = z.strictObject({
   id: z
     .string()
@@ -70,6 +80,7 @@ export const ProjectConfig = z.strictObject({
   ecosystem: Ecosystem,
   packs: z.array(z.string().min(1)).default([]),
   policyFiles: z.array(RelativePath).default([]),
+  shortlist: ShortlistConfig.optional(),
   commands: z.record(z.string().min(1), CommandEntry).default({}),
   checks: z.record(z.string().min(1), CheckSpec.nullable()).default({}),
 });

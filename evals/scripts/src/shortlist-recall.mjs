@@ -4,7 +4,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRuntime, openWorkspace, projectForRequest } from '../../../src/composition/root.ts';
-import { locate, termsFromRequirements, PREPARE_SHORTLIST_LIMIT } from '../../../src/code-intelligence/locate.ts';
+import { locate, shortlistRules, shortlistable, termsFromRequirements, PREPARE_SHORTLIST_LIMIT } from '../../../src/code-intelligence/locate.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const CASES = path.join(ROOT, 'benchmarks', 'cases');
@@ -15,7 +15,7 @@ export function ticketOf(promptMarkdown) {
   return match === null ? null : match[1];
 }
 
-export async function shortlistRecall({ repos, limit = PREPARE_SHORTLIST_LIMIT, termsOf = (ticket) => termsFromRequirements([{ title: '', content: ticket }]) }) {
+export async function shortlistRecall({ repos, unfiltered = false, limit = PREPARE_SHORTLIST_LIMIT, termsOf = (ticket) => termsFromRequirements([{ title: '', content: ticket }]) }) {
   const workspaces = {};
   for (const [side, dir] of Object.entries(repos)) workspaces[side] = await openWorkspace(await createRuntime({ cwd: dir }));
   const rows = [];
@@ -30,10 +30,19 @@ export async function shortlistRecall({ repos, limit = PREPARE_SHORTLIST_LIMIT, 
     if (reachable.length === 0) continue;
     const terms = termsOf(ticket);
     const project = projectForRequest(workspace.config, null, []);
-    const found = await locate({ git: workspace.git, project, terms, limit });
+    // `unfiltered` reproduces the shortlist before the project's include/exclude lists applied.
+    const found = await locate({ git: workspace.git, project: unfiltered ? { ...project, shortlist: { include: [], exclude: [] } } : project, terms, limit });
     const paths = found.candidates.map((c) => c.path);
     const hit = reachable.filter((file) => paths.includes(file)).length;
-    rows.push({ name, side, truth: reachable.length, hit, recall: hit / reachable.length, candidates: paths.length, terms: found.terms.length });
+    // The files an agent navigates: what the change touched, minus what the project's shortlist rules leave out.
+    const rules = shortlistRules(project);
+    const navigable = reachable.filter((file) => shortlistable(file, rules));
+    const navigableHit = navigable.filter((file) => paths.includes(file)).length;
+    rows.push({
+      name, side, truth: reachable.length, hit, recall: hit / reachable.length, candidates: paths.length, terms: found.terms.length,
+      navigable: navigable.length, navigableHit, navigableRecall: navigable.length === 0 ? null : navigableHit / navigable.length,
+      noise: paths.filter((file) => !shortlistable(file, rules)).length,
+    });
   }
   return rows;
 }
@@ -43,11 +52,14 @@ const mean = (xs) => (xs.reduce((a, b) => a + b, 0) / (xs.length || 1)).toFixed(
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const [be, fe] = process.argv.slice(2);
   if (!be || !fe) throw new Error('usage: shortlist-recall.mjs <BE snapshot repo> <FE snapshot repo> [limit]');
-  const limitAt = process.argv[4] === undefined ? undefined : Number(process.argv[4]);
-  const rows = await shortlistRecall({ repos: { BE: be, FE: fe }, ...(limitAt === undefined ? {} : { limit: limitAt }) });
+  const limitAt = process.argv[4] === undefined || process.argv[4].startsWith('--') ? undefined : Number(process.argv[4]);
+  const unfiltered = process.argv.includes('--unfiltered');
+  const rows = await shortlistRecall({ repos: { BE: be, FE: fe }, unfiltered, ...(limitAt === undefined ? {} : { limit: limitAt }) });
   for (const r of rows) console.log(`${r.name.padEnd(12)} ${r.side} truth ${r.truth} hit ${r.hit} recall ${r.recall.toFixed(2)} candidates ${r.candidates}`);
   for (const side of ['BE', 'FE', 'all']) {
     const g = rows.filter((r) => side === 'all' || r.side === side);
+    const nav = g.filter((r) => r.navigableRecall !== null);
     console.log(`${side}: n=${g.length} mean recall@${limitAt ?? PREPARE_SHORTLIST_LIMIT} ${mean(g.map((r) => r.recall))} cases with any hit ${g.filter((r) => r.hit > 0).length}/${g.length}`);
+    console.log(`${side}: navigable-only recall ${mean(nav.map((r) => r.navigableRecall))} (n=${nav.length}); candidates outside the shortlist rules ${g.reduce((a, r) => a + r.noise, 0)} of ${g.reduce((a, r) => a + r.candidates, 0)}`);
   }
 }
