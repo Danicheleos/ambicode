@@ -1,13 +1,13 @@
 # AMBICODE: current vs perfect, and the road from one to the other
 
-Report 3. It builds on [skill-walkthrough.md](skill-walkthrough.md) (today),
-[skill-best-practices.md](skill-best-practices.md) (research) and
+Report 3. It builds on [archive/skill-walkthrough.md](archive/skill-walkthrough.md) (today),
+[archive/skill-best-practices.md](archive/skill-best-practices.md) (research) and
 [skill-perfect-walkthrough.md](skill-perfect-walkthrough.md) (target).
 
 ## Context
 
 Three reports sit in `gym/planing/investigation/`: today's walkthrough
-(`skill-walkthrough.md`), the research (`skill-best-practices.md`) and the
+(`archive/skill-walkthrough.md`), the research (`archive/skill-best-practices.md`) and the
 target design (`skill-perfect-walkthrough.md`). The user asked for a strict
 comparison of the target against the current plugin, a list of everything the
 current plugin breaks, and a plan ordered from cheapest effort to best result.
@@ -115,7 +115,7 @@ Verdicts: ❌ breaks the practice, ◐ partial, ✅ meets it.
 1. **The workflow lives in prose, and a weaker model skips it.** This causes
    C2, B3, C3 and the Sonnet collapse.
 2. **The agent distrusts CLI output that fits.** This was corrected after
-   measuring (`probes-2026-09-30.md`). The outputs are 5–7 KB, and the Bash
+   measuring (`archive/probes-2026-09-30.md`). The outputs are 5–7 KB, and the Bash
    tool shows up to 30,000 characters whole. The agent still pipes `prepare`
    through `head -c` and re-runs `review` to filter it. The cause is the
    model's habit, together with the noise the eval sandbox adds (unverified).
@@ -157,7 +157,7 @@ Opus      by hand, at a release only
 
 Every "Spend" line below gives its tier. Haiku was probed as the cheap tier
 and rejected. On localize it cost 1.7–1.9× Sonnet, because it took 3–4× the
-turns, and its behaviour differs from Sonnet's (`probes-2026-09-30.md` §5).
+turns, and its behaviour differs from Sonnet's (`archive/probes-2026-09-30.md` §5).
 
 ### Iteration 0: measurement you can trust
 Effort S, 1 day. Spend: one `evals:baseline` (≈ $28). A repeat for the noise check is a second baseline, and runs only on an explicit go.
@@ -699,7 +699,7 @@ findings. Report it as the accepted rate, not as precision.
 
 - Whether the goal on localize is recall or precision. The plugin trades one
   for the other on Sonnet. Iteration 2 reports both, and the user decides.
-- Probes done (`probes-2026-09-30.md`): the Bash limit is 30,000 characters;
+- Probes done (`archive/probes-2026-09-30.md`): the Bash limit is 30,000 characters;
   hook latency is 38 ms standalone and 88–143 ms for the bundle; the `Skill`
   hook gets its args. Still open: whether `PostToolUse` on `AskUserQuestion`
   carries the answer. That needs one interactive session, and the settings

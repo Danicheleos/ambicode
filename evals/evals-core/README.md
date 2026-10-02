@@ -219,7 +219,7 @@ So a Haiku run predicts neither a Sonnet run's cost nor its behaviour.
 Effort and thinking cannot be set from the harness. Eval children do not read
 the user's settings, and `MAX_THINKING_TOKENS=0` did not stop thinking.
 Thinking was about 4.5% of a Sonnet run's cost anyway. Details are in
-`gym/planing/investigation/probes-2026-09-30.md` §5.
+`gym/planing/investigation/archive/probes-2026-09-30.md` §5.
 
 The curated scripts set `EVAL_AMBICODE_REVIEWER_REPLAY` to
 `benchmarks/reviewer-recordings.json`. Inside the sandbox, no nested reviewer

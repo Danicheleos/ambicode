@@ -3,9 +3,9 @@
 Report 2 of 2. It describes how each skill *should* behave, step by step,
 when everything is designed right. It is a target, not today's behaviour.
 Where it differs from today it says so, and every design choice points back
-to the evidence in [skill-best-practices.md](skill-best-practices.md) (§ and
+to the evidence in [archive/skill-best-practices.md](archive/skill-best-practices.md) (§ and
 row ids such as C1 or A4). Today's behaviour is in
-[skill-walkthrough.md](skill-walkthrough.md).
+[archive/skill-walkthrough.md](archive/skill-walkthrough.md).
 
 **Correction, 2026-09-30.** This report cites "today" figures from four eval
 runs. Those runs differ by **model**, not by plugin version: Opus 5.5 first,
