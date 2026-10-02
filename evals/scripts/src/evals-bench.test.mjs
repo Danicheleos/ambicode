@@ -297,6 +297,7 @@ describe('evals-bench: measures taken from the trace', () => {
       prepareTruncated: 1,
       reviewRuns: 1,
       replayedReviews: 1,
+      replayMisses: 0,
       bashReads: 2,
       readCalls: 1,
       grepCalls: 1,

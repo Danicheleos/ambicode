@@ -87,6 +87,22 @@ describe('eval-gate', () => {
     assert.deepEqual(verdict.checks.filter((c) => c.status === 'gap').map((c) => c.name), ['localize: cost']);
   });
 
+  it('reports the recall of an arm whose review hit replay-miss as unmeasured, not as a loss', () => {
+    const missRun = () => {
+      const id = `e-${traceId++}`;
+      const lines = [
+        { type: 'system', subtype: 'init', model: MODEL },
+        { type: 'assistant', message: { content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'node "/p/scripts/ambicode.mjs" review --exclude "x/*.json"' } }] } },
+        { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: 'review local_1 (error: replay-miss: no recording for snapshot working-4e4c' }] } },
+      ];
+      writeFileSync(path.join(tracesDir, `${id}.jsonl`), lines.map((l) => JSON.stringify(l)).join('\n'));
+      return { ...run(0.5), tracePath: `/tmp/${id}/out/trace.jsonl` };
+    };
+    const verdict = gate(results([missRun(), missRun(), missRun()], [run(1), run(1), run(1)]), { benchmarks, tracesDir });
+    assert.deepEqual(failed(verdict), [], 'the same loss without a replay-miss fails the recall check');
+    assert.deepEqual(verdict.checks.filter((c) => c.status === 'gap').map((c) => c.name), ['localize: recall']);
+  });
+
   it('gates a plugin-only run against a cached no-plugin arm, and says that it did', () => {
     const baseline = { ...results([run(1)], [run(1), run(1), run(1)]), claudeVersion: '2.1.285', startedAt: '2026-09-28T00:00:00.000Z' };
     const current = { ...results([run(1), run(1), run(1)], undefined), claudeVersion: '2.1.285', startedAt: '2026-09-30T00:00:00.000Z', aggregates: {} };

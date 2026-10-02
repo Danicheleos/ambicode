@@ -72,7 +72,11 @@ export function gate(given, { benchmarks = BENCHMARKS, tracesDir = null, budget 
     const band = Math.max(range(w), range(wo));
     bands.push(band);
     const delta = mean(w) - mean(wo);
-    check(`${kind}: recall`, delta >= -band, `with ${fmt(mean(w))} vs without ${fmt(mean(wo))}, Δ ${fmt(delta)}, noise band ${fmt(band)}`);
+    const recallDetail = `with ${fmt(mean(w))} vs without ${fmt(mean(wo))}, Δ ${fmt(delta)}, noise band ${fmt(band)}`;
+    // The recordings are keyed by snapshot, so an `--exclude` or `--branch` recovery finds none and the reviewer never runs.
+    const missed = withRows.filter((r) => r.trace?.replayMisses > 0).length;
+    if (missed) gap(`${kind}: recall`, `${recallDetail}, but ${missed} run(s) hit replay-miss, so the reviewer's findings were never produced`);
+    else check(`${kind}: recall`, delta >= -band, recallDetail);
 
     const scored = (rows, key) => mean(rows.filter((r) => !r.absent && typeof r[key] === 'number').map((r) => r[key]));
     const costRatio = scored(withRows, 'costUsd') / scored(withoutRows, 'costUsd');
