@@ -2,7 +2,9 @@ import path from 'node:path';
 import { openRepository, type Runtime } from '../../composition/root.ts';
 import { TASKS_DIR } from '../../config/defaults.ts';
 import { localTimestamp, taskSlugFor } from '../../review/review-name.ts';
+import { appendLedger } from '../../task/ledger.ts';
 import { AmbicodeError } from '../../util/errors.ts';
+import { contentHash } from '../../util/hash.ts';
 import type { ParsedArgs } from '../args.ts';
 
 export const NOTE_SAVE_OPTIONS = {
@@ -69,7 +71,9 @@ export async function runNoteSave(runtime: Runtime, args: ParsedArgs): Promise<N
       file = `${base}-${attempt}.md`;
     }
   }
-  return { command: 'note save', task, kind: kind as NoteKind, path: path.relative(repositoryRoot, file).split(path.sep).join('/') };
+  const relative = path.relative(repositoryRoot, file).split(path.sep).join('/');
+  await appendLedger(runtime.fs, directory, runtime.clock.now(), { kind: 'note', note: kind, path: relative, contentHash: contentHash(text) });
+  return { command: 'note save', task, kind: kind as NoteKind, path: relative };
 }
 
 export function renderNoteSave(output: NoteSaveOutput): string {

@@ -3,6 +3,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import { createRuntime } from '../../composition/root.ts';
+import { contentHash } from '../../util/hash.ts';
 import { TempRepo } from '../../testing/temp-repo.ts';
 import { parseArgs } from '../args.ts';
 import { NOTE_SAVE_OPTIONS, runNoteSave } from './note.ts';
@@ -76,6 +77,17 @@ describe('note save owns the name, the time and the label of a task note', () =>
       const out = await save(repo, ['--task', '../../src/evil', '--kind', 'investigation'], 'x');
       assert.match(out.path, /^\.ambicode\/task\/[A-Za-z0-9._-]+\/investigation_/);
       assert.ok(!out.path.includes('..'));
+    });
+  });
+
+  it('records each save in the task ledger with the hash of what was written', async () => {
+    await inRepo(async (repo) => {
+      const out = await save(repo, ['--task', 'ORD-17', '--kind', 'investigation'], 'one');
+      await save(repo, ['--task', 'ORD-17', '--kind', 'notes'], 'two');
+      const lines = (await readFile(path.join(repo.root, '.ambicode/task/ORD-17/ledger.jsonl'), 'utf8')).trimEnd().split('\n').map((line) => JSON.parse(line));
+      assert.deepEqual(lines.map((line) => [line.id, line.kind, line.note]), [['L1', 'note', 'investigation'], ['L2', 'note', 'notes']]);
+      assert.equal(lines[0].path, out.path);
+      assert.equal(lines[0].contentHash, contentHash(await readFile(path.join(repo.root, out.path), 'utf8')));
     });
   });
 

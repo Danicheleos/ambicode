@@ -3,6 +3,7 @@ import { runChecks, type PendingApproval } from '../checks/run.ts';
 import { runRemoteChecks } from '../checks/remote.ts';
 import type { ChangedPath } from '../checks/select.ts';
 import { MAX_REVIEWED_DISCUSSIONS, REVIEWS_DIR, REVIEWS_LEAF, TASKS_DIR } from '../config/defaults.ts';
+import { appendLedger } from '../task/ledger.ts';
 import { taskSlugFor, uniqueReviewName } from './review-name.ts';
 import {
   openWorkspace,
@@ -53,6 +54,8 @@ export interface ReviewBundle {
   workspace: Workspace;
   reviewId: string;
   reviewDirectory: string;
+  /** `null` when the run belongs to no task, so there is no ledger to write. */
+  taskDirectory: string | null;
   resultPath: string;
   snapshot: Snapshot;
   plan: SnapshotPlan;
@@ -319,6 +322,7 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
     workspace,
     reviewId,
     reviewDirectory,
+    taskDirectory: taskSlug === null ? null : path.join(workspace.repositoryRoot, TASKS_DIR, taskSlug),
     resultPath: path.join(reviewDirectory, 'result.json'),
     snapshot,
     plan,
@@ -362,6 +366,20 @@ export async function writeBundleArtifacts(runtime: Runtime, bundle: ReviewBundl
     path.join(bundle.reviewDirectory, 'snapshot-path.txt'),
     `${bundle.snapshot.directory}\n`,
   );
+  if (bundle.taskDirectory !== null) {
+    const { result } = bundle;
+    await appendLedger(runtime.fs, bundle.taskDirectory, runtime.clock.now(), {
+      kind: 'review',
+      reviewId: bundle.reviewId,
+      status: result.status,
+      statusReason: result.statusReason,
+      reviewerRan: result.reviewer !== null,
+      findings: result.findings.length,
+      omissions: result.omissions.length,
+      checks: result.checks.map((check) => ({ projectId: check.projectId, commandId: check.commandId, status: check.status, exitCode: check.exitCode })),
+      waiting: bundle.pendingApprovals.map((approval) => approval.approvalKey),
+    });
+  }
 }
 
 async function resolveTarget(

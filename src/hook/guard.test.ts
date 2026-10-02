@@ -86,6 +86,8 @@ describe('the task-directory guard sends notes through note save', () => {
     ['Bash', { command: 'd=.ambicode/task/X; f=$d/inv.md; cat > "$f" <<EOF\nnote\nEOF' }],
     ['Bash', { command: 'echo hi | tee .ambicode/task/X/n.md' }],
     ['Bash', { command: 'rm .ambicode/task/X/plan.md' }],
+    ['Write', { file_path: '/repo/.ambicode/task/X/ledger.jsonl' }],
+    ['Bash', { command: 'echo \'{"id":"L9","kind":"acceptance"}\' >> .ambicode/task/X/ledger.jsonl' }],
   ] as const) {
     it(`denies ${tool}: ${JSON.stringify(input).slice(0, 70)}`, () => {
       const out = decide(tool, input);

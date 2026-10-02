@@ -584,6 +584,20 @@ Measured: text-only "never truncate" failed 28/31.
   ledger and the `AskUserQuestion` probe. A Bash write that builds the path at run time (`bash -c`,
   an assembled variable not named in the command) is not caught.
 
+**Slice 3 result, 2026-10-02 (the ledger, first entries).**
+- Built: `.ambicode/task/<slug>/ledger.jsonl` (`src/task/ledger.ts`), one JSON line per entry, ids `L1…`,
+  written through a new `FileSystem.appendText` (`O_APPEND`). A reader skips torn lines and unknown kinds,
+  and a skipped line never causes an id to be reused. The slice-2 guard already denies the agent any write
+  under `.ambicode/task/`, so `ledger.jsonl` is agent-unwritable with no new rule; a test pins it.
+- Entries: `note` (from `note save`: kind, path, content hash) and `review` (from `writeBundleArtifacts`, the
+  one seam both `review` and `bundle` use: status, reason, whether the reviewer ran, finding and omission
+  counts, each check's status and exit code, the keys still waiting). A run with no task writes none.
+- Not built, and why: `prepare`, `baseline` and `check` entries. `prepare` has no `--task` and is documented
+  as writing nothing, and the hook-run `prepare` cannot know a slug (G16); both want `--task-open` first.
+  `acceptance` is blocked on the `AskUserQuestion`/`ExitPlanMode` probe, which needs an interactive session
+  (settings file in the probes doc). Until it runs, G13 stays open and `plan` still labels any save "accepted".
+- Tests: 861 (9 new), 860 pass, 1 skipped (the Windows-shim case, as before).
+
 ### Iteration 6: evidence from the record
 Effort M–L, 1–2 weeks. Spend: `evals:walk` (≈ $1.2), then one `evals:decide` (≈ $14).
 

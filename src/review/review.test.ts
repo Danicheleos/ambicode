@@ -16,6 +16,7 @@ import { isAmbicodeError } from '../util/errors.ts';
 import { ClaudeReviewer, REVIEWER_TOOLS, parseReviewerOutput } from './claude-reviewer.ts';
 import { validateFindings } from './validate.ts';
 import { nameableLines } from './prompt.ts';
+import { readLedger } from '../task/ledger.ts';
 import { FakeClock } from '../testing/page-harness.ts';
 
 const JIRA = 'https://example.atlassian.net/browse/ORD-17';
@@ -1261,6 +1262,30 @@ describe('a check waiting for authorization', () => {
       assert.deepEqual(output.pendingApprovals, []);
       const unit = output.result.checks.find((check) => check.checkId === 'unit');
       assert.equal(unit?.status, 'passed', JSON.stringify(unit?.limitations));
+    } finally {
+      await context.dispose();
+    }
+  });
+});
+
+describe('a review inside a task leaves evidence in the task ledger', () => {
+  it('records status, reviewer, findings and checks, and writes none for a run with no task', async () => {
+    const context = await fixture();
+    try {
+      const inTask = await review(context.runtime, ['--task', 'ORD-17'], new FakeReviewer(ok()));
+      const ledger = await readLedger(nodeFileSystem, path.join(context.repo.root, '.ambicode', 'task', 'ORD-17'));
+      assert.equal(ledger.length, 1);
+      assert.equal(ledger[0]?.kind, 'review');
+      assert.equal(ledger[0]?.reviewId, inTask.reviewId);
+      assert.equal(ledger[0]?.status, inTask.result.status);
+      assert.equal(ledger[0]?.reviewerRan, true);
+      assert.deepEqual(ledger[0]?.waiting, []);
+      await nodeFileSystem.remove(inTask.snapshotDirectory);
+
+      const loose = await review(context.runtime, [], new FakeReviewer(ok()));
+      assert.ok(!(await nodeFileSystem.exists(path.join(context.repo.root, '.ambicode', 'task', 'ledger.jsonl'))));
+      assert.ok(!loose.reviewDirectory.includes(`${path.sep}task${path.sep}`));
+      await nodeFileSystem.remove(loose.snapshotDirectory);
     } finally {
       await context.dispose();
     }

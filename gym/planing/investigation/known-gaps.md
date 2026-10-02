@@ -1,7 +1,7 @@
 # Known gaps
 
 Kept up to date as the iterations of [skill-gap-plan.md](skill-gap-plan.md) land.
-Last edit: 2026-10-02, after phase 5 slices 1 and 2. G1–G8 come from
+Last edit: 2026-10-02, after phase 5 slices 1 to 3. G1–G8 come from
 [archive/lsp-flow-report-2026-10-02.md](archive/lsp-flow-report-2026-10-02.md); G9 onward were
 found after it. Evidence is from headless `claude -p` runs on the BE scaffold
 (mostly n = 1, a mechanics read, not a rate) and from the 712 eval traces. Real
@@ -37,7 +37,7 @@ Status: **open** (nothing done), **partial** (mitigated, not closed),
 | G16 | The task slug is chosen by the model, so the skills can disagree. | An investigation saved under a kebab of the question; a plan for the same ticket uses the ticket id. | open | `--task-open <request\|id>` mints the slug once (iteration 4, not built). |
 | G17 | `task` keeps `Edit(**)` and `Write(**)` for any repository path. | No workspace-trust gate (E2). The guard covers the task directory and git writes, not the rest. | open | The `ask` on edits outside the prepared set; it needs the prepared paths stored where a hook can read them. |
 | G18 | Hooks still start the 259 KB bundle where they could not use the standalone guard. | `PostToolUse(Edit\|Write)` costs about 89–143 ms per edit and is inert (no pack opts in). | open | Convert to a standalone script (iteration 5 remainder). |
-| G19 | No ledger and no Stop hook. | The navigation line, "red before green" and "accepted" are still self-reported. | open | Iteration 6. |
+| G19 | No Stop hook, and the ledger holds only `note` and `review` entries. | The navigation line, "red before green" and "accepted" are still self-reported: no `prepare`, `baseline`, `check` or `acceptance` entry exists. | **partial**: `ledger.jsonl` exists per task, CLI-written, agent-unwritable (the guard denies it), tested. | `acceptance` waits on the G13 probe; `prepare`/`baseline` need `--task` on `prepare`, which today writes nothing. Stop hook is iteration 6. |
 | G20 | A guard `ask` is refused in non-interactive runs. | In headless `-p` the commit/push `ask` stops the command. Past evals ran 0 guarded git writes in 5,301 Bash calls, so no eval has been affected. | partial | Watch eval traces for refused git writes. |
 
 ## Measurement and process

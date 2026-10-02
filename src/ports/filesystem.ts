@@ -1,6 +1,7 @@
 import { constants } from 'node:fs';
 import {
   access,
+  appendFile,
   copyFile,
   glob,
   lstat,
@@ -37,6 +38,8 @@ export interface FileSystem {
   writeText(absolutePath: string, contents: string): Promise<void>;
   /** Atomic (`O_EXCL`): of two processes racing for the per-review publication lease, only one wins. */
   createExclusive(absolutePath: string, contents: string): Promise<boolean>;
+  /** One `O_APPEND` write, so lines under the pipe buffer size from two processes do not interleave. */
+  appendText(absolutePath: string, contents: string): Promise<void>;
   rename(from: string, to: string): Promise<void>;
   mkdirp(absolutePath: string): Promise<void>;
   temporaryDirectory(prefix: string): Promise<string>;
@@ -66,6 +69,7 @@ export const nodeFileSystem: FileSystem = {
       throw error;
     }
   },
+  appendText: (absolutePath, contents) => appendFile(absolutePath, contents, 'utf8'),
   rename: (from, to) => rename(from, to),
   mkdirp: async (absolutePath) => {
     await mkdir(absolutePath, { recursive: true });
