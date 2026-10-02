@@ -124,6 +124,7 @@ export async function runPrepare(
     task,
     activity,
     project,
+    lspRequired: workspace.config.requirements.lsp.length > 0,
     paths,
     requirements,
     policy,
@@ -400,6 +401,7 @@ async function toDraftOutput(options: {
   fs: FileSystem;
   activity: Activity;
   project: ProjectConfig;
+  lspRequired: boolean;
   paths: readonly string[];
   requirements: ReturnType<typeof normalizeRequirements>;
   policy: ResolvedPolicy;
@@ -430,7 +432,7 @@ async function toDraftOutput(options: {
     notices: options.requirements.notices,
     ...(options.task === undefined ? {} : { task: options.task }),
     navigation: {
-      ...navigationFor(options.project.ecosystem),
+      ...navigationFor(options.project.ecosystem, options.lspRequired),
       ...(options.shortlist === undefined ? {} : { shortlist: options.shortlist }),
     },
     policy: preparePolicy,

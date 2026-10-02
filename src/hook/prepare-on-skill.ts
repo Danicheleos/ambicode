@@ -4,7 +4,7 @@ import { loadConfig } from '../config/load.ts';
 import { parseArgs } from '../cli/args.ts';
 import { PREPARE_OPTIONS, runPrepare } from '../cli/commands/prepare.ts';
 import { termsFromRequirements } from '../code-intelligence/locate.ts';
-import { READING_ORDER } from '../code-intelligence/navigation.ts';
+import { readingOrder } from '../code-intelligence/navigation.ts';
 import type { PostToolUseHookOutput } from '../contracts/hook.ts';
 import { mintTaskSlug } from '../task/slug.ts';
 import { isAmbicodeError } from '../util/errors.ts';
@@ -59,10 +59,14 @@ async function prepareForActivity(runtime: Runtime, sessionDirectory: string, ac
   // Any reference defers to the fetch, even with a question beside it: "ORD-17 which files would this touch?"
   // gave terms like `files` and `touch`, and okta files at ranks 5-15 (2026-10-01 session).
   if (/https?:\/\/\S+|\b[A-Z][A-Z0-9]+-\d+\b/.test(skillArgs)) {
+    // A key-shaped word in prose (`NOM-36`) defers too, and then no hook message carries the reading order.
+    const found = await findRepository(runtime, sessionDirectory);
+    const required = typeof found === 'string' ? [] : await requiredLsp(found.repositoryRoot, runtime);
     return contextOutput(
       'AMBICODE did not run prepare: your skill args name a ticket. Fetch the ticket; a hook then runs prepare ' +
         "on its text. If that message does not appear, run prepare yourself, as the skill's prepare step says. " +
-        `Pass --task-open ${JSON.stringify(skillArgs.trim())} to it: task.slug names this request's directory.`,
+        `Pass --task-open ${JSON.stringify(skillArgs.trim())} to it: task.slug names this request's directory.` +
+        (required.length === 0 ? '' : `\n${readingOrder(required)}`),
     );
   }
 
@@ -160,7 +164,7 @@ async function preparedMessage(runtime: Runtime, sessionDirectory: string, activ
     const header = [
       `AMBICODE ran \`${command}\` for you, in \`${found.where}\`, with terms from ${source} (navigation.shortlist.terms).`,
       'Its complete output follows; do not run it again. task.slug, when present, is the --task for note save and review.',
-      READING_ORDER,
+      readingOrder(await requiredLsp(found.repositoryRoot, runtime)),
     ].join('\n');
     const prepare = async (shortlistLimit?: number) => {
       const run = await runPrepare(hookRuntime, parseArgs('prepare', argv, PREPARE_OPTIONS), { shortlistLimit });
@@ -181,6 +185,13 @@ async function preparedMessage(runtime: Runtime, sessionDirectory: string, activ
   } catch (error) {
     return unavailable(isAmbicodeError(error) ? `${error.code}: ${error.message.replace(/\.$/, '')}` : 'an unexpected error');
   }
+}
+
+/** The plugins `requirements.lsp` names: a config that cannot be read asks for nothing. */
+async function requiredLsp(repositoryRoot: string, runtime: Runtime): Promise<readonly string[]> {
+  return loadConfig(runtime.fs, repositoryRoot)
+    .then((loaded) => loaded.config.requirements.lsp)
+    .catch(() => []);
 }
 
 function unavailable(reason: string): string {

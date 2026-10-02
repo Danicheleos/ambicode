@@ -8,8 +8,9 @@ import { parseArgs } from '../cli/args.ts';
 import { INIT_OPTIONS, runInit } from '../cli/commands/init.ts';
 import { PREPARE_OPTIONS, runPrepare } from '../cli/commands/prepare.ts';
 import { createRuntime } from '../composition/root.ts';
+import { nodeFileSystem } from '../ports/filesystem.ts';
 import { TempRepo } from '../testing/temp-repo.ts';
-import { READING_ORDER } from '../code-intelligence/navigation.ts';
+import { readingOrder } from '../code-intelligence/navigation.ts';
 import { runHook } from './run-hook.ts';
 
 async function initializedRepo(): Promise<TempRepo> {
@@ -211,12 +212,38 @@ describe('PostToolUse on the Skill tool runs prepare by construction', () => {
     }
   });
 
+  it('makes LSP mandatory in the hook message and in the ticket deferral when requirements.lsp is set, and only then', async () => {
+    const repo = await initializedRepo();
+    try {
+      const typed = async (prompt: string): Promise<string> => {
+        const runtime = await createRuntime({ cwd: repo.root });
+        const raw = JSON.stringify({ hook_event_name: 'UserPromptSubmit', session_id: randomUUID(), cwd: repo.root, prompt });
+        const output = (await runHook(runtime, raw)) as { hookSpecificOutput?: { additionalContext: string } };
+        return output.hookSpecificOutput?.additionalContext ?? '';
+      };
+      const mandatory = /requirements\.lsp in \.ambicode\/config\.yaml makes it mandatory: if it finds no LSP tool, stop/;
+      assert.match(await typed('/ambicode:investigate How does reserveStock work?'), mandatory);
+      // A key-shaped word in prose defers the prepare; the reading order must still arrive.
+      const deferred = await typed('/ambicode:investigate NOM-36 shows options it should not');
+      assert.match(deferred, /did not run prepare/);
+      assert.match(deferred, mandatory);
+
+      const configPath = path.join(repo.root, '.ambicode', 'config.yaml');
+      await nodeFileSystem.writeText(configPath, (await nodeFileSystem.readText(configPath)).replace(/lsp:\s*\n\s*- typescript-lsp@claude-plugins-official/, 'lsp: []'));
+      assert.doesNotMatch(await typed('/ambicode:investigate How does reserveStock work?'), mandatory);
+      assert.doesNotMatch(await typed('/ambicode:investigate NOM-36 shows options it should not'), mandatory);
+    } finally {
+      await repo.dispose();
+    }
+  });
+
   it('keeps its header short, because the payload plus header must stay under the 9,800 characters measured to arrive whole', async () => {
     const repo = await initializedRepo();
     try {
       const context = (await contextOf(repo.root, 'ambicode:investigate', 'What does reserveStock do?')) ?? '';
-      assert.ok(context.includes(READING_ORDER));
-      const header = context.slice(0, context.indexOf('\n{')).replace(`\n${READING_ORDER}`, '');
+      const order = readingOrder(['typescript-lsp@claude-plugins-official']);
+      assert.ok(context.includes(order));
+      const header = context.slice(0, context.indexOf('\n{')).replace(`\n${order}`, '');
       assert.ok(header.length <= 260, `${header.length} characters: ${header}`);
     } finally {
       await repo.dispose();

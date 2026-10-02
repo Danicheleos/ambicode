@@ -142,6 +142,25 @@ describe('P2.1 ambicode prepare', () => {
     }
   });
 
+  it('keeps the grep fallback in the evidence line when requirements.lsp is empty', async () => {
+    const repo = await TempRepo.create();
+    try {
+      await repo.write('src/app.ts', 'export const a = 1;\n');
+      await repo.commitAll('initial');
+      const runtime = await createRuntime({ cwd: repo.root });
+      await runInit(runtime, parseArgs('init', [], INIT_OPTIONS));
+      const configPath = path.join(repo.root, '.ambicode', 'config.yaml');
+      const config = await nodeFileSystem.readText(configPath);
+      assert.match(config, /lsp:\s*\n\s*- typescript-lsp@claude-plugins-official/);
+      await nodeFileSystem.writeText(configPath, config.replace(/lsp:\s*\n\s*- typescript-lsp@claude-plugins-official/, 'lsp: []'));
+
+      const output = await runPrepare(runtime, parseArgs('prepare', ['--activity', 'investigate'], PREPARE_OPTIONS));
+      assert.match(output.navigation.evidenceRequirement, /"No LSP tools" counts only if ToolSearch select:LSP found none/);
+    } finally {
+      await repo.dispose();
+    }
+  });
+
   it('a single configured project resolves without --project, in a source-free run', async () => {
     const repo = await TempRepo.create();
     try {
@@ -164,8 +183,8 @@ describe('P2.1 ambicode prepare', () => {
       assert.equal(output.navigation.plugin, 'typescript-lsp@claude-plugins-official');
       assert.equal(output.navigation.serverCommand, 'typescript-language-server');
       assert.equal(output.navigation.statusSource, 'current-session');
-      assert.match(output.navigation.evidenceRequirement, /Report the LSP operations used/);
-      assert.match(output.navigation.evidenceRequirement, /"No LSP tools" counts only if ToolSearch select:LSP found none/);
+      // init writes requirements.lsp, so the evidence line is the mandatory form.
+      assert.match(output.navigation.evidenceRequirement, /LSP is required: ToolSearch select:LSP; if it finds none, stop/);
       assert.match(output.navigation.readGuidance, /spans/i);
       assert.match(output.navigation.readGuidance, /ToolSearch select:LSP/);
       // Absent means "not asked for", never "nothing in this repository matches".

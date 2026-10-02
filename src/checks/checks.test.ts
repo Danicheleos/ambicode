@@ -24,7 +24,7 @@ function config(): AmbicodeConfig {
     review: { ...DEFAULTS.review },
     checks: { ...DEFAULTS.checks },
     page: { ...DEFAULTS.page },
-    requirements: { mcpServer: null },
+    requirements: { mcpServer: null, lsp: [] },
     projects: [],
     remoteChecks: { image: null },
     authoring: { ...DEFAULTS.authoring },

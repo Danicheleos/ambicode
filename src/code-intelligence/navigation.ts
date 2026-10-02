@@ -19,7 +19,22 @@ export interface NavigationGuidance {
 const EVIDENCE_REQUIREMENT =
   'Report the LSP operations used. "No LSP tools" counts only if ToolSearch select:LSP found none.';
 
+// Under 100 chars like the line above: context-cost.test.ts caps it.
+const REQUIRED_EVIDENCE = 'LSP is required: ToolSearch select:LSP; if it finds none, stop. No grep fallback.';
+
 // Delivered in the hook message: skills/shared/prepare-output.md is read on demand, and the order went unread there.
+export function readingOrder(requiredPlugins: readonly string[]): string {
+  return requiredPlugins.length === 0 ? READING_ORDER : requiredReadingOrder(requiredPlugins);
+}
+
+function requiredReadingOrder(plugins: readonly string[]): string {
+  const install = plugins.map((plugin) => `\`claude plugin install ${plugin} --scope user\``).join(' and ');
+  return READING_ORDER.replace(
+    '1. ToolSearch select:LSP (deferred).',
+    `1. ToolSearch select:LSP (deferred). requirements.lsp in .ambicode/config.yaml makes it mandatory: if it finds no LSP tool, stop. Your whole reply says LSP is not available and gives ${install}. No Grep, no Bash search, no note.`,
+  );
+}
+
 export const READING_ORDER = [
   "How to read code (a link-block is path:lineA-lineB or path:lineA, one symbol's range):",
   '1. ToolSearch select:LSP (deferred). workspaceSymbol and documentSymbol turn the terms and the shortlist into link-blocks. Absolute paths; retry a failed call once.',
@@ -56,11 +71,12 @@ const GUIDANCE: Record<Ecosystem, Omit<NavigationGuidance, 'ecosystem'>> = {
   },
 };
 
-export function navigationFor(ecosystem: Ecosystem): NavigationGuidance {
+export function navigationFor(ecosystem: Ecosystem, lspRequired = false): NavigationGuidance {
   const guidance = GUIDANCE[ecosystem];
   return {
     ecosystem,
     ...guidance,
+    ...(lspRequired ? { evidenceRequirement: REQUIRED_EVIDENCE } : {}),
     setupCommands: [...guidance.setupCommands],
   };
 }

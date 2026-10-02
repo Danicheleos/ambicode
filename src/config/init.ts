@@ -4,6 +4,7 @@ import { Document, isSeq, parseDocument, type YAMLMap, type YAMLSeq } from 'yaml
 import type { AmbicodeConfig } from '../contracts/config.ts';
 import { normalizeRelative } from '../util/paths.ts';
 import { CONFIG_FILE, DEFAULTS, SHORTLIST_DEFAULTS } from './defaults.ts';
+import { navigationFor } from '../code-intelligence/navigation.ts';
 import { suggestedPacks, type DetectedProject } from './detect.ts';
 import { parseConfig } from './load.ts';
 
@@ -70,6 +71,16 @@ function ruleSourceNotice(sources: readonly string[]): string {
   ].join('\n');
 }
 
+function lspNotice(plugins: readonly string[]): string {
+  const install = plugins.map((plugin) => `"claude plugin install ${plugin} --scope user"`).join(' and ');
+  return `requirements.lsp is ${plugins.join(', ')}: every skill must load LSP (ToolSearch select:LSP) or stop, and does not search with grep instead. Install with ${install}, or set the value to [] to allow the grep fallback.`;
+}
+
+/** One plugin per ecosystem present, in the order the projects appear. */
+function lspPluginsFor(ecosystems: readonly unknown[]): string[] {
+  return [...new Set(ecosystems.map((ecosystem) => navigationFor(ecosystem === 'python' ? 'python' : 'typescript').plugin))];
+}
+
 const MCP_BINDING_NOTICE =
   'requirements.mcpServer is null: no Jira/Confluence MCP server is bound. Requirement-based review needs one named here. If more than one compatible server is connected, choose which of them this repository uses and write its name.';
 
@@ -98,13 +109,16 @@ function createFresh(options: PlanInitOptions): InitPlan {
     );
   }
 
+  const lspPlugins = lspPluginsFor(projects.map((project) => project.ecosystem));
+  notices.push(lspNotice(lspPlugins));
+
   const document = new Document({
     schemaVersion: DEFAULTS.schemaVersion,
     baseline: options.baseline,
     review: { ...DEFAULTS.review },
     checks: { ...DEFAULTS.checks },
     page: { ...DEFAULTS.page },
-    requirements: { mcpServer: null },
+    requirements: { mcpServer: null, lsp: lspPlugins },
     projects,
     remoteChecks: { image: null },
     authoring: { ...DEFAULTS.authoring },
@@ -129,6 +143,14 @@ function updateExisting(existingRaw: string, options: PlanInitOptions): InitPlan
   if (document.get('authoring') === undefined) {
     document.set('authoring', document.createNode({ ...DEFAULTS.authoring }));
     changes.push(`Added "authoring.editReminders: ${DEFAULTS.authoring.editReminders}" (the documented default).`);
+  }
+
+  if (document.getIn(['requirements', 'lsp']) === undefined && document.get('requirements') !== undefined) {
+    const known = (document.get('projects') as YAMLSeq | undefined)?.toJSON() as { ecosystem?: unknown }[] | undefined;
+    const plugins = lspPluginsFor([...options.detected.map((project) => project.ecosystem), ...(known ?? []).map((project) => project.ecosystem)]);
+    document.setIn(['requirements', 'lsp'], document.createNode(plugins));
+    changes.push(`Added "requirements.lsp: [${plugins.join(', ')}]": every skill now loads LSP or stops. Set it to [] to allow the grep fallback.`);
+    notices.push(lspNotice(plugins));
   }
 
   if (document.getIn(['page', 'port']) === undefined) {

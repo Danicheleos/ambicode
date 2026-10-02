@@ -130,6 +130,12 @@ export const AmbicodeConfig = z.strictObject({
   page: PageConfig,
   requirements: z.strictObject({
     mcpServer: z.string().min(1).nullable(),
+    /**
+     * The language-server plugins every skill must load, one per ecosystem in the repository. When
+     * not empty, a skill that finds no LSP tool stops instead of searching with grep (an
+     * investigate run skipped it and said so afterwards). Absent or empty: no requirement.
+     */
+    lsp: z.array(z.string().min(1)).default([]),
   }),
   projects: z.array(ProjectConfig).min(1),
   remoteChecks: RemoteChecksConfig,
