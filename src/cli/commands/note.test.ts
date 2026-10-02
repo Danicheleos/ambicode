@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { readdir, readFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import { createRuntime } from '../../composition/root.ts';
@@ -70,6 +72,34 @@ describe('note save owns the name, the time and the label of a task note', () =>
       assert.match(text, /second/);
       assert.doesNotMatch(text, /first/);
     });
+  });
+
+  it('saves into the configured repository below the session directory, where the hook prepared', async () => {
+    const run = async (cwd: string) =>
+      runNoteSave(
+        await createRuntime({ cwd, clock: { now: () => NOW, elapsed: () => 0 }, stdin: { read: async () => 'note' } }),
+        parseArgs('note save', ['--task', 'x', '--kind', 'investigation'], NOTE_SAVE_OPTIONS),
+      );
+    const withConfiguredChild = async (parent: string) => {
+      execFileSync('git', ['init', '-q', path.join(parent, 'repo')]);
+      await mkdir(path.join(parent, 'repo', '.ambicode'), { recursive: true });
+      await writeFile(path.join(parent, 'repo', '.ambicode', 'config.yaml'), 'schemaVersion: 1\n');
+    };
+    // The eval sandbox's home is an unconfigured git tree holding repo/.
+    await inRepo(async (home) => {
+      await withConfiguredChild(home.root);
+      const out = await run(home.root);
+      assert.equal(out.path, 'repo/.ambicode/task/x/investigation_2026-10-02T14-35.md');
+      assert.match(await readFile(path.join(home.root, out.path), 'utf8'), /note/);
+      await assert.rejects(readdir(path.join(home.root, '.ambicode')));
+    });
+    const plain = await mkdtemp(path.join(tmpdir(), 'ambicode-note-parent-'));
+    try {
+      await withConfiguredChild(plain);
+      assert.equal((await run(plain)).path, 'repo/.ambicode/task/x/investigation_2026-10-02T14-35.md');
+    } finally {
+      await rm(plain, { recursive: true, force: true });
+    }
   });
 
   it('cannot be steered out of the task directory by the slug', async () => {

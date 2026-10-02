@@ -1,5 +1,5 @@
-import path from 'node:path';
-import { createRuntime, openRepository, type Runtime } from '../composition/root.ts';
+import { createRuntime, type Runtime } from '../composition/root.ts';
+import { findSessionRepository } from '../composition/session-repository.ts';
 import { loadConfig } from '../config/load.ts';
 import { parseArgs } from '../cli/args.ts';
 import { PREPARE_OPTIONS, runPrepare } from '../cli/commands/prepare.ts';
@@ -60,7 +60,7 @@ async function prepareForActivity(runtime: Runtime, sessionDirectory: string, ac
   // gave terms like `files` and `touch`, and okta files at ranks 5-15 (2026-10-01 session).
   if (/https?:\/\/\S+|\b[A-Z][A-Z0-9]+-\d+\b/.test(skillArgs)) {
     // A key-shaped word in prose (`NOM-36`) defers too, and then no hook message carries the reading order.
-    const found = await findRepository(runtime, sessionDirectory);
+    const found = await findSessionRepository(runtime, sessionDirectory);
     const required = typeof found === 'string' ? [] : await requiredLsp(found.repositoryRoot, runtime);
     return contextOutput(
       'AMBICODE did not run prepare: your skill args name a ticket. Fetch the ticket; a hook then runs prepare ' +
@@ -100,7 +100,7 @@ export async function prepareForTicket(
   const server = match[1]!;
   const sessionDirectory = input.cwd ?? runtime.cwd;
 
-  const found = await findRepository(runtime, sessionDirectory);
+  const found = await findSessionRepository(runtime, sessionDirectory);
   if (typeof found === 'string') return null;
   const bound = await loadConfig(runtime.fs, found.repositoryRoot)
     .then((loaded) => loaded.config.requirements.mcpServer)
@@ -153,7 +153,7 @@ function textOf(value: unknown, depth = 0): string {
 }
 
 async function preparedMessage(runtime: Runtime, sessionDirectory: string, activity: string, terms: readonly string[], source: string, request: string): Promise<string> {
-  const found = await findRepository(runtime, sessionDirectory);
+  const found = await findSessionRepository(runtime, sessionDirectory);
   if (typeof found === 'string') return unavailable(found);
 
   const taskText = mintTaskSlug(request) === null ? [] : ['--task-open', request];
@@ -200,37 +200,4 @@ function unavailable(reason: string): string {
 
 function contextOutput(additionalContext: string): PostToolUseHookOutput {
   return { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext } };
-}
-
-/**
- * The repository the skill is about: the session's own when it carries a configuration, else the one
- * configured repository directly below it. The eval sandbox's home directory is itself a git work
- * tree holding the case's `repo/`, so "the session is inside a repository" alone picks the wrong one.
- */
-async function findRepository(runtime: Runtime, directory: string): Promise<{ repositoryRoot: string; where: string } | string> {
-  const { fs } = runtime;
-  const isRepository = async (candidate: string): Promise<string | null> => {
-    const probe = await createRuntime({ ...runtime, cwd: candidate }).catch(() => null);
-    if (probe === null) return null;
-    return openRepository(probe).then((opened) => opened.repositoryRoot).catch(() => null);
-  };
-  const configured = (root: string) => fs.exists(path.join(root, '.ambicode', 'config.yaml'));
-
-  const here = await isRepository(directory);
-  if (here !== null && (await configured(here))) return { repositoryRoot: here, where: '.' };
-
-  // Named by directory entry, never by `path.relative`: macOS reaches /tmp through a symlink, and a
-  // lexical relative path between /var/... and /private/var/... climbs out of the session directory.
-  const below: { root: string; name: string }[] = [];
-  for (const entry of await fs.readdir(directory).catch(() => [])) {
-    if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules') continue;
-    const candidate = path.join(directory, entry.name);
-    if ((await fs.exists(path.join(candidate, '.git'))) && (await configured(candidate))) below.push({ root: candidate, name: entry.name });
-  }
-  if (below.length === 1) return { repositoryRoot: below[0]!.root, where: below[0]!.name };
-  // Nothing configured to choose: let `prepare` name what is missing in the session's own repository.
-  if (below.length === 0 && here !== null) return { repositoryRoot: here, where: '.' };
-  const name = path.basename(directory) || directory;
-  if (below.length === 0) return `no git repository in ${name} or directly below it`;
-  return `${below.length} configured git repositories below ${name}, and no way to tell which one the skill is about`;
 }

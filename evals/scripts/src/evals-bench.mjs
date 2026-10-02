@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 export const BENCHMARKS = path.join(ROOT, 'benchmarks');
 export const CASES_DIRECTORY = 'cases';
 export const BENCH_EVAL_DIR = 'benchmarks';
@@ -646,7 +646,8 @@ function caseMeta(evalCase, benchmarks) {
  * The no-plugin arm depends on the model, the Claude Code version and the prompt, not on the plugin, so
  * one run of it serves every later plugin-only run. Anything that could make it stale is refused.
  */
-export function withBaseline(results, baseline, { baselinePath }) {
+/** `arm` picks the cached arm that stands in as `without`: `with` compares against another plugin's arm (the LSP-only control). */
+export function withBaseline(results, baseline, { baselinePath, arm = 'without' }) {
   const refuse = (why) => {
     throw new Error(`baseline ${baselinePath} refused: ${why}`);
   };
@@ -659,10 +660,10 @@ export function withBaseline(results, baseline, { baselinePath }) {
     const cached = (baseline.cases ?? []).find((c) => c.name === evalCase.name);
     if (!cached) refuse(`it has no case ${evalCase.name}`);
     if (cached.promptMarkdown !== evalCase.promptMarkdown) refuse(`${evalCase.name}'s prompt differs from the one it ran`);
-    if (!cached.arms?.without?.length) refuse(`${evalCase.name} has no without arm in it`);
-    return { ...evalCase, arms: { ...evalCase.arms, without: cached.arms.without } };
+    if (!cached.arms?.[arm]?.length) refuse(`${evalCase.name} has no ${arm} arm in it`);
+    return { ...evalCase, arms: { ...evalCase.arms, without: cached.arms[arm] } };
   });
-  return { ...results, cases, baseline: { file: baselinePath, startedAt: baseline.startedAt ?? null } };
+  return { ...results, cases, baseline: { file: baselinePath, arm, startedAt: baseline.startedAt ?? null } };
 }
 
 export function score(results, { benchmarks = BENCHMARKS, tracesDir = null } = {}) {

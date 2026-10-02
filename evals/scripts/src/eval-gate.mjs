@@ -26,8 +26,8 @@ export function repetitionMeans(rows, metric) {
   return [...byRun.keys()].sort((a, b) => a - b).map((k) => mean(byRun.get(k)));
 }
 
-export function gate(given, { benchmarks = BENCHMARKS, tracesDir = null, budget = BUDGET, baseline = null, baselinePath = null } = {}) {
-  const results = baseline ? withBaseline(given, baseline, { baselinePath }) : given;
+export function gate(given, { benchmarks = BENCHMARKS, tracesDir = null, budget = BUDGET, baseline = null, baselinePath = null, baselineArm = 'without' } = {}) {
+  const results = baseline ? withBaseline(given, baseline, { baselinePath, arm: baselineArm }) : given;
   const { runs } = score(results, { benchmarks, tracesDir });
   const checks = [];
   const info = [];
@@ -38,7 +38,7 @@ export function gate(given, { benchmarks = BENCHMARKS, tracesDir = null, budget 
 
   if (results.baseline) {
     const days = (Date.parse(results.startedAt) - Date.parse(results.baseline.startedAt)) / 86_400_000;
-    info.push(`without arm: cached baseline ${results.baseline.file}, started ${results.baseline.startedAt ?? 'at an unrecorded time'}, ${Number.isFinite(days) ? `${fmt(days, 1)} days` : 'an unknown time'} before this run`);
+    info.push(`without arm: the ${results.baseline.arm} arm of cached baseline ${results.baseline.file}, started ${results.baseline.startedAt ?? 'at an unrecorded time'}, ${Number.isFinite(days) ? `${fmt(days, 1)} days` : 'an unknown time'} before this run`);
   }
 
   check('complete', !results.partial, results.partial ? 'the harness reported a partial run' : 'not partial');
@@ -118,6 +118,7 @@ function main(argv) {
   };
   const tracesAt = option('--traces');
   const baselinePath = option('--baseline');
+  const baselineArm = option('--baseline-arm') ?? 'without';
   const budget = { ...BUDGET };
   for (const [flag, key] of [['--min-runs', 'minRuns'], ['--max-cost-ratio', 'maxCostRatio'], ['--max-extra-turns', 'maxExtraTurns'], ['--max-absent-share', 'maxAbsentShare']]) {
     const value = option(flag);
@@ -125,11 +126,11 @@ function main(argv) {
   }
   const [file] = argv;
   if (!file)
-    throw new Error('usage: eval-gate.mjs <eval-results.json> [--baseline <with-without-results.json>] [--traces <dir>] [--min-runs n] [--max-cost-ratio x] [--max-extra-turns n] [--max-absent-share x]');
+    throw new Error('usage: eval-gate.mjs <eval-results.json> [--baseline <with-without-results.json> [--baseline-arm without|with]] [--traces <dir>] [--min-runs n] [--max-cost-ratio x] [--max-extra-turns n] [--max-absent-share x]');
   const results = JSON.parse(readFileSync(file, 'utf8'));
   const tracesDir = tracesAt ?? path.join(path.dirname(path.resolve(file)), 'traces');
   const baseline = baselinePath === undefined ? null : JSON.parse(readFileSync(baselinePath, 'utf8'));
-  const verdict = gate(results, { tracesDir, budget, baseline, baselinePath });
+  const verdict = gate(results, { tracesDir, budget, baseline, baselinePath, baselineArm });
   for (const c of verdict.checks) console.log(`${{ pass: 'pass', fail: 'FAIL', gap: 'GAP ' }[c.status]}  ${c.name}: ${c.detail}`);
   for (const line of verdict.info) console.log(`info  ${line}`);
   const gaps = verdict.gaps ? `, ${verdict.gaps} unmeasured` : '';

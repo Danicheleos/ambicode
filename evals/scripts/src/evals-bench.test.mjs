@@ -340,7 +340,7 @@ describe('evals-bench: a cached no-plugin arm', () => {
   it('takes the without arm from the baseline, and keeps where it came from', () => {
     const merged = withBaseline(withOnly, baseline, { baselinePath: 'b.json' });
     assert.deepEqual(merged.cases[0].arms, { with: [{ turns: 9 }], without: [{ turns: 7 }] });
-    assert.deepEqual(merged.baseline, { file: 'b.json', startedAt: '2026-09-29T00:00:00.000Z' });
+    assert.deepEqual(merged.baseline, { file: 'b.json', arm: 'without', startedAt: '2026-09-29T00:00:00.000Z' });
     assert.equal(withOnly.cases[0].arms.without, undefined, 'the run it was given is not modified');
   });
 

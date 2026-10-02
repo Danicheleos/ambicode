@@ -4,6 +4,7 @@ import path from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
+import { READING_ORDER } from '../code-intelligence/navigation.ts';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SKILLS_DIR = path.join(repositoryRoot, 'skills');
@@ -341,6 +342,14 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.match(shared, /Navigation: targeted-search fallback — <specific reason>/);
     assert.match(shared, /installed or recommended alone/i);
     assert.match(shared, /broad search is allowed and is reported with its reason/i);
+  });
+
+  it('has every findReferences user repeat a call that lists only the defining file, since a cold server answers that way', async () => {
+    // Measured 2026-10-02: the first call on a 532-file project found 2 of 11 references, a call 5 s later all 11.
+    assert.match(READING_ORDER, /only the file you asked about can be a cold server: call it again/);
+    const impact = (await readFile(path.join(SKILLS_DIR, 'review', 'references', 'impact.md'), 'utf8')).replace(/\s+/g, ' ');
+    assert.match(impact, /start with one `documentSymbol` on a changed file, and call again any `findReferences` that lists only the defining file/);
+    assert.match(impact, /Zero references to a removed name, confirmed by a second call/);
   });
 
   it('starts task and investigate from the boundary shortlist, and points at the shared shortlist discipline (R4)', async () => {

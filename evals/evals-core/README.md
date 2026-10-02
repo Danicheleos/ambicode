@@ -274,3 +274,33 @@ judge (Haiku, 3 votes)   ~2%
 
 The number of runs and turns × context drive the cost. Thinking and the judge
 barely do.
+
+## Three arms with LSP
+
+The sandbox loads only the plugin under test, so a run has the `LSP` tool only
+when that plugin declares `lspServers` (probed 2026-10-02). The question is
+whether AMBICODE beats the model *with* LSP, not whether LSP beats grep. So
+there are three arms:
+
+- **N**, naked: the without arm of the control run.
+- **L**, `lsp-only`: a plugin that only declares the TypeScript server.
+- **A**, `ambicode-lsp`: the packaged plugin plus the same `lspServers`.
+
+```sh
+npm run package:candidate
+node evals/scripts/src/lsp-arms.mjs [--case <name>]...   # .tmp/lsp-arms/{lsp-only,ambicode-lsp}
+node evals/scripts/src/evals-bench.mjs run --plugin .tmp/lsp-arms/lsp-only --trust-plugin \
+  --ablation with-without --runs 3 --model claude-sonnet-5-5 --max-cost-usd <usd> -j 4
+node evals/scripts/src/evals-bench.mjs run --plugin .tmp/lsp-arms/ambicode-lsp --trust-plugin \
+  --ablation none --runs 3 --model claude-sonnet-5-5 --max-cost-usd <usd> -j 4
+npm run evals:gate -- <A>.json --baseline <L>.json                       # A vs N
+npm run evals:gate -- <A>.json --baseline <L>.json --baseline-arm with   # A vs L
+```
+
+- The builder copies the localize cases only. Review cases replay a recorded
+  reviewer, so LSP does not change what they measure.
+- Every arm's scaffold commits the same root `tsconfig.json`. The snapshots
+  have none, and without one the server builds an inferred project per open
+  file, so references reach only the files that file imports.
+- The first `findReferences` of a session can be partial until the server has
+  loaded the project, about 5 s on 532 files (G25 in `known-gaps.md`).

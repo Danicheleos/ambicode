@@ -115,6 +115,16 @@ describe('eval-gate', () => {
     assert.deepEqual(failed(gate(worse, { benchmarks, tracesDir, baseline, baselinePath: 'b.json' })), ['localize: recall']);
   });
 
+  it('compares against another plugin\'s with arm when asked, the LSP-only control', () => {
+    const control = { ...results([run(1), run(1), run(1)], [run(0.5), run(0.5), run(0.5)]), claudeVersion: '2.1.285', startedAt: '2026-10-02T00:00:00.000Z' };
+    const current = { ...results([run(0.5), run(0.5), run(0.5)], undefined), claudeVersion: '2.1.285', startedAt: '2026-10-02T01:00:00.000Z', aggregates: {} };
+    delete current.cases[0].arms.without;
+    assert.deepEqual(failed(gate(current, { benchmarks, tracesDir, baseline: control, baselinePath: 'l.json' })), [], 'level with the naked arm');
+    const verdict = gate(current, { benchmarks, tracesDir, baseline: control, baselinePath: 'l.json', baselineArm: 'with' });
+    assert.deepEqual(failed(verdict), ['localize: recall'], 'below the control plugin');
+    assert.ok(verdict.info.some((line) => line.includes('the with arm of cached baseline l.json')));
+  });
+
   it('averages each repetition across cases, skipping absent runs', () => {
     const rows = [
       { run: 0, recall: 1 },

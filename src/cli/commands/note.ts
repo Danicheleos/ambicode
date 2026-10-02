@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { openRepository, type Runtime } from '../../composition/root.ts';
+import { findSessionRepository } from '../../composition/session-repository.ts';
 import { TASKS_DIR } from '../../config/defaults.ts';
 import { localTimestamp, taskSlugFor } from '../../review/review-name.ts';
 import { appendLedger } from '../../task/ledger.ts';
@@ -50,7 +51,9 @@ export async function runNoteSave(runtime: Runtime, args: ParsedArgs): Promise<N
     throw new AmbicodeError('bad-argument', `"note save" reads the note from standard input, up to ${MAX_NOTE_BYTES} bytes; it got nothing usable.`, { field: 'stdin' });
   }
 
-  const { repositoryRoot } = await openRepository(runtime);
+  // The hook prepares for the configured repository below the session directory; the note must land there too.
+  const found = await findSessionRepository(runtime, runtime.cwd);
+  const { repositoryRoot, where } = typeof found === 'string' ? { ...(await openRepository(runtime)), where: '.' } : found;
   const directory = path.join(repositoryRoot, TASKS_DIR, task);
   await runtime.fs.mkdirp(directory);
 
@@ -73,7 +76,7 @@ export async function runNoteSave(runtime: Runtime, args: ParsedArgs): Promise<N
   }
   const relative = path.relative(repositoryRoot, file).split(path.sep).join('/');
   await appendLedger(runtime.fs, directory, runtime.clock.now(), { kind: 'note', note: kind, path: relative, contentHash: contentHash(text) });
-  return { command: 'note save', task, kind: kind as NoteKind, path: relative };
+  return { command: 'note save', task, kind: kind as NoteKind, path: where === '.' ? relative : `${where}/${relative}` };
 }
 
 export function renderNoteSave(output: NoteSaveOutput): string {
