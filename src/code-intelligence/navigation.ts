@@ -26,7 +26,7 @@ const GUIDANCE: Record<Ecosystem, Omit<NavigationGuidance, 'ecosystem'>> = {
     serverCommand: 'typescript-language-server',
     setupCommands: [
       'claude plugin install typescript-lsp@claude-plugins-official --scope user',
-      'npm install -g typescript-language-server typescript',
+      'npm install -g typescript-language-server typescript@6',
     ],
     statusSource: 'current-session',
     evidenceRequirement: EVIDENCE_REQUIREMENT,

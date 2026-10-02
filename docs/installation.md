@@ -156,7 +156,7 @@ For TypeScript/JavaScript:
 
 ```text
 claude plugin install typescript-lsp@claude-plugins-official --scope user
-npm install -g typescript-language-server typescript
+npm install -g typescript-language-server typescript@6
 ```
 
 For Python:
