@@ -8,7 +8,7 @@ await rm(new URL('./scripts/ambicode.mjs', import.meta.url), { force: true });
 await rm(new URL('./scripts/chunks/', import.meta.url), { recursive: true, force: true });
 
 await build({
-  entryPoints: { ambicode: 'src/cli/main.ts' },
+  entryPoints: { ambicode: 'src/cli/main.ts', guard: 'src/hook/guard.ts' },
   outdir: 'scripts',
   outExtension: { '.js': '.mjs' },
   // `view` is imported dynamically so its page server (Fastify, Eta) is parsed

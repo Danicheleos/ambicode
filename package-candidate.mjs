@@ -25,6 +25,7 @@ const FILE_ALLOWLIST = [
   { from: 'bin/ambicode', mode: 0o755 },
   { from: 'bin/ambicode.cmd', mode: 0o644 },
   { from: 'scripts/ambicode.mjs', mode: 0o644 },
+  { from: 'scripts/guard.mjs', mode: 0o644 },
   { from: 'hooks/hooks.json', mode: 0o644 },
   { from: 'docs/installation.md', mode: 0o644 },
   { from: 'docs/compatibility.md', mode: 0o644 },
@@ -200,18 +201,16 @@ async function checkHooksManifest(candidateDir) {
     throw new Error(`${manifestPath} is missing or not valid JSON: ${cause instanceof Error ? cause.message : cause}`);
   }
   const events = Object.keys(manifest.hooks ?? {});
-  const expectedEvents = ['PostToolUse', 'SessionStart', 'UserPromptSubmit', 'PostCompact', 'SessionEnd'];
+  const expectedEvents = ['PostToolUse', 'PreToolUse', 'SessionStart', 'UserPromptSubmit', 'PostCompact', 'SessionEnd'];
   for (const event of expectedEvents) {
     if (!events.includes(event)) throw new Error(`hooks/hooks.json is missing the "${event}" event.`);
   }
   for (const event of events) {
     for (const matcher of manifest.hooks[event]) {
       for (const entry of matcher.hooks ?? []) {
-        if (
-          entry.type !== 'command' ||
-          entry.command !== 'node' ||
-          JSON.stringify(entry.args) !== JSON.stringify(['${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs', 'hook'])
-        ) {
+        // The guard is a second entry on purpose: it runs before every matching Bash call, and the CLI bundle starts 2.6x slower.
+        const args = event === 'PreToolUse' ? ['${CLAUDE_PLUGIN_ROOT}/scripts/guard.mjs'] : ['${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs', 'hook'];
+        if (entry.type !== 'command' || entry.command !== 'node' || JSON.stringify(entry.args) !== JSON.stringify(args)) {
           throw new Error(
             `hooks/hooks.json's "${event}" entry does not route through the single bundled entry point ` +
               '`node ${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs hook` in cross-platform exec form.',

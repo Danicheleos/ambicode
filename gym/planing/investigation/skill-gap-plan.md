@@ -545,6 +545,27 @@ Measured: text-only "never truncate" failed 28/31.
 - False denies block real work, which is why grey cases get `ask`.
 - The ledger is a new artifact, kept append-only and schema-tolerant.
 
+**Slice 1 result, 2026-10-02 (git-write guard only; the rest of this iteration is not started).**
+- Built: `scripts/guard.mjs`, a second bundle entry with no imports, wired as `PreToolUse` on
+  `Bash` with `if: Bash(git *)` and `if: Bash(glab mr*)`. It answers `ask` (not `deny`) for
+  `git commit|push|stash|reset|checkout|clean` and `glab mr`; `stash list|show` and quoted text pass.
+  `ask` is the release: the user can approve.
+- Probed, not assumed: `if` matches the git part of a compound command (`ls && git status`,
+  `echo hi; git log`) and skips `ls src | head`; `additionalContext` from `PreToolUse` arrives after the
+  call, and a `deny` reason is obeyed (the model switched tools); the hook input carries `transcript_path`.
+- Latency over 20 spawns, medians: bare `node -e 0` 29 ms, guard 34 ms, CLI bundle `hook` 89 ms.
+  The 50 ms target holds; the `if` filter means non-git Bash calls pay nothing.
+- Real runs on Haiku, three modes: `default` and `bypassPermissions` both stopped `git commit` and
+  let `git status` through; the packaged `dist/` artifact stopped `git push` and let `git log` and
+  `git stash list` through. `ask` is honoured under `bypassPermissions`.
+- False positives on past behaviour: 0 of 5,301 Bash calls in 712 eval traces would have asked. The
+  same traces show those agents never ran a git write, so the guard was not exercised by them either.
+- `package-candidate.mjs` now ships `guard.mjs` and lets `PreToolUse` entries use it; every other
+  event still has to route through `ambicode.mjs hook`. `package:reproducible` agrees (51 files).
+- Not done: deny of `.ambicode/task/**` writes (needs `note save` first, since investigate and plan
+  write notes with `Write`), the `ask` on out-of-set edits, the ledger. `bash -c "git commit"` is
+  not caught.
+
 ### Iteration 6: evidence from the record
 Effort M–L, 1–2 weeks. Spend: `evals:walk` (≈ $1.2), then one `evals:decide` (≈ $14).
 
