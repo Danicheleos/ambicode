@@ -598,6 +598,42 @@ Measured: text-only "never truncate" failed 28/31.
   (settings file in the probes doc). Until it runs, G13 stays open and `plan` still labels any save "accepted".
 - Tests: 861 (9 new), 860 pass, 1 skipped (the Windows-shim case, as before).
 
+**Slice 4 result, 2026-10-02 (`--task-open`).**
+- Built: `prepare --task-open <ticket id or request>` adds `task: {slug, directory, existing}` to the compact and
+  verbose output. The slug is a requirement's id when one is supplied (in the order the caller gave the URLs, as
+  `review` names its directory), else a ticket key in the text, else the first five non-filler words in kebab
+  case, else `task-<hash>` for text with no Latin word (`src/task/slug.ts`). `existing` says an earlier skill
+  already left work there. `prepare` still writes nothing. The `Skill`, slash-command and ticket hooks pass the
+  request or the ticket key from the call's own arguments; investigate and plan name `task.slug` as the `--task`.
+  `task` is unchanged: it takes the directory of the accepted plan, and its file is 1 byte under its ceiling.
+- Not built: the 5-line `prepare` header and deleting `prepare-output.md`; the 30,000-character cap.
+- Dropped, with the evidence: the `ask` on out-of-set edits (G17) and the standalone Edit hook (G18). The 712
+  eval traces hold 1 Edit/Write in 7,709 tool calls, so neither the 20% ask-rate limit nor the hook's cost can be
+  measured on them. They wait for the iteration 7 task suite.
+- Tests: 873 (12 new), 872 pass, 1 skipped (as before). No ceiling raised.
+
+**G6 result, 2026-10-02 (no change made).** Measured on the BE and FE scaffolds with the packaged plugin:
+
+```
+payload, 3 terms            BE        FE        rules in it            command decisions
+investigate                 4,099     4,086     0 (15 omitted)
+plan                        14,016    13,289    28 / 25  (9.7 / 8.9 KB)
+task                        16,510    16,172    33 / 31  (11.5 / 11.1 KB)
+task BE, rule fields:  instructions 5,846 B, check text 2,356 B, ids 609 B, category 5 groups
+```
+
+Four headless Sonnet runs (`claude -p --plugin-dir dist/ambicode-0.4.0`, $0.13–0.29 each): all four opened with a
+`Read` of the saved payload (14.5, 14.6, 17.3 and 17.6 KB, whole), then navigated. The cost of the file path is one
+turn. Cutting rules would trade that turn for applicable policy; rendering the rules as text instead of JSON saves
+about 2 KB (estimate, not built), which does not reach the window either. Dropped on that evidence.
+
+**G13, 2026-10-02 (built, then reverted).** Two real plan sessions (one accepted, one rejected) show the agent
+following the skill: saved after "Accept and save", nothing saved after "Reject". The `AskUserQuestion` result
+carries the choice (`answers: {"<question>": "Accept and save"}`), so a hook could record it. A hook, marker file and
+10-minute window were built and tested, then removed: the guard protects against a failure seen once (one Haiku
+run), adds moving parts to a flow that works, and would have labelled plans saved after `ExitPlanMode` as
+unconfirmed. Left open as low priority in `known-gaps.md`.
+
 ### Iteration 6: evidence from the record
 Effort M–L, 1–2 weeks. Spend: `evals:walk` (≈ $1.2), then one `evals:decide` (≈ $14).
 

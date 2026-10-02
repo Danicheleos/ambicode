@@ -51,7 +51,7 @@ A hook runs `prepare` when this skill loads: read its message (`AMBICODE ran \`p
 
 ```sh
 node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" prepare --activity plan --json [paths...] [--project <id>] \
-  [--requirement <url>]... [--evidence -] [--term <term>]...
+  [--requirement <url>]... [--evidence -] [--term <term>]... [--task-open "<ticket id or request>"]
 ```
 
 with step 1's URLs and envelope and your first guess at the paths. Read the
@@ -155,7 +155,7 @@ below. Structure the content as:
   decline included, so the gate is not a trap. Never enter plan mode just to
   get the widget, and never narrate which mode you are in: the human is
   deciding on a roadmap, not on harness state.
-- **Save the plan the human accepts** with `node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" note save --task <slug> --kind plan`, the plan on stdin, where `<slug>` is the requirement id (`ORD-17`) or, with no ticket, a short kebab of the request (`raise-upload-limit`). The CLI names the file, stamps the time and adds the "**plan** — accepted" label; a direct write to `.ambicode/task/` is denied. One
+- **Save the plan the human accepts** with `node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" note save --task <slug> --kind plan`, the plan on stdin, where `<slug>` is prepare's `task.slug`. The CLI names the file, stamps the time and adds the "**plan** — accepted" label; a direct write to `.ambicode/task/` is denied. One
   directory holds everything about one task — plan, investigation, reviews —
   and it is what `/ambicode:task` opens: a plan left only in Claude Code's plan file is outside the repository. A saved plan is plain Markdown: the step 5 structure and nothing else. No task database, hidden
   state, event log, or mandatory identifier. **Do not save a draft** the

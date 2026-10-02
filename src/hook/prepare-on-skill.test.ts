@@ -66,6 +66,21 @@ describe('PostToolUse on the Skill tool runs prepare by construction', () => {
     }
   });
 
+  it('puts the request\'s task slug in the prepare output, so every skill for it names one directory', async () => {
+    const repo = await initializedRepo();
+    try {
+      const context = (await contextOf(repo.root, 'ambicode:investigate', 'How does reserveStock in the orders service handle an order?')) ?? '';
+      const task = (preparedJson(context) as { task?: { slug: string; directory: string } }).task;
+      assert.equal(task?.slug, 'reservestock-orders-service-handle-order');
+      assert.equal(task?.directory, '.ambicode/task/reservestock-orders-service-handle-order');
+      assert.match(context, /task\.slug, when present, is the --task for note save and review/);
+      const deferred = (await contextOf(repo.root, 'ambicode:plan', 'ORD-17 which files would this change touch?')) ?? '';
+      assert.match(deferred, /--task-open "ORD-17 which files would this change touch\?"/);
+    } finally {
+      await repo.dispose();
+    }
+  });
+
   it('uses the skill\'s own activity for plan and task', async () => {
     const repo = await initializedRepo();
     try {
@@ -270,6 +285,21 @@ describe('PostToolUse on an Atlassian read tool prepares from the ticket text', 
       const prepared = preparedJson(context) as { navigation: { shortlist?: { terms: string[]; candidates: { path: string }[] } }; policy?: { rulesOmitted?: unknown } };
       assert.equal(prepared.navigation.shortlist?.candidates[0]?.path, 'src/orders/service.ts');
       assert.ok(!prepared.navigation.shortlist?.terms.some((term) => /customfield|fields|^text$|data-|smartlink|merge_requests|git\.example|2e85882c|2026-03/i.test(term)), `noise in ${prepared.navigation.shortlist?.terms.join(', ')}`);
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it('names the task after the ticket the call asked for, though the response carries no usable key', async () => {
+    const repo = await initializedRepo();
+    try {
+      const runtime = await createRuntime({ cwd: repo.root });
+      const output = (await runHook(
+        runtime,
+        JSON.stringify({ hook_event_name: 'PostToolUse', session_id: randomUUID(), cwd: repo.root, tool_name: 'mcp__claude_ai_Atlassian_Rovo__getJiraIssue', tool_input: { issueIdOrKey: 'ORD-17' }, tool_response: ticket('Why does reserveStock double count an order?') }),
+      )) as { hookSpecificOutput?: { additionalContext: string } };
+      const task = (preparedJson(output.hookSpecificOutput?.additionalContext ?? '') as { task?: { slug: string } }).task;
+      assert.equal(task?.slug, 'ORD-17');
     } finally {
       await repo.dispose();
     }

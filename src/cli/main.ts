@@ -85,6 +85,12 @@ export const USAGE = `ambicode <command> [options]
                                                   repeatable. Without any, the
                                                   terms come from the requirement
                                                   text when evidence is supplied.
+                            --task-open <text>    Name this request's task directory:
+                                                  a ticket id, or the request in
+                                                  words. The output's task.slug is
+                                                  the directory note save and
+                                                  review take. A requirement's id
+                                                  wins over the text.
                             --with-contract       Inline the shared operating
                                                   contract's text, for a session
                                                   the AMBICODE hook never reached.

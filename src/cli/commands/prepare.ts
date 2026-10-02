@@ -1,3 +1,4 @@
+import path from 'node:path';
 import {
   openWorkspace,
   projectForRequest,
@@ -16,11 +17,13 @@ import {
   type PreparePolicy,
 } from '../../contracts/prepare.ts';
 import type { ProjectConfig } from '../../contracts/config.ts';
-import { MAX_SNAPSHOT_FILE_BYTES } from '../../config/defaults.ts';
+import { MAX_SNAPSHOT_FILE_BYTES, TASKS_DIR } from '../../config/defaults.ts';
+import { taskSlugFor } from '../../review/review-name.ts';
+import { mintTaskSlug } from '../../task/slug.ts';
 import type { FileSystem } from '../../ports/filesystem.ts';
 import { applicablePrepareStages } from '../../policy/resolve.ts';
 import { configProvenance, packProvenance } from '../../policy/provenance.ts';
-import { loadRequirementEvidence, normalizeRequirements } from '../../requirements/normalize.ts';
+import { canonicalUrl, loadRequirementEvidence, normalizeRequirements } from '../../requirements/normalize.ts';
 import { readSharedOperatingContract } from '../../policy/shared-contract.ts';
 import { byteLength } from '../../snapshot/limits.ts';
 import { AmbicodeError } from '../../util/errors.ts';
@@ -39,7 +42,7 @@ import {
 import type { Git } from '../../git/git.ts';
 
 export const PREPARE_OPTIONS = {
-  values: ['activity', 'project', 'evidence'],
+  values: ['activity', 'project', 'evidence', 'task-open'],
   repeated: ['requirement', 'term'],
   flags: ['json', 'verbose', 'with-contract'],
   positionals: true,
@@ -114,8 +117,11 @@ export async function runPrepare(
     limit: options.shortlistLimit ?? PREPARE_SHORTLIST_LIMIT,
   });
 
+  const task = await taskFor(runtime.fs, workspace.repositoryRoot, args.value('task-open'), args.all('requirement'), requirements.sources);
+
   const detail = await toDraftOutput({
     fs: runtime.fs,
+    task,
     activity,
     project,
     paths,
@@ -270,6 +276,7 @@ export function toCompactOutput(
     requirementMode: detail.requirementMode,
     ...(detail.requirements.length === 0 ? {} : { requirements: detail.requirements }),
     ...(detail.notices.length === 0 ? {} : { notices: detail.notices }),
+    ...(detail.task === undefined ? {} : { task: detail.task }),
     navigation: {
       strategy: detail.navigation.strategy,
       ecosystem: detail.navigation.ecosystem,
@@ -365,7 +372,31 @@ async function shortlistFor(options: {
   };
 }
 
+/**
+ * Absent unless the caller asked with `--task-open`. A requirement's id wins over the text, in the order the
+ * caller gave the URLs, as `review` names its directory: the ticket, not its Confluence page.
+ */
+async function taskFor(
+  fs: FileSystem,
+  repositoryRoot: string,
+  text: string | null,
+  urls: readonly string[],
+  sources: readonly { id: string; url: string }[],
+): Promise<PrepareOutput['task']> {
+  if (text === null) return undefined;
+  const named = urls
+    .map((url) => sources.find((source) => canonicalUrl(source.url) === canonicalUrl(url))?.id)
+    .filter((id): id is string => id !== undefined);
+  const slug = taskSlugFor({ requirementIds: named.length > 0 ? named : sources.map((source) => source.id), task: named.length > 0 || sources.length > 0 ? null : mintTaskSlug(text) });
+  if (slug === null) {
+    throw new AmbicodeError('bad-argument', '"--task-open" needs a ticket id or the request in words; it got nothing to name a task from.', { field: 'task-open' });
+  }
+  const directory = `${TASKS_DIR}/${slug}`;
+  return { slug, directory, existing: await fs.exists(path.join(repositoryRoot, directory)) };
+}
+
 async function toDraftOutput(options: {
+  task: PrepareOutput['task'];
   fs: FileSystem;
   activity: Activity;
   project: ProjectConfig;
@@ -397,6 +428,7 @@ async function toDraftOutput(options: {
       `${a.kind}${a.reference}`.localeCompare(`${b.kind}${b.reference}`),
     ),
     notices: options.requirements.notices,
+    ...(options.task === undefined ? {} : { task: options.task }),
     navigation: {
       ...navigationFor(options.project.ecosystem),
       ...(options.shortlist === undefined ? {} : { shortlist: options.shortlist }),
@@ -538,6 +570,7 @@ export function renderPrepare(run: PrepareRun): string {
   if (output.requirements.length > 0) {
     lines.push(...output.requirements.map((source) => `  ${source.id}  ${source.url}`));
   }
+  if (output.task !== undefined) lines.push(`task:     ${output.task.slug} (${output.task.directory}${output.task.existing ? ', already exists' : ''})`);
   lines.push(`  evidence: ${output.navigation.evidenceRequirement}`);
   lines.push(`  reading: ${output.navigation.readGuidance}`);
 

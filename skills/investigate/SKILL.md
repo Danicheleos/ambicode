@@ -38,7 +38,7 @@ either.
 
    ```sh
    node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" prepare --activity investigate --json [paths...] [--project <id>] \
-     [--requirement <url>]... [--evidence -] [--term <term>]...
+     [--requirement <url>]... [--evidence -] [--term <term>]... [--task-open "<ticket id or request>"]
    ```
 
    with step 1's URLs and envelope and your first guess at the paths. `--term`
@@ -99,7 +99,7 @@ act on one.
 **Save the note every time**, in addition to the answer, never instead of
 it. **Do not ask** — `/ambicode:plan` reads it next. Say in one line where you saved it.
 
-- Save it with `node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" note save --task <slug> --kind investigation`, the note on stdin. Slug = the requirement id, or a short kebab of the question. The CLI names the file, stamps the time and labels it an investigation note; a direct write to `.ambicode/task/` is denied. `ambicode init` gitignores that directory.
+- Save it with `node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" note save --task <slug> --kind investigation`, the note on stdin. `<slug>` = `task.slug` from the prepare output, which the CLI names from the ticket or the request so every skill for it shares one directory. The CLI names the file, stamps the time and labels it an investigation note; a direct write to `.ambicode/task/` is denied. `ambicode init` gitignores that directory.
 - Carry step 6's shape, as prose and lists, in a plain file.
 
 ## Scope

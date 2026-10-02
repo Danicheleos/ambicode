@@ -102,6 +102,15 @@ export const PrepareNavigation = z.strictObject({
 });
 export type PrepareNavigation = z.infer<typeof PrepareNavigation>;
 
+/** Where this request's notes and reviews go. Minted by the CLI so every skill for one request names the same directory. */
+export const PrepareTask = z.strictObject({
+  slug: z.string().min(1),
+  directory: z.string().min(1),
+  /** The directory already holds an earlier skill's output for this request. */
+  existing: z.boolean(),
+});
+export type PrepareTask = z.infer<typeof PrepareTask>;
+
 export const PrepareOutput = z.strictObject({
   command: z.literal('prepare'),
   activity: Activity,
@@ -111,6 +120,7 @@ export const PrepareOutput = z.strictObject({
   requirements: z.array(RequirementSource),
   provenance: z.array(ProvenanceEntry),
   notices: z.array(z.string()),
+  task: PrepareTask.optional(),
   // Before `policy`: a truncated read loses the tail, and navigation must survive it.
   // Zod re-emits keys in shape order, so this declaration fixes the printed order.
   navigation: PrepareNavigation,
@@ -203,6 +213,7 @@ export const PrepareCompactOutput = z.strictObject({
   requirementMode: RequirementMode,
   requirements: z.array(RequirementSource).min(1).optional(),
   notices: z.array(z.string()).min(1).optional(),
+  task: PrepareTask.optional(),
   // Same order as the verbose shape, for the same reason.
   navigation: PrepareCompactNavigation,
   policy: PrepareCompactPolicy,

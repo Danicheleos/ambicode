@@ -6,6 +6,7 @@ import { PREPARE_OPTIONS, runPrepare } from '../cli/commands/prepare.ts';
 import { termsFromRequirements } from '../code-intelligence/locate.ts';
 import { READING_ORDER } from '../code-intelligence/navigation.ts';
 import type { PostToolUseHookOutput } from '../contracts/hook.ts';
+import { mintTaskSlug } from '../task/slug.ts';
 import { isAmbicodeError } from '../util/errors.ts';
 import { formatJsonOutput } from '../util/json-output.ts';
 
@@ -60,12 +61,13 @@ async function prepareForActivity(runtime: Runtime, sessionDirectory: string, ac
   if (/https?:\/\/\S+|\b[A-Z][A-Z0-9]+-\d+\b/.test(skillArgs)) {
     return contextOutput(
       'AMBICODE did not run prepare: your skill args name a ticket. Fetch the ticket; a hook then runs prepare ' +
-        "on its text. If that message does not appear, run prepare yourself, as the skill's prepare step says.",
+        "on its text. If that message does not appear, run prepare yourself, as the skill's prepare step says. " +
+        `Pass --task-open ${JSON.stringify(skillArgs.trim())} to it: task.slug names this request's directory.`,
     );
   }
 
   const terms = termsFromRequirements([{ title: '', content: skillArgs }]);
-  return contextOutput(await preparedMessage(runtime, sessionDirectory, activity, terms, 'your skill args'));
+  return contextOutput(await preparedMessage(runtime, sessionDirectory, activity, terms, 'your skill args', skillArgs));
 }
 
 /**
@@ -87,7 +89,7 @@ const MAX_TICKET_CHARS = 60_000;
  */
 export async function prepareForTicket(
   runtime: Runtime,
-  input: { cwd?: string | undefined; tool_name?: string | undefined; tool_response?: unknown },
+  input: { cwd?: string | undefined; tool_name?: string | undefined; tool_input?: unknown; tool_response?: unknown },
 ): Promise<PostToolUseHookOutput | null> {
   const match = input.tool_name === undefined ? null : TICKET_TOOL.exec(input.tool_name);
   if (match === null) return null;
@@ -105,7 +107,9 @@ export async function prepareForTicket(
   const text = withoutNoise(textOf(input.tool_response)).slice(0, MAX_TICKET_CHARS);
   const terms = termsFromRequirements([{ title: '', content: text }]);
   if (terms.length === 0) return null;
-  return contextOutput(await preparedMessage(runtime, sessionDirectory, 'investigate', terms, `the result of ${input.tool_name}`));
+  // The call's own arguments name the ticket (`issueIdOrKey`); the response is stripped of keys as noise.
+  const asked = JSON.stringify(input.tool_input ?? {}).match(/\b[A-Z][A-Z0-9]+-\d+\b/)?.[0] ?? '';
+  return contextOutput(await preparedMessage(runtime, sessionDirectory, 'investigate', terms, `the result of ${input.tool_name}`, asked));
 }
 
 /**
@@ -144,17 +148,18 @@ function textOf(value: unknown, depth = 0): string {
   return '';
 }
 
-async function preparedMessage(runtime: Runtime, sessionDirectory: string, activity: string, terms: readonly string[], source: string): Promise<string> {
+async function preparedMessage(runtime: Runtime, sessionDirectory: string, activity: string, terms: readonly string[], source: string, request: string): Promise<string> {
   const found = await findRepository(runtime, sessionDirectory);
   if (typeof found === 'string') return unavailable(found);
 
-  const argv = ['--activity', activity, '--json', ...terms.flatMap((term) => ['--term', term])];
+  const taskText = mintTaskSlug(request) === null ? [] : ['--task-open', request];
+  const argv = ['--activity', activity, '--json', ...taskText, ...terms.flatMap((term) => ['--term', term])];
   const command = `prepare --activity ${activity} --json`;
   try {
     const hookRuntime = await createRuntime({ ...runtime, cwd: found.repositoryRoot });
     const header = [
       `AMBICODE ran \`${command}\` for you, in \`${found.where}\`, with terms from ${source} (navigation.shortlist.terms).`,
-      'Its complete output follows; do not run it again.',
+      'Its complete output follows; do not run it again. task.slug, when present, is the --task for note save and review.',
       READING_ORDER,
     ].join('\n');
     const prepare = async (shortlistLimit?: number) => {
