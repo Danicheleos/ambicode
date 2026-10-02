@@ -19,6 +19,7 @@ describe('lsp-arms', () => {
       mkdirSync(path.join(casesDir, id), { recursive: true });
       writeFileSync(path.join(casesDir, id, 'scaffold.sh'), SCAFFOLD);
       writeFileSync(path.join(casesDir, id, 'prompt.md'), id);
+      writeFileSync(path.join(casesDir, id, 'truth.json'), JSON.stringify({ root: 'src' }));
     }
     dist = path.join(root, 'dist');
     mkdirSync(path.join(dist, '.claude-plugin'), { recursive: true });
@@ -48,11 +49,13 @@ describe('lsp-arms', () => {
 
   it('commits a root tsconfig with the snapshot, so the tree starts clean and the server loads one project', () => {
     const work = mkdtempSync(path.join(root, 'run-'));
-    writeFileSync(path.join(work, 'scaffold.sh'), withTsconfig(SCAFFOLD));
+    writeFileSync(path.join(work, 'scaffold.sh'), withTsconfig(SCAFFOLD, 'main'));
     execFileSync('sh', ['scaffold.sh'], { cwd: work });
     const repo = path.join(work, 'repo');
-    assert.deepEqual(JSON.parse(readFileSync(path.join(repo, 'tsconfig.json'), 'utf8')).include, ['**/*.ts']);
+    const tsconfig = JSON.parse(readFileSync(path.join(repo, 'tsconfig.json'), 'utf8'));
+    assert.deepEqual(tsconfig.include, ['**/*.ts']);
+    assert.equal(tsconfig.compilerOptions.baseUrl, 'main', 'imports like "state/x" resolve from the code root');
     assert.equal(execFileSync('git', ['status', '--porcelain'], { cwd: repo, encoding: 'utf8' }), '');
-    assert.throws(() => withTsconfig('#!/bin/sh\n'), /no "git -C "\$REPO" init -q" line/);
+    assert.throws(() => withTsconfig('#!/bin/sh\n', 'src'), /no "git -C "\$REPO" init -q" line/);
   });
 });

@@ -304,3 +304,11 @@ npm run evals:gate -- <A>.json --baseline <L>.json --baseline-arm with   # A vs 
   file, so references reach only the files that file imports.
 - The first `findReferences` of a session can be partial until the server has
   loaded the project, about 5 s on 532 files (G25 in `known-gaps.md`).
+
+## Impact cases
+
+`node evals/scripts/src/impact-cases.mjs [--list] [--side BE|FE] [--limit n]` writes cases of the form "I am
+changing the signature of X; which files use it?" into `benchmarks/impact-cases` (gitignored). The truth is the
+files the TypeScript language service reports as referencing X, excluding tests and mocks, under the tsconfig of
+`lsp-arms.mjs`. Run them through the three arms with `lsp-arms.mjs --impact --out <dir>`. The first walk found
+word-boundary grep enough for the symbols it picked (naked 1.00 recall), so pick harder ones before a paid run.

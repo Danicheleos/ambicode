@@ -14,13 +14,15 @@ that is not in the checkout, and `--context` is refused for it.
    (`git diff` for the target): exported functions, classes, types, constants, route paths.
 3. `findReferences` on each. A reference in a file the diff does not touch is a dependent.
    Skip tests and files the report will not list anyway (generated, vendored). Until the
-   server has loaded the project (about 5 s from the first LSP call on 500 files) it answers
-   from the files it has open, with no warning: start with one `documentSymbol` on a changed
-   file, and call again any `findReferences` that lists only the defining file.
+   server has loaded the project (about 5 s on 500 files, over 10 s on 2,000) it answers from
+   the files it has open, with no warning, and an instant repeat answers the same: start with
+   one `documentSymbol` on a changed file, and retry any `findReferences` that lists only the
+   defining file after other work. Still only the definition: `Grep -w` the name and report
+   that LSP had no references.
 4. Run the review with `--context <path>` for each dependent, at most eight, most-used first.
    They are mirrored beside the change and the reviewer is told to check them. A file that
    cannot be included is named in part 4; report it as unchecked, not as fine.
 
 Report the dependents you passed and the LSP operations used. Zero references to a removed
-name, confirmed by a second call, is a result worth stating: it means nothing outside the
+name, confirmed by a later retry or a `Grep -w`, is a result worth stating: it means nothing outside the
 diff uses it.

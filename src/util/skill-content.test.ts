@@ -344,12 +344,13 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.match(shared, /broad search is allowed and is reported with its reason/i);
   });
 
-  it('has every findReferences user repeat a call that lists only the defining file, since a cold server answers that way', async () => {
-    // Measured 2026-10-02: the first call on a 532-file project found 2 of 11 references, a call 5 s later all 11.
-    assert.match(READING_ORDER, /only the file you asked about can be a cold server: call it again/);
+  it('never reads a findReferences that lists only the definition as no users, since a loading server answers that way', async () => {
+    // Measured 2026-10-02: the first call on a 532-file project found 2 of 11 references, a call 5 s later all 11; on 2,338 files
+    // the first found 1 of 22 and an instant repeat also 1, which an agent read as "no users" (impact walk).
+    assert.match(READING_ORDER, /only the definition means the server is still loading \(10\+ s on a large project; an instant repeat repeats it\), never that nothing uses it/);
     const impact = (await readFile(path.join(SKILLS_DIR, 'review', 'references', 'impact.md'), 'utf8')).replace(/\s+/g, ' ');
-    assert.match(impact, /start with one `documentSymbol` on a changed file, and call again any `findReferences` that lists only the defining file/);
-    assert.match(impact, /Zero references to a removed name, confirmed by a second call/);
+    assert.match(impact, /start with one `documentSymbol` on a changed file, and retry any `findReferences` that lists only the defining file after other work/);
+    assert.match(impact, /Zero references to a removed name, confirmed by a later retry or a `Grep -w`/);
   });
 
   it('starts task and investigate from the boundary shortlist, and points at the shared shortlist discipline (R4)', async () => {

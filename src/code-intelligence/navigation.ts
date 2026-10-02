@@ -39,7 +39,7 @@ export const READING_ORDER = [
   "How to read code (a link-block is path:lineA-lineB or path:lineA, one symbol's range):",
   '1. ToolSearch select:LSP (deferred). workspaceSymbol and documentSymbol turn the terms and the shortlist into link-blocks. Absolute paths; retry a failed call once.',
   '2. LSP finds nothing: stop. Your whole reply is one question asking the user for the scope. No Grep, no Bash search, no note. Search code with LSP before any Grep.',
-  '3. Read link-blocks with offset/limit. A related type, method or call you cannot place: goToDefinition, findReferences or workspaceSymbol on it, read the new link-blocks, repeat until the feature is understood. findReferences listing only the file you asked about can be a cold server: call it again before concluding nothing else uses it. Before writing something new, workspaceSymbol for an existing one.',
+  '3. Read link-blocks with offset/limit. A related type, method or call you cannot place: goToDefinition, findReferences or workspaceSymbol on it, read the new link-blocks, repeat until the feature is understood. findReferences listing only the definition means the server is still loading (10+ s on a large project; an instant repeat repeats it), never that nothing uses it: read something else, retry, and if it still lists only the definition, Grep -w the name and say LSP had no references. Before writing something new, workspaceSymbol for an existing one.',
   '4. LSP returns only paths: Grep -n that file for lines and structure, then Read chunks.',
   '5. Whole-file Read is the last resort: steps 1-4 failed and the file is under 300 lines.',
 ].join('\n');
