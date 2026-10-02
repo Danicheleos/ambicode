@@ -1,7 +1,7 @@
 ---
 name: investigate
 description: "Answer a question about the code with cited evidence, instead of reading the code directly — how something works, why it happens, which files a change would touch, what it would cost — editing nothing. Use when the user asks such a question, or hands over a Jira/Confluence URL to look into — including a bare URL with no other instruction."
-allowed-tools: Read, Grep, Glob, Write(.ambicode/task/**), Bash(node *ambicode.mjs*)
+allowed-tools: Read, Grep, Glob, Bash(node *ambicode.mjs*)
 ---
 
 # Investigate a question
@@ -99,12 +99,7 @@ act on one.
 **Save the note every time**, in addition to the answer, never instead of
 it. **Do not ask** — `/ambicode:plan` reads it next. Say in one line where you saved it.
 
-- Save it as `.ambicode/task/<slug>/investigation_<YYYY-MM-DDTHH-MM>.md` —
-  slug = the requirement id, or a short kebab of the question plus that
-  timestamp.
-  Never write outside it. `ambicode init` gitignores that directory.
-- Label it clearly, at the top, as an **investigation note** — not an
-  accepted plan, not a task, not a decision record.
+- Save it with `node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" note save --task <slug> --kind investigation`, the note on stdin. Slug = the requirement id, or a short kebab of the question. The CLI names the file, stamps the time and labels it an investigation note; a direct write to `.ambicode/task/` is denied. `ambicode init` gitignores that directory.
 - Carry step 6's shape, as prose and lists, in a plain file.
 
 ## Scope

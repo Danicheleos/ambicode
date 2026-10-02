@@ -22,7 +22,7 @@ function sanitize(value: string, maxLength: number): string {
  * `2026-09-22T14-35` in local time, not UTC: the day the reader remembers. Hyphens
  * stand in for colons, which a Windows path segment cannot hold.
  */
-function localTimestamp(now: Date): string {
+export function localTimestamp(now: Date): string {
   const pad = (value: number): string => String(value).padStart(2, '0');
   const date = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
   return `${date}T${pad(now.getHours())}-${pad(now.getMinutes())}`;

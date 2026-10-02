@@ -153,7 +153,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
 
   it('investigate documents its single note-writing boundary', async () => {
     const investigate = await readFile(path.join(SKILLS_DIR, 'investigate', 'SKILL.md'), 'utf8');
-    assert.match(investigate, /\.ambicode\/task\/<slug>\/investigation_/);
+    assert.match(investigate, /note save --task <slug> --kind investigation/);
   });
 
   it('saves the investigation note unconditionally, without asking', async () => {
@@ -180,12 +180,12 @@ describe('P2.2/P2.3 shipped skill content', () => {
 
   it('plan documents its single note-writing boundary, separate from investigate\'s', async () => {
     const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
-    assert.match(plan, /\.ambicode\/task\/<slug>\/plan_/);
+    assert.match(plan, /note save --task <slug> --kind plan/);
   });
 
   it('task documents its single note-writing boundary, separate from investigate\'s and plan\'s', async () => {
     const task = await readFile(path.join(SKILLS_DIR, 'task', 'SKILL.md'), 'utf8');
-    assert.match(task, /\.ambicode\/task\/<slug>\/notes\.md/);
+    assert.match(task, /note save --task <slug> --kind notes/);
   });
 
   it('plan declares an argument hint and makes the request available through $ARGUMENTS', async () => {

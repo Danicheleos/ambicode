@@ -2,7 +2,7 @@
 name: plan
 description: "Turn a request into an implementation roadmap a human accepts before /ambicode:task implements it; it never implements. Use when the user asks for a plan, a roadmap, or an implementation approach — for a described change or a Jira/Confluence URL — or wants to think through a feature or change before coding it."
 argument-hint: <request-or-jira/confluence-url> [--requirement <url>]...
-allowed-tools: Read, Grep, Glob, Write(.ambicode/task/**), Bash(node *ambicode.mjs*)
+allowed-tools: Read, Grep, Glob, Bash(node *ambicode.mjs*)
 ---
 
 # Plan a change
@@ -155,15 +155,9 @@ below. Structure the content as:
   decline included, so the gate is not a trap. Never enter plan mode just to
   get the widget, and never narrate which mode you are in: the human is
   deciding on a roadmap, not on harness state.
-- **Save the plan the human accepts to
-  `.ambicode/task/<slug>/plan_<YYYY-MM-DDTHH-MM>.md`**, where `<slug>` is the
-  requirement id (`ORD-17`) or, with no ticket, a short kebab of the request
-  plus the same timestamp (`raise-upload-limit_2026-09-23T10-15`). One
+- **Save the plan the human accepts** with `node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" note save --task <slug> --kind plan`, the plan on stdin, where `<slug>` is the requirement id (`ORD-17`) or, with no ticket, a short kebab of the request (`raise-upload-limit`). The CLI names the file, stamps the time and adds the "**plan** — accepted" label; a direct write to `.ambicode/task/` is denied. One
   directory holds everything about one task — plan, investigation, reviews —
-  and it is what `/ambicode:task` opens: a plan left only in Claude Code's
-  own plan file is outside the repository, where the next skill cannot find
-  it. A saved plan is plain Markdown: the step 5 structure, a top-of-file
-  label ("**plan** — accepted"), and nothing else. No task database, hidden
+  and it is what `/ambicode:task` opens: a plan left only in Claude Code's plan file is outside the repository. A saved plan is plain Markdown: the step 5 structure and nothing else. No task database, hidden
   state, event log, or mandatory identifier. **Do not save a draft** the
   human has not accepted; a rejected roadmap is not repository content.
 

@@ -9,7 +9,7 @@ process.stdin.on('data', (chunk) => {
 process.stdin.on('end', () => {
   let output: Record<string, unknown> = {};
   try {
-    output = guardDecision(JSON.parse(raw) as GuardInput);
+    output = guardDecision(JSON.parse(raw) as GuardInput, process.env.CLAUDE_PLUGIN_ROOT);
   } catch {
     // A hook is advisory; any failure must leave the tool call alone.
   }

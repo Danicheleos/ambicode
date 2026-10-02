@@ -186,7 +186,8 @@ describe('built-artifact regression: ambicode hook (P2.4 correction G/H)', () =>
           assert.equal(entry.command, 'node');
           if (event === 'PreToolUse') {
             assert.deepEqual(entry.args, ['${CLAUDE_PLUGIN_ROOT}/scripts/guard.mjs']);
-            assert.match(entry.if, /^Bash\((git \*|glab mr\*)\)$/, 'the guard must not spawn for every Bash call');
+            if (matcher.matcher === 'Bash') assert.match(entry.if, /^Bash\((git \*|glab mr\*|\*\.ambicode\/task\*)\)$/, 'the guard must not spawn for every Bash call');
+            else assert.equal(matcher.matcher, 'Write|Edit|MultiEdit|NotebookEdit');
           } else {
             assert.deepEqual(entry.args, ['${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs', 'hook']);
           }

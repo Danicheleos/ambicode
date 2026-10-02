@@ -566,6 +566,24 @@ Measured: text-only "never truncate" failed 28/31.
   write notes with `Write`), the `ask` on out-of-set edits, the ledger. `bash -c "git commit"` is
   not caught.
 
+**Slice 2 result, 2026-10-02 (`note save` and the task-directory guard).**
+- Built: `ambicode note save --task <slug> --kind investigation|plan|notes`, note on stdin. The CLI
+  names the file, stamps the local time, adds the label and refuses an empty body, a missing kind or
+  slug, and a slug that would leave the directory. The `PreToolUse` guard denies `Write`, `Edit`,
+  `MultiEdit` and `NotebookEdit` on `.ambicode/task/**`, and Bash redirects, `tee`, `sed -i`, `cp`,
+  `mv` and `rm` aimed at it. A `note save` command is exempt. The deny message carries the real
+  plugin path, so the command it names runs as written.
+- investigate and plan lose `Write(.ambicode/task/**)` from `allowed-tools`; all three skills now
+  name `note save`. task keeps `Write(**)` for source edits, and the guard covers the task directory.
+- Why now: the model guessed the note's timestamp in headless runs (`T12-00`, `T00-00`). Through
+  `note save` the same run wrote `T07-42`, the clock's minute.
+- Real runs (Haiku and Sonnet, 3 of 20): investigate saved through `note save`; a direct `Write` of
+  `plan_manual.md` was denied and the model then saved through the CLI (file `plan_<stamp>.md`); a
+  Bash `echo > .ambicode/task/...` was denied before `mkdir` ran.
+- Not done: `plan` still labels any save "accepted"; the check that a plan was accepted needs the
+  ledger and the `AskUserQuestion` probe. A Bash write that builds the path at run time (`bash -c`,
+  an assembled variable not named in the command) is not caught.
+
 ### Iteration 6: evidence from the record
 Effort M–L, 1–2 weeks. Spend: `evals:walk` (≈ $1.2), then one `evals:decide` (≈ $14).
 

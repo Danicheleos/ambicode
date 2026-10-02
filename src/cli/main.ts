@@ -7,6 +7,7 @@ import { BUNDLE_OPTIONS, renderBundle, runBundle } from './commands/bundle.ts';
 import { CONFIG_OPTIONS, renderConfig, runConfig } from './commands/config.ts';
 import { INIT_OPTIONS, renderInit, runInit } from './commands/init.ts';
 import { LOCATE_OPTIONS, renderLocate, runLocate } from './commands/locate.ts';
+import { NOTE_SAVE_OPTIONS, renderNoteSave, runNoteSave } from './commands/note.ts';
 import { POLICY_OPTIONS, renderPolicy, runPolicy } from './commands/policy.ts';
 import { POLICY_CHECK_OPTIONS, renderPolicyCheck, runPolicyCheck } from './commands/policy-check.ts';
 import { PREPARE_OPTIONS, renderPrepare, runPrepare } from './commands/prepare.ts';
@@ -40,6 +41,13 @@ export const USAGE = `ambicode <command> [options]
                                                   configured.
                           To resolve policy for a path literally named "check",
                           write "policy -- check".
+
+  note save               Save a skill's note under .ambicode/task/<slug>/ from
+                          standard input. The CLI names the file, stamps the time
+                          and adds the label; skills do not write that directory.
+                            --task <slug>         The task directory (a requirement id
+                                                  or a short kebab of the request).
+                            --kind <kind>         investigation | plan | notes
 
   locate [terms...]       A ranked shortlist of the files a request is probably
                           about, each with the reason it ranked: path and
@@ -191,8 +199,8 @@ export async function main(argv: readonly string[]): Promise<number> {
 
   // Recognized here rather than by `runPolicy` inspecting its operands, so a
   // path literally named "check" stays reachable as `policy -- check`.
-  const name = command === 'policy' && rest[0] === 'check' ? 'policy check' : command;
-  const commandArgv = name === 'policy check' ? rest.slice(1) : rest;
+  const name = command === 'policy' && rest[0] === 'check' ? 'policy check' : command === 'note' && rest[0] === 'save' ? 'note save' : command;
+  const commandArgv = name === 'policy check' || name === 'note save' ? rest.slice(1) : rest;
 
   const spec = SPECS[name];
   if (spec === undefined) {
@@ -227,6 +235,7 @@ export const SPECS: Record<string, OptionSpec | undefined> = {
   locate: LOCATE_OPTIONS,
   policy: POLICY_OPTIONS,
   'policy check': POLICY_CHECK_OPTIONS,
+  'note save': NOTE_SAVE_OPTIONS,
   prepare: PREPARE_OPTIONS,
   review: REVIEW_OPTIONS,
   bundle: BUNDLE_OPTIONS,
@@ -257,6 +266,10 @@ async function dispatch(command: string, args: ParsedArgs): Promise<Rendered> {
     case 'policy check': {
       const output = await runPolicyCheck(runtime, args);
       return { text: renderPolicyCheck(output), data: output, ...(output.ok ? {} : { exitCode: 1 }) };
+    }
+    case 'note save': {
+      const output = await runNoteSave(runtime, args);
+      return { text: renderNoteSave(output), data: output };
     }
     case 'locate': {
       const output = await runLocate(runtime, args);

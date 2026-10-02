@@ -70,3 +70,52 @@ describe('the built guard entry', () => {
     assert.deepEqual(JSON.parse(run('not json')), {});
   });
 });
+
+describe('the task-directory guard sends notes through note save', () => {
+  const decide = (tool_name: string, tool_input: Record<string, unknown>) =>
+    guardDecision({ hook_event_name: 'PreToolUse', tool_name, tool_input }) as {
+      hookSpecificOutput?: { permissionDecision: string; permissionDecisionReason: string };
+    };
+
+  for (const [tool, input] of [
+    ['Write', { file_path: '/repo/.ambicode/task/ORD-17/investigation_2026-10-02T12-00.md' }],
+    ['Write', { file_path: '.ambicode/task/x/plan_t.md' }],
+    ['Edit', { file_path: '/repo/.ambicode/task/x/notes.md' }],
+    ['MultiEdit', { file_path: 'C:\\repo\\.ambicode\\task\\x\\notes.md' }],
+    ['Bash', { command: 'mkdir -p .ambicode/task/X && cat > .ambicode/task/X/inv.md <<EOF\nnote\nEOF' }],
+    ['Bash', { command: 'd=.ambicode/task/X; f=$d/inv.md; cat > "$f" <<EOF\nnote\nEOF' }],
+    ['Bash', { command: 'echo hi | tee .ambicode/task/X/n.md' }],
+    ['Bash', { command: 'rm .ambicode/task/X/plan.md' }],
+  ] as const) {
+    it(`denies ${tool}: ${JSON.stringify(input).slice(0, 70)}`, () => {
+      const out = decide(tool, input);
+      assert.equal(out.hookSpecificOutput?.permissionDecision, 'deny');
+      assert.match(out.hookSpecificOutput?.permissionDecisionReason ?? '', /note save/);
+    });
+  }
+
+  for (const [tool, input] of [
+    ['Write', { file_path: '/repo/src/a.ts' }],
+    ['Write', { file_path: '/repo/.ambicode/config.yaml' }],
+    ['Write', { file_path: '/repo/docs/.ambicode-task-notes.md' }],
+    ['Read', { file_path: '/repo/.ambicode/task/x/plan.md' }],
+    ['Bash', { command: 'cat .ambicode/task/x/plan.md' }],
+    ['Bash', { command: 'ls .ambicode/task && grep -rn foo .ambicode/task/x 2>&1 | head' }],
+    ['Bash', { command: 'grep -rn foo .ambicode/task/x > /dev/null' }],
+    ['Bash', { command: 'node "/p/scripts/ambicode.mjs" note save --task X --kind investigation <<\'EOF\'\nsee .ambicode/task/X > older\nEOF' }],
+    ['Bash', { command: 'echo done > /tmp/out.txt' }],
+  ] as const) {
+    it(`leaves alone ${tool}: ${JSON.stringify(input).slice(0, 70)}`, () => {
+      assert.deepEqual(decide(tool, input), {});
+    });
+  }
+});
+
+describe('the task-directory message names a command that runs as written', () => {
+  it('substitutes the plugin root the hook was given', () => {
+    const out = guardDecision({ hook_event_name: 'PreToolUse', tool_name: 'Write', tool_input: { file_path: '.ambicode/task/x/p.md' } }, '/opt/plugin') as {
+      hookSpecificOutput: { permissionDecisionReason: string };
+    };
+    assert.match(out.hookSpecificOutput.permissionDecisionReason, /node "\/opt\/plugin\/scripts\/ambicode\.mjs" note save/);
+  });
+});

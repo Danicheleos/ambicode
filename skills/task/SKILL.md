@@ -156,8 +156,7 @@ Remaining.
 
 ## 6. Optional task note and resume
 
-**A small task needs no task file at all.** Write one plain Markdown note
-at `.ambicode/task/<slug>/notes.md` only when the user asks, the accepted
+**A small task needs no task file at all.** Save one note (`note save --task <slug> --kind notes`, on stdin) only when the user asks, the accepted
 plan has multiple iterations, or the work must resume across sessions. Do not
 add a task database, a workflow engine, an event log, a mandatory identifier,
 classification levels, or a machine state protocol.
