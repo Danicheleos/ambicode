@@ -6,12 +6,14 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameS
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { scoreReuse } from './reuse-score.mjs';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 export const BENCHMARKS = path.join(ROOT, 'benchmarks');
 export const CASES_DIRECTORY = 'cases';
 /** Impact cases name real code, so they live beside the other benchmark data (gitignored, NDA). */
 export const IMPACT_CASES_DIRECTORY = 'impact-cases';
+export const REUSE_CASES_DIRECTORY = 'reuse-cases';
 export const BENCH_EVAL_DIR = 'benchmarks';
 /** Never the bare `evals/`: discovery is recursive, so that would sweep every suite at once. */
 export const CURATED_EVAL_DIR = 'evals/evals-core';
@@ -639,8 +641,16 @@ function traceOf(run, tracesDir) {
   return file ? traceMetrics(readFileSync(file, 'utf8')) : null;
 }
 
+const exportsCache = new Map();
+/** Every exported name of a side's non-test code, written next to the reuse cases by reuse-cases.mjs. */
+function exportsOf(benchmarks, side) {
+  const file = path.join(benchmarks, REUSE_CASES_DIRECTORY, `${side}-exports.json`);
+  if (!exportsCache.has(file)) exportsCache.set(file, JSON.parse(readFileSync(file, 'utf8')));
+  return exportsCache.get(file);
+}
+
 function caseMeta(evalCase, benchmarks) {
-  const truthFile = [path.join(benchmarks, CASES_DIRECTORY), path.join(benchmarks, IMPACT_CASES_DIRECTORY), CURATED_CASES].map((dir) => path.join(dir, evalCase.name, 'truth.json')).find(existsSync);
+  const truthFile = [path.join(benchmarks, CASES_DIRECTORY), path.join(benchmarks, IMPACT_CASES_DIRECTORY), path.join(benchmarks, REUSE_CASES_DIRECTORY), CURATED_CASES].map((dir) => path.join(dir, evalCase.name, 'truth.json')).find(existsSync);
   return truthFile ? JSON.parse(readFileSync(truthFile, 'utf8')) : null;
 }
 
@@ -691,6 +701,7 @@ export function score(results, { benchmarks = BENCHMARKS, tracesDir = null } = {
         }
         const evidence = (run.graders ?? []).find((g) => g.name === EVIDENCE_GRADER)?.evidence;
         if (typeof evidence !== 'string') runs.push({ ...base, absent: true });
+        else if (meta.kind === 'reuse') runs.push({ ...base, absent: false, ...scoreReuse(evidence, meta.truth, exportsOf(benchmarks, meta.side)) });
         else runs.push({ ...base, absent: false, ...scoreAnswer(evidence, meta.truth, meta.root) });
       });
   }
@@ -698,7 +709,7 @@ export function score(results, { benchmarks = BENCHMARKS, tracesDir = null } = {
   const summarize = (rows) => {
     const scored = rows.filter((r) => !r.absent);
     const out = { runs: rows.length, scored: scored.length, absent: rows.length - scored.length };
-    for (const m of ['precision', 'recall', 'f1', 'hit', 'named', 'raised', 'threads', 'costUsd', 'turns']) {
+    for (const m of ['precision', 'recall', 'f1', 'hit', 'named', 'dupes', 'created', 'raised', 'threads', 'costUsd', 'turns']) {
       const values = scored.map((r) => r[m]).filter((x) => x !== null && x !== undefined);
       if (values.length) out[m] = mean(values);
     }

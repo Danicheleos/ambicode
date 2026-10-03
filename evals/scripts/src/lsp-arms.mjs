@@ -1,11 +1,11 @@
 // Builds the two plugin copies of the three-arm LSP eval: `lsp-only` (the control: a language server and
 // nothing else) and `ambicode-lsp` (the packaged plugin plus the same server). The eval sandbox loads only
 // the plugin under test, so LSP exists in a run only when that plugin declares it (probe 2026-10-02).
-// Commands: [--case <name>]... [--out <dir>] [--impact]. See evals/evals-core/README.md, "Three arms with LSP".
+// Commands: [--case <name>]... [--out <dir>] [--impact|--reuse]. See evals/evals-core/README.md, "Three arms with LSP".
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BENCHMARKS, CURATED_CASES, IMPACT_CASES_DIRECTORY, ROOT } from './evals-bench.mjs';
+import { BENCHMARKS, CURATED_CASES, IMPACT_CASES_DIRECTORY, REUSE_CASES_DIRECTORY, ROOT } from './evals-bench.mjs';
 
 export const LSP_SERVERS = {
   typescript: {
@@ -77,8 +77,8 @@ function main(argv) {
   for (let i = 0; i < argv.length; i += 2) {
     if (argv[i] === '--case') cases.push(argv[i + 1]);
     else if (argv[i] === '--out') out = path.resolve(argv[i + 1]);
-    else if (argv[i] === '--impact') {
-      casesDir = path.join(BENCHMARKS, IMPACT_CASES_DIRECTORY);
+    else if (argv[i] === '--impact' || argv[i] === '--reuse') {
+      casesDir = path.join(BENCHMARKS, argv[i] === '--impact' ? IMPACT_CASES_DIRECTORY : REUSE_CASES_DIRECTORY);
       i -= 1;
     }
     else throw new Error(`unknown argument ${argv[i]}; usage: lsp-arms.mjs [--case <name>]... [--out <dir>] [--impact]`);

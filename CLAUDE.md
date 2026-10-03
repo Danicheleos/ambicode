@@ -112,7 +112,7 @@ don't assert** and **Before anything destructive**.
 Drop this section when copying the file elsewhere; replace it with whatever
 makes measurement cheap in that project.
 
-- `npm run verify` is the gate: build, typecheck, 908 tests, plugin validation.
+- `npm run verify` is the gate: build, typecheck, 915 tests, plugin validation.
 - `node fixtures/materialize.mjs <name> <dir>` replays a fixture repository
   into a throwaway directory, which is how a reported failure becomes a
   reproduction rather than a theory.

@@ -312,3 +312,10 @@ changing the signature of X; which files use it?" into `benchmarks/impact-cases`
 files the TypeScript language service reports as referencing X, excluding tests and mocks, under the tsconfig of
 `lsp-arms.mjs`. Run them through the three arms with `lsp-arms.mjs --impact --out <dir>`. The first walk found
 word-boundary grep enough for the symbols it picked (naked 1.00 recall), so pick harder ones before a paid run.
+
+## Reuse cases
+
+`node evals/scripts/src/reuse-cases.mjs [--list] [--limit n]` writes survey-before-building cases into
+`benchmarks/reuse-cases` (and `-forced` variants that name the investigate skill), scored by `reuse-score.mjs`.
+**Do not read their recall or duplicate counts yet:** the scaffold copies the newer snapshot, which often already holds
+the ticket's own feature (G28). Run them through the arms with `lsp-arms.mjs --reuse`.
