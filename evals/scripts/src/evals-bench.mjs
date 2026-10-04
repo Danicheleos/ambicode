@@ -1,23 +1,41 @@
 // Cases from `benchmarks/` (under NDA and gitignored: this file carries no word of it), graded by the
 // files the merged change touched. The data sits under the sandbox's `denyRead` only with
-// `--eval-dir benchmarks`, so curated cases carry `no-peek-*` graders. Commands: generate, select, run, score.
+// `--eval-dir benchmarks`, so curated cases carry `no-peek-*` graders.
+// Commands: generate, select, run, restore-prompts, score, walk.
 import { spawn } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { copyFileSync, existsSync, linkSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parse as parseYaml } from 'yaml';
+import { BENCH_EVAL_DIR, BENCHMARKS, CASES_DIRECTORY, CURATED_CASES, CURATED_EVAL_DIR, IMPACT_CASES_DIRECTORY, NAKED_PLUGIN, REUSE_CASES_DIRECTORY, ROOT } from './bench-paths.mjs';
+import { CASES_LOCK, casesLockStatus, lockCases, unlockCases, withCasesLock } from './cases-lock.mjs';
+import { LEDGER_DIRECTORY, ledgerMetrics, ledgersOf, MCP_SPAWNS_UNMEASURED, tally } from './ledger-metrics.mjs';
+import {
+  atomicWrite,
+  FRONT_MATTER,
+  GENERATION_MARKER,
+  INVESTIGATE_COMMAND,
+  NAKED_COPY,
+  outstandingSwap,
+  PROMPT,
+  promptBody,
+  restorePrompts,
+  swapInPluginPrompts,
+  SWAP_MARKER,
+  WITH_PROMPT,
+  writePluginPrompt,
+} from './prompt-transport.mjs';
 import { scoreReuse } from './reuse-score.mjs';
+import { FORCED_REMOVED, harnessArgv, parseRunOptions, PATH_OPTIONS, runSpec } from './run-options.mjs';
 
-export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
-export const BENCHMARKS = path.join(ROOT, 'benchmarks');
-export const CASES_DIRECTORY = 'cases';
-/** Impact cases name real code, so they live beside the other benchmark data (gitignored, NDA). */
-export const IMPACT_CASES_DIRECTORY = 'impact-cases';
-export const REUSE_CASES_DIRECTORY = 'reuse-cases';
-export const BENCH_EVAL_DIR = 'benchmarks';
-/** Never the bare `evals/`: discovery is recursive, so that would sweep every suite at once. */
-export const CURATED_EVAL_DIR = 'evals/evals-core';
-export const CURATED_CASES = path.join(ROOT, CURATED_EVAL_DIR, CASES_DIRECTORY);
+// The harness is split by responsibility; these modules' exports stay importable from here.
+export * from './bench-paths.mjs';
+export * from './cases-lock.mjs';
+export * from './ledger-metrics.mjs';
+export * from './prompt-transport.mjs';
+export * from './run-options.mjs';
 
 // All measurable from the data alone. 2..10 true files: one is named by luck, past ten the change was a
 // sweep. 300 ticket characters: shorter ones test guessing. 600 changed lines keeps a review inside the
@@ -251,22 +269,22 @@ call may reach into the data directory.
 }
 
 /**
- * The neutral prompt measures whether the plugin is picked and whether it helps; the forced one names the
- * skill, so it measures only whether it helps once picked. Sonnet 5.5 picked it 0/32 times unforced
- * (2026-09-29), so a forced-only suite would report help the user never gets.
+ * Forced twins (a review prompt naming the skill) were removed with the typed plugin-arm prompt: the plugin arm
+ * now types the command itself (`prompt.with.md`), and the naked arm keeps the neutral prompt.
  */
-const REVIEW_ASK = { neutral: 'Review the change', forced: 'Use the ambicode review skill to review the change' };
-export const FORCED_SUFFIX = '-forced';
+const LEGACY_FORCED_SUFFIX = '-forced';
 
-/** The neutral twin's prompt, which is what the no-plugin arm of a forced case is measured on. */
-export const neutralPrompt = (forcedPrompt) => forcedPrompt.replace(REVIEW_ASK.forced, REVIEW_ASK.neutral);
+/** A case directory left by the generator before the twins were removed; serving it would measure a twin. */
+export function refuseLegacyTwins(casesDir) {
+  const twins = readdirSync(casesDir, { withFileTypes: true }).filter((e) => e.isDirectory() && e.name.endsWith(LEGACY_FORCED_SUFFIX)).length;
+  if (twins) throw new Error(`${casesDir} still holds ${twins} forced twin case(s) from an older generator: rerun \`select\``);
+}
 
-function reviewPromptFile(name, side, text, { forced = false, walk = false } = {}) {
-  const ask = forced ? REVIEW_ASK.forced : REVIEW_ASK.neutral;
+function reviewPromptFile(name, side, text, { walk = false } = {}) {
   return `---
 name: ${name}
 description: Review a real merged change, as it stood when a human reviewed it.
-tags: ["bench", "review", ${yamlString(side.toLowerCase())}${walk ? ', "walk"' : ''}${forced ? ', "forced"' : ''}]
+tags: ["bench", "review", ${yamlString(side.toLowerCase())}${walk ? ', "walk"' : ''}]
 runs: 1
 max_turns: 40
 timeout_seconds: 900
@@ -280,7 +298,7 @@ the ticket below.
 ${text}
 </ticket>
 
-${ask} before it merges: report the problems a reviewer should
+Review the change before it merges: report the problems a reviewer should
 raise, each with its file and line.
 
 \`repo/\` is the repository under review. Change into it with \`cd repo\` before
@@ -379,14 +397,15 @@ function reviewVersions(base) {
   return out.sort((a, b) => (a.ticket + a.version).localeCompare(b.ticket + b.version));
 }
 
-function writeCase(out, plan, { forced = false } = {}) {
+function writeCase(out, plan) {
   const directory = path.join(out, plan.name);
   mkdirSync(path.join(directory, 'graders'), { recursive: true });
   writeFileSync(path.join(directory, 'case.yaml'), `schema_version: "1.1"\nname: ${plan.name}\ncontext:\n  scaffold_script: scaffold.sh\n`);
   const graders = plan.kind === 'localize' ? graderFiles(plan.truth, plan.root) : reviewGraderFiles(plan.threads);
   for (const [file, body] of Object.entries({ ...graders, ...peekGraders() })) writeFileSync(path.join(directory, 'graders', file), body);
   if (plan.kind === 'localize') {
-    writeFileSync(path.join(directory, 'prompt.md'), promptFile(plan.name, plan.side, plan.text, { walk: plan.walk }));
+    writeFileSync(path.join(directory, PROMPT), promptFile(plan.name, plan.side, plan.text, { walk: plan.walk }));
+    writePluginPrompt(directory, INVESTIGATE_COMMAND);
     writeFileSync(path.join(directory, 'scaffold.sh'), scaffoldFile(plan.sideRel, plan.root), { mode: 0o755 });
     writeFileSync(
       path.join(directory, 'truth.json'),
@@ -394,13 +413,13 @@ function writeCase(out, plan, { forced = false } = {}) {
     );
     return { kind: 'localize', name: plan.name, side: plan.side, truth: plan.truth.length, missing: plan.missingFromSnapshot.length };
   }
-  writeFileSync(path.join(directory, 'prompt.md'), reviewPromptFile(plan.name, plan.side, plan.text, { forced, walk: plan.walk }));
+  writeFileSync(path.join(directory, PROMPT), reviewPromptFile(plan.name, plan.side, plan.text, { walk: plan.walk }));
   writeFileSync(path.join(directory, 'scaffold.sh'), reviewScaffoldFile(plan.sideRel, plan.root, plan.versionRel), { mode: 0o755 });
   writeFileSync(
     path.join(directory, 'truth.json'),
-    JSON.stringify({ kind: 'review', ...(forced ? { variant: 'forced' } : {}), side: plan.side, ticket: plan.ticket, version: plan.version, root: plan.root, threads: plan.threads.length }, null, 2),
+    JSON.stringify({ kind: 'review', side: plan.side, ticket: plan.ticket, version: plan.version, root: plan.root, threads: plan.threads.length }, null, 2),
   );
-  return { kind: forced ? 'review-forced' : 'review', name: plan.name, side: plan.side, threads: plan.threads.length };
+  return { kind: 'review', name: plan.name, side: plan.side, threads: plan.threads.length };
 }
 
 function selectPlans(plans, pick) {
@@ -444,15 +463,28 @@ function selectPlans(plans, pick) {
   return { chosen, selection: { criteria: { ...SELECT, localize: pick.localize, review: pick.review }, sides } };
 }
 
-export function generate({ benchmarks = BENCHMARKS, out = path.join(benchmarks, CASES_DIRECTORY), pick = null, forced = false } = {}) {
-  rmSync(out, { recursive: true, force: true });
-  const refused = [];
-  const plans = [];
+/**
+ * Replaces everything in `out` but its lock, holding the lock. An outstanding swap or an interrupted generation
+ * is refused unless `regenerate` says to recreate the cases anyway; a run still using them is always refused.
+ */
+export function generate({ benchmarks = BENCHMARKS, out = path.join(benchmarks, CASES_DIRECTORY), pick = null, regenerate = false } = {}) {
   const sides = readdirSync(benchmarks, { withFileTypes: true })
     .filter((e) => e.isDirectory() && existsSync(path.join(benchmarks, e.name, 'assets')))
     .map((e) => e.name)
     .sort();
   if (sides.length === 0) throw new Error(`no <side>/assets/ under ${benchmarks}`);
+  mkdirSync(out, { recursive: true });
+  return withCasesLock(out, 'generate', () => generateLocked({ benchmarks, out, pick, regenerate, sides }));
+}
+
+function generateLocked({ benchmarks, out, pick, regenerate, sides }) {
+  const pending = [SWAP_MARKER, GENERATION_MARKER].filter((marker) => existsSync(path.join(out, marker)));
+  if (pending.length && !regenerate)
+    throw new Error(`${out} has ${pending.join(' and ')}: a plugin-prompt swap or an interrupted generation is outstanding; \`restore-prompts\` puts a swap back, \`--regenerate\` recreates the cases`);
+  const refused = [];
+  const plans = [];
+  writeFileSync(path.join(out, GENERATION_MARKER), '');
+  for (const entry of readdirSync(out)) if (entry !== CASES_LOCK && entry !== GENERATION_MARKER) rmSync(path.join(out, entry), { recursive: true, force: true });
   for (const side of sides) {
     const base = path.join(benchmarks, side);
     for (const required of ['src', path.join('.ambicode', 'config.yaml')])
@@ -502,9 +534,8 @@ export function generate({ benchmarks = BENCHMARKS, out = path.join(benchmarks, 
   let selection = null;
   if (pick) ({ chosen, selection } = selectPlans(plans, pick));
   const written = chosen.map((plan) => writeCase(out, plan));
-  if (forced)
-    for (const plan of chosen.filter((p) => p.kind === 'review')) written.push(writeCase(out, { ...plan, name: `${plan.name}${FORCED_SUFFIX}` }, { forced: true }));
   if (selection) writeFileSync(path.join(out, 'selection.json'), JSON.stringify(selection, null, 2));
+  rmSync(path.join(out, GENERATION_MARKER));
   return { out, written, refused, selection };
 }
 
@@ -587,7 +618,7 @@ function classifyCall(block) {
  * names `prepare` itself, so a text match counts a call nobody made.
  */
 function parseTrace(jsonl) {
-  const trace = { model: null, calls: [], replayedReviews: 0 };
+  const trace = { model: null, calls: [], replayedReviews: 0, peakContext: null, postToolUseResponses: 0, mcpHookResponses: 0 };
   const byId = new Map();
   for (const line of jsonl.split('\n')) {
     if (!line.trim()) continue;
@@ -598,6 +629,10 @@ function parseTrace(jsonl) {
       continue;
     }
     if (event.type === 'system' && event.subtype === 'init') trace.model ??= event.model ?? null;
+    if (event.type === 'system' && event.subtype === 'hook_response' && event.hook_event === 'PostToolUse') {
+      trace.postToolUseResponses += 1;
+      if (/mcp__/.test(String(event.hook_name ?? ''))) trace.mcpHookResponses += 1;
+    }
     if (event.type === 'user')
       for (const block of Array.isArray(event.message?.content) ? event.message.content : []) {
         if (block.type !== 'tool_result') continue;
@@ -607,6 +642,12 @@ function parseTrace(jsonl) {
         if (call?.helper) call.failure = HELPER_FAILURE.map((pattern) => pattern.exec(text)?.[1]).find(Boolean) ?? null;
       }
     if (event.type !== 'assistant') continue;
+    // The context a request carried: its uncached, cache-read and cache-written input together.
+    const usage = event.message?.usage;
+    if (usage && typeof usage.input_tokens === 'number') {
+      const context = usage.input_tokens + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0);
+      trace.peakContext = Math.max(trace.peakContext ?? 0, context);
+    }
     for (const block of event.message?.content ?? [])
       if (block.type === 'tool_use') {
         const call = classifyCall(block);
@@ -618,7 +659,7 @@ function parseTrace(jsonl) {
 }
 
 export function traceMetrics(jsonl) {
-  const { model, calls, replayedReviews } = parseTrace(jsonl);
+  const { model, calls, replayedReviews, peakContext, postToolUseResponses, mcpHookResponses } = parseTrace(jsonl);
   const count = (pred) => calls.filter(pred).length;
   return {
     model,
@@ -632,6 +673,13 @@ export function traceMetrics(jsonl) {
     bashReads: count((c) => c.bashRead),
     readCalls: count((c) => c.block.name === 'Read'),
     grepCalls: count((c) => c.block.name === 'Grep' || c.block.name === 'Glob'),
+    // Null when no request in the trace reported usage: unknown, not a zero context.
+    peakContext,
+    // PostToolUse hook_response events seen for mcp__ tools: an observation, not a process count. Null when the
+    // trace shows no PostToolUse response at all (a SessionStart one says nothing about that channel).
+    mcpHookResponses: postToolUseResponses ? mcpHookResponses : null,
+    // Process spawns are not in the trace, and no model-free channel shows them (MCP PostToolUse probe pending).
+    mcpHookSpawns: null,
   };
 }
 
@@ -667,7 +715,7 @@ function caseMeta(evalCase, benchmarks) {
 /**
  * `arm` picks the cached arm that stands in as `without`: `with` compares against another plugin's arm (the
  * LSP-only control). Unset, it is `with` for a baseline run on the naked plugin, `without` otherwise.
- * A forced case falls back to its neutral twin: without the plugin there is no skill to name.
+ * `promptMarkdown` is the naked prompt even for a run that served prompt.with.md (`recordServedPrompts`).
  */
 export function withBaseline(results, baseline, { baselinePath, arm = baseline.suite?.plugins?.[0]?.name === NAKED_PLUGIN ? 'with' : 'without' }) {
   const refuse = (why) => {
@@ -679,20 +727,15 @@ export function withBaseline(results, baseline, { baselinePath, arm = baseline.s
   if (baseline.claudeVersion !== results.claudeVersion) refuse(`it ran on Claude Code version ${baseline.claudeVersion}, this run on ${results.claudeVersion}`);
   const cases = (results.cases ?? []).map((evalCase) => {
     if (evalCase.arms?.without) refuse(`${evalCase.name} has its own without arm`);
-    const find = (name) => (baseline.cases ?? []).find((c) => c.name === name);
-    const twin = evalCase.name.endsWith(FORCED_SUFFIX) && !find(evalCase.name);
-    const cached = twin ? find(evalCase.name.slice(0, -FORCED_SUFFIX.length)) : find(evalCase.name);
+    const cached = (baseline.cases ?? []).find((c) => c.name === evalCase.name);
     if (!cached) refuse(`it has no case ${evalCase.name}`);
-    const prompt = twin ? neutralPrompt(evalCase.promptMarkdown) : evalCase.promptMarkdown;
-    if (cached.promptMarkdown !== prompt) refuse(`${evalCase.name}'s prompt differs from the one it ran`);
+    if (cached.promptMarkdown !== evalCase.promptMarkdown) refuse(`${evalCase.name}'s prompt differs from the one it ran`);
     if (!cached.arms?.[arm]?.length) refuse(`${evalCase.name} has no ${arm} arm in it`);
     return { ...evalCase, arms: { ...evalCase.arms, without: cached.arms[arm] } };
   });
-  return { ...results, cases, baseline: { file: baselinePath, arm, startedAt: baseline.startedAt ?? null } };
+  const plugin = baseline.suite?.plugins?.[0]?.name ?? null;
+  return { ...results, cases, baseline: { file: baselinePath, arm, startedAt: baseline.startedAt ?? null, plugin, claudeVersion: baseline.claudeVersion ?? null } };
 }
-
-/** The plugin `naked-arm.mjs` builds: no components, so its plugin arm stands in for the no-plugin arm. */
-export const NAKED_PLUGIN = 'naked';
 
 // A run that hit its own turn or time limit is the arm's outcome. Any other error (session limit, lost
 // login, interrupt, scaffold failure) says nothing about the arm: 84 of 156 runs on 2026-10-02 died so.
@@ -709,7 +752,8 @@ export function score(results, { benchmarks = BENCHMARKS, tracesDir = null } = {
       armRuns.forEach((run, index) => {
         const graders = Object.fromEntries((run.graders ?? []).map((g) => [g.name, g.passed]));
         const trace = traceOf(run, tracesDir);
-        const base = { case: evalCase.name, kind, side: meta.side, arm, run: index, error: run.error ?? null, costUsd: run.costUsd ?? null, turns: run.turns ?? null, graders, trace };
+        const ledger = ledgerMetrics(ledgersOf(run, tracesDir), trace);
+        const base = { case: evalCase.name, kind, side: meta.side, arm, run: index, error: run.error ?? null, costUsd: run.costUsd ?? null, turns: run.turns ?? null, graders, trace, ledger };
         if (infrastructureError(run)) {
           runs.push({ ...base, absent: true });
           return;
@@ -751,6 +795,38 @@ export function score(results, { benchmarks = BENCHMARKS, tracesDir = null } = {
       out['replay-missed'] = traced.filter((r) => r.trace.replayMisses > 0).length;
       for (const [name, key] of [['review-runs', 'reviewRuns'], ['bash-reads', 'bashReads'], ['read-calls', 'readCalls'], ['grep-calls', 'grepCalls']])
         out[name] = mean(traced.map((r) => r.trace[key]));
+      out['peak-context'] = mean(traced.map((r) => r.trace.peakContext).filter((x) => x !== null));
+    }
+    // Like `traced`: a run whose ledger was not harvested, or was harvested incomplete, is left out of the
+    // measures and counted apart, not counted as a route that did nothing.
+    const ledgered = rows.filter((r) => r.ledger);
+    out.ledgered = ledgered.length;
+    if (ledgered.length) {
+      out['ledger-incomplete'] = ledgered.filter((r) => !r.ledger.complete).length;
+      out['mcp-hook-spawns'] = MCP_SPAWNS_UNMEASURED;
+    }
+    const routed = ledgered.filter((r) => r.ledger.complete && r.ledger.routes > 0);
+    if (routed.length) {
+      out.routed = routed.length;
+      // Each measure covers the routed runs that recorded it; none recorded gives null, never 0. `measured` is that count.
+      const observed = (pick) => routed.map((r) => pick(r.ledger)).filter((x) => x !== null && x !== undefined);
+      const average = (values) => (values.length ? mean(values) : null);
+      const total = (values) => (values.length ? values.reduce((a, b) => a + b, 0) : null);
+      const steps = observed((l) => l.routeSteps?.completed);
+      const revised = observed((l) => l.revises && l.revises.gate + l.revises.code + l.revises.model);
+      const preanswered = observed((l) => l.preanswers);
+      const blocked = observed((l) => l.stopBlocked);
+      const denied = observed((l) => l.permissionDenied);
+      const checked = observed((l) => l.checkRedGreen && l.checkRedGreen.proven);
+      const built = observed((l) => l.envelopeBuiltFrom);
+      out['steps-completed'] = average(steps);
+      out.revises = average(revised);
+      out.preanswers = total(preanswered);
+      out['stop-blocked'] = total(blocked);
+      out['permission-denied'] = total(denied);
+      out['check-red-green'] = checked.length ? checked.filter(Boolean).length : null;
+      out['envelope-built-from'] = built.length ? tally(built) : null;
+      out.measured = { 'steps-completed': steps.length, revises: revised.length, preanswers: preanswered.length, 'stop-blocked': blocked.length, 'permission-denied': denied.length, 'check-red-green': checked.length, 'envelope-built-from': built.length };
     }
     return out;
   };
@@ -836,13 +912,35 @@ function scoreCell(row) {
   return `P ${row.precision.toFixed(2)} R ${row.recall.toFixed(2)}`;
 }
 
+export const servedPromptLine = (results) =>
+  ({ with: `with (${WITH_PROMPT}; promptMarkdown records the naked ${PROMPT})`, naked: `naked (${PROMPT})` })[results.suite?.servedPrompt] ??
+  'unrecorded (a run from before per-arm prompts served prompt.md)';
+
+/** Printed with every comparison against a naked baseline: the user declined the paid check (2026-10-04). */
+export const NAKED_EQUIVALENCE =
+  'naked/without equivalence unverified: the reference is the naked plugin\'s arm, assumed equal to a no-plugin arm; the paid comparison was declined, so a claim against it carries that assumption';
+
+/** Where a `withBaseline` result's without arm came from; empty when no cached baseline is attached. The gate and the walk print it. */
+export function baselineProvenance(results) {
+  const b = results.baseline;
+  if (!b) return [];
+  const days = (Date.parse(results.startedAt) - Date.parse(b.startedAt)) / 86_400_000;
+  return [
+    `without arm: the ${b.arm} arm of cached baseline ${b.file} (plugin ${b.plugin ?? 'unrecorded'}, Claude Code ${b.claudeVersion ?? 'unrecorded'}), ` +
+      `started ${b.startedAt ?? 'at an unrecorded time'}, ${Number.isFinite(days) ? `${days.toFixed(1)} days` : 'an unknown time'} before this run`,
+    ...(b.plugin === NAKED_PLUGIN ? [NAKED_EQUIVALENCE] : []),
+  ];
+}
+
 export function walkReport(results, { benchmarks = BENCHMARKS, tracesDir = null, source } = {}) {
   const walk = walkRuns(results, { benchmarks, tracesDir });
   const total = walk.reduce((sum, w) => sum + (w.row.costUsd ?? 0), 0);
   const lines = [
     `# Walkthrough: ${source}`,
     '',
-    `Plugin ${results.suite?.plugins?.[0]?.path ?? 'unknown'}, model ${results.suite?.modelOverride ?? 'unpinned'}, ${walk.length} run(s), $${total.toFixed(2)}${results.partial ? ', **partial run**' : ''}.`,
+    `Plugin ${results.suite?.plugins?.[0]?.path ?? 'unknown'}, model ${results.suite?.modelOverride ?? 'unpinned'}, Claude Code ${results.claudeVersion ?? 'unrecorded'}, ${walk.length} run(s), $${total.toFixed(2)}${results.partial ? ', **partial run**' : ''}.`,
+    `Served prompt: ${servedPromptLine(results)}.`,
+    ...(results.baseline ? baselineProvenance(results).map((line) => `${line[0].toUpperCase()}${line.slice(1)}.`) : ['Baseline: none attached; this walk is not compared against a cached baseline.']),
     'Read each run\'s first deviation and write down what you saw, not why. Later deviations often follow from the first.',
     '',
     '| case | arm | run | $ | turns | skills | prepare | score | first deviation |',
@@ -864,49 +962,43 @@ export function walkReport(results, { benchmarks = BENCHMARKS, tracesDir = null,
 }
 
 /**
- * Never publishes, and keeps the result JSON (every prompt and final answer) in an excluded
- * directory: a `--json` outside the excluded directories is refused.
- */
-export function runArgs(extra = [], { now = new Date(), benchmarks = BENCHMARKS, set = 'curated', plugin = ROOT } = {}) {
-  if (!['curated', 'full'].includes(set)) throw new Error(`--set takes curated or full, not ${set}`);
-  if (extra.includes('--publish-report')) throw new Error('--publish-report is refused: the benchmark set is under NDA');
-  if (extra.includes('--eval-dir')) throw new Error('--eval-dir is fixed by --set');
-  // Four 2026-09-29 runs differed only by model (Opus, then Sonnet) and read as plugin changes.
-  if (!extra.includes('--model')) throw new Error('--model is required: a run with an unpinned model cannot be compared with another');
-  // Campaign R1 (2026-09-29) ran uncapped sweeps for 13.5 h, about $221, and used up a weekly plan limit.
-  const cap = extra[extra.indexOf('--max-cost-usd') + 1];
-  if (!extra.includes('--max-cost-usd') || !cap || cap.startsWith('--')) throw new Error('--max-cost-usd is required: an uncapped sweep can spend a week of plan usage in a day');
-  if (!existsSync(path.join(plugin, '.claude-plugin', 'plugin.json'))) throw new Error(`${plugin} is not a plugin: no .claude-plugin/plugin.json`);
-  const resultsDir = set === 'full' ? path.join(benchmarks, 'results') : path.join(ROOT, CURATED_EVAL_DIR, 'results');
-  const excluded = [benchmarks, path.join(ROOT, CURATED_EVAL_DIR, 'results')];
-  for (const flag of ['--json', '--report', '--output-dir']) {
-    const i = extra.indexOf(flag);
-    if (i < 0) continue;
-    const target = extra[i + 1];
-    if (!target || target.startsWith('--')) throw new Error(`${flag} needs a path under ${excluded.join(' or ')}`);
-    if (excluded.every((dir) => path.relative(dir, path.resolve(target)).startsWith('..')))
-      throw new Error(`${flag} must stay under ${excluded.join(' or ')}: the result holds the benchmark's prompts and answers`);
-  }
-  const json = extra.includes('--json') ? [] : ['--json', path.join(resultsDir, `eval-${now.toISOString().replace(/[:.]/g, '-')}.json`)];
-  const evalDir = set === 'full' ? BENCH_EVAL_DIR : CURATED_EVAL_DIR;
-  return ['plugin', 'eval', plugin, '--eval-dir', evalDir, '--scaffold', '--allow-tools', 'Bash', '--no-publish', ...json, ...extra];
-}
-
-export function harvestDir(argv) {
-  const i = argv.indexOf('--json');
-  if (i < 0 || !argv[i + 1]) throw new Error('no --json in the run arguments: nowhere safe to put traces');
-  return path.join(path.dirname(path.resolve(argv[i + 1])), 'traces');
-}
-
-/**
  * Observed at `/private/tmp/e-*` on macOS (reached as `/tmp`); `os.tmpdir()` is scanned too. A wrong
  * root shows up in `harvestedOfResult` as named-but-not-harvested rather than a quiet 0.
  */
 const SANDBOX_ROOTS = [...new Set(['/tmp', tmpdir()])];
 
+// The agent's working directory inside a sandbox (`cwd` of every 2026-10-04 trace's init event); the scaffold
+// puts the repository at `repo/` under it, so task ledgers sit one level down. Deeper is not searched: the
+// snapshot is thousands of files.
+const SANDBOX_CWD = ['home', 'cwd'];
+
+function sandboxLedgers(sandbox) {
+  const cwd = path.join(sandbox, ...SANDBOX_CWD);
+  const found = [];
+  const bases = [cwd];
+  try {
+    for (const entry of readdirSync(cwd, { withFileTypes: true })) if (entry.isDirectory() && !entry.name.startsWith('.')) bases.push(path.join(cwd, entry.name));
+  } catch (error) {
+    if (error.code === 'ENOENT') return found;
+    throw error;
+  }
+  for (const base of bases) {
+    let slugs;
+    try {
+      slugs = readdirSync(path.join(base, '.ambicode', 'task'));
+    } catch (error) {
+      if (error.code === 'ENOENT' || error.code === 'ENOTDIR') continue;
+      throw error;
+    }
+    for (const slug of slugs) found.push(path.relative(sandbox, path.join(base, '.ambicode', 'task', slug, 'ledger.jsonl')));
+  }
+  return found;
+}
+
 /**
  * The harness deletes each sandbox when its eval finishes, so the only window is while it runs. Copies go
  * to a temporary name then rename; later passes overwrite, since the trace grows and the last copy is whole.
+ * Task ledgers are copied the same way to `ledgers/<e-id>/<their path in the sandbox>`, so two runs' slugs never meet.
  */
 export function harvestTraces(outDir, { sandboxRoots = SANDBOX_ROOTS } = {}) {
   mkdirSync(outDir, { recursive: true });
@@ -933,6 +1025,20 @@ export function harvestTraces(outDir, { sandboxRoots = SANDBOX_ROOTS } = {}) {
       } catch (error) {
         if (error.code !== 'ENOENT') failure ??= error;
       }
+      try {
+        for (const relative of sandboxLedgers(path.join(root, name))) {
+          const target = path.join(outDir, LEDGER_DIRECTORY, name, relative);
+          try {
+            mkdirSync(path.dirname(target), { recursive: true });
+            copyFileSync(path.join(root, name, relative), `${target}.tmp`);
+            renameSync(`${target}.tmp`, target);
+          } catch (error) {
+            if (error.code !== 'ENOENT') failure ??= error;
+          }
+        }
+      } catch (error) {
+        failure ??= error;
+      }
     }
   }
   if (failure) throw failure;
@@ -953,8 +1059,10 @@ export function harvestedOfResult(jsonPath, tracesDir) {
 }
 
 /** Beside the result, so it stays in the same gitignored directory: it quotes the benchmark's answers. */
+const walkPathOf = (jsonPath) => path.join(path.dirname(path.resolve(jsonPath)), `${path.basename(jsonPath, '.json').replace(/^eval-/, 'walk-')}.md`);
+
 function writeWalk(jsonPath, { benchmarks, tracesDir }) {
-  const out = path.join(path.dirname(path.resolve(jsonPath)), `${path.basename(jsonPath, '.json').replace(/^eval-/, 'walk-')}.md`);
+  const out = walkPathOf(jsonPath);
   writeFileSync(out, walkReport(JSON.parse(readFileSync(jsonPath, 'utf8')), { benchmarks, tracesDir, source: path.basename(jsonPath) }));
   return out;
 }
@@ -962,7 +1070,286 @@ function writeWalk(jsonPath, { benchmarks, tracesDir }) {
 // Faster buys nothing (the final copy wins); slower risks missing a short run's whole window.
 const HARVEST_INTERVAL_MS = 2_000;
 
-async function main(argv) {
+const frontMatterOf = (file) => {
+  const head = FRONT_MATTER.exec(readFileSync(file, 'utf8'))?.[0];
+  return head ? (parseYaml(head.replace(/^---\n/, '').replace(/\n---\n?$/, '')) ?? {}) : {};
+};
+
+/**
+ * The cases `claude plugin eval` would run from `casesDir`, filtered as 2.1.289 filters them (read from its
+ * binary): `--case` is one glob over the name, and repeated `--tag` keeps a case carrying ANY of the tags.
+ */
+export function resolveCases(casesDir, { tags = [], caseGlob } = {}) {
+  const glob = caseGlob === undefined ? null : new RegExp(`^${caseGlob.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`);
+  const cases = [];
+  for (const entry of readdirSync(casesDir, { withFileTypes: true }).filter((e) => e.isDirectory()).sort((a, b) => a.name.localeCompare(b.name))) {
+    const dir = path.join(casesDir, entry.name);
+    const yamlFile = path.join(dir, 'case.yaml');
+    const promptFileAt = path.join(dir, PROMPT);
+    if (!existsSync(yamlFile) && !existsSync(promptFileAt)) continue;
+    const top = { ...(existsSync(yamlFile) ? (parseYaml(readFileSync(yamlFile, 'utf8')) ?? {}) : {}), ...(existsSync(promptFileAt) ? frontMatterOf(promptFileAt) : {}) };
+    const name = typeof top.name === 'string' && top.name ? top.name : entry.name;
+    const caseTags = Array.isArray(top.tags) ? top.tags : [];
+    if (glob && !glob.test(name)) continue;
+    if (tags.length && !tags.some((t) => caseTags.includes(t))) continue;
+    const kind = ['review', 'localize', 'task'].find((k) => caseTags.includes(k)) ?? 'other';
+    cases.push({ name, directory: entry.name, dir, tags: caseTags, kind, hasWith: existsSync(path.join(dir, WITH_PROMPT)) });
+  }
+  return cases;
+}
+
+const sha = (text) => createHash('sha256').update(text).digest('hex').slice(0, 12);
+
+/**
+ * Everything a run would do, decided before anything is spawned or changed: `run --dry-run` prints it and stops;
+ * `runSweep` executes it. Refusals here cost nothing. `rest` is the raw arguments or `parseRunOptions`' result.
+ */
+export function planRun(rest, { benchmarks = BENCHMARKS, now = new Date(), env = process.env } = {}) {
+  const spec = runSpec(Array.isArray(rest) ? parseRunOptions(rest) : rest, { now, benchmarks });
+  const { casesDir, prompt, ablation, plugin } = spec;
+  // A result already there is earlier evidence: this run neither overwrites it nor reads it as its own.
+  if (existsSync(spec.json)) throw new Error('the --json target already exists: an earlier result is never overwritten or read as this run\'s; pass a new path');
+  if (!existsSync(casesDir)) throw new Error(`no generated cases at ${casesDir}: run \`npm run evals:${spec.set === 'full' ? 'generate' : 'select'}\` first`);
+  if (existsSync(path.join(casesDir, GENERATION_MARKER))) throw new Error(`the generation of ${casesDir} was interrupted: recreate it with \`select --regenerate\``);
+  refuseLegacyTwins(casesDir);
+  const cases = resolveCases(casesDir, { tags: spec.tags, caseGlob: spec.caseGlob ?? undefined });
+  if (cases.length === 0) throw new Error('no case matches the --tag/--case filter');
+  const pluginName = JSON.parse(readFileSync(path.join(plugin, '.claude-plugin', 'plugin.json'), 'utf8')).name ?? null;
+  if (prompt === 'with') {
+    if (pluginName === NAKED_PLUGIN) throw new Error('--prompt with refused: the naked control plugin must serve the naked prompt.md');
+    if (ablation !== 'none') throw new Error(`--prompt with needs --ablation none, not ${ablation ?? 'the harness default with-without'}: the swapped prompt would reach the no-plugin arm too`);
+    const missing = cases.filter((c) => !c.hasWith).length;
+    if (missing) throw new Error(`--prompt with refused: ${missing} of ${cases.length} selected case(s) have no ${WITH_PROMPT} (review and task prompts come with steps 07/08)`);
+  }
+  const marker = outstandingSwap(casesDir);
+  // Bodies are read now, before any swap: prompt.md may hold the plugin prompt only while a swap is outstanding,
+  // and then the naked copy is the naked prompt.
+  const planned = cases.map((c) => {
+    const swapped = marker?.cases.includes(c.directory);
+    const nakedBody = promptBody(readFileSync(path.join(c.dir, swapped ? NAKED_COPY : PROMPT), 'utf8'));
+    const withBody = c.hasWith ? promptBody(readFileSync(path.join(c.dir, WITH_PROMPT), 'utf8')) : null;
+    return { ...c, served: prompt, nakedBody, withBody };
+  });
+  return {
+    ...spec,
+    argv: harnessArgv(spec),
+    benchmarks,
+    pluginName,
+    trusted: plugin === ROOT ? 'the repository itself' : spec.trustPlugin ? '--trust-plugin given' : 'not asserted: the harness will ask before the first run',
+    replay: env.EVAL_AMBICODE_REVIEWER_REPLAY ? 'set' : 'unset',
+    outstandingSwap: marker ? marker.cases.length : 0,
+    lockedBy: casesLockStatus(casesDir),
+    cases: planned,
+  };
+}
+
+// Tags the generators write; any other value could carry a name and is shown redacted.
+const PLAIN_TAGS = new Set(['bench', 'localize', 'review', 'task', 'walk', 'reuse', 'impact']);
+
+/** The plan with no prompt text, case name or identifying path: counts, kinds, digests and settings only. */
+export function formatPlan(plan) {
+  const where = (target) => {
+    const resolved = path.resolve(target);
+    const [label] = [['<benchmarks>', plan.benchmarks], ['<root>', ROOT], ['<plugin>', plan.plugin]].find(([, dir]) => !path.relative(dir, resolved).startsWith('..')) ?? ['<path>'];
+    return `${label}/…/<name redacted>${path.extname(target)}`;
+  };
+  const harness = plan.harness.map(([name, ...values]) => {
+    if (name === '--tag') return `--tag ${values.map((t) => (PLAIN_TAGS.has(t) ? t : '<tag redacted>')).join(' ')}`;
+    if (!values.length) return name;
+    if (name === '--case') return `--case <selector redacted; ${plan.cases.length} case(s) matched>`;
+    if (PATH_OPTIONS.has(name)) return `${name} ${where(values[0])}${name === '--json' && !plan.jsonGiven ? ' (default)' : ''}`;
+    return `${name} ${values[0]}`;
+  });
+  const kinds = tally(plan.cases.map((c) => c.kind));
+  const pluginShown = plan.plugin === ROOT ? '<root>' : '<plugin dir>';
+  const lock = plan.lockedBy;
+  return [
+    'dry run: nothing spawned, no prompt or case file changed',
+    `plugin: ${pluginShown} (${plan.pluginName ?? 'unnamed'}); trust: ${plan.trusted}`,
+    `set: ${plan.set}; cases: ${plan.cases.length} (${Object.entries(kinds).map(([k, n]) => `${k} ${n}`).join(', ')})`,
+    `served prompt: ${plan.prompt === 'with' ? `${WITH_PROMPT}, swapped into ${PROMPT} for the run and restored after; promptMarkdown records the naked prompt` : PROMPT}`,
+    ...plan.cases.map((c, i) => `  case ${i + 1}: ${c.kind}, naked ${sha(c.nakedBody)}${c.withBody === null ? '' : `, with ${sha(c.withBody)}`}, serves ${c.served}`),
+    `model: ${plan.model}; cap: $${plan.maxCostUsd}; runs: ${plan.runs ?? 'per case'}; ablation: ${plan.ablation ?? 'harness default (with-without)'}`,
+    `reviewer replay: ${plan.replay}; outstanding swap: ${plan.outstandingSwap ? `${plan.outstandingSwap} case(s), restored before a real run` : 'none'}; cases lock: ${
+      lock ? `${lock.state}, held by ${lock.purpose ?? 'unknown'}; a real run would ${lock.state === 'abandoned' ? 'recover it' : 'be refused'}` : 'free'
+    }`,
+    'hook support: not claimed (probe P37 pending); a dry run cannot show whether a typed command expands',
+    `harness: claude plugin eval ${pluginShown} --eval-dir ${plan.set === 'full' ? BENCH_EVAL_DIR : CURATED_EVAL_DIR} --scaffold --allow-tools Bash --no-publish`,
+    `harness options: ${harness.join(' ')}`,
+  ].join('\n');
+}
+
+/**
+ * The served prompt's provenance in a result: `promptMarkdown` stays the naked prompt (what `withBaseline`
+ * compares), `pluginPromptMarkdown` is what the plugin arm was actually served, `suite.servedPrompt` says which.
+ */
+export function recordServedPrompts(results, plan) {
+  const byName = new Map(plan.cases.map((c) => [c.name, c]));
+  const cases = (results.cases ?? []).map((evalCase) => {
+    const planned = byName.get(evalCase.name);
+    if (!planned) throw new Error(`the result holds case ${evalCase.name}, which the run did not plan`);
+    const served = plan.prompt === 'with' ? planned.withBody : planned.nakedBody;
+    if (evalCase.promptMarkdown !== served) throw new Error(`${evalCase.name}: the result records a prompt other than the ${plan.prompt} prompt that was served`);
+    return plan.prompt === 'with' ? { ...evalCase, promptMarkdown: planned.nakedBody, pluginPromptMarkdown: served } : evalCase;
+  });
+  return { ...results, cases, suite: { ...results.suite, servedPrompt: plan.prompt } };
+}
+
+/**
+ * The harness writes to a file only this invocation knows, created empty and exclusively beside the target; it
+ * reaches the target by a hard link, which never replaces a file. So a run reads, annotates and walks only what
+ * it wrote, whatever another run does to the same target meanwhile.
+ */
+function reserveResult(target) {
+  const dir = path.dirname(target);
+  mkdirSync(dir, { recursive: true });
+  const reserved = path.join(dir, `.${path.basename(target, '.json')}.run-${randomUUID()}.json`);
+  writeFileSync(reserved, '', { flag: 'wx' });
+  return reserved;
+}
+
+/** Publishes `text` at `target` only if nothing is there; false when something is. */
+function publishNew(target, { from, text }) {
+  let source = from;
+  if (text !== undefined) {
+    source = path.join(path.dirname(target), `.${path.basename(target)}.${randomUUID()}.tmp`);
+    writeFileSync(source, text, { flag: 'wx' });
+  }
+  try {
+    linkSync(source, target);
+    return true;
+  } catch (error) {
+    if (error.code === 'EEXIST') return false;
+    throw error;
+  } finally {
+    if (text !== undefined) rmSync(source, { force: true });
+  }
+}
+
+function spawnClaude(argv) {
+  const child = spawn('claude', argv, { stdio: 'inherit' });
+  return new Promise((resolve) => {
+    child.on('error', (error) => {
+      console.error(error.message);
+      resolve(1);
+    });
+    child.on('close', (code) => resolve(code ?? 1));
+  });
+}
+
+/**
+ * `run`: takes the cases lock, plans, restores what an abandoned owner left, swaps in the plugin prompts, spawns,
+ * and restores and unlocks in `finally`, so a failure partway through a swap or a thrown spawn leaves prompt.md
+ * naked. A kill skips `finally`; the dead owner's claim and the marker make the next run, `restore-prompts`,
+ * `select` and `naked-arm.mjs` recover it. A naked run holds the lock too: it serves the same prompt files.
+ */
+export async function runSweep(rest, { benchmarks = BENCHMARKS, now = new Date(), spawnRun = spawnClaude, harvest = harvestTraces, log = console.log, warn = console.error, env = process.env } = {}) {
+  const options = parseRunOptions(rest);
+  if (options.flags.has('--dry-run')) {
+    log(formatPlan(planRun(options, { benchmarks, now, env })));
+    return 0;
+  }
+  const spec = runSpec(options, { now, benchmarks });
+  const lock = lockCases(spec.casesDir, `run (${spec.prompt} prompt)`);
+  let plan;
+  let reserved;
+  try {
+    plan = planRun(options, { benchmarks, now, env });
+    reserved = reserveResult(plan.json);
+  } catch (error) {
+    unlockCases(lock);
+    throw error;
+  }
+  const { casesDir, tracesDir } = plan;
+  let status;
+  const harvestErrors = new Set();
+  // A harvest failure is reported, never fatal to a paid sweep. Each distinct cause is printed once:
+  // a pass every 2 s would flood the output, but a cause that changes mid-sweep must not hide.
+  const pass = () => {
+    try {
+      harvest(tracesDir);
+    } catch (error) {
+      if (!harvestErrors.has(error.message)) warn(`trace harvest failing: ${error.message}`);
+      harvestErrors.add(error.message);
+    }
+  };
+  try {
+    try {
+      if (lock.abandoned) log(`took over the cases lock of a process that is gone (${lock.abandoned.purpose ?? 'unknown purpose'})`);
+      const restored = restorePrompts(casesDir, { lock });
+      if (restored) log(`restored ${restored} naked prompt(s) left swapped by an interrupted run`);
+      if (plan.prompt === 'with') swapInPluginPrompts(casesDir, plan.cases.map((c) => c.directory), { lock });
+      pass(); // setInterval's first tick is a whole interval away; a short-lived sandbox would be missed.
+      const timer = setInterval(pass, HARVEST_INTERVAL_MS);
+      try {
+        status = await spawnRun(harnessArgv(plan, { json: reserved }));
+      } finally {
+        clearInterval(timer);
+      }
+    } finally {
+      try {
+        restorePrompts(casesDir, { lock });
+      } finally {
+        unlockCases(lock);
+      }
+    }
+  } catch (error) {
+    rmSync(reserved, { force: true });
+    throw error;
+  }
+  pass();
+  const kept = existsSync(tracesDir) ? readdirSync(tracesDir).filter((f) => f.endsWith('.jsonl')).length : 0;
+  const ledgerRuns = existsSync(path.join(tracesDir, LEDGER_DIRECTORY)) ? readdirSync(path.join(tracesDir, LEDGER_DIRECTORY)).length : 0;
+  const produced = (statSync(reserved, { throwIfNoEntry: false })?.size ?? 0) > 0;
+  let completeness = '; harvest completeness unknown (the run wrote no result of its own)';
+  if (produced)
+    try {
+      const { named, harvested } = harvestedOfResult(reserved, tracesDir);
+      completeness = `; the result names ${named}, ${harvested} of those harvested`;
+    } catch (error) {
+      completeness = `; harvest completeness unknown (${error.message})`;
+    }
+  log(
+    `harvested ${kept} trace(s) and the ledgers of ${ledgerRuns} sandbox(es) to ${tracesDir}${completeness}` +
+      `${harvestErrors.size ? ` (harvest reported ${harvestErrors.size} distinct failure(s): the set is incomplete)` : ''}`,
+  );
+  if (!produced) {
+    rmSync(reserved, { force: true });
+    if (plan.walk) warn('walkthrough: skipped, the run wrote no result of its own');
+    return status || 1;
+  }
+  let written = null;
+  try {
+    written = JSON.parse(readFileSync(reserved, 'utf8'));
+    const recorded = recordServedPrompts(written, plan);
+    atomicWrite(reserved, `${JSON.stringify(recorded, null, 2)}\n`);
+    written = recorded;
+  } catch (error) {
+    // Left as the harness wrote it: a gate then refuses the case's prompt instead of trusting an unverified one.
+    warn(`served prompt not recorded: ${error.message}`);
+    status ||= 1;
+  }
+  if (!publishNew(plan.json, { from: reserved })) {
+    warn(`the result stays at ${reserved}: another file appeared at the --json target during the run and is never replaced`);
+    if (plan.walk) warn('walkthrough: skipped, the result was not published');
+    return status || 1;
+  }
+  rmSync(reserved);
+  if (plan.walk && written === null) {
+    warn('walkthrough: skipped, the run\'s result is not readable JSON');
+  } else if (plan.walk) {
+    const walk = walkPathOf(plan.json);
+    const text = walkReport(written, { benchmarks, tracesDir, source: path.basename(plan.json) });
+    if (publishNew(walk, { text })) log(`walkthrough: ${walk}`);
+    else {
+      warn('walkthrough: skipped, a file is already at its path and is never replaced');
+      status ||= 1;
+    }
+  }
+  return status;
+}
+
+export async function main(argv, options = {}) {
   const [command, ...rest] = argv;
   const taken = new Set();
   const option = (name) => {
@@ -974,13 +1361,13 @@ async function main(argv) {
   const benchmarksAt = option('--benchmarks');
   const benchmarks = benchmarksAt === undefined ? BENCHMARKS : path.resolve(benchmarksAt);
   if (command === 'generate' || command === 'select') {
+    if (rest.includes('--forced')) throw new Error(FORCED_REMOVED);
     const pick =
       command === 'select'
         ? { localize: Number(option('--localize') ?? SELECT.localize), review: Number(option('--review') ?? SELECT.review) }
         : null;
     const out = command === 'select' ? CURATED_CASES : undefined;
-    const forced = rest.includes('--forced');
-    const { out: outDir, written, refused, selection } = generate({ benchmarks, out, pick, forced });
+    const { out: outDir, written, refused, selection } = generate({ benchmarks, out, pick, regenerate: rest.includes('--regenerate') });
     for (const r of refused) console.log(`refused ${r.name}: ${r.reason}`);
     if (selection)
       for (const [side, kinds] of Object.entries(selection.sides))
@@ -991,57 +1378,13 @@ async function main(argv) {
     console.log(`wrote ${written.length} case(s) to ${outDir} (${Object.entries(bySide).map(([s, n]) => `${s} ${n}`).join(', ')}), refused ${refused.length}`);
     return 0;
   }
-  if (command === 'run') {
-    const set = option('--set') ?? 'curated';
+  if (command === 'run') return runSweep(rest.filter((_, i) => !taken.has(i)), { benchmarks, ...options });
+  if (command === 'restore-prompts') {
     const pluginAt = option('--plugin');
-    const walkIndex = rest.indexOf('--walk');
-    if (walkIndex >= 0) taken.add(walkIndex);
-    const positional = rest.filter((_, i) => !taken.has(i));
-    const cases = set === 'full' ? path.join(benchmarks, CASES_DIRECTORY) : CURATED_CASES;
-    if (!existsSync(cases)) throw new Error(`no generated cases at ${cases}: run \`npm run evals:${set === 'full' ? 'generate' : 'select'}\` first`);
-    const args = runArgs(positional, { benchmarks, set, ...(pluginAt === undefined ? {} : { plugin: path.resolve(pluginAt) }) });
-    const tracesDir = harvestDir(args);
-    const child = spawn('claude', args, { stdio: 'inherit' });
-    // A harvest failure is reported, never fatal to a paid sweep. Each distinct cause is printed once:
-    // a pass every 2 s would flood the output, but a cause that changes mid-sweep must not hide.
-    const harvestErrors = new Set();
-    const pass = () => {
-      try {
-        harvestTraces(tracesDir);
-      } catch (error) {
-        if (!harvestErrors.has(error.message)) console.error(`trace harvest failing: ${error.message}`);
-        harvestErrors.add(error.message);
-      }
-    };
-    pass(); // setInterval's first tick is a whole interval away; a short-lived sandbox would be missed.
-    const timer = setInterval(pass, HARVEST_INTERVAL_MS);
-    const status = await new Promise((resolve) => {
-      child.on('error', (error) => {
-        console.error(error.message);
-        resolve(1);
-      });
-      child.on('close', (code) => resolve(code ?? 1));
-    });
-    clearInterval(timer);
-    pass();
-    const kept = existsSync(tracesDir) ? readdirSync(tracesDir).filter((f) => f.endsWith('.jsonl')).length : 0;
-    let completeness;
-    try {
-      const { named, harvested } = harvestedOfResult(args[args.indexOf('--json') + 1], tracesDir);
-      completeness = `; the result names ${named}, ${harvested} of those harvested`;
-    } catch (error) {
-      completeness = `; harvest completeness unknown (${error.message})`;
-    }
-    console.log(
-      `harvested ${kept} trace(s) to ${tracesDir}${completeness}` +
-        `${harvestErrors.size ? ` (harvest reported ${harvestErrors.size} distinct failure(s): the set is incomplete)` : ''}`,
-    );
-    // Only this run's own result: a failed run that wrote none must not be walked as an older one.
-    const json = args[args.indexOf('--json') + 1];
-    if (walkIndex >= 0)
-      if (existsSync(json)) console.log(`walkthrough: ${writeWalk(json, { benchmarks, tracesDir })}`);
-      else console.error(`walkthrough: skipped, the run wrote no result at ${json}`);
-    return status;
+    const casesDir = path.join(pluginAt === undefined ? ROOT : path.resolve(pluginAt), CURATED_EVAL_DIR, CASES_DIRECTORY);
+    const restored = restorePrompts(casesDir);
+    console.log(restored ? `restored ${restored} naked prompt(s) in ${casesDir}` : `no outstanding swap in ${casesDir}`);
+    return 0;
   }
   if (command === 'score' || command === 'walk') {
     const tracesAt = option('--traces');
@@ -1060,7 +1403,7 @@ async function main(argv) {
     return 0;
   }
   throw new Error(
-    'usage: evals-bench.mjs generate | select [--localize <n>] [--review <n>] [--forced] | run [--set curated|full] [--plugin <dir>] --model <m> --max-cost-usd <usd> [--walk] [options] | score <eval-results.json> [--traces <dir>] [--baseline <file>] | walk <eval-results.json> [--traces <dir>]',
+    'usage: evals-bench.mjs generate | select [--localize <n>] [--review <n>] [--regenerate] | run [--set curated|full] [--plugin <dir>] [--prompt naked|with] [--dry-run] --model <m> --max-cost-usd <usd> [--walk] [options] | restore-prompts [--plugin <dir>] | score <eval-results.json> [--traces <dir>] [--baseline <file>] | walk <eval-results.json> [--traces <dir>]',
   );
 }
 

@@ -3,7 +3,9 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BENCHMARKS, score, withBaseline } from './evals-bench.mjs';
+import { BENCHMARKS, NAKED_EQUIVALENCE, baselineProvenance, score, servedPromptLine, withBaseline } from './evals-bench.mjs';
+
+export { NAKED_EQUIVALENCE };
 
 /**
  * 3 runs: course B5 puts single-run noise at ±5–10 pp. 1.1× cost and +2 turns: report 2 §5's
@@ -36,10 +38,8 @@ export function gate(given, { benchmarks = BENCHMARKS, tracesDir = null, budget 
   // and counted in the verdict, so a replayed run cannot read as a measured one.
   const gap = (name, detail) => checks.push({ name, pass: true, status: 'gap', detail });
 
-  if (results.baseline) {
-    const days = (Date.parse(results.startedAt) - Date.parse(results.baseline.startedAt)) / 86_400_000;
-    info.push(`without arm: the ${results.baseline.arm} arm of cached baseline ${results.baseline.file}, started ${results.baseline.startedAt ?? 'at an unrecorded time'}, ${Number.isFinite(days) ? `${fmt(days, 1)} days` : 'an unknown time'} before this run`);
-  }
+  info.push(...baselineProvenance(results));
+  info.push(`served prompt: ${servedPromptLine(results)}`);
 
   check('complete', !results.partial, results.partial ? 'the harness reported a partial run' : 'not partial');
 

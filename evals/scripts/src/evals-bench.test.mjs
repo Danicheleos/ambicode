@@ -2,13 +2,64 @@
 // runs only where `benchmarks/` exists, and checks it cannot leak.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { createHash } from 'node:crypto';
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { hostname, tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
-import { BENCH_EVAL_DIR, CURATED_EVAL_DIR, SELECT, changedLines, codeRoot, generate, harvestDir, neutralPrompt, harvestTraces, harvestedOfResult, localizeHardness, namedFiles, parseTicket, reviewSubstance, runArgs, score, scoreAnswer, traceMetrics, walkReport, walkRuns, withBaseline } from './evals-bench.mjs';
+import {
+  BENCH_EVAL_DIR,
+  CASES_LOCK,
+  casesLockStatus,
+  CURATED_EVAL_DIR,
+  GENERATION_MARKER,
+  INVESTIGATE_COMMAND,
+  LEDGER_DIRECTORY,
+  NAKED_COPY,
+  NAKED_EQUIVALENCE,
+  PROMPT,
+  SELECT,
+  SWAP_MARKER,
+  WITH_PROMPT,
+  changedLines,
+  codeRoot,
+  generate,
+  harvestDir,
+  harvestTraces,
+  harvestedOfResult,
+  ledgerMetrics,
+  ledgersOf,
+  lockCases,
+  unlockCases,
+  localizeHardness,
+  main,
+  namedFiles,
+  outstandingSwap,
+  parseRunOptions,
+  parseTicket,
+  planRun,
+  pluginPrompt,
+  promptBody,
+  resolveCases,
+  restorePrompts,
+  reviewSubstance,
+  runArgs,
+  runSweep,
+  score,
+  scoreAnswer,
+  servedPromptLine,
+  swapInPluginPrompts,
+  traceMetrics,
+  walkReport,
+  walkRuns,
+  withBaseline,
+  writePluginPrompt,
+} from './evals-bench.mjs';
+import { buildNaked } from './naked-arm.mjs';
+
+const tally = (xs) => xs.reduce((out, x) => ({ ...out, [x]: (out[x] ?? 0) + 1 }), {});
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const M = ['--model', 'claude-sonnet-5-5', '--max-cost-usd', '1'];
@@ -90,7 +141,8 @@ describe('evals-bench: generate', () => {
       { name: 'side-t-2', reason: 'none of its 1 true file(s) exists in the snapshot' },
       { name: 'side-t-1-review-8-00000000', reason: 'change.patch is missing from the prepared version' },
     ]);
-    assert.deepEqual(readdirSync(path.join(benchmarks, 'cases')).sort(), ['side-t-1', 'side-t-1-review-7-abcdef12']);
+    assert.deepEqual(readdirSync(path.join(benchmarks, 'cases')).filter((f) => f !== CASES_LOCK).sort(), ['side-t-1', 'side-t-1-review-7-abcdef12']);
+    assert.equal(casesLockStatus(path.join(benchmarks, 'cases')), null, 'generation released its claim');
   });
 
   it('grades only the true files the snapshot still has, and records the others', () => {
@@ -311,6 +363,9 @@ describe('evals-bench: measures taken from the trace', () => {
       bashReads: 2,
       readCalls: 1,
       grepCalls: 1,
+      peakContext: null,
+      mcpHookResponses: null,
+      mcpHookSpawns: null,
     });
   });
 
@@ -350,7 +405,7 @@ describe('evals-bench: a cached no-plugin arm', () => {
   it('takes the without arm from the baseline, and keeps where it came from', () => {
     const merged = withBaseline(withOnly, baseline, { baselinePath: 'b.json' });
     assert.deepEqual(merged.cases[0].arms, { with: [{ turns: 9 }], without: [{ turns: 7 }] });
-    assert.deepEqual(merged.baseline, { file: 'b.json', arm: 'without', startedAt: '2026-09-29T00:00:00.000Z' });
+    assert.deepEqual(merged.baseline, { file: 'b.json', arm: 'without', startedAt: '2026-09-29T00:00:00.000Z', plugin: null, claudeVersion: '2.1.285' });
     assert.equal(withOnly.cases[0].arms.without, undefined, 'the run it was given is not modified');
   });
 
@@ -373,17 +428,11 @@ describe('evals-bench: a cached no-plugin arm', () => {
     assert.throws(() => withBaseline(withOnly, naked, { baselinePath: 'n.json', arm: 'without' }), /no without arm/);
   });
 
-  it("measures a forced case's no-plugin arm on its neutral twin", () => {
-    const neutral = 'Review the change before it merges.';
-    const forced = 'Use the ambicode review skill to review the change before it merges.';
-    assert.equal(neutralPrompt(forced), neutral);
-    const twin = (prompt) => ({ ...withOnly, cases: [{ name: 'side-t-1-review-7-x-forced', promptMarkdown: prompt, arms: { with: [{ turns: 9 }] } }] });
-    const cached = result({ with: [{ turns: 1 }], without: [{ turns: 6 }] });
-    cached.cases = [{ name: 'side-t-1-review-7-x', promptMarkdown: neutral, arms: cached.cases[0].arms }];
-    assert.deepEqual(withBaseline(twin(forced), cached, { baselinePath: 'b.json' }).cases[0].arms.without, [{ turns: 6 }]);
-    assert.throws(() => withBaseline(twin('Use the ambicode review skill to review something else.'), cached, { baselinePath: 'b.json' }), /prompt differs/);
-    const own = { ...cached, cases: [...cached.cases, { name: 'side-t-1-review-7-x-forced', promptMarkdown: forced, arms: { without: [{ turns: 2 }] } }] };
-    assert.deepEqual(withBaseline(twin(forced), own, { baselinePath: 'b.json' }).cases[0].arms.without, [{ turns: 2 }], 'a baseline with the forced case itself keeps using it');
+  it('measures a case only against the same case: there is no twin to fall back to', () => {
+    const twin = { ...withOnly, cases: [{ name: 'side-t-1-review-7-x-forced', promptMarkdown: PROMPT, arms: { with: [{ turns: 9 }] } }] };
+    const cached = result({ without: [{ turns: 6 }] });
+    cached.cases = [{ name: 'side-t-1-review-7-x', promptMarkdown: PROMPT, arms: cached.cases[0].arms }];
+    assert.throws(() => withBaseline(twin, cached, { baselinePath: 'b.json' }), /no case side-t-1-review-7-x-forced/);
   });
 });
 
@@ -676,12 +725,12 @@ describe('evals-bench: select', () => {
       { path: 'app/orders/service.ts', newLine: 1, body: 'Missing test.', resolved: true },
     ]);
     out = path.join(base, ...CURATED_EVAL_DIR.split('/'), 'cases');
-    result = generate({ benchmarks, out, pick: { localize: 1, review: 1 }, forced: true });
+    result = generate({ benchmarks, out, pick: { localize: 1, review: 1 } });
   });
   after(() => rmSync(base, { recursive: true, force: true }));
 
   it('keeps the hardest eligible ticket and the most substantiated review that fits the timeout', () => {
-    assert.deepEqual(result.written.map((w) => w.name).sort(), ['side-t-easy-review-7-abcdef12', 'side-t-easy-review-7-abcdef12-forced', 'side-t-hard']);
+    assert.deepEqual(result.written.map((w) => w.name).sort(), ['side-t-easy-review-7-abcdef12', 'side-t-hard']);
     const s = result.selection.sides.SIDE;
     assert.deepEqual([s.localize.eligible, s.localize.of, s.review.eligible, s.review.of], [2, 4, 1, 2]);
     assert.equal(s.localize.chosen[0].hardness, 1);
@@ -691,24 +740,21 @@ describe('evals-bench: select', () => {
     assert.equal(onDisk.criteria.maxChangedLines, SELECT.maxChangedLines);
   });
 
-  it('writes a neutral review prompt, and a forced twin scored as its own kind', () => {
+  it('writes a neutral review prompt and no forced twin', () => {
     const neutral = readFileSync(path.join(out, 'side-t-easy-review-7-abcdef12', 'prompt.md'), 'utf8');
-    const forced = readFileSync(path.join(out, 'side-t-easy-review-7-abcdef12-forced', 'prompt.md'), 'utf8');
     assert.doesNotMatch(neutral, /ambicode/);
     assert.match(neutral, /^Review the change before it merges/m);
-    assert.match(forced, /^Use the ambicode review skill to review the change before it merges/m);
-    assert.match(forced, /tags: \[.*"forced"\]/);
-    assert.equal(JSON.parse(readFileSync(path.join(out, 'side-t-easy-review-7-abcdef12-forced', 'truth.json'), 'utf8')).variant, 'forced');
+    assert.ok(!readdirSync(out).some((name) => name.endsWith('-forced')));
   });
 
-  it('tags the top pick of each kind per side, and its forced twin, for the walkthrough', () => {
+  it('tags the top pick of each kind per side for the walkthrough', () => {
     const wider = path.join(base, 'wider');
-    generate({ benchmarks: path.join(base, 'benchmarks'), out: wider, pick: { localize: 2, review: 1 }, forced: true });
+    generate({ benchmarks: path.join(base, 'benchmarks'), out: wider, pick: { localize: 2, review: 1 } });
     const walkTag = /^tags: \[[^\]\n]*"walk"/m;
     const tagged = (name) => walkTag.test(readFileSync(path.join(wider, name, 'prompt.md'), 'utf8'));
     assert.deepEqual(
-      ['side-t-hard', 'side-t-easy', 'side-t-easy-review-7-abcdef12', 'side-t-easy-review-7-abcdef12-forced'].map(tagged),
-      [true, false, true, true],
+      ['side-t-hard', 'side-t-easy', 'side-t-easy-review-7-abcdef12'].map(tagged),
+      [true, false, true],
     );
     assert.ok(walkTag.test(readFileSync(path.join(out, 'side-t-hard', 'prompt.md'), 'utf8')), 'with one pick per kind, that pick is the walkthrough');
   });
@@ -770,5 +816,959 @@ describe('evals-bench: the real benchmark stays out of git', { skip: !existsSync
       for (const id of ids) if (new RegExp(`\\b${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(text)) leaks.push(`${file}: ${id}`);
     }
     assert.deepEqual(leaks, []);
+  });
+});
+
+// Per-arm prompts, dry run and ledgers. Each block builds its own synthetic benchmark and plugin directory.
+const PAD = ' The steps to reproduce and the acceptance criteria follow in detail.'.repeat(5);
+
+/** Two sides, each with `localize` eligible tickets and `review` eligible review versions. */
+function syntheticBenchmarks(root, { localize = 6, review = 5 } = {}) {
+  const benchmarks = path.join(root, 'benchmarks');
+  for (const side of ['AA', 'BB']) {
+    const base = path.join(benchmarks, side);
+    mkdirSync(path.join(base, 'src', 'mod'), { recursive: true });
+    mkdirSync(path.join(base, 'assets'), { recursive: true });
+    mkdirSync(path.join(base, '.ambicode'), { recursive: true });
+    writeFileSync(path.join(base, '.ambicode', 'config.yaml'), 'schemaVersion: 1\n');
+    for (let f = 0; f < 3; f++) writeFileSync(path.join(base, 'src', 'mod', `f${f}.ts`), `export const v${f} = ${f};\n`);
+    for (let t = 0; t < Math.max(localize, review); t++) {
+      const truth = t < localize ? ['app/mod/f0.ts', 'app/mod/f1.ts'] : ['app/mod/f0.ts'];
+      writeFileSync(path.join(base, 'assets', `T-${t}.md`), ticket(`Ticket ${t} changes how amounts are computed.${PAD}`, truth));
+      if (t >= review) continue;
+      const dir = path.join(base, 'reviews', `T-${t}`, `${t}-abcdef12`);
+      mkdirSync(path.join(dir, 'base', 'app', 'mod'), { recursive: true });
+      writeFileSync(path.join(dir, 'base', 'app', 'mod', 'f0.ts'), 'export const v0 = -1;\n');
+      writeFileSync(path.join(dir, 'absent.txt'), '');
+      writeFileSync(path.join(dir, 'change.patch'), CHANGE);
+      writeFileSync(path.join(dir, 'threads.json'), JSON.stringify([{ path: 'app/mod/f0.ts', newLine: 1, body: `Thread ${t}.` }]));
+    }
+  }
+  return benchmarks;
+}
+
+/** A plugin directory with curated cases generated into it, as `run --plugin` would read them. */
+function syntheticPlugin(root, benchmarks, { name = 'ambicode', pick = { localize: 1, review: 1 } } = {}) {
+  const plugin = path.join(root, `plugin-${name}`);
+  mkdirSync(path.join(plugin, '.claude-plugin'), { recursive: true });
+  writeFileSync(path.join(plugin, '.claude-plugin', 'plugin.json'), JSON.stringify({ name }));
+  const casesDir = path.join(plugin, ...CURATED_EVAL_DIR.split('/'), 'cases');
+  generate({ benchmarks, out: casesDir, pick });
+  return { plugin, casesDir };
+}
+
+const sha256 = (text) => createHash('sha256').update(text).digest('hex');
+// The lock directory is bookkeeping that outlives each owner (claims are numbered, never reused): left out here,
+// and checked with `casesLockStatus` where a test needs the lock free.
+const lockEntry = (f) => f.split(path.sep).includes(CASES_LOCK);
+const snapshot = (dir) =>
+  Object.fromEntries(
+    readdirSync(dir, { recursive: true })
+      .filter((f) => !lockEntry(f))
+      .sort()
+      .map((f) => [f, statSync(path.join(dir, f)).isFile() ? sha256(readFileSync(path.join(dir, f))) : 'dir']),
+  );
+/** The result path a run handed the harness: its private file, published to the target after the run. */
+const jsonOf = (argv) => argv[argv.indexOf('--json') + 1];
+const neverSpawn = () => {
+  throw new Error('spawned');
+};
+
+describe('evals-bench: per-arm prompts', () => {
+  let root;
+  let benchmarks;
+  let casesDir;
+  let plugin;
+  before(() => {
+    root = mkdtempSync(path.join(tmpdir(), 'bench-arms-'));
+    benchmarks = syntheticBenchmarks(root);
+    ({ plugin, casesDir } = syntheticPlugin(root, benchmarks));
+  });
+  after(() => rmSync(root, { recursive: true, force: true }));
+
+  it('keeps the generated naked prompts byte-identical to the generator before per-arm prompts', () => {
+    // Digests of what the unmodified generator wrote for this ticket (base revision 10cf672).
+    const b = path.join(root, 'golden');
+    const side = path.join(b, 'SIDE');
+    mkdirSync(path.join(side, 'src', 'orders'), { recursive: true });
+    mkdirSync(path.join(side, 'assets'), { recursive: true });
+    mkdirSync(path.join(side, '.ambicode'), { recursive: true });
+    writeFileSync(path.join(side, 'src', 'orders', 'service.ts'), 'x\n');
+    writeFileSync(path.join(side, '.ambicode', 'config.yaml'), 'schemaVersion: 1\n');
+    writeFileSync(path.join(side, 'assets', 'T-1.md'), '# T\n\n## build:context prompt\n\nDiscount the order total.\n\n## TRUE RELATED CODE\n\n- `app/orders/service.ts`\n');
+    const v = path.join(side, 'reviews', 'T-1', '7-abcdef12');
+    mkdirSync(path.join(v, 'base'), { recursive: true });
+    writeFileSync(path.join(v, 'absent.txt'), '');
+    writeFileSync(path.join(v, 'change.patch'), '--- a/x\n+++ b/x\n+y\n');
+    writeFileSync(path.join(v, 'threads.json'), JSON.stringify([{ path: 'app/orders/service.ts', newLine: 1, body: 'b' }]));
+    const out = path.join(b, 'out');
+    generate({ benchmarks: b, out });
+    assert.equal(sha256(readFileSync(path.join(out, 'side-t-1', 'prompt.md'))), 'aedc1924c55d320e828db284e2ba4d22210fc4acd47c0ac11d665e7ce150e377');
+    assert.equal(sha256(readFileSync(path.join(out, 'side-t-1-review-7-abcdef12', 'prompt.md'))), '4ab45f1b94afece458bbf040a338ad2451e50df96cc1d6712c2cf7746f1adefb');
+  });
+
+  it('types the investigate command before the first body line of a localize prompt, and changes nothing else', () => {
+    const [localize] = resolveCases(casesDir, { tags: ['localize'] });
+    const naked = readFileSync(path.join(localize.dir, PROMPT), 'utf8');
+    const typed = readFileSync(path.join(localize.dir, WITH_PROMPT), 'utf8');
+    assert.ok(readFileSync(path.join(localize.dir, NAKED_COPY)).equals(readFileSync(path.join(localize.dir, PROMPT))), 'the naked copy is a byte copy');
+    const nakedLines = naked.split('\n');
+    const typedLines = typed.split('\n');
+    const changed = typedLines.flatMap((line, i) => (line === nakedLines[i] ? [] : [i]));
+    assert.equal(typedLines.length, nakedLines.length);
+    assert.equal(changed.length, 1);
+    assert.equal(typedLines[changed[0]], `/ambicode:investigate --headless ${nakedLines[changed[0]]}`);
+    assert.ok(promptBody(typed).startsWith('/ambicode:investigate --headless In the repository'));
+    assert.doesNotMatch(typed, /--requirement/);
+    const [review] = resolveCases(casesDir, { tags: ['review'] });
+    assert.ok(!review.hasWith && !existsSync(path.join(review.dir, NAKED_COPY)), 'review with-prompts are step 08\'s');
+  });
+
+  it('exposes the same generator for a review case, for step 08', () => {
+    const [review] = resolveCases(casesDir, { tags: ['review'] });
+    const copy = path.join(root, 'review-hook', review.directory);
+    mkdirSync(path.dirname(copy), { recursive: true });
+    cpSync(review.dir, copy, { recursive: true });
+    writePluginPrompt(copy, '/ambicode:review --headless');
+    assert.ok(promptBody(readFileSync(path.join(copy, WITH_PROMPT), 'utf8')).startsWith('/ambicode:review --headless In the repository'));
+    assert.ok(readFileSync(path.join(copy, NAKED_COPY)).equals(readFileSync(path.join(review.dir, PROMPT))));
+    assert.throws(() => pluginPrompt('---\nname: x\n---\n\n', '/ambicode:review'), /no body line/);
+    assert.throws(() => pluginPrompt('Body', 'review it'), /\/ambicode: command/);
+  });
+
+  it('swaps the plugin prompt in behind a marker, and restores the naked bytes', () => {
+    const names = resolveCases(casesDir, { tags: ['localize'] }).map((c) => c.directory);
+    const before = snapshot(casesDir);
+    swapInPluginPrompts(casesDir, names);
+    assert.deepEqual(outstandingSwap(casesDir).cases, names);
+    for (const name of names) assert.ok(readFileSync(path.join(casesDir, name, PROMPT)).equals(readFileSync(path.join(casesDir, name, WITH_PROMPT))));
+    assert.throws(() => swapInPluginPrompts(casesDir, names), /already outstanding/);
+    assert.throws(() => writePluginPrompt(path.join(casesDir, names[0]), INVESTIGATE_COMMAND), /swap is outstanding/);
+    assert.equal(restorePrompts(casesDir), names.length);
+    assert.equal(restorePrompts(casesDir), 0, 'a second restore has nothing to do');
+    assert.deepEqual(snapshot(casesDir), before);
+  });
+
+  it('refuses to swap over a prompt.md that is no longer the naked copy', () => {
+    const [c] = resolveCases(casesDir, { tags: ['localize'] });
+    const original = readFileSync(path.join(c.dir, PROMPT));
+    writeFileSync(path.join(c.dir, PROMPT), `${original}edited\n`);
+    try {
+      assert.throws(() => swapInPluginPrompts(casesDir, [c.directory]), /differs from its naked copy/);
+      assert.equal(outstandingSwap(casesDir), null);
+    } finally {
+      writeFileSync(path.join(c.dir, PROMPT), original);
+    }
+  });
+
+  // Each call names a fresh result: an existing --json target is refused.
+  let jsonCount = 0;
+  let jsonPath;
+  const jsonAt = () => jsonPath;
+  const args = (...extra) => {
+    jsonPath = path.join(benchmarks, 'results', `r-${++jsonCount}.json`);
+    return ['--plugin', plugin, '--json', jsonPath, '--model', 'm', '--max-cost-usd', '1', ...extra];
+  };
+
+  /** Stands in for `claude plugin eval`: records each selected case's prompt.md body as the harness does. */
+  const harness = (names, inspect = () => {}) => async (argv) => {
+    const cases = names.map((name) => ({ name, promptMarkdown: promptBody(readFileSync(path.join(casesDir, name, PROMPT), 'utf8')), arms: { with: [{ turns: 1 }] } }));
+    inspect(cases);
+    writeFileSync(jsonOf(argv), JSON.stringify({ partial: false, claudeVersion: '2.1.289', suite: { modelOverride: 'm', plugins: [{ name: 'ambicode' }] }, cases }));
+    return 0;
+  };
+  const quiet = { benchmarks: undefined, harvest: () => 0, log: () => {}, warn: () => {} };
+
+  it('records the naked prompt as promptMarkdown and the served one as pluginPromptMarkdown', async () => {
+    const localize = resolveCases(casesDir, { tags: ['localize'] });
+    let served;
+    const status = await runSweep(args('--tag', 'localize', '--ablation', 'none', '--prompt', 'with'), { ...quiet, benchmarks, spawnRun: harness(localize.map((c) => c.directory), (cases) => (served = cases)) });
+    assert.equal(status, 0);
+    assert.ok(served.every((c) => c.promptMarkdown.startsWith('/ambicode:investigate --headless')), 'the harness saw the plugin prompt');
+    const result = JSON.parse(readFileSync(jsonAt(), 'utf8'));
+    assert.equal(result.suite.servedPrompt, 'with');
+    for (const c of result.cases) {
+      const dir = localize.find((l) => l.name === c.name).dir;
+      assert.equal(c.promptMarkdown, promptBody(readFileSync(path.join(dir, NAKED_COPY), 'utf8')));
+      assert.equal(c.pluginPromptMarkdown, promptBody(readFileSync(path.join(dir, WITH_PROMPT), 'utf8')));
+    }
+    assert.equal(outstandingSwap(casesDir), null);
+    const baseline = { partial: false, claudeVersion: '2.1.289', suite: { modelOverride: 'm', plugins: [{ name: 'naked' }] }, cases: result.cases.map((c) => ({ name: c.name, promptMarkdown: c.promptMarkdown, arms: { with: [{ turns: 2 }] } })) };
+    assert.deepEqual(withBaseline(result, baseline, { baselinePath: 'b.json' }).cases[0].arms.without, [{ turns: 2 }], 'the naked baseline accepts a plugin-prompt run');
+    assert.throws(() => withBaseline({ ...result, cases: served }, baseline, { baselinePath: 'b.json' }), /prompt differs/, 'an unrewritten result would be refused');
+  });
+
+  it('records a naked run as naked, and leaves its prompts alone', async () => {
+    const localize = resolveCases(casesDir, { tags: ['localize'] });
+    await runSweep(args('--tag', 'localize'), { ...quiet, benchmarks, spawnRun: harness(localize.map((c) => c.directory)) });
+    const result = JSON.parse(readFileSync(jsonAt(), 'utf8'));
+    assert.equal(result.suite.servedPrompt, 'naked');
+    assert.ok(result.cases.every((c) => !('pluginPromptMarkdown' in c)));
+  });
+
+  it('restores the naked prompts when the spawn throws', async () => {
+    const before = snapshot(casesDir);
+    const throwing = async () => {
+      assert.ok(outstandingSwap(casesDir), 'the marker is on disk while the run is out');
+      throw new Error('spawn died');
+    };
+    await assert.rejects(runSweep(args('--tag', 'localize', '--ablation', 'none', '--prompt', 'with'), { ...quiet, benchmarks, spawnRun: throwing }), /spawn died/);
+    assert.deepEqual(snapshot(casesDir), before);
+  });
+
+  it('restores a swap an interrupted run left before the next run serves anything', async () => {
+    const localize = resolveCases(casesDir, { tags: ['localize'] });
+    swapInPluginPrompts(casesDir, localize.map((c) => c.directory)); // the killed run never reached its finally
+    const plan = planRun(args('--tag', 'localize'), { benchmarks });
+    assert.ok(plan.cases.every((c) => !c.nakedBody.startsWith('/ambicode:')), 'the plan reads naked bodies from the naked copy');
+    let seen;
+    await runSweep(args('--tag', 'localize'), { ...quiet, benchmarks, spawnRun: harness(localize.map((c) => c.directory), (cases) => (seen = cases)) });
+    assert.ok(seen.every((c) => !c.promptMarkdown.startsWith('/ambicode:')), 'the naked run was served naked prompts');
+    assert.equal(outstandingSwap(casesDir), null);
+  });
+
+  it('refuses a plugin prompt for the naked control or a two-arm run, before spawning', async () => {
+    const naked = syntheticPlugin(root, benchmarks, { name: 'naked' });
+    const nakedArgs = ['--plugin', naked.plugin, '--json', path.join(benchmarks, 'results', 'naked-new.json'), '--model', 'm', '--max-cost-usd', '1', '--tag', 'localize', '--ablation', 'none', '--prompt', 'with'];
+    await assert.rejects(runSweep(nakedArgs, { ...quiet, benchmarks, spawnRun: neverSpawn }), /naked control plugin/);
+    await assert.rejects(runSweep(args('--tag', 'localize', '--ablation', 'with-without', '--prompt', 'with'), { ...quiet, benchmarks, spawnRun: neverSpawn }), /--ablation none/);
+    await assert.rejects(runSweep(args('--tag', 'localize', '--prompt', 'with'), { ...quiet, benchmarks, spawnRun: neverSpawn }), /harness default/);
+    await assert.rejects(runSweep(args('--ablation', 'none', '--prompt', 'with'), { ...quiet, benchmarks, spawnRun: neverSpawn }), /have no prompt\.with\.md/, 'review cases have no plugin prompt yet');
+    await assert.rejects(runSweep(args('--prompt', 'plugin'), { ...quiet, benchmarks, spawnRun: neverSpawn }), /naked or with/);
+    assert.equal(outstandingSwap(casesDir), null);
+  });
+
+  it('dry-runs without spawning or touching a file, and prints no prompt or case name', async () => {
+    const before = snapshot(root);
+    const lines = [];
+    const status = await runSweep(args('--tag', 'localize', '--ablation', 'none', '--prompt', 'with', '--dry-run'), { ...quiet, benchmarks, spawnRun: neverSpawn, log: (line) => lines.push(line) });
+    assert.equal(status, 0);
+    assert.deepEqual(snapshot(root), before);
+    const out = lines.join('\n');
+    assert.match(out, /^dry run: nothing spawned/);
+    assert.match(out, /cases: 2 \(localize 2\)/);
+    assert.match(out, /model: m; cap: \$1/);
+    assert.match(out, /hook support: not claimed/);
+    assert.match(out, /harness: claude plugin eval <plugin dir> --eval-dir evals\/evals-core/);
+    assert.match(out, /harness options: --model m --max-cost-usd 1 --ablation none --json <benchmarks>\/…\/<name redacted>\.json --tag localize/);
+    for (const c of resolveCases(casesDir)) assert.ok(!out.includes(c.name), 'no case name');
+    assert.doesNotMatch(out, /Ticket \d|In the repository/, 'no prompt text');
+    assert.ok(!out.includes(benchmarks), 'no benchmark path');
+  });
+
+  it('refuses tags the harness would OR together, and narrows walk to localize through select', async () => {
+    await assert.rejects(runSweep(args('--tag', 'walk', '--tag', 'localize'), { ...quiet, benchmarks, spawnRun: neverSpawn }), /ANY of these tags/);
+    await assert.rejects(runSweep(args('--tag', 'walk', 'localize'), { ...quiet, benchmarks, spawnRun: neverSpawn }), /ANY of these tags/, 'the variadic form too');
+    assert.deepEqual(new Set(resolveCases(casesDir, { tags: ['walk'] }).map((c) => c.kind)), new Set(['localize', 'review']));
+    const narrow = syntheticPlugin(root, benchmarks, { name: 'narrow', pick: { localize: 2, review: 0 } });
+    assert.deepEqual(resolveCases(narrow.casesDir, { tags: ['walk'] }).map((c) => c.kind), ['localize', 'localize']);
+    assert.equal(resolveCases(narrow.casesDir, { caseGlob: 'aa-*' }).length, 2);
+  });
+});
+
+describe('evals-bench: curated selection without twins', () => {
+  let root;
+  before(() => {
+    root = mkdtempSync(path.join(tmpdir(), 'bench-curated-'));
+  });
+  after(() => rmSync(root, { recursive: true, force: true }));
+
+  it('selects 18 cases, 10 localize and 8 review, with no forced twin', () => {
+    const benchmarks = syntheticBenchmarks(root);
+    const out = path.join(root, 'cases');
+    const { written } = generate({ benchmarks, out, pick: { localize: SELECT.localize, review: SELECT.review } });
+    assert.equal(written.length, 18);
+    assert.deepEqual(tally(written.map((w) => w.kind)), { localize: 10, review: 8 });
+    assert.ok(!readdirSync(out).some((n) => n.endsWith('-forced')));
+    assert.equal(readdirSync(out).filter((n) => existsSync(path.join(out, n, WITH_PROMPT))).length, 10);
+    assert.ok(!existsSync(path.join(out, GENERATION_MARKER)));
+  });
+
+  it('refuses the removed --forced flag with a migration message', async () => {
+    await assert.rejects(main(['select', '--forced']), /--forced was removed/);
+    await assert.rejects(main(['run', '--forced', '--model', 'm', '--max-cost-usd', '1']), /--forced was removed/);
+  });
+
+  it('refuses to replace cases under an outstanding swap or interrupted generation unless told to regenerate', () => {
+    const benchmarks = syntheticBenchmarks(path.join(root, 'again'), { localize: 2, review: 1 });
+    const out = path.join(root, 'again', 'cases');
+    generate({ benchmarks, out });
+    for (const marker of [SWAP_MARKER, GENERATION_MARKER]) {
+      writeFileSync(path.join(out, marker), JSON.stringify({ cases: [] }));
+      assert.throws(() => generate({ benchmarks, out }), /--regenerate/);
+      generate({ benchmarks, out, regenerate: true });
+      assert.ok(!existsSync(path.join(out, marker)));
+    }
+  });
+
+  it('refuses to run cases whose generation was interrupted, or a leftover forced twin', async () => {
+    const { plugin, casesDir } = syntheticPlugin(path.join(root, 'p'), syntheticBenchmarks(path.join(root, 'p'), { localize: 2, review: 1 }));
+    const argv = ['--plugin', plugin, '--model', 'm', '--max-cost-usd', '1', '--dry-run'];
+    writeFileSync(path.join(casesDir, GENERATION_MARKER), '');
+    assert.throws(() => planRun(argv), /interrupted/);
+    rmSync(path.join(casesDir, GENERATION_MARKER));
+    mkdirSync(path.join(casesDir, 'aa-t-0-review-0-abcdef12-forced'));
+    assert.throws(() => planRun(argv), /forced twin/);
+  });
+});
+
+describe('evals-bench: ledgers and route measures', () => {
+  const route = { id: 'a1b2c3d4-1', kind: 'route', skill: 'investigate', channel: 'hook', trusted: true, session: 'a1b2c3d4' };
+  const V6 = [
+    route,
+    { id: 'a1b2c3d4-2', kind: 'preanswer', gate: 'plan-accept', option: 'Accept', via: 'prompt', route: 'a1b2c3d4-1' },
+    { id: 'a1b2c3d4-3', kind: 'step', step: 'ground', status: 'delivered', route: 'a1b2c3d4-1' },
+    { id: 'a1b2c3d4-4', kind: 'map', layers: [{ name: 'shortlist', ms: 4, hits: 9 }, { name: 'harvest', ms: 2, hits: 5 }], terms: { 1: ['a', 'b'], 2: ['C', 'D', 'E'] } },
+    { id: 'a1b2c3d4-5', kind: 'step', step: 'ground', status: 'completed' },
+    { id: 'a1b2c3d4-6', kind: 'envelope', builtFrom: 'args', asked: [], missingAsked: [] },
+    { id: 'a1b2c3d4-7', kind: 'gate', gate: 'plan-accept', class: 'declared', print: 1, object: { kind: 'note', value: 'plan-draft', id: 'a1b2c3d4-6', path: 'p.md', contentHash: 'h1' } },
+    { id: 'a1b2c3d4-8', kind: 'acceptance', gate: 'plan-accept', instance: 'a1b2c3d4-7', answer: 'Accept', via: 'prompt', object: { kind: 'note', value: 'plan-draft', id: 'a1b2c3d4-6', path: 'p.md', contentHash: 'h1' } },
+    { id: 'a1b2c3d4-9', kind: 'acceptance', gate: 'plan-accept', instance: 'a1b2c3d4-99', answer: 'Accept', via: 'hook', unbound: true, reason: 'instance' },
+    { id: 'a1b2c3d4-10', kind: 'default-taken', gate: 'scope', instance: null, via: 'headless' },
+    { id: 'a1b2c3d4-11', kind: 'revise', from: 'design', via: 'code', cycle: 1 },
+    { id: 'a1b2c3d4-12', kind: 'revise', from: 'design', via: 'model', cycle: 1 },
+    { id: 'a1b2c3d4-13', kind: 'check', route: 'a1b2c3d4-1', key: 'web/unit', only: ['a.spec.ts'], phase: 'red', exit: 1, summary: null },
+    { id: 'a1b2c3d4-14', kind: 'check', route: 'a1b2c3d4-1', key: 'web/unit', only: ['a.spec.ts'], phase: 'red', exit: 1, summary: { ran: 0, failed: 0 } },
+    { id: 'a1b2c3d4-15', kind: 'check', route: 'a1b2c3d4-1', key: 'web/unit', only: ['a.spec.ts'], phase: 'red', exit: 1, summary: { ran: 1, failed: 1 } },
+    { id: 'a1b2c3d4-16', kind: 'check', route: 'a1b2c3d4-1', key: 'web/unit', only: ['a.spec.ts'], phase: 'green', exit: 0, summary: { ran: 1, failed: 0 } },
+    { id: 'a1b2c3d4-17', kind: 'exit', route: 'a1b2c3d4-1', reason: 'blocked', code: 'permission-denied', detail: 'ask in headless' },
+    { id: 'a1b2c3d4-18', kind: 'future-kind', x: 1 },
+  ];
+  const one = (entries) => [{ entries, unreadable: 0 }];
+
+  it('reads the v6 measures from synthetic records, binding answers to their printed instance', () => {
+    const m = ledgerMetrics(one(V6));
+    assert.deepEqual(m.mapLayers, ['shortlist', 'harvest']);
+    assert.equal(m.mapPass2, 3);
+    assert.deepEqual(m.routeSteps, { delivered: 1, completed: 1, skipped: 0 });
+    assert.deepEqual(m.revises, { gate: 0, code: 1, model: 1 });
+    assert.deepEqual(m.gates, { prints: { declared: 1 }, answers: { prompt: 1, headless: 1 }, bound: 1, unbound: 1 });
+    assert.equal(m.preanswers, 1);
+    assert.equal(m.stopBlocked, 1);
+    assert.equal(m.permissionDenied, 1);
+    assert.deepEqual(m.checkRedGreen, { checks: 4, red: 1, green: 1, malformed: 2, unassociated: 0, proven: true });
+    assert.equal(m.envelopeBuiltFrom, 'args');
+    assert.equal(m.complete, true);
+    assert.equal(m.noRouteMcpSpawns, null, 'spawns are not measured');
+  });
+
+  it('gives null, never an empty success, for what was not recorded', () => {
+    assert.equal(ledgerMetrics(null), null);
+    const bare = ledgerMetrics(one([{ id: 'x-1', kind: 'note', note: 'notes' }]), { mcpHookResponses: 2, mcpHookSpawns: null });
+    for (const key of ['mapLayers', 'mapPass2', 'routeSteps', 'revises', 'gates', 'preanswers', 'stopBlocked', 'checkRedGreen', 'envelopeBuiltFrom', 'permissionDenied']) assert.equal(bare[key], null, key);
+    assert.equal(bare.noRouteMcpSpawns, null, 'observed hook responses are not spawns');
+    assert.equal(bare.mcpHookResponses, 2);
+    assert.equal(ledgerMetrics(one([route, { kind: 'check', key: 'k', phase: 'green', exit: 0, summary: null }])).checkRedGreen.proven, false, 'an exit without a summary is no proof');
+  });
+
+  it('takes peak context from the trace usage, not from the ledger', () => {
+    const usage = (input, read, write) => event('assistant', { message: { usage: { input_tokens: input, cache_read_input_tokens: read, cache_creation_input_tokens: write }, content: [] } });
+    const hook = (name, hookEvent) => event('system', { subtype: 'hook_response', hook_name: name, hook_event: hookEvent });
+    const m = traceMetrics([usage(10, 1000, 200), usage(5, 3000, 100), hook('SessionStart:startup', 'SessionStart'), hook('PostToolUse:mcp__jira__get', 'PostToolUse')].join('\n'));
+    assert.equal(m.peakContext, 3105);
+    assert.equal(m.mcpHookResponses, 1, 'an observed PostToolUse response for an mcp__ tool');
+    assert.equal(m.mcpHookSpawns, null, 'not a process count');
+  });
+
+  it('copies each sandbox\'s task ledgers beside its trace, without two runs\' slugs meeting', () => {
+    const sandboxRoot = mkdtempSync(path.join(tmpdir(), 'harvest-ledger-'));
+    try {
+      for (const [id, line] of [['e-one', '{"kind":"route","id":"a-1"}\n'], ['e-two', '{"kind":"route","id":"b-1"}\n']]) {
+        const task = path.join(sandboxRoot, id, 'home', 'cwd', 'repo', '.ambicode', 'task', 'same-slug');
+        mkdirSync(task, { recursive: true });
+        writeFileSync(path.join(task, 'ledger.jsonl'), line);
+        mkdirSync(path.join(sandboxRoot, id, 'out'), { recursive: true });
+        writeFileSync(path.join(sandboxRoot, id, 'out', 'trace.jsonl'), '{}\n');
+      }
+      mkdirSync(path.join(sandboxRoot, 'e-none', 'home', 'cwd', 'repo'), { recursive: true });
+      const outDir = path.join(sandboxRoot, 'kept');
+      assert.equal(harvestTraces(outDir, { sandboxRoots: [sandboxRoot] }), 2, 'the return value still counts traces');
+      const at = (id) => path.join(outDir, LEDGER_DIRECTORY, id, 'home', 'cwd', 'repo', '.ambicode', 'task', 'same-slug', 'ledger.jsonl');
+      assert.equal(readFileSync(at('e-one'), 'utf8'), '{"kind":"route","id":"a-1"}\n');
+      assert.equal(readFileSync(at('e-two'), 'utf8'), '{"kind":"route","id":"b-1"}\n');
+      assert.ok(!existsSync(path.join(outDir, LEDGER_DIRECTORY, 'e-none')));
+      assert.ok(!readdirSync(path.join(outDir, LEDGER_DIRECTORY), { recursive: true }).some((f) => String(f).endsWith('.tmp')));
+    } finally {
+      rmSync(sandboxRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('attaches ledger measures to scored runs, and an infrastructure failure stays absent', () => {
+    const benchmarks = mkdtempSync(path.join(tmpdir(), 'bench-ledger-score-'));
+    try {
+      mkdirSync(path.join(benchmarks, 'cases', 'side-t-1'), { recursive: true });
+      writeFileSync(path.join(benchmarks, 'cases', 'side-t-1', 'truth.json'), JSON.stringify({ side: 'SIDE', ticket: 'T-1', root: 'app', truth: ['app/a.ts'] }));
+      const tracesDir = path.join(benchmarks, 'traces');
+      for (const [id, tail] of [['e-ok', ''], ['e-dead', ''], ['e-torn', '{"kind":"exit","rea']]) {
+        const dir = path.join(tracesDir, LEDGER_DIRECTORY, id, 'home', 'cwd', 'repo', '.ambicode', 'task', 's');
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(path.join(dir, 'ledger.jsonl'), `${V6.map((e) => JSON.stringify(e)).join('\n')}\n${tail}`);
+      }
+      const graders = [{ name: 'names-a-true-file', passed: true, evidence: '## Files\n- app/a.ts\n' }];
+      const results = {
+        cases: [
+          {
+            name: 'side-t-1',
+            arms: {
+              with: [
+                { graders, tracePath: '/private/tmp/e-ok/out/trace.jsonl' },
+                { graders, error: 'exit 1: Not logged in · Please run /login', tracePath: '/private/tmp/e-dead/out/trace.jsonl' },
+                { graders, tracePath: '/private/tmp/e-unharvested/out/trace.jsonl' },
+                { graders, tracePath: '/private/tmp/e-torn/out/trace.jsonl' },
+              ],
+            },
+          },
+        ],
+      };
+      const { runs, arms } = score(results, { benchmarks, tracesDir });
+      assert.deepEqual(runs.map((r) => r.absent), [false, true, false, false]);
+      assert.equal(runs[1].ledger.preanswers, 1, 'the ledger is read, and the classification is not overwritten');
+      assert.equal(runs[2].ledger, null);
+      assert.deepEqual([runs[3].ledger.complete, runs[3].ledger.unreadable, runs[3].ledger.stopBlocked], [false, 1, null], 'a torn ledger measures nothing');
+      const w = arms['localize/with'];
+      assert.deepEqual([w.ledgered, w['ledger-incomplete'], w.routed, w.preanswers, w['check-red-green'], w['stop-blocked'], w['permission-denied']], [3, 1, 2, 2, 2, 2, 2]);
+      assert.deepEqual(w['envelope-built-from'], { args: 2 });
+      assert.match(w['mcp-hook-spawns'], /^unmeasured/);
+    } finally {
+      rmSync(benchmarks, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('evals-bench: scoring keeps unknown ledger measures unknown', () => {
+  const route = { id: 'r-1', kind: 'route', skill: 'task' };
+  const graders = [{ name: 'names-a-true-file', passed: true, evidence: '## Files\n- app/a.ts\n' }];
+  const MEASURED = ['steps-completed', 'revises', 'preanswers', 'stop-blocked', 'permission-denied', 'check-red-green', 'envelope-built-from'];
+  const scoreLedgers = (arms) => {
+    const benchmarks = mkdtempSync(path.join(tmpdir(), 'bench-ledger-unknown-'));
+    try {
+      mkdirSync(path.join(benchmarks, 'cases', 'side-t-1'), { recursive: true });
+      writeFileSync(path.join(benchmarks, 'cases', 'side-t-1', 'truth.json'), JSON.stringify({ side: 'SIDE', ticket: 'T-1', root: 'app', truth: ['app/a.ts'] }));
+      const tracesDir = path.join(benchmarks, 'traces');
+      const cases = [{ name: 'side-t-1', arms: {} }];
+      for (const [arm, ledgers] of Object.entries(arms))
+        cases[0].arms[arm] = ledgers.map((entries, i) => {
+          const id = `e-${arm}-${i}`;
+          const dir = path.join(tracesDir, LEDGER_DIRECTORY, id, 'l');
+          mkdirSync(dir, { recursive: true });
+          writeFileSync(path.join(dir, 'ledger.jsonl'), `${entries.map((e) => JSON.stringify(e)).join('\n')}\n`);
+          return { graders, tracePath: `/tmp/${id}/out/trace.jsonl` };
+        });
+      return score({ cases }, { benchmarks, tracesDir });
+    } finally {
+      rmSync(benchmarks, { recursive: true, force: true });
+    }
+  };
+  const done = { kind: 'exit', route: 'r-1', reason: 'done' };
+  const blocked = { kind: 'exit', route: 'r-1', reason: 'blocked', code: 'permission-denied' };
+
+  it('averages and counts only the runs that recorded a measure, and says how many did', () => {
+    const { runs, arms } = scoreLedgers({
+      with: [
+        [route, done, { kind: 'preanswer', gate: 'g', via: 'prompt' }, { kind: 'step', step: 'a', status: 'completed' }, { kind: 'step', step: 'b', status: 'completed' }],
+        [route],
+        [route, blocked, { kind: 'step', step: 'a', status: 'delivered' }],
+      ],
+    });
+    assert.deepEqual([runs[1].ledger.preanswers, runs[1].ledger.stopBlocked, runs[1].ledger.routeSteps], [null, null, null]);
+    const w = arms['localize/with'];
+    assert.equal(w.routed, 3);
+    assert.equal(w['steps-completed'], 1, 'runs one and three: 2 and 0, the route-only run is left out');
+    assert.deepEqual([w.preanswers, w['stop-blocked'], w['permission-denied']], [1, 1, 1]);
+    assert.deepEqual(w.measured, { 'steps-completed': 2, revises: 0, preanswers: 1, 'stop-blocked': 2, 'permission-denied': 2, 'check-red-green': 0, 'envelope-built-from': 0 });
+    assert.equal(w.revises, null);
+    assert.equal(w['check-red-green'], null, 'no checks recorded: unknown, not zero proofs');
+    assert.equal(w['envelope-built-from'], null);
+  });
+
+  it('reports a recorded zero as zero and a missing measurement as null, in the same group', () => {
+    const { arms } = scoreLedgers({ with: [[route, done, { kind: 'step', step: 'a', status: 'delivered' }]] });
+    const w = arms['localize/with'];
+    assert.deepEqual([w['stop-blocked'], w['permission-denied'], w['steps-completed']], [0, 0, 0]);
+    assert.deepEqual([w.preanswers, w.revises], [null, null]);
+    assert.equal(JSON.parse(JSON.stringify(w)).preanswers, null, 'null survives the JSON report');
+  });
+
+  it('leaves every measure of a group with no records unknown', () => {
+    const { arms } = scoreLedgers({ without: [[route], [route]] });
+    const g = arms['localize/without'];
+    assert.equal(g.routed, 2);
+    for (const key of MEASURED) assert.equal(g[key], null, key);
+    assert.ok(Object.values(g.measured).every((n) => n === 0));
+  });
+
+  it('counts a proof only among the runs that recorded checks', () => {
+    const check = (phase, failed) => ({ kind: 'check', route: 'r-1', key: 'k', phase, exit: failed ? 1 : 0, summary: { ran: 1, failed } });
+    const { arms } = scoreLedgers({ with: [[route, check('red', 1), check('green', 0)], [route, check('green', 1)], [route]] });
+    const w = arms['localize/with'];
+    assert.deepEqual([w['check-red-green'], w.measured['check-red-green']], [1, 2]);
+  });
+});
+
+describe('evals-bench: reports name the served prompt', () => {
+  it('says which prompt a run served, and that an older run did not record it', () => {
+    assert.match(servedPromptLine({ suite: { servedPrompt: 'with' } }), /prompt\.with\.md/);
+    assert.match(servedPromptLine({ suite: {} }), /unrecorded/);
+    const markdown = walkReport({ claudeVersion: '2.1.289', suite: { servedPrompt: 'naked' }, cases: [] }, { source: 'x.json' });
+    assert.match(markdown, /Claude Code 2\.1\.289/);
+    assert.match(markdown, /Served prompt: naked \(prompt\.md\)/);
+  });
+});
+
+describe('evals-bench: one owner of the cases directory', () => {
+  let root;
+  let benchmarks;
+  let casesDir;
+  let plugin;
+  let n = 0;
+  before(() => {
+    root = mkdtempSync(path.join(tmpdir(), 'bench-lock-'));
+    benchmarks = syntheticBenchmarks(root, { localize: 2, review: 1 });
+    ({ plugin, casesDir } = syntheticPlugin(root, benchmarks, { pick: { localize: 2, review: 1 } }));
+  });
+  after(() => rmSync(root, { recursive: true, force: true }));
+
+  const fresh = () => path.join(benchmarks, 'results', `lock-${++n}.json`);
+  const runArgv = (json, ...extra) => ['--plugin', plugin, '--json', json, '--model', 'm', '--max-cost-usd', '1', '--tag', 'localize', ...extra];
+  const quiet = { harvest: () => 0, log: () => {}, warn: () => {} };
+  const localize = () => resolveCases(casesDir, { tags: ['localize'] });
+  const writeResult = (argv, cases, extra = {}) => {
+    writeFileSync(jsonOf(argv), JSON.stringify({ partial: false, claudeVersion: '2.1.289', suite: { modelOverride: 'm', plugins: [{ name: 'ambicode' }] }, cases, ...extra }));
+  };
+  const served = () => localize().map((c) => ({ name: c.name, promptMarkdown: promptBody(readFileSync(path.join(c.dir, PROMPT), 'utf8')), arms: { with: [{ turns: 1 }] } }));
+  /** Plants a claim above the current top, as a process that took the lock and died (or lives elsewhere) leaves it. */
+  const plantClaim = (owner) => {
+    const dir = path.join(casesDir, CASES_LOCK);
+    mkdirSync(dir, { recursive: true });
+    const top = Math.max(0, ...readdirSync(dir).map((f) => Number(/^(\d{12})\.json$/.exec(f)?.[1] ?? 0)));
+    writeFileSync(path.join(dir, `${String(top + 1).padStart(12, '0')}.json`), JSON.stringify(owner));
+    return top + 1;
+  };
+  const deadLock = (purpose = 'run (with prompt)') => plantClaim({ pid: 99_999_999, host: hostname(), token: 'dead', purpose, at: '2026-10-04T00:00:00Z' });
+
+  it('refuses a second run, restore-prompts, generation and the naked copy while a run holds the cases', async () => {
+    let release;
+    const held = new Promise((resolve) => (release = resolve));
+    const json = fresh();
+    const a = runSweep(runArgv(json, '--ablation', 'none', '--prompt', 'with'), {
+      ...quiet,
+      benchmarks,
+      spawnRun: async (harnessArgv) => {
+        await held;
+        writeResult(harnessArgv, served().map((c) => ({ ...c })));
+        return 0;
+      },
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    try {
+      const swapped = Object.fromEntries(localize().map((c) => [c.directory, readFileSync(path.join(c.dir, PROMPT))]));
+      assert.ok(localize().every((c) => swapped[c.directory].equals(readFileSync(path.join(c.dir, WITH_PROMPT)))), 'run A serves the plugin prompts');
+      await assert.rejects(runSweep(runArgv(fresh()), { ...quiet, benchmarks, spawnRun: neverSpawn }), /in use by run \(with prompt\)/, 'a naked run is refused too');
+      assert.throws(() => restorePrompts(casesDir), /in use by run/);
+      await assert.rejects(main(['restore-prompts', '--plugin', plugin]), /in use by run/);
+      assert.throws(() => generate({ benchmarks, out: casesDir, pick: { localize: 2, review: 1 }, regenerate: true }), /in use by run/);
+      assert.throws(() => buildNaked({ out: path.join(root, 'naked-out'), casesDir, benchmarks }), /in use by run/);
+      assert.ok(!existsSync(path.join(root, 'naked-out')));
+      for (const c of localize()) assert.ok(readFileSync(path.join(c.dir, PROMPT)).equals(swapped[c.directory]), 'run A\'s prompts were not touched');
+    } finally {
+      release();
+    }
+    assert.equal(await a, 0);
+    assert.equal(casesLockStatus(casesDir), null);
+    assert.equal(outstandingSwap(casesDir), null);
+    for (const c of localize()) assert.ok(readFileSync(path.join(c.dir, PROMPT)).equals(readFileSync(path.join(c.dir, NAKED_COPY))));
+  });
+
+  it('recovers what a dead owner left: its lock and its swapped prompts', async () => {
+    swapInPluginPrompts(casesDir, localize().map((c) => c.directory));
+    deadLock();
+    const logs = [];
+    let seen;
+    const json = fresh();
+    const status = await runSweep(runArgv(json), {
+      ...quiet,
+      log: (line) => logs.push(line),
+      benchmarks,
+      spawnRun: async (harnessArgv) => {
+        seen = served();
+        writeResult(harnessArgv, seen);
+        return 0;
+      },
+    });
+    assert.equal(status, 0);
+    assert.ok(seen.every((c) => !c.promptMarkdown.startsWith('/ambicode:')), 'the naked run was served naked prompts');
+    assert.ok(logs.some((l) => /took over the cases lock/.test(l)) && logs.some((l) => l.startsWith(`restored ${localize().length} naked prompt`)));
+    assert.equal(casesLockStatus(casesDir), null);
+    swapInPluginPrompts(casesDir, localize().map((c) => c.directory));
+    deadLock('restore-prompts');
+    assert.equal(restorePrompts(casesDir), localize().length, 'restore-prompts recovers it too');
+    assert.equal(casesLockStatus(casesDir), null);
+  });
+
+  it('tells a live owner from a dead one, and releases only its own claim', () => {
+    const live = plantClaim({ pid: process.ppid, host: hostname(), token: 'other', purpose: 'run (naked prompt)', at: 'now' });
+    assert.throws(() => lockCases(casesDir, 'test'), /in use by run \(naked prompt\)/);
+    writeFileSync(path.join(casesDir, CASES_LOCK, `${String(live).padStart(12, '0')}.released`), '');
+    const lock = lockCases(casesDir, 'test');
+    assert.equal(lock.abandoned, null);
+    assert.throws(() => lockCases(casesDir, 'again'), /in use by test/);
+    assert.equal(unlockCases({ ...lock, token: 'forged' }), false, 'a forged token releases nothing');
+    assert.throws(() => lockCases(casesDir, 'again'), /in use by test/);
+    assert.equal(unlockCases(lock), true);
+    assert.equal(unlockCases(lock), false, 'a second release of the same claim is refused');
+    assert.equal(casesLockStatus(casesDir), null);
+  });
+
+  it('restores and unlocks when a swap fails partway, before anything is spawned', { skip: process.getuid?.() === 0 && 'root ignores directory modes' }, async () => {
+    const before = snapshot(casesDir);
+    const [, second] = localize();
+    chmodSync(second.dir, 0o555);
+    try {
+      await assert.rejects(runSweep(runArgv(fresh(), '--ablation', 'none', '--prompt', 'with'), { ...quiet, benchmarks, spawnRun: neverSpawn }), /EACCES|permission denied/i);
+    } finally {
+      chmodSync(second.dir, 0o755);
+    }
+    assert.deepEqual(snapshot(casesDir), before, 'the first case is back to naked; no marker is left');
+    assert.equal(casesLockStatus(casesDir), null);
+  });
+});
+
+describe('evals-bench: run arguments are parsed once', () => {
+  let root;
+  let benchmarks;
+  let casesDir;
+  let plugin;
+  let n = 0;
+  before(() => {
+    root = mkdtempSync(path.join(tmpdir(), 'bench-args-'));
+    benchmarks = syntheticBenchmarks(root, { localize: 2, review: 1 });
+    ({ plugin, casesDir } = syntheticPlugin(root, benchmarks, { pick: { localize: 2, review: 1 } }));
+  });
+  after(() => rmSync(root, { recursive: true, force: true }));
+  const fresh = () => path.join(benchmarks, 'results', `args-${++n}.json`);
+  const quiet = { harvest: () => 0, log: () => {}, warn: () => {} };
+
+  const refusedWithoutEffect = async (argv, pattern) => {
+    const before = snapshot(root);
+    await assert.rejects(runSweep(argv, { ...quiet, benchmarks, spawnRun: neverSpawn }), pattern);
+    assert.deepEqual(snapshot(root), before, `nothing changed for ${argv.join(' ')}`);
+  };
+
+  it('refuses a repeated singleton option before spawning or changing anything', async () => {
+    const base = (json) => ['--plugin', plugin, '--json', json, '--model', 'm', '--max-cost-usd', '1', '--tag', 'localize'];
+    await refusedWithoutEffect([...base(fresh()), '--prompt', 'with', '--ablation', 'none', '--ablation', 'with-without'], /--ablation given twice \(none and with-without\)/);
+    await refusedWithoutEffect([...base(fresh()), '--model', 'other'], /--model given twice/);
+    await refusedWithoutEffect([...base(fresh()), '--json', fresh()], /--json given twice/);
+    await refusedWithoutEffect([...base(fresh()), '--case', 'a*', '--case', 'b*'], /--case given twice \(two selectors\)/);
+    await refusedWithoutEffect([...base(fresh()), '--walk', '--walk'], /--walk given twice/);
+  });
+
+  it('refuses missing values, unknown options and stray words', async () => {
+    const head = ['--plugin', plugin, '--max-cost-usd', '1'];
+    await refusedWithoutEffect([...head, '--model'], /--model needs a value/);
+    await refusedWithoutEffect([...head, '--model', 'm', '--case', '--tag', 'localize'], /--case needs a value/);
+    await refusedWithoutEffect([...head, '--model', 'm', '--tag'], /--tag needs a value/);
+    await refusedWithoutEffect([...head, '--model', 'm', '--tag='], /--tag needs a value/);
+    await refusedWithoutEffect([...head, '--model', 'm', '--walk=yes'], /--walk takes no value/);
+    await refusedWithoutEffect([...head, '--model', 'm', '--debug-file', 'x'], /unknown option --debug-file/);
+    await refusedWithoutEffect([...head, '--model', 'm', 'stray'], /unexpected argument stray/);
+    await refusedWithoutEffect([...head, '--model', 'm', '--allow-tools', 'Write'], /fixed to Bash/);
+    await refusedWithoutEffect([...head, '--model', 'm', '--tag', 'walk', '--tag=localize'], /ANY of these tags/);
+  });
+
+  it('forwards exactly the validated values, with --x=v read as --x v', async () => {
+    const json = fresh();
+    let forwarded;
+    const spawnRun = async (argv) => {
+      forwarded = argv;
+      return 1;
+    };
+    await runSweep(['--plugin=' + plugin, '--json=' + json, '--model=m', '--max-cost-usd=1', '--tag=localize', '--prompt=with', '--ablation=none', '-j', '4', '--trust-plugin'], { ...quiet, benchmarks, spawnRun });
+    assert.deepEqual(forwarded, [
+      'plugin', 'eval', plugin, '--eval-dir', CURATED_EVAL_DIR, '--scaffold', '--allow-tools', 'Bash', '--no-publish',
+      '--model', 'm', '--max-cost-usd', '1', '--ablation', 'none', '--json', jsonOf(forwarded), '--concurrency', '4', '--trust-plugin', '--tag', 'localize',
+    ]);
+    assert.equal(path.dirname(jsonOf(forwarded)), path.dirname(json), 'the private result sits beside the target, under the same exclusion');
+    assert.match(path.basename(jsonOf(forwarded)), new RegExp(`^\\.${path.basename(json, '.json')}\\.run-[0-9a-f-]{36}\\.json$`));
+    assert.ok(!existsSync(jsonOf(forwarded)) && !existsSync(json), 'a run that wrote nothing leaves neither file');
+    const plan = planRun(['--plugin', plugin, '--json', fresh(), '--model', 'm', '--max-cost-usd', '2', '--runs', '3', '--case', 'aa-t-?', '--tag', 'localize', '--walk'], { benchmarks });
+    assert.deepEqual([plan.model, plan.maxCostUsd, plan.runs, plan.caseGlob, plan.tags, plan.walk, plan.cases.length], ['m', 2, '3', 'aa-t-?', ['localize'], true, 2]);
+    assert.equal(plan.argv[plan.argv.indexOf('--case') + 1], 'aa-t-?');
+    assert.deepEqual(parseRunOptions(['--tag', 'localize']).tags, ['localize']);
+    assert.ok(existsSync(casesDir));
+  });
+});
+
+describe('evals-bench: a dry run names no case', () => {
+  it('redacts case selectors and identity-bearing result paths', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'bench-dry-'));
+    try {
+      const benchmarks = syntheticBenchmarks(root, { localize: 2, review: 1 });
+      const { plugin, casesDir } = syntheticPlugin(root, benchmarks, { pick: { localize: 2, review: 1 } });
+      const [c] = resolveCases(casesDir, { tags: ['localize'] });
+      const results = path.join(benchmarks, 'results');
+      const before = snapshot(root);
+      const lines = [];
+      const status = await runSweep(
+        ['--plugin', plugin, '--model', 'm', '--max-cost-usd', '1', '--case', c.name, '--json', path.join(results, `${c.name}.json`), '--report', path.join(results, c.name, 'report.html'), '--output-dir', path.join(results, `${c.name}-agg`), '--dry-run'],
+        { benchmarks, spawnRun: neverSpawn, harvest: () => 0, log: (line) => lines.push(line), warn: () => {} },
+      );
+      assert.equal(status, 0);
+      assert.deepEqual(snapshot(root), before);
+      const out = lines.join('\n');
+      for (const secret of [c.name, c.directory, c.name.toUpperCase(), root, benchmarks]) assert.ok(!out.includes(secret), `the dry run printed ${secret}`);
+      assert.match(out, /--case <selector redacted; 1 case\(s\) matched>/);
+      assert.match(out, /--json <benchmarks>\/…\/<name redacted>\.json/);
+      assert.match(out, /--report <benchmarks>\/…\/<name redacted>\.html/);
+      assert.match(out, /cases: 1 \(localize 1\)/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('evals-bench: a run owns only the result it wrote', () => {
+  let root;
+  let benchmarks;
+  let casesDir;
+  let plugin;
+  let n = 0;
+  before(() => {
+    root = mkdtempSync(path.join(tmpdir(), 'bench-result-'));
+    benchmarks = syntheticBenchmarks(root, { localize: 2, review: 1 });
+    ({ plugin, casesDir } = syntheticPlugin(root, benchmarks, { pick: { localize: 2, review: 1 } }));
+  });
+  after(() => rmSync(root, { recursive: true, force: true }));
+  const fresh = () => path.join(benchmarks, 'results', `eval-own-${++n}.json`);
+  const argv = (json) => ['--plugin', plugin, '--json', json, '--model', 'm', '--max-cost-usd', '1', '--tag', 'localize', '--walk'];
+  const walkOf = (json) => path.join(path.dirname(json), `${path.basename(json, '.json').replace(/^eval-/, 'walk-')}.md`);
+  const cases = () =>
+    resolveCases(casesDir, { tags: ['localize'] }).map((c) => ({ name: c.name, promptMarkdown: promptBody(readFileSync(path.join(c.dir, PROMPT), 'utf8')), arms: { with: [{ turns: 1 }] } }));
+
+  it('refuses an existing result before spawning, and leaves it byte-identical and unwalked', async () => {
+    const json = fresh();
+    mkdirSync(path.dirname(json), { recursive: true });
+    const old = JSON.stringify({ partial: false, claudeVersion: '2.1.289', suite: { modelOverride: 'm' }, cases: [] });
+    writeFileSync(json, old);
+    await assert.rejects(runSweep(argv(json), { harvest: () => 0, log: () => {}, warn: () => {}, benchmarks, spawnRun: neverSpawn }), /already exists/);
+    assert.equal(readFileSync(json, 'utf8'), old);
+    assert.ok(!existsSync(walkOf(json)));
+  });
+
+  it('reports a failed run that wrote nothing as failed, and walks nothing', async () => {
+    const json = fresh();
+    const warnings = [];
+    const status = await runSweep(argv(json), { harvest: () => 0, log: () => {}, warn: (w) => warnings.push(w), benchmarks, spawnRun: async () => 1 });
+    assert.equal(status, 1);
+    assert.ok(!existsSync(json) && !existsSync(walkOf(json)));
+    assert.ok(warnings.some((w) => /walkthrough: skipped/.test(w)));
+  });
+
+  it('keeps and walks a partial result the failing run itself wrote', async () => {
+    const json = fresh();
+    const status = await runSweep(argv(json), {
+      harvest: () => 0,
+      log: () => {},
+      warn: () => {},
+      benchmarks,
+      spawnRun: async (harnessArgv) => {
+        writeFileSync(jsonOf(harnessArgv), JSON.stringify({ partial: true, claudeVersion: '2.1.289', suite: { modelOverride: 'm' }, cases: cases() }));
+        return 2;
+      },
+    });
+    assert.equal(status, 2);
+    const result = JSON.parse(readFileSync(json, 'utf8'));
+    assert.deepEqual([result.partial, result.suite.servedPrompt], [true, 'naked']);
+    assert.ok(existsSync(walkOf(json)));
+  });
+
+  const resultsDir = () => path.join(benchmarks, 'results');
+  const leftovers = () => readdirSync(resultsDir()).filter((f) => /\.run-|\.tmp$/.test(f));
+  const quiet = { harvest: () => 0, log: () => {}, warn: () => {} };
+  const write = (target, partial = false) => writeFileSync(target, JSON.stringify({ partial, claudeVersion: '2.1.289', suite: { modelOverride: 'm' }, cases: cases() }));
+
+  it('does not take or annotate another run\'s result at the same target, and walks nothing from it', async () => {
+    const other = syntheticPlugin(root, benchmarks, { name: 'other', pick: { localize: 2, review: 1 } });
+    const json = fresh();
+    let release;
+    const held = new Promise((resolve) => (release = resolve));
+    const warnings = [];
+    const a = runSweep(argv(json), { ...quiet, warn: (w) => warnings.push(w), benchmarks, spawnRun: async () => (await held, 1) });
+    await new Promise((resolve) => setImmediate(resolve));
+    let b;
+    try {
+      // A different cases directory, so the cases lock does not serialize the two runs.
+      b = await runSweep(['--plugin', other.plugin, '--json', json, '--model', 'm', '--max-cost-usd', '1', '--tag', 'localize'], {
+        ...quiet,
+        benchmarks,
+        spawnRun: async (harnessArgv) => (writeFileSync(jsonOf(harnessArgv), JSON.stringify({ partial: false, claudeVersion: '2.1.289', suite: { modelOverride: 'm', marker: 'B' }, cases: resolveCases(other.casesDir, { tags: ['localize'] }).map((c) => ({ name: c.name, promptMarkdown: promptBody(readFileSync(path.join(c.dir, PROMPT), 'utf8')), arms: { with: [{ turns: 1 }] } })) })), 0),
+      });
+    } finally {
+      release();
+    }
+    assert.equal(b, 0);
+    const published = readFileSync(json, 'utf8');
+    assert.equal(await a, 1, 'A failed without output');
+    assert.equal(readFileSync(json, 'utf8'), published, 'B\'s result is byte-identical after A finished');
+    assert.equal(JSON.parse(published).suite.marker, 'B');
+    assert.ok(!existsSync(walkOf(json)), 'A walked nothing');
+    assert.ok(warnings.some((w) => /walkthrough: skipped, the run wrote no result of its own/.test(w)));
+    assert.deepEqual(leftovers(), []);
+  });
+
+  it('keeps its own result private when another run published first, and never replaces that one', async () => {
+    const other = syntheticPlugin(root, benchmarks, { name: 'third', pick: { localize: 2, review: 1 } });
+    const json = fresh();
+    const warnings = [];
+    let mine;
+    const status = await runSweep(argv(json), {
+      ...quiet,
+      warn: (w) => warnings.push(w),
+      benchmarks,
+      spawnRun: async (harnessArgv) => {
+        mine = jsonOf(harnessArgv);
+        write(mine);
+        // Another run (another plugin's cases) finishes first at the same target.
+        await runSweep(['--plugin', other.plugin, '--json', json, '--model', 'm', '--max-cost-usd', '1', '--tag', 'localize'], {
+          ...quiet,
+          benchmarks,
+          spawnRun: async (inner) => (writeFileSync(jsonOf(inner), JSON.stringify({ partial: false, suite: { marker: 'first' }, cases: [] })), 0),
+        });
+        return 0;
+      },
+    });
+    assert.equal(status, 1);
+    assert.equal(JSON.parse(readFileSync(json, 'utf8')).suite.marker, 'first', 'the earlier result stays');
+    assert.ok(existsSync(mine), 'this run\'s result is kept where only it wrote');
+    assert.equal(JSON.parse(readFileSync(mine, 'utf8')).suite.servedPrompt, 'naked', 'annotated in its private file');
+    assert.ok(!existsSync(walkOf(json)));
+    assert.ok(warnings.some((w) => /result stays at/.test(w)));
+    rmSync(mine);
+  });
+
+  it('removes its private file and releases the cases when the spawn throws', async () => {
+    const json = fresh();
+    await assert.rejects(runSweep(argv(json), { ...quiet, benchmarks, spawnRun: async () => { throw new Error('spawn died'); } }), /spawn died/);
+    assert.deepEqual(leftovers(), []);
+    assert.ok(!existsSync(json) && !existsSync(walkOf(json)));
+    assert.equal(casesLockStatus(casesDir), null);
+  });
+
+  it('never replaces an existing walkthrough', async () => {
+    const json = fresh();
+    mkdirSync(resultsDir(), { recursive: true });
+    writeFileSync(walkOf(json), 'earlier walk\n');
+    const warnings = [];
+    const status = await runSweep(argv(json), { ...quiet, warn: (w) => warnings.push(w), benchmarks, spawnRun: async (harnessArgv) => (write(jsonOf(harnessArgv)), 0) });
+    assert.equal(status, 1);
+    assert.equal(readFileSync(walkOf(json), 'utf8'), 'earlier walk\n');
+    assert.equal(JSON.parse(readFileSync(json, 'utf8')).suite.servedPrompt, 'naked', 'the result itself is published');
+    assert.ok(warnings.some((w) => /walkthrough: skipped, a file is already at its path/.test(w)));
+    assert.deepEqual(leftovers(), []);
+  });
+
+  it('publishes and walks an unannotatable result as the harness wrote it, and fails the run', async () => {
+    const json = fresh();
+    const warnings = [];
+    const status = await runSweep(argv(json), {
+      ...quiet,
+      warn: (w) => warnings.push(w),
+      benchmarks,
+      spawnRun: async (harnessArgv) => (writeFileSync(jsonOf(harnessArgv), JSON.stringify({ partial: false, suite: {}, cases: [{ name: 'unplanned', promptMarkdown: 'x', arms: {} }] })), 0),
+    });
+    assert.equal(status, 1);
+    assert.equal(JSON.parse(readFileSync(json, 'utf8')).suite.servedPrompt, undefined);
+    assert.ok(warnings.some((w) => /served prompt not recorded/.test(w)));
+    assert.ok(existsSync(walkOf(json)));
+    assert.deepEqual(leftovers(), []);
+  });
+});
+
+describe('evals-bench: incomplete ledgers measure nothing', () => {
+  const route = { id: 'r-1', kind: 'route', skill: 'task' };
+  const complete = [route, { kind: 'step', step: 'a', status: 'completed' }];
+  const measures = ['routes', 'routeSteps', 'revises', 'gates', 'preanswers', 'stopBlocked', 'checkRedGreen', 'permissionDenied'];
+
+  it('turns a torn or unreadable line into null measures, not zeros', () => {
+    const m = ledgerMetrics([{ entries: [route, { kind: 'check', key: 'k', phase: 'red', exit: 1, summary: { ran: 1, failed: 1 } }, { kind: 'check', key: 'k', phase: 'green', exit: 0, summary: { ran: 1, failed: 0 } }], unreadable: 1 }]);
+    assert.deepEqual([m.complete, m.unreadable], [false, 1]);
+    for (const key of measures) assert.equal(m[key], null, key);
+  });
+
+  it('reads a harvested ledger file line by line, counting what it cannot read', () => {
+    const tracesDir = mkdtempSync(path.join(tmpdir(), 'bench-ledger-read-'));
+    try {
+      const write = (id, text) => {
+        const dir = path.join(tracesDir, LEDGER_DIRECTORY, id, 'home', 'cwd', 'repo', '.ambicode', 'task', 's');
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(path.join(dir, 'ledger.jsonl'), text);
+        return { tracePath: `/tmp/${id}/out/trace.jsonl` };
+      };
+      const torn = ledgerMetrics(ledgersOf(write('e-torn', `${JSON.stringify(route)}\n{"kind":"exit","reason":"bl`), tracesDir));
+      assert.deepEqual([torn.complete, torn.unreadable, torn.stopBlocked], [false, 1, null]);
+      const scalar = ledgerMetrics(ledgersOf(write('e-scalar', `${JSON.stringify(route)}\n42\n`), tracesDir));
+      assert.deepEqual([scalar.complete, scalar.unreadable], [false, 1], 'a line that parses but is no entry is unreadable too');
+      const empty = ledgerMetrics(ledgersOf(write('e-empty', ''), tracesDir));
+      assert.deepEqual([empty.complete, empty.empty, empty.routes], [false, 1, null]);
+      const unknown = ledgerMetrics(ledgersOf(write('e-unknown', `${[...complete, { kind: 'future-kind', x: 1 }].map((e) => JSON.stringify(e)).join('\n')}\n`), tracesDir));
+      assert.deepEqual([unknown.complete, unknown.routes, unknown.stopBlocked, unknown.permissionDenied], [true, 1, null, null], 'an unknown valid kind is skipped, and records no exit');
+      assert.equal(ledgersOf({ tracePath: '/tmp/e-none/out/trace.jsonl' }, tracesDir), null);
+    } finally {
+      rmSync(tracesDir, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps an infrastructure failure absent whatever its ledger holds', () => {
+    const benchmarks = mkdtempSync(path.join(tmpdir(), 'bench-ledger-infra-'));
+    try {
+      mkdirSync(path.join(benchmarks, 'cases', 'side-t-1'), { recursive: true });
+      writeFileSync(path.join(benchmarks, 'cases', 'side-t-1', 'truth.json'), JSON.stringify({ side: 'SIDE', ticket: 'T-1', root: 'app', truth: ['app/a.ts'] }));
+      const dir = path.join(benchmarks, 'traces', LEDGER_DIRECTORY, 'e-x', 'l');
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(path.join(dir, 'ledger.jsonl'), 'torn');
+      const run = { graders: [{ name: 'names-a-true-file', passed: true, evidence: '## Files\n- app/a.ts\n' }], error: 'Not logged in', tracePath: '/tmp/e-x/out/trace.jsonl' };
+      const [row] = score({ cases: [{ name: 'side-t-1', arms: { with: [run] } }] }, { benchmarks, tracesDir: path.join(benchmarks, 'traces') }).runs;
+      assert.deepEqual([row.absent, row.ledger.complete], [true, false]);
+    } finally {
+      rmSync(benchmarks, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('evals-bench: MCP hook spawns are not measured', () => {
+  const hook = (name, hookEvent) => event('system', { subtype: 'hook_response', hook_name: name, hook_event: hookEvent });
+
+  it('leaves a SessionStart-only trace unknown', () => {
+    const m = traceMetrics(hook('SessionStart:startup', 'SessionStart'));
+    assert.deepEqual([m.mcpHookResponses, m.mcpHookSpawns], [null, null]);
+  });
+
+  it('counts observed PostToolUse responses for mcp__ tools, and never calls them spawns', () => {
+    const m = traceMetrics([hook('PostToolUse:Bash', 'PostToolUse'), hook('PostToolUse:mcp__jira__get', 'PostToolUse'), hook('PostToolUse:mcp__jira__search', 'PostToolUse')].join('\n'));
+    assert.deepEqual([m.mcpHookResponses, m.mcpHookSpawns], [2, null]);
+    const zero = traceMetrics(hook('PostToolUse:Bash', 'PostToolUse'));
+    assert.deepEqual([zero.mcpHookResponses, zero.mcpHookSpawns], [0, null], 'none observed, still no spawn count');
+    assert.equal(ledgerMetrics([{ entries: [{ kind: 'note' }], unreadable: 0 }], m).noRouteMcpSpawns, null, 'no route does not turn observations into spawns');
+  });
+});
+
+describe('evals-bench: the walk names its baseline', () => {
+  const base = { claudeVersion: '2.1.289', startedAt: '2026-10-06T00:00:00.000Z', suite: { servedPrompt: 'with' }, cases: [] };
+
+  it('names a naked reference, its arm and version, and the equivalence it assumes', () => {
+    const md = walkReport({ ...base, baseline: { file: 'base.json', arm: 'with', startedAt: '2026-10-04T00:00:00.000Z', plugin: 'naked', claudeVersion: '2.1.289' } }, { source: 'x.json' });
+    assert.match(md, /Without arm: the with arm of cached baseline base\.json \(plugin naked, Claude Code 2\.1\.289\), started 2026-10-04T00:00:00\.000Z, 2\.0 days before this run\./);
+    assert.ok(md.includes(`${NAKED_EQUIVALENCE[0].toUpperCase()}${NAKED_EQUIVALENCE.slice(1)}.`));
+    assert.doesNotMatch(md, /none attached/);
+  });
+
+  it('names an ordinary historical reference without the naked caveat', () => {
+    const md = walkReport({ ...base, baseline: { file: 'old.json', arm: 'without', startedAt: null, plugin: 'ambicode', claudeVersion: '2.1.285' } }, { source: 'x.json' });
+    assert.match(md, /Without arm: the without arm of cached baseline old\.json \(plugin ambicode, Claude Code 2\.1\.285\), started at an unrecorded time/);
+    assert.doesNotMatch(md, /equivalence unverified/);
+  });
+
+  it('says when no baseline is attached', () => {
+    assert.match(walkReport(base, { source: 'x.json' }), /Baseline: none attached; this walk is not compared against a cached baseline\./);
   });
 });

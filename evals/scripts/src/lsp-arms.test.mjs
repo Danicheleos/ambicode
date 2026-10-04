@@ -30,6 +30,12 @@ describe('lsp-arms', () => {
 
   it('takes the localize cases only, since review cases replay a reviewer the LSP arms do not change', () => {
     assert.deepEqual(localizeCases(casesDir), ['be-1', 'fe-2']);
+    mkdirSync(path.join(casesDir, '.cases.lock'), { recursive: true });
+    try {
+      assert.deepEqual(localizeCases(casesDir), ['be-1', 'fe-2'], 'the cases lock directory is not a case');
+    } finally {
+      rmSync(path.join(casesDir, '.cases.lock'), { recursive: true });
+    }
   });
 
   it('gives both arms the same language server and the same cases, and leaves the packaged plugin untouched', () => {

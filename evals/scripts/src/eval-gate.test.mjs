@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
-import { gate, repetitionMeans } from './eval-gate.mjs';
+import { NAKED_EQUIVALENCE, gate, repetitionMeans } from './eval-gate.mjs';
 
 const MODEL = 'claude-sonnet-5-5';
 const ANSWER = { 1: '## Files\n- app/a.ts\n- app/b.ts\n', 0.5: '## Files\n- app/a.ts\n' };
@@ -15,6 +15,8 @@ describe('eval-gate', () => {
     benchmarks = mkdtempSync(path.join(tmpdir(), 'eval-gate-'));
     mkdirSync(path.join(benchmarks, 'cases', 'side-t-1'), { recursive: true });
     writeFileSync(path.join(benchmarks, 'cases', 'side-t-1', 'truth.json'), JSON.stringify({ side: 'SIDE', ticket: 'T-1', root: 'app', truth: ['app/a.ts', 'app/b.ts'] }));
+    mkdirSync(path.join(benchmarks, 'cases', 'side-t-1-review-7-x'), { recursive: true });
+    writeFileSync(path.join(benchmarks, 'cases', 'side-t-1-review-7-x', 'truth.json'), JSON.stringify({ kind: 'review', side: 'SIDE', ticket: 'T-1', version: '7-x', root: 'app', threads: 1 }));
     tracesDir = path.join(benchmarks, 'traces');
     mkdirSync(tracesDir);
   });
@@ -123,6 +125,48 @@ describe('eval-gate', () => {
     const verdict = gate(current, { benchmarks, tracesDir, baseline: control, baselinePath: 'l.json', baselineArm: 'with' });
     assert.deepEqual(failed(verdict), ['localize: recall'], 'below the control plugin');
     assert.ok(verdict.info.some((line) => line.includes('the with arm of cached baseline l.json')));
+  });
+
+  const nakedBaseline = (cases) => ({ partial: false, suite: { modelOverride: MODEL, plugins: [{ name: 'naked' }] }, claudeVersion: '2.1.289', startedAt: '2026-10-04T19:44:56.791Z', cases });
+  const pluginRun = (cases) => ({ partial: false, suite: { modelOverride: MODEL, plugins: [{ name: 'ambicode' }], servedPrompt: 'with' }, claudeVersion: '2.1.289', startedAt: '2026-10-05T00:00:00.000Z', aggregates: {}, cases });
+  const reviewRun = () => ({ graders: [{ name: 'raises-01', passed: true }], costUsd: 0.2, turns: 8 });
+
+  it('says naked/without equivalence is unverified against a naked baseline, and names the reference it used', () => {
+    const baseline = nakedBaseline([{ name: 'side-t-1', promptMarkdown: 'P', arms: { with: [run(1), run(1), run(1)] } }]);
+    const verdict = gate(pluginRun([{ name: 'side-t-1', promptMarkdown: 'P', pluginPromptMarkdown: '/ambicode:investigate --headless P', arms: { with: [run(1), run(1), run(1)] } }]), { benchmarks, tracesDir, baseline, baselinePath: 'n.json' });
+    assert.deepEqual(failed(verdict), []);
+    assert.ok(verdict.info.includes(NAKED_EQUIVALENCE));
+    assert.match(NAKED_EQUIVALENCE, /^naked\/without equivalence unverified/);
+    assert.ok(verdict.info.some((line) => line.includes('the with arm of cached baseline n.json (plugin naked, Claude Code 2.1.289)')));
+    assert.ok(verdict.info.some((line) => /^served prompt: with \(prompt\.with\.md/.test(line)));
+  });
+
+  it('claims no equivalence for an ordinary baseline with its own without arm', () => {
+    const baseline = { ...results([run(1)], [run(1), run(1), run(1)]), claudeVersion: '2.1.285', startedAt: '2026-09-28T00:00:00.000Z' };
+    const current = { ...results([run(1), run(1), run(1)], undefined), claudeVersion: '2.1.285', startedAt: '2026-09-30T00:00:00.000Z', aggregates: {} };
+    delete current.cases[0].arms.without;
+    const verdict = gate(current, { benchmarks, tracesDir, baseline, baselinePath: 'b.json' });
+    assert.ok(!verdict.info.some((line) => line.includes('equivalence')));
+    assert.ok(verdict.info.some((line) => line.includes('served prompt: unrecorded')));
+  });
+
+  it('gates a localize-only run against a baseline holding review cases too, on localize checks only', () => {
+    const baseline = nakedBaseline([
+      { name: 'side-t-1', promptMarkdown: 'P', arms: { with: [run(1), run(1), run(1)] } },
+      { name: 'side-t-1-review-7-x', promptMarkdown: 'R', arms: { with: [reviewRun(), reviewRun(), reviewRun()] } },
+    ]);
+    const verdict = gate(pluginRun([{ name: 'side-t-1', promptMarkdown: 'P', arms: { with: [run(1), run(1), run(1)] } }]), { benchmarks, tracesDir, baseline, baselinePath: 'n.json' });
+    const kinds = new Set(verdict.checks.filter((c) => c.name.includes(':')).map((c) => c.name.split(/[:/]/)[0]));
+    assert.deepEqual([...kinds], ['localize']);
+    assert.deepEqual(failed(verdict), []);
+  });
+
+  it('still refuses a baseline of another version, model or prompt', () => {
+    const baseline = nakedBaseline([{ name: 'side-t-1', promptMarkdown: 'P', arms: { with: [run(1), run(1), run(1)] } }]);
+    const current = pluginRun([{ name: 'side-t-1', promptMarkdown: 'P', arms: { with: [run(1), run(1), run(1)] } }]);
+    assert.throws(() => gate({ ...current, claudeVersion: '2.1.287' }, { benchmarks, tracesDir, baseline, baselinePath: 'n.json' }), /version 2\.1\.289, this run on 2\.1\.287/);
+    assert.throws(() => gate({ ...current, suite: { modelOverride: 'claude-opus-5-5' } }, { benchmarks, tracesDir, baseline, baselinePath: 'n.json' }), /model/);
+    assert.throws(() => gate({ ...current, cases: [{ ...current.cases[0], promptMarkdown: '/ambicode:investigate --headless P' }] }, { benchmarks, tracesDir, baseline, baselinePath: 'n.json' }), /prompt differs/);
   });
 
   it('averages each repetition across cases, skipping absent runs', () => {

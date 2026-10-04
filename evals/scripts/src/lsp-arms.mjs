@@ -5,7 +5,7 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BENCHMARKS, CURATED_CASES, IMPACT_CASES_DIRECTORY, REUSE_CASES_DIRECTORY, ROOT } from './evals-bench.mjs';
+import { BENCHMARKS, CASES_LOCK, CURATED_CASES, IMPACT_CASES_DIRECTORY, REUSE_CASES_DIRECTORY, ROOT } from './evals-bench.mjs';
 
 export const LSP_SERVERS = {
   typescript: {
@@ -33,7 +33,7 @@ export function withTsconfig(scaffold, root) {
 
 export function localizeCases(casesDir) {
   return readdirSync(casesDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && !entry.name.includes('review'))
+    .filter((entry) => entry.isDirectory() && entry.name !== CASES_LOCK && !entry.name.includes('review'))
     .map((entry) => entry.name)
     .sort();
 }

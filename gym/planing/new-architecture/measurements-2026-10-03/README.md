@@ -40,3 +40,16 @@ figure includes process spawn: `git grep -w -l` 70 ms (BE) / 151 ms (FE) in `que
 in-process; `agentmap --relates` 115 / 199 ms logged vs 93 / 163. The v3 design quotes the logged
 numbers where they exist and labels the rest "unlogged re-run"; v3 33 §0.5 re-runs `compare.mjs`
 and commits `compare.log` before any of them is used in a decision.
+
+## Re-run status (migration step 00, 2026-10-04)
+
+`compare.mjs` was **not** re-run and there is still no `compare.log`. Its inputs are absent from this
+directory: `repos/` (the three repository copies `run.sh` makes), `tools/` (the installed
+`@maxgfr/codeindex` and `@raymondchins/agentmap`) and `out/` (the codeindex index directories). Step 00
+may not install an index dependency, and the BE/FE copies are benchmark snapshots that must stay in
+the ignored `benchmarks/` locations. So every figure above that is marked unlogged stays an
+**unlogged re-run**; none was promoted to a logged fact. Before re-running: `run.sh` copies the BE/FE
+snapshots to `repos/` here, which is **not** gitignored (checked with `git check-ignore`), so ignore that
+directory first or point the script at an ignored location. Then run `run.sh` (installs the tools), and
+`node compare.mjs <repoDir> <symbol> <definingFile> <codeindexIndexDir> <binDir> | tee -a compare.log`
+per repository, and record the node version and machine with it.
