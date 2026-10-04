@@ -8,7 +8,7 @@ import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
-import { BENCH_EVAL_DIR, CURATED_EVAL_DIR, SELECT, changedLines, codeRoot, generate, harvestDir, harvestTraces, harvestedOfResult, localizeHardness, namedFiles, parseTicket, reviewSubstance, runArgs, score, scoreAnswer, traceMetrics, walkReport, walkRuns, withBaseline } from './evals-bench.mjs';
+import { BENCH_EVAL_DIR, CURATED_EVAL_DIR, SELECT, changedLines, codeRoot, generate, harvestDir, neutralPrompt, harvestTraces, harvestedOfResult, localizeHardness, namedFiles, parseTicket, reviewSubstance, runArgs, score, scoreAnswer, traceMetrics, walkReport, walkRuns, withBaseline } from './evals-bench.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const M = ['--model', 'claude-sonnet-5-5', '--max-cost-usd', '1'];
@@ -265,6 +265,16 @@ describe('evals-bench: scoring a run', () => {
     assert.equal(arms['localize/without'].recall, 1);
     assert.ok('localize/with/SIDE' in arms);
   });
+
+  it('reports a run that died outside the arm as absent even with an answer, and keeps one that hit its turn limit', () => {
+    const answered = (error) => ({ graders: [{ name: 'names-a-true-file', passed: true, evidence: '## Files\n- app/a.ts\n' }], error, costUsd: 0.1, turns: 1 });
+    const results = {
+      cases: [{ name: 'side-t-1', arms: { with: [answered("exit 1: You've hit your session limit"), answered('exit 1: Not logged in · Please run /login'), answered('exit 1: Reached maximum number of turns (40)')] } }],
+    };
+    const { runs } = score(results, { benchmarks });
+    assert.deepEqual(runs.map((r) => r.absent), [true, true, false]);
+    assert.equal(runs[2].recall, 0.5);
+  });
 });
 
 const event = (type, extra) => JSON.stringify({ type, ...extra });
@@ -353,6 +363,27 @@ describe('evals-bench: a cached no-plugin arm', () => {
     refuse({ ...baseline, cases: [] }, /side-t-1/);
     refuse({ ...baseline, cases: [{ ...baseline.cases[0], arms: { with: [] } }] }, /no without arm/);
     refuse(baseline, /its own without arm/, baseline);
+  });
+
+  it('takes the plugin arm of a naked-plugin baseline unless told otherwise', () => {
+    const naked = result({ with: [{ turns: 4 }] }, { suite: { modelOverride: 'claude-sonnet-5-5', plugins: [{ name: 'naked' }] } });
+    const merged = withBaseline(withOnly, naked, { baselinePath: 'n.json' });
+    assert.deepEqual(merged.cases[0].arms.without, [{ turns: 4 }]);
+    assert.equal(merged.baseline.arm, 'with');
+    assert.throws(() => withBaseline(withOnly, naked, { baselinePath: 'n.json', arm: 'without' }), /no without arm/);
+  });
+
+  it("measures a forced case's no-plugin arm on its neutral twin", () => {
+    const neutral = 'Review the change before it merges.';
+    const forced = 'Use the ambicode review skill to review the change before it merges.';
+    assert.equal(neutralPrompt(forced), neutral);
+    const twin = (prompt) => ({ ...withOnly, cases: [{ name: 'side-t-1-review-7-x-forced', promptMarkdown: prompt, arms: { with: [{ turns: 9 }] } }] });
+    const cached = result({ with: [{ turns: 1 }], without: [{ turns: 6 }] });
+    cached.cases = [{ name: 'side-t-1-review-7-x', promptMarkdown: neutral, arms: cached.cases[0].arms }];
+    assert.deepEqual(withBaseline(twin(forced), cached, { baselinePath: 'b.json' }).cases[0].arms.without, [{ turns: 6 }]);
+    assert.throws(() => withBaseline(twin('Use the ambicode review skill to review something else.'), cached, { baselinePath: 'b.json' }), /prompt differs/);
+    const own = { ...cached, cases: [...cached.cases, { name: 'side-t-1-review-7-x-forced', promptMarkdown: forced, arms: { without: [{ turns: 2 }] } }] };
+    assert.deepEqual(withBaseline(twin(forced), own, { baselinePath: 'b.json' }).cases[0].arms.without, [{ turns: 2 }], 'a baseline with the forced case itself keeps using it');
   });
 });
 

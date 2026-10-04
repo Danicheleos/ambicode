@@ -26,8 +26,8 @@ export function repetitionMeans(rows, metric) {
   return [...byRun.keys()].sort((a, b) => a - b).map((k) => mean(byRun.get(k)));
 }
 
-export function gate(given, { benchmarks = BENCHMARKS, tracesDir = null, budget = BUDGET, baseline = null, baselinePath = null, baselineArm = 'without' } = {}) {
-  const results = baseline ? withBaseline(given, baseline, { baselinePath, arm: baselineArm }) : given;
+export function gate(given, { benchmarks = BENCHMARKS, tracesDir = null, budget = BUDGET, baseline = null, baselinePath = null, baselineArm } = {}) {
+  const results = baseline ? withBaseline(given, baseline, { baselinePath, ...(baselineArm ? { arm: baselineArm } : {}) }) : given;
   const { runs } = score(results, { benchmarks, tracesDir });
   const checks = [];
   const info = [];
@@ -118,7 +118,7 @@ function main(argv) {
   };
   const tracesAt = option('--traces');
   const baselinePath = option('--baseline');
-  const baselineArm = option('--baseline-arm') ?? 'without';
+  const baselineArm = option('--baseline-arm');
   const budget = { ...BUDGET };
   for (const [flag, key] of [['--min-runs', 'minRuns'], ['--max-cost-ratio', 'maxCostRatio'], ['--max-extra-turns', 'maxExtraTurns'], ['--max-absent-share', 'maxAbsentShare']]) {
     const value = option(flag);

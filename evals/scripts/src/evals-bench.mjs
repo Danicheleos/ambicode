@@ -255,8 +255,14 @@ call may reach into the data directory.
  * skill, so it measures only whether it helps once picked. Sonnet 5.5 picked it 0/32 times unforced
  * (2026-09-29), so a forced-only suite would report help the user never gets.
  */
+const REVIEW_ASK = { neutral: 'Review the change', forced: 'Use the ambicode review skill to review the change' };
+export const FORCED_SUFFIX = '-forced';
+
+/** The neutral twin's prompt, which is what the no-plugin arm of a forced case is measured on. */
+export const neutralPrompt = (forcedPrompt) => forcedPrompt.replace(REVIEW_ASK.forced, REVIEW_ASK.neutral);
+
 function reviewPromptFile(name, side, text, { forced = false, walk = false } = {}) {
-  const ask = forced ? 'Use the ambicode review skill to review' : 'Review';
+  const ask = forced ? REVIEW_ASK.forced : REVIEW_ASK.neutral;
   return `---
 name: ${name}
 description: Review a real merged change, as it stood when a human reviewed it.
@@ -274,7 +280,7 @@ the ticket below.
 ${text}
 </ticket>
 
-${ask} the change before it merges: report the problems a reviewer should
+${ask} before it merges: report the problems a reviewer should
 raise, each with its file and line.
 
 \`repo/\` is the repository under review. Change into it with \`cd repo\` before
@@ -497,7 +503,7 @@ export function generate({ benchmarks = BENCHMARKS, out = path.join(benchmarks, 
   if (pick) ({ chosen, selection } = selectPlans(plans, pick));
   const written = chosen.map((plan) => writeCase(out, plan));
   if (forced)
-    for (const plan of chosen.filter((p) => p.kind === 'review')) written.push(writeCase(out, { ...plan, name: `${plan.name}-forced` }, { forced: true }));
+    for (const plan of chosen.filter((p) => p.kind === 'review')) written.push(writeCase(out, { ...plan, name: `${plan.name}${FORCED_SUFFIX}` }, { forced: true }));
   if (selection) writeFileSync(path.join(out, 'selection.json'), JSON.stringify(selection, null, 2));
   return { out, written, refused, selection };
 }
@@ -658,8 +664,12 @@ function caseMeta(evalCase, benchmarks) {
  * The no-plugin arm depends on the model, the Claude Code version and the prompt, not on the plugin, so
  * one run of it serves every later plugin-only run. Anything that could make it stale is refused.
  */
-/** `arm` picks the cached arm that stands in as `without`: `with` compares against another plugin's arm (the LSP-only control). */
-export function withBaseline(results, baseline, { baselinePath, arm = 'without' }) {
+/**
+ * `arm` picks the cached arm that stands in as `without`: `with` compares against another plugin's arm (the
+ * LSP-only control). Unset, it is `with` for a baseline run on the naked plugin, `without` otherwise.
+ * A forced case falls back to its neutral twin: without the plugin there is no skill to name.
+ */
+export function withBaseline(results, baseline, { baselinePath, arm = baseline.suite?.plugins?.[0]?.name === NAKED_PLUGIN ? 'with' : 'without' }) {
   const refuse = (why) => {
     throw new Error(`baseline ${baselinePath} refused: ${why}`);
   };
@@ -669,14 +679,25 @@ export function withBaseline(results, baseline, { baselinePath, arm = 'without' 
   if (baseline.claudeVersion !== results.claudeVersion) refuse(`it ran on Claude Code version ${baseline.claudeVersion}, this run on ${results.claudeVersion}`);
   const cases = (results.cases ?? []).map((evalCase) => {
     if (evalCase.arms?.without) refuse(`${evalCase.name} has its own without arm`);
-    const cached = (baseline.cases ?? []).find((c) => c.name === evalCase.name);
+    const find = (name) => (baseline.cases ?? []).find((c) => c.name === name);
+    const twin = evalCase.name.endsWith(FORCED_SUFFIX) && !find(evalCase.name);
+    const cached = twin ? find(evalCase.name.slice(0, -FORCED_SUFFIX.length)) : find(evalCase.name);
     if (!cached) refuse(`it has no case ${evalCase.name}`);
-    if (cached.promptMarkdown !== evalCase.promptMarkdown) refuse(`${evalCase.name}'s prompt differs from the one it ran`);
+    const prompt = twin ? neutralPrompt(evalCase.promptMarkdown) : evalCase.promptMarkdown;
+    if (cached.promptMarkdown !== prompt) refuse(`${evalCase.name}'s prompt differs from the one it ran`);
     if (!cached.arms?.[arm]?.length) refuse(`${evalCase.name} has no ${arm} arm in it`);
     return { ...evalCase, arms: { ...evalCase.arms, without: cached.arms[arm] } };
   });
   return { ...results, cases, baseline: { file: baselinePath, arm, startedAt: baseline.startedAt ?? null } };
 }
+
+/** The plugin `naked-arm.mjs` builds: no components, so its plugin arm stands in for the no-plugin arm. */
+export const NAKED_PLUGIN = 'naked';
+
+// A run that hit its own turn or time limit is the arm's outcome. Any other error (session limit, lost
+// login, interrupt, scaffold failure) says nothing about the arm: 84 of 156 runs on 2026-10-02 died so.
+const ARM_OUTCOME_ERROR = /maximum number of turns|timed? ?out|timeout/i;
+export const infrastructureError = (run) => (run.error && !ARM_OUTCOME_ERROR.test(String(run.error)) ? String(run.error) : null);
 
 export function score(results, { benchmarks = BENCHMARKS, tracesDir = null } = {}) {
   const runs = [];
@@ -689,6 +710,10 @@ export function score(results, { benchmarks = BENCHMARKS, tracesDir = null } = {
         const graders = Object.fromEntries((run.graders ?? []).map((g) => [g.name, g.passed]));
         const trace = traceOf(run, tracesDir);
         const base = { case: evalCase.name, kind, side: meta.side, arm, run: index, error: run.error ?? null, costUsd: run.costUsd ?? null, turns: run.turns ?? null, graders, trace };
+        if (infrastructureError(run)) {
+          runs.push({ ...base, absent: true });
+          return;
+        }
         if (kind.startsWith('review')) {
           // Recall against the humans only: a concern no human raised may be
           // right or wrong, and nothing here can tell which.

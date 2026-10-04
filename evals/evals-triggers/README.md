@@ -15,6 +15,11 @@ npm run evals:triggers        # all 28 cases, 1 run: $2.2–2.3, about 3 min (me
 npm run evals:triggers:gate   # the held-out `test` split, 3 runs: $2.96, about 4 min (measured)
 ```
 
+Both scripts write `results/latest*.json` and then run `run-validity.mjs` on
+it. A run that died outside the arm (session limit, lost login) fails the
+script: the harness would score it, and every `max: 0` grader passes on a run
+that did nothing. A run that hit `max_turns` is not flagged.
+
 Every case carries a split tag. Edit a description while looking at `dev` results
 only, and confirm on `test` (`--tag dev`, `--tag test` select them). `diag` is the
 bare-URL diagnostic and belongs to neither. The new cases run at `max_turns: 4`: the

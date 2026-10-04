@@ -29,7 +29,7 @@ npm run build
 npm run evals                 # = evals:walk
 npm run evals:walk            # 6 walk-tagged cases, plugin arm, 1 run, Sonnet 5.5, $2 cap, writes walk-<ts>.md
 npm run evals:walk:haiku      # the same on Haiku 4.5
-npm run evals:baseline        # all 26 cases, both arms, 3 runs, Sonnet 5.5, $35 cap: once per Claude Code version
+npm run evals:baseline        # 18 cases (no forced twins), naked plugin only, 3 runs, Sonnet 5.5, $15 cap: once per Claude Code version
 npm run evals:decide          # all 26 cases, plugin arm, 3 runs, Sonnet 5.5, $20 cap: gate it against the baseline
 npm run evals:select          # evals/evals-core/cases/ only, no run
 npm run evals:score -- evals/evals-core/results/eval-<ts>.json [--baseline <eval-baseline>.json]
@@ -203,9 +203,27 @@ change is worth it.
    refused. The gate prints which baseline it used and how old it is. It
    reports `meanDelta` as **GAP**, since the harness computes that only with
    both arms in one run; the recall check is the Δ check.
-3. **Baseline** (`evals:baseline`, about $28 projected from $0.18 per run).
-   Both arms, run once per Claude Code version. Its plugin arm is also a
-   decision sample.
+3. **Baseline** (`evals:baseline`, about $10 projected from the no-plugin
+   arm of the 2026-10-02 run, $9.91). Run once per Claude Code version. It
+   runs only the no-plugin side, since every decide run brings its own plugin
+   arm:
+   - `naked-arm.mjs` builds `.tmp/naked`, a plugin with no components, and
+     the run uses `--ablation none`. The harness has no without-only mode.
+     `withBaseline` takes a naked baseline's plugin arm as the no-plugin arm
+     on its own.
+   - Forced twins are not run. Without the plugin there is no skill to name,
+     so a forced case's no-plugin arm is its neutral twin's, after checking
+     that the prompts differ only by the ask. On 2026-10-02 both scored
+     recall 0.073 and cost $4.96 against $4.83.
+   - The naked plugin's arm is assumed to equal the harness's no-plugin arm.
+     Check that once with `--ablation with-without` on the naked plugin before
+     you trust a baseline built this way.
+
+A run that died outside the arm (session limit, lost login, interrupt,
+scaffold failure) is **absent** in `score` and the gate, even when a grader
+scored it. Only a run that hit its own turn or time limit counts as the arm's
+outcome. On 2026-10-02, 84 of 156 runs died of a session limit or a lost
+login. They read as recall 0, and the gate's absent check passed.
 
 Opus has no script. A run costs 2.5–3× a Sonnet run, and Opus uses up plan
 limits fastest. Run it by hand, at a release, with an explicit `--max-cost-usd`.
