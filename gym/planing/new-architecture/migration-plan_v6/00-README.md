@@ -27,6 +27,10 @@ directly. No AMBICODE plugin command, reviewer, probe, eval or project test was 
 
 ## Step files and dispatch order
 
+Copyable agent assignments for every step, decision A, independent review and core acceptance
+are in [dispatch/00-README.md](dispatch/00-README.md). Fill dispatch metadata before sending;
+the packet grants no paid authorization.
+
 | Order | Assignment | Primary hand-off |
 |---|---|---|
 | 1 | [00 — Harness](step-00-harness.md) | Reuse new baseline/validity; add prompt transport, dry run, scoring and launch probes |

@@ -8,9 +8,19 @@ const directory = path.dirname(fileURLToPath(import.meta.url));
 const repository = path.resolve(directory, '../../../..');
 const markdown = (await readdir(directory)).filter(name => name.endsWith('.md')).sort();
 assert.equal(markdown.length, 16);
+const dispatchFiles = (await readdir(path.join(directory, 'dispatch')))
+  .filter(name => name.endsWith('.md')).sort();
+assert.equal(dispatchFiles.length, 15);
+for (let number = 0; number <= 10; number += 1) {
+  const name = `step-${String(number).padStart(2, '0')}.md`;
+  assert(dispatchFiles.includes(name), `missing dispatch ${name}`);
+}
+for (const name of ['00-README.md', 'decision-A.md', 'review-step.md', 'core-acceptance.md']) {
+  assert(dispatchFiles.includes(name), `missing dispatch ${name}`);
+}
 let links = 0;
 let bytes = 0;
-for (const name of markdown) {
+for (const name of [...markdown, ...dispatchFiles.map(name => `dispatch/${name}`)]) {
   const body = await readFile(path.join(directory, name), 'utf8');
   bytes += Buffer.byteLength(body);
   assert(body.startsWith('# '), `${name}: missing title`);
@@ -18,7 +28,7 @@ for (const name of markdown) {
   for (const match of body.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)) {
     const target = match[1].split('#')[0];
     if (!target || /^(https?:|app:)/.test(target)) continue;
-    await stat(path.resolve(directory, target));
+    await stat(path.resolve(path.dirname(path.join(directory, name)), target));
     links += 1;
   }
   assert(!body.includes('../v5/'), `${name}: obsolete normative design reference`);
@@ -57,6 +67,6 @@ for (const line of manifest.trim().split('\n')) {
   assert.equal(createHash('sha256').update(contents).digest('hex'), match[1], match[2]);
   inputs += 1;
 }
-console.log(`markdown_files=${markdown.length}; bytes=${bytes}; local_links=${links}`);
+console.log(`markdown_files=${markdown.length}; dispatch_files=${dispatchFiles.length}; bytes=${bytes}; local_links=${links}`);
 console.log(`scenarios=14; historical_findings=16; independent_findings=13; source_digests_verified=${inputs}`);
 console.log('validation=document_structure_and_input_provenance; implementation_tests=0; model_calls=0');
