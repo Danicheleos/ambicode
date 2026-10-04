@@ -6,6 +6,24 @@ Do not dispatch this automatically. It requires core acceptance and one selected
 Resolve all plan/migration-v6-reports paths under the primary checkout:
 /Users/KillBill/Documents/projects/mine/ai/ambicode. Preserve other reports.
 
+Implementation standards:
+- Extend the existing authoritative mechanism. Avoid introducing a second
+  parser, engine, state store, or competing implementation.
+- Replace superseded code where the current phase permits it. Remove dead
+  branches, redundant helpers, repeated scans, and obsolete comments.
+- Consolidate duplicated validation and transformations around canonical data.
+- Split large files when responsibilities have clear boundaries. Keep modules
+  cohesive, dependencies explicit, and entry points understandable. Moving
+  code without reducing coupling or duplication is insufficient.
+- Preserve public behavior, required compatibility, safety checks, and failure
+  semantics during refactoring.
+- Avoid unnecessary abstractions, dependencies, wrappers, and unrelated cleanup.
+- Assess performance on affected paths. Use comparable model-free measurements
+  when changing execution cost or making performance claims.
+- Add meaningful regression coverage for demonstrated defects. Do not weaken
+  assertions, delete valid negative cases, or increase budgets merely to pass.
+- Examine the complete resulting diff before declaring completion.
+
 Implement only the explicitly selected experiment from migration-plan_v6/step-10-experiments.md.
 Do not use the ambicode plugin or spawn additional agents.
 Read CLAUDE.md, shared contracts, the whole step, v6/50-backlog and cited entry conditions.

@@ -11,11 +11,7 @@ Do not spawn additional agents from this assignment.
 
 Dispatch metadata (dispatcher fills these before sending):
 - Workspace: <absolute isolated worktree path>
-- Base revision: <commit>
-- Prerequisites delivered as: <authorized commits or explicit patch paths>
-- Plan revision delivered as: <commit or explicit plan patch path>
 - Primary checkout: /Users/KillBill/Documents/projects/mine/ai/ambicode
-- Integration owner: <name/session>
 - Paid authorization: NONE; $0 additional model/eval/probe spend
 
 Read CLAUDE.md and these repository-relative files:
@@ -32,6 +28,24 @@ Verify the workspace contains the exact prerequisites. Do not assume another che
 uncommitted files exist here. Use the PRIMARY protocol in 00-README: ignored inputs stay
 in primary; NDA generation/consumption commands execute there after code integration.
 Worktree tests use synthetic inputs. Do not copy/link NDA inputs into the worktree.
+
+Implementation standards:
+- Extend the existing authoritative mechanism. Avoid introducing a second
+  parser, engine, state store, or competing implementation.
+- Replace superseded code where the current phase permits it. Remove dead
+  branches, redundant helpers, repeated scans, and obsolete comments.
+- Consolidate duplicated validation and transformations around canonical data.
+- Split large files when responsibilities have clear boundaries. Keep modules
+  cohesive, dependencies explicit, and entry points understandable. Moving
+  code without reducing coupling or duplication is insufficient.
+- Preserve public behavior, required compatibility, safety checks, and failure
+  semantics during refactoring.
+- Avoid unnecessary abstractions, dependencies, wrappers, and unrelated cleanup.
+- Assess performance on affected paths. Use comparable model-free measurements
+  when changing execution cost or making performance claims.
+- Add meaningful regression coverage for demonstrated defects. Do not weaken
+  assertions, delete valid negative cases, or increase budgets merely to pass.
+- Examine the complete resulting diff before declaring completion.
 
 Implement only the assigned step, extending the specified existing seams. Preserve
 unrelated changes and the user's index. Report any architectural conflict with both source
@@ -57,7 +71,7 @@ Zero tests/syntax errors/null summaries cannot prove red/green; acting flags nev
 
 Validation:
 Reproduce behavior changes with meaningful synthetic fixtures/tests. Typecheck structural
-edits during implementation; run affected tests, then npm run verify before hand-off.
+edits in the end implementation; run affected tests, then npm run verify before hand-off.
 Record commands, actual counts and exits. Measure built artifacts for caps/timings.
 Do not claim pending platform probes passed or infer efficiency from unit tests.
 

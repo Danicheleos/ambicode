@@ -11,11 +11,7 @@ Do not spawn additional agents from this assignment.
 
 Dispatch metadata (dispatcher fills these before sending):
 - Workspace: <absolute isolated worktree path>
-- Base revision: <commit>
-- Prerequisites delivered as: <authorized commits or explicit patch paths>
-- Plan revision delivered as: <commit or explicit plan patch path>
 - Primary checkout: /Users/KillBill/Documents/projects/mine/ai/ambicode
-- Integration owner: <name/session>
 - Paid authorization: NONE; $0 additional model/eval/probe spend
 
 Read CLAUDE.md and these repository-relative files:
@@ -57,7 +53,7 @@ Dry run never spawns or mutates; naked prompt bytes stay unchanged; interrupted 
 
 Validation:
 Reproduce behavior changes with meaningful synthetic fixtures/tests. Typecheck structural
-edits during implementation; run affected tests, then npm run verify before hand-off.
+edits in the end implementation; run affected tests, then npm run verify before hand-off.
 Record commands, actual counts and exits. Measure built artifacts for caps/timings.
 Do not claim pending platform probes passed or infer efficiency from unit tests.
 
