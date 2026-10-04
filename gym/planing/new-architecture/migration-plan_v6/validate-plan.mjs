@@ -31,14 +31,23 @@ const review = await readFile(path.join(directory, '03-review-resolution.md'), '
 for (let number = 116; number <= 131; number += 1) {
   assert(review.includes(`#${number} `), `missing old finding #${number}`);
 }
+for (let number = 149; number <= 161; number += 1) {
+  assert(review.includes(`| #${number} `), `missing independent finding #${number}`);
+}
 const enginePlan = await readFile(path.join(directory, 'step-03-route-engine-investigate.md'), 'utf8');
 const gateCommand = enginePlan.split('\n').find(line => line.startsWith('npm run evals:gate --'));
 assert(gateCommand?.includes('eval-2026-10-04T19-44-56-791Z.json'), 'wrong working baseline');
 assert(!gateCommand.includes('--accept-baseline-version'), 'obsolete version bypass');
+assert(!gateCommand.includes('--kind'), 'unsupported gate kind flag');
+assert(gateCommand.includes('$PRIMARY/'), 'baseline must resolve in primary checkout');
 const harnessPlan = await readFile(path.join(directory, 'step-00-harness.md'), 'utf8');
-assert(harnessPlan.includes('The user declined the paid naked-vs-true-without equivalence test.'));
-assert(harnessPlan.includes('Do not blanket-mark'));
-assert(enginePlan.includes('Compute the\nnoise band from both compared arms'));
+for (const id of ['P-S', '0-S', 'P37', 'P58']) {
+  assert(harnessPlan.includes(id), `missing harness prerequisite ${id}`);
+}
+const reviewPlan = await readFile(path.join(directory, 'step-08-review.md'), 'utf8');
+const reviewPrompt = reviewPlan.match(/`\/ambicode:review[^`]+`/);
+assert(reviewPrompt, 'missing review prompt');
+assert(!reviewPrompt[0].includes('--branch'), 'review scaffold must target uncommitted changes');
 const manifest = await readFile(path.join(directory, 'input-sha256.txt'), 'utf8');
 let inputs = 0;
 for (const line of manifest.trim().split('\n')) {
@@ -49,5 +58,5 @@ for (const line of manifest.trim().split('\n')) {
   inputs += 1;
 }
 console.log(`markdown_files=${markdown.length}; bytes=${bytes}; local_links=${links}`);
-console.log(`scenarios=14; historical_findings=16; source_digests_verified=${inputs}`);
+console.log(`scenarios=14; historical_findings=16; independent_findings=13; source_digests_verified=${inputs}`);
 console.log('validation=document_structure_and_input_provenance; implementation_tests=0; model_calls=0');

@@ -77,10 +77,12 @@ Replace the regex classification with the parser. Every row below is a test. Dec
 | anything else | no decision (`{}`) |
 
 "Active route" is read from session state (30 §2): `<scratchpad_dir>/ambicode-hook-state/active-route`
-(or the tmpdir fallback `hookStateBaseDir` computes), a cached pointer to `{task, skill}`; ownership is resolved through the ledger-backed
-reader specified in 01-contracts, with an explicitly bound calling session. A pointer alone
+(or the tmpdir fallback `hookStateBaseDir` computes), a cached pointer to `{task, skill}`; ownership is decided by one pure, import-free function `ownerOf(entries, slug)` in
+`src/route/ownership.ts`, created here. The guard reads entries with node:fs and uses that
+predicate with an explicitly bound calling session. Step 03's assertOwner calls the same
+predicate over the same parsed entries; no Runtime/zod import enters the guard bundle. A pointer alone
 never authorizes plan-body writes. Absent/unparsable ownership context fails closed for that exception. In this step **nothing writes that file yet** (step 3 does); the predicate and its tests
-ship now with a fixture state directory. Reading one small file with `node:fs` sync calls is the only
+ship now with a fixture state directory. Reading bounded state and ledger files with `node:fs` sync calls is the only
 import the guard may add (the route-aware rows require a minimal state/ledger read despite
 15 §2's no-import wording; record this reading, do not pull in the whole CLI); re-measure startup after (target: median ≤ 50 ms over 20 spawns, 33 §7).
 
@@ -137,12 +139,14 @@ section with the new `if:` matcher if §5 adds one.
   `npm run build`), median printed in the report, compared to the pre-change median you measured first.
 - `node fixtures/materialize.mjs ts-feature-boundary <tmp>` then run the built guard against the
   B3 command with that cwd: no decision.
+- Re-measure built startup with a 1 MiB synthetic ledger; retain the 50 ms budget and report
+  both small-ledger and 1 MiB medians.
 
 ## Do not
 
 - Do not inspect heredoc bodies for anything.
 - Do not deny on an opaque write target.
-- Do not add any dependency to the guard bundle beyond `node:fs` for the state file.
+- Do not add any dependency to the guard bundle beyond `node:fs` for state and ledger files.
 - Do not write the `active-route` file from anywhere (step 3 does); do not implement the Stop hook
   (step 3) or the `AskUserQuestion` hook (step 3).
 - Do not change `skills/*/SKILL.md` `allowed-tools` (step 6 adds the plan-body grant).
@@ -155,7 +159,8 @@ is built or explicitly not built per the probe; the report follows the template.
 
 ## Integration contract
 
-Step 03 replaces the fixture reader with the shared ownership/session context. Keep the guard
-bundle lean; no second fold. Recheck ownership at tool decision time, and consuming CLI commands
+Step 03 wires assertOwner to ownerOf; the guard keeps its node:fs reader. Share the
+minimal entry shape with type-only imports; runtime dependencies stay import-free. No second
+ownership predicate or fold. Recheck ownership at tool decision time, and consuming CLI commands
 check again at their write. The real two-session integration belongs to 03/06 (S11).
 Do not treat the guard's earlier allow as authority for a later command after takeover.

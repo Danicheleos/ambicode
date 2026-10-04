@@ -41,12 +41,18 @@ Resolve session from an explicit hook input, a platform-proven Bash-child sessio
 or a session-specific association written by the hook. **Never infer the calling session
 from the latest route on the slug.** That would impersonate the owner after takeover.
 A routeless standalone write may use a new random writer id; an owned-plan write with no
-reliable session association fails closed with a release naming a trusted route start.
+reliable session association fails closed with `session-unbound`; its release names decision
+0-S, not another route start that would fail identically. All routed CLI calls need a binding,
+including investigate: a single open route identifies a candidate route, not the caller or
+its consent authority. Do not use that as a fallback session.
 Session transport is a step-03 platform-adapter responsibility; tests inject explicit sessions.
+Implement the transport selected by 0-S from P-S (step 00 §6). It must isolate concurrent
+sessions and refuse missing, stale or ambiguous associations. CLI session input alone cannot
+create hook/harness trust. With 0-S pending, runtime routed CLI calls refuse; tests remain usable.
 
 Ids are `<session8>-<n>`; allocate n monotonically per session namespace. One complete JSON
 line per append. O_APPEND alone does not prevent same-session read-increment collisions:
-step 02 owns serialization for id allocation plus append using existing filesystem ports
+step 02 owns one lock per task ledger for id allocation plus append using existing filesystem ports
 (extend a port if required), with tests for two sessions and concurrent same-session calls.
 No database or second route-state store. A transient lock is coordination, not authoritative
 route state; document its crash recovery. Size cap is 16 KiB per serialized ledger line.
@@ -55,7 +61,8 @@ Warn at 1 MiB ledger; recovery names a separate task slug.
 
 ## 2. Engine-facing ports (owner 03; step 02 implements predicates against injected views)
 
-Freeze typed exports in `src/route/context.ts` before other skills integrate:
+Step 02 creates types only in `src/route/context.ts`; step 03 takes ownership and implements
+them. Freeze typed exports before other skills integrate:
 
 ```ts
 type StartChannel = 'hook' | 'cli' | 'harness';
@@ -152,7 +159,10 @@ provenance, not a claim that the plugin is a security sandbox against arbitrary 
 Acting options are explicit metadata in the normalized gate definition (`acting: [...]`),
 an additive implementation reading needed to validate non-acting defaults. Mark Accept,
 Apply, reviewer run, propose-command approve and other actual side-effect permissions.
-Known key/options resolve from the full registry and declared route. Unknown options refuse.
+Known key/options resolve from the full registry and declared route. Unknown options refuse,
+unless the gate's `onAnswer` mapping declares a `"*"` key: record the free text and substitute
+it for `$answer` in that key's declared re-entry.
+Free text is never acting.
 Non-acting selection can still revise model work; origin then determines automatic/human bounds.
 
 Every print writes `gate {gate, class, raisedBy?, question, print, object?}`.
@@ -202,9 +212,12 @@ plan-body writes. Age/idle time is irrelevant. Other skills may adopt same args 
 and different args coexist in separate chains. Context lookup must not identify old session
 as new owner by reading the newest route.
 
-Step 03 owns coordination for concurrent starts/takeover and ownership checks. Reuse filesystem
-ports; serialize competing plan claim/write operations where the check and mutation must be
-one operation. No new persistent route authority. Test simultaneous start and takeover/write,
+Step 03 owns coordination for concurrent starts/takeover and ownership checks. Serialize
+competing plan claim/write operations with step 02's ledger lock: one lock per task ledger,
+no second lock. Ownership check and mutation are one critical section; expose an append
+operation for an already-held lock so nested append never reacquires it. Use the same
+import-free `ownerOf(entries, slug)` predicate created in step 01 for guard and assertOwner.
+No new persistent route authority. Test simultaneous start and takeover/write,
 including guard decision before a later CLI write. Do not assert O_APPEND grants exclusivity.
 
 ## 7. Requirements and bootstrap (owners 03/04/09)

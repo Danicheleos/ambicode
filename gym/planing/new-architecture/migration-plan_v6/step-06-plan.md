@@ -171,7 +171,7 @@ frozen with provenance, and the plan eval has run (or is "awaiting go") with dec
    exactly three writes/three completions/two automatic revises; human Revise resets them (S5).
 3. Enforce owner at write time on plan check, --from save, promote and guard plan-body write.
    S11: second session same args refuses; adopt keeps fold; old session refuses every writer;
-   idle60 minutes changes nothing. Concurrent ownership tests from 03 run against real plan.
+   idle 60 minutes changes nothing. Concurrent ownership tests from 03 run against real plan.
 4. S10 crash injections before step completion and after rename verify repair without second
    consent/rename. Report historical orphan files; do not delete drafts to hide failed cycles.
 5. Ship `worker run <id> --task <slug>` from v6/31 through same process runner. Test model-free
@@ -188,7 +188,14 @@ frozen with provenance, and the plan eval has run (or is "awaiting go") with dec
 One-process live runner and composite are built/tested even when spend is unauthorized.
 Composite code and labels are fixed before the first paid run; when commits are not authorized,
 record their immutable digests instead of requiring a commit. All labels stay gitignored.
-Task-directory rollout assumes step09 is integrated: first-install configuration is now available.
+Task-directory rollout assumes step 09 is integrated: first-install configuration is now available.
 
 Measurement status is separate from implementation acceptance. If a paid proof is not authorized,
 report it as pending with its exact downstream limitation; do not claim the skill's bar is met.
+
+## Trigger-suite migration (D2)
+
+In the same change that disables model invocation for plan, convert its positive
+evals/evals-triggers cases to “no AMBICODE skill fires”. Preserve case inputs and validity
+checking; add synthetic assertions for the changed expectations. Step 03 retires the old
+trigger release-gate script. Do not run this paid suite without named authorization.

@@ -60,6 +60,11 @@ honoured only with a bound hook answer or consumed trusted-start preanswer for t
 waiting key. A model-typed --approve in ANY mode/channel records acting-needs-human decline;
 trusted headless is no exception (C1). A prior honoured answer asks nothing again. Tail-advance.
 
+Add v6/22's Diagnostics sentence to investigate's read step now that check --only exists.
+Test a synthetic investigate proposal: check-only-unauthorized defaults to don't run;
+a bound human approval revises read through $raisedBy, then the exact authorized check
+runs. A model acting flag cannot approve it. This closes step 03's temporary deviation.
+
 ### 3. `format` — model-run (16 §3) ⤵
 
 `$A format --task <slug> [paths…]`: the project's `format` command (config slot `commands.format`,
@@ -166,22 +171,29 @@ locally with their README stating the detectable effect; the walk and decision r
 ## Shared seam completion and v6 proofs
 
 Own check/format/baseline-scoped review plus the first review --estimate seam used by review-offer.
-Step08 EXTENDS that estimator with history and the standalone review route; no duplicate bundle.
+Step 08 EXTENDS that estimator with history and the standalone review route; no duplicate bundle.
 review-run consumes/evaluates model-run review results; no code step launches a second reviewer.
 Check authorization never bypasses forbid; record decline/incomplete, not clean. Parsing summary
 must distinguish syntax error, zero selected tests, null summary and actual failed test.
-Policy adds before-checks and task code-style staging through step03's same stage API.
-Warm index rebuild after check/review uses step05's detached API and cannot block tail.
+Policy adds before-checks and task code-style staging through step 03's same stage API.
+Warm index rebuild after check/review uses step 05's detached API and cannot block tail.
 S14 covers review-offer run absent/present at trusted start AND later model flags in same run.
 Tests also cover draft-ok default stop, iteration resume N+1, fix first entry/one revise/third
 refusal, approved waiting key rerun, unrelated pre-existing dirty files and edits to dirty files.
 Check output/formatter failure/absence remain Not verified. A denied headless guard ask produces
 permission-denied blocked with visible report, not a fabricated check result.
 
-Task suite reuses step05's exported base scaffold builder. Build/grader code is free; proving
+Task suite reuses step 05's exported base scaffold builder. Build/grader code is free; proving
 platform runner startup by a model walk is paid. Hold hidden tests outside model-visible scaffold;
 no copying merged implementation into prompt, no weakened assertions. Report correlated-case
 uncertainty as v6/33 §5; gain threshold20 pp alone is insufficient without cost≤1.2x.
 
 Measurement status is separate from implementation acceptance. If a paid proof is not authorized,
 report it as pending with its exact downstream limitation; do not claim the skill's bar is met.
+
+## Trigger-suite migration (D2)
+
+In the same change that disables model invocation for task, convert its positive
+evals/evals-triggers cases to “no AMBICODE skill fires”. Preserve case inputs and validity
+checking; add synthetic assertions for the changed expectations. Step 03 retires the old
+trigger release-gate script. Do not run this paid suite without named authorization.

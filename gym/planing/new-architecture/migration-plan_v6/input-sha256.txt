@@ -1,5 +1,5 @@
 f03d934dfb4190c5e4e00d4b0c0acf9447cb13960d25b24de3cc5929298f61c8  CLAUDE.md
-8dddb3ed84b31aa75413737ef93a3d078638ec3d26c192a52d3764c1b3f8dd1c  evals/evals-core/README.md
+bc42a725b446d42e6aa52a082c31e530d8292cecd9b81fb74aeef1cfd02157c8  evals/evals-core/README.md
 95594e74b951d2663beb26796c0891c7acc2a989cba6a3a77e27c700523b008f  evals/evals-core/results/eval-2026-10-04T19-44-56-791Z.json
 fa37f6c8f45378f97a73b0ace9aac0f823bcfced9ea8f3419a844c156ce49f49  evals/evals-triggers/README.md
 dd1c529eab545f2d0857a3ded9a26a5b75dcc278f41837ed9ec51f7c8711cb89  evals/scripts/src/eval-gate.mjs
@@ -21,6 +21,7 @@ aaebceffdd406212f951512d6765653f6f8a7db8bdb813c0fc4d432cb6393609  gym/planing/ne
 c914a1faf32644d3a007cbddcd38f2592eeac596529ff5b98393f12d5f61bb80  gym/planing/new-architecture/migration-plan/step-08-review.md
 4558f67f62cf18f606f09cd02586c8dd2861f70f740e227a0e62239c76e91bf2  gym/planing/new-architecture/migration-plan/step-09-init-rules.md
 2404c5a9452354f298d9cc1ceb6ca37df3294e23823b1b08a7bbef126c4b4d87  gym/planing/new-architecture/migration-plan/step-10-experiments.md
+fa62f98824826fd8e78ac75e98e245aa76ecfd32b1229847a3f454d56b0f0c3a  gym/planing/new-architecture/review-migration-plan-v6.md
 358f17069d566ab6126e27d35f8930a30157551d846869a8f274c273e035626a  gym/planing/new-architecture/review-migration-plan.md
 954a4ee09803378f50ea2fe19cb8e8a238a16bbde5c3b4c3d21025b725b5a89a  gym/planing/new-architecture/v6/00-README.md
 010d999a5db51dd9bc23d4952d224ee7c295b938b27177cd3347419748825422  gym/planing/new-architecture/v6/01-goals-and-constraints.md

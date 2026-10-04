@@ -47,7 +47,10 @@ Dispatcher message template:
 ```text
 Implement step <NN> from gym/planing/new-architecture/migration-plan_v6.
 Read 00-README, 01-contracts, 02-scenarios and the whole assigned step.
-Base revision: <commit with prerequisites>. Workspace: <isolated path>.
+Base revision: <commit>. Workspace: <isolated path>.
+Primary checkout (ignored inputs): <absolute path>.
+Prerequisites delivered as: <authorized commit | explicit patch paths>.
+Plan revision: <commit containing migration-plan_v6 | explicit plan patch path>.
 Prerequisite reports: <paths>. Integration owner: <name>.
 Paid runs: none unless explicitly listed here with individual ceilings.
 Leave changes uncommitted. Return the prescribed implementation/measurement report.
@@ -86,7 +89,23 @@ an unrun measurement. These defaults allow all model-free work to proceed withou
 A dispatcher may authorize a named paid run with its ceiling and provide commit permission.
 An omitted paid authorization means skip that run and report it, not stop all unit-testable work.
 
-For each dispatch record: step id; base commit containing prerequisite changes; workspace;
+**Ignored inputs stay in the primary checkout.** The dispatcher supplies
+`PRIMARY=<absolute path of the primary checkout>`. A new worktree has no ignored
+`benchmarks/`, core cases/results, investigation archive or `.tmp/naked`, and no uncommitted
+files, including this plan. Read those inputs only via `$PRIMARY/…`; never copy or link
+ignored inputs into a worktree. Harness commands use `--benchmarks "$PRIMARY/benchmarks"`
+(step 00 adds the same flag to `naked-arm.mjs`); the baseline uses its absolute primary path.
+Generated NDA cases, control copies, traces and results stay in the primary's existing ignored
+locations. Commands that generate or consume those artefacts, including paid runs, execute
+from the primary only after the dispatcher integrates the step's code there. Synthetic tests
+run in the worktree. Existing control-builder symlinks are confined to the primary checkout.
+
+Prerequisites reach a later worktree as an authorized commit or an explicitly named patch,
+including the plan if it is uncommitted. The dispatcher checks patch application and supplies
+the resulting revision and reports. “Leave uncommitted” applies to the assigned step's output;
+it does not promise that uncommitted prerequisites appear automatically in another checkout.
+
+For each dispatch record: step id; base commit and prerequisite delivery; workspace;
 prerequisite report paths; authorized paid items and ceilings (default none); integration owner.
 Never infer authorization from a cost estimate or from a passing probe. A model call includes
 `claude -p`, `claude plugin eval`, a live reviewer and an LLM grader, even with a zero cost flag.
@@ -134,8 +153,9 @@ Step numbering follows v6/41; execution order accounts for shared-file dependenc
 Moving 09 before 06 supplies the first-install path and finalized format/config behavior
 before plan/task end-to-end validation. This is scheduling, not an architectural change.
 Do not dispatch steps 04–09 until A has an explicit proceed decision. If A fails, finish
-independent evidence work and await the user's engine decision; do not implement an alternate
-v0.4.0 migration without a revised scope.
+independent evidence work and present v6/41 step 3's options: proceed, cut down, or abandon
+the engine with steps 4–5 on v0.4.0's slash and MCP hooks. A chosen fallback receives its own
+step file and scope before dispatch; it is not implemented implicitly.
 
 Parallel work is optional, and requires explicitly separated assignments and an integration
 owner. Even independent modules share `main.ts`, config, error documentation and the gate tests.
@@ -145,7 +165,8 @@ remain serial. This plan does not require parallel agents or silently delegate t
 | Contract/file group | First owner | Later owner/action |
 |---|---|---|
 | Per-arm prompts, dry run, baseline/validity reuse, trace/ledger scoring | 00 | 08 creates review with-prompts; 07 creates task suite prompts |
-| Structural guard, plan ownership reader | 01 | 03 connects real route state; 06 exercises real plan writes |
+| Structural guard, import-free ownerOf predicate and fs reader | 01 | 03 reuses ownerOf in assertOwner; guard retains fs reader; 06 exercises real plan writes |
+| src/route/context.ts typed exports | 02, types only | 03 takes ownership and implements the ledger-backed port |
 | 21-kind schemas, session ids, promotion predicate, report | 02 | 03 supplies fold/consent ports; 06 binds real plan route |
 | Shared chain/window/consent/ownership APIs, engine, registry, command tail | 03 | All later agents consume; no duplicate predicates |
 | Config v3 reader/defaults; minimal ecosystem table | 03 | 04 adds named acceptance-field interpretation; 09 migrates/writes and extends detection |
@@ -178,12 +199,13 @@ steps move them; find the named existing symbols before editing.
 
 | Id | Owner | Fixed rule / pending evidence |
 |---|---|---|
-| 0-V | 00 | Superseded by authorized baseline 2026-10-04 on 2.1.289; no old-version bypass to build; version mismatch still refuses |
+| 0-V | user; check in 00 before measurement | No old-version bypass. Pinning 2.1.289 or authorizing another baseline is pending; neither is authorized by this plan. Recheck version at dispatch and before A; a mismatch blocks measurement A until a new user instruction, while model-free work continues |
 | P37(a,b,c), P58 | 00 | Probe all launch surfaces and sandbox token transport; unsupported surface remains conditional |
-| P47 | 00/01 | Input rewrite optional; step texts always include task |
+| P47 | 00/01 | Task input rewrite optional; if 0-S selects updatedInput session transport, P47 is a hard prerequisite of 03 |
+| P-S, 0-S | 00 probe; 03 adapter; user chooses | Prove session transport to model Bash children: environment binding, PreToolUse updatedInput, or discoverable hook-written association. Record isolation and ambiguity handling. Until 0-S, use injected sessions only; routed CLI calls fail session-unbound, paid walk/decide waits |
 | 0-R | 00/08 | Credential transport vs outside-sandbox live runner; report evidence, user chooses paid execution |
 | P2/P48 | 03 | Acting hook answers require bindable question+option+instance; no acting flag fallback |
-| A | 03 | Investigate recall within cached band and cost ≤ 1.15x; turns reported; user decides continuation |
+| A | 03 | Proposed population: 10 localize cases (v6/33 §1 names the whole decide run); user confirms before paid decide. Recall within recomputed band, cost ≤ 1.15x; turns reported; user decides continuation and any platform fallback |
 | 5-I | 05/09 | Offline index improvement ≥ 0.05 on either side; default remains none until user decision |
 | 6-P | 06 | Predeclared plan composite over 3 epics × 3 runs × 2 arms |
 | P17 | 07 | Stop schema support; bounded reason/file fallback remains available |
@@ -195,6 +217,12 @@ Working baseline: evals/evals-core/results/eval-2026-10-04T19-44-56-791Z.json, n
 18 cases/54 runs, model claude-sonnet-5-5, version 2.1.289. Naked/true-without equivalence was
 not tested; the user declined that paid comparison. Every measurement report names this assumption.
 Compute the noise band from the actual compared runs, not the historical 0.101 constant.
+
+Decision record: user, 2026-10-04, in the supplied conversation that produced the baseline:
+«archived оставь там же обнови baseline» and «нет» to the paid naked-vs-without comparison.
+This authorizes the existing `eval-2026-10-04T19-44-56-791Z.json` reference, superseding D19
+for this hand-off. It authorizes no further baseline or equivalence run. The same source is
+recorded in [the independent review](../review-migration-plan-v6.md), verdict and #152.
 
 An unavailable probe is not a pass. Unknown P2 permits non-acting CLI answers only;
 unknown P37/P58 prevents acting sandbox evals. Unknown P47 disables input rewrite.

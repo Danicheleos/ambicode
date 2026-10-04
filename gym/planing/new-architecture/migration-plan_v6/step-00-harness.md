@@ -52,7 +52,10 @@ until twins are removed in section4. Tests preserve automatic naked selection an
 historical arm behavior. Later typed plugin prompts still record naked promptMarkdown for
 compatibility and actual served pluginPromptMarkdown separately (section3).
 
-**0-V is superseded for this hand-off.** Do not implement --accept-baseline-version or a bypass
+**The historical 0-V bypass is superseded; version management remains pending.**
+Check the baseline/tool versions before measurement and report the decision early.
+No pin, install, downgrade or new paid baseline is authorized. If versions differ, A waits
+for a new instruction; independent implementation continues. Do not implement --accept-baseline-version or a bypass
 for 2.1.287. A run on a different version from the new baseline still refuses. Finish independent
 work and report the mismatch; only the user may choose a version pin, another baseline or an
 explicit separately scoped exception. Never silently update baseline or install an older binary.
@@ -60,10 +63,11 @@ explicit separately scoped exception. Never silently update baseline or install 
 Preserve the implemented error classification shared by score/gate and run-validity:
 infrastructure failures (lost login, session quota, interrupted run, scaffold failure) are
 absent measurements; the arm's own turn/time limit remains an arm outcome. Do not blanket-mark
-every run.error absent or convert an infrastructure failure into recall0.
+every run.error absent or convert an infrastructure failure into recall 0.
 Retain regression fixtures for both classes and their grader-evidence behavior. Trace/ledger
-scoring additions must not overwrite this classification. Trigger scripts keep their JSON
-output and run-validity gate; a failed negative case is not a successful “nothing fired”.
+scoring additions must not overwrite this classification. Trigger execution keeps JSON
+output and run-validity validation; step 03 retires evals:triggers:gate and later skill owners
+convert their positive cases into negatives; a failed negative case is not a successful “nothing fired”.
 The current classifier recognizes turn/timeout strings; new error shapes need synthetic
 fixtures and an explicit decision about which class they represent, not an expanded regex
 that hides infrastructure failures.
@@ -73,6 +77,14 @@ or block model-free migration on it. Use the new baseline as the user-approved w
 and report the equivalence assumption as unverified in every claim gate. Old/new recall agreement
 is not proof of equivalence because versions and runs differ. Do not label this baseline a
 validated true-without arm.
+The operational README now records the user's refusal (updated with this hand-off); retain it.
+Add `eval-gate.mjs` info output whenever the reference baseline plugin is `naked`:
+“naked/without equivalence unverified”. Test that the notice appears for naked references
+and is not claimed for ordinary historical baselines. This is a step 00 runtime deliverable.
+
+Add `--benchmarks <absolute path>` to `naked-arm.mjs` through its existing builder API,
+defaulting to its current location. Test with a synthetic external benchmark root. Use
+00-README's PRIMARY protocol; no NDA generation or control-builder invocation in a worktree.
 
 ### 3. Per-arm prompt transport
 
@@ -103,6 +115,13 @@ Step 08 owns generating the review `prompt.with.md` through this exact transport
 generator hook now and add a synthetic review test. Step 07 uses the same transport for task
 cases. No agent creates another swap mechanism.
 
+Extend `buildNaked` to exclude prompt.with.md, prompt.naked.md, swap markers and any
+platform per-arm prompt key in case.yaml. Refuse to build while a source swap marker is
+outstanding; recover it through the shared swap recovery before rebuilding. Test a synthetic
+case carrying both prompt files and a per-arm key: its naked copy has the generator's
+byte-identical prompt.md and no plugin prompt selector. Test outstanding-marker refusal
+separately. The control copy must never serve an interrupted plugin prompt.
+
 ### 4. Remove forced twins and introduce true dry run
 
 Delete forced review twins and forced scorer branches. Remove `--forced` from `select` and
@@ -117,12 +136,14 @@ builder, neutral generator or reference-arm detection. The baseline npm script a
 cases against matching current baseline cases. Update operational counts/cost estimates.
 Do not edit frozen v6's historical 26-case wording. This hand-off records the discrepancy.
 
-Add harness/gate `--kind localize|review` selection for the early investigate-only decision.
-Selection narrows runs and matching baseline cases together; aggregate cost/recall/turns over
-that same subset, never over missing review runs. Reject unknown kinds and empty subsets.
-Tests prove unrelated review cost cannot change investigate's gate. Full curated generation
-remains 18; step 08 owns the later live review measurement. This scheduling interpretation
-avoids requiring a live review route before decision A permits building it.
+For the proposed investigate-only decision, narrow execution with the existing tag filter
+(`run … --tag localize`). The gate already reports per kind and withBaseline matches only
+the run's own cases; add no new --kind flag. Test that localize-only results against the
+18-case baseline yield localize checks only. Full curated generation remains 18; step 08
+owns later live review measurement. The user confirms this population before paid decide.
+Verify the existing walk tag combines with localize as an intersection; if the platform's
+tag semantics differ, select the synthetic-tested walk/localize intersection through the
+existing case-selection seam rather than accidentally running review cases.
 
 Add `run --dry-run`: resolve cases, served prompts, argv, model, caps, ablation and trust
 prerequisites; print a sanitized execution plan; exit without model/LLM grader/network spawn
@@ -150,9 +171,12 @@ redacted metadata. Record support separately, never infer all launch surfaces fr
 | P37(b) | same inside plugin-eval sandbox | acting sandbox preanswers trusted only if hook fires |
 | P37(c) | same under `claude -p` user's prompt | S2/plan preanswer real-use path |
 | P58 | per-run harness token reaches model Bash children; verify a synthetic authorized start | sandbox fallback may be harness channel only when validated |
-| P47 | PreToolUse updatedInput actually changes command | optional convenience; no dependency |
+| P47 | PreToolUse updatedInput actually changes command | optional task convenience; hard prerequisite if 0-S selects it for session transport |
+| P-S | In interactive launch and P37 sandbox, determine whether environment binding, updatedInput or a hook-written association conveys session_id to a Bash child; record mechanism, never the value; test concurrent-session isolation | User chooses 0-S; no proven mechanism blocks routed CLI integration and paid walk/decide, not injected-session unit tests |
 | 0-R | nested reviewer can authenticate with allowlisted env, or cannot | choose credential transport vs external live runner |
 
+P-S shares the P37/P58 sandbox case and its ≤ $1 ceiling; it adds no implicit authorization.
+Interactive coverage needs its own named ceiling if it adds calls.
 P37/P58 share the same ≤ $1 sandbox case where possible; interactive/-p coverage that costs
 extra must be separately capped, not silently covered by that $1. P47 ≤ $0.10 if authorized.
 0-R feasibility ≤ $1 if authorized; never print credential values. Do not add inherited ambient

@@ -34,6 +34,7 @@ Extend strict config reader with schemaVersion 3 fields from v6/32; read v1/v2 w
 and in-memory defaults. Do not write/migrate user's file. Search lists are explicit defaults,
 printed as defaults until init writes them. Drop obsolete lsp/exact fields in normalized view
 with notices; preserve unrelated existing config/review fields.
+`SUPPORTED_SCHEMA_VERSION` becomes 3 here for reading; step 09 adds writing/migration.
 Create minimal src/config/ecosystems.ts for current declaration filters/source globs; harvest
 reads it. Step 09 extends this SAME table and detection, never creates another.
 No language names in routes, engine or step instructions. Existing ecosystem-specific runner
@@ -72,14 +73,17 @@ and lose changes to requirement/target. Record normalization as an implementatio
 Same session same args reprints; owning-file skills check live other-session ownership FIRST;
 adopt/fresh/taken-over rules and non-owning side-by-side chains as v6/12 §2.3.
 
-Session identity adapter binds hook session to subsequent CLI calls; probe actual platform
-transport if needed under an authorized probe budget. Unknown binding cannot impersonate latest
-ledger owner. Harness trust requires validated run token (P58); no public channel flag.
+The session adapter implements the transport chosen by 0-S from P-S (step 00 §6).
+If 0-S is pending, implement and test injected sessions only; paid walk/decide waits.
+Missing/stale/ambiguous bindings refuse session-unbound with the 0-S release.
+No single-open-route or latest-owner inference substitutes for caller identity. Harness trust requires validated run token (P58); no public channel flag.
 Cache active-route in existing hook state; fall back to scanning this session's ledger routes.
 Pointer is not route authority. Measure 50-task scan; <20 ms is a proposal to remove pointer,
 not an automatic decision. Clear pointer on exit/completion but retain ledger.
 
-Serialize competing plan claim/takeover/write operations through shared ownership port.
+Serialize competing plan claim/takeover/write operations using step 02's one ledger lock
+and step 01's pure ownerOf predicate through the shared ownership port; never reacquire the
+lock during append or create another lock/fold.
 Even without live plan route, fixture tests cover two simultaneous claimants and stale writes.
 Default-1 code steps rerun when covered by revise; target bound alone decides.
 For same-error ×2 offer blocked release; missing produces ×3 records limit/advance.
@@ -143,16 +147,23 @@ Update hook contracts, outcomes, compatibility and release checklist with actual
 ### 9. Investigate route and body
 
 Ship only routes/investigate.yaml and its texts matching v6/22:
-template/fetch conditionally; ground with envelope/map/before-work policy and repeat2;
+template/fetch conditionally; ground with envelope/map/before-work policy and repeat 2;
 scope when map.empty, default/release search anyway, free text revises ground;
 read model without required search output; report-step before-report; write produces
-note{investigation}. budget modelSteps6. Ground auto-runs on no-requirement start.
+note{investigation}. budget modelSteps 6. Ground auto-runs on no-requirement start.
 Read guidance: map hypothesis, batched then spans, two hypotheses, collision import verification,
 reuse find and partial navigation record.
 Shrink body ≤2 KiB with judgment/read-only reason/fallback and disable-model-invocation.
 Delete old shared prepare-output/requirements-mcp and READING_ORDER; remove dangling references
 from unmigrated bodies with equivalent inline guidance only. Their full rewrite belongs later.
-Keep trigger cases as negatives, not trigger gate. Package route/step files.
+In evals/evals-triggers, flip investigate's positive cases to “no AMBICODE skill fires”.
+Remove evals:triggers:gate from package.json; retain suite execution and invalid-run checking.
+Update its README: this suite becomes a negative-only check as each remaining skill migrates;
+it is no longer a release gate for description edits. Steps 06/07/08/09 convert their skill's
+positive cases in the same change as disable-model-invocation. Editing cases is model-free;
+executing the suite is a separately authorized paid item. Package route/step files.
+Until step 07 supplies check --only, omit the diagnostic invocation from investigate's read
+text and report the temporary deviation. Step 07 owns restoring v6/22 Diagnostics and tests.
 
 ## Model-free proofs
 
@@ -163,20 +174,22 @@ no plain-question launch; Stop fixtures and map layers. 02-scenarios assigns S1,
 S12 and S14 core tests here; plan-shaped fixture routes also validate S2/S3/S4/S5/S10/S13
 mechanisms without shipping plan.
 Materialized ts-feature-boundary synthetic investigate: start→ground→read→next→report→
-note save→complete; no-requirement ceremony2, with-requirement3; no search call required to finish read.
-Caps on built outputs: body2/start4/ground8/report-step2/map6/search4 KiB,
-CLI chars8,000/hook9,800/file preview300; no limit raised.
+note save→complete; no-requirement ceremony 2, with-requirement3; no search call required to finish read.
+Caps on built outputs: body 2/start 4/ground 8/report-step 2/map 6/search 4 KiB,
+CLI chars 8,000/hook 9,800/file preview 300; no limit raised.
 20-spawn timing medians: guard≤50 ms, hook≤120 ms, MCP no-route≤90 ms;
 synchronous no-requirement start≤3s on available three repos. Missing snapshots = pending,
 not made-up timing. Run affected tests and npm run verify before paid runs.
 
 ## Authorized walk, decide and A
 
-Requires step00 prompt mechanism/probe report and named run authorization.
+Requires step 00 prompt mechanism/probe report and named run authorization.
 Walk first; fix mechanics through synthetic regression before decide.
-Both use --prompt with, pinned claude-sonnet-5-5, --no-publish and explicit max-cost-usd.
+Both use --prompt with, --tag localize, pinned claude-sonnet-5-5, --no-publish and explicit
+max-cost-usd. Execute from the integrated primary checkout, with its absolute benchmark root.
+Before paid decide, the user confirms the proposed 10-case population for A.
 After twins removal selection still generates 18 cases. For this investigate-only decision,
-use step00's --kind localize scope: 10 cases ×3 plugin runs against the same cached naked
+use step 00's existing --tag localize filter: 10 cases ×3 plugin runs against the same cached naked
 subset from the new 2026-10-04 naked baseline. Old v6 estimate $14/26 is historical;
 estimate about $5.40 at $0.18/run here, not an
 authorization. Record actual counts/cost and this scheduling interpretation. Review measurements
@@ -184,7 +197,7 @@ wait for 08; do not invent an early review route before A permits dependent impl
 
 Gate command:
 ```sh
-npm run evals:gate -- <result>.json --kind localize --baseline evals/evals-core/results/eval-2026-10-04T19-44-56-791Z.json --max-cost-ratio 1.15 --max-extra-turns 1000
+npm run evals:gate -- <result>.json --baseline "$PRIMARY/evals/evals-core/results/eval-2026-10-04T19-44-56-791Z.json" --max-cost-ratio 1.15 --max-extra-turns 1000
 ```
 If actual turns exceed that reporting-only sentinel, report and rerun the **offline gate**
 with an explicit larger sentinel; turns never decide A. Do not change default gate thresholds.
@@ -197,6 +210,11 @@ The new control is naked's recorded with arm, automatically selected by withBase
 Report naked/true-without equivalence as unverified; do not rerun the declined paid comparison.
 A version mismatch refuses rather than falling back to the old baseline or an exception flag.
 A requires recall within band AND cost≤1.15x. Passing criterion is evidence; proceeding is the
-user's decision. Failing criterion lists both arms/loser detail and pass2-only/text guidance options.
-Unrun measurement or unavailable P2/trust probe cannot be a proceed decision.
+user's decision. Failing criterion lists both arms/loser detail and pass 2-only/text guidance options.
+An unrun measurement cannot be reported as criterion met. Present failed or unrun P2/P58
+with its actual limitation: unproven/unsupported interactive acting answers; acting options
+require a proven trusted-start preanswer path, and sandbox harness trust requires P58.
+The user decides continuation with these limitations; consent checks are never relaxed.
+Present proceed, cut down, or abandon with steps 4–5 on v0.4.0's hooks. A chosen fallback
+requires a new step file before dispatch.
 No agent starts 04–09 until the user authorizes continuation at A.

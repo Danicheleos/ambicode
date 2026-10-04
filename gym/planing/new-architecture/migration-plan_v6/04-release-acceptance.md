@@ -1,7 +1,7 @@
 # Core integration and release acceptance
 
-Owner: integrating agent after step08. Read prerequisite reports from00–09, shared contracts,
-scenario matrix and normative v6/41 Kept/Deleted/Compatibility. Step10 is optional.
+Owner: integrating agent after step 08. Read prerequisite reports from 00–09, shared contracts,
+scenario matrix and normative v6/41 Kept/Deleted/Compatibility. Step 10 is optional.
 This is a local candidate hand-off, not an instruction to publish/install into the user's
 working environment, commit, push or deploy.
 
@@ -29,11 +29,11 @@ Plain questions and MCP reads without active route remain negative cases.
 
 ## 3. Compatibility and protected seams
 
-Load schema1/schema2 fixtures with notices, accept init migration to3 with comments preserved.
+Load schema 1/schema 2 fixtures with notices, accept init migration to 3 with comments preserved.
 Reject too-new schema. Legacy L<n> note/review ledgers read without granting consent.
 New entries coexist. Draft stays on Reject/default or crash; second promotion repairs/no-ops.
 prepare stays deprecated for exactly the planned one release; no premature deletion.
-Direct plan saves removed after06; old notes still visible. No orphan shared-file references.
+Direct plan saves removed after 06; old notes still visible. No orphan shared-file references.
 
 Against dispatch baseline verify byte-identical protected paths from v6/41:
 src/review/prompt.ts, report.ts, src/snapshot/, src/providers/, src/publication/,
@@ -78,7 +78,9 @@ classes after integration, with no fabricated zero-recall or successful negative
 Do not mix untrusted/default-skipping
 plugin runs into “live reviewer succeeded” denominator; report them as launch/consent failures.
 Current selected neutral cases and working baseline both contain 18 cases; historical 26 included
-twins. Counts after --kind localize are reported separately. Small-sample, correlated-case and single-baseline
+twins. Counts after --tag localize are reported separately; the user confirms A's proposed
+10-case population before paid decide. P-S/0-S must establish session transport, and version
+mismatch leaves A measurement pending until a new instruction. Small-sample, correlated-case and single-baseline
 noise limitations remain. Unknown index effect keeps default none.
 
 ## 6. Final status

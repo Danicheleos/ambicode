@@ -56,7 +56,7 @@ Probe P21 first (≤ $1, needs go). Build only on a true result and a user go.
 | agentmap adapter | someone investigates the 65/179 gap | Nothing |
 | `claude plugin list` for LSP advice | with the LSP item | Nothing |
 | `PostToolUse(Edit\|Write)` reminder hook | a pack sets `remindOnEdit` | Present the named pack, hook re-registration and measured/per-edit estimate; the user
-approves reopening. Keep the path unregistered until that decision (G18: historical89–143 ms) |
+approves reopening. Keep the path unregistered until that decision (G18: historical 89–143 ms) |
 | `budget.codeCalls`, interactive `wallMinutes` | none — dropped | Nothing |
 
 "Present" means: write the entry condition's evidence (numbers, report, date), the measurement in 33

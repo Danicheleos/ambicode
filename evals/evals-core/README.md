@@ -216,8 +216,10 @@ change is worth it.
      that the prompts differ only by the ask. On 2026-10-02 both scored
      recall 0.073 and cost $4.96 against $4.83.
    - The naked plugin's arm is assumed to equal the harness's no-plugin arm.
-     Check that once with `--ablation with-without` on the naked plugin before
-     you trust a baseline built this way.
+     The user declined the paid equivalence check on 2026-10-04. The working
+     reference is `eval-2026-10-04T19-44-56-791Z.json`; naked/without equivalence
+     remains **unverified** and must be reported in comparisons. A further
+     baseline or equivalence run requires a new user instruction.
 
 A run that died outside the arm (session limit, lost login, interrupt,
 scaffold failure) is **absent** in `score` and the gate, even when a grader

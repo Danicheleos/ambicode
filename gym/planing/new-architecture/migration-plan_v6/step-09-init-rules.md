@@ -34,10 +34,10 @@ ecosystem adapters (R16, D18) and the explicit search layers (D9) are written. D
 
 ## Deliverables
 
-### 1. Complete step03's config v3 reader and write migration (32 §5; 41 Compatibility)
+### 1. Complete step 03's config v3 reader and write migration (32 §5; 41 Compatibility)
 
-`schemaVersion: 3`. Step03 already added v3 loading/defaults; extend its tests and migration
-writer, do not build a second config schema. Historical HEAD's literal version1 is not current
+`schemaVersion: 3`. Step 03 already added v3 loading/defaults; extend its tests and migration
+writer, do not build a second config schema. Historical HEAD's literal version 1 is not current
 at this dispatch. Load v1/v2 through the same normalization with explicit legacy notices. New fields: `search.index:
 none | codeindex`, `search.layers.{prompt, context}` (explicit, editable; `map` refuses unknown
 names), `workers.approved: []`, `guard.askOutsideMap: false`, `review.onInvalid: void | drop`,
@@ -46,11 +46,11 @@ project's existing ecosystem selects the table. Do not invent a persisted adapte
 a demonstrated need; runtime derives adapter behavior from existing ecosystem field. **Removed**: `requirements.lsp`,
 `task.lspPlugins`, `search.exactMaxFiles` — a file carrying them loads with a notice naming them
 (D8). `init --apply` migrates 1 → 3 through the YAML document API (comments kept). `SUPPORTED_SCHEMA_VERSION`
-becomes 3; `config-schema-too-new` message unchanged in shape.
+is already 3 for reading (step 03); `config-schema-too-new` message unchanged in shape.
 
 ### 2. Ecosystem adapter table (R16, D18; 10 §1, 20 step 1)
 
-Extend step03's `src/config/ecosystems.ts` (same file/symbols): per ecosystem (`typescript`, `python` today; the table owns detection/declaration/source facts; existing check/formatter-specific
+Extend step 03's `src/config/ecosystems.ts` (same file/symbols): per ecosystem (`typescript`, `python` today; the table owns detection/declaration/source facts; existing check/formatter-specific
 adapters may name their tools, but route/step/engine logic remains ecosystem-neutral): declaration patterns for the harvest, source globs (`SHORTLIST_DEFAULTS`
 move here), the `export` filter for TypeScript, i18n location if any, runner and formatter adapters
 (`prettier` / `black` / `ruff format` detection → the `format` slot), index grammars. `init` detects
@@ -163,17 +163,17 @@ walk-through are shown; `verify` is green.
 
 ## Delegation boundaries and additional tests
 
-Execution is after05 and before06. Decision5-I unknown/failed/no authorized change → propose none;
+Execution is after 05 and before06. Decision 5-I unknown/failed/no authorized change → propose none;
 never auto-append index layers based on detected tool alone. Honor explicit user index choice,
 write layers visibly, and refuse index build without ignore acceptance.
-Config/read schema fields are step03's; acceptanceField schema is step04's; this step owns their
-proposal/write migration. CLI/tails/consent are step03's. Apply and doctor are model-run work
+Config/read schema fields are step 03's; acceptanceField schema is step 04's; this step owns their
+proposal/write migration. CLI/tails/consent are step 03's. Apply and doctor are model-run work
 through existing policy; hooks may detect/propose but cannot run arbitrary source-mutating commands.
 Bound acceptance values are canonicalized and compared before writing any config/ignore byte.
 
 rules apply consumes honoured rules-table answer; prior default/discard cannot wire live packs.
 Use same consent origin/instance rules with no via:flag/headless exception. Draft quote errors
-revise draft target3, covered validation code reruns despite default repeat1. Applying changes
+revise draft target3, covered validation code reruns despite default repeat 1. Applying changes
 must reflect the accepted disposition; schema/quote/probe failures remain reported. Revert is
 one explicit human-requested operation; never automatic rollback after failed measurement.
 Unknown ecosystem reports shortlist/grep-only and still starts. Existing config comments and
@@ -183,3 +183,10 @@ without consent. All fixtures are counted from current definitions, not hard-cod
 
 Measurement status is separate from implementation acceptance. If a paid proof is not authorized,
 report it as pending with its exact downstream limitation; do not claim the skill's bar is met.
+
+## Trigger-suite migration (D2)
+
+In the same change that disables model invocation for init and rules, convert its positive
+evals/evals-triggers cases to “no AMBICODE skill fires”. Preserve case inputs and validity
+checking; add synthetic assertions for the changed expectations. Step 03 retires the old
+trigger release-gate script. Do not run this paid suite without named authorization.

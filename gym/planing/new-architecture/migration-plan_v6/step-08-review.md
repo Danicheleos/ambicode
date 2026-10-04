@@ -147,10 +147,11 @@ the live tier has run (or is "awaiting go") with decision 8-F presented as 33 §
 ## Review per-arm prompts (owned here, using 00's mechanism)
 
 Extend select's existing prompt hook to write all 8 review prompt.with.md files. First body line:
-`/ambicode:review --headless --answer estimate=run --branch`; preserve remaining body/front matter
-and naked prompt.md bytes. Scaffold change is uncommitted; branch target needs a configured base
-or explicit --base derived from synthetic scaffold metadata. Test actual target selection; do
-not accidentally review an empty committed branch diff. Do not read a secret truth list to pick
+`/ambicode:review --headless --answer estimate=run`, with no target flag. reviewScaffoldFile
+commits the base then applies an uncommitted change; review's default target is that work.
+Preserve remaining body/front matter and naked prompt.md bytes. Test a synthetic scaffold
+built the same way: review --estimate selects the changed files; --branch excludes those
+uncommitted changes and yields no matching file set (or baseline-not-applicable). Do not read a secret truth list to pick
 files. pluginPromptMarkdown records served body; promptMarkdown remains naked baseline body.
 Tests: eight synthetic review with-prompts, naked bytes unchanged, run --dry-run --prompt with
 lists them, real estimator/review start selected, unauthorized later flags declined.
@@ -163,8 +164,8 @@ Assert built outputs: body≤2,048 bytes; start≤3 KiB; review --estimate and e
 every review instruction≤1,500 chars; generic CLI/hook caps/file fallback unchanged. Tests use
 large synthetic diffs/coverage. Do not raise limits. Run complete S1–S14 and all registry gate
 matrix after integration; use 04-release-acceptance for package/compatibility checks.
-Step08 owns final completeness audit of v6/31 CLI including worker run and doctor.
-Review estimator extends step07's seam and writes no snapshot/check/reviewer/publication effect.
+Step 08 owns final completeness audit of v6/31 CLI including worker run and doctor.
+Review estimator extends step 07's seam and writes no snapshot/check/reviewer/publication effect.
 Metrics change page/ review.eta only; aggregator touches evals; default validate behavior stays void.
 Review live-tier budget $8–16 historically covers 24 reviewer calls; two-arm full-session overhead
 must be estimated and separately bounded from observed cost before dispatch, not hidden in that
@@ -176,3 +177,10 @@ and any cached comparison separately, including version uncertainty and reviewer
 
 Measurement status is separate from implementation acceptance. If a paid proof is not authorized,
 report it as pending with its exact downstream limitation; do not claim the skill's bar is met.
+
+## Trigger-suite migration (D2)
+
+In the same change that disables model invocation for review, convert its positive
+evals/evals-triggers cases to “no AMBICODE skill fires”. Preserve case inputs and validity
+checking; add synthetic assertions for the changed expectations. Step 03 retires the old
+trigger release-gate script. Do not run this paid suite without named authorization.

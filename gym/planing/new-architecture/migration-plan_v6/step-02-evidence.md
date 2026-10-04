@@ -7,7 +7,9 @@ legacy note/review writers' task-directory seam, guard command names, affected t
 Read shared contracts in full; v6/13 whole; v6/32 §1–2, §7–8; v6/12 §2.3, §3.4, §4, §8;
 existing `appendLedger/readLedger`, `mintTaskSlug`, note command, review bundle ledger writer,
 review-name helpers, `findSessionRepository`, filesystem/clock/id ports and CLI dispatch.
-No engine implementation here. Define the typed context port; step 03 implements it.
+No engine implementation here. Create src/route/context.ts with the types of 01-contracts
+§2 only; this is the explicit exception to the src/task ownership boundary. Step 03 owns
+that file from then on and implements it. Reuse step 01's ownership types/predicate.
 
 ## Work in order
 

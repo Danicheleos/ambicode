@@ -9,12 +9,12 @@ Sources: [review-migration-plan.md](../review-migration-plan.md) and
 | Finding | Resolution in this plan |
 |---|---|
 | #116 critical, unsafe “free” schema eval | 00 bans eval execution for schema discovery; actual dry-run never spawns; all probes need named spend |
-| #117 high, missing review with-prompt producer | 00 exports prompt mechanism; 08 explicitly owns all8 review prompt.with.md and dry-run tests |
+| #117 high, missing review with-prompt producer | 00 exports prompt mechanism; 08 explicitly owns all 8 review prompt.with.md and dry-run tests |
 | #118 wrong gate documentation edit | 00 updates operational evals-core README and gate usage, never frozen v6 |
-| #119 contradictory withBaseline exclusion | 00 changes version refusal only; retains prompt/model/case/arm refusals |
-| #120 forced twins/flags/counts | 00 removes forced flag from six scripts, adds regenerate, records18 current/new baseline vs26 historical; A uses10 matching localize cases |
+| #119 contradictory withBaseline exclusion | 00 retains version/prompt/model/case/arm refusals; the historical bypass is superseded |
+| #120 forced twins/flags/counts | 00 removes forced flag from six scripts, adds regenerate, records 18 current/new baseline vs 26 historical; A uses 10 matching localize cases |
 | #121 P21 graph contradiction | 00-README/10: P21 only for authorized appendix collector revival |
-| #122 search→init default dependency | Serial05→09; pending index evidence means propose none |
+| #122 search→init default dependency | Serial 05→09; pending index evidence means propose none |
 | #123 decided 0-V treated open | Original exception superseded by user-authorized new baseline;00/03 preserve version refusal and update gate command |
 | #124 double-build acs/refs/find/ecosystem table | Ownership table:03 first implementation;04/05/09 extend same symbols/files |
 | #125 unreadable-ledger/headless ask outcomes absent | Contracts/03/07 include ledger-unreadable and permission-denied with releases |
@@ -45,7 +45,7 @@ Sources: [review-migration-plan.md](../review-migration-plan.md) and
 ## Explicit implementation readings and scheduling deviations
 
 1. Current HEAD already tracks four reuse files; validate instead of restoring unrelated stash.
-2. Runtime config reader and minimal ecosystem table move to03; writing/detection remain09.
+2. Runtime config reader and minimal ecosystem table move to 03; writing/detection remain 09.
 3. Step 09 executes after 05 and before 06 so first install/format are available for skill integrations.
 4. Route association, context port, coordinated id/owner writes and acting metadata make v6's
    implicit chain/authority contracts executable; they create no alternate route database.
@@ -58,8 +58,9 @@ Sources: [review-migration-plan.md](../review-migration-plan.md) and
 9. Review-run code actor evaluates the model-run review command; no unsolicited engine model call.
 10. Cost figures are estimates. The live tier's 24 reviewer calls do not cover all session-arm cost.
 11. Runtime tests embed synthetic contracts, not filesystem reads of gitignored design documents.
-12. Decision A scopes run and gate to localize (10 selected cases), preserving the 18-case
-    generator. This resolves v6's investigate-only engine versus later live review dependency;
+12. Decision A's proposed population is localize (10 selected cases), preserving the 18-case
+    generator; the user confirms this deviation from v6/33 before paid decide. This resolves
+    v6's investigate-only engine versus later live review dependency;
     report the subset and never compare different cost populations.
 13. Preserve the existing persisted note subtype field `note`; design shorthand note{plan}
     is a qualifier, not permission to replace the common kind:'note' discriminator.
@@ -71,9 +72,33 @@ the dependent work and present the exact conflict.
 ## Eval update integrated into the hand-off (2026-10-04)
 
 Commit ae45901 already delivers naked-arm, automatic reference-arm selection, forced-to-neutral
-compatibility and infrastructure validity checks. Step00 reuses these seams; it still owns
+compatibility and infrastructure validity checks. Step 00 reuses these seams; it still owns
 per-arm prompts, actual dry run, neutral-only selection, scoped A and ledger scoring.
 Working reference is eval-2026-10-04T19-44-56-791Z.json on 2.1.289,18 cases/54 runs.
 The old 0-V bypass and fixed 0.101 band are removed from current instructions.
 Frozen v6 documents remain historical inputs; this explicit later user instruction wins where
 baseline policy differs. No new architecture revision is necessary for the route contracts.
+
+## Independent migration review #149–#161
+
+Source: [review-migration-plan-v6.md](../review-migration-plan-v6.md). These are hand-off edits;
+implementation and platform probes remain pending.
+
+| Finding | Resolution / remaining decision |
+|---|---|
+| #149 session transport | 00 owns P-S; user chooses 0-S; 03 implements chosen adapter. No binding → session-unbound; injected-session work continues. Single-open-route fallback deliberately rejected because it does not establish caller/consent identity |
+| #150 worktrees and inputs | PRIMARY protocol, authorized commits or named patches for prerequisites/plan; NDA generation and paid runs only after integration in primary |
+| #151 review target | 08 removes --branch and tests uncommitted scaffold selection |
+| #152 decision provenance | 00 records dated user quotes; operational README updated now; step 00 owns tested gate equivalence-unverified notice |
+| #153 version drift | 0-V pending early; no pin/re-baseline authorized; mismatch blocks A measurement until new instruction |
+| #154 duplicate kind seam | Existing --tag localize; per-kind gate unchanged; subset regression assigned to 00 |
+| #155 decision A scope/options | Population explicitly proposed, confirmation before paid decide; all v6 fallback choices restored; user decides with probe limitations visible |
+| #156 naked prompt contamination | 00 strips per-arm files/selectors, refuses outstanding swaps and tests clean control prompt |
+| #157 guard ownership | 01 creates pure ownerOf, guard keeps fs reader; 03 uses same predicate; 1 MiB startup proof |
+| #158 shared ownership | 03 raises schema reader version, 02 creates context types then transfers file, one ledger lock with non-reentrant append seam |
+| #159 investigate diagnostics | Temporary omission explicit in 03; 07 adds diagnostic text, gate/default/re-entry tests |
+| #160 free text | Explicit onAnswer wildcard exception; free text never acting |
+| #161 trigger retirement | 03 removes trigger release gate; each migrating skill owner converts positives to negatives; paid execution stays separately authorized |
+
+Editorial cleanup removes fused prose numbers and stale restore/cost instructions. Document
+validator checks structural identifiers and commands rather than exact explanatory sentences.

@@ -27,8 +27,8 @@ backlog's exact-reference item is ever reopened (P51). Design:
    `src/git/git.ts` (`grepWords`), `src/config/defaults.ts` (`SHORTLIST_DEFAULTS`),
    `src/contracts/config.ts`; `evals/scripts/src/shortlist-recall.mjs` (offline recall over the 116
    localize tickets; reads `benchmarks/`, prints numbers only), `evals/scripts/src/impact-cases.mjs`
-   (impact cases: rebuilt here with colliding names), `evals/scripts/src/reuse-cases.mjs` (restored in
-   step 0), `evals/scripts/src/lsp-arms.mjs` (**backlog**: read only `tsconfigFor`, reused for the
+   (impact cases: rebuilt here with colliding names), `evals/scripts/src/reuse-cases.mjs` (already tracked; validated in
+   step 00), `evals/scripts/src/lsp-arms.mjs` (**backlog**: read only `tsconfigFor`, reused for the
    language-service truth of impact cases; build nothing LSP).
 5. `@maxgfr/codeindex` README (from `node_modules` after a **local, uncommitted** install into the
    scratchpad, or its npm page): command names `refs/find/impact/delta`, index directory flag, the
@@ -71,13 +71,20 @@ interface IndexAdapter { name: 'none' | 'codeindex'; build(project, {detached});
 
 ### 3. Offline recall script (33 §3, first bullet; free)
 
+Run NDA recall only in the primary checkout after integration, per 00-README's PRIMARY
+protocol; worktree tests use synthetic roots. Extend the existing offline script's input
+path option (or add --benchmarks to its current parser) to accept "$PRIMARY/benchmarks".
+Use this same explicit root for the impact/reuse generators below; all generated NDA cases
+stay in primary ignored locations. Test external-root resolution with synthetic directories.
+
 Extend `evals/scripts/src/shortlist-recall.mjs` to score `map` as **(a)** shortlist only, **(b)**
 shortlist + harvest + shortlist, **(c)** (b) + `index.find` (codeindex, built once per side into a
 scratch directory) on the 116 localize tickets, recall@15 per side, printing numbers only (never
 ticket text, never file names). Today's (a): BE 0.499, FE 0.123 (M6) — reproduce those two numbers
 first and report the match before trusting (b) and (c). **Decision 5-I**: (c) − (b) < 0.05 on both
 sides → `codeindex` stays off by default (`init` proposes `none`); ≥ 0.05 on either side → report; the
-user decides whether the decide tier (≈ $14, 33 §3 last bullet) runs with codeindex vs `none`. The
+user decides whether the localize decide comparison (10 cases × 3 runs; ≈ $5.40 per new arm at $0.18/run,
+subject to actual counts and authorization; v6/33's ≈ $14 is historical) runs with codeindex vs `none`. The
 agent does not run that tier without a go.
 
 ### 4. Colliding-name impact cases (33 §3, second bullet; free to build, costs to run)
@@ -96,7 +103,7 @@ loses, the backlog's exact-reference item is the candidate fix — **report**, d
 Build the base-commit scaffold builder from the team clone's sides (`prepare-reviews.mjs` in
 `benchmarks/` has the sides; it is NDA and local): a scaffold that checks out the MR base commit
 of a ticket, so a reuse case asks "survey what exists" against the code **as it was** (G28). The
-restored `reuse-cases.mjs` is the generator; wire it to the new scaffold. Running is a decision.
+tracked `reuse-cases.mjs` is the generator; wire it to the new scaffold. Running is a decision.
 
 ### 6. `compare.log` numbers into the design table (10 §3)
 
