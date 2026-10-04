@@ -27,3 +27,16 @@ TS language service       create 8-11 ms; first references 706 / 2,434 ms; secon
 
 Symbols: BE `PermissionHelper` (22 referencing files), FE `UserFacade` (179). Both names are unique
 in their repository, which is why grep is exact here; colliding names were not measured.
+
+## Provenance note (added 2026-10-04 after review-v2 #50)
+
+The logs in this directory record the **first attempts**, two of which failed: the language-service
+block in `results.log` died on the `reuse-score.mjs` import, and the `codeindex` read commands in
+`queries.log` exited 2 (wrong flag, unsplit arguments). The corrected `compare.mjs` was re-run by
+hand and its stdout was **not saved**, so the following numbers in the table above exist only in
+this README: `codeindex refs 236 / 483 ms`, all four precision/recall rows, and the whole TypeScript
+language-service line. Where the logs do hold a number it differs from the table because the logged
+figure includes process spawn: `git grep -w -l` 70 ms (BE) / 151 ms (FE) in `queries.log` vs 17 / 41
+in-process; `agentmap --relates` 115 / 199 ms logged vs 93 / 163. The v3 design quotes the logged
+numbers where they exist and labels the rest "unlogged re-run"; v3 33 §0.5 re-runs `compare.mjs`
+and commits `compare.log` before any of them is used in a decision.
