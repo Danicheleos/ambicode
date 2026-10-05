@@ -1,7 +1,10 @@
 import path from 'node:path';
-import { openWorkspace, projectForRequest, type Runtime } from '../../composition/root.ts';
+import { openWorkspace, projectForRequest, toRepositoryRelative, type Runtime } from '../../composition/root.ts';
 import { buildMap, resolveLayers, type MapResult } from '../../code-intelligence/map.ts';
 import { find, refs, renderFind, type RefsResult } from '../../code-intelligence/refs.ts';
+import { relates, renderRelates } from '../../code-intelligence/relates.ts';
+import { formatIndexStatus, indexAdapterFor } from '../../code-intelligence/index/adapter.ts';
+import { indexDepsOf, runIndexBuild } from '../../code-intelligence/index/codeindex.ts';
 import { openRouteView } from '../../route/context.ts';
 import { taskSlugFor } from '../../review/review-name.ts';
 import { withLedgerLock } from '../../task/ledger-lock.ts';
@@ -13,8 +16,10 @@ import { routeTools } from './route.ts';
 export const MAP_OPTIONS = { values: ['task', 'project', 'mode', 'layers'], repeated: ['term', 'symbol'], flags: ['json', 'show'], positionals: true } as const;
 export const REFS_OPTIONS = { values: ['project', 'task'], flags: ['json', 'show'], positionals: true } as const;
 export const FIND_OPTIONS = { values: ['project', 'task', 'kind'], flags: ['json'], positionals: true } as const;
+export const RELATES_OPTIONS = { values: ['project', 'task'], flags: ['json', 'show'], positionals: true } as const;
+export const INDEX_OPTIONS = { values: ['project'], flags: ['json'] } as const;
 
-export interface SearchOutput { command: 'map' | 'refs' | 'find'; text: string; bytes: number; file?: string; data: unknown }
+export interface SearchOutput { command: 'map' | 'refs' | 'find' | 'relates'; text: string; bytes: number; file?: string; data: unknown }
 
 /** The ledger entry goes to the task's one live route, if any; otherwise it is recorded without one. */
 async function record(runtime: Runtime, args: ParsedArgs, entry: { kind: string; [field: string]: unknown }): Promise<void> {
@@ -66,7 +71,7 @@ export async function runRefs(runtime: Runtime, args: ParsedArgs): Promise<Searc
   const result: RefsResult = await refs(runtime, args.positionals, { project, show: false });
   await record(runtime, args, { kind: 'search', command: 'refs', names: args.positionals, hits: result.hits, bytes: result.bytes });
   const file = await showFile(runtime, args, 'refs', result.full);
-  return { command: 'refs', text: result.text, bytes: result.bytes, ...(file === undefined ? {} : { file }), data: { names: result.names, hits: result.hits, truncated: result.truncated } };
+  return { command: 'refs', text: result.text, bytes: result.bytes, ...(file === undefined ? {} : { file }), data: { names: result.names, hits: result.hits, truncated: result.truncated, limitations: result.limitations } };
 }
 
 export async function runFind(runtime: Runtime, args: ParsedArgs): Promise<SearchOutput> {
@@ -74,11 +79,34 @@ export async function runFind(runtime: Runtime, args: ParsedArgs): Promise<Searc
   if (name === undefined || extra.length > 0) throw new AmbicodeError('bad-argument', '"find" takes exactly one name.', { field: 'find' });
   const workspace = await openWorkspace(runtime);
   const project = projectForRequest(workspace.config, args.value('project'), []);
-  const declarations = await find(runtime, name, { project, kind: args.value('kind') });
-  const { text } = renderFind(name, declarations);
+  const result = await find(runtime, name, { project, kind: args.value('kind') });
+  const { text } = renderFind(result);
   const bytes = Buffer.byteLength(text);
-  await record(runtime, args, { kind: 'search', command: 'find', names: [name], hits: declarations.length, bytes });
-  return { command: 'find', text, bytes, data: { name, declarations } };
+  await record(runtime, args, { kind: 'search', command: 'find', names: [name], hits: result.declarations.length, bytes });
+  return { command: 'find', text, bytes, data: result };
+}
+
+export async function runRelates(runtime: Runtime, args: ParsedArgs): Promise<SearchOutput> {
+  const [value, ...extra] = args.positionals;
+  if (value === undefined || extra.length > 0) throw new AmbicodeError('bad-argument', '"relates" takes exactly one path.', { field: 'path' });
+  const workspace = await openWorkspace(runtime);
+  const project = projectForRequest(workspace.config, args.value('project'), [await toRepositoryRelative(workspace, value)]);
+  const result = await relates(indexDepsOf(runtime, workspace.git, workspace.repositoryRoot, workspace.config), project, value);
+  const rendered = renderRelates(result);
+  const text = rendered.text;
+  const bytes = Buffer.byteLength(text);
+  await record(runtime, args, { kind: 'search', command: 'relates', names: [result.path], hits: result.importers.length, bytes });
+  const file = await showFile(runtime, args, 'relates', rendered.full);
+  return { command: 'relates', text, bytes, ...(file === undefined ? {} : { file }), data: result };
+}
+
+export async function runIndex(runtime: Runtime, args: ParsedArgs, action: 'build' | 'status'): Promise<{ text: string; data: unknown }> {
+  const workspace = await openWorkspace(runtime);
+  const project = projectForRequest(workspace.config, args.value('project'), []);
+  const deps = indexDepsOf(runtime, workspace.git, workspace.repositoryRoot, workspace.config);
+  if (action === 'build' && workspace.config.search.index === 'none') return { text: 'index: none — nothing to build', data: await indexAdapterFor(deps, project).status(project) };
+  const status = action === 'build' ? await runIndexBuild(deps, project) : await indexAdapterFor(deps, project).status(project);
+  return { text: formatIndexStatus(status), data: status };
 }
 
 export const renderSearch = (output: SearchOutput): string => (output.file === undefined ? output.text : `${output.text}\nFull result: ${output.file}`);

@@ -2,14 +2,18 @@
 // a vocabulary search, so every arm greps it (three-arm walk, 2026-10-02) and LSP never gets a chance to matter.
 // Here the question is a reference query, and the ground truth is exact: the files the TypeScript language
 // service reports as referencing the symbol, under the same tsconfig the eval's language server loads.
-// Cases go to evals/benchmarks/impact-cases (gitignored, NDA). Commands: [--list] [--side BE|FE] [--limit <n>].
+// Only names declared in two or more files qualify: that is where a name search and a reference query disagree.
+// Cases go to evals/benchmarks/impact-cases (gitignored, NDA). Commands: [--list] [--side BE|FE] [--limit <n>] [--benchmarks <absolute dir>].
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { BENCHMARKS, IMPACT_CASES_DIRECTORY } from '../shared/bench-paths.mjs';
+import { countDeclarations } from '../../../../../src/code-intelligence/harvest.ts';
+import { INVESTIGATE_COMMAND, writePluginPrompt } from '../harness/prompt-transport.mjs';
 import { casePrompt, graderFiles, peekGraders, regexEscape, scaffoldFile } from './bench-cases.mjs';
 import { tsconfigFor } from '../arms/lsp-arms.mjs';
+import { sideRelFrom } from './base-scaffold.mjs';
 
 const ROOTS = { BE: 'src', FE: 'main' };
 const NOT_CODE_UNDER_TEST = /(\.(spec|test|mock|mocks|stories)\.ts$|\.d\.ts$|\/(mocks?|__mocks__|testing)\/)/;
@@ -54,11 +58,15 @@ export function analyse(sideDir, root) {
   const code = files.filter((f) => !NOT_CODE_UNDER_TEST.test(`/${f}`));
   const texts = new Map(files.map((f) => [f, readFileSync(path.join(sideDir, f), 'utf8')]));
   const candidates = [];
+  const symbols = new Map(code.map((file) => [file, exportedSymbols(file, texts.get(file))]));
+  const census = countDeclarations(new Map(code.map((f) => [f, texts.get(f)])), [...new Set([...symbols.values()].flat().map((s) => s.name))], { exportOnly: false });
   for (const file of code)
-    for (const symbol of exportedSymbols(file, texts.get(file))) {
+    for (const symbol of symbols.get(file)) {
+      const declarations = census.get(symbol.name)?.declarations ?? 0;
+      if (declarations < 2) continue;
       const re = wordIn(symbol.name);
       const mentions = code.filter((f) => f !== file && re.test(texts.get(f)));
-      if (mentions.length >= TRUTH_RANGE.min && mentions.length <= 14) candidates.push({ ...symbol, file, mentions });
+      if (mentions.length >= TRUTH_RANGE.min && mentions.length <= 14) candidates.push({ ...symbol, file, mentions, declarations });
     }
   const absolute = (f) => path.join(sideDir, f);
   const host = {
@@ -80,17 +88,21 @@ export function analyse(sideDir, root) {
     if (referencing.length < TRUTH_RANGE.min || referencing.length > TRUTH_RANGE.max) continue;
     const lookalikes = candidate.mentions.filter((f) => !referencing.includes(f));
     const hidden = referencing.filter((f) => !candidate.mentions.includes(f));
-    found.push({ name: candidate.name, file: `${root}/${candidate.file}`, truth: referencing.map((f) => `${root}/${f}`).sort(), lookalikes: lookalikes.map((f) => `${root}/${f}`), hidden: hidden.length });
+    found.push({ name: candidate.name, file: `${root}/${candidate.file}`, truth: referencing.map((f) => `${root}/${f}`).sort(), lookalikes: lookalikes.map((f) => `${root}/${f}`), hidden: hidden.length, declarations: candidate.declarations });
   }
   return found;
 }
 
-/** Name searches get these wrong, so they are the cases where a reference query has something to add. */
+/** One case per name: its declaration with the most lookalikes and hidden references, ties by path. */
 export function pickHard(found, limit) {
-  const byName = new Map();
-  for (const f of found) byName.set(f.name, (byName.get(f.name) ?? 0) + 1);
-  const hard = found.filter((f) => byName.get(f.name) === 1 && (f.lookalikes.length >= 1 || f.hidden >= 1));
-  hard.sort((a, b) => b.lookalikes.length + b.hidden - (a.lookalikes.length + a.hidden) || a.name.localeCompare(b.name));
+  const score = (f) => f.lookalikes.length + f.hidden;
+  const best = new Map();
+  for (const f of found) {
+    const kept = best.get(f.name);
+    if (!kept || score(f) > score(kept) || (score(f) === score(kept) && f.file < kept.file)) best.set(f.name, f);
+  }
+  const hard = [...best.values()].filter((f) => score(f) >= 1);
+  hard.sort((a, b) => score(b) - score(a) || a.name.localeCompare(b.name));
   const chosen = [];
   const folders = new Set();
   for (const f of hard) {
@@ -133,8 +145,9 @@ export function writeImpactCase(out, side, symbol) {
   for (const [file, body] of Object.entries({ ...graders, ...peekGraders() })) writeFileSync(path.join(directory, 'graders', file), body);
   writeFileSync(path.join(directory, 'case.yaml'), `schema_version: "1.1"\nname: ${name}\ncontext:\n  scaffold_script: scaffold.sh\n`);
   writeFileSync(path.join(directory, 'prompt.md'), impactPrompt(name, side, symbol));
-  writeFileSync(path.join(directory, 'scaffold.sh'), scaffoldFile('../../../../benchmarks/' + side, root), { mode: 0o755 });
-  writeFileSync(path.join(directory, 'truth.json'), JSON.stringify({ kind: 'impact', side, ticket: `IMPACT-${symbol.name}`, root, symbol: symbol.name, definedIn: symbol.file, truth: symbol.truth, lookalikes: symbol.lookalikes, missingFromSnapshot: [] }, null, 2));
+  writePluginPrompt(directory, INVESTIGATE_COMMAND);
+  writeFileSync(path.join(directory, 'scaffold.sh'), scaffoldFile(sideRelFrom(directory, path.dirname(out), side), root), { mode: 0o755 });
+  writeFileSync(path.join(directory, 'truth.json'), JSON.stringify({ kind: 'impact', side, ticket: `IMPACT-${symbol.name}`, root, symbol: symbol.name, declarations: symbol.declarations, definedIn: symbol.file, truth: symbol.truth, lookalikes: symbol.lookalikes, missingFromSnapshot: [] }, null, 2));
   return name;
 }
 
@@ -143,11 +156,14 @@ function main(argv) {
   const list = argv.includes('--list');
   const sides = option('--side') ? [option('--side')] : ['BE', 'FE'];
   const limit = Number(option('--limit', '4'));
-  const out = path.join(BENCHMARKS, IMPACT_CASES_DIRECTORY);
+  const benchmarks = option('--benchmarks', BENCHMARKS);
+  if (!path.isAbsolute(benchmarks)) throw new Error(`--benchmarks must be an absolute directory, got ${benchmarks}`);
+  const out = path.join(benchmarks, IMPACT_CASES_DIRECTORY);
+  let cases = 0;
   if (!list) rmSync(out, { recursive: true, force: true });
   const written = [];
   for (const side of sides) {
-    const sideDir = path.join(BENCHMARKS, side, 'src');
+    const sideDir = path.join(benchmarks, side, 'src');
     if (!existsSync(sideDir)) throw new Error(`no snapshot at ${sideDir}`);
     const found = analyse(sideDir, ROOTS[side]);
     const chosen = pickHard(found, limit);
@@ -156,7 +172,10 @@ function main(argv) {
       console.log(`  ${symbol.name} (${symbol.file}): ${symbol.truth.length} true, ${symbol.lookalikes.length} lookalike, ${symbol.hidden} not found by name`);
       if (!list) written.push(writeImpactCase(out, side, symbol));
     }
+    console.log(`${side}: ${chosen.length} cases`);
+    cases += chosen.length;
   }
+  console.log(`estimate: ${cases} cases × 3 runs × 2 arms × $0.18/run ≈ $${(cases * 3 * 2 * 0.18).toFixed(2)} (estimate, not an authorization)`);
   if (!list) console.log(`wrote ${written.length} case(s) to ${out}`);
   return 0;
 }

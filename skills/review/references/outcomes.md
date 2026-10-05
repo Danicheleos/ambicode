@@ -164,6 +164,14 @@ step the route does not list as revisable; the message lists them.
 `search-layers-not-for-model`: `map --layers` is not a model option; edit
 `search.layers` in `.ambicode/config.yaml`. `search-layer-unknown`: `search.layers`
 names a layer that does not exist; fix it, the message lists the known names.
+`index-not-ignored`: `index build` refuses while `.ambicode/index/` is not
+ignored; add it to `.gitignore` (`init --apply` writes it on acceptance).
+`index-unavailable`: `codeindex` is not installed or executable, or init measured
+no file it indexes in the project; install it in the project or on PATH, or set
+`search.index: none`. `index-build-failed`: the index build exited nonzero or
+timed out; run `index build` again. The previous index (if any) stays in use,
+fresh while at most `search.indexDriftFiles` (20) project files differ from it. Queries
+never raise these: `map`, `find` and `relates` fall back and print their `index:` line.
 `requirements-not-captured`: a requirement named at the start has no captured
 payload yet; fetch it with the call the message names, then `route next`.
 `requirements-missing`: some requested sources are not captured; fetch them and run

@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { openRepository, type Runtime } from '../composition/root.ts';
+import { openWorkspace, type Runtime } from '../composition/root.ts';
 import { SEARCH_LAYER_DEFAULTS } from '../config/defaults.ts';
 import type { ProjectConfig, SearchConfig } from '../contracts/config.ts';
 import { literalPathspec } from '../git/git.ts';
@@ -10,7 +10,10 @@ import { COMMON_NAMES } from './dependents.ts';
 import { isTestPath, pathExclusionReason } from '../snapshot/exclusions.ts';
 import { harvest, type Declaration } from './harvest.ts';
 import { profileOf, readCatalog } from './profile.ts';
-import { isPathReason, locate, termsFromRequirements } from './locate.ts';
+import { isPathReason, locate, SCORE_FILENAME, termsFromRequirements } from './locate.ts';
+import { formatIndexStatus, indexAdapterFor, ledgerIndex, type IndexAdapter, type IndexStatus } from './index/adapter.ts';
+import { indexDepsOf } from './index/codeindex.ts';
+import { breadthGuard } from './refs.ts';
 
 export const LAYER_NAMES = ['grep', 'shortlist', 'harvest', 'history', 'index.find', 'index.relates'] as const;
 export type LayerName = (typeof LAYER_NAMES)[number];
@@ -32,7 +35,7 @@ export interface MapResult {
   collisions: string[];
   feature: MapFeature | null;
   limitations: string[];
-  index: 'none';
+  index: IndexStatus;
   omitted: number;
   /** The first line is the layer list; the rest is compact JSON. At most 6,144 bytes. */
   text: string;
@@ -161,13 +164,17 @@ export async function buildMap(input: {
   terms: readonly string[];
   paths: readonly string[];
   symbols: readonly string[];
+  /** Absent: the configured adapter (05-A1). */
+  index?: IndexAdapter;
 }): Promise<MapResult> {
   const unknown = input.layers.filter((layer) => !(LAYER_NAMES as readonly string[]).includes(layer));
   if (unknown.length > 0) {
     throw new AmbicodeError('search-layer-unknown', `Unknown search layer: ${unknown.join(', ')}.`, { details: [`Known layers: ${LAYER_NAMES.join(', ')}. Fix search.layers in .ambicode/config.yaml.`] });
   }
   const { runtime, project } = input;
-  const { git, repositoryRoot } = await openRepository(runtime);
+  const { git, repositoryRoot, config } = await openWorkspace(runtime);
+  const index = input.index ?? indexAdapterFor(indexDepsOf(runtime, git, repositoryRoot, config), project);
+  let indexState: IndexStatus = await index.status(project);
   const projectRoot = normalizeRelative(project.root);
   const pathspec = projectRoot === '' ? null : literalPathspec(projectRoot);
   const limitations: string[] = [];
@@ -207,7 +214,27 @@ export async function buildMap(input: {
 
   for (const layer of input.layers as readonly LayerName[]) {
     if (layer === 'index.find' || layer === 'index.relates') {
-      limitations.push(`index none: ${layer} skipped.`);
+      const queries = layer === 'index.find' ? names(declarations).slice(0, PASS2_NAMES) : [...input.paths];
+      const started = runtime.clock.elapsed();
+      const found = new Map<string, string[]>();
+      let skipped: IndexStatus | null = indexState.state === 'fresh' || indexState.state === 'stale' ? null : indexState;
+      for (const query of skipped === null ? queries : []) {
+        const answer = layer === 'index.find' ? await index.find(query) : await index.relates(query);
+        indexState = answer.status;
+        if (!answer.ok) {
+          skipped = answer.status;
+          break;
+        }
+        const hits = Array.isArray(answer.value) ? answer.value.map((row) => row.path) : answer.value.importers;
+        for (const file of new Set(hits)) found.set(file, [...(found.get(file) ?? []), `${layer} ${query}`]);
+      }
+      if (skipped !== null) limitations.push(`${layer} skipped — ${formatIndexStatus(skipped)}`);
+      else {
+        // One filename's weight per distinct name or path that led here (D4).
+        merge([...found].map(([file, reasons]) => ({ path: file, score: 0, reasons })));
+        for (const [file, reasons] of found) candidates.get(file)!.score += SCORE_FILENAME * reasons.length;
+        layers.push({ name: layer, ms: Math.max(0, Math.round(runtime.clock.elapsed() - started)), hits: found.size });
+      }
     } else if (layer === 'history') {
       await timed(layer, async () => 0);
       limitations.push('history runs inside shortlist.');
@@ -233,7 +260,9 @@ export async function buildMap(input: {
       });
     } else {
       await timed(layer, async () => {
-        const words = [...new Set([...input.symbols, ...input.terms.filter((term) => IDENTIFIER.test(term))])].filter((word) => !COMMON_NAMES.has(word));
+        const guard = await breadthGuard(git, project, [...new Set([...input.symbols, ...input.terms.filter((term) => IDENTIFIER.test(term))])].filter((word) => !COMMON_NAMES.has(word)));
+        for (const line of guard.limitations) if (!limitations.includes(line)) limitations.push(line);
+        const words = guard.kept;
         const files = words.length === 0 ? [] : (await git.grepWords(words, pathspec)).filter((file) => pathExclusionReason(file) === null);
         merge(files.map((file) => ({ path: file, score: 2, reasons: [`contains the word ${words.length === 1 ? `"${words[0]}"` : 'of the request'}`] })));
         return files.length;
@@ -252,13 +281,13 @@ export async function buildMap(input: {
   }
   const ordered = [...candidates.values()].sort((a, b) => b.score - a.score || a.path.localeCompare(b.path)).map((candidate) => {
     const spans = declarations.filter((declaration) => declaration.path === candidate.path).slice(0, SPANS_PER_CANDIDATE).map((declaration) => `${declaration.name}:${declaration.line}`);
-    return { ...candidate, score: Math.round(candidate.score * 100) / 100, reasons: candidate.reasons.slice(0, 2), ...(spans.length === 0 ? {} : { spans }) };
+    return { ...candidate, score: Math.round(candidate.score * 100) / 100, reasons: [...candidate.reasons.slice(0, 2), ...candidate.reasons.slice(2).filter((reason) => reason.startsWith('index.'))], ...(spans.length === 0 ? {} : { spans }) };
   });
 
   if (sequence.size > 0) ordered.sort((a, b) => Number(sequence.has(a.path)) - Number(sequence.has(b.path)));
   const feature = input.mode === 'prompt' ? featureOf(ordered, listed.filter((file) => !sequence.has(file)), profileOf(project).featureKinds, [...pass1, ...pass2], pass1) : null;
   if (input.mode === 'prompt') await anchor(ordered.slice(0, LEADS), declarations, [...new Set([...pass1, ...pass2])], git);
-  const head = `layers: ${layers.map((layer) => layer.name).join(' → ') || 'none'} (${input.layersSource}); index: none`;
+  const head = `layers: ${layers.map((layer) => layer.name).join(' → ') || 'none'} (${input.layersSource}); ${formatIndexStatus(indexState)}`;
   const render = (kept: readonly MapCandidate[]): string => {
     const document = {
       terms: { pass1, pass2 },
@@ -287,11 +316,11 @@ export async function buildMap(input: {
     collisions,
     feature,
     limitations,
-    index: 'none',
+    index: indexState,
     omitted: ordered.length - kept.length,
     text,
     bytes,
-    entry: { mode: input.mode, layers, layersSource: input.layersSource, terms: { pass1, pass2 }, candidates: ordered.length, limitations, index: 'none', collisions, bytes, ...(feature === null ? {} : { feature: { root: feature.root, paths: feature.paths.length } }), candidatePaths: ordered.slice(0, CANDIDATE_PATHS).map((candidate) => candidate.path) },
+    entry: { mode: input.mode, layers, layersSource: input.layersSource, terms: { pass1, pass2 }, candidates: ordered.length, limitations, index: ledgerIndex(indexState), collisions, bytes, ...(feature === null ? {} : { feature: { root: feature.root, paths: feature.paths.length } }), candidatePaths: ordered.slice(0, CANDIDATE_PATHS).map((candidate) => candidate.path) },
   };
 }
 

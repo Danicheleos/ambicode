@@ -5,12 +5,13 @@ import { parseArgs } from '../cli/args.ts';
 import { MAP_OPTIONS, REFS_OPTIONS, FIND_OPTIONS, runFind, runMap, runRefs } from '../cli/commands/search.ts';
 import { openRepository } from '../composition/root.ts';
 import { routeFixture, type RouteFixture } from '../testing/route-fixture.ts';
-import { harvest } from './harvest.ts';
+import { countDeclarations, declarationCensus, harvest } from './harvest.ts';
+import { fakeIndex } from '../testing/fake-index.ts';
 import { buildMap, cleanRequestText, featureOf, sequenceFiles, FEATURE_LIMIT_BYTES, leadsText, LEADS_LIMIT_BYTES, MAP_LIMIT_BYTES, rankTerms, resolveLayers } from './map.ts';
 import { excludeWorkingDirs } from '../task/task-dir.ts';
-import { find, refs, SEARCH_LIMIT_BYTES } from './refs.ts';
+import { find, refs, renderFind, SEARCH_LIMIT_BYTES } from './refs.ts';
 import { SearchConfig } from '../contracts/config.ts';
-import { isPathReason, shortlistRules } from './locate.ts';
+import { isPathReason, SCORE_FILENAME, shortlistRules } from './locate.ts';
 import { TEST_EXCLUDES } from '../config/defaults.ts';
 import { GENERIC_PROFILE, sourceGlob } from './profile.ts';
 import { execFileSync } from 'node:child_process';
@@ -114,7 +115,7 @@ describe('03-M3 buildMap layers', () => {
       const map = await buildMap({ ...base(fx), mode: 'prompt', layers: ['shortlist', 'history', 'index.find', 'index.relates'], layersSource: 'route', terms: ['cart'] });
       assert.deepEqual(map.layers.map((layer) => [layer.name, layer.hits === 0 && layer.name === 'history' ? 0 : -1]).filter(([name]) => name === 'history'), [['history', 0]]);
       assert.ok(map.limitations.includes('history runs inside shortlist.'));
-      assert.ok(map.limitations.includes('index none: index.find skipped.') && map.limitations.includes('index none: index.relates skipped.'));
+      assert.ok(map.limitations.includes('index.find skipped — index: none') && map.limitations.includes('index.relates skipped — index: none'));
       assert.ok(!map.layers.some((layer) => layer.name.startsWith('index')));
       await assert.rejects(buildMap({ ...base(fx), mode: 'prompt', layers: ['shortlist', 'nonsense'], layersSource: 'config', terms: ['cart'] }), (error: Error & { code?: string; details?: string[] }) => error.code === 'search-layer-unknown' && /Known layers/.test(error.details?.join(' ') ?? ''));
     } finally {
@@ -181,7 +182,7 @@ describe('03-M6 refs and find', () => {
     try {
       const result = await refs(fx.runtime, ['applyDiscount', 'CartService'], { project: project(fx), show: false });
       assert.deepEqual(result.names.map((row) => [row.name, row.hits > 0, row.collides]), [['applyDiscount', true, true], ['CartService', true, false]]);
-      assert.match(result.text, /applyDiscount: \d+ hits in 3 files; collides: declared in src\/cart\/cart\.service\.ts, src\/cart\/discount\.ts/);
+      assert.match(result.text, /applyDiscount: \d+ hits in 3 files; declarations: 2; collides: declared in src\/cart\/cart\.service\.ts, src\/cart\/discount\.ts/);
     } finally {
       await fx.dispose();
     }
@@ -190,9 +191,9 @@ describe('03-M6 refs and find', () => {
   it('find lists declarations, filters by kind, and says when there is none', async () => {
     const fx = await repo();
     try {
-      assert.equal((await find(fx.runtime, 'applyDiscount', { project: project(fx), kind: null })).length, 2);
-      assert.equal((await find(fx.runtime, 'CartService', { project: project(fx), kind: 'function' })).length, 0);
-      assert.equal((await find(fx.runtime, 'CartService', { project: project(fx), kind: 'class' })).length, 1);
+      assert.equal((await find(fx.runtime, 'applyDiscount', { project: project(fx), kind: null })).declarations.length, 2);
+      assert.equal((await find(fx.runtime, 'CartService', { project: project(fx), kind: 'function' })).declarations.length, 0);
+      assert.equal((await find(fx.runtime, 'CartService', { project: project(fx), kind: 'class' })).declarations.length, 1);
     } finally {
       await fx.dispose();
     }
@@ -461,6 +462,245 @@ describe('03b-M map terms and leads', () => {
       await fx.repo.write('.ambicode/task/t/ledger.jsonl', 'applyDiscount\n');
       const map = await buildMap({ runtime: fx.runtime, project: project(fx), paths: [], symbols: [], mode: 'context', layers: ['grep'], layersSource: 'route', terms: ['applyDiscount'] });
       assert.ok(map.candidates.every((candidate) => !candidate.path.startsWith('.ambicode/')), map.candidates.map((c) => c.path).join(','));
+    } finally {
+      await fx.dispose();
+    }
+  });
+});
+
+const PROMPT_LAYERS = ['shortlist', 'harvest', 'shortlist'];
+const mapWith = (fx: RouteFixture, layers: string[], index: ReturnType<typeof fakeIndex>, extra: { mode?: 'prompt' | 'context'; paths?: string[]; terms?: string[] } = {}) =>
+  buildMap({ runtime: fx.runtime, project: project(fx), mode: extra.mode ?? 'prompt', layers, layersSource: 'config', terms: extra.terms ?? ['cart'], paths: extra.paths ?? [], symbols: [], index });
+const rule = (text: string, pattern: RegExp): void => assert.match(text, pattern);
+
+describe('05-M index layers in map', () => {
+  it('05-M1: index layers run only when listed', async () => {
+    const fx = await repo();
+    try {
+      const index = fakeIndex({ byName: { CartService: ['src/other/unrelated-1.ts'] } });
+      const map = await mapWith(fx, PROMPT_LAYERS, index);
+      assert.deepEqual(index.calls, []);
+      assert.ok(!map.layers.some((layer) => layer.name.startsWith('index')) && !map.limitations.some((line) => line.startsWith('index')));
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('05-M2: index.find adds a reason and one SCORE_FILENAME per distinct name; a new path enters; sorted; hits are distinct paths', async () => {
+    const fx = await repo();
+    try {
+      const before = await mapWith(fx, PROMPT_LAYERS, fakeIndex());
+      const index = fakeIndex({ byName: { CartService: ['src/other/unrelated-1.ts', 'src/cart/discount.ts'], applyDiscount: ['src/other/unrelated-1.ts'] } });
+      const map = await mapWith(fx, [...PROMPT_LAYERS, 'index.find'], index);
+      assert.ok(index.calls.includes('find CartService') && index.calls.includes('find applyDiscount'), index.calls.join(','));
+      const added = map.candidates.find((candidate) => candidate.path === 'src/other/unrelated-1.ts')!;
+      assert.equal(added.score, 2 * SCORE_FILENAME);
+      assert.deepEqual([...added.reasons].sort(), ['index.find CartService', 'index.find applyDiscount']);
+      const discount = map.candidates.find((candidate) => candidate.path === 'src/cart/discount.ts')!;
+      assert.equal(discount.score, before.candidates.find((candidate) => candidate.path === 'src/cart/discount.ts')!.score + SCORE_FILENAME);
+      assert.deepEqual(map.layers.at(-1)!.name, 'index.find');
+      assert.equal(map.layers.at(-1)!.hits, 2);
+      for (let i = 1; i < map.candidates.length; i++) {
+        const [a, b] = [map.candidates[i - 1]!, map.candidates[i]!];
+        assert.ok(a.score > b.score || (a.score === b.score && a.path < b.path), `${a.path} before ${b.path}`);
+      }
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('05-M2: index.relates queries each known path and scores its importers', async () => {
+    const fx = await repo();
+    try {
+      const index = fakeIndex({ byPath: { 'src/cart/cart.service.ts': ['src/billing/invoice.ts', 'src/other/unrelated-2.ts'] } });
+      const map = await mapWith(fx, ['grep', 'index.relates'], index, { mode: 'context', terms: [], paths: ['src/cart/cart.service.ts'] });
+      assert.deepEqual(index.calls, ['relates src/cart/cart.service.ts']);
+      const added = map.candidates.find((candidate) => candidate.path === 'src/other/unrelated-2.ts')!;
+      assert.deepEqual([added.score, added.reasons], [SCORE_FILENAME, ['index.relates src/cart/cart.service.ts']]);
+      assert.equal(map.layers.at(-1)!.hits, 2);
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('05-M2: a candidate that already has two reasons keeps its index reason', async () => {
+    const fx = await repo();
+    try {
+      const index = fakeIndex({ byPath: { 'src/cart/discount.ts': ['src/billing/invoice.ts'] } });
+      const map = await mapWith(fx, ['grep', 'index.relates'], index, { mode: 'context', terms: ['applyDiscount'], paths: ['src/cart/discount.ts', 'src/billing/invoice.ts'] });
+      const invoice = map.candidates.find((candidate) => candidate.path === 'src/billing/invoice.ts')!;
+      assert.deepEqual(invoice.reasons, ['named by the caller', 'contains the word "applyDiscount"', 'index.relates src/cart/discount.ts']);
+      assert.match(map.text, /index\.relates src\/cart\/discount\.ts/);
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('05-M3: a listed layer whose adapter does not answer is skipped with the state in the limitation', async () => {
+    const fx = await repo();
+    try {
+      for (const [state, line] of [['building', 'index: building'], ['absent', 'index: absent'], ['error', 'index: error (boom)']] as const) {
+        const index = fakeIndex({ state });
+        const map = await mapWith(fx, [...PROMPT_LAYERS, 'index.find', 'index.relates'], index);
+        assert.ok(map.limitations.includes(`index.find skipped — ${line}`) && map.limitations.includes(`index.relates skipped — ${line}`), map.limitations.join('|'));
+        assert.ok(!map.layers.some((layer) => layer.name.startsWith('index')));
+        assert.deepEqual(index.calls, []);
+      }
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('05-M4: the text has the index line and the ledger index field follows the tool', async () => {
+    const fx = await repo();
+    try {
+      const none = await buildMap({ runtime: fx.runtime, project: project(fx), mode: 'prompt', layers: PROMPT_LAYERS, layersSource: 'config', terms: ['cart'], paths: [], symbols: [] });
+      assert.match(none.text.split('\n')[0]!, /; index: none$/);
+      assert.equal(none.entry['index'], 'none');
+      const fresh = await mapWith(fx, PROMPT_LAYERS, fakeIndex());
+      assert.match(fresh.text.split('\n')[0]!, /; index: codeindex fresh \(built in 120 ms\)$/);
+      assert.deepEqual(fresh.entry['index'], { tool: 'codeindex', state: 'fresh', fresh: true, builtMs: 120 });
+      const stale = await mapWith(fx, PROMPT_LAYERS, fakeIndex({ state: 'stale' }));
+      assert.deepEqual(stale.entry['index'], { tool: 'codeindex', state: 'stale', fresh: false, builtMs: 120 });
+    } finally {
+      await fx.dispose();
+    }
+  });
+});
+
+describe('05-C collision census', () => {
+  it('05-C1: every match of every line counts, one file counts once, exportOnly filters, no patterns is null', () => {
+    const texts = new Map([
+      ['a.ts', 'export function foo(a: string): void;\nexport function foo(a: number): void;\nexport function foo() {}\n'],
+      ['b.ts', 'export function foo() {}\nfunction hidden() {}\n'],
+      ['c.ts', 'export function beta() {} export function gamma() {}\n'],
+    ]);
+    const names = ['foo', 'beta', 'gamma', 'hidden', 'absent'];
+    const census = (options: { exportOnly: boolean; patterns?: RegExp[] }) => Object.fromEntries([...countDeclarations(texts, names, options)].map(([name, row]) => [name, [row.declarations, row.files]]));
+    assert.deepEqual(census({ exportOnly: true }), { foo: [2, ['a.ts', 'b.ts']], beta: [1, ['c.ts']], gamma: [1, ['c.ts']], hidden: [0, []], absent: [0, []] });
+    assert.deepEqual(census({ exportOnly: false })['hidden'], [1, ['b.ts']]);
+    assert.deepEqual(census({ exportOnly: true, patterns: [] })['foo'], [null, []]);
+  });
+
+  it('05-C3/05-C1: a name declared in two files collides though the map harvest saw one; overloads in one file do not', async () => {
+    const fx = await repo({
+      'src/zeta/alphafile.ts': 'export function sharedName() {}\n',
+      'src/zeta/deep/other.ts': 'export function sharedName() {}\n',
+      'src/ov/over.ts': 'export function overloaded(a: string): void;\nexport function overloaded(a: number): void;\nexport function overloaded(a: any) {}\n',
+    });
+    try {
+      const map = await buildMap({ runtime: fx.runtime, project: project(fx), mode: 'prompt', layers: PROMPT_LAYERS, layersSource: 'config', terms: ['alphafile'], paths: [], symbols: [] });
+      assert.ok(!map.collisions.includes('sharedName'), 'the harvest saw one file');
+      const result = await refs(fx.runtime, ['sharedName', 'overloaded'], { project: project(fx), show: false });
+      assert.deepEqual(result.names.map((row) => [row.name, row.declarations, row.collides]), [['sharedName', 2, true], ['overloaded', 1, false]]);
+      rule(result.text, /sharedName: \d+ hits in 2 files; declarations: 2; collides: declared in src\/zeta\/alphafile\.ts, src\/zeta\/deep\/other\.ts/);
+      assert.doesNotMatch(result.text, /^index:/m);
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('05-C2: a file over 262,144 bytes is not read, and one limitation counts it', async () => {
+    const fx = await repo({ 'src/big/huge.ts': `export function bigName() {}\n// ${'x'.repeat(270_000)}\n`, 'src/big/small.ts': 'export function bigName() {}\n' });
+    try {
+      const { git } = await openRepository(fx.runtime);
+      const { census, limitations } = await declarationCensus(git, fx.runtime.fs, project(fx), ['bigName']);
+      assert.deepEqual(census.get('bigName'), { declarations: 1, files: ['src/big/small.ts'] });
+      assert.deepEqual(limitations, ['1 file(s) over 262144 bytes not read for declarations']);
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('05-C4: no declaration patterns gives null, the limitation, and the grep result', async () => {
+    const fx = await repo();
+    try {
+      const noSources = project(fx, { ...TS_PROFILE, sources: [] });
+      const result = await refs(fx.runtime, ['applyDiscount'], { project: noSources, show: false });
+      assert.deepEqual([result.names[0]!.declarations, result.names[0]!.collides], [null, null]);
+      assert.ok(result.limitations.some((line) => line.startsWith('no declaration patterns')), result.limitations.join('|'));
+      assert.ok(result.hits > 0 && result.text.includes('src/billing/invoice.ts:'));
+      const { git } = await openRepository(fx.runtime);
+      const census = await declarationCensus(git, fx.runtime.fs, noSources, ['applyDiscount']);
+      assert.equal(census.census.get('applyDiscount')!.declarations, null);
+    } finally {
+      await fx.dispose();
+    }
+  });
+});
+
+describe('05-F find through the adapter', () => {
+  it('05-F1: an index answer is printed via index; a failed one falls back to harvest and prints the index line', async () => {
+    const fx = await repo();
+    try {
+      const answering = fakeIndex({ byName: { applyDiscount: ['src/cart/discount.ts', 'src/billing/invoice.ts'] } });
+      const viaIndex = await find(fx.runtime, 'applyDiscount', { project: project(fx), kind: null, index: answering });
+      assert.deepEqual([viaIndex.via, viaIndex.declarations.map((row) => row.path), viaIndex.collides], ['index', ['src/cart/discount.ts', 'src/billing/invoice.ts'], true]);
+      const indexed = renderFind(viaIndex).text;
+      rule(indexed, /^via: index \(codeindex fresh\)$/m);
+      for (const state of ['error', 'building'] as const) {
+        const fallback = await find(fx.runtime, 'applyDiscount', { project: project(fx), kind: null, index: fakeIndex({ state }) });
+        assert.equal(fallback.via, 'harvest');
+        assert.equal(fallback.declarations.length, 2);
+        const text = renderFind(fallback).text;
+        rule(text, /^via: harvest$/m);
+        rule(text, state === 'error' ? /^index: error \(boom\)$/m : /^index: building$/m);
+      }
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('05-F2/05-L2: with the none adapter find prints via harvest and index: none', async () => {
+    const fx = await repo();
+    try {
+      const result = await find(fx.runtime, 'CartService', { project: project(fx), kind: 'class' });
+      const text = renderFind(result).text;
+      assert.deepEqual([result.via, result.declarations.length], ['harvest', 1]);
+      rule(text, /^index: none$/m);
+      assert.ok(Buffer.byteLength(text) <= SEARCH_LIMIT_BYTES);
+    } finally {
+      await fx.dispose();
+    }
+  });
+});
+
+describe('05-L breadth and limitations', () => {
+  it('05-L1: refs and find drop a name matching more than 60% of the files and list it; every result has limitations', async () => {
+    const fx = await routeFixture({ routes: {} });
+    try {
+      for (let index = 0; index < 8; index++) await fx.repo.write(`src/w${index}.ts`, 'export const common = UniversalService;\n');
+      await fx.repo.write('src/solo.ts', 'export const soloName = 1;\n');
+      await fx.repo.commitAll('files');
+      const listed = /^"common" matched 8 of \d+ files; ignored$/;
+      const result = await refs(fx.runtime, ['common', 'soloName'], { project: project(fx), show: false });
+      assert.deepEqual(result.names.map((row) => row.name), ['soloName']);
+      assert.ok(result.limitations.some((line) => listed.test(line)));
+      rule(result.text, /limitations:\n {2}"common" matched 8 of \d+ files; ignored$/);
+      const found = await find(fx.runtime, 'common', { project: project(fx), kind: null });
+      assert.deepEqual(found.declarations, []);
+      assert.ok(found.limitations.some((line) => listed.test(line)));
+      const clean = await find(fx.runtime, 'soloName', { project: project(fx), kind: null });
+      assert.ok(Array.isArray(clean.limitations) && clean.limitations.length === 0);
+      const map = await buildMap({ runtime: fx.runtime, project: project(fx), mode: 'prompt', layers: PROMPT_LAYERS, layersSource: 'config', terms: ['soloName'], paths: [], symbols: [] });
+      assert.ok(Array.isArray(map.limitations));
+      const context = await buildMap({ runtime: fx.runtime, project: project(fx), mode: 'context', layers: ['grep'], layersSource: 'config', terms: ['UniversalService', 'soloName'], paths: [], symbols: [] });
+      assert.deepEqual(context.candidates.map((candidate) => candidate.path), ['src/solo.ts']);
+      assert.ok(context.limitations.some((line) => /^"UniversalService" matched 8 of \d+ files; ignored$/.test(line)));
+      const json = await runRefs(fx.runtime, parseArgs('refs', ['common', '--json'], REFS_OPTIONS));
+      assert.ok((json.data as { limitations: string[] }).limitations.some((line) => listed.test(line)));
+      const plain = await runRefs(fx.runtime, parseArgs('refs', ['soloName', '--json'], REFS_OPTIONS));
+      assert.deepEqual((plain.data as { limitations: string[] }).limitations, []);
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('05-L2: map prints the index line with the none adapter', async () => {
+    const fx = await repo();
+    try {
+      const map = await buildMap({ runtime: fx.runtime, project: project(fx), mode: 'context', layers: ['grep'], layersSource: 'config', terms: ['applyDiscount'], paths: [], symbols: [] });
+      assert.match(map.text.split('\n')[0]!, /index: none$/);
     } finally {
       await fx.dispose();
     }

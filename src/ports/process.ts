@@ -19,13 +19,14 @@ export interface ProcessRequest {
   stdin?: string;
   /**
    * `ignore` gives the child no pipes, for launchers like `cmd /c start <url>`: the browser inherits
-   * piped handles and the run would last as long as the browser does. Default `capture`.
+   * piped handles and the run would last as long as the browser does. `detached` starts the child in its own
+   * process group and resolves once it has spawned, without waiting for it. Default `capture`.
    */
-  output?: 'capture' | 'ignore';
+  output?: 'capture' | 'ignore' | 'detached';
 }
 
 export interface ProcessOutcome {
-  kind: 'exited' | 'timed-out' | 'spawn-failed';
+  kind: 'exited' | 'timed-out' | 'spawn-failed' | 'detached';
   exitCode: number | null;
   stdout: string;
   stderr: string;

@@ -50,6 +50,8 @@ export interface FileSystem {
   lstat(absolutePath: string): Promise<FileStats>;
   readdir(absolutePath: string): Promise<DirectoryEntry[]>;
   exists(absolutePath: string): Promise<boolean>;
+  /** A regular file the current user may execute; on Windows any regular file. */
+  isExecutable(absolutePath: string): Promise<boolean>;
   realpath(absolutePath: string): Promise<string>;
   /** Matches relative to `cwd` and yields `/`-separated relative paths. */
   glob(pattern: string, cwd: string): Promise<string[]>;
@@ -84,6 +86,15 @@ export const nodeFileSystem: FileSystem = {
   exists: async (absolutePath) => {
     try {
       await access(absolutePath, constants.F_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  isExecutable: async (absolutePath) => {
+    try {
+      if (!(await stat(absolutePath)).isFile()) return false;
+      await access(absolutePath, constants.X_OK);
       return true;
     } catch {
       return false;

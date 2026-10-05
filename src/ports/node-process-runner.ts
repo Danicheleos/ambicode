@@ -25,6 +25,8 @@ export class NodeProcessRunner implements ProcessRunner {
       return outcome('spawn-failed', { failure: `spawn ${executable} ENOENT` });
     }
 
+    if (request.output === 'detached') return runDetached(executable, args, request.cwd, environment);
+
     const capture = new CombinedCapture(request.maxOutputBytes);
     const started = performance.now();
 
@@ -87,6 +89,25 @@ export class NodeProcessRunner implements ProcessRunner {
     }
     return outcome('exited', { ...base, exitCode: result.exitCode ?? null });
   }
+}
+
+/** Outlives this process: no pipes, its own process group, unreferenced, so the caller can exit at once. */
+function runDetached(executable: string, args: readonly string[], cwd: string, env: Record<string, string>): Promise<ProcessOutcome> {
+  const started = performance.now();
+  return new Promise((resolve) => {
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(executable, args, { cwd, env, detached: true, stdio: 'ignore', windowsHide: true, shell: false });
+    } catch (error) {
+      resolve(outcome('spawn-failed', { failure: messageOf(error) }));
+      return;
+    }
+    child.once('spawn', () => {
+      child.unref();
+      resolve(outcome('detached', { durationMs: Math.round(performance.now() - started) }));
+    });
+    child.once('error', (error) => resolve(outcome('spawn-failed', { failure: messageOf(error), durationMs: Math.round(performance.now() - started) })));
+  });
 }
 
 /**

@@ -53,3 +53,12 @@ snapshots to `repos/` here, which is **not** gitignored (checked with `git check
 directory first or point the script at an ignored location. Then run `run.sh` (installs the tools), and
 `node compare.mjs <repoDir> <symbol> <definingFile> <codeindexIndexDir> <binDir> | tee -a compare.log`
 per repository, and record the node version and machine with it.
+
+## Logged rows (migration step 05, 2026-10-05)
+
+`compare.log` is still absent, so **no row** of v6/10 §3's table is logged. The unlogged figures above
+(`codeindex refs 236 / 483 ms`, the four precision/recall rows, the TypeScript language-service line)
+stay unlogged re-runs, and no logged-versus-unlogged difference can be checked against the 10% bound.
+P10's precondition (a committed `compare.log` before any of these numbers decides anything) is still
+open. Step 05 did not install codeindex (`@maxgfr/codeindex`; npm shows 2.31.4, unpacked 27 MB), so
+the re-run described under "Re-run status" remains the way to close it.

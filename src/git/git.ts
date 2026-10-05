@@ -134,6 +134,14 @@ export class Git {
     return sha === '' ? null : sha;
   }
 
+  /** Exit 1 means not ignored; anything else above 0 is a failure, not an answer. */
+  async isIgnored(repositoryRelativePath: string): Promise<boolean> {
+    const outcome = await this.execOutcome(['check-ignore', '-q', '--', repositoryRelativePath], true);
+    if (outcome.exitCode === 0) return true;
+    if (outcome.exitCode === 1) return false;
+    throw new AmbicodeError('git-failed', `git check-ignore failed with exit code ${String(outcome.exitCode)}.`);
+  }
+
   async mergeBase(a: string, b: string): Promise<string | null> {
     const output = await this.exec(['merge-base', a, b], true);
     const sha = output.trim();

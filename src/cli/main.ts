@@ -12,7 +12,7 @@ import { POLICY_OPTIONS, renderPolicy, runPolicy } from './commands/policy.ts';
 import { POLICY_CHECK_OPTIONS, renderPolicyCheck, runPolicyCheck } from './commands/policy-check.ts';
 import { PREPARE_OPTIONS, prepareAsRouteStart, renderPrepare, runPrepare } from './commands/prepare.ts';
 import { REPORT_OPTIONS, renderReport, runReport } from './commands/report.ts';
-import { FIND_OPTIONS, MAP_OPTIONS, REFS_OPTIONS, renderSearch, runFind, runMap, runRefs } from './commands/search.ts';
+import { FIND_OPTIONS, INDEX_OPTIONS, MAP_OPTIONS, REFS_OPTIONS, RELATES_OPTIONS, renderSearch, runFind, runIndex, runMap, runRefs, runRelates } from './commands/search.ts';
 import { REQUIREMENTS_ACS_OPTIONS, REQUIREMENTS_NORMALIZE_OPTIONS, REQUIREMENTS_TEMPLATE_OPTIONS, renderRequirements, runRequirementsAcs, runRequirementsNormalize, runRequirementsTemplate } from './commands/requirements.ts';
 import { ROUTE_NEXT_OPTIONS, ROUTE_START_OPTIONS, ROUTE_STATUS_OPTIONS, ROUTE_STOP_OPTIONS, renderMessage, renderRouteStatus, runRouteNext, runRouteStart, runRouteStatus, runRouteStop } from './commands/route.ts';
 import { REVIEW_OPTIONS, renderReview, runReview } from './commands/review.ts';
@@ -104,6 +104,16 @@ export const USAGE = `ambicode <command> [options]
 
   find <name>             Declarations of a name. At most 4 KiB.
                             --task <slug>  --project <id>  --kind <k>
+
+  relates <path>          Imports and importers of a file: from the index, else
+                          files naming its basename. At most 4 KiB. Recorded.
+                            --task <slug>  --project <id>  --show
+
+  index build             Build the code index (search.index) in the foreground.
+                            --project <id>
+
+  index status            Whether the code index is fresh, stale, building or absent.
+                            --project <id>
 
   requirements template   The calls that retrieve the asked sources.
                             --task <slug>  --requirement <url>   repeatable
@@ -292,7 +302,7 @@ export async function main(argv: readonly string[]): Promise<number> {
   // Recognized here rather than by `runPolicy` inspecting its operands, so a
   // path literally named "check" stays reachable as `policy -- check`.
   const subcommand =
-    command === 'policy' && rest[0] === 'check' ? 'check' : command === 'note' && NOTE_COMMANDS.includes(rest[0] ?? '') ? rest[0] : command === 'route' && ROUTE_COMMANDS.includes(rest[0] ?? '') ? rest[0] : command === 'requirements' && REQUIREMENTS_COMMANDS.includes(rest[0] ?? '') ? rest[0] : undefined;
+    command === 'policy' && rest[0] === 'check' ? 'check' : command === 'note' && NOTE_COMMANDS.includes(rest[0] ?? '') ? rest[0] : command === 'route' && ROUTE_COMMANDS.includes(rest[0] ?? '') ? rest[0] : command === 'requirements' && REQUIREMENTS_COMMANDS.includes(rest[0] ?? '') ? rest[0] : command === 'index' && INDEX_COMMANDS.includes(rest[0] ?? '') ? rest[0] : undefined;
   const name = subcommand === undefined ? command : `${command} ${subcommand}`;
   const commandArgv = subcommand === undefined ? rest : rest.slice(1);
 
@@ -326,6 +336,7 @@ const VERSION_OPTIONS = { flags: ['json'] } as const;
 const NOTE_COMMANDS = ['save', 'promote', 'list'];
 const ROUTE_COMMANDS = ['start', 'next', 'status', 'stop'];
 const REQUIREMENTS_COMMANDS = ['template', 'normalize', 'acs'];
+const INDEX_COMMANDS = ['build', 'status'];
 
 export const SPECS: Record<string, OptionSpec | undefined> = {
   init: INIT_OPTIONS,
@@ -344,6 +355,9 @@ export const SPECS: Record<string, OptionSpec | undefined> = {
   map: MAP_OPTIONS,
   refs: REFS_OPTIONS,
   find: FIND_OPTIONS,
+  relates: RELATES_OPTIONS,
+  'index build': INDEX_OPTIONS,
+  'index status': INDEX_OPTIONS,
   'requirements template': REQUIREMENTS_TEMPLATE_OPTIONS,
   'requirements normalize': REQUIREMENTS_NORMALIZE_OPTIONS,
   'requirements acs': REQUIREMENTS_ACS_OPTIONS,
@@ -413,10 +427,14 @@ async function run(command: string, args: ParsedArgs, runtime: Runtime): Promise
     }
     case 'map':
     case 'refs':
-    case 'find': {
-      const output = await (command === 'map' ? runMap : command === 'refs' ? runRefs : runFind)(runtime, args);
+    case 'find':
+    case 'relates': {
+      const output = await (command === 'map' ? runMap : command === 'refs' ? runRefs : command === 'find' ? runFind : runRelates)(runtime, args);
       return { text: renderSearch(output), data: output.data, json: 'compact' };
     }
+    case 'index build':
+    case 'index status':
+      return runIndex(runtime, args, command === 'index build' ? 'build' : 'status');
     case 'requirements template':
     case 'requirements normalize':
     case 'requirements acs': {

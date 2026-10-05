@@ -2,13 +2,14 @@
 // merged change imported from modules that already existed (types, interfaces, constants, functions), checked
 // against the snapshot. The score is how many of those the answer reuses and whether it proposes to create
 // something that already exists. Cases go to evals/benchmarks/reuse-cases (gitignored, NDA).
-// Commands: [--list] [--side BE|FE] [--limit <n>].
+// Commands: [--list] [--side BE|FE] [--limit <n>] [--benchmarks <absolute dir>].
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { BENCHMARKS, REUSE_CASES_DIRECTORY } from '../shared/bench-paths.mjs';
-import { casePrompt, graderFiles, parseTicket, peekGraders, scaffoldFile } from './bench-cases.mjs';
+import { baseOf, sideRelFrom, writeBaseScaffold } from './base-scaffold.mjs';
+import { casePrompt, graderFiles, parseTicket, peekGraders } from './bench-cases.mjs';
 import { walk } from './impact-cases.mjs';
 
 const ROOTS = { BE: 'src', FE: 'main' };
@@ -110,22 +111,24 @@ function main(argv) {
   const list = argv.includes('--list');
   const sides = option('--side') ? [option('--side')] : ['BE', 'FE'];
   const limit = Number(option('--limit', '4'));
-  const out = path.join(BENCHMARKS, REUSE_CASES_DIRECTORY);
+  const benchmarks = option('--benchmarks', BENCHMARKS);
+  if (!path.isAbsolute(benchmarks)) throw new Error(`--benchmarks must be an absolute directory, got ${benchmarks}`);
+  const out = path.join(benchmarks, REUSE_CASES_DIRECTORY);
   if (!list) {
     rmSync(out, { recursive: true, force: true });
     mkdirSync(out, { recursive: true });
   }
   for (const side of sides) {
     const root = ROOTS[side];
-    const sideDir = path.join(BENCHMARKS, side, 'src');
+    const sideDir = path.join(benchmarks, side, 'src');
     const files = new Set(walk(sideDir).map((f) => `${root}/${f}`));
     const read = (p) => readFileSync(path.join(sideDir, p.slice(root.length + 1)), 'utf8');
     const exports = {};
     for (const f of files) if (!NOT_CODE.test(`/${f}`)) for (const n of exportedNames(read(f))) (exports[n] ??= []).push(f);
     const candidates = [];
-    const reviews = path.join(BENCHMARKS, side, 'reviews');
+    const reviews = path.join(benchmarks, side, 'reviews');
     for (const ticket of readdirSync(reviews, { withFileTypes: true }).filter((e) => e.isDirectory())) {
-      const asset = path.join(BENCHMARKS, side, 'assets', `${ticket.name}.md`);
+      const asset = path.join(benchmarks, side, 'assets', `${ticket.name}.md`);
       if (!existsSync(asset)) continue;
       const parsed = parseTicket(readFileSync(asset, 'utf8'));
       if (parsed.error || parsed.text.length < 300) continue;
@@ -137,7 +140,7 @@ function main(argv) {
         const symbols = reusedSymbols(readFileSync(path.join(dir, 'change.patch'), 'utf8'), { root, absent, read, exists: (p) => files.has(p) });
         const folders = new Set([...symbols.values()].map((p) => path.posix.dirname(p)));
         if (symbols.size >= MIN_SYMBOLS && symbols.size <= MAX_SYMBOLS && folders.size >= MIN_FOLDERS)
-          candidates.push({ ticket: ticket.name, text: parsed.text, symbols, folders: folders.size });
+          candidates.push({ ticket: ticket.name, dir, text: parsed.text, symbols, folders: folders.size });
       }
     }
     const best = new Map();
@@ -164,7 +167,7 @@ function main(argv) {
       for (const [file, body] of Object.entries({ ...graders, ...peekGraders() })) writeFileSync(path.join(dir, 'graders', file), body);
       writeFileSync(path.join(dir, 'case.yaml'), `schema_version: "1.1"\nname: ${name}\ncontext:\n  scaffold_script: scaffold.sh\n`);
       writeFileSync(path.join(dir, 'prompt.md'), reusePrompt(name, side, c.text, { forced }));
-      writeFileSync(path.join(dir, 'scaffold.sh'), scaffoldFile(`../../../../benchmarks/${side}`, root), { mode: 0o755 });
+      writeBaseScaffold(dir, { sideRel: sideRelFrom(dir, benchmarks, side), ...baseOf(c.dir), withhold: [], setup: null });
       writeFileSync(path.join(dir, 'truth.json'), JSON.stringify({ kind: 'reuse', ...(forced ? { variant: 'forced' } : {}), side, ticket: c.ticket, root, truth: [...c.symbols.keys()], definedIn: Object.fromEntries(c.symbols), missingFromSnapshot: [] }, null, 2));
       }
     }

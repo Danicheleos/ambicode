@@ -3,6 +3,8 @@ import path from 'node:path';
 import type { Runtime } from '../composition/root.ts';
 import { TASKS_DIR } from '../config/defaults.ts';
 import { loadConfigWithNotices } from '../config/load.ts';
+import { indexDepsOf, startIndexBuild } from '../code-intelligence/index/codeindex.ts';
+import { Git } from '../git/git.ts';
 import { raiseConflict } from '../requirements/conflict.ts';
 import { hasRequirement } from '../requirements/has-requirement.ts';
 import type { LedgerEntry } from '../task/ledger.ts';
@@ -96,7 +98,7 @@ export interface Engine {
   stop(task: string, session: string, reason: 'blocked' | 'human' | 'inconclusive' | 'budget', detail?: string, scratchpadDir?: string): Promise<void>;
 }
 
-export interface EngineDeps { runtime: Runtime; routes: RouteRegistry; handlers: HandlerRegistry; pointer: ActiveRoutePointer }
+export interface EngineDeps { runtime: Runtime; routes: RouteRegistry; handlers: HandlerRegistry; pointer: ActiveRoutePointer; startIndex?: typeof startIndexBuild }
 
 const inside = new AsyncLocalStorage<true>();
 /** Handlers run inside the engine; a command tail started from one would advance twice (03-T3). */
@@ -112,7 +114,7 @@ interface Part { text: string; file: string | null; bytes: number; position: str
 const quiet = (value: unknown): string => String(value ?? '');
 
 export function createEngine(deps: EngineDeps): Engine {
-  const { runtime, routes, handlers, pointer } = deps;
+  const { runtime, routes, handlers, pointer, startIndex = startIndexBuild } = deps;
   const context = ledgerRouteContext({ runtime, routes });
   const now = (): Date => runtime.clock.now();
   const cli = `node "${runtime.pluginRoot}/scripts/ambicode.mjs"`;
@@ -538,6 +540,9 @@ export function createEngine(deps: EngineDeps): Engine {
         ...(adopts ? { adopts: true } : {}),
       });
       entries.push(head);
+      // Detached and best effort: a failure shows later as map's `index:` line, never here (05-B6).
+      const project = config === null ? undefined : input.project === undefined || input.project === null ? (config.projects.length === 1 ? config.projects[0] : undefined) : config.projects.find((candidate) => candidate.id === input.project);
+      if (config !== null && project !== undefined) await startIndex(indexDepsOf(rt, new Git({ runner: rt.runner, repositoryRoot: dir.repositoryRoot }), dir.repositoryRoot, config), project).catch(() => undefined);
       const active = run(head, false);
       active.written.push(head.id);
       if (resumes !== undefined && !adopts) {

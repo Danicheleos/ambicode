@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { routeFixture } from '../testing/route-fixture.ts';
-import type { Handler } from './handlers.ts';
+import { handlerRegistry, type Handler, type HandlerRegistry } from './handlers.ts';
+import { createEngine } from './engine.ts';
+import type { IndexStatus } from '../code-intelligence/index/adapter.ts';
 import type { StartInput } from './engine.ts';
 
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';
@@ -228,6 +230,61 @@ describe('engine: templates, scope revises and re-entry (S9)', () => {
       await assert.rejects(fx.engine.advance({ task: 't1', session: A, cause: 'route-next', revise: 'read' }), (error: Error & { code?: string }) => error.code === 'revise-not-allowed');
     } finally {
       await fx.dispose();
+    }
+  });
+});
+
+describe('05-B6 index build at route start', () => {
+  const status = (state: IndexStatus['state']): IndexStatus => ({ tool: 'codeindex', state, fresh: false, builtMs: null, reason: state === 'error' ? 'boom' : null, drift: null });
+
+  async function withIndex(startIndex: () => Promise<IndexStatus>) {
+    const handlers = investigateHandlers({ candidates: 3 }, newCounts());
+    const fx = await routeFixture({ routes: { inv: INVESTIGATE }, handlers });
+    const calls: { project: string; routeAlreadyWritten: boolean; task: string }[] = [];
+    let task = '';
+    const engine = createEngine({
+      runtime: fx.runtime,
+      routes: fx.routes,
+      handlers: handlerRegistry(handlers) as HandlerRegistry,
+      pointer: fx.pointer,
+      startIndex: async (_deps, project) => {
+        calls.push({ project: project.id, routeAlreadyWritten: (await fx.kinds(task, 'route')).length === 1, task });
+        return startIndex();
+      },
+    });
+    const start = (channel: 'hook' | 'cli', name: string) => {
+      task = name;
+      return engine.start({ skill: 'inv', text: 'how does the cart work', requirements: [], task: name, cwd: fx.repo.root, session: A, channel, scratchpadDir: fx.scratchpad });
+    };
+    return { fx, engine, calls, start };
+  }
+
+  it('05-B6: start calls startIndexBuild once per start channel, after the route entry; advance does not', async () => {
+    const { fx, engine, calls, start } = await withIndex(async () => status('building'));
+    try {
+      for (const channel of ['hook', 'cli'] as const) {
+        const message = await start(channel, `cart-${channel}`);
+        assert.equal(message.position, 'read');
+        assert.deepEqual(calls.filter((call) => call.task === `cart-${channel}`), [{ project: 'app', routeAlreadyWritten: true, task: `cart-${channel}` }]);
+      }
+      assert.equal(calls.length, 2);
+      await engine.advance({ task: 'cart-cli', session: A, cause: 'route-next', scratchpadDir: fx.scratchpad });
+      assert.equal(calls.length, 2);
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('05-B6: a start whose build status is error, or whose build rejects, still completes', async () => {
+    const rows: [string, () => Promise<IndexStatus>][] = [['error status', async () => status('error')], ['rejection', async () => Promise.reject(new Error('spawn exploded'))]];
+    for (const [title, startIndex] of rows) {
+      const { fx, calls, start } = await withIndex(startIndex);
+      try {
+        assert.equal((await start('hook', 'cart')).position, 'read', title);
+        assert.equal(calls.length, 1);
+      } finally {
+        await fx.dispose();
+      }
     }
   });
 });

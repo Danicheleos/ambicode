@@ -317,3 +317,14 @@ describe('U29 a timeout kills the whole process tree', () => {
     });
   });
 });
+
+describe('05-B7 detached output', () => {
+  it('05-B7: a long-running child resolves at once with kind detached, and a missing binary is spawn-failed', { timeout: 30_000 }, async () => {
+    const started = performance.now();
+    const outcome = await runner.run({ argv: [process.execPath, '-e', 'setTimeout(()=>{},5000)'], cwd: os.tmpdir(), timeoutMs: 0, maxOutputBytes: 0, env: { kind: 'inherited' }, output: 'detached' });
+    assert.ok(performance.now() - started < 1_000);
+    assert.deepEqual([outcome.kind, outcome.exitCode, outcome.stdout, outcome.stderr, outcome.truncated, outcome.failure], ['detached', null, '', '', false, null]);
+    const missing = await runner.run({ argv: ['ambicode-no-such-binary-05'], cwd: os.tmpdir(), timeoutMs: 0, maxOutputBytes: 0, env: { kind: 'inherited' }, output: 'detached' });
+    assert.equal(missing.kind, 'spawn-failed');
+  });
+});

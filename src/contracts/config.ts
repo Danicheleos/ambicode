@@ -78,6 +78,8 @@ export const SearchProfile = z.strictObject({
   catalogs: z.array(z.string().min(1)),
   featureKinds: z.array(z.string().min(1)),
   exportOnly: z.boolean(),
+  /** Measured by init from the index tool itself; absent means not measured, and the tool decides. */
+  index: z.strictObject({ tool: z.literal('codeindex'), languages: z.array(z.string().min(1)), files: z.number().int().nonnegative() }).optional(),
 });
 export type SearchProfile = z.infer<typeof SearchProfile>;
 
@@ -137,6 +139,7 @@ export type AuthoringConfig = z.infer<typeof AuthoringConfig>;
 /** Absent lists mean the defaults in `config/defaults.ts`; the map prints which one it used. */
 export const SearchConfig = z.strictObject({
   index: z.enum(['none', 'codeindex']).default('none'),
+  indexDriftFiles: z.number().int().nonnegative().optional(),
   layers: z
     .strictObject({
       prompt: z.array(z.string().min(1)).optional(),

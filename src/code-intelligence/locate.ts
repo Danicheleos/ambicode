@@ -55,7 +55,7 @@ const MAX_SEEDS = 5;
 
 /** Scores only order one call's list; a content mention is weakest because a word can appear in any comment. */
 const SCORE_DIRECTORY = 5;
-const SCORE_FILENAME = 3;
+export const SCORE_FILENAME = 3;
 const SCORE_CONTENT = 2;
 /** Scaled by the share of the seed's commits, so a habit outranks an accident. */
 const SCORE_COCHANGE = 4;
@@ -481,7 +481,7 @@ function specificity(matched: number, total: number): number {
   return total <= 1 ? 1 : Math.max(0, Math.log(total / Math.max(1, matched)) / Math.log(total));
 }
 
-function isTooBroad(matched: number, total: number): boolean {
+export function isTooBroad(matched: number, total: number): boolean {
   return matched >= TOO_BROAD_MIN_FILES && matched > total * TOO_BROAD_SHARE;
 }
 

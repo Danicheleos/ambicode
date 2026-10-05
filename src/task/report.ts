@@ -32,7 +32,7 @@ export function buildReport(
 
   const maps = of('map').map((entry) => {
     const layers = list(entry.layers).map((layer) => clip((layer as { name?: unknown } | null)?.name)).join('→');
-    return `${layers === '' ? 'map' : `layers ${layers}`}, ${list(entry.collisions).length} colliding names, index ${clip(entry.index ?? 'none')}${historical(entry)}`;
+    return `${layers === '' ? 'map' : `layers ${layers}`}, ${list(entry.collisions).length} colliding names, index ${clip(typeof entry.index === 'object' && entry.index !== null ? `${String((entry.index as { tool?: unknown }).tool)} ${String((entry.index as { state?: unknown }).state)}` : (entry.index ?? 'none'))}${historical(entry)}`;
   });
 
   const baselines = of('baseline').map((entry) => `${clip(entry.head ?? 'unknown', 12)}, dirty: ${list(entry.dirty).join(', ') || 'none'}${historical(entry)}`);

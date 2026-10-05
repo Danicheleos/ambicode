@@ -10,6 +10,8 @@ import { POLICY_CHECK_OPTIONS } from './commands/policy-check.ts';
 import { PREPARE_DEPRECATED, PREPARE_OPTIONS, prepareAsRouteStart } from './commands/prepare.ts';
 import { REVIEW_OPTIONS } from './commands/review.ts';
 import { SPECS as COMMAND_SPECS, USAGE } from './main.ts';
+import { INDEX_OPTIONS, RELATES_OPTIONS, runIndex } from './commands/search.ts';
+import { CONFIG, routeFixture } from '../testing/route-fixture.ts';
 import { isAmbicodeError } from '../util/errors.ts';
 
 const SPECS: Record<string, OptionSpec> = {
@@ -35,7 +37,7 @@ function documentedOptions(): Map<string, string[]> {
   let current: string | null = null;
   for (const line of USAGE.split('\n')) {
     if (line === GLOBAL) documented.set((current = GLOBAL), []);
-    const command = /^  ([a-z]+(?: check| save| promote| list| start| next| status| stop| template| normalize| acs)?)(?: |$)/.exec(line);
+    const command = /^  ([a-z]+(?: check| save| promote| list| start| next| status| stop| template| normalize| acs| build)?)(?: |$)/.exec(line);
     if (command !== null) {
       current = command[1] ?? null;
       if (current !== null) documented.set(current, []);
@@ -226,5 +228,40 @@ describe('03-T6 prepare is a deprecated adapter for investigate', () => {
     const { argv } = prepareAsRouteStart(parseArgs('prepare', ['--activity', 'investigate', '--term', 'cart', '--term', 'checkout'], PREPARE_OPTIONS));
     assert.deepEqual(argv, ['investigate', 'cart checkout']);
     assert.match(USAGE, /--activity investigate is deprecated: it runs\s+route start investigate/);
+  });
+});
+
+describe('05 search commands', () => {
+  it('05-R3/05-B1: relates, index build and index status are registered and take --json', () => {
+    for (const command of ['relates', 'index build', 'index status']) assert.ok((COMMAND_SPECS[command]?.flags ?? []).includes('json'), command);
+    assert.ok(COMMAND_SPECS['relates']!.flags!.includes('show'));
+    assert.equal(COMMAND_SPECS['index build'], INDEX_OPTIONS);
+    assert.equal(COMMAND_SPECS['relates'], RELATES_OPTIONS);
+    for (const line of ['relates <path>', 'index build', 'index status']) assert.ok(USAGE.includes(line), line);
+  });
+
+  it('05-B1/05-B3: with search.index none, index build prints "index: none — nothing to build" and status says none', async () => {
+    const fx = await routeFixture({ routes: {} });
+    try {
+      const build = await runIndex(fx.runtime, parseArgs('index build', ['--json'], INDEX_OPTIONS), 'build');
+      assert.equal(build.text, 'index: none — nothing to build');
+      assert.equal((build.data as { state: string }).state, 'none');
+      const status = await runIndex(fx.runtime, parseArgs('index status', [], INDEX_OPTIONS), 'status');
+      assert.deepEqual([status.text, (status.data as { fresh: boolean }).fresh], ['index: none', false]);
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('05-B1/05-A3: with codeindex configured and no binary, status is error and build is refused as index-unavailable', async () => {
+    const fx = await routeFixture({ routes: {}, config: CONFIG.replace('projects:', 'search: { index: codeindex }\nprojects:') });
+    try {
+      const runtime = { ...fx.runtime, env: { PATH: '' } };
+      const status = await runIndex(runtime, parseArgs('index status', [], INDEX_OPTIONS), 'status');
+      assert.equal(status.text, 'index: error (codeindex not found (node_modules/.bin or PATH))');
+      await assert.rejects(runIndex(runtime, parseArgs('index build', [], INDEX_OPTIONS), 'build'), (error: Error & { code?: string }) => error.code === 'index-unavailable');
+    } finally {
+      await fx.dispose();
+    }
   });
 });

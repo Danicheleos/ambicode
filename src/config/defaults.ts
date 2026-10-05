@@ -54,6 +54,9 @@ export const SEARCH_LAYER_DEFAULTS = {
   context: ['grep', 'harvest'],
 } as const;
 
+/** Used when `search.indexDriftFiles` is absent: an index stays fresh while at most this many project files differ from its commit. */
+export const INDEX_DRIFT_FILES = 20;
+
 export const MAX_COMMAND_OUTPUT_BYTES = 262_144;
 
 /**
@@ -82,5 +85,7 @@ export const REVIEWS_LEAF = 'reviews';
 export const PROJECT_POLICIES_DIR = '.ambicode/policies';
 /** Nothing writes here; still ignored so a repository holding old notes keeps them out of git. */
 const LEGACY_NOTES_DIR = '.ambicode/notes/';
+
+export const INDEX_DIR = '.ambicode/index';
 
 export const IGNORE_ENTRIES = ['.ambicode/reviews/', LEGACY_NOTES_DIR, '.ambicode/task/'];
