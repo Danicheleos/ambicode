@@ -6,7 +6,8 @@ import { MAP_OPTIONS, REFS_OPTIONS, FIND_OPTIONS, runFind, runMap, runRefs } fro
 import { openRepository } from '../composition/root.ts';
 import { routeFixture, type RouteFixture } from '../testing/route-fixture.ts';
 import { harvest } from './harvest.ts';
-import { buildMap, cleanRequestText, leadsText, LEADS_LIMIT_BYTES, MAP_LIMIT_BYTES, rankTerms, resolveLayers } from './map.ts';
+import { buildMap, cleanRequestText, featureOf, FEATURE_LIMIT_BYTES, leadsText, LEADS_LIMIT_BYTES, MAP_LIMIT_BYTES, rankTerms, resolveLayers } from './map.ts';
+import { excludeWorkingDirs } from '../task/task-dir.ts';
 import { find, refs, SEARCH_LIMIT_BYTES } from './refs.ts';
 import { SearchConfig } from '../contracts/config.ts';
 
@@ -260,5 +261,59 @@ describe('03b-M map terms and leads', () => {
     assert.doesNotMatch(text, /second/);
     assert.match(lines.at(-1)!, /Declared more than once: Dup\./);
     assert.ok(Buffer.byteLength(text) <= LEADS_LIMIT_BYTES);
+  });
+
+  it('03b-M8: a ticket id gives the parts some path spells, and abbreviations are not terms', async () => {
+    const fx = await repo();
+    try {
+      const files = await (await openRepository(fx.runtime)).git.listFiles(null);
+      const sources = [{ title: '', content: 'Story XX-CART-12 and ZZ-QUUX-3: `CartService.addItem` and `applyDiscount`, e.g. on checkout.' }];
+      const terms = await rankTerms(sources, { runtime: fx.runtime, root: fx.repo.root, project: project(fx), files });
+      assert.ok(terms.includes('cart'), terms.join(','));
+      for (const gone of ['XX-CART-12', 'ZZ-QUUX-3', 'quux', 'e.g']) assert.ok(!terms.includes(gone), `${gone} in ${terms.join(',')}`);
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('03b-M9: names are harvested from files placed by their path, not from a content-only sibling', async () => {
+    const fx = await repo({ 'src/sibling/sibling.ts': 'export function cartSiblingHelper() { return "cart"; }\nexport const SiblingOnly = 1;\n' });
+    try {
+      const map = await buildMap({ runtime: fx.runtime, project: project(fx), paths: [], symbols: [], mode: 'prompt', layers: ['shortlist', 'harvest', 'shortlist'], layersSource: 'default', terms: ['cart'] });
+      assert.ok(!map.terms.pass2.includes('SiblingOnly'), map.terms.pass2.join(','));
+      assert.ok(map.terms.pass2.includes('CartService'), map.terms.pass2.join(','));
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('03b-M10: the leads name the feature directory and its files named like the leads, tests included', () => {
+    const lead = (file: string) => ({ path: file, score: 5, reasons: ['sits under a directory matching "cart"'] });
+    const ordered = [lead('src/app/cart/dto/cart.dto.ts'), lead('src/app/cart/cart.service.ts'), { path: 'src/other/x.ts', score: 1, reasons: ['contains "cart"'] }];
+    const files = ['src/app/cart/dto/cart.dto.ts', 'src/app/cart/cart.service.ts', 'src/app/cart/cart.service.spec.ts', 'src/app/cart/mocks/cart.mocks.ts', 'src/app/cart/discount.ts', 'src/app/billing/cart.ts', 'src/app/cart/.ambicode/task/t/cart.md'];
+    const feature = featureOf(ordered, files);
+    assert.deepEqual(feature, { root: 'src/app/cart', paths: ['src/app/cart/cart.service.spec.ts', 'src/app/cart/mocks/cart.mocks.ts'] });
+    const text = leadsText({ terms: { pass1: ['cart'], pass2: ['cart'] }, candidates: ordered, collisions: ['Dup'], feature });
+    assert.match(text, /^Same feature \(src\/app\/cart\/\): cart\.service\.spec\.ts, mocks\/cart\.mocks\.ts$/m);
+    assert.match(text.split('\n').at(-1)!, /Declared more than once/);
+    assert.equal(featureOf([lead('src/a/one.ts'), { path: 'src/a/two.ts', score: 4, reasons: ['contains "x"'] }], ['src/a/one.ts', 'src/a/one.spec.ts']), null, 'one lead placed by path is not a feature');
+    const many = { root: 'src/app/cart', paths: Array.from({ length: 12 }, (_, i) => `src/app/cart/${'n'.repeat(40)}-${i}.ts`) };
+    const line = leadsText({ terms: { pass1: [], pass2: [] }, candidates: [], collisions: [], feature: many }).split('\n').at(-1)!;
+    assert.ok(Buffer.byteLength(line) <= FEATURE_LIMIT_BYTES && line.endsWith(', …'), line);
+  });
+
+  it('03b-M11: route start keeps AMBICODE working files out of the agent searches, once', async () => {
+    const fx = await repo();
+    try {
+      await excludeWorkingDirs(fx.runtime, fx.repo.root);
+      await excludeWorkingDirs(fx.runtime, fx.repo.root);
+      const exclude = await readFile(`${fx.repo.root}/.git/info/exclude`, 'utf8');
+      assert.equal(exclude.split('\n').filter((line) => line === '.ambicode/task/').length, 1);
+      await fx.repo.write('.ambicode/task/t/ledger.jsonl', 'applyDiscount\n');
+      const map = await buildMap({ runtime: fx.runtime, project: project(fx), paths: [], symbols: [], mode: 'context', layers: ['grep'], layersSource: 'route', terms: ['applyDiscount'] });
+      assert.ok(map.candidates.every((candidate) => !candidate.path.startsWith('.ambicode/')), map.candidates.map((c) => c.path).join(','));
+    } finally {
+      await fx.dispose();
+    }
   });
 });

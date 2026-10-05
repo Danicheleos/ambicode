@@ -8,8 +8,9 @@ import { AmbicodeError } from '../util/errors.ts';
 import { matchesAnyGlob } from '../util/glob.ts';
 import { normalizeRelative } from '../util/paths.ts';
 import { COMMON_NAMES } from './dependents.ts';
+import { pathExclusionReason } from '../snapshot/exclusions.ts';
 import { harvest, type Declaration } from './harvest.ts';
-import { locate, termsFromRequirements } from './locate.ts';
+import { isPathReason, locate, termsFromRequirements } from './locate.ts';
 
 export const LAYER_NAMES = ['grep', 'shortlist', 'harvest', 'history', 'index.find', 'index.relates'] as const;
 export type LayerName = (typeof LAYER_NAMES)[number];
@@ -17,6 +18,8 @@ export type LayerName = (typeof LAYER_NAMES)[number];
 export interface MapLayer { name: LayerName; ms: number; hits: number }
 export interface MapCandidate { path: string; score: number; reasons: string[]; spans?: string[] }
 export interface MapSymbol { name: string; kind: string; at: string; declarations: number; collides: boolean }
+/** The directory most top leads share, and its files named like those leads or like the directory itself. */
+export interface MapFeature { root: string; paths: string[] }
 
 export interface MapResult {
   mode: 'prompt' | 'context';
@@ -26,6 +29,7 @@ export interface MapResult {
   candidates: MapCandidate[];
   symbols: Record<string, MapSymbol[]>;
   collisions: string[];
+  feature: MapFeature | null;
   limitations: string[];
   index: 'none';
   omitted: number;
@@ -41,6 +45,7 @@ const TOP_FILES = 8;
 const MAX_TERMS = 12;
 const PROSE_RETRY_TERMS = 8;
 const PASS2_NAMES = 6;
+const PASS2_OUTSIDE = 0.5;
 const SPANS_PER_CANDIDATE = 3;
 
 export function resolveLayers(search: SearchConfig, mode: 'prompt' | 'context'): { layers: string[]; source: 'config' | 'default' } {
@@ -68,7 +73,16 @@ export function cleanRequestText(text: string): string {
 
 /** A heading, a shell command or a bare directory written in quotes is an instruction about the answer, not a name. */
 const isBoilerplate = (value: string): boolean => /^#+\s/.test(value) || /^(?:cd|git|npm|npx|node|ls|cat|grep)\s/.test(value) || /^[\w.-]+\/$/.test(value);
-const isRequestWord = (term: string): boolean => REQUEST_WORDS.has(term.toLowerCase());
+const ABBREVIATION = /^(?:e\.g|i\.e|etc|vs|cf)\.?$/i;
+const isRequestWord = (term: string): boolean => REQUEST_WORDS.has(term.toLowerCase()) || ABBREVIATION.test(term);
+const TICKET_ID = /^[A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*-\d+$/;
+
+/** `MO-REBA-11` matches no code, but `reba` names its module's directory: keep the parts some path segment spells. */
+function ticketParts(ids: readonly string[], files: readonly string[]): string[] {
+  if (ids.length === 0 || files.length === 0) return [];
+  const segments = new Set(files.flatMap((file) => file.toLowerCase().split(/[/._-]/)));
+  return [...new Set(ids.flatMap((id) => id.toLowerCase().split('-')))].filter((part) => /^[a-z][a-z0-9]{2,}$/.test(part) && segments.has(part));
+}
 
 /** Identifiers first, then quoted UI strings (as i18n keys when such files exist), prose only when identifiers are scarce. */
 export async function rankTerms(
@@ -77,12 +91,14 @@ export async function rankTerms(
 ): Promise<string[]> {
   const clean = sources.map((source) => ({ title: cleanRequestText(source.title), content: cleanRequestText(source.content) }));
   const text = clean.map((source) => `${source.title}\n${source.content}`).join('\n');
-  const mined = termsFromRequirements(clean, 60).filter((term) => !isRequestWord(term)).slice(0, MAX_TERMS);
+  const all = termsFromRequirements(clean, 60).filter((term) => !isRequestWord(term));
+  const parts = ticketParts(all.filter((term) => TICKET_ID.test(term)), options.files);
+  const mined = all.filter((term) => !TICKET_ID.test(term)).slice(0, MAX_TERMS);
   const identifiers = mined.filter((term) => IDENTIFIER.test(term));
-  const backticked = [...text.matchAll(/`([^`\s]{3,60})`/g)].map((match) => match[1]!).filter((term) => IDENTIFIER.test(term) && !isBoilerplate(term));
+  const backticked = [...text.matchAll(/`([^`\s]{3,60})`/g)].map((match) => match[1]!).filter((term) => IDENTIFIER.test(term) && !isBoilerplate(term) && !TICKET_ID.test(term));
   const strings = [...text.matchAll(QUOTED)].map((match) => match[1]!.trim()).filter((value) => /\s|\p{Lu}/u.test(value) && !/^[`]/.test(value) && !isBoilerplate(value));
   const keys = await i18nKeys(options, strings);
-  const ranked = [...new Set([...backticked, ...identifiers, ...keys])];
+  const ranked = [...new Set([...backticked, ...parts, ...identifiers, ...keys])];
   if (options.withProse === true) {
     const prose = termsFromRequirements(clean, 60).filter((term) => !IDENTIFIER.test(term) && !isRequestWord(term)).slice(0, PROSE_RETRY_TERMS);
     return [...new Set([...prose, ...ranked])].slice(0, MAX_TERMS);
@@ -157,6 +173,13 @@ export async function buildMap(input: {
     }
   };
   const topFiles = (): string[] => [...candidates.values()].sort((a, b) => b.score - a.score).slice(0, TOP_FILES).map((candidate) => candidate.path);
+  // Names harvested from a file found only by its contents pull in a sibling feature; a path hit says where the request lives.
+  const harvestFiles = (): string[] => {
+    const ranked = [...candidates.values()].sort((a, b) => b.score - a.score);
+    const placed = ranked.filter((candidate, index) => index === 0 || candidate.reasons.some(isPathReason));
+    return placed.slice(0, TOP_FILES).map((candidate) => candidate.path);
+  };
+  let placedDirs: string[] = [];
   const timed = async (name: LayerName, run: () => Promise<number>): Promise<void> => {
     const started = runtime.clock.elapsed();
     const hits = await run();
@@ -178,20 +201,22 @@ export async function buildMap(input: {
       if (second) pass2 = used;
       await timed(layer, async () => {
         const found = await locate({ git, project, terms: used, limit: 20 });
-        merge(found.candidates);
+        if (!second) placedDirs = [...new Set(found.candidates.filter((candidate) => candidate.reasons.some(isPathReason)).map((candidate) => path.posix.dirname(candidate.path)))];
+        const outside = (file: string): boolean => placedDirs.length > 0 && !candidates.has(file) && !placedDirs.some((dir) => file.startsWith(`${dir}/`));
+        merge(second ? found.candidates.map((candidate) => (outside(candidate.path) ? { ...candidate, score: candidate.score * PASS2_OUTSIDE } : candidate)) : found.candidates);
         for (const line of found.limitations) if (!limitations.includes(line)) limitations.push(line);
         return found.candidates.length;
       });
     } else if (layer === 'harvest') {
       await timed(layer, async () => {
-        const files = input.mode === 'context' ? [...new Set([...input.paths, ...topFiles()])].slice(0, TOP_FILES) : topFiles();
+        const files = input.mode === 'context' ? [...new Set([...input.paths, ...topFiles()])].slice(0, TOP_FILES) : harvestFiles();
         declarations = await harvest(runtime.fs, repositoryRoot, files, project.ecosystem);
         return declarations.length;
       });
     } else {
       await timed(layer, async () => {
         const words = [...new Set([...input.symbols, ...input.terms.filter((term) => IDENTIFIER.test(term))])].filter((word) => !COMMON_NAMES.has(word));
-        const files = words.length === 0 ? [] : await git.grepWords(words, pathspec);
+        const files = words.length === 0 ? [] : (await git.grepWords(words, pathspec)).filter((file) => pathExclusionReason(file) === null);
         merge(files.map((file) => ({ path: file, score: 2, reasons: [`contains the word ${words.length === 1 ? `"${words[0]}"` : 'of the request'}`] })));
         return files.length;
       });
@@ -212,6 +237,7 @@ export async function buildMap(input: {
     return { ...candidate, score: Math.round(candidate.score * 100) / 100, reasons: candidate.reasons.slice(0, 2), ...(spans.length === 0 ? {} : { spans }) };
   });
 
+  const feature = input.mode === 'prompt' ? featureOf(ordered, await git.listFiles(pathspec)) : null;
   const head = `layers: ${layers.map((layer) => layer.name).join(' → ') || 'none'} (${input.layersSource}); index: none`;
   const render = (kept: readonly MapCandidate[]): string => {
     const document = {
@@ -239,21 +265,52 @@ export async function buildMap(input: {
     candidates: kept,
     symbols: symbolRows,
     collisions,
+    feature,
     limitations,
     index: 'none',
     omitted: ordered.length - kept.length,
     text,
     bytes,
-    entry: { mode: input.mode, layers, layersSource: input.layersSource, terms: { pass1, pass2 }, candidates: ordered.length, limitations, index: 'none', collisions, bytes, candidatePaths: ordered.slice(0, CANDIDATE_PATHS).map((candidate) => candidate.path) },
+    entry: { mode: input.mode, layers, layersSource: input.layersSource, terms: { pass1, pass2 }, candidates: ordered.length, limitations, index: 'none', collisions, bytes, ...(feature === null ? {} : { feature: { root: feature.root, paths: feature.paths.length } }), candidatePaths: ordered.slice(0, CANDIDATE_PATHS).map((candidate) => candidate.path) },
   };
 }
 
 export const LEADS_LIMIT_BYTES = 1200;
+export const FEATURE_LIMIT_BYTES = 400;
 const LEADS = 8;
 const REASON_CHARS = 90;
+const FEATURE_LEADS = 4;
+const FEATURE_PATHS = 12;
+const stemOf = (file: string): string => path.posix.basename(file).split('.')[0]!;
+
+/**
+ * The deepest directory (two segments or more) holding the most top leads found by their path, at least two; its files whose
+ * name stem is a lead's stem or the directory's own name. Tests count: a change edits them like any other layer.
+ */
+export function featureOf(ordered: readonly MapCandidate[], files: readonly string[]): MapFeature | null {
+  const top = ordered.slice(0, FEATURE_LEADS).filter((candidate) => candidate.reasons.some(isPathReason)).map((candidate) => candidate.path);
+  let best: { root: string; count: number } | null = null;
+  for (const lead of top) {
+    const parts = lead.split('/').slice(0, -1);
+    for (let depth = parts.length; depth >= 2; depth -= 1) {
+      const root = parts.slice(0, depth).join('/');
+      const count = top.filter((file) => file.startsWith(`${root}/`)).length;
+      if (count >= 2 && (best === null || count > best.count || (count === best.count && depth > best.root.split('/').length))) best = { root, count };
+    }
+  }
+  if (best === null) return null;
+  const { root } = best;
+  const listed = new Set(ordered.slice(0, LEADS).map((candidate) => candidate.path));
+  const stems = new Set([path.posix.basename(root), ...top.filter((file) => file.startsWith(`${root}/`)).map(stemOf)]);
+  const paths = files
+    .filter((file) => file.startsWith(`${root}/`) && !listed.has(file) && pathExclusionReason(file) === null && stems.has(stemOf(file)))
+    .sort()
+    .slice(0, FEATURE_PATHS);
+  return paths.length === 0 ? null : { root, paths };
+}
 
 /** The route's short form of a map: the terms, then the top candidates with their first reason, one per line. */
-export function leadsText(map: Pick<MapResult, 'terms' | 'candidates' | 'collisions'>): string {
+export function leadsText(map: Pick<MapResult, 'terms' | 'candidates' | 'collisions'> & { feature?: MapFeature | null }): string {
   const added = map.terms.pass2.filter((term) => !map.terms.pass1.includes(term));
   const head = `Leads from the terms ${map.terms.pass1.join(', ') || '(none)'}${added.length === 0 ? '' : `; then ${added.join(', ')}`}:`;
   const rows = map.candidates.slice(0, LEADS).map((candidate, index) => {
@@ -263,5 +320,14 @@ export function leadsText(map: Pick<MapResult, 'terms' | 'candidates' | 'collisi
   const collides = map.collisions.length === 0 ? [] : [`Declared more than once: ${map.collisions.slice(0, 6).join(', ')}.`];
   const text = (): string => [head, ...rows, ...collides].join('\n');
   while (Buffer.byteLength(text()) > LEADS_LIMIT_BYTES && rows.length > 0) rows.pop();
-  return text();
+  const feature = map.feature === undefined || map.feature === null ? [] : [featureLine(map.feature)];
+  return [head, ...rows, ...feature, ...collides].join('\n');
+}
+
+function featureLine(feature: MapFeature): string {
+  const relative = feature.paths.map((file) => file.slice(feature.root.length + 1));
+  const line = (count: number): string => `Same feature (${feature.root}/): ${relative.slice(0, count).join(', ')}${count < relative.length ? ', …' : ''}`;
+  let count = relative.length;
+  while (count > 1 && Buffer.byteLength(line(count)) > FEATURE_LIMIT_BYTES) count -= 1;
+  return line(count);
 }

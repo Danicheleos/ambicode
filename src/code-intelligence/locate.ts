@@ -207,7 +207,8 @@ function pathForms(term: string): string[] {
   const literal = term.toLowerCase();
   const forms = /^[^*?[\]{}()!\\]+$/.test(literal) ? [literal] : [];
   if (joinable(words)) forms.push(words.join('-'), words.join('_'), words.join(''));
-  return [...new Set(forms)];
+  // `e.g` joins to `eg`, which sits inside `strategy`: a joined form shorter than a term is noise.
+  return [...new Set(forms)].filter((form) => form === literal || form.length >= MIN_TERM_LENGTH);
 }
 
 /** `refundlimit` finds `refundLimit` and `REFUND_LIMIT` alike; two greps per term is the whole budget. */
@@ -215,6 +216,10 @@ function compactForm(term: string): string {
   const words = wordsOf(term);
   return joinable(words) ? words.join('') : term.toLowerCase();
 }
+
+const PATH_REASON = /^(?:sits under a directory matching|filename matched) /;
+/** A reason `locate` gives for a path match, as opposed to a content or co-change one. */
+export const isPathReason = (reason: string): boolean => PATH_REASON.test(reason);
 
 /**
  * Equivalent to `**\/*form*\/**` then `**\/*form*` (a dot segment defeats both), but

@@ -1,7 +1,6 @@
 import type { Runtime } from '../composition/root.ts';
 import { openRepository, projectForRequest } from '../composition/root.ts';
 import { rankTerms, buildMap, leadsText, resolveLayers } from '../code-intelligence/map.ts';
-import { ecosystemFacts } from '../config/ecosystems.ts';
 import { loadConfigWithNotices } from '../config/load.ts';
 import type { AmbicodeConfig, ProjectConfig } from '../contracts/config.ts';
 import { Activity } from '../contracts/primitives.ts';
@@ -96,7 +95,7 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
       const envelope = (await chainEntries(input)).findLast((entry) => entry.kind === 'envelope');
       const sources = envelope === undefined ? [] : await envelopeSources(input, envelope);
       const { git } = await openRepository(input.runtime);
-      const files = ecosystemFacts(project.ecosystem).i18nGlobs.length === 0 ? [] : await git.listFiles(null);
+      const files = await git.listFiles(null);
       return rankTerms(sources.length === 0 ? [{ title: '', content: input.args.text }] : sources, { runtime: input.runtime, root: input.dir.repositoryRoot, project, files, withProse });
     };
     if (terms.length === 0) terms = await rank(false);

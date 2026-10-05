@@ -59,7 +59,7 @@ const schemas = [
   entry('map', {
     mode: z.enum(['prompt', 'context']), layers: z.array(z.object({ name: text, ms: z.number(), hits: count })), layersSource: z.enum(['config', 'default', 'route']),
     terms: z.object({ pass1: z.array(text), pass2: z.array(text) }), candidates: count, limitations: z.array(text), index: text, bytes: count, collisions: z.array(text).optional(),
-    candidatePaths: z.array(text).optional(),
+    candidatePaths: z.array(text).optional(), feature: z.object({ root: text, paths: count }).optional(),
   }),
   entry('search', { command: z.enum(['refs', 'find']), names: z.array(text), hits: count, bytes: count }),
   entry('policy', { stage: z.enum(['before-work', 'before-report']), packs: z.array(text), rules: count, omitted: count, bytes: count }),

@@ -8,7 +8,7 @@ import type { LedgerEntry } from '../task/ledger.ts';
 import { withLedgerLock, type LockedLedger } from '../task/ledger-lock.ts';
 import { buildReport } from '../task/report.ts';
 import { mintTaskSlug } from '../task/slug.ts';
-import { resolveTaskDir, type TaskDir } from '../task/task-dir.ts';
+import { excludeWorkingDirs, resolveTaskDir, type TaskDir } from '../task/task-dir.ts';
 import { AmbicodeError } from '../util/errors.ts';
 import { contentHash } from '../util/hash.ts';
 import { endRoute, markStepDelivered, type ActiveRoutePointer } from './active-route.ts';
@@ -455,6 +455,7 @@ export function createEngine(deps: EngineDeps): Engine {
 
     const slug = input.task ?? (input.skill === 'init' ? `init-${now().toISOString().slice(0, 10)}` : (mintTaskSlug([...input.requirements, input.text].join(' ')) ?? `task-${contentHash(`${input.cwd}${now().toISOString()}`).slice(7, 15)}`));
     const dir = await resolveTaskDir(rt, slug);
+    await excludeWorkingDirs(rt, dir.repositoryRoot);
     const config = input.skill === 'init' ? null : (await loadConfigWithNotices(rt.fs, dir.repositoryRoot)).config;
     const args = canonicalArgs({
       text: input.text,

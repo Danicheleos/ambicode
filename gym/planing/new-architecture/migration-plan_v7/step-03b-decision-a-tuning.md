@@ -172,6 +172,23 @@ No new error codes, CLI options or ledger kinds.
 - 03b-M6 The ledger `map` entry records `candidatePaths` (top ≤ 20).
 - 03b-M7 With `--headless` or `hasRequirement` false, `missingAsked` holds only explicit
   `--requirement` sources; a URL in the prose is not a missing requirement.
+- 03b-M8 `rankTerms` replaces a ticket id (`AB-CD-12`) by its parts of ≥ 3 letters that some
+  repository path segment spells, placed after the backticked identifiers; a part no path spells is
+  dropped. `e.g`, `i.e`, `etc`, `vs`, `cf` are not terms. A joined path form shorter than 3 characters
+  is not matched (`e.g` → `eg` hit `strategy`). The `search.map` handler passes the file list always.
+- 03b-M9 The harvest reads the top candidates placed by a path reason (plus the top one), not files
+  found only by their contents. A pass-2-only candidate outside every directory of the pass-1
+  path-placed candidates scores × 0.5 before the `max` merge.
+- 03b-M10 Prompt-mode maps carry a feature: the deepest directory (≥ 2 segments) holding the most
+  of the top 4 path-placed leads, at least 2. The leads text adds after the leads
+  `Same feature (<root>/): <relative paths>` listing tracked files under it whose name stem is a lead
+  stem or the directory's name, tests included, leads and excluded paths left out, ≤ 12 paths,
+  ≤ 400 B (cut with `, …`). The ledger `map` entry records `feature {root, paths}`. The read step is
+  unchanged in this round, so the map's effect is measured alone.
+- 03b-M11 `engine.start` appends the missing `IGNORE_ENTRIES` to `<git-dir>/info/exclude` (never
+  committed), so rg, Grep and `git grep` skip the task files; a failure is silent. The map's `grep`
+  layer drops excluded paths. `evals/scripts/src/analysis/map-recall.mjs` rebuilds each localize
+  case's map offline and prints true leads and true same-feature paths, counts only.
 
 **H — harness**
 - 03b-H1 `harvestTraces` copies `e-<id>/config/projects/*/*.jsonl` to
@@ -241,7 +258,8 @@ No new error codes, CLI options or ledger kinds.
 - `trace-analysis.test.mjs`, `run-options.test.mjs`: 03b-H4.
 - `evals/scripts/src/analysis/ledger-metrics.test.mjs`: `ledgersOf` over several trace directories.
 - `src/route/investigate.route.test.ts`: 03b-C1, 03b-C2, 03b-C3, 03b-C4.
-- `src/code-intelligence/search.test.ts`: 03b-M1, 03b-M2, 03b-M3, 03b-M4, 03b-M6.
+- `src/code-intelligence/search.test.ts`: 03b-M1, 03b-M2, 03b-M3, 03b-M4, 03b-M6, 03b-M8, 03b-M9,
+  03b-M10, 03b-M11; `evals/scripts/src/analysis/map-recall.test.mjs`: request split and leads parsing.
 - `src/requirements/requirements.test.ts`: 03b-M7.
 - `src/hook/events/run-hook.test.ts`: 03b-C5.
 - `evals/scripts/src/analysis/trace-analysis.test.mjs`: 03b-H1, 03b-H2;

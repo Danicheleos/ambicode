@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { openRepository, type Runtime } from '../composition/root.ts';
 import { findSessionRepository } from '../composition/session-repository.ts';
-import { REVIEWS_LEAF, TASKS_DIR } from '../config/defaults.ts';
+import { IGNORE_ENTRIES, REVIEWS_LEAF, TASKS_DIR } from '../config/defaults.ts';
 import type { FileSystem } from '../ports/filesystem.ts';
 import { AmbicodeError } from '../util/errors.ts';
 import { LEDGER_FILE } from './ledger.ts';
@@ -50,6 +50,22 @@ export async function resolveTaskDir(runtime: Runtime, slug: string): Promise<Ta
   const found = await findSessionRepository(runtime, runtime.cwd);
   const { repositoryRoot, where } = typeof found === 'string' ? { ...(await openRepository(runtime)), where: '.' } : found;
   return taskDirFor(repositoryRoot, slug, where);
+}
+
+/** The agent's own searches (rg, Grep, git grep) skip AMBICODE's working files; `.git/info/exclude` is never committed. */
+export async function excludeWorkingDirs(runtime: Runtime, repositoryRoot: string): Promise<void> {
+  try {
+    const { git } = await openRepository({ ...runtime, cwd: repositoryRoot });
+    const file = path.join(await git.gitCommonDir(), 'info', 'exclude');
+    const current = (await runtime.fs.exists(file)) ? await runtime.fs.readText(file) : '';
+    const lines = new Set(current.split('\n').map((line) => line.trim()));
+    const missing = IGNORE_ENTRIES.filter((entry) => !lines.has(entry));
+    if (missing.length === 0) return;
+    await runtime.fs.mkdirp(path.dirname(file));
+    await runtime.fs.appendText(file, `${current === '' || current.endsWith('\n') ? '' : '\n'}${missing.join('\n')}\n`);
+  } catch {
+    // Searches then see the task files; nothing the route needs depends on it.
+  }
 }
 
 /** `--from` names the task's own plan body and nothing else: not another file, another task or a link to one. */
