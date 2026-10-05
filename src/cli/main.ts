@@ -7,10 +7,11 @@ import { BUNDLE_OPTIONS, renderBundle, runBundle } from './commands/bundle.ts';
 import { CONFIG_OPTIONS, renderConfig, runConfig } from './commands/config.ts';
 import { INIT_OPTIONS, renderInit, runInit } from './commands/init.ts';
 import { LOCATE_OPTIONS, renderLocate, runLocate } from './commands/locate.ts';
-import { NOTE_SAVE_OPTIONS, renderNoteSave, runNoteSave } from './commands/note.ts';
+import { NOTE_LIST_OPTIONS, NOTE_PROMOTE_OPTIONS, NOTE_SAVE_OPTIONS, renderNoteList, renderNotePromote, renderNoteSave, runNoteList, runNotePromote, runNoteSave } from './commands/note.ts';
 import { POLICY_OPTIONS, renderPolicy, runPolicy } from './commands/policy.ts';
 import { POLICY_CHECK_OPTIONS, renderPolicyCheck, runPolicyCheck } from './commands/policy-check.ts';
 import { PREPARE_OPTIONS, renderPrepare, runPrepare } from './commands/prepare.ts';
+import { REPORT_OPTIONS, renderReport, runReport } from './commands/report.ts';
 import { REVIEW_OPTIONS, renderReview, runReview } from './commands/review.ts';
 import type { ViewOutput } from './commands/view.ts';
 import { VIEW_OPTIONS } from './view-options.ts';
@@ -47,7 +48,24 @@ export const USAGE = `ambicode <command> [options]
                           and adds the label; skills do not write that directory.
                             --task <slug>         The task directory (a requirement id
                                                   or a short kebab of the request).
-                            --kind <kind>         investigation | plan | notes
+                            --kind <kind>         investigation | plan-draft | notes
+                            --from <path>         plan-draft only: read the body from
+                                                  steps/plan-body.md of this task
+                                                  instead of standard input.
+                            --iteration <n>       notes only: record that iteration
+                                                  n is done, in the file's first line.
+
+  note promote            Turn the plan draft the user accepted into the plan.
+                          Nothing is promoted on the model's own say-so.
+                            --task <slug>
+
+  note list               List the notes of a task: kind, path, time, heading,
+                          iteration and promotion.
+                            --task <slug>
+
+  report                  The evidence of a task and what was not verified,
+                          generated from its ledger.
+                            --task <slug>
 
   locate [terms...]       A ranked shortlist of the files a request is probably
                           about, each with the reason it ranked: path and
@@ -191,6 +209,8 @@ type Rendered = {
    * error) rather than a failure to run; an operator error still throws and exits 2.
    */
   exitCode?: number;
+  /** Printed to standard error, so a `--json` reader of stdout still receives one document. */
+  warnings?: string[];
 };
 
 export async function main(argv: readonly string[]): Promise<number> {
@@ -214,8 +234,9 @@ export async function main(argv: readonly string[]): Promise<number> {
 
   // Recognized here rather than by `runPolicy` inspecting its operands, so a
   // path literally named "check" stays reachable as `policy -- check`.
-  const name = command === 'policy' && rest[0] === 'check' ? 'policy check' : command === 'note' && rest[0] === 'save' ? 'note save' : command;
-  const commandArgv = name === 'policy check' || name === 'note save' ? rest.slice(1) : rest;
+  const subcommand = command === 'policy' && rest[0] === 'check' ? 'check' : command === 'note' && NOTE_COMMANDS.includes(rest[0] ?? '') ? rest[0] : undefined;
+  const name = subcommand === undefined ? command : `${command} ${subcommand}`;
+  const commandArgv = subcommand === undefined ? rest : rest.slice(1);
 
   const spec = SPECS[name];
   if (spec === undefined) {
@@ -229,6 +250,7 @@ export async function main(argv: readonly string[]): Promise<number> {
     const args = parseArgs(name, commandArgv, spec);
     validateCombination(name, args);
     const rendered = await dispatch(name, args);
+    for (const warning of rendered.warnings ?? []) process.stderr.write(`${warning}\n`);
     process.stdout.write(
       args.flag('json') ? formatJsonOutput(rendered.data, rendered.json ?? 'pretty') : `${rendered.text}\n`,
     );
@@ -243,6 +265,7 @@ export async function main(argv: readonly string[]): Promise<number> {
 }
 
 const VERSION_OPTIONS = { flags: ['json'] } as const;
+const NOTE_COMMANDS = ['save', 'promote', 'list'];
 
 export const SPECS: Record<string, OptionSpec | undefined> = {
   init: INIT_OPTIONS,
@@ -251,6 +274,9 @@ export const SPECS: Record<string, OptionSpec | undefined> = {
   policy: POLICY_OPTIONS,
   'policy check': POLICY_CHECK_OPTIONS,
   'note save': NOTE_SAVE_OPTIONS,
+  'note promote': NOTE_PROMOTE_OPTIONS,
+  'note list': NOTE_LIST_OPTIONS,
+  report: REPORT_OPTIONS,
   prepare: PREPARE_OPTIONS,
   review: REVIEW_OPTIONS,
   bundle: BUNDLE_OPTIONS,
@@ -284,7 +310,19 @@ async function dispatch(command: string, args: ParsedArgs): Promise<Rendered> {
     }
     case 'note save': {
       const output = await runNoteSave(runtime, args);
-      return { text: renderNoteSave(output), data: output };
+      return { text: renderNoteSave(output), data: output, warnings: output.warnings ?? [] };
+    }
+    case 'note promote': {
+      const output = await runNotePromote(runtime, args);
+      return { text: renderNotePromote(output), data: output };
+    }
+    case 'note list': {
+      const output = await runNoteList(runtime, args);
+      return { text: renderNoteList(output), data: output };
+    }
+    case 'report': {
+      const output = await runReport(runtime, args);
+      return { text: renderReport(output), data: { evidence: output.evidence, notVerified: output.notVerified, hash: output.hash } };
     }
     case 'locate': {
       const output = await runLocate(runtime, args);

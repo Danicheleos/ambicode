@@ -62,8 +62,8 @@ function normalize(file: string, base?: string): string {
 function noteSaveReason(pluginRoot: string): string {
   return (
     `AMBICODE: .ambicode/task/ is written only through \`node "${pluginRoot}/scripts/ambicode.mjs" note save ` +
-    '--task <slug> --kind investigation|plan|notes`, with the note on standard input. It names the file, stamps ' +
-    'the time and adds the label. Run that instead.'
+    '--task <slug> --kind investigation|plan-draft|notes` or `note promote --task <slug>`, with the note on standard ' +
+    'input. It names the file, stamps the time and adds the label. Run that instead.'
   );
 }
 

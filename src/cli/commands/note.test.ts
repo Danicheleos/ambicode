@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -9,6 +9,8 @@ import { contentHash } from '../../util/hash.ts';
 import { TempRepo } from '../../testing/temp-repo.ts';
 import { parseArgs } from '../args.ts';
 import { NOTE_SAVE_OPTIONS, runNoteSave } from './note.ts';
+
+const MAIN = path.join(import.meta.dirname, '..', 'main.ts');
 
 const NOW = new Date(2026, 9, 2, 14, 35);
 
@@ -115,7 +117,8 @@ describe('note save owns the name, the time and the label of a task note', () =>
       const out = await save(repo, ['--task', 'ORD-17', '--kind', 'investigation'], 'one');
       await save(repo, ['--task', 'ORD-17', '--kind', 'notes'], 'two');
       const lines = (await readFile(path.join(repo.root, '.ambicode/task/ORD-17/ledger.jsonl'), 'utf8')).trimEnd().split('\n').map((line) => JSON.parse(line));
-      assert.deepEqual(lines.map((line) => [line.id, line.kind, line.note]), [['L1', 'note', 'investigation'], ['L2', 'note', 'notes']]);
+      assert.deepEqual(lines.map((line) => [line.kind, line.note]), [['note', 'investigation'], ['note', 'notes']]);
+      for (const line of lines) assert.match(line.id, /^[0-9a-f]{8}-1$/);
       assert.equal(lines[0].path, out.path);
       assert.equal(lines[0].contentHash, contentHash(await readFile(path.join(repo.root, out.path), 'utf8')));
     });
@@ -129,6 +132,72 @@ describe('note save owns the name, the time and the label of a task note', () =>
       await assert.rejects(save(repo, ['--task', 'x', '--kind', 'plan'], null), /standard input/);
       await assert.rejects(readFile(path.join(repo.root, '.ambicode/task/x/plan.md')));
       await assert.rejects(readdir(path.join(repo.root, '.ambicode/task')));
+    });
+  });
+});
+
+function cli(repo: TempRepo, argv: string[], input = ''): { status: number | null; stdout: string; stderr: string } {
+  const { status, stdout, stderr } = spawnSync(process.execPath, [MAIN, ...argv], { cwd: repo.root, input, encoding: 'utf8' });
+  return { status, stdout, stderr };
+}
+
+describe('the note and report commands', () => {
+  it('02-D2: note promote refuses with session-unbound, naming decision 0-S, and writes nothing', async () => {
+    await inRepo(async (repo) => {
+      const out = cli(repo, ['note', 'promote', '--task', 'ORD-17']);
+      assert.equal(out.status, 2);
+      assert.match(out.stderr, /error \[session-unbound\]/);
+      assert.match(out.stderr, /0-S/);
+      await assert.rejects(readdir(path.join(repo.root, '.ambicode')));
+    });
+  });
+
+  it('02-D2: a plan-draft save on a task with a live plan route refuses with session-unbound', async () => {
+    await inRepo(async (repo) => {
+      const dir = path.join(repo.root, '.ambicode/task/ORD-17');
+      await mkdir(dir, { recursive: true });
+      const route = { id: 'aaaaaaaa-1', at: 't', kind: 'route', skill: 'plan', args: 'x', mode: 'interactive', channel: 'hook', trusted: true, session: 'aaaaaaaa', epoch: 1 };
+      await writeFile(path.join(dir, 'ledger.jsonl'), `${JSON.stringify(route)}\n`);
+      const out = cli(repo, ['note', 'save', '--task', 'ORD-17', '--kind', 'plan-draft'], '# Plan');
+      assert.match(out.stderr, /error \[session-unbound\]/);
+      assert.deepEqual((await readdir(dir)).sort(), ['ledger.jsonl']);
+    });
+  });
+
+  it('02-N5: --kind plan still saves, and says on standard error that it is deprecated', async () => {
+    await inRepo(async (repo) => {
+      const out = cli(repo, ['note', 'save', '--task', 'ORD-17', '--kind', 'plan', '--json'], '# Plan');
+      assert.equal(out.status, 0);
+      assert.match(out.stderr, /"--kind plan" is deprecated/);
+      assert.equal(JSON.parse(out.stdout).kind, 'plan');
+    });
+  });
+
+  it('02-N6/02-R7: note list --json and report --json print their shapes', async () => {
+    await inRepo(async (repo) => {
+      cli(repo, ['note', 'save', '--task', 'ORD-17', '--kind', 'investigation'], '# Findings');
+      const list = JSON.parse(cli(repo, ['note', 'list', '--task', 'ORD-17', '--json']).stdout);
+      assert.deepEqual(Object.keys(list), ['command', 'task', 'notes']);
+      assert.deepEqual(Object.keys(list.notes[0]), ['id', 'note', 'path', 'at', 'heading', 'iteration', 'link']);
+      assert.equal(list.notes[0].heading, 'Findings');
+      const text = cli(repo, ['note', 'list', '--task', 'ORD-17']).stdout;
+      assert.match(text, /investigation {2}\.ambicode\/task\/ORD-17\/investigation_.*Findings/);
+
+      const report = JSON.parse(cli(repo, ['report', '--task', 'ORD-17', '--json']).stdout);
+      assert.deepEqual(Object.keys(report), ['evidence', 'notVerified', 'hash']);
+      assert.match(cli(repo, ['report', '--task', 'ORD-17']).stdout, new RegExp(`<!-- ambicode report ${report.hash} -->\n$`));
+    });
+  });
+
+  it('02-A4: a ledger of 1 MiB warns on standard error, naming a separate task, and the save still succeeds', async () => {
+    await inRepo(async (repo) => {
+      const dir = path.join(repo.root, '.ambicode/task/ORD-17');
+      await mkdir(dir, { recursive: true });
+      await writeFile(path.join(dir, 'ledger.jsonl'), '\n'.repeat(1_048_576));
+      const out = cli(repo, ['note', 'save', '--task', 'ORD-17', '--kind', 'notes', '--json'], 'x');
+      assert.equal(out.status, 0);
+      assert.match(out.stderr, /--task ORD-17-2/);
+      assert.equal(JSON.parse(out.stdout).command, 'note save');
     });
   });
 });

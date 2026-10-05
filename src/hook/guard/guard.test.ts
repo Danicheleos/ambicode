@@ -371,9 +371,9 @@ describe('the task-directory message names a command that runs as written', () =
     const out = guardDecision({ hook_event_name: 'PreToolUse', tool_name: 'Write', tool_input: { file_path: '.ambicode/task/x/p.md' } }, '/opt/plugin') as Output;
     assert.match(out.hookSpecificOutput!.permissionDecisionReason, /node "\/opt\/plugin\/scripts\/ambicode\.mjs" note save/);
   });
-  it('names the kinds note save accepts at this step', () => {
+  it('02-G1: names the kinds note save accepts and note promote', () => {
     const out = bash('echo x > .ambicode/task/T/n.md');
-    assert.match(out.hookSpecificOutput!.permissionDecisionReason, /note save --task <slug> --kind investigation\|plan\|notes`/);
+    assert.match(out.hookSpecificOutput!.permissionDecisionReason, /note save --task <slug> --kind investigation\|plan-draft\|notes` or `note promote --task <slug>`/);
   });
 });
 

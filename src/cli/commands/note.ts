@@ -1,34 +1,34 @@
-import path from 'node:path';
-import { openRepository, type Runtime } from '../../composition/root.ts';
-import { findSessionRepository } from '../../composition/session-repository.ts';
-import { TASKS_DIR } from '../../config/defaults.ts';
-import { localTimestamp, taskSlugFor } from '../../review/review-name.ts';
-import { appendLedger } from '../../task/ledger.ts';
+import type { Runtime } from '../../composition/root.ts';
+import { taskSlugFor } from '../../review/review-name.ts';
+import { listNotes, MAX_NOTE_BYTES, promotePlan, saveNote, type NoteKind, type NoteRow } from '../../task/notes.ts';
 import { AmbicodeError } from '../../util/errors.ts';
-import { contentHash } from '../../util/hash.ts';
 import type { ParsedArgs } from '../args.ts';
 
 export const NOTE_SAVE_OPTIONS = {
-  values: ['task', 'kind'],
+  values: ['task', 'kind', 'from', 'iteration'],
   flags: ['json'],
 } as const;
+export const NOTE_PROMOTE_OPTIONS = { values: ['task'], flags: ['json'] } as const;
+export const NOTE_LIST_OPTIONS = { values: ['task'], flags: ['json'] } as const;
 
-const MAX_NOTE_BYTES = 262_144;
-const COLLISION_LIMIT = 9;
+const SAVE_KINDS: readonly string[] = ['investigation', 'plan-draft', 'notes', 'plan'];
 
-const KINDS = {
-  investigation: { stem: 'investigation', stamped: true, label: '**investigation note** — not an accepted plan, not a task, not a decision record.' },
-  plan: { stem: 'plan', stamped: true, label: '**plan** — accepted' },
-  notes: { stem: 'notes', stamped: false, label: '**task note**' },
-} as const;
+// Session transport is step 03's: until it lands the CLI binds no session and has no route context (02-D2).
+const unbound = (runtime: Runtime) => ({ runtime, session: null, context: null });
 
-type NoteKind = keyof typeof KINDS;
+function taskOf(command: string, args: ParsedArgs): string {
+  const task = taskSlugFor({ requirementIds: [], task: args.value('task') });
+  if (task === null) throw new AmbicodeError('bad-argument', `"${command}" needs --task <slug>: the requirement id, or a short kebab of the request.`, { field: 'task' });
+  return task;
+}
 
 export interface NoteSaveOutput {
   command: 'note save';
   task: string;
   kind: NoteKind;
   path: string;
+  /** Printed to standard error as well: the 1 MiB ledger warning, the `--kind plan` deprecation. */
+  warnings?: string[];
 }
 
 /**
@@ -37,48 +37,59 @@ export interface NoteSaveOutput {
  */
 export async function runNoteSave(runtime: Runtime, args: ParsedArgs): Promise<NoteSaveOutput> {
   const kind = args.value('kind');
-  if (kind === null || !Object.hasOwn(KINDS, kind)) {
-    throw new AmbicodeError('bad-argument', '"note save" needs --kind investigation, plan or notes.', { field: 'kind' });
+  if (kind === null || !SAVE_KINDS.includes(kind)) {
+    throw new AmbicodeError('bad-argument', '"note save" needs --kind investigation, plan-draft or notes.', { field: 'kind' });
   }
-  const spec = KINDS[kind as NoteKind];
-  const task = taskSlugFor({ requirementIds: [], task: args.value('task') });
-  if (task === null) {
-    throw new AmbicodeError('bad-argument', '"note save" needs --task <slug>: the requirement id, or a short kebab of the request.', { field: 'task' });
-  }
+  const task = taskOf('note save', args);
+  const iteration = args.value('iteration');
+  if (iteration !== null && !/^\d+$/.test(iteration)) throw new AmbicodeError('bad-argument', '--iteration takes an integer of at least 1.', { field: 'iteration' });
 
-  const body = (await runtime.stdin.read(MAX_NOTE_BYTES)) ?? null;
-  if (body === null || body.trim() === '') {
-    throw new AmbicodeError('bad-argument', `"note save" reads the note from standard input, up to ${MAX_NOTE_BYTES} bytes; it got nothing usable.`, { field: 'stdin' });
-  }
-
-  // The hook prepares for the configured repository below the session directory; the note must land there too.
-  const found = await findSessionRepository(runtime, runtime.cwd);
-  const { repositoryRoot, where } = typeof found === 'string' ? { ...(await openRepository(runtime)), where: '.' } : found;
-  const directory = path.join(repositoryRoot, TASKS_DIR, task);
-  await runtime.fs.mkdirp(directory);
-
-  const marker = spec.label.slice(0, spec.label.indexOf('**', 2) + 2);
-  const text = `${body.trimStart().startsWith(marker) ? '' : `${spec.label}\n\n`}${body.trimEnd()}\n`;
-
-  let file = path.join(directory, spec.stamped ? `${spec.stem}_${localTimestamp(runtime.clock.now())}.md` : `${spec.stem}.md`);
-  if (!spec.stamped) {
-    await runtime.fs.writeText(file, text);
-  } else {
-    const base = file.slice(0, -'.md'.length);
-    let attempt = 1;
-    while (!(await runtime.fs.createExclusive(file, text))) {
-      attempt += 1;
-      if (attempt > COLLISION_LIMIT) {
-        throw new AmbicodeError('bad-argument', `${COLLISION_LIMIT} notes of this kind already exist for this minute; wait and save again.`, { field: 'task' });
-      }
-      file = `${base}-${attempt}.md`;
-    }
-  }
-  const relative = path.relative(repositoryRoot, file).split(path.sep).join('/');
-  await appendLedger(runtime.fs, directory, runtime.clock.now(), { kind: 'note', note: kind, path: relative, contentHash: contentHash(text) });
-  return { command: 'note save', task, kind: kind as NoteKind, path: where === '.' ? relative : `${where}/${relative}` };
+  const from = args.value('from');
+  const body = from === null ? ((await runtime.stdin.read(MAX_NOTE_BYTES)) ?? null) : null;
+  const saved = await saveNote(unbound(runtime), { task, kind: kind as NoteKind, body, from, iteration: iteration === null ? null : Number(iteration) });
+  const warnings = [
+    ...(kind === 'plan' ? ['"--kind plan" is deprecated: a plan is saved as --kind plan-draft and promoted with "note promote".'] : []),
+    ...(saved.warning === null ? [] : [saved.warning]),
+  ];
+  return { command: 'note save', task, kind: kind as NoteKind, path: saved.path, ...(warnings.length === 0 ? {} : { warnings }) };
 }
 
 export function renderNoteSave(output: NoteSaveOutput): string {
   return `Saved ${output.kind} note: ${output.path}`;
+}
+
+export interface NotePromoteOutput {
+  command: 'note promote';
+  task: string;
+  outcome: 'promoted' | 'plan-already-promoted' | 'repaired';
+  path: string;
+  promotedFrom: string;
+}
+
+export async function runNotePromote(runtime: Runtime, args: ParsedArgs): Promise<NotePromoteOutput> {
+  const task = taskOf('note promote', args);
+  return { command: 'note promote', task, ...(await promotePlan(unbound(runtime), task)) };
+}
+
+export function renderNotePromote(output: NotePromoteOutput): string {
+  const verb = { promoted: 'Promoted the accepted draft to', 'plan-already-promoted': 'Already promoted; nothing changed:', repaired: 'Recorded the missing entry for' }[output.outcome];
+  return `${verb} ${output.path}`;
+}
+
+export interface NoteListOutput {
+  command: 'note list';
+  task: string;
+  notes: NoteRow[];
+}
+
+export async function runNoteList(runtime: Runtime, args: ParsedArgs): Promise<NoteListOutput> {
+  const task = taskOf('note list', args);
+  return { command: 'note list', task, notes: await listNotes(runtime, task) };
+}
+
+export function renderNoteList(output: NoteListOutput): string {
+  if (output.notes.length === 0) return `No notes are recorded for task ${output.task}.`;
+  return output.notes
+    .map((row) => [row.id, row.note, row.path, row.at, row.heading, row.iteration === null ? null : `iteration ${row.iteration}`, row.link].filter((part) => part !== null).join('  '))
+    .join('\n');
 }

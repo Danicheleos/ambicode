@@ -58,6 +58,10 @@ export class CountingIds implements IdSource {
     this.counter += 1;
     return `csrf-${this.prefix}${this.counter}`;
   }
+  writerId(): string {
+    this.counter += 1;
+    return String(this.counter).padStart(8, '0');
+  }
 }
 
 let harnessCounter = 0;

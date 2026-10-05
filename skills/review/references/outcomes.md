@@ -134,6 +134,28 @@ unreadable ledger is denied.
 route; this session no longer writes its files. Stop and tell the user. Taking
 it back (`--adopt`) or continuing under another `--task` is their decision.
 
+**Ledger and notes.** `ledger-entry-too-large`: one ledger entry may be 16 KiB;
+keep the payload in a file and record its path and hash. `ledger-unreadable`:
+the task's ledger is damaged or cannot be read as a whole, so nothing was
+written; continue under a new task with `--task <slug>-2`. `ledger-busy`:
+another AMBICODE process is writing the ledger; retry. If it keeps failing,
+make sure no ambicode process is running, then delete `ledger.lock` in the task
+directory. `session-unbound`: this call has no session binding, and the task
+has a live plan route, so the CLI cannot tell whether it is the owner; the
+release is decision 0-S (session transport), not another route start. Report it
+and stop. `route-busy`: another session owns the task's live plan route; the
+user chooses `--adopt`, `--fresh` or another `--task`. `plan-draft-missing`:
+no plan draft exists to promote; write `steps/plan-body.md` and let the plan
+route save the draft.
+
+**`plan-not-accepted`.** The draft was not promoted; its `reason` says why:
+`no-plan-route`, `no-answer`, `superseded`, `unbound`, `acting-needs-human`,
+`not-accepted` (the latest answer is not an Accept from the user) or
+`object-changed` (the accepted draft is not the latest one, or its bytes
+changed). Ask the user `plan-accept` again for the current draft; do not
+rewrite or re-check the plan. `plan-already-promoted` is not an error: the plan
+exists and its path is printed.
+
 **Init owns its files.** While an init route is active, editing
 `.ambicode/config.yaml` or `.gitignore` is denied: `init --apply --set` writes
 them when the user accepts the proposal. Answer the init gate instead.

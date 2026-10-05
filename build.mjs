@@ -7,14 +7,9 @@ await rm(new URL('./scripts/ambicode.mjs', import.meta.url), { force: true });
 // A chunk left from an earlier build would otherwise be packaged beside the new ones.
 await rm(new URL('./scripts/chunks/', import.meta.url), { recursive: true, force: true });
 
-await build({
-  entryPoints: { ambicode: 'src/cli/main.ts', guard: 'src/hook/guard/guard.ts' },
+const common = {
   outdir: 'scripts',
   outExtension: { '.js': '.mjs' },
-  // `view` is imported dynamically so its page server (Fastify, Eta) is parsed
-  // by `view` alone. Content-hashed names keep two builds byte-identical.
-  splitting: true,
-  chunkNames: 'chunks/[name]-[hash]',
   bundle: true,
   platform: 'node',
   target: 'node24',
@@ -31,7 +26,20 @@ await build({
     ].join('\n'),
   },
   logLevel: 'info',
+};
+
+await build({
+  ...common,
+  entryPoints: { ambicode: 'src/cli/main.ts' },
+  // `view` is imported dynamically so its page server (Fastify, Eta) is parsed
+  // by `view` alone. Content-hashed names keep two builds byte-identical.
+  splitting: true,
+  chunkNames: 'chunks/[name]-[hash]',
 });
+
+// Built apart and unsplit: the guard runs on every tool call, and a chunk shared with the CLI
+// (`ownerOf`, which both read) would make it load a second file.
+await build({ ...common, entryPoints: { guard: 'src/hook/guard/guard.ts' } });
 
 const binDirectory = new URL('./bin/', import.meta.url);
 await mkdir(binDirectory, { recursive: true });

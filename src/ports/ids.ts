@@ -5,10 +5,13 @@ export interface IdSource {
   /** URL-safe capability with at least 128 bits of entropy. */
   capability(): string;
   csrfToken(): string;
+  /** 8 lowercase hex characters naming a writer that has no session. */
+  writerId(): string;
 }
 
 export const systemIds: IdSource = {
   reviewId: () => randomUUID(),
   capability: () => randomBytes(32).toString('base64url'),
   csrfToken: () => randomBytes(32).toString('base64url'),
+  writerId: () => randomBytes(4).toString('hex'),
 };
