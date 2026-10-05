@@ -169,12 +169,21 @@ export async function stopCheck(runtime: Runtime, input: HookInput, deps: RouteH
     let saveAnswer = false;
     let text: string | null = null;
     let unreadable = false;
+    const blockedBefore = chain.some((entry) => entry.kind === 'limit' && entry['which'] === 'stop-block');
     if (answering?.answer === 'note' && savedNote === undefined) {
       const message = input.transcript_path === undefined ? null : await lastAssistantText(input.transcript_path);
       if (message === null) unreadable = !chain.some((entry) => entry.kind === 'limit' && entry['which'] === 'stop-unreadable');
       else if (await citesRepository(message, { root, files }, runtime)) {
         text = message;
         saveAnswer = true;
+      } else if (blockedBefore) {
+        // The user kept the blocked answer, or the model sent only corrections: the blocked answer is still the note.
+        const blocked = await runtime.fs.readText(dir.answerBlocked).catch(() => null);
+        const problems = await runtime.fs.readText(dir.stopCheck).catch(() => '');
+        if (blocked !== null) {
+          text = `${blocked.trimEnd()}\n\n## Citation problems\n\n${problems.replace(/^# Stop check\n+/, '').trimEnd()}\n\n${message.trim()}`;
+          saveAnswer = true;
+        }
       }
     } else if (savedNote !== undefined && typeof savedNote['path'] === 'string') {
       text = await runtime.fs.readText(path.join(root, savedNote['path'])).catch(() => null);
@@ -190,13 +199,15 @@ export async function stopCheck(runtime: Runtime, input: HookInput, deps: RouteH
       await withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), session, (ledger) => ledger.append({ kind: 'limit', route: target.routeId, ...limit }));
     };
     if (unreadable) await finish({ which: 'stop-unreadable', count: 1 });
-    else if (text !== null && !chain.some((entry) => entry.kind === 'limit' && entry['which'] === 'stop-block')) {
+    else if (text !== null && !blockedBefore) {
       const problems = await problemsOf({ chain, def, root, text, defectBrief: options.defectBrief === true, files, citationsOnly: saveAnswer }, runtime);
       if (problems.length > 0) {
-        saveAnswer = false;
+        const where = path.relative(root, dir.stopCheck);
         await runtime.fs.mkdirp(dir.root);
         await runtime.fs.writeText(dir.stopCheck, `# Stop check\n\n${problems.map((item) => `- ${item}`).join('\n')}\n`);
-        let reason = `The text you are about to finish with has ${problems.length} problem(s). Fix them, or state them; the full list is in ${path.relative(root, dir.stopCheck)}:`;
+        if (saveAnswer) await runtime.fs.writeText(dir.answerBlocked, text);
+        let reason = saveAnswer ? answerBlockReason(problems.length, where, head['mode'] === 'headless') : `The text you are about to finish with has ${problems.length} problem(s). Fix them, or state them; the full list is in ${where}:`;
+        saveAnswer = false;
         for (const item of problems) {
           if (Buffer.byteLength(`${reason}\n- ${item}`) > REASON_LIMIT_BYTES) break;
           reason += `\n- ${item}`;
@@ -213,6 +224,14 @@ export async function stopCheck(runtime: Runtime, input: HookInput, deps: RouteH
   } finally {
     if (active === null) await deps.pointer.clearEnded(session, scratchpad);
   }
+}
+
+/** The final message is what the user gets and what is saved, so a correction must restate the whole answer. */
+function answerBlockReason(count: number, where: string, headless: boolean): string {
+  const rewrite = 'write the whole answer again with the citations fixed; it replaces the previous one and is saved as the note';
+  const head = `Your answer has ${count} citation problem(s); the full list is in ${where}.`;
+  if (headless) return `${head} Nobody can be asked in this session: ${rewrite}.`;
+  return `${head} Ask the user with AskUserQuestion whether to keep the answer as it is or rewrite it. If they choose rewrite, ${rewrite}. If they keep it, just stop.`;
 }
 
 /**

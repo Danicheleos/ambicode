@@ -88,6 +88,7 @@ v6 requirement that the briefs had broken or left without a mechanism; no contra
 | # | Change | Where |
 |---|---|---|
 | V25 | Run 4 failed 03-A5 on cost (1.44x; recall within band). By the user's decisions the investigate answer becomes the note (Stop saves it; no `report-step`/`write`, ceremony 0), the start context shrinks (no args echo, compact gated map, session contract), the map's terms drop request boilerplate and URLs, and the localize harness harvests session transcripts and reports built-in plugins. Dispatched as its own brief per 03-A6; v6 files unchanged | step-03b, validate-plan.mjs |
+| V26 | Run 5 (10 × 1) failed 03-A5: cost 1.22x, recall 0.632 (band 0.655). One run lost its whole answer to a correct Stop block answered with a correction delta; others named only the edited core. Added 03b-N11 (block asks the user to keep or rewrite; headless rewrites whole), 03b-N12 (after a block, a path-less stop saves the blocked answer with its problems), 03b-N13 (complete files answer). Gate: `ledgersOf` accepts several trace directories. `$ARGUMENTS` removal dropped (Claude Code appends arguments anyway) | step-03b |
 
 ## Pending
 

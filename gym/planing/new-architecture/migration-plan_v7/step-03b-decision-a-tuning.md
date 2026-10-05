@@ -115,10 +115,24 @@ No new error codes, CLI options or ledger kinds.
   checked against that file. Several: not reported. None: "does not exist".
 - 03b-N9 `routes/steps/investigate-read.md`: read the map's leads and the code; use the map as
   leads and skip candidates that do not fit; cite `path:line` for each claim; keep facts apart
-  from assumptions; answer the question as it was asked. No `find`/`refs` line.
+  from assumptions; answer in the shape asked (03b-N13). No `find`/`refs` line.
 - 03b-N10 `skills/investigate/SKILL.md`: what investigate is, the read-only boundary with its
   reason, "your answer is saved as the investigation note", and the fallback line
   `route start investigate "$ARGUMENTS"`. No judgment list (it lives in the read step).
+  Removing `"$ARGUMENTS"` would not shorten the context: Claude Code appends `ARGUMENTS: …` when
+  the placeholder is absent.
+- 03b-N11 When 03b-N5 blocks an `answer: note` step, the answer is kept in the task directory as
+  `answer-blocked.md` beside `stop-check.md`. The reason depends on the route head's `mode`:
+  interactive: ask the user with AskUserQuestion whether to keep the answer or rewrite it, and on
+  rewrite write the whole answer again (it replaces the previous one); headless: write the whole
+  answer again with the citations fixed.
+- 03b-N12 On a later stop after that block, with no note saved: a report-shaped text is saved as
+  in 03b-N6; otherwise (the user kept the answer, or the model sent path-less corrections) the
+  note is `answer-blocked.md` + `## Citation problems` (the stop-check list) + the last message,
+  saved and advanced as in 03b-N6. A conversational stop with no block before it still saves
+  nothing (03b-N4).
+- 03b-N13 The read step's last judgment line asks for a complete files answer: every existing file
+  the change touches, its tests, types and schemas included.
 
 **C — context before the first call**
 - 03b-C1 `requirements.normalize` and `requirements.acs` return an empty payload when every
@@ -212,6 +226,9 @@ No new error codes, CLI options or ledger kinds.
   many, none.
 - `src/route/owner-session.test.ts`: the 74-95 walk moves to the Stop save.
 - `src/util/skill-content.test.ts`, `src/cli/context-cost.test.ts`: 03b-N9, 03b-N10 pins and caps.
+- `src/hook/events/stop-check.test.ts`: 03b-N11 interactive and headless reasons, `answer-blocked.md`;
+  03b-N12 corrections-only stop saves the blocked answer with its problems. `skill-content.test.ts`: 03b-N13.
+- `evals/scripts/src/analysis/ledger-metrics.test.mjs`: `ledgersOf` over several trace directories.
 - `src/route/investigate.route.test.ts`: 03b-C1, 03b-C2, 03b-C3, 03b-C4.
 - `src/code-intelligence/search.test.ts`: 03b-M1, 03b-M2, 03b-M3, 03b-M4, 03b-M6.
 - `src/requirements/requirements.test.ts`: 03b-M7.

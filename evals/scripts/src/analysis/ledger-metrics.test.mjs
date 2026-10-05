@@ -1,7 +1,10 @@
 // The v6 route measures, read from synthetic ledgers only: no case, ticket or benchmark data is involved.
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { ledgerMetrics } from './ledger-metrics.mjs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { ledgerMetrics, ledgersOf, LEDGER_DIRECTORY } from './ledger-metrics.mjs';
 
 describe('ledger-metrics: red/green proof', () => {
   const route = (id, extra = {}) => ({ id, kind: 'route', skill: 'task', ...extra });
@@ -173,5 +176,21 @@ describe('ledger-metrics: red/green scope contract', () => {
     assert.equal(result(['a'], ['b']).proven, false);
     assert.equal(result(['a'], ['a', 'b']).proven, false);
     assert.equal(result(['a'], ['a']).malformed, 0);
+  });
+});
+
+describe('ledger-metrics: harvested ledgers', () => {
+  it('finds a run\'s ledgers in any of several trace directories, as the gate passes them with a baseline', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'ledgers-of-'));
+    try {
+      const [own, baseline] = [path.join(root, 'own'), path.join(root, 'baseline')];
+      mkdirSync(path.join(baseline, LEDGER_DIRECTORY, 'e-abc', 'task', 'T-1'), { recursive: true });
+      writeFileSync(path.join(baseline, LEDGER_DIRECTORY, 'e-abc', 'task', 'T-1', 'ledger.jsonl'), '{"kind":"note"}\n');
+      const run = { tracePath: '/private/tmp/e-abc/out/trace.jsonl' };
+      assert.deepEqual(ledgersOf(run, [own, baseline]).map((ledger) => ledger.entries.length), [1]);
+      assert.equal(ledgersOf(run, own), null);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

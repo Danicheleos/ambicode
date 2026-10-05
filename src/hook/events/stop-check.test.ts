@@ -261,13 +261,13 @@ steps:
 const CLAUDE = 'cccccccc-3333-4333-8333-333333333333';
 
 /** The route is owned by A and was started for the Claude session CLAUDE, as a hook start records it. */
-async function answering() {
+async function answering(options: { headless?: boolean } = {}) {
   const fx = await routeFixture({ routes: { inv: ANSWER } });
   await fx.repo.write('src/cart/add-item.ts', 'one\ntwo\nthree\n');
   await fx.repo.write('src/a/index.ts', 'x\n');
   await fx.repo.write('src/b/index.ts', 'y\n');
   await fx.repo.commitAll('files');
-  await fx.engine.start({ skill: 'inv', text: 'where are items added', requirements: [], task: TASK, cwd: fx.repo.root, session: A, harnessSession: CLAUDE, channel: 'hook', scratchpadDir: fx.scratchpad });
+  await fx.engine.start({ skill: 'inv', text: 'where are items added', requirements: [], task: TASK, cwd: fx.repo.root, session: A, harnessSession: CLAUDE, channel: 'hook', scratchpadDir: fx.scratchpad, ...options });
   const transcript = path.join(fx.scratchpad, 'transcript.jsonl');
   const deps: HookDeps = { pointer: fx.pointer, load: async () => ({ engine: fx.engine, routes: fx.routes, pointer: fx.pointer }) };
   return {
@@ -318,11 +318,57 @@ describe('03b-N: the answer is the note', () => {
       const blocked = await s.stop();
       assert.equal(blocked.decision, 'block');
       assert.match(blocked.reason!, /src\/cart\/add-item\.ts has 3 lines/);
+      assert.match(blocked.reason!, /AskUserQuestion/, '03b-N11: an interactive session asks the user to keep or rewrite');
+      assert.match(blocked.reason!, /whole answer again/);
       assert.deepEqual(await s.notes(), []);
       await s.say('It is in src/cart/add-item.ts:9, as said.');
       assert.deepEqual(await s.stop(), {});
       assert.equal((await s.notes()).length, 1);
       assert.deepEqual(await s.exits(), [], 'the recorded block leaves an unverified item, so the route completes without an exit');
+    } finally {
+      await s.fx.dispose();
+    }
+  });
+
+  it('03b-N11: a headless block demands the whole answer again, since nobody can be asked', async () => {
+    const s = await answering({ headless: true });
+    try {
+      await s.say('It is in src/cart/add-item.ts:9.\n\n## Files\n- src/cart/add-item.ts');
+      const blocked = await s.stop();
+      assert.equal(blocked.decision, 'block');
+      assert.doesNotMatch(blocked.reason!, /AskUserQuestion/);
+      assert.match(blocked.reason!, /whole answer again with the citations fixed; it replaces the previous one/);
+      const kept = await readFile(path.join(s.fx.repo.root, '.ambicode', 'task', TASK, 'answer-blocked.md'), 'utf8');
+      assert.match(kept, /## Files/);
+    } finally {
+      await s.fx.dispose();
+    }
+  });
+
+  it('03b-N12: after a block, a stop with only path-less corrections saves the blocked answer with its problems and the corrections', async () => {
+    const s = await answering({ headless: true });
+    try {
+      await s.say('It is in src/cart/add-item.ts:9.\n\n## Files\n- src/cart/add-item.ts');
+      assert.equal((await s.stop()).decision, 'block');
+      await s.say('I cited `:9` wrongly; it is `:2`. The Files list is the same.');
+      assert.deepEqual(await s.stop(), {});
+      const [note] = await s.notes();
+      const body = await readFile(path.join(s.fx.repo.root, String(note!['path'])), 'utf8');
+      assert.match(body, /## Files\n- src\/cart\/add-item\.ts/);
+      assert.match(body, /## Citation problems\n\n- src\/cart\/add-item\.ts:9: src\/cart\/add-item\.ts has 3 lines\./);
+      assert.match(body, /it is `:2`/);
+      assert.equal(await s.fx.pointer.read(CLAUDE, s.fx.scratchpad), null, 'the route is no longer active');
+    } finally {
+      await s.fx.dispose();
+    }
+  });
+
+  it('03b-N12: a conversational stop with no block before it still saves nothing', async () => {
+    const s = await answering({ headless: true });
+    try {
+      await s.say('The Files list is the same.');
+      assert.deepEqual(await s.stop(), {});
+      assert.deepEqual(await s.notes(), []);
     } finally {
       await s.fx.dispose();
     }

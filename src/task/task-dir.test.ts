@@ -33,6 +33,7 @@ describe('02-D1: the task directory', () => {
       workers: '/repo/.ambicode/task/ORD-17/workers',
       reviews: '/repo/.ambicode/task/ORD-17/reviews',
       stopCheck: '/repo/.ambicode/task/ORD-17/stop-check.md',
+      answerBlocked: '/repo/.ambicode/task/ORD-17/answer-blocked.md',
     });
     assert.equal(taskDirFor('/repo', 'x').where, '.');
   });

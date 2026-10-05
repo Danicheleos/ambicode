@@ -19,6 +19,7 @@ export interface TaskDir {
   workers: string;
   reviews: string;
   stopCheck: string;
+  answerBlocked: string;
 }
 
 /** The only place that joins `TASKS_DIR` and a slug. */
@@ -40,6 +41,7 @@ export function taskDirFor(repositoryRoot: string, slug: string, where = '.'): T
     workers: path.join(root, 'workers'),
     reviews: path.join(root, REVIEWS_LEAF),
     stopCheck: path.join(root, 'stop-check.md'),
+    answerBlocked: path.join(root, 'answer-blocked.md'),
   };
 }
 
