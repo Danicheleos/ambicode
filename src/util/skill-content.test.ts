@@ -129,8 +129,10 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.match(read, /`path:line`/);
     assert.match(read, /leads, not answers/);
     assert.match(read, /Edit nothing/);
-    assert.match(read, /must edit, with its edit, plus existing tests/, '03b-N13: a files answer lists edited files and their existing tests');
-    assert.match(read, /similar files the request does not name/);
+    assert.match(read, /whole request as written/, '03b-N13: a files answer covers the request, not the minimal fix');
+    assert.match(read, /types, schema, DTO, mocks, routes and tests/);
+    assert.match(read, /naming that assumption/);
+    assert.match(read, /similar features the request does not name/);
     assert.match(read, /not in the code, say so/, '03b-N14: a missing premise ends the search');
     assert.doesNotMatch(read, /note save|route next|\{cli\} (find|refs)/);
     assert.ok(read.length <= 700);

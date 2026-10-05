@@ -1,7 +1,7 @@
 Read the code the question is about, then answer it.
-- The map lists leads, not answers: open the ones that fit, skip the rest.
-- Read batched: several files in one pass, then the spans that matter.
+- The map lists leads, not answers: open those that fit.
+- Read batched: several files per call, then the spans that matter.
 - Cite `path:line` for claims; mark assumptions.
-- If what the question assumes is not in the code, say so after a short search and answer from what exists.
-- For a files question, list each existing file the change must edit, with its edit, plus existing tests of those files. Leave out files that only explain the code, files needed only for an optional design, and similar files the request does not name.
-Edit nothing: an investigation reads and answers.
+- If the question's premise is not in the code, say so after a short search; answer from what exists.
+- Files question: answer for the whole request as written. List each existing file implementing it edits (its types, schema, DTO, mocks, routes and tests included) and any file its requirements may need, naming that assumption. Skip files that only explain the code, files only your own extras need, and similar features the request does not name.
+Edit nothing.

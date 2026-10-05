@@ -28,4 +28,22 @@ describe('sweep events: runs are counted from the sandboxes the harness creates 
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it('03b-H4: under --keep-temp a sandbox that gains sealed/ has ended, once', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'sweep-kept-'));
+    const lines = [];
+    try {
+      const tracker = trackSweep({ total: 1, roots: [root], log: (line) => lines.push(line) });
+      mkdirSync(path.join(root, 'e-one'));
+      tracker.tick();
+      mkdirSync(path.join(root, 'e-one', 'sealed'));
+      tracker.tick();
+      tracker.tick();
+      tracker.finish(0);
+      assert.deepEqual(lines.map((line) => line.split(' ')[1]), ['start', 'run-start', 'run-end', 'end']);
+      assert.match(lines.at(-1), /1\/1 done, 0 running/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

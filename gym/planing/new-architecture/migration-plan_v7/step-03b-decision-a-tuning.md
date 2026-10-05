@@ -131,10 +131,12 @@ No new error codes, CLI options or ledger kinds.
   note is `answer-blocked.md` + `## Citation problems` (the stop-check list) + the last message,
   saved and advanced as in 03b-N6. A conversational stop with no block before it still saves
   nothing (03b-N4).
-- 03b-N13 A files answer lists each existing file the change must edit, with its edit, plus the
-  existing tests of those files. It leaves out files that only explain the code, files needed only
-  for an optional design, and similar files the request does not name (run 6: "every file the change
-  touches" listed sibling handlers and planned specs, precision 0.57).
+- 03b-N13 A files answer covers the whole request as written: each existing file implementing it
+  edits (its types, schema, DTO, mocks, routes and tests included) and any file its requirements
+  may need, naming that assumption. It skips files that only explain the code, files only the
+  model's own extras need, and similar features the request does not name. (Run 6 "every file the
+  change touches": precision 0.57; run 7 "must edit, no optional design": recall 0.59, the
+  feature's own layer files dropped as conditional.)
 - 03b-N14 When what the question assumes is not in the code, the answer says so after a short search
   and answers from what exists (run 4–6: one case searched 19–26 calls for a missing check).
 
@@ -181,7 +183,8 @@ No new error codes, CLI options or ledger kinds.
   grader; the llm, no-edit and no-peek graders stay.
 - 03b-H4 The sweep passes `--keep-temp`, so a sandbox outlives its run; the final harvest pass copies
   its trace and session transcript, then the sandboxes the result names (and only those) are made
-  writable and removed. Ledgers stay as polled: a kept sandbox seals `home/`.
+  writable and removed. Ledgers stay as polled: a kept sandbox seals `home/`. The sweep counter
+  counts a sandbox that gains `sealed/` as ended.
 
 **V — verification**
 - 03b-V1 Offline ($0), on the run-4 cases through the rebuilt bundle: read step ≤ 3,000 B and
