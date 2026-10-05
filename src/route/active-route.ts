@@ -12,7 +12,7 @@ const ENDED = 'ended-route';
 export const POINTER_LIMIT = 4 * 1024;
 
 export interface ActiveRoutePointer {
-  write(session: string, scratchpad: string | undefined, value: { task: string; skill: string; owner?: string }): Promise<void>;
+  write(session: string, scratchpad: string | undefined, value: { task: string; skill: string; owner?: string; toolTurns?: number }): Promise<void>;
   clear(session: string, scratchpad: string | undefined): Promise<void>;
   read(session: string, scratchpad: string | undefined): Promise<{ task: string; skill: string; owner?: string } | null>;
   /** Written when exit or completion clears `active-route`; read and removed only by Stop. */
@@ -37,7 +37,8 @@ export function fsActiveRoutePointer(fs: FileSystem): ActiveRoutePointer {
     await fs.writeText(target, JSON.stringify(value));
   };
   return {
-    write: (session, scratchpad, value) => put(file(session, scratchpad, ACTIVE), { task: value.task, skill: value.skill, ...(value.owner === undefined ? {} : { owner: value.owner }) }),
+    write: (session, scratchpad, value) =>
+      put(file(session, scratchpad, ACTIVE), { task: value.task, skill: value.skill, ...(value.owner === undefined ? {} : { owner: value.owner }), ...(value.toolTurns === undefined ? {} : { toolTurns: value.toolTurns }) }),
     async clear(session, scratchpad) {
       await fs.remove(file(session, scratchpad, ACTIVE));
     },

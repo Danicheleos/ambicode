@@ -96,8 +96,14 @@ export class Git {
     await this.exec(['add', '--intent-to-add', '--', '.'], true);
   }
 
-  async gitCommonDir(): Promise<string> {
+  /** This worktree's git directory: its `index` and `HEAD`. */
+  async gitDir(): Promise<string> {
     return (await this.exec(['rev-parse', '--path-format=absolute', '--git-dir'])).trim();
+  }
+
+  /** The directory every worktree shares: `info/exclude`, refs, objects. */
+  async gitCommonDir(): Promise<string> {
+    return (await this.exec(['rev-parse', '--path-format=absolute', '--git-common-dir'])).trim();
   }
 
   async isDirty(): Promise<boolean> {
@@ -248,6 +254,20 @@ export class Git {
     if (outcome.exitCode === 1) return [];
     if (outcome.exitCode !== 0) throw new AmbicodeError('git-failed', `git grep failed with exit code ${String(outcome.exitCode)}.`);
     return splitNul(outcome.stdout);
+  }
+
+  /** Each file's first line holding any of these terms, case-insensitive, fixed-string. */
+  async firstLines(terms: readonly string[], files: readonly string[]): Promise<Map<string, number>> {
+    const found = new Map<string, number>();
+    if (terms.length === 0 || files.length === 0) return found;
+    const outcome = await this.execOutcome(['grep', '--untracked', '-I', '-n', '-z', '-i', '-F', '-m', '1', ...terms.flatMap((term) => ['-e', term]), '--', ...files.map(literalPathspec)], true);
+    if (outcome.exitCode === 1) return found;
+    if (outcome.exitCode !== 0) throw new AmbicodeError('git-failed', `git grep failed with exit code ${String(outcome.exitCode)}.`);
+    for (const record of outcome.stdout.split('\n')) {
+      const match = /^([^\0]+)\0(\d+)\0/.exec(record);
+      if (match !== null && !found.has(match[1]!)) found.set(match[1]!, Number(match[2]));
+    }
+    return found;
   }
 
   /** The lines holding a whole word, as `path:line:text`, for `refs`. */

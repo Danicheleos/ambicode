@@ -25,8 +25,8 @@ function fileSection(message) {
 }
 
 /**
- * `./`, `repo/` and absolute prefixes are dropped, and a path missing only the code root
- * (`controllers/x.ts` for `src/controllers/x.ts`) matches when exactly one true path ends that way.
+ * `./`, `repo/` and absolute prefixes are dropped. A path missing the code root (`controllers/x.ts` for
+ * `src/controllers/x.ts`) or more leading directories matches when exactly one true path ends that way.
  */
 export function namedFiles(message, truth, root) {
   const { text, sectioned } = fileSection(message);
@@ -35,7 +35,9 @@ export function namedFiles(message, truth, root) {
     let p = match[1].replace(/^(?:.*\/)?repo\//, '').replace(/^\.\//, '');
     if (!truth.includes(p) && !p.startsWith(`${root}/`)) {
       const candidates = truth.filter((t) => t === `${root}/${p}`);
+      const ending = truth.filter((t) => t.endsWith(`/${p}`));
       if (candidates.length === 1) p = candidates[0];
+      else if (ending.length === 1) p = ending[0];
     }
     named.add(p);
   }
@@ -153,6 +155,9 @@ export function scoreWithAnalysis(results, analysis) {
       const values = scored.map((r) => r[m]).filter((x) => x !== null && x !== undefined);
       if (values.length) out[m] = mean(values);
     }
+    // An answer without a `Files` heading is scored whole, so every path it mentions counts as named.
+    const sectioned = scored.filter((r) => typeof r.sectioned === 'boolean');
+    if (sectioned.length) out.sectioned = sectioned.filter((r) => r.sectioned).length;
     for (const g of ['plugin-fired', 'helper-ran'])
       if (rows.some((r) => g in r.graders)) out[g] = rows.filter((r) => r.graders[g]).length;
     // An untraced run is left out of these counts and shown in `traced`, not counted as a run that did nothing.

@@ -51,11 +51,18 @@ test('03-R1: a valid route loads and normalizes its steps, gate and defaults', a
   const { routes } = await validateRouteFiles(directory, { handlers: HANDLERS });
   const route = routes[0]!;
   assert.deepEqual([route.skill, route.version, route.budget.modelSteps], ['demo', 3, 6]);
+  assert.equal('toolTurns' in route.budget, false);
   assert.deepEqual(route.steps.map((step) => [step.id, step.index, step.actor, step.repeat]), [['ground', 0, 'code', 2], ['read', 1, 'model', 1], ['ask', 2, 'human', 1]]);
   assert.deepEqual(route.steps[0]!.run, [{ name: 'code.one', params: [] }]);
   const gate = route.steps[2]!.gate!;
   assert.deepEqual([gate.id, gate.class, gate.maxRevises, gate.acting], ['ask', 'declared', 3, []]);
   assert.deepEqual(gate.onAnswer['Maybe'], { target: 'ground', args: {} });
+});
+
+test('03b-B1: a route budget takes an optional tool-turn count', async (t) => {
+  const directory = await root(t, { 'routes/demo.yaml': `${BASE.head.replace('{ modelSteps: 6 }', '{ modelSteps: 6, toolTurns: 12 }')}${BASE.model}` });
+  const { routes } = await validateRouteFiles(directory, { handlers: HANDLERS });
+  assert.deepEqual(routes[0]!.budget, { modelSteps: 6, toolTurns: 12 });
 });
 
 test('03-R1: one rejection per schema rule, each naming the file and the field', async (t) => {
@@ -65,6 +72,7 @@ test('03-R1: one rejection per schema rule, each naming the file and the field',
     ['unknown actor', `${BASE.head}  - id: x\n    actor: robot\n`, /steps\.0\.actor/],
     ['version 2', BASE.head.replace('version: 3', 'version: 2') + BASE.model, /version/],
     ['no modelSteps', BASE.head.replace('{ modelSteps: 6 }', '{ wallMinutes: 5 }') + BASE.model, /budget\.modelSteps/],
+    ['toolTurns not a positive integer', BASE.head.replace('{ modelSteps: 6 }', '{ modelSteps: 6, toolTurns: 0 }') + BASE.model, /budget\.toolTurns/],
     ['exit outside the set', BASE.head.replace('[done, blocked, human]', '[done, vanished]') + BASE.model, /exits/],
     ['a yaml parse error names its line', `${BASE.head}  - id: x\n    actor: code\n    run: [a, b: c\n`, /demo\.yaml: (line \d+|yaml)/],
     ['an unquoted brace in a flow sequence', `${BASE.head}  - id: x\n    actor: code\n    run: code.one\n    produces: [policy{before-report}]\n`, /demo\.yaml/],

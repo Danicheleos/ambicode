@@ -585,7 +585,7 @@ describe('the built guard entry', () => {
   it('answers on stdin/stdout and survives garbage', { skip: !existsSync(built) }, () => {
     const asked = JSON.parse(execFileSync('node', [built.pathname], { input: JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'git push' } }), encoding: 'utf8' }));
     assert.equal(asked.hookSpecificOutput.permissionDecision, 'ask');
-    for (const stdin of ['not json', '', 'null', '42', '{}', '{"hook_event_name":"PreToolUse"}', '{"hook_event_name":"Stop"}', '{"hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"/r/.ambicode/task/x"}}']) {
+    for (const stdin of ['not json', '', 'null', '42', '{}', '{"hook_event_name":"PreToolUse"}', '{"hook_event_name":"Stop"}', '{"hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"/r/.ambicode/task/x"}}', '{"hook_event_name":"PostToolUse","tool_name":"Bash"}', '{"hook_event_name":"PostToolUse","scratchpad_dir":"/nowhere","transcript_path":"/nowhere.jsonl","tool_use_id":"t"}']) {
       const result = run(stdin);
       assert.equal(result.status, 0, stdin);
       assert.deepEqual(JSON.parse(result.stdout), {}, stdin);
@@ -689,7 +689,7 @@ describe('the built guard entry', () => {
     assert.equal(JSON.parse(result.stdout).hookSpecificOutput.permissionDecision, 'ask');
   });
 
-  it('imports node:fs and nothing else the CLI loads (no Runtime, no zod)', { skip: !existsSync(built) }, () => {
+  it('imports node:fs, crypto and os and nothing else the CLI loads (no Runtime, no zod)', { skip: !existsSync(built) }, () => {
     const seen = new Set<string>();
     const specifiers = new Set<string>();
     const visit = (file: URL) => {
@@ -702,7 +702,8 @@ describe('the built guard entry', () => {
     };
     visit(built);
     // node:module is build.mjs's shared banner (a require shim for `yaml`), present before this step.
-    assert.deepEqual([...specifiers].sort(), ['node:fs', 'node:module']);
+    // node:crypto and node:os give the session state directory when PostToolUse carries no scratchpad (03b-B2).
+    assert.deepEqual([...specifiers].sort(), ['node:crypto', 'node:fs', 'node:module', 'node:os']);
     assert.ok(seen.size <= 2, `the guard loads ${seen.size} files`);
   });
 });

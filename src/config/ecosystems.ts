@@ -8,6 +8,8 @@ export interface EcosystemFacts {
   /** When set, a declaration line must match it to count as reachable from other files. */
   exportFilter: RegExp | null;
   i18nGlobs: readonly string[];
+  /** File kinds (`x.<kind>.ts`) that hold data or types, not behaviour: the map's feature line lists them. */
+  sharedKinds: readonly string[];
 }
 
 const DECLARATIONS: readonly RegExp[] = [
@@ -26,13 +28,15 @@ export const ECOSYSTEMS: Record<Ecosystem, EcosystemFacts> = {
     sourceGlobs: SHORTLIST_DEFAULTS.typescript.include,
     declarationPatterns: DECLARATIONS,
     exportFilter: /^\s*export\b/,
-    i18nGlobs: ['assets/i18n/*.json'],
+    i18nGlobs: ['**/assets/i18n/*.json', '**/i18n/*.json', '**/locales/**/*.json'],
+    sharedKinds: ['mocks', 'mock', 'types', 'type', 'constants', 'fixtures'],
   },
   python: {
     sourceGlobs: SHORTLIST_DEFAULTS.python.include,
     declarationPatterns: DECLARATIONS,
     exportFilter: null,
     i18nGlobs: [],
+    sharedKinds: [],
   },
 };
 
@@ -41,6 +45,7 @@ export const FALLBACK_ECOSYSTEM: EcosystemFacts = {
   declarationPatterns: DECLARATIONS,
   exportFilter: null,
   i18nGlobs: [],
+  sharedKinds: ['mocks', 'mock', 'types', 'type', 'constants', 'fixtures'],
 };
 
 export function ecosystemFacts(ecosystem: Ecosystem | null | undefined): EcosystemFacts {

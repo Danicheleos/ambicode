@@ -30,7 +30,7 @@ export async function fingerprintWorkspace(options: FingerprintOptions): Promise
   }
 
   return {
-    indexHash: await hashFile(options.fs, path.join(await options.git.gitCommonDir(), 'index')),
+    indexHash: await hashFile(options.fs, path.join(await options.git.gitDir(), 'index')),
     statusHash: contentHash(await options.git.status()),
     fileHashes,
   };

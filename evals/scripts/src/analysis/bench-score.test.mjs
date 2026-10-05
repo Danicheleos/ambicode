@@ -38,6 +38,13 @@ describe('evals-bench: scoring an answer', () => {
     assert.deepEqual(namedFiles('## Files\n- `/abs/run/repo/app/routes/orders.ts:12`\n', truth, 'app').named, ['app/routes/orders.ts']);
   });
 
+  it('03b-H8: matches a path relative to a feature directory when exactly one true path ends that way', () => {
+    const deep = ['src/features/a/validators/a.validators.ts', 'src/features/a/index.ts', 'src/features/b/index.ts'];
+    assert.deepEqual(namedFiles('## Files\n- validators/a.validators.ts — x\n', deep, 'src').named, ['src/features/a/validators/a.validators.ts']);
+    assert.deepEqual(namedFiles('## Files\n- index.ts\n', deep, 'src').named, [], 'no directory: not a path');
+    assert.deepEqual(namedFiles('## Files\n- a/index.ts\n- x/index.ts\n', deep, 'src').named, ['src/features/a/index.ts', 'x/index.ts']);
+  });
+
   it('falls back to the whole message when there is no Files section, and says so', () => {
     const s = scoreAnswer('Touch app/orders/model.ts only.', truth, 'app');
     assert.equal(s.sectioned, false);
@@ -126,6 +133,7 @@ describe('evals-bench: scoring a run', () => {
     assert.deepEqual([w.runs, w.scored, w.absent], [2, 1, 1]);
     assert.equal(w.recall, 0.5);
     assert.equal(w['plugin-fired'], 1);
+    assert.equal(w.sectioned, 1, '03b-H7: sectioned answers are counted');
     assert.equal(arms['localize/without'].precision, 2 / 3);
     assert.equal(arms['localize/without'].recall, 1);
     assert.ok('localize/with/SIDE' in arms);

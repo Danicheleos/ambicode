@@ -7,7 +7,7 @@ import type { FileSystem } from '../../ports/filesystem.ts';
 import { A, B, TASK, planFixture, type PlanFixture } from '../../testing/plan-fixture.ts';
 import { CONFIG } from '../../testing/route-fixture.ts';
 import { answerGates } from './gate-answer.ts';
-import { tokenize } from './prompt-launch.ts';
+import { splitLaunch } from './prompt-launch.ts';
 import { runHook, type HookDeps } from './run-hook.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..', '..');
@@ -50,8 +50,10 @@ describe('03-H3 launch', () => {
     }
   });
 
-  it('tokenizes with quotes respected, honours --requirement and a trusted --answer, and a failure to start is stated, not thrown', async () => {
-    assert.deepEqual(tokenize('add "a limit" --task ORD-17 \'x y\''), ['add', 'a limit', '--task', 'ORD-17', 'x y']);
+  it('03b-M13 takes known options before and after the request, keeps the request as typed, honours a trusted --answer, and states a failure to start', async () => {
+    assert.deepEqual(splitLaunch('--headless Add "a limit"\nto  cart --task ORD-17'), { args: ['--headless', '--task', 'ORD-17'], text: 'Add "a limit"\nto  cart' });
+    assert.deepEqual(splitLaunch('--headless -x keeps "Bar baz" --task'), { args: ['--headless'], text: '-x keeps "Bar baz" --task' });
+    assert.deepEqual(splitLaunch('use --fresh mode --answer \'a=b c\''), { args: ['--answer', 'a=b c'], text: 'use --fresh mode' });
     const plan = await planFixture();
     try {
       await prompt(plan, '/ambicode:plan "add a limit" --task ORD-17 --answer plan-accept=Accept');

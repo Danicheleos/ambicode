@@ -11,6 +11,7 @@ import type { StartInput } from './engine.ts';
 import { saveNote } from '../task/notes.ts';
 import { assembleEngine, CONFIG, routeFixture } from '../testing/route-fixture.ts';
 import { NodeProcessRunner } from '../ports/node-process-runner.ts';
+import { fsGuardState } from '../hook/guard/guard-state.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..');
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';
@@ -44,6 +45,7 @@ describe('investigate route (03-I1, 03-I2)', () => {
       assert.match(first.text, /src\/cart\.ts/);
       assert.doesNotMatch(first.text, /note save|route next/);
       assert.ok(first.bytes <= 8_192, `03-X1: ground-and-read message is ${first.bytes} bytes`);
+      assert.equal(fsGuardState.activeRoute(fx.scratchpad)?.toolTurns, 12, '03b-B1: the answering step carries the budget');
       const dir = path.join(fx.repo.root, '.ambicode', 'task', 'cart');
       for (const [key, limit] of [['map', 6_144], ['policy:before-work', 8_192]] as const) {
         const payload = await loadPayload(fx.runtime.fs, { steps: path.join(dir, 'steps') } as never, (await fx.kinds('cart', 'route'))[0]!.id, key);

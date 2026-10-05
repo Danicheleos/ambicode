@@ -14,11 +14,27 @@ export interface RouteHookDeps { engine: Engine; routes: RouteRegistry; pointer:
 
 const LAUNCH = /^\/ambicode:(\w+)\b([\s\S]*)$/;
 
-/** Splits on whitespace outside quotes; a quote pair is removed and its content kept whole. */
-export function tokenize(text: string): string[] {
-  const tokens: string[] = [];
-  for (const match of text.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g)) tokens.push(match[1] ?? match[2] ?? match[3] ?? '');
-  return tokens;
+/** Known `route start` options before and after the request; the request stays as typed, quotes kept (they mark UI text). */
+export function splitLaunch(rest: string): { args: string[]; text: string } {
+  const takesValue = new Set<string>([...ROUTE_START_OPTIONS.values, ...ROUTE_START_OPTIONS.repeated]);
+  const known = new Set<string>([...takesValue, ...ROUTE_START_OPTIONS.flags]);
+  const tokens = [...rest.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g)].map((match) => ({ raw: match[0], value: match[1] ?? match[2] ?? match[3] ?? '', at: match.index }));
+  /** The token count of an option run from `from` (stopping at the first non-option), and whether it reached the end. */
+  const options = (from: number): { end: number; complete: boolean } => {
+    let index = from;
+    while (index < tokens.length) {
+      const name = /^--([\w-]+)(=|$)/.exec(tokens[index]!.raw);
+      if (name === null || !known.has(name[1]!)) return { end: index, complete: false };
+      index += name[2] === '' && takesValue.has(name[1]!) ? 2 : 1;
+    }
+    return { end: Math.min(index, tokens.length), complete: index <= tokens.length };
+  };
+  const lead = options(0).end;
+  let tail = lead;
+  while (tail < tokens.length && !options(tail).complete) tail += 1;
+  const take = (from: number, to: number): string[] => tokens.slice(from, to).map((token) => token.value);
+  const text = lead >= tokens.length ? '' : rest.slice(tokens[lead]!.at, tail < tokens.length ? tokens[tail]!.at : rest.length).trim();
+  return { args: [...take(0, lead), ...take(tail, tokens.length)], text };
 }
 
 /** `/ambicode:<skill> …` with a shipped route starts it; the first step comes back as context (03-H3). */
@@ -30,9 +46,10 @@ export async function launchRoute(runtime: Runtime, input: HookInput, deps: Rout
   const rest = match[2]!.trim();
   const found = await findSessionRepository(runtime, input.cwd ?? runtime.cwd);
   if (typeof found === 'string') return `AMBICODE could not start the ${skill} route: ${found}.`;
+  const launch = splitLaunch(rest);
   let parsed: ReturnType<typeof parseArgs> | null = null;
   try {
-    parsed = parseArgs('route start', tokenize(rest), ROUTE_START_OPTIONS);
+    parsed = parseArgs('route start', launch.args, ROUTE_START_OPTIONS);
   } catch {
     parsed = null;
   }
@@ -42,7 +59,7 @@ export async function launchRoute(runtime: Runtime, input: HookInput, deps: Rout
   try {
     const message = await deps.engine.start({
       skill,
-      text: parsed === null ? rest : parsed.positionals.join(' '),
+      text: parsed === null ? rest : launch.text,
       requirements: parsed?.all('requirement') ?? [],
       ...(task === null ? {} : { task }),
       ...(project === null ? {} : { project }),

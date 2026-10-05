@@ -189,6 +189,38 @@ No new error codes, CLI options or ledger kinds.
   committed), so rg, Grep and `git grep` skip the task files; a failure is silent. The map's `grep`
   layer drops excluded paths. `evals/scripts/src/analysis/map-recall.mjs` rebuilds each localize
   case's map offline and prints true leads and true same-feature paths, counts only.
+- 03b-M12 Prompt-mode leads carry a line: `N. <path>:<line> — <reason>`, the first declaration in
+  the file whose name contains a term, else the file's first line holding a term (one
+  `git grep -n -i -F -m 1` over the top 8). A lead without either stays bare; caps unchanged.
+- 03b-M13 Catalog globs are depth-free (`**/assets/i18n/*.json`, `**/i18n/*.json`,
+  `**/locales/**/*.json`), English catalogs first, ≤ 5. A quoted string matches a catalog value in
+  any case; an unquoted 2–5 word phrase the request spells in the value's own case also gives its
+  key (any case lost a true lead offline). The prose fallback counts code terms only, not keys or UI
+  strings. The hook takes known `route start` options before and after the request and passes the
+  request as typed, quotes kept.
+- 03b-M14 A filtered template or style (`.html`, `.scss`, `.sass`, `.less`, `.css`) hands its score to
+  the same-stem `.ts` when that file is listable, max-merged, reason `its template <reason>`.
+- 03b-M15 A term whose directory hits have ≥ 3 distinct roots gives those hits the reason
+  `sits under one of N broad directories matching …`, which is not a path reason (harvest, feature).
+  Measured and rejected: a container rule on child directories (04 lost two feature paths), a 0.5
+  specificity floor for ticket parts (01, 03 lost a lead).
+- 03b-M16 The `Same feature` line lists only tests and files of the ecosystem's `sharedKinds`
+  (TypeScript: mocks, mock, types, type, constants, fixtures) among the stem matches; routers,
+  controllers, schemas and validators leave it.
+- 03b-M17 `Git.gitCommonDir()` reads `--git-common-dir` (03b-M11 writes `info/exclude` there in a
+  linked worktree); the `index` readers use the new `Git.gitDir()`.
+
+**B — budget**
+- 03b-B1 A route's `budget` takes an optional positive `toolTurns`; `investigate` sets 12. The
+  active-route pointer carries it while the position is an `answer: note` step.
+- 03b-B2 `guard.mjs` holds the counter (`tool-turns.ts`) but `hooks.json` does not register it: it counts
+  assistant messages with a `tool_use` since the last non-meta user prompt in the transcript tail and
+  returns a fixed `additionalContext` once at the `toolTurns`-th turn. PostToolUse input carries no
+  `scratchpad_dir`, so the pointer is read from the session state directory. Measured on case 10
+  (runs 10 and two 3-run checks): the notice fires once per run and the model keeps searching
+  (14–19 turns after it, 14–20 before; cost $0.38 against $0.40). Registering it needs a firmer
+  mechanism than a notice (a PreToolUse deny), which is the user's decision.
+- 03b-B3 `layer-audit.mjs` counts the notices from the session transcripts.
 
 **H — harness**
 - 03b-H1 `harvestTraces` copies `e-<id>/config/projects/*/*.jsonl` to
@@ -202,6 +234,17 @@ No new error codes, CLI options or ledger kinds.
   its trace and session transcript, then the sandboxes the result names (and only those) are made
   writable and removed. Ledgers stay as polled: a kept sandbox seals `home/`. The sweep counter
   counts a sandbox that gains `sealed/` as ended.
+- 03b-H5 `map-recall.mjs` (npm `evals:map-recall`) takes `--save <file>` (per-case counts and true
+  paths) and `--expect <file>`, which exits 1 when a case loses a true file or a leads text (1,200 B)
+  or feature line (400 B) exceeds its cap. It prints case numbers, not names; expectation files stay
+  outside the repository's tracked files.
+- 03b-H6 `layer-audit.mjs` (npm `evals:layer-audit`) reports per case and arm: tool turns, result
+  bytes by call class, cost split, the read step's byte counts and hashes, map candidates and
+  feature paths against truth, answer files from and outside the map, notices and self-hits. It
+  exits 1 when the read step or the map differs within a case.
+- 03b-H7 `bench-score.mjs` summaries count sectioned answers.
+- 03b-H8 `namedFiles` maps a named path to the one true path ending with `/<path>` when the
+  `<root>/<path>` form misses (an answer may write paths relative to the feature directory).
 
 **V — verification**
 - 03b-V1 Offline ($0), on the run-4 cases through the rebuilt bundle: read step ≤ 3,000 B and
@@ -237,7 +280,7 @@ No new error codes, CLI options or ledger kinds.
 
 - Changing plan, task, review, init or rules skills or routes.
 - Changing the reviewer prompt or `prepare`'s contract reference.
-- An index or LSP layer for the map; re-ranking beyond 03b-M1…M5.
+- An index or LSP layer for the map; re-ranking beyond 03b-M1…M17.
 - Shortening the descriptions of model-invocable skills.
 - Re-running the naked baseline.
 - Removing the `find`/`refs` commands from the CLI.
@@ -259,7 +302,10 @@ No new error codes, CLI options or ledger kinds.
 - `evals/scripts/src/analysis/ledger-metrics.test.mjs`: `ledgersOf` over several trace directories.
 - `src/route/investigate.route.test.ts`: 03b-C1, 03b-C2, 03b-C3, 03b-C4.
 - `src/code-intelligence/search.test.ts`: 03b-M1, 03b-M2, 03b-M3, 03b-M4, 03b-M6, 03b-M8, 03b-M9,
-  03b-M10, 03b-M11; `evals/scripts/src/analysis/map-recall.test.mjs`: request split and leads parsing.
+  03b-M10, 03b-M11, 03b-M12…M16; `evals/scripts/src/analysis/map-recall.test.mjs`: request split,
+  leads parsing, 03b-H5; `layer-audit.test.mjs`: 03b-H6.
+- `src/route/routes.test.ts`, `src/hook/guard/tool-turns.test.ts`, `src/hook/events/route-hooks.test.ts`:
+  03b-B1, 03b-B2, 03b-M13 launch split; `src/git/git.test.ts`: 03b-M17.
 - `src/requirements/requirements.test.ts`: 03b-M7.
 - `src/hook/events/run-hook.test.ts`: 03b-C5.
 - `evals/scripts/src/analysis/trace-analysis.test.mjs`: 03b-H1, 03b-H2;

@@ -1,5 +1,7 @@
-// node:fs only: the guard bundle may read bounded state and ledger files and nothing else (see guard.ts).
+// node:fs (plus crypto and os for the session key) only: the guard bundle may read bounded state and ledger files and nothing else (see guard.ts).
+import { createHash } from 'node:crypto';
 import { closeSync, constants, fstatSync, openSync, readSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import type { LedgerEntry } from '../../task/ledger.ts';
 import type { ActiveRoute, GuardState } from './guard-core.ts';
 
@@ -13,6 +15,8 @@ const POINTER_LIMIT = 4 * 1024;
 // long records, 45-50 ms at 1 MiB of short ones, 53-57 ms at 2 MiB of short ones against 33 §7's 50 ms; a larger
 // ledger denies the plan-body write instead.
 export const LEDGER_LIMIT = 1024 * 1024;
+// Equal to stop-check.ts TRANSCRIPT_TAIL_BYTES (tested).
+export const TRANSCRIPT_TAIL = 1024 * 1024;
 
 // Opening a FIFO without a writer would block the hook; non-blocking, it opens at once and fstat rejects it.
 const OPEN_FLAGS = constants.O_RDONLY | (constants.O_NONBLOCK ?? 0);
@@ -33,6 +37,34 @@ function bounded(file: string, limit: number): string | null {
       length += read;
     }
     return buffer.toString('utf8', 0, length);
+  } catch {
+    return null;
+  } finally {
+    try {
+      if (descriptor !== undefined) closeSync(descriptor);
+    } catch {
+      // Nothing was decided from this descriptor that closing it could change.
+    }
+  }
+}
+
+/** The last `limit` bytes of a regular file, from the first line that starts inside them; any error is `null`. */
+function tail(file: string, limit: number): string | null {
+  let descriptor: number | undefined;
+  try {
+    descriptor = openSync(file, OPEN_FLAGS);
+    const stat = fstatSync(descriptor);
+    if (!stat.isFile()) return null;
+    const start = Math.max(0, stat.size - limit);
+    const buffer = Buffer.alloc(stat.size - start);
+    let length = 0;
+    while (length < buffer.length) {
+      const read = readSync(descriptor, buffer, length, buffer.length - length, start + length);
+      if (read === 0) break;
+      length += read;
+    }
+    const text = buffer.toString('utf8', 0, length);
+    return start === 0 ? text : text.slice(text.indexOf('\n') + 1);
   } catch {
     return null;
   } finally {
@@ -66,19 +98,31 @@ function entries(text: string): LedgerEntry[] | null {
   return found;
 }
 
+/** markers.ts `hookStateBaseDir` without a scratchpad: the state of a session whose hook input carries none (tested equal). */
+export function sessionStateDir(sessionId: string): string {
+  return `${tmpdir()}/${GUARD_STATE_DIR_NAME}/sha256${createHash('sha256').update(sessionId).digest('hex').slice(0, 32)}`;
+}
+
+function pointerAt(file: string): ActiveRoute | null {
+  const text = bounded(file, POINTER_LIMIT);
+  if (text === null) return null;
+  try {
+    const pointer = JSON.parse(text) as Partial<ActiveRoute> | null;
+    if (typeof pointer?.task !== 'string' || typeof pointer.skill !== 'string') return null;
+    return { task: pointer.task, skill: pointer.skill, ...(typeof pointer.toolTurns === 'number' ? { toolTurns: pointer.toolTurns } : {}) };
+  } catch {
+    return null;
+  }
+}
+
 export const fsGuardState: GuardState = {
-  activeRoute(scratchpadDir: string): ActiveRoute | null {
-    const text = bounded(`${scratchpadDir}/${GUARD_STATE_DIR_NAME}/${ACTIVE_ROUTE_FILE}`, POINTER_LIMIT);
-    if (text === null) return null;
-    try {
-      const pointer = JSON.parse(text) as Partial<ActiveRoute> | null;
-      return typeof pointer?.task === 'string' && typeof pointer.skill === 'string' ? { task: pointer.task, skill: pointer.skill } : null;
-    } catch {
-      return null;
-    }
-  },
+  activeRoute: (scratchpadDir: string) => pointerAt(`${scratchpadDir}/${GUARD_STATE_DIR_NAME}/${ACTIVE_ROUTE_FILE}`),
+  sessionRoute: (sessionId: string) => pointerAt(`${sessionStateDir(sessionId)}/${ACTIVE_ROUTE_FILE}`),
   ledger(taskDirectory: string): LedgerEntry[] | null {
     const text = bounded(`${taskDirectory}/${GUARD_LEDGER_FILE}`, LEDGER_LIMIT);
     return text === null ? null : entries(text);
+  },
+  transcriptTail(file: string): string | null {
+    return tail(file, TRANSCRIPT_TAIL);
   },
 };

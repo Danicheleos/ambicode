@@ -60,7 +60,8 @@ export interface StepDef {
 export interface RouteDef {
   skill: string;
   version: 3;
-  budget: { modelSteps: number; wallMinutes?: number };
+  /** `toolTurns`: model turns with tool calls at an `answer: note` step before the PostToolUse notice. */
+  budget: { modelSteps: number; wallMinutes?: number; toolTurns?: number };
   exits: readonly Exit[];
   revisable: readonly string[];
   steps: readonly StepDef[];
@@ -100,7 +101,7 @@ const RawStep = z.strictObject({
 const RawRoute = z.strictObject({
   skill: z.string().min(1),
   version: z.literal(3),
-  budget: z.strictObject({ modelSteps: z.number().int().positive(), wallMinutes: z.number().int().positive().optional() }),
+  budget: z.strictObject({ modelSteps: z.number().int().positive(), wallMinutes: z.number().int().positive().optional(), toolTurns: z.number().int().positive().optional() }),
   exits: z.array(z.enum(EXITS)),
   revisable: z.array(z.string()).default([]),
   steps: z.array(RawStep).min(1),
@@ -141,7 +142,7 @@ export async function loadRoute(file: string, text: string, context: LoaderConte
   const route: RouteDef = {
     skill: raw.skill,
     version: 3,
-    budget: raw.budget.wallMinutes === undefined ? { modelSteps: raw.budget.modelSteps } : { ...raw.budget },
+    budget: Object.fromEntries(Object.entries(raw.budget).filter(([, value]) => value !== undefined)) as RouteDef['budget'],
     exits: raw.exits,
     revisable: raw.revisable,
     steps,

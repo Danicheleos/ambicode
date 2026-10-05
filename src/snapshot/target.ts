@@ -48,7 +48,7 @@ export async function resolveWorkingTarget(options: WorkingTargetOptions): Promi
   const notes: string[] = [];
   try {
     const shadowIndex = path.join(scratch, 'index');
-    const realIndex = path.join(await git.gitCommonDir(), 'index');
+    const realIndex = path.join(await git.gitDir(), 'index');
     try {
       await fs.copyFile(realIndex, shadowIndex);
     } catch {

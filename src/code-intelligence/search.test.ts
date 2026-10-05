@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, realpath } from 'node:fs/promises';
 import { parseArgs } from '../cli/args.ts';
 import { MAP_OPTIONS, REFS_OPTIONS, FIND_OPTIONS, runFind, runMap, runRefs } from '../cli/commands/search.ts';
 import { openRepository } from '../composition/root.ts';
@@ -10,6 +10,9 @@ import { buildMap, cleanRequestText, featureOf, FEATURE_LIMIT_BYTES, leadsText, 
 import { excludeWorkingDirs } from '../task/task-dir.ts';
 import { find, refs, SEARCH_LIMIT_BYTES } from './refs.ts';
 import { SearchConfig } from '../contracts/config.ts';
+import { ECOSYSTEMS } from '../config/ecosystems.ts';
+import { isPathReason } from './locate.ts';
+import { execFileSync } from 'node:child_process';
 
 async function repo(extra: Record<string, string> = {}): Promise<RouteFixture> {
   const fx = await routeFixture({ routes: {} });
@@ -24,6 +27,7 @@ async function repo(extra: Record<string, string> = {}): Promise<RouteFixture> {
   await fx.repo.commitAll('files');
   return fx;
 }
+const realpathOf = (file: string): Promise<string> => realpath(file);
 const project = (fx: RouteFixture) => ({ id: 'app', root: '.', ecosystem: 'typescript' as const, commands: {} }) as never;
 
 describe('03-M1 grepWords', () => {
@@ -136,9 +140,10 @@ describe('03-M4 term ranking', () => {
       const files = ['assets/i18n/en.json'];
       const sources = [{ title: '', content: 'Show "Your cart is empty" and `applyDiscount` near `CartService.addItem`' }];
       const mapped = await rankTerms(sources, { runtime: fx.runtime, root: fx.repo.root, project: project(fx), files });
-      assert.deepEqual(mapped, ['applyDiscount', 'CartService.addItem', 'cart.empty']);
+      assert.deepEqual(mapped.slice(0, 3), ['applyDiscount', 'CartService.addItem', 'cart.empty']);
+      assert.ok(mapped.length > 3, '03b-M13: a key is not a code term, so two identifiers still take prose');
       const unmapped = await rankTerms(sources, { runtime: fx.runtime, root: fx.repo.root, project: project(fx), files: [] });
-      assert.deepEqual(unmapped, ['applyDiscount', 'CartService.addItem', 'Your cart is empty']);
+      assert.deepEqual(unmapped.slice(0, 3), ['applyDiscount', 'CartService.addItem', 'Your cart is empty']);
     } finally {
       await fx.dispose();
     }
@@ -287,11 +292,12 @@ describe('03b-M map terms and leads', () => {
     }
   });
 
-  it('03b-M10: the leads name the feature directory and its files named like the leads, tests included', () => {
+  it('03b-M10/03b-M16: the leads name the feature directory and its tests and shared-kind files named like the leads', () => {
     const lead = (file: string) => ({ path: file, score: 5, reasons: ['sits under a directory matching "cart"'] });
     const ordered = [lead('src/app/cart/dto/cart.dto.ts'), lead('src/app/cart/cart.service.ts'), { path: 'src/other/x.ts', score: 1, reasons: ['contains "cart"'] }];
-    const files = ['src/app/cart/dto/cart.dto.ts', 'src/app/cart/cart.service.ts', 'src/app/cart/cart.service.spec.ts', 'src/app/cart/mocks/cart.mocks.ts', 'src/app/cart/discount.ts', 'src/app/billing/cart.ts', 'src/app/cart/.ambicode/task/t/cart.md'];
-    const feature = featureOf(ordered, files);
+    const files = ['src/app/cart/dto/cart.dto.ts', 'src/app/cart/cart.service.ts', 'src/app/cart/cart.service.spec.ts', 'src/app/cart/mocks/cart.mocks.ts', 'src/app/cart/cart.router.ts', 'src/app/cart/cart.schema.ts', 'src/app/cart/discount.ts', 'src/app/billing/cart.ts', 'src/app/cart/.ambicode/task/t/cart.md'];
+    const feature = featureOf(ordered, files, ECOSYSTEMS.typescript.sharedKinds);
+    assert.deepEqual(featureOf(ordered, files)?.paths, ['src/app/cart/cart.service.spec.ts'], 'no shared kinds: tests only');
     assert.deepEqual(feature, { root: 'src/app/cart', paths: ['src/app/cart/cart.service.spec.ts', 'src/app/cart/mocks/cart.mocks.ts'] });
     const text = leadsText({ terms: { pass1: ['cart'], pass2: ['cart'] }, candidates: ordered, collisions: ['Dup'], feature });
     assert.match(text, /^Same feature \(src\/app\/cart\/\): cart\.service\.spec\.ts, mocks\/cart\.mocks\.ts$/m);
@@ -300,6 +306,77 @@ describe('03b-M map terms and leads', () => {
     const many = { root: 'src/app/cart', paths: Array.from({ length: 12 }, (_, i) => `src/app/cart/${'n'.repeat(40)}-${i}.ts`) };
     const line = leadsText({ terms: { pass1: [], pass2: [] }, candidates: [], collisions: [], feature: many }).split('\n').at(-1)!;
     assert.ok(Buffer.byteLength(line) <= FEATURE_LIMIT_BYTES && line.endsWith(', …'), line);
+  });
+
+  it('03b-M12: a prompt-mode lead carries the line of a declaration named like a term, else of the first line holding one', async () => {
+    const fx = await repo({ 'src/cart/notes.ts': '// header\nconst x = 1;\nconsole.log("cart total");\n' });
+    try {
+      const map = await buildMap({ runtime: fx.runtime, project: project(fx), paths: [], symbols: [], mode: 'prompt', layers: ['shortlist', 'harvest', 'shortlist'], layersSource: 'default', terms: ['cart'] });
+      const text = leadsText(map);
+      assert.match(text, /^\d+\. src\/cart\/cart\.service\.ts:1 — /m);
+      assert.match(text, /^\d+\. src\/cart\/notes\.ts:3 — /m);
+      const context = await buildMap({ runtime: fx.runtime, project: project(fx), paths: [], symbols: [], mode: 'context', layers: ['shortlist'], layersSource: 'default', terms: ['cart'] });
+      assert.ok(context.candidates.every((candidate) => candidate.line === undefined), 'context maps carry no lines');
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('03b-M13: catalogs at any depth, English first; a quoted string in any case and a spelled phrase in its own case give keys', async () => {
+    const others = Object.fromEntries(['a', 'b', 'c', 'd', 'de'].map((name) => [`main/assets/i18n/${name}.json`, JSON.stringify({ x: { y: 'Andere Spalte' } })]));
+    const fx = await repo({ ...others, 'main/assets/i18n/en.json': JSON.stringify({ table: { score: 'Score type', empty: 'No rows found' } }) });
+    try {
+      const files = await (await openRepository(fx.runtime)).git.listFiles(null);
+      const options = { runtime: fx.runtime, root: fx.repo.root, project: project(fx), files };
+      const terms = await rankTerms([{ title: '', content: 'Sort the Score type column of `CartService` and show "no rows found"' }], options);
+      assert.ok(terms.includes('table.score') && terms.includes('table.empty'), terms.join(','));
+      const lower = await rankTerms([{ title: '', content: 'Sort the score type column of `CartService`' }], options);
+      assert.ok(!lower.includes('table.score'), lower.join(','));
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('03b-M14: a filtered template lifts its same-stem source', async () => {
+    const fx = await repo({ 'src/ui/banner.component.html': '<p>{{ checkoutBannerText }}</p>\n', 'src/ui/banner.component.ts': 'export class BannerComponent {}\n' });
+    try {
+      const map = await buildMap({ runtime: fx.runtime, project: project(fx), paths: [], symbols: [], mode: 'context', layers: ['shortlist'], layersSource: 'default', terms: ['checkoutBannerText'] });
+      const banner = map.candidates.find((candidate) => candidate.path === 'src/ui/banner.component.ts');
+      assert.ok(banner !== undefined && banner.reasons.some((reason) => reason.startsWith('its template contains')), JSON.stringify(map.candidates));
+      assert.ok(map.candidates.every((candidate) => !candidate.path.endsWith('.html')));
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('03b-M15: a term spelled by three unrelated directories gives no path reason and no feature', async () => {
+    const fx = await repo({ 'src/a/employee/one.ts': 'export const a = 1;\n', 'src/b/employee/two.ts': 'export const b = 1;\n', 'src/c/employee/three.ts': 'export const c = 1;\n', 'src/c/employee/three.spec.ts': 'test\n' });
+    try {
+      const map = await buildMap({ runtime: fx.runtime, project: project(fx), paths: [], symbols: [], mode: 'prompt', layers: ['shortlist'], layersSource: 'default', terms: ['employee'] });
+      const placed = map.candidates.filter((candidate) => candidate.path.includes('/employee/'));
+      assert.equal(placed.length, 3);
+      assert.ok(placed.every((candidate) => candidate.reasons.every((reason) => !isPathReason(reason)) && /one of 3 broad directories/.test(candidate.reasons[0]!)), JSON.stringify(placed));
+      assert.equal(map.feature, null);
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('03b-M17: in a linked worktree the exclude lands in the shared git directory and the index is the worktree one', async () => {
+    const fx = await repo();
+    try {
+      const linked = `${fx.repo.root}-linked`;
+      execFileSync('git', ['-C', fx.repo.root, 'worktree', 'add', '-q', linked]);
+      const { git } = await openRepository({ ...fx.runtime, cwd: linked });
+      const common = await git.gitCommonDir();
+      assert.equal(await realpathOf(common), await realpathOf(`${fx.repo.root}/.git`));
+      assert.notEqual(await realpathOf(await git.gitDir()), await realpathOf(common));
+      await excludeWorkingDirs(fx.runtime, linked);
+      assert.match(await readFile(`${common}/info/exclude`, 'utf8'), /^\.ambicode\/task\/$/m);
+      execFileSync('git', ['-C', fx.repo.root, 'worktree', 'remove', '--force', linked]);
+    } finally {
+      await fx.dispose();
+    }
   });
 
   it('03b-M11: route start keeps AMBICODE working files out of the agent searches, once', async () => {

@@ -8,7 +8,7 @@ import { AmbicodeError } from '../util/errors.ts';
 import { matchesAnyGlob } from '../util/glob.ts';
 import { normalizeRelative } from '../util/paths.ts';
 import { COMMON_NAMES } from './dependents.ts';
-import { pathExclusionReason } from '../snapshot/exclusions.ts';
+import { isTestPath, pathExclusionReason } from '../snapshot/exclusions.ts';
 import { harvest, type Declaration } from './harvest.ts';
 import { isPathReason, locate, termsFromRequirements } from './locate.ts';
 
@@ -16,7 +16,8 @@ export const LAYER_NAMES = ['grep', 'shortlist', 'harvest', 'history', 'index.fi
 export type LayerName = (typeof LAYER_NAMES)[number];
 
 export interface MapLayer { name: LayerName; ms: number; hits: number }
-export interface MapCandidate { path: string; score: number; reasons: string[]; spans?: string[] }
+/** `line`: where the model starts reading, a declaration named like a term or the first line holding one (prompt mode). */
+export interface MapCandidate { path: string; score: number; reasons: string[]; spans?: string[]; line?: number }
 export interface MapSymbol { name: string; kind: string; at: string; declarations: number; collides: boolean }
 /** The directory most top leads share, and its files named like those leads or like the directory itself. */
 export interface MapFeature { root: string; paths: string[] }
@@ -97,29 +98,43 @@ export async function rankTerms(
   const identifiers = mined.filter((term) => IDENTIFIER.test(term));
   const backticked = [...text.matchAll(/`([^`\s]{3,60})`/g)].map((match) => match[1]!).filter((term) => IDENTIFIER.test(term) && !isBoilerplate(term) && !TICKET_ID.test(term));
   const strings = [...text.matchAll(QUOTED)].map((match) => match[1]!.trim()).filter((value) => /\s|\p{Lu}/u.test(value) && !/^[`]/.test(value) && !isBoilerplate(value));
-  const keys = await i18nKeys(options, strings);
+  const keys = await i18nKeys(options, strings, text);
   const ranked = [...new Set([...backticked, ...parts, ...identifiers, ...keys])];
   if (options.withProse === true) {
     const prose = termsFromRequirements(clean, 60).filter((term) => !IDENTIFIER.test(term) && !isRequestWord(term)).slice(0, PROSE_RETRY_TERMS);
     return [...new Set([...prose, ...ranked])].slice(0, MAX_TERMS);
   }
-  if (ranked.length < 3) {
+  // Catalog keys and UI strings say what screen, not which code: they do not count as identifiers here.
+  if (new Set([...backticked, ...parts, ...identifiers]).size < 3) {
     const prose = mined.filter((term) => !IDENTIFIER.test(term)).flatMap((term) => term.split('-').filter((part) => part.length >= 3));
     ranked.push(...prose);
   }
   return [...new Set(ranked)].slice(0, MAX_TERMS);
 }
 
-async function i18nKeys(options: { runtime: Runtime; root: string; project: ProjectConfig; files: readonly string[] }, strings: readonly string[]): Promise<string[]> {
+const ENGLISH_CATALOG = /(^|[/._-])en([._-][a-z]{2})?\.json$/i;
+const spacing = (value: string): string => value.replace(/\s+/g, ' ').trim();
+const phraseOf = (value: string): string => spacing(value).toLowerCase();
+
+/** Keys of catalog values equal to a quoted string (any case), or to a 2–5 word phrase the request spells unquoted in the same case. */
+async function i18nKeys(options: { runtime: Runtime; root: string; project: ProjectConfig; files: readonly string[] }, strings: readonly string[], text: string): Promise<string[]> {
   const globs = [...ecosystemFacts(options.project.ecosystem).i18nGlobs];
-  if (strings.length === 0) return [];
-  const catalogs = options.files.filter((file) => globs.length > 0 && matchesAnyGlob(file, globs)).slice(0, 5);
+  const catalogs = options.files
+    .filter((file) => globs.length > 0 && matchesAnyGlob(file, globs))
+    .sort((a, b) => Number(!ENGLISH_CATALOG.test(a)) - Number(!ENGLISH_CATALOG.test(b)) || a.localeCompare(b))
+    .slice(0, 5);
   if (catalogs.length === 0) return [...strings];
-  const wanted = new Map(strings.map((value) => [value.toLowerCase(), value]));
+  const wanted = new Set(strings.map(phraseOf));
+  const spoken = ` ${spacing(text.replace(/[^\p{L}\p{N}\s'-]/gu, ' '))} `;
   const found: string[] = [];
+  const spelledKeys: string[] = [];
   const walk = (value: unknown, prefix: string): void => {
     if (typeof value === 'string') {
-      if (wanted.has(value.toLowerCase()) && found.length < MAX_TERMS) found.push(prefix);
+      const phrase = phraseOf(value);
+      const words = phrase.split(' ').length;
+      const spelled = words >= 2 && words <= 5 && /^[\p{L}\p{N} '-]+$/u.test(phrase) && spoken.includes(` ${spacing(value)} `);
+      if (wanted.has(phrase)) found.push(prefix);
+      else if (spelled) spelledKeys.push(prefix);
     } else if (typeof value === 'object' && value !== null) {
       for (const [key, child] of Object.entries(value)) walk(child, prefix === '' ? key : `${prefix}.${key}`);
     }
@@ -131,7 +146,8 @@ async function i18nKeys(options: { runtime: Runtime; root: string; project: Proj
       // An unreadable catalog contributes nothing.
     }
   }
-  return found.length === 0 ? [...strings] : found;
+  const keys = [...new Set([...found, ...spelledKeys])].slice(0, MAX_TERMS);
+  return found.length === 0 ? [...strings, ...keys] : keys;
 }
 
 const names = (declarations: readonly Declaration[]): string[] => [...new Set(declarations.map((declaration) => declaration.name))];
@@ -237,7 +253,8 @@ export async function buildMap(input: {
     return { ...candidate, score: Math.round(candidate.score * 100) / 100, reasons: candidate.reasons.slice(0, 2), ...(spans.length === 0 ? {} : { spans }) };
   });
 
-  const feature = input.mode === 'prompt' ? featureOf(ordered, await git.listFiles(pathspec)) : null;
+  const feature = input.mode === 'prompt' ? featureOf(ordered, await git.listFiles(pathspec), ecosystemFacts(project.ecosystem).sharedKinds) : null;
+  if (input.mode === 'prompt') await anchor(ordered.slice(0, LEADS), declarations, [...new Set([...pass1, ...pass2])], git);
   const head = `layers: ${layers.map((layer) => layer.name).join(' → ') || 'none'} (${input.layersSource}); index: none`;
   const render = (kept: readonly MapCandidate[]): string => {
     const document = {
@@ -282,12 +299,14 @@ const REASON_CHARS = 90;
 const FEATURE_LEADS = 4;
 const FEATURE_PATHS = 12;
 const stemOf = (file: string): string => path.posix.basename(file).split('.')[0]!;
+const kindOf = (file: string): string => path.posix.basename(file).split('.').slice(1, -1).join('.');
 
 /**
  * The deepest directory (two segments or more) holding the most top leads found by their path, at least two; its files whose
- * name stem is a lead's stem or the directory's own name. Tests count: a change edits them like any other layer.
+ * name stem is a lead's stem or the directory's own name, and that are tests or of a shared kind (mocks, types…). Executable
+ * siblings are left out: answers took them as changed when they were not.
  */
-export function featureOf(ordered: readonly MapCandidate[], files: readonly string[]): MapFeature | null {
+export function featureOf(ordered: readonly MapCandidate[], files: readonly string[], sharedKinds: readonly string[] = []): MapFeature | null {
   const top = ordered.slice(0, FEATURE_LEADS).filter((candidate) => candidate.reasons.some(isPathReason)).map((candidate) => candidate.path);
   let best: { root: string; count: number } | null = null;
   for (const lead of top) {
@@ -303,10 +322,20 @@ export function featureOf(ordered: readonly MapCandidate[], files: readonly stri
   const listed = new Set(ordered.slice(0, LEADS).map((candidate) => candidate.path));
   const stems = new Set([path.posix.basename(root), ...top.filter((file) => file.startsWith(`${root}/`)).map(stemOf)]);
   const paths = files
-    .filter((file) => file.startsWith(`${root}/`) && !listed.has(file) && pathExclusionReason(file) === null && stems.has(stemOf(file)))
+    .filter((file) => file.startsWith(`${root}/`) && !listed.has(file) && pathExclusionReason(file) === null && stems.has(stemOf(file)) && (isTestPath(file) || sharedKinds.includes(kindOf(file))))
     .sort()
     .slice(0, FEATURE_PATHS);
   return paths.length === 0 ? null : { root, paths };
+}
+
+async function anchor(leads: MapCandidate[], declarations: readonly Declaration[], terms: readonly string[], git: { firstLines(terms: readonly string[], files: readonly string[]): Promise<Map<string, number>> }): Promise<void> {
+  const lower = terms.map((term) => term.toLowerCase());
+  for (const lead of leads) {
+    const named = declarations.find((declaration) => declaration.path === lead.path && lower.some((term) => declaration.name.toLowerCase().includes(term)));
+    if (named !== undefined) lead.line = named.line;
+  }
+  const lines = await git.firstLines(terms, leads.filter((lead) => lead.line === undefined).map((lead) => lead.path));
+  for (const lead of leads) if (lead.line === undefined && lines.has(lead.path)) lead.line = lines.get(lead.path)!;
 }
 
 /** The route's short form of a map: the terms, then the top candidates with their first reason, one per line. */
@@ -315,7 +344,7 @@ export function leadsText(map: Pick<MapResult, 'terms' | 'candidates' | 'collisi
   const head = `Leads from the terms ${map.terms.pass1.join(', ') || '(none)'}${added.length === 0 ? '' : `; then ${added.join(', ')}`}:`;
   const rows = map.candidates.slice(0, LEADS).map((candidate, index) => {
     const reason = candidate.reasons[0] ?? '';
-    return `${index + 1}. ${candidate.path}${reason === '' ? '' : ` — ${reason.length > REASON_CHARS ? `${reason.slice(0, REASON_CHARS - 1)}…` : reason}`}`;
+    return `${index + 1}. ${candidate.path}${candidate.line === undefined ? '' : `:${candidate.line}`}${reason === '' ? '' : ` — ${reason.length > REASON_CHARS ? `${reason.slice(0, REASON_CHARS - 1)}…` : reason}`}`;
   });
   const collides = map.collisions.length === 0 ? [] : [`Declared more than once: ${map.collisions.slice(0, 6).join(', ')}.`];
   const text = (): string => [head, ...rows, ...collides].join('\n');

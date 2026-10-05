@@ -394,7 +394,9 @@ export function createEngine(deps: EngineDeps): Engine {
     if (part.position === 'complete' || run.exited !== null || exitOf(chainOf(run)) !== null) {
       await endRoute(pointer, run.runtime.fs, run.stateKey, run.scratchpadDir, { task: run.task, skill: run.def.skill, routeId: run.head.id });
     } else {
-      await pointer.write(run.stateKey, run.scratchpadDir, { task: run.task, skill: run.def.skill, owner: run.session });
+      const answering = run.def.steps.find((step) => step.id === part.position)?.answer === 'note';
+      const toolTurns = answering ? run.def.budget.toolTurns : undefined;
+      await pointer.write(run.stateKey, run.scratchpadDir, { task: run.task, skill: run.def.skill, owner: run.session, ...(toolTurns === undefined ? {} : { toolTurns }) });
       await markStepDelivered(run.runtime.fs, run.runtime.ids, { session: run.stateKey, scratchpad: run.scratchpadDir, routeId: run.head.id, position: part.position });
     }
   }

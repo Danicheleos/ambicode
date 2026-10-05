@@ -1,6 +1,6 @@
 skill: investigate
 version: 3
-budget: { modelSteps: 6 }
+budget: { modelSteps: 6, toolTurns: 12 }
 exits: [done, blocked, human, inconclusive, superseded, budget]
 revisable: [ground]
 steps:

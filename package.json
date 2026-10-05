@@ -28,6 +28,8 @@
     "evals:archived": "npm run evals:preflight && EVAL_AMBICODE_REVIEWER_REPLAY=\"$PWD/fixtures/reviewer-recordings.json\" claude plugin eval . --eval-dir evals/evals-archived/typescript --runs 3 --model claude-sonnet-5-5 --ablation with-without -j 4 --max-cost-usd 10 --scaffold --allow-tools Bash 'WebFetch(domain:api.anthropic.com)' --no-publish",
     "evals:triggers": "rm -f evals/evals-triggers/results/latest.json; EVAL_AMBICODE_REVIEWER_REPLAY=\"$PWD/fixtures/reviewer-recordings.json\" claude plugin eval . --eval-dir evals/evals-triggers --runs 1 --model claude-sonnet-5-5 -j 4 --ablation none --max-cost-usd 4 --scaffold --allow-tools Bash --no-publish --json evals/evals-triggers/results/latest.json; s=$?; node evals/scripts/src/harness/run-validity.mjs evals/evals-triggers/results/latest.json && exit $s",
     "evals:shortlist-recall": "node evals/scripts/src/analysis/shortlist-recall.mjs",
+    "evals:map-recall": "node evals/scripts/src/analysis/map-recall.mjs",
+    "evals:layer-audit": "node evals/scripts/src/analysis/layer-audit.mjs",
     "evals:preflight": "node evals/scripts/src/validation/evals-preflight.mjs",
     "evals:reviewer": "node evals/scripts/src/validation/evals-reviewer.mjs",
     "package:candidate": "node package-candidate.mjs",

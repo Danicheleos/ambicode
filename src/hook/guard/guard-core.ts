@@ -18,12 +18,17 @@ export interface GuardInput {
 export interface ActiveRoute {
   task: string;
   skill: string;
+  toolTurns?: number;
 }
 
 /** Bounded reads of session state and a task ledger; `null` when absent, too large or unreadable. */
 export interface GuardState {
   activeRoute(scratchpadDir: string): ActiveRoute | null;
   ledger(taskDirectory: string): LedgerEntry[] | null;
+  /** The last `TRANSCRIPT_TAIL` bytes of a transcript, from its first whole line. */
+  transcriptTail?(file: string): string | null;
+  /** The pointer of a session whose hook input has no `scratchpad_dir` (PostToolUse carries none). */
+  sessionRoute?(sessionId: string): ActiveRoute | null;
 }
 
 type Decision = Record<string, unknown>;

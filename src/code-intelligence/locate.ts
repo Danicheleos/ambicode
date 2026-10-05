@@ -147,7 +147,8 @@ export async function locate(request: LocateRequest): Promise<LocateShortlist> {
     .sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
   // Filtered after scoring so a test still seeds co-change toward the code it covers.
   const rules = shortlistRules(request.project);
-  const ordered = scored.filter((entry) => shortlistable(toProjectRelative(projectRoot, entry.path) ?? entry.path, rules));
+  const listable = (file: string): boolean => shortlistable(toProjectRelative(projectRoot, file) ?? file, rules);
+  const ordered = withTemplates(scored, fileSet, listable).filter((entry) => listable(entry.path));
   if (ordered.length < scored.length) {
     limitations.push(
       `${scored.length - ordered.length} matching file(s) are not listed: they fall outside projects[].shortlist in .ambicode/config.yaml (tests, styles, markup and data by default).`,
@@ -168,6 +169,24 @@ export async function locate(request: LocateRequest): Promise<LocateShortlist> {
     })),
     limitations,
   };
+}
+
+const TEMPLATE = /\.(html|scss|sass|less|css)$/;
+
+/** A filtered template or style hands its score to the same-stem source (`x.component.html` → `x.component.ts`), max-merged. */
+function withTemplates<T extends { path: string; score: number; reasons: string[] }>(scored: readonly T[], files: ReadonlySet<string>, listable: (file: string) => boolean): T[] {
+  const byPath = new Map(scored.map((entry) => [entry.path, { ...entry, reasons: [...entry.reasons] }]));
+  for (const entry of scored) {
+    const source = entry.path.replace(TEMPLATE, '.ts');
+    if (source === entry.path || listable(entry.path) || !files.has(source) || !listable(source)) continue;
+    const reason = `its template ${entry.reasons[0] ?? 'matches'}`;
+    const { score } = entry;
+    const target = byPath.get(source);
+    if (target === undefined) byPath.set(source, { ...entry, path: source, score, reasons: [reason] });
+    else if (score > target.score) Object.assign(target, { score, reasons: [...target.reasons, reason] });
+    else if (!target.reasons.includes(reason)) target.reasons.push(reason);
+  }
+  return [...byPath.values()].sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
 }
 
 export function shortlistRules(project: ProjectConfig): ShortlistConfig {
@@ -273,7 +292,26 @@ function pathMatches(
       });
     }
   }
-  return [...matches.values()];
+  return broadDirectories([...matches.values()], forms);
+}
+
+const BROAD_PLACES = 3;
+
+/**
+ * A term spelled by several unrelated directories (`employee/` in three places) does not say where the request lives:
+ * its hits keep their score, not a path reason.
+ */
+function broadDirectories(matches: { path: string; kind: 'directory' | 'filename'; reason: string }[], forms: readonly string[]): typeof matches {
+  const roots = new Set<string>();
+  for (const match of matches) {
+    if (match.kind !== 'directory') continue;
+    const segments = match.path.toLowerCase().split('/');
+    const at = segments.findIndex((segment, index) => index < segments.length - 1 && forms.some((form) => segment.includes(form)));
+    if (at < 0) continue;
+    roots.add(segments.slice(0, at + 1).join('/'));
+  }
+  if (roots.size < BROAD_PLACES) return matches;
+  return matches.map((match) => (match.kind === 'directory' ? { ...match, reason: match.reason.replace('sits under a directory matching', `sits under one of ${roots.size} broad directories matching`) } : match));
 }
 
 /** A file holding both the term and its compact form is one mention, not two. */

@@ -711,7 +711,7 @@ test('03-C5: the ecosystem table covers every ecosystem and the fallback', () =>
   }
   assert.ok(ECOSYSTEMS.typescript.exportFilter?.test('export const a = 1'));
   assert.equal(ECOSYSTEMS.python.exportFilter, null);
-  assert.deepEqual(ECOSYSTEMS.typescript.i18nGlobs, ['assets/i18n/*.json']);
+  assert.deepEqual(ECOSYSTEMS.typescript.i18nGlobs, ['**/assets/i18n/*.json', '**/i18n/*.json', '**/locales/**/*.json']);
   assert.deepEqual(ECOSYSTEMS.python.i18nGlobs, []);
   assert.equal(ecosystemFacts(null), FALLBACK_ECOSYSTEM);
   assert.equal(ecosystemFacts(undefined), FALLBACK_ECOSYSTEM);
