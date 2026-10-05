@@ -185,7 +185,6 @@ async function captureForRoute(runtime: Runtime, input: HookInput, deps: HookDep
   const active = await resolveActiveRoute(runtime.fs, deps.pointer, { repositoryRoot: found.repositoryRoot, session: input.session_id, scratchpad: input.scratchpad_dir });
   if (active === null) return;
   const mcpServer = await loadConfig(runtime.fs, found.repositoryRoot).then((loaded) => loaded.config.requirements.mcpServer).catch(() => null);
-  if (mcpServer === null) return;
   const routeRuntime = await createRuntime({ ...runtime, cwd: found.repositoryRoot });
   const { routes } = await deps.load();
   const view = await openRouteView(routeRuntime, routes, active.task, active.owner);

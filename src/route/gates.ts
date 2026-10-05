@@ -164,3 +164,15 @@ export async function raiseGate(
     values: input.values,
   });
 }
+
+/** Gates whose answer is open text after a fixed lead: the instantiated option lists the stored choices, not each subset. */
+const OPEN_OPTIONS: Readonly<Record<string, RegExp>> = { 'requirements-expansion-capped': /^read these:\s*\S/ };
+
+export const offersOption = (gate: string, options: readonly string[], option: string): boolean => options.includes(option) || OPEN_OPTIONS[gate]?.test(option) === true;
+
+export type RaisedAnswerHandler = (input: { view: RouteView; ledger: LockedLedger; acceptance: LedgerEntry }) => Promise<void>;
+const ANSWER_HANDLERS = new Map<string, RaisedAnswerHandler>();
+
+/** Runs once, inside the advance that folds the acceptance, when a raised gate gets a bound answer. */
+export const onRaisedAnswer = (gate: string, handler: RaisedAnswerHandler): void => void ANSWER_HANDLERS.set(gate, handler);
+export const raisedAnswerHandler = (gate: string): RaisedAnswerHandler | undefined => ANSWER_HANDLERS.get(gate);

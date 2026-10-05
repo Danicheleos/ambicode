@@ -49,7 +49,7 @@ function configWith(image: string | null): AmbicodeConfig {
     review: { ...DEFAULTS.review },
     checks: { ...DEFAULTS.checks },
     page: { ...DEFAULTS.page },
-    requirements: { mcpServer: null },
+    requirements: { mcpServer: null, acceptanceField: null },
     search: { index: 'none' },
     workers: { approved: [] },
     guard: { askOutsideMap: false },

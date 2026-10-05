@@ -20,8 +20,15 @@ export function buildReport(
   const of = (...kinds: string[]): LedgerEntry[] => entries.filter((entry) => kinds.includes(entry.kind));
   const line = (name: string, parts: string[]): string => `  ${name}: ${parts.length === 0 ? 'none recorded' : parts.join('; ')}`;
 
-  const requirements = of('requirement').map((entry) => `${clip(entry.key)} (${clip(entry.relation)})${historical(entry)}`);
-  for (const entry of of('envelope')) requirements.push(`envelope from ${clip(entry.builtFrom)}${historical(entry)}`);
+  const origins = of('envelope').map((entry) => {
+    const keys = list(entry.sources).map((source) => clip((source as { key?: unknown } | null)?.key, 40));
+    const missing = list(entry.missingAsked).map((key) => clip(key, 40));
+    const origin = entry.builtFrom === 'captures'
+      ? `${keys.length} source(s) from captures (${keys.join(', ')})${typeof entry.server === 'string' ? ` via ${clip(entry.server, 40)}` : ''}`
+      : 'built from the args text (not captured)';
+    return `${origin}${missing.length === 0 ? '' : `; missing: ${missing.join(', ')}`}${historical(entry)}`;
+  });
+  const requirements = [...origins, ...of('requirement').map((entry) => `${clip(entry.key)} (${clip(entry.relation)})${historical(entry)}`)];
 
   const maps = of('map').map((entry) => {
     const layers = list(entry.layers).map((layer) => clip((layer as { name?: unknown } | null)?.name)).join('→');

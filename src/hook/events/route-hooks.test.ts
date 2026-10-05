@@ -289,6 +289,35 @@ describe('03-H6 MCP capture with a route', () => {
   });
 });
 
+describe('04-B hook binding', () => {
+  it('04-B6: with no active route a candidate-named server is still ignored before any config load or ledger read', async () => {
+    const plan = await planFixture();
+    try {
+      const reads: string[] = [];
+      const fs: FileSystem = new Proxy(plan.fx.runtime.fs, { get: (target, key) => (typeof key === 'string' && key.startsWith('read') ? (...args: unknown[]) => (reads.push(String(args[0])), (target as never as Record<string, (...rest: unknown[]) => unknown>)[key]!(...args)) : (target as never as Record<string | symbol, unknown>)[key]) });
+      const output = await runHook({ ...plan.fx.runtime, fs }, JSON.stringify({ hook_event_name: 'PostToolUse', session_id: A, cwd: plan.fx.repo.root, scratchpad_dir: plan.fx.scratchpad, tool_name: 'mcp__claude_ai_Atlassian_Rovo__getJiraIssue', tool_response: {} }), deps(plan));
+      assert.deepEqual(output, {});
+      assert.deepEqual(reads.filter((file) => /config\.yaml|ledger\.jsonl/.test(file)), []);
+    } finally {
+      await plan.dispose();
+    }
+  });
+
+  it('04-B2: with no server configured a candidate-named server is captured and another is not', async () => {
+    const plan = await planFixture();
+    try {
+      await prompt(plan, '/ambicode:plan ORD-17 add a limit --task ORD-17');
+      const response = { content: [{ type: 'text', text: JSON.stringify({ key: 'ORD-17', fields: { summary: 'Limit', description: 'Cap the cart at 50 items.' } }) }] };
+      await hook(plan, { hook_event_name: 'PostToolUse', tool_name: 'mcp__linear__getIssue', tool_response: response });
+      assert.equal((await plan.fx.kinds(TASK, 'requirement')).length, 0);
+      await hook(plan, { hook_event_name: 'PostToolUse', tool_name: 'mcp__claude_ai_Atlassian_Rovo__getJiraIssue', tool_response: response });
+      assert.equal((await plan.fx.kinds(TASK, 'requirement')).length, 1);
+    } finally {
+      await plan.dispose();
+    }
+  });
+});
+
 describe('03-H7 SessionEnd', () => {
   it('removes the pointer, ended-route and stop cursors with the rest of the session state', async () => {
     const plan = await planFixture();

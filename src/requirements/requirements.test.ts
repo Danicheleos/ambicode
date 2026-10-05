@@ -6,7 +6,8 @@ import { openRouteView } from '../route/context.ts';
 import { CONFIG, routeFixture, type RouteFixture } from '../testing/route-fixture.ts';
 import { withLedgerLock } from '../task/ledger-lock.ts';
 import { resolveTaskDir } from '../task/task-dir.ts';
-import { captureRequirement, bindsToServer, type CaptureDeps } from './capture.ts';
+import { captureRequirement, type CaptureDeps } from './capture.ts';
+import { capturesFrom } from './binding.ts';
 import { askedKeys, normalizeEnvelope, type EnvelopeInput } from './envelope.ts';
 import { splitAcs } from './acs.ts';
 import { hasRequirement } from './has-requirement.ts';
@@ -62,20 +63,20 @@ describe('03-Q1 hasRequirement', () => {
 
 describe('03-Q2 requirementsTemplate', () => {
   it('names the binding first, the calls per source, the child cap before any child read, and ends with the completion command', () => {
-    const { text, bytes } = requirementsTemplate({ sources: ['https://x.atlassian.net/browse/ORD-17', 'https://x.atlassian.net/wiki/spaces/A/pages/123/Title'], task: 'ORD-17', mcpServer: 'atlassian' });
+    const { text, bytes } = requirementsTemplate({ sources: ['https://x.atlassian.net/browse/ORD-17', 'https://x.atlassian.net/wiki/spaces/A/pages/123/Title'], task: 'ORD-17', mcpServer: 'atlassian', acceptanceField: null, observedTools: [] });
     const lines = text.split('\n');
-    assert.match(lines[0]!, /Use the atlassian MCP server/);
+    assert.match(lines[0]!, /Use MCP server `atlassian`/);
     assert.ok(text.includes('getJiraIssue ORD-17 fields=summary,description,issuetype,parent,issuelinks'));
     assert.ok(text.includes('searchJiraIssuesUsingJql "parent = ORD-17" fields=key,summary'));
-    assert.match(text, /Confluence page .*: read the page in full; list its child pages/);
+    assert.match(text, /Confluence page 123: read the page; list its child pages/);
     assert.ok(text.indexOf('more than 10 hits') > text.indexOf('searchJiraIssuesUsingJql'));
     assert.match(lines.at(-1)!, /route next --task ORD-17/);
     assert.ok(bytes <= 1536);
   });
 
   it('tells the model to pin the server when none is configured and stays under the byte cap for many sources', () => {
-    assert.match(requirementsTemplate({ sources: ['ORD-1'], task: 't', mcpServer: null }).text, /requirements\.mcpServer/);
-    const many = requirementsTemplate({ sources: Array.from({ length: 40 }, (_, index) => `https://x/browse/ORD-${index + 1}`), task: 't', mcpServer: 'a' });
+    assert.match(requirementsTemplate({ sources: ['ORD-1'], task: 't', mcpServer: null, acceptanceField: null, observedTools: ['mcp__atlassian__getJiraIssue'] }).text, /requirements\.mcpServer/);
+    const many = requirementsTemplate({ sources: Array.from({ length: 40 }, (_, index) => `https://x/browse/ORD-${index + 1}`), task: 't', mcpServer: 'a', acceptanceField: null, observedTools: [] });
     assert.ok(many.bytes <= 1536);
     assert.match(many.text.split('\n').at(-1)!, /route next/);
   });
@@ -83,17 +84,16 @@ describe('03-Q2 requirementsTemplate', () => {
 
 describe('03-Q3 capture binding', () => {
   it('binds on the exact server or on a case-insensitive token, and on nothing else', () => {
-    assert.equal(bindsToServer('atlassian', 'atlassian'), true);
-    assert.equal(bindsToServer('claude_ai_Atlassian_Rovo', 'atlassian'), true);
-    assert.equal(bindsToServer('claude_ai_Linear', 'atlassian'), false);
-    assert.equal(bindsToServer('atlassianish', 'atlassian'), false);
+    assert.equal(capturesFrom('atlassian', 'atlassian'), true);
+    assert.equal(capturesFrom('atlassian', 'claude_ai_Atlassian_Rovo'), true);
+    assert.equal(capturesFrom('atlassian', 'claude_ai_Linear'), false);
+    assert.equal(capturesFrom('atlassian', 'atlassianish'), false);
   });
 
-  it('captures nothing without a configured server, for another server or for an unknown tool class', async () => {
+  it('captures nothing for another server or for an unknown tool class', async () => {
     const s = await session();
     try {
       const response = mcp(jira('ORD-17', {}));
-      assert.equal(await s.capture('mcp__atlassian__getJiraIssue', response, { mcpServer: null }), null);
       assert.equal(await s.capture('mcp__linear__getIssue', response), null);
       assert.equal(await s.capture('mcp__atlassian__createJiraIssue', response), null);
       assert.equal((await s.fx.kinds('ORD-17', 'requirement')).length, 0);
@@ -145,8 +145,8 @@ describe('03-Q4 capture', () => {
       const hits = mcp(JSON.stringify({ issues: [{ key: 'ORD-18', fields: { summary: 'Child A', description: 'long text' } }, { key: 'ORD-19', fields: { summary: 'Child B' } }] }));
       const entry = await s.capture('mcp__atlassian__searchJiraIssuesUsingJql', hits);
       assert.equal(entry?.['capture'], 'list');
-      assert.match(String(entry?.['key']), /^search-[0-9a-f]{12}$/);
-      const file = JSON.parse(await readFile(path.join(s.dir.requirements, `${String(entry?.['key'])}.json`), 'utf8'));
+      assert.equal(entry?.['key'], 'SEARCH');
+      const file = JSON.parse(await readFile(path.join(s.dir.requirements, `search-${String(entry?.['rawHash']).slice(7, 19)}.json`), 'utf8'));
       assert.deepEqual(file.hits, [{ key: 'ORD-18', summary: 'Child A' }, { key: 'ORD-19', summary: 'Child B' }]);
       const normalized = await s.normalize();
       assert.equal(normalized.state, 'failed', 'the hits are not documents');
@@ -330,8 +330,8 @@ describe('03-Q8 splitAcs', () => {
   it('prefers an explicit acceptance section, then bullets, then normative sentences, with stable two-digit ids', () => {
     const explicit = splitAcs([{ key: 'ORD-17', content: 'Context\n- not an AC\n\n## Acceptance criteria\n- Cart shows total\n- Empty cart hides pay\n\n## Notes\n- other' }]);
     assert.deepEqual(explicit, [
-      { id: 'AC-ORD-17-01', key: 'ORD-17', quote: 'Cart shows total' },
-      { id: 'AC-ORD-17-02', key: 'ORD-17', quote: 'Empty cart hides pay' },
+      { id: 'AC-ORD-17-01', key: 'ORD-17', quote: 'Cart shows total', where: 'section:Acceptance criteria' },
+      { id: 'AC-ORD-17-02', key: 'ORD-17', quote: 'Empty cart hides pay', where: 'section:Acceptance criteria' },
     ]);
     assert.deepEqual(splitAcs([{ key: 'ARGS', content: '1. First\n2) Second' }]).map((unit) => unit.id), ['AC-ARGS-01', 'AC-ARGS-02']);
     const prose = splitAcs([{ key: 'ORD-2', content: 'Short. The cart total must include the shipping fee at checkout time. Another line here.' }]);
@@ -353,7 +353,7 @@ describe('03-T8 requirements commands', () => {
     try {
       const template = await runRequirementsTemplate(s.fx.runtime, parseArgs('requirements template', ['--task', 'ORD-17', '--requirement', 'https://x.atlassian.net/browse/ORD-17'], REQUIREMENTS_TEMPLATE_OPTIONS));
       assert.match(template.text, /getJiraIssue ORD-17/);
-      assert.match(template.text, /Use the atlassian MCP server/);
+      assert.match(template.text, /Use MCP server `atlassian`/);
       assert.ok(Buffer.byteLength(template.text) <= 1536);
       const acs = await runRequirementsAcs(s.fx.runtime, parseArgs('requirements acs', ['--task', 'ORD-17'], REQUIREMENTS_ACS_OPTIONS));
       assert.match(acs.text, /No envelope/);

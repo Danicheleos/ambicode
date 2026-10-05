@@ -56,6 +56,8 @@ export const CapturedRequirement = z.strictObject({
 export type CapturedRequirement = z.infer<typeof CapturedRequirement>;
 
 export const CapturedHits = z.strictObject({
+  query: z.string(),
+  total: z.number().int().min(0),
   hits: z.array(z.strictObject({ key: z.string().min(1), summary: z.string() })),
   retrievedVia: z.string().min(1),
   retrievedAt: z.string().min(1),

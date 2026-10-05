@@ -7,6 +7,7 @@ import { Activity } from '../contracts/primitives.ts';
 import { policyStage } from '../policy/stage.ts';
 import { splitAcs } from '../requirements/acs.ts';
 import { envelopeSources, normalizeEnvelope, type EnvelopeSource } from '../requirements/envelope.ts';
+import { observedTools } from '../requirements/binding.ts';
 import { requirementsTemplate } from '../requirements/template.ts';
 import type { LedgerEntry } from '../task/ledger.ts';
 import { AmbicodeError } from '../util/errors.ts';
@@ -62,12 +63,13 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
     const first = input.args.text.trim().split(/\s+/)[0] ?? '';
     const sources = [...input.args.requirements, ...(input.args.text.match(/https?:\/\/[^\s)>\]"']+/g) ?? []), ...(/^[A-Z][A-Z0-9]+-\d+$/.test(first) ? [first] : [])];
     const runner = `node "${input.runtime.pluginRoot}/scripts/ambicode.mjs"`;
-    return { state: 'ok', payload: requirementsTemplate({ sources: [...new Set(sources)], task: input.view.task, mcpServer: config.requirements.mcpServer, runner }).text };
+    const observed = observedTools(await chainEntries(input));
+    return { state: 'ok', payload: requirementsTemplate({ sources: [...new Set(sources)], task: input.view.task, mcpServer: config.requirements.mcpServer, acceptanceField: config.requirements.acceptanceField, observedTools: observed, runner }).text };
   },
 
   'requirements.normalize': async (input) => {
     const config = await configOf(input);
-    const result = await normalizeEnvelope({ runtime: input.runtime, dir: input.dir, ledger: input.ledger, view: input.view, args: input.args, mcpServer: config.requirements.mcpServer });
+    const result = await normalizeEnvelope({ runtime: input.runtime, dir: input.dir, ledger: input.ledger, view: input.view, args: input.args, mcpServer: config.requirements.mcpServer, acceptanceField: config.requirements.acceptanceField, runner: `node "${input.runtime.pluginRoot}/scripts/ambicode.mjs"` });
     if (result.state === 'failed') return { state: 'failed', code: result.code, message: result.message, recoverable: result.recoverable };
     if (result.state === 'raise') return { state: 'raise', gate: result.gate, values: result.values };
     // The request alone is already in the model's context; repeating it as an envelope adds nothing.

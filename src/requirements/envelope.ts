@@ -8,8 +8,11 @@ import type { LedgerEntry } from '../task/ledger.ts';
 import type { LockedLedger } from '../task/ledger-lock.ts';
 import type { TaskDir } from '../task/task-dir.ts';
 import { contentHash } from '../util/hash.ts';
+import { bindServer, capturedServers, observedTools, serverOf } from './binding.ts';
 import { asRecorded, readCapture } from './capture-files.ts';
-import { canonicalUrl, RequirementEvidence } from './normalize.ts';
+import { EXPANSION_FETCH, expansionFor } from './expansion.ts';
+import { classifySource, jiraFields, toolName } from './template.ts';
+import { RequirementEvidence } from './normalize.ts';
 
 export interface EnvelopeSource {
   key: string;
@@ -29,22 +32,21 @@ export interface EnvelopeInput {
   view: RouteView;
   args: RouteArgs;
   mcpServer: string | null;
+  acceptanceField?: string | null;
+  runner?: string;
 }
 
 export type EnvelopeResult =
   | { state: 'ok'; sources: EnvelopeSource[]; builtFrom: 'captures' | 'args'; asked: string[]; missingAsked: string[]; notices: string[]; entry: LedgerEntry }
-  | { state: 'failed'; code: 'requirements-not-captured' | 'requirements-missing'; message: string; recoverable: true }
-  | { state: 'raise'; gate: 'requirements-not-captured-twice'; values: Record<string, never> };
+  | { state: 'failed'; code: 'requirements-not-captured' | 'requirements-missing' | typeof EXPANSION_FETCH; message: string; recoverable: true }
+  | { state: 'raise'; gate: 'requirements-not-captured-twice' | 'requirements-server-ambiguous' | 'requirements-expansion-capped'; values: Readonly<Record<string, readonly string[]>> };
 
-const KEY = /\b[A-Z][A-Z0-9]+-\d+\b/;
 const URL_IN_TEXT = /https?:\/\/[^\s)>\]"']+/g;
 const CONTINUE_GATES = ['requirements-not-captured-twice', 'requirements-server-disconnected'];
 
 function keyOfSource(source: string): string {
-  const url = canonicalUrl(source);
-  const page = /\/pages\/(\d+)/.exec(url);
-  if (page !== null) return `page-${page[1]}`;
-  return KEY.exec(url)?.[0] ?? KEY.exec(source)?.[0] ?? url;
+  const classified = classifySource(source);
+  return classified.kind === 'jira' ? classified.key : classified.kind === 'confluence' ? `page-${classified.id}` : classified.url;
 }
 
 /** The keys the route asked for: its `--requirement` values, the URLs in its text, and a bare first-word key (03-Q5). */
@@ -59,9 +61,9 @@ async function chainOf(ledger: LockedLedger, view: RouteView): Promise<LedgerEnt
   return read.state === 'ok' ? read.entries.filter((entry) => view.chainIds.includes(entry.kind === 'route' ? entry.id : String(entry['route'] ?? ''))) : [];
 }
 
-async function captures(input: EnvelopeInput, entries: readonly LedgerEntry[]): Promise<Map<string, CapturedRequirement>> {
+async function captures(input: EnvelopeInput, entries: readonly LedgerEntry[], server: string): Promise<Map<string, CapturedRequirement>> {
   const found = new Map<string, CapturedRequirement>();
-  for (const entry of entries.filter((candidate) => candidate.kind === 'requirement' && candidate['capture'] === 'full')) {
+  for (const entry of entries.filter((candidate) => candidate.kind === 'requirement' && candidate['capture'] === 'full' && serverOf(String(candidate['via'])) === server)) {
     try {
       const parsed = await readCapture(input.runtime.fs, input.dir, String(entry['key']), String(entry['rawHash']));
       if (parsed !== null && parsed.content.trim() !== '') found.set(parsed.key, asRecorded(parsed, entry));
@@ -85,9 +87,9 @@ function chains(captured: ReadonlyMap<string, CapturedRequirement>, asked: reado
 
 const clip = (value: string, length: number): string => (value.length > length ? `${value.slice(0, length - 1)}…` : value);
 
-async function record(input: EnvelopeInput, sources: EnvelopeSource[], builtFrom: 'captures' | 'args', asked: string[], missingAsked: string[], notices: string[]): Promise<EnvelopeResult> {
+async function record(input: EnvelopeInput, sources: EnvelopeSource[], builtFrom: 'captures' | 'args', asked: string[], missingAsked: string[], notices: string[], server: string | null): Promise<EnvelopeResult> {
   const evidence = RequirementEvidence.parse({
-    mcpServer: input.mcpServer,
+    mcpServer: server ?? input.mcpServer,
     sources: sources.map((source) => ({
       id: source.key, url: source.url === '' ? source.key : source.url, title: source.title, retrievedAt: source.retrievedAt, content: source.content, status: 'retrieved',
       retrievedVia: source.relation === 'args' ? 'args' : (input.mcpServer ?? 'mcp'), ...(source.relation === 'args' ? {} : { relation: source.relation, derivedFrom: source.derivedFrom }),
@@ -101,24 +103,63 @@ async function record(input: EnvelopeInput, sources: EnvelopeSource[], builtFrom
     builtFrom,
     asked,
     missingAsked,
+    ...(server === null ? {} : { server }),
     hash: contentHash(JSON.stringify(evidence)),
   });
   return { state: 'ok', sources, builtFrom, asked, missingAsked, notices, entry };
 }
 
+const AMBIGUOUS = 'requirements-server-ambiguous';
+
 /**
- * The route's requirement envelope: the complete captures when there are any, else the request text itself, else a
- * recoverable refusal, else a gate (03-Q5 … 03-Q7).
+ * The route's requirement envelope. Ground order: the server the captures came from, the expansion of a wide
+ * epic, what was asked and what is missing, then the envelope itself: the complete captures when there are any, else
+ * the request text, else a recoverable refusal, else a gate (04-E1).
  */
 export async function normalizeEnvelope(input: EnvelopeInput): Promise<EnvelopeResult> {
   const entries = await chainOf(input.ledger, input.view);
   const asked = askedKeys(input.args);
-  const complete = await captures(input, entries);
-  const missingAsked = asked.filter((key) => !complete.has(key));
   const skill = input.view.skill;
+  const notices: string[] = [];
+
+  const binding = bindServer(input.mcpServer, capturedServers(entries));
+  let server: string | null = null;
+  let withoutServer = false;
+  if (binding.state === 'bound') {
+    server = binding.server;
+    if (binding.how === 'only-candidate' && !entries.some((entry) => entry.kind === 'envelope' && entry['server'] !== undefined)) {
+      notices.push(`requirements-server-unpinned: bound \`${server}\`; tell the user to pin \`requirements.mcpServer: ${server}\` in .ambicode/config.yaml.`);
+    }
+  } else if (binding.state === 'ambiguous') {
+    const answer = latestBound(entries, AMBIGUOUS)?.['answer'];
+    if (typeof answer === 'string' && binding.servers.includes(answer)) server = answer;
+    else if (answer === 'continue without') {
+      withoutServer = true;
+      notices.push(`${AMBIGUOUS}: continued without a requirement server; the request text stands in for the requirement.`);
+    } else return { state: 'raise', gate: AMBIGUOUS, values: { servers: binding.servers } };
+  }
+
+  const complete = server === null ? new Map<string, CapturedRequirement>() : await captures(input, entries, server);
+  const scoped = entries.filter((entry) => entry.kind !== 'requirement' || server === null || serverOf(String(entry['via'])) === server);
+  if (server !== null) {
+    const expansion = await expansionFor({ runtime: input.runtime, dir: input.dir, entries: scoped, asked, complete: new Set(complete.keys()) });
+    notices.push(...expansion.notices);
+    if (expansion.state === 'raise') return { state: 'raise', gate: 'requirements-expansion-capped', values: { keys: expansion.keys, parent: [expansion.parent] } };
+    if (expansion.state === 'fetch') {
+      const get = toolName(observedTools(entries), server, 'getJiraIssue');
+      const lines = expansion.keys.map((key) => `${get} ${key} fields=${jiraFields(input.acceptanceField ?? null)}`);
+      return {
+        state: 'failed',
+        code: EXPANSION_FETCH,
+        message: `Read the ${expansion.keys.length} chosen children of ${expansion.parent}, one call each:\n${lines.join('\n')}\nThen run \`${input.runner ?? 'ambicode'} route next --task ${input.view.task}\`.`,
+        recoverable: true,
+      };
+    }
+  }
+
+  const missingAsked = asked.filter((key) => !complete.has(key));
 
   if (complete.size > 0) {
-    const notices: string[] = [];
     const kept: CapturedRequirement[] = [];
     for (const captured of complete.values()) {
       if (captured.relation !== 'asked' && !chains(complete, asked, captured.key)) notices.push(`requirements-derived-orphan: ${captured.key} is not linked to an asked requirement and was dropped.`);
@@ -131,19 +172,19 @@ export async function normalizeEnvelope(input: EnvelopeInput): Promise<EnvelopeR
       notices.push(`requirements-partial: ${missingAsked.join(', ')} not captured; it is listed under Not verified.`);
     }
     const sources: EnvelopeSource[] = kept.map((captured) => ({ key: captured.key, title: captured.title, content: captured.content, url: captured.url, relation: captured.relation, derivedFrom: captured.derivedFrom, retrievedAt: captured.retrievedAt, rawHash: captured.rawHash }));
-    return record(input, sources, 'captures', asked, missingAsked, notices);
+    return record(input, sources, 'captures', asked, missingAsked, notices, server);
   }
 
   const fromArgs = (missing: readonly string[]): Promise<EnvelopeResult> => {
     const text = input.args.text.trim();
     const source: EnvelopeSource = { key: 'ARGS', title: clip(text.split('\n')[0] ?? '', 120), content: text, url: '', relation: 'args', derivedFrom: null, retrievedAt: input.runtime.clock.now().toISOString() };
-    return record(input, [source], 'args', asked, [...missing], []);
+    return record(input, [source], 'args', asked, [...missing], notices, null);
   };
   // Nothing was to be fetched, so a URL in the prose (an image, a link) is not a requirement that went missing.
   const explicit = new Set(input.args.requirements.map(keyOfSource));
   if (!input.args.hasRequirement) return fromArgs(missingAsked.filter((key) => explicit.has(key)));
 
-  const continued = CONTINUE_GATES.some((gate) => latestBound(entries, gate)?.['answer'] === 'continue without');
+  const continued = withoutServer || CONTINUE_GATES.some((gate) => latestBound(entries, gate)?.['answer'] === 'continue without');
   if (continued) return fromArgs(missingAsked);
   const failures = entries.filter((entry) => entry.kind === 'step' && entry['status'] === 'failed' && entry['code'] === 'requirements-not-captured').length;
   if (failures >= 1) return { state: 'raise', gate: 'requirements-not-captured-twice', values: {} };

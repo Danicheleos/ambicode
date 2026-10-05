@@ -25,7 +25,7 @@ describe('02-R1: the report skeleton', () => {
   it('shows what is recorded on each line', () => {
     const report = buildReport([
       entry('requirement', { key: 'ORD-17', via: 'mcp', rawHash: 'h', bytes: 1, relation: 'asked', capture: 'c' }),
-      entry('envelope', { sources: [], builtFrom: 'captures', asked: ['ORD-17'], missingAsked: [], hash: 'h' }),
+      entry('envelope', { sources: [{ key: 'ORD-17' }], builtFrom: 'captures', asked: ['ORD-17'], missingAsked: [], server: 'atlassian', hash: 'h' }),
       entry('map', { layers: [{ name: 'shortlist' }, { name: 'harvest' }], collisions: ['validate'], index: 'none' }),
       entry('baseline', { head: 'a1b2c3d4e5f6', dirty: ['README.md'] }),
       check({ phase: 'red', exit: 1, summary: { ran: 1, failed: 1 }, only: ['a.spec.ts'] }),
@@ -35,7 +35,7 @@ describe('02-R1: the report skeleton', () => {
       entry('revise', { route: 'r', from: 'plan-write', via: 'code', cycle: 1, reason: '2 bad anchors' }),
       entry('revise', { route: 'r', from: 'plan-write', via: 'code', cycle: 2, reason: 'none left' }),
     ]);
-    assert.match(report.evidence, /Requirements: ORD-17 \(asked\); envelope from captures/);
+    assert.match(report.evidence, /Requirements: 1 source\(s\) from captures \(ORD-17\) via atlassian; ORD-17 \(asked\)/);
     assert.match(report.evidence, /Map: layers shortlist→harvest, 1 colliding names, index none/);
     assert.match(report.evidence, /Baseline: a1b2c3d4e5f6, dirty: README\.md/);
     assert.match(report.evidence, /Checks: web\/unit --only a\.spec\.ts: red exit 1 \(1 ran, 1 failed\) → green exit 0 \(3 ran, 0 failed\)/);
@@ -120,7 +120,7 @@ describe('02-R5: the same entries give the same bytes, in a small space', () => 
   const twenty = (): LedgerEntry[] => [
     route(),
     entry('requirement', { key: 'ORD-17', via: 'mcp', rawHash: 'h', bytes: 1, relation: 'asked', capture: 'c' }),
-    entry('envelope', { sources: [], builtFrom: 'captures', asked: ['ORD-17'], missingAsked: [], hash: 'h' }),
+    entry('envelope', { sources: [{ key: 'ORD-17' }], builtFrom: 'captures', asked: ['ORD-17'], missingAsked: [], server: 'atlassian', hash: 'h' }),
     entry('map', { layers: [{ name: 'shortlist' }], collisions: [], index: 'none' }),
     entry('search', { command: 'refs', names: ['a', 'b', 'c'] }),
     entry('search', { command: 'find' }),
@@ -185,5 +185,19 @@ describe('03-E12: the report leads with how the route ended', () => {
   it('the hash covers the evidence only: the leading line does not change it', () => {
     const exit = { id: 'a-2', at, kind: 'exit', route: 'a-1', reason: 'blocked' };
     assert.equal(buildReport([route]).hash, buildReport([route, exit]).hash);
+  });
+});
+
+describe('04-R1: the Requirements line names where the envelope came from', () => {
+  const envelope = (fields: object): LedgerEntry => entry('envelope', { sources: [], builtFrom: 'args', asked: [], missingAsked: [], hash: 'h', ...fields });
+
+  it('04-R1: captures name the count, the keys and the server; args say they were not captured; missing keys follow', () => {
+    const captured = buildReport([envelope({ builtFrom: 'captures', sources: [{ key: 'ORD-17' }, { key: 'ORD-30' }], server: 'atlassian', missingAsked: ['ORD-18'] })]);
+    assert.match(captured.evidence, /Requirements: 2 source\(s\) from captures \(ORD-17, ORD-30\) via atlassian; missing: ORD-18/);
+    assert.match(captured.notVerified, /Requirement not captured: ORD-18/);
+    const args = buildReport([envelope({ sources: [{ key: 'ARGS' }] })]);
+    assert.match(args.evidence, /Requirements: built from the args text \(not captured\)\n/);
+    assert.doesNotMatch(args.evidence, /missing:/);
+    assert.match(buildReport([envelope({ missingAsked: ['ORD-9'] })]).evidence, /Requirements: built from the args text \(not captured\); missing: ORD-9/);
   });
 });

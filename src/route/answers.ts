@@ -4,7 +4,8 @@ import { AmbicodeError } from '../util/errors.ts';
 import type { Answer } from './flags.ts';
 import { askedCount, executions, foldRoute, humanRevisesLeft, printsOf, unconsumedPreanswer, windowOf } from './fold.ts';
 import { RAISED_BY, type Exit, type GateDef, type Revise } from './dsl.ts';
-import { append, chainOf, gateFor, latestPrint, objectOf, type Run } from './run-context.ts';
+import { raisedAnswerHandler, offersOption } from './gates.ts';
+import { append, chainOf, gateFor, latestPrint, objectOf, viewFor, type Run } from './run-context.ts';
 
 type Entry = LedgerEntry;
 type RevisePath = 'gate' | 'code' | 'model';
@@ -79,7 +80,8 @@ export async function recordAnswer(run: Run, gate: GateDef, recorded: Recorded, 
     await append(run, { kind: 'declined', ...body, reason: 'max-revises' });
     return;
   }
-  await append(run, { kind: recorded.kind, ...body });
+  const written = await append(run, { kind: recorded.kind, ...body });
+  if (recorded.kind === 'acceptance') await raisedAnswerHandler(gate.id)?.({ view: viewFor(run, raisedBy ?? ''), ledger: run.ledger, acceptance: written });
   if (recorded.answer === 'stop' || recorded.answer === 'pause') return exitRoute(run, stopReason(gate.id), `${gate.id}: stop`);
   if (revise !== undefined) {
     await reviseTo(run, revise, recorded.revisePath, { reason: `${gate.id}: ${recorded.answer}`, gate: gate.id, answer: recorded.answer, ...(raisedBy === undefined ? {} : { raisedBy }) });
@@ -98,7 +100,7 @@ export async function recordFlagAnswer(run: Run, answer: Answer): Promise<void> 
   const gate = gateFor(run, answer.gate, print);
   if (gate === null) throw unknownGate(run, answer.gate);
   const options = (print?.['options'] as string[] | undefined) ?? gate.options;
-  const known = options.includes(answer.option);
+  const known = offersOption(gate.id, options, answer.option);
   if (!known && gate.onAnswer['*'] === undefined && gate.class !== 'decision') {
     throw new AmbicodeError('gate-option-unknown', `Gate ${gate.id} has no option "${answer.option}".`, { details: [`Options: ${options.join(', ')}.`] });
   }
@@ -142,7 +144,7 @@ export async function recordHookAnswer(run: Run, answer: Answer & { question?: s
   const gate = gateFor(run, answer.gate, print);
   if (gate === null) return void (await unbound('unknown-gate'));
   const options = (print['options'] as string[] | undefined) ?? gate.options;
-  if (!options.includes(answer.option) && gate.class !== 'decision' && gate.onAnswer['*'] === undefined) {
+  if (!offersOption(gate.id, options, answer.option) && gate.class !== 'decision' && gate.onAnswer['*'] === undefined) {
     await append(run, { kind: 'declined', gate: gate.id, instance: print.id, answer: answer.option, via: 'hook', reason: 'option-not-offered' });
     return;
   }

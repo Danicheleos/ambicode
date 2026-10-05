@@ -4,6 +4,7 @@ import { openRouteView } from '../../route/context.ts';
 import { runCommandTail } from '../../route/command-tail.ts';
 import { splitAcs } from '../../requirements/acs.ts';
 import { envelopeSources, normalizeEnvelope } from '../../requirements/envelope.ts';
+import { observedTools } from '../../requirements/binding.ts';
 import { requirementsTemplate } from '../../requirements/template.ts';
 import type { RouteArgs } from '../../route/flags.ts';
 import { taskSlugFor } from '../../review/review-name.ts';
@@ -25,7 +26,8 @@ export async function runRequirementsTemplate(runtime: Runtime, args: ParsedArgs
   const dir = await resolveTaskDir(runtime, task);
   const config = (await loadConfigWithNotices(runtime.fs, dir.repositoryRoot)).config;
   const sources = args.all('requirement');
-  const { text, bytes } = requirementsTemplate({ sources, task, mcpServer: config.requirements.mcpServer, runner: `node "${runtime.pluginRoot}/scripts/ambicode.mjs"` });
+  const observed = observedTools(await readLedger(runtime.fs, dir.root).catch(() => []));
+  const { text, bytes } = requirementsTemplate({ sources, task, mcpServer: config.requirements.mcpServer, acceptanceField: config.requirements.acceptanceField, observedTools: observed, runner: `node "${runtime.pluginRoot}/scripts/ambicode.mjs"` });
   return { command: 'requirements template', task, text, data: { sources, bytes, text } };
 }
 
@@ -39,10 +41,10 @@ export async function runRequirementsNormalize(runtime: Runtime, args: ParsedArg
   const result = await withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), view.session, async (ledger) => {
     const route = (await ledger.read());
     const head = route.state === 'ok' ? route.entries.find((entry) => entry.id === view.routeId) : undefined;
-    return normalizeEnvelope({ runtime, dir, ledger, view, args: (head?.['args'] ?? {}) as RouteArgs, mcpServer: config.requirements.mcpServer });
+    return normalizeEnvelope({ runtime, dir, ledger, view, args: (head?.['args'] ?? {}) as RouteArgs, mcpServer: config.requirements.mcpServer, acceptanceField: config.requirements.acceptanceField });
   });
   if (result.state === 'failed') throw new AmbicodeError(result.code, result.message, { details: ['Fetch what is missing, then run requirements normalize again.'] });
-  if (result.state === 'raise') throw new AmbicodeError('requirements-not-captured', 'Nothing was captured twice: the route raises requirements-not-captured-twice; run route next to put it to the user.');
+  if (result.state === 'raise') throw new AmbicodeError('requirements-not-captured', `The route raises ${result.gate}; run route next to put it to the user.`);
   const next = await runCommandTail({ engine: tools.engine }, { task, cause: 'requirements normalize', session: tools.binding });
   const text = [`Envelope built from ${result.builtFrom}: ${result.sources.map((source) => source.key).join(', ')}.`, ...result.notices].join('\n');
   return { command: 'requirements normalize', task, text, data: { builtFrom: result.builtFrom, asked: result.asked, missingAsked: result.missingAsked, notices: result.notices }, ...(next === null ? {} : { next: next.text }) };

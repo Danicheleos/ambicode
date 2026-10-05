@@ -754,3 +754,12 @@ test('03-C6: no ecosystem or language name in routes, step texts or the route en
     assert.equal(match, null, `${path.relative(root, file)} names "${match?.[0]}"`);
   }
 });
+
+test('04-T5: requirements.acceptanceField is nullable, defaults to null in every schema version and must be a customfield id', () => {
+  const project = '  - { id: web, root: ".", ecosystem: typescript }';
+  const at = (version: number, requirements: string): string => withProjects(project).replace('schemaVersion: 1', `schemaVersion: ${version}`).replace('requirements: { mcpServer: null, lsp: [] }', requirements);
+  for (const version of [1, 2, 3]) assert.equal(parseConfig(at(version, 'requirements: { mcpServer: null }')).requirements.acceptanceField, null, `v${version}`);
+  assert.equal(parseConfig(at(3, 'requirements: { mcpServer: null, acceptanceField: customfield_10042 }')).requirements.acceptanceField, 'customfield_10042');
+  assert.equal(parseConfig(at(3, 'requirements: { mcpServer: null, acceptanceField: null }')).requirements.acceptanceField, null);
+  assert.throws(() => parseConfig(at(3, 'requirements: { mcpServer: null, acceptanceField: Acceptance }')), (error: Error & { details?: string[] }) => error.details?.some((detail) => detail.includes('acceptanceField')) === true);
+});

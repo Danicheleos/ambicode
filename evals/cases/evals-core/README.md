@@ -353,6 +353,8 @@ with no harvested ledger is left out of `ledgered`. MCP hook process spawns
 are unmeasured: the trace shows PostToolUse `hook_response` events at best
 (`mcpHookResponses`, null when none of that kind appears), not processes.
 
+A sandbox run has no MCP server, so its envelope is always `builtFrom: args`; `captures` is measured only in real sessions.
+
 `eval-gate.mjs` turns a result into pass or fail:
 - the model is pinned and confirmed by the traces;
 - there are ≥3 runs per case, and the run is not partial;

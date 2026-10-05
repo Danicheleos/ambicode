@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { Runtime } from '../composition/root.ts';
 import { TASKS_DIR } from '../config/defaults.ts';
 import { loadConfigWithNotices } from '../config/load.ts';
+import { raiseConflict } from '../requirements/conflict.ts';
 import { hasRequirement } from '../requirements/has-requirement.ts';
 import type { LedgerEntry } from '../task/ledger.ts';
 import { withLedgerLock, type LockedLedger } from '../task/ledger-lock.ts';
@@ -14,13 +15,13 @@ import { contentHash } from '../util/hash.ts';
 import { endRoute, markStepDelivered, type ActiveRoutePointer } from './active-route.ts';
 import { exitRoute, recordDefaultFlag, recordFlagAnswer, recordHookAnswer, reviseTo, serviceGate } from './answers.ts';
 import { checkOwner, ledgerRouteContext, ledgerUnreadable, readEntries, type Cause, type StartChannel } from './context.ts';
-import { capturePaths } from '../requirements/capture-files.ts';
+import { entryPaths } from '../requirements/capture-files.ts';
 import { chainKey, compose, loadPayload, savePayload, stepHeader, writeStepFile, type Composed, type DeliveryChannel } from './delivery.ts';
 import type { Exit, GateDef } from './dsl.ts';
 import { canonicalArgs, type Answer, type RouteArgs } from './flags.ts';
 import { buildChain, currentIn, exitOf, executions, foldRoute, humanRevisesLeft, latestRouteOf, liveHeads, modelDeliveries, windowOf, matches } from './fold.ts';
 import { harnessOf } from './harness.ts';
-import { gatePrintText, gateThen, raiseGate } from './gates.ts';
+import { gatePrintText, gateThen, raiseGate, raisedAnswerHandler } from './gates.ts';
 import { payloadKey, type HandlerRegistry } from './handlers.ts';
 import { ownerOf, type PlanOwnership } from './ownership.ts';
 import type { RouteRegistry, StepDef } from './routes.ts';
@@ -346,8 +347,16 @@ export function createEngine(deps: EngineDeps): Engine {
     }
   }
 
+  /** An accepted raised-gate answer whose effect an interrupted advance did not record; the handlers are idempotent per acceptance. */
+  async function applyRaisedAnswers(run: Run): Promise<void> {
+    for (const entry of chainOf(run).entries) {
+      if (entry.kind === 'acceptance') await raisedAnswerHandler(String(entry['gate']))?.({ view: viewFor(run, ''), ledger: run.ledger, acceptance: entry });
+    }
+  }
+
   /** Steps 2–6 of 12 §8: fold, check, run what is reachable, record, deliver. */
   async function execute(run: Run): Promise<Part> {
+    if (!run.deliverOnly) await applyRaisedAnswers(run);
     for (let turn = 0; turn < MAX_TURNS; turn += 1) {
       if (run.exited !== null) return finish(run);
       const fold = foldRoute(run.def, chainOf(run));
@@ -571,6 +580,10 @@ export function createEngine(deps: EngineDeps): Engine {
       }
       const run = newRun({ runtime, def, task: input.task, dir, ledger, entries, head, session: input.session, stateKey: harnessOf(head) ?? input.session, cause: input.cause, channel: input.cause === 'gate-hook' ? 'hook' : 'cli', ...scratchOf(head, input.scratchpadDir) });
       const position = foldRoute(def, chain).position;
+      const raised = input.conflict !== undefined && position !== null
+        ? await raiseConflict({ view: viewFor(run, position.id), ledger: run.ledger, summary: input.conflict.summary, sources: input.conflict.sources })
+        : null;
+      if (raised?.state === 'failed') throw new AmbicodeError(raised.code, raised.message);
       if (position?.actor === 'model' && position.produces.length === 0 && EXPLICIT.has(input.cause)) {
         await append(run, { kind: 'step', step: position.id, actor: 'model', status: 'completed', cause: input.cause });
       }
@@ -590,8 +603,8 @@ export function createEngine(deps: EngineDeps): Engine {
         }
         if (!(await reviseTo(run, { target: input.revise, args: {} }, 'model', { reason: 'model requested' }))) run.notes.push(`Revising ${input.revise} was refused: its repeat limit is spent.`);
       }
-      if (input.conflict !== undefined && position !== null) {
-        await raiseGate(run.ledger, viewFor(run, position.id), { gate: 'requirements-conflicting', values: { summary: [input.conflict.summary], sources: input.conflict.sources }, raisedBy: position.id }, routes);
+      if (raised?.state === 'raise' && position !== null) {
+        await raiseGate(run.ledger, viewFor(run, position.id), { gate: raised.gate, values: raised.values, raisedBy: position.id }, routes);
       }
       const part = await execute(run);
       return { run, message: messageOf(run, part), part };
@@ -635,7 +648,7 @@ export function createEngine(deps: EngineDeps): Engine {
     const named = new Set<string>();
     for (const entry of entries) {
       for (const field of ['path', 'file', 'artifact']) if (typeof entry[field] === 'string') named.add(path.resolve(dir.repositoryRoot, entry[field] as string));
-      if (entry.kind === 'requirement' && typeof entry['key'] === 'string') for (const file of capturePaths(dir, entry['key'], String(entry['rawHash']))) named.add(file);
+      if (entry.kind === 'requirement' && typeof entry['key'] === 'string') for (const file of entryPaths(dir, entry)) named.add(file);
     }
     const found: string[] = [];
     const walk = async (directory: string): Promise<void> => {

@@ -29,6 +29,9 @@ export const DEFAULTS = {
   authoring: {
     editReminders: true,
   },
+  requirements: {
+    acceptanceField: null,
+  },
 } as const;
 
 /**

@@ -1,0 +1,20 @@
+skill: review
+version: 3
+budget: { modelSteps: 6 }
+exits: [done, blocked, human, inconclusive, superseded, budget]
+revisable: []
+steps:
+  - id: fetch
+    actor: model
+    instruction: "Fetch the requirement."
+  - id: ground
+    actor: code
+    run: [requirements.normalize]
+    produces: [envelope]
+  - id: estimate
+    actor: human
+    gate:
+      question: "Run the review?"
+      options: ["run"]
+      default: "run"
+      release: "run"

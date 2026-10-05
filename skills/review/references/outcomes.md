@@ -168,6 +168,10 @@ names a layer that does not exist; fix it, the message lists the known names.
 payload yet; fetch it with the call the message names, then `route next`.
 `requirements-missing`: some requested sources are not captured; fetch them and run
 `route next`, or start again without that `--requirement`.
+`requirements-conflict-sources`: `--conflict` needs `--sources` naming at least two
+distinct source ids of the latest envelope; the message lists the valid ids.
+`requirements-expansion-fetch`: the user chose child issues to read; make the
+`getJiraIssue` calls the message lists, then run `route next`.
 
 **`plan-not-accepted`.** The draft was not promoted; its `reason` says why:
 `no-plan-route`, `no-answer`, `superseded`, `unbound`, `acting-needs-human`,

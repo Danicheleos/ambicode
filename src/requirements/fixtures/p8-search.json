@@ -1,0 +1,18 @@
+{
+  "_mirrors": "content[].text(json).data.{appliedContentFormat,isLast,issues[].{id,key,fields.{summary,created,issuetype.name,status.name}}}",
+  "content": [
+    {
+      "type": "text",
+      "text": {
+        "data": {
+          "appliedContentFormat": "markdown",
+          "isLast": true,
+          "issues": [
+            { "id": "1", "key": "ORD-18", "fields": { "summary": "Child A", "created": "2026-01-01", "issuetype": { "name": "Task" }, "status": { "name": "Open" } } },
+            { "id": "2", "key": "ORD-19", "fields": { "summary": "Child B", "created": "2026-01-02", "issuetype": { "name": "Task" }, "status": { "name": "Open" } } }
+          ]
+        }
+      }
+    }
+  ]
+}

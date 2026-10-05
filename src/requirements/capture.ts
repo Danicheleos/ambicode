@@ -1,4 +1,3 @@
-import path from 'node:path';
 import type { Runtime } from '../composition/root.ts';
 import { CapturedRequirement, type CapturedHits } from '../contracts/requirements.ts';
 import type { HookInput } from '../contracts/hook.ts';
@@ -7,7 +6,8 @@ import type { LedgerEntry } from '../task/ledger.ts';
 import type { LockedLedger } from '../task/ledger-lock.ts';
 import type { TaskDir } from '../task/task-dir.ts';
 import { contentHash } from '../util/hash.ts';
-import { asRecorded, readCapture, writeCapture } from './capture-files.ts';
+import { capturesFrom, serverOf } from './binding.ts';
+import { asRecorded, readCapture, readList, searchName, writeCapture } from './capture-files.ts';
 
 export interface CaptureDeps {
   runtime: Runtime;
@@ -20,7 +20,8 @@ export interface CaptureDeps {
 }
 
 const KEY = /\b[A-Z][A-Z0-9]+-\d+\b/;
-const TOOL_CLASSES: ReadonlySet<string> = new Set(['get', 'search', 'fetch', 'read']);
+const TOOL_CLASSES = ['get', 'search', 'fetch', 'read'] as const;
+const PARENT_JQL = /\bparent\s*=\s*"?([A-Z][A-Z0-9]+-\d+)/;
 const MAX_CONTENT = 60_000;
 
 /** Fields of a Jira response that are not the question; custom fields, people and timestamps are not vocabulary. */
@@ -29,13 +30,6 @@ const NOT_THE_TICKET = new Set(['customFields', 'assignee', 'reporter', 'creator
 type Json = Record<string, unknown>;
 const isObject = (value: unknown): value is Json => typeof value === 'object' && value !== null && !Array.isArray(value);
 const str = (value: unknown): string => (typeof value === 'string' ? value : '');
-
-/** `mcp__<server>__<tool>` binds when the server is the configured one, or the configured name is a token of it. */
-export function bindsToServer(server: string, configured: string): boolean {
-  if (server === configured) return true;
-  const wanted = configured.toLowerCase();
-  return server.toLowerCase().split(/[^a-z0-9]+/).includes(wanted);
-}
 
 /** Every JSON value a tool response holds, with JSON carried inside strings opened. */
 function values(value: unknown, depth = 0): unknown[] {
@@ -113,6 +107,11 @@ function extractHits(response: unknown): { key: string; summary: string }[] {
   return hits;
 }
 
+function totalOf(response: unknown): number | null {
+  for (const node of roots(response)) if (typeof node['total'] === 'number' && Number.isInteger(node['total']) && node['total'] >= 0) return node['total'];
+  return null;
+}
+
 async function chainEntries(deps: CaptureDeps): Promise<LedgerEntry[]> {
   const read = await deps.ledger.read();
   return read.state === 'ok' ? read.entries.filter((entry) => deps.view.chainIds.includes(entry.kind === 'route' ? entry.id : String(entry['route'] ?? ''))) : [];
@@ -131,8 +130,10 @@ async function known(deps: CaptureDeps, entries: readonly LedgerEntry[]): Promis
   return captured;
 }
 
-function relationOf(document: Extracted, asked: readonly string[], captured: ReadonlyMap<string, CapturedRequirement>): { relation: CapturedRequirement['relation']; derivedFrom: string | null } {
+function relationOf(document: Extracted, asked: readonly string[], captured: ReadonlyMap<string, CapturedRequirement>, listed: ReadonlyMap<string, string>): { relation: CapturedRequirement['relation']; derivedFrom: string | null } {
   if (asked.includes(document.key)) return { relation: 'asked', derivedFrom: null };
+  const parentSearch = listed.get(document.key);
+  if (parentSearch !== undefined) return { relation: 'child', derivedFrom: parentSearch };
   const present = (key: string | null): key is string => key !== null && (asked.includes(key) || captured.has(key));
   if (present(document.parent)) return { relation: 'child', derivedFrom: document.parent };
   for (const other of captured.values()) {
@@ -147,12 +148,27 @@ function relationOf(document: Extracted, asked: readonly string[], captured: Rea
  * Records what an MCP read tool returned for the active route: nothing else, no map, no step, no advance (03-Q4).
  * A payload it does not recognise writes nothing.
  */
+/** Hit keys of the `parent = K` searches already captured, by the `K` they were derived from. */
+async function listedChildren(deps: CaptureDeps, entries: readonly LedgerEntry[]): Promise<Map<string, string>> {
+  const listed = new Map<string, string>();
+  for (const entry of entries.filter((candidate) => candidate.kind === 'requirement' && candidate['capture'] === 'list' && typeof candidate['derivedFrom'] === 'string')) {
+    const list = await readList(deps.runtime.fs, deps.dir, String(entry['rawHash']));
+    for (const hit of list?.hits ?? []) listed.set(hit.key, String(entry['derivedFrom']));
+  }
+  return listed;
+}
+
+/**
+ * Records what an MCP read tool returned for the active route: nothing else, no map, no step, no advance (03-Q4).
+ * A payload it does not recognise, or from a server the binding ignores, writes nothing.
+ */
 export async function captureRequirement(input: HookInput, deps: CaptureDeps): Promise<LedgerEntry | null> {
-  if (deps.mcpServer === null || input.tool_name === undefined) return null;
-  const match = /^mcp__(.+?)__(.+)$/.exec(input.tool_name);
-  if (match === null || !bindsToServer(match[1]!, deps.mcpServer)) return null;
-  const toolClass = /^[a-z]+/.exec(match[2]!)?.[0] ?? '';
-  if (!TOOL_CLASSES.has(toolClass)) return null;
+  if (input.tool_name === undefined) return null;
+  const server = serverOf(input.tool_name);
+  if (server === null || !capturesFrom(deps.mcpServer, server)) return null;
+  const tool = input.tool_name.slice(`mcp__${server}__`.length).toLowerCase();
+  const toolClass = TOOL_CLASSES.find((name) => tool.startsWith(name));
+  if (toolClass === undefined) return null;
 
   const rawHash = contentHash(JSON.stringify(input.tool_response ?? null));
   const now = deps.runtime.clock.now().toISOString();
@@ -165,18 +181,22 @@ export async function captureRequirement(input: HookInput, deps: CaptureDeps): P
 
   if (toolClass === 'search') {
     const hits = extractHits(input.tool_response);
-    if (hits.length === 0) return null;
-    const name = `search-${rawHash.replace(/^sha256:/, '').slice(0, 12)}`;
-    if (entries.some((entry) => entry.kind === 'requirement' && entry['key'] === name)) return null;
-    const file: CapturedHits = { hits, retrievedVia: input.tool_name, retrievedAt: now, rawHash };
-    const bytes = await write(name, file);
-    return deps.ledger.append({ kind: 'requirement', route: deps.view.routeId, key: name, via: input.tool_name, rawHash, bytes, relation: 'list', capture: 'list', derivedFrom: null });
+    const total = totalOf(input.tool_response);
+    if (hits.length === 0 && total === null) return null;
+    if (entries.some((entry) => entry.kind === 'requirement' && entry['capture'] === 'list' && entry['rawHash'] === rawHash && serverOf(String(entry['via'])) === server)) return null;
+    const query = String(input.tool_input?.['jql'] ?? input.tool_input?.['query'] ?? '');
+    const parent = PARENT_JQL.exec(query)?.[1] ?? null;
+    const file: CapturedHits = { query, total: total ?? hits.length, hits, retrievedVia: input.tool_name, retrievedAt: now, rawHash };
+    const bytes = await write(searchName(rawHash), file);
+    return deps.ledger.append({
+      kind: 'requirement', route: deps.view.routeId, key: parent ?? 'SEARCH', via: input.tool_name, rawHash, bytes, relation: 'list', capture: 'list', derivedFrom: parent, hits: Math.max(hits.length, file.total),
+    });
   }
 
   const document = extractDocument(input.tool_response);
   if (document === null) return null;
-  if (entries.some((entry) => entry.kind === 'requirement' && entry['key'] === document.key && entry['rawHash'] === rawHash)) return null;
-  const { relation, derivedFrom } = relationOf(document, deps.asked, await known(deps, entries));
+  if (entries.some((entry) => entry.kind === 'requirement' && entry['key'] === document.key && entry['rawHash'] === rawHash && serverOf(String(entry['via'])) === server)) return null;
+  const { relation, derivedFrom } = relationOf(document, deps.asked, await known(deps, entries), await listedChildren(deps, entries));
   const captured: CapturedRequirement = {
     key: document.key, url: document.url, title: document.title, type: document.type, relation, derivedFrom, retrievedVia: input.tool_name, retrievedAt: now,
     sourceVersion: document.sourceVersion, updatedAt: document.updatedAt, content: document.content, links: document.links, parent: document.parent, rawHash,

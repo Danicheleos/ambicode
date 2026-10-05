@@ -4,7 +4,7 @@ import { describe, it } from 'node:test';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { ledgerMetrics, ledgersOf, LEDGER_DIRECTORY } from './ledger-metrics.mjs';
+import { ledgerMetrics, ledgersOf, LEDGER_DIRECTORY, MCP_SPAWNS_UNMEASURED } from './ledger-metrics.mjs';
 
 describe('ledger-metrics: red/green proof', () => {
   const route = (id, extra = {}) => ({ id, kind: 'route', skill: 'task', ...extra });
@@ -192,5 +192,14 @@ describe('ledger-metrics: harvested ledgers', () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe('ledger-metrics: the envelope origin (04-R2)', () => {
+  it('04-R2: a synthetic args-envelope ledger reads envelopeBuiltFrom args, and MCP hook spawns stay unmeasured', () => {
+    const m = ledgerMetrics([{ entries: [{ id: 'r-1', kind: 'route', skill: 'investigate' }, { kind: 'envelope', route: 'r-1', builtFrom: 'args', sources: [], asked: [], missingAsked: [], hash: 'h' }], unreadable: 0 }]);
+    assert.equal(m.envelopeBuiltFrom, 'args');
+    assert.equal(m.noRouteMcpSpawns, null);
+    assert.match(MCP_SPAWNS_UNMEASURED, /^unmeasured: MCP hook process spawns/);
   });
 });

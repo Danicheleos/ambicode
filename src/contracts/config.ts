@@ -158,6 +158,7 @@ export const AmbicodeConfig = z.strictObject({
   page: PageConfig,
   requirements: z.strictObject({
     mcpServer: z.string().min(1).nullable(),
+    acceptanceField: z.string().regex(/^customfield_\d+$/).nullable().default(DEFAULTS.requirements.acceptanceField),
   }),
   search: SearchConfig.default({ index: 'none' }),
   workers: WorkersConfig.default({ approved: [] }),

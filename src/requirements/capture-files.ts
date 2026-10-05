@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type { FileSystem } from '../ports/filesystem.ts';
-import { CapturedRequirement } from '../contracts/requirements.ts';
+import { CapturedHits, CapturedRequirement } from '../contracts/requirements.ts';
 import type { TaskDir } from '../task/task-dir.ts';
 
 const primary = (dir: TaskDir, key: string): string => path.join(dir.requirements, `${key}.json`);
@@ -36,4 +36,21 @@ export function asRecorded(capture: CapturedRequirement, entry: Readonly<Record<
   const relation = CapturedRequirement.shape.relation.safeParse(entry.relation);
   const derivedFrom = typeof entry.derivedFrom === 'string' ? entry.derivedFrom : entry.derivedFrom === null ? null : capture.derivedFrom;
   return { ...capture, relation: relation.success ? relation.data : capture.relation, derivedFrom };
+}
+
+/** A search list's file name: the first 12 hex digits of its response hash. */
+export const searchName = (rawHash: string): string => `search-${rawHash.replace(/^sha256:/, '').slice(0, 12)}`;
+
+/** The files a `requirement` ledger entry points at: a list entry names its search file, not its `key`. */
+export const entryPaths = (dir: TaskDir, entry: Readonly<Record<string, unknown>>): string[] =>
+  entry['capture'] === 'list' ? [primary(dir, searchName(String(entry['rawHash'])))] : capturePaths(dir, String(entry['key']), String(entry['rawHash']));
+
+/** The hit list a `capture: 'list'` entry recorded, or null when its file is gone or unreadable. */
+export async function readList(fs: FileSystem, dir: TaskDir, rawHash: string): Promise<CapturedHits | null> {
+  try {
+    const parsed = CapturedHits.safeParse(JSON.parse(await fs.readText(primary(dir, searchName(rawHash)))));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
 }
