@@ -292,7 +292,20 @@ function pathMatches(
       });
     }
   }
+  if (matches.size === 0) {
+    for (const segment of routeSegments(term)) {
+      for (const file of files) {
+        if (pathHit(file.toLowerCase(), segment) === 'filename' && !matches.has(file)) matches.set(file, { path: file, kind: 'filename', reason: `filename matched "${segment}", a segment of "${term}"` });
+      }
+    }
+  }
   return broadDirectories([...matches.values()], forms);
+}
+
+/** `orders/v1/{id}` names no file, but its plain segments (`orders`) may: version and parameter segments are dropped. */
+function routeSegments(term: string): string[] {
+  if (!term.includes('/')) return [];
+  return term.toLowerCase().split('/').filter((segment) => segment.length >= MIN_TERM_LENGTH && /^[a-z][a-z0-9_-]*$/.test(segment) && !/^v\d+$/.test(segment));
 }
 
 const BROAD_PLACES = 3;

@@ -209,6 +209,20 @@ No new error codes, CLI options or ledger kinds.
   controllers, schemas and validators leave it.
 - 03b-M17 `Git.gitCommonDir()` reads `--git-common-dir` (03b-M11 writes `info/exclude` there in a
   linked worktree); the `index` readers use the new `Git.gitDir()`.
+- 03b-M18 When no feature directory is found and the repository is split by layer, the map prints
+  `Same feature "<word>": <paths>`. Split by layer: of the file-name words found in two or more
+  top folders (first two path segments), at least 60% are found in three or more. The word is a
+  term word (4+ letters, singular and plural alike) that names files by stem or directory in three
+  or more top folders and in at most 60 files; the word most top-8 lead paths carry wins, then the
+  fewer files. Stems starting with `_` are skipped. Files named by another word of the request's own
+  terms come first, then files about the word (a directory named by it, or a stem starting with it
+  after `test`), then the rest; each group is listed one folder at a time.
+- 03b-M19 A directory of 5 or more files, 80% or more of whose names start with a number, a date
+  or `V<n>__` (migrations and the like), holds sequence files: in prompt mode they rank after
+  every other candidate, give no harvested names and stay off the feature line.
+- 03b-M20 A term holding `/` that matches no path is matched by its plain segments against file
+  names (`filename matched "<segment>", a segment of "<term>"`); version (`v1`), parameter and
+  short segments are dropped.
 
 **B — budget**
 - 03b-B1 A route's `budget` takes an optional positive `toolTurns`; `investigate` sets 12. The
@@ -245,6 +259,9 @@ No new error codes, CLI options or ledger kinds.
 - 03b-H7 `bench-score.mjs` summaries count sectioned answers.
 - 03b-H8 `namedFiles` maps a named path to the one true path ending with `/<path>` when the
   `<root>/<path>` form misses (an answer may write paths relative to the feature directory).
+- 03b-H9 `map-recall.mjs --cases <dir>` reads cases from another directory (a second-language
+  bench built offline from merged commits: request = message, truth = changed files); the leads
+  parser reads both feature-line forms.
 
 **V — verification**
 - 03b-V1 Offline ($0), on the run-4 cases through the rebuilt bundle: read step ≤ 3,000 B and
@@ -280,7 +297,7 @@ No new error codes, CLI options or ledger kinds.
 
 - Changing plan, task, review, init or rules skills or routes.
 - Changing the reviewer prompt or `prepare`'s contract reference.
-- An index or LSP layer for the map; re-ranking beyond 03b-M1…M17.
+- An index or LSP layer for the map; re-ranking beyond 03b-M1…M20.
 - Shortening the descriptions of model-invocable skills.
 - Re-running the naked baseline.
 - Removing the `find`/`refs` commands from the CLI.
@@ -302,7 +319,7 @@ No new error codes, CLI options or ledger kinds.
 - `evals/scripts/src/analysis/ledger-metrics.test.mjs`: `ledgersOf` over several trace directories.
 - `src/route/investigate.route.test.ts`: 03b-C1, 03b-C2, 03b-C3, 03b-C4.
 - `src/code-intelligence/search.test.ts`: 03b-M1, 03b-M2, 03b-M3, 03b-M4, 03b-M6, 03b-M8, 03b-M9,
-  03b-M10, 03b-M11, 03b-M12…M16; `evals/scripts/src/analysis/map-recall.test.mjs`: request split,
+  03b-M10, 03b-M11, 03b-M12…M16, 03b-M18…M20; `evals/scripts/src/analysis/map-recall.test.mjs`: request split,
   leads parsing, 03b-H5; `layer-audit.test.mjs`: 03b-H6.
 - `src/route/routes.test.ts`, `src/hook/guard/tool-turns.test.ts`, `src/hook/events/route-hooks.test.ts`:
   03b-B1, 03b-B2, 03b-M13 launch split; `src/git/git.test.ts`: 03b-M17.

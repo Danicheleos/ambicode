@@ -6,7 +6,7 @@ import { MAP_OPTIONS, REFS_OPTIONS, FIND_OPTIONS, runFind, runMap, runRefs } fro
 import { openRepository } from '../composition/root.ts';
 import { routeFixture, type RouteFixture } from '../testing/route-fixture.ts';
 import { harvest } from './harvest.ts';
-import { buildMap, cleanRequestText, featureOf, FEATURE_LIMIT_BYTES, leadsText, LEADS_LIMIT_BYTES, MAP_LIMIT_BYTES, rankTerms, resolveLayers } from './map.ts';
+import { buildMap, cleanRequestText, featureOf, sequenceFiles, FEATURE_LIMIT_BYTES, leadsText, LEADS_LIMIT_BYTES, MAP_LIMIT_BYTES, rankTerms, resolveLayers } from './map.ts';
 import { excludeWorkingDirs } from '../task/task-dir.ts';
 import { find, refs, SEARCH_LIMIT_BYTES } from './refs.ts';
 import { SearchConfig } from '../contracts/config.ts';
@@ -308,6 +308,38 @@ describe('03b-M map terms and leads', () => {
     assert.ok(Buffer.byteLength(line) <= FEATURE_LIMIT_BYTES && line.endsWith(', …'), line);
   });
 
+  it('03b-M19: directories whose names mostly start with a number or date are sequence files; mixed ones are not', () => {
+    const migrations = ['2025-03-17_a1_add.py', '2025-03-24_b2_drop.py', '0003_x.py', '0004_y.py', 'V5__z.sql'].map((name) => `src/migrations/${name}`);
+    const files = [...migrations, 'src/migrations/env.py', 'src/routers/issues.py', ...['100-a.ts', '200-b.ts', 'c.ts', 'd.ts', 'e.ts'].map((name) => `src/mixed/${name}`)];
+    assert.deepEqual([...sequenceFiles(files)].sort(), [...migrations, 'src/migrations/env.py'].sort());
+  });
+
+  it('03b-M19: sequence files rank last and give no harvested names', async () => {
+    const migrations = Object.fromEntries([1, 2, 3, 4, 5].map((n) => [`src/migrations/2025-0${n}-01_order_m${n}.ts`, 'export function upgradeOrder() {}\n']));
+    const fx = await repo({ ...migrations, 'src/orders/order.ts': 'export function shipOrder() {}\n' });
+    try {
+      const map = await buildMap({ runtime: fx.runtime, project: project(fx), paths: [], symbols: [], mode: 'prompt', layers: ['shortlist', 'harvest', 'shortlist'], layersSource: 'default', terms: ['order'] });
+      assert.equal(map.candidates[0]?.path, 'src/orders/order.ts');
+      assert.ok(map.terms.pass2.includes('shipOrder') && !map.terms.pass2.includes('upgradeOrder'), JSON.stringify(map.terms));
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('03b-M18: in code split by layer, a term word naming files in three top folders lists them one folder at a time', () => {
+    const files = ['issue', 'round', 'user'].flatMap((name) => [`src/routers/${name}s.py`, `src/adapters/${name}.py`, `src/domain/${name}_policy.py`, `tests/${name}s/test_get_${name}.py`]).concat('src/domain/__init__.py');
+    const ordered = [{ path: 'src/routers/issues.py', score: 3, reasons: ['contains "resolved"'] }];
+    const feature = featureOf(ordered, files, [], ['resolved_at', 'IssueFactory']);
+    assert.deepEqual(feature, { root: '', name: 'issue', paths: ['src/adapters/issue.py', 'src/domain/issue_policy.py', 'tests/issues/test_get_issue.py'] });
+    assert.match(leadsText({ terms: { pass1: ['resolved_at'], pass2: [] }, candidates: ordered, collisions: [], feature }), /^Same feature "issue": src\/adapters\/issue\.py, src\/domain\/issue_policy\.py, tests\/issues\/test_get_issue\.py$/m);
+    const tests = ['a_list', 'b_close', 'set_admin'].map((name) => `tests/issues/test_issue_${name}.py`);
+    const ranked = featureOf(ordered, [...files, ...tests, 'tests/rounds/test_round_issue.py'], [], ['resolved_at', 'IssueFactory'], ['issue', 'admins']);
+    assert.equal(ranked?.paths[0], 'tests/issues/test_issue_set_admin.py', 'a file named by another request word first');
+    assert.equal(ranked?.paths.at(-1), 'tests/rounds/test_round_issue.py', 'a file not about the word last');
+    const byFeature = ['issue', 'round', 'user'].flatMap((name) => [`src/${name}/${name}.ts`, `src/${name}/${name}.spec.ts`]).concat('src/a/issue-x.ts', 'src/b/issue-y.ts', 'src/a/round-x.ts', 'src/b/user-y.ts');
+    assert.equal(featureOf([{ path: 'src/issue/issue.ts', score: 3, reasons: ['contains "x"'] }], byFeature, [], ['issue']), null, 'code split by feature: no named line');
+  });
+
   it('03b-M12: a prompt-mode lead carries the line of a declaration named like a term, else of the first line holding one', async () => {
     const fx = await repo({ 'src/cart/notes.ts': '// header\nconst x = 1;\nconsole.log("cart total");\n' });
     try {
@@ -357,6 +389,18 @@ describe('03b-M map terms and leads', () => {
       assert.equal(placed.length, 3);
       assert.ok(placed.every((candidate) => candidate.reasons.every((reason) => !isPathReason(reason)) && /one of 3 broad directories/.test(candidate.reasons[0]!)), JSON.stringify(placed));
       assert.equal(map.feature, null);
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('03b-M20: a route term that names no file is matched by its plain segments, not its version or parameter', async () => {
+    const fx = await repo({ 'src/app.ts': 'route("orders/v1/{order_id}");\n', 'src/routers/orders.ts': 'export const r = 1;\n', 'src/v1/x.ts': 'export const v = 1;\n' });
+    try {
+      const map = await buildMap({ runtime: fx.runtime, project: project(fx), paths: [], symbols: [], mode: 'prompt', layers: ['shortlist'], layersSource: 'default', terms: ['orders/v1/{order_id}'] });
+      const router = map.candidates.find((candidate) => candidate.path === 'src/routers/orders.ts');
+      assert.equal(router?.reasons[0], 'filename matched "orders", a segment of "orders/v1/{order_id}"');
+      assert.ok(!map.candidates.some((candidate) => candidate.path === 'src/v1/x.ts'));
     } finally {
       await fx.dispose();
     }

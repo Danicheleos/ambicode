@@ -20,7 +20,7 @@ export interface MapLayer { name: LayerName; ms: number; hits: number }
 export interface MapCandidate { path: string; score: number; reasons: string[]; spans?: string[]; line?: number }
 export interface MapSymbol { name: string; kind: string; at: string; declarations: number; collides: boolean }
 /** The directory most top leads share, and its files named like those leads or like the directory itself. */
-export interface MapFeature { root: string; paths: string[] }
+export interface MapFeature { root: string; paths: string[]; name?: string }
 
 export interface MapResult {
   mode: 'prompt' | 'context';
@@ -177,6 +177,8 @@ export async function buildMap(input: {
   const pass1 = [...input.terms].slice(0, MAX_TERMS);
   let pass2: string[] = [];
   let shortlists = 0;
+  const listed = input.mode === 'prompt' ? await git.listFiles(pathspec) : [];
+  const sequence = sequenceFiles(listed);
 
   const merge = (found: readonly MapCandidate[]): void => {
     for (const candidate of found) {
@@ -191,7 +193,7 @@ export async function buildMap(input: {
   const topFiles = (): string[] => [...candidates.values()].sort((a, b) => b.score - a.score).slice(0, TOP_FILES).map((candidate) => candidate.path);
   // Names harvested from a file found only by its contents pull in a sibling feature; a path hit says where the request lives.
   const harvestFiles = (): string[] => {
-    const ranked = [...candidates.values()].sort((a, b) => b.score - a.score);
+    const ranked = [...candidates.values()].filter((candidate) => !sequence.has(candidate.path)).sort((a, b) => b.score - a.score);
     const placed = ranked.filter((candidate, index) => index === 0 || candidate.reasons.some(isPathReason));
     return placed.slice(0, TOP_FILES).map((candidate) => candidate.path);
   };
@@ -253,7 +255,8 @@ export async function buildMap(input: {
     return { ...candidate, score: Math.round(candidate.score * 100) / 100, reasons: candidate.reasons.slice(0, 2), ...(spans.length === 0 ? {} : { spans }) };
   });
 
-  const feature = input.mode === 'prompt' ? featureOf(ordered, await git.listFiles(pathspec), ecosystemFacts(project.ecosystem).sharedKinds) : null;
+  if (sequence.size > 0) ordered.sort((a, b) => Number(sequence.has(a.path)) - Number(sequence.has(b.path)));
+  const feature = input.mode === 'prompt' ? featureOf(ordered, listed.filter((file) => !sequence.has(file)), ecosystemFacts(project.ecosystem).sharedKinds, [...pass1, ...pass2], pass1) : null;
   if (input.mode === 'prompt') await anchor(ordered.slice(0, LEADS), declarations, [...new Set([...pass1, ...pass2])], git);
   const head = `layers: ${layers.map((layer) => layer.name).join(' → ') || 'none'} (${input.layersSource}); index: none`;
   const render = (kept: readonly MapCandidate[]): string => {
@@ -292,6 +295,21 @@ export async function buildMap(input: {
   };
 }
 
+const SEQUENCE_NAME = /^(?:v\d+__|\d{3,}|\d{4}-\d\d-\d\d)/i;
+const SEQUENCE_DIR_MIN = 5;
+const SEQUENCE_SHARE = 0.8;
+
+/** Files of directories whose names mostly start with a number or date (migrations and the like): written once, rarely the change. */
+export function sequenceFiles(files: readonly string[]): Set<string> {
+  const byDir = new Map<string, string[]>();
+  for (const file of files) byDir.set(path.posix.dirname(file), [...(byDir.get(path.posix.dirname(file)) ?? []), file]);
+  const out = new Set<string>();
+  for (const group of byDir.values()) {
+    if (group.length >= SEQUENCE_DIR_MIN && group.filter((file) => SEQUENCE_NAME.test(path.posix.basename(file))).length / group.length >= SEQUENCE_SHARE) group.forEach((file) => out.add(file));
+  }
+  return out;
+}
+
 export const LEADS_LIMIT_BYTES = 1200;
 export const FEATURE_LIMIT_BYTES = 400;
 const LEADS = 8;
@@ -306,7 +324,68 @@ const kindOf = (file: string): string => path.posix.basename(file).split('.').sl
  * name stem is a lead's stem or the directory's own name, and that are tests or of a shared kind (mocks, types…). Executable
  * siblings are left out: answers took them as changed when they were not.
  */
-export function featureOf(ordered: readonly MapCandidate[], files: readonly string[], sharedKinds: readonly string[] = []): MapFeature | null {
+export function featureOf(ordered: readonly MapCandidate[], files: readonly string[], sharedKinds: readonly string[] = [], terms: readonly string[] = [], requested: readonly string[] = terms): MapFeature | null {
+  return folderFeature(ordered, files, sharedKinds) ?? namedFeature(ordered, files, terms, requested);
+}
+
+const LAYER_MIN = 3;
+const NAME_MAX_FILES = 60;
+const tokensOf = (text: string): string[] => text.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+const sameWord = (a: string, b: string): boolean => a === b || a === `${b}s` || b === `${a}s` || (a.endsWith('ies') && b === `${a.slice(0, -3)}y`) || (b.endsWith('ies') && a === `${b.slice(0, -3)}y`);
+const layerOf = (file: string): string => file.split('/').slice(0, -1).slice(0, 2).join('/');
+const LAYERED_SHARE = 0.6;
+const singular = (word: string): string => (word.endsWith('ies') ? `${word.slice(0, -3)}y` : word.endsWith('s') ? word.slice(0, -1) : word);
+
+/** Code split by layer: most file-name words found in two or more top folders are found in three or more. */
+function layered(files: readonly string[]): boolean {
+  const where = new Map<string, Set<string>>();
+  for (const file of files) {
+    for (const word of new Set(tokensOf(stemOf(file)).filter((token) => token.length >= 4).map(singular))) where.set(word, (where.get(word) ?? new Set()).add(layerOf(file)));
+  }
+  const spread = [...where.values()].filter((layers) => layers.size >= 2);
+  return spread.length > 0 && spread.filter((layers) => layers.size >= LAYER_MIN).length / spread.length >= LAYERED_SHARE;
+}
+const namesFile = (file: string, name: string): boolean => [...tokensOf(stemOf(file)), ...file.split('/').slice(0, -1)].some((word) => sameWord(word, name));
+
+/**
+ * Code split by layer: a word of the terms that names files (by stem or directory) in three or more top folders and no more than
+ * sixty files; the word most top leads' paths carry wins. Lists those files one folder at a time.
+ */
+function namedFeature(ordered: readonly MapCandidate[], files: readonly string[], terms: readonly string[], requested: readonly string[]): MapFeature | null {
+  const usable = files.filter((file) => pathExclusionReason(file) === null && !stemOf(file).startsWith('_'));
+  if (!layered(usable)) return null;
+  const leads = ordered.slice(0, LEADS).map((candidate) => candidate.path);
+  let best: { name: string; hits: string[]; carried: number } | null = null;
+  for (const name of new Set(terms.flatMap(tokensOf).filter((word) => word.length >= 4))) {
+    const hits = usable.filter((file) => namesFile(file, name));
+    if (hits.length === 0 || hits.length > NAME_MAX_FILES || new Set(hits.map(layerOf)).size < LAYER_MIN) continue;
+    const carried = leads.filter((file) => namesFile(file, name)).length;
+    if (carried > 0 && (best === null || carried > best.carried || (carried === best.carried && hits.length < best.hits.length))) best = { name, hits, carried };
+  }
+  if (best === null) return null;
+  const listed = new Set(leads);
+  const word = best.name;
+  const others = [...new Set(requested.flatMap(tokensOf).filter((token) => token.length >= 4 && !sameWord(token, word)))];
+  const extra = (file: string): number => others.filter((other) => tokensOf(stemOf(file)).some((token) => sameWord(token, other))).length;
+  const rest = best.hits.filter((hit) => !listed.has(hit)).sort((a, b) => extra(b) - extra(a) || a.localeCompare(b));
+  const strong = rest.filter((file) => leadsWith(file, word) || extra(file) > 0);
+  const paths = [...byLayers(strong), ...byLayers(rest.filter((file) => !strong.includes(file)))].slice(0, FEATURE_PATHS);
+  return paths.length === 0 ? null : { root: '', paths, name: word };
+}
+
+/** The file is about the word: a directory is named by it, or its stem starts with it (after a `test` prefix). */
+const leadsWith = (file: string, word: string): boolean =>
+  file.split('/').slice(0, -1).some((segment) => sameWord(segment, word)) || sameWord(tokensOf(stemOf(file)).filter((token) => token !== 'test')[0] ?? '', word);
+
+function byLayers(files: readonly string[]): string[] {
+  const groups = new Map<string, string[]>();
+  for (const file of files) groups.set(layerOf(file), [...(groups.get(layerOf(file)) ?? []), file]);
+  const out: string[] = [];
+  for (let round = 0; [...groups.values()].some((group) => group.length > round); round += 1) for (const group of groups.values()) if (group[round] !== undefined) out.push(group[round]!);
+  return out;
+}
+
+function folderFeature(ordered: readonly MapCandidate[], files: readonly string[], sharedKinds: readonly string[]): MapFeature | null {
   const top = ordered.slice(0, FEATURE_LEADS).filter((candidate) => candidate.reasons.some(isPathReason)).map((candidate) => candidate.path);
   let best: { root: string; count: number } | null = null;
   for (const lead of top) {
@@ -354,8 +433,9 @@ export function leadsText(map: Pick<MapResult, 'terms' | 'candidates' | 'collisi
 }
 
 function featureLine(feature: MapFeature): string {
-  const relative = feature.paths.map((file) => file.slice(feature.root.length + 1));
-  const line = (count: number): string => `Same feature (${feature.root}/): ${relative.slice(0, count).join(', ')}${count < relative.length ? ', …' : ''}`;
+  const relative = feature.root === '' ? feature.paths : feature.paths.map((file) => file.slice(feature.root.length + 1));
+  const label = feature.root === '' ? `Same feature "${feature.name ?? ''}"` : `Same feature (${feature.root}/)`;
+  const line = (count: number): string => `${label}: ${relative.slice(0, count).join(', ')}${count < relative.length ? ', …' : ''}`;
   let count = relative.length;
   while (count > 1 && Buffer.byteLength(line(count)) > FEATURE_LIMIT_BYTES) count -= 1;
   return line(count);

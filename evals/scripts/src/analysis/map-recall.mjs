@@ -1,6 +1,6 @@
 // How many of a localize case's true files the investigate route's map hands the model. Offline and free.
 // Scaffolds each case into a temporary directory and prints counts only; `--show <dir>` saves the maps there.
-// `--save <file>` records the counts and true paths; `--expect <file>` exits 1 when a case lost a true file or a text grew past its cap.
+// `--cases <dir>` reads cases from another directory; `--save <file>` records the counts and true paths; `--expect <file>` exits 1 when a case lost a true file or a text grew past its cap.
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -17,11 +17,11 @@ export function requestOf(promptMarkdown) {
   return splitLaunch(rest).text;
 }
 
-/** Paths a leads text lists: numbered leads (a `:line` anchor dropped), then the files of a `Same feature (<root>/):` line. */
+/** Paths a leads text lists: numbered leads (a `:line` anchor dropped), then the files of a `Same feature (<root>/):` or `Same feature "<name>":` line. */
 export function mapPaths(text) {
   const leads = [...text.matchAll(/^\d+\. (\S+)/gm)].map((match) => match[1].replace(/:\d+$/, ''));
-  const line = /^Same feature \((.*?)\/\): (.*)$/m.exec(text);
-  const feature = line === null ? [] : line[2].split(', ').filter((file) => file !== '…').map((file) => `${line[1]}/${file}`);
+  const line = /^Same feature (?:\((.*?)\/\)|"[^"]*"): (.*)$/m.exec(text);
+  const feature = line === null ? [] : line[2].split(', ').filter((file) => file !== '…').map((file) => (line[1] === undefined ? file : `${line[1]}/${file}`));
   return { leads, feature };
 }
 
@@ -55,7 +55,7 @@ export async function mapRecall({ cases = CURATED_CASES, show = null } = {}) {
       const listed = mapPaths(leads);
       const full = (file) => (truth.includes(file) ? file : path.posix.join(root, file));
       const inTruth = (file) => truth.includes(full(file));
-      const featureText = leads.split('\n').find((line) => line.startsWith('Same feature (')) ?? '';
+      const featureText = leads.split('\n').find((line) => line.startsWith('Same feature ')) ?? '';
       rows.push({
         name, truth: truth.length, leads: listed.leads.length, trueLeads: listed.leads.filter(inTruth).length,
         feature: listed.feature.length, trueFeature: listed.feature.filter(inTruth).length, bytes: Buffer.byteLength(leads),
@@ -84,7 +84,7 @@ export function regressions(rows, expected) {
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const option = (name) => { const at = process.argv.indexOf(name); return at < 0 ? null : path.resolve(process.argv[at + 1]); };
-  const rows = await mapRecall({ show: option('--show') });
+  const rows = await mapRecall({ show: option('--show'), ...(option('--cases') === null ? {} : { cases: option('--cases') }) });
   rows.forEach((r, index) => console.log(`${String(index + 1).padStart(2, '0')} truth ${r.truth} leads ${r.trueLeads}/${r.leads} feature ${r.trueFeature}/${r.feature} bytes ${r.bytes}`));
   const sum = (key) => rows.reduce((a, r) => a + r[key], 0);
   console.log(`all: true in map ${sum('trueLeads') + sum('trueFeature')}/${sum('truth')} (leads ${sum('trueLeads')}, feature ${sum('trueFeature')}); listed ${sum('leads') + sum('feature')}`);

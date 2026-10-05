@@ -7,6 +7,7 @@ describe('map-recall: offline map check', () => {
     assert.equal(requestOf('---\nname: x\n---\n\n/ambicode:investigate --headless Add "a limit"\nto  cart'), 'Add "a limit"\nto  cart');
     const text = 'Leads from the terms a:\n1. src/a/one.ts:12 — x\n2. src/a/two.ts\nSame feature (src/a/): one.spec.ts, m/a.mocks.ts, …\nDeclared more than once: X.';
     assert.deepEqual(mapPaths(text), { leads: ['src/a/one.ts', 'src/a/two.ts'], feature: ['src/a/one.spec.ts', 'src/a/m/a.mocks.ts'] });
+    assert.deepEqual(mapPaths('Leads from the terms x:\n1. src/r/issues.py:3 — y\nSame feature "issue": src/d/issue.py, tests/issues/t.py, …').feature, ['src/d/issue.py', 'tests/issues/t.py'], '03b-H9: named form');
   });
 
   it('03b-H5: --expect reports a lost true file and a text over its cap, by case number', () => {
