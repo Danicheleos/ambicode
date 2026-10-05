@@ -6,8 +6,11 @@ import { openRepository, type Runtime } from '../../composition/root.ts';
 import type { FileSystem } from '../../ports/filesystem.ts';
 import type { ParsedArgs } from '../args.ts';
 import { navigationFor, type NavigationGuidance } from '../../code-intelligence/navigation.ts';
+import { buildProfile } from '../../code-intelligence/profile.ts';
+import type { SearchProfile } from '../../contracts/config.ts';
+import { normalizeRelative } from '../../util/paths.ts';
 
-export const INIT_OPTIONS = { flags: ['json', 'dry-run'] } as const;
+export const INIT_OPTIONS = { flags: ['json', 'dry-run', 'refresh-profile'] } as const;
 
 export interface InitOutput {
   command: 'init';
@@ -21,7 +24,7 @@ export interface InitOutput {
    * rules init has understood. The runtime reads policy only from YAML packs.
    */
   ruleSources: string[];
-  projects: { id: string; root: string; ecosystem: string; configured: string[]; missing: string[]; navigation: NavigationGuidance }[];
+  projects: { id: string; root: string; ecosystem: string; configured: string[]; missing: string[]; navigation: NavigationGuidance; profile: SearchProfile | null }[];
 }
 
 /**
@@ -34,12 +37,16 @@ export async function runInit(runtime: Runtime, args: ParsedArgs): Promise<InitO
 
   const detected = await detectProjects(fs, repositoryRoot);
   const baseline = await detectBaseline(repositoryRoot, () => git.originHead());
+  const profiles = new Map<string, SearchProfile>();
+  for (const root of detected.length === 0 ? [''] : detected.map((project) => normalizeRelative(project.root))) profiles.set(root, await buildProfile(runtime, { root: root === '' ? '.' : root }));
   const plan = await planInit({
     fs,
     repositoryRoot,
     detected,
     baseline: baseline.baseline,
     baselineNotice: baseline.notice,
+    profiles,
+    refreshProfile: args.flag('refresh-profile'),
   });
 
   const configPath = path.join(repositoryRoot, CONFIG_FILE);
@@ -66,6 +73,7 @@ export async function runInit(runtime: Runtime, args: ParsedArgs): Promise<InitO
       root: project.root,
       ecosystem: project.ecosystem,
       navigation: navigationFor(project.ecosystem),
+      profile: project.profile ?? null,
       configured: Object.entries(project.checks)
         .filter(([, check]) => check !== null)
         .map(([id]) => id)
@@ -113,6 +121,7 @@ export function renderInit(output: InitOutput): string {
     lines.push(`  checks missing:    ${project.missing.join(', ') || '(none)'}`);
     lines.push(`  code intelligence: ${project.navigation.plugin} (session-observed; optional setup below)`);
     lines.push(...project.navigation.setupCommands.map((command) => `    ${command}`));
+    lines.push(...profileLines(project.profile));
   }
 
   if (output.ruleSources.length > 0) {
@@ -130,4 +139,17 @@ export function renderInit(output: InitOutput): string {
     for (const notice of output.notices) lines.push(`  - ${notice.split('\n').join('\n    ')}`);
   }
   return lines.join('\n');
+}
+
+/** The search profile, one line per field (03c-P7). */
+export function profileLines(profile: SearchProfile | null): string[] {
+  if (profile === null) return ['  search profile:    none (run `ambicode init --refresh-profile`)'];
+  return [
+    `  search profile:    measured at ${profile.stamp.commit.slice(0, 12) || '(no commit)'}, ${profile.stamp.files} files`,
+    `    sources       ${profile.sources.join(', ') || '(none)'}`,
+    `    companions    ${profile.companions.map(([from, to]) => `${from} → ${to}`).join(', ') || '(none)'}`,
+    `    catalogs      ${profile.catalogs.join(', ') || '(none)'}`,
+    `    featureKinds  ${profile.featureKinds.join(', ') || '(none)'}`,
+    `    exportOnly    ${String(profile.exportOnly)}`,
+  ];
 }

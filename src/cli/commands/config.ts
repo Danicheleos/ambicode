@@ -2,6 +2,8 @@ import { MAX_SNAPSHOT_FILE_BYTES, MAX_SNAPSHOT_TOTAL_BYTES } from '../../config/
 import type { AmbicodeConfig } from '../../contracts/config.ts';
 import { openWorkspace, type Runtime } from '../../composition/root.ts';
 import { shortlistRules } from '../../code-intelligence/locate.ts';
+import type { SearchProfile } from '../../contracts/config.ts';
+import { profileLines } from './init.ts';
 import { navigationFor, type NavigationGuidance } from '../../code-intelligence/navigation.ts';
 
 export const CONFIG_OPTIONS = { flags: ['json'] } as const;
@@ -26,6 +28,7 @@ export interface ConfigOutput {
     checks: { id: string; command: string | null; adapter: string | null; selector: string }[];
     navigation: NavigationGuidance;
     shortlist: { include: string[]; exclude: string[] };
+    profile: SearchProfile | null;
   }[];
 }
 
@@ -52,6 +55,7 @@ export async function runConfig(runtime: Runtime): Promise<ConfigOutput> {
       ecosystem: project.ecosystem,
       navigation: navigationFor(project.ecosystem),
       shortlist: shortlistRules(project),
+      profile: project.profile ?? null,
       packs: project.packs,
       commands: Object.entries(project.commands)
         .map(([id, command]) => ({ id, argv: command?.argv ?? null }))
@@ -102,6 +106,7 @@ export function renderConfig(output: ConfigOutput): string {
     lines.push(`    setup: ${project.navigation.setupCommands.join(' ; ')}`);
     lines.push(`  shortlist include: ${project.shortlist.include.join(' ') || '(any)'}`);
     lines.push(`  shortlist exclude: ${project.shortlist.exclude.join(' ') || '(none)'}`);
+    lines.push(...profileLines(project.profile));
     for (const command of project.commands) {
       lines.push(`  command ${command.id}: ${command.argv === null ? 'null (intentionally unavailable)' : command.argv.join(' ')}`);
     }

@@ -1,4 +1,4 @@
-import { SHORTLIST_DEFAULTS } from '../config/defaults.ts';
+import { TEST_EXCLUDES } from '../config/defaults.ts';
 import type { ProjectConfig, ShortlistConfig } from '../contracts/config.ts';
 import type { LocateCandidate } from '../contracts/locate.ts';
 import type { RequirementSource } from '../contracts/requirements.ts';
@@ -6,6 +6,7 @@ import { literalPathspec, type Git } from '../git/git.ts';
 import { pathExclusionReason } from '../snapshot/exclusions.ts';
 import { matchesAnyGlob, matchesGlob } from '../util/glob.ts';
 import { normalizeRelative, toProjectRelative } from '../util/paths.ts';
+import { profileOf, sourceGlob } from './profile.ts';
 
 /**
  * Every signal is computed per call from git, with no index or cache, so the
@@ -148,7 +149,7 @@ export async function locate(request: LocateRequest): Promise<LocateShortlist> {
   // Filtered after scoring so a test still seeds co-change toward the code it covers.
   const rules = shortlistRules(request.project);
   const listable = (file: string): boolean => shortlistable(toProjectRelative(projectRoot, file) ?? file, rules);
-  const ordered = withTemplates(scored, fileSet, listable).filter((entry) => listable(entry.path));
+  const ordered = withCompanions(scored, fileSet, listable, profileOf(request.project).companions).filter((entry) => listable(entry.path));
   if (ordered.length < scored.length) {
     limitations.push(
       `${scored.length - ordered.length} matching file(s) are not listed: they fall outside projects[].shortlist in .ambicode/config.yaml (tests, styles, markup and data by default).`,
@@ -171,26 +172,29 @@ export async function locate(request: LocateRequest): Promise<LocateShortlist> {
   };
 }
 
-const TEMPLATE = /\.(html|scss|sass|less|css)$/;
-
-/** A filtered template or style hands its score to the same-stem source (`x.component.html` → `x.component.ts`), max-merged. */
-function withTemplates<T extends { path: string; score: number; reasons: string[] }>(scored: readonly T[], files: ReadonlySet<string>, listable: (file: string) => boolean): T[] {
+/** A filtered companion (`[from, to]` in the profile) hands its score to the same-name `to` file (`x.component.html` → `x.component.ts`), max-merged. */
+function withCompanions<T extends { path: string; score: number; reasons: string[] }>(scored: readonly T[], files: ReadonlySet<string>, listable: (file: string) => boolean, companions: readonly (readonly [string, string])[]): T[] {
   const byPath = new Map(scored.map((entry) => [entry.path, { ...entry, reasons: [...entry.reasons] }]));
   for (const entry of scored) {
-    const source = entry.path.replace(TEMPLATE, '.ts');
-    if (source === entry.path || listable(entry.path) || !files.has(source) || !listable(source)) continue;
-    const reason = `its template ${entry.reasons[0] ?? 'matches'}`;
-    const { score } = entry;
-    const target = byPath.get(source);
-    if (target === undefined) byPath.set(source, { ...entry, path: source, score, reasons: [reason] });
-    else if (score > target.score) Object.assign(target, { score, reasons: [...target.reasons, reason] });
-    else if (!target.reasons.includes(reason)) target.reasons.push(reason);
+    if (listable(entry.path)) continue;
+    for (const [from, to] of companions) {
+      if (!entry.path.toLowerCase().endsWith(`.${from}`)) continue;
+      const source = `${entry.path.slice(0, -from.length)}${to}`;
+      if (!files.has(source) || !listable(source)) continue;
+      const reason = `its template ${entry.reasons[0] ?? 'matches'}`;
+      const { score } = entry;
+      const target = byPath.get(source);
+      if (target === undefined) byPath.set(source, { ...entry, path: source, score, reasons: [reason] });
+      else if (score > target.score) Object.assign(target, { score, reasons: [...target.reasons, reason] });
+      else if (!target.reasons.includes(reason)) target.reasons.push(reason);
+    }
   }
   return [...byPath.values()].sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
 }
 
+/** Without a configured shortlist: the profile's source extensions, and every test convention excluded. */
 export function shortlistRules(project: ProjectConfig): ShortlistConfig {
-  return project.shortlist ?? { include: [...SHORTLIST_DEFAULTS[project.ecosystem].include], exclude: [...SHORTLIST_DEFAULTS[project.ecosystem].exclude] };
+  return project.shortlist ?? { include: [sourceGlob(profileOf(project).sources)], exclude: [...TEST_EXCLUDES] };
 }
 
 export function shortlistable(projectRelativePath: string, rules: ShortlistConfig): boolean {

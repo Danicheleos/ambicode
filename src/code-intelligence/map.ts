@@ -1,7 +1,6 @@
 import path from 'node:path';
 import { openRepository, type Runtime } from '../composition/root.ts';
 import { SEARCH_LAYER_DEFAULTS } from '../config/defaults.ts';
-import { ecosystemFacts } from '../config/ecosystems.ts';
 import type { ProjectConfig, SearchConfig } from '../contracts/config.ts';
 import { literalPathspec } from '../git/git.ts';
 import { AmbicodeError } from '../util/errors.ts';
@@ -10,6 +9,7 @@ import { normalizeRelative } from '../util/paths.ts';
 import { COMMON_NAMES } from './dependents.ts';
 import { isTestPath, pathExclusionReason } from '../snapshot/exclusions.ts';
 import { harvest, type Declaration } from './harvest.ts';
+import { profileOf, readCatalog } from './profile.ts';
 import { isPathReason, locate, termsFromRequirements } from './locate.ts';
 
 export const LAYER_NAMES = ['grep', 'shortlist', 'harvest', 'history', 'index.find', 'index.relates'] as const;
@@ -112,13 +112,13 @@ export async function rankTerms(
   return [...new Set(ranked)].slice(0, MAX_TERMS);
 }
 
-const ENGLISH_CATALOG = /(^|[/._-])en([._-][a-z]{2})?\.json$/i;
+const ENGLISH_CATALOG = /(^|[/._-])en([._-][a-z]{2})?\.\w+$/i;
 const spacing = (value: string): string => value.replace(/\s+/g, ' ').trim();
 const phraseOf = (value: string): string => spacing(value).toLowerCase();
 
 /** Keys of catalog values equal to a quoted string (any case), or to a 2–5 word phrase the request spells unquoted in the same case. */
 async function i18nKeys(options: { runtime: Runtime; root: string; project: ProjectConfig; files: readonly string[] }, strings: readonly string[], text: string): Promise<string[]> {
-  const globs = [...ecosystemFacts(options.project.ecosystem).i18nGlobs];
+  const globs = [...profileOf(options.project).catalogs];
   const catalogs = options.files
     .filter((file) => globs.length > 0 && matchesAnyGlob(file, globs))
     .sort((a, b) => Number(!ENGLISH_CATALOG.test(a)) - Number(!ENGLISH_CATALOG.test(b)) || a.localeCompare(b))
@@ -141,7 +141,7 @@ async function i18nKeys(options: { runtime: Runtime; root: string; project: Proj
   };
   for (const file of catalogs) {
     try {
-      walk(JSON.parse(await options.runtime.fs.readText(path.join(options.root, file))), '');
+      walk(readCatalog(await options.runtime.fs.readText(path.join(options.root, file)), path.posix.extname(file).slice(1).toLowerCase()), '');
     } catch {
       // An unreadable catalog contributes nothing.
     }
@@ -228,7 +228,7 @@ export async function buildMap(input: {
     } else if (layer === 'harvest') {
       await timed(layer, async () => {
         const files = input.mode === 'context' ? [...new Set([...input.paths, ...topFiles()])].slice(0, TOP_FILES) : harvestFiles();
-        declarations = await harvest(runtime.fs, repositoryRoot, files, project.ecosystem);
+        declarations = await harvest(runtime.fs, repositoryRoot, files, profileOf(project).exportOnly);
         return declarations.length;
       });
     } else {
@@ -256,7 +256,7 @@ export async function buildMap(input: {
   });
 
   if (sequence.size > 0) ordered.sort((a, b) => Number(sequence.has(a.path)) - Number(sequence.has(b.path)));
-  const feature = input.mode === 'prompt' ? featureOf(ordered, listed.filter((file) => !sequence.has(file)), ecosystemFacts(project.ecosystem).sharedKinds, [...pass1, ...pass2], pass1) : null;
+  const feature = input.mode === 'prompt' ? featureOf(ordered, listed.filter((file) => !sequence.has(file)), profileOf(project).featureKinds, [...pass1, ...pass2], pass1) : null;
   if (input.mode === 'prompt') await anchor(ordered.slice(0, LEADS), declarations, [...new Set([...pass1, ...pass2])], git);
   const head = `layers: ${layers.map((layer) => layer.name).join(' → ') || 'none'} (${input.layersSource}); index: none`;
   const render = (kept: readonly MapCandidate[]): string => {
@@ -321,11 +321,11 @@ const kindOf = (file: string): string => path.posix.basename(file).split('.').sl
 
 /**
  * The deepest directory (two segments or more) holding the most top leads found by their path, at least two; its files whose
- * name stem is a lead's stem or the directory's own name, and that are tests or of a shared kind (mocks, types…). Executable
+ * name stem is a lead's stem or the directory's own name, and that are tests or of a profile feature kind (`x.<kind>.ext`). Executable
  * siblings are left out: answers took them as changed when they were not.
  */
-export function featureOf(ordered: readonly MapCandidate[], files: readonly string[], sharedKinds: readonly string[] = [], terms: readonly string[] = [], requested: readonly string[] = terms): MapFeature | null {
-  return folderFeature(ordered, files, sharedKinds) ?? namedFeature(ordered, files, terms, requested);
+export function featureOf(ordered: readonly MapCandidate[], files: readonly string[], featureKinds: readonly string[] = [], terms: readonly string[] = [], requested: readonly string[] = terms): MapFeature | null {
+  return folderFeature(ordered, files, featureKinds) ?? namedFeature(ordered, files, terms, requested);
 }
 
 const LAYER_MIN = 3;
@@ -385,7 +385,7 @@ function byLayers(files: readonly string[]): string[] {
   return out;
 }
 
-function folderFeature(ordered: readonly MapCandidate[], files: readonly string[], sharedKinds: readonly string[]): MapFeature | null {
+function folderFeature(ordered: readonly MapCandidate[], files: readonly string[], featureKinds: readonly string[]): MapFeature | null {
   const top = ordered.slice(0, FEATURE_LEADS).filter((candidate) => candidate.reasons.some(isPathReason)).map((candidate) => candidate.path);
   let best: { root: string; count: number } | null = null;
   for (const lead of top) {
@@ -401,7 +401,7 @@ function folderFeature(ordered: readonly MapCandidate[], files: readonly string[
   const listed = new Set(ordered.slice(0, LEADS).map((candidate) => candidate.path));
   const stems = new Set([path.posix.basename(root), ...top.filter((file) => file.startsWith(`${root}/`)).map(stemOf)]);
   const paths = files
-    .filter((file) => file.startsWith(`${root}/`) && !listed.has(file) && pathExclusionReason(file) === null && stems.has(stemOf(file)) && (isTestPath(file) || sharedKinds.includes(kindOf(file))))
+    .filter((file) => file.startsWith(`${root}/`) && !listed.has(file) && pathExclusionReason(file) === null && stems.has(stemOf(file)) && (isTestPath(file) || featureKinds.includes(kindOf(file))))
     .sort()
     .slice(0, FEATURE_PATHS);
   return paths.length === 0 ? null : { root, paths };

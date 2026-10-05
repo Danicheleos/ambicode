@@ -5,8 +5,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createRuntime, openWorkspace } from '../composition/root.ts';
 import { Ecosystem } from '../contracts/primitives.ts';
-import { SHORTLIST_DEFAULTS } from './defaults.ts';
-import { ECOSYSTEMS, FALLBACK_ECOSYSTEM, ecosystemFacts } from './ecosystems.ts';
+import { TEST_EXCLUDES } from './defaults.ts';
+import { GENERIC_PROFILE, sourceGlob } from '../code-intelligence/profile.ts';
+import { DECLARATION_PATTERNS } from './ecosystems.ts';
 import { detectProjects } from './detect.ts';
 import { planInit } from './init.ts';
 import { loadConfig, loadConfigWithNotices, parseConfig, parseConfigWithNotices, validateArgv } from './load.ts';
@@ -61,6 +62,24 @@ test('a lint check may name the generic adapter; an adapter AMBICODE does not kn
     () => parseConfig(project('prettier')),
     (error: Error & { details?: string[] }) =>
       error.details?.some((detail) => detail.includes('checks.format.adapter') && detail.includes('"generic"')) === true,
+  );
+});
+
+test('03c: a project profile parses; a malformed one fails validation with its path', () => {
+  const profile = (exportOnly: string): string =>
+    withProjects(
+      [
+        '  - id: web',
+        '    root: .',
+        '    ecosystem: typescript',
+        `    profile: { stamp: { commit: abc, files: 3 }, sources: [ts], companions: [[html, ts]], catalogs: ["i18n/*.json"], featureKinds: [], exportOnly: ${exportOnly} }`,
+      ].join('\n'),
+    );
+
+  assert.deepEqual(parseConfig(profile('true')).projects[0]?.profile?.companions, [['html', 'ts']]);
+  assert.throws(
+    () => parseConfig(profile('yes please')),
+    (error: Error & { details?: string[] }) => error.details?.some((detail) => detail.includes('profile.exportOnly')) === true,
   );
 });
 
@@ -512,8 +531,8 @@ test('fresh init writes the shortlist the project type calls for, visibly', asyn
   });
   assert.match(plan.yaml ?? '', /shortlist:\s*\n\s*include:/);
   assert.deepEqual(plan.config.projects[0]?.shortlist, {
-    include: [...SHORTLIST_DEFAULTS.typescript.include],
-    exclude: [...SHORTLIST_DEFAULTS.typescript.exclude],
+    include: [sourceGlob(GENERIC_PROFILE.sources)],
+    exclude: [...TEST_EXCLUDES],
   });
 });
 
@@ -537,7 +556,7 @@ test('re-init adds the shortlist to a project without one, and never rewrites on
   await writeFile(configPath, project(''), 'utf8');
   const added = await planInit(await options());
   assert.ok(added.changes.some((change) => change.startsWith('Added "shortlist" for project "app"')), added.changes.join('\n'));
-  assert.deepEqual(added.config.projects[0]?.shortlist?.include, [...SHORTLIST_DEFAULTS.typescript.include]);
+  assert.deepEqual(added.config.projects[0]?.shortlist?.include, [sourceGlob(GENERIC_PROFILE.sources)]);
 
   await writeFile(configPath, project('    shortlist: { include: ["**/*.html"], exclude: [] }\n'), 'utf8');
   const kept = await planInit(await options());
@@ -703,18 +722,12 @@ test('03-C4: the notices reach the CLI user once, on stderr', async (t) => {
   assert.ok((runtime.notices ?? []).length <= 1);
 });
 
-test('03-C5: the ecosystem table covers every ecosystem and the fallback', () => {
-  for (const ecosystem of Ecosystem.options) {
-    const facts = ecosystemFacts(ecosystem);
-    assert.deepEqual(facts.sourceGlobs, SHORTLIST_DEFAULTS[ecosystem].include);
-    assert.ok(facts.declarationPatterns.length > 0);
+test('03c-S1: search keeps one declaration list and reads no ecosystem', async () => {
+  assert.ok(DECLARATION_PATTERNS.length > 0);
+  const directory = path.join(process.cwd(), 'src/code-intelligence');
+  for (const name of (await readdir(directory)).filter((file) => file.endsWith('.ts') && !file.endsWith('.test.ts') && file !== 'navigation.ts')) {
+    assert.doesNotMatch(await readFile(path.join(directory, name), 'utf8'), /\.ecosystem\b/, name);
   }
-  assert.ok(ECOSYSTEMS.typescript.exportFilter?.test('export const a = 1'));
-  assert.equal(ECOSYSTEMS.python.exportFilter, null);
-  assert.deepEqual(ECOSYSTEMS.typescript.i18nGlobs, ['**/assets/i18n/*.json', '**/i18n/*.json', '**/locales/**/*.json']);
-  assert.deepEqual(ECOSYSTEMS.python.i18nGlobs, []);
-  assert.equal(ecosystemFacts(null), FALLBACK_ECOSYSTEM);
-  assert.equal(ecosystemFacts(undefined), FALLBACK_ECOSYSTEM);
 });
 
 test('03-C6: no ecosystem or language name in routes, step texts or the route engine', async () => {

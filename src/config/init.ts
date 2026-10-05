@@ -1,9 +1,10 @@
 import type { FileSystem } from '../ports/filesystem.ts';
 import path from 'node:path';
 import { Document, isSeq, parseDocument, type YAMLMap, type YAMLSeq } from 'yaml';
-import type { AmbicodeConfig } from '../contracts/config.ts';
+import type { AmbicodeConfig, SearchProfile } from '../contracts/config.ts';
 import { normalizeRelative } from '../util/paths.ts';
-import { CONFIG_FILE, DEFAULTS, SHORTLIST_DEFAULTS } from './defaults.ts';
+import { CONFIG_FILE, DEFAULTS, TEST_EXCLUDES } from './defaults.ts';
+import { GENERIC_PROFILE, sourceGlob } from '../code-intelligence/profile.ts';
 import { navigationFor } from '../code-intelligence/navigation.ts';
 import { suggestedPacks, type DetectedProject } from './detect.ts';
 import { parseConfig } from './load.ts';
@@ -23,6 +24,10 @@ export interface PlanInitOptions {
   detected: readonly DetectedProject[];
   baseline: string;
   baselineNotice: string;
+  /** Measured search profiles by normalized project root (03c-P1). */
+  profiles?: ReadonlyMap<string, SearchProfile>;
+  /** Replace an existing project's profile instead of keeping it. */
+  refreshProfile?: boolean;
 }
 
 export async function planInit(options: PlanInitOptions): Promise<InitPlan> {
@@ -96,7 +101,7 @@ function createFresh(options: PlanInitOptions): InitPlan {
 
   const projects = options.detected.map((detected) => {
     notices.push(...detected.notices.map((notice) => `${detected.id}: ${notice}`));
-    return projectNode(detected, changes, notices);
+    return projectNode(detected, changes, notices, options.profiles?.get(normalizeRelative(detected.root)));
   });
 
   if (projects.length === 0) {
@@ -106,7 +111,8 @@ function createFresh(options: PlanInitOptions): InitPlan {
       ecosystem: 'typescript',
       packs: suggestedPacks('typescript'),
       policyFiles: [],
-      shortlist: shortlistDefaults('typescript'),
+      shortlist: shortlistDefaults(options.profiles?.get('')),
+      ...profileEntry(options.profiles?.get('')),
       commands: { lint: null, unit: null, e2e: null },
       checks: { lint: null, unit: null, e2e: null },
     });
@@ -177,16 +183,23 @@ function updateExisting(existingRaw: string, options: PlanInitOptions): InitPlan
     const root = normalizeRelative(detected.root);
     const existing = existingRoots.get(root);
     if (existing === undefined) {
-      projectsNode?.add(document.createNode(projectNode(detected, changes, notices)));
+      projectsNode?.add(document.createNode(projectNode(detected, changes, notices, options.profiles?.get(root))));
       changes.push(`Added project "${detected.id}" for root "${detected.root}".`);
       continue;
     }
     addMissingCommands(document, existing, detected, changes, notices);
     addMissingFrameworkPacks(document, existing, detected, changes);
     if (existing.get('shortlist') === undefined) {
-      existing.set('shortlist', document.createNode(shortlistDefaults(detected.ecosystem)));
+      existing.set('shortlist', document.createNode(shortlistDefaults(options.profiles?.get(root))));
       changes.push(`Added "shortlist" for project "${detected.id}": the files prepare may list, source only. Edit it to widen or narrow.`);
     }
+  }
+  for (const [root, existing] of existingRoots) {
+    const profile = options.profiles?.get(root);
+    if (profile === undefined || (existing.get('profile') !== undefined && options.refreshProfile !== true)) continue;
+    const replaced = existing.get('profile') !== undefined;
+    existing.set('profile', document.createNode(profile));
+    changes.push(`${replaced ? 'Replaced' : 'Added'} the search profile for root "${root || '.'}" (measured at ${profile.stamp.commit.slice(0, 12) || 'no commit'}).`);
   }
 
   if (changes.length === 0) {
@@ -258,6 +271,7 @@ function projectNode(
   detected: DetectedProject,
   changes: string[],
   notices: string[],
+  profile?: SearchProfile,
 ): Record<string, unknown> {
   const commands: Record<string, unknown> = {};
   const checks: Record<string, unknown> = {};
@@ -287,14 +301,17 @@ function projectNode(
     ecosystem: detected.ecosystem,
     packs: [...suggestedPacks(detected.ecosystem), ...detected.frameworkPacks],
     policyFiles: [],
-    shortlist: shortlistDefaults(detected.ecosystem),
+    shortlist: shortlistDefaults(profile),
+    ...profileEntry(profile),
     commands,
     checks,
   };
 }
 
-function shortlistDefaults(ecosystem: DetectedProject['ecosystem']): { include: string[]; exclude: string[] } {
-  return { include: [...SHORTLIST_DEFAULTS[ecosystem].include], exclude: [...SHORTLIST_DEFAULTS[ecosystem].exclude] };
+const profileEntry = (profile: SearchProfile | undefined): { profile?: SearchProfile } => (profile === undefined ? {} : { profile });
+
+function shortlistDefaults(profile: SearchProfile | undefined): { include: string[]; exclude: string[] } {
+  return { include: [sourceGlob(profile === undefined || profile.sources.length === 0 ? GENERIC_PROFILE.sources : profile.sources)], exclude: [...TEST_EXCLUDES] };
 }
 
 function checkFor(slot: 'lint' | 'unit' | 'e2e', detected: DetectedProject): Record<string, unknown> | null {

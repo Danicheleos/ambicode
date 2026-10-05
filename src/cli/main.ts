@@ -24,6 +24,9 @@ export const USAGE = `ambicode <command> [options]
 
   init                    Detect projects and write .ambicode/config.yaml.
                             --dry-run    Report what would change, write nothing.
+                            --refresh-profile
+                                         Re-measure each project's search profile and
+                                         replace the stored one.
 
   config                  Print the effective configuration, including limits
                           that are not stored in the file.

@@ -1,7 +1,6 @@
 import path from 'node:path';
-import { ecosystemFacts } from '../config/ecosystems.ts';
+import { DECLARATION_PATTERNS } from '../config/ecosystems.ts';
 import { MAX_SNAPSHOT_FILE_BYTES } from '../config/defaults.ts';
-import type { Ecosystem } from '../contracts/primitives.ts';
 import type { FileSystem } from '../ports/filesystem.ts';
 import { COMMON_NAMES } from './dependents.ts';
 
@@ -15,6 +14,7 @@ export interface Declaration {
 }
 
 const MIN_NAME = 3;
+const EXPORT_LINE = /^\s*export\b/;
 const KINDS = ['function', 'class', 'interface', 'type', 'enum', 'namespace', 'const', 'let', 'var', 'def', 'fn', 'func'];
 
 function kindOf(line: string): string {
@@ -23,12 +23,11 @@ function kindOf(line: string): string {
 }
 
 /**
- * Every declaration the ecosystem's patterns find, all matches on all lines. A TypeScript line must be an export to
- * count as reachable from another file. A name declared in more than one of the given files collides.
+ * Every declaration the shared patterns find, all matches on all lines. With `exportOnly` (a profile fact) a line must
+ * be an export to count as reachable from another file. A name declared in more than one of the given files collides.
  */
-export async function harvest(fs: FileSystem, root: string, files: readonly string[], ecosystem: Ecosystem | null): Promise<Declaration[]> {
-  const facts = ecosystemFacts(ecosystem);
-  const patterns = facts.declarationPatterns.map((pattern) => new RegExp(pattern.source, `${pattern.flags.replace('g', '')}g`));
+export async function harvest(fs: FileSystem, root: string, files: readonly string[], exportOnly: boolean): Promise<Declaration[]> {
+  const patterns = DECLARATION_PATTERNS.map((pattern) => new RegExp(pattern.source, `${pattern.flags.replace('g', '')}g`));
   const found: Omit<Declaration, 'declarations'>[] = [];
   for (const file of files) {
     let text: string;
@@ -41,7 +40,7 @@ export async function harvest(fs: FileSystem, root: string, files: readonly stri
     }
     const seen = new Set<string>();
     text.split(/\r?\n/).forEach((line, index) => {
-      if (facts.exportFilter !== null && !facts.exportFilter.test(line)) return;
+      if (exportOnly && !EXPORT_LINE.test(line)) return;
       for (const pattern of patterns) {
         pattern.lastIndex = 0;
         for (const match of line.matchAll(pattern)) {

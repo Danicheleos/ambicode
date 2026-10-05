@@ -71,6 +71,16 @@ export const ShortlistConfig = z.strictObject({
 });
 export type ShortlistConfig = z.infer<typeof ShortlistConfig>;
 
+export const SearchProfile = z.strictObject({
+  stamp: z.strictObject({ commit: z.string(), files: z.number().int().nonnegative() }),
+  sources: z.array(z.string().min(1)),
+  companions: z.array(z.tuple([z.string().min(1), z.string().min(1)])),
+  catalogs: z.array(z.string().min(1)),
+  featureKinds: z.array(z.string().min(1)),
+  exportOnly: z.boolean(),
+});
+export type SearchProfile = z.infer<typeof SearchProfile>;
+
 export const ProjectConfig = z.strictObject({
   id: z
     .string()
@@ -81,6 +91,7 @@ export const ProjectConfig = z.strictObject({
   packs: z.array(z.string().min(1)).default([]),
   policyFiles: z.array(RelativePath).default([]),
   shortlist: ShortlistConfig.optional(),
+  profile: SearchProfile.optional(),
   commands: z.record(z.string().min(1), CommandEntry).default({}),
   checks: z.record(z.string().min(1), CheckSpec.nullable()).default({}),
 });

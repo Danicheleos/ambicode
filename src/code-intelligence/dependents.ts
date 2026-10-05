@@ -1,7 +1,7 @@
 import type { ProjectConfig } from '../contracts/config.ts';
 import type { DiffFile } from '../git/diff.ts';
 import type { Git } from '../git/git.ts';
-import { FALLBACK_ECOSYSTEM } from '../config/ecosystems.ts';
+import { DECLARATION_PATTERNS } from '../config/ecosystems.ts';
 import { isTestPath } from '../snapshot/exclusions.ts';
 import { locate } from './locate.ts';
 
@@ -23,7 +23,7 @@ export const MAX_DEPENDENTS = 8;
 /** Names that mean nothing on their own: matching them finds the whole project. */
 export const COMMON_NAMES = new Set(['constructor', 'index', 'default', 'main', 'get', 'set', 'run', 'init', 'test', 'it', 'describe', 'props', 'state']);
 
-const DECLARATIONS = FALLBACK_ECOSYSTEM.declarationPatterns;
+const DECLARATIONS = DECLARATION_PATTERNS;
 
 function declaredNames(text: string): string[] {
   const names: string[] = [];

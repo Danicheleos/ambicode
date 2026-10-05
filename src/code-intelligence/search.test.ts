@@ -10,8 +10,9 @@ import { buildMap, cleanRequestText, featureOf, sequenceFiles, FEATURE_LIMIT_BYT
 import { excludeWorkingDirs } from '../task/task-dir.ts';
 import { find, refs, SEARCH_LIMIT_BYTES } from './refs.ts';
 import { SearchConfig } from '../contracts/config.ts';
-import { ECOSYSTEMS } from '../config/ecosystems.ts';
-import { isPathReason } from './locate.ts';
+import { isPathReason, shortlistRules } from './locate.ts';
+import { TEST_EXCLUDES } from '../config/defaults.ts';
+import { GENERIC_PROFILE, sourceGlob } from './profile.ts';
 import { execFileSync } from 'node:child_process';
 
 async function repo(extra: Record<string, string> = {}): Promise<RouteFixture> {
@@ -28,7 +29,16 @@ async function repo(extra: Record<string, string> = {}): Promise<RouteFixture> {
   return fx;
 }
 const realpathOf = (file: string): Promise<string> => realpath(file);
-const project = (fx: RouteFixture) => ({ id: 'app', root: '.', ecosystem: 'typescript' as const, commands: {} }) as never;
+// The facts a TS/Angular repository's profile measures; search reads them only through the profile (03c-S1).
+const TS_PROFILE = {
+  stamp: { commit: '', files: 0 },
+  sources: ['ts', 'tsx', 'js'],
+  companions: [['html', 'ts'], ['scss', 'ts']] as [string, string][],
+  catalogs: ['**/assets/i18n/*.json', '**/i18n/*.json', '**/locales/**/*.json'],
+  featureKinds: ['mocks', 'mock', 'types', 'type', 'constants', 'fixtures'],
+  exportOnly: true,
+};
+const project = (fx: RouteFixture, profile: object | null = TS_PROFILE) => ({ id: 'app', root: '.', ecosystem: 'typescript' as const, commands: {}, ...(profile === null ? {} : { profile }) }) as never;
 
 describe('03-M1 grepWords', () => {
   it('matches whole words, case-sensitively, in any of the words', async () => {
@@ -50,7 +60,7 @@ describe('03-M2 harvest', () => {
   it('takes every match on every line, filters TypeScript to exports, drops short and common names, and counts declaring files', async () => {
     const fx = await repo({ 'src/cart/many.ts': 'export function alpha() {} export function beta() {}\nexport const get = 1;\nexport const ab = 2;\n' });
     try {
-      const found = await harvest(fx.runtime.fs, fx.repo.root, ['src/cart/cart.service.ts', 'src/cart/discount.ts', 'src/billing/invoice.ts', 'src/cart/many.ts'], 'typescript');
+      const found = await harvest(fx.runtime.fs, fx.repo.root, ['src/cart/cart.service.ts', 'src/cart/discount.ts', 'src/billing/invoice.ts', 'src/cart/many.ts'], true);
       const names = found.map((declaration) => declaration.name);
       assert.ok(['alpha', 'beta', 'bundleRate', 'DISCOUNT_RATE', 'CartService', 'InvoiceService'].every((name) => names.includes(name)), names.join(','));
       assert.ok(!names.includes('hidden'), 'not exported');
@@ -296,7 +306,7 @@ describe('03b-M map terms and leads', () => {
     const lead = (file: string) => ({ path: file, score: 5, reasons: ['sits under a directory matching "cart"'] });
     const ordered = [lead('src/app/cart/dto/cart.dto.ts'), lead('src/app/cart/cart.service.ts'), { path: 'src/other/x.ts', score: 1, reasons: ['contains "cart"'] }];
     const files = ['src/app/cart/dto/cart.dto.ts', 'src/app/cart/cart.service.ts', 'src/app/cart/cart.service.spec.ts', 'src/app/cart/mocks/cart.mocks.ts', 'src/app/cart/cart.router.ts', 'src/app/cart/cart.schema.ts', 'src/app/cart/discount.ts', 'src/app/billing/cart.ts', 'src/app/cart/.ambicode/task/t/cart.md'];
-    const feature = featureOf(ordered, files, ECOSYSTEMS.typescript.sharedKinds);
+    const feature = featureOf(ordered, files, TS_PROFILE.featureKinds);
     assert.deepEqual(featureOf(ordered, files)?.paths, ['src/app/cart/cart.service.spec.ts'], 'no shared kinds: tests only');
     assert.deepEqual(feature, { root: 'src/app/cart', paths: ['src/app/cart/cart.service.spec.ts', 'src/app/cart/mocks/cart.mocks.ts'] });
     const text = leadsText({ terms: { pass1: ['cart'], pass2: ['cart'] }, candidates: ordered, collisions: ['Dup'], feature });
@@ -376,6 +386,24 @@ describe('03b-M map terms and leads', () => {
       const banner = map.candidates.find((candidate) => candidate.path === 'src/ui/banner.component.ts');
       assert.ok(banner !== undefined && banner.reasons.some((reason) => reason.startsWith('its template contains')), JSON.stringify(map.candidates));
       assert.ok(map.candidates.every((candidate) => !candidate.path.endsWith('.html')));
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('03c-S2…S7: catalogs, companions, the export rule and the shortlist come from the profile; without one, generic behaviour', async () => {
+    const fx = await repo({ 'main/assets/i18n/en.json': JSON.stringify({ table: { score: 'Score type' } }), 'src/ui/banner.component.html': '<p>{{ checkoutBannerText }}</p>\n', 'src/ui/banner.component.ts': 'export class BannerComponent {}\n' });
+    try {
+      const files = await (await openRepository(fx.runtime)).git.listFiles(null);
+      const bare = project(fx, null);
+      const terms = await rankTerms([{ title: '', content: 'Sort the Score type column of `CartService`' }], { runtime: fx.runtime, root: fx.repo.root, project: bare, files });
+      assert.ok(!terms.includes('table.score'), `03c-S2/S7: no catalogs without a profile: ${terms.join(',')}`);
+      const map = await buildMap({ runtime: fx.runtime, project: bare, paths: [], symbols: [], mode: 'context', layers: ['shortlist'], layersSource: 'default', terms: ['checkoutBannerText'] });
+      assert.ok(!map.candidates.some((candidate) => candidate.reasons.some((reason) => reason.startsWith('its template'))), '03c-S3/S7: no companions without a profile');
+      const all = await harvest(fx.runtime.fs, fx.repo.root, ['src/billing/invoice.ts'], false);
+      assert.ok(all.some((declaration) => declaration.name === 'hidden'), '03c-S5: exportOnly false keeps unexported declarations');
+      assert.deepEqual(shortlistRules({ ...(project(fx, { ...GENERIC_PROFILE, stamp: { commit: '', files: 0 }, sources: ['py'] }) as object) } as never), { include: ['**/*.py'], exclude: [...TEST_EXCLUDES] }, '03c-S6');
+      assert.deepEqual(shortlistRules(bare).include, [sourceGlob(GENERIC_PROFILE.sources)], '03c-S6/S7');
     } finally {
       await fx.dispose();
     }
