@@ -51,8 +51,9 @@ credentials and no MCP connection, by design. Your Claude session holds the MCP
 connection, retrieves each URL, and hands the result over as a JSON envelope.
 `--evidence -` reads that envelope from standard input; `--evidence <path>`
 still reads it from a file if you happen to have one.
-`skills/shared/requirements-mcp.md` in the plugin documents the envelope's
-shape, and `investigate`, `plan` and `task` all follow the same procedure.
+The envelope's shape is `mcpServer`, `sources` (id, url, title, retrievedAt, sourceVersion, updatedAt,
+content, citations, status, failureReason, retrievedVia) and `conflicts`; `investigate`, `plan` and
+`task` follow the same procedure.
 
 **No skill writes an evidence file.** A workflow that hands the same evidence
 to two commands — `prepare` and then `review`, or `review` again after fixing

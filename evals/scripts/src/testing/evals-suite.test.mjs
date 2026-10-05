@@ -662,7 +662,7 @@ describe('eval graders: trace indicators match what review prints, and only a co
 
   async function skillBodies() {
     const bodies = [];
-    for (const directory of ['skills', path.join('skills', 'shared')]) {
+    for (const directory of ['skills']) {
       for (const entry of await readdir(path.join(ROOT, directory), { withFileTypes: true })) {
         const file = entry.isDirectory()
           ? path.join(directory, entry.name, 'SKILL.md')

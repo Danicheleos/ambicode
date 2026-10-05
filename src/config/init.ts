@@ -84,6 +84,12 @@ function lspPluginsFor(ecosystems: readonly unknown[]): string[] {
 const MCP_BINDING_NOTICE =
   'requirements.mcpServer is null: no Jira/Confluence MCP server is bound. Requirement-based review needs one named here. If more than one compatible server is connected, choose which of them this repository uses and write its name.';
 
+/** Written config keeps the v1 shape until init writes v3. */
+function writtenReviewDefaults(): Omit<typeof DEFAULTS.review, 'onInvalid'> {
+  const { onInvalid: _onInvalid, ...review } = DEFAULTS.review;
+  return review;
+}
+
 function createFresh(options: PlanInitOptions): InitPlan {
   const changes: string[] = [];
   const notices: string[] = [options.baselineNotice, MCP_BINDING_NOTICE];
@@ -115,7 +121,7 @@ function createFresh(options: PlanInitOptions): InitPlan {
   const document = new Document({
     schemaVersion: DEFAULTS.schemaVersion,
     baseline: options.baseline,
-    review: { ...DEFAULTS.review },
+    review: writtenReviewDefaults(),
     checks: { ...DEFAULTS.checks },
     page: { ...DEFAULTS.page },
     requirements: { mcpServer: null, lsp: lspPlugins },

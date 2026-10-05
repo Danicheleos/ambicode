@@ -1,5 +1,6 @@
 // Imports only import-free modules: this file is bundled into a standalone entry whose startup time is the point
 // (see guard.ts). Files are read by the injected `GuardState`, never from here.
+import { ownerOfHarness } from '../../route/harness.ts';
 import { ownerOf } from '../../route/ownership.ts';
 import type { LedgerEntry } from '../../task/ledger.ts';
 import { basename, type Directories, parseCommand, type Segment } from '../shell/command-parser.ts';
@@ -301,8 +302,9 @@ function planBodyDecision(input: GuardInput, state: GuardState | undefined, task
   const owner = ownerOf(entries, slug);
   if (owner.state === 'none') return refuse(`no plan route is open on ${slug}`);
   if (owner.state === 'unknown') return refuse(owner.reason);
-  if (owner.session === session) return {};
-  if (owner.takenOver.includes(session)) {
+  const mine = ownerOfHarness(entries, session);
+  if (mine !== null && owner.session === mine) return {};
+  if (mine !== null && owner.takenOver.includes(mine)) {
     return decide(
       'deny',
       `AMBICODE: route-taken-over: session ${owner.session} took over the plan route on ${slug} (route ${owner.routeId}); ` +

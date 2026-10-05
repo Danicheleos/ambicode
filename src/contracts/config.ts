@@ -98,6 +98,8 @@ export const ReviewConfig = z.strictObject({
    * large generated file would otherwise block the whole change. `--exclude` adds to it.
    */
   excludePaths: z.array(z.string().min(1)).default([]),
+  /** What happens to a finding that fails validation: kept as a voided entry, or dropped. */
+  onInvalid: z.enum(['void', 'drop']).default('void'),
 });
 export type ReviewConfig = z.infer<typeof ReviewConfig>;
 
@@ -121,8 +123,23 @@ export const AuthoringConfig = z.strictObject({
 });
 export type AuthoringConfig = z.infer<typeof AuthoringConfig>;
 
+/** Absent lists mean the defaults in `config/defaults.ts`; the map prints which one it used. */
+export const SearchConfig = z.strictObject({
+  index: z.enum(['none', 'codeindex']).default('none'),
+  layers: z
+    .strictObject({
+      prompt: z.array(z.string().min(1)).optional(),
+      context: z.array(z.string().min(1)).optional(),
+    })
+    .optional(),
+});
+export type SearchConfig = z.infer<typeof SearchConfig>;
+
+export const WorkersConfig = z.strictObject({ approved: z.array(z.string().min(1)).default([]) });
+export const GuardConfig = z.strictObject({ askOutsideMap: z.boolean().default(false) });
+
 export const AmbicodeConfig = z.strictObject({
-  schemaVersion: z.literal(1),
+  schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]),
   /** Empty string means "no baseline recorded"; branch review then needs --base. */
   baseline: z.string(),
   review: ReviewConfig,
@@ -130,13 +147,10 @@ export const AmbicodeConfig = z.strictObject({
   page: PageConfig,
   requirements: z.strictObject({
     mcpServer: z.string().min(1).nullable(),
-    /**
-     * The language-server plugins every skill must load, one per ecosystem in the repository. When
-     * not empty, a skill that finds no LSP tool stops instead of searching with grep (an
-     * investigate run skipped it and said so afterwards). Absent or empty: no requirement.
-     */
-    lsp: z.array(z.string().min(1)).default([]),
   }),
+  search: SearchConfig.default({ index: 'none' }),
+  workers: WorkersConfig.default({ approved: [] }),
+  guard: GuardConfig.default({ askOutsideMap: false }),
   projects: z.array(ProjectConfig).min(1),
   remoteChecks: RemoteChecksConfig,
   authoring: AuthoringConfig.default({ editReminders: true }),
@@ -145,4 +159,4 @@ export type AmbicodeConfig = z.infer<typeof AmbicodeConfig>;
 
 export const SchemaVersionProbe = z.looseObject({ schemaVersion: z.unknown() });
 
-export const SUPPORTED_SCHEMA_VERSION = 1;
+export const SUPPORTED_SCHEMA_VERSION = 3;

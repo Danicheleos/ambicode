@@ -1,10 +1,11 @@
 # Reviewing against requirements
 
-Follow `${CLAUDE_PLUGIN_ROOT}/skills/shared/requirements-mcp.md` (read it now
-if you have not already this session) to retrieve every named source and
-build the evidence envelope. It covers the MCP binding, the envelope format,
-and what a failure means; `investigate`, `plan` and `task` follow the same
-procedure. Then pipe the envelope to `--evidence -`:
+Retrieve each URL through the MCP server `config` names in `requirements.mcpServer` (null with one
+compatible server connected: use it and say so; with several: ask which; named but not connected: stop).
+Hand the helper one JSON envelope of exactly those URLs: `{"mcpServer", "sources": [{"id", "url", "title",
+"retrievedAt", "sourceVersion", "updatedAt", "content" (verbatim), "citations", "status": retrieved|
+unavailable|forbidden|not-found, "failureReason", "retrievedVia"}], "conflicts": [{"summary", "sourceIds"}]}`.
+A source you could not read stops the run: say which URL failed and why. Then pipe the envelope to `--evidence -`:
 
 ```sh
 node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" review \

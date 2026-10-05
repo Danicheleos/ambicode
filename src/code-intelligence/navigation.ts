@@ -1,9 +1,6 @@
 import type { Ecosystem } from '../contracts/primitives.ts';
 
-/**
- * AMBICODE never starts a language server; only the current session knows
- * whether its LSP tools are active, so consumers report what they observed.
- */
+/** AMBICODE never starts a language server; the plugin to install is setup guidance only. */
 export interface NavigationGuidance {
   strategy: 'shortlist-then-known-paths-then-lsp-then-targeted-search';
   ecosystem: Ecosystem;
@@ -15,34 +12,9 @@ export interface NavigationGuidance {
   readGuidance: string;
 }
 
-// Sent on every call; context-cost.test.ts caps it under 100 chars.
-const EVIDENCE_REQUIREMENT =
-  'Report the LSP operations used. "No LSP tools" counts only if ToolSearch select:LSP found none.';
-
-// Under 100 chars like the line above: context-cost.test.ts caps it.
-const REQUIRED_EVIDENCE = 'LSP is required: ToolSearch select:LSP; if it finds none, stop. No grep fallback.';
-
-// Delivered in the hook message: skills/shared/prepare-output.md is read on demand, and the order went unread there.
-export function readingOrder(requiredPlugins: readonly string[]): string {
-  return requiredPlugins.length === 0 ? READING_ORDER : requiredReadingOrder(requiredPlugins);
-}
-
-function requiredReadingOrder(plugins: readonly string[]): string {
-  const install = plugins.map((plugin) => `\`claude plugin install ${plugin} --scope user\``).join(' and ');
-  return READING_ORDER.replace(
-    '1. ToolSearch select:LSP (deferred).',
-    `1. ToolSearch select:LSP (deferred). requirements.lsp in .ambicode/config.yaml makes it mandatory: if it finds no LSP tool, stop. Your whole reply says LSP is not available and gives ${install}. No Grep, no Bash search, no note.`,
-  );
-}
-
-export const READING_ORDER = [
-  "How to read code (a link-block is path:lineA-lineB or path:lineA, one symbol's range):",
-  '1. ToolSearch select:LSP (deferred). workspaceSymbol and documentSymbol turn the terms and the shortlist into link-blocks. Absolute paths; retry a failed call once.',
-  '2. LSP finds nothing: stop. Your whole reply is one question asking the user for the scope. No Grep, no Bash search, no note. Search code with LSP before any Grep.',
-  '3. Read link-blocks with offset/limit. A related type, method or call you cannot place: goToDefinition, findReferences or workspaceSymbol on it, read the new link-blocks, repeat until the feature is understood. findReferences listing only the definition means the server is still loading (10+ s on a large project; an instant repeat repeats it), never that nothing uses it: read something else, retry, and if it still lists only the definition, Grep -w the name and say LSP had no references. Before writing something new, workspaceSymbol for an existing one.',
-  '4. LSP returns only paths: Grep -n that file for lines and structure, then Read chunks.',
-  '5. Whole-file Read is the last resort: steps 1-4 failed and the file is under 300 lines.',
-].join('\n');
+// Sent on every call; context-cost.test.ts caps both lines under 100 chars. The full reading guidance is a route step's text.
+const EVIDENCE_REQUIREMENT = 'Only CLI calls (map, refs, find) are recorded. Run find before adding a helper.';
+const READ_GUIDANCE = 'The map is a hypothesis. Read batched, then spans. Verify imports for colliding names.';
 
 const GUIDANCE: Record<Ecosystem, Omit<NavigationGuidance, 'ecosystem'>> = {
   typescript: {
@@ -55,7 +27,7 @@ const GUIDANCE: Record<Ecosystem, Omit<NavigationGuidance, 'ecosystem'>> = {
     ],
     statusSource: 'current-session',
     evidenceRequirement: EVIDENCE_REQUIREMENT,
-    readGuidance: 'Read spans with offset/limit. LSP: ToolSearch select:LSP first, filePath absolute.',
+    readGuidance: READ_GUIDANCE,
   },
   python: {
     strategy: 'shortlist-then-known-paths-then-lsp-then-targeted-search',
@@ -67,16 +39,11 @@ const GUIDANCE: Record<Ecosystem, Omit<NavigationGuidance, 'ecosystem'>> = {
     ],
     statusSource: 'current-session',
     evidenceRequirement: EVIDENCE_REQUIREMENT,
-    readGuidance: 'Read spans with offset/limit. LSP: ToolSearch select:LSP first, filePath absolute.',
+    readGuidance: READ_GUIDANCE,
   },
 };
 
-export function navigationFor(ecosystem: Ecosystem, lspRequired = false): NavigationGuidance {
+export function navigationFor(ecosystem: Ecosystem): NavigationGuidance {
   const guidance = GUIDANCE[ecosystem];
-  return {
-    ecosystem,
-    ...guidance,
-    ...(lspRequired ? { evidenceRequirement: REQUIRED_EVIDENCE } : {}),
-    setupCommands: [...guidance.setupCommands],
-  };
+  return { ecosystem, ...guidance, setupCommands: [...guidance.setupCommands] };
 }

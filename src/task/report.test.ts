@@ -156,3 +156,34 @@ describe('02-R6: the navigation line reads search entries only', () => {
     assert.match(buildReport([entry('search', { command: 'find' })]).evidence, /\n {2}Navigation \(CLI calls\): find x1 — model reads not recorded\n/);
   });
 });
+
+describe('03-E12: the report leads with how the route ended', () => {
+  const at = '2026-10-05T10:00:00.000Z';
+  const route = { id: 'a-1', at, kind: 'route', skill: 'plan', mode: 'interactive', channel: 'hook' };
+
+  it('no route entry means no leading line; a route without exit is in progress', () => {
+    assert.ok(buildReport([]).text.startsWith('Evidence'));
+    assert.equal(buildReport([route]).status, 'in progress');
+  });
+
+  it('a complete exit leads with complete and counts what is not verified; historical items do not count', () => {
+    const exit = { id: 'a-2', at, kind: 'exit', route: 'a-1', reason: 'done', complete: true };
+    assert.equal(buildReport([route, exit]).status, 'complete');
+    const limit = { id: 'a-3', at, kind: 'limit', which: 'repeat', step: 'plan-write', count: 2 };
+    const report = buildReport([route, limit, exit], { complete: true });
+    assert.equal(report.status, 'complete, 1 items not verified');
+    assert.ok(report.text.startsWith('complete, 1 items not verified\nEvidence'));
+    assert.equal(buildReport([route, limit, exit], { complete: true, current: () => false }).status, 'complete');
+  });
+
+  it('an exit leads with its reason; permission-denied keeps its detail', () => {
+    const exit = { id: 'a-2', at, kind: 'exit', route: 'a-1', reason: 'blocked', detail: 'permission-denied: git push' };
+    assert.equal(buildReport([route, exit]).status, 'ended: blocked (permission-denied: git push)');
+    assert.equal(buildReport([route, { ...exit, detail: undefined }]).status, 'ended: blocked');
+  });
+
+  it('the hash covers the evidence only: the leading line does not change it', () => {
+    const exit = { id: 'a-2', at, kind: 'exit', route: 'a-1', reason: 'blocked' };
+    assert.equal(buildReport([route]).hash, buildReport([route, exit]).hash);
+  });
+});

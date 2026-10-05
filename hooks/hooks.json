@@ -2,15 +2,11 @@
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "Edit|Write",
+        "matcher": "mcp__.*",
         "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs", "hook"] }]
       },
       {
-        "matcher": "mcp__.*([Aa]tlassian|[Jj]ira|[Cc]onfluence|[Rr]ovo).*",
-        "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs", "hook"] }]
-      },
-      {
-        "matcher": "Skill",
+        "matcher": "AskUserQuestion",
         "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs", "hook"] }]
       }
     ],
@@ -35,6 +31,11 @@
       }
     ],
     "UserPromptSubmit": [
+      {
+        "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs", "hook"] }]
+      }
+    ],
+    "Stop": [
       {
         "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs", "hook"] }]
       }

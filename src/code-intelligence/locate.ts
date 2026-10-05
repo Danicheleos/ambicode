@@ -460,6 +460,7 @@ function normalizeTerms(supplied: readonly string[], limitations: string[]): str
 /** A word-frequency heuristic; identifier-shaped tokens rank first, because naming code names the boundary. */
 export function termsFromRequirements(
   sources: readonly Pick<RequirementSource, 'title' | 'content'>[],
+  limit = MAX_TERMS,
 ): string[] {
   const found = new Map<string, { term: string; count: number; order: number; identifier: boolean }>();
   let order = 0;
@@ -481,7 +482,7 @@ export function termsFromRequirements(
       (a, b) =>
         Number(b.identifier) - Number(a.identifier) || b.count - a.count || a.order - b.order,
     )
-    .slice(0, MAX_TERMS)
+    .slice(0, limit)
     .map((entry) => entry.term);
 }
 

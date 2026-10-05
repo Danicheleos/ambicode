@@ -1,5 +1,5 @@
 import { realpathSync } from 'node:fs';
-import { createRuntime } from '../composition/root.ts';
+import { createRuntime, type Runtime } from '../composition/root.ts';
 import { AmbicodeError, isAmbicodeError } from '../util/errors.ts';
 import { formatJsonOutput, type JsonFormat } from '../util/json-output.ts';
 import { parseArgs, type OptionSpec, type ParsedArgs } from './args.ts';
@@ -10,8 +10,11 @@ import { LOCATE_OPTIONS, renderLocate, runLocate } from './commands/locate.ts';
 import { NOTE_LIST_OPTIONS, NOTE_PROMOTE_OPTIONS, NOTE_SAVE_OPTIONS, renderNoteList, renderNotePromote, renderNoteSave, runNoteList, runNotePromote, runNoteSave } from './commands/note.ts';
 import { POLICY_OPTIONS, renderPolicy, runPolicy } from './commands/policy.ts';
 import { POLICY_CHECK_OPTIONS, renderPolicyCheck, runPolicyCheck } from './commands/policy-check.ts';
-import { PREPARE_OPTIONS, renderPrepare, runPrepare } from './commands/prepare.ts';
+import { PREPARE_OPTIONS, prepareAsRouteStart, renderPrepare, runPrepare } from './commands/prepare.ts';
 import { REPORT_OPTIONS, renderReport, runReport } from './commands/report.ts';
+import { FIND_OPTIONS, MAP_OPTIONS, REFS_OPTIONS, renderSearch, runFind, runMap, runRefs } from './commands/search.ts';
+import { REQUIREMENTS_ACS_OPTIONS, REQUIREMENTS_NORMALIZE_OPTIONS, REQUIREMENTS_TEMPLATE_OPTIONS, renderRequirements, runRequirementsAcs, runRequirementsNormalize, runRequirementsTemplate } from './commands/requirements.ts';
+import { ROUTE_NEXT_OPTIONS, ROUTE_START_OPTIONS, ROUTE_STATUS_OPTIONS, ROUTE_STOP_OPTIONS, renderMessage, renderRouteStatus, runRouteNext, runRouteStart, runRouteStatus, runRouteStop } from './commands/route.ts';
 import { REVIEW_OPTIONS, renderReview, runReview } from './commands/review.ts';
 import type { ViewOutput } from './commands/view.ts';
 import { VIEW_OPTIONS } from './view-options.ts';
@@ -29,6 +32,9 @@ export const USAGE = `ambicode <command> [options]
                             --project <id>
                             --activity <review|task|plan|investigate>
                             --rule <pack/rule>   repeatable: print only those rules
+                            --stage <before-work|before-report>  the text a route
+                                                 delivers at that stage; --show
+                                                 prints it without the byte cap
 
   policy check <file...>  Validate candidate policy pack files that are not yet
                           referenced from .ambicode/config.yaml: the schema, the
@@ -63,6 +69,49 @@ export const USAGE = `ambicode <command> [options]
                           iteration and promotion.
                             --task <slug>
 
+  route start <skill> [request…]
+                          Start a skill's route. The first step is printed.
+                            --task <slug>  --headless  --project <id>
+                            --answer <gate>=<option>   repeatable
+                            --requirement <url>        repeatable
+                            --fresh | --adopt          restart or take over a route
+
+  route next              End the current step and print the next one.
+                            --task <slug>
+                            --answer <gate>=<option>   a non-acting option
+                            --default <gate>   --revise <stepId>
+                            --conflict "<summary>" --sources A,B
+                            --project <id>   --show <payload>
+
+  route status            Where each open route on the task stands. Read-only.
+                            --task <slug>
+
+  route stop              End the route: blocked | human | inconclusive | budget.
+                            --task <slug>  --reason <r>  --detail <text>
+
+  map [paths...]          Files, symbols and spans a request touches, built by
+                          the layers in search.layers, at most 6 KiB. Recorded.
+                            --task <slug>  --project <id>  --mode <prompt|context>
+                            --term <t>   --symbol <s>   repeatable   --show
+                            --layers   always refused: edit search.layers in the config
+
+  refs <name...>          Lines using each whole word (git grep -w); a name
+                          declared in several files is flagged. At most 4 KiB.
+                            --task <slug>  --project <id>  --show
+
+  find <name>             Declarations of a name. At most 4 KiB.
+                            --task <slug>  --project <id>  --kind <k>
+
+  requirements template   The calls that retrieve the asked sources.
+                            --task <slug>  --requirement <url>   repeatable
+
+  requirements normalize  Build the task's requirement envelope from what the
+                          session captured. Advances the route.
+                            --task <slug>
+
+  requirements acs        The acceptance units of the task's envelope. Read-only.
+                            --task <slug>
+
   report                  The evidence of a task and what was not verified,
                           generated from its ledger.
                             --task <slug>
@@ -89,6 +138,11 @@ export const USAGE = `ambicode <command> [options]
                           provenance and applicable policy. No provider,
                           reviewer, or publication call; no project command or
                           configured check runs; nothing is written.
+                          --activity investigate is deprecated: it runs
+                          route start investigate, with --task-open or the
+                          --term values joined, then the paths, as the request;
+                          --requirement and --project pass through; --evidence
+                          is ignored.
                             --activity <review|task|plan|investigate>  Required.
                             --project <id>        Required when more than one
                                                   project is configured and the
@@ -234,7 +288,8 @@ export async function main(argv: readonly string[]): Promise<number> {
 
   // Recognized here rather than by `runPolicy` inspecting its operands, so a
   // path literally named "check" stays reachable as `policy -- check`.
-  const subcommand = command === 'policy' && rest[0] === 'check' ? 'check' : command === 'note' && NOTE_COMMANDS.includes(rest[0] ?? '') ? rest[0] : undefined;
+  const subcommand =
+    command === 'policy' && rest[0] === 'check' ? 'check' : command === 'note' && NOTE_COMMANDS.includes(rest[0] ?? '') ? rest[0] : command === 'route' && ROUTE_COMMANDS.includes(rest[0] ?? '') ? rest[0] : command === 'requirements' && REQUIREMENTS_COMMANDS.includes(rest[0] ?? '') ? rest[0] : undefined;
   const name = subcommand === undefined ? command : `${command} ${subcommand}`;
   const commandArgv = subcommand === undefined ? rest : rest.slice(1);
 
@@ -266,6 +321,8 @@ export async function main(argv: readonly string[]): Promise<number> {
 
 const VERSION_OPTIONS = { flags: ['json'] } as const;
 const NOTE_COMMANDS = ['save', 'promote', 'list'];
+const ROUTE_COMMANDS = ['start', 'next', 'status', 'stop'];
+const REQUIREMENTS_COMMANDS = ['template', 'normalize', 'acs'];
 
 export const SPECS: Record<string, OptionSpec | undefined> = {
   init: INIT_OPTIONS,
@@ -277,6 +334,16 @@ export const SPECS: Record<string, OptionSpec | undefined> = {
   'note promote': NOTE_PROMOTE_OPTIONS,
   'note list': NOTE_LIST_OPTIONS,
   report: REPORT_OPTIONS,
+  'route start': ROUTE_START_OPTIONS,
+  'route next': ROUTE_NEXT_OPTIONS,
+  'route status': ROUTE_STATUS_OPTIONS,
+  'route stop': ROUTE_STOP_OPTIONS,
+  map: MAP_OPTIONS,
+  refs: REFS_OPTIONS,
+  find: FIND_OPTIONS,
+  'requirements template': REQUIREMENTS_TEMPLATE_OPTIONS,
+  'requirements normalize': REQUIREMENTS_NORMALIZE_OPTIONS,
+  'requirements acs': REQUIREMENTS_ACS_OPTIONS,
   prepare: PREPARE_OPTIONS,
   review: REVIEW_OPTIONS,
   bundle: BUNDLE_OPTIONS,
@@ -290,7 +357,12 @@ function validateCombination(command: string, args: ParsedArgs): void {
 
 async function dispatch(command: string, args: ParsedArgs): Promise<Rendered> {
   const runtime = await createRuntime();
+  const rendered = await run(command, args, runtime);
+  const notices = runtime.notices ?? [];
+  return notices.length === 0 ? rendered : { ...rendered, warnings: [...notices, ...(rendered.warnings ?? [])] };
+}
 
+async function run(command: string, args: ParsedArgs, runtime: Runtime): Promise<Rendered> {
   switch (command) {
     case 'init': {
       const output = await runInit(runtime, args);
@@ -320,6 +392,34 @@ async function dispatch(command: string, args: ParsedArgs): Promise<Rendered> {
       const output = await runNoteList(runtime, args);
       return { text: renderNoteList(output), data: output };
     }
+    case 'route start': {
+      const output = await runRouteStart(runtime, args);
+      return { text: renderMessage(output), data: output };
+    }
+    case 'route next': {
+      const output = await runRouteNext(runtime, args);
+      return { text: renderMessage(output), data: output };
+    }
+    case 'route status': {
+      const output = await runRouteStatus(runtime, args);
+      return { text: renderRouteStatus(output), data: output };
+    }
+    case 'route stop': {
+      const output = await runRouteStop(runtime, args);
+      return { text: `Route on task ${output.task} stopped: ${output.reason}.`, data: output };
+    }
+    case 'map':
+    case 'refs':
+    case 'find': {
+      const output = await (command === 'map' ? runMap : command === 'refs' ? runRefs : runFind)(runtime, args);
+      return { text: renderSearch(output), data: output.data, json: 'compact' };
+    }
+    case 'requirements template':
+    case 'requirements normalize':
+    case 'requirements acs': {
+      const output = await (command === 'requirements template' ? runRequirementsTemplate : command === 'requirements normalize' ? runRequirementsNormalize : runRequirementsAcs)(runtime, args);
+      return { text: renderRequirements(output), data: output.data };
+    }
     case 'report': {
       const output = await runReport(runtime, args);
       return { text: renderReport(output), data: { evidence: output.evidence, notVerified: output.notVerified, hash: output.hash } };
@@ -330,6 +430,12 @@ async function dispatch(command: string, args: ParsedArgs): Promise<Rendered> {
       return { text: renderLocate(output), data: output, json: 'compact' };
     }
     case 'prepare': {
+      if (args.value('activity') === 'investigate') {
+        const { argv, notices } = prepareAsRouteStart(args);
+        for (const notice of notices) process.stderr.write(`${notice}\n`);
+        const output = await runRouteStart(runtime, parseArgs('route start', argv, ROUTE_START_OPTIONS));
+        return { text: renderMessage(output), data: output };
+      }
       const run = await runPrepare(runtime, args);
       return { text: renderPrepare(run), data: run.data, json: run.json };
     }

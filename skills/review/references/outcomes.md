@@ -17,8 +17,8 @@ to get past it.
 
 **`requirements-unreadable` / `requirements-unparsable` / `requirements-invalid`.**
 The envelope on `--evidence -` is empty, over the size limit, not JSON, or not
-the envelope shape (the details name the field). Rebuild it from the shared
-MCP procedure and pipe it again; do not hand-edit retrieved content into it.
+the envelope shape (the details name the field). Rebuild it as the
+requirements reference describes and pipe it again; do not hand-edit retrieved content into it.
 
 **`requirements-empty`.** A source is marked retrieved but has no content.
 Retrieve it again; an empty page is not evidence that the ticket says nothing.
@@ -70,6 +70,8 @@ substitute `HEAD~1`, and neither should you.
 
 **`not-a-repository` / `no-head`.** Not inside a git work tree, or the
 repository has no commit yet. Run from the checkout, or make the first commit.
+
+**`preparation-blocked`.** Applicable policy content could not be delivered. It is a stop, not a warning: a policy that looks complete while quietly missing something applicable is worse than no policy.
 
 **`config-missing` / `config-unparsable` / `config-invalid` / `config-schema-too-new`.**
 `.ambicode/config.yaml` is absent, not YAML, not a mapping, or written by a
@@ -140,13 +142,32 @@ the task's ledger is damaged or cannot be read as a whole, so nothing was
 written; continue under a new task with `--task <slug>-2`. `ledger-busy`:
 another AMBICODE process is writing the ledger; retry. If it keeps failing,
 make sure no ambicode process is running, then delete `ledger.lock` in the task
-directory. `session-unbound`: this call has no session binding, and the task
-has a live plan route, so the CLI cannot tell whether it is the owner; the
-release is decision 0-S (session transport), not another route start. Report it
-and stop. `route-busy`: another session owns the task's live plan route; the
+directory. `session-unbound`: the call names no task, so the CLI cannot
+tell which route it speaks for; pass `--task <slug>`. `route-ambiguous`: the task has more than
+one live route; `route start <skill> --task <slug> --fresh` ends the others, or continue under
+another `--task`. `route-busy`: another session owns the task's live plan route; the
 user chooses `--adopt`, `--fresh` or another `--task`. `plan-draft-missing`:
 no plan draft exists to promote; write `steps/plan-body.md` and let the plan
 route save the draft.
+
+**Routes.** `route-invalid`: a route, gate registry or step file is malformed; the
+message names the file, the step or gate and the field (build and load): fix that
+file. `route-unknown`: no route ships for that skill; the message lists the shipped
+ones. `route-not-open`: the task has no live route; start one with
+`route start <skill> --task <slug>`. `route-needs-unmet`: a step's inputs are not
+on record; the message names the missing kinds and the command that produces
+each. `gate-unknown` / `gate-option-unknown`: the answer names a gate or option
+the route does not have; the message lists the valid ones. `default-not-allowed`:
+`--default` is allowed only in a headless route or after the gate was put to the
+user; ask first through AskUserQuestion. `revise-not-allowed`: `--revise` names a
+step the route does not list as revisable; the message lists them.
+`search-layers-not-for-model`: `map --layers` is not a model option; edit
+`search.layers` in `.ambicode/config.yaml`. `search-layer-unknown`: `search.layers`
+names a layer that does not exist; fix it, the message lists the known names.
+`requirements-not-captured`: a requirement named at the start has no captured
+payload yet; fetch it with the call the message names, then `route next`.
+`requirements-missing`: some requested sources are not captured; fetch them and run
+`route next`, or start again without that `--requirement`.
 
 **`plan-not-accepted`.** The draft was not promoted; its `reason` says why:
 `no-plan-route`, `no-answer`, `superseded`, `unbound`, `acting-needs-human`,
@@ -164,3 +185,7 @@ them when the user accepts the proposal. Answer the init gate instead.
 and a command no pack declares is not run either — absence is not permission. The
 message names the pack and the reason. Changing it is a deliberate edit to that
 pack's `commandPolicy`, not something to work around.
+
+Hooks: AMBICODE registers seven hook events with eleven handler entries. The `Stop`
+hook blocks a finishing message at most once per route, naming what to fix and the
+full list in `stop-check.md` of the task directory; a second failing stop is allowed.

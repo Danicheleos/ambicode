@@ -8,14 +8,15 @@ import {
   toRepositoryRelative,
   type Runtime,
 } from '../../composition/root.ts';
+import { policyStage, type StagePayload } from '../../policy/stage.ts';
 import { AmbicodeError } from '../../util/errors.ts';
 import type { ParsedArgs } from '../args.ts';
 
 export const POLICY_OPTIONS = {
-  values: ['project', 'activity'],
+  values: ['project', 'activity', 'stage'],
   /** Qualified ids (`pack/rule`): read just those rules, once, instead of the whole set. */
   repeated: ['rule'],
-  flags: ['json'],
+  flags: ['json', 'show'],
   // The one command whose operands are data: the paths policy is resolved for.
   positionals: true,
 } as const;
@@ -26,6 +27,8 @@ export interface PolicyOutput {
   activity: string;
   paths: string[];
   policy: ResolvedPolicy;
+  /** `--stage`: the text a route delivers at that stage, with the same byte caps unless `--show`. */
+  stage?: StagePayload;
 }
 
 /**
@@ -58,12 +61,22 @@ export async function runPolicy(runtime: Runtime, args: ParsedArgs): Promise<Pol
     });
   }
 
+  const stage = args.value('stage');
+  if (stage !== null && stage !== 'before-work' && stage !== 'before-report') {
+    throw new AmbicodeError('bad-argument', '--stage takes before-work or before-report.', { field: 'stage' });
+  }
+  if (stage === null && args.flag('show')) throw new AmbicodeError('bad-argument', '--show goes with --stage.', { field: 'show' });
+
   const policy = await resolvePolicyFor({
     workspace,
     project,
     activity: activity.data,
     paths,
   });
+  if (stage !== null) {
+    const payload = await policyStage({ runtime, project, activity: activity.data, paths, stage, show: args.flag('show') });
+    return { command: 'policy', projectId: project.id, activity: activity.data, paths, policy, stage: payload };
+  }
 
   const wanted = args.all('rule');
   if (wanted.length === 0) return { command: 'policy', projectId: project.id, activity: activity.data, paths, policy };
@@ -87,6 +100,7 @@ export async function runPolicy(runtime: Runtime, args: ParsedArgs): Promise<Pol
 }
 
 export function renderPolicy(output: PolicyOutput): string {
+  if (output.stage !== undefined) return output.stage.text;
   const lines = [
     `project:  ${output.projectId}`,
     `activity: ${output.activity}`,

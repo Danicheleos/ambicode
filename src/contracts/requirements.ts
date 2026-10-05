@@ -16,6 +16,8 @@ export const RequirementSource = z.strictObject({
   status: z.enum(['retrieved', 'unavailable', 'forbidden', 'not-found']),
   failureReason: z.string().nullable().default(null),
   retrievedVia: z.string().min(1),
+  relation: z.enum(['asked', 'child', 'parent', 'link']).optional(),
+  derivedFrom: z.string().nullable().optional(),
 });
 export type RequirementSource = z.infer<typeof RequirementSource>;
 
@@ -33,3 +35,30 @@ export const ProvenanceEntry = z.strictObject({
   contentHash: z.string().min(1),
 });
 export type ProvenanceEntry = z.infer<typeof ProvenanceEntry>;
+
+/** One captured MCP result (`requirements/<key>.json`); a search hit list is reduced to `{key, summary}` per hit. */
+export const CapturedRequirement = z.strictObject({
+  key: z.string().min(1),
+  url: z.string(),
+  title: z.string(),
+  type: z.string(),
+  relation: z.enum(['asked', 'child', 'parent', 'link']),
+  derivedFrom: z.string().nullable(),
+  retrievedVia: z.string().min(1),
+  retrievedAt: z.string().min(1),
+  sourceVersion: z.string().nullable(),
+  updatedAt: z.string().nullable(),
+  content: z.string(),
+  links: z.array(z.string()).default([]),
+  parent: z.string().nullable().default(null),
+  rawHash: z.string().min(1),
+});
+export type CapturedRequirement = z.infer<typeof CapturedRequirement>;
+
+export const CapturedHits = z.strictObject({
+  hits: z.array(z.strictObject({ key: z.string().min(1), summary: z.string() })),
+  retrievedVia: z.string().min(1),
+  retrievedAt: z.string().min(1),
+  rawHash: z.string().min(1),
+});
+export type CapturedHits = z.infer<typeof CapturedHits>;

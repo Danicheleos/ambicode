@@ -7,7 +7,7 @@ import { INIT_OPTIONS } from './commands/init.ts';
 import { LOCATE_OPTIONS } from './commands/locate.ts';
 import { POLICY_OPTIONS } from './commands/policy.ts';
 import { POLICY_CHECK_OPTIONS } from './commands/policy-check.ts';
-import { PREPARE_OPTIONS } from './commands/prepare.ts';
+import { PREPARE_DEPRECATED, PREPARE_OPTIONS, prepareAsRouteStart } from './commands/prepare.ts';
 import { REVIEW_OPTIONS } from './commands/review.ts';
 import { SPECS as COMMAND_SPECS, USAGE } from './main.ts';
 import { isAmbicodeError } from '../util/errors.ts';
@@ -35,7 +35,7 @@ function documentedOptions(): Map<string, string[]> {
   let current: string | null = null;
   for (const line of USAGE.split('\n')) {
     if (line === GLOBAL) documented.set((current = GLOBAL), []);
-    const command = /^  ([a-z]+(?: check| save| promote| list)?)(?: |$)/.exec(line);
+    const command = /^  ([a-z]+(?: check| save| promote| list| start| next| status| stop| template| normalize| acs)?)(?: |$)/.exec(line);
     if (command !== null) {
       current = command[1] ?? null;
       if (current !== null) documented.set(current, []);
@@ -210,5 +210,21 @@ describe('U27 command line arguments', () => {
       process.stderr.write = stderr;
     }
     assert.match(text, /Unknown command "nope"/);
+  });
+});
+
+describe('03-T6 prepare is a deprecated adapter for investigate', () => {
+  it('translates the request, paths, requirement and project, and ignores --evidence with a notice', () => {
+    const args = parseArgs('prepare', ['--activity', 'investigate', '--task-open', 'how does the cart work', 'src/cart.ts', '--requirement', 'https://x.atlassian.net/browse/ORD-1', '--project', 'app', '--evidence', '-'], PREPARE_OPTIONS);
+    const { argv, notices } = prepareAsRouteStart(args);
+    assert.deepEqual(argv, ['investigate', 'how does the cart work src/cart.ts', '--requirement', 'https://x.atlassian.net/browse/ORD-1', '--project', 'app']);
+    assert.equal(notices[0], PREPARE_DEPRECATED);
+    assert.match(notices[1] ?? '', /--evidence is ignored/);
+  });
+
+  it('joins the --term values when there is no --task-open, and documents the translation in USAGE', () => {
+    const { argv } = prepareAsRouteStart(parseArgs('prepare', ['--activity', 'investigate', '--term', 'cart', '--term', 'checkout'], PREPARE_OPTIONS));
+    assert.deepEqual(argv, ['investigate', 'cart checkout']);
+    assert.match(USAGE, /--activity investigate is deprecated: it runs\s+route start investigate/);
   });
 });

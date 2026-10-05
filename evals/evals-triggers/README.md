@@ -4,18 +4,22 @@ Measures which skill fires on which phrasing — nothing else. Every case is
 synthetic (the Jira URL is `example.atlassian.net` and retrieves nothing), so
 this directory is tracked, unlike `../evals-core/`. For the same reason it is
 what the manifest names, so a bare `claude plugin eval .` — which publishes
-its report by default — runs this suite and nothing under NDA. It exists to gate
-description edits: run it before and after changing any SKILL.md
-`description`, three runs, compare medians, per the accepted plan
-(`.ambicode/task/ambicode-refactor/plan_2026-09-28T12-45.md`, iterations
-I2/I3).
+its report by default — runs this suite and nothing under NDA.
+
+The suite becomes a negative-only check as each remaining skill migrates to a
+route: a migrated skill disables model invocation, so no phrasing fires it. It is no
+longer a release gate for description edits. Steps 06, 07, 08 and 09 convert
+their skill's positive cases to `no-skill-fired.md` in the same change as that
+skill's `disable-model-invocation`. Step 03 did so for the five investigate
+cases (`casual-look`, `how-much-work`, `url-question`, `which-files`,
+`why-question`); `url-bare`'s diagnostic graders are unchanged. Editing cases is
+model-free; executing the suite is a separately authorized paid item.
 
 ```sh
 npm run evals:triggers        # all 28 cases, 1 run: $2.2–2.3, about 3 min (measured)
-npm run evals:triggers:gate   # the held-out `test` split, 3 runs: $2.96, about 4 min (measured)
 ```
 
-Both scripts write `results/latest*.json` and then run `run-validity.mjs` on
+The script writes `results/latest.json` and then runs `run-validity.mjs` on
 it. A run that died outside the arm (session limit, lost login) fails the
 script: the harness would score it, and every `max: 0` grader passes on a run
 that did nothing. A run that hit `max_turns` is not flagged.

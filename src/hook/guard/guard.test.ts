@@ -489,6 +489,28 @@ describe('plan-body writes: allowed only to the session that owns the live plan 
     assert.match(write('C').hookSpecificOutput!.permissionDecisionReason, /session A owns it/);
   });
 
+  it('5.1: the owner is found through harnessSession; the owner id itself is not a Claude session', () => {
+    const owned = planRoute('a-1', 'owner-1', { harnessSession: 'A' });
+    const { write } = fixture([owned], { A: onPlanT, 'owner-1': onPlanT, B: onPlanT });
+    assert.deepEqual(write('A'), {});
+    assert.equal(decisionOf(write('owner-1')), 'deny');
+    assert.match(write('B').hookSpecificOutput!.permissionDecisionReason, /session owner-1 owns it/);
+  });
+
+  it('5.1: a rebinding record moves the write right to the new Claude session and detaches the old one', () => {
+    const ledger = [planRoute('a-1', 'owner-1', { harnessSession: 'A' }), planRoute('a-2', 'owner-1', { harnessSession: 'B', resumes: 'a-1', adopts: true })];
+    const { write } = fixture(ledger, { A: onPlanT, B: onPlanT });
+    assert.deepEqual(write('B'), {});
+    assert.equal(decisionOf(write('A')), 'deny');
+  });
+
+  it('5.1: another owner adopting the route names route-taken-over to the former owner Claude session', () => {
+    const ledger = [planRoute('a-1', 'owner-1', { harnessSession: 'A' }), planRoute('b-1', 'owner-2', { harnessSession: 'B', resumes: 'a-1', adopts: true })];
+    const { write } = fixture(ledger, { A: onPlanT, B: onPlanT });
+    assert.match(write('A').hookSpecificOutput!.permissionDecisionReason, /route-taken-over: session owner-2 took over/);
+    assert.deepEqual(write('B'), {});
+  });
+
   it('a ledger of exactly the read limit is read; one byte more is not', () => {
     const { write, repo } = fixture(null, { A: onPlanT });
     const head = `${JSON.stringify(planRoute('a-1', 'A'))}\n`;

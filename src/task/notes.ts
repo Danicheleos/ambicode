@@ -19,6 +19,9 @@ const KINDS = {
   notes: { stem: 'notes', stamped: false, label: '**task note**' },
 } as const;
 
+/** The label line the note writer stamps on a note: not the author's words. */
+export const NOTE_LABELS: readonly string[] = Object.values(KINDS).map((kind) => kind.label);
+
 export type NoteKind = keyof typeof KINDS;
 
 export interface NoteDeps {
@@ -60,8 +63,8 @@ const unreadable = (task: string, reason: string): AmbicodeError =>
     details: [`Continue under a new task: --task ${task}-2.`],
   });
 const sessionUnbound = (task: string): AmbicodeError =>
-  new AmbicodeError('session-unbound', `Task ${task}: this call has no session binding, so the CLI cannot tell which session's plan route it speaks for.`, {
-    details: ['Session transport is decision 0-S; until it is made, routed commands refuse.'],
+  new AmbicodeError('session-unbound', `Task ${task}: this call has no route owner, so the CLI cannot tell whose plan route it speaks for.`, {
+    details: ['Pass --task <slug> of a task with exactly one live route.'],
   });
 const notAccepted = (reason: string, why: string): AmbicodeError =>
   new AmbicodeError('plan-not-accepted', `The plan was not promoted: ${why}`, { details: [`reason: ${reason}`] });
@@ -112,7 +115,7 @@ async function writeNote(runtime: Runtime, dir: TaskDir, kind: NoteKind, text: s
 
 export async function saveNote(
   deps: NoteDeps,
-  input: { task: string; kind: NoteKind; body: string | null; from: string | null; iteration: number | null },
+  input: { task: string; kind: NoteKind; body: string | null; from: string | null; iteration: number | null; route?: string | null },
 ): Promise<SavedNote> {
   const { runtime, session } = deps;
   const { task, kind, from, iteration } = input;
@@ -131,7 +134,7 @@ export async function saveNote(
   const text = render(kind, body, iteration);
 
   const work = async (ledger: LockedLedger): Promise<SavedNote> => {
-    const route = kind === 'plan-draft' ? await owningRoute(ledger, session, task) : null;
+    const route = kind === 'plan-draft' ? await owningRoute(ledger, session, task) : (input.route ?? null);
     await runtime.fs.mkdirp(dir.root);
     const relative = relativeTo(dir, await writeNote(runtime, dir, kind, text));
     const entry = await ledger.append({

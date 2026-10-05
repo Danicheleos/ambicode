@@ -21,8 +21,13 @@ export const HookInput = z.looseObject({
       file_path: z.string().min(1).optional(),
       skill: z.string().min(1).optional(),
       args: z.string().optional(),
+      /** AskUserQuestion: the questions the model put, each with its option labels. */
+      questions: z.array(z.looseObject({ question: z.string(), options: z.array(z.looseObject({ label: z.string() })).optional() })).optional(),
     })
     .optional(),
+  /** Stop: where the session transcript is. */
+  transcript_path: z.string().min(1).optional(),
+  stop_hook_active: z.boolean().optional(),
 });
 export type HookInput = z.infer<typeof HookInput>;
 
@@ -43,3 +48,16 @@ export interface AdditionalContextHookOutput<Event extends AdditionalContextEven
 export type PostToolUseHookOutput = AdditionalContextHookOutput<'PostToolUse'>;
 
 export const EMPTY_HOOK_OUTPUT: Record<string, never> = {};
+
+/** What Stop may say. Only `decision` and `reason` are claimed to work (03-K7). */
+export interface StopHookOutput {
+  decision: 'block';
+  reason: string;
+}
+
+/** AskUserQuestion's `tool_response` as observed: `answers` maps each question text to the chosen label or free text; `questions` and `annotations` are ignored. */
+export const AskUserQuestionResponse = z.looseObject({ answers: z.record(z.string(), z.string()).optional() });
+
+/** The events `hooks/hooks.json` registers (seven events, eleven handler entries); a test computes both from the manifest. */
+export const REGISTERED_HOOK_EVENTS = ['PostToolUse', 'PreToolUse', 'SessionStart', 'UserPromptSubmit', 'Stop', 'PostCompact', 'SessionEnd'] as const;
+export const REGISTERED_HOOK_ENTRIES = 11;

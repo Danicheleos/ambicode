@@ -11,8 +11,13 @@ export { parseCommand } from './shell/command-parser.ts';
 export type { Directories, ParseOptions, Segment, WriteTarget } from './shell/command-parser.ts';
 
 // events/: the CLI-side hook dispatcher (SessionStart, UserPromptSubmit, PostToolUse, …) and the `prepare` runs it triggers.
-export { MAX_HOOK_INPUT_BYTES, runHook } from './events/run-hook.ts';
-export { prepareForSkill, prepareForSlashCommand, prepareForTicket } from './events/prepare-on-skill.ts';
+export { defaultHookDeps, MAX_HOOK_INPUT_BYTES, runHook } from './events/run-hook.ts';
+export type { HookDeps } from './events/run-hook.ts';
+export { launchRoute, reinjectRoute } from './events/prompt-launch.ts';
+export { answerGates } from './events/gate-answer.ts';
+export { redBeforeGreen, stopCheck } from './events/stop-check.ts';
+export { ANSWER_CONTEXT, ASK_BINDING, PLATFORM } from './events/platform.ts';
+export { prepareForSlashCommand } from './events/prepare-on-skill.ts';
 
 // session/: per-session delivery state (epoch and once-per-epoch markers), kept outside the product repository.
 export {

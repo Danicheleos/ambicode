@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type { AmbicodeConfig, ProjectConfig } from '../contracts/config.ts';
-import { loadConfig } from '../config/load.ts';
+import { loadConfigWithNotices } from '../config/load.ts';
 import { Git } from '../git/git.ts';
 import { systemClock, type Clock } from '../ports/clock.ts';
 import { nodeFileSystem, type FileSystem } from '../ports/filesystem.ts';
@@ -33,6 +33,8 @@ export interface Runtime {
   stdin: StandardInput;
   env: Readonly<Record<string, string | undefined>>;
   providers: ProviderRegistry;
+  /** Config notices collected while commands run; the CLI prints them to stderr. */
+  notices?: string[];
 }
 
 export interface RuntimeOverrides {
@@ -62,6 +64,7 @@ export async function createRuntime(overrides: RuntimeOverrides = {}): Promise<R
     stdin: overrides.stdin ?? processStandardInput,
     env,
     providers: overrides.providers ?? defaultProviders(runner, cwd),
+    notices: [],
   };
 }
 
@@ -90,7 +93,8 @@ export async function openRepository(runtime: Runtime): Promise<{ git: Git; repo
 
 export async function openWorkspace(runtime: Runtime): Promise<Workspace> {
   const { git, repositoryRoot } = await openRepository(runtime);
-  const loaded = await loadConfig(runtime.fs, repositoryRoot);
+  const loaded = await loadConfigWithNotices(runtime.fs, repositoryRoot);
+  for (const notice of loaded.notices) if (runtime.notices !== undefined && !runtime.notices.includes(notice)) runtime.notices.push(notice);
   return { runtime, git, repositoryRoot, config: loaded.config, configPath: loaded.filePath };
 }
 

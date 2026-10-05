@@ -13,7 +13,27 @@ export interface LoadedConfig {
   raw: string;
 }
 
+export interface ConfigWithNotices {
+  config: AmbicodeConfig;
+  notices: string[];
+}
+
+/** Accepted in every version and dropped from the normalized config, one notice each. */
+const REMOVED_FIELDS: readonly (readonly [string, string])[] = [
+  ['requirements', 'lsp'],
+  ['task', 'lspPlugins'],
+  ['search', 'exactMaxFiles'],
+];
+
 export async function loadConfig(fs: FileSystem, repositoryRoot: string): Promise<LoadedConfig> {
+  const loaded = await loadConfigWithNotices(fs, repositoryRoot);
+  return { config: loaded.config, filePath: loaded.filePath, raw: loaded.raw };
+}
+
+export async function loadConfigWithNotices(
+  fs: FileSystem,
+  repositoryRoot: string,
+): Promise<LoadedConfig & { notices: string[] }> {
   const filePath = path.join(repositoryRoot, CONFIG_FILE);
   let raw: string;
   try {
@@ -25,10 +45,15 @@ export async function loadConfig(fs: FileSystem, repositoryRoot: string): Promis
       { field: CONFIG_FILE, cause },
     );
   }
-  return { config: parseConfig(raw), filePath, raw };
+  const { config, notices } = parseConfigWithNotices(raw);
+  return { config, filePath, raw, notices };
 }
 
 export function parseConfig(raw: string): AmbicodeConfig {
+  return parseConfigWithNotices(raw).config;
+}
+
+export function parseConfigWithNotices(raw: string): ConfigWithNotices {
   let document: unknown;
   try {
     document = parseYaml(raw);
@@ -55,6 +80,13 @@ export function parseConfig(raw: string): AmbicodeConfig {
     );
   }
 
+  const notices = dropRemovedFields(document as Record<string, unknown>);
+  if (typeof declared === 'number' && declared < SUPPORTED_SCHEMA_VERSION) {
+    notices.unshift(
+      `config-schema-old: schemaVersion ${declared} read with v${SUPPORTED_SCHEMA_VERSION} defaults; init --apply writes v${SUPPORTED_SCHEMA_VERSION}`,
+    );
+  }
+
   const parsed = AmbicodeConfig.safeParse(document);
   if (!parsed.success) {
     throw new AmbicodeError('config-invalid', `${CONFIG_FILE} is not a valid AMBICODE configuration.`, {
@@ -63,7 +95,20 @@ export function parseConfig(raw: string): AmbicodeConfig {
     });
   }
   validateCrossFieldRules(parsed.data);
-  return parsed.data;
+  return { config: parsed.data, notices };
+}
+
+function dropRemovedFields(document: Record<string, unknown>): string[] {
+  const notices: string[] = [];
+  for (const [section, field] of REMOVED_FIELDS) {
+    const value = document[section];
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) continue;
+    if (!Object.hasOwn(value, field)) continue;
+    delete (value as Record<string, unknown>)[field];
+    notices.push(`config-field-removed: ${section}.${field}`);
+    if (section === 'task' && Object.keys(value).length === 0) delete document[section];
+  }
+  return notices;
 }
 
 /** Reports the field and the expected shape, never the offending value. */

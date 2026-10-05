@@ -1,0 +1,42 @@
+skill: investigate
+version: 3
+budget: { modelSteps: 6 }
+exits: [done, blocked, human, inconclusive, superseded, budget]
+revisable: [ground]
+steps:
+  - id: template
+    actor: code
+    when: args.hasRequirement
+    run: [requirements.template]
+  - id: fetch
+    actor: model
+    when: args.hasRequirement
+    instruction: "file:routes/steps/investigate-fetch.md"
+    payload: [template]
+  - id: ground
+    actor: code
+    run: [requirements.normalize, requirements.acs, search.map(prompt), policy.stage(before-work)]
+    produces: [envelope, map, policy]
+    repeat: 2
+  - id: scope
+    actor: human
+    when: map.empty
+    gate:
+      question: "Nothing matched the request. Name a file, a symbol or a word to look at, or pause and add the context later in the chat."
+      options: ["pause"]
+      default: "pause"
+      release: "pause"
+      onAnswer: { "*": "revise ground --term $answer" }
+  - id: read
+    actor: model
+    instruction: "file:routes/steps/investigate-read.md"
+    payload: [envelope, acs, map, "policy:before-work"]
+  - id: report-step
+    actor: code
+    run: [policy.stage(before-report), evidence.navigationLine]
+    produces: ["policy{before-report}"]
+  - id: write
+    actor: model
+    instruction: "file:routes/steps/investigate-write.md"
+    payload: ["policy:before-report", navigation]
+    produces: ["note{investigation}"]

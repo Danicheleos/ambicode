@@ -50,6 +50,10 @@ export class CountingIds implements IdSource {
     this.counter += 1;
     return `review-${this.prefix}${this.counter}`;
   }
+  ownerId(): string {
+    this.counter += 1;
+    return `owner-${this.prefix}${this.counter}`;
+  }
   capability(): string {
     this.counter += 1;
     return `cap-${this.prefix}${this.counter}-${'x'.repeat(24)}`;

@@ -8,6 +8,7 @@ export const DEFAULTS = {
     maxChangedLines: 2000,
     maxContextBytes: 524_288,
     excludePaths: [] as string[],
+    onInvalid: 'void' as 'void' | 'drop',
   },
   checks: {
     timeoutSeconds: 120,
@@ -49,6 +50,12 @@ export const SHORTLIST_DEFAULTS = {
     include: ['**/*.{py,pyi}'],
     exclude: ['**/test_*.py', '**/*_test.py', '**/conftest.py', '**/{test,tests}/**'],
   },
+} as const;
+
+/** Used when `search.layers` names no list for the mode. */
+export const SEARCH_LAYER_DEFAULTS = {
+  prompt: ['shortlist', 'harvest', 'shortlist'],
+  context: ['grep', 'harvest'],
 } as const;
 
 export const MAX_COMMAND_OUTPUT_BYTES = 262_144;

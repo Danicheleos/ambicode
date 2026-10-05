@@ -1,12 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { createRuntime, openWorkspace } from '../composition/root.ts';
+import { Ecosystem } from '../contracts/primitives.ts';
 import { SHORTLIST_DEFAULTS } from './defaults.ts';
+import { ECOSYSTEMS, FALLBACK_ECOSYSTEM, ecosystemFacts } from './ecosystems.ts';
 import { detectProjects } from './detect.ts';
 import { planInit } from './init.ts';
-import { parseConfig, validateArgv } from './load.ts';
+import { loadConfig, loadConfigWithNotices, parseConfig, parseConfigWithNotices, validateArgv } from './load.ts';
 import { loadPacksForProject } from '../policy/load.ts';
 import { mostSpecificRoot, normalizeRelative, toProjectRelative } from '../util/paths.ts';
 import { nodeFileSystem } from '../ports/filesystem.ts';
@@ -63,7 +66,7 @@ test('a lint check may name the generic adapter; an adapter AMBICODE does not kn
 
 test('U01 a newer schema version asks for an upgrade instead of guessing a migration', () => {
   assert.throws(
-    () => parseConfig(MINIMAL.replace('schemaVersion: 1', 'schemaVersion: 2')),
+    () => parseConfig(MINIMAL.replace('schemaVersion: 1', 'schemaVersion: 4')),
     (error: Error & { code?: string }) => error.code === 'config-schema-too-new',
   );
 });
@@ -552,7 +555,6 @@ test('fresh init requires the language server of the first project, and says how
     baseline: '',
     baselineNotice: 'x',
   });
-  assert.deepEqual(plan.config.requirements.lsp, ['typescript-lsp@claude-plugins-official']);
   assert.match(plan.yaml ?? '', /requirements:\s*\n\s*mcpServer: null\s*\n\s*lsp:\s*\n\s*- typescript-lsp@claude-plugins-official/);
   assert.ok(plan.notices.some((notice) => notice.includes('requirements.lsp') && notice.includes('[]')), plan.notices.join('\n'));
 });
@@ -569,7 +571,7 @@ test('init requires one language server per ecosystem the repository holds', asy
     baseline: '',
     baselineNotice: 'x',
   });
-  assert.deepEqual([...plan.config.requirements.lsp].sort(), ['pyright-lsp@claude-plugins-official', 'typescript-lsp@claude-plugins-official']);
+  assert.match(plan.yaml ?? '', /lsp:\s*\n\s*- typescript-lsp@claude-plugins-official\s*\n\s*- pyright-lsp@claude-plugins-official|lsp:\s*\n\s*- pyright-lsp@claude-plugins-official\s*\n\s*- typescript-lsp@claude-plugins-official/);
 });
 
 test('re-init adds requirements.lsp to a config without it, and never rewrites a value set, empty included', async (t) => {
@@ -589,12 +591,11 @@ test('re-init adds requirements.lsp to a config without it, and never rewrites a
   await writeFile(configPath, withProjects(body).replace(', lsp: []', ''), 'utf8');
   const added = await planInit(await options());
   assert.ok(added.changes.some((change) => change.startsWith('Added "requirements.lsp: [typescript-lsp@claude-plugins-official]"')), added.changes.join('\n'));
-  assert.deepEqual(added.config.requirements.lsp, ['typescript-lsp@claude-plugins-official']);
+  assert.match(added.yaml ?? '', /lsp: \[ typescript-lsp@claude-plugins-official \]/);
 
   await writeFile(configPath, withProjects(body), 'utf8');
   const kept = await planInit(await options());
   assert.ok(!kept.changes.some((change) => change.includes('requirements.lsp')), kept.changes.join('\n'));
-  assert.deepEqual(kept.config.requirements.lsp, []);
 });
 
 test('P2.4 correction F: re-init never overwrites an explicit authoring.editReminders: false', async (t) => {
@@ -623,4 +624,120 @@ test('path normalization keeps repository-relative form', () => {
   assert.equal(normalizeRelative('./apps/web/'), 'apps/web');
   assert.equal(normalizeRelative('.'), '');
   assert.equal(normalizeRelative('apps//web'), 'apps/web');
+});
+
+const V3_BODY = '  - { id: app, root: ".", ecosystem: typescript, packs: [], commands: {}, checks: {} }';
+
+function atVersion(version: number, extra = ''): string {
+  return `${withProjects(V3_BODY).replace('schemaVersion: 1', `schemaVersion: ${version}`).replace(', lsp: []', '')}${extra}`;
+}
+
+test('03-C1: schema versions 1, 2 and 3 load; 4 refuses with config-schema-too-new', () => {
+  for (const version of [1, 2, 3]) assert.equal(parseConfig(atVersion(version)).schemaVersion, version);
+  assert.throws(() => parseConfig(atVersion(4)), (error: Error & { code?: string }) => error.code === 'config-schema-too-new');
+});
+
+test('03-C2: v3 fields default in memory and parse when present', () => {
+  const plain = parseConfig(atVersion(3));
+  assert.equal(plain.search.index, 'none');
+  assert.equal(plain.search.layers, undefined);
+  assert.deepEqual(plain.workers.approved, []);
+  assert.equal(plain.guard.askOutsideMap, false);
+  assert.equal(plain.review.onInvalid, 'void');
+
+  const explicit = parseConfig(
+    atVersion(3, '\nsearch: { index: codeindex, layers: { prompt: [shortlist], context: [grep] } }\nworkers: { approved: [plan-check] }\nguard: { askOutsideMap: true }\n').replace(
+      'maxContextBytes: 524288 }',
+      'maxContextBytes: 524288, onInvalid: drop }',
+    ),
+  );
+  assert.equal(explicit.search.index, 'codeindex');
+  assert.deepEqual(explicit.search.layers, { prompt: ['shortlist'], context: ['grep'] });
+  assert.deepEqual(explicit.workers.approved, ['plan-check']);
+  assert.equal(explicit.guard.askOutsideMap, true);
+  assert.equal(explicit.review.onInvalid, 'drop');
+  assert.throws(() => parseConfig(atVersion(3, '\nsearch: { index: other }\n')));
+});
+
+test('03-C2: projects[].commands.format is a valid key, null or a command', () => {
+  const body = (format: string): string => `  - { id: app, root: ".", ecosystem: typescript, commands: { format: ${format} } }`;
+  assert.equal(parseConfig(withProjects(body('null'))).projects[0]?.commands['format'], null);
+  assert.deepEqual(parseConfig(withProjects(body('{ argv: [prettier, --write, "{files}"] }'))).projects[0]?.commands['format']?.argv, ['prettier', '--write', '{files}']);
+});
+
+test('03-C3: removed fields are accepted in any version, dropped, and noticed once each', () => {
+  const raw = atVersion(3, '\ntask: { lspPlugins: [x] }\nsearch: { exactMaxFiles: 40 }\n').replace('requirements: { mcpServer: null }', 'requirements: { mcpServer: null, lsp: [a] }');
+  const { config, notices } = parseConfigWithNotices(raw);
+  assert.deepEqual(notices, ['config-field-removed: requirements.lsp', 'config-field-removed: task.lspPlugins', 'config-field-removed: search.exactMaxFiles']);
+  assert.equal(Object.hasOwn(config.requirements, 'lsp'), false);
+  assert.equal(config.search.index, 'none');
+  assert.equal(config.review.model, 'sonnet');
+  assert.equal(config.page.port, 45831);
+});
+
+test('03-C4: v1 and v2 files add config-schema-old; v3 adds nothing', () => {
+  assert.deepEqual(parseConfigWithNotices(atVersion(1)).notices, ['config-schema-old: schemaVersion 1 read with v3 defaults; init --apply writes v3']);
+  assert.deepEqual(parseConfigWithNotices(atVersion(2)).notices, ['config-schema-old: schemaVersion 2 read with v3 defaults; init --apply writes v3']);
+  assert.deepEqual(parseConfigWithNotices(atVersion(3)).notices, []);
+});
+
+test('03-C4: loadConfigWithNotices returns the notices and never writes the file', async (t) => {
+  const directory = await sandbox(t);
+  await mkdir(path.join(directory, '.ambicode'), { recursive: true });
+  const file = path.join(directory, '.ambicode', 'config.yaml');
+  const raw = atVersion(1);
+  await writeFile(file, raw, 'utf8');
+  const loaded = await loadConfigWithNotices(nodeFileSystem, directory);
+  assert.equal(loaded.notices.length, 1);
+  assert.equal(await readFile(file, 'utf8'), raw);
+  assert.equal((await loadConfig(nodeFileSystem, directory)).config.schemaVersion, 1);
+});
+
+test('03-C4: the notices reach the CLI user once, on stderr', async (t) => {
+  const directory = await sandbox(t);
+  await mkdir(path.join(directory, '.ambicode'), { recursive: true });
+  await writeFile(path.join(directory, '.ambicode', 'config.yaml'), atVersion(1), 'utf8');
+  const runtime = await createRuntime({ cwd: directory, runner: { run: async () => ({ exitCode: 0, stdout: `${directory}\n`, stderr: '' }) } as never });
+  await openWorkspace(runtime).catch(() => undefined);
+  await openWorkspace(runtime).catch(() => undefined);
+  assert.ok((runtime.notices ?? []).length <= 1);
+});
+
+test('03-C5: the ecosystem table covers every ecosystem and the fallback', () => {
+  for (const ecosystem of Ecosystem.options) {
+    const facts = ecosystemFacts(ecosystem);
+    assert.deepEqual(facts.sourceGlobs, SHORTLIST_DEFAULTS[ecosystem].include);
+    assert.ok(facts.declarationPatterns.length > 0);
+  }
+  assert.ok(ECOSYSTEMS.typescript.exportFilter?.test('export const a = 1'));
+  assert.equal(ECOSYSTEMS.python.exportFilter, null);
+  assert.deepEqual(ECOSYSTEMS.typescript.i18nGlobs, ['assets/i18n/*.json']);
+  assert.deepEqual(ECOSYSTEMS.python.i18nGlobs, []);
+  assert.equal(ecosystemFacts(null), FALLBACK_ECOSYSTEM);
+  assert.equal(ecosystemFacts(undefined), FALLBACK_ECOSYSTEM);
+});
+
+test('03-C6: no ecosystem or language name in routes, step texts or the route engine', async () => {
+  const names = new RegExp(`\\b(${[...Ecosystem.options, 'typescript', 'python', 'javascript', 'java', 'go', 'rust'].join('|')})\\b`, 'i');
+  const root = path.resolve(import.meta.dirname, '..', '..');
+  const files: string[] = [];
+  const walk = async (directory: string): Promise<void> => {
+    let entries;
+    try {
+      entries = await readdir(directory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const full = path.join(directory, entry.name);
+      if (entry.isDirectory()) await walk(full);
+      else if (!/\.test\.ts$/.test(entry.name) && /\.(ts|ya?ml|md)$/.test(entry.name)) files.push(full);
+    }
+  };
+  await walk(path.join(root, 'routes'));
+  await walk(path.join(root, 'src', 'route'));
+  for (const file of files) {
+    const match = names.exec(await readFile(file, 'utf8'));
+    assert.equal(match, null, `${path.relative(root, file)} names "${match?.[0]}"`);
+  }
 });

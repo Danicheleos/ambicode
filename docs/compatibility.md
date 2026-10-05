@@ -354,17 +354,21 @@ current transcript.
 
 ## Hooks
 
-The plugin ships one hook manifest, `hooks/hooks.json` (doc 04 P2.4
-correction G), registering five events — `PostToolUse` (matcher
-`Edit|Write`), `SessionStart` (matcher `startup|resume|clear|fork`),
-`UserPromptSubmit`, `PostCompact`, and `SessionEnd` — each routed in exec form through command
-`node` with arguments `${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs`, `hook`.
-This avoids shell parsing and works when the plugin path contains spaces or
-the host has no POSIX shell. Re-confirmed this session through the same
-packaged-candidate/`npm run smoke:install-local` path as "Skills" above:
-`claude plugin details ambicode@ambicode-team` reports `Hooks (5)
-PostToolUse, SessionStart, UserPromptSubmit, PostCompact, SessionEnd
-(harness-only — no model context cost)`.
+The plugin ships one hook manifest, `hooks/hooks.json`, registering seven
+events with eleven handler entries: `PostToolUse` (matchers `mcp__.*` and
+`AskUserQuestion`), `PreToolUse` (four entries, all routed to
+`${CLAUDE_PLUGIN_ROOT}/scripts/guard.mjs`: `Bash` with the `if` rows `git *`,
+`glab mr*` and `*.ambicode/task*`, and `Write|Edit|MultiEdit|NotebookEdit`),
+`SessionStart` (matcher `startup|resume|clear|fork`), `UserPromptSubmit`,
+`Stop`, `PostCompact` and `SessionEnd`. Every entry except `PreToolUse` runs in
+exec form through command `node` with arguments
+`${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs`, `hook`. This avoids shell parsing
+and works when the plugin path contains spaces or the host has no POSIX shell.
+The `Skill` and `Edit|Write` `PostToolUse` entries are no longer registered; the
+edit-reminder code stays in the source, unregistered. The count that
+`claude plugin details ambicode@ambicode-team` reports for these events was
+measured as `Hooks (5)` before `PreToolUse` and `Stop` were registered and has
+not been re-measured against this manifest.
 
 `ambicode hook` reads a hook invocation's JSON payload from stdin (fields
 confirmed against 2.1.272: `session_id`, `agent_id` (present only for a
@@ -377,6 +381,15 @@ subagent invocation, absent for the main agent), `cwd`, `scratchpad_dir`,
 conversation from a hook, never a permission decision or a blocking exit
 code. `SessionStart` and `PostCompact` reset the per-session delivery epoch so a
 reminder can fire again after a context compaction or a fresh session.
+
+A probe on 2026-10-05 (Claude Code 2.1.289, interactive dialog,
+`plan/migration-v6-reports/step-03/probe-p2-p48.md`) observed that a
+single-select `AskUserQuestion` answer reaches `PostToolUse` as
+`tool_response.answers[<question text>]` (also `tool_input.answers`), and that
+`additionalContext` returned for it reaches the model in the same turn;
+`ambicode hook` relies on both. Not shown: free-text and "Chat about this"
+answers, multi-question or multi-select calls, resume between ask and answer,
+subagent askers, and any other Claude Code version.
 
 Which of them may *carry* the contract is not a free choice. Claude Code's
 hook-output schema has a `hookSpecificOutput` variant for only some events,

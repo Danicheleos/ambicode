@@ -17,19 +17,56 @@ import {
   type AdditionalContextHookOutput,
   type PostToolUseHookOutput,
 } from '../../contracts/hook.ts';
-import { prepareForSkill, prepareForSlashCommand, prepareForTicket } from './prepare-on-skill.ts';
+import { prepareForSlashCommand } from './prepare-on-skill.ts';
+import { askedKeys } from '../../requirements/envelope.ts';
+import { captureRequirement } from '../../requirements/capture.ts';
+import { fsActiveRoutePointer, resolveActiveRoute, type ActiveRoutePointer } from '../../route/active-route.ts';
+import { openRouteView } from '../../route/context.ts';
+import { createEngine } from '../../route/engine.ts';
+import type { RouteArgs } from '../../route/flags.ts';
+import { defaultHandlers, handlerRegistry } from '../../route/handlers.ts';
+import { loadRouteRegistry } from '../../route/routes.ts';
+import { findSessionRepository } from '../../composition/session-repository.ts';
+import { withLedgerLock } from '../../task/ledger-lock.ts';
+import { taskDirFor } from '../../task/task-dir.ts';
+import { answerGates } from './gate-answer.ts';
+import { launchRoute, reinjectRoute, type RouteHookDeps } from './prompt-launch.ts';
+import { stopCheck } from './stop-check.ts';
 import { readSharedOperatingContract } from '../../policy/shared-contract.ts';
 import { contentHash } from '../../util/hash.ts';
+import { rebindSession } from './rebind.ts';
 import {
+  clearSessionEnded,
   cleanupSessionState,
   currentEpoch,
   deliverOnce,
   hookStateBaseDir,
+  markSessionEnded,
   resetEpoch,
   type DeliveryKey,
 } from '../session/markers.ts';
 
 export const MAX_HOOK_INPUT_BYTES = 1_048_576;
+
+/** The pointer is cheap to open; the route registry and the engine are built only by an event that needs them. */
+export interface HookDeps {
+  pointer: ActiveRoutePointer;
+  load(): Promise<RouteHookDeps>;
+}
+
+export function defaultHookDeps(runtime: Runtime): HookDeps {
+  const pointer = fsActiveRoutePointer(runtime.fs);
+  let loaded: Promise<RouteHookDeps> | null = null;
+  return {
+    pointer,
+    load: () =>
+      (loaded ??= loadRouteRegistry(runtime.pluginRoot, runtime.fs).then((routes) => ({
+        routes,
+        pointer,
+        engine: createEngine({ runtime, routes, handlers: handlerRegistry(defaultHandlers()), pointer }),
+      }))),
+  };
+}
 
 const stateDir = (runtime: Runtime, input: HookInput): string => hookStateBaseDir(runtime.fs, input.session_id, input.scratchpad_dir);
 
@@ -37,7 +74,8 @@ const stateDir = (runtime: Runtime, input: HookInput): string => hookStateBaseDi
  * Never throws: any failure is a silent no-op, because a hook is advisory and
  * must never block or alter the tool call that already happened.
  */
-export async function runHook(runtime: Runtime, rawStdin: string): Promise<unknown> {
+export async function runHook(runtime: Runtime, rawStdin: string, injected?: HookDeps): Promise<unknown> {
+  const deps = injected ?? defaultHookDeps(runtime);
   let parsed: unknown;
   try {
     parsed = JSON.parse(rawStdin);
@@ -53,6 +91,8 @@ export async function runHook(runtime: Runtime, rawStdin: string): Promise<unkno
       case 'SessionStart': {
         const base = stateDir(runtime, input);
         await resetEpoch(runtime.fs, runtime.ids, base);
+        await clearSessionEnded(runtime.fs, input.session_id);
+        if (input['source'] !== 'startup') await rebindSession(runtime, input, deps.pointer).catch(() => false);
         return await deliverSharedContract(runtime, input, base, 'SessionStart');
       }
       case 'PostCompact': {
@@ -61,6 +101,7 @@ export async function runHook(runtime: Runtime, rawStdin: string): Promise<unkno
         // validation), so the next `UserPromptSubmit` delivers the contract instead.
         const base = stateDir(runtime, input);
         await resetEpoch(runtime.fs, runtime.ids, base);
+        await rebindSession(runtime, input, deps.pointer).catch(() => false);
         return EMPTY_HOOK_OUTPUT;
       }
       case 'UserPromptSubmit': {
@@ -68,18 +109,21 @@ export async function runHook(runtime: Runtime, rawStdin: string): Promise<unkno
         const contract = (await deliverSharedContract(runtime, input, base, 'UserPromptSubmit')) as {
           hookSpecificOutput?: { additionalContext: string };
         };
-        const prepared = await prepareForSlashCommand(runtime, input);
-        if (prepared === null) return contract;
-        const context = [contract.hookSpecificOutput?.additionalContext, prepared.hookSpecificOutput.additionalContext].filter(Boolean).join('\n\n');
+        const routed = await promptContext(runtime, input, deps);
+        if (routed === null) return contract;
+        const context = [contract.hookSpecificOutput?.additionalContext, routed].filter(Boolean).join('\n\n');
         return { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: context } };
       }
+      case 'Stop':
+        return (await stopCheck(runtime, input, await deps.load())) ?? EMPTY_HOOK_OUTPUT;
       case 'SessionEnd': {
         const base = stateDir(runtime, input);
+        if ((await deps.pointer.read(input.session_id, input.scratchpad_dir)) !== null) await markSessionEnded(runtime.fs, input.session_id);
         await cleanupSessionState(runtime.fs, base);
         return EMPTY_HOOK_OUTPUT;
       }
       case 'PostToolUse':
-        return await handlePostToolUse(runtime, input);
+        return await handlePostToolUse(runtime, input, deps);
       default:
         return EMPTY_HOOK_OUTPUT;
     }
@@ -124,9 +168,48 @@ async function deliverSharedContract(
   return output;
 }
 
-async function handlePostToolUse(runtime: Runtime, input: HookInput): Promise<unknown> {
-  if (input.tool_name === 'Skill') return (await prepareForSkill(runtime, input)) ?? EMPTY_HOOK_OUTPUT;
-  if (input.tool_name?.startsWith('mcp__')) return (await dedupedTicketPrepare(runtime, input)) ?? EMPTY_HOOK_OUTPUT;
+/** A launch first, then the plan/task slash command that still prepares, then re-injection of the active route's step. */
+async function promptContext(runtime: Runtime, input: HookInput, deps: HookDeps): Promise<string | null> {
+  const prompt = (input.prompt ?? '').trim();
+  if (/^\/ambicode:\w+/.test(prompt)) {
+    const launched = await launchRoute(runtime, input, await deps.load());
+    if (launched !== null) return launched;
+    return (await prepareForSlashCommand(runtime, input))?.hookSpecificOutput.additionalContext ?? null;
+  }
+  if (input.agent_id !== undefined || (await deps.pointer.read(input.session_id, input.scratchpad_dir)) === null) return null;
+  return reinjectRoute(runtime, input, await deps.load());
+}
+
+/** The requirement an MCP read returned, recorded for the active route; a call with no route costs one file read (03-H6). */
+async function captureForRoute(runtime: Runtime, input: HookInput, deps: HookDeps): Promise<void> {
+  if (input.agent_id !== undefined || (await deps.pointer.read(input.session_id, input.scratchpad_dir)) === null) return;
+  const found = await findSessionRepository(runtime, input.cwd ?? runtime.cwd);
+  if (typeof found === 'string') return;
+  const active = await resolveActiveRoute(runtime.fs, deps.pointer, { repositoryRoot: found.repositoryRoot, session: input.session_id, scratchpad: input.scratchpad_dir });
+  if (active === null) return;
+  const mcpServer = await loadConfig(runtime.fs, found.repositoryRoot).then((loaded) => loaded.config.requirements.mcpServer).catch(() => null);
+  if (mcpServer === null) return;
+  const routeRuntime = await createRuntime({ ...runtime, cwd: found.repositoryRoot });
+  const { routes } = await deps.load();
+  const view = await openRouteView(routeRuntime, routes, active.task, active.owner);
+  if (view === null) return;
+  const dir = taskDirFor(found.repositoryRoot, active.task);
+  await withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), input.session_id, async (ledger) => {
+    const read = await ledger.read();
+    const head = read.state === 'ok' ? read.entries.find((entry) => entry.id === view.routeId) : undefined;
+    await captureRequirement(input, { runtime: routeRuntime, dir, ledger, view, mcpServer, asked: askedKeys((head?.['args'] ?? { requirements: [], text: '' }) as Pick<RouteArgs, 'requirements' | 'text'>) });
+  });
+}
+
+async function handlePostToolUse(runtime: Runtime, input: HookInput, deps: HookDeps): Promise<unknown> {
+  if (input.tool_name === 'AskUserQuestion') {
+    const context = await answerGates(runtime, input, await deps.load());
+    return context === null ? EMPTY_HOOK_OUTPUT : { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: context } };
+  }
+  if (input.tool_name?.startsWith('mcp__')) {
+    await captureForRoute(runtime, input, deps);
+    return EMPTY_HOOK_OUTPUT;
+  }
   if (input.tool_name !== 'Edit' && input.tool_name !== 'Write') return EMPTY_HOOK_OUTPUT;
   const absoluteFilePath = input.tool_input?.file_path;
   if (absoluteFilePath === undefined) return EMPTY_HOOK_OUTPUT;
@@ -176,21 +259,6 @@ async function handlePostToolUse(runtime: Runtime, input: HookInput): Promise<un
 
   if (undelivered.length === 0) return EMPTY_HOOK_OUTPUT;
   return buildOutput(relative, undelivered);
-}
-
-/** The same ticket read twice in one epoch is prepared once; the second message would repeat the first. */
-async function dedupedTicketPrepare(runtime: Runtime, input: HookInput): Promise<PostToolUseHookOutput | null> {
-  const output = await prepareForTicket(runtime, input);
-  if (output === null) return null;
-  const base = stateDir(runtime, input);
-  const key: DeliveryKey = {
-    epoch: await currentEpoch(runtime.fs, runtime.ids, base),
-    agentKey: input.agent_id ?? 'main',
-    kind: 'ticket-prepare',
-    subject: input.tool_name ?? '',
-    contentHash: contentHash(output.hookSpecificOutput.additionalContext),
-  };
-  return (await deliverOnce(runtime.fs, base, key)) ? output : null;
 }
 
 function ruleContentHash(rule: ResolvedRule): string {

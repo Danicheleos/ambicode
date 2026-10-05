@@ -18,6 +18,7 @@ const DIRECTORY_ALLOWLIST = [
   { from: 'policies', extensions: ['.yaml', '.md'] },
   { from: 'templates', extensions: ['.eta', '.css'] },
   { from: 'scripts/chunks', extensions: ['.mjs'] },
+  { from: 'routes', extensions: ['.yaml', '.md'], exclude: ['README.md'] },
 ];
 
 const FILE_ALLOWLIST = [
@@ -58,7 +59,7 @@ async function copyFileWithMode(from, to, mode) {
   await writeFile(to, contents, { mode });
 }
 
-async function copyAllowedTree(fromDir, toDir, extensions) {
+async function copyAllowedTree(fromDir, toDir, extensions, exclude = []) {
   let entries;
   try {
     entries = await readdir(fromDir, { withFileTypes: true });
@@ -71,11 +72,11 @@ async function copyAllowedTree(fromDir, toDir, extensions) {
     const from = path.join(fromDir, entry.name);
     const to = path.join(toDir, entry.name);
     if (entry.isDirectory()) {
-      await copyAllowedTree(from, to, extensions);
+      await copyAllowedTree(from, to, extensions, exclude);
       continue;
     }
     if (!entry.isFile()) continue;
-    if (!extensions.includes(path.extname(entry.name))) continue;
+    if (!extensions.includes(path.extname(entry.name)) || exclude.includes(entry.name)) continue;
     await copyFileWithMode(from, to, 0o644);
   }
 }
@@ -88,7 +89,7 @@ async function buildCandidate(candidateDir) {
     await copyFileWithMode(path.join(ROOT, file.from), path.join(candidateDir, file.from), file.mode);
   }
   for (const dir of DIRECTORY_ALLOWLIST) {
-    await copyAllowedTree(path.join(ROOT, dir.from), path.join(candidateDir, dir.from), dir.extensions);
+    await copyAllowedTree(path.join(ROOT, dir.from), path.join(candidateDir, dir.from), dir.extensions, dir.exclude);
   }
   await normalizeTimestamps(candidateDir);
 }
@@ -145,51 +146,9 @@ async function checkNoWorkstationPaths(candidateDir) {
   }
 }
 
-/**
- * Skills must reference the shared procedure via `${CLAUDE_PLUGIN_ROOT}/...`: a plugin loaded
- * from Claude Code's cache has no product repository to be relative to.
- */
-async function checkSharedResourceReferences(candidateDir) {
-  const SHARED_RESOURCE = 'skills/shared/requirements-mcp.md';
-  const PLUGIN_ROOT_REFERENCE = '${CLAUDE_PLUGIN_ROOT}/skills/shared/requirements-mcp.md';
-  const EXPECTED_REFERRERS = ['review', 'investigate', 'plan', 'task', 'rules'];
-
-  const sharedFile = path.join(candidateDir, SHARED_RESOURCE);
-  if (!(await stat(sharedFile).then(() => true, () => false))) {
-    throw new Error(`${SHARED_RESOURCE} is missing from the candidate; review/investigate/plan reference it.`);
-  }
-
-  const skillsDir = path.join(candidateDir, 'skills');
-  const entries = await readdir(skillsDir, { withFileTypes: true });
-  const referrers = [];
-
-  for (const entry of entries) {
-    if (!entry.isDirectory() || entry.name === 'shared') continue;
-    const skillFile = path.join(skillsDir, entry.name, 'SKILL.md');
-    const text = await readFile(skillFile, 'utf8').catch(() => '');
-    if (text === '') continue;
-
-    const mentionsSharedFile = text.includes('requirements-mcp.md');
-    if (!mentionsSharedFile) continue;
-    referrers.push(entry.name);
-
-    if (!text.includes(PLUGIN_ROOT_REFERENCE)) {
-      throw new Error(
-        `${entry.name}/SKILL.md references ${SHARED_RESOURCE} without the "${PLUGIN_ROOT_REFERENCE}" ` +
-          'plugin-root substitution, so an installed plugin (not run from the product repository) could not resolve it.',
-      );
-    }
-    const bareReference = new RegExp(`(?<!\\$\\{CLAUDE_PLUGIN_ROOT\\}/)${SHARED_RESOURCE.replace(/\./g, '\\.')}`);
-    if (bareReference.test(text)) {
-      throw new Error(`${entry.name}/SKILL.md references ${SHARED_RESOURCE} by a path relative to the product repository.`);
-    }
-  }
-
-  for (const expected of EXPECTED_REFERRERS) {
-    if (!referrers.includes(expected)) {
-      throw new Error(`Expected ${expected}/SKILL.md to reference the shared MCP-acquisition procedure, but it does not.`);
-    }
-  }
+async function checkRoutes(candidateDir) {
+  const { validateRouteFiles } = await import('./src/route/routes.ts');
+  await validateRouteFiles(candidateDir);
 }
 
 async function checkHooksManifest(candidateDir) {
@@ -278,8 +237,8 @@ async function main() {
   await checkLauncherExecutable(candidateDir);
   await checkNoForbiddenDependencies(candidateDir);
   await checkNoWorkstationPaths(candidateDir);
-  await checkSharedResourceReferences(candidateDir);
   await checkHooksManifest(candidateDir);
+  await checkRoutes(candidateDir);
 
   const inventory = await inventoryOf(candidateDir);
   await mkdir(DIST, { recursive: true });

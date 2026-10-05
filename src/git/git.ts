@@ -23,6 +23,9 @@ export interface GitOptions {
   extraEnv?: Record<string, string>;
 }
 
+/** The task directories hold ledgers and notes that quote the names searched for; they are not code. */
+const scoped = (pathspec: string | null): string[] => [pathspec ?? '.', ':(exclude).ambicode'];
+
 export class Git {
   readonly options: GitOptions;
 
@@ -236,6 +239,28 @@ export class Git {
       throw new AmbicodeError('git-failed', `git grep failed with exit code ${String(outcome.exitCode)}.`);
     }
     return splitNul(outcome.stdout);
+  }
+
+  /** Files holding any of these whole words, case-sensitive: the form that finds references to a name (03-M1). */
+  async grepWords(words: readonly string[], pathspec: string | null = null): Promise<string[]> {
+    if (words.length === 0) return [];
+    const outcome = await this.execOutcome(['grep', '--untracked', '-I', '-l', '-z', '-w', '-F', ...words.flatMap((word) => ['-e', word]), '--', ...scoped(pathspec)], true);
+    if (outcome.exitCode === 1) return [];
+    if (outcome.exitCode !== 0) throw new AmbicodeError('git-failed', `git grep failed with exit code ${String(outcome.exitCode)}.`);
+    return splitNul(outcome.stdout);
+  }
+
+  /** The lines holding a whole word, as `path:line:text`, for `refs`. */
+  async grepWordLines(word: string, pathspec: string | null = null): Promise<{ path: string; line: number; text: string }[]> {
+    const outcome = await this.execOutcome(['grep', '--untracked', '-I', '-n', '-z', '-w', '-F', '-e', word, '--', ...scoped(pathspec)], true);
+    if (outcome.exitCode === 1) return [];
+    if (outcome.exitCode !== 0) throw new AmbicodeError('git-failed', `git grep failed with exit code ${String(outcome.exitCode)}.`);
+    const rows: { path: string; line: number; text: string }[] = [];
+    for (const record of outcome.stdout.split('\n')) {
+      const match = /^([^\0]+)\0(\d+)\0(.*)$/.exec(record);
+      if (match !== null) rows.push({ path: match[1]!, line: Number(match[2]), text: match[3]! });
+    }
+    return rows;
   }
 
   /**

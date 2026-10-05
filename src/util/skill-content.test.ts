@@ -4,7 +4,6 @@ import path from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
-import { READING_ORDER } from '../code-intelligence/navigation.ts';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SKILLS_DIR = path.join(repositoryRoot, 'skills');
@@ -37,8 +36,6 @@ function requiredString(fm: Record<string, unknown>, key: string, what: string):
   return value as string;
 }
 
-const PLUGIN_ROOT_SHARED_REFERENCE = '${CLAUDE_PLUGIN_ROOT}/skills/shared/requirements-mcp.md';
-
 describe('P2.2/P2.3 shipped skill content', () => {
   it('registers exactly ambicode:init, ambicode:review, ambicode:investigate, ambicode:plan, ambicode:task and ambicode:rules', async () => {
     const entries = await readdir(SKILLS_DIR, { withFileTypes: true });
@@ -68,7 +65,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
     }
   });
 
-  it('keeps init and rules user-invoked only, and scopes every skill tool grant', async () => {
+  it('keeps init, rules and the route-driven investigate user-invoked only, and scopes every skill tool grant', async () => {
     for (const dir of ['init', 'investigate', 'plan', 'review', 'rules', 'task']) {
       const what = `${dir}/SKILL.md`;
       const fm = frontmatter(await readFile(path.join(SKILLS_DIR, dir, 'SKILL.md'), 'utf8'), what);
@@ -85,7 +82,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
       }
       // Setup-time skills are run by the user, never by the model, so their
       // descriptions stay out of the always-on skill list.
-      const setupOnly = dir === 'init' || dir === 'rules';
+      const setupOnly = dir === 'init' || dir === 'rules' || dir === 'investigate';
       assert.equal(
         fm['disable-model-invocation'] === true,
         setupOnly,
@@ -94,49 +91,23 @@ describe('P2.2/P2.3 shipped skill content', () => {
     }
   });
 
-  it('does not put a SKILL.md under the shared resources directory', async () => {
-    const sharedFile = path.join(SKILLS_DIR, 'shared', 'requirements-mcp.md');
-    await assert.doesNotReject(readFile(sharedFile, 'utf8'));
-    await assert.rejects(readFile(path.join(SKILLS_DIR, 'shared', 'SKILL.md'), 'utf8'));
-  });
-
-  it('review, investigate, plan, task and rules all reference the shared MCP acquisition procedure through the plugin root, instead of duplicating it or a repository-relative path', async () => {
-    const referrers = ['review', 'investigate', 'plan', 'task', 'rules'] as const;
-    for (const name of referrers) {
-      const content = await readFile(path.join(SKILLS_DIR, name, 'SKILL.md'), 'utf8');
-      assert.ok(
-        content.includes(PLUGIN_ROOT_SHARED_REFERENCE),
-        `${name}/SKILL.md must point at the shared MCP acquisition procedure through \${CLAUDE_PLUGIN_ROOT}, not a product-repository-relative path`,
-      );
-      // A plugin loaded from Claude Code's cache has no product repository for a
-      // relative "skills/shared/..." path to resolve against.
-      const bareReference = /(?<!\$\{CLAUDE_PLUGIN_ROOT\}\/)skills\/shared\/requirements-mcp\.md/;
-      assert.ok(
-        !bareReference.test(content),
-        `${name}/SKILL.md references skills/shared/requirements-mcp.md by a path relative to the product repository`,
-      );
-      assert.ok(
-        !/status.*is.*`retrieved`, `unavailable`, `forbidden`/s.test(content),
-        `${name}/SKILL.md appears to duplicate the shared evidence-file procedure`,
-      );
+  it('03-I4: no skill, reference or doc names the deleted shared resources, and each requirements body carries the envelope inline', async () => {
+    await assert.rejects(readFile(path.join(SKILLS_DIR, 'shared', 'requirements-mcp.md'), 'utf8'));
+    await assert.rejects(readFile(path.join(SKILLS_DIR, 'shared', 'prepare-output.md'), 'utf8'));
+    const bodies = ['task/SKILL.md', 'review/SKILL.md', 'plan/SKILL.md', 'investigate/SKILL.md', 'rules/SKILL.md', 'review/references/requirements.md'];
+    for (const relative of bodies) {
+      const content = await readFile(path.join(SKILLS_DIR, relative), 'utf8');
+      assert.doesNotMatch(content, /skills\/shared|requirements-mcp|prepare-output|shared file/, `${relative} still points at a deleted shared file`);
     }
-  });
-
-  it('the shared procedure describes retrieving on behalf of all four referrers and no other skill file duplicates it', async () => {
-    const shared = await readFile(path.join(SKILLS_DIR, 'shared', 'requirements-mcp.md'), 'utf8');
-    for (const name of ['review', 'investigate', 'plan', 'task', 'rules']) {
-      assert.ok(shared.includes(name), `shared/requirements-mcp.md should name "${name}" as a referrer`);
+    for (const relative of ['task/SKILL.md', 'plan/SKILL.md', 'review/references/requirements.md']) {
+      const content = await readFile(path.join(SKILLS_DIR, relative), 'utf8');
+      assert.match(content, /requirements\.mcpServer/, `${relative} binds the server inline`);
+      assert.match(content, /--evidence -/, `${relative} pipes the envelope`);
     }
-  });
-
-  it('the shared procedure pipes the envelope with --evidence - and owns no file lifecycle (R2 change 4)', async () => {
-    const shared = await readFile(path.join(SKILLS_DIR, 'shared', 'requirements-mcp.md'), 'utf8');
-    assert.match(shared, /--evidence -/);
-    assert.match(shared, /There is no evidence file to own/i);
   });
 
   it('no skill tells anyone to create, keep alive, or delete a requirement evidence file (R2 change 4)', async () => {
-    const files = ['shared/requirements-mcp.md', 'task/SKILL.md', 'review/SKILL.md', 'plan/SKILL.md', 'investigate/SKILL.md', 'rules/SKILL.md'];
+    const files = ['task/SKILL.md', 'review/SKILL.md', 'plan/SKILL.md', 'investigate/SKILL.md', 'rules/SKILL.md'];
     for (const relative of files) {
       const content = (await readFile(path.join(SKILLS_DIR, relative), 'utf8')).replace(/\s+/g, ' ');
       for (const forbidden of [
@@ -152,28 +123,19 @@ describe('P2.2/P2.3 shipped skill content', () => {
     }
   });
 
-  it('investigate documents its single note-writing boundary', async () => {
-    const investigate = await readFile(path.join(SKILLS_DIR, 'investigate', 'SKILL.md'), 'utf8');
-    assert.match(investigate, /note save --task <slug> --kind investigation/);
+  it('03-I2: the write step saves the note with the one CLI call, and the body names the read-only boundary (03-I3)', async () => {
+    const write = await readFile(path.join(repositoryRoot, 'routes', 'steps', 'investigate-write.md'), 'utf8');
+    assert.match(write, /note save --task \{task\} --kind investigation/);
+    assert.match(write, /^Write the investigation note/);
+    assert.match(write, /`## Confirmed facts`/);
+    const investigate = (await readFile(path.join(SKILLS_DIR, 'investigate', 'SKILL.md'), 'utf8')).replace(/\s+/g, ' ');
+    assert.match(investigate, /edits nothing/i);
+    assert.match(investigate, /route start investigate "\$ARGUMENTS"/);
+    assert.ok(Buffer.byteLength(investigate) <= 2048);
   });
 
-  it('saves the investigation note unconditionally, without asking', async () => {
-    const investigate = (await readFile(path.join(SKILLS_DIR, 'investigate', 'SKILL.md'), 'utf8')).replace(
-      /\s+/g,
-      ' ',
-    );
-    assert.match(investigate, /Save the note every time/i);
-    assert.match(investigate, /Do not ask/i);
-    assert.doesNotMatch(
-      investigate,
-      /only when the user asks you to save one/i,
-      'investigate/SKILL.md must not gate the note on a request the user cannot know to make',
-    );
-    assert.match(investigate, /in addition to the answer, never instead of it/i);
-  });
-
-  it('tells plan, task and investigate to pass the terms prepare needs for a shortlist (R4)', async () => {
-    for (const name of ['plan', 'task', 'investigate']) {
+  it('tells plan and task to pass the terms prepare needs for a shortlist (R4)', async () => {
+    for (const name of ['plan', 'task']) {
       const content = await readFile(path.join(SKILLS_DIR, name, 'SKILL.md'), 'utf8');
       assert.match(content, /--term <term>/, `${name}/SKILL.md must offer --term in its prepare argv`);
     }
@@ -295,8 +257,8 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.ok(!/suggestedComment|coverageNotes/i.test(content), 'must not carry reviewer-only finding/output vocabulary');
   });
 
-  it('plan, investigate and task point at the prepared shared operating contract for authority guidance, instead of duplicating its definition (doc 04 P2.4 correction A6)', async () => {
-    for (const name of ['plan', 'investigate', 'task']) {
+  it('plan and task point at the prepared shared operating contract for authority guidance, instead of duplicating its definition (doc 04 P2.4 correction A6)', async () => {
+    for (const name of ['plan', 'task']) {
       const content = await readFile(path.join(SKILLS_DIR, name, 'SKILL.md'), 'utf8');
       assert.match(
         content,
@@ -316,7 +278,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
   });
 
   it('every authoring skill invokes ambicode prepare with --json and reads its structured output (doc 04 P2.4 correction A1)', async () => {
-    for (const name of ['plan', 'investigate', 'task']) {
+    for (const name of ['plan', 'task']) {
       const content = await readFile(path.join(SKILLS_DIR, name, 'SKILL.md'), 'utf8');
       assert.match(
         content,
@@ -327,43 +289,28 @@ describe('P2.2/P2.3 shipped skill content', () => {
   });
 
   it('makes LSP-first navigation observable instead of silently claiming or skipping it', async () => {
-    for (const name of ['plan', 'investigate', 'task']) {
+    for (const name of ['plan', 'task']) {
       const content = await readFile(path.join(SKILLS_DIR, name, 'SKILL.md'), 'utf8');
       assert.match(content, /`navigation`/, `${name}/SKILL.md must read prepare's navigation contract`);
       assert.match(content, /Navigation: LSP/);
       assert.match(content, /targeted-search fallback/);
     }
-    const shared = (await readFile(path.join(SKILLS_DIR, 'shared', 'prepare-output.md'), 'utf8')).replace(
-      /\s+/g,
-      ' ',
-    );
-    assert.match(shared, /Navigation: LSP — <operations used>/);
-    assert.match(shared, /Navigation: no LSP tools in this session/);
-    assert.match(shared, /Navigation: targeted-search fallback — <specific reason>/);
-    assert.match(shared, /installed or recommended alone/i);
-    assert.match(shared, /broad search is allowed and is reported with its reason/i);
   });
 
   it('never reads a findReferences that lists only the definition as no users, since a loading server answers that way', async () => {
     // Measured 2026-10-02: the first call on a 532-file project found 2 of 11 references, a call 5 s later all 11; on 2,338 files
     // the first found 1 of 22 and an instant repeat also 1, which an agent read as "no users" (impact walk).
-    assert.match(READING_ORDER, /only the definition means the server is still loading \(10\+ s on a large project; an instant repeat repeats it\), never that nothing uses it/);
     const impact = (await readFile(path.join(SKILLS_DIR, 'review', 'references', 'impact.md'), 'utf8')).replace(/\s+/g, ' ');
     assert.match(impact, /start with one `documentSymbol` on a changed file, and retry any `findReferences` that lists only the defining file after other work/);
     assert.match(impact, /Zero references to a removed name, confirmed by a later retry or a `Grep -w`/);
   });
 
-  it('starts task and investigate from the boundary shortlist, and points at the shared shortlist discipline (R4)', async () => {
-    for (const name of ['investigate', 'task']) {
-      const content = (await readFile(path.join(SKILLS_DIR, name, 'SKILL.md'), 'utf8')).replace(/\s+/g, ' ');
-      assert.match(content, /navigation\.shortlist/, `${name}/SKILL.md must start from the shortlist`);
-      assert.match(content, /shared file owns the shortlist discipline/i, `${name}/SKILL.md`);
-    }
-    const shared = (await readFile(path.join(SKILLS_DIR, 'shared', 'prepare-output.md'), 'utf8')).replace(/\s+/g, ' ');
-    assert.match(shared, /hypothesis, not an answer/i);
-    assert.match(shared, /confirm each candidate/i);
-    assert.match(shared, /rejected/i);
-    assert.match(shared, /outside it/i);
+  it('starts task from the boundary shortlist and states the shortlist discipline inline (R4)', async () => {
+    const content = (await readFile(path.join(SKILLS_DIR, 'task', 'SKILL.md'), 'utf8')).replace(/\s+/g, ' ');
+    assert.match(content, /navigation\.shortlist/, 'task/SKILL.md must start from the shortlist');
+    assert.match(content, /hypothesis, not an answer/i);
+    assert.match(content, /confirm each candidate/i);
+    assert.match(content, /rejected/i);
   });
 
   it('lets a request that pins the exact edit skip localization, without shrinking checks or review', async () => {
@@ -375,23 +322,13 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.match(content, /checks, review and the report still run in full/i, 'the fast path must not weaken honest reporting');
   });
 
-  it('documents the shortlist once, in the shared file every authoring skill reads (R4)', async () => {
-    const shared = await readFile(path.join(SKILLS_DIR, 'shared', 'prepare-output.md'), 'utf8');
-    assert.match(shared, /navigation\.shortlist/);
-    assert.match(shared, /hypothesis, not an answer/i);
-    assert.match(shared, /never "read everything"/i);
-    assert.match(shared, /no index, no cache, nothing written/i);
-  });
-
   it('points authoring skills at the inline shortlist, not at a second locate call', async () => {
-    for (const relative of ['investigate/SKILL.md', 'plan/SKILL.md', 'task/SKILL.md', 'shared/prepare-output.md']) {
+    for (const relative of ['investigate/SKILL.md', 'plan/SKILL.md', 'task/SKILL.md']) {
       const content = await readFile(path.join(SKILLS_DIR, relative), 'utf8');
       assert.doesNotMatch(content, /\blocate\b/, `${relative} must not advertise locate`);
     }
-    for (const name of ['investigate', 'task']) {
-      const content = (await readFile(path.join(SKILLS_DIR, name, 'SKILL.md'), 'utf8')).replace(/\s+/g, ' ');
-      assert.match(content, /`prepare --term` asks for one/, `${name}/SKILL.md must say how to get a shortlist`);
-    }
+    const content = (await readFile(path.join(SKILLS_DIR, 'task', 'SKILL.md'), 'utf8')).replace(/\s+/g, ' ');
+    assert.match(content, /`prepare --term` asks for one/, 'task/SKILL.md must say how to get a shortlist');
   });
 });
 
@@ -435,9 +372,7 @@ describe('P2.3 task skill', () => {
     assert.match(content, /ambicode prepare --activity task/);
     assert.match(content, /ambicode review/);
     assert.match(content, /do not create a second task-specific check selector, runner, or reviewer/i);
-    assert.match(content, /no-second-parser/i);
-    const shared = await readFile(path.join(SKILLS_DIR, 'shared', 'prepare-output.md'), 'utf8');
-    assert.match(shared, /do not build a second requirement parser, policy resolver, or configuration\s+reader/i);
+    assert.match(content, /never parsed a second way/i);
   });
 
   it('refuses ambiguous monorepository project selection instead of guessing', async () => {
@@ -546,6 +481,9 @@ describe('P2.3 task skill', () => {
 async function emittedErrorCodes(): Promise<Set<string>> {
   const DYNAMIC: Record<string, string[]> = {
     'snapshot/remote-target.ts': ['provider-unsupported', 'provider-resolve-failed', 'provider-fetch-failed'],
+    // A handler's failure code passes through; the codes themselves are raised, and documented, where the handler raises them.
+    'route/engine.ts': [],
+    'cli/commands/requirements.ts': ['requirements-not-captured', 'requirements-missing'],
   };
   const codes = new Set<string>();
   const sourceDir = path.join(repositoryRoot, 'src');

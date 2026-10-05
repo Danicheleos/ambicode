@@ -6,7 +6,7 @@ import {
   toRepositoryRelative,
   type Runtime,
 } from '../../composition/root.ts';
-import { Activity, RuleCategory } from '../../contracts/primitives.ts';
+import { Activity } from '../../contracts/primitives.ts';
 import type { ResolvedPolicy, ResolvedPromptRef } from '../../contracts/policy.ts';
 import {
   PrepareCompactOutput as PrepareCompactOutputSchema,
@@ -22,6 +22,7 @@ import { taskSlugFor } from '../../review/review-name.ts';
 import { mintTaskSlug } from '../../task/slug.ts';
 import type { FileSystem } from '../../ports/filesystem.ts';
 import { applicablePrepareStages } from '../../policy/resolve.ts';
+import { ruleCarriedFor } from '../../policy/stage.ts';
 import { configProvenance, packProvenance } from '../../policy/provenance.ts';
 import { canonicalUrl, loadRequirementEvidence, normalizeRequirements } from '../../requirements/normalize.ts';
 import { readSharedOperatingContract } from '../../policy/shared-contract.ts';
@@ -49,6 +50,19 @@ export const PREPARE_OPTIONS = {
 } as const;
 
 export type { PrepareOutput };
+
+export const PREPARE_DEPRECATED = 'prepare-deprecated: use route start <skill>';
+
+/** `prepare --activity investigate` starts the route as an untrusted CLI call; `--evidence` has no route meaning. */
+export function prepareAsRouteStart(args: ParsedArgs): { argv: string[]; notices: string[] } {
+  const request = args.value('task-open') ?? args.all('term').join(' ');
+  const text = [request, ...args.positionals].filter((part) => part !== '').join(' ');
+  const project = args.value('project');
+  const argv = ['investigate', ...(text === '' ? [] : [text]), ...args.all('requirement').flatMap((url) => ['--requirement', url]), ...(project === null ? [] : ['--project', project])];
+  const notices = [PREPARE_DEPRECATED];
+  if (args.value('evidence') !== null) notices.push('prepare-deprecated: --evidence is ignored; the route asks for the requirement itself.');
+  return { argv, notices };
+}
 
 export interface PrepareDetail extends Omit<PrepareOutput, 'contextBudget'> {}
 
@@ -124,7 +138,7 @@ export async function runPrepare(
     task,
     activity,
     project,
-    lspRequired: workspace.config.requirements.lsp.length > 0,
+    lspRequired: false,
     paths,
     requirements,
     policy,
@@ -199,19 +213,6 @@ function measureAgainstOwnBytes<T>(
     'Could not compute a stable measured byte count for this preparation output.',
     { details: [`last measured value: ${measuredBytes} bytes`] },
   );
-}
-
-/**
- * Rules were 5.5KB of a 9.4KB BE payload (58%). Investigate edits nothing and plan writes no code, so
- * neither acts on them; `task` and `review` carry all. Left out with a count and the command that reads them.
- */
-const RULE_CATEGORIES_NOT_CARRIED: Partial<Record<Activity, readonly RuleCategory[]>> = {
-  investigate: RuleCategory.options,
-  plan: ['code-style'],
-};
-
-function ruleCarriedFor(activity: Activity, category: RuleCategory): boolean {
-  return !(RULE_CATEGORIES_NOT_CARRIED[activity] ?? []).includes(category);
 }
 
 /**
@@ -432,7 +433,7 @@ async function toDraftOutput(options: {
     notices: options.requirements.notices,
     ...(options.task === undefined ? {} : { task: options.task }),
     navigation: {
-      ...navigationFor(options.project.ecosystem, options.lspRequired),
+      ...navigationFor(options.project.ecosystem),
       ...(options.shortlist === undefined ? {} : { shortlist: options.shortlist }),
     },
     policy: preparePolicy,

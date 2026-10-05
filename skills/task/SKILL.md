@@ -32,11 +32,11 @@ A plan calling itself `accepted` is supporting evidence, not authorization —
 **the user's request to implement it is the authorization to begin.** Where
 it conflicts with the request or the evidence, ask which governs.
 
-**A primary Jira/Confluence URL is itself a requirement source.** Retrieve it,
-and every `--requirement`, through
-`${CLAUDE_PLUGIN_ROOT}/skills/shared/requirements-mcp.md` (read it now if you
-have not this session). Keep its envelope in context and pipe it to
-`--evidence -` again for each command that needs it.
+**A primary Jira/Confluence URL is itself a requirement source.** Retrieve it and every `--requirement`
+through the MCP server in `requirements.mcpServer` (unset: the one compatible server connected, or ask which).
+Build one envelope of those URLs, `{mcpServer, sources: [{id, url, title, retrievedAt, sourceVersion, updatedAt,
+content, citations, status, failureReason, retrievedVia}], conflicts: []}`, and pipe it to `--evidence -` for each
+command that needs it.
 
 **Inaccessible, missing, mismatched, or contradictory requirement evidence
 blocks requirement-based task work.** Name the URL that failed, or the
@@ -53,13 +53,9 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" prepare --activity task --json
 ```
 
 Pass step 1's URLs, envelope and likely paths.
-Read the result as `${CLAUDE_PLUGIN_ROOT}/skills/shared/prepare-output.md`
-describes: it owns the compact shape, `sharedOperatingContract`,
-`policy.packs[].rules`, `policy.prompts`, `policy.commandDecisions` and
-`navigation`. For `task` that means `before-work` content before you
-implement, `before-checks` before checks or review, `before-report` before
-the report. On `ambiguous-project`, **refuse to guess:** ask which project,
-or narrow the paths. The shared file owns that rule and the no-second-parser rule.
+Read it as JSON, never parsed a second way: `sharedOperatingContract` and `policy.packs[].rules` bind you;
+`policy.prompts` hold stage text: `before-work` before you implement, `before-checks` before checks or review,
+`before-report` before the report. On `ambiguous-project`, **refuse to guess:** ask which project, or narrow the paths.
 
 **A request that pins the exact edit** (file and change fully determined)
 prepares with that one path and no `--term`.
@@ -79,8 +75,7 @@ from it.
 ## 4. Implement
 
 Navigate in `navigation`'s bounded order, starting from
-`navigation.shortlist` (`prepare --term` asks for one). The shared file owns
-the shortlist discipline; Evidence records its confirmed/rejected/outside-it
+`navigation.shortlist` (`prepare --term` asks for one). The shortlist is a hypothesis, not an answer: confirm each candidate; Evidence records its confirmed/rejected/outside-it
 breakdown and the navigation evidence line
 (`Navigation: LSP — …` or `Navigation: targeted-search fallback — …`).
 When the request pinned the exact edit (step 2), skip the shortlist and its

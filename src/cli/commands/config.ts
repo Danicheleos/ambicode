@@ -93,7 +93,6 @@ export function renderConfig(output: ConfigOutput): string {
     '',
     'requirements',
     `  mcpServer           ${output.requirements.mcpServer ?? 'null (unbound — requirement-based review needs a bound server)'}`,
-    `  lsp                 ${output.requirements.lsp.length === 0 ? '[] (not required — a skill may search with grep when no LSP tool loads)' : output.requirements.lsp.join(', ')}`,
   ];
 
   for (const project of output.projects) {

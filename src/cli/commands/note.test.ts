@@ -142,25 +142,26 @@ function cli(repo: TempRepo, argv: string[], input = ''): { status: number | nul
 }
 
 describe('the note and report commands', () => {
-  it('02-D2: note promote refuses with session-unbound, naming decision 0-S, and writes nothing', async () => {
+  it('02-D2/5.1: note promote on a task with no live route refuses with route-not-open and writes nothing', async () => {
     await inRepo(async (repo) => {
       const out = cli(repo, ['note', 'promote', '--task', 'ORD-17']);
       assert.equal(out.status, 2);
-      assert.match(out.stderr, /error \[session-unbound\]/);
-      assert.match(out.stderr, /0-S/);
+      assert.match(out.stderr, /error \[route-not-open\]/);
+      assert.match(out.stderr, /route start/);
       await assert.rejects(readdir(path.join(repo.root, '.ambicode')));
     });
   });
 
-  it('02-D2: a plan-draft save on a task with a live plan route refuses with session-unbound', async () => {
+  it('02-D2/5.1: a plan-draft save on a task with a live plan route is the owner of that route, found by --task', async () => {
     await inRepo(async (repo) => {
       const dir = path.join(repo.root, '.ambicode/task/ORD-17');
       await mkdir(dir, { recursive: true });
       const route = { id: 'aaaaaaaa-1', at: 't', kind: 'route', skill: 'plan', args: 'x', mode: 'interactive', channel: 'hook', trusted: true, session: 'aaaaaaaa', epoch: 1 };
       await writeFile(path.join(dir, 'ledger.jsonl'), `${JSON.stringify(route)}\n`);
-      const out = cli(repo, ['note', 'save', '--task', 'ORD-17', '--kind', 'plan-draft'], '# Plan');
-      assert.match(out.stderr, /error \[session-unbound\]/);
-      assert.deepEqual((await readdir(dir)).sort(), ['ledger.jsonl']);
+      const out = cli(repo, ['note', 'save', '--task', 'ORD-17', '--kind', 'plan-draft', '--json'], '# Plan');
+      assert.equal(out.status, 0, out.stderr);
+      const saved = (await readFile(path.join(dir, 'ledger.jsonl'), 'utf8')).trim().split('\n').map((line) => JSON.parse(line) as Record<string, unknown>).filter((entry) => entry['kind'] === 'note');
+      assert.deepEqual(saved.map((entry) => [entry['note'], entry['route']]), [['plan-draft', 'aaaaaaaa-1']]);
     });
   });
 

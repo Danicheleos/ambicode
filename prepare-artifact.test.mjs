@@ -134,11 +134,11 @@ describe('built-artifact regression: ambicode prepare --json (P2.4 correction A2
       assert.ok(!taskStdout.includes(BEFORE_REVIEW_MARKER), 'task prepare must never include before-review text');
       assert.equal(taskOutput.activity, 'task');
 
-      const investigateStdout = runPrepare(repo, 'investigate');
-      assert.ok(investigateStdout.includes(BEFORE_WORK_MARKER), 'investigate prepare must include before-work text');
-      assert.ok(investigateStdout.includes(BEFORE_REPORT_MARKER), 'investigate prepare must include before-report text');
-      assert.ok(!investigateStdout.includes(BEFORE_CHECKS_MARKER), 'investigate prepare must NOT include before-checks text (filtered stage)');
-      assert.ok(!investigateStdout.includes(BEFORE_REVIEW_MARKER), 'investigate prepare must never include before-review text');
+      const planStdout = runPrepare(repo, 'plan');
+      assert.ok(planStdout.includes(BEFORE_WORK_MARKER), 'plan prepare must include before-work text');
+      assert.ok(planStdout.includes(BEFORE_REPORT_MARKER), 'plan prepare must include before-report text');
+      assert.ok(!planStdout.includes(BEFORE_CHECKS_MARKER), 'plan prepare must NOT include before-checks text (filtered stage)');
+      assert.ok(!planStdout.includes(BEFORE_REVIEW_MARKER), 'plan prepare must never include before-review text');
     } finally {
       await rm(repo, { recursive: true, force: true });
     }

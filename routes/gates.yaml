@@ -1,0 +1,61 @@
+requirements-server-disconnected:
+  question: "The requirement server is not connected. Continue without the requirement?"
+  options: ["continue without", "stop"]
+  default: "continue without"
+  release: "stop"
+  policy: { review: stop }
+requirements-server-ambiguous:
+  question: "More than one requirement server is connected. Which one does this repository use?"
+  options: ["{servers…}", "continue without"]
+  default: "continue without"
+  release: "continue without"
+  policy: { review: stop }
+requirements-expansion-capped:
+  question: "The requirement links more than 10 child items. Read them?"
+  options: ["read all", "read these: {keys}", "none"]
+  default: "none"
+  release: "none"
+requirements-conflicting:
+  question: "The requirement sources disagree: {summary}. Which source decides?"
+  options: ["{sources…}", "stop"]
+  default: "stop"
+  release: "stop"
+requirements-not-captured-twice:
+  question: "The requirement was fetched twice and nothing was captured. Continue without it?"
+  options: ["continue without", "stop"]
+  default: "continue without"
+  release: "stop"
+  policy: { review: stop }
+check-only-unauthorized:
+  question: "Run {key} on {files}? (policy: propose)"
+  options: [approve, decline]
+  default: decline
+  release: decline
+  acting: [approve]
+  onAnswer: { approve: "revise $raisedBy" }
+scope-expanding:
+  question: "This finding is outside the brief: {finding}. Treat as out of scope?"
+  options: ["out of scope", "include"]
+  default: "out of scope"
+  release: "out of scope"
+project-ambiguous:
+  question: "Two projects match. Which one?"
+  options: ["{projects…}", "stop"]
+  default: "stop"
+  release: "route next --project <id>"
+config-unparsable:
+  question: "The configuration file cannot be parsed. Back it up and regenerate it?"
+  options: ["back up and regenerate", "stop"]
+  default: "stop"
+  release: "stop"
+  acting: ["back up and regenerate"]
+budget-exhausted:
+  question: "The route's model-step budget is spent. Continue or stop?"
+  options: [continue, stop]
+  default: stop
+  release: stop
+"decision:*":
+  question: "A decision the plan depends on."
+  options: ["keep open"]
+  default: "keep open"
+  release: "keep open"

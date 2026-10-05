@@ -14,8 +14,8 @@ const list = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
  */
 export function buildReport(
   entries: readonly LedgerEntry[],
-  options: { current?: (entry: LedgerEntry) => boolean } = {},
-): { evidence: string; notVerified: string; hash: string; text: string } {
+  options: { current?: (entry: LedgerEntry) => boolean; complete?: boolean } = {},
+): { status: string | null; evidence: string; notVerified: string; hash: string; text: string } {
   const historical = (entry: LedgerEntry): string => (options.current === undefined || options.current(entry) ? '' : ' (historical)');
   const of = (...kinds: string[]): LedgerEntry[] => entries.filter((entry) => kinds.includes(entry.kind));
   const line = (name: string, parts: string[]): string => `  ${name}: ${parts.length === 0 ? 'none recorded' : parts.join('; ')}`;
@@ -87,5 +87,20 @@ export function buildReport(
   ].join('\n');
   const unverified = `Not verified\n${notVerified.length === 0 ? '  none recorded' : notVerified.map((item) => `  ${item}`).join('\n')}`;
   const hash = contentHash(`${evidence}\n${unverified}`);
-  return { evidence, notVerified: unverified, hash, text: `${evidence}\n${unverified}\n<!-- ambicode report ${hash} -->` };
+  const status = statusOf(entries, notVerified.filter((item) => !item.endsWith(' (historical)')).length, options.complete === true);
+  const body = `${evidence}\n${unverified}\n<!-- ambicode report ${hash} -->`;
+  return { status, evidence, notVerified: unverified, hash, text: status === null ? body : `${status}\n${body}` };
+}
+
+/** The report's first line: how the route ended, or `complete` with what was not verified (03-E12). */
+function statusOf(entries: readonly LedgerEntry[], unverified: number, complete: boolean): string | null {
+  if (!entries.some((entry) => entry.kind === 'route')) return null;
+  const ended = entries.findLast((entry) => entry.kind === 'exit');
+  const done = complete || ended?.complete === true;
+  if (ended !== undefined && !done) {
+    const detail = typeof ended.detail === 'string' ? ended.detail : '';
+    return detail.startsWith('permission-denied') ? `ended: ${clip(ended.reason)} (${clip(detail, 120)})` : `ended: ${clip(ended.reason)}${detail === '' ? '' : ` (${clip(detail, 120)})`}`;
+  }
+  if (!done) return 'in progress';
+  return unverified === 0 ? 'complete' : `complete, ${unverified} items not verified`;
 }

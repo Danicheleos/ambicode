@@ -28,12 +28,11 @@ cancellation reasons to order history` is one primary request, not just
 - **A primary Jira/Confluence URL is itself a requirement source**, exactly
   like one passed with `--requirement <url>` — not just an identifier to
   look up later.
-- Retrieve every source — the primary URL, if any, and every
-  `--requirement` — through
-  `${CLAUDE_PLUGIN_ROOT}/skills/shared/requirements-mcp.md` (read it now if
-  you have not already this session). Keep the envelope it describes in
-  context and pipe it to `--evidence -`; there is no file to write or clean
-  up.
+- Retrieve every source — the primary URL, if any, and every `--requirement` — through the MCP server in
+  `requirements.mcpServer` (unset: the one compatible server connected, or ask which). Build one
+  envelope of those URLs, `{mcpServer, sources: [{id, url, title, retrievedAt, sourceVersion,
+  updatedAt, content, citations, status, failureReason, retrievedVia}], conflicts: []}`, and pipe it to
+  `--evidence -`.
 - **Read every retrieved source before asking the user anything.** A URL that
   already states a concrete change needs no clarification; a vague one gets
   exactly one focused question, informed by what you just read.
@@ -55,15 +54,11 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" prepare --activity plan --json
 ```
 
 with step 1's URLs and envelope and your first guess at the paths. Read the
-output as `${CLAUDE_PLUGIN_ROOT}/skills/shared/prepare-output.md` describes:
-it owns the compact shape, `sharedOperatingContract`,
-`policy.packs[].rules`, `policy.prompts` and `navigation`. For `plan`, apply
-`before-work` content before you investigate and `before-report` content
-before you present the plan.
+output as JSON, never parsed a second way: `sharedOperatingContract` and `policy.packs[].rules` bind you;
+`policy.prompts` hold the stage text and `navigation` is a hypothesis to confirm. For `plan`, apply
+`before-work` content before you investigate and `before-report` content before you present the plan.
 
-On `ambiguous-project`, **refuse to guess:** ask the user which project, or
-narrow the paths. The shared file owns that rule and the no-second-parser
-rule with it.
+On `ambiguous-project`, **refuse to guess:** ask the user which project, or narrow the paths.
 
 ### 3. Investigate only enough to plan
 
@@ -72,8 +67,8 @@ rule with it.
   read and reuse it. **Never require one** — most plans start from nothing
   but the request.
 - Navigate in `navigation`'s bounded order, and record the navigation
-  evidence line in the plan, as the shared file defines it:
-  `Navigation: LSP — …` or `Navigation: targeted-search fallback — …`.
+  evidence line in the plan: `Navigation: LSP — …`, `Navigation: no LSP tools in this session` or
+  `Navigation: targeted-search fallback — <reason>`.
 - Read callers, boundaries, existing tests, and any existing implementation
   that already does something close to what is being asked — a plan that
   proposes a new helper where one already exists is a defect, not a

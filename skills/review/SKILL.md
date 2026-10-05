@@ -55,8 +55,7 @@ Use `--json` to act on the result, the default text to read it back.
 ## Requirements
 
 Only when the user named a Jira issue or Confluence page. Read
-`${CLAUDE_PLUGIN_ROOT}/skills/review/references/requirements.md` first; it
-builds on `${CLAUDE_PLUGIN_ROOT}/skills/shared/requirements-mcp.md`. A
+`${CLAUDE_PLUGIN_ROOT}/skills/review/references/requirements.md` first. A
 requirement that cannot be retrieved **stops the review**: never drop it and
 run a quality review instead.
 

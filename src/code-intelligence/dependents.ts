@@ -1,6 +1,7 @@
 import type { ProjectConfig } from '../contracts/config.ts';
 import type { DiffFile } from '../git/diff.ts';
 import type { Git } from '../git/git.ts';
+import { FALLBACK_ECOSYSTEM } from '../config/ecosystems.ts';
 import { isTestPath } from '../snapshot/exclusions.ts';
 import { locate } from './locate.ts';
 
@@ -20,17 +21,9 @@ const MAX_MODULE_TERMS = 6;
 export const MAX_DEPENDENTS = 8;
 
 /** Names that mean nothing on their own: matching them finds the whole project. */
-const COMMON_NAMES = new Set(['constructor', 'index', 'default', 'main', 'get', 'set', 'run', 'init', 'test', 'it', 'describe', 'props', 'state']);
+export const COMMON_NAMES = new Set(['constructor', 'index', 'default', 'main', 'get', 'set', 'run', 'init', 'test', 'it', 'describe', 'props', 'state']);
 
-const DECLARATIONS: readonly RegExp[] = [
-  /(?:^|\s)(?:abstract\s+|async\s+|default\s+)*(?:function\*?|class|interface|type|enum|namespace)\s+([A-Za-z_$][\w$]*)/,
-  /^\s*export\s+(?:declare\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)/,
-  /^\s*(?:public|protected|private|static|async|readonly|get|set|override)\s+(?:(?:static|async|readonly|get|set|override)\s+)*([A-Za-z_$][\w$]*)\s*[(<:=]/,
-  /^\s*(?:async\s+)?def\s+([A-Za-z_]\w*)/,
-  /^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([A-Za-z_]\w*)/,
-  /^\s*func\s+(?:\([^)]*\)\s*)?([A-Za-z_]\w*)/,
-  /^\s*(?:public|protected|internal)\s+(?:static\s+)?(?:[\w<>[\],?.]+\s+)+([A-Za-z_]\w*)\s*\(/,
-];
+const DECLARATIONS = FALLBACK_ECOSYSTEM.declarationPatterns;
 
 function declaredNames(text: string): string[] {
   const names: string[] = [];

@@ -13,6 +13,7 @@ import { casesLockStatus, lockCases, unlockCases } from './cases-lock.mjs';
 import { LEDGER_DIRECTORY, tally } from '../analysis/ledger-metrics.mjs';
 import { atomicWrite, FRONT_MATTER, GENERATION_MARKER, NAKED_COPY, outstandingSwap, PROMPT, promptBody, restorePrompts, swapInPluginPrompts, WITH_PROMPT } from './prompt-transport.mjs';
 import { FORCED_REMOVED, harnessArgv, parseRunOptions, PATH_OPTIONS, runSpec } from './run-options.mjs';
+import { trackSweep } from './sweep-events.mjs';
 import { harvestTraces, harvestedOfResult } from '../analysis/trace-analysis.mjs';
 
 // Existing consumers can still import the approved APIs from the CLI.
@@ -236,10 +237,13 @@ export async function runSweep(rest, { benchmarks = BENCHMARKS, now = new Date()
   const { casesDir, tracesDir } = plan;
   let status;
   const harvestErrors = new Set();
+  const runs = Number(options.runs ?? 0);
+  const tracker = trackSweep({ total: runs > 0 ? runs * plan.cases.length : null, file: env['EVAL_EVENTS_FILE'] ?? null, log });
   // A harvest failure is reported, never fatal to a paid sweep. Each distinct cause is printed once:
   // a pass every 2 s would flood the output, but a cause that changes mid-sweep must not hide.
   const pass = () => {
     try {
+      tracker.tick();
       harvest(tracesDir);
     } catch (error) {
       if (!harvestErrors.has(error.message)) warn(`trace harvest failing: ${error.message}`);
@@ -258,6 +262,7 @@ export async function runSweep(rest, { benchmarks = BENCHMARKS, now = new Date()
         status = await spawnRun(harnessArgv(plan, { json: reserved }));
       } finally {
         clearInterval(timer);
+        tracker.finish(status);
       }
     } finally {
       try {

@@ -32,11 +32,11 @@ const routed = (value: { route?: string | undefined; unbound?: true | undefined 
 
 const schemas = [
   entry('route', {
-    skill: text, args: text, mode: z.enum(['interactive', 'headless']), channel: z.enum(['hook', 'cli', 'harness']), trusted: z.boolean(),
-    session: text, epoch: z.number().int().min(1), resumes: text.optional(), adopts: z.boolean().optional(),
+    skill: text, args: z.union([text, z.looseObject({})]), mode: z.enum(['interactive', 'headless']), channel: z.enum(['hook', 'cli', 'harness']), trusted: z.boolean(),
+    session: text, harnessSession: text.optional(), scratchpad: text.optional(), epoch: z.number().int().min(1), resumes: text.optional(), adopts: z.boolean().optional(),
   }).refine((value) => value.trusted === (value.channel !== 'cli'), { path: ['trusted'], message: 'must equal channel !== cli' }),
   entry('step', {
-    route: text, step: text, actor: z.enum(['code', 'model']), status: z.enum(['delivered', 'completed', 'skipped']), cause: text,
+    route: text, step: text, actor: z.enum(['code', 'model', 'human', 'worker']), status: z.enum(['delivered', 'completed', 'skipped', 'failed', 'repeated']), cause: text,
     channel: text.optional(), bytes: count.optional(), file: text.optional(),
   }),
   entry('gate', {
@@ -56,10 +56,13 @@ const schemas = [
   entry('envelope', {
     sources: z.array(z.unknown()), builtFrom: z.enum(['captures', 'args']), asked: z.array(text), missingAsked: z.array(text), hash: text,
   }),
+  entry('map', {
+    mode: z.enum(['prompt', 'context']), layers: z.array(z.object({ name: text, ms: z.number(), hits: count })), layersSource: z.enum(['config', 'default', 'route']),
+    terms: z.object({ pass1: z.array(text), pass2: z.array(text) }), candidates: count, limitations: z.array(text), index: text, bytes: count, collisions: z.array(text).optional(),
+  }),
+  entry('search', { command: z.enum(['refs', 'find']), names: z.array(text), hits: count, bytes: count }),
+  entry('policy', { stage: z.enum(['before-work', 'before-report']), packs: z.array(text), rules: count, omitted: count, bytes: count }),
   // Written by later steps; each owner tightens its schema here (02-D4).
-  entry('map', { layers: optionalList, collisions: optionalList, index: z.unknown().optional(), bytes: count.optional() }),
-  entry('search', { command: text.optional(), names: optionalList, files: optionalList, ms: z.number().optional() }),
-  entry('policy', { stage: text.optional(), packs: optionalList, rules: optionalList, omitted: z.unknown().optional() }),
   entry('baseline', { head: text.optional(), dirty: optionalList }),
   entry('check', {
     key: text, argv: z.array(text), only: z.array(text), exit: z.number().int(), phase: text,

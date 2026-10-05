@@ -29,14 +29,12 @@ const MAX_COMPACT_PREPARE_WITH_SHORTLIST_BYTES = 10_200;
 // `references/` files carry no ceiling: they are read on demand, not on every call.
 const MAX_SKILL_BYTES: Record<string, number> = {
   'init/SKILL.md': 4_200,
-  'investigate/SKILL.md': 7_100,
+  'investigate/SKILL.md': 2_048,
   'plan/SKILL.md': 9_900,
   'review/SKILL.md': 6_500,
   'task/SKILL.md': 10_650,
   // A setup-time skill, never on a per-call path: this ceiling is about discipline, not per-call cost.
   'rules/SKILL.md': 10_000,
-  'shared/requirements-mcp.md': 5_600,
-  'shared/prepare-output.md': 5_550,
 };
 
 const PACK_A = [

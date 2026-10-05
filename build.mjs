@@ -2,6 +2,11 @@
 // runs without an install step inside a product repository.
 import { build } from 'esbuild';
 import { chmod, mkdir, rm, writeFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+
+// A malformed route or step file fails here, before anything is bundled.
+const { validateRouteFiles } = await import('./src/route/routes.ts');
+await validateRouteFiles(fileURLToPath(new URL('.', import.meta.url)));
 
 await rm(new URL('./scripts/ambicode.mjs', import.meta.url), { force: true });
 // A chunk left from an earlier build would otherwise be packaged beside the new ones.

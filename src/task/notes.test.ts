@@ -213,7 +213,7 @@ function fakePort(repo: TempRepo): RouteContextPort {
     async resolve(_task, session) {
       const mine = (await read()).filter((entry) => entry.kind === 'route' && entry.skill === 'plan' && entry.session === session).at(-1);
       if (mine === undefined) return null;
-      return { routeId: mine.id, chainIds: [mine.id], skill: 'plan', session, mode: 'interactive', channel: 'hook', trusted: true, position: 'plan-accept' };
+      return { task: TASK, routeId: mine.id, chainIds: [mine.id], skill: 'plan', session, mode: 'interactive', channel: 'hook', trusted: true, position: 'plan-accept' };
     },
     async assertOwner(view) {
       const owner = ownerOf(await read(), TASK);
