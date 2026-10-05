@@ -17,9 +17,13 @@ __pycache__/
 
 /.ambicode/reviews/
 /.ambicode/notes/
-/evals/evals-core/*/*
-/evals/**/results/
+/evals/cases/evals-core/*/*
+/evals/outputs
+/evals/benchmarks
+/evals/reports
+/evals/cases/python
 /eval-results.json
+/evals/**/results/
 
 /plan/
 /research/
