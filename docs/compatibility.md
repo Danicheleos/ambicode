@@ -398,7 +398,7 @@ machine). That cost buys the post-compaction redelivery; dropping the
 as the manual fallback. `ADDITIONAL_CONTEXT_EVENTS` in `src/contracts/hook.ts`
 holds the accepted names so the type system refuses the mistake. `SessionEnd` removes the
 hook's own dedup-marker directory. All of this is
-covered by `src/hook/run-hook.test.ts` (unit level, fake ports) and
+covered by `src/hook/events/run-hook.test.ts` (unit level, fake ports) and
 `hook-artifact.test.mjs` (built-artifact level: real bundled
 `scripts/ambicode.mjs hook` invoked with piped stdin, no `claude` process
 involved).

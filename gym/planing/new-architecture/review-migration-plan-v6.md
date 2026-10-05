@@ -33,7 +33,7 @@ CLAUDE.md's "915 tests" is stale at 921). No case, prompt, ticket or trace conte
 
 ## 1. Verdict
 
-**APPROVE WITH EDITS.** Deciding criterion: 0 critical, **3 high** (≤ 3, each with exact replacement
+**APPROVE WITH EDITS. (Approved by user)** Deciding criterion: 0 critical, **3 high** (≤ 3, each with exact replacement
 text below), 10 medium. All sixteen prior findings #116–#131 are closed in the text (§3), with one
 regression: #117's own replacement line (`--branch`) is wrong against the code and is #151.
 
