@@ -115,7 +115,7 @@ No new error codes, CLI options or ledger kinds.
   checked against that file. Several: not reported. None: "does not exist".
 - 03b-N9 `routes/steps/investigate-read.md`: read the map's leads and the code; use the map as
   leads and skip candidates that do not fit; cite `path:line` for each claim; keep facts apart
-  from assumptions; answer in the shape asked (03b-N13). No `find`/`refs` line.
+  from assumptions; a files answer per 03b-N13; a missing premise per 03b-N14. No `find`/`refs` line.
 - 03b-N10 `skills/investigate/SKILL.md`: what investigate is, the read-only boundary with its
   reason, "your answer is saved as the investigation note", and the fallback line
   `route start investigate "$ARGUMENTS"`. No judgment list (it lives in the read step).
@@ -131,8 +131,12 @@ No new error codes, CLI options or ledger kinds.
   note is `answer-blocked.md` + `## Citation problems` (the stop-check list) + the last message,
   saved and advanced as in 03b-N6. A conversational stop with no block before it still saves
   nothing (03b-N4).
-- 03b-N13 The read step's last judgment line asks for a complete files answer: every existing file
-  the change touches, its tests, types and schemas included.
+- 03b-N13 A files answer lists each existing file the change must edit, with its edit, plus the
+  existing tests of those files. It leaves out files that only explain the code, files needed only
+  for an optional design, and similar files the request does not name (run 6: "every file the change
+  touches" listed sibling handlers and planned specs, precision 0.57).
+- 03b-N14 When what the question assumes is not in the code, the answer says so after a short search
+  and answers from what exists (run 4–6: one case searched 19–26 calls for a missing check).
 
 **C — context before the first call**
 - 03b-C1 `requirements.normalize` and `requirements.acs` return an empty payload when every
@@ -175,6 +179,9 @@ No new error codes, CLI options or ledger kinds.
   event, and a warning line when the arms' sets differ. It decides nothing.
 - 03b-H4 Localize cases served with `--prompt with` carry no `helper-ran` and no `plugin-fired`
   grader; the llm, no-edit and no-peek graders stay.
+- 03b-H4 The sweep passes `--keep-temp`, so a sandbox outlives its run; the final harvest pass copies
+  its trace and session transcript, then the sandboxes the result names (and only those) are made
+  writable and removed. Ledgers stay as polled: a kept sandbox seals `home/`.
 
 **V — verification**
 - 03b-V1 Offline ($0), on the run-4 cases through the rebuilt bundle: read step ≤ 3,000 B and
@@ -227,7 +234,8 @@ No new error codes, CLI options or ledger kinds.
 - `src/route/owner-session.test.ts`: the 74-95 walk moves to the Stop save.
 - `src/util/skill-content.test.ts`, `src/cli/context-cost.test.ts`: 03b-N9, 03b-N10 pins and caps.
 - `src/hook/events/stop-check.test.ts`: 03b-N11 interactive and headless reasons, `answer-blocked.md`;
-  03b-N12 corrections-only stop saves the blocked answer with its problems. `skill-content.test.ts`: 03b-N13.
+  03b-N12 corrections-only stop saves the blocked answer with its problems. `skill-content.test.ts`: 03b-N13, 03b-N14.
+- `trace-analysis.test.mjs`, `run-options.test.mjs`: 03b-H4.
 - `evals/scripts/src/analysis/ledger-metrics.test.mjs`: `ledgersOf` over several trace directories.
 - `src/route/investigate.route.test.ts`: 03b-C1, 03b-C2, 03b-C3, 03b-C4.
 - `src/code-intelligence/search.test.ts`: 03b-M1, 03b-M2, 03b-M3, 03b-M4, 03b-M6.

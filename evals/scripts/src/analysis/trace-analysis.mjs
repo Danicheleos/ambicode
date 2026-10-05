@@ -1,5 +1,5 @@
 // Parse observed trace evidence and harvest it before the sandbox disappears.
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { LEDGER_DIRECTORY } from './ledger-metrics.mjs';
@@ -250,7 +250,8 @@ export function harvestTraces(outDir, { sandboxRoots = SANDBOX_ROOTS } = {}) {
   return copied;
 }
 
-export function harvestedOfResult(jsonPath, tracesDir) {
+/** The sandbox ids (`e-…`) a result's runs name. */
+export function sandboxIdsOfResult(jsonPath) {
   const results = JSON.parse(readFileSync(jsonPath, 'utf8'));
   const named = new Set();
   for (const evalCase of results.cases ?? [])
@@ -259,6 +260,35 @@ export function harvestedOfResult(jsonPath, tracesDir) {
         const id = /[/\\](e-[^/\\]+)[/\\]/.exec(run.tracePath ?? '');
         if (id) named.add(id[1]);
       }
+  return named;
+}
+
+/**
+ * `--keep-temp` leaves each sandbox behind, partly unreadable (`sealed/` has mode 000), so the last harvest pass
+ * can copy what the run wrote at its end. Only the named ids are removed; other `e-*` directories are not ours.
+ */
+export function removeSandboxes(ids, { sandboxRoots = SANDBOX_ROOTS } = {}) {
+  let removed = 0;
+  const open = (target) => {
+    const stat = lstatSync(target);
+    if (!stat.isDirectory()) return;
+    chmodSync(target, 0o700);
+    for (const name of readdirSync(target)) open(path.join(target, name));
+  };
+  for (const root of sandboxRoots)
+    for (const id of ids) {
+      if (!/^e-[\w-]+$/.test(id)) continue;
+      const target = path.join(root, id);
+      if (!existsSync(target)) continue;
+      open(target);
+      rmSync(target, { recursive: true, force: true });
+      removed += 1;
+    }
+  return removed;
+}
+
+export function harvestedOfResult(jsonPath, tracesDir) {
+  const named = sandboxIdsOfResult(jsonPath);
   const missing = [...named].filter((id) => !existsSync(path.join(tracesDir, `${id}.jsonl`))).sort();
   return { named: named.size, harvested: named.size - missing.length, missing };
 }

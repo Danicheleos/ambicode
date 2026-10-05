@@ -129,7 +129,9 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.match(read, /`path:line`/);
     assert.match(read, /leads, not answers/);
     assert.match(read, /Edit nothing/);
-    assert.match(read, /every existing file the change touches/, '03b-N13: a files answer is complete, not only the edited core');
+    assert.match(read, /must edit, with its edit, plus existing tests/, '03b-N13: a files answer lists edited files and their existing tests');
+    assert.match(read, /similar files the request does not name/);
+    assert.match(read, /not in the code, say so/, '03b-N14: a missing premise ends the search');
     assert.doesNotMatch(read, /note save|route next|\{cli\} (find|refs)/);
     assert.ok(read.length <= 700);
     assert.equal(existsSync(path.join(repositoryRoot, 'routes', 'steps', 'investigate-write.md')), false);

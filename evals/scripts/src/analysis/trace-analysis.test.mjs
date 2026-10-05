@@ -1,7 +1,8 @@
 // Regression assertions moved intact from the approved harness suite.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { traceMetrics, harvestTraces, harvestedOfResult } from './trace-analysis.mjs';
+import { traceMetrics, harvestTraces, harvestedOfResult, removeSandboxes } from './trace-analysis.mjs';
+import { chmodSync, existsSync } from 'node:fs';
 import { TRACE, ticket, M, event } from '../testing/bench-test-fixtures.mjs';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -108,6 +109,22 @@ describe('evals-bench: harvesting traces', () => {
       assert.equal(readFileSync(path.join(outDir, 'sessions', 'e-one', 'abc.jsonl'), 'utf8'), '{"type":"user"}\n');
     } finally {
       rmSync(sandboxRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('03b-H4: removes only the kept sandboxes the result names, sealed parts included', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'kept-'));
+    try {
+      mkdirSync(path.join(root, 'e-mine', 'sealed', 'home'), { recursive: true });
+      writeFileSync(path.join(root, 'e-mine', 'sealed', 'home', 'f'), 'x');
+      chmodSync(path.join(root, 'e-mine', 'sealed'), 0o000);
+      chmodSync(path.join(root, 'e-mine'), 0o500);
+      mkdirSync(path.join(root, 'e-other'));
+      assert.equal(removeSandboxes(new Set(['e-mine', 'e-gone', '../x']), { sandboxRoots: [root] }), 1);
+      assert.equal(existsSync(path.join(root, 'e-mine')), false);
+      assert.equal(existsSync(path.join(root, 'e-other')), true, 'an unnamed sandbox is not ours to remove');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 

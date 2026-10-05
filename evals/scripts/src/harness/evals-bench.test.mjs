@@ -161,7 +161,7 @@ describe('evals-bench: per-arm prompts', () => {
     writeFileSync(jsonOf(argv), JSON.stringify({ partial: false, claudeVersion: '2.1.289', suite: { modelOverride: 'm', plugins: [{ name: 'ambicode' }] }, cases }));
     return 0;
   };
-  const quiet = { benchmarks: undefined, harvest: () => 0, log: () => {}, warn: () => {} };
+  const quiet = { benchmarks: undefined, harvest: () => 0, clean: () => 0, log: () => {}, warn: () => {} };
 
   it('records the naked prompt as promptMarkdown and the served one as pluginPromptMarkdown', async () => {
     const localize = resolveCases(casesDir, { tags: ['localize'] });
@@ -265,7 +265,7 @@ describe('evals-bench: one owner of the cases directory', () => {
 
   const fresh = () => path.join(benchmarks, 'results', `lock-${++n}.json`);
   const runArgv = (json, ...extra) => ['--plugin', plugin, '--json', json, '--model', 'm', '--max-cost-usd', '1', '--tag', 'localize', ...extra];
-  const quiet = { harvest: () => 0, log: () => {}, warn: () => {} };
+  const quiet = { harvest: () => 0, clean: () => 0, log: () => {}, warn: () => {} };
   const localize = () => resolveCases(casesDir, { tags: ['localize'] });
   const writeResult = (argv, cases, extra = {}) => {
     writeFileSync(jsonOf(argv), JSON.stringify({ partial: false, claudeVersion: '2.1.289', suite: { modelOverride: 'm', plugins: [{ name: 'ambicode' }] }, cases, ...extra }));
@@ -380,7 +380,7 @@ describe('evals-bench: a dry run names no case', () => {
       const lines = [];
       const status = await runSweep(
         ['--plugin', plugin, '--model', 'm', '--max-cost-usd', '1', '--case', c.name, '--json', path.join(results, `${c.name}.json`), '--report', path.join(results, c.name, 'report.html'), '--output-dir', path.join(results, `${c.name}-agg`), '--dry-run'],
-        { benchmarks, spawnRun: neverSpawn, harvest: () => 0, log: (line) => lines.push(line), warn: () => {} },
+        { benchmarks, spawnRun: neverSpawn, harvest: () => 0, clean: () => 0, log: (line) => lines.push(line), warn: () => {} },
       );
       assert.equal(status, 0);
       assert.deepEqual(snapshot(root), before);
@@ -419,7 +419,7 @@ describe('evals-bench: a run owns only the result it wrote', () => {
     mkdirSync(path.dirname(json), { recursive: true });
     const old = JSON.stringify({ partial: false, claudeVersion: '2.1.289', suite: { modelOverride: 'm' }, cases: [] });
     writeFileSync(json, old);
-    await assert.rejects(runSweep(argv(json), { harvest: () => 0, log: () => {}, warn: () => {}, benchmarks, spawnRun: neverSpawn }), /already exists/);
+    await assert.rejects(runSweep(argv(json), { harvest: () => 0, clean: () => 0, log: () => {}, warn: () => {}, benchmarks, spawnRun: neverSpawn }), /already exists/);
     assert.equal(readFileSync(json, 'utf8'), old);
     assert.ok(!existsSync(walkOf(json)));
   });
@@ -427,7 +427,7 @@ describe('evals-bench: a run owns only the result it wrote', () => {
   it('reports a failed run that wrote nothing as failed, and walks nothing', async () => {
     const json = fresh();
     const warnings = [];
-    const status = await runSweep(argv(json), { harvest: () => 0, log: () => {}, warn: (w) => warnings.push(w), benchmarks, spawnRun: async () => 1 });
+    const status = await runSweep(argv(json), { harvest: () => 0, clean: () => 0, log: () => {}, warn: (w) => warnings.push(w), benchmarks, spawnRun: async () => 1 });
     assert.equal(status, 1);
     assert.ok(!existsSync(json) && !existsSync(walkOf(json)));
     assert.ok(warnings.some((w) => /walkthrough: skipped/.test(w)));
@@ -436,7 +436,7 @@ describe('evals-bench: a run owns only the result it wrote', () => {
   it('keeps and walks a partial result the failing run itself wrote', async () => {
     const json = fresh();
     const status = await runSweep(argv(json), {
-      harvest: () => 0,
+      harvest: () => 0, clean: () => 0,
       log: () => {},
       warn: () => {},
       benchmarks,
@@ -453,7 +453,7 @@ describe('evals-bench: a run owns only the result it wrote', () => {
 
   const resultsDir = () => path.join(benchmarks, 'results');
   const leftovers = () => readdirSync(resultsDir()).filter((f) => /\.run-|\.tmp$/.test(f));
-  const quiet = { harvest: () => 0, log: () => {}, warn: () => {} };
+  const quiet = { harvest: () => 0, clean: () => 0, log: () => {}, warn: () => {} };
   const write = (target, partial = false) => writeFileSync(target, JSON.stringify({ partial, claudeVersion: '2.1.289', suite: { modelOverride: 'm' }, cases: cases() }));
 
   it('does not take or annotate another run\'s result at the same target, and walks nothing from it', async () => {

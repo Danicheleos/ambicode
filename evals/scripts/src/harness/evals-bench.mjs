@@ -14,7 +14,7 @@ import { LEDGER_DIRECTORY, tally } from '../analysis/ledger-metrics.mjs';
 import { atomicWrite, FRONT_MATTER, GENERATION_MARKER, NAKED_COPY, outstandingSwap, PROMPT, promptBody, restorePrompts, swapInPluginPrompts, WITH_PROMPT } from './prompt-transport.mjs';
 import { FORCED_REMOVED, harnessArgv, parseRunOptions, PATH_OPTIONS, runSpec } from './run-options.mjs';
 import { trackSweep } from './sweep-events.mjs';
-import { harvestTraces, harvestedOfResult } from '../analysis/trace-analysis.mjs';
+import { harvestTraces, harvestedOfResult, removeSandboxes, sandboxIdsOfResult } from '../analysis/trace-analysis.mjs';
 
 // Existing consumers can still import the approved APIs from the CLI.
 export * from '../shared/bench-paths.mjs';
@@ -26,7 +26,7 @@ export * from '../analysis/ledger-metrics.mjs';
 export * from './prompt-transport.mjs';
 export * from './run-options.mjs';
 export { infrastructureError } from './run-validity.mjs';
-export { harvestTraces, harvestedOfResult, traceMetrics } from '../analysis/trace-analysis.mjs';
+export { harvestTraces, harvestedOfResult, removeSandboxes, sandboxIdsOfResult, traceMetrics } from '../analysis/trace-analysis.mjs';
 
 /** Beside the result, so it stays in the same gitignored directory: it quotes the benchmark's answers. */
 const walkPathOf = (jsonPath) => path.join(path.dirname(path.resolve(jsonPath)), `${path.basename(jsonPath, '.json').replace(/^eval-/, 'walk-')}.md`);
@@ -217,7 +217,7 @@ function spawnClaude(argv) {
  * naked. A kill skips `finally`; the dead owner's claim and the marker make the next run, `restore-prompts`,
  * `select` and `naked-arm.mjs` recover it. A naked run holds the lock too: it serves the same prompt files.
  */
-export async function runSweep(rest, { benchmarks = BENCHMARKS, now = new Date(), spawnRun = spawnClaude, harvest = harvestTraces, log = console.log, warn = console.error, env = process.env } = {}) {
+export async function runSweep(rest, { benchmarks = BENCHMARKS, now = new Date(), spawnRun = spawnClaude, harvest = harvestTraces, clean = removeSandboxes, log = console.log, warn = console.error, env = process.env } = {}) {
   const options = parseRunOptions(rest);
   if (options.flags.has('--dry-run')) {
     log(formatPlan(planRun(options, { benchmarks, now, env })));
@@ -287,6 +287,12 @@ export async function runSweep(rest, { benchmarks = BENCHMARKS, now = new Date()
       if (missing.length > 0) warn(`not harvested (no trace copy): ${missing.join(', ')}`);
     } catch (error) {
       completeness = `; harvest completeness unknown (${error.message})`;
+    }
+  if (produced)
+    try {
+      clean(sandboxIdsOfResult(reserved));
+    } catch (error) {
+      warn(`kept sandboxes not removed: ${error.message}`);
     }
   log(
     `harvested ${kept} trace(s) and the ledgers of ${ledgerRuns} sandbox(es) to ${tracesDir}${completeness}` +

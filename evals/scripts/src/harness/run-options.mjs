@@ -117,7 +117,7 @@ export function runSpec(options, { now = new Date(), benchmarks = BENCHMARKS, se
 /** The `claude` argv of a spec; `json` replaces the result path (a run writes to its private one). */
 export function harnessArgv(spec, { json = spec.json } = {}) {
   const options = spec.harness.flatMap(([name, ...rest]) => (name === '--json' ? [name, json] : [name, ...rest]));
-  return ['plugin', 'eval', spec.plugin, '--eval-dir', spec.set === 'full' ? BENCH_EVAL_DIR : CURATED_EVAL_DIR, '--scaffold', '--allow-tools', 'Bash', '--no-publish', ...options];
+  return ['plugin', 'eval', spec.plugin, '--eval-dir', spec.set === 'full' ? BENCH_EVAL_DIR : CURATED_EVAL_DIR, '--scaffold', '--allow-tools', 'Bash', '--no-publish', '--keep-temp', ...options];
 }
 
 /** Compatibility adapter: the argv of raw `run` arguments, validated as `run` validates them. */
