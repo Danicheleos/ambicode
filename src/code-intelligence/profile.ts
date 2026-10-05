@@ -39,6 +39,8 @@ const EXPORT_LINE = /^export\b/;
 const TOP_LEVEL = /^\S/;
 const CATALOG_MAX_BYTES = 4 * 1024 * 1024;
 const HISTORY_MIN = 50;
+/** Data-only name parts, used when the history is too short to measure feature kinds. */
+const FALLBACK_KINDS = ['constant', 'constants', 'fixture', 'fixtures', 'mock', 'mocks', 'stub', 'stubs', 'type', 'types'];
 
 const extensionOf = (file: string): string => {
   const name = path.posix.basename(file);
@@ -178,9 +180,10 @@ export async function buildProfile(runtime: Runtime, project: Pick<ProjectConfig
   }
   const candidates = [...kinds].filter(([, group]) => group.length >= KIND_MIN_FILES && new Set(group.map((file) => path.posix.dirname(file))).size >= KIND_MIN_FOLDERS).map(([kind]) => kind);
   const featureKinds: string[] = [];
-  if (candidates.length > 0) {
-    const commits = await git.commitsTouching([root === '' ? '.' : root], HISTORY);
-    const lists = commits.length >= HISTORY_MIN ? await git.commitFileLists(commits) : [];
+  const commits = await git.commitsTouching([root === '' ? '.' : root], HISTORY);
+  if (commits.length < HISTORY_MIN) featureKinds.push(...FALLBACK_KINDS.filter((kind) => kinds.has(kind)));
+  else if (candidates.length > 0) {
+    const lists = await git.commitFileLists(commits);
     for (const kind of candidates) {
       let seen = 0;
       let together = 0;

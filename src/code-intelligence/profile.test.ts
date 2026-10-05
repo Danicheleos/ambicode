@@ -67,11 +67,11 @@ describe('03c profile', () => {
     }
   });
 
-  it('03c-P5: a kind that changes with its same-name sibling in recent history is a feature kind; a short history gives none', async () => {
+  it('03c-P5: a kind that changes with its same-name sibling in recent history is a feature kind; a short history gives the data-only names present', async () => {
     const files = { ...many(12, (i) => [`src/f${i % 4}/x${i}.service.ts`, `export class S${i} {}\n`]), ...many(12, (i) => [`src/f${i % 4}/x${i}.mocks.ts`, `export const m${i} = 1;\n`]), ...many(12, (i) => [`src/g${i % 3}/z${i}.helper.ts`, `export const h${i} = 1;\n`]) };
     const fx = await repo(files);
     try {
-      assert.deepEqual((await buildProfile(fx.runtime, { root: '.' })).featureKinds, [], 'two commits are not a history');
+      assert.deepEqual((await buildProfile(fx.runtime, { root: '.' })).featureKinds, ['mocks'], 'a short history falls back to the data-only names present');
       for (let round = 0; round < 50; round += 1) {
         const i = round % 12;
         await fx.repo.write(`src/f${i % 4}/x${i}.service.ts`, `export class S${i} { v = ${round}; }\n`);
