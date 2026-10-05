@@ -13,6 +13,7 @@ describe('evals-bench: measures taken from the trace', () => {
   it('counts the agent\'s own calls, never the skill text that names the helper', () => {
     assert.deepEqual(traceMetrics(TRACE), {
       model: 'claude-sonnet-5-5',
+      builtinPlugins: null,
       toolCalls: 9,
       skills: ['ambicode:investigate'],
       prepareRuns: 2,
@@ -87,6 +88,29 @@ describe('evals-bench: harvesting traces', () => {
     }
   });
 
+  it('03b-H3: reads the built-in plugins from the init event', () => {
+    const init = JSON.stringify({ type: 'system', subtype: 'init', model: 'm', plugins: [{ name: 'ambicode', path: '/x' }, { name: 'zeta', path: 'builtin' }, { name: 'alpha', path: 'builtin' }] });
+    assert.deepEqual(traceMetrics(init).builtinPlugins, ['alpha', 'zeta']);
+  });
+
+  it('03b-H1: copies the session transcript of each sandbox beside its trace', () => {
+    const sandboxRoot = mkdtempSync(path.join(tmpdir(), 'harvest-session-'));
+    const outDir = path.join(sandboxRoot, 'kept');
+    try {
+      const project = path.join(sandboxRoot, 'e-one', 'config', 'projects', '-private-tmp-e-one-home-cwd');
+      mkdirSync(project, { recursive: true });
+      mkdirSync(path.join(sandboxRoot, 'e-one', 'out'), { recursive: true });
+      writeFileSync(path.join(sandboxRoot, 'e-one', 'out', 'trace.jsonl'), '{}\n');
+      writeFileSync(path.join(project, 'abc.jsonl'), '{"type":"user"}\n');
+      writeFileSync(path.join(project, 'notes.txt'), 'x');
+      harvestTraces(outDir, { sandboxRoots: [sandboxRoot] });
+      assert.deepEqual(readdirSync(path.join(outDir, 'sessions', 'e-one')), ['abc.jsonl']);
+      assert.equal(readFileSync(path.join(outDir, 'sessions', 'e-one', 'abc.jsonl'), 'utf8'), '{"type":"user"}\n');
+    } finally {
+      rmSync(sandboxRoot, { recursive: true, force: true });
+    }
+  });
+
   it('tells a complete harvest from one that missed traces the result names', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'harvest-check-'));
     try {
@@ -103,7 +127,7 @@ describe('evals-bench: harvesting traces', () => {
       writeFileSync(path.join(dir, 'r.json'), JSON.stringify(result));
       writeFileSync(path.join(dir, 'e-kept.jsonl'), '{}\n');
       writeFileSync(path.join(dir, 'e-stray.jsonl'), '{}\n'); // another sweep's trace changes nothing
-      assert.deepEqual(harvestedOfResult(path.join(dir, 'r.json'), dir), { named: 2, harvested: 1 });
+      assert.deepEqual(harvestedOfResult(path.join(dir, 'r.json'), dir), { named: 2, harvested: 1, missing: ['e-gone'] });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

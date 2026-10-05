@@ -282,8 +282,9 @@ export async function runSweep(rest, { benchmarks = BENCHMARKS, now = new Date()
   let completeness = '; harvest completeness unknown (the run wrote no result of its own)';
   if (produced)
     try {
-      const { named, harvested } = harvestedOfResult(reserved, tracesDir);
+      const { named, harvested, missing } = harvestedOfResult(reserved, tracesDir);
       completeness = `; the result names ${named}, ${harvested} of those harvested`;
+      if (missing.length > 0) warn(`not harvested (no trace copy): ${missing.join(', ')}`);
     } catch (error) {
       completeness = `; harvest completeness unknown (${error.message})`;
     }

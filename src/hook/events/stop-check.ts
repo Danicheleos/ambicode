@@ -1,17 +1,18 @@
 import { open } from 'node:fs/promises';
 import path from 'node:path';
 import { findSessionRepository } from '../../composition/session-repository.ts';
-import type { Runtime } from '../../composition/root.ts';
+import { createRuntime, openRepository, type Runtime } from '../../composition/root.ts';
 import type { HookInput, StopHookOutput } from '../../contracts/hook.ts';
 import { resolveActiveRoute } from '../../route/active-route.ts';
-import { buildChain, currentIn, isBoundAnswer, isGreen } from '../../route/fold.ts';
+import { buildChain, currentIn, foldRoute, isBoundAnswer, isGreen } from '../../route/fold.ts';
 import { harnessOf } from '../../route/harness.ts';
 import type { RouteDef } from '../../route/routes.ts';
 import type { LedgerEntry } from '../../task/ledger.ts';
 import { readLedger } from '../../task/ledger.ts';
 import { withLedgerLock } from '../../task/ledger-lock.ts';
 import { buildReport } from '../../task/report.ts';
-import { NOTE_LABELS } from '../../task/notes.ts';
+import { navigationLine } from '../../task/navigation-line.ts';
+import { NOTE_LABELS, saveNote } from '../../task/notes.ts';
 import { taskDirFor } from '../../task/task-dir.ts';
 import { hookStateBaseDir, readStopCursor, writeStopCursor } from '../session/markers.ts';
 import type { RouteHookDeps } from './prompt-launch.ts';
@@ -63,23 +64,57 @@ const squash = (value: string): string => value.replace(/\s+/g, ' ').trim();
 const firstHeading = (instruction: string | null): string | null => instruction?.split('\n').find((line) => /^#+\s/.test(line))?.trim() ?? null;
 const firstLine = (text: string): string => text.split('\n').find((line) => line.trim() !== '')?.trim() ?? '';
 
-interface Checked { chain: readonly LedgerEntry[]; def: RouteDef; root: string; text: string; defectBrief: boolean }
+interface Checked { chain: readonly LedgerEntry[]; def: RouteDef; root: string; text: string; defectBrief: boolean; files: () => Promise<readonly string[]>; citationsOnly?: boolean }
+
+const CITATION = /(?<![\w:/])((?:\/|[\w.-]+\/)?[\w./-]*[\w-]\.[A-Za-z][A-Za-z0-9]*):(\d+)(?:-(\d+))?/g;
+/** A path with a directory part, or a bare file name with a line: what an answer cites. */
+const CITED_PATH = /(?<![\w:/@])((?:[\w.-]+\/)+[\w.-]*[\w-]\.[A-Za-z][A-Za-z0-9]*|[\w-][\w.-]*\.[A-Za-z][A-Za-z0-9]*(?=:\d))/g;
+
+/**
+ * The repository file a cited path names: as written from the root, else the one file whose path ends with it (a bare
+ * name, or a path relative to a feature directory); `ambiguous` when several do.
+ */
+async function locateCited(cited: string, input: Pick<Checked, 'root' | 'files'>, runtime: Runtime): Promise<string | 'ambiguous' | null> {
+  const file = path.isAbsolute(cited) ? cited : path.join(input.root, cited);
+  if (await runtime.fs.exists(file)) return file;
+  if (path.isAbsolute(cited)) return null;
+  const tail = cited.replace(/^\.\//, '');
+  const named = (await input.files()).filter((candidate) => candidate === tail || candidate.endsWith(`/${tail}`));
+  if (named.length > 1) return 'ambiguous';
+  return named.length === 1 ? path.join(input.root, named[0]!) : null;
+}
+
+/** An answer is report-shaped when it cites at least one file that exists in the repository. */
+async function citesRepository(text: string, input: Pick<Checked, 'root' | 'files'>, runtime: Runtime): Promise<boolean> {
+  for (const match of text.matchAll(CITED_PATH)) {
+    if (match.index > 0 && text.slice(Math.max(0, match.index - 3), match.index).includes('//')) continue;
+    const found = await locateCited(match[1]!, input, runtime);
+    if (found !== null && found !== 'ambiguous' && !path.relative(input.root, found).startsWith('..')) return true;
+  }
+  return false;
+}
 
 async function problemsOf(input: Checked, runtime: Runtime): Promise<string[]> {
   const problems: string[] = [];
   const { text, root } = input;
-  for (const match of text.matchAll(/(?<![\w:/])((?:\/|[\w.-]+\/)?[\w./-]*[\w-]\.[A-Za-z][A-Za-z0-9]*):(\d+)(?:-(\d+))?/g)) {
+  for (const match of text.matchAll(CITATION)) {
     if (match[0].includes('://')) continue;
-    const file = path.isAbsolute(match[1]!) ? match[1]! : path.join(root, match[1]!);
+    const found = await locateCited(match[1]!, input, runtime);
+    if (found === 'ambiguous') continue;
+    const file = found ?? (path.isAbsolute(match[1]!) ? match[1]! : path.join(root, match[1]!));
     if (path.relative(root, file).startsWith('..')) continue;
-    const last = Number(match[3] ?? match[2]);
+    // In an answer a range that starts inside the file only overshoots its end; the cited code is there.
+    const last = Number(input.citationsOnly === true ? match[2] : (match[3] ?? match[2]));
     try {
-      const lines = (await runtime.fs.readText(file)).split('\n').length - (/\n$/.test(await runtime.fs.readText(file)) ? 1 : 0);
+      const content = await runtime.fs.readText(file);
+      const lines = content.split('\n').length - (/\n$/.test(content) ? 1 : 0);
       if (last > lines) problems.push(`${match[0]}: ${path.relative(root, file)} has ${lines} lines.`);
     } catch {
       problems.push(`${match[0]}: ${path.relative(root, file)} does not exist.`);
     }
   }
+  // An answer step runs no checks and records no acceptance, so only its citations can be wrong.
+  if (input.citationsOnly === true) return problems;
   if (/(^|\n)Evidence\b/.test(text) && /Not verified/.test(text)) {
     const report = buildReport(input.chain, { current: currentIn(input.def, buildChain(input.chain, input.chain.find((entry) => entry.kind === 'route')!)) });
     const block = squash(text);
@@ -124,9 +159,24 @@ export async function stopCheck(runtime: Runtime, input: HookInput, deps: RouteH
 
     const exited = fresh.some((entry) => entry.kind === 'exit');
     const heading = firstHeading(lastModel?.instruction ?? null);
+    let listed: Promise<readonly string[]> | null = null;
+    const files = (): Promise<readonly string[]> =>
+      (listed ??= createRuntime({ ...runtime, cwd: root })
+        .then(openRepository)
+        .then((repository) => repository.git.listFiles(null))
+        .catch(() => []));
+    const answering = active === null ? null : foldRoute(def, buildChain(entries, head)).position;
+    let saveAnswer = false;
     let text: string | null = null;
     let unreadable = false;
-    if (savedNote !== undefined && typeof savedNote['path'] === 'string') {
+    if (answering?.answer === 'note' && savedNote === undefined) {
+      const message = input.transcript_path === undefined ? null : await lastAssistantText(input.transcript_path);
+      if (message === null) unreadable = !chain.some((entry) => entry.kind === 'limit' && entry['which'] === 'stop-unreadable');
+      else if (await citesRepository(message, { root, files }, runtime)) {
+        text = message;
+        saveAnswer = true;
+      }
+    } else if (savedNote !== undefined && typeof savedNote['path'] === 'string') {
       text = await runtime.fs.readText(path.join(root, savedNote['path'])).catch(() => null);
     } else if (exited || heading !== null) {
       const message = input.transcript_path === undefined ? null : await lastAssistantText(input.transcript_path);
@@ -141,8 +191,9 @@ export async function stopCheck(runtime: Runtime, input: HookInput, deps: RouteH
     };
     if (unreadable) await finish({ which: 'stop-unreadable', count: 1 });
     else if (text !== null && !chain.some((entry) => entry.kind === 'limit' && entry['which'] === 'stop-block')) {
-      const problems = await problemsOf({ chain, def, root, text, defectBrief: options.defectBrief === true }, runtime);
+      const problems = await problemsOf({ chain, def, root, text, defectBrief: options.defectBrief === true, files, citationsOnly: saveAnswer }, runtime);
       if (problems.length > 0) {
+        saveAnswer = false;
         await runtime.fs.mkdirp(dir.root);
         await runtime.fs.writeText(dir.stopCheck, `# Stop check\n\n${problems.map((item) => `- ${item}`).join('\n')}\n`);
         let reason = `The text you are about to finish with has ${problems.length} problem(s). Fix them, or state them; the full list is in ${path.relative(root, dir.stopCheck)}:`;
@@ -154,10 +205,26 @@ export async function stopCheck(runtime: Runtime, input: HookInput, deps: RouteH
         output = { decision: 'block', reason };
       }
     }
+    if (saveAnswer && text !== null && answering !== null) await saveAsNote({ runtime, root, task: target.task, head, chain, text, kind: answering, deps, scratchpad });
     const after = await readLedger(runtime.fs, dir.root);
     await writeStopCursor(runtime.fs, base, target.routeId, buildChain(after, head).entries.length);
+    if (saveAnswer) await deps.pointer.clearEnded(session, scratchpad);
     return output;
   } finally {
     if (active === null) await deps.pointer.clearEnded(session, scratchpad);
   }
+}
+
+/**
+ * The answer becomes the step's note, then the route advances as `note save` would advance it. The note is written
+ * under the route's owner, not the Claude session, and the engine takes the ledger lock only after the note's is released.
+ */
+async function saveAsNote(input: { runtime: Runtime; root: string; task: string; head: LedgerEntry; chain: readonly LedgerEntry[]; text: string; kind: RouteDef['steps'][number]; deps: RouteHookDeps; scratchpad: string | undefined }): Promise<void> {
+  const owner = String(input.head['session']);
+  const kind = input.kind.produces.find((produced) => produced.kind === 'note')?.value;
+  if (kind === null || kind === undefined) return;
+  const routeRuntime = await createRuntime({ ...input.runtime, cwd: input.root });
+  const body = `${input.text.trimEnd()}\n\n${navigationLine(input.chain)}\n`;
+  await saveNote({ runtime: routeRuntime, session: owner, context: null }, { task: input.task, kind: kind as Parameters<typeof saveNote>[1]['kind'], body, from: null, iteration: null, route: input.head.id });
+  await input.deps.engine.advance({ task: input.task, session: owner, cause: 'note save', ...(input.scratchpad === undefined ? {} : { scratchpadDir: input.scratchpad }) });
 }

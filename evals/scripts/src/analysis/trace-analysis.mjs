@@ -38,7 +38,7 @@ function classifyCall(block) {
  * names `prepare` itself, so a text match counts a call nobody made.
  */
 function parseTrace(jsonl) {
-  const trace = { model: null, calls: [], replayedReviews: 0, peakContext: null, postToolUseResponses: 0, mcpHookResponses: 0 };
+  const trace = { model: null, builtinPlugins: null, calls: [], replayedReviews: 0, peakContext: null, postToolUseResponses: 0, mcpHookResponses: 0 };
   const byId = new Map();
   for (const line of jsonl.split('\n')) {
     if (!line.trim()) continue;
@@ -48,7 +48,10 @@ function parseTrace(jsonl) {
     } catch {
       continue;
     }
-    if (event.type === 'system' && event.subtype === 'init') trace.model ??= event.model ?? null;
+    if (event.type === 'system' && event.subtype === 'init') {
+      trace.model ??= event.model ?? null;
+      if (Array.isArray(event.plugins)) trace.builtinPlugins ??= event.plugins.filter((p) => p?.path === 'builtin').map((p) => String(p.name)).sort();
+    }
     if (event.type === 'system' && event.subtype === 'hook_response' && event.hook_event === 'PostToolUse') {
       trace.postToolUseResponses += 1;
       if (/mcp__/.test(String(event.hook_name ?? ''))) trace.mcpHookResponses += 1;
@@ -83,10 +86,12 @@ export function traceMetrics(jsonl) {
 }
 
 export function metricsOfTrace(trace) {
-  const { model, calls, replayedReviews, peakContext, postToolUseResponses, mcpHookResponses } = trace;
+  const { model, builtinPlugins = null, calls, replayedReviews, peakContext, postToolUseResponses, mcpHookResponses } = trace;
   const count = (pred) => calls.filter(pred).length;
   return {
     model,
+    // Built-in plugins Claude Code loaded on its own; the repository does not control them, so arms can differ.
+    builtinPlugins,
     toolCalls: calls.length,
     skills: calls.filter((c) => c.block.name === 'Skill' && typeof c.block.input?.skill === 'string').map((c) => c.block.input.skill),
     prepareRuns: count((c) => c.helper === 'prepare'),
@@ -107,11 +112,15 @@ export function metricsOfTrace(trace) {
   };
 }
 
+/** `tracesDir` may be a list: a cached baseline's traces sit beside its own result. */
 function traceFile(run, tracesDir) {
   const id = /[/\\](e-[^/\\]+)[/\\]/.exec(run.tracePath ?? '')?.[1];
   if (!tracesDir || !id) return null;
-  const file = path.join(tracesDir, `${id}.jsonl`);
-  return existsSync(file) ? file : null;
+  for (const dir of [].concat(tracesDir)) {
+    const file = path.join(dir, `${id}.jsonl`);
+    if (existsSync(file)) return file;
+  }
+  return null;
 }
 
 export function readTrace(run, tracesDir) {
@@ -149,6 +158,34 @@ function sandboxLedgers(sandbox) {
       throw error;
     }
     for (const slug of slugs) found.push(path.relative(sandbox, path.join(base, '.ambicode', 'task', slug, 'ledger.jsonl')));
+  }
+  return found;
+}
+
+export const SESSION_DIRECTORY = 'sessions';
+
+/**
+ * The Claude Code session transcript under the sandbox's config directory. It records what the stream trace does
+ * not: the expanded slash command, each hook's additionalContext and the skill listing of the first request.
+ */
+function sandboxSessions(sandbox) {
+  const projects = path.join(sandbox, 'config', 'projects');
+  const found = [];
+  let dirs;
+  try {
+    dirs = readdirSync(projects, { withFileTypes: true });
+  } catch {
+    return found;
+  }
+  for (const dir of dirs) {
+    if (!dir.isDirectory()) continue;
+    let files;
+    try {
+      files = readdirSync(path.join(projects, dir.name));
+    } catch {
+      continue;
+    }
+    for (const file of files) if (file.endsWith('.jsonl')) found.push(path.join('config', 'projects', dir.name, file));
   }
   return found;
 }
@@ -197,6 +234,16 @@ export function harvestTraces(outDir, { sandboxRoots = SANDBOX_ROOTS } = {}) {
       } catch (error) {
         failure ??= error;
       }
+      for (const relative of sandboxSessions(path.join(root, name))) {
+        const target = path.join(outDir, SESSION_DIRECTORY, name, path.basename(relative));
+        try {
+          mkdirSync(path.dirname(target), { recursive: true });
+          copyFileSync(path.join(root, name, relative), `${target}.tmp`);
+          renameSync(`${target}.tmp`, target);
+        } catch (error) {
+          if (error.code !== 'ENOENT') failure ??= error;
+        }
+      }
     }
   }
   if (failure) throw failure;
@@ -212,7 +259,7 @@ export function harvestedOfResult(jsonPath, tracesDir) {
         const id = /[/\\](e-[^/\\]+)[/\\]/.exec(run.tracePath ?? '');
         if (id) named.add(id[1]);
       }
-  const harvested = [...named].filter((id) => existsSync(path.join(tracesDir, `${id}.jsonl`))).length;
-  return { named: named.size, harvested };
+  const missing = [...named].filter((id) => !existsSync(path.join(tracesDir, `${id}.jsonl`))).sort();
+  return { named: named.size, harvested: named.size - missing.length, missing };
 }
 

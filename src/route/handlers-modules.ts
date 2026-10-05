@@ -1,6 +1,6 @@
 import type { Runtime } from '../composition/root.ts';
 import { openRepository, projectForRequest } from '../composition/root.ts';
-import { rankTerms, buildMap, resolveLayers } from '../code-intelligence/map.ts';
+import { rankTerms, buildMap, leadsText, resolveLayers } from '../code-intelligence/map.ts';
 import { ecosystemFacts } from '../config/ecosystems.ts';
 import { loadConfigWithNotices } from '../config/load.ts';
 import type { AmbicodeConfig, ProjectConfig } from '../contracts/config.ts';
@@ -71,13 +71,17 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
     const result = await normalizeEnvelope({ runtime: input.runtime, dir: input.dir, ledger: input.ledger, view: input.view, args: input.args, mcpServer: config.requirements.mcpServer });
     if (result.state === 'failed') return { state: 'failed', code: result.code, message: result.message, recoverable: result.recoverable };
     if (result.state === 'raise') return { state: 'raise', gate: result.gate, values: result.values };
+    // The request alone is already in the model's context; repeating it as an envelope adds nothing.
+    if (result.notices.length === 0 && result.sources.every((source) => source.relation === 'args')) return { state: 'ok', payload: null };
     return { state: 'ok', payload: [...result.notices, renderSources(result.sources)].filter((part) => part !== '').join('\n\n') };
   },
 
   'requirements.acs': async (input) => {
     const envelope = (await chainEntries(input)).findLast((entry) => entry.kind === 'envelope');
     if (envelope === undefined) return { state: 'ok', payload: null };
-    const units = splitAcs(await envelopeSources(input, envelope));
+    const sources = await envelopeSources(input, envelope);
+    if (sources.every((source) => source.relation === 'args')) return { state: 'ok', payload: null };
+    const units = splitAcs(sources);
     return { state: 'ok', payload: units.length === 0 ? null : `Acceptance units (a signal, not a checklist):\n${units.map((unit) => `${unit.id}: ${unit.quote}`).join('\n')}` };
   },
 
@@ -105,7 +109,7 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
         if (wider.join('\n') !== terms.join('\n')) map = await build(wider);
       }
       await input.ledger.append({ kind: 'map', route: input.view.routeId, ...map.entry });
-      return { state: 'ok', payload: map.text };
+      return { state: 'ok', payload: leadsText(map) };
     } catch (error) {
       return failed(error);
     }
@@ -121,7 +125,9 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
     try {
       const payload = await policyStage({ runtime: input.runtime as Runtime, project, activity: activity.success ? activity.data : 'task', paths: [], stage, show: false });
       await input.ledger.append({ kind: 'policy', route: input.view.routeId, ...payload.entry });
-      return { state: 'ok', payload: payload.text };
+      // A stage with no prompt and no rule in scope prints only the omitted count, which tells the model nothing.
+      const pointerOnly = payload.entry.rules === 0 && /^rulesOmitted: \d+ \(read them: [^\n]*\)$/.test(payload.text.trim());
+      return { state: 'ok', payload: pointerOnly ? null : payload.text };
     } catch (error) {
       return failed(error);
     }

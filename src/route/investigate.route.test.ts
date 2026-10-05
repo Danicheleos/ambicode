@@ -14,7 +14,7 @@ import { NodeProcessRunner } from '../ports/node-process-runner.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..');
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';
-const STEPS = ['investigate-fetch', 'investigate-read', 'investigate-write'];
+const STEPS = ['investigate-fetch', 'investigate-read'];
 
 async function investigation() {
   const step: Record<string, string> = {};
@@ -38,16 +38,34 @@ describe('investigate route (03-I1, 03-I2)', () => {
       const first = await start();
       assert.equal(first.position, 'read');
       assert.deepEqual(await rows(), ['template:skipped', 'fetch:skipped', 'ground:completed', 'scope:skipped', 'read:delivered']);
-      assert.match(first.text, /Now: Read the code the map points at/);
+      assert.match(first.text, /Now: Read the code the question is about, then answer it\./);
+      assert.match(first.text, /Then: answer the user; your answer is saved as the investigation note when you stop/);
       assert.match(first.text, /## map\n/);
       assert.match(first.text, /src\/cart\.ts/);
-      assert.match(first.text, /ambicode\.mjs" find <name>/);
+      assert.doesNotMatch(first.text, /note save|route next/);
       assert.ok(first.bytes <= 8_192, `03-X1: ground-and-read message is ${first.bytes} bytes`);
       const dir = path.join(fx.repo.root, '.ambicode', 'task', 'cart');
       for (const [key, limit] of [['map', 6_144], ['policy:before-work', 8_192]] as const) {
         const payload = await loadPayload(fx.runtime.fs, { steps: path.join(dir, 'steps') } as never, (await fx.kinds('cart', 'route'))[0]!.id, key);
         assert.ok(Buffer.byteLength(payload ?? '') <= limit, `03-X1: ${key} payload`);
       }
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('03b-C1/03b-C2/03b-C3/03b-C4: the read step carries no request echo, no empty policy pointer and its first line once', async () => {
+    const { fx, start } = await investigation();
+    try {
+      const first = await start();
+      assert.doesNotMatch(first.text, /## envelope|## acs|## ARGS|## policy:before-work|rulesOmitted/);
+      assert.equal(first.text.split('Read the code the question is about, then answer it.').length - 1, 1, 'the Now: line is not repeated in the body');
+      const dir = path.join(fx.repo.root, '.ambicode', 'task', 'cart');
+      const chain = (await fx.kinds('cart', 'route'))[0]!.id;
+      for (const key of ['envelope', 'acs', 'policy:before-work']) {
+        assert.equal(await loadPayload(fx.runtime.fs, { steps: path.join(dir, 'steps') } as never, chain, key), '', `${key}: an empty payload is saved, so no earlier one is delivered`);
+      }
+      assert.equal((await fx.kinds('cart', 'envelope')).length, 1, 'the envelope is still recorded');
     } finally {
       await fx.dispose();
     }
@@ -92,24 +110,21 @@ describe('investigate route (03-I1, 03-I2)', () => {
     }
   });
 
-  it('03-I1/03-I2: read completes without a search call, report-step runs, write saves the note and the route ends done', async () => {
-    const { fx, start, next } = await investigation();
+  it('03b-N2/03b-N3: read is the last step; route next re-delivers it as it was, and its note completes the route', async () => {
+    const { fx, start, next, rows } = await investigation();
     try {
       const first = await start();
-      const write = await next();
-      assert.equal(write.position, 'write');
-      assert.match(write.text, /^\[ambicode\] investigate · task cart · step write \(7\/7\)\nNow: Write the investigation note, then save it\./);
-      assert.match(write.text, /note save --task cart --kind investigation/);
-      assert.match(write.text, /## navigation\n/);
-      const hold = await next();
-      assert.equal(hold.position, 'write');
-      assert.match(hold.text, /Not done yet: note\{investigation\}/);
+      const again = await next();
+      assert.equal(again.position, 'read');
+      assert.doesNotMatch(again.text, /Not done yet/);
+      assert.ok(!(await rows()).includes('read:repeated'));
       const context = ledgerRouteContext({ runtime: fx.runtime, routes: fx.routes });
-      await saveNote({ runtime: fx.runtime, session: A, context }, { task: 'cart', kind: 'investigation', body: '## Confirmed facts\n- addToCart appends (src/cart.ts:2)\n', from: null, iteration: null, route: first.routeId });
-      const done = await next();
+      await saveNote({ runtime: fx.runtime, session: A, context }, { task: 'cart', kind: 'investigation', body: '## Files\n- src/cart.ts:2 appends\n', from: null, iteration: null, route: first.routeId });
+      const done = await next({ cause: 'note save' });
       assert.equal(done.position, 'complete');
       assert.match(done.text, /The route is complete/);
       assert.equal((await fx.kinds('cart', 'exit')).at(-1)?.['reason'], 'done');
+      assert.deepEqual(fx.routes.route('investigate')!.steps.map((step) => step.id), ['template', 'fetch', 'ground', 'scope', 'read']);
     } finally {
       await fx.dispose();
     }
@@ -150,31 +165,31 @@ describe('investigate route: a synthetic walk on ts-feature-boundary (03-I1, 03-
       for (let turn = 0; turn < 6 && message.position !== 'complete'; turn += 1) {
         positions.push(message.position);
         texts.push(message.text);
-        if (message.position === 'write') {
+        if (message.position === 'read') {
           const context = ledgerRouteContext({ runtime: assembled.runtime, routes: assembled.routes });
           await saveNote({ runtime: assembled.runtime, session: A, context }, { task: 'invoices', kind: 'investigation', body: '## Confirmed facts\n- none\n', from: null, iteration: null, route: message.routeId });
         }
-        message = await engine.advance({ task: 'invoices', session: A, cause: 'route-next', scratchpadDir });
+        message = await engine.advance({ task: 'invoices', session: A, cause: message.position === 'read' ? 'note save' : 'route-next', scratchpadDir });
       }
       positions.push(message.position);
-      return { positions, modelSteps: positions.filter((position) => ['fetch', 'read', 'write'].includes(position)).length, texts };
+      return { positions, modelSteps: positions.filter((position) => ['fetch', 'read'].includes(position)).length, texts };
     } finally {
       await rm(path.dirname(root), { recursive: true, force: true });
     }
   };
 
-  it('03-I1: without a requirement the model sees two steps, read and write', async () => {
+  it('03b-N3: without a requirement the model sees one step, read', async () => {
     const result = await walk([]);
-    assert.deepEqual(result.positions, ['read', 'write', 'complete']);
-    assert.equal(result.modelSteps, 2);
+    assert.deepEqual(result.positions, ['read', 'complete']);
+    assert.equal(result.modelSteps, 1);
     assert.match(result.texts[0]!, /src\/(invoices|routes|reports|legacy)\//);
   });
 
-  it('03-I1: with a requirement the model sees three, fetch first with the template in its payload', async () => {
+  it('03b-N3: with a requirement the model sees two, fetch first with the template in its payload', async () => {
     const result = await walk(['https://example.atlassian.net/browse/ORD-17']);
     assert.ok(Buffer.byteLength(result.texts[0]!) <= 4_096, '03-X1: a start that delivers fetch');
-    assert.deepEqual(result.positions, ['fetch', 'read', 'write', 'complete']);
-    assert.equal(result.modelSteps, 3);
+    assert.deepEqual(result.positions, ['fetch', 'read', 'complete']);
+    assert.equal(result.modelSteps, 2);
     assert.match(result.texts[0]!, /## template\n/);
   });
 });

@@ -80,7 +80,7 @@ describe('5.1 / 03-S2: routed CLI calls find the owner from --task', () => {
       assert.deepEqual(status.routes.map((route) => [route.skill, route.position, route.sessions.map((entry) => entry.session)]), [['investigate', 'read', [owner]]]);
 
       const next = await runRouteNext(inv.fx.runtime, args('route next', ['--task', 'cart'], ROUTE_NEXT_OPTIONS));
-      assert.equal(next.position, 'write');
+      assert.equal(next.position, 'read');
 
       const body = '## Confirmed facts\n- addToCart appends (src/cart.ts:2)\n';
       const runtime: Runtime = { ...inv.fx.runtime, stdin: { read: async () => body } };
@@ -133,7 +133,7 @@ describe('5.1 / 03-S2: routed CLI calls find the owner from --task', () => {
       assert.match(String(route['session']), UUID);
       assert.deepEqual([route['channel'], route['trusted'], route['harnessSession']], ['cli', false, undefined]);
       assert.deepEqual(await taskSessionSource('cli-task').resolve(inv.fx.runtime), { state: 'bound', session: route['session'], via: 'task' });
-      assert.equal((await runRouteNext(inv.fx.runtime, args('route next', ['--task', 'cli-task'], ROUTE_NEXT_OPTIONS))).position, 'write');
+      assert.equal((await runRouteNext(inv.fx.runtime, args('route next', ['--task', 'cli-task'], ROUTE_NEXT_OPTIONS))).position, 'read');
     } finally {
       await inv.dispose();
     }

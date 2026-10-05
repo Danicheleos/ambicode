@@ -287,10 +287,11 @@ describe('G/H: ambicode hook (PostToolUse edit reminders)', () => {
       assert.equal(start.hookSpecificOutput?.hookEventName, 'SessionStart');
       const delivered = start.hookSpecificOutput?.additionalContext ?? '';
       const canonical = await nodeFileSystem.readText(
-        path.join(runtime.pluginRoot, 'prompts', 'shared-operating-contract.md'),
+        path.join(runtime.pluginRoot, 'prompts', 'session-contract.md'),
       );
       assert.ok(delivered.includes(canonical.trimEnd()));
-      assert.match(delivered, /--with-contract/);
+      assert.doesNotMatch(delivered, /--with-contract|ambicode prepare/);
+      assert.ok(Buffer.byteLength(canonical) <= 1_024, '03b-C5: the session contract stays short');
 
       const sameEpoch = await runHook(
         runtime,

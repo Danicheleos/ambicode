@@ -50,21 +50,41 @@ export function resolveLayers(search: SearchConfig, mode: 'prompt' | 'context'):
 
 const IDENTIFIER = /[_./-]|\p{Ll}\p{Lu}/u;
 const QUOTED = /["“`]([^"”`\n]{3,60})["”`]/g;
+const CANDIDATE_PATHS = 20;
+
+/** Words every question about a repository carries; as search terms they match paths like `repository.ts` or `files/`. */
+const REQUEST_WORDS = new Set(['repo', 'repository', 'file', 'files', 'change', 'changes', 'implement', 'implemented', 'below', 'above', 'touch', 'section', 'answer', 'question', 'anything']);
+
+/** URLs, host names, UUIDs, `__`-prefixed attributes and markup carry no names from the code. */
+export function cleanRequestText(text: string): string {
+  return text
+    .replace(/!?\[[^\]\n]*\]\([^)\s]*\)/g, ' ')
+    .replace(/\b(?:blob:)?https?:\/\/\S+/g, ' ')
+    .replace(/<\/?[A-Za-z][^<>\n]{0,300}>/g, ' ')
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, ' ')
+    .replace(/\b(?:[a-z0-9-]+\.)+(?:com|net|org|io|dev|cloud)\b/gi, ' ')
+    .replace(/(^|[^\w])__\w+/g, '$1 ');
+}
+
+/** A heading, a shell command or a bare directory written in quotes is an instruction about the answer, not a name. */
+const isBoilerplate = (value: string): boolean => /^#+\s/.test(value) || /^(?:cd|git|npm|npx|node|ls|cat|grep)\s/.test(value) || /^[\w.-]+\/$/.test(value);
+const isRequestWord = (term: string): boolean => REQUEST_WORDS.has(term.toLowerCase());
 
 /** Identifiers first, then quoted UI strings (as i18n keys when such files exist), prose only when identifiers are scarce. */
 export async function rankTerms(
   sources: readonly { title: string; content: string }[],
   options: { runtime: Runtime; root: string; project: ProjectConfig; files: readonly string[]; withProse?: boolean },
 ): Promise<string[]> {
-  const text = sources.map((source) => `${source.title}\n${source.content}`).join('\n');
-  const mined = termsFromRequirements(sources);
+  const clean = sources.map((source) => ({ title: cleanRequestText(source.title), content: cleanRequestText(source.content) }));
+  const text = clean.map((source) => `${source.title}\n${source.content}`).join('\n');
+  const mined = termsFromRequirements(clean, 60).filter((term) => !isRequestWord(term)).slice(0, MAX_TERMS);
   const identifiers = mined.filter((term) => IDENTIFIER.test(term));
-  const backticked = [...text.matchAll(/`([^`\s]{3,60})`/g)].map((match) => match[1]!).filter((term) => IDENTIFIER.test(term));
-  const strings = [...text.matchAll(QUOTED)].map((match) => match[1]!.trim()).filter((value) => /\s|\p{Lu}/u.test(value) && !/^[`]/.test(value));
+  const backticked = [...text.matchAll(/`([^`\s]{3,60})`/g)].map((match) => match[1]!).filter((term) => IDENTIFIER.test(term) && !isBoilerplate(term));
+  const strings = [...text.matchAll(QUOTED)].map((match) => match[1]!.trim()).filter((value) => /\s|\p{Lu}/u.test(value) && !/^[`]/.test(value) && !isBoilerplate(value));
   const keys = await i18nKeys(options, strings);
   const ranked = [...new Set([...backticked, ...identifiers, ...keys])];
   if (options.withProse === true) {
-    const prose = termsFromRequirements(sources, 60).filter((term) => !IDENTIFIER.test(term)).slice(0, PROSE_RETRY_TERMS);
+    const prose = termsFromRequirements(clean, 60).filter((term) => !IDENTIFIER.test(term) && !isRequestWord(term)).slice(0, PROSE_RETRY_TERMS);
     return [...new Set([...prose, ...ranked])].slice(0, MAX_TERMS);
   }
   if (ranked.length < 3) {
@@ -153,7 +173,8 @@ export async function buildMap(input: {
     } else if (layer === 'shortlist') {
       shortlists += 1;
       const second = shortlists > 1;
-      const used = second ? [...new Set([...pass1, ...names(declarations).slice(0, PASS2_NAMES)])].slice(0, MAX_TERMS) : pass1;
+      // Harvested names take the second half, so a full first pass still lets them in.
+      const used = second ? [...new Set([...pass1.slice(0, MAX_TERMS - PASS2_NAMES), ...names(declarations).slice(0, PASS2_NAMES), ...pass1.slice(MAX_TERMS - PASS2_NAMES)])].slice(0, MAX_TERMS) : pass1;
       if (second) pass2 = used;
       await timed(layer, async () => {
         const found = await locate({ git, project, terms: used, limit: 20 });
@@ -223,6 +244,24 @@ export async function buildMap(input: {
     omitted: ordered.length - kept.length,
     text,
     bytes,
-    entry: { mode: input.mode, layers, layersSource: input.layersSource, terms: { pass1, pass2 }, candidates: ordered.length, limitations, index: 'none', collisions, bytes },
+    entry: { mode: input.mode, layers, layersSource: input.layersSource, terms: { pass1, pass2 }, candidates: ordered.length, limitations, index: 'none', collisions, bytes, candidatePaths: ordered.slice(0, CANDIDATE_PATHS).map((candidate) => candidate.path) },
   };
+}
+
+export const LEADS_LIMIT_BYTES = 1200;
+const LEADS = 8;
+const REASON_CHARS = 90;
+
+/** The route's short form of a map: the terms, then the top candidates with their first reason, one per line. */
+export function leadsText(map: Pick<MapResult, 'terms' | 'candidates' | 'collisions'>): string {
+  const added = map.terms.pass2.filter((term) => !map.terms.pass1.includes(term));
+  const head = `Leads from the terms ${map.terms.pass1.join(', ') || '(none)'}${added.length === 0 ? '' : `; then ${added.join(', ')}`}:`;
+  const rows = map.candidates.slice(0, LEADS).map((candidate, index) => {
+    const reason = candidate.reasons[0] ?? '';
+    return `${index + 1}. ${candidate.path}${reason === '' ? '' : ` — ${reason.length > REASON_CHARS ? `${reason.slice(0, REASON_CHARS - 1)}…` : reason}`}`;
+  });
+  const collides = map.collisions.length === 0 ? [] : [`Declared more than once: ${map.collisions.slice(0, 6).join(', ')}.`];
+  const text = (): string => [head, ...rows, ...collides].join('\n');
+  while (Buffer.byteLength(text()) > LEADS_LIMIT_BYTES && rows.length > 0) rows.pop();
+  return text();
 }

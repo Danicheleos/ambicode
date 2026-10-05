@@ -194,8 +194,8 @@ function listLedgers(directory) {
 /** The run's harvested ledgers, each with its own entries in line order and its unreadable-line count; null when none. */
 export function ledgersOf(run, tracesDir) {
   const id = /[/\\](e-[^/\\]+)[/\\]/.exec(run.tracePath ?? '')?.[1];
-  const directory = tracesDir && id ? path.join(tracesDir, LEDGER_DIRECTORY, id) : null;
-  if (!directory || !existsSync(directory)) return null;
+  const directory = tracesDir && id ? [].concat(tracesDir).map((dir) => path.join(dir, LEDGER_DIRECTORY, id)).find((dir) => existsSync(dir)) : null;
+  if (!directory) return null;
   return listLedgers(directory).map((file) => {
     const ledger = { file: path.relative(directory, file), entries: [], unreadable: 0 };
     for (const line of readFileSync(file, 'utf8').split('\n')) {

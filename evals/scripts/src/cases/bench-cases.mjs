@@ -182,28 +182,9 @@ arm: both
 
 Investigation is read-only: no ${tool} call on a file under the code.
 `;
-  return {
-    ...files,
-    'plugin-fired.md': `---
-type: tool_used
-tool: Skill
-input_match: '"ambicode:'
-arm: with-only
----
-
-An AMBICODE skill was invoked. Routing only.
-`,
-    'helper-ran.md': `---
-type: tool_used
-tool: Bash
-input_match: 'ambicode(\\.mjs\\\\")? (prepare|locate)'
-arm: with-only
----
-
-The agent ran the helper that produces the boundary shortlist. It proves the
-call was attempted, not that its output was used.
-`,
-  };
+  // No Skill or helper indicator: investigate is user-invoked and its route starts from the prompt hook, so a
+  // Skill call or a `prepare`/`locate` run never happens in a routed run and would read as a miss.
+  return files;
 }
 
 /**

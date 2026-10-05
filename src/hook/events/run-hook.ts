@@ -32,7 +32,7 @@ import { taskDirFor } from '../../task/task-dir.ts';
 import { answerGates } from './gate-answer.ts';
 import { launchRoute, reinjectRoute, type RouteHookDeps } from './prompt-launch.ts';
 import { stopCheck } from './stop-check.ts';
-import { readSharedOperatingContract } from '../../policy/shared-contract.ts';
+import { readSessionContract } from '../../policy/shared-contract.ts';
 import { contentHash } from '../../util/hash.ts';
 import { rebindSession } from './rebind.ts';
 import {
@@ -142,7 +142,7 @@ async function deliverSharedContract(
   baseDir: string,
   event: AdditionalContextEvent,
 ): Promise<unknown> {
-  const contract = await readSharedOperatingContract(runtime.fs, runtime.pluginRoot);
+  const contract = await readSessionContract(runtime.fs, runtime.pluginRoot);
   const key: DeliveryKey = {
     epoch: await currentEpoch(runtime.fs, runtime.ids, baseDir),
     agentKey: input.agent_id ?? 'main',
@@ -156,10 +156,7 @@ async function deliverSharedContract(
     hookSpecificOutput: {
       hookEventName: event,
       additionalContext: [
-        `AMBICODE operating contract (${contract.reference}, ${contract.contentHash}).`,
-        'It governs every AMBICODE skill in this session. `ambicode prepare` cites it by',
-        'reference instead of re-sending it; run it with --with-contract if this text is',
-        'not in your context.',
+        `AMBICODE operating contract (${contract.reference}, ${contract.contentHash}). It governs every AMBICODE skill in this session.`,
         '',
         contract.content.trimEnd(),
       ].join('\n'),

@@ -245,3 +245,110 @@ describe('03-K4 redBeforeGreen', () => {
     assert.equal(redBeforeGreen([], 'k'), true);
   });
 });
+
+const ANSWER = `skill: inv
+version: 3
+budget: { modelSteps: 6 }
+exits: [done, blocked, human, inconclusive, superseded, budget]
+revisable: []
+steps:
+  - id: read
+    actor: model
+    instruction: "Read the code, then answer."
+    produces: ["note{investigation}"]
+    answer: note
+`;
+const CLAUDE = 'cccccccc-3333-4333-8333-333333333333';
+
+/** The route is owned by A and was started for the Claude session CLAUDE, as a hook start records it. */
+async function answering() {
+  const fx = await routeFixture({ routes: { inv: ANSWER } });
+  await fx.repo.write('src/cart/add-item.ts', 'one\ntwo\nthree\n');
+  await fx.repo.write('src/a/index.ts', 'x\n');
+  await fx.repo.write('src/b/index.ts', 'y\n');
+  await fx.repo.commitAll('files');
+  await fx.engine.start({ skill: 'inv', text: 'where are items added', requirements: [], task: TASK, cwd: fx.repo.root, session: A, harnessSession: CLAUDE, channel: 'hook', scratchpadDir: fx.scratchpad });
+  const transcript = path.join(fx.scratchpad, 'transcript.jsonl');
+  const deps: HookDeps = { pointer: fx.pointer, load: async () => ({ engine: fx.engine, routes: fx.routes, pointer: fx.pointer }) };
+  return {
+    fx,
+    say: (text: string) => writeFile(transcript, `${JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text }] } })}\n`),
+    stop: () => runHook(fx.runtime, JSON.stringify({ hook_event_name: 'Stop', session_id: CLAUDE, cwd: fx.repo.root, scratchpad_dir: fx.scratchpad, transcript_path: transcript }), deps) as Promise<{ decision?: string; reason?: string }>,
+    notes: () => fx.kinds(TASK, 'note'),
+    exits: async () => (await fx.kinds(TASK, 'exit')).map((entry) => String(entry['reason'])),
+  };
+}
+
+describe('03b-N: the answer is the note', () => {
+  it('03b-N4: a stop that cites no repository file allows and saves nothing', async () => {
+    const s = await answering();
+    try {
+      await s.say('Do you mean the cart or the wishlist?');
+      assert.deepEqual(await s.stop(), {});
+      assert.deepEqual(await s.notes(), []);
+    } finally {
+      await s.fx.dispose();
+    }
+  });
+
+  it('03b-N6/03b-N7: a clean report-shaped answer is saved under the owner, the route exits done, and the next Stop checks nothing', async () => {
+    const s = await answering();
+    try {
+      await s.say('Items are added in src/cart/add-item.ts:2.\n\n## Files\n- src/cart/add-item.ts');
+      assert.deepEqual(await s.stop(), {});
+      const [note] = await s.notes();
+      assert.equal(note?.['note'], 'investigation');
+      const body = await readFile(path.join(s.fx.repo.root, String(note!['path'])), 'utf8');
+      assert.match(body, /src\/cart\/add-item\.ts:2/);
+      assert.match(body, /Navigation \(CLI calls\)/);
+      assert.deepEqual(await s.exits(), ['done']);
+      assert.equal(await s.fx.pointer.read(CLAUDE, s.fx.scratchpad), null);
+      assert.equal(await s.fx.pointer.readEnded(CLAUDE, s.fx.scratchpad), null, 'this Stop already checked the ended route');
+      assert.deepEqual(await s.stop(), {});
+      assert.equal((await s.notes()).length, 1);
+    } finally {
+      await s.fx.dispose();
+    }
+  });
+
+  it('03b-N5: an answer with a bad citation blocks once and is saved on the next stop with its problem recorded', async () => {
+    const s = await answering();
+    try {
+      await s.say('It is in src/cart/add-item.ts:9.');
+      const blocked = await s.stop();
+      assert.equal(blocked.decision, 'block');
+      assert.match(blocked.reason!, /src\/cart\/add-item\.ts has 3 lines/);
+      assert.deepEqual(await s.notes(), []);
+      await s.say('It is in src/cart/add-item.ts:9, as said.');
+      assert.deepEqual(await s.stop(), {});
+      assert.equal((await s.notes()).length, 1);
+      assert.deepEqual(await s.exits(), [], 'the recorded block leaves an unverified item, so the route completes without an exit');
+    } finally {
+      await s.fx.dispose();
+    }
+  });
+
+  it('03b-N5: an answer is checked for its citations only, by the first cited line; a sentence about tests or acceptance is not a claim here', async () => {
+    const s = await answering();
+    try {
+      await s.say('Items are added at src/cart/add-item.ts:2-4. I did not run the specs, so I cannot say whether the existing tests pass; nothing was accepted.');
+      assert.deepEqual(await s.stop(), {});
+      assert.equal((await s.notes()).length, 1);
+    } finally {
+      await s.fx.dispose();
+    }
+  });
+
+  it('03b-N8: a bare name or a partial path is resolved by its unique path suffix; a shared one is not reported; an unknown one is', async () => {
+    const s = await answering();
+    try {
+      await s.say('See add-item.ts:2, cart/add-item.ts:3, index.ts:1 and gone.ts:4.');
+      const blocked = await s.stop();
+      assert.equal(blocked.decision, 'block');
+      assert.doesNotMatch(blocked.reason!, /add-item\.ts:[23]|index\.ts:1/);
+      assert.match(blocked.reason!, /gone\.ts:4: gone\.ts does not exist/);
+    } finally {
+      await s.fx.dispose();
+    }
+  });
+});

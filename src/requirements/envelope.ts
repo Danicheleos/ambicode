@@ -134,15 +134,17 @@ export async function normalizeEnvelope(input: EnvelopeInput): Promise<EnvelopeR
     return record(input, sources, 'captures', asked, missingAsked, notices);
   }
 
-  const fromArgs = (): Promise<EnvelopeResult> => {
+  const fromArgs = (missing: readonly string[]): Promise<EnvelopeResult> => {
     const text = input.args.text.trim();
     const source: EnvelopeSource = { key: 'ARGS', title: clip(text.split('\n')[0] ?? '', 120), content: text, url: '', relation: 'args', derivedFrom: null, retrievedAt: input.runtime.clock.now().toISOString() };
-    return record(input, [source], 'args', asked, missingAsked, []);
+    return record(input, [source], 'args', asked, [...missing], []);
   };
-  if (!input.args.hasRequirement) return fromArgs();
+  // Nothing was to be fetched, so a URL in the prose (an image, a link) is not a requirement that went missing.
+  const explicit = new Set(input.args.requirements.map(keyOfSource));
+  if (!input.args.hasRequirement) return fromArgs(missingAsked.filter((key) => explicit.has(key)));
 
   const continued = CONTINUE_GATES.some((gate) => latestBound(entries, gate)?.['answer'] === 'continue without');
-  if (continued) return fromArgs();
+  if (continued) return fromArgs(missingAsked);
   const failures = entries.filter((entry) => entry.kind === 'step' && entry['status'] === 'failed' && entry['code'] === 'requirements-not-captured').length;
   if (failures >= 1) return { state: 'raise', gate: 'requirements-not-captured-twice', values: {} };
   return {

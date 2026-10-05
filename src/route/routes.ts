@@ -53,6 +53,8 @@ export interface StepDef {
   onFail: Revise | null;
   onError: OnError;
   repeat: number;
+  /** `note`: the model's final answer is the step's note; the Stop hook saves it. */
+  answer: 'note' | null;
 }
 
 export interface RouteDef {
@@ -92,6 +94,7 @@ const RawStep = z.strictObject({
   onFail: z.string().optional(),
   onError: z.string().optional(),
   repeat: z.number().int().min(1).optional(),
+  answer: z.literal('note').optional(),
 });
 
 const RawRoute = z.strictObject({
@@ -170,6 +173,12 @@ async function normalizeStep(file: string, raw: z.infer<typeof RawStep>, index: 
     throw invalid(file, `${where}.instruction`, `only a model step has an instruction; this is ${raw.actor}`);
   }
 
+  if (raw.answer !== undefined) {
+    if (raw.actor !== 'model') throw invalid(file, `${where}.answer`, 'answer is for model steps only');
+    const notes = (raw.produces ?? []).filter((text) => /^note\{[^}]+\}$/.test(text.trim()));
+    if (notes.length !== 1) throw invalid(file, `${where}.answer`, 'answer: note needs produces note{<kind>}');
+  }
+
   if (raw.actor === 'human' && raw.gate === undefined) throw invalid(file, `${where}.gate`, 'a human step declares its gate');
   if (raw.actor !== 'human' && raw.gate !== undefined) throw invalid(file, `${where}.gate`, `a gate goes on a human step; this is ${raw.actor}`);
 
@@ -187,6 +196,7 @@ async function normalizeStep(file: string, raw: z.infer<typeof RawStep>, index: 
     onFail: raw.onFail === undefined ? null : parseRevise(file, `${where}.onFail`, raw.onFail),
     onError: raw.onError === undefined ? { kind: 'default' } : parseOnError(file, `${where}.onError`, raw.onError),
     repeat: raw.repeat ?? DEFAULT_REPEAT[raw.id] ?? 1,
+    answer: raw.answer ?? null,
   };
 }
 

@@ -158,13 +158,17 @@ export function createEngine(deps: EngineDeps): Engine {
 
   const commandFor = (tail: string): string => `${cli} ${tail}`;
 
+  const answerLine = (step: StepDef): string => `answer the user; your answer is saved as the ${step.produces.find((produced) => produced.kind === 'note')?.value ?? ''} note when you stop`;
+
   function producerHint(run: Run, step: StepDef): string {
+    if (step.answer === 'note') return answerLine(step);
     const note = step.produces.find((produced) => produced.kind === 'note');
     if (note?.value) return commandFor(`note save --task ${run.task} --kind ${note.value}`);
     return commandFor(`route next --task ${run.task}`);
   }
 
   function endingCommand(run: Run, step: StepDef): string {
+    if (step.answer === 'note') return answerLine(step);
     const note = step.produces.find((produced) => produced.kind === 'note');
     if (step.actor === 'model' && note?.value) return `${commandFor(`note save --task ${run.task} --kind ${note.value}`)} (note on standard input)`;
     return commandFor(`route next --task ${run.task}`);
@@ -243,7 +247,8 @@ export function createEngine(deps: EngineDeps): Engine {
       if (handler === null) throw new AmbicodeError('internal', `No handler "${call.name}" is registered.`);
       const result = await handler({ view, context, dir: run.dir, args, params: call.params, ledger: run.ledger, runtime: run.runtime, raisedBy: step.id, revise });
       if (result.state === 'ok') {
-        if (result.payload !== null) await savePayload(run.runtime.fs, run.dir, chainKey(view.chainIds), payloadKey(call), result.payload);
+        // An empty file, not none: a payload left by an earlier run of this step in the chain would be delivered again.
+        await savePayload(run.runtime.fs, run.dir, chainKey(view.chainIds), payloadKey(call), result.payload ?? '');
         continue;
       }
       if (result.state === 'raise') {
@@ -294,7 +299,7 @@ export function createEngine(deps: EngineDeps): Engine {
     const delivered = window.some((entry) => entry.kind === 'step' && entry['step'] === step.id && entry['status'] === 'delivered');
     const chain = chainOf(run);
     let prefix = '';
-    if (!run.deliverOnly && delivered && step.produces.length > 0 && EXPLICIT.has(run.cause)) {
+    if (!run.deliverOnly && delivered && step.produces.length > 0 && step.answer === null && EXPLICIT.has(run.cause)) {
       const again = window.filter((entry) => entry.kind === 'step' && entry['step'] === step.id && entry['status'] === 'repeated').length + 1;
       const missing = step.produces.filter((produced) => !window.some((entry) => matches(entry, produced))).map((produced) => `${produced.kind}${produced.value === null ? '' : `{${produced.value}}`}`);
       if (again >= 3) {
@@ -312,12 +317,16 @@ export function createEngine(deps: EngineDeps): Engine {
         return null;
       }
     }
-    const sections: string[] = [step.instruction!.replaceAll('{cli}', cli).replaceAll('{task}', run.task)];
+    const instruction = step.instruction!.replaceAll('{cli}', cli).replaceAll('{task}', run.task);
+    const nowLine = instruction.split('\n').find((line) => line.trim() !== '')!.replace(/^#+\s*/, '');
+    // The header's `Now:` already carries a plain first line; a heading stays, it is the shape the step asks for.
+    const body = /^\s*#/.test(instruction) || nowLine.replace(/\s+/g, ' ').trim().length > 160 ? instruction : instruction.replace(/^\s*[^\n]*\n?/, '').trimStart();
+    const sections: string[] = body === '' ? [] : [body];
     for (const key of step.payload) {
       const payload = await loadPayload(run.runtime.fs, run.dir, chainKey([...chainOf(run).ids]), key);
       if (payload !== null && payload.trim() !== '') sections.push(`## ${key}\n${payload}`);
     }
-    const header = stepHeader({ skill: run.def.skill, task: run.task, step: step.id, position: step.index + 1, total: run.def.steps.length, now: step.instruction!.split('\n').find((line) => line.trim() !== '')!.replace(/^#+\s*/, ''), then: endingCommand(run, step) });
+    const header = stepHeader({ skill: run.def.skill, task: run.task, step: step.id, position: step.index + 1, total: run.def.steps.length, now: nowLine, then: endingCommand(run, step) });
     const { part, composed } = await partOf(run, step, header, `${prefix}${sections.join('\n\n')}`);
     if (!delivered) {
       const entry = await append(run, { kind: 'step', step: step.id, actor: 'model', status: 'delivered', cause: run.cause, channel: run.channel, bytes: part.bytes, ...(part.file === null ? {} : { file: part.file }) });

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, it } from 'node:test';
@@ -123,15 +124,23 @@ describe('P2.2/P2.3 shipped skill content', () => {
     }
   });
 
-  it('03-I2: the write step saves the note with the one CLI call, and the body names the read-only boundary (03-I3)', async () => {
-    const write = await readFile(path.join(repositoryRoot, 'routes', 'steps', 'investigate-write.md'), 'utf8');
-    assert.match(write, /note save --task \{task\} --kind investigation/);
-    assert.match(write, /^Write the investigation note/);
-    assert.match(write, /`## Confirmed facts`/);
+  it('03b-N9: the read step answers with citations and treats the map as leads, with no note command', async () => {
+    const read = await readFile(path.join(repositoryRoot, 'routes', 'steps', 'investigate-read.md'), 'utf8');
+    assert.match(read, /`path:line`/);
+    assert.match(read, /leads, not answers/);
+    assert.match(read, /Edit nothing/);
+    assert.doesNotMatch(read, /note save|route next|\{cli\} (find|refs)/);
+    assert.ok(read.length <= 700);
+    assert.equal(existsSync(path.join(repositoryRoot, 'routes', 'steps', 'investigate-write.md')), false);
+  });
+
+  it('03b-N10: the body names the read-only boundary, the saved answer and the fallback line (03-I3)', async () => {
     const investigate = (await readFile(path.join(SKILLS_DIR, 'investigate', 'SKILL.md'), 'utf8')).replace(/\s+/g, ' ');
     assert.match(investigate, /edits nothing/i);
+    assert.match(investigate, /saved as the investigation note/);
     assert.match(investigate, /route start investigate "\$ARGUMENTS"/);
-    assert.ok(Buffer.byteLength(investigate) <= 2048);
+    assert.doesNotMatch(investigate, /route next|note save/);
+    assert.ok(Buffer.byteLength(investigate) <= 900);
   });
 
   it('tells plan and task to pass the terms prepare needs for a shortlist (R4)', async () => {

@@ -6,7 +6,7 @@ import { MAP_OPTIONS, REFS_OPTIONS, FIND_OPTIONS, runFind, runMap, runRefs } fro
 import { openRepository } from '../composition/root.ts';
 import { routeFixture, type RouteFixture } from '../testing/route-fixture.ts';
 import { harvest } from './harvest.ts';
-import { buildMap, MAP_LIMIT_BYTES, rankTerms, resolveLayers } from './map.ts';
+import { buildMap, cleanRequestText, leadsText, LEADS_LIMIT_BYTES, MAP_LIMIT_BYTES, rankTerms, resolveLayers } from './map.ts';
 import { find, refs, SEARCH_LIMIT_BYTES } from './refs.ts';
 import { SearchConfig } from '../contracts/config.ts';
 
@@ -214,5 +214,51 @@ describe('03-M6 refs and find', () => {
     } finally {
       await fx.dispose();
     }
+  });
+});
+
+describe('03b-M map terms and leads', () => {
+  it('03b-M1: URLs, hosts, UUIDs, attributes and markup are removed before terms are mined', () => {
+    const cleaned = cleanRequestText('See ![](blob:https://media.example.net/?type=file&localId=1&__fileName=x) and <ticket>CartService</ticket> id 6f949af5-24c7-4a51-9168-a71720c604a6 on cdn.example.com, __contextId too');
+    for (const gone of ['https', 'localId', '__fileName', '<ticket>', '6f949af5', 'cdn.example.com', '__contextId']) assert.ok(!cleaned.includes(gone), gone);
+    assert.match(cleaned, /CartService/);
+  });
+
+  it('03b-M1/03b-M2: quoted boilerplate and request words are not terms; the names in the request are', async () => {
+    const fx = await repo();
+    try {
+      const sources = [{ title: '', content: 'In the repository at `repo/`, which files would the `CartService` change touch? End with a `## Files` section; run `cd repo` first. Answer the question; do not edit anything.' }];
+      const terms = await rankTerms(sources, { runtime: fx.runtime, root: fx.repo.root, project: project(fx), files: [] });
+      assert.ok(terms.includes('CartService'), terms.join(','));
+      for (const word of ['repo/', 'repo', '## Files', 'cd repo', 'files', 'repository', 'change', 'touch', 'section', 'anything', 'question']) assert.ok(!terms.includes(word), `${word} in ${terms.join(',')}`);
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('03b-M3/03b-M6: a full first pass still lets harvested names into pass 2, and the entry records the candidate paths', async () => {
+    const fx = await repo();
+    try {
+      const terms = ['cart', 'one1', 'two2', 'three3', 'four4', 'five5', 'six6', 'seven7', 'eight8', 'nine9', 'ten10', 'eleven11'];
+      const map = await buildMap({ runtime: fx.runtime, project: project(fx), paths: [], symbols: [], mode: 'prompt', layers: ['shortlist', 'harvest', 'shortlist'], layersSource: 'default', terms });
+      assert.deepEqual(map.terms.pass2.slice(0, 6), terms.slice(0, 6));
+      assert.ok(map.terms.pass2.some((term) => !terms.includes(term)), map.terms.pass2.join(','));
+      assert.equal(map.terms.pass2.length, 12);
+      const paths = map.entry['candidatePaths'] as string[];
+      assert.ok(Array.isArray(paths) && paths.length <= 20 && paths.includes('src/cart/cart.service.ts'));
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('03b-M4: the route payload is the terms and at most 8 leads with their first reason, within its byte limit', () => {
+    const candidates = Array.from({ length: 30 }, (_, index) => ({ path: `src/features/area-${index}/${'deep/'.repeat(6)}file-${index}.ts`, score: 30 - index, reasons: [`contains "Term${index}" ${'x'.repeat(200)}`, 'second'] }));
+    const text = leadsText({ terms: { pass1: ['Term1', 'Term2'], pass2: ['Term1', 'Term2', 'Harvested'] }, candidates, collisions: ['Dup'] });
+    const lines = text.split('\n');
+    assert.equal(lines[0], 'Leads from the terms Term1, Term2; then Harvested:');
+    assert.ok(lines.filter((line) => /^\d+\. /.test(line)).length <= 8);
+    assert.doesNotMatch(text, /second/);
+    assert.match(lines.at(-1)!, /Declared more than once: Dup\./);
+    assert.ok(Buffer.byteLength(text) <= LEADS_LIMIT_BYTES);
   });
 });

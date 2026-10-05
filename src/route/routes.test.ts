@@ -221,3 +221,12 @@ test('03-R10: the shipped route files validate; build and packaging call the val
   await walk(path.join(ROOT, 'src'));
   assert.deepEqual(offenders, []);
 });
+
+test('03b-N1: answer: note loads on a model step producing one note, and is refused anywhere else', async (t) => {
+  const answering = '  - id: read\n    actor: model\n    instruction: Read the code.\n    produces: ["note{investigation}"]\n    answer: note\n';
+  const directory = await root(t, { 'routes/demo.yaml': `${BASE.head}${BASE.code}${answering}` });
+  const { routes } = await validateRouteFiles(directory, { handlers: HANDLERS });
+  assert.deepEqual(routes[0]!.steps.map((step) => step.answer), [null, 'note']);
+  await refuses(t, `${BASE.head}  - id: read\n    actor: model\n    instruction: Read the code.\n    answer: note\n`, /answer: note needs produces note\{<kind>\}/);
+  await refuses(t, `${BASE.head}  - id: ground\n    actor: code\n    run: code.one\n    produces: ["note{investigation}"]\n    answer: note\n`, /answer is for model steps only/);
+});

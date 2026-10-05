@@ -85,7 +85,7 @@ describe('evals-bench: generate', () => {
     assert.match(readFileSync(path.join(directory, 'graders', 'names-a-true-file.md'), 'utf8'), /`app\/orders\/service\.ts`/);
   });
 
-  it('scores the answer with both arms, and records the plugin only as a with-only indicator', () => {
+  it('scores the answer with both arms, with no Skill or helper indicator (03b-H4)', () => {
     const graders = path.join(benchmarks, 'cases', 'side-t-1', 'graders');
     const all = Object.fromEntries(readdirSync(graders).map((f) => [f.replace(/\.md$/, ''), frontmatter(path.join(graders, f))]));
     assert.equal(all['names-a-true-file'].type, 'llm');
@@ -98,9 +98,9 @@ describe('evals-bench: generate', () => {
       assert.ok(new RegExp(all[name].input_match).test('{"file_path":"/tmp/x/repo/app/orders/service.ts"}'));
       assert.ok(!new RegExp(all[name].input_match).test('{"file_path":"/tmp/x/repo/.ambicode/task/n.md"}'));
     }
-    assert.equal(all['plugin-fired'].arm, 'with-only');
-    assert.equal(all['helper-ran'].arm, 'with-only');
-    assert.ok(new RegExp(all['helper-ran'].input_match).test(JSON.stringify({ command: 'node "/p/scripts/ambicode.mjs" prepare --activity investigate' })));
+    // 03b-H4: the route starts from the prompt hook, so no Skill or prepare/locate indicator is graded.
+    assert.equal(all['plugin-fired'], undefined);
+    assert.equal(all['helper-ran'], undefined);
   });
 
   it('fails any run whose tools reach into the data directory', () => {

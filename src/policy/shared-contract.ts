@@ -21,3 +21,12 @@ export async function readSharedOperatingContract(
   const content = await fs.readText(absolutePath);
   return { reference: SHARED_OPERATING_CONTRACT_REFERENCE, content, contentHash: contentHash(content) };
 }
+
+/** The short form the session hooks deliver; `prepare` and the reviewer keep the full contract above. */
+export const SESSION_CONTRACT_FILE = 'session-contract.md';
+export const SESSION_CONTRACT_REFERENCE = `builtin/prompts/${SESSION_CONTRACT_FILE}`;
+
+export async function readSessionContract(fs: FileSystem, pluginRoot: string): Promise<SharedOperatingContract> {
+  const content = await fs.readText(path.join(promptsDirectory(pluginRoot), SESSION_CONTRACT_FILE));
+  return { reference: SESSION_CONTRACT_REFERENCE, content, contentHash: contentHash(content) };
+}

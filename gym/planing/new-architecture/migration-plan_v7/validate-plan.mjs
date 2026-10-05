@@ -7,8 +7,8 @@ import { fileURLToPath } from 'node:url';
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const repository = path.resolve(directory, '../../../..');
 const markdown = (await readdir(directory)).filter(name => name.endsWith('.md')).sort();
-assert.equal(markdown.length, 18);
-const REWRITTEN = ['step-01-guard.md', 'step-02-evidence.md', 'step-03-route-engine-investigate.md', 'step-04-requirements.md', 'step-05-search.md', 'step-06-plan.md', 'step-07-task.md', 'step-08-review.md', 'step-09-init-rules.md', 'step-10-experiments.md'];
+assert.equal(markdown.length, 19);
+const REWRITTEN = ['step-01-guard.md', 'step-02-evidence.md', 'step-03-route-engine-investigate.md', 'step-03b-decision-a-tuning.md', 'step-04-requirements.md', 'step-05-search.md', 'step-06-plan.md', 'step-07-task.md', 'step-08-review.md', 'step-09-init-rules.md', 'step-10-experiments.md'];
 const SECTIONS = ['## Goal', '## Starting point', '## Files', '## Contract', '## Rules', '## Decided readings',
   '## Non-goals', '## Tests', '## Done when', '## Hand-off', '## Coverage of the v6 brief'];
 for (const name of REWRITTEN) {
@@ -19,7 +19,7 @@ for (const name of REWRITTEN) {
     assert(next > at, `${name}: missing or out-of-order section ${heading}`);
     at = next;
   }
-  const step = name.slice(5, 7);
+  const step = name.match(/^step-([0-9a-z]+)-/)[1];
   const rules = new Set([...body.matchAll(new RegExp(`\\b${step}-[A-Z]\\d+\\b`, 'g'))].map(m => m[0]));
   assert(rules.size > 0, `${name}: no numbered rules`);
 }

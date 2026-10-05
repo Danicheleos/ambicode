@@ -290,6 +290,21 @@ describe('03-Q5/03-Q6/03-Q7 normalize', () => {
     }
   });
 
+  it('03b-M7: with nothing to fetch, a URL in the prose is asked but not a missing requirement', async () => {
+    const s = await session('why does ![](blob:https://media.example.net/?type=file&id=1) show the cart', []);
+    try {
+      const result = await s.normalize({ args: { ...s.args, hasRequirement: false } });
+      assert.equal(result.state, 'ok');
+      if (result.state !== 'ok') return;
+      assert.equal(result.builtFrom, 'args');
+      assert.equal(result.asked.length, 1);
+      assert.deepEqual(result.missingAsked, []);
+      assert.deepEqual((await s.fx.kinds('ORD-17', 'envelope')).at(-1)!['missingAsked'], []);
+    } finally {
+      await s.fx.dispose();
+    }
+  });
+
   it('no capture with a requirement: not-captured first, the gate second, the args envelope after "continue without"', async () => {
     const s = await session('ORD-17 which files?', []);
     try {

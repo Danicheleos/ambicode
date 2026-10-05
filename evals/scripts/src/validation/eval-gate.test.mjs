@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
-import { NAKED_EQUIVALENCE, gate, repetitionMeans } from './eval-gate.mjs';
+import { NAKED_EQUIVALENCE, builtinLines, gate, repetitionMeans } from './eval-gate.mjs';
 
 const MODEL = 'claude-sonnet-5-5';
 const ANSWER = { 1: '## Files\n- app/a.ts\n- app/b.ts\n', 0.5: '## Files\n- app/a.ts\n' };
@@ -167,6 +167,16 @@ describe('eval-gate', () => {
     assert.throws(() => gate({ ...current, claudeVersion: '2.1.287' }, { benchmarks, tracesDir, baseline, baselinePath: 'n.json' }), /version 2\.1\.289, this run on 2\.1\.287/);
     assert.throws(() => gate({ ...current, suite: { modelOverride: 'claude-opus-5-5' } }, { benchmarks, tracesDir, baseline, baselinePath: 'n.json' }), /model/);
     assert.throws(() => gate({ ...current, cases: [{ ...current.cases[0], promptMarkdown: '/ambicode:investigate --headless P' }] }, { benchmarks, tracesDir, baseline, baselinePath: 'n.json' }), /prompt differs/);
+  });
+
+  it('03b-H3: reports the built-in plugins each arm loaded and warns when they differ, deciding nothing', () => {
+    const traced = (names) => ({ trace: { builtinPlugins: names } });
+    const same = builtinLines('localize', [traced(['a'])], [traced(['a'])]);
+    assert.deepEqual(same, ['localize: built-in plugins a with 1/1 without 1/1']);
+    const differ = builtinLines('localize', [traced(['a', 'sec']), traced(['a', 'sec'])], [traced(['a']), traced(['a']), traced(['a'])]);
+    assert.match(differ[0], /sec with 2\/2 without 0\/3/);
+    assert.match(differ[1], /WARNING .*\(sec\)/);
+    assert.match(builtinLines('localize', [{ trace: null }], [traced(['a'])])[0], /unmeasured/);
   });
 
   it('averages each repetition across cases, skipping absent runs', () => {

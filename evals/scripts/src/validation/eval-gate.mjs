@@ -101,6 +101,7 @@ export function gate(given, { benchmarks = BENCHMARKS, tracesDir = null, budget 
           `review runs ${fmt(mean(traced.map((r) => r.trace.reviewRuns)), 2)} per run`,
       );
     } else info.push(`${kind}/with: untraced, so firing and prepare use are unmeasured`);
+    info.push(...builtinLines(kind, withRows, withoutRows));
   }
 
   const meanDelta = results.aggregates?.meanDelta;
@@ -110,6 +111,25 @@ export function gate(given, { benchmarks = BENCHMARKS, tracesDir = null, budget 
   else check('meanDelta', meanDelta >= -widest, `harness meanDelta ${fmt(meanDelta)}, widest noise band ${fmt(widest)}`);
 
   return { pass: checks.every((c) => c.pass), gaps: checks.filter((c) => c.status === 'gap').length, checks, info };
+}
+
+/** Which built-in plugins each arm's traces loaded. It decides nothing: Claude Code chooses them, not the repository. */
+export function builtinLines(kind, withRows, withoutRows) {
+  const summary = (rows) => {
+    const traced = rows.filter((r) => Array.isArray(r.trace?.builtinPlugins));
+    const counts = new Map();
+    for (const r of traced) for (const name of r.trace.builtinPlugins) counts.set(name, (counts.get(name) ?? 0) + 1);
+    return { traced: traced.length, counts };
+  };
+  const w = summary(withRows);
+  const wo = summary(withoutRows);
+  if (!w.traced || !wo.traced) return [`${kind}: built-in plugins unmeasured (traced with=${w.traced} without=${wo.traced})`];
+  const names = [...new Set([...w.counts.keys(), ...wo.counts.keys()])].sort();
+  const share = (s, name) => `${s.counts.get(name) ?? 0}/${s.traced}`;
+  const lines = [`${kind}: built-in plugins ${names.map((name) => `${name} with ${share(w, name)} without ${share(wo, name)}`).join('; ') || 'none'}`];
+  const differs = names.filter((name) => (w.counts.get(name) ?? 0) / w.traced !== (wo.counts.get(name) ?? 0) / wo.traced);
+  if (differs.length) lines.push(`${kind}: WARNING the arms loaded different built-in plugins (${differs.join(', ')}); part of any context or cost gap is the platform`);
+  return lines;
 }
 
 function main(argv) {
@@ -129,8 +149,8 @@ function main(argv) {
   if (!file)
     throw new Error('usage: eval-gate.mjs <eval-results.json> [--baseline <with-without-results.json> [--baseline-arm without|with]] [--traces <dir>] [--min-runs n] [--max-cost-ratio x] [--max-extra-turns n] [--max-absent-share x]');
   const results = JSON.parse(readFileSync(file, 'utf8'));
-  const tracesDir = tracesAt ?? path.join(path.dirname(path.resolve(file)), 'traces');
   const baseline = baselinePath === undefined ? null : JSON.parse(readFileSync(baselinePath, 'utf8'));
+  const tracesDir = tracesAt ?? [path.join(path.dirname(path.resolve(file)), 'traces'), ...(baselinePath === undefined ? [] : [path.join(path.dirname(path.resolve(baselinePath)), 'traces')])];
   const verdict = gate(results, { tracesDir, budget, baseline, baselinePath, baselineArm });
   for (const c of verdict.checks) console.log(`${{ pass: 'pass', fail: 'FAIL', gap: 'GAP ' }[c.status]}  ${c.name}: ${c.detail}`);
   for (const line of verdict.info) console.log(`info  ${line}`);

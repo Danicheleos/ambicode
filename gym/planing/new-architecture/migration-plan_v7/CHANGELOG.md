@@ -83,6 +83,12 @@ v6 requirement that the briefs had broken or left without a mechanism; no contra
 | V23 | `narrow` read its answer from `estimate-step`'s window, which starts after the revise, so the answer was outside it | the re-entry records `revise {args: {narrow}}`; handlers receive the window-opening revise as `HandlerInput.revise` (03-F12, also used by investigate's `--term`) | 03 Contract, 03-F12, revise fields; 08 YAML, 08-E6, tests |
 | V24 | `init-apply` had `acting` options outside its `options`, and `when` named an undeclared option | four declared options; each print offers three through the seam, recorded in `options`; an answer outside the offered set is `option-not-offered` | 09-G1, Files (`gates.ts`), tests; 03-G14, 03-G5 |
 
+## Decision A fallback (2026-10-05)
+
+| # | Change | Where |
+|---|---|---|
+| V25 | Run 4 failed 03-A5 on cost (1.44x; recall within band). By the user's decisions the investigate answer becomes the note (Stop saves it; no `report-step`/`write`, ceremony 0), the start context shrinks (no args echo, compact gated map, session contract), the map's terms drop request boilerplate and URLs, and the localize harness harvests session transcripts and reports built-in plugins. Dispatched as its own brief per 03-A6; v6 files unchanged | step-03b, validate-plan.mjs |
+
 ## Pending
 
 - Core acceptance (04-release-acceptance) keeps its v6 text; it is a checklist, not a build step.
