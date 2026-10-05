@@ -7,8 +7,9 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
-import { BENCHMARKS, graderFiles, IMPACT_CASES_DIRECTORY, peekGraders, regexEscape, scaffoldFile } from './evals-bench.mjs';
-import { tsconfigFor } from './lsp-arms.mjs';
+import { BENCHMARKS, IMPACT_CASES_DIRECTORY } from '../shared/bench-paths.mjs';
+import { casePrompt, graderFiles, peekGraders, regexEscape, scaffoldFile } from './bench-cases.mjs';
+import { tsconfigFor } from '../arms/lsp-arms.mjs';
 
 const ROOTS = { BE: 'src', FE: 'main' };
 const NOT_CODE_UNDER_TEST = /(\.(spec|test|mock|mocks|stories)\.ts$|\.d\.ts$|\/(mocks?|__mocks__|testing)\/)/;
@@ -103,17 +104,7 @@ export function pickHard(found, limit) {
 }
 
 export function impactPrompt(name, side, symbol) {
-  return `---
-name: ${name}
-description: List the files that use one exported function, in a real codebase.
-tags: ["bench", "impact", ${JSON.stringify(side.toLowerCase())}]
-runs: 1
-max_turns: 40
-timeout_seconds: 900
-allowed_tools: [Read, Glob, Grep, Bash, Skill]
----
-
-In the repository at \`repo/\`, I am about to change the signature of \`${symbol.name}\`, exported from
+  return casePrompt({ name, side, kind: 'impact', description: "List the files that use one exported function, in a real codebase." }, `In the repository at \`repo/\`, I am about to change the signature of \`${symbol.name}\`, exported from
 \`${symbol.file}\`. Every caller has to be updated, so I need to know which files use it.
 
 Which other existing files use \`${symbol.name}\`? Count a file only if it refers to this symbol. A file that mentions
@@ -125,7 +116,7 @@ uses the symbol. The file that defines \`${symbol.name}\` does not belong in the
 every command from there.
 
 Answer the question; do not edit anything.
-`;
+`);
 }
 
 export function writeImpactCase(out, side, symbol) {

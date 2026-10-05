@@ -13,10 +13,12 @@ Archived 2026-09-28, when `evals/` became the benchmark suite, and moved to
   manifest names `evals/evals-triggers`): add
   `--eval-dir evals/evals-archived/typescript` to run this one.
 
-The scaffolds reach `fixtures/` as `../../../..`. `evals-suite.test.mjs`,
-`evals-preflight.mjs` and `evals-reviewer.mjs` read this directory; they and
-every other `evals-*.mjs` named below live in `evals/scripts/src/`, not at the
-repository root.
+The scaffolds reach `fixtures/` as `../../../..`.
+`evals/scripts/src/testing/evals-suite.test.mjs` and the scripts
+`evals-preflight.mjs` and `evals-reviewer.mjs` under
+`evals/scripts/src/validation/` read this directory. See the
+[script layout](../../scripts/README.md) for the current paths of scripts
+named below.
 
 Thirteen cases, all TypeScript. Six are the Phase 1 review cases (doc 07,
 "Native model evaluation"), one per category. Seven `p2-*` cases cover the

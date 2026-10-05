@@ -8,10 +8,10 @@ import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { blindSheet } from './evals-reviewer.mjs';
-import { REQUIRED_FLAGS } from '../../../src/review/claude-reviewer.ts';
+import { ROOT } from '../shared/bench-paths.mjs';
+import { REQUIRED_FLAGS } from '../../../../src/review/claude-reviewer.ts';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.resolve(HERE, '../../..');
 
 const STUB = `#!/usr/bin/env node
 const fs = require('fs');

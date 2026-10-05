@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { parse as parseYaml } from 'yaml';
-import { CASES_LOCK, GENERATION_MARKER, INVESTIGATE_COMMAND, NAKED_COPY, NAKED_PLUGIN, PROMPT, SWAP_MARKER, WITH_PROMPT, restorePrompts, runArgs, swapInPluginPrompts, writePluginPrompt } from './evals-bench.mjs';
+import { CASES_LOCK, GENERATION_MARKER, INVESTIGATE_COMMAND, NAKED_COPY, NAKED_PLUGIN, PROMPT, SWAP_MARKER, WITH_PROMPT, restorePrompts, runArgs, swapInPluginPrompts, writePluginPrompt } from '../harness/evals-bench.mjs';
 import { baselineCases, buildNaked, parseArgs } from './naked-arm.mjs';
 
 const NAKED_PROMPT = '---\nname: be-1\ntags: ["bench", "localize"]\n---\n\nIn the repository at `repo/`, find the files.\n\nAnswer the question.\n';

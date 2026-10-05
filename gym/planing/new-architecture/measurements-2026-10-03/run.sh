@@ -27,7 +27,7 @@ for r in FE BE; do (cd "$M/repos/$r" && git init -q 2>/dev/null; git add -A >/de
 (cd "$M/repos/self" && git init -q 2>/dev/null; git add -A >/dev/null 2>&1; git -c user.email=a@b -c user.name=m commit -qm snap >/dev/null 2>&1)
 # tsconfig for the snapshots, same shape the eval's LSP arm uses
 node --input-type=module -e "
-import { tsconfigFor } from '$REPO/evals/scripts/src/lsp-arms.mjs';
+import { tsconfigFor } from '$REPO/evals/scripts/src/arms/lsp-arms.mjs';
 import { writeFileSync } from 'node:fs';
 for (const r of ['FE','BE']) writeFileSync('$M/repos/'+r+'/tsconfig.json', tsconfigFor('.'));
 " && log "tsconfig written for FE, BE"
@@ -62,7 +62,7 @@ node --input-type=module -e "
 import ts from '$REPO/node_modules/typescript/lib/typescript.js';
 import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
-import { tsconfigFor } from '$REPO/evals/scripts/src/lsp-arms.mjs';
+import { tsconfigFor } from '$REPO/evals/scripts/src/arms/lsp-arms.mjs';
 function walk(d, p='') { const out=[]; for (const e of readdirSync(d,{withFileTypes:true})) { if (e.name==='node_modules'||e.name.startsWith('.')) continue; const rel=p?p+'/'+e.name:e.name; if (e.isDirectory()) out.push(...walk(path.join(d,e.name),rel)); else if (e.name.endsWith('.ts')) out.push(rel);} return out; }
 for (const r of ['self','BE','FE']) {
   const dir='$M/repos/'+r; const files=walk(dir); const abs=f=>path.join(dir,f);

@@ -7,16 +7,15 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { ROOT } from '../shared/bench-paths.mjs';
 import { parse as parseYaml } from 'yaml';
-import { loadScaffolds } from './evals-reviewer.mjs';
-import { fixtureByName } from '../../../fixtures/definitions.mjs';
-import { FIXTURE_DATE, installPlanFor, materialize } from '../../../fixtures/materialize.mjs';
-import { renderReport } from '../../../src/review/report.ts';
-import { reviewResult } from '../../../src/testing/review-fixture.ts';
-import { formatJsonOutput } from '../../../src/util/json-output.ts';
+import { loadScaffolds } from '../validation/evals-reviewer.mjs';
+import { fixtureByName } from '../../../../fixtures/definitions.mjs';
+import { FIXTURE_DATE, installPlanFor, materialize } from '../../../../fixtures/materialize.mjs';
+import { renderReport } from '../../../../src/review/report.ts';
+import { reviewResult } from '../../../../src/testing/review-fixture.ts';
+import { formatJsonOutput } from '../../../../src/util/json-output.ts';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const EVALS = path.join(ROOT, 'evals', 'evals-archived', 'typescript');
 
 async function loadCases() {

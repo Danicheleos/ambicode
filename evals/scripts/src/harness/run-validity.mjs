@@ -3,7 +3,10 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { infrastructureError } from './evals-bench.mjs';
+// A run that hit its own turn or time limit is the arm's outcome. Any other error (session limit, lost
+// login, interrupt, scaffold failure) says nothing about the arm: 84 of 156 runs on 2026-10-02 died so.
+const ARM_OUTCOME_ERROR = /maximum number of turns|timed? ?out|timeout/i;
+export const infrastructureError = (run) => (run.error && !ARM_OUTCOME_ERROR.test(String(run.error)) ? String(run.error) : null);
 
 export function invalidRuns(results) {
   const out = [];

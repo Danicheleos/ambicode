@@ -24,6 +24,17 @@ the strongest, most provable cases per side (5 localize + 4 review; 18 in the
 
 `cases/selection.json` records the criteria and each chosen case's numbers.
 
+The harness implementation is [grouped by responsibility](../scripts/README.md)
+under `evals/scripts/src/`: `cases/bench-cases.mjs` selects and generates cases,
+`analysis/trace-analysis.mjs` reads and harvests traces, `analysis/bench-score.mjs`
+scores results, and `analysis/bench-walk.mjs` renders walkthroughs.
+`harness/evals-bench.mjs` owns the CLI and run lifecycle and reexports
+the existing APIs. The unused `runCasesDir` and `harvestDir` adapters were
+removed; use `runSpec`'s `casesDir` and `tracesDir`. `runArgs` remains supported.
+Scoring and walkthroughs share parsed traces and case metadata within one
+invocation; subsequent invocations reread evidence. Generated prompts,
+scaffolds, graders, and score/report formats are unchanged.
+
 ```sh
 npm run build
 npm run evals                 # = evals:walk
@@ -32,8 +43,8 @@ npm run evals:walk:haiku      # the same on Haiku 4.5
 npm run evals:baseline        # 18 cases, naked plugin only, 3 runs, Sonnet 5.5, $15 cap: once per Claude Code version
 npm run evals:decide          # all 18 cases, plugin arm, 3 runs, Sonnet 5.5, $20 cap: gate it against the baseline
 npm run evals:select          # evals/evals-core/cases/ only, no run (--regenerate: see "Per-arm prompts")
-node evals/scripts/src/evals-bench.mjs run … --dry-run     # print the execution plan; spawns and changes nothing
-node evals/scripts/src/evals-bench.mjs restore-prompts     # put back prompts an interrupted --prompt with run left
+node evals/scripts/src/harness/evals-bench.mjs run … --dry-run     # print the execution plan; spawns and changes nothing
+node evals/scripts/src/harness/evals-bench.mjs restore-prompts     # put back prompts an interrupted --prompt with run left
 npm run evals:score -- evals/evals-core/results/eval-<ts>.json [--baseline <eval-baseline>.json]
 npm run evals:gate -- evals/evals-core/results/eval-<ts>.json [--baseline <eval-baseline>.json]
 npm run evals:walk-report -- evals/evals-core/results/eval-<ts>.json
@@ -421,10 +432,10 @@ there are three arms:
 
 ```sh
 npm run package:candidate
-node evals/scripts/src/lsp-arms.mjs [--case <name>]...   # .tmp/lsp-arms/{lsp-only,ambicode-lsp}
-node evals/scripts/src/evals-bench.mjs run --plugin .tmp/lsp-arms/lsp-only --trust-plugin \
+node evals/scripts/src/arms/lsp-arms.mjs [--case <name>]...   # .tmp/lsp-arms/{lsp-only,ambicode-lsp}
+node evals/scripts/src/harness/evals-bench.mjs run --plugin .tmp/lsp-arms/lsp-only --trust-plugin \
   --ablation with-without --runs 3 --model claude-sonnet-5-5 --max-cost-usd <usd> -j 4
-node evals/scripts/src/evals-bench.mjs run --plugin .tmp/lsp-arms/ambicode-lsp --trust-plugin \
+node evals/scripts/src/harness/evals-bench.mjs run --plugin .tmp/lsp-arms/ambicode-lsp --trust-plugin \
   --ablation none --runs 3 --model claude-sonnet-5-5 --max-cost-usd <usd> -j 4
 npm run evals:gate -- <A>.json --baseline <L>.json                       # A vs N
 npm run evals:gate -- <A>.json --baseline <L>.json --baseline-arm with   # A vs L
@@ -440,7 +451,7 @@ npm run evals:gate -- <A>.json --baseline <L>.json --baseline-arm with   # A vs 
 
 ## Impact cases
 
-`node evals/scripts/src/impact-cases.mjs [--list] [--side BE|FE] [--limit n]` writes cases of the form "I am
+`node evals/scripts/src/cases/impact-cases.mjs [--list] [--side BE|FE] [--limit n]` writes cases of the form "I am
 changing the signature of X; which files use it?" into `benchmarks/impact-cases` (gitignored). The truth is the
 files the TypeScript language service reports as referencing X, excluding tests and mocks, under the tsconfig of
 `lsp-arms.mjs`. Run them through the three arms with `lsp-arms.mjs --impact --out <dir>`. The first walk found
@@ -448,7 +459,7 @@ word-boundary grep enough for the symbols it picked (naked 1.00 recall), so pick
 
 ## Reuse cases
 
-`node evals/scripts/src/reuse-cases.mjs [--list] [--limit n]` writes survey-before-building cases into
+`node evals/scripts/src/cases/reuse-cases.mjs [--list] [--limit n]` writes survey-before-building cases into
 `benchmarks/reuse-cases` (and `-forced` variants that name the investigate skill), scored by `reuse-score.mjs`.
 **Do not read their recall or duplicate counts yet:** the scaffold copies the newer snapshot, which often already holds
 the ticket's own feature (G28). Run them through the arms with `lsp-arms.mjs --reuse`.

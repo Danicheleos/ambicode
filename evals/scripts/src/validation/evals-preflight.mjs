@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+import { ROOT } from '../shared/bench-paths.mjs';
 
 // Relative to the plugin root, as `--eval-dir` takes it.
 export const ARCHIVED_EVAL_DIR = 'evals/evals-archived/typescript';

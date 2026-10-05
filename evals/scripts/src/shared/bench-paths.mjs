@@ -2,7 +2,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 export const BENCHMARKS = path.join(ROOT, 'benchmarks');
 export const CASES_DIRECTORY = 'cases';
 /** Impact cases name real code, so they live beside the other benchmark data (gitignored, NDA). */

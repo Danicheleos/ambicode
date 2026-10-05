@@ -3,10 +3,10 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createRuntime, openWorkspace, projectForRequest } from '../../../src/composition/root.ts';
-import { locate, shortlistRules, shortlistable, termsFromRequirements, PREPARE_SHORTLIST_LIMIT } from '../../../src/code-intelligence/locate.ts';
+import { createRuntime, openWorkspace, projectForRequest } from '../../../../src/composition/root.ts';
+import { locate, shortlistRules, shortlistable, termsFromRequirements, PREPARE_SHORTLIST_LIMIT } from '../../../../src/code-intelligence/locate.ts';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+import { ROOT } from '../shared/bench-paths.mjs';
 const CASES = path.join(ROOT, 'benchmarks', 'cases');
 
 /** The ticket text between the prompt's <ticket> tags, which is what a requirement fetch would return. */

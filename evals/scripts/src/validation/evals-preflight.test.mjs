@@ -2,11 +2,10 @@ import assert from 'node:assert/strict';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, it } from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { ROOT } from '../shared/bench-paths.mjs';
 import { parse as parseYaml } from 'yaml';
 import { ARCHIVED_EVAL_DIR, PREFLIGHT, PREFLIGHT_MAX_COST_USD, RECORDINGS, judge, preflightArgs } from './evals-preflight.mjs';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const EVALS = path.join(ROOT, ARCHIVED_EVAL_DIR);
 
 function result({ failing = {}, drop = [], partial = false, error = null, cases = PREFLIGHT.map((p) => p.case) } = {}) {

@@ -8,6 +8,11 @@ Normative design: [v6](../v6/00-README.md), including its in-place post-review e
 This directory replaces [the v5 migration hand-off](../migration-plan/00-README.md);
 do not combine instructions from the two plans.
 
+The eval scripts now use [purpose folders](../../../../evals/scripts/README.md).
+Flat script paths elsewhere in this hand-off refer to the same filenames in
+that layout; input digests retain the paths from the inspected revision.
+Run all harness tests with `node --test 'evals/scripts/src/**/*.test.mjs'`.
+
 ## Requested outcome and sources
 
 Migrate the v0.4.0 plugin to v6's user-invoked routes, ledger-derived evidence, bounded

@@ -26,7 +26,7 @@ import ts from 'typescript';
 import { readdirSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
-import { tsconfigFor } from './evals/scripts/src/lsp-arms.mjs';
+import { tsconfigFor } from './evals/scripts/src/arms/lsp-arms.mjs';
 const dir='$R', SYM='$SYM', FILE='$FILE';
 function walk(d,p=''){const out=[];for(const e of readdirSync(d,{withFileTypes:true})){if(e.name==='node_modules'||e.name.startsWith('.'))continue;const rel=p?p+'/'+e.name:e.name;if(e.isDirectory())out.push(...walk(path.join(d,e.name),rel));else if(e.name.endsWith('.ts'))out.push(rel);}return out;}
 const files=walk(dir); const abs=f=>path.join(dir,f);

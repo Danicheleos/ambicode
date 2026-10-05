@@ -127,11 +127,20 @@ export function ledgerMetrics(ledgers, trace = null) {
   const unmeasured = { mcpHookResponses: trace?.mcpHookResponses ?? null, noRouteMcpSpawns: null };
   if (!status.complete) return { ...status, ...Object.fromEntries(LEDGER_MEASURES.map((m) => [m, null])), ...unmeasured };
   const entries = ledgers.flatMap((l) => l.entries);
-  const of = (kind) => entries.filter((e) => e?.kind === kind);
+  const kinds = new Map();
+  for (const entry of entries) {
+    const bucket = kinds.get(entry?.kind);
+    if (bucket) bucket.push(entry);
+    else kinds.set(entry?.kind, [entry]);
+  }
+  const of = (kind) => kinds.get(kind) ?? [];
   const last = (kind) => of(kind).at(-1) ?? null;
   const routed = of('route').length > 0;
   // A route-scoped measure is known only from the records it is read from: a route alone says nothing about them.
-  const from = (kind, measure) => (routed && of(kind).length ? measure(of(kind)) : null);
+  const from = (kind, measure) => {
+    const records = of(kind);
+    return routed && records.length ? measure(records) : null;
+  };
   const map = last('map');
   const envelope = last('envelope');
   const prints = of('gate');

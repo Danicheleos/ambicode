@@ -5,7 +5,8 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BENCHMARKS, CASES_LOCK, CURATED_CASES, IMPACT_CASES_DIRECTORY, REUSE_CASES_DIRECTORY, ROOT } from './evals-bench.mjs';
+import { BENCHMARKS, CURATED_CASES, IMPACT_CASES_DIRECTORY, REUSE_CASES_DIRECTORY, ROOT } from '../shared/bench-paths.mjs';
+import { CASES_LOCK } from '../harness/cases-lock.mjs';
 
 export const LSP_SERVERS = {
   typescript: {

@@ -3,7 +3,8 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BENCHMARKS, NAKED_EQUIVALENCE, baselineProvenance, score, servedPromptLine, withBaseline } from './evals-bench.mjs';
+import { BENCHMARKS } from '../shared/bench-paths.mjs';
+import { NAKED_EQUIVALENCE, baselineProvenance, score, servedPromptLine, withBaseline } from '../analysis/bench-score.mjs';
 
 export { NAKED_EQUIVALENCE };
 

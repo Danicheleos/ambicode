@@ -5,7 +5,10 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symli
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
-import { BENCHMARKS, CASES_LOCK, CURATED_CASES, GENERATION_MARKER, NAKED_COPY, NAKED_PLUGIN, PROMPT, ROOT, SWAP_MARKER, WITH_PROMPT, refuseLegacyTwins, withCasesLock } from './evals-bench.mjs';
+import { BENCHMARKS, CURATED_CASES, NAKED_PLUGIN, ROOT } from '../shared/bench-paths.mjs';
+import { refuseLegacyTwins } from '../cases/bench-cases.mjs';
+import { CASES_LOCK, withCasesLock } from '../harness/cases-lock.mjs';
+import { GENERATION_MARKER, NAKED_COPY, PROMPT, SWAP_MARKER, WITH_PROMPT } from '../harness/prompt-transport.mjs';
 
 export const NAKED_OUT = path.join(ROOT, '.tmp', NAKED_PLUGIN);
 

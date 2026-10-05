@@ -2,7 +2,7 @@
 // was checked is what is forwarded.
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { BENCH_EVAL_DIR, BENCHMARKS, CASES_DIRECTORY, CURATED_EVAL_DIR, ROOT } from './bench-paths.mjs';
+import { BENCH_EVAL_DIR, BENCHMARKS, CASES_DIRECTORY, CURATED_EVAL_DIR, ROOT } from '../shared/bench-paths.mjs';
 
 export const FORCED_REMOVED = '--forced was removed: forced review twins are gone, the plugin arm types its command from prompt.with.md (`run --prompt with`); run `select` without it';
 
@@ -65,10 +65,6 @@ export function parseRunOptions(rest) {
 
 const casesDirOf = (set, plugin, benchmarks) => (set === 'full' ? path.join(benchmarks, CASES_DIRECTORY) : path.join(plugin, CURATED_EVAL_DIR, CASES_DIRECTORY));
 
-/** The cases directory a `run` would serve from, known before anything else is read or validated. */
-export const runCasesDir = ({ values }, { benchmarks = BENCHMARKS } = {}) =>
-  casesDirOf(values['--set'] ?? 'curated', values['--plugin'] === undefined ? ROOT : path.resolve(values['--plugin']), benchmarks);
-
 /**
  * The one validated run. `harness` holds the forwarded options as `[name, ...values]` in `RUN_VALUES` order,
  * `--json` always among them (the default result path when none was given). `set`/`plugin` in the second
@@ -126,10 +122,3 @@ export function harnessArgv(spec, { json = spec.json } = {}) {
 
 /** Compatibility adapter: the argv of raw `run` arguments, validated as `run` validates them. */
 export const runArgs = (extra = [], context = {}) => harnessArgv(runSpec(parseRunOptions(extra), context));
-
-/** Traces go beside the result, so they share its excluded-directory guarantee. */
-export function harvestDir(argv) {
-  const i = argv.indexOf('--json');
-  if (i < 0 || !argv[i + 1]) throw new Error('no --json in the run arguments: nowhere safe to put traces');
-  return path.join(path.dirname(path.resolve(argv[i + 1])), 'traces');
-}

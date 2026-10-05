@@ -7,7 +7,8 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
-import { BENCHMARKS, graderFiles, parseTicket, peekGraders, REUSE_CASES_DIRECTORY, scaffoldFile } from './evals-bench.mjs';
+import { BENCHMARKS, REUSE_CASES_DIRECTORY } from '../shared/bench-paths.mjs';
+import { casePrompt, graderFiles, parseTicket, peekGraders, scaffoldFile } from './bench-cases.mjs';
 import { walk } from './impact-cases.mjs';
 
 const ROOTS = { BE: 'src', FE: 'main' };
@@ -80,19 +81,9 @@ FAIL if it has none.
 `;
 }
 
-/** `forced` names the skill, as the review suite's forced prompt does: it measures the chain once it is picked. */
+/** The historical forced reuse arm remains until step 05 migrates this suite. */
 export function reusePrompt(name, side, text, { forced = false } = {}) {
-  return `---
-name: ${name}
-description: Survey what exists before a real ticket is built, in a real codebase.
-tags: ["bench", "reuse", ${JSON.stringify(side.toLowerCase())}]
-runs: 1
-max_turns: 40
-timeout_seconds: 900
-allowed_tools: [Read, Glob, Grep, Bash, Skill]
----
-
-In the repository at \`repo/\`, the ticket below is about to be implemented.
+  return casePrompt({ name, side, kind: 'reuse', description: "Survey what exists before a real ticket is built, in a real codebase." }, `In the repository at \`repo/\`, the ticket below is about to be implemented.
 
 <ticket>
 ${text}
@@ -111,7 +102,7 @@ ${forced ? '\nUse the ambicode investigate skill for this survey.\n' : ''}
 every command from there.
 
 Answer the question; do not edit anything.
-`;
+`);
 }
 
 function main(argv) {

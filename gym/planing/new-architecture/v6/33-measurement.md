@@ -13,7 +13,7 @@ user decides whether to proceed, cut, or roll back. Nothing in the plan abandons
 1. **Restore the four files from `git stash@{0}`** — `reuse-cases.mjs`, `reuse-score.mjs` and both
    tests (verified: `git stash show --name-only 'stash@{0}'`; `evals-bench.mjs:9` imports and `:704`
    calls `scoreReuse`, so dropping the import is not a fix, #67); `node --test
-   evals/scripts/src/evals-bench.test.mjs` must pass; `npm run verify` green.
+   'evals/scripts/src/**/*.test.mjs'` must pass; `npm run verify` green.
 2. **Per-arm prompts (#46), no new baseline (D19).** The runner serves one `prompt.md` to both arms
    (`evals-bench.mjs:169, 189, 201` `arm: both`; the only switch is `--plugin`, `:971`). Add
    `prompt.with.md`: the plugin arm reads it when present (`/ambicode:investigate <question>
