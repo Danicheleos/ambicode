@@ -6,31 +6,32 @@ import {
   resolvePolicyFor,
   toRepositoryRelative,
   type Runtime,
-} from '../composition/root.ts';
-import { loadConfig } from '../config/load.ts';
-import type { AmbicodeConfig } from '../contracts/config.ts';
-import type { ResolvedRule } from '../contracts/policy.ts';
+} from '../../composition/root.ts';
+import { loadConfig } from '../../config/load.ts';
+import type { AmbicodeConfig } from '../../contracts/config.ts';
+import type { ResolvedRule } from '../../contracts/policy.ts';
 import {
   EMPTY_HOOK_OUTPUT,
   HookInput,
   type AdditionalContextEvent,
   type AdditionalContextHookOutput,
   type PostToolUseHookOutput,
-} from '../contracts/hook.ts';
+} from '../../contracts/hook.ts';
 import { prepareForSkill, prepareForSlashCommand, prepareForTicket } from './prepare-on-skill.ts';
-import { readSharedOperatingContract } from '../policy/shared-contract.ts';
-import { contentHash } from '../util/hash.ts';
+import { readSharedOperatingContract } from '../../policy/shared-contract.ts';
+import { contentHash } from '../../util/hash.ts';
 import {
-  alreadyDelivered,
   cleanupSessionState,
   currentEpoch,
+  deliverOnce,
   hookStateBaseDir,
-  markDelivered,
   resetEpoch,
   type DeliveryKey,
-} from './markers.ts';
+} from '../session/markers.ts';
 
 export const MAX_HOOK_INPUT_BYTES = 1_048_576;
+
+const stateDir = (runtime: Runtime, input: HookInput): string => hookStateBaseDir(runtime.fs, input.session_id, input.scratchpad_dir);
 
 /**
  * Never throws: any failure is a silent no-op, because a hook is advisory and
@@ -50,7 +51,7 @@ export async function runHook(runtime: Runtime, rawStdin: string): Promise<unkno
   try {
     switch (input.hook_event_name) {
       case 'SessionStart': {
-        const base = hookStateBaseDir(runtime.fs, input.session_id, input.scratchpad_dir);
+        const base = stateDir(runtime, input);
         await resetEpoch(runtime.fs, runtime.ids, base);
         return await deliverSharedContract(runtime, input, base, 'SessionStart');
       }
@@ -58,12 +59,12 @@ export async function runHook(runtime: Runtime, rawStdin: string): Promise<unkno
         // A compaction invalidates earlier deliveries, but this event has no
         // `hookSpecificOutput` variant in Claude Code's schema (returning one fails
         // validation), so the next `UserPromptSubmit` delivers the contract instead.
-        const base = hookStateBaseDir(runtime.fs, input.session_id, input.scratchpad_dir);
+        const base = stateDir(runtime, input);
         await resetEpoch(runtime.fs, runtime.ids, base);
         return EMPTY_HOOK_OUTPUT;
       }
       case 'UserPromptSubmit': {
-        const base = hookStateBaseDir(runtime.fs, input.session_id, input.scratchpad_dir);
+        const base = stateDir(runtime, input);
         const contract = (await deliverSharedContract(runtime, input, base, 'UserPromptSubmit')) as {
           hookSpecificOutput?: { additionalContext: string };
         };
@@ -73,7 +74,7 @@ export async function runHook(runtime: Runtime, rawStdin: string): Promise<unkno
         return { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: context } };
       }
       case 'SessionEnd': {
-        const base = hookStateBaseDir(runtime.fs, input.session_id, input.scratchpad_dir);
+        const base = stateDir(runtime, input);
         await cleanupSessionState(runtime.fs, base);
         return EMPTY_HOOK_OUTPUT;
       }
@@ -105,8 +106,7 @@ async function deliverSharedContract(
     subject: contract.reference,
     contentHash: contract.contentHash,
   };
-  if (await alreadyDelivered(runtime.fs, baseDir, key)) return EMPTY_HOOK_OUTPUT;
-  await markDelivered(runtime.fs, baseDir, key);
+  if (!(await deliverOnce(runtime.fs, baseDir, key))) return EMPTY_HOOK_OUTPUT;
 
   const output: AdditionalContextHookOutput = {
     hookSpecificOutput: {
@@ -158,7 +158,7 @@ async function handlePostToolUse(runtime: Runtime, input: HookInput): Promise<un
   const candidates = policy.rules.filter((rule) => rule.remindOnEdit);
   if (candidates.length === 0) return EMPTY_HOOK_OUTPUT;
 
-  const base = hookStateBaseDir(hookRuntime.fs, input.session_id, input.scratchpad_dir);
+  const base = stateDir(hookRuntime, input);
   const epoch = await currentEpoch(hookRuntime.fs, hookRuntime.ids, base);
   const agentKey = input.agent_id ?? 'main';
 
@@ -171,9 +171,7 @@ async function handlePostToolUse(runtime: Runtime, input: HookInput): Promise<un
       subject: `${relative}::${rule.qualifiedId}`,
       contentHash: ruleContentHash(rule),
     };
-    if (await alreadyDelivered(hookRuntime.fs, base, key)) continue;
-    undelivered.push(rule);
-    await markDelivered(hookRuntime.fs, base, key);
+    if (await deliverOnce(hookRuntime.fs, base, key)) undelivered.push(rule);
   }
 
   if (undelivered.length === 0) return EMPTY_HOOK_OUTPUT;
@@ -184,7 +182,7 @@ async function handlePostToolUse(runtime: Runtime, input: HookInput): Promise<un
 async function dedupedTicketPrepare(runtime: Runtime, input: HookInput): Promise<PostToolUseHookOutput | null> {
   const output = await prepareForTicket(runtime, input);
   if (output === null) return null;
-  const base = hookStateBaseDir(runtime.fs, input.session_id, input.scratchpad_dir);
+  const base = stateDir(runtime, input);
   const key: DeliveryKey = {
     epoch: await currentEpoch(runtime.fs, runtime.ids, base),
     agentKey: input.agent_id ?? 'main',
@@ -192,9 +190,7 @@ async function dedupedTicketPrepare(runtime: Runtime, input: HookInput): Promise
     subject: input.tool_name ?? '',
     contentHash: contentHash(output.hookSpecificOutput.additionalContext),
   };
-  if (await alreadyDelivered(runtime.fs, base, key)) return null;
-  await markDelivered(runtime.fs, base, key);
-  return output;
+  return (await deliverOnce(runtime.fs, base, key)) ? output : null;
 }
 
 function ruleContentHash(rule: ResolvedRule): string {

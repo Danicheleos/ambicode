@@ -204,7 +204,7 @@ export async function main(argv: readonly string[]): Promise<number> {
   // The hook entry point has its own I/O contract (stdin JSON in, hook JSON out,
   // always exit 0), so it bypasses option parsing and `dispatch`.
   if (command === 'hook') {
-    const { runHook, MAX_HOOK_INPUT_BYTES } = await import('../hook/run-hook.ts');
+    const { runHook, MAX_HOOK_INPUT_BYTES } = await import('../hook/events/run-hook.ts');
     const runtime = await createRuntime();
     const stdin = (await runtime.stdin.read(MAX_HOOK_INPUT_BYTES)) ?? '';
     const output = await runHook(runtime, stdin);

@@ -2,12 +2,12 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { describe, it } from 'node:test';
-import { parseArgs } from '../cli/args.ts';
-import { INIT_OPTIONS, runInit } from '../cli/commands/init.ts';
-import { createRuntime } from '../composition/root.ts';
-import { nodeFileSystem } from '../ports/filesystem.ts';
-import { TempRepo } from '../testing/temp-repo.ts';
-import { PREPARE_OPTIONS, runPrepare } from '../cli/commands/prepare.ts';
+import { parseArgs } from '../../cli/args.ts';
+import { INIT_OPTIONS, runInit } from '../../cli/commands/init.ts';
+import { createRuntime } from '../../composition/root.ts';
+import { nodeFileSystem } from '../../ports/filesystem.ts';
+import { TempRepo } from '../../testing/temp-repo.ts';
+import { PREPARE_OPTIONS, runPrepare } from '../../cli/commands/prepare.ts';
 import { runHook } from './run-hook.ts';
 
 async function fixtureWithPack(options: { editReminders?: boolean } = {}): Promise<{ repo: TempRepo; dispose(): Promise<void> }> {

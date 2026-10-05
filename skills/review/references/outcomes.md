@@ -121,6 +121,23 @@ installation or a saved file is not in the state AMBICODE relies on. Nothing
 was reviewed or published. Report the message verbatim and stop; retrying
 will not change it.
 
+**Guard decisions** (reasons from the `PreToolUse` guard, not error codes).
+A write into `.ambicode/task/` is denied and names `note save`; run that. A git
+or `glab mr` state change, `rm -r` of the working directory or above, and a
+write whose target only the shell resolves (`$VAR`, `$(…)`) ask: the user
+decides, so do not rephrase the command to avoid the question.
+`steps/plan-body.md` is writable only by the session that owns the task's live
+plan route; any other session, a missing session or route pointer, or an
+unreadable ledger is denied.
+
+**`route-taken-over`.** Another session adopted or restarted this task's plan
+route; this session no longer writes its files. Stop and tell the user. Taking
+it back (`--adopt`) or continuing under another `--task` is their decision.
+
+**Init owns its files.** While an init route is active, editing
+`.ambicode/config.yaml` or `.gitignore` is denied: `init --apply --set` writes
+them when the user accepts the proposal. Answer the init gate instead.
+
 **A command was refused.** Policy declares commands as run, propose, or forbid,
 and a command no pack declares is not run either — absence is not permission. The
 message names the pack and the reason. Changing it is a deliberate edit to that

@@ -1,14 +1,14 @@
-import { createRuntime, type Runtime } from '../composition/root.ts';
-import { findSessionRepository } from '../composition/session-repository.ts';
-import { loadConfig } from '../config/load.ts';
-import { parseArgs } from '../cli/args.ts';
-import { PREPARE_OPTIONS, runPrepare } from '../cli/commands/prepare.ts';
-import { termsFromRequirements } from '../code-intelligence/locate.ts';
-import { readingOrder } from '../code-intelligence/navigation.ts';
-import type { PostToolUseHookOutput } from '../contracts/hook.ts';
-import { mintTaskSlug } from '../task/slug.ts';
-import { isAmbicodeError } from '../util/errors.ts';
-import { formatJsonOutput } from '../util/json-output.ts';
+import { createRuntime, type Runtime } from '../../composition/root.ts';
+import { findSessionRepository } from '../../composition/session-repository.ts';
+import { loadConfig } from '../../config/load.ts';
+import { parseArgs } from '../../cli/args.ts';
+import { PREPARE_OPTIONS, runPrepare } from '../../cli/commands/prepare.ts';
+import { termsFromRequirements } from '../../code-intelligence/locate.ts';
+import { readingOrder } from '../../code-intelligence/navigation.ts';
+import type { PostToolUseHookOutput } from '../../contracts/hook.ts';
+import { mintTaskSlug } from '../../task/slug.ts';
+import { isAmbicodeError } from '../../util/errors.ts';
+import { formatJsonOutput } from '../../util/json-output.ts';
 
 /** The skills whose first step is `prepare`; review and the setup skills prepare differently or not at all. */
 const PREPARING_SKILLS = /^ambicode:(investigate|plan|task)$/;

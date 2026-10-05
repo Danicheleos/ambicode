@@ -1,7 +1,7 @@
 import path from 'node:path';
-import type { FileSystem } from '../ports/filesystem.ts';
-import type { IdSource } from '../ports/ids.ts';
-import { contentHash } from '../util/hash.ts';
+import type { FileSystem } from '../../ports/filesystem.ts';
+import type { IdSource } from '../../ports/ids.ts';
+import { contentHash } from '../../util/hash.ts';
 
 /**
  * Per-session hook delivery state, never written into the product repository:
@@ -9,7 +9,7 @@ import { contentHash } from '../util/hash.ts';
  * a hash of the session id so the directory name carries no session content.
  */
 
-const HOOK_STATE_DIR_NAME = 'ambicode-hook-state';
+export const HOOK_STATE_DIR_NAME = 'ambicode-hook-state';
 const EPOCH_FILE = 'epoch';
 const DELIVERED_DIR = 'delivered';
 
@@ -61,14 +61,13 @@ function markerPath(baseDir: string, key: DeliveryKey): string {
 
 /**
  * Keyed by (epoch, agent, kind, subject, content hash): a changed content hash
- * or another path is a different marker and is delivered again.
+ * or another path is a different marker and is delivered again. Returns true
+ * when this call recorded the delivery, false when it was already recorded.
  */
-export async function alreadyDelivered(fs: FileSystem, baseDir: string, key: DeliveryKey): Promise<boolean> {
-  return fs.exists(markerPath(baseDir, key));
-}
-
-export async function markDelivered(fs: FileSystem, baseDir: string, key: DeliveryKey): Promise<void> {
+export async function deliverOnce(fs: FileSystem, baseDir: string, key: DeliveryKey): Promise<boolean> {
   const target = markerPath(baseDir, key);
+  if (await fs.exists(target)) return false;
   await fs.mkdirp(path.dirname(target));
   await fs.writeText(target, '');
+  return true;
 }

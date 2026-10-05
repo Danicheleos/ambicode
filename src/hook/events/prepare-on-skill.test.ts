@@ -4,13 +4,13 @@ import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promise
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
-import { parseArgs } from '../cli/args.ts';
-import { INIT_OPTIONS, runInit } from '../cli/commands/init.ts';
-import { PREPARE_OPTIONS, runPrepare } from '../cli/commands/prepare.ts';
-import { createRuntime } from '../composition/root.ts';
-import { nodeFileSystem } from '../ports/filesystem.ts';
-import { TempRepo } from '../testing/temp-repo.ts';
-import { readingOrder } from '../code-intelligence/navigation.ts';
+import { parseArgs } from '../../cli/args.ts';
+import { INIT_OPTIONS, runInit } from '../../cli/commands/init.ts';
+import { PREPARE_OPTIONS, runPrepare } from '../../cli/commands/prepare.ts';
+import { createRuntime } from '../../composition/root.ts';
+import { nodeFileSystem } from '../../ports/filesystem.ts';
+import { TempRepo } from '../../testing/temp-repo.ts';
+import { readingOrder } from '../../code-intelligence/navigation.ts';
 import { runHook } from './run-hook.ts';
 
 async function initializedRepo(): Promise<TempRepo> {
