@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Finding } from '#types/modules/review';
-import { defaultHandlers } from '#harness/engine/handlers';
+import { skillHandlers } from '#skills/handlers';
 import { appendLedger } from '#platform/ledger/ledger';
 import { checkFixture, COMMAND_PACK, CHECK_TASK } from './check-fixture.ts';
 import { reviewResult } from './review-fixture.ts';
@@ -21,7 +21,7 @@ export async function reviewRouteFixture(options: { config?: string; pack?: stri
   for (const name of STEPS) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
   const review = await readFile(path.join(REPO_ROOT, 'routes', 'review', 'review.yaml'), 'utf8');
   const { dirty, handlers, ...rest } = options;
-  const base = await checkFixture({ routes: { review }, handlers: { ...defaultHandlers(), ...(handlers ?? {}) }, step, ...rest });
+  const base = await checkFixture({ routes: { review }, handlers: { ...skillHandlers(), ...(handlers ?? {}) }, step, ...rest });
   const { fx } = base;
   await fx.repo.write('src/orders.ts', ORDERS);
   await fx.repo.commitAll('orders');

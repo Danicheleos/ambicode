@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { describe, it } from 'node:test';
+import ts from 'typescript';
 import { REPO_ROOT, SRC_ROOT } from '#testing/paths';
 
 /**
@@ -23,11 +24,6 @@ const RANK: Record<string, number> = {
 
 /** Known crossings, removed as they are fixed; an entry that no longer occurs fails too. */
 const ALLOWLIST = new Set<string>([
-  'src/harness/engine/handlers.ts -> #skills/common',
-  'src/harness/engine/handlers.ts -> #skills/init/handlers',
-  'src/harness/engine/handlers.ts -> #skills/rules/handlers',
-  'src/harness/engine/handlers.ts -> #skills/task/handlers',
-  'src/harness/engine/handlers.ts -> #skills/review/handlers',
   'src/hook/events/prepare-on-skill.ts -> #cli/args',
   'src/hook/events/prepare-on-skill.ts -> #cli/commands/prepare/prepare',
   'src/hook/events/prompt-launch.ts -> #cli/args',
@@ -45,8 +41,9 @@ const ALLOWLIST = new Set<string>([
   'src/modules/workers/plan-check.ts -> #harness/engine/fold',
 ]);
 
-const GUARD_BUNDLE_MAX_BYTES = 72 * 1024;
+const GUARD_BUNDLE_MAX_BYTES = 70 * 1024;
 
+/** Test files (*.test.ts) are deliberately not scanned: they may import across layers. */
 function sources(directory: string): string[] {
   const found: string[] = [];
   for (const name of readdirSync(directory)) {
@@ -57,7 +54,9 @@ function sources(directory: string): string[] {
   return found;
 }
 
-const areaOf = (file: string): string => path.relative(SRC_ROOT, file).split(path.sep)[0]!;
+const posixRelative = (from: string, file: string): string => path.relative(from, file).split(path.sep).join('/');
+
+const areaOf = (file: string): string => posixRelative(SRC_ROOT, file).split('/')[0]!;
 
 function target(file: string, specifier: string): string | null {
   if (specifier.startsWith('#')) return path.join(SRC_ROOT, specifier.slice(1));
@@ -65,26 +64,58 @@ function target(file: string, specifier: string): string | null {
   return null;
 }
 
-/** Statements that load another module: static imports, re-exports and dynamic imports. */
-const STATEMENT = /(?:^|\n)\s*(import|export)\s+(type\s+)?([^'";]*?)\s*from\s*'([^']+)'|import\(\s*'([^']+)'\s*\)/g;
+interface Load {
+  specifier: string;
+  typeOnly: boolean;
+}
+
+/** Everything that loads another module: static imports, re-exports, `import x = require()` and dynamic imports. */
+function loads(file: string): Load[] {
+  const found: Load[] = [];
+  const source = ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);
+  const literal = (node: ts.Node | undefined): string | null =>
+    node !== undefined && (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) ? node.text : null;
+  const visit = (node: ts.Node): void => {
+    if (ts.isImportDeclaration(node)) {
+      const clause = node.importClause;
+      const named = clause?.namedBindings;
+      const typeOnly =
+        clause !== undefined &&
+        (clause.isTypeOnly ||
+          (clause.name === undefined && named !== undefined && ts.isNamedImports(named) && named.elements.length > 0 && named.elements.every((element) => element.isTypeOnly)));
+      found.push({ specifier: literal(node.moduleSpecifier)!, typeOnly });
+    } else if (ts.isExportDeclaration(node) && node.moduleSpecifier !== undefined) {
+      const clause = node.exportClause;
+      const typeOnly =
+        node.isTypeOnly || (clause !== undefined && ts.isNamedExports(clause) && clause.elements.length > 0 && clause.elements.every((element) => element.isTypeOnly));
+      found.push({ specifier: literal(node.moduleSpecifier)!, typeOnly });
+    } else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
+      const specifier = literal(node.moduleReference.expression);
+      if (specifier !== null) found.push({ specifier, typeOnly: node.isTypeOnly });
+    } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+      const specifier = literal(node.arguments[0]);
+      if (specifier !== null) found.push({ specifier, typeOnly: false });
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return found;
+}
 
 function crossings(): string[] {
   const found: string[] = [];
   for (const file of sources(SRC_ROOT)) {
     const from = areaOf(file);
-    const text = readFileSync(file, 'utf8');
-    for (const match of text.matchAll(STATEMENT)) {
-      const specifier = match[4] ?? match[5]!;
+    for (const { specifier, typeOnly } of loads(file)) {
       const resolved = target(file, specifier);
       if (resolved === null) continue;
       const to = areaOf(resolved);
       if (to === from) continue;
-      const typeOnly = match[2] !== undefined || /^\{\s*(?:type\s+[^,}]+,?\s*)+\}$/.test(match[3] ?? '');
       const rankFrom = RANK[from]!;
       const rankTo = RANK[to]!;
       const allowed =
         rankFrom === -1 ? rankTo === -1 || (from === 'types' && rankTo === 0 && typeOnly) : rankTo < rankFrom;
-      if (!allowed) found.push(`${path.relative(REPO_ROOT, file)} -> ${specifier}`);
+      if (!allowed) found.push(`${posixRelative(REPO_ROOT, file)} -> ${specifier}`);
     }
   }
   return found.sort();
@@ -105,7 +136,8 @@ describe('layer boundaries', () => {
   const guard = path.join(REPO_ROOT, 'scripts', 'guard.mjs');
   it('keeps the guard bundle small and free of zod', { skip: !existsSync(guard) }, () => {
     const text = readFileSync(guard, 'utf8');
-    assert.ok(text.length <= GUARD_BUNDLE_MAX_BYTES, `guard.mjs is ${text.length} bytes`);
+    const bytes = Buffer.byteLength(text);
+    assert.ok(bytes <= GUARD_BUNDLE_MAX_BYTES, `guard.mjs is ${bytes} bytes`);
     assert.ok(!/\bZodError\b|from ['"]zod['"]/.test(text), 'guard.mjs bundles zod');
   });
 });

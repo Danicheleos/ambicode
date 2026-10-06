@@ -12,8 +12,7 @@ import { askedKeys } from '#modules/requirements/envelope/envelope';
 import { captureRequirement } from '#modules/requirements/capture/capture';
 import { fsActiveRoutePointer, resolveActiveRoute } from '#harness/session/active-route';
 import { openRouteView } from '#harness/engine/context';
-import { createEngine } from '#harness/engine/engine';
-import { defaultHandlers, handlerRegistry } from '#harness/engine/handlers';
+import { createAppEngine } from '#composition/engine';
 import { loadRouteRegistry } from '#harness/definition/routes';
 import { findSessionRepository } from '#platform/git/session-repository';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
@@ -38,7 +37,7 @@ export function defaultHookDeps(runtime: Runtime): HookDeps {
       (loaded ??= loadRouteRegistry(runtime.pluginRoot, runtime.fs).then((routes) => ({
         routes,
         pointer,
-        engine: createEngine({ runtime, routes, handlers: handlerRegistry(defaultHandlers()), pointer }),
+        engine: createAppEngine(runtime, routes, pointer),
       }))),
   };
 }

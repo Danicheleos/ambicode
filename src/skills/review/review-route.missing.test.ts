@@ -12,7 +12,7 @@ import { instantiateGate } from '#harness/gates/gates';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { initConfig } from '#testing/fixtures/init-config';
 import { openRouteView } from '#harness/engine/context';
-import { defaultHandlers } from '#harness/engine/handlers';
+import { skillHandlers } from '#skills/handlers';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { CONFIG, routeFixture, type RouteFixture } from '#testing/fixtures/route-fixture';
@@ -35,7 +35,7 @@ async function shipped(options: { requirements?: string[]; headless?: boolean; s
   const server = options.server === undefined ? 'atlassian' : options.server;
   const fx = await routeFixture({
     routes: { review: SHIPPED },
-    handlers: defaultHandlers(),
+    handlers: skillHandlers(),
     step: STEPS,
     config: server === null ? CONFIG : CONFIG.replace('mcpServer: null', `mcpServer: ${server}`),
   });

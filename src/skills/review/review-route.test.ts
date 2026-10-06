@@ -7,7 +7,7 @@ import { parseArgs } from '#cli/args';
 import { runReview, REVIEW_OPTIONS, type ReviewDependencies } from '#cli/commands/review/review';
 import { startTarget } from '#cli/commands/route/route';
 import { nodeFileSystem } from '#platform/ports/filesystem';
-import { defaultHandlers } from '#harness/engine/handlers';
+import { skillHandlers } from '#skills/handlers';
 import { MAX_INSTRUCTION_CHARS, loadRouteRegistry } from '#harness/definition/routes';
 import { buildReport } from '#modules/evidence/report/report';
 import { CHECK_TASK } from '#testing/fixtures/check-fixture';
@@ -40,7 +40,7 @@ const routeArgs = async (t: Fixture, task: string) => (await t.fx.kinds(task, 'r
 const cli = (...argv: string[]) => parseArgs('route start', ['review', ...argv], ROUTE_START_OPTIONS);
 const spied = (): { calls: { n: number }; handlers: Record<string, Handler> } => {
   const calls = { n: 0 };
-  const original = defaultHandlers()['review.evaluate']!;
+  const original = skillHandlers()['review.evaluate']!;
   return { calls, handlers: { 'review.evaluate': async (input) => { calls.n += 1; return original(input); } } };
 };
 

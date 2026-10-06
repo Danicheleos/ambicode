@@ -8,7 +8,7 @@ import { createRuntime } from '#composition/root';
 import { parseArgs } from '#cli/args';
 import { renderPlanCheck, runPlanCheckCommand, PLAN_CHECK_OPTIONS } from '#cli/commands/workers/plan-check';
 import { ledgerRouteContext } from '#harness/engine/context';
-import { defaultHandlers } from '#harness/engine/handlers';
+import { skillHandlers } from '#skills/handlers';
 import { routeFixture } from '#testing/fixtures/route-fixture';
 import { AmbicodeError } from '#util/errors';
 import { checkPlan, MAX_LISTED, planCheckFailed, runPlanCheck } from './plan-check.ts';
@@ -124,7 +124,7 @@ describe('plan check command and runPlanCheck', () => {
   async function planFixture() {
     const step: Record<string, string> = {};
     for (const name of ['plan/fetch', 'plan/design', 'plan/write']) step[`routes/${name}.md`] = await readFile(join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
-    const fx = await routeFixture({ routes: { plan: await readFile(join(REPO_ROOT, 'routes', 'plan', 'plan.yaml'), 'utf8') }, handlers: defaultHandlers(), step });
+    const fx = await routeFixture({ routes: { plan: await readFile(join(REPO_ROOT, 'routes', 'plan', 'plan.yaml'), 'utf8') }, handlers: skillHandlers(), step });
     await fx.repo.write('src/a.ts', 'export function targetName() {}\n');
     await fx.repo.commitAll('src');
     const task = 't1';

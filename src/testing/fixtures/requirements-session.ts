@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { openRouteView } from '#harness/engine/context';
-import { defaultHandlers } from '#harness/engine/handlers';
+import { skillHandlers } from '#skills/handlers';
 import { CONFIG, routeFixture, type RouteFixture } from './route-fixture.ts';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
@@ -44,7 +44,7 @@ export async function session(options: SessionOptions = {}) {
   if (options.shipped === true) for (const name of ['investigate/fetch', 'investigate/read']) step[`routes/${name}.md`] = await readFile(path.join(root, 'routes', `${name}.md`), 'utf8');
   const fx = await routeFixture({
     routes: { [skill]: route },
-    handlers: { ...defaultHandlers(), ...options.handlers },
+    handlers: { ...skillHandlers(), ...options.handlers },
     config: server === null ? CONFIG : CONFIG.replace('mcpServer: null', `mcpServer: ${server}`),
     ...(options.shipped === true ? { step } : {}),
   });

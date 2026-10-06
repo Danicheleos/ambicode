@@ -1,187 +1,194 @@
-# Plan: closing the v6 gaps (A1–A9)
+# Plan: closing the v6 gaps (A1–A9, B1–B19) and ledger instrumentation
 
 ## Context
-The gap report (gym/planing/new-architecture/gap-report-v6-vs-implementation.md) found nine places where the implementation breaks the v6 design. The user's decisions:
-- **A1:** no layer crossings. L1 holds only capabilities, and the harness (L2) controls all orchestration.
-- **A2:** keep the owner ids, but record the session hand-over in the ledger.
-- **A3:** a stopped route can be reopened by re-typing its skill with more context.
-- **A4:** Stop becomes a declared engine entry point.
+The gap report (gym/planing/new-architecture/gap-report-v6-vs-implementation.md) lists the A breaks and B drifts.
+
+User decisions on A:
+- **A1:** no layer crossings. L1 holds pure capabilities and the harness (L2) orchestrates.
+- **A2:** keep owner ids and record the session hand-over in the ledger.
+- **A3:** reopen a route by re-typing its skill.
+- **A4:** Stop is an engine entry point.
 - **A5:** the ecosystem is measured on init.
 - **A6:** configurable tuning.
-- **A7:** no reviewer re-run or browser opening without a human yes.
+- **A7:** no reviewer re-run or browser open without a human yes.
 - **A8:** crash repair.
-- **A9:** record everything useful for tuning, with no paid runs.
+- **A9:** instrument only.
 
-The plan merges three design passes. Work goes **one step at a time**: implement the step, run the targeted tests, report, and wait for approval before the next step. The user runs all reviews. `npm run verify` runs only at hand-off.
+User decisions on B (2026-10-07):
+- **Kept as is:** B1 (repeat reset), B3 (consent window), B4 (same-error counter) and B14. A human accepts every rerun.
+- **Resolved:** B2, B5, B6, B7, B8, B9, B10, B11, B12, B13, B15, B16, B17, B18 and B19, as set out in the steps below.
+- **New request:** the ledger records the commands and scripts that ran, and the context size.
 
-## Layer rule (applies to all steps)
-- **Ranks:** util/types are usable anywhere; platform 0, modules 1, harness 2, skills 3. cli, composition and the hook adapter sit on top.
-- Imports point only downward. L2→L1 capability calls are fine.
-- L1 must not know about routes, ledgers-as-route-state or consent.
-- Enforced by `src/architecture.test.ts`. Its `ALLOWLIST` starts with today's violations and only shrinks, and a stale entry fails the test.
+Working rule: one step at a time, run the targeted tests, report, and wait for approval. Steps 1–2 are done and frozen. `npm run verify` runs only at hand-off.
+
+## Layer rule
+- **Ranks:** util and types are usable anywhere. Then platform 0, modules 1, harness 2, skills 3, composition 4, hook 5, cli 6.
+- Imports point only downward.
+- Enforced by `src/architecture.test.ts`, which now uses the TypeScript AST. Its `ALLOWLIST` only shrinks.
 
 ## Steps
 
-### 1. Architecture test and mechanical moves (A1)
-- **Architecture test:** add `src/architecture.test.ts`: the layer map, the allowlist, the guard bundle closure, and a size check (≤ 72 KB, no zod).
-- **Moves:**
-  - ledger, ledger-lock and kinds → `src/platform/ledger/`, with the types in `types/platform/ledger.ts`;
-  - `Runtime` → `types/platform/runtime.ts`;
-  - `openRepository` and `findSessionRepository` → `platform/git`;
-  - `openWorkspace` and the project lookups → `modules/config/workspace.ts`;
-  - `resolvePolicyFor` → `modules/policy/resolve-for.ts`;
-  - exclusions → `util/path-classes.ts`, `describeIssues` → `util/schema-issues.ts`, `tokenize` → `util/text.ts`;
-  - `process-runner` → `platform/ports`;
-  - `HookInput` → `types/platform/claude.ts`;
-  - the pure hook markers → `platform/claude/hook-state.ts`.
-- These are import rewrites only, with no behavior change.
+### 1–2. Done (frozen)
+- **Step 1:** the architecture test and mechanical moves (ddde0a9).
+- **Step 2:** skill handlers moved out of the harness, plus `composition/engine.ts`.
+- **Review fixes:** applied and staged: AST scanner, Windows paths, guard cap of 70 KiB measured in bytes, `HANDLER_NAMES` test, barrels.
 
-### 2. Skill handlers out of the harness (A1)
-- `defaultHandlers` and `EVIDENCE_HANDLERS` → `src/skills/index.ts` as `skillHandlers()`.
-- `planCheckStep` → `skills/plan/handlers.ts`.
-- The engine is built in a new `composition/engine.ts` `createAppEngine`.
-
-### 3. Ledger schema for the lifecycle (A2/A3/A8)
-In `kinds.ts`:
-- `route` gains `reopens` and `rebind`;
-- `exit` gains `complete`, `unverified` and `source`;
-- `revise` gains via `reopen` and `source`;
-- `limit` gains `source`;
-- `step` gains `revise` args and `exit`;
+### 3. Ledger schema (A2/A3/A8, B19, ledger instrumentation)
+In `platform/ledger/kinds.ts`:
+- `route` gets `reopens` and `rebind`;
+- `exit` gets `complete`, `unverified`, `source`, and reason `dismissed`;
+- `revise` gets via `reopen` and `source`;
+- `limit` gets `source`;
+- `step` gets `revise` args, `exit`, `ms`, `budget`, `payloadBytes` and `payloadTokens`;
 - new kind `session {route, harnessSession, event:'end', reason}`.
 
-Tests: each new field is accepted, a malformed value is rejected, and old ledgers still parse.
+New kinds for the instrumentation request (step 17 writes them):
+- `command {argv, kind: ambicode|check|format|baseline|reviewer|worker|index, exit, ms, outBytes}`: a command the harness or the CLI ran;
+- `turn {from, to, tools:{name:count}, commands:[{text, kind: package-script|node-script|git|ambicode|other}], context:{input, cacheRead, cacheCreate, output, peak}}`: what the model did between two Stops, read from the transcript.
 
-### 4. Exits and the fold (A3, plus the cycle drift)
-- **`finish()`:** when items are unverified, write `exit{complete, unverified:N}`, so the route is no longer live.
-- **`exitOf`:** ignores exits before the latest `reopens` route entry.
-- **Budgets:** `modelDeliveries` and the clock count from the latest reopen.
-- **`ownerOf`:** accepts a chain that was closed and then reopened when its `reopens` matches.
-- **`cycleStart(def, entries, step)`:** resets only for steps the revise covered. Used by answers.ts, execute.ts and status.ts.
+Command text is capped at 200 chars, and secret-looking values are redacted (`*_TOKEN=`, `Authorization:`, URL credentials).
 
-### 5. Reopen (A3)
-- **New `src/harness/engine/reopen.ts` `resolveReopen`:**
-  - Order: `--task`, then this session's latest route, then a slug match across sessions (only after a `session` end entry, or with `--adopt`), then a new route.
-  - Reopenable exits: human, blocked, inconclusive, budget, draft-stop, and complete with unverified items.
-  - `--fresh` skips the lookup.
-  - A CLI `route start` reopens only with `--reopen`.
-- **Writing the reopen** (in the start lock):
-  - Append `route{resumes, reopens, args: merged}`.
-  - Revise the step that ended the route:
-    - a human step with `onAnswer['*']` (for investigate `scope`, that means re-grounding with the new text);
-    - a code or model step gets the new text as `Context`;
-    - a `complete` exit goes to the route's new `reopen:` key (task → `fix`, investigate → `read`).
-  - The revise uses via `reopen`, writes no acceptance and does not count against `repeat`.
-- **`--fresh` reach:** supersedes only the caller's heads and heads whose session ended.
-- The investigate `scope` question tells the user how to come back with more context.
-- **Late gate answer on a completed route:** a hook answer that binds to a print in the last cycle of a `complete`-exited chain reopens it. It is a human answer, so it is allowed.
+Tests: each new field and kind is accepted, a malformed value is rejected, and old ledgers still parse.
 
-### 6. Session rebind recorded in the ledger (A2)
-- **SessionEnd:** writes `session{end}` for every live head of that harness session. The tmp mark stays only as a cache.
-- **`harnessEnded(entries, harness)`:** a pure check, used by rebind and start.
-- **Same-id resume/compact:** always appends `route{adopts, rebind}`, idempotently.
-- **New-id `clear`/`resume`:** attaches exactly one orphan. `startup` never attaches.
-- **Retyping the skill:** adopts the chain when its owner's harness has ended.
-- **CLI start:** takes `harnessSession` from the single association.
+### 4. Exits and the fold (A3)
+- **`finish()`:** when items are unverified, write `exit{complete, unverified:N}`.
+- **`exitOf`:** ignores exits before the latest reopen.
+- **Budgets:** count from the reopen.
+- **`ownerOf`:** accepts a reopened chain.
+- (B1 kept: no `cycleStart` change.)
+
+### 5. Reopen (A3, B2)
+- **`harness/engine/reopen.ts` `resolveReopen`:** the order is:
+  1. `--task`;
+  2. the session's latest route;
+  3. a slug match after a `session` end, or with `--adopt`;
+  4. a new route.
+- **The reopen:** merged args, a revise of the step that ended the route with via `reopen`, and a `reopen:` key for complete exits.
+- **B2:** `--fresh` supersedes only the caller's heads and heads whose session ended.
+- **Scope question:** the investigate `scope` question explains how to come back with more context.
+- **Late answers:** a late gate answer on a complete chain reopens it.
+
+### 6. Session rebind in the ledger (A2)
+- SessionEnd writes `session{end}`.
+- `harnessEnded(entries, harness)` is a pure check.
+- Same-id resume appends `route{adopts, rebind}`, idempotently.
+- A new-id `clear`/`resume` attaches one orphan.
+- Re-typing the skill adopts the chain once its harness has ended.
 
 ### 7. Crash repair (A8)
-`repairEffects(run)` replaces `applyRaisedAnswers`. It is idempotent through the `source` field, with a legacy fallback by position. It covers three gaps:
-- R1: an answer with no effect;
-- R2: a failed step with no `onFail` revise;
-- R3: a handler exit that was never written.
+- `repairEffects(run)` repairs three gaps:
+  - R1: an answer with no effect;
+  - R2: a failed step with no `onFail` revise;
+  - R3: a missing handler exit.
+- It is idempotent via `source`.
+- A gate print lost to a crash does not count toward the three-print default.
+- `$raisedBy` is bounded by `maxRevises`.
 
-Two related fixes:
-- **Lost gate prints:** a print lost to a crash does not count toward the three-print default.
-- **`$raisedBy` limit:** the `$raisedBy` exemption is removed, so it is bounded by `gate.maxRevises`, and `limit{repeat}` is written when the limit is spent.
+### 8. Stop as an engine entry point (A4, B5, B19)
+- **Entry point:** `engine.stopHook()` runs under one lock. `stop-check.ts` becomes a thin adapter, and the checks move to `harness/engine/stop.ts`.
+- **B5 generated sections:** checked when either heading is present, or once the report has been written.
+- **B5 "approved":** needs a current acting acceptance.
+- **B19 dismissed question:** a pending gate print whose AskUserQuestion was dismissed is detected from the transcript at Stop (and at UserPromptSubmit) and writes `exit{human, reason: dismissed}`. Re-typing the skill reopens the route (step 5).
+  - The gate print says: "If the user dismisses the question, end your turn; the route pauses."
+  - First a $0 local probe to see how a dismissal appears in the transcript.
 
-### 8. Stop as an engine entry point (A4)
-- **Engine entry:** `engine.stopHook()` runs under one lock. It handles an unreadable transcript, the one-time block, and saving the note and advancing with cause `answer`.
-- **Hook as adapter:** `stop-check.ts` becomes a thin adapter, and its pure checks move to the harness (`harness/engine/stop.ts`).
-- **Generated sections:** they are checked when either heading is present, or once the report has been written.
-- **"Approved" claims:** an "approved" claim needs a current acting acceptance.
+### 9. Guarded-command seam and pure L1 (A1, B17)
+- **The seam:** `harness/engine/command.ts` `engine.command(spec, request, body)`. Each skill declares its commands in `COMMAND_SPECS`.
+- **Migration:** commands move in the existing order, then `RouteContextPort` is deleted.
+- **Orchestrators move to L3:** review bundle and estimate, doctor, init, rules and plan-check.
+- **Facade:** `composition/app.ts` `createApp`. Rebind moves to `harness/session/rebind.ts`. `#cli/args` → `util/args.ts`, and `startTarget` → `composition/start.ts`.
+- **B17:** every `prepare --activity X` maps to `route start X` with the deprecation notice. Delete:
+  - the old prepare body;
+  - the dead `prepare-on-skill` path and its allowlist entries;
+  - the per-ecosystem LSP `GUIDANCE` table.
 
-### 9. Guarded-command seam and pure L1 (A1 "cut off L1")
-- **The seam:** add `harness/engine/command.ts` with `engine.command(spec, request, body)`.
-  - The engine resolves the binding, the refusals, the view and the owner.
-  - Then it runs the body, handles consent and gates, appends route-tagged and declined/limit entries, and runs the tail.
-- **Command specs:** each skill declares its commands in `skills/<skill>/commands.ts` as `COMMAND_SPECS`.
-- **Migration order** (one sub-step each): `policy check --drafts`, requirements, notes, init apply, rules, format, check-command, plan-check/worker-run, review evaluation, report predicate, conflict (→ `harness/gates/conflict.ts`, registered explicitly).
-- **End state:** delete `RouteContextPort` from the module types.
-- **Orchestrators move to L3:**
-  - review bundle and estimate → `skills/review/bundle/`;
-  - doctor, init and proposal → `skills/init/`;
-  - rules → `skills/rules/`;
-  - plan-check → `skills/plan/`.
-- **Hook and CLI cleanup:**
-  - The hooks call a `composition/app.ts` `createApp` facade.
-  - Rebind moves to `harness/session/rebind.ts`.
-  - `#cli/args` → `util/args.ts`; `startTarget` → `composition/start.ts`.
+### 10. Reviewer and browser consent (A7, B13 final state)
+- **Defaults:** `default-taken` never applies an `onAnswer` revise.
+- **One acceptance, one reviewer run:** each reviewer run needs a fresh acting acceptance (`review-offer`, `estimate`, new `review-again`).
+- **Fix rounds:** a fix round leads to `review-again`, default skip and `maxRevises` 2. Skip writes "fix not re-reviewed".
+- **Browser:** `view --review` opens it only with `--open`. view.md asks first.
+- (B3 kept: no consent-window change.)
 
-### 10. Reviewer and browser consent (A7), after the seam
-- **Defaults:** `default-taken` never applies an `onAnswer` revise, so `review-checks` `without` no longer starts a reviewer.
-- **One acceptance, one reviewer run:** each reviewer run needs a fresh acting acceptance (`review-offer`, `estimate`, new `review-again`). Enforced through the seam.
-- **Fix rounds:** `fix` produces only a green check. `review.evaluate` then raises `review-again` (default skip, `maxRevises` 2). Skip writes "fix not re-reviewed" into Not verified.
-- **Consent window:** a raised gate's consent window is the window of the step that raised it.
-- **Browser:**
-  - Under a review route, `view --review` opens the browser only with `--open`.
-  - routes/review/view.md uses `--no-open` and then asks "Open the review page now?".
+### 11. Route ceremony, staging and visibility (B7, B9, B18, B15)
+- **B7 chained code steps:** code steps that follow a model step run inside the same `route next`. fetch, write, read-back and view no longer end with an extra `route next`.
+  - Target: task 1–2, review 1–2.
+  - Tests count the round trips per route.
+- **B7 no-red:** after one re-print with no red check, write `limit{no-red}` and stop for the human.
+- **B9 staging, per the v6 11 §2 table:**
+  - `before-work` goes at the read/implement step;
+  - `before-checks` goes at the step before check/review (task `green`), not at `ground`;
+  - `before-report` carries only before-report pack prompts (there is no presentation rule category);
+  - investigate gets `before-report` on its last model step.
+- **B18 headless:**
+  - the start message says "headless (set by the model)" when the model passed the flag;
+  - `route status` shows the mode, the channel and every default-taken or automatic decision.
+- **B15 workers:**
+  - `worker run <id>` refuses ids that are not in `workers.approved`;
+  - a worker route step gets a run/inline/skip gate (default skip, never acting) and no longer throws `internal`.
 
-### 11. Measured profile and generic projects (A5)
-- **Declaration candidates:** `DECLARATION_PATTERNS` becomes `DECLARATION_CANDIDATES {id, pattern}`. Add `TEST_CANDIDATES`.
-- **Profile measurement:** `buildProfile` measures which patterns apply and stores them in `SearchProfile.declarations/tests/measuredWith`.
-  - Readers use `declarationPatterns(profile)` and `testMatcher(profile)`, with the catalog as fallback.
-- **Generic projects:** a repo with no manifest becomes project `generic`.
-- **LSP leftovers:** remove the per-ecosystem LSP `GUIDANCE` table, and the LSP lines in config/prepare.
+### 12. Requirements (B6)
+- **Generic URLs:** any asked URL is keyed by its normalized URL. A `WebFetch` PostToolUse capture produces that key, so a generic URL is no longer always `missingAsked`.
+- **Relations:** add `mention` to the relation enum.
+- **Disconnected server:** raise `requirements-server-disconnected` when the MCP tool result reports a missing or disconnected server.
 
-### 12. Search tuning options (A6)
-- **Defaults and overrides:** `SEARCH_TUNING_DEFAULTS` lives in `types/defaults.ts`. `search.tuning` holds overrides only, as a strict, validated schema. `layers` becomes an enum.
-- **Resolution:** `modules/config/tuning.ts` `resolveTuning` returns `{tuning, overrides, hash}`.
-  - `config` prints each effective value with its source.
-  - The tuning slices are threaded through search, and `mapWithRetry` moves into `map.ts`.
-- **Recorded on the map entry:** the ledger map entry records `tuning {hash, overrides}`, `profile` and `decisions`.
-- **Leads header:** the leads text starts with a "Layers … · tuning <hash>" line.
-- **Golden test:** the default output is unchanged.
+### 13. Guard and hooks (B10, B11, B12)
+- **B10:** remove `budget.toolTurns` from the DSL, investigate.yaml, the pointer and the guard (delete `tool-turns.ts`). Turns are reported, not steered: step 17's `turn` entry.
+- **B11 matchers:** add `Bash(*ambicode.mjs*)` and `Bash(rm *)` matchers, so the root-deletion row can be reached.
+- **B11 `--task`:** add `updatedInput --task` after a $0 local probe (P47).
+- **B12 headless:** when the active route is headless, a guard `ask` becomes a deny whose message says to run `route stop --reason blocked --detail "permission-denied: …"`. Step texts say the same, and the report lists it. The guard stays ledger-free.
+- Guard bundle size check: ≤ 70 KiB.
 
-### 13. Instrumentation (A9, no paid runs)
-- **Ledger timing:** `step` gains `ms` and `budget`; `exit` gains `budget`; add a `hook {name, ms}` entry.
-- **Metrics rows:** init and rules append rows to `.ambicode/metrics.jsonl`.
-- **`ledgerMetrics`:** adds `stepMs`, `gateLatencyMs`, `budgetUsage`, `mapDecisions`, `mapTuning`, `mapRetry`, `initRuns` and `rulesRuns`.
-- **Model-free runners** under evals/cases/scripts/src, each with tests:
-  - `analysis/tuning-summary.mjs`;
-  - `harness/task-suite.mjs` (dry-run/score);
-  - `harness/live-review.mjs` (dry-run/replay).
+### 14. Init (B16)
+- **Save first:** init writes the proposal as a draft file (`.ambicode/config.draft.yaml`) right away, then asks.
+- **Pin by hash:** the draft's hash is bound to the answer. Apply writes exactly the approved draft. If re-detection now differs, it shows the diff and asks again; it never writes values the user did not see.
+- **Separate choices:** one question with separate choices for MCP servers, runner and `search.index`, replacing typed `key=value`.
+- **Binding:** overrides are bound through `ConsentBinding.set`, and the `Values:` line path is deleted.
 
-### 14. Docs
-- Create v7 (copy of v6 plus a CHANGELOG): owner and session entries, reopen, the Stop entry point, the command seam, the tuning block, and the new ledger fields.
-- Write `refactoring/src/02-boundaries.md`.
-- Update the gap report's status column.
+### 15. Measured profile (A5)
+- `DECLARATION_CANDIDATES` and `TEST_CANDIDATES` are measured into `SearchProfile`, with the catalog as fallback.
+- A repo with no manifest becomes project `generic`.
+- The LSP table removal is done in step 9.
 
-## Critical files
-- **Engine:** src/harness/engine/{engine,execute,fold,context}.ts and src/harness/gates/answers.ts.
-- **Session and hooks:** src/harness/session/ownership.ts, src/hook/events/{stop-check,rebind,run-hook}.ts.
-- **Ledger:** src/modules/evidence/ledger/kinds.ts (→ platform/ledger).
-- **Routes:** routes/gates.yaml, routes/task/task.yaml, routes/review/view.md.
-- **Search:** src/modules/search/**, src/types/modules/ecosystems.ts, src/types/defaults.ts.
-- **CLI:** src/cli/commands/{route,review,config,prepare,view}/*.
-- **Evals:** evals/cases/scripts/src/**.
+### 16. Search tuning and map seeding (A6, B8)
+- **Tuning:** `SEARCH_TUNING_DEFAULTS`, `search.tuning` overrides and `resolveTuning` with a hash. The map entry records tuning, profile and decisions. The leads header shows the tuning hash.
+- **B8 seeding:** plan and task maps get the paths and symbols cited in the investigate note or brief, plus the acceptance-criteria identifiers. Terms rank from the brief or plan iteration text, never "iteration N of <slug>".
+- Golden test: investigate output is unchanged.
 
-## Reuse
-- `canonicalArgs` hashes the merged args.
-- `saveNote(..., {ledger})` (notes.ts) is used by the Stop entry point.
-- `raisedAnswerHandler` is already idempotent.
-- `answers.gateWindow` provides the consent window.
-- `evaluateConsent` backs the "approved" check.
-- `associationSessionSource` supplies the CLI `harnessSession`.
-- `selection-metrics.test.ts`, `guard.test.ts` and `ownership.test.ts` serve as test templates.
+### 17. Instrumentation (A9 + ledger request, no paid runs)
+- **Commands:** `command` entries come from one wrapper around the project command runner (check, format, baseline, reviewer, worker, index) and from `cli/main.ts` for each ambicode invocation (with a task). Runs with no task go to `.ambicode/metrics.jsonl`.
+- **Context size:**
+  - `step.payloadBytes` and `payloadTokens` (bytes/4) for every printed step;
+  - at Stop, a `turn` entry from the transcript since the stop cursor: tool counts, Bash commands classified (package script, node script, git, ambicode, other), and token usage (`input + cacheRead + cacheCreate` = context; `peak`).
+- **Timing:** `step.ms` and `budget`, `exit.budget`, and a `hook {name, ms}` entry.
+- **Metrics rows:** init and rules write rows.
+- **`ledgerMetrics`:**
+  - `stepMs`, `gateLatencyMs`, `budgetUsage`;
+  - `mapDecisions`, `mapTuning`, `mapRetry`;
+  - `initRuns`, `rulesRuns`;
+  - `commands` (count, ms, failures by kind);
+  - `contextPeak` and `contextByStep`.
+- **Model-free runners:** `tuning-summary`, `task-suite` and `live-review` (dry-run and replay).
+
+### 18. Docs
+- **v7:** a copy of v6 plus a CHANGELOG with:
+  - A2–A9 and the reopen, Stop, seam and tuning changes;
+  - the new ledger kinds;
+  - the kept B1/B3/B4/B14;
+  - B13, recorded as the final fix-round mechanism after step 10.
+- `refactoring/src/02-boundaries.md`.
+- The gap-report status column.
 
 ## Verification
-- **Per step:** targeted `node --test` runs for the touched tests. Key scenarios:
-  - **Reopen:** investigate with an empty map, pause, then `/ambicode:investigate auth.ts` reruns the map with the merged context.
-  - **Crash repair:** R1–R3 each give exactly one effect after two advances.
-  - **Defaults:** taking a default runs no reviewer.
+- **Per step:** targeted `node --test` runs. Key scenarios:
+  - **Reopen:** investigate re-typed with more context reruns the map.
+  - **Crash repair:** R1–R3 each give exactly one effect.
+  - **Defaults:** a default runs no reviewer.
   - **Browser:** no browser opens without `--open`.
+  - **B19:** a dismissed question gives `exit{human, dismissed}`, and re-typing the skill reopens.
+  - **B7:** the round-trip count per route.
+  - **B12:** a headless guard ask gives a deny with the stop text.
+  - **B16:** apply writes only the approved hash.
+  - **Ledger:** `command` and `turn` entries come from a fixture transcript.
   - **Tuning:** the golden leads output is unchanged.
-  - **Session end:** writes a `session` entry.
-  - **Architecture test:** the allowlist shrinks every step.
-- **After steps 1, 8, 9:** the guard bundle size check.
-- **Hand-off:** `npm run build`, then `npm run verify`. A local $0 eval repro is used only if the user asks.
+- **Guard bundle check:** after steps 9 and 13.
+- **Hand-off:** `npm run build`, then `npm run verify`.

@@ -14,7 +14,7 @@ import { runFormat } from '#modules/checks/run/format';
 import { runHook } from '#hook/events/run-hook';
 import { ledgerRouteContext } from '#harness/engine/context';
 import { runCommandTail } from '#harness/engine/command-tail';
-import { defaultHandlers } from '#harness/engine/handlers';
+import { skillHandlers } from '#skills/handlers';
 import { assembleEngine } from '#testing/fixtures/route-fixture';
 import { COMMAND_PACK, SplitRunner } from '#testing/fixtures/check-fixture';
 import { readLedger } from '#platform/ledger/ledger';
@@ -50,7 +50,7 @@ async function offByOne() {
   const step: Record<string, string> = {};
   for (const name of ['plan/fetch', 'task/red', 'task/green', 'task/fix', 'task/write']) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
   const assembled = await assembleEngine({ root, routes: { task: await readFile(path.join(REPO_ROOT, 'routes', 'task', 'task.yaml'), 'utf8') }, step });
-  const engine = assembled.build(defaultHandlers());
+  const engine = assembled.build(skillHandlers());
   const scratchpad = await assembled.runtime.fs.temporaryDirectory('ambicode-scratch-');
   const runner = new SplitRunner(assembled.runtime.runner);
   const runtime: Runtime = { ...assembled.runtime, runner };

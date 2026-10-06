@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { ledgerRouteContext } from '#harness/engine/context';
 import { loadPayload } from '#harness/engine/delivery';
-import { defaultHandlers } from '#harness/engine/handlers';
+import { skillHandlers } from '#skills/handlers';
 import { saveNote } from '#modules/evidence/notes';
 import { assembleEngine, CONFIG, routeFixture } from '#testing/fixtures/route-fixture';
 import { NodeProcessRunner } from '#platform/ports/node-process-runner';
@@ -19,7 +19,7 @@ const STEPS = ['investigate/fetch', 'investigate/read'];
 async function investigation() {
   const step: Record<string, string> = {};
   for (const name of STEPS) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
-  const fx = await routeFixture({ routes: { investigate: await readFile(path.join(REPO_ROOT, 'routes', 'investigate', 'investigate.yaml'), 'utf8') }, handlers: defaultHandlers(), step });
+  const fx = await routeFixture({ routes: { investigate: await readFile(path.join(REPO_ROOT, 'routes', 'investigate', 'investigate.yaml'), 'utf8') }, handlers: skillHandlers(), step });
   await fx.repo.write('src/cart.ts', 'export function addToCart(items: string[], item: string): string[] {\n  return [...items, item];\n}\n');
   await fx.repo.write('src/checkout.ts', "import { addToCart } from '#route/cart';\n\nexport const checkout = (): string[] => addToCart([], 'book');\n");
   await fx.repo.commitAll('cart');
@@ -155,7 +155,7 @@ describe('investigate route: a synthetic walk on ts-feature-boundary (03-I1, 03-
       for (const name of STEPS) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
       const routes = { investigate: await readFile(path.join(REPO_ROOT, 'routes', 'investigate', 'investigate.yaml'), 'utf8') };
       const assembled = await assembleEngine({ root, routes, step });
-      const engine = assembled.build({ ...defaultHandlers(), 'requirements.normalize': async ({ ledger, view }) => {
+      const engine = assembled.build({ ...skillHandlers(), 'requirements.normalize': async ({ ledger, view }) => {
         await ledger.append({ kind: 'envelope', route: view.routeId, sources: [], builtFrom: 'args', asked: [], missingAsked: [], hash: 'stub' });
         return { state: 'ok', payload: 'ORD-17: invoice totals' };
       } });

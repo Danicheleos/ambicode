@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { defaultHandlers } from '#harness/engine/handlers';
+import { skillHandlers } from '#skills/handlers';
 import { checkFixture, COMMAND_PACK, CHECK_TASK } from '#testing/fixtures/check-fixture';
 import { REPO_ROOT } from '#testing/paths';
 import { SESSION_A } from '#testing/fixtures/ids';
@@ -11,7 +11,7 @@ const PROPOSE_UNIT = COMMAND_PACK.replace('{ command: unit, action: run', '{ com
 
 async function investigate() {
   const [yaml, read] = await Promise.all(['routes/investigate/investigate.yaml', 'routes/investigate/read.md'].map((file) => readFile(path.join(REPO_ROOT, file), 'utf8')));
-  const t = await checkFixture({ routes: { investigate: yaml! }, handlers: defaultHandlers(), step: { 'routes/investigate/read.md': read!, 'routes/investigate/fetch.md': 'Fetch.' }, pack: PROPOSE_UNIT });
+  const t = await checkFixture({ routes: { investigate: yaml! }, handlers: skillHandlers(), step: { 'routes/investigate/read.md': read!, 'routes/investigate/fetch.md': 'Fetch.' }, pack: PROPOSE_UNIT });
   await t.fx.repo.write('src/orders.ts', 'export const total = 1;\n');
   await t.fx.repo.commitAll('orders');
   const message = await t.fx.engine.start({ skill: 'investigate', text: 'why does `total` return 1', requirements: [], task: CHECK_TASK, cwd: t.fx.repo.root, session: SESSION_A, channel: 'hook', scratchpadDir: t.fx.scratchpad });

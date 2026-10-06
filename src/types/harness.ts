@@ -56,7 +56,7 @@ export interface RouteArgs {
   hash: string;
 }
 
-/** Every `run` name a shipped route may use; `handlers.ts` registers exactly these and a test keeps the two equal. */
+/** Every `run` name a shipped route may use; `handlers.ts` registers exactly these and `src/skills/handlers.test.ts` keeps the two equal. */
 export const HANDLER_NAMES = [
   'requirements.template',
   'requirements.normalize',

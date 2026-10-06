@@ -52,11 +52,8 @@ export { latestRouteOf } from './engine/fold.ts';
 export { liveHeads } from './engine/fold.ts';
 /** windowOf(fold, step) — the chain entries from the start of a step's window onward. */
 export { windowOf } from './engine/fold.ts';
-/** defaultHandlers() — the full code-step handler table (modules, evidence, init, rules, task, review) as a fresh record. */
-export { defaultHandlers } from './engine/handlers.ts';
 /** handlerRegistry(handlers) — wraps a handler record in the lookup (`get(name)`, `names()`). */
 export { handlerRegistry } from './engine/handlers.ts';
-export { EVIDENCE_HANDLERS } from './engine/handlers.ts';
 
 // gates/: the gate registry, raising gates and the hooks modules use to shape prints and handle answers.
 /** onGatePrint(gate, shaper) — registers a module's shaper for the question and options a gate prints. */

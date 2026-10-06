@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { defaultHandlers } from '#harness/engine/handlers';
+import { skillHandlers } from '#skills/handlers';
 import { CONFIG, routeFixture } from '#testing/fixtures/route-fixture';
 import { REPO_ROOT } from '#testing/paths';
 
@@ -14,7 +14,7 @@ for (const name of ['review/fetch', 'review/readback', 'review/view']) STEPS[`ro
 
 describe('review route, model-typed estimate answer (08-P3)', () => {
   it('08-P3: a later model route next --answer estimate=run is declined and no reviewer step runs', async () => {
-    const fx = await routeFixture({ routes: { review: SHIPPED }, handlers: defaultHandlers(), step: STEPS, config: CONFIG });
+    const fx = await routeFixture({ routes: { review: SHIPPED }, handlers: skillHandlers(), step: STEPS, config: CONFIG });
     try {
       await fx.repo.write('src/a.ts', 'export const a = 1;\n');
       await fx.repo.commitAll('a');

@@ -21,6 +21,12 @@ export { writeUniqueFile } from './files.ts';
 export { uniqueFileExhausted } from './files.ts';
 
 // path-classes.ts: path classes shared by review, search and policy (excluded, test, credential-like, binary extension).
+/** describeExclusion(reason) — the sentence explaining an exclusion reason. */
+export { describeExclusion } from './path-classes.ts';
+/** isExcludedFromReview(oldPath, newPath, operator?) — the exclusion reason for a changed file under either name, or null. */
+export { isExcludedFromReview } from './path-classes.ts';
+/** isUselessAsContext(relativePath) — whether a file name is a generated or lock file that adds nothing as review context. */
+export { isUselessAsContext } from './path-classes.ts';
 /** isTestPath(relativePath) — whether a path matches the test-file conventions. */
 export { isTestPath } from './path-classes.ts';
 /** pathExclusionReason(…) — why a path is excluded from the snapshot, or null. */

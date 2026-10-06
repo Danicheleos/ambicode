@@ -13,7 +13,7 @@ import { AmbicodeError } from '#util/errors';
 import { localTimestamp, uniqueFileExhausted, writeUniqueFile } from '#util/files';
 import type { Runtime } from '#types/composition';
 import type { LedgerEntry, LockedLedger, NoteDeps, TaskDir } from '#types/modules/evidence';
-import type { RouteArgs, HandlerInput, HandlerResult } from '#types/harness';
+import type { RouteArgs } from '#types/harness';
 import type { PlanCheckResult, BadAnchor } from '#types/modules/workers';
 
 export const MAX_LISTED = 50;
@@ -100,7 +100,7 @@ export async function checkPlan(input: { body: string; repositoryRoot: string; a
   };
 }
 
-const LAST_ROUND = 'last automatic round: list anything you cannot fix under `## Known limitations`';
+export const LAST_ROUND = 'last automatic round: list anything you cannot fix under `## Known limitations`';
 
 /** The acceptance unit ids of the route's latest envelope (step 04's `acs`); none without a captured requirement. */
 async function acIdsOf(runtime: Runtime, dir: TaskDir, entries: readonly LedgerEntry[], head: LedgerEntry | undefined): Promise<string[]> {
@@ -127,7 +127,7 @@ async function finderOf(runtime: Runtime, dir: TaskDir, entries: readonly Ledger
 }
 
 /** Checks a saved draft, writes the artifact, then the `worker` entry; a throw leaves no `worker` entry (06-P2). */
-async function checkDraft(deps: NoteDeps & { ledger: LockedLedger }, task: string, draft: LedgerEntry): Promise<{ worker: LedgerEntry; result: PlanCheckResult; artifact: string }> {
+export async function checkDraft(deps: NoteDeps & { ledger: LockedLedger }, task: string, draft: LedgerEntry): Promise<{ worker: LedgerEntry; result: PlanCheckResult; artifact: string }> {
   const { runtime, ledger } = deps;
   const started = runtime.clock.now().getTime();
   const dir = await resolveTaskDir(runtime, task);
@@ -157,55 +157,4 @@ export async function runPlanCheck(deps: NoteDeps, input: { task: string; body: 
   if (deps.ledger !== undefined) return work(deps.ledger);
   const dir = await resolveTaskDir(deps.runtime, input.task);
   return withLedgerLock(deps.runtime.fs, dir.root, () => deps.runtime.clock.now(), deps.session ?? deps.runtime.ids.writerId(), work);
-}
-
-/** The revise sections' share of the re-printed plan-write step, which stays within 3,072 bytes (01-contracts §8). */
-const INLINE_SECTION_BYTES = 1_400;
-
-const bytes = (text: string): number => Buffer.byteLength(text);
-
-const listed = (bad: readonly BadAnchor[]): string[] => bad.map((anchor) => `${anchor.path}:${anchor.line} ${anchor.reason}${anchor.identifier === undefined ? '' : ` (${anchor.identifier})`}`);
-
-/** The `plan-check` code step: consumes what `plan check` just wrote, else checks the latest draft; a failing check asks for another write (06-P5–P7). */
-export async function planCheckStep(input: HandlerInput): Promise<HandlerResult> {
-  const window = await input.context.window(input.view, input.raisedBy);
-  let worker = window.findLast((entry) => entry.kind === 'worker' && entry['worker'] === 'plan-check' && input.produced.includes(entry.id));
-  if (worker === undefined) {
-    const draft = window.findLast((entry) => entry.kind === 'note' && entry['note'] === 'plan-draft');
-    if (draft === undefined) return { state: 'failed', code: 'plan-draft-missing', message: `Task ${input.view.task} has no plan draft to check.`, recoverable: false };
-    try {
-      worker = (await checkDraft({ runtime: input.runtime, session: input.view.session, context: input.context, ledger: input.ledger }, input.view.task, draft)).worker;
-    } catch (error) {
-      if (error instanceof AmbicodeError) return { state: 'failed', code: error.code, message: error.message, recoverable: false };
-      throw error;
-    }
-  }
-  const summary = worker['summary'] as { failed: boolean; anchorsBad: number; acsUnmapped: number } | undefined;
-  if (summary?.failed !== true) return { state: 'ok', payload: null };
-  const dir = await resolveTaskDir(input.runtime, input.view.task);
-  const result = JSON.parse(await input.runtime.fs.readText(path.join(dir.repositoryRoot, String(worker['artifact'])))) as PlanCheckResult;
-  const artifact = String(worker['artifact']);
-  const lists: [string, string[], number][] = [['Bad anchors', listed(result.anchors.bad), result.anchors.badTotal], ['Unmapped acceptance units', result.acs.unmapped, result.acs.unmappedTotal]];
-  const args: Record<string, string[]> = {};
-  // The engine renders each key as `## key\n…` joined by blank lines; the Last round section may follow.
-  const pointer = (total: number, kept: number) => `… ${total - kept} more in ${artifact}`;
-  const shown = lists.filter(([, , total]) => total > 0);
-  let left = INLINE_SECTION_BYTES - bytes(`\n\n## Last round\n${LAST_ROUND}`)
-    - shown.reduce((sum, [key, , total]) => sum + bytes(`\n\n## ${key}\n`) + bytes(`\n${pointer(total, 0)}`), 0);
-  for (const [key, items, total] of shown) {
-    const kept: string[] = [];
-    for (const item of items) {
-      if (bytes(item) + 1 > left) break;
-      kept.push(item);
-      left -= bytes(item) + 1;
-    }
-    args[key] = kept.length < total ? [...kept, pointer(total, kept.length)] : kept;
-  }
-  return {
-    state: 'failed',
-    code: 'plan-check-failed',
-    message: `plan check: ${summary.anchorsBad} bad anchors, ${summary.acsUnmapped} unmapped acceptance units (${artifact}).`,
-    recoverable: true,
-    revise: { args, lastRound: LAST_ROUND },
-  };
 }

@@ -10,7 +10,7 @@ import { NodeProcessRunner } from '#platform/ports/node-process-runner';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { readLedger } from '#platform/ledger/ledger';
 import { assembleEngine, CONFIG } from '#testing/fixtures/route-fixture';
-import { defaultHandlers } from '#harness/engine/handlers';
+import { skillHandlers } from '#skills/handlers';
 import { REPO_ROOT } from '#testing/paths';
 
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';
@@ -63,7 +63,7 @@ describe('06-H1/06-H2 plan route integration on ts-feature-boundary', () => {
       const step: Record<string, string> = {};
       for (const name of ['plan/fetch', 'plan/design', 'plan/write']) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
       const assembled = await assembleEngine({ root, routes: { plan: await readFile(path.join(REPO_ROOT, 'routes', 'plan', 'plan.yaml'), 'utf8') }, step });
-      const engine = assembled.build(defaultHandlers());
+      const engine = assembled.build(skillHandlers());
       const scratchpad = await assembled.runtime.fs.temporaryDirectory('ambicode-scratch-');
       const deps = { engine, routes: assembled.routes, pointer: assembled.pointer };
       let ceremony = 0;

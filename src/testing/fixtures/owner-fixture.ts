@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { runHook } from '#hook/events/run-hook';
-import { defaultHandlers } from '#harness/engine/handlers';
+import { skillHandlers } from '#skills/handlers';
 import { routeFixture, type RouteFixture } from './route-fixture.ts';
 import { REPO_ROOT } from '../paths.ts';
 import type { Runtime } from '#types/composition';
@@ -28,7 +28,7 @@ export function hookRunner(fx: RouteFixture, runtime: Runtime, deps: HookDeps): 
 export async function investigation() {
   const step: Record<string, string> = {};
   for (const name of ['investigate/fetch', 'investigate/read']) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
-  const fx = await routeFixture({ routes: { investigate: await readFile(path.join(REPO_ROOT, 'routes', 'investigate', 'investigate.yaml'), 'utf8') }, handlers: defaultHandlers(), step });
+  const fx = await routeFixture({ routes: { investigate: await readFile(path.join(REPO_ROOT, 'routes', 'investigate', 'investigate.yaml'), 'utf8') }, handlers: skillHandlers(), step });
   await fx.repo.write('src/cart.ts', 'export function addToCart(items: string[], item: string): string[] {\n  return [...items, item];\n}\n');
   await fx.repo.write('src/checkout.ts', "import { addToCart } from '../cart.ts';\n\nexport const checkout = (): string[] => addToCart([], 'book');\n");
   await fx.repo.commitAll('cart');

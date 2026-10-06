@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { defaultHandlers, EVIDENCE_HANDLERS } from '#harness/engine/handlers';
+import { skillHandlers } from '#skills/handlers';
+import { EVIDENCE_HANDLERS } from '#skills/evidence';
 import { ledgerRouteContext } from '#harness/engine/context';
 import { promotePlan, saveNote } from '#modules/evidence/notes';
 import { routeFixture, type RouteFixture } from './route-fixture.ts';
@@ -91,7 +92,7 @@ export interface PlanFixture {
 async function shippedRoute(): Promise<{ plan: string; step: Record<string, string>; handlers: Record<string, Handler> }> {
   const step: Record<string, string> = {};
   for (const name of ['plan/fetch', 'plan/design', 'plan/write']) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
-  return { plan: await readFile(path.join(REPO_ROOT, 'routes', 'plan', 'plan.yaml'), 'utf8'), step, handlers: defaultHandlers() };
+  return { plan: await readFile(path.join(REPO_ROOT, 'routes', 'plan', 'plan.yaml'), 'utf8'), step, handlers: skillHandlers() };
 }
 
 export async function planFixture(options: { extra?: Record<string, string>; handlers?: Record<string, Handler>; config?: string; shipped?: boolean } = {}): Promise<PlanFixture> {

@@ -1,10 +1,9 @@
 import { fsActiveRoutePointer } from '#harness/session/active-route';
-import { createEngine } from '#harness/engine/engine';
+import { createAppEngine } from '#composition/engine';
 import { chainKey, loadPayload } from '#harness/engine/delivery';
 import { readEntries } from '#harness/engine/context';
 import { buildChain, latestRouteOf } from '#harness/engine/fold';
 import { parseAnswerFlag } from '#harness/definition/flags';
-import { defaultHandlers, handlerRegistry } from '#harness/engine/handlers';
 import { metricsIgnoreWarning } from '#skills/review/handlers';
 import { loadRouteRegistry } from '#harness/definition/routes';
 import { cliHarnessPort, sessionUnbound, taskSessionSource } from '#harness/session/session';
@@ -38,7 +37,7 @@ export function startTarget(skill: string, args: ParsedArgs): ReviewTargetArgs |
 /** The engine over the shipped routes; `binding` is the owner of the named task's one live route, unbound when there is none to name. */
 export async function routeTools(runtime: Runtime, task: string | null): Promise<RouteTools> {
   const routes = await loadRouteRegistry(runtime.pluginRoot, runtime.fs);
-  const engine = createEngine({ runtime, routes, handlers: handlerRegistry(defaultHandlers()), pointer: fsActiveRoutePointer(runtime.fs) });
+  const engine = createAppEngine(runtime, routes, fsActiveRoutePointer(runtime.fs));
   return { engine, routes, binding: task === null ? { state: 'unbound', reason: 'missing' } : await taskSessionSource(task).resolve(runtime) };
 }
 
