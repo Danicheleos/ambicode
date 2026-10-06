@@ -7,7 +7,7 @@ import { evaluateReview } from '#modules/checks/review-evaluation';
 import { ReviewResult } from '#types/modules/review';
 import { estimateReview, renderEstimate } from '#modules/review/bundle/estimate';
 import { buildChain, currentIn } from '#harness/engine/fold';
-import { onGatePrint, onRaisedAnswer, raiseGate } from '#harness/gates/gates';
+import { onGatePrint, onNeedCommand, onRaisedAnswer, raiseGate } from '#harness/gates/gates';
 import { chainEntries, configOf, isResult, projectOf } from '../common.ts';
 import { isAmbicodeError } from '#util/errors';
 import { buildReport } from '#modules/evidence/report/report';
@@ -152,6 +152,8 @@ onRaisedAnswer(KEY_GATE, async ({ view, ledger, acceptance, routes }) => {
   const evaluation = evaluateReview(view, review, null, [], chain);
   if (evaluation.next === 'waiting') await raiseGate(ledger, view, { gate: KEY_GATE, values: keyValues(evaluation.keys[0]!), raisedBy: String(print['raisedBy']) }, routes);
 });
+
+onNeedCommand('task', 'review', async ({ task }) => `review --task ${task}`);
 
 onGatePrint('review-offer', async ({ runtime, task, chain }) => {
   try {

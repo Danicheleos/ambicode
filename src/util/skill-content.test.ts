@@ -329,6 +329,7 @@ async function emittedErrorCodes(): Promise<Set<string>> {
     'modules/review/snapshot/remote-target.ts': ['provider-unsupported', 'provider-resolve-failed', 'provider-fetch-failed'],
     // A handler's failure code passes through; the codes themselves are raised, and documented, where the handler raises them.
     'harness/engine/engine.ts': [],
+    'harness/engine/execute.ts': [],
     'cli/commands/requirements/requirements.ts': ['requirements-not-captured', 'requirements-missing'],
   };
   const codes = new Set<string>();

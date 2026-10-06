@@ -349,7 +349,7 @@ describe('03-Q8 splitAcs', () => {
 describe('03-T8 requirements commands', () => {
   it('template prints the calls for the asked sources; acs on a task with no envelope says so; normalize finds the owner from the task (5.1)', async () => {
     const { runRequirementsAcs, runRequirementsNormalize, runRequirementsTemplate } = await import('#cli/commands/requirements/requirements');
-    const { REQUIREMENTS_ACS_OPTIONS, REQUIREMENTS_NORMALIZE_OPTIONS, REQUIREMENTS_TEMPLATE_OPTIONS } = await import('#cli/types/commands');
+    const { REQUIREMENTS_ACS_OPTIONS, REQUIREMENTS_NORMALIZE_OPTIONS, REQUIREMENTS_TEMPLATE_OPTIONS } = await import('#cli/commands/requirements/requirements');
     const { parseArgs } = await import('#cli/args');
     const s = await session();
     try {

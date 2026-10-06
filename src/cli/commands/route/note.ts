@@ -6,7 +6,16 @@ import { AmbicodeError } from '#util/errors';
 import { ownerFor, routeTools } from './route.ts';
 import type { Runtime } from '#types/composition';
 import { MAX_NOTE_BYTES, SAVE_KINDS, type NoteRow, type SaveKind } from '#types/modules/evidence';
-import type { ParsedArgs } from '../../types/cli.ts';
+import type { ParsedArgs, CliCommand } from '../../types/cli.ts';
+
+export const NOTE_SAVE_OPTIONS = {
+  values: ['task', 'kind', 'from', 'iteration'],
+  flags: ['json'],
+} as const;
+
+export const NOTE_PROMOTE_OPTIONS = { values: ['task'], flags: ['json'] } as const;
+
+export const NOTE_LIST_OPTIONS = { values: ['task'], flags: ['json'] } as const;
 
 /** The owner of the task's live route and the route context; no live route (or several) leaves the session unbound. */
 async function depsFor(runtime: Runtime, task: string) {
@@ -99,3 +108,30 @@ export function renderNoteList(output: NoteListOutput): string {
     .map((row) => [row.id, row.note, row.path, row.at, row.heading, row.iteration === null ? null : `iteration ${row.iteration}`, row.link].filter((part) => part !== null).join('  '))
     .join('\n');
 }
+
+export const noteSaveCommand: CliCommand = {
+  name: 'note save',
+  options: NOTE_SAVE_OPTIONS,
+  run: async (runtime, args) => {
+    const output = await runNoteSave(runtime, args);
+    return { text: renderNoteSave(output), data: output, warnings: output.warnings ?? [] };
+  },
+};
+
+export const notePromoteCommand: CliCommand = {
+  name: 'note promote',
+  options: NOTE_PROMOTE_OPTIONS,
+  run: async (runtime, args) => {
+    const output = await runNotePromote(runtime, args);
+    return { text: renderNotePromote(output), data: output };
+  },
+};
+
+export const noteListCommand: CliCommand = {
+  name: 'note list',
+  options: NOTE_LIST_OPTIONS,
+  run: async (runtime, args) => {
+    const output = await runNoteList(runtime, args);
+    return { text: renderNoteList(output), data: output };
+  },
+};

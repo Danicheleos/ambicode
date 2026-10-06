@@ -1,4 +1,5 @@
 import { WORKER_ENV_ALLOWLIST, STRUCTURED_OUTPUT_ATTEMPTS } from '#types/modules/workers';
+import { outcomeFailure, type OutcomeFailure } from '#platform/ports/process';
 import type { EnvironmentPolicy, ProcessOutcome, ProcessRunner } from '#types/platform/ports';
 
 export interface WorkerProcessRequest {
@@ -16,12 +17,7 @@ export interface WorkerProcessRequest {
 
 type WorkerProcessResult =
   | { kind: 'ok'; outcome: ProcessOutcome; argv: readonly string[] }
-  | {
-      kind: 'failed';
-      reason: 'spawn-failed' | 'timed-out' | 'truncated' | 'nonzero-exit';
-      outcome: ProcessOutcome;
-      argv: readonly string[];
-    };
+  | { kind: 'failed'; reason: OutcomeFailure; outcome: ProcessOutcome; argv: readonly string[] };
 
 export function defaultWorkerEnvironment(): EnvironmentPolicy {
   return {
@@ -50,10 +46,6 @@ export async function runWorkerProcess(
     env: request.env ?? defaultWorkerEnvironment(),
     ...(request.stdin === undefined ? {} : { stdin: request.stdin }),
   });
-  if (outcome.kind === 'spawn-failed' || outcome.kind === 'timed-out') {
-    return { kind: 'failed', reason: outcome.kind, outcome, argv };
-  }
-  if (outcome.truncated) return { kind: 'failed', reason: 'truncated', outcome, argv };
-  if (outcome.exitCode !== 0) return { kind: 'failed', reason: 'nonzero-exit', outcome, argv };
-  return { kind: 'ok', outcome, argv };
+  const reason = outcomeFailure(outcome);
+  return reason === null ? { kind: 'ok', outcome, argv } : { kind: 'failed', reason, outcome, argv };
 }

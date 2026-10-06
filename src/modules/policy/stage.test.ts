@@ -2,11 +2,10 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseArgs } from '#cli/args';
 import { initConfig } from '#testing/fixtures/init-config';
-import { renderPolicy, runPolicy } from '#cli/commands/policy/policy';
+import { renderPolicy, runPolicy, POLICY_OPTIONS } from '#cli/commands/policy/policy';
 import { createRuntime, openWorkspace, projectForRequest } from '#composition/root';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { policyStage, STAGE_LIMITS } from './stage.ts';
-import { POLICY_OPTIONS } from '#cli/types/commands';
 
 async function repo() {
   const temp = await TempRepo.create();

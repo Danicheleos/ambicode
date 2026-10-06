@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 import { parseArgs } from '#cli/args';
-import { runReview, type ReviewDependencies } from '#cli/commands/review/review';
+import { runReview, REVIEW_OPTIONS, type ReviewDependencies } from '#cli/commands/review/review';
 import { startTarget } from '#cli/commands/route/route';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { defaultHandlers } from '#harness/engine/handlers';
@@ -15,7 +15,6 @@ import { taskFixture } from '#testing/fixtures/task-fixture';
 import { reviewRouteFixture } from '#testing/fixtures/review-route-fixture';
 import { metricsIgnoreWarning, reviewCommand } from './handlers.ts';
 import { REPO_ROOT } from '#testing/paths';
-import { REVIEW_OPTIONS } from '#cli/types/commands';
 import { ROUTE_START_OPTIONS } from '#types/cli';
 import type { Handler } from '#types/harness';
 

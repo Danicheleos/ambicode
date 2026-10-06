@@ -5,7 +5,7 @@ import path from 'node:path';
 import { describe, it } from 'node:test';
 import { parseArgs } from '#cli/args';
 import { initConfig } from '#testing/fixtures/init-config';
-import { runLocate } from '#cli/commands/search/locate';
+import { runLocate, LOCATE_OPTIONS } from '#cli/commands/search/locate';
 import { createRuntime } from '#composition/root';
 import { ProjectConfig } from '#types/modules/config';
 import { PREPARE_SHORTLIST_LIMIT, type LocateCandidate } from '#types/modules/search';
@@ -16,7 +16,6 @@ import { NodeProcessRunner } from '#platform/ports/node-process-runner';
 import { locate, pathHit, shortlistRules, termsFromRequirements } from './locate.ts';
 import { matchesGlob } from '#util/glob';
 import { REPO_ROOT } from '#testing/paths';
-import { LOCATE_OPTIONS } from '#cli/types/commands';
 import type { FileSystem } from '#types/platform/ports';
 
 /**

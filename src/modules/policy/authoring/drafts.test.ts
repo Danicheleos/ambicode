@@ -1,13 +1,12 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { parseArgs } from '#cli/args';
-import { runPolicyCheck } from '#cli/commands/policy/policy-check';
+import { runPolicyCheck, POLICY_CHECK_OPTIONS } from '#cli/commands/policy/policy-check';
 import { createRuntime, openWorkspace } from '#composition/root';
 import { initConfig } from '#testing/fixtures/init-config';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { taskDirFor } from '#modules/evidence/task/task-dir';
 import { builtinRules, checkDrafts, DUPLICATE_SIMILARITY, similarity } from './drafts.ts';
-import { POLICY_CHECK_OPTIONS } from '#cli/types/commands';
 import { DRAFTS_DIR } from '#types/modules/policy';
 
 const QUOTE = 'Services must never call the transport layer directly.';

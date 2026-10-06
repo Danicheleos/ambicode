@@ -1,10 +1,13 @@
 import type { ReviewResult, MeasuredInput } from '#types/modules/review';
 import { assembleBundle, writeBundleArtifacts } from '#modules/review/bundle/bundle';
 import { renderReport } from '#modules/review/findings/report';
-import { resolveTargetOptions } from '../../options/target-option.ts';
+import { resolveTargetOptions, validateTargetArgs } from '../../options/target-option.ts';
 import type { PendingApproval } from '#types/modules/checks';
 import type { Runtime } from '#types/composition';
-import type { ParsedArgs } from '../../types/cli.ts';
+import type { ParsedArgs, CliCommand } from '../../types/cli.ts';
+import { TARGET_OPTIONS } from '../../types/options.ts';
+
+export const BUNDLE_OPTIONS = TARGET_OPTIONS;
 
 interface BundleOutput {
   command: 'bundle';
@@ -54,3 +57,13 @@ export function renderBundle(output: BundleOutput): string {
     pendingApprovals: output.pendingApprovals,
   });
 }
+
+export const bundleCommand: CliCommand = {
+  name: 'bundle',
+  options: BUNDLE_OPTIONS,
+  validate: (args) => validateTargetArgs('bundle', args),
+  run: async (runtime, args) => {
+    const output = await runBundle(runtime, args);
+    return { text: renderBundle(output), data: output };
+  },
+};

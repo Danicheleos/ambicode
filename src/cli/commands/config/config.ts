@@ -6,6 +6,9 @@ import { profileLines } from './init.ts';
 import { navigationFor } from '#modules/search/text/navigation';
 import type { Runtime } from '#types/composition';
 import type { NavigationGuidance } from '#types/modules/search';
+import type { CliCommand } from '../../types/cli.ts';
+
+export const CONFIG_OPTIONS = { flags: ['json'] } as const;
 
 interface ConfigOutput {
   command: 'config';
@@ -119,3 +122,12 @@ export function renderConfig(output: ConfigOutput): string {
   }
   return lines.join('\n');
 }
+
+export const configCommand: CliCommand = {
+  name: 'config',
+  options: CONFIG_OPTIONS,
+  run: async (runtime) => {
+    const output = await runConfig(runtime);
+    return { text: renderConfig(output), data: output };
+  },
+};

@@ -3,12 +3,18 @@ import { describe, it } from 'node:test';
 import { parseArgs } from './args.ts';
 import { PREPARE_DEPRECATED, prepareAsRouteStart } from './commands/prepare/prepare.ts';
 import { SPECS as COMMAND_SPECS, USAGE } from './main.ts';
-import { runIndex } from './commands/search/search.ts';
+import { runIndex, INDEX_OPTIONS, RELATES_OPTIONS } from './commands/search/search.ts';
 import { CONFIG, routeFixture } from '#testing/fixtures/route-fixture';
 import { isAmbicodeError } from '#util/errors';
 import { PREPARE_OPTIONS } from '#types/cli';
 import type { OptionSpec } from './types/cli.ts';
-import { BUNDLE_OPTIONS, CONFIG_OPTIONS, INIT_OPTIONS, LOCATE_OPTIONS, POLICY_OPTIONS, POLICY_CHECK_OPTIONS, REVIEW_OPTIONS, INDEX_OPTIONS, RELATES_OPTIONS } from './types/commands.ts';
+import { BUNDLE_OPTIONS } from './commands/review/bundle.ts';
+import { CONFIG_OPTIONS } from './commands/config/config.ts';
+import { INIT_OPTIONS } from './commands/config/init.ts';
+import { LOCATE_OPTIONS } from './commands/search/locate.ts';
+import { POLICY_OPTIONS } from './commands/policy/policy.ts';
+import { POLICY_CHECK_OPTIONS } from './commands/policy/policy-check.ts';
+import { REVIEW_OPTIONS } from './commands/review/review.ts';
 
 const SPECS: Record<string, OptionSpec> = {
   init: INIT_OPTIONS,

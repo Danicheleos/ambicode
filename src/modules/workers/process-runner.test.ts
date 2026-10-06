@@ -34,10 +34,10 @@ const SCHEMA = JSON.stringify(REVIEWER_JSON_SCHEMA);
 const SYSTEM_FILE = '<system-prompt-file>';
 const BASELINE_ARGV = [
   'claude', '--print', '--safe-mode', '--restricted', '--strict-mcp-config',
-  '--mcp-config', '{"mcpServers":{}}', '--tools', 'Read,Grep,Glob',
+  '--mcp-config', '{"mcpServers":{}}',
   '--disallowedTools', 'Bash,Write,Edit,NotebookEdit,WebFetch,WebSearch,Task,Agent',
   '--permission-prompts', 'none', '--no-session-persistence', '--model', 'sonnet',
-  '--append-system-prompt-file', SYSTEM_FILE, '--output-format', 'json', '--json-schema', SCHEMA,
+  '--append-system-prompt-file', SYSTEM_FILE, '--output-format', 'json', '--tools', 'Read,Grep,Glob', '--json-schema', SCHEMA,
 ];
 const BASELINE_REQUESTS: ProcessRequest[] = [
   { argv: ['claude', '--help'], cwd: '/work', timeoutMs: 30_000, maxOutputBytes: 1024 * 1024, env: BASELINE_ENV as never },

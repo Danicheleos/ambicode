@@ -13,7 +13,17 @@ import { AmbicodeError } from '#util/errors';
 import { routeTools } from '../route/route.ts';
 import type { Runtime } from '#types/composition';
 import type { RefsResult } from '#types/modules/search';
-import type { ParsedArgs } from '../../types/cli.ts';
+import type { ParsedArgs, CliCommand } from '../../types/cli.ts';
+
+export const MAP_OPTIONS = { values: ['task', 'project', 'mode', 'layers'], repeated: ['term', 'symbol'], flags: ['json', 'show'], positionals: true } as const;
+
+export const REFS_OPTIONS = { values: ['project', 'task'], flags: ['json', 'show'], positionals: true } as const;
+
+export const FIND_OPTIONS = { values: ['project', 'task', 'kind'], flags: ['json'], positionals: true } as const;
+
+export const RELATES_OPTIONS = { values: ['project', 'task'], flags: ['json', 'show'], positionals: true } as const;
+
+export const INDEX_OPTIONS = { values: ['project'], flags: ['json'] } as const;
 
 interface SearchOutput { command: 'map' | 'refs' | 'find' | 'relates'; text: string; bytes: number; file?: string; data: unknown }
 
@@ -106,3 +116,44 @@ export async function runIndex(runtime: Runtime, args: ParsedArgs, action: 'buil
 }
 
 export const renderSearch = (output: SearchOutput): string => (output.file === undefined ? output.text : `${output.text}\nFull result: ${output.file}`);
+
+const searchCommand = (runSearch: typeof runMap): CliCommand['run'] => async (runtime, args) => {
+  const output = await runSearch(runtime, args);
+  return { text: renderSearch(output), data: output.data, json: 'compact' };
+};
+
+export const mapCommand: CliCommand = {
+  name: 'map',
+  options: MAP_OPTIONS,
+  run: searchCommand(runMap),
+};
+
+export const refsCommand: CliCommand = {
+  name: 'refs',
+  options: REFS_OPTIONS,
+  run: searchCommand(runRefs),
+};
+
+export const findCommand: CliCommand = {
+  name: 'find',
+  options: FIND_OPTIONS,
+  run: searchCommand(runFind),
+};
+
+export const relatesCommand: CliCommand = {
+  name: 'relates',
+  options: RELATES_OPTIONS,
+  run: searchCommand(runRelates),
+};
+
+export const indexBuildCommand: CliCommand = {
+  name: 'index build',
+  options: INDEX_OPTIONS,
+  run: (runtime, args) => runIndex(runtime, args, 'build'),
+};
+
+export const indexStatusCommand: CliCommand = {
+  name: 'index status',
+  options: INDEX_OPTIONS,
+  run: (runtime, args) => runIndex(runtime, args, 'status'),
+};

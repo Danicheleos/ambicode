@@ -5,8 +5,7 @@ import { buildProposal, writeConfig } from '#modules/config/init/proposal';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { parseArgs } from '../../args.ts';
 import { renderConfig, runConfig } from './config.ts';
-import { renderInit, runInit } from './init.ts';
-import { INIT_OPTIONS } from '../../types/commands.ts';
+import { renderInit, runInit, INIT_OPTIONS } from './init.ts';
 
 describe('03c-P1: init proposes, writes, keeps and refreshes the search profile', () => {
   it('the dry run prints it, the writer writes it, an edit survives, --refresh-profile replaces it; config prints it', async () => {

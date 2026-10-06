@@ -31,7 +31,10 @@ import type { Runtime } from '#types/composition';
 import type { FileSystem } from '#types/platform/ports';
 import { PREPARE_REASONS_PER_CANDIDATE, PREPARE_SHORTLIST_LIMIT, type LocateShortlist } from '#types/modules/search';
 import type { JsonFormat } from '#types/util';
-import type { ParsedArgs } from '../../types/cli.ts';
+import type { ParsedArgs, CliCommand } from '../../types/cli.ts';
+import { parseArgs } from '../../args.ts';
+import { renderMessage, runRouteStart } from '../route/route.ts';
+import { PREPARE_OPTIONS, ROUTE_START_OPTIONS } from '#types/cli';
 
 export type { PrepareOutput };
 
@@ -615,3 +618,18 @@ export function renderPrepare(run: PrepareRun): string {
   );
   return lines.join('\n');
 }
+
+export const prepareCommand: CliCommand = {
+  name: 'prepare',
+  options: PREPARE_OPTIONS,
+  run: async (runtime, args) => {
+    if (args.value('activity') === 'investigate') {
+      const { argv, notices } = prepareAsRouteStart(args);
+      for (const notice of notices) process.stderr.write(`${notice}\n`);
+      const output = await runRouteStart(runtime, parseArgs('route start', argv, ROUTE_START_OPTIONS));
+      return { text: renderMessage(output), data: output };
+    }
+    const run = await runPrepare(runtime, args);
+    return { text: renderPrepare(run), data: run.data, json: run.json };
+  },
+};

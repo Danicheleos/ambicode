@@ -6,7 +6,9 @@ import { routeTools, taskOf } from '../route/route.ts';
 import type { Runtime } from '#types/composition';
 import { MAX_NOTE_BYTES } from '#types/modules/evidence';
 import type { PlanCheckResult } from '#types/modules/workers';
-import type { ParsedArgs } from '../../types/cli.ts';
+import type { ParsedArgs, CliCommand } from '../../types/cli.ts';
+
+export const PLAN_CHECK_OPTIONS = { values: ['task', 'from'], flags: ['json'] } as const;
 
 interface PlanCheckOutput extends PlanCheckResult {
   command: 'plan check';
@@ -62,3 +64,12 @@ export function renderPlanCheck(output: PlanCheckOutput): string {
   ];
   return `${lines.join('\n')}${output.next === undefined ? '' : `\n\n${output.next}`}`;
 }
+
+export const planCheckCommand: CliCommand = {
+  name: 'plan check',
+  options: PLAN_CHECK_OPTIONS,
+  run: async (runtime, args) => {
+    const output = await runPlanCheckCommand(runtime, args);
+    return { text: renderPlanCheck(output), data: output };
+  },
+};

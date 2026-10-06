@@ -35,6 +35,7 @@
     "evals:decide": "npm run evals:select && npm run evals:run -- --runs 3 --ablation none --model claude-sonnet-5-5 --max-cost-usd 20 -j 4",
     "evals:gate": "node evals/cases/scripts/src/validation/eval-gate.mjs",
     "evals:walk-report": "npm run evals:bench -- walk",
+    "evals:report": "node evals/cases/scripts/src/analysis/run-report.mjs",
     "evals:select": "npm run evals:bench -- select",
     "evals:full": "npm run evals:generate && npm run evals:bench -- run --set full --project BE-express --runs 1 --ablation none --model claude-sonnet-5-5 --max-cost-usd 22.5 -j 4 && npm run evals:bench -- run --set full --project FE-angular --runs 1 --ablation none --model claude-sonnet-5-5 --max-cost-usd 22.5 -j 4",
     "evals:generate": "npm run evals:bench -- generate",

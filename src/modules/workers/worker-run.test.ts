@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
-import { runWorkerCommand } from '#cli/commands/workers/worker';
+import { runWorkerCommand, WORKER_RUN_OPTIONS } from '#cli/commands/workers/worker';
 import { parseArgs } from '#cli/args';
 import { createRuntime } from '#composition/root';
 import { nodeFileSystem } from '#platform/ports/filesystem';
@@ -13,7 +13,6 @@ import { AmbicodeError } from '#util/errors';
 import { readLedger } from '#modules/evidence/ledger/ledger';
 import { runWorker } from './worker-run.ts';
 import { REPO_ROOT } from '#testing/paths';
-import { WORKER_RUN_OPTIONS } from '#cli/types/commands';
 import { LEDGER_FILE } from '#types/modules/evidence';
 import type { Runtime } from '#types/composition';
 

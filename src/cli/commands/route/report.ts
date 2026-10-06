@@ -6,7 +6,9 @@ import { buildReport } from '#modules/evidence/report/report';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { AmbicodeError } from '#util/errors';
 import type { Runtime } from '#types/composition';
-import type { ParsedArgs } from '../../types/cli.ts';
+import type { ParsedArgs, CliCommand } from '../../types/cli.ts';
+
+export const REPORT_OPTIONS = { values: ['task'], flags: ['json'] } as const;
 
 type ReportOutput = ReturnType<typeof buildReport>;
 
@@ -26,3 +28,12 @@ export async function runReport(runtime: Runtime, args: ParsedArgs): Promise<Rep
 export function renderReport(output: ReportOutput): string {
   return output.text;
 }
+
+export const reportCommand: CliCommand = {
+  name: 'report',
+  options: REPORT_OPTIONS,
+  run: async (runtime, args) => {
+    const output = await runReport(runtime, args);
+    return { text: renderReport(output), data: { evidence: output.evidence, notVerified: output.notVerified, hash: output.hash } };
+  },
+};

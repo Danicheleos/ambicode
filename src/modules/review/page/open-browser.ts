@@ -1,3 +1,4 @@
+import { describeOutcome, outcomeFailure } from '#platform/ports/process';
 import type { ProcessRunner } from '#types/platform/ports';
 
 /**
@@ -34,12 +35,6 @@ export async function openInBrowser(
     output: 'ignore',
   });
 
-  if (outcome.kind === 'spawn-failed') {
-    return { opened: false, detail: `${argv[0]} could not be started (${outcome.failure ?? 'unknown'})` };
-  }
-  if (outcome.kind === 'timed-out') return { opened: false, detail: `${argv[0]} timed out` };
-  if (outcome.exitCode !== 0) {
-    return { opened: false, detail: `${argv[0]} exited with ${String(outcome.exitCode)}` };
-  }
+  if (outcomeFailure(outcome) !== null) return { opened: false, detail: `${argv[0]} ${describeOutcome(outcome)}` };
   return { opened: true, detail: `${argv[0]} was asked to open the page` };
 }

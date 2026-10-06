@@ -67,3 +67,22 @@ File, type and function moves are not listed here. Everything below changes code
     - Fixtures: `A`/`B` → `SESSION_A`/`SESSION_B`, deduped into `testing/fixtures/ids.ts`; `TASK` → `CHECK_TASK` (`check-fixture.ts`) and `PLAN_TASK` (`plan-fixture.ts`).
 14. **`export` dropped from 227 file-local statements** in 109 files. `src/types`, `src/testing`, barrels and tests were left alone, and names referenced from evals, tools or fixtures kept their export.
 15. **`types/modules/review.ts` no longer re-exports** `ProvenanceEntry`, `RequirementConflict` and `RequirementSource`; `reviewer/prompt.ts` imports them from `types/modules/requirements.ts`.
+16. **Second decision batch (F8–F12 and the two structural findings):**
+    - **F9:** `util/files.ts` has `writeUniqueFile(fs, base, extension, text)`. It is used by `plan-check.ts`, `worker-run.ts` and `notes.ts`, and `localTimestamp` moved there from `review/bundle/review-name.ts`.
+      **Behavior change:** worker and plan-check artifacts are now capped at `UNIQUE_FILE_LIMIT` (9) per minute, as notes already were. Past the cap they throw the new `artifact-collision` code, which is documented in `skills/review/references/outcomes.md`.
+    - **F8:**
+      - `platform/ports/process.ts` gains `outcomeFailure(outcome)` (spawn-failed → timed-out → truncated → nonzero-exit) and `describeOutcome(outcome)`. `runWorkerProcess` classifies through `outcomeFailure`, and `open-browser.ts` uses both.
+      - The reviewer now passes `--tools` and `--json-schema` to the runner and uses the runner's `reason` and final `argv`, so `WorkerProcessResult.argv` is read now.
+      - **Changes:** the reviewer argv now ends with `--tools … --json-schema …`; the pinned baseline in `process-runner.test.ts` was updated to match. The `claude --help` failure detail says `exited with N` (was `exited N`).
+      - Not folded: git, gitlab api, checks remote and checks run each map a failure to a distinct error code, certainty or recovered verdict. Their order also differs: git tests the exit before truncation. A shared helper would only rename the `if`s.
+    - **F10:** the engine's `NEED_COMMANDS` table is gone. The task route registers `onNeedCommand('task', 'review', …)` in `skills/task/handlers.ts`, as the review route already did.
+    - **F11:** the guard's copies are now exported as `POINTER_LIMIT` and `TRANSCRIPT_TAIL_BYTES` (the latter renamed from `TRANSCRIPT_TAIL`), with one literal style. `tool-turns.test.ts` pins both to the originals in `harness/session/active-route.ts` and `hook/events/stop-check.ts`.
+    - **F12:** the plan-note helper in `evidence/notes.ts` is renamed `noRouteSession`. Its message and code differ from the harness `sessionUnbound`, so the two were not merged.
+    - **Engine split:** `harness/engine/engine.ts` went from 685 to 363 lines. It keeps start, advance, deliver, stop and the run setup.
+      - `execute.ts` holds the advance loop (`createExecutor(scope)`): code and model steps, failures, gates and completion.
+      - `status.ts` holds `routeStatus`.
+      - `Part` moved to `harness/types/engine.ts`.
+    - **CLI records:**
+      - Each command file exports its `*_OPTIONS` and a `CliCommand` record (`{ name, options, validate?, run }`). `main.ts` builds a name → record map; `SPECS` is derived from it, and the 140-line switch and `validateCombination` are gone.
+      - `view` and `version` stay in `main.ts`, so `view.ts` is still imported lazily and its chunk split is unchanged.
+      - `cli/types/commands.ts` is deleted: `Rendered`, `CliCommand`, `RouteTools` and `ViewOutput` are in `cli/types/cli.ts`, and the tests import options from the command files.

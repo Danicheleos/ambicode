@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { onGatePrint } from '#harness/gates/gates';
-import { localTimestamp } from '#modules/review/bundle/review-name';
+import { localTimestamp } from '#util/files';
 import { isAmbicodeError } from '#util/errors';
 import { backupOf, valuesLine } from '#modules/config/init/apply';
 import { CONFIG_FILE, TASKS_DIR } from '#types/defaults';

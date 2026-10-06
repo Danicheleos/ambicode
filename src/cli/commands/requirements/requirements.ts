@@ -13,7 +13,13 @@ import { AmbicodeError } from '#util/errors';
 import { ownerFor, routeTools, taskOf as requireTask } from '../route/route.ts';
 import type { Runtime } from '#types/composition';
 import type { RouteArgs } from '#types/harness';
-import type { ParsedArgs } from '../../types/cli.ts';
+import type { ParsedArgs, CliCommand } from '../../types/cli.ts';
+
+export const REQUIREMENTS_TEMPLATE_OPTIONS = { values: ['task'], repeated: ['requirement'], flags: ['json'] } as const;
+
+export const REQUIREMENTS_NORMALIZE_OPTIONS = { values: ['task'], flags: ['json'] } as const;
+
+export const REQUIREMENTS_ACS_OPTIONS = { values: ['task'], flags: ['json'] } as const;
 
 interface RequirementsOutput { command: string; task: string; text: string; data: unknown; next?: string }
 
@@ -60,3 +66,30 @@ export async function runRequirementsAcs(runtime: Runtime, args: ParsedArgs): Pr
 }
 
 export const renderRequirements = (output: RequirementsOutput): string => (output.next === undefined ? output.text : `${output.text}\n\n${output.next}`);
+
+export const requirementsTemplateCommand: CliCommand = {
+  name: 'requirements template',
+  options: REQUIREMENTS_TEMPLATE_OPTIONS,
+  run: async (runtime, args) => {
+    const output = await runRequirementsTemplate(runtime, args);
+    return { text: renderRequirements(output), data: output.data };
+  },
+};
+
+export const requirementsNormalizeCommand: CliCommand = {
+  name: 'requirements normalize',
+  options: REQUIREMENTS_NORMALIZE_OPTIONS,
+  run: async (runtime, args) => {
+    const output = await runRequirementsNormalize(runtime, args);
+    return { text: renderRequirements(output), data: output.data };
+  },
+};
+
+export const requirementsAcsCommand: CliCommand = {
+  name: 'requirements acs',
+  options: REQUIREMENTS_ACS_OPTIONS,
+  run: async (runtime, args) => {
+    const output = await runRequirementsAcs(runtime, args);
+    return { text: renderRequirements(output), data: output.data };
+  },
+};

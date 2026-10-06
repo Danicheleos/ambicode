@@ -3,8 +3,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, describe, it } from 'node:test';
+import { POINTER_LIMIT } from '#harness/session/active-route';
 import { TRANSCRIPT_TAIL_BYTES } from '../events/stop-check.ts';
-import { fsGuardState, sessionStateDir, TRANSCRIPT_TAIL } from './guard-state.ts';
+import { fsGuardState, POINTER_LIMIT as GUARD_POINTER_LIMIT, sessionStateDir, TRANSCRIPT_TAIL_BYTES as GUARD_TRANSCRIPT_TAIL_BYTES } from './guard-state.ts';
 import { hookStateBaseDir } from '../session/markers.ts';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { toolTurns, toolTurnsNotice, toolTurnsText } from './tool-turns.ts';
@@ -62,8 +63,9 @@ describe('03b-B2 tool-turn notice', () => {
     assert.match(JSON.stringify(out), /1 tool turns in this answer/);
   });
 
-  it('reads the budget from the pointer and the transcript tail from disk; the tail equals the Stop check one', () => {
-    assert.equal(TRANSCRIPT_TAIL, TRANSCRIPT_TAIL_BYTES);
+  it('reads the budget from the pointer and the transcript tail from disk; the bounds equal the originals', () => {
+    assert.equal(GUARD_TRANSCRIPT_TAIL_BYTES, TRANSCRIPT_TAIL_BYTES);
+    assert.equal(GUARD_POINTER_LIMIT, POINTER_LIMIT);
     const dir = mkdtempSync(path.join(tmpdir(), 'tool-turns-'));
     after(() => rmSync(dir, { recursive: true, force: true }));
     mkdirSync(path.join(dir, GUARD_STATE_DIR_NAME), { recursive: true });

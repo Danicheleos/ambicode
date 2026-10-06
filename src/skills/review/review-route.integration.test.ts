@@ -10,7 +10,7 @@ import { fixtureByName } from '../../../fixtures/definitions.mjs';
 // @ts-expect-error untyped fixture modules
 import { materialize } from '../../../fixtures/materialize.mjs';
 import { parseArgs } from '#cli/args';
-import { runReview, type ReviewDependencies } from '#cli/commands/review/review';
+import { runReview, REVIEW_OPTIONS, type ReviewDependencies } from '#cli/commands/review/review';
 import { routeTools, runRouteStart } from '#cli/commands/route/route';
 import { createRuntime } from '#composition/root';
 import { ReviewResult } from '#types/modules/review';
@@ -20,7 +20,6 @@ import { fsActiveRoutePointer } from '#harness/session/active-route';
 import { readLedger } from '#modules/evidence/ledger/ledger';
 import { COMMAND_PACK, SplitRunner } from '#testing/fixtures/check-fixture';
 import { notCoveredBlock } from '#modules/review/bundle/coverage-block';
-import { REVIEW_OPTIONS } from '#cli/types/commands';
 import { ROUTE_START_OPTIONS } from '#types/cli';
 import type { Runtime } from '#types/composition';
 import type { LedgerEntry } from '#types/modules/evidence';

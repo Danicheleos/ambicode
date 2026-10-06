@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, realpath } from 'node:fs/promises';
 import { parseArgs } from '#cli/args';
-import { runFind, runMap, runRefs } from '#cli/commands/search/search';
+import { runFind, runMap, runRefs, MAP_OPTIONS, REFS_OPTIONS, FIND_OPTIONS } from '#cli/commands/search/search';
 import { openRepository } from '#composition/root';
 import { routeFixture, type RouteFixture } from '#testing/fixtures/route-fixture';
 import { countDeclarations, declarationCensus, harvest } from './declarations/harvest.ts';
@@ -15,7 +15,6 @@ import { isPathReason, shortlistRules } from './text/locate.ts';
 import { TEST_EXCLUDES } from '#types/defaults';
 import { sourceGlob } from './declarations/profile.ts';
 import { execFileSync } from 'node:child_process';
-import { MAP_OPTIONS, REFS_OPTIONS, FIND_OPTIONS } from '#cli/types/commands';
 import { GENERIC_PROFILE, SCORE_FILENAME } from '#types/modules/search';
 
 async function repo(extra: Record<string, string> = {}): Promise<RouteFixture> {

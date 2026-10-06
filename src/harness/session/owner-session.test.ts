@@ -1,8 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseArgs } from '#cli/args';
-import { runNoteSave } from '#cli/commands/route/note';
-import { runRouteNext, runRouteStart, runRouteStatus, runRouteStop } from '#cli/commands/route/route';
+import { runNoteSave, NOTE_SAVE_OPTIONS } from '#cli/commands/route/note';
+import { runRouteNext, runRouteStart, runRouteStatus, runRouteStop, ROUTE_NEXT_OPTIONS, ROUTE_STATUS_OPTIONS, ROUTE_STOP_OPTIONS } from '#cli/commands/route/route';
 import { answerGates } from '#hook/events/gate-answer';
 import { hookRunner, investigation, type Hooked } from '#testing/fixtures/owner-fixture';
 import { planFixture, PLAN_TASK, type PlanFixture } from '#testing/fixtures/plan-fixture';
@@ -12,7 +12,6 @@ import { ownerOf } from './ownership.ts';
 import { taskSessionSource } from './session.ts';
 import { ledgerRouteContext } from '../engine/context.ts';
 import { saveNote } from '#modules/evidence/notes';
-import { NOTE_SAVE_OPTIONS, ROUTE_NEXT_OPTIONS, ROUTE_STATUS_OPTIONS, ROUTE_STOP_OPTIONS } from '#cli/types/commands';
 import { ROUTE_START_OPTIONS } from '#types/cli';
 import type { Runtime } from '#types/composition';
 import type { HookDeps } from '#types/hook';

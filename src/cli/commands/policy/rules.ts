@@ -4,7 +4,13 @@ import { runCommandTail } from '#harness/engine/command-tail';
 import { AmbicodeError } from '#util/errors';
 import { routeTools, taskOf } from '../route/route.ts';
 import type { Runtime } from '#types/composition';
-import type { ParsedArgs } from '../../types/cli.ts';
+import type { ParsedArgs, CliCommand } from '../../types/cli.ts';
+
+export const RULES_DISCOVER_OPTIONS = { values: ['project'], flags: ['json'], positionals: true } as const;
+
+export const RULES_APPLY_OPTIONS = { values: ['task', 'project'], flags: ['json'] } as const;
+
+export const RULES_REVERT_OPTIONS = { values: ['project'], flags: ['json'], positionals: true } as const;
 
 interface RulesOutput { command: string; text: string; [field: string]: unknown }
 
@@ -31,3 +37,30 @@ export async function runRulesRevert(runtime: Runtime, args: ParsedArgs): Promis
 }
 
 export const renderRules = (output: RulesOutput): string => output.text;
+
+export const rulesDiscoverCommand: CliCommand = {
+  name: 'rules discover',
+  options: RULES_DISCOVER_OPTIONS,
+  run: async (runtime, args) => {
+    const output = await runRulesDiscover(runtime, args);
+    return { text: renderRules(output), data: output };
+  },
+};
+
+export const rulesApplyCommand: CliCommand = {
+  name: 'rules apply',
+  options: RULES_APPLY_OPTIONS,
+  run: async (runtime, args) => {
+    const output = await runRulesApply(runtime, args);
+    return { text: renderRules(output), data: output };
+  },
+};
+
+export const rulesRevertCommand: CliCommand = {
+  name: 'rules revert',
+  options: RULES_REVERT_OPTIONS,
+  run: async (runtime, args) => {
+    const output = await runRulesRevert(runtime, args);
+    return { text: renderRules(output), data: output };
+  },
+};

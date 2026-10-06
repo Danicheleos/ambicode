@@ -4,13 +4,12 @@ import path from 'node:path';
 import { describe, it } from 'node:test';
 import { parseDocument, type YAMLMap, type YAMLSeq } from 'yaml';
 import { parseArgs } from '#cli/args';
-import { runRulesDiscover, runRulesRevert } from '#cli/commands/policy/rules';
+import { runRulesDiscover, runRulesRevert, RULES_DISCOVER_OPTIONS, RULES_REVERT_OPTIONS } from '#cli/commands/policy/rules';
 import { createRuntime } from '#composition/root';
 import { initConfig } from '#testing/fixtures/init-config';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { discoverRules } from './rules.ts';
 import { REPO_ROOT } from '#testing/paths';
-import { RULES_DISCOVER_OPTIONS, RULES_REVERT_OPTIONS } from '#cli/types/commands';
 
 
 async function repo() {

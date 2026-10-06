@@ -15,8 +15,6 @@ export { estimateReview } from './bundle/estimate.ts';
 export { parseNarrow } from './bundle/estimate.ts';
 /** renderEstimate(estimate) — renders the estimate and its suggestions within 2,048 bytes. */
 export { renderEstimate } from './bundle/estimate.ts';
-/** localTimestamp(now) — local-time `YYYY-MM-DDTHH-MM` stamp usable in a path segment. */
-export { localTimestamp } from './bundle/review-name.ts';
 /** taskSlugFor({…}) — the task directory slug under TASKS_DIR, or null when the run has no task identity. */
 export { taskSlugFor } from './bundle/review-name.ts';
 

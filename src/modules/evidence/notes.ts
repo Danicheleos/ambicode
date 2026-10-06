@@ -1,14 +1,13 @@
 import path from 'node:path';
 import { ownerOf } from '#harness/session/ownership';
-import { localTimestamp } from '#modules/review/bundle/review-name';
 import { AmbicodeError } from '#util/errors';
+import { localTimestamp, UNIQUE_FILE_LIMIT, writeUniqueFile } from '#util/files';
 import { contentHash, hash12 } from '#util/hash';
 import { ledgerSizeWarning, readLedger } from './ledger/ledger.ts';
 import { withLedgerLock } from './ledger/ledger-lock.ts';
 import { resolveFrom, resolveTaskDir } from './task/task-dir.ts';
 import type { Runtime } from '#types/composition';
 import { MAX_NOTE_BYTES, NOTE_KINDS, SAVE_KINDS, type LedgerEntry, type LockedLedger, type TaskDir, type NoteDeps, type NoteRow, type NoteKind, type SaveKind } from '#types/modules/evidence';
-const COLLISION_LIMIT = 9;
 
 /** The label line the note writer stamps on a note: not the author's words. */
 export const NOTE_LABELS: readonly string[] = Object.values(NOTE_KINDS).map((kind) => kind.label);
@@ -32,7 +31,7 @@ const unreadable = (task: string, reason: string): AmbicodeError =>
   new AmbicodeError('ledger-unreadable', `The ledger of task ${task} cannot be read: ${reason}. Nothing was written.`, {
     details: [`Continue under a new task: --task ${task}-2.`],
   });
-const sessionUnbound = (task: string): AmbicodeError =>
+const noRouteSession = (task: string): AmbicodeError =>
   new AmbicodeError('session-unbound', `Task ${task}: this call has no route owner, so the CLI cannot tell whose plan route it speaks for.`, {
     details: ['Pass --task <slug> of a task with exactly one live route.'],
   });
@@ -50,7 +49,7 @@ export async function owningRoute(ledger: LockedLedger, session: string | null, 
   const owner = ownerOf(read.state === 'ok' ? read.entries : [], task);
   if (owner.state === 'none') return null;
   if (owner.state === 'unknown') throw unreadable(task, owner.reason);
-  if (session === null) throw sessionUnbound(task);
+  if (session === null) throw noRouteSession(task);
   if (session === owner.session) return owner.routeId;
   if (owner.takenOver.includes(session)) {
     throw new AmbicodeError('route-taken-over', `The plan route of task ${task} now belongs to session ${owner.session}; this session no longer writes its files.`);
@@ -70,16 +69,13 @@ function render(kind: NoteKind, body: string, iteration: number | null): string 
 
 async function writeNote(runtime: Runtime, dir: TaskDir, kind: NoteKind, text: string): Promise<string> {
   const { stem, stamped } = NOTE_KINDS[kind];
-  let file = path.join(dir.root, stamped ? `${stem}_${localTimestamp(runtime.clock.now())}.md` : `${stem}.md`);
   if (!stamped) {
+    const file = path.join(dir.root, `${stem}.md`);
     await runtime.fs.writeText(file, text);
     return file;
   }
-  const base = file.slice(0, -'.md'.length);
-  for (let attempt = 2; !(await runtime.fs.createExclusive(file, text)); attempt += 1) {
-    if (attempt > COLLISION_LIMIT) throw badArgument(`${COLLISION_LIMIT} notes of this kind already exist for this minute; wait and save again.`, 'task');
-    file = `${base}-${attempt}.md`;
-  }
+  const file = await writeUniqueFile(runtime.fs, path.join(dir.root, `${stem}_${localTimestamp(runtime.clock.now())}`), '.md', text);
+  if (file === null) throw badArgument(`${UNIQUE_FILE_LIMIT} notes of this kind already exist for this minute; wait and save again.`, 'task');
   return file;
 }
 
@@ -132,7 +128,7 @@ export async function promotePlan(
   task: string,
 ): Promise<{ outcome: 'promoted' | 'plan-already-promoted' | 'repaired'; path: string; promotedFrom: string }> {
   const { runtime, session, context } = deps;
-  if (session === null) throw sessionUnbound(task);
+  if (session === null) throw noRouteSession(task);
   if (context === null) throw new AmbicodeError('internal', 'note promote has no route context to evaluate acceptance against.');
   const dir = await resolveTaskDir(runtime, task);
 

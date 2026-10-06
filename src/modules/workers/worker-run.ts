@@ -1,11 +1,11 @@
 import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
-import { localTimestamp } from '#modules/review/bundle/review-name';
 import { withLedgerLock } from '#modules/evidence/ledger/ledger-lock';
 import { owningRoute } from '#modules/evidence/notes';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { AmbicodeError } from '#util/errors';
+import { localTimestamp, uniqueFileExhausted, writeUniqueFile } from '#util/files';
 import { runWorkerProcess } from './process-runner.ts';
 import type { LedgerEntry, LockedLedger, NoteDeps } from '#types/modules/evidence';
 import type { FileSystem, ProcessRunner } from '#types/platform/ports';
@@ -94,9 +94,8 @@ export async function runWorker(deps: NoteDeps & { runner: ProcessRunner; defini
       throw new AmbicodeError('worker-output-invalid', `Worker ${definition.id} gave no usable output: ${checked.reason}.`, { details: [`reason: ${checked.reason}`, `Release: ${RELEASE}.`] });
     }
     await runtime.fs.mkdirp(dir.workers);
-    const base = path.join(dir.workers, `${definition.id}-${localTimestamp(runtime.clock.now())}`);
-    let file = `${base}.json`;
-    for (let attempt = 2; !(await runtime.fs.createExclusive(file, checked.text)); attempt += 1) file = `${base}-${attempt}.json`;
+    const file = await writeUniqueFile(runtime.fs, path.join(dir.workers, `${definition.id}-${localTimestamp(runtime.clock.now())}`), '.json', checked.text);
+    if (file === null) throw uniqueFileExhausted(definition.id);
     const artifact = path.relative(dir.repositoryRoot, file).split(path.sep).join('/');
     return { entry: await ledger.append({ ...common, outcome: 'ran', artifact }), artifact };
   });

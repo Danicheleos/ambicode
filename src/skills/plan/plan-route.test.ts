@@ -5,7 +5,7 @@ import { readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 import { parseArgs } from '#cli/args';
-import { renderPlanCheck, runPlanCheckCommand } from '#cli/commands/workers/plan-check';
+import { renderPlanCheck, runPlanCheckCommand, PLAN_CHECK_OPTIONS } from '#cli/commands/workers/plan-check';
 import { answerGates } from '#hook/events/gate-answer';
 import { runHook } from '#hook/events/run-hook';
 import { buildReport } from '#modules/evidence/report/report';
@@ -16,7 +16,6 @@ import { CONFIG } from '#testing/fixtures/route-fixture';
 import { ledgerRouteContext } from '#harness/engine/context';
 import { runPlanCheck } from '#modules/workers/plan-check';
 import { REPO_ROOT } from '#testing/paths';
-import { PLAN_CHECK_OPTIONS } from '#cli/types/commands';
 import { SESSION_A, SESSION_B } from '#testing/fixtures/ids';
 
 /** SHA-256 of the step-06 Contract YAML with amend-06-review-r1 P2 (`fetch` gets `payload: [template]`). */

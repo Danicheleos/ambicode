@@ -19,7 +19,7 @@ import type { Runtime } from '#types/composition';
 import type { LedgerEntry } from '#types/modules/evidence';
 import type { RouteDef } from '#types/harness';
 
-export const TRANSCRIPT_TAIL_BYTES = 1_048_576;
+export const TRANSCRIPT_TAIL_BYTES = 1024 * 1024;
 export const REASON_LIMIT_BYTES = 2048;
 
 /** A failing check precedes the first green one of the key: the defect was shown before it was fixed (03-K4). */

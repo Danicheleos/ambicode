@@ -5,16 +5,16 @@ It does not change behavior except where [01-changes.md](01-changes.md) lists a 
 Findings that were reported but not fixed are in [02-findings.md](02-findings.md).
 Audits of the evals tree are in `../evals/`; its `02-src-findings.md` is cross-referenced from 02 here.
 
-Verified 2026-10-06, after the decision batch, with `npm run verify` (build, typecheck, 2,573 unit tests: 2,572 pass, 0 fail, 1 skipped; plugin validation) and `node tools/check-line-endings.mjs`.
-The evals script tests pass as well (292). The guard bundle is 67.7 KB, against a 67.6 KB baseline.
+Verified 2026-10-06, after the second decision batch, with `npm run verify` (build, typecheck, 2,584 unit tests: 2,583 pass, 0 fail, 1 skipped — the Windows-only process test; plugin validation) and `node tools/check-line-endings.mjs`.
+The guard bundle is 67.7 KB, against a 67.6 KB baseline.
 
 ## Layout
 
 ```
 src/
-  cli/            bin entry (main.ts), args, options/, commands/{checks,config,policy,prepare,requirements,review,route,search,workers}/, types/
+  cli/            bin entry (main.ts: name → CliCommand record), args, options/, commands/{checks,config,policy,prepare,requirements,review,route,search,workers}/ (each file: *_OPTIONS + its CliCommand), types/
   composition/    runtime and workspace wiring (root.ts)
-  harness/        L2 route engine: definition/ (DSL, routes, flags), engine/, gates/, session/, types/ (engine.ts)
+  harness/        L2 route engine: definition/ (DSL, routes, flags), engine/ (engine, execute, status, fold, delivery, …), gates/, session/, types/ (engine.ts)
   hook/           Claude Code hooks: events/, guard/ (standalone bundle), session/, shell/, types/ (guard, session)
   modules/        L1 capabilities, one folder each, subfolders by concern
     checks/       run/, selection/, workspace/, types/ (selection, workspace)
@@ -33,7 +33,7 @@ src/
     platform/     L0 contracts: claude, git, ports, provider
     modules/      L1 contracts, one file per module: checks, config, ecosystems, evidence, policy,
                   publication, requirements, review, search, workers
-  util/           dependency-free helpers
+  util/           dependency-free helpers (errors, files, glob, guards, hash, paths, …)
 tools/            build, packaging, install, smoke and line-ending scripts (were in the repo root)
 ```
 

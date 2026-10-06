@@ -15,8 +15,7 @@ import { ReviewStore } from '#modules/review/publication/store';
 import { AmbicodeError } from '#util/errors';
 import { pageTemplatesDirectory } from '#util/plugin-root';
 import type { Runtime } from '#types/composition';
-import type { ParsedArgs } from '../../types/cli.ts';
-import type { ViewOutput } from '../../types/commands.ts';
+import type { ParsedArgs, ViewOutput } from '../../types/cli.ts';
 
 /**
  * Everything served comes from the saved result and the positions derived when

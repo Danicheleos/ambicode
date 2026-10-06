@@ -10,12 +10,11 @@ import { builtinPoliciesDirectory } from '#util/plugin-root';
 import { isAmbicodeError } from '#util/errors';
 import { parseArgs } from '../../args.ts';
 import { buildProposal } from '#modules/config/init/proposal';
-import { runPolicy } from './policy.ts';
-import { renderPolicyCheck, runPolicyCheck, type PolicyCheckOutput } from './policy-check.ts';
+import { runPolicy, POLICY_OPTIONS } from './policy.ts';
+import { renderPolicyCheck, runPolicyCheck, POLICY_CHECK_OPTIONS, type PolicyCheckOutput } from './policy-check.ts';
 import { REPO_ROOT } from '#testing/paths';
 import type { Runtime } from '#types/composition';
 import type { FileSystem } from '#types/platform/ports';
-import { POLICY_OPTIONS, POLICY_CHECK_OPTIONS } from '../../types/commands.ts';
 
 const CONFIG_TAIL = [
   'review: { model: sonnet, timeoutSeconds: 300, maxFindings: 7, maxChangedFiles: 50, maxChangedLines: 2000, maxContextBytes: 524288 }',

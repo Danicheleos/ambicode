@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parseArgs } from '#cli/args';
-import { runRouteNext, runRouteStop } from '#cli/commands/route/route';
+import { runRouteNext, runRouteStop, ROUTE_NEXT_OPTIONS, ROUTE_STOP_OPTIONS } from '#cli/commands/route/route';
 import { routeFixture } from '#testing/fixtures/route-fixture';
 import { PLAN_TASK, planFixture } from '#testing/fixtures/plan-fixture';
 import { resolveActiveRoute } from './active-route.ts';
@@ -11,7 +11,6 @@ import {
   associationSessionSource, cliHarnessPort, environmentSessionSource, hookBinding, removeAssociation, rejectingHarnessPort,
   sessionUnbound, taskSessionSource, updatedInputSessionSource, writeAssociation,
 } from './session.ts';
-import { ROUTE_NEXT_OPTIONS, ROUTE_STOP_OPTIONS } from '#cli/types/commands';
 import { SESSION_A, SESSION_B } from '#testing/fixtures/ids';
 
 const codeOf = (promise: Promise<unknown>): Promise<string> => promise.then(() => 'ok', (error: { code?: string }) => error.code ?? 'unknown');

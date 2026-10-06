@@ -10,7 +10,7 @@ import type { FileSystem, IdSource } from '#types/platform/ports';
 
 const ACTIVE = 'active-route';
 const ENDED = 'ended-route';
-const POINTER_LIMIT = 4 * 1024;
+export const POINTER_LIMIT = 4 * 1024;
 
 /** The pointer is a cache of "which route is active"; the ledger stays the authority (03-S7). */
 export function fsActiveRoutePointer(fs: FileSystem): ActiveRoutePointer {

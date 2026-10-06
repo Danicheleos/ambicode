@@ -3,13 +3,12 @@ import path from 'node:path';
 import { describe, it } from 'node:test';
 import { parseArgs } from '#cli/args';
 import { initConfig } from '#testing/fixtures/init-config';
-import { runReview } from '#cli/commands/review/review';
+import { runReview, REVIEW_OPTIONS } from '#cli/commands/review/review';
 import { createRuntime } from '#composition/root';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { byteLength } from '../snapshot/limits.ts';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { isAmbicodeError } from '#util/errors';
-import { REVIEW_OPTIONS } from '#cli/types/commands';
 import type { Runtime } from '#types/composition';
 import type { Reviewer, ReviewerInvocation, ReviewerRequest } from '#types/platform/ports';
 

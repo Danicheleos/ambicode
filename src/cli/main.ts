@@ -3,32 +3,28 @@ import { createRuntime } from '#composition/root';
 import { AmbicodeError, isAmbicodeError } from '#util/errors';
 import { formatJsonOutput } from '#util/json-output';
 import { parseArgs } from './args.ts';
-import { renderBundle, runBundle } from './commands/review/bundle.ts';
-import { renderConfig, runConfig } from './commands/config/config.ts';
-import { renderInit, runInit } from './commands/config/init.ts';
-import { renderDoctor, runDoctorCommand } from './commands/config/doctor.ts';
-import { renderRules, runRulesApply, runRulesDiscover, runRulesRevert } from './commands/policy/rules.ts';
-import { renderLocate, runLocate } from './commands/search/locate.ts';
-import { renderCheck, runCheckCommand } from './commands/checks/check.ts';
-import { renderFormat, runFormatCommand } from './commands/checks/format.ts';
-import { renderNoteList, renderNotePromote, renderNoteSave, runNoteList, runNotePromote, runNoteSave } from './commands/route/note.ts';
-import { renderPlanCheck, runPlanCheckCommand } from './commands/workers/plan-check.ts';
-import { renderPolicy, runPolicy } from './commands/policy/policy.ts';
-import { renderPolicyCheck, runPolicyCheck } from './commands/policy/policy-check.ts';
-import { prepareAsRouteStart, renderPrepare, runPrepare } from './commands/prepare/prepare.ts';
-import { renderReport, runReport } from './commands/route/report.ts';
-import { renderSearch, runFind, runIndex, runMap, runRefs, runRelates } from './commands/search/search.ts';
-import { renderRequirements, runRequirementsAcs, runRequirementsNormalize, runRequirementsTemplate } from './commands/requirements/requirements.ts';
-import { renderMessage, renderRouteStatus, runRouteNext, runRouteStart, runRouteStatus, runRouteStop } from './commands/route/route.ts';
-import { renderReview, runReview, runReviewEstimate } from './commands/review/review.ts';
-import { renderWorkerRun, runWorkerCommand } from './commands/workers/worker.ts';
-import { validateTargetArgs } from './options/target-option.ts';
-import { PREPARE_OPTIONS, ROUTE_START_OPTIONS } from '#types/cli';
+import { bundleCommand } from './commands/review/bundle.ts';
+import { configCommand } from './commands/config/config.ts';
+import { initCommand } from './commands/config/init.ts';
+import { doctorCommand } from './commands/config/doctor.ts';
+import { rulesApplyCommand, rulesDiscoverCommand, rulesRevertCommand } from './commands/policy/rules.ts';
+import { locateCommand } from './commands/search/locate.ts';
+import { checkCommand } from './commands/checks/check.ts';
+import { formatCommand } from './commands/checks/format.ts';
+import { noteListCommand, notePromoteCommand, noteSaveCommand } from './commands/route/note.ts';
+import { planCheckCommand } from './commands/workers/plan-check.ts';
+import { policyCommand } from './commands/policy/policy.ts';
+import { policyCheckCommand } from './commands/policy/policy-check.ts';
+import { prepareCommand } from './commands/prepare/prepare.ts';
+import { reportCommand } from './commands/route/report.ts';
+import { findCommand, indexBuildCommand, indexStatusCommand, mapCommand, refsCommand, relatesCommand } from './commands/search/search.ts';
+import { requirementsAcsCommand, requirementsNormalizeCommand, requirementsTemplateCommand } from './commands/requirements/requirements.ts';
+import { routeNextCommand, routeStartCommand, routeStatusCommand, routeStopCommand } from './commands/route/route.ts';
+import { reviewCommand } from './commands/review/review.ts';
+import { workerRunCommand } from './commands/workers/worker.ts';
 import type { Runtime } from '#types/composition';
 import { MAX_HOOK_INPUT_BYTES } from '#types/hook';
-import type { JsonFormat } from '#types/util';
-import type { OptionSpec, ParsedArgs } from './types/cli.ts';
-import { BUNDLE_OPTIONS, CONFIG_OPTIONS, INIT_OPTIONS, DOCTOR_OPTIONS, RULES_APPLY_OPTIONS, RULES_DISCOVER_OPTIONS, RULES_REVERT_OPTIONS, LOCATE_OPTIONS, CHECK_OPTIONS, FORMAT_OPTIONS, NOTE_LIST_OPTIONS, NOTE_PROMOTE_OPTIONS, NOTE_SAVE_OPTIONS, PLAN_CHECK_OPTIONS, POLICY_OPTIONS, POLICY_CHECK_OPTIONS, REPORT_OPTIONS, FIND_OPTIONS, INDEX_OPTIONS, MAP_OPTIONS, REFS_OPTIONS, RELATES_OPTIONS, REQUIREMENTS_ACS_OPTIONS, REQUIREMENTS_NORMALIZE_OPTIONS, REQUIREMENTS_TEMPLATE_OPTIONS, ROUTE_NEXT_OPTIONS, ROUTE_STATUS_OPTIONS, ROUTE_STOP_OPTIONS, REVIEW_OPTIONS, WORKER_RUN_OPTIONS, type ViewOutput } from './types/commands.ts';
+import type { CliCommand, OptionSpec, ParsedArgs, Rendered, ViewOutput } from './types/cli.ts';
 import { VIEW_OPTIONS } from './types/options.ts';
 
 export const USAGE = `ambicode <command> [options]
@@ -323,22 +319,6 @@ Global:
   --json                  Emit structured output instead of text.
 `;
 
-type Rendered = {
-  text: string;
-  data: unknown;
-  /** How `--json` serializes `data`; pretty unless the command says otherwise. */
-  json?: JsonFormat;
-  /** A command that keeps serving until this settles, e.g. the review page. */
-  wait?: { until: Promise<string>; stop: (reason: string) => Promise<void> };
-  /**
-   * Nonzero when the *finding* is the outcome (e.g. `policy check` reported an
-   * error) rather than a failure to run; an operator error still throws and exits 2.
-   */
-  exitCode?: number;
-  /** Printed to standard error, so a `--json` reader of stdout still receives one document. */
-  warnings?: string[];
-};
-
 export async function main(argv: readonly string[]): Promise<number> {
   const [command, ...rest] = argv;
 
@@ -365,8 +345,8 @@ export async function main(argv: readonly string[]): Promise<number> {
   const name = subcommand === undefined ? command : `${command} ${subcommand}`;
   const commandArgv = subcommand === undefined ? rest : rest.slice(1);
 
-  const spec = SPECS[name];
-  if (spec === undefined) {
+  const entry = COMMANDS.get(name);
+  if (entry === undefined) {
     process.stderr.write(`Unknown command "${command}".\n\n${USAGE}`);
     return 2;
   }
@@ -374,9 +354,9 @@ export async function main(argv: readonly string[]): Promise<number> {
   try {
     // Parsed and validated before any runtime exists: a bad argument must not
     // reach a process, the filesystem or a provider.
-    const args = parseArgs(name, commandArgv, spec);
-    validateCombination(name, args);
-    const rendered = await dispatch(name, args);
+    const args = parseArgs(name, commandArgv, entry.options);
+    entry.validate?.(args);
+    const rendered = await dispatch(entry, args);
     for (const warning of rendered.warnings ?? []) process.stderr.write(`${warning}\n`);
     process.stdout.write(
       args.flag('json') ? formatJsonOutput(rendered.data, rendered.json ?? 'pretty') : `${rendered.text}\n`,
@@ -398,198 +378,48 @@ const REQUIREMENTS_COMMANDS = ['template', 'normalize', 'acs'];
 const INDEX_COMMANDS = ['build', 'status'];
 const RULES_COMMANDS = ['discover', 'apply', 'revert'];
 
-export const SPECS: Record<string, OptionSpec | undefined> = {
-  init: INIT_OPTIONS,
-  doctor: DOCTOR_OPTIONS,
-  'rules discover': RULES_DISCOVER_OPTIONS,
-  'rules apply': RULES_APPLY_OPTIONS,
-  'rules revert': RULES_REVERT_OPTIONS,
-  config: CONFIG_OPTIONS,
-  locate: LOCATE_OPTIONS,
-  policy: POLICY_OPTIONS,
-  'policy check': POLICY_CHECK_OPTIONS,
-  'note save': NOTE_SAVE_OPTIONS,
-  'note promote': NOTE_PROMOTE_OPTIONS,
-  'note list': NOTE_LIST_OPTIONS,
-  'plan check': PLAN_CHECK_OPTIONS,
-  check: CHECK_OPTIONS,
-  format: FORMAT_OPTIONS,
-  'worker run': WORKER_RUN_OPTIONS,
-  report: REPORT_OPTIONS,
-  'route start': ROUTE_START_OPTIONS,
-  'route next': ROUTE_NEXT_OPTIONS,
-  'route status': ROUTE_STATUS_OPTIONS,
-  'route stop': ROUTE_STOP_OPTIONS,
-  map: MAP_OPTIONS,
-  refs: REFS_OPTIONS,
-  find: FIND_OPTIONS,
-  relates: RELATES_OPTIONS,
-  'index build': INDEX_OPTIONS,
-  'index status': INDEX_OPTIONS,
-  'requirements template': REQUIREMENTS_TEMPLATE_OPTIONS,
-  'requirements normalize': REQUIREMENTS_NORMALIZE_OPTIONS,
-  'requirements acs': REQUIREMENTS_ACS_OPTIONS,
-  prepare: PREPARE_OPTIONS,
-  review: REVIEW_OPTIONS,
-  bundle: BUNDLE_OPTIONS,
-  view: VIEW_OPTIONS,
-  version: VERSION_OPTIONS,
+const viewCommand: CliCommand = {
+  name: 'view',
+  options: VIEW_OPTIONS,
+  run: async (runtime, args) => {
+    // Loaded here and nowhere else: see `view-options.ts`.
+    const { renderView, runView } = await import('./commands/review/view.ts');
+    // stderr, so a `--json` reader of stdout still receives one document; a
+    // closed reader (EPIPE) must cost the diagnostic line, not the page.
+    process.stderr.on('error', () => undefined);
+    const output = await runView(runtime, args, { log: (line) => process.stderr.write(`${line}\n`) });
+    return {
+      text: renderView(output),
+      data: viewData(output),
+      wait: { until: output.stopped, stop: output.stop },
+    };
+  },
 };
 
-function validateCombination(command: string, args: ParsedArgs): void {
-  if (command === 'review' || command === 'bundle') validateTargetArgs(command, args);
-}
+const versionCommand: CliCommand = {
+  name: 'version',
+  options: VERSION_OPTIONS,
+  run: async (runtime) => {
+    const output = await versionOutput(runtime);
+    return { text: `${output.plugin}\n${output.git}\n${output.node}`, data: output };
+  },
+};
 
-async function dispatch(command: string, args: ParsedArgs): Promise<Rendered> {
+const COMMANDS: ReadonlyMap<string, CliCommand> = new Map([
+  initCommand, doctorCommand, rulesDiscoverCommand, rulesApplyCommand, rulesRevertCommand, configCommand, locateCommand,
+  policyCommand, policyCheckCommand, noteSaveCommand, notePromoteCommand, noteListCommand, planCheckCommand, checkCommand,
+  formatCommand, workerRunCommand, reportCommand, routeStartCommand, routeNextCommand, routeStatusCommand, routeStopCommand,
+  mapCommand, refsCommand, findCommand, relatesCommand, indexBuildCommand, indexStatusCommand, requirementsTemplateCommand,
+  requirementsNormalizeCommand, requirementsAcsCommand, prepareCommand, reviewCommand, bundleCommand, viewCommand, versionCommand,
+].map((entry) => [entry.name, entry]));
+
+export const SPECS: Record<string, OptionSpec | undefined> = Object.fromEntries([...COMMANDS].map(([name, entry]) => [name, entry.options]));
+
+async function dispatch(command: CliCommand, args: ParsedArgs): Promise<Rendered> {
   const runtime = await createRuntime();
-  const rendered = await run(command, args, runtime);
+  const rendered = await command.run(runtime, args);
   const notices = runtime.notices ?? [];
   return notices.length === 0 ? rendered : { ...rendered, warnings: [...notices, ...(rendered.warnings ?? [])] };
-}
-
-async function run(command: string, args: ParsedArgs, runtime: Runtime): Promise<Rendered> {
-  switch (command) {
-    case 'init': {
-      const output = await runInit(runtime, args);
-      return { text: renderInit(output), data: output };
-    }
-    case 'doctor': {
-      const output = await runDoctorCommand(runtime, args);
-      return { text: renderDoctor(output), data: output };
-    }
-    case 'rules discover': {
-      const output = await runRulesDiscover(runtime, args);
-      return { text: renderRules(output), data: output };
-    }
-    case 'rules apply': {
-      const output = await runRulesApply(runtime, args);
-      return { text: renderRules(output), data: output };
-    }
-    case 'rules revert': {
-      const output = await runRulesRevert(runtime, args);
-      return { text: renderRules(output), data: output };
-    }
-    case 'config': {
-      const output = await runConfig(runtime);
-      return { text: renderConfig(output), data: output };
-    }
-    case 'policy': {
-      const output = await runPolicy(runtime, args);
-      return { text: renderPolicy(output), data: output };
-    }
-    case 'policy check': {
-      const output = await runPolicyCheck(runtime, args);
-      return { text: renderPolicyCheck(output), data: output, ...(output.ok ? {} : { exitCode: 1 }) };
-    }
-    case 'note save': {
-      const output = await runNoteSave(runtime, args);
-      return { text: renderNoteSave(output), data: output, warnings: output.warnings ?? [] };
-    }
-    case 'note promote': {
-      const output = await runNotePromote(runtime, args);
-      return { text: renderNotePromote(output), data: output };
-    }
-    case 'note list': {
-      const output = await runNoteList(runtime, args);
-      return { text: renderNoteList(output), data: output };
-    }
-    case 'check': {
-      const output = await runCheckCommand(runtime, args);
-      return { text: renderCheck(output), data: output };
-    }
-    case 'format': {
-      const output = await runFormatCommand(runtime, args);
-      return { text: renderFormat(output), data: output };
-    }
-    case 'plan check': {
-      const output = await runPlanCheckCommand(runtime, args);
-      return { text: renderPlanCheck(output), data: output };
-    }
-    case 'worker run': {
-      const output = await runWorkerCommand(runtime, args);
-      return { text: renderWorkerRun(output), data: output };
-    }
-    case 'route start': {
-      const output = await runRouteStart(runtime, args);
-      return { text: renderMessage(output), data: output };
-    }
-    case 'route next': {
-      const output = await runRouteNext(runtime, args);
-      return { text: renderMessage(output), data: output };
-    }
-    case 'route status': {
-      const output = await runRouteStatus(runtime, args);
-      return { text: renderRouteStatus(output), data: output };
-    }
-    case 'route stop': {
-      const output = await runRouteStop(runtime, args);
-      return { text: `Route on task ${output.task} stopped: ${output.reason}.`, data: output };
-    }
-    case 'map':
-    case 'refs':
-    case 'find':
-    case 'relates': {
-      const output = await (command === 'map' ? runMap : command === 'refs' ? runRefs : command === 'find' ? runFind : runRelates)(runtime, args);
-      return { text: renderSearch(output), data: output.data, json: 'compact' };
-    }
-    case 'index build':
-    case 'index status':
-      return runIndex(runtime, args, command === 'index build' ? 'build' : 'status');
-    case 'requirements template':
-    case 'requirements normalize':
-    case 'requirements acs': {
-      const output = await (command === 'requirements template' ? runRequirementsTemplate : command === 'requirements normalize' ? runRequirementsNormalize : runRequirementsAcs)(runtime, args);
-      return { text: renderRequirements(output), data: output.data };
-    }
-    case 'report': {
-      const output = await runReport(runtime, args);
-      return { text: renderReport(output), data: { evidence: output.evidence, notVerified: output.notVerified, hash: output.hash } };
-    }
-    case 'locate': {
-      const output = await runLocate(runtime, args);
-      // Compact: its reader is a model, and indentation on a path list carries no information.
-      return { text: renderLocate(output), data: output, json: 'compact' };
-    }
-    case 'prepare': {
-      if (args.value('activity') === 'investigate') {
-        const { argv, notices } = prepareAsRouteStart(args);
-        for (const notice of notices) process.stderr.write(`${notice}\n`);
-        const output = await runRouteStart(runtime, parseArgs('route start', argv, ROUTE_START_OPTIONS));
-        return { text: renderMessage(output), data: output };
-      }
-      const run = await runPrepare(runtime, args);
-      return { text: renderPrepare(run), data: run.data, json: run.json };
-    }
-    case 'review': {
-      if (args.flag('estimate')) {
-        const estimate = await runReviewEstimate(runtime, args);
-        return { text: estimate.text, data: estimate };
-      }
-      const output = await runReview(runtime, args);
-      return { text: renderReview(output), data: output };
-    }
-    case 'bundle': {
-      const output = await runBundle(runtime, args);
-      return { text: renderBundle(output), data: output };
-    }
-    case 'view': {
-      // Loaded here and nowhere else: see `view-options.ts`.
-      const { renderView, runView } = await import('./commands/review/view.ts');
-      // stderr, so a `--json` reader of stdout still receives one document; a
-      // closed reader (EPIPE) must cost the diagnostic line, not the page.
-      process.stderr.on('error', () => undefined);
-      const output = await runView(runtime, args, { log: (line) => process.stderr.write(`${line}\n`) });
-      return {
-        text: renderView(output),
-        data: viewData(output),
-        wait: { until: output.stopped, stop: output.stop },
-      };
-    }
-    default: {
-      const output = await versionOutput(runtime);
-      return { text: `${output.plugin}\n${output.git}\n${output.node}`, data: output };
-    }
-  }
 }
 
 async function serveUntilStopped(wait: {
@@ -615,9 +445,7 @@ function viewData(output: ViewOutput): Record<string, unknown> {
   return data;
 }
 
-async function versionOutput(
-  runtime: Awaited<ReturnType<typeof createRuntime>>,
-): Promise<{ plugin: string; git: string; node: string }> {
+async function versionOutput(runtime: Runtime): Promise<{ plugin: string; git: string; node: string }> {
   const { Git } = await import('#platform/git/git');
   const git = new Git({ runner: runtime.runner, repositoryRoot: runtime.cwd });
   let gitVersion: string;

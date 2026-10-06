@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { CombinedCapture, NodeProcessRunner, decodeCompleteUtf8, windowsCommandExists } from './node-process-runner.ts';
+import { describeOutcome, outcomeFailure } from './process.ts';
 import type { ProcessOutcome } from '#types/platform/ports';
 
 const runner = new NodeProcessRunner();
@@ -326,5 +327,24 @@ describe('05-B7 detached output', () => {
     assert.deepEqual([outcome.kind, outcome.exitCode, outcome.stdout, outcome.stderr, outcome.truncated, outcome.failure], ['detached', null, '', '', false, null]);
     const missing = await runner.run({ argv: ['ambicode-no-such-binary-05'], cwd: os.tmpdir(), timeoutMs: 0, maxOutputBytes: 0, env: { kind: 'inherited' }, output: 'detached' });
     assert.equal(missing.kind, 'spawn-failed');
+  });
+});
+
+describe('outcomeFailure and describeOutcome', () => {
+  const outcome = (fields: Partial<ProcessOutcome>): ProcessOutcome => ({ kind: 'exited', exitCode: 0, stdout: '', stderr: '', truncated: false, durationMs: 0, failure: null, ...fields });
+
+  it('ranks spawn-failed, timed-out, truncated, nonzero-exit and passes a detached start', () => {
+    assert.equal(outcomeFailure(outcome({ kind: 'spawn-failed', exitCode: null, truncated: true })), 'spawn-failed');
+    assert.equal(outcomeFailure(outcome({ kind: 'timed-out', exitCode: null, truncated: true })), 'timed-out');
+    assert.equal(outcomeFailure(outcome({ exitCode: 1, truncated: true })), 'truncated');
+    assert.equal(outcomeFailure(outcome({ exitCode: 1 })), 'nonzero-exit');
+    assert.equal(outcomeFailure(outcome({ kind: 'detached', exitCode: null })), null);
+    assert.equal(outcomeFailure(outcome({})), null);
+  });
+
+  it('describes each failure as the tail of a "<program> …" message', () => {
+    assert.equal(describeOutcome(outcome({ kind: 'spawn-failed', exitCode: null, failure: 'ENOENT' })), 'could not be started (ENOENT)');
+    assert.equal(describeOutcome(outcome({ kind: 'timed-out', exitCode: null })), 'timed out');
+    assert.equal(describeOutcome(outcome({ exitCode: 3 })), 'exited with 3');
   });
 });

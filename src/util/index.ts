@@ -11,6 +11,15 @@ export { messageOf } from './errors.ts';
 /** isObject(value) — true for a plain non-null, non-array object, narrowed to a string-keyed record. */
 export { isObject } from './guards.ts';
 
+// files.ts: timestamped artifact names that never overwrite.
+export { UNIQUE_FILE_LIMIT } from './files.ts';
+/** localTimestamp(now) — local-time `YYYY-MM-DDTHH-MM` stamp usable in a path segment. */
+export { localTimestamp } from './files.ts';
+/** writeUniqueFile(fs, base, extension, text) — creates base+extension, then base-2…, exclusively; null once UNIQUE_FILE_LIMIT names are taken. */
+export { writeUniqueFile } from './files.ts';
+/** uniqueFileExhausted(what) — the error to throw when writeUniqueFile returns null. */
+export { uniqueFileExhausted } from './files.ts';
+
 // glob.ts: POSIX-style glob matching on repository-relative paths.
 /** matchesAnyGlob(relativePath, globs) — true when the path matches at least one glob. */
 export { matchesAnyGlob } from './glob.ts';

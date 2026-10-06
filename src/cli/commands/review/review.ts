@@ -8,7 +8,7 @@ import { renderReport } from '#modules/review/findings/report';
 import { validateFindings } from '#modules/review/findings/validate';
 import { derivePositions } from '#modules/review/publication/positions';
 import { ReviewStore } from '#modules/review/publication/store';
-import { resolveTargetOptions } from '../../options/target-option.ts';
+import { resolveTargetOptions, validateTargetArgs } from '../../options/target-option.ts';
 import { consentForKey, routedOf, warmIndex, withLedger } from '#modules/checks/run/check-command';
 import { baselineOf } from '#modules/checks/run/format';
 import { touchedSet } from '#modules/checks/workspace/baseline';
@@ -25,9 +25,10 @@ import type { LedgerEntry } from '#types/modules/evidence';
 import type { RouteArgs } from '#types/harness';
 import type { Reviewer } from '#types/platform/ports';
 import type { EvidenceSource } from '#types/modules/requirements';
-import type { ParsedArgs } from '../../types/cli.ts';
-import type { RouteTools } from '../../types/commands.ts';
-import type { ResolvedTargetOptions } from '../../types/options.ts';
+import type { ParsedArgs, RouteTools, CliCommand, OptionSpec } from '../../types/cli.ts';
+import { TARGET_OPTIONS, type ResolvedTargetOptions } from '../../types/options.ts';
+
+export const REVIEW_OPTIONS: OptionSpec = { ...TARGET_OPTIONS, flags: [...TARGET_OPTIONS.flags, 'estimate'] };
 
 /** What `--task` adds to a review (07-B3 … 07-B5, 07-K5): the baseline scope, consent-checked approvals and the ledger fields. */
 interface TaskScope {
@@ -471,3 +472,17 @@ export function renderReview(output: ReviewOutput): string {
   });
   return output.next === undefined ? report : `${report}\n\n${output.next}`;
 }
+
+export const reviewCommand: CliCommand = {
+  name: 'review',
+  options: REVIEW_OPTIONS,
+  validate: (args) => validateTargetArgs('review', args),
+  run: async (runtime, args) => {
+    if (args.flag('estimate')) {
+      const estimate = await runReviewEstimate(runtime, args);
+      return { text: estimate.text, data: estimate };
+    }
+    const output = await runReview(runtime, args);
+    return { text: renderReview(output), data: output };
+  },
+};

@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { parseArgs } from '#cli/args';
-import { runPlanCheckCommand } from '#cli/commands/workers/plan-check';
+import { runPlanCheckCommand, PLAN_CHECK_OPTIONS } from '#cli/commands/workers/plan-check';
 import { answerGates } from '#hook/events/gate-answer';
 import { NodeProcessRunner } from '#platform/ports/node-process-runner';
 import { nodeFileSystem } from '#platform/ports/filesystem';
@@ -12,7 +12,6 @@ import { readLedger } from '#modules/evidence/ledger/ledger';
 import { assembleEngine, CONFIG } from '#testing/fixtures/route-fixture';
 import { defaultHandlers } from '#harness/engine/handlers';
 import { REPO_ROOT } from '#testing/paths';
-import { PLAN_CHECK_OPTIONS } from '#cli/types/commands';
 
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';
 const TASK = 'invoice-discount';

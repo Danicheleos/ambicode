@@ -6,14 +6,13 @@ import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { createRuntime } from '#composition/root';
 import { parseArgs } from '#cli/args';
-import { renderPlanCheck, runPlanCheckCommand } from '#cli/commands/workers/plan-check';
+import { renderPlanCheck, runPlanCheckCommand, PLAN_CHECK_OPTIONS } from '#cli/commands/workers/plan-check';
 import { ledgerRouteContext } from '#harness/engine/context';
 import { defaultHandlers } from '#harness/engine/handlers';
 import { routeFixture } from '#testing/fixtures/route-fixture';
 import { AmbicodeError } from '#util/errors';
 import { checkPlan, MAX_LISTED, planCheckFailed, runPlanCheck } from './plan-check.ts';
 import { REPO_ROOT } from '#testing/paths';
-import { PLAN_CHECK_OPTIONS } from '#cli/types/commands';
 import type { Runtime } from '#types/composition';
 
 describe('checkPlan', () => {

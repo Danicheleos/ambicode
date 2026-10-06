@@ -13,7 +13,7 @@ export { loadRouteRegistry } from './definition/routes.ts';
 /** routeRegistry(files) — wraps already validated route files in the lookup (`route(skill)`, `skills()`). */
 export { routeRegistry } from './definition/routes.ts';
 
-// engine/: the engine itself, the ledger fold, step delivery and the handler registry.
+// engine/: the engine (engine.ts: start/advance/deliver/stop; execute.ts: the advance loop; status.ts), the ledger fold, step delivery and the handler registry.
 /** createEngine(deps) — builds the route Engine (start/advance/gates) over a runtime, routes, handlers and the active-route pointer. */
 export { createEngine } from './engine/engine.ts';
 /** runCommandTail(deps, input) — after a CLI command wrote its evidence, advances the route and returns the next step message or null. */

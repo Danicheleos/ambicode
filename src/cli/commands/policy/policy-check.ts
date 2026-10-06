@@ -17,7 +17,13 @@ import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { routeTools } from '../route/route.ts';
 import type { Runtime, Workspace } from '#types/composition';
 import type { FileSystem } from '#types/platform/ports';
-import type { ParsedArgs } from '../../types/cli.ts';
+import type { ParsedArgs, CliCommand } from '../../types/cli.ts';
+
+export const POLICY_CHECK_OPTIONS = {
+  values: ['project', 'task'],
+  flags: ['json', 'drafts'],
+  positionals: true,
+} as const;
 
 const EXAMPLES_PER_GLOB = 3;
 
@@ -344,3 +350,12 @@ export function renderPolicyCheck(output: PolicyCheckOutput): string {
   if (output.next !== undefined) lines.push('', output.next);
   return lines.join('\n');
 }
+
+export const policyCheckCommand: CliCommand = {
+  name: 'policy check',
+  options: POLICY_CHECK_OPTIONS,
+  run: async (runtime, args) => {
+    const output = await runPolicyCheck(runtime, args);
+    return { text: renderPolicyCheck(output), data: output, ...(output.ok ? {} : { exitCode: 1 }) };
+  },
+};

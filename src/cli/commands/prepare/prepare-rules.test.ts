@@ -4,10 +4,9 @@ import { createRuntime } from '#composition/root';
 import type { PrepareCompactOutput } from '#types/prepare';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { parseArgs } from '../../args.ts';
-import { runPolicy } from '../policy/policy.ts';
+import { runPolicy, POLICY_OPTIONS } from '../policy/policy.ts';
 import { runPrepare } from './prepare.ts';
 import { PREPARE_OPTIONS } from '#types/cli';
-import { POLICY_OPTIONS } from '../../types/commands.ts';
 
 async function repoWithTwoRules(): Promise<TempRepo> {
   const repo = await TempRepo.create();

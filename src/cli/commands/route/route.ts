@@ -15,8 +15,14 @@ import { contentHash } from '#util/hash';
 import { validateTargetArgs } from '../../options/target-option.ts';
 import type { Runtime } from '#types/composition';
 import type { Position, StepMessage, ReviewTargetArgs, SessionBinding } from '#types/harness';
-import type { ParsedArgs } from '../../types/cli.ts';
-import type { RouteTools } from '../../types/commands.ts';
+import type { ParsedArgs, RouteTools, CliCommand } from '../../types/cli.ts';
+import { ROUTE_START_OPTIONS } from '#types/cli';
+
+export const ROUTE_NEXT_OPTIONS = { values: ['task', 'default', 'revise', 'conflict', 'sources', 'project', 'show'], repeated: ['answer'], flags: ['json'] } as const;
+
+export const ROUTE_STATUS_OPTIONS = { values: ['task'], flags: ['json'] } as const;
+
+export const ROUTE_STOP_OPTIONS = { values: ['task', 'reason', 'detail'], flags: ['json'] } as const;
 
 /** The review target of a start, refused as `review` refuses it; absent for uncommitted work (08-R2). */
 export function startTarget(skill: string, args: ParsedArgs): ReviewTargetArgs | undefined {
@@ -156,3 +162,39 @@ export function renderRouteStatus(output: RouteStatusOutput): string {
     })
     .join('\n');
 }
+
+export const routeStartCommand: CliCommand = {
+  name: 'route start',
+  options: ROUTE_START_OPTIONS,
+  run: async (runtime, args) => {
+    const output = await runRouteStart(runtime, args);
+    return { text: renderMessage(output), data: output };
+  },
+};
+
+export const routeNextCommand: CliCommand = {
+  name: 'route next',
+  options: ROUTE_NEXT_OPTIONS,
+  run: async (runtime, args) => {
+    const output = await runRouteNext(runtime, args);
+    return { text: renderMessage(output), data: output };
+  },
+};
+
+export const routeStatusCommand: CliCommand = {
+  name: 'route status',
+  options: ROUTE_STATUS_OPTIONS,
+  run: async (runtime, args) => {
+    const output = await runRouteStatus(runtime, args);
+    return { text: renderRouteStatus(output), data: output };
+  },
+};
+
+export const routeStopCommand: CliCommand = {
+  name: 'route stop',
+  options: ROUTE_STOP_OPTIONS,
+  run: async (runtime, args) => {
+    const output = await runRouteStop(runtime, args);
+    return { text: `Route on task ${output.task} stopped: ${output.reason}.`, data: output };
+  },
+};

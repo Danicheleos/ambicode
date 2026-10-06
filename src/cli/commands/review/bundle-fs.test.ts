@@ -4,12 +4,11 @@ import path from 'node:path';
 import { createRuntime } from '#composition/root';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { parseArgs } from '../../args.ts';
-import { runBundle } from './bundle.ts';
+import { runBundle, BUNDLE_OPTIONS } from './bundle.ts';
 import { initConfig } from '#testing/fixtures/init-config';
-import { runReview } from './review.ts';
+import { runReview, REVIEW_OPTIONS } from './review.ts';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import type { FileSystem, Reviewer, ReviewerInvocation } from '#types/platform/ports';
-import { BUNDLE_OPTIONS, REVIEW_OPTIONS } from '../../types/commands.ts';
 
 function recording(inner: FileSystem): { fs: FileSystem; writes: string[]; dirs: string[] } {
   const writes: string[] = [];

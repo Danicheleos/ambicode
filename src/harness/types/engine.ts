@@ -7,6 +7,9 @@ export interface ConsentBinding { key?: string; set?: readonly string[] }
 
 export type DeliveryChannel = 'cli' | 'hook';
 
+/** One composed message: the step (or `complete`) it is for and what the caller prints. */
+export interface Part { text: string; file: string | null; bytes: number; position: string | 'complete'; full: string }
+
 export interface Composed {
   /** What the caller prints. */
   text: string;

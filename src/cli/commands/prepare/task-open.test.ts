@@ -7,9 +7,8 @@ import { TempRepo } from '#testing/fixtures/temp-repo';
 import { parseArgs } from '../../args.ts';
 import { initConfig } from '#testing/fixtures/init-config';
 import { renderPrepare, runPrepare } from './prepare.ts';
-import { runNoteSave } from '../route/note.ts';
+import { runNoteSave, NOTE_SAVE_OPTIONS } from '../route/note.ts';
 import { PREPARE_OPTIONS } from '#types/cli';
-import { NOTE_SAVE_OPTIONS } from '../../types/commands.ts';
 
 const ORD = 'https://example.atlassian.net/browse/ORD-17';
 

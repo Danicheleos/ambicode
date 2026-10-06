@@ -10,12 +10,11 @@ import { FIXTURES } from '../../../../fixtures/definitions.mjs';
 import { materialize } from '../../../../fixtures/materialize.mjs';
 import { createRuntime } from '#composition/root';
 import { parseArgs } from '#cli/args';
-import { renderInit, runInit } from '#cli/commands/config/init';
+import { renderInit, runInit, INIT_OPTIONS } from '#cli/commands/config/init';
 import { NodeProcessRunner } from '#platform/ports/node-process-runner';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { parseConfig } from '../load.ts';
 import { buildProposal, MAX_PROPOSAL_BYTES, writeConfig } from './proposal.ts';
-import { INIT_OPTIONS } from '#cli/types/commands';
 
 const FIELDS = ['command', 'mode', 'configPath', 'configState', 'projects', 'ruleSources', 'gitignore', 'index', 'searchLayers', 'acceptanceField', 'removedFields', 'changes', 'notices', 'noticesOmitted', 'values', 'applyLine'];
 const V1 = [

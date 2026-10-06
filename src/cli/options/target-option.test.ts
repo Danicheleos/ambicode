@@ -4,7 +4,8 @@ import { main } from '../main.ts';
 import { parseArgs } from '../args.ts';
 import { validateTargetArgs } from './target-option.ts';
 import { isAmbicodeError } from '#util/errors';
-import { BUNDLE_OPTIONS, REVIEW_OPTIONS } from '../types/commands.ts';
+import { BUNDLE_OPTIONS } from '../commands/review/bundle.ts';
+import { REVIEW_OPTIONS } from '../commands/review/review.ts';
 
 const MR = 'https://gitlab.example.com/group/project/-/merge_requests/42';
 

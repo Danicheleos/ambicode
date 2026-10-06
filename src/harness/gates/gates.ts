@@ -176,7 +176,7 @@ const ANSWER_HANDLERS = new Map<string, RaisedAnswerHandler>();
 export const onRaisedAnswer = (gate: string, handler: RaisedAnswerHandler): void => void ANSWER_HANDLERS.set(gate, handler);
 export const raisedAnswerHandler = (gate: string): RaisedAnswerHandler | undefined => ANSWER_HANDLERS.get(gate);
 
-/** A route's own command for a code step's unmet `needs` kind (08-R5); without one the engine prints its generic command. */
+/** A route's command for a code step's unmet `needs` kind (08-R5): the step prints it instead of refusing. */
 type NeedCommand = (input: { runtime: Runtime; task: string; args: RouteArgs; chain: readonly LedgerEntry[] }) => Promise<string>;
 const NEED_COMMANDS = new Map<string, NeedCommand>();
 export const onNeedCommand = (skill: string, need: string, command: NeedCommand): void => void NEED_COMMANDS.set(`${skill}:${need}`, command);

@@ -21,7 +21,6 @@ __pycache__/
 /eval-results.json
 /evals/**/results/
 
-/plan/
 /research/
 /review/
 
@@ -35,10 +34,7 @@ Thumbs.db
 .ambicode
 archive
 
-
-benchmarks
-gym/planing/abstract/01-what-makers-do.md
-gym/planing/abstract/02-approaches-for-llm.md
-gym/decA
+gym/planing/abstract
+gym/planing/new-architecture/implementation-reports
 
 .ambicode/*

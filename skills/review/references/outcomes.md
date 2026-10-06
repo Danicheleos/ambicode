@@ -237,6 +237,10 @@ schema within 64 KiB; the `reason` detail says which. No artifact was written.
 Release: continue inline — do this work in the session; the worker's output was
 not used.
 
+**`artifact-collision`.** `worker run` or `plan check` found nine artifacts of
+the same name already written this minute, so it wrote none. Wait for the next
+minute and run it again.
+
 **Init owns its files.** While an init route is active, editing
 `.ambicode/config.yaml` or `.gitignore` is denied: `init --apply --set` writes
 them when the user accepts the proposal. Answer the init gate instead.

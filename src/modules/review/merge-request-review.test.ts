@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import { parseArgs } from '#cli/args';
-import { runBundle } from '#cli/commands/review/bundle';
+import { runBundle, BUNDLE_OPTIONS } from '#cli/commands/review/bundle';
 import { initConfig } from '#testing/fixtures/init-config';
-import { runReview } from '#cli/commands/review/review';
+import { runReview, REVIEW_OPTIONS } from '#cli/commands/review/review';
 import { createRuntime } from '#composition/root';
 import type {
   ProviderIdentity,
@@ -22,7 +22,6 @@ import { nodeFileSystem } from '#platform/ports/filesystem';
 import { ProviderRegistry } from '#platform/providers/registry';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { isAmbicodeError } from '#util/errors';
-import { BUNDLE_OPTIONS, REVIEW_OPTIONS } from '#cli/types/commands';
 import type { Runtime } from '#types/composition';
 import type { Reviewer, ReviewerInvocation, ReviewerRequest } from '#types/platform/ports';
 

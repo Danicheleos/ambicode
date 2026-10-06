@@ -18,7 +18,7 @@ const GREP = new Set(['grep', 'rg', 'egrep']);
 const CAT = new Set(['cat', 'sed', 'head', 'tail', 'nl', 'awk']);
 const LIST = new Set(['ls', 'find', 'tree', 'wc']);
 
-const readJsonl = (file) =>
+export const readJsonl = (file) =>
   readFileSync(file, 'utf8').split('\n').filter((line) => line.trim() !== '').flatMap((line) => {
     try {
       return [JSON.parse(line)];
@@ -26,7 +26,7 @@ const readJsonl = (file) =>
       return [];
     }
   });
-const textOf = (content) =>
+export const textOf = (content) =>
   typeof content === 'string' ? content : Array.isArray(content) ? content.map((block) => (typeof block === 'string' ? block : block?.text ?? '')).join('\n') : JSON.stringify(content ?? '');
 const hash = (text) => createHash('sha256').update(text).digest('hex').slice(0, 12);
 // The task slug is minted per run; the rest of a step is the layer under test.
@@ -78,7 +78,7 @@ export function sessionFacts(events) {
   return { step, notices: contexts.filter((context) => context.event === 'PostToolUse').length, durations };
 }
 
-function sessionEvents(id, tracesDirs) {
+export function sessionEvents(id, tracesDirs) {
   for (const dir of tracesDirs) {
     const directory = path.join(dir, SESSION_DIRECTORY, id);
     if (!existsSync(directory)) continue;

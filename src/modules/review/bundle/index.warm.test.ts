@@ -1,11 +1,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseArgs } from '#cli/args';
-import { runReview } from '#cli/commands/review/review';
+import { runReview, REVIEW_OPTIONS } from '#cli/commands/review/review';
 import { runCheckOnly } from '#modules/checks/run/check-command';
 import { checkFixture, CHECK_TASK } from '#testing/fixtures/check-fixture';
 import { taskFixture } from '#testing/fixtures/task-fixture';
-import { REVIEW_OPTIONS } from '#cli/types/commands';
 import type { CheckDeps } from '#types/modules/checks';
 import { SESSION_A } from '#testing/fixtures/ids';
 

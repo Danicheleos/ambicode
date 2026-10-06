@@ -4,7 +4,9 @@ import { runWorker } from '#modules/workers/worker-run';
 import { AmbicodeError } from '#util/errors';
 import { routeTools, taskOf } from '../route/route.ts';
 import type { Runtime } from '#types/composition';
-import type { ParsedArgs } from '../../types/cli.ts';
+import type { ParsedArgs, CliCommand } from '../../types/cli.ts';
+
+export const WORKER_RUN_OPTIONS = { values: ['task'], flags: ['json'], positionals: true } as const;
 
 interface WorkerRunOutput { command: 'worker run'; task: string; worker: string; artifact: string; entry: string }
 
@@ -20,3 +22,12 @@ export async function runWorkerCommand(runtime: Runtime, args: ParsedArgs): Prom
 }
 
 export const renderWorkerRun = (output: WorkerRunOutput): string => `Worker ${output.worker} ran: ${output.artifact}`;
+
+export const workerRunCommand: CliCommand = {
+  name: 'worker run',
+  options: WORKER_RUN_OPTIONS,
+  run: async (runtime, args) => {
+    const output = await runWorkerCommand(runtime, args);
+    return { text: renderWorkerRun(output), data: output };
+  },
+};

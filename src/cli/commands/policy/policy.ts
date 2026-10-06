@@ -4,7 +4,16 @@ import { openWorkspace, projectById, projectForPath, resolvePolicyFor, toReposit
 import { policyStage } from '#modules/policy/stage';
 import { AmbicodeError } from '#util/errors';
 import type { Runtime } from '#types/composition';
-import type { ParsedArgs } from '../../types/cli.ts';
+import type { ParsedArgs, CliCommand } from '../../types/cli.ts';
+
+export const POLICY_OPTIONS = {
+  values: ['project', 'activity', 'stage'],
+  /** Qualified ids (`pack/rule`): read just those rules, once, instead of the whole set. */
+  repeated: ['rule'],
+  flags: ['json', 'show'],
+  // The one command whose operands are data: the paths policy is resolved for.
+  positionals: true,
+} as const;
 
 interface PolicyOutput {
   command: 'policy';
@@ -129,3 +138,12 @@ export function renderPolicy(output: PolicyOutput): string {
   }
   return lines.join('\n');
 }
+
+export const policyCommand: CliCommand = {
+  name: 'policy',
+  options: POLICY_OPTIONS,
+  run: async (runtime, args) => {
+    const output = await runPolicy(runtime, args);
+    return { text: renderPolicy(output), data: output };
+  },
+};

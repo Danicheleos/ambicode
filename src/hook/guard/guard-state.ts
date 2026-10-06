@@ -5,9 +5,9 @@ import { tmpdir } from 'node:os';
 import type { LedgerEntry } from '#types/modules/evidence';
 import { GUARD_STATE_DIR_NAME, ACTIVE_ROUTE_FILE, GUARD_LEDGER_FILE, LEDGER_LIMIT, type ActiveRoute, type GuardState } from '../types/guard.ts';
 
-const POINTER_LIMIT = 4 * 1024;
-// Equal to stop-check.ts TRANSCRIPT_TAIL_BYTES (tested).
-export const TRANSCRIPT_TAIL = 1024 * 1024;
+// Copies, so the guard bundle stays import-light; tool-turns.test.ts pins them to the originals.
+export const POINTER_LIMIT = 4 * 1024;
+export const TRANSCRIPT_TAIL_BYTES = 1024 * 1024;
 
 // Opening a FIFO without a writer would block the hook; non-blocking, it opens at once and fstat rejects it.
 const OPEN_FLAGS = constants.O_RDONLY | (constants.O_NONBLOCK ?? 0);
@@ -114,6 +114,6 @@ export const fsGuardState: GuardState = {
     return text === null ? null : entries(text);
   },
   transcriptTail(file: string): string | null {
-    return tail(file, TRANSCRIPT_TAIL);
+    return tail(file, TRANSCRIPT_TAIL_BYTES);
   },
 };

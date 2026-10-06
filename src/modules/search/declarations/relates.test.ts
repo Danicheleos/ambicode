@@ -2,14 +2,13 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { parseArgs } from '#cli/args';
-import { runRelates } from '#cli/commands/search/search';
+import { runRelates, RELATES_OPTIONS } from '#cli/commands/search/search';
 import { openWorkspace } from '#composition/root';
 import { routeFixture, type RouteFixture } from '#testing/fixtures/route-fixture';
 import { fakeIndex } from '#testing/fakes/fake-index';
 import { indexDepsOf } from '../code-index/codeindex.ts';
 import { relates, renderRelates, type RelatesResult } from './relates.ts';
 import { SEARCH_LIMIT_BYTES } from './refs.ts';
-import { RELATES_OPTIONS } from '#cli/types/commands';
 
 const PROFILE = { stamp: { commit: '', files: 0 }, sources: ['ts'], companions: [], catalogs: [], featureKinds: [], exportOnly: true };
 const project = (root = '.') => ({ id: 'app', root, ecosystem: 'typescript' as const, commands: {}, profile: PROFILE }) as never;

@@ -15,6 +15,9 @@ Implementation and unit tests live under `src/`, grouped by responsibility:
 `local/` is gitignored and holds one-off tools that name NDA data: `benchmark-prep/` (merge-request audit and
 review preparation) and `report-tools/` (trace and call-chain analyses behind `evals/reports/`).
 
+`npm run evals:report -- <iteration>` writes the standard analysis of a run (`analysis/run-report.mjs`) to
+`evals/reports/<eval type>/<date>/<iteration>/`.
+
 Every run files its output under `evals/outputs/<eval type>/<date>/<NN>_<HHMM>_<label>/` (`iterationDir` in
 `harness/run-options.mjs`) and appends a row to that date's `iterations.md`.
 

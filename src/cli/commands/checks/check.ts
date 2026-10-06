@@ -5,7 +5,9 @@ import { AmbicodeError } from '#util/errors';
 import { routeTools, taskOf } from '../route/route.ts';
 import type { CheckOnlyOutcome } from '#types/modules/checks';
 import type { Runtime } from '#types/composition';
-import type { ParsedArgs } from '../../types/cli.ts';
+import type { ParsedArgs, CliCommand } from '../../types/cli.ts';
+
+export const CHECK_OPTIONS = { values: ['task', 'phase'], repeated: ['only', 'approve', 'decline'], flags: ['json'], positionals: true } as const;
 
 interface CheckOutput { command: 'check'; task: string; key: string; result: CheckOnlyOutcome; next?: string }
 
@@ -42,3 +44,12 @@ export function renderCheck(output: CheckOutput): string {
   })();
   return output.next === undefined ? line : `${line}\n\n${output.next}`;
 }
+
+export const checkCommand: CliCommand = {
+  name: 'check',
+  options: CHECK_OPTIONS,
+  run: async (runtime, args) => {
+    const output = await runCheckCommand(runtime, args);
+    return { text: renderCheck(output), data: output };
+  },
+};

@@ -5,7 +5,13 @@ import { loadRequirementEvidence } from '#modules/requirements/envelope/normaliz
 import { AmbicodeError } from '#util/errors';
 import { evidenceSource } from '../../options/target-option.ts';
 import type { Runtime } from '#types/composition';
-import type { ParsedArgs } from '../../types/cli.ts';
+import type { ParsedArgs, CliCommand } from '../../types/cli.ts';
+
+export const LOCATE_OPTIONS = {
+  values: ['project', 'evidence', 'limit'],
+  flags: ['json'],
+  positionals: true,
+} as const;
 
 export type { LocateOutput };
 
@@ -96,3 +102,13 @@ export function renderLocate(output: LocateOutput): string {
   lines.push('', 'This is a hypothesis: confirm each candidate before editing it.');
   return lines.join('\n');
 }
+
+export const locateCommand: CliCommand = {
+  name: 'locate',
+  options: LOCATE_OPTIONS,
+  run: async (runtime, args) => {
+    const output = await runLocate(runtime, args);
+    // Compact: its reader is a model, and indentation on a path list carries no information.
+    return { text: renderLocate(output), data: output, json: 'compact' };
+  },
+};

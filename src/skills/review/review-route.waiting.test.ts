@@ -1,10 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseArgs } from '#cli/args';
-import { runReview } from '#cli/commands/review/review';
+import { runReview, REVIEW_OPTIONS } from '#cli/commands/review/review';
 import { CHECK_TASK } from '#testing/fixtures/check-fixture';
 import { PROPOSED, reviewRouteFixture } from '#testing/fixtures/review-route-fixture';
-import { REVIEW_OPTIONS } from '#cli/types/commands';
 import type { StartChannel } from '#types/harness';
 
 type Fixture = Awaited<ReturnType<typeof reviewRouteFixture>>;

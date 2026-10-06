@@ -4,6 +4,7 @@ import { ReviewerOutput, REVIEWER_TOOLS, type ReviewerUsage } from '#types/modul
 import { markOwned } from '../page/cleanup.ts';
 import { AmbicodeError, messageOf } from '#util/errors';
 import { runWorkerProcess } from '#modules/workers/process-runner';
+import { describeOutcome } from '#platform/ports/process';
 import { STRUCTURED_OUTPUT_ATTEMPTS } from '#types/modules/workers';
 import type { Clock, FileSystem, ProcessRunner, Reviewer, ReviewerInvocation, ReviewerRequest } from '#types/platform/ports';
 
@@ -140,14 +141,16 @@ export class ClaudeReviewer implements Reviewer {
   }
 
   async assertIsolationAvailable(): Promise<void> {
-    const { outcome } = await runWorkerProcess(this.runner, {
+    const probe = await runWorkerProcess(this.runner, {
       argv: [this.executable, '--help'],
       cwd: this.cwd,
       timeoutMs: CAPABILITY_TIMEOUT_MS,
       maxOutputBytes: 1024 * 1024,
     });
 
-    if (outcome.kind === 'spawn-failed') {
+    const { outcome } = probe;
+    const failure = probe.kind === 'failed' ? probe.reason : null;
+    if (failure === 'spawn-failed') {
       throw new AmbicodeError('reviewer-unavailable', 'Claude Code could not be started for the review.', {
         details: [
           outcome.failure ?? 'unknown spawn failure',
@@ -155,9 +158,9 @@ export class ClaudeReviewer implements Reviewer {
         ],
       });
     }
-    if (outcome.kind === 'timed-out' || outcome.exitCode !== 0) {
+    if (failure === 'timed-out' || outcome.exitCode !== 0) {
       throw new AmbicodeError('reviewer-unavailable', 'Claude Code did not report its capabilities.', {
-        details: [`${this.executable} --help ${outcome.kind === 'timed-out' ? 'timed out' : `exited ${outcome.exitCode}`}.`],
+        details: [`${this.executable} --help ${describeOutcome(outcome)}.`],
       });
     }
 
@@ -204,8 +207,6 @@ export class ClaudeReviewer implements Reviewer {
       '--strict-mcp-config',
       '--mcp-config',
       '{"mcpServers":{}}',
-      '--tools',
-      REVIEWER_TOOLS.join(','),
       '--disallowedTools',
       DENIED_TOOLS.join(','),
       '--permission-prompts',
@@ -217,8 +218,6 @@ export class ClaudeReviewer implements Reviewer {
       systemPromptFile,
       '--output-format',
       'json',
-      '--json-schema',
-      JSON.stringify(REVIEWER_JSON_SCHEMA),
     ];
   }
 
@@ -236,44 +235,39 @@ export class ClaudeReviewer implements Reviewer {
     }
   }
 
-  private async run(request: ReviewerRequest, argv: string[]): Promise<ReviewerInvocation> {
-    const { outcome } = await runWorkerProcess(this.runner, {
-      argv,
+  private async run(request: ReviewerRequest, baseArgv: string[]): Promise<ReviewerInvocation> {
+    const result = await runWorkerProcess(this.runner, {
+      argv: baseArgv,
       cwd: request.workingDirectory,
       timeoutMs: request.timeoutMs,
       maxOutputBytes: this.maxOutputBytes,
       // Large and may hold option-like text; stdin keeps it out of the argument vector.
       stdin: request.prompt,
+      tools: REVIEWER_TOOLS,
+      jsonSchema: REVIEWER_JSON_SCHEMA,
     });
+    const { outcome, argv } = result;
 
-    if (outcome.kind === 'spawn-failed') {
-      return fail(argv, 'spawn-failed', outcome.failure ?? 'the reviewer process could not be started');
+    if (result.kind === 'ok') return parseReviewerOutput(outcome.stdout, argv);
+    switch (result.reason) {
+      case 'spawn-failed':
+        return fail(argv, 'spawn-failed', outcome.failure ?? 'the reviewer process could not be started');
+      case 'timed-out':
+        return fail(argv, 'timed-out', `the reviewer did not answer within ${Math.round(request.timeoutMs / 1000)} seconds`);
+      case 'truncated':
+        return fail(argv, 'truncated', 'the reviewer produced more output than AMBICODE reads, so it was not parsed');
     }
-    if (outcome.kind === 'timed-out') {
-      return fail(
-        argv,
-        'timed-out',
-        `the reviewer did not answer within ${Math.round(request.timeoutMs / 1000)} seconds`,
-      );
-    }
-    if (outcome.truncated) {
-      return fail(argv, 'truncated', 'the reviewer produced more output than AMBICODE reads, so it was not parsed');
-    }
-    if (outcome.exitCode !== 0) {
-      // A nonzero exit still prints the envelope, the only thing that says what went
-      // wrong. An envelope that parses as success is still not accepted: the process
-      // said it failed.
-      const classified = outcome.stdout.trim() === '' ? null : parseReviewerOutput(outcome.stdout, argv);
-      if (classified?.kind === 'error') return classified;
-      const failed = fail(
-        argv,
-        'nonzero-exit',
-        `the reviewer exited ${outcome.exitCode}: ${firstLine(outcome.stderr) || firstLine(outcome.stdout) || 'no diagnostic'}`,
-      );
-      return classified?.usage === undefined ? failed : { ...failed, usage: classified.usage };
-    }
-
-    return parseReviewerOutput(outcome.stdout, argv);
+    // A nonzero exit still prints the envelope, the only thing that says what went
+    // wrong. An envelope that parses as success is still not accepted: the process
+    // said it failed.
+    const classified = outcome.stdout.trim() === '' ? null : parseReviewerOutput(outcome.stdout, argv);
+    if (classified?.kind === 'error') return classified;
+    const failed = fail(
+      argv,
+      'nonzero-exit',
+      `the reviewer exited ${outcome.exitCode}: ${firstLine(outcome.stderr) || firstLine(outcome.stdout) || 'no diagnostic'}`,
+    );
+    return classified?.usage === undefined ? failed : { ...failed, usage: classified.usage };
   }
 }
 

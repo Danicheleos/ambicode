@@ -3,7 +3,9 @@ import { runDoctor } from '#modules/config/init/doctor';
 import { loadConfigWithNotices } from '#modules/config/load';
 import type { Runtime } from '#types/composition';
 import type { DoctorTable } from '#types/modules/config';
-import type { ParsedArgs } from '../../types/cli.ts';
+import type { ParsedArgs, CliCommand } from '../../types/cli.ts';
+
+export const DOCTOR_OPTIONS = { values: ['project'], flags: ['json'] } as const;
 
 interface DoctorOutput extends DoctorTable { command: 'doctor' }
 
@@ -16,3 +18,12 @@ export async function runDoctorCommand(runtime: Runtime, args: ParsedArgs): Prom
 }
 
 export const renderDoctor = (output: DoctorOutput): string => output.text.trimEnd();
+
+export const doctorCommand: CliCommand = {
+  name: 'doctor',
+  options: DOCTOR_OPTIONS,
+  run: async (runtime, args) => {
+    const output = await runDoctorCommand(runtime, args);
+    return { text: renderDoctor(output), data: output };
+  },
+};

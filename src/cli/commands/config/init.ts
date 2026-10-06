@@ -8,7 +8,9 @@ import { ledgerRouteContext } from '#harness/engine/context';
 import { AmbicodeError } from '#util/errors';
 import { routeTools } from '../route/route.ts';
 import type { Runtime } from '#types/composition';
-import type { ParsedArgs } from '../../types/cli.ts';
+import type { ParsedArgs, CliCommand } from '../../types/cli.ts';
+
+export const INIT_OPTIONS = { values: ['task'], repeated: ['set'], flags: ['json', 'dry-run', 'apply', 'refresh-profile'] } as const;
 
 interface InitApplyOutput {
   command: 'init';
@@ -93,3 +95,12 @@ export function profileLines(profile: SearchProfile | null): string[] {
     `    exportOnly    ${String(profile.exportOnly)}`,
   ];
 }
+
+export const initCommand: CliCommand = {
+  name: 'init',
+  options: INIT_OPTIONS,
+  run: async (runtime, args) => {
+    const output = await runInit(runtime, args);
+    return { text: renderInit(output), data: output };
+  },
+};

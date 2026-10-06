@@ -10,7 +10,8 @@
 Eval types: `core` (the curated suite), `full`, `task`, `archived`, `triggers`, `search-maps` (offline map scoring).
 An iteration is numbered in start order within its date; its label is the tag or set, the plugin, the prompt arm and the model.
 
-What each `npm run evals:*` command does, measures and is for: [MANUAL.md](MANUAL.md).
+What each `npm run evals:*` command does, measures and is for: the manual below.
+How to tune the plugin layer by layer, with pass thresholds per stage: [TRAINING-PLAN.md](TRAINING-PLAN.md).
 
 
 # Eval commands manual
@@ -27,6 +28,7 @@ Before any paid run, run `npm run build`. The evals run the bundle (`scripts/amb
 | Did my change to `locate` or the map lose true files? | `evals:shortlist-recall`, `evals:map-recall` | free |
 | Does the plugin still behave on real tickets? | `evals:walk` | ~$1.2 |
 | Is the plugin better than the bare model? | `evals:decide`, then `evals:gate` against `evals:baseline` | ~$13–16 |
+| What happened in a run, and where should I focus? | `evals:report` | free |
 | Did Claude Code change under us? | `evals:baseline` | ~$10 |
 | How does it do on every ticket? | `evals:full` | up to $45 |
 | Does the right skill fire on each phrasing? | `evals:triggers` | ~$2.3 |
@@ -196,6 +198,46 @@ Replayed reviewers and missing numbers are reported as **GAP**, never as pass.
 
 **Why:** `claude plugin eval` reports `meanDelta` but never fails on it. The gate makes "better, and not more
 expensive" a rule instead of a judgment call.
+
+### `evals:report`
+
+Usage: `-- <iteration dir | result.json> [--baseline <result.json>] [--previous <n>] [--out <dir>] [--full]`
+
+**Does:** writes the standard analysis of one run into `reports/<type>/<date>/<iteration>/`:
+
+- `report.md`:
+  - every metric of this run beside the bare model and the 2 previous iterations, with the delta against bare;
+  - strong and weak places, each with its evidence;
+  - proposals;
+  - per-case table;
+  - route sequences and step timings;
+  - context;
+  - tools and files;
+  - time;
+  - price by token kind.
+- `chains.md`: every run step by step. It has the route's ledger entries with their offsets, the map leads (true files
+  marked), the context the session injected, and each model call with its context, tokens, price, text and tool calls.
+  Each tool call shows its input, result size, duration, errors and the files it touched.
+- `report.json`: the same numbers without the transcripts.
+
+**Comparisons:**
+
+- **Bare:** the run's own without arm if it has one. Otherwise the newest naked baseline of the same type and model, or
+  `--baseline`.
+- **Previous:** the newest earlier plugin runs. Runs that cover every case come first.
+
+**Measures:**
+
+- **Quality:** recall, precision, F1 and hit, or the harness score where a kind has no recall.
+- **Cost, turns and time:** cost, model and tool calls, failed calls, wall time, scaffold time, time to the first call
+  and time to the route step.
+- **Context and tokens:** first and peak context, output tokens.
+- **Files:** files and true files read, and the call of the first true-file read.
+- **Map:** the map's true files, which of them the answer used or dropped, and true files the model found outside the
+  map.
+
+**Why:** one fixed report per iteration, so iterations can be compared without hand-built tables. The findings say
+where to look first; `chains.md` shows what happened.
 
 ### `evals:walk-report`
 

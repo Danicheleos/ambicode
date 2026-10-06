@@ -4,14 +4,13 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parseArgs } from '#cli/args';
 import { runConfig, renderConfig } from '#cli/commands/config/config';
-import { runReview } from '#cli/commands/review/review';
+import { runReview, REVIEW_OPTIONS } from '#cli/commands/review/review';
 import { DEFAULTS } from '#types/defaults';
 import { parseHunks } from '#platform/git/diff';
 import { enforceReviewInputLimits } from '../snapshot/limits.ts';
 import { CHECK_TASK } from '#testing/fixtures/check-fixture';
 import { reviewRouteFixture } from '#testing/fixtures/review-route-fixture';
 import { validateFindings } from '../findings/validate.ts';
-import { REVIEW_OPTIONS } from '#cli/types/commands';
 import type { DiffFile } from '#types/platform/git';
 
 const section = ['@@ -1,1 +1,2 @@', ' export const a = 1;', '+export const b = 2;'].join('\n');
