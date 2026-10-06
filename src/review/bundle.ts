@@ -2,7 +2,7 @@ import path from 'node:path';
 import { runChecks, type PendingApproval } from '../checks/run.ts';
 import { runRemoteChecks } from '../checks/remote.ts';
 import type { ChangedPath } from '../checks/select.ts';
-import { MAX_REVIEWED_DISCUSSIONS, REVIEWS_DIR } from '../config/defaults.ts';
+import { MAX_REVIEWED_DISCUSSIONS, REVIEWS_DIR, UNLIMITED_CONTEXT_BUDGET_BYTES } from '../config/defaults.ts';
 import { appendLedger, type LedgerEntry } from '../task/ledger.ts';
 import { taskDirFor } from '../task/task-dir.ts';
 import { taskSlugFor, uniqueReviewName } from './review-name.ts';
@@ -44,7 +44,10 @@ import {
 } from '../snapshot/target.ts';
 import { AmbicodeError } from '../util/errors.ts';
 import { normalizeRelative } from '../util/paths.ts';
-import { findDependents, type Dependent } from '../code-intelligence/dependents.ts';
+import { findDependents, MAX_DEPENDENTS, type Dependent } from '../code-intelligence/dependents.ts';
+import { declarationCensus } from '../code-intelligence/harvest.ts';
+import { indexAdapterFor } from '../code-intelligence/index/adapter.ts';
+import { indexDepsOf } from '../code-intelligence/index/codeindex.ts';
 import { composeReviewerPrompt, estimatePromptOverheadBytes, type ComposedPrompt } from './prompt.ts';
 
 /**
@@ -168,6 +171,7 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
         ? null
         : await loadRequirementEvidence(runtime, options.evidence),
     configuredServer: workspace.config.requirements.mcpServer,
+    declared: options.evidence?.kind === 'inline' ? 'captured' : 'urls',
   });
   const requirementBytes = requirements.sources.reduce(
     (total, source) => total + byteLength(source.content),
@@ -178,9 +182,13 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
   // The working tree is read once, so what relies on the change is chosen before that read.
   const named = (options.contextPaths ?? []).map((entry) => ({ path: normalizeRelative(entry), reasons: ['named with --context'] }));
   let lookedUp: Dependent[] | null = null;
+  const indexNotes: string[] = [];
   const lookUp = async (files: readonly DiffFile[]): Promise<Dependent[]> => {
-    const found = await findDependents({ git: workspace.git, projects: groupByProject(workspace, files).map(({ project }) => project), files });
-    lookedUp = [...named, ...found.dependents.filter((entry) => !named.some((other) => other.path === entry.path))];
+    const projects = groupByProject(workspace, files);
+    const indexed = await indexedDependents(workspace, projects);
+    if (indexed.kind === 'unavailable') indexNotes.push(`index unavailable: ${indexed.reason}; dependents by name search`);
+    const found = indexed.kind === 'ok' ? indexed.dependents : (await findDependents({ git: workspace.git, projects: projects.map(({ project }) => project), files })).dependents;
+    lookedUp = await flagCollisions(workspace, projects.map(({ project }) => project), [...named, ...found.filter((entry) => !named.some((other) => other.path === entry.path))]);
     return lookedUp;
   };
 
@@ -245,7 +253,7 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
       content: resolution.content,
       includeSiblingContext: local,
       operator: patterns,
-      contextBudgetBytes: Math.max(0, limits.maxContextBytes - overheadBytes),
+      contextBudgetBytes: Math.max(0, (limits.maxContextBytes ?? UNLIMITED_CONTEXT_BUDGET_BYTES) - overheadBytes),
       dependentPaths: wanted.map((entry) => entry.path),
     });
   } catch (error) {
@@ -268,7 +276,7 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
     .filter((id): id is string => id !== undefined);
   const taskSlug =
     resolution.target.kind === 'merge-request'
-      ? null
+      ? (options.task === null ? null : taskSlugFor({ requirementIds: [], task: options.task }))
       : taskSlugFor({
           requirementIds: asNamed.length > 0 ? asNamed : requirementIds,
           task: options.task,
@@ -370,6 +378,7 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
         : []),
       ...reviewable.excluded.map((entry) => `${entry.path}: ${entry.reason}.`),
       ...snapshot.omissions,
+      ...indexNotes,
       ...checkNotes,
       ...requirements.notices,
       ...policyDiagnosticOmissions(policies),
@@ -505,6 +514,50 @@ async function resolveProjectPolicies(
     });
   }
   return policies;
+}
+
+/** With an index configured and fresh, the changed files' importers (08-D2); `none` keeps the name search unchanged (08-D1). */
+async function indexedDependents(workspace: Workspace, projects: readonly { project: ProjectConfig; changed: ChangedPath[] }[]): Promise<{ kind: 'none' } | { kind: 'unavailable'; reason: string } | { kind: 'ok'; dependents: Dependent[] }> {
+  if (workspace.config.search.index === 'none') return { kind: 'none' };
+  const deps = indexDepsOf(workspace.runtime, workspace.git, workspace.repositoryRoot, workspace.config);
+  const changed = new Set(projects.flatMap(({ changed: paths }) => paths.flatMap((entry) => [entry.newPath, entry.oldPath]).filter((entry): entry is string => entry !== null)));
+  const found = new Map<string, Dependent>();
+  try {
+    for (const { project, changed: paths } of projects) {
+      const adapter = indexAdapterFor(deps, project);
+      const status = await adapter.status(project);
+      if (!status.fresh) return { kind: 'unavailable', reason: status.reason ?? `index ${status.state}` };
+      for (const file of paths.map((entry) => entry.newPath ?? entry.oldPath).filter((entry): entry is string => entry !== null)) {
+        const answer = await adapter.relates(file);
+        if (!answer.ok) return { kind: 'unavailable', reason: answer.status.reason ?? `index ${answer.status.state}` };
+        for (const importer of answer.value.importers) {
+          if (changed.has(importer)) continue;
+          const entry = found.get(importer) ?? { path: importer, reasons: [] };
+          entry.reasons.push(`imports ${file} (index)`);
+          found.set(importer, entry);
+        }
+      }
+    }
+  } catch (error) {
+    return { kind: 'unavailable', reason: error instanceof Error ? error.message : String(error) };
+  }
+  return { kind: 'ok', dependents: [...found.values()].slice(0, MAX_DEPENDENTS) };
+}
+
+/** A dependent found by a name another file also declares may import a different one (08-D3); flagged, never resolved. */
+async function flagCollisions(workspace: Workspace, projects: readonly ProjectConfig[], dependents: Dependent[]): Promise<Dependent[]> {
+  const termsOf = (entry: Dependent): string[] => entry.reasons.flatMap((reason) => /^contains "([^"]+)"/.exec(reason)?.[1] ?? []);
+  const terms = [...new Set(dependents.flatMap(termsOf))];
+  if (terms.length === 0) return dependents;
+  const colliding = new Set<string>();
+  for (const project of projects) {
+    const { census } = await declarationCensus(workspace.git, workspace.runtime.fs, project, terms);
+    for (const [term, row] of census) if ((row.declarations ?? 0) >= 2) colliding.add(term);
+  }
+  return dependents.map((entry) => {
+    const flagged = termsOf(entry).filter((term) => colliding.has(term)).map((term) => `verify import: ${term} is declared in more than one file`);
+    return flagged.length === 0 ? entry : { ...entry, reasons: [...entry.reasons, ...flagged] };
+  });
 }
 
 export function groupByProject(

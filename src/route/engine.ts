@@ -20,10 +20,10 @@ import { checkOwner, ledgerRouteContext, ledgerUnreadable, readEntries, type Cau
 import { entryPaths } from '../requirements/capture-files.ts';
 import { chainKey, compose, loadPayload, savePayload, stepHeader, writeStepFile, type Composed, type DeliveryChannel } from './delivery.ts';
 import type { Exit, GateDef } from './dsl.ts';
-import { canonicalArgs, type Answer, type RouteArgs } from './flags.ts';
+import { canonicalArgs, type Answer, type ReviewTarget, type RouteArgs } from './flags.ts';
 import { buildChain, currentIn, exitOf, executions, foldRoute, humanRevisesLeft, latestRouteOf, liveHeads, modelDeliveries, windowOf, matches } from './fold.ts';
 import { harnessOf } from './harness.ts';
-import { gatePrintText, gateThen, raiseGate, raisedAnswerHandler } from './gates.ts';
+import { gatePrintText, gateThen, needCommandFor, raiseGate, raisedAnswerHandler } from './gates.ts';
 import { payloadKey, type HandlerRegistry } from './handlers.ts';
 import { ownerOf, type PlanOwnership } from './ownership.ts';
 import type { RouteRegistry, StepDef } from './routes.ts';
@@ -51,6 +51,8 @@ export interface StartInput {
   /** `--plan <file>`: the plan a task route implements; `--from-draft <file>`: a draft, implemented anyway. */
   plan?: string;
   fromDraft?: string;
+  /** Review only (08-R2); part of the args hash when present. */
+  target?: ReviewTarget;
 }
 
 export interface AdvanceInput {
@@ -246,9 +248,13 @@ export function createEngine(deps: EngineDeps): Engine {
     const window = windowOf(fold, step);
     const missing = step.needs.filter((need) => !window.some((entry) => matches(entry, need)));
     if (missing.length > 0) {
-      const commands = missing.map((need) => NEED_COMMANDS[need.kind]);
+      const commands = await Promise.all(missing.map(async (need) => {
+        const shaped = needCommandFor(run.def.skill, need.kind);
+        if (shaped !== undefined) return shaped({ runtime: run.runtime, task: run.task, args: (run.head['args'] ?? {}) as RouteArgs, chain: chainOf(run).entries });
+        return NEED_COMMANDS[need.kind] === undefined ? undefined : `${NEED_COMMANDS[need.kind]} ${run.task}`;
+      }));
       if (commands.every((command) => command !== undefined)) {
-        const lines = commands.map((command) => `\`${commandFor(`${command} ${run.task}`)}\``);
+        const lines = commands.map((command) => `\`${commandFor(command)}\``);
         const header = stepHeader({ skill: run.def.skill, task: run.task, step: step.id, position: step.index + 1, total: run.def.steps.length, now: `Run ${lines.join(', then ')}`, then: 'its output brings the next step' });
         return (await partOf(run, step, header, '')).part;
       }
@@ -492,6 +498,10 @@ export function createEngine(deps: EngineDeps): Engine {
     if (def === null) {
       throw new AmbicodeError('route-unknown', `No route ships for "${input.skill}".`, { details: [`Shipped routes: ${routes.skills().join(', ') || 'none'}.`] });
     }
+    if (input.target !== undefined && def.skill !== 'review') {
+      const field = input.target.mr !== null ? '--mr' : input.target.base !== null ? '--base' : '--branch';
+      throw new AmbicodeError('bad-argument', `${field} names a review target; route ${def.skill} takes none.`, { field });
+    }
     const draft = input.fromDraft !== undefined && def.steps.some((step) => step.gate?.id === 'draft-ok') ? [{ gate: 'draft-ok', option: 'implement anyway' }] : [];
     const answers = [...(input.answers ?? []), ...draft];
     validateAnswers(def, answers);
@@ -513,6 +523,7 @@ export function createEngine(deps: EngineDeps): Engine {
       fromDraft: input.fromDraft ?? null,
       answers,
       headless,
+      ...(input.target === undefined ? {} : { target: input.target }),
       hasRequirement: hasRequirement({ text: input.text, requirements: input.requirements, headless }, { mcpServer: config?.requirements.mcpServer ?? null }),
     });
     const delivery: DeliveryChannel = input.channel === 'hook' ? 'hook' : 'cli';

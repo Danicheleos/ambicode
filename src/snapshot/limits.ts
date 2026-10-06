@@ -103,17 +103,17 @@ export function enforceReviewInputLimits(
 ): void {
   const exceeded: string[] = [];
 
-  if (measured.changedFiles > limits.maxChangedFiles) {
+  if (limits.maxChangedFiles !== null && measured.changedFiles > limits.maxChangedFiles) {
     exceeded.push(
       `changed files: ${measured.changedFiles}, limit ${limits.maxChangedFiles} (review.maxChangedFiles)`,
     );
   }
-  if (measured.changedLines > limits.maxChangedLines) {
+  if (limits.maxChangedLines !== null && measured.changedLines > limits.maxChangedLines) {
     exceeded.push(
       `changed lines: ${measured.changedLines}, limit ${limits.maxChangedLines} (review.maxChangedLines)`,
     );
   }
-  if (measured.contextBytes > limits.maxContextBytes) {
+  if (limits.maxContextBytes !== null && measured.contextBytes > limits.maxContextBytes) {
     exceeded.push(
       `model input: ${measured.contextBytes} bytes, limit ${limits.maxContextBytes} (review.maxContextBytes)`,
       ...describeComponents(measured),

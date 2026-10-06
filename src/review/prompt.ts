@@ -388,7 +388,7 @@ function outputSection(bundle: ReviewBundle): string {
   return [
     '# Output',
     '',
-    `Return at most ${limit} findings, the ones that most deserve a human's time.`,
+    limit === null ? "Return the findings that most deserve a human's time." : `Return at most ${limit} findings, the ones that most deserve a human's time.`,
     'Answer with one `StructuredOutput` call whose arguments are the answer object itself,',
     '`findings` and `coverageNotes` at the top level, not wrapped in any key such as `input`.',
     '',

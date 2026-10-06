@@ -50,6 +50,7 @@ export const HANDLER_NAMES = [
   'task.report',
   'checks.baseline',
   'review.evaluate',
+  'review.estimate',
 ] as const;
 
 export interface StepDef {

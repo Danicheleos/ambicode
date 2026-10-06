@@ -6,14 +6,14 @@ import { AmbicodeError } from '../../util/errors.ts';
 import type { ParsedArgs } from '../args.ts';
 import { routeTools, taskOf } from './route.ts';
 
-export const RULES_DISCOVER_OPTIONS = { flags: ['json'], positionals: true } as const;
+export const RULES_DISCOVER_OPTIONS = { values: ['project'], flags: ['json'], positionals: true } as const;
 export const RULES_APPLY_OPTIONS = { values: ['task', 'project'], flags: ['json'] } as const;
 export const RULES_REVERT_OPTIONS = { values: ['project'], flags: ['json'], positionals: true } as const;
 
 export interface RulesOutput { command: string; text: string; [field: string]: unknown }
 
 export async function runRulesDiscover(runtime: Runtime, args: ParsedArgs): Promise<RulesOutput> {
-  const discovery = await discoverRules(runtime, args.positionals);
+  const discovery = await discoverRules(runtime, args.positionals, { project: args.value('project') });
   return { command: 'rules discover', ...discovery };
 }
 

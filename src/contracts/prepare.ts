@@ -77,7 +77,7 @@ export type PreparePolicy = z.infer<typeof PreparePolicy>;
 
 export const PrepareContextBudget = z.strictObject({
   measuredBytes: z.number().int().nonnegative(),
-  limitBytes: z.number().int().positive(),
+  limitBytes: z.number().int().positive().nullable(),
 });
 export type PrepareContextBudget = z.infer<typeof PrepareContextBudget>;
 

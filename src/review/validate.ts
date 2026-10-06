@@ -14,22 +14,25 @@ export interface ValidateOptions {
   files: readonly DiffFile[];
   snapshotText: ReadonlyMap<string, string>;
   reviewId: string;
-  maxFindings: number;
+  maxFindings: number | null;
   knownRuleIds: ReadonlySet<string>;
   knownRequirementIds: ReadonlySet<string>;
+  /** `drop` removes each unverifiable finding and keeps the rest as `partial`; over `maxFindings` still voids. */
+  onInvalid?: 'void' | 'drop';
 }
 
 export type ValidatedFindings =
   | { kind: 'ok'; findings: Finding[] }
   /** `rejections` are persisted, because a refusal is evidence about the review. */
-  | { kind: 'invalid'; reason: string; rejections: string[] };
+  | { kind: 'invalid'; reason: string; rejections: string[] }
+  | { kind: 'partial'; findings: Finding[]; reason: string; rejections: string[] };
 
 export function validateFindings(options: ValidateOptions): ValidatedFindings {
   const rejections: string[] = [];
   const findings: Finding[] = [];
   const usedIds = new Set<string>();
 
-  if (options.output.findings.length > options.maxFindings) {
+  if (options.maxFindings !== null && options.output.findings.length > options.maxFindings) {
     return {
       kind: 'invalid',
       reason: `The reviewer returned ${options.output.findings.length} findings, above the configured limit of ${options.maxFindings}. AMBICODE does not silently keep the first ${options.maxFindings} and present the result as complete.`,
@@ -40,6 +43,7 @@ export function validateFindings(options: ValidateOptions): ValidatedFindings {
   }
 
   for (const [index, candidate] of options.output.findings.entries()) {
+    const before = rejections.length;
     const label = `finding ${index + 1} (${describe(candidate.location)})`;
 
     const located = resolveLocation(candidate.location, options.files);
@@ -72,6 +76,7 @@ export function validateFindings(options: ValidateOptions): ValidatedFindings {
       }
     }
 
+    if (rejections.length > before) continue;
     findings.push({
       id: stableId(options.reviewId, located.location, candidate.category, candidate.suggestedComment, usedIds),
       risk: candidate.risk,
@@ -87,6 +92,10 @@ export function validateFindings(options: ValidateOptions): ValidatedFindings {
     });
   }
 
+  if (rejections.length > 0 && options.onInvalid === 'drop') {
+    const dropped = options.output.findings.length - findings.length;
+    return { kind: 'partial', findings, reason: `${dropped} invalid finding(s) dropped (review.onInvalid: drop)`, rejections };
+  }
   if (rejections.length > 0) {
     return {
       kind: 'invalid',

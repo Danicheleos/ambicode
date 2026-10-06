@@ -25,10 +25,13 @@ export interface BundleOutput {
  * emitting a finding list that reads clean.
  */
 export async function runBundle(runtime: Runtime, args: ParsedArgs): Promise<BundleOutput> {
-  const bundle = await assembleBundle({ runtime, ...resolveTargetOptions('bundle', runtime, args) });
+  const resolved = resolveTargetOptions('bundle', runtime, args);
+  // No human answer can be recorded here, so a typed --approve approves nothing (01-contracts §5).
+  const bundle = await assembleBundle({ runtime, ...resolved, approvals: new Set() });
 
   bundle.result.omissions = [
     ...bundle.result.omissions,
+    ...(resolved.approvals.size === 0 ? [] : [`A typed --approve approves nothing here (${[...resolved.approvals].join(', ')}): start the review route (\`route start review\`) to answer waiting checks.`]),
     'No model review was run: this command produces the evidence bundle only. An empty finding list here does not mean the change is clean.',
   ];
 

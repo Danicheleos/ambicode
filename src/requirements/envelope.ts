@@ -87,15 +87,32 @@ function chains(captured: ReadonlyMap<string, CapturedRequirement>, asked: reado
 
 const clip = (value: string, length: number): string => (value.length > length ? `${value.slice(0, length - 1)}…` : value);
 
-async function record(input: EnvelopeInput, sources: EnvelopeSource[], builtFrom: 'captures' | 'args', asked: string[], missingAsked: string[], notices: string[], server: string | null): Promise<EnvelopeResult> {
-  const evidence = RequirementEvidence.parse({
-    mcpServer: server ?? input.mcpServer,
+function evidenceOf(sources: readonly EnvelopeSource[], server: string | null, mcpServer: string | null): RequirementEvidence {
+  return RequirementEvidence.parse({
+    mcpServer: server ?? mcpServer,
     sources: sources.map((source) => ({
       id: source.key, url: source.url === '' ? source.key : source.url, title: source.title, retrievedAt: source.retrievedAt, content: source.content, status: 'retrieved',
-      retrievedVia: source.relation === 'args' ? 'args' : (input.mcpServer ?? 'mcp'), ...(source.relation === 'args' ? {} : { relation: source.relation, derivedFrom: source.derivedFrom }),
+      retrievedVia: source.relation === 'args' ? 'args' : (mcpServer ?? 'mcp'), ...(source.relation === 'args' ? {} : { relation: source.relation, derivedFrom: source.derivedFrom }),
     })),
     conflicts: [],
   });
+}
+
+/**
+ * A route's envelope as review evidence: the asked sources (by URL, or by key when the capture has none) and every
+ * captured source. Null when the envelope was built from the request text only, so the review stays a quality review.
+ */
+export async function routeEvidence(input: Pick<EnvelopeInput, 'runtime' | 'dir' | 'args'>, entry: LedgerEntry, mcpServer: string | null): Promise<{ urls: string[]; evidence: RequirementEvidence } | null> {
+  if (entry['builtFrom'] !== 'captures') return null;
+  const sources = (await envelopeSources(input, entry)).filter((source) => source.relation !== 'args');
+  const asked = Array.isArray(entry['asked']) ? (entry['asked'] as string[]) : [];
+  const urls = sources.filter((source) => asked.includes(source.key)).map((source) => (source.url === '' ? source.key : source.url));
+  if (urls.length === 0) return null;
+  return { urls, evidence: evidenceOf(sources, typeof entry['server'] === 'string' ? entry['server'] : null, mcpServer) };
+}
+
+async function record(input: EnvelopeInput, sources: EnvelopeSource[], builtFrom: 'captures' | 'args', asked: string[], missingAsked: string[], notices: string[], server: string | null): Promise<EnvelopeResult> {
+  const evidence = evidenceOf(sources, server, input.mcpServer);
   const entry = await input.ledger.append({
     kind: 'envelope',
     route: input.view.routeId,

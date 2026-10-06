@@ -4,8 +4,9 @@ import { createEngine, type Engine, type Position, type StepMessage } from '../.
 import { chainKey, loadPayload } from '../../route/delivery.ts';
 import { readEntries } from '../../route/context.ts';
 import { buildChain, latestRouteOf } from '../../route/fold.ts';
-import { parseAnswerFlag } from '../../route/flags.ts';
+import { parseAnswerFlag, type ReviewTarget } from '../../route/flags.ts';
 import { defaultHandlers, handlerRegistry } from '../../route/handlers.ts';
+import { metricsIgnoreWarning } from '../../review/route-handlers.ts';
 import { loadRouteRegistry, type RouteRegistry } from '../../route/routes.ts';
 import { cliHarnessPort, sessionUnbound, taskSessionSource, type SessionBinding } from '../../route/session.ts';
 import { resolveTaskDir } from '../../task/task-dir.ts';
@@ -13,8 +14,20 @@ import { taskSlugFor } from '../../review/review-name.ts';
 import { AmbicodeError } from '../../util/errors.ts';
 import { contentHash } from '../../util/hash.ts';
 import type { ParsedArgs } from '../args.ts';
+import { validateTargetArgs } from '../target-option.ts';
 
-export const ROUTE_START_OPTIONS = { values: ['task', 'project', 'plan', 'from-draft'], repeated: ['answer', 'requirement'], flags: ['json', 'headless', 'fresh', 'adopt'], positionals: true } as const;
+export const ROUTE_START_OPTIONS = { values: ['task', 'project', 'plan', 'from-draft', 'base', 'mr'], repeated: ['answer', 'requirement'], flags: ['json', 'headless', 'fresh', 'adopt', 'branch'], positionals: true } as const;
+
+/** The review target of a start, refused as `review` refuses it; absent for uncommitted work (08-R2). */
+export function startTarget(skill: string, args: ParsedArgs): ReviewTarget | undefined {
+  if (skill !== 'review') {
+    const field = args.value('mr') !== null ? '--mr' : args.value('base') !== null ? '--base' : args.flag('branch') ? '--branch' : null;
+    if (field !== null) throw new AmbicodeError('bad-argument', `${field} names a review target; route ${skill} takes none.`, { field });
+  }
+  const selection = validateTargetArgs('route start', args);
+  if (selection.kind === 'working') return undefined;
+  return selection.kind === 'branch' ? { branch: true, base: selection.baseRef, mr: null } : { branch: false, base: null, mr: selection.url };
+}
 export const ROUTE_NEXT_OPTIONS = { values: ['task', 'default', 'revise', 'conflict', 'sources', 'project', 'show'], repeated: ['answer'], flags: ['json'] } as const;
 export const ROUTE_STATUS_OPTIONS = { values: ['task'], flags: ['json'] } as const;
 export const ROUTE_STOP_OPTIONS = { values: ['task', 'reason', 'detail'], flags: ['json'] } as const;
@@ -53,6 +66,7 @@ export async function runRouteStart(runtime: Runtime, args: ParsedArgs): Promise
   const project = args.value('project');
   const plan = args.value('plan');
   const fromDraft = args.value('from-draft');
+  const target = startTarget(skill, args);
   const message = await engine.start({
     skill,
     text,
@@ -62,6 +76,7 @@ export async function runRouteStart(runtime: Runtime, args: ParsedArgs): Promise
     ...(project === null ? {} : { project }),
     ...(plan === null ? {} : { plan }),
     ...(fromDraft === null ? {} : { fromDraft }),
+    ...(target === undefined ? {} : { target }),
     answers: args.all('answer').map(parseAnswerFlag),
     fresh: args.flag('fresh'),
     adopt: args.flag('adopt'),
@@ -69,7 +84,8 @@ export async function runRouteStart(runtime: Runtime, args: ParsedArgs): Promise
     session,
     channel,
   });
-  return { command: 'route start', ...message };
+  const warning = await metricsIgnoreWarning(runtime, skill);
+  return { command: 'route start', ...message, ...(warning === null ? {} : { text: `${message.text}\n${warning}` }) };
 }
 
 export async function runRouteNext(runtime: Runtime, args: ParsedArgs): Promise<RouteOutput> {

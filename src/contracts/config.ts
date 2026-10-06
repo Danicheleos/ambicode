@@ -102,10 +102,10 @@ export type ProjectConfig = z.infer<typeof ProjectConfig>;
 export const ReviewConfig = z.strictObject({
   model: z.string().min(1),
   timeoutSeconds: z.number().int().positive(),
-  maxFindings: z.number().int().positive(),
-  maxChangedFiles: z.number().int().positive(),
-  maxChangedLines: z.number().int().positive(),
-  maxContextBytes: z.number().int().positive(),
+  maxFindings: z.number().int().positive().nullable(),
+  maxChangedFiles: z.number().int().positive().nullable(),
+  maxChangedLines: z.number().int().positive().nullable(),
+  maxContextBytes: z.number().int().positive().nullable(),
   /**
    * The only way past the per-file snapshot ceiling, which no limit raises: one
    * large generated file would otherwise block the whole change. `--exclude` adds to it.

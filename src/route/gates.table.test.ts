@@ -29,6 +29,7 @@ const VALUES: Record<string, Record<string, string[]>> = {
   'requirements-conflicting': { summary: ['title differs'], sources: ['ORD-1', 'ORD-2'] },
   'requirements-not-captured-twice': {},
   'check-only-unauthorized': { key: ['unit'], files: ['src/a.ts'] },
+  'review-checks': { key: ['app/lint', 'app/test'] },
   'scope-expanding': { finding: ['extra file'] },
   'project-ambiguous': { projects: ['app', 'lib'] },
   'config-unparsable': {},

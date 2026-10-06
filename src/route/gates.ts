@@ -8,6 +8,7 @@ import type { ArtifactRef } from '../task/kinds.ts';
 import { AmbicodeError } from '../util/errors.ts';
 import { PLATFORM, type PlatformFlags } from '../hook/events/platform.ts';
 import type { RouteView } from './context.ts';
+import type { RouteArgs } from './flags.ts';
 import { invalid, normalizeGate, type GateDef } from './dsl.ts';
 import type { RouteRegistry } from './routes.ts';
 
@@ -113,9 +114,10 @@ export function gatePrintText(input: PrintInput): string {
     if (option === gate.default) notes.push('default if nobody answers');
     if (gate.acting.includes(option)) notes.push('acts: only your own answer here counts');
     const revise = gate.onAnswer[option];
+    const target = revise?.target === '$raisedBy' ? String(entry['raisedBy'] ?? revise.target) : revise?.target;
     if (revise !== undefined && input.revisesLeft !== null) {
-      notes.push(input.revisesLeft > 0 ? `Revise (${input.revisesLeft} left): goes back to ${revise.target}` : `Revise (0 left — restart the route to continue)`);
-    } else if (revise !== undefined) notes.push(`goes back to ${revise.target}`);
+      notes.push(input.revisesLeft > 0 ? `Revise (${input.revisesLeft} left): goes back to ${target}` : `Revise (0 left — restart the route to continue)`);
+    } else if (revise !== undefined) notes.push(`goes back to ${target}`);
     lines.push(`  - ${option}${notes.length === 0 ? '' : ` (${notes.join('; ')})`}`);
   }
   if (object !== null) lines.push(`Object: ${object.path} ${hash12(object.contentHash)}`);
@@ -179,6 +181,12 @@ const ANSWER_HANDLERS = new Map<string, RaisedAnswerHandler>();
 /** Runs once, inside the advance that folds the acceptance, when a raised gate gets a bound answer. */
 export const onRaisedAnswer = (gate: string, handler: RaisedAnswerHandler): void => void ANSWER_HANDLERS.set(gate, handler);
 export const raisedAnswerHandler = (gate: string): RaisedAnswerHandler | undefined => ANSWER_HANDLERS.get(gate);
+
+/** A route's own command for a code step's unmet `needs` kind (08-R5); without one the engine prints its generic command. */
+export type NeedCommand = (input: { runtime: Runtime; task: string; args: RouteArgs; chain: readonly LedgerEntry[] }) => Promise<string>;
+const NEED_COMMANDS = new Map<string, NeedCommand>();
+export const onNeedCommand = (skill: string, need: string, command: NeedCommand): void => void NEED_COMMANDS.set(`${skill}:${need}`, command);
+export const needCommandFor = (skill: string, need: string): NeedCommand | undefined => NEED_COMMANDS.get(`${skill}:${need}`);
 
 /** Print-time text and offered options a module adds to a gate's question (09-G1). */
 export interface PrintShape { line: string; offered?: readonly string[] }

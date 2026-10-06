@@ -4,6 +4,7 @@ import { describe, it } from 'node:test';
 import { parseArgs } from '../cli/args.ts';
 import { initConfig } from '../testing/init-config.ts';
 import { REJECTED_OUTPUT_FILE, REVIEW_OPTIONS, runReview } from '../cli/commands/review.ts';
+import { BUNDLE_OPTIONS, runBundle } from '../cli/commands/bundle.ts';
 import { createRuntime, type Runtime } from '../composition/root.ts';
 import type { ReviewerOutput } from '../contracts/review.ts';
 import { parseHunks, type DiffFile } from '../git/diff.ts';
@@ -1046,6 +1047,8 @@ describe('U17 an unverifiable location makes the review an error', () => {
   it('treats an oversized finding list as a failed review, not a trimmed one', async () => {
     const context = await fixture();
     try {
+      const configPath = path.join(context.repo.root, '.ambicode', 'config.yaml');
+      await nodeFileSystem.writeText(configPath, (await nodeFileSystem.readText(configPath)).replace(/maxFindings: null/, 'maxFindings: 7'));
       const many = Array.from({ length: 9 }, (_unused, index) => ({
         risk: 'low' as const,
         confidence: 'low' as const,
@@ -1308,7 +1311,7 @@ describe('a check waiting for authorization', () => {
       assert.ok(output.result.statusReason?.includes('app/unit'), output.result.statusReason ?? '');
       assert.ok(
         output.result.omissions.some((omission) =>
-          omission.includes('--approve <key> or --decline <key>'),
+          omission.includes('--decline <key> reviews without one; approving one needs a human answer on the review route'),
         ),
         output.result.omissions.join(' | '),
       );
@@ -1342,17 +1345,33 @@ describe('a check waiting for authorization', () => {
     }
   });
 
-  it('takes --approve as the other answer, and then runs both halves once', async () => {
+  it('08-P1: a typed --approve outside a route approves nothing: the check stays waiting, no reviewer runs, the note points to the route and the report suggests no --approve', async () => {
     const context = await gatedFixture();
     try {
       const reviewer = new FakeReviewer(ok());
       const output = await review(context.runtime, ['--approve', 'app/unit'], reviewer);
 
-      assert.equal(output.awaitingAuthorization, false);
-      assert.equal(reviewer.requests.length, 1);
-      assert.deepEqual(output.pendingApprovals, []);
-      const unit = output.result.checks.find((check) => check.checkId === 'unit');
-      assert.equal(unit?.status, 'passed', JSON.stringify(unit?.limitations));
+      assert.equal(output.awaitingAuthorization, true);
+      assert.equal(reviewer.requests.length, 0);
+      assert.deepEqual(output.pendingApprovals.map((approval) => approval.approvalKey), ['app/unit']);
+      assert.ok(output.result.omissions.some((omission) => /typed --approve approves nothing outside a route \(app\/unit\).*route start review/.test(omission)), output.result.omissions.join(' | '));
+      assert.equal(output.result.checks.find((check) => check.checkId === 'unit')?.status === 'passed', false);
+      const report = await context.runtime.fs.readText(output.reportPath);
+      assert.match(report, /waiting for authorization\n {5}app\/unit\n/);
+      assert.doesNotMatch(report, /--approve (app\/unit|<key>)/);
+    } finally {
+      await context.dispose();
+    }
+  });
+
+  it('08-P1: bundle --approve approves nothing either: the check stays waiting and the note points to the route', async () => {
+    const context = await gatedFixture();
+    try {
+      const output = await runBundle(context.runtime, parseArgs('bundle', ['--approve', 'app/unit'], BUNDLE_OPTIONS));
+
+      assert.deepEqual(output.pendingApprovals.map((approval) => approval.approvalKey), ['app/unit']);
+      assert.equal(output.result.checks.find((check) => check.checkId === 'unit')?.status === 'passed', false);
+      assert.ok(output.result.omissions.some((omission) => /typed --approve approves nothing here \(app\/unit\).*route start review/.test(omission)), output.result.omissions.join(' | '));
     } finally {
       await context.dispose();
     }

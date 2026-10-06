@@ -195,7 +195,7 @@ export async function runPrepare(
 function measureAgainstOwnBytes<T>(
   build: (contextBudget: PrepareContextBudget) => T,
   format: JsonFormat,
-  limitBytes: number,
+  limitBytes: number | null,
   detail: PrepareDetail,
 ): T {
   let measuredBytes = 0;
@@ -203,7 +203,7 @@ function measureAgainstOwnBytes<T>(
     const candidate = build({ measuredBytes, limitBytes });
     const actualBytes = byteLength(formatJsonOutput(candidate, format));
     if (actualBytes === measuredBytes) {
-      if (actualBytes > limitBytes) throwPreparationTooLarge(detail, actualBytes, limitBytes);
+      if (limitBytes !== null && actualBytes > limitBytes) throwPreparationTooLarge(detail, actualBytes, limitBytes);
       return candidate;
     }
     measuredBytes = actualBytes;
@@ -627,7 +627,7 @@ export function renderPrepare(run: PrepareRun): string {
 
   lines.push(
     '',
-    `context budget: ${run.data.contextBudget.measuredBytes}/${run.data.contextBudget.limitBytes} bytes (review.maxContextBytes, ${run.shape} --json shape)`,
+    `context budget: ${run.data.contextBudget.measuredBytes}/${run.data.contextBudget.limitBytes ?? 'no limit'} bytes (review.maxContextBytes, ${run.shape} --json shape)`,
   );
   return lines.join('\n');
 }

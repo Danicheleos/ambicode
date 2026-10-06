@@ -93,9 +93,13 @@ export async function consentForKey(
   const forKey = prints.filter((entry) => keyOf(entry).includes(input.key));
   const boundDecline = source !== null && (source.kind === 'declined' || source.kind === 'default-taken') && source['reason'] !== 'acting-needs-human'
     && (forKey.some((print) => print.id === source['instance']) || source['key'] === input.key);
-  if (boundDecline) return 'declined';
   return withLedger(deps, dir, async (ledger) => {
     const instance = forKey.at(-1)?.id ?? null;
+    if (boundDecline) {
+      // A typed --approve is recorded even when the key's question was already declined (headless default).
+      if (input.approve.includes(input.key)) await ledger.append({ kind: 'declined', route: view.routeId, gate: GATE, instance, answer: 'approve', via: 'flag', reason: 'acting-needs-human', key: input.key });
+      return 'declined' as const;
+    }
     if (input.decline.includes(input.key)) {
       await ledger.append({ kind: 'declined', route: view.routeId, gate: GATE, instance, answer: 'decline', via: 'flag', key: input.key });
       return 'declined' as const;

@@ -12,6 +12,7 @@ import { INIT_HANDLERS } from '../config/init-route.ts';
 import { RULES_HANDLERS } from '../policy/rules-route.ts';
 import { planCheckStep } from '../workers/plan-check.ts';
 import { TASK_HANDLERS } from '../task/task-route.ts';
+import { REVIEW_HANDLERS } from '../review/route-handlers.ts';
 
 export interface HandlerInput {
   view: RouteView;
@@ -102,5 +103,5 @@ export const EVIDENCE_HANDLERS: Readonly<Record<string, Handler>> = {
 };
 
 export function defaultHandlers(): Record<string, Handler> {
-  return { ...MODULE_HANDLERS, ...EVIDENCE_HANDLERS, ...INIT_HANDLERS, ...RULES_HANDLERS, ...TASK_HANDLERS };
+  return { ...MODULE_HANDLERS, ...EVIDENCE_HANDLERS, ...INIT_HANDLERS, ...RULES_HANDLERS, ...TASK_HANDLERS, ...REVIEW_HANDLERS };
 }

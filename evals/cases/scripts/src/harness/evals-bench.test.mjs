@@ -1,9 +1,9 @@
 // Regression assertions moved intact from the approved harness suite.
 import { describe, it, before, after } from 'node:test';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { ROOT } from '../shared/bench-paths.mjs';
 import assert from 'node:assert/strict';
-import { CURATED_EVAL_DIR, formatPlan, generate, resolveCases, PROMPT, WITH_PROMPT, NAKED_COPY, promptBody, writePluginPrompt, pluginPrompt, swapInPluginPrompts, outstandingSwap, INVESTIGATE_COMMAND, restorePrompts, runSweep, withBaseline, planRun, CASES_LOCK, main, casesLockStatus, lockCases, unlockCases } from './evals-bench.mjs';
+import { CURATED_EVAL_DIR, formatPlan, generate, resolveCases, PROMPT, WITH_PROMPT, NAKED_COPY, promptBody, writePluginPrompt, pluginPrompt, swapInPluginPrompts, outstandingSwap, INVESTIGATE_COMMAND, REVIEW_COMMAND, restorePrompts, runSweep, withBaseline, planRun, CASES_LOCK, main, casesLockStatus, lockCases, unlockCases } from './evals-bench.mjs';
 import { readFileSync, existsSync, readdirSync, mkdtempSync, rmSync, mkdirSync, writeFileSync, cpSync, chmodSync } from 'node:fs';
 import path from 'node:path';
 import { tmpdir, hostname } from 'node:os';
@@ -42,9 +42,16 @@ describe('evals-bench: the real benchmark stays out of git', { skip: !existsSync
 
   it('has no ticket identifier in any tracked or addable file', () => {
     const ids = new Set();
-    for (const side of readdirSync(REAL, { withFileTypes: true }).filter((e) => e.isDirectory() && existsSync(path.join(REAL, e.name, 'assets'))))
-      for (const f of readdirSync(path.join(REAL, side.name, 'assets'), { withFileTypes: true }).filter((e) => e.name.endsWith('.md')))
+    const dirs = (at) => (existsSync(at) ? readdirSync(at, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => path.join(at, e.name)) : []);
+    // Two layouts: ticket sources in <side>/assets/<id>.md, or generated cases in projects/<side>/cases/*/truth.json.
+    for (const side of dirs(REAL).filter((dir) => existsSync(path.join(dir, 'assets'))))
+      for (const f of readdirSync(path.join(side, 'assets'), { withFileTypes: true }).filter((e) => e.name.endsWith('.md')))
         ids.add(path.basename(f.name, '.md'));
+    for (const caseDir of dirs(path.join(REAL, 'projects')).flatMap((side) => dirs(path.join(side, 'cases')))) {
+      const truth = path.join(caseDir, 'truth.json');
+      const ticket = existsSync(truth) ? JSON.parse(readFileSync(truth, 'utf8')).ticket : undefined;
+      if (typeof ticket === 'string' && ticket !== '') ids.add(ticket);
+    }
     assert.ok(ids.size > 0);
     const files = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { cwd: ROOT, encoding: 'utf8' }).split('\0').filter(Boolean);
     const leaks = [];
@@ -104,8 +111,20 @@ describe('evals-bench: per-arm prompts', () => {
     assert.equal(typedLines[changed[0]], `/ambicode:investigate --headless ${nakedLines[changed[0]]}`);
     assert.ok(promptBody(typed).startsWith('/ambicode:investigate --headless In the repository'));
     assert.doesNotMatch(typed, /--requirement/);
-    const [review] = resolveCases(casesDir, { tags: ['review'] });
-    assert.ok(!review.hasWith && !existsSync(path.join(review.dir, NAKED_COPY)), 'review with-prompts are step 08\'s');
+  });
+
+  it('08-P1/08-P2: every review case types the review command, with no target flag, before its first body line; the naked bytes are kept', () => {
+    const reviews = resolveCases(casesDir, { tags: ['review'] });
+    assert.ok(reviews.length > 0);
+    for (const review of reviews) {
+      assert.ok(review.hasWith);
+      const naked = readFileSync(path.join(review.dir, PROMPT), 'utf8');
+      const typed = readFileSync(path.join(review.dir, WITH_PROMPT), 'utf8');
+      assert.ok(readFileSync(path.join(review.dir, NAKED_COPY)).equals(readFileSync(path.join(review.dir, PROMPT))));
+      assert.equal(typed, pluginPrompt(naked, REVIEW_COMMAND));
+      assert.ok(promptBody(typed).startsWith('/ambicode:review --headless --answer estimate=run In the repository'));
+      assert.doesNotMatch(typed, /--branch|--mr|--base/);
+    }
   });
 
   it('exposes the same generator for a review case, for step 08', () => {
@@ -217,7 +236,6 @@ describe('evals-bench: per-arm prompts', () => {
     await assert.rejects(runSweep(nakedArgs, { ...quiet, benchmarks, spawnRun: neverSpawn }), /naked control plugin/);
     await assert.rejects(runSweep(args('--tag', 'localize', '--ablation', 'with-without', '--prompt', 'with'), { ...quiet, benchmarks, spawnRun: neverSpawn }), /--ablation none/);
     await assert.rejects(runSweep(args('--tag', 'localize', '--prompt', 'with'), { ...quiet, benchmarks, spawnRun: neverSpawn }), /harness default/);
-    await assert.rejects(runSweep(args('--ablation', 'none', '--prompt', 'with'), { ...quiet, benchmarks, spawnRun: neverSpawn }), /have no prompt\.with\.md/, 'review cases have no plugin prompt yet');
     await assert.rejects(runSweep(args('--prompt', 'plugin'), { ...quiet, benchmarks, spawnRun: neverSpawn }), /naked or with/);
     assert.equal(outstandingSwap(casesDir), null);
   });
@@ -555,5 +573,76 @@ describe('evals-bench: a run owns only the result it wrote', () => {
     assert.ok(warnings.some((w) => /served prompt not recorded/.test(w)));
     assert.ok(existsSync(walkOf(json)));
     assert.deepEqual(leftovers(), []);
+  });
+});
+
+describe('evals-bench: review cases under the plugin prompt (08-P3)', () => {
+  const CONFIG = ['schemaVersion: 3', 'baseline: ""', 'review: { model: sonnet, timeoutSeconds: 300, maxFindings: 7, maxChangedFiles: 50, maxChangedLines: 2000, maxContextBytes: 524288 }', 'checks: { timeoutSeconds: 120, maxSelectedTestFiles: 20 }', 'page: { idleTimeoutSeconds: 1800, port: 45831 }', 'requirements: { mcpServer: null }', 'remoteChecks: { image: null }', 'projects:', '  - { id: app, root: ".", ecosystem: typescript }', ''].join('\n');
+  let root;
+  let benchmarks;
+  let plugin;
+  let casesDir;
+  before(() => {
+    root = mkdtempSync(path.join(tmpdir(), 'bench-p3-'));
+    benchmarks = syntheticBenchmarks(root, { localize: 0, review: 2 });
+    for (const side of ['AA', 'BB']) {
+      for (const t of [0, 1]) {
+        const dir = path.join(benchmarks, side, 'reviews', `T-${t}`, `${t}-abcdef12`, 'base', 'app', 'orders');
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(path.join(dir, 'service.ts'), 'export const total = 0;\n');
+      }
+      writeFileSync(path.join(benchmarks, side, '.ambicode', 'config.yaml'), CONFIG);
+    }
+    ({ plugin, casesDir } = syntheticPlugin(root, benchmarks, { pick: { localize: 0, review: 2 } }));
+  });
+  after(() => rmSync(root, { recursive: true, force: true }));
+
+  const quiet = { benchmarks: undefined, harvest: () => 0, clean: () => 0, log: () => {}, warn: () => {} };
+
+  it('08-P3: run --dry-run --prompt with lists the review cases and changes no file', async () => {
+    const reviews = resolveCases(casesDir, { tags: ['review'] });
+    assert.ok(reviews.length >= 2);
+    const before = snapshot(root);
+    const lines = [];
+    const argv = ['--plugin', plugin, '--json', path.join(benchmarks, 'results', 'p3.json'), '--model', 'm', '--max-cost-usd', '1', '--tag', 'review', '--ablation', 'none', '--prompt', 'with', '--dry-run'];
+    const status = await runSweep(argv, { ...quiet, benchmarks, spawnRun: neverSpawn, log: (line) => lines.push(line) });
+    assert.equal(status, 0);
+    assert.deepEqual(snapshot(root), before);
+    const out = lines.join('\n');
+    assert.match(out, new RegExp(`cases: ${reviews.length} \\(review ${reviews.length}\\)`));
+    assert.match(out, /--tag review/);
+    for (const review of reviews) assert.ok(!out.includes(review.name));
+  });
+
+  const scaffolded = () => {
+    const [review] = resolveCases(casesDir, { tags: ['review'] });
+    const work = mkdtempSync(path.join(root, 'work-'));
+    execFileSync('sh', [path.join(review.dir, 'scaffold.sh')], { cwd: work });
+    return path.join(work, 'repo');
+  };
+  const cli = (repo, ...argv) => spawnSync(process.execPath, [path.join(ROOT, 'src', 'cli', 'main.ts'), 'review', '--estimate', '--json', ...argv], { cwd: repo, encoding: 'utf8' });
+
+  it('08-P3: review --estimate on the scaffold selects exactly the changed files and writes nothing', () => {
+    const repo = scaffolded();
+    const changed = execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: repo, encoding: 'utf8' }).split('\n').filter(Boolean).map((line) => line.slice(3)).filter((file) => !file.startsWith('.ambicode'));
+    assert.deepEqual(changed.sort(), ['app/orders/model.ts', 'app/orders/service.ts']);
+    const outsideGit = () => Object.fromEntries(Object.entries(snapshot(repo)).filter(([file]) => !file.startsWith('.git')));
+    const before = outsideGit();
+    const run = cli(repo);
+    assert.equal(run.status, 0, run.stderr);
+    const { estimate } = JSON.parse(run.stdout);
+    assert.equal(estimate.refusal, null);
+    assert.equal(estimate.files, changed.length);
+    const one = JSON.parse(cli(repo, '--only', 'app/orders/service.ts').stdout).estimate;
+    assert.equal(one.files, 1);
+    assert.deepEqual(outsideGit(), before);
+  });
+
+  it('08-P3: --branch excludes the uncommitted change: nothing to review or baseline-not-applicable', () => {
+    const repo = scaffolded();
+    const run = cli(repo, '--branch', '--base', 'HEAD');
+    assert.notEqual(run.status, 0);
+    assert.match(run.stderr, /error \[(nothing-to-review|baseline-not-applicable)\]/);
+    assert.equal(run.stdout.includes('"files": 2'), false);
   });
 });

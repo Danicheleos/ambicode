@@ -1,0 +1,23 @@
+skill: review
+version: 3
+budget: { modelSteps: 6, wallMinutes: 45 }
+exits: [done, blocked, human, inconclusive, superseded, budget]
+revisable: []
+steps:
+  - { id: template, actor: code, when: args.hasRequirement, run: requirements.template }
+  - { id: fetch, actor: model, when: args.hasRequirement, instruction: file:routes/steps/review-fetch.md, payload: [template] }
+  - { id: ground, actor: code, when: args.hasRequirement, run: requirements.normalize, produces: [envelope], repeat: 2 }
+  - { id: estimate-step, actor: code, run: review.estimate }
+  - id: estimate
+    actor: human
+    gate:
+      question: "Run the independent reviewer on this change?"   # followed by renderEstimate()
+      options: [run, narrow, skip]
+      acting: [run]
+      default: skip
+      release: skip
+      onAnswer: { narrow: revise estimate-step --narrow $answer, "*": revise estimate-step --narrow $answer }
+      maxRevises: 3
+  - { id: review-run, actor: code, when: gate.estimate.is(run), needs: [review], run: review.evaluate, produces: [review] }
+  - { id: readback, actor: model, when: gate.estimate.is(run), instruction: file:routes/steps/review-readback.md }
+  - { id: view, actor: model, when: gate.estimate.is(run), instruction: file:routes/steps/review-view.md }

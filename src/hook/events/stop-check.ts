@@ -4,7 +4,9 @@ import { findSessionRepository } from '../../composition/session-repository.ts';
 import { createRuntime, openRepository, type Runtime } from '../../composition/root.ts';
 import type { HookInput, StopHookOutput } from '../../contracts/hook.ts';
 import { resolveActiveRoute } from '../../route/active-route.ts';
-import { buildChain, currentIn, foldRoute, isBoundAnswer, isGreen } from '../../route/fold.ts';
+import { buildChain, currentIn, foldRoute, isBoundAnswer, isGreen, windowOf } from '../../route/fold.ts';
+import { ReviewResult } from '../../contracts/review.ts';
+import { containsBlock, notCoveredBlock } from '../../review/coverage-block.ts';
 import { harnessOf } from '../../route/harness.ts';
 import type { RouteDef } from '../../route/routes.ts';
 import type { LedgerEntry } from '../../task/ledger.ts';
@@ -154,6 +156,24 @@ async function doctorReadBackProblem(runtime: Runtime, dir: { steps: string }, t
   return 'The doctor table in your answer does not match steps/doctor.md; quote it as printed.';
 }
 
+export const NOT_VERBATIM = 'the "not covered" block is not reproduced verbatim';
+
+/** Review route (08-C3): once its review ran, the final message must carry part 4 of that review's report verbatim. */
+async function coverageBlockMissing(runtime: Runtime, input: { root: string; def: RouteDef; chain: readonly LedgerEntry[]; head: LedgerEntry; ended: boolean; transcript: string | undefined }): Promise<string | null> {
+  const step = input.def.steps.find((candidate) => candidate.id === 'review-run');
+  if (step === undefined || input.transcript === undefined) return null;
+  const fold = foldRoute(input.def, buildChain(input.chain, input.head));
+  const review = windowOf(fold, step).findLast((entry) => entry.kind === 'review');
+  const readback = input.def.steps.find((candidate) => candidate.id === 'readback')?.index ?? 0;
+  if (review === undefined || typeof review['result'] !== 'string' || (!input.ended && (fold.position?.index ?? Infinity) < readback)) return null;
+  const raw = await runtime.fs.readText(path.join(input.root, review['result'])).catch(() => null);
+  const parsed = raw === null ? null : (() => { try { return ReviewResult.safeParse(JSON.parse(raw)); } catch { return null; } })();
+  const message = await lastAssistantText(input.transcript);
+  if (parsed?.success !== true || message === null) return null;
+  const block = notCoveredBlock(parsed.data);
+  return containsBlock(message, block) ? null : block;
+}
+
 /** Stop's three conditions, the checks they run, and the single block they may cause (03-K1 … 03-K7). */
 export async function stopCheck(runtime: Runtime, input: HookInput, deps: RouteHookDeps, options: { defectBrief?: boolean } = {}): Promise<StopHookOutput | null> {
   if (input.agent_id !== undefined) return null;
@@ -222,18 +242,20 @@ export async function stopCheck(runtime: Runtime, input: HookInput, deps: RouteH
       if (limit === null) return;
       await withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), session, (ledger) => ledger.append({ kind: 'limit', route: target.routeId, ...limit }));
     };
+    const missingBlock = unreadable || blockedBefore ? null : await coverageBlockMissing(runtime, { root, def, chain, head, ended: active === null || exited, transcript: input.transcript_path });
     if (unreadable) await finish({ which: 'stop-unreadable', count: 1 });
-    else if (text !== null && !blockedBefore) {
+    else if ((text !== null || missingBlock !== null) && !blockedBefore) {
       // The task route's ground step records a defect brief (07-S2).
       const defectBrief = options.defectBrief ?? chain.some((entry) => entry.kind === 'step' && entry['defectBrief'] === true);
-      const problems = await problemsOf({ chain, def, root, text, defectBrief, files, citationsOnly: saveAnswer }, runtime);
-      const doctorProblem = await doctorReadBackProblem(runtime, dir, text);
+      const problems = text === null ? [] : await problemsOf({ chain, def, root, text, defectBrief, files, citationsOnly: saveAnswer }, runtime);
+      const doctorProblem = text === null ? null : await doctorReadBackProblem(runtime, dir, text);
       if (doctorProblem !== null) problems.push(doctorProblem);
+      if (missingBlock !== null) problems.push(`${NOT_VERBATIM}: copy part 4 of the review report as printed (below in the stop-check file).`);
       if (problems.length > 0) {
         const where = path.relative(root, dir.stopCheck);
         await runtime.fs.mkdirp(dir.root);
-        await runtime.fs.writeText(dir.stopCheck, `# Stop check\n\n${problems.map((item) => `- ${item}`).join('\n')}\n`);
-        if (saveAnswer) await runtime.fs.writeText(dir.answerBlocked, text);
+        await runtime.fs.writeText(dir.stopCheck, `# Stop check\n\n${problems.map((item) => `- ${item}`).join('\n')}\n${missingBlock === null ? '' : `\n${missingBlock}\n`}`);
+        if (saveAnswer && text !== null) await runtime.fs.writeText(dir.answerBlocked, text);
         let reason = saveAnswer ? answerBlockReason(problems.length, where, head['mode'] === 'headless') : `The text you are about to finish with has ${problems.length} problem(s). Fix them, or state them; the full list is in ${where}:`;
         saveAnswer = false;
         for (const item of problems) {

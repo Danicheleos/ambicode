@@ -40,7 +40,7 @@ async function fixture(maxContextBytes: number): Promise<Fixture> {
   const config = await nodeFileSystem.readText(configPath);
   await nodeFileSystem.writeText(
     configPath,
-    config.replace(/maxContextBytes: \d+/, `maxContextBytes: ${maxContextBytes}`),
+    config.replace(/maxContextBytes: (\d+|null)/, `maxContextBytes: ${maxContextBytes}`),
   );
 
   // Committed, so the working diff is only the source edit below, not the

@@ -96,10 +96,10 @@ export const ReviewInputs = z.strictObject({
   promptBytes: z.number().int().nonnegative().default(0),
   contextBytes: z.number().int().nonnegative(),
   limits: z.strictObject({
-    maxChangedFiles: z.number().int().positive(),
-    maxChangedLines: z.number().int().positive(),
-    maxContextBytes: z.number().int().positive(),
-    maxFindings: z.number().int().positive(),
+    maxChangedFiles: z.number().int().positive().nullable(),
+    maxChangedLines: z.number().int().positive().nullable(),
+    maxContextBytes: z.number().int().positive().nullable(),
+    maxFindings: z.number().int().positive().nullable(),
   }),
 });
 export type ReviewInputs = z.infer<typeof ReviewInputs>;
@@ -136,6 +136,12 @@ export type ReviewerRun = z.infer<typeof ReviewerRun>;
 /** `quality-review` is the persisted spelling of `source-free`, mapped in `src/review/bundle.ts`. */
 export const ReviewRequirementMode = z.enum(['quality-review', 'requirement-based']);
 export type ReviewRequirementMode = z.infer<typeof ReviewRequirementMode>;
+
+export const SelectionRecord = z.strictObject({
+  submittedAt: z.string().min(1),
+  rows: z.array(z.strictObject({ findingId: z.string().min(1), offered: z.boolean(), selected: z.boolean(), edited: z.boolean(), posted: z.boolean() })),
+});
+export type SelectionRecord = z.infer<typeof SelectionRecord>;
 
 export const ReviewResult = z.strictObject({
   schemaVersion: z.literal(REVIEW_SCHEMA_VERSION),
@@ -175,5 +181,7 @@ export const ReviewResult = z.strictObject({
   omissions: z.array(z.string()).default([]),
   status: ReviewStatus,
   statusReason: z.string().nullable().default(null),
+  /** One element per page submit; absent until the first, so earlier results re-serialize unchanged. */
+  selection: z.array(SelectionRecord).optional(),
 });
 export type ReviewResult = z.infer<typeof ReviewResult>;

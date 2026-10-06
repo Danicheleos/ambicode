@@ -45,7 +45,7 @@ function whatWasReviewed(options: ReportOptions): string[] {
     `   target      ${result.target.kind} (${result.target.snapshotId})`,
     `   measured    ${result.inputs.changedFiles} file(s), ${result.inputs.changedLines} line(s), ` +
       `${result.inputs.contextBytes} model-input byte(s) ` +
-      `(${describeInputSplit(result.inputs)}), limit ${result.inputs.limits.maxContextBytes}`,
+      `(${describeInputSplit(result.inputs)}), limit ${result.inputs.limits.maxContextBytes ?? 'none'}`,
     `   snapshot    ${options.snapshotDirectory}`,
     `   result      ${options.resultPath}`,
     `   reopen      ${reopenCommand(result.reviewId)}`,
@@ -166,7 +166,7 @@ function verification(options: ReportOptions): string[] {
   if (options.pendingApprovals.length > 0) {
     lines.push('   waiting for authorization');
     for (const approval of options.pendingApprovals) {
-      lines.push(`     --approve ${approval.approvalKey}`);
+      lines.push(`     ${approval.approvalKey}`);
       lines.push(`       reason: ${approval.reason}`);
       lines.push(`       scope:  ${approval.scope}`);
       lines.push(`       would run: ${approval.proposedArgv.join(' ')}`);

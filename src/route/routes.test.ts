@@ -163,7 +163,7 @@ test('03-R7: the registry holds every v6/32 §4 gate with a question, default an
   const ids = registry.map((gate) => gate.id).sort();
   assert.deepEqual(ids, [
     'budget-exhausted', 'check-only-unauthorized', 'config-unparsable', 'decision:*', 'project-ambiguous', 'requirements-conflicting',
-    'requirements-expansion-capped', 'requirements-not-captured-twice', 'requirements-server-ambiguous', 'requirements-server-disconnected', 'scope-expanding',
+    'requirements-expansion-capped', 'requirements-not-captured-twice', 'requirements-server-ambiguous', 'requirements-server-disconnected', 'review-checks', 'scope-expanding',
   ]);
   for (const gate of registry) {
     assert.ok(gate.question !== '' && gate.default !== '' && gate.release !== '', gate.id);
@@ -173,7 +173,8 @@ test('03-R7: the registry holds every v6/32 §4 gate with a question, default an
   const acting = Object.fromEntries(registry.map((gate) => [gate.id, gate.acting]));
   assert.deepEqual(acting['check-only-unauthorized'], ['approve']);
   assert.deepEqual(acting['config-unparsable'], ['back up and regenerate']);
-  assert.deepEqual(Object.entries(acting).filter(([id]) => !['check-only-unauthorized', 'config-unparsable'].includes(id)).flatMap(([, value]) => value), []);
+  assert.deepEqual(acting['review-checks'], ['with']);
+  assert.deepEqual(Object.entries(acting).filter(([id]) => !['check-only-unauthorized', 'config-unparsable', 'review-checks'].includes(id)).flatMap(([, value]) => value), []);
   const reviewStop = registry.filter((gate) => gate.policy['review'] === 'stop').map((gate) => gate.id).sort();
   assert.deepEqual(reviewStop, ['requirements-not-captured-twice', 'requirements-server-ambiguous', 'requirements-server-disconnected']);
   const decision = registry.find((gate) => gate.id === 'decision:*')!;

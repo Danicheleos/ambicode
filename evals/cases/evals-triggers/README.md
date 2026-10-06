@@ -10,7 +10,11 @@ The suite becomes a negative-only check as each remaining skill migrates to a
 route: a migrated skill disables model invocation, so no phrasing fires it. It is no
 longer a release gate for description edits. Step 06 did so for `plan-think`, `plan-roadmap` and `url-plan` (`plan-fired.md` now expects no
 skill; `url-bare`'s `fired-plan` is `max: 0`): `plan` is user-typed only
-(`disable-model-invocation`), so no phrasing fires it. Steps 07, 08 and 09 convert
+(`disable-model-invocation`), so no phrasing fires it. Step 08 did so for the eight
+review cases (`collide-code-review`, `collide-verify`, `review-bench-shape`,
+`review-check-push`, `review-mr`, `review-vs-ticket`, `url-review`, `verb-review`):
+each now carries `no-skill-fired.md`, `verb-review` also `no-helper.md`, and
+`url-bare` lost `fired-review.md`. Steps 07, 08 and 09 convert
 their skill's positive cases to `no-skill-fired.md` in the same change as that
 skill's `disable-model-invocation`. Step 03 did so for the five investigate
 cases (`casual-look`, `how-much-work`, `url-question`, `which-files`,
@@ -37,16 +41,14 @@ Twenty-eight cases (eight hand-written, twenty added 2026-09-30), all on the `ts
 run:
 
 - `url-question`, `url-plan`, `url-implement`, `url-review` — a verb plus a
-  Jira URL routes to exactly one of investigate/plan/task/review
-  (`<skill>-fired` min 1) and to none of its siblings (`sibling-fired`
-  `min: 0, max: 0`).
-- `url-bare` — a bare URL with no verb. **Diagnostic:** its four `fired-*`
+  Jira URL; each skill is now user-typed only, so each case expects no skill
+  (`no-skill-fired.md` or `<skill>-fired` with `max: 0`).
+- `url-bare` — a bare URL with no verb. **Diagnostic:** its three `fired-*`
   graders can never all pass; the per-grader pattern across runs *is* the
   answer (which skill claims a bare URL today), so read the grader table,
   not the case score.
-- `verb-review`, `verb-implement` — the plain phrasings with no URL;
-  `verb-review` also asserts the order contract (`tool_order`: the Skill
-  call precedes the first `ambicode.mjs review` Bash call).
+- `verb-review`, `verb-implement` — the plain phrasings with no URL; both
+  expect no skill, and `verb-review` also no helper call.
 - `unrelated-question` — a general-knowledge question fires no skill and no
   helper (`min: 0, max: 0` on both).
 
@@ -68,11 +70,10 @@ skills, each with an expected skill and the sibling graders of the older cases:
 - `fix-ticket`, `fix-bug-plain`, `build-ticket-casual` → task;
 - `why-question`, `which-files`, `how-much-work`, `casual-look` → investigate;
 - `plan-roadmap`, `plan-think` → plan;
-- `review-bench-shape`, `review-check-push`, `review-mr`, `review-vs-ticket` → review.
-  `review-bench-shape` is the neutral prompt of the curated review cases in
-  `evals-core`: on the 2026-09-30 description it fired the review skill 0 of 4
-  times, and the model read `git diff` and reviewed on its own;
+- `review-bench-shape`, `review-check-push`, `review-mr`, `review-vs-ticket` → no
+  skill (review is user-typed only). `review-bench-shape` is the neutral prompt of
+  the curated review cases in `evals-core`;
 - `neg-regex`, `neg-git-concept`, `neg-shell-oneliner`, `neg-http` → no AMBICODE
   skill;
-- `collide-code-review`, `collide-verify` → review; `collide-security` only asserts
+- `collide-code-review`, `collide-verify` → no AMBICODE skill; `collide-security` only asserts
   that no *wrong* sibling fires (the built-in security review may reasonably win).

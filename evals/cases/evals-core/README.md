@@ -186,6 +186,37 @@ the curated truth and graders but **not** `evals/benchmarks/` — so every case
 carries four `no-peek-*` graders (Read, Grep, Glob, Bash; `max: 0`) that fail
 any run whose tool input reaches a path containing `evals/benchmarks/`.
 
+## Live reviewer tier
+
+The curated review cases score a replayed reviewer. The live tier runs the
+real reviewer on the 8 review cases, 3 runs each, in two arms (plugin: the
+served `prompt.with.md`; naked: `prompt.md`). It is paid and runs only on a
+named go. It also needs one of two things: a decided launch route (decision
+0-R: credential pass-through inside the sandbox, or a runner outside it) or a
+trusted launch. Until 0-R is decided, nothing for the tier is built, and the
+tier reports `pending: 0-R`.
+
+Budget and provenance:
+
+- $8–16 historically covered 24 reviewer calls. That figure is the reviewer
+  alone. The overhead of two full-session arms must be estimated and bounded
+  separately, from observed cost, before dispatch, never folded into it.
+- Every cost includes the reviewer. A plugin run that was untrusted or skipped
+  by default counts as a launch or consent failure. It never counts toward
+  the "live reviewer succeeded" denominator.
+- The naked arm of this tier is an experiment arm, not a new global curated
+  baseline. The early curated gate uses the user-authorized 2026-10-04 naked
+  reference. It keeps the unverified assumption that naked and true-without
+  are equivalent.
+- Report the fresh live-tier comparison and any cached comparison separately,
+  each with its version uncertainty and its reviewer cost.
+- Measures: the `complete` share (at least 90% when no check waits);
+  location validity (100%); the accepted rate, which
+  `node evals/cases/scripts/src/analysis/selection-metrics.mjs <repo>…` reads
+  from `.ambicode/metrics.jsonl`; and thread recall against naked. If the live
+  reviewer's recall is no better than naked's at more than 1.5x the cost over
+  3 runs, decision 8-F goes to the user.
+
 ## Shortlist recall, free
 
 `npm run evals:shortlist-recall -- <BE snapshot repo> <FE snapshot repo> [limit]`

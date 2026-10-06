@@ -4,6 +4,9 @@ import { contentHash } from '../util/hash.ts';
 
 export interface Answer { gate: string; option: string; instance?: string; freeText?: boolean }
 
+/** `route start review --branch [--base <ref>] | --mr <url>`; absent for uncommitted work and every other skill (D12). */
+export interface ReviewTarget { branch: boolean; base: string | null; mr: string | null }
+
 /** Persisted in the `route` entry's `args` field (03-E8). */
 export interface RouteArgs {
   text: string;
@@ -14,6 +17,7 @@ export interface RouteArgs {
   answers: readonly string[];
   headless: boolean;
   hasRequirement: boolean;
+  target?: ReviewTarget;
   hash: string;
 }
 
@@ -35,10 +39,12 @@ export function canonicalArgs(input: {
   answers: readonly Answer[];
   headless: boolean;
   hasRequirement: boolean;
+  target?: ReviewTarget;
 }): RouteArgs {
   const requirements = [...new Set(input.requirements.map(canonicalUrl))].sort();
   const answers = input.answers.map((answer) => `${answer.gate}=${answer.option}`).sort();
-  const base = { text: collapse(input.text), requirements, project: input.project, plan: input.plan ?? null, fromDraft: input.fromDraft ?? null, answers, headless: input.headless };
+  const target = input.target === undefined ? {} : { target: input.target };
+  const base = { text: collapse(input.text), requirements, project: input.project, plan: input.plan ?? null, fromDraft: input.fromDraft ?? null, answers, headless: input.headless, ...target };
   return { ...base, hasRequirement: input.hasRequirement, hash: contentHash(JSON.stringify(base)) };
 }
 

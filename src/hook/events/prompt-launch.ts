@@ -1,11 +1,12 @@
 import { parseArgs } from '../../cli/args.ts';
-import { ROUTE_START_OPTIONS } from '../../cli/commands/route.ts';
+import { ROUTE_START_OPTIONS, startTarget } from '../../cli/commands/route.ts';
 import { findSessionRepository } from '../../composition/session-repository.ts';
 import type { Runtime } from '../../composition/root.ts';
 import type { HookInput } from '../../contracts/hook.ts';
 import { resolveActiveRoute, type ActiveRoutePointer } from '../../route/active-route.ts';
 import type { Engine } from '../../route/engine.ts';
 import { parseAnswerFlag } from '../../route/flags.ts';
+import { metricsIgnoreWarning } from '../../review/route-handlers.ts';
 import type { RouteRegistry } from '../../route/routes.ts';
 import { isAmbicodeError } from '../../util/errors.ts';
 import { currentEpoch, deliverOnce, hookStateBaseDir } from '../session/markers.ts';
@@ -59,8 +60,10 @@ export async function launchRoute(runtime: Runtime, input: HookInput, deps: Rout
   const fromDraft = parsed?.value('from-draft') ?? null;
   const attached = await resolveActiveRoute(runtime.fs, deps.pointer, { repositoryRoot: found.repositoryRoot, session: input.session_id, scratchpad: input.scratchpad_dir });
   try {
+    const target = parsed === null ? undefined : startTarget(skill, parsed);
     const message = await deps.engine.start({
       skill,
+      ...(target === undefined ? {} : { target }),
       text: parsed === null ? rest : launch.text,
       requirements: parsed?.all('requirement') ?? [],
       ...(task === null ? {} : { task }),
@@ -77,7 +80,8 @@ export async function launchRoute(runtime: Runtime, input: HookInput, deps: Rout
       channel: 'hook',
       ...(input.scratchpad_dir === undefined ? {} : { scratchpadDir: input.scratchpad_dir }),
     });
-    return message.text;
+    const warning = await metricsIgnoreWarning({ ...runtime, cwd: found.repositoryRoot }, skill);
+    return warning === null ? message.text : `${message.text}\n${warning}`;
   } catch (error) {
     if (!isAmbicodeError(error)) throw error;
     return `AMBICODE could not start the ${skill} route: ${error.code}: ${error.message}${error.details.length === 0 ? '' : `\n${error.details.join('\n')}`}`;

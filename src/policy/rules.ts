@@ -34,9 +34,12 @@ export function rulesUnconfirmed(reason: string): AmbicodeError {
   });
 }
 
-export async function discoverRules(runtime: Runtime, args: readonly string[], options: { task?: string } = {}): Promise<RulesDiscovery> {
+export async function discoverRules(runtime: Runtime, args: readonly string[], options: { task?: string; project?: string | null } = {}): Promise<RulesDiscovery> {
   const { repositoryRoot } = await openRepository(runtime);
-  const candidates = await detectRuleSources(runtime.fs, repositoryRoot);
+  const scope = options.project == null ? null : normalizeRelative(projectFor(await openWorkspace(runtime), options.project).root);
+  const candidates = scope === null
+    ? await detectRuleSources(runtime.fs, repositoryRoot)
+    : (await detectRuleSources(runtime.fs, path.join(repositoryRoot, scope))).map((candidate) => path.posix.join(scope, candidate));
   const urls = args.filter((arg) => arg.startsWith('https://'));
   const named: string[] = [];
   const missing: string[] = [];

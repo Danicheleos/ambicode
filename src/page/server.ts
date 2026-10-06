@@ -17,6 +17,7 @@ import type { ReviewProvider } from '../contracts/provider.ts';
 import { acquirePublicationLease } from '../publication/lease.ts';
 import { runPublication, type SelectedComment } from '../publication/publish.ts';
 import type { ReviewStore } from '../publication/store.ts';
+import { recordSelection, selectionRows } from './selection-metrics.ts';
 import { SessionStore } from './session.ts';
 import { TAKEOVER_HEADER } from './takeover.ts';
 import { parseSubmission, type ParsedSubmission } from './submission.ts';
@@ -374,6 +375,7 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
         // The human's edits are saved before anything is sent, so a refusal,
         // a stale revision or a lost connection cannot lose their wording.
         let record = await options.store.readPublication(options.result.reviewId);
+        const offeredRecord = record;
         record = await options.store.saveDrafts(record, draftsOf(parsed, options.clock));
 
         const positionsById = new Map(
@@ -396,6 +398,10 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
         });
 
         await options.store.recordSubmission(record, submission);
+        await (async () => {
+          const offered = buildPageModel({ result: options.result, positions: options.positions, drafts: offeredRecord.drafts, outcomes: offeredRecord.outcomes, lastSubmission: null, csrfToken: '', submissionId: parsed.submissionId });
+          await recordSelection(options.fs, options.store.directory, selectionRows({ at: submission.submittedAt, result: options.result, model: offered, submission: parsed, outcome: submission }));
+        })().catch((error: unknown) => options.log?.(`selection metrics not recorded: ${error instanceof Error ? error.message : String(error)}`));
       } finally {
         await lease.release();
         sessions.endSubmission(session);

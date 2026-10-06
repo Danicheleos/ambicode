@@ -5,7 +5,7 @@ import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { parseDocument, type YAMLMap, type YAMLSeq } from 'yaml';
 import { parseArgs } from '../cli/args.ts';
-import { RULES_REVERT_OPTIONS, runRulesRevert } from '../cli/commands/rules.ts';
+import { RULES_DISCOVER_OPTIONS, RULES_REVERT_OPTIONS, runRulesDiscover, runRulesRevert } from '../cli/commands/rules.ts';
 import { createRuntime } from '../composition/root.ts';
 import { initConfig } from '../testing/init-config.ts';
 import { TempRepo } from '../testing/temp-repo.ts';
@@ -36,6 +36,28 @@ describe('09-W1: rules discover', () => {
       assert.deepEqual(named.missing, ['nope.md']);
       assert.deepEqual(named.urls, ['https://example.invalid/page']);
       assert.match(named.text, /nope\.md/);
+    } finally {
+      await r.dispose();
+    }
+  });
+});
+
+describe('08-I1: rules discover --project', () => {
+  it('08-I1: rules discover --project looks under that project root only; an unknown project is bad-argument', async () => {
+    const { r, runtime } = await repo();
+    try {
+      await r.write('web/CLAUDE.md', '# Web rules\n');
+      const configPath = path.join(r.root, '.ambicode', 'config.yaml');
+      const document = parseDocument(await readFile(configPath, 'utf8'));
+      const web = (document.getIn(['projects', 0]) as YAMLMap).clone() as YAMLMap;
+      web.set('id', 'web');
+      web.set('root', 'web');
+      (document.get('projects') as YAMLSeq).add(web);
+      await runtime.fs.writeText(configPath, document.toString());
+      const discover = (...args: string[]) => runRulesDiscover(runtime, parseArgs('rules discover', args, RULES_DISCOVER_OPTIONS));
+      assert.deepEqual((await discover('--project', 'web')).candidates, ['web/CLAUDE.md']);
+      assert.deepEqual((await discover()).candidates, ['CONTRIBUTING.md', 'docs']);
+      await assert.rejects(discover('--project', 'nope'), { code: 'bad-argument', field: '--project' });
     } finally {
       await r.dispose();
     }

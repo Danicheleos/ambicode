@@ -813,4 +813,25 @@ describe('eval triggers: migrated skills never fire on phrasing', () => {
       assert.match(grader.input_match, /task/);
     }
   });
+  it('08-T1/08-T2: no trigger grader expects ambicode:review to fire; the eight review cases carry the negative graders verbatim', async () => {
+    const root = path.join(ROOT, 'evals', 'cases', 'evals-triggers');
+    const negative = await readFile(path.join(root, 'neg-http', 'graders', 'no-skill-fired.md'), 'utf8');
+    const noHelper = await readFile(path.join(root, 'unrelated-question', 'graders', 'no-helper.md'), 'utf8');
+    for (const file of await readdir(root, { recursive: true })) {
+      if (!/(^|[\\/])graders[\\/][^\\/]+\.md$/.test(file)) continue;
+      const grader = parseYaml(/^---\n([\s\S]*?)\n---/.exec(await readFile(path.join(root, file), 'utf8'))[1]);
+      if (/ambicode:(?:\([^)]*\b)?review\b/.test(String(grader.input_match ?? ''))) assert.ok((grader.min ?? 0) < 1 || file.includes('any-skill'), `${file} expects review to fire`);
+    }
+    const cases = ['collide-code-review', 'collide-verify', 'review-bench-shape', 'review-check-push', 'review-mr', 'review-vs-ticket', 'url-review', 'verb-review'];
+    for (const name of cases) {
+      const graders = (await readdir(path.join(root, name, 'graders'))).sort();
+      assert.deepEqual(graders, name === 'verb-review' ? ['no-helper.md', 'no-skill-fired.md'] : ['no-skill-fired.md'], name);
+      assert.equal(await readFile(path.join(root, name, 'graders', 'no-skill-fired.md'), 'utf8'), negative);
+    }
+    assert.equal(await readFile(path.join(root, 'verb-review', 'graders', 'no-helper.md'), 'utf8'), noHelper);
+    assert.ok(!(await readdir(path.join(root, 'url-bare', 'graders'))).includes('fired-review.md'));
+    const readme = (await readFile(path.join(root, 'README.md'), 'utf8')).replace(/\s+/g, ' ');
+    for (const name of cases) assert.ok(readme.includes(`\`${name}\``), `README names ${name}`);
+    assert.match(readme, /review is user-typed only/);
+  });
 });

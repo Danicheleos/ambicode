@@ -41,6 +41,8 @@ export interface NormalizeOptions {
   urls: readonly string[];
   evidence: RequirementEvidence | null;
   configuredServer: string | null;
+  /** `captured`: the ids are a route's hook-captured sources, keyed by URL or by issue key when the capture has none. */
+  declared?: 'urls' | 'captured';
 }
 
 export const SOURCE_FREE: NormalizedRequirements = {
@@ -52,7 +54,8 @@ export const SOURCE_FREE: NormalizedRequirements = {
   provenance: [],
 };
 
-export type EvidenceSource = { kind: 'stdin' } | { kind: 'file'; path: string };
+/** `inline`: evidence a route already holds, e.g. its requirement envelope. */
+export type EvidenceSource = { kind: 'stdin' } | { kind: 'file'; path: string } | { kind: 'inline'; evidence: RequirementEvidence };
 
 export interface EvidenceInput {
   fs: FileSystem;
@@ -64,6 +67,7 @@ export async function loadRequirementEvidence(
   source: EvidenceSource,
 ): Promise<RequirementEvidence> {
   if (source.kind === 'file') return readRequirementEvidence(io.fs, source.path);
+  if (source.kind === 'inline') return source.evidence;
 
   const raw = await io.stdin.read(MAX_EVIDENCE_BYTES);
   if (raw === null) {
@@ -156,7 +160,7 @@ export function normalizeRequirements(options: NormalizeOptions): NormalizedRequ
     return { ...SOURCE_FREE, notices: [] };
   }
 
-  for (const url of urls) assertRetrievableUrl(url);
+  if (options.declared !== 'captured') for (const url of urls) assertRetrievableUrl(url);
 
   const duplicated = urls.filter((url, index) => urls.findIndex((other) => sameUrl(other, url)) !== index);
   if (duplicated.length > 0) {

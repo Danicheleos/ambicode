@@ -9,6 +9,9 @@ import { buildReport } from '../../task/report.ts';
 import { saveNote } from '../../task/notes.ts';
 import { routeFixture, type RouteFixture } from '../../testing/route-fixture.ts';
 import { taskFixture } from '../../testing/task-fixture.ts';
+import { reviewRouteFixture } from '../../testing/review-route-fixture.ts';
+import { ReviewResult } from '../../contracts/review.ts';
+import { notCoveredBlock } from '../../review/coverage-block.ts';
 import type { HookDeps } from './run-hook.ts';
 import { runHook } from './run-hook.ts';
 import { lastAssistantText, redBeforeGreen, REASON_LIMIT_BYTES, TRANSCRIPT_TAIL_BYTES } from './stop-check.ts';
@@ -571,6 +574,94 @@ describe('07-S task stop inputs', () => {
       assert.match(out.reason!, /app\/unit: no failing run precedes the first green one/);
     } finally {
       await t.fx.dispose();
+    }
+  });
+});
+
+describe('08-C3 review route: part 4 verbatim', () => {
+  type Review = Awaited<ReturnType<typeof reviewRouteFixture>>;
+  const stopWith = async (t: Review, text: string) => {
+    const transcript = path.join(t.fx.scratchpad, 'transcript.jsonl');
+    await writeFile(transcript, `${JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text }] } })}\n`);
+    const deps: HookDeps = { pointer: t.fx.pointer, load: async () => ({ engine: t.fx.engine, routes: t.fx.routes, pointer: t.fx.pointer }) };
+    return runHook(t.fx.runtime, JSON.stringify({ hook_event_name: 'Stop', session_id: A, cwd: t.fx.repo.root, scratchpad_dir: t.fx.scratchpad, transcript_path: transcript }), deps) as Promise<{ decision?: string; reason?: string }>;
+  };
+  const blockOf = async (t: Review): Promise<string> => {
+    const [entry] = await t.kinds('review');
+    return notCoveredBlock(ReviewResult.parse(JSON.parse(await readFile(path.join(t.fx.repo.root, String(entry!['result'])), 'utf8'))));
+  };
+  const reviewed = async (body: (t: Review) => Promise<void>): Promise<void> => {
+    const t = await reviewRouteFixture();
+    try {
+      await t.start();
+      await t.hook('estimate', 'run');
+      assert.equal((await t.synthetic([])).position, 'readback');
+      await body(t);
+    } finally {
+      await t.fx.dispose();
+    }
+  };
+  const limits = async (t: Review): Promise<string[]> => (await t.kinds('limit')).map((entry) => String(entry['which']));
+
+  it('08-C3: part 4 reproduced in the last assistant message passes, also with changed indentation and blank lines', async () => {
+    await reviewed(async (t) => {
+      const block = await blockOf(t);
+      assert.match(block, /^4\. OMISSIONS, UNCERTAINTY AND UNAVAILABLE COVERAGE/);
+      const loose = block.split('\n').map((line) => `   ${line}`).join('\n\n');
+      for (const text of [`# Review\n\n1. what was reviewed\n\n${block}\n`, `# Review\n\n${loose}\n`]) assert.deepEqual(await stopWith(t, text), {});
+      assert.deepEqual(await limits(t), []);
+    });
+  });
+
+  it('08-C3: a final message without the block blocks once with the verbatim reason and a stop-block limit; the second failure allows', async () => {
+    await reviewed(async (t) => {
+      const blocked = await stopWith(t, '# Review\n\nThe change looks fine; nothing was left uncovered.');
+      assert.equal(blocked.decision, 'block');
+      assert.match(blocked.reason!, /the "not covered" block is not reproduced verbatim/);
+      assert.deepEqual(await limits(t), ['stop-block']);
+      assert.match(await readFile(path.join(t.dir, 'stop-check.md'), 'utf8'), /4\. OMISSIONS, UNCERTAINTY AND UNAVAILABLE COVERAGE/);
+      assert.deepEqual(await stopWith(t, 'Still no block here.'), {});
+      assert.deepEqual(await limits(t), ['stop-block']);
+    });
+  });
+
+  it('08-C3: an unparsable result.json skips the check instead of throwing', async () => {
+    await reviewed(async (t) => {
+      const [entry] = await t.kinds('review');
+      await writeFile(path.join(t.fx.repo.root, String(entry!['result'])), '{not json');
+      assert.deepEqual(await stopWith(t, '# Review\n\nNo block here.'), {});
+      assert.deepEqual(await limits(t), []);
+    });
+  });
+
+  it('08-C3: a block with a line dropped or reworded blocks', async () => {
+    await reviewed(async (t) => {
+      const lines = (await blockOf(t)).split('\n');
+      const at = lines.findIndex((line, index) => index > 0 && line.trim() !== '');
+      const dropped = [...lines.slice(0, at), ...lines.slice(at + 1)].join('\n');
+      assert.equal((await stopWith(t, `# Review\n\n${dropped}`)).decision, 'block');
+    });
+  });
+
+  it('08-C3: with no review entry the check does not apply, whether the gate is open or the review was skipped', async () => {
+    const t = await reviewRouteFixture();
+    try {
+      await t.start();
+      assert.deepEqual(await stopWith(t, 'Waiting on your answer to the estimate question.'), {});
+      await t.hook('estimate', 'run');
+      assert.deepEqual(await stopWith(t, 'Run the review next.'), {});
+      assert.deepEqual(await limits(t), []);
+    } finally {
+      await t.fx.dispose();
+    }
+    const skipped = await reviewRouteFixture();
+    try {
+      await skipped.start();
+      await skipped.hook('estimate', 'skip');
+      assert.deepEqual(await stopWith(skipped, 'Review skipped.'), {});
+      assert.deepEqual(await limits(skipped), []);
+    } finally {
+      await skipped.fx.dispose();
     }
   });
 });

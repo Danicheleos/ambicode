@@ -3,10 +3,11 @@ export const DEFAULTS = {
   review: {
     model: 'sonnet',
     timeoutSeconds: 300,
-    maxFindings: 7,
-    maxChangedFiles: 50,
-    maxChangedLines: 2000,
-    maxContextBytes: 524_288,
+    // null: no limit, so nothing refuses or voids; a repository config can still set one.
+    maxFindings: null as number | null,
+    maxChangedFiles: null as number | null,
+    maxChangedLines: null as number | null,
+    maxContextBytes: null as number | null,
     excludePaths: [] as string[],
     onInvalid: 'void' as 'void' | 'drop',
   },
@@ -66,6 +67,9 @@ export const MAX_COMMAND_OUTPUT_BYTES = 262_144;
 export const MAX_EVIDENCE_BYTES = 4 * 1024 * 1024;
 
 export const MAX_SNAPSHOT_FILE_BYTES = 262_144;
+
+/** Unchanged sibling context still has a budget when `review.maxContextBytes` sets no limit. */
+export const UNLIMITED_CONTEXT_BUDGET_BYTES = 524_288;
 export const MAX_SNAPSHOT_TOTAL_BYTES = 4 * 1024 * 1024;
 
 export const MAX_REVIEWED_DISCUSSIONS = 50;

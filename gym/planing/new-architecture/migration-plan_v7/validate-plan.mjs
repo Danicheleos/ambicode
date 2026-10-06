@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const repository = path.resolve(directory, '../../../..');
 const markdown = (await readdir(directory)).filter(name => name.endsWith('.md')).sort();
-assert.equal(markdown.length, 25);
+assert.equal(markdown.length, 26);
 const REWRITTEN = ['step-01-guard.md', 'step-02-evidence.md', 'step-03-route-engine-investigate.md', 'step-03b-decision-a-tuning.md', 'step-03c-search-profile.md', 'step-04-requirements.md', 'step-05-search.md', 'step-06-plan.md', 'step-07-task.md', 'step-08-review.md', 'step-09-init-rules.md', 'step-10-experiments.md'];
 const SECTIONS = ['## Goal', '## Starting point', '## Files', '## Contract', '## Rules', '## Decided readings',
   '## Non-goals', '## Tests', '## Done when', '## Hand-off', '## Coverage of the v6 brief'];
@@ -24,6 +24,8 @@ for (const name of REWRITTEN) {
   assert(rules.size > 0, `${name}: no numbered rules`);
 }
 let links = 0;
+const NORMATIVE = [directory + path.sep, path.resolve(directory, '../v6') + path.sep];
+const unresolved = [];
 let bytes = 0;
 for (const name of markdown) {
   const body = await readFile(path.join(directory, name), 'utf8');
@@ -33,7 +35,11 @@ for (const name of markdown) {
   for (const match of body.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)) {
     const target = match[1].split('#')[0];
     if (!target || /^(https?:|app:)/.test(target)) continue;
-    await stat(path.resolve(path.dirname(path.join(directory, name)), target));
+    const resolved = path.resolve(path.dirname(path.join(directory, name)), target);
+    const exists = await stat(resolved).then(() => true, () => false);
+    // Plan and design links must resolve; other history may be archived or removed.
+    if (!exists && !NORMATIVE.some(root => resolved.startsWith(root))) unresolved.push(`${name} -> ${target}`);
+    else assert(exists, `${name}: broken link ${target}`);
     links += 1;
   }
   assert(!body.includes('../v5/'), `${name}: obsolete normative design reference`);
@@ -76,4 +82,5 @@ for (const line of manifest.trim().split('\n')) {
 console.log(`markdown_files=${markdown.length}; rewritten_briefs=${REWRITTEN.length}; bytes=${bytes}; local_links=${links}`);
 console.log(`scenarios=14; historical_findings=16; independent_findings=13; source_digests=${inputs}; drifted_since_handoff=${drifted.length}`);
 for (const name of drifted) console.log(`drifted: ${name}`);
+for (const link of unresolved) console.log(`unresolved_history_link: ${link}`);
 console.log('validation=document_structure_and_input_provenance; implementation_tests=0; model_calls=0');

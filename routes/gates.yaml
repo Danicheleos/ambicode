@@ -33,6 +33,13 @@ check-only-unauthorized:
   release: decline
   acting: [approve]
   onAnswer: { approve: "revise $raisedBy" }
+review-checks:
+  question: "Checks waiting: {key}. The reviewer has not run yet. Run the review with them, without them, or no review?"
+  options: [with, without, "no review"]
+  default: without
+  release: without
+  acting: [with]
+  onAnswer: { with: "revise $raisedBy", without: "revise $raisedBy" }
 scope-expanding:
   question: "This finding is outside the brief: {finding}. Treat as out of scope?"
   options: ["out of scope", "include"]

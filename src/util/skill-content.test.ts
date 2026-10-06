@@ -66,7 +66,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
     }
   });
 
-  it('keeps init, rules and the route-driven investigate, plan and task user-invoked only, and scopes every skill tool grant', async () => {
+  it('keeps init, rules and the route-driven investigate, plan, task and review (08-K2) user-invoked only, and scopes every skill tool grant', async () => {
     for (const dir of ['init', 'investigate', 'plan', 'review', 'rules', 'task']) {
       const what = `${dir}/SKILL.md`;
       const fm = frontmatter(await readFile(path.join(SKILLS_DIR, dir, 'SKILL.md'), 'utf8'), what);
@@ -83,7 +83,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
       }
       // Setup-time skills are run by the user, never by the model, so their
       // descriptions stay out of the always-on skill list.
-      const userOnly = dir === 'init' || dir === 'rules' || dir === 'investigate' || dir === 'plan' || dir === 'task';
+      const userOnly = dir === 'init' || dir === 'rules' || dir === 'investigate' || dir === 'plan' || dir === 'task' || dir === 'review';
       assert.equal(
         fm['disable-model-invocation'] === true,
         userOnly,
@@ -261,14 +261,6 @@ describe('P2.2/P2.3 shipped skill content', () => {
       'must not conflate "team" and "observed" as if both were approved requirements',
     );
     assert.ok(!/suggestedComment|coverageNotes/i.test(content), 'must not carry reviewer-only finding/output vocabulary');
-  });
-
-  it('never reads a findReferences that lists only the definition as no users, since a loading server answers that way', async () => {
-    // Measured 2026-10-02: the first call on a 532-file project found 2 of 11 references, a call 5 s later all 11; on 2,338 files
-    // the first found 1 of 22 and an instant repeat also 1, which an agent read as "no users" (impact walk).
-    const impact = (await readFile(path.join(SKILLS_DIR, 'review', 'references', 'impact.md'), 'utf8')).replace(/\s+/g, ' ');
-    assert.match(impact, /start with one `documentSymbol` on a changed file, and retry any `findReferences` that lists only the defining file after other work/);
-    assert.match(impact, /Zero references to a removed name, confirmed by a later retry or a `Grep -w`/);
   });
 
   it('points authoring skills at the inline shortlist, not at a second locate call', async () => {

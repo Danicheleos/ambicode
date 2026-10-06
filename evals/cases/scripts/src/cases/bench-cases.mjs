@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import path from 'node:path';
 import { BENCHMARKS, CASES_DIRECTORY } from '../shared/bench-paths.mjs';
 import { CASES_LOCK, withCasesLock } from '../harness/cases-lock.mjs';
-import { GENERATION_MARKER, INVESTIGATE_COMMAND, PROMPT, SWAP_MARKER, writePluginPrompt } from '../harness/prompt-transport.mjs';
+import { GENERATION_MARKER, INVESTIGATE_COMMAND, PROMPT, REVIEW_COMMAND, SWAP_MARKER, writePluginPrompt } from '../harness/prompt-transport.mjs';
 
 // All measurable from the data alone. 2..10 true files: one is named by luck, past ten the change was a
 // sweep. 300 ticket characters: shorter ones test guessing. 600 changed lines keeps a review inside the
@@ -348,6 +348,7 @@ function writeCase(out, plan) {
     return { kind: 'localize', name: plan.name, side: plan.side, truth: plan.truth.length, missing: plan.missingFromSnapshot.length };
   }
   writeFileSync(path.join(directory, PROMPT), reviewPromptFile(plan.name, plan.side, plan.text, { walk: plan.walk }));
+  writePluginPrompt(directory, REVIEW_COMMAND);
   writeFileSync(path.join(directory, 'scaffold.sh'), reviewScaffoldFile(plan.sideRel, plan.root, plan.versionRel), { mode: 0o755 });
   writeFileSync(
     path.join(directory, 'truth.json'),

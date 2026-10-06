@@ -284,7 +284,7 @@ describe('evals-bench: curated selection without twins', () => {
     assert.equal(written.length, 18);
     assert.deepEqual(tally(written.map((w) => w.kind)), { localize: 10, review: 8 });
     assert.ok(!readdirSync(out).some((n) => n.endsWith('-forced')));
-    assert.equal(readdirSync(out).filter((n) => existsSync(path.join(out, n, WITH_PROMPT))).length, 10);
+    assert.equal(readdirSync(out).filter((n) => existsSync(path.join(out, n, WITH_PROMPT))).length, 18, '08-P1: every review case has its with-prompt too');
     assert.ok(!existsSync(path.join(out, GENERATION_MARKER)));
   });
 

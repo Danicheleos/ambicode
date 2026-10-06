@@ -43,6 +43,7 @@ export const USAGE = `ambicode <command> [options]
 
   rules discover [sources…]
                           List rule-source candidates for /ambicode:rules.
+                            --project <id>  look under that project's root only
   rules apply             Make the drafts the user accepted live packs.
                             --task <slug>  --project <id>
   rules revert <pack-id>  Unwire a live pack and move it back to the drafts.
@@ -126,6 +127,7 @@ export const USAGE = `ambicode <command> [options]
                             --answer <gate>=<option>   repeatable
                             --requirement <url>        repeatable
                             --fresh | --adopt          restart or take over a route
+                            --branch --base <ref> | --mr <url>   review only: the target
 
   route next              End the current step and print the next one.
                             --task <slug>
