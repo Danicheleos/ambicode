@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRuntime, openWorkspace, projectForRequest } from '../../../../../src/composition/root.ts';
-import { FEATURE_LIMIT_BYTES, LEADS_LIMIT_BYTES, buildMap, leadsText, rankTerms, resolveLayers } from '../../../../../src/code-intelligence/map.ts';
+import { FEATURE_LIMIT_BYTES, LEADS_LIMIT_BYTES, buildMap, leadsText, rankTerms, resolveLayers } from '../../../../../src/modules/search/text/map.ts';
 import { splitLaunch } from '../../../../../src/hook/events/prompt-launch.ts';
 import { CURATED_CASES } from '../shared/bench-paths.mjs';
 

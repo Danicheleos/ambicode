@@ -1,17 +1,18 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rename, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
-import { parseArgs } from '../../cli/args.ts';
-import { initConfig } from '../../testing/init-config.ts';
-import { PREPARE_OPTIONS, runPrepare } from '../../cli/commands/prepare.ts';
-import { createRuntime } from '../../composition/root.ts';
-import { nodeFileSystem } from '../../ports/filesystem.ts';
-import { TempRepo } from '../../testing/temp-repo.ts';
+import { parseArgs } from '#cli/args';
+import { initConfig } from '#testing/fixtures/init-config';
+import { runPrepare } from '#cli/commands/prepare/prepare';
+import { createRuntime } from '#composition/root';
+import { nodeFileSystem } from '#platform/ports/filesystem';
+import { TempRepo } from '#testing/fixtures/temp-repo';
 import { prepareForActivity } from './prepare-on-skill.ts';
 import { runHook } from './run-hook.ts';
+import { PREPARE_OPTIONS } from '#types/cli';
 
 async function initializedRepo(): Promise<TempRepo> {
   const repo = await TempRepo.create();

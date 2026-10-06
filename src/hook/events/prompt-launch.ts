@@ -1,17 +1,14 @@
-import { parseArgs } from '../../cli/args.ts';
-import { ROUTE_START_OPTIONS, startTarget } from '../../cli/commands/route.ts';
-import { findSessionRepository } from '../../composition/session-repository.ts';
-import type { Runtime } from '../../composition/root.ts';
-import type { HookInput } from '../../contracts/hook.ts';
-import { resolveActiveRoute, type ActiveRoutePointer } from '../../route/active-route.ts';
-import type { Engine } from '../../route/engine.ts';
-import { parseAnswerFlag } from '../../route/flags.ts';
-import { metricsIgnoreWarning } from '../../review/route-handlers.ts';
-import type { RouteRegistry } from '../../route/routes.ts';
-import { isAmbicodeError } from '../../util/errors.ts';
+import { parseArgs } from '#cli/args';
+import { startTarget } from '#cli/commands/route/route';
+import { findSessionRepository } from '#composition/session-repository';
+import type { HookInput, RouteHookDeps } from '#types/hook';
+import { resolveActiveRoute } from '#harness/session/active-route';
+import { parseAnswerFlag } from '#harness/definition/flags';
+import { metricsIgnoreWarning } from '#skills/review/handlers';
+import { isAmbicodeError } from '#util/errors';
 import { currentEpoch, deliverOnce, hookStateBaseDir } from '../session/markers.ts';
-
-export interface RouteHookDeps { engine: Engine; routes: RouteRegistry; pointer: ActiveRoutePointer }
+import { ROUTE_START_OPTIONS } from '#types/cli';
+import type { Runtime } from '#types/composition';
 
 const LAUNCH = /^\/ambicode:(\w+)\b([\s\S]*)$/;
 

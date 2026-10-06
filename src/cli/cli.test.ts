@@ -1,18 +1,14 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { parseArgs, type OptionSpec } from './args.ts';
-import { BUNDLE_OPTIONS } from './commands/bundle.ts';
-import { CONFIG_OPTIONS } from './commands/config.ts';
-import { INIT_OPTIONS } from './commands/init.ts';
-import { LOCATE_OPTIONS } from './commands/locate.ts';
-import { POLICY_OPTIONS } from './commands/policy.ts';
-import { POLICY_CHECK_OPTIONS } from './commands/policy-check.ts';
-import { PREPARE_DEPRECATED, PREPARE_OPTIONS, prepareAsRouteStart } from './commands/prepare.ts';
-import { REVIEW_OPTIONS } from './commands/review.ts';
+import { parseArgs } from './args.ts';
+import { PREPARE_DEPRECATED, prepareAsRouteStart } from './commands/prepare/prepare.ts';
 import { SPECS as COMMAND_SPECS, USAGE } from './main.ts';
-import { INDEX_OPTIONS, RELATES_OPTIONS, runIndex } from './commands/search.ts';
-import { CONFIG, routeFixture } from '../testing/route-fixture.ts';
-import { isAmbicodeError } from '../util/errors.ts';
+import { runIndex } from './commands/search/search.ts';
+import { CONFIG, routeFixture } from '#testing/fixtures/route-fixture';
+import { isAmbicodeError } from '#util/errors';
+import { PREPARE_OPTIONS } from '#types/cli';
+import type { OptionSpec } from './types/cli.ts';
+import { BUNDLE_OPTIONS, CONFIG_OPTIONS, INIT_OPTIONS, LOCATE_OPTIONS, POLICY_OPTIONS, POLICY_CHECK_OPTIONS, REVIEW_OPTIONS, INDEX_OPTIONS, RELATES_OPTIONS } from './types/commands.ts';
 
 const SPECS: Record<string, OptionSpec> = {
   init: INIT_OPTIONS,

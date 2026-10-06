@@ -26,7 +26,7 @@ describe('task cases', () => {
   const sources = { 'src/a.ts': 'export const a = 1;\n', 'src/a.test.ts': 'expect(a).toBe(1);\n' };
   const fixed = { 'src/a.ts': 'export const a = 2;\n', 'src/a.test.ts': 'expect(a).toBe(1);\nexpect(a).toBe(2);\n' };
   const ticket = (id, files) => {
-    const side = path.join(benchmarks, 'BE');
+    const side = path.join(benchmarks, 'BE-express');
     put(path.join(side, 'assets', `${id}.md`), `## build:context prompt\nFix the bug where a is wrong (${id}).\n## TRUE RELATED CODE\n- \`src/a.ts\`\n`);
     const work = path.join(top, 'work');
     if (!existsSync(work)) {
@@ -35,7 +35,7 @@ describe('task cases', () => {
       for (const [f, t] of Object.entries(sources)) put(path.join(work, f), t);
       git(work, 'add', '-A');
       git(work, 'commit', '-qm', 'base');
-      spawnSync('git', ['clone', '-q', '--bare', work, path.join(side, '.git-cache')]);
+      spawnSync('git', ['clone', '-q', '--bare', work, path.join(side, '.git')]);
     }
     const base = git(work, 'rev-parse', 'HEAD');
     for (const [f, t] of Object.entries(files)) put(path.join(work, f), t);
@@ -66,11 +66,11 @@ describe('task cases', () => {
   });
 
   it('07-T2: --sides filters the sides; a unit command goes into the case config copy the scaffold uses, whole tree', () => {
-    put(path.join(benchmarks, 'BE', '.ambicode', 'config.yaml'), '# team\nprojects:\n  - id: app\n    commands:\n      unit: null\n    checks:\n      unit: null\n');
+    put(path.join(benchmarks, 'BE-express', 'project', '.ambicode', 'config.yaml'), '# team\nprojects:\n  - id: app\n    commands:\n      unit: null\n    checks:\n      unit: null\n');
     const out = path.join(top, 'out-unit');
-    assert.equal(generate({ benchmarks, out, sides: ['FE'], testCommand: ['t'], check: () => ({ exit: 1 }) }).candidates, 0);
+    assert.equal(generate({ benchmarks, out, sides: ['FE-angular'], testCommand: ['t'], check: () => ({ exit: 1 }) }).candidates, 0);
     const unit = { argv: ['node_modules/.bin/vitest', 'run', '{files}'], adapter: 'vitest' };
-    generate({ benchmarks, out, limit: 1, sides: ['BE'], testCommand: ['t'], unit, check: ({ patch }) => ({ exit: patch ? 0 : 1 }) });
+    generate({ benchmarks, out, limit: 1, sides: ['BE-express'], testCommand: ['t'], unit, check: ({ patch }) => ({ exit: patch ? 0 : 1 }) });
     const dir = path.join(out, 'be-task-t1');
     const config = readFileSync(path.join(dir, 'config.yaml'), 'utf8');
     assert.match(config, /^# team/);
@@ -116,8 +116,8 @@ describe('task cases', () => {
 
   it('07-T4: --set task selects the task cases and eval directory', () => {
     const spec = runSpec(['--set', 'task', '--model', 'm', '--max-cost-usd', '1'], { plugin: ROOT });
-    assert.equal(spec.casesDir, path.join(ROOT, 'evals', 'cases', 'evals-task', 'cases'));
-    assert.equal(TASK_EVAL_DIR, 'evals/cases/evals-task');
+    assert.equal(spec.casesDir, path.join(ROOT, 'evals', 'cases', 'common', 'task', 'cases'));
+    assert.equal(TASK_EVAL_DIR, 'evals/cases/common/task');
     const argv = harnessArgv(spec);
     assert.equal(argv[argv.indexOf('--eval-dir') + 1], TASK_EVAL_DIR);
   });
@@ -141,7 +141,7 @@ describe('task cases', () => {
 });
 
 describe('task eval README', () => {
-  const readme = readFileSync(path.join(ROOT, 'evals', 'cases', 'evals-task', 'README.md'), 'utf8').replace(/\s+/g, ' ');
+  const readme = readFileSync(path.join(ROOT, 'evals', 'cases', 'common', 'task', 'README.md'), 'utf8').replace(/\s+/g, ' ');
 
   it('07-T7: states the detectable effect at 10 x 3 and that runs of one case are correlated', () => {
     assert.match(readme, /10 cases x 3 runs per arm detects about 20 pp/);

@@ -12,11 +12,11 @@ import { parse as parseYaml } from 'yaml';
 import { loadScaffolds } from '../validation/evals-reviewer.mjs';
 import { fixtureByName } from '../../../../../fixtures/definitions.mjs';
 import { FIXTURE_DATE, installPlanFor, materialize } from '../../../../../fixtures/materialize.mjs';
-import { renderReport } from '../../../../../src/review/report.ts';
-import { reviewResult } from '../../../../../src/testing/review-fixture.ts';
+import { renderReport } from '../../../../../src/modules/review/findings/report.ts';
+import { reviewResult } from '../../../../../src/testing/fixtures/review-fixture.ts';
 import { formatJsonOutput } from '../../../../../src/util/json-output.ts';
 
-const EVALS = path.join(ROOT, 'evals', 'cases', 'evals-archived', 'typescript');
+const EVALS = path.join(ROOT, 'evals', 'cases', 'common', 'archived', 'typescript');
 
 async function loadCases() {
   const cases = [];
@@ -38,7 +38,7 @@ async function loadCases() {
   assert.deepEqual(
     cases.filter((evalCase) => evalCase.name.endsWith('-py')).map((evalCase) => evalCase.name),
     [],
-    'Python cases are archived in evals/cases/evals-archived/, beside this suite',
+    'Python cases are archived in evals/cases/common/archived/, beside this suite',
   );
   return cases;
 }
@@ -56,7 +56,8 @@ async function skillSubcommands() {
   }
   assert.ok(subcommands.has('review'), 'the skills no longer call ambicode.mjs review');
   // Archived cases stay unchanged, so a subcommand no skill prescribes any more still counts while the CLI has it.
-  for (const file of await readdir(path.join(ROOT, 'src', 'cli', 'commands'))) if (/^[a-z-]+\.ts$/.test(file)) subcommands.add(file.slice(0, -3));
+  for (const entry of await readdir(path.join(ROOT, 'src', 'cli', 'commands'), { withFileTypes: true }))
+    if (entry.isDirectory() ? /^[a-z-]+$/.test(entry.name) : /^[a-z-]+\.ts$/.test(entry.name)) subcommands.add(entry.name.replace(/\.ts$/, ''));
   return [...subcommands];
 }
 
@@ -210,7 +211,7 @@ describe('eval graders: every case scores its outcome in both arms', () => {
 // A scaffold finds the repository by counting `../` from its own directory, so moving a
 // suite silently breaks every one of them.
 describe('eval scaffolds: every tracked scaffold reaches the repository root', () => {
-  const SUITES = ['evals/cases/evals-archived', 'evals/cases/evals-triggers'];
+  const SUITES = ['evals/cases/common/archived', 'evals/cases/common/triggers'];
   const ROOT_EXPRESSION = /"\$\(cd "\$\(dirname "\$0"\)\/((?:\.\.\/)*\.\.)" && pwd\)\/fixtures\/materialize\.mjs"/g;
 
   async function scaffoldsUnder(directory) {
@@ -781,8 +782,8 @@ describe('eval fixtures: running a Python test leaves nothing git can see', () =
 });
 
 describe('eval triggers: migrated skills never fire on phrasing', () => {
-  it('06-T1: no evals-triggers grader expects ambicode:plan, investigate, init or rules with min ≥ 1', async () => {
-    const root = path.join(ROOT, 'evals', 'cases', 'evals-triggers');
+  it('06-T1: no triggers grader expects ambicode:plan, investigate, init or rules with min ≥ 1', async () => {
+    const root = path.join(ROOT, 'evals', 'cases', 'common', 'triggers');
     const offenders = [];
     let scanned = 0;
     for (const file of await readdir(root, { recursive: true })) {
@@ -800,7 +801,7 @@ describe('eval triggers: migrated skills never fire on phrasing', () => {
     assert.deepEqual(offenders, []);
   });
   it('07-G5: no trigger grader expects ambicode:task to fire, and the five task cases expect no skill', async () => {
-    const root = path.join(ROOT, 'evals', 'cases', 'evals-triggers');
+    const root = path.join(ROOT, 'evals', 'cases', 'common', 'triggers');
     const read = async (file) => parseYaml(/^---\n([\s\S]*?)\n---/.exec(await readFile(path.join(root, file), 'utf8'))[1]);
     for (const file of await readdir(root, { recursive: true })) {
       if (!/(^|[\\/])graders[\\/][^\\/]+\.md$/.test(file)) continue;
@@ -814,7 +815,7 @@ describe('eval triggers: migrated skills never fire on phrasing', () => {
     }
   });
   it('08-T1/08-T2: no trigger grader expects ambicode:review to fire; the eight review cases carry the negative graders verbatim', async () => {
-    const root = path.join(ROOT, 'evals', 'cases', 'evals-triggers');
+    const root = path.join(ROOT, 'evals', 'cases', 'common', 'triggers');
     const negative = await readFile(path.join(root, 'neg-http', 'graders', 'no-skill-fired.md'), 'utf8');
     const noHelper = await readFile(path.join(root, 'unrelated-question', 'graders', 'no-helper.md'), 'utf8');
     for (const file of await readdir(root, { recursive: true })) {

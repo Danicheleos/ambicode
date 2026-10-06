@@ -9,7 +9,7 @@ import { after, before, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { blindSheet } from './evals-reviewer.mjs';
 import { ROOT } from '../shared/bench-paths.mjs';
-import { REQUIRED_FLAGS } from '../../../../../src/review/claude-reviewer.ts';
+import { REQUIRED_FLAGS } from '../../../../../src/modules/review/reviewer/claude-reviewer.ts';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 

@@ -15,13 +15,9 @@ __pycache__/
 .venv/
 *.py[cod]
 
-/.ambicode/reviews/
-/.ambicode/notes/
-/evals/cases/evals-core/*/*
 /evals/outputs
 /evals/benchmarks
 /evals/reports
-/evals/cases/python
 /eval-results.json
 /evals/**/results/
 
@@ -39,11 +35,10 @@ Thumbs.db
 .ambicode
 archive
 
-.ambicode/task/
+
 benchmarks
 gym/planing/abstract/01-what-makers-do.md
 gym/planing/abstract/02-approaches-for-llm.md
 gym/decA
-/evals/cases/evals-task/*/*
-.ambicode/index/
-.ambicode/metrics.jsonl
+
+.ambicode/*

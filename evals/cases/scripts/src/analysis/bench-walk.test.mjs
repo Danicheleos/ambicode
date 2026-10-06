@@ -12,8 +12,8 @@ describe('evals-bench: the walkthrough', () => {
   let benchmarks;
   before(() => {
     benchmarks = mkdtempSync(path.join(tmpdir(), 'bench-walk-'));
-    mkdirSync(path.join(benchmarks, 'cases', 'side-t-1'), { recursive: true });
-    writeFileSync(path.join(benchmarks, 'cases', 'side-t-1', 'truth.json'), JSON.stringify({ side: 'SIDE', ticket: 'T-1', root: 'app', truth: ['app/a.ts', 'app/b.ts'] }));
+    mkdirSync(path.join(benchmarks, 'SIDE', 'cases', 'side-t-1'), { recursive: true });
+    writeFileSync(path.join(benchmarks, 'SIDE', 'cases', 'side-t-1', 'truth.json'), JSON.stringify({ side: 'SIDE', ticket: 'T-1', root: 'app', truth: ['app/a.ts', 'app/b.ts'] }));
     mkdirSync(path.join(benchmarks, 'traces'));
     writeFileSync(path.join(benchmarks, 'traces', 'e-walk.jsonl'), TRACE);
     const quiet = [event('system', { subtype: 'init', model: 'claude-sonnet-5-5' }), toolUse('Bash', { command: 'grep -rn total app' })].join('\n');

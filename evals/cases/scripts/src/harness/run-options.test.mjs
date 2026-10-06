@@ -15,8 +15,10 @@ describe('evals-bench: running', () => {
     assert.deepEqual(argv.slice(0, 2), ['plugin', 'eval']);
     assert.equal(argv[argv.indexOf('--eval-dir') + 1], CURATED_EVAL_DIR);
     assert.ok(argv.includes('--no-publish'));
-    const full = runArgs([...M], { set: 'full' });
-    assert.equal(full[full.indexOf('--eval-dir') + 1], BENCH_EVAL_DIR);
+    const full = runArgs([...M, '--project', 'BE-express'], { set: 'full' });
+    assert.equal(full[full.indexOf('--eval-dir') + 1], `${BENCH_EVAL_DIR}/BE-express`);
+    assert.throws(() => runArgs([...M], { set: 'full' }), /needs --project/);
+    assert.throws(() => runArgs([...M, '--project', 'BE-express']), /selects a full set/);
     assert.throws(() => runArgs([...M, '--publish-report']), /NDA/);
     assert.throws(() => runArgs([...M, '--eval-dir', 'evals']), /fixed/);
     assert.throws(() => runArgs([...M], { set: 'both' }), /curated, full or task/);
@@ -45,13 +47,17 @@ describe('evals-bench: running', () => {
 
   it('keeps the result JSON inside the excluded directories', () => {
     const benchmarks = path.join(tmpdir(), 'b');
-    const argv = runArgs([...M], { now: new Date('2026-01-02T03:04:05.678Z'), benchmarks, set: 'full' });
-    assert.equal(argv[argv.indexOf('--json') + 1], path.join(benchmarks, 'results', 'eval-2026-01-02T03-04-05-678Z.json'));
-    const curated = runArgs([...M], { now: new Date('2026-01-02T03:04:05.678Z'), benchmarks });
-    assert.equal(curated[curated.indexOf('--json') + 1], path.join(ROOT, 'evals', 'outputs', 'core', 'eval-2026-01-02T03-04-05-678Z.json'));
+    const outputs = path.join(tmpdir(), 'o');
+    const now = new Date('2026-01-02T03:04:05.678Z');
+    const argv = runArgs([...M, '--project', 'BE-express'], { now, benchmarks, outputs, set: 'full' });
+    const iteration = path.join(outputs, 'full', '2026-01-02', '01_0304_full-be-express-ambicode-sonnet-5-5');
+    assert.equal(argv[argv.indexOf('--json') + 1], path.join(iteration, 'results', 'eval.json'));
+    assert.equal(argv[argv.indexOf('--output-dir') + 1], path.join(iteration, 'results', 'plugin-eval'));
+    const curated = runArgs([...M], { now, benchmarks, outputs });
+    assert.equal(curated[curated.indexOf('--json') + 1], path.join(outputs, 'core', '2026-01-02', '01_0304_curated-ambicode-sonnet-5-5', 'results', 'eval.json'));
     assert.equal(runArgs([...M, '--json', path.join(benchmarks, 'r.json')], { benchmarks }).filter((a) => a === '--json').length, 1);
-    assert.ok(runArgs([...M, '--json', path.join(ROOT, 'evals', 'outputs', 'core', 'r.json')], { benchmarks }).includes('--json'), 'evals/outputs/core/ is gitignored and allowed');
-    assert.throws(() => runArgs([...M, '--json', path.join(ROOT, 'evals', 'outputs', 'triggers', 'r.json')], { benchmarks }), /must stay under/, 'another suite\'s results dir is not the curated excluded dir');
+    assert.ok(runArgs([...M, '--json', path.join(ROOT, 'evals', 'outputs', 'core', 'r.json')], { benchmarks }).includes('--json'), 'evals/outputs/ is gitignored and allowed');
+    assert.throws(() => runArgs([...M, '--json', path.join(ROOT, 'evals', 'cases', 'r.json')], { benchmarks }), /must stay under/, 'the committed suites are not an excluded dir');
     for (const flag of ['--json', '--report', '--output-dir']) {
       assert.throws(() => runArgs([...M, flag, path.join(tmpdir(), 'elsewhere.json')], { benchmarks }), /must stay under/);
       assert.throws(() => runArgs([...M, flag], { benchmarks }), /needs a path/);

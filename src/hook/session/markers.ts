@@ -1,7 +1,7 @@
 import path from 'node:path';
-import type { FileSystem } from '../../ports/filesystem.ts';
-import type { IdSource } from '../../ports/ids.ts';
-import { contentHash } from '../../util/hash.ts';
+import { contentHash } from '#util/hash';
+import type { FileSystem, IdSource } from '#types/ports';
+import { HOOK_STATE_DIR_NAME, type DeliveryKey } from '../types/session.ts';
 
 /**
  * Per-session hook delivery state, never written into the product repository:
@@ -9,7 +9,6 @@ import { contentHash } from '../../util/hash.ts';
  * a hash of the session id so the directory name carries no session content.
  */
 
-export const HOOK_STATE_DIR_NAME = 'ambicode-hook-state';
 const EPOCH_FILE = 'epoch';
 const DELIVERED_DIR = 'delivered';
 
@@ -42,14 +41,6 @@ export async function resetEpoch(fs: FileSystem, ids: IdSource, baseDir: string)
 
 export async function cleanupSessionState(fs: FileSystem, baseDir: string): Promise<void> {
   await fs.remove(baseDir);
-}
-
-export interface DeliveryKey {
-  epoch: string;
-  agentKey: string;
-  kind: 'edit-reminder' | 'shared-contract' | 'ticket-prepare' | 'route-step';
-  subject: string;
-  contentHash: string;
 }
 
 function markerPath(baseDir: string, key: DeliveryKey): string {

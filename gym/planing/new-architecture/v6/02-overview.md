@@ -60,7 +60,7 @@ and 41 names the point of no return.
 | **Policy** [11](modules/11-policy.md) | packs, resolution, staged delivery, command slots, `rules` path | `policy/*`, `policies/*`, `config/*` | ✅ resolver; ♻ staging; 🆕 drafts/quotes/revert |
 | **Route** [12](modules/12-route.md) | routes, fold with re-entry, declared and raised gates, releases, limits, DSL | `prepare-on-skill.ts`, `markers.ts` | 🆕 |
 | **Evidence** [13](modules/13-evidence.md) | ledger (21 kinds incl. `preanswer`), notes with draft-first and promote, task dir, `report`, navigation line | `task/*`, `note.ts`, `review-name.ts` | ♻ |
-| **Requirements** [14](modules/14-requirements.md) | captured payloads, envelope from captures or args, expansion with field lists, ACs, binding | `requirements/normalize.ts`, `requirements-mcp.md` | ♻ |
+| **Requirements** [14](modules/14-requirements.md) | captured payloads, envelope from captures or args, expansion with field lists, ACs, binding | `modules/requirements/envelope/normalize.ts`, `requirements-mcp.md` | ♻ |
 | **Guard** [15](modules/15-guard.md) | structural parser, decisions, Stop hook, gate table test | `guard-core.ts`, `guard.mjs` | ♻ parser; 🆕 Stop |
 | **Checks + Reviewer** [16](modules/16-checks-review.md) | snapshot, checks, reviewer, validation, report, page | `snapshot/*`, `checks/*`, `review/*`, `providers/*`, `publication/*`, `page/*` | ✅ pipeline; 🆕 `check --only`, model-run `format`, `--task`, `--estimate`, metrics |
 | **Workers** [17](modules/17-workers.md) | process runner, `plan check` with re-entry; appendix: scout, collector, judge | `claude-reviewer.ts` | ♻ runner; 🆕 `plan check` |

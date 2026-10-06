@@ -34,8 +34,8 @@ describe('evals-bench: measures taken from the trace', () => {
   it('attaches them to the scored runs, and leaves an untraced run out of the counts', () => {
     const benchmarks = mkdtempSync(path.join(tmpdir(), 'bench-trace-score-'));
     try {
-      mkdirSync(path.join(benchmarks, 'cases', 'side-t-1'), { recursive: true });
-      writeFileSync(path.join(benchmarks, 'cases', 'side-t-1', 'truth.json'), JSON.stringify({ side: 'SIDE', ticket: 'T-1', root: 'app', truth: ['app/a.ts'] }));
+      mkdirSync(path.join(benchmarks, 'SIDE', 'cases', 'side-t-1'), { recursive: true });
+      writeFileSync(path.join(benchmarks, 'SIDE', 'cases', 'side-t-1', 'truth.json'), JSON.stringify({ side: 'SIDE', ticket: 'T-1', root: 'app', truth: ['app/a.ts'] }));
       const tracesDir = path.join(benchmarks, 'traces');
       mkdirSync(tracesDir);
       writeFileSync(path.join(tracesDir, 'e-abc.jsonl'), TRACE);
@@ -53,8 +53,9 @@ describe('evals-bench: measures taken from the trace', () => {
 
 describe('evals-bench: harvesting traces', () => {
   it('puts traces beside the run result, so they share its excluded-directory guarantee', () => {
-    const spec = runSpec(M, { now: new Date('2026-01-02T03:04:05.678Z') });
-    assert.equal(spec.tracesDir, path.join(ROOT, 'evals', 'outputs', 'core', 'traces'));
+    const outputs = path.join(tmpdir(), 'o');
+    const spec = runSpec(M, { now: new Date('2026-01-02T03:04:05.678Z'), outputs });
+    assert.equal(spec.tracesDir, path.join(outputs, 'core', '2026-01-02', '01_0304_curated-ambicode-sonnet-5-5', 'traces'));
     const benchmarks = path.join(tmpdir(), 'b');
     assert.equal(runSpec([...M, '--json', path.join(benchmarks, 'r.json')], { benchmarks }).tracesDir, path.join(benchmarks, 'traces'));
     assert.throws(() => runSpec([...M, '--json']), /needs a path/);

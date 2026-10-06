@@ -1,12 +1,14 @@
-import { createRuntime, type Runtime } from '../../composition/root.ts';
-import { findSessionRepository } from '../../composition/session-repository.ts';
-import { parseArgs } from '../../cli/args.ts';
-import { PREPARE_OPTIONS, runPrepare } from '../../cli/commands/prepare.ts';
-import { termsFromRequirements } from '../../code-intelligence/locate.ts';
-import type { PostToolUseHookOutput } from '../../contracts/hook.ts';
-import { mintTaskSlug } from '../../task/slug.ts';
-import { isAmbicodeError } from '../../util/errors.ts';
-import { formatJsonOutput } from '../../util/json-output.ts';
+import { createRuntime } from '#composition/root';
+import { findSessionRepository } from '#composition/session-repository';
+import { parseArgs } from '#cli/args';
+import { runPrepare } from '#cli/commands/prepare/prepare';
+import { termsFromRequirements } from '#modules/search/text/locate';
+import type { PostToolUseHookOutput } from '#types/hook';
+import { mintTaskSlug } from '#modules/evidence/task/slug';
+import { isAmbicodeError } from '#util/errors';
+import { formatJsonOutput } from '#util/json-output';
+import { PREPARE_OPTIONS } from '#types/cli';
+import type { Runtime } from '#types/composition';
 
 /**
  * Measured 2026-09-30 with a probe plugin: hook context of <= 9,800 characters arrives whole, and

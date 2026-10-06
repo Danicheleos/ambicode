@@ -1,11 +1,11 @@
 // Builds the two plugin copies of the three-arm LSP eval: `lsp-only` (the control: a language server and
 // nothing else) and `ambicode-lsp` (the packaged plugin plus the same server). The eval sandbox loads only
 // the plugin under test, so LSP exists in a run only when that plugin declares it (probe 2026-10-02).
-// Commands: [--case <name>]... [--out <dir>] [--impact|--reuse]. See evals/cases/evals-core/README.md, "Three arms with LSP".
+// Commands: [--case <name>]... [--out <dir>] [--impact|--reuse]. See evals/cases/common/core/README.md, "Three arms with LSP".
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BENCHMARKS, CURATED_CASES, IMPACT_CASES_DIRECTORY, REUSE_CASES_DIRECTORY, ROOT } from '../shared/bench-paths.mjs';
+import { BENCHMARKS, CURATED_CASES, CURATED_EVAL_DIR, IMPACT_CASES_DIRECTORY, projectCasesDir, REUSE_CASES_DIRECTORY, ROOT, BENCH_PROJECTS } from '../shared/bench-paths.mjs';
 import { CASES_LOCK } from '../harness/cases-lock.mjs';
 
 export const LSP_SERVERS = {
@@ -32,14 +32,25 @@ export function withTsconfig(scaffold, root) {
   return scaffold.replace(BEFORE_INIT, `printf '%s\\n' '${tsconfigFor(root)}' > "$REPO/tsconfig.json"\n${BEFORE_INIT}`);
 }
 
+/** `casesDir` is one folder or several (the impact and reuse pools are per project); names are unique across them. */
+const caseSources = (casesDir) =>
+  new Map(
+    [casesDir].flat().flatMap((dir) =>
+      readdirSync(dir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && entry.name !== CASES_LOCK)
+        .map((entry) => [entry.name, path.join(dir, entry.name)]),
+    ),
+  );
+
 export function localizeCases(casesDir) {
-  return readdirSync(casesDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && entry.name !== CASES_LOCK && !entry.name.includes('review'))
-    .map((entry) => entry.name)
-    .sort();
+  return [...caseSources(casesDir).keys()].filter((name) => !name.includes('review')).sort();
 }
 
+// A pool case's scaffold climbs to `evals/` from its own depth; the arm files it under the curated suite instead.
+const rebaseBenchmarks = (scaffold, depth) => scaffold.replace(/(\$\(dirname "\$0"\)\/)(?:\.\.\/)+benchmarks\//g, `$1${'../'.repeat(depth)}benchmarks/`);
+
 export function buildArms({ out, casesDir, dist, benchmarks, cases = localizeCases(casesDir) }) {
+  const sources = caseSources(casesDir);
   if (!existsSync(path.join(dist, '.claude-plugin', 'plugin.json'))) throw new Error(`${dist} is not a packaged plugin: run \`npm run package:candidate\` first`);
   rmSync(out, { recursive: true, force: true });
   const arms = {
@@ -58,13 +69,15 @@ export function buildArms({ out, casesDir, dist, benchmarks, cases = localizeCas
     const dir = path.join(out, name);
     make(dir);
     // The harness refuses symlinks under --eval-dir, so cases are real copies; the scaffolds reach the data through
-    // `../../../../benchmarks`, one symlink at the plugin root.
+    // `evals/benchmarks`, one symlink in the arm.
     for (const id of cases) {
-      const target = path.join(dir, 'evals', 'cases', 'evals-core', 'cases', id);
-      cpSync(path.join(casesDir, id), target, { recursive: true });
+      if (!sources.has(id)) throw new Error(`no case ${id} in ${[casesDir].flat().join(', ')}`);
+      const target = path.join(dir, CURATED_EVAL_DIR, 'cases', id);
+      cpSync(sources.get(id), target, { recursive: true });
       const scaffold = path.join(target, 'scaffold.sh');
       const { root } = JSON.parse(readFileSync(path.join(target, 'truth.json'), 'utf8'));
-      writeFileSync(scaffold, withTsconfig(readFileSync(scaffold, 'utf8'), root), { mode: 0o755 });
+      const depth = path.relative(target, path.join(dir, 'evals')).split(path.sep).length;
+      writeFileSync(scaffold, withTsconfig(rebaseBenchmarks(readFileSync(scaffold, 'utf8'), depth), root), { mode: 0o755 });
     }
     symlinkSync(benchmarks, path.join(dir, 'evals', 'benchmarks'));
   }
@@ -79,7 +92,8 @@ function main(argv) {
     if (argv[i] === '--case') cases.push(argv[i + 1]);
     else if (argv[i] === '--out') out = path.resolve(argv[i + 1]);
     else if (argv[i] === '--impact' || argv[i] === '--reuse') {
-      casesDir = path.join(BENCHMARKS, argv[i] === '--impact' ? IMPACT_CASES_DIRECTORY : REUSE_CASES_DIRECTORY);
+      const kind = argv[i] === '--impact' ? IMPACT_CASES_DIRECTORY : REUSE_CASES_DIRECTORY;
+      casesDir = BENCH_PROJECTS.map((project) => projectCasesDir(kind, project)).filter((dir) => existsSync(dir));
       i -= 1;
     }
     else throw new Error(`unknown argument ${argv[i]}; usage: lsp-arms.mjs [--case <name>]... [--out <dir>] [--impact]`);

@@ -2,23 +2,24 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, it } from 'node:test';
-import { fileURLToPath } from 'node:url';
-import { createRuntime } from '../composition/root.ts';
-import type { PrepareCompactOutput, PrepareOutput } from '../contracts/prepare.ts';
-import type { StandardInput } from '../ports/stdin.ts';
-import { TempRepo } from '../testing/temp-repo.ts';
-import { formatJsonOutput } from '../util/json-output.ts';
+import { createRuntime } from '#composition/root';
+import type { PrepareCompactOutput, PrepareOutput } from '#types/prepare';
+import { TempRepo } from '#testing/fixtures/temp-repo';
+import { formatJsonOutput } from '#util/json-output';
 import { parseArgs } from './args.ts';
-import { initConfig } from '../testing/init-config.ts';
-import { PREPARE_OPTIONS, runPrepare } from './commands/prepare.ts';
-import { evidenceSource } from './target-option.ts';
+import { initConfig } from '#testing/fixtures/init-config';
+import { runPrepare } from './commands/prepare/prepare.ts';
+import { evidenceSource } from './options/target-option.ts';
+import { REPO_ROOT } from '#testing/paths';
+import { PREPARE_OPTIONS } from '#types/cli';
+import type { StandardInput } from '#types/ports';
 
 /**
  * The ceilings below are drift detectors, not budgets: they sit just above what
  * is emitted, so an added paragraph fails loudly and gets a deliberate decision.
  */
 
-const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const repositoryRoot = REPO_ROOT;
 
 /** Compact `prepare --json` for the fixture below (21 rules), which emits 9,240 bytes. */
 const MAX_COMPACT_PREPARE_BYTES = 9_700;

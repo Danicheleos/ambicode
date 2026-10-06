@@ -1,30 +1,35 @@
 import { realpathSync } from 'node:fs';
-import { createRuntime, type Runtime } from '../composition/root.ts';
-import { AmbicodeError, isAmbicodeError } from '../util/errors.ts';
-import { formatJsonOutput, type JsonFormat } from '../util/json-output.ts';
-import { parseArgs, type OptionSpec, type ParsedArgs } from './args.ts';
-import { BUNDLE_OPTIONS, renderBundle, runBundle } from './commands/bundle.ts';
-import { CONFIG_OPTIONS, renderConfig, runConfig } from './commands/config.ts';
-import { INIT_OPTIONS, renderInit, runInit } from './commands/init.ts';
-import { DOCTOR_OPTIONS, renderDoctor, runDoctorCommand } from './commands/doctor.ts';
-import { RULES_APPLY_OPTIONS, RULES_DISCOVER_OPTIONS, RULES_REVERT_OPTIONS, renderRules, runRulesApply, runRulesDiscover, runRulesRevert } from './commands/rules.ts';
-import { LOCATE_OPTIONS, renderLocate, runLocate } from './commands/locate.ts';
-import { CHECK_OPTIONS, renderCheck, runCheckCommand } from './commands/check.ts';
-import { FORMAT_OPTIONS, renderFormat, runFormatCommand } from './commands/format.ts';
-import { NOTE_LIST_OPTIONS, NOTE_PROMOTE_OPTIONS, NOTE_SAVE_OPTIONS, renderNoteList, renderNotePromote, renderNoteSave, runNoteList, runNotePromote, runNoteSave } from './commands/note.ts';
-import { PLAN_CHECK_OPTIONS, renderPlanCheck, runPlanCheckCommand } from './commands/plan-check.ts';
-import { POLICY_OPTIONS, renderPolicy, runPolicy } from './commands/policy.ts';
-import { POLICY_CHECK_OPTIONS, renderPolicyCheck, runPolicyCheck } from './commands/policy-check.ts';
-import { PREPARE_OPTIONS, prepareAsRouteStart, renderPrepare, runPrepare } from './commands/prepare.ts';
-import { REPORT_OPTIONS, renderReport, runReport } from './commands/report.ts';
-import { FIND_OPTIONS, INDEX_OPTIONS, MAP_OPTIONS, REFS_OPTIONS, RELATES_OPTIONS, renderSearch, runFind, runIndex, runMap, runRefs, runRelates } from './commands/search.ts';
-import { REQUIREMENTS_ACS_OPTIONS, REQUIREMENTS_NORMALIZE_OPTIONS, REQUIREMENTS_TEMPLATE_OPTIONS, renderRequirements, runRequirementsAcs, runRequirementsNormalize, runRequirementsTemplate } from './commands/requirements.ts';
-import { ROUTE_NEXT_OPTIONS, ROUTE_START_OPTIONS, ROUTE_STATUS_OPTIONS, ROUTE_STOP_OPTIONS, renderMessage, renderRouteStatus, runRouteNext, runRouteStart, runRouteStatus, runRouteStop } from './commands/route.ts';
-import { REVIEW_OPTIONS, renderReview, runReview, runReviewEstimate } from './commands/review.ts';
-import type { ViewOutput } from './commands/view.ts';
-import { VIEW_OPTIONS } from './view-options.ts';
-import { WORKER_RUN_OPTIONS, renderWorkerRun, runWorkerCommand } from './commands/worker.ts';
-import { validateTargetArgs } from './target-option.ts';
+import { createRuntime } from '#composition/root';
+import { AmbicodeError, isAmbicodeError } from '#util/errors';
+import { formatJsonOutput } from '#util/json-output';
+import { parseArgs } from './args.ts';
+import { renderBundle, runBundle } from './commands/review/bundle.ts';
+import { renderConfig, runConfig } from './commands/config/config.ts';
+import { renderInit, runInit } from './commands/config/init.ts';
+import { renderDoctor, runDoctorCommand } from './commands/config/doctor.ts';
+import { renderRules, runRulesApply, runRulesDiscover, runRulesRevert } from './commands/policy/rules.ts';
+import { renderLocate, runLocate } from './commands/search/locate.ts';
+import { renderCheck, runCheckCommand } from './commands/checks/check.ts';
+import { renderFormat, runFormatCommand } from './commands/checks/format.ts';
+import { renderNoteList, renderNotePromote, renderNoteSave, runNoteList, runNotePromote, runNoteSave } from './commands/route/note.ts';
+import { renderPlanCheck, runPlanCheckCommand } from './commands/workers/plan-check.ts';
+import { renderPolicy, runPolicy } from './commands/policy/policy.ts';
+import { renderPolicyCheck, runPolicyCheck } from './commands/policy/policy-check.ts';
+import { prepareAsRouteStart, renderPrepare, runPrepare } from './commands/prepare/prepare.ts';
+import { renderReport, runReport } from './commands/route/report.ts';
+import { renderSearch, runFind, runIndex, runMap, runRefs, runRelates } from './commands/search/search.ts';
+import { renderRequirements, runRequirementsAcs, runRequirementsNormalize, runRequirementsTemplate } from './commands/requirements/requirements.ts';
+import { renderMessage, renderRouteStatus, runRouteNext, runRouteStart, runRouteStatus, runRouteStop } from './commands/route/route.ts';
+import { renderReview, runReview, runReviewEstimate } from './commands/review/review.ts';
+import { renderWorkerRun, runWorkerCommand } from './commands/workers/worker.ts';
+import { validateTargetArgs } from './options/target-option.ts';
+import { PREPARE_OPTIONS, ROUTE_START_OPTIONS } from '#types/cli';
+import type { Runtime } from '#types/composition';
+import { MAX_HOOK_INPUT_BYTES } from '#hook/types/events';
+import type { JsonFormat } from '#types/util';
+import type { OptionSpec, ParsedArgs } from './types/cli.ts';
+import { BUNDLE_OPTIONS, CONFIG_OPTIONS, INIT_OPTIONS, DOCTOR_OPTIONS, RULES_APPLY_OPTIONS, RULES_DISCOVER_OPTIONS, RULES_REVERT_OPTIONS, LOCATE_OPTIONS, CHECK_OPTIONS, FORMAT_OPTIONS, NOTE_LIST_OPTIONS, NOTE_PROMOTE_OPTIONS, NOTE_SAVE_OPTIONS, PLAN_CHECK_OPTIONS, POLICY_OPTIONS, POLICY_CHECK_OPTIONS, REPORT_OPTIONS, FIND_OPTIONS, INDEX_OPTIONS, MAP_OPTIONS, REFS_OPTIONS, RELATES_OPTIONS, REQUIREMENTS_ACS_OPTIONS, REQUIREMENTS_NORMALIZE_OPTIONS, REQUIREMENTS_TEMPLATE_OPTIONS, ROUTE_NEXT_OPTIONS, ROUTE_STATUS_OPTIONS, ROUTE_STOP_OPTIONS, REVIEW_OPTIONS, WORKER_RUN_OPTIONS, type ViewOutput } from './types/commands.ts';
+import { VIEW_OPTIONS } from './types/options.ts';
 
 export const USAGE = `ambicode <command> [options]
 
@@ -345,7 +350,7 @@ export async function main(argv: readonly string[]): Promise<number> {
   // The hook entry point has its own I/O contract (stdin JSON in, hook JSON out,
   // always exit 0), so it bypasses option parsing and `dispatch`.
   if (command === 'hook') {
-    const { runHook, MAX_HOOK_INPUT_BYTES } = await import('../hook/events/run-hook.ts');
+    const { runHook } = await import('#hook/events/run-hook');
     const runtime = await createRuntime();
     const stdin = (await runtime.stdin.read(MAX_HOOK_INPUT_BYTES)) ?? '';
     const output = await runHook(runtime, stdin);
@@ -569,7 +574,7 @@ async function run(command: string, args: ParsedArgs, runtime: Runtime): Promise
     }
     case 'view': {
       // Loaded here and nowhere else: see `view-options.ts`.
-      const { renderView, runView } = await import('./commands/view.ts');
+      const { renderView, runView } = await import('./commands/review/view.ts');
       // stderr, so a `--json` reader of stdout still receives one document; a
       // closed reader (EPIPE) must cost the diagnostic line, not the page.
       process.stderr.on('error', () => undefined);
@@ -586,7 +591,6 @@ async function run(command: string, args: ParsedArgs, runtime: Runtime): Promise
     }
   }
 }
-
 
 async function serveUntilStopped(wait: {
   until: Promise<string>;
@@ -614,7 +618,7 @@ function viewData(output: ViewOutput): Record<string, unknown> {
 async function versionOutput(
   runtime: Awaited<ReturnType<typeof createRuntime>>,
 ): Promise<{ plugin: string; git: string; node: string }> {
-  const { Git } = await import('../git/git.ts');
+  const { Git } = await import('#platform/git/git');
   const git = new Git({ runner: runtime.runner, repositoryRoot: runtime.cwd });
   let gitVersion: string;
   try {

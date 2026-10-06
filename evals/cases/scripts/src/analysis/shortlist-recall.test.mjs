@@ -16,7 +16,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { CONFIG } from '../../../../../src/testing/route-fixture.ts';
+import { CONFIG } from '../../../../../src/testing/fixtures/route-fixture.ts';
 import { M6, parseArgv, shortlistRecall, summarize } from './shortlist-recall.mjs';
 
 const PROFILE = '    profile: { stamp: { commit: "", files: 0 }, sources: [ts], companions: [], catalogs: [], featureKinds: [], exportOnly: false }';
@@ -44,15 +44,15 @@ function bench() {
     'src/legacy/settle.ts': 'export function settleLedger() { return 2; }\n',
     ...Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`src/other/${name}-${i}.ts`, `export const value${i} = ${i};\n`])),
   });
-  sideRepo(path.join(root, 'BE'), side('be'));
-  sideRepo(path.join(root, 'FE'), side('fe'));
-  for (const s of ['BE', 'FE']) {
-    write(path.join(root, 'benchmarks', 'cases', `secret-case-${s}`), {
+  sideRepo(path.join(root, 'BE-express'), side('be'));
+  sideRepo(path.join(root, 'FE-angular'), side('fe'));
+  for (const s of ['BE-express', 'FE-angular']) {
+    write(path.join(root, 'benchmarks', s, 'cases', `secret-case-${s}`), {
       'truth.json': JSON.stringify({ side: s, truth: ['src/billing/invoiceTotals.ts', 'src/legacy/settle.ts'] }),
       'prompt.md': '<ticket>\nFix `invoiceTotals` rounding in the confidential module.\n</ticket>\n',
     });
   }
-  return { root, benchmarks: path.join(root, 'benchmarks'), repos: { BE: path.join(root, 'BE'), FE: path.join(root, 'FE') } };
+  return { root, benchmarks: path.join(root, 'benchmarks'), repos: { 'BE-express': path.join(root, 'BE-express'), 'FE-angular': path.join(root, 'FE-angular') } };
 }
 
 const fakeIndex = () => {
@@ -80,7 +80,7 @@ describe('05-O offline recall', () => {
     const fx = bench();
     try {
       const rows = await shortlistRecall({ repos: fx.repos, benchmarks: fx.benchmarks });
-      assert.deepEqual(rows.map((row) => row.side), ['BE', 'FE']);
+      assert.deepEqual(rows.map((row) => row.side), ['BE-express', 'FE-angular']);
     } finally {
       rmSync(fx.root, { recursive: true, force: true });
     }
@@ -94,8 +94,8 @@ describe('05-O offline recall', () => {
       const indexes = {};
       const rows = await shortlistRecall({ repos: fx.repos, benchmarks: fx.benchmarks, adapterFor: async (side) => (indexes[side] = fakeIndex()) });
       assert.ok(rows.every((row) => row.c === 1 && row.b === 0.5), JSON.stringify(rows));
-      assert.deepEqual([indexes.BE.built, indexes.FE.built], [1, 1]);
-      assert.equal(existsSync(path.join(fx.repos.BE, '.ambicode', 'task')), false, 'no ledger written');
+      assert.deepEqual([indexes['BE-express'].built, indexes['FE-angular'].built], [1, 1]);
+      assert.equal(existsSync(path.join(fx.repos['BE-express'], '.ambicode', 'task')), false, 'no ledger written');
     } finally {
       rmSync(fx.root, { recursive: true, force: true });
     }
@@ -105,26 +105,26 @@ describe('05-O offline recall', () => {
     const fx = bench();
     try {
       const text = summarize(await shortlistRecall({ repos: fx.repos, benchmarks: fx.benchmarks, adapterFor: async () => fakeIndex() })).join('\n');
-      assert.match(text, /^BE: n=1 recall@15 \(a\) 0\.500 \(b\) 0\.500 \(c\) 1\.000 \(c\)-\(b\) 0\.500$/m);
+      assert.match(text, /^BE-express: n=1 recall@15 \(a\) 0\.500 \(b\) 0\.500 \(c\) 1\.000 \(c\)-\(b\) 0\.500$/m);
       for (const secret of ['secret-case', 'confidential', 'invoiceTotals', 'src/', 'settle']) assert.ok(!text.includes(secret), secret);
     } finally {
       rmSync(fx.root, { recursive: true, force: true });
     }
   });
 
-  const rows = (a, b, c) => ['BE', 'FE'].map((side) => ({ side, truth: 1, a: a[side], b: b[side], c: c === null ? null : c[side] }));
+  const rows = (a, b, c) => ['BE-express', 'FE-angular'].map((side) => ({ side, truth: 1, a: a[side], b: b[side], c: c === null ? null : c[side] }));
 
   it('05-O4: (a) reproduces M6 at three decimals', () => {
-    assert.ok(summarize(rows(M6, M6, null)).includes('(a) reproduces M6: yes (expected BE 0.499, FE 0.123)'));
-    assert.ok(summarize(rows({ BE: 0.5004, FE: 0.123 }, M6, null)).includes('(a) reproduces M6: no (expected BE 0.499, FE 0.123)'));
+    assert.ok(summarize(rows(M6, M6, null)).includes('(a) reproduces M6: yes (expected BE-express 0.499, FE-angular 0.123)'));
+    assert.ok(summarize(rows({ 'BE-express': 0.5004, 'FE-angular': 0.123 }, M6, null)).includes('(a) reproduces M6: no (expected BE-express 0.499, FE-angular 0.123)'));
   });
 
   it('05-O5: every 5-I branch', () => {
     const last = (lines) => lines.at(-1);
-    assert.equal(last(summarize(rows(M6, M6, { BE: M6.BE + 0.04, FE: M6.FE + 0.049 }))), '5-I: none');
-    assert.equal(last(summarize(rows(M6, M6, { BE: M6.BE, FE: M6.FE + 0.05 }))), '5-I: report');
-    assert.equal(last(summarize(rows(M6, M6, { BE: M6.BE + 0.0496, FE: M6.FE + 0.0496 }))), '5-I: none', 'decided on the raw gain, not the printed one');
+    assert.equal(last(summarize(rows(M6, M6, { 'BE-express': M6['BE-express'] + 0.04, 'FE-angular': M6['FE-angular'] + 0.049 }))), '5-I: none');
+    assert.equal(last(summarize(rows(M6, M6, { 'BE-express': M6['BE-express'], 'FE-angular': M6['FE-angular'] + 0.05 }))), '5-I: report');
+    assert.equal(last(summarize(rows(M6, M6, { 'BE-express': M6['BE-express'] + 0.0496, 'FE-angular': M6['FE-angular'] + 0.0496 }))), '5-I: none', 'decided on the raw gain, not the printed one');
     assert.equal(last(summarize(rows(M6, M6, null))), '5-I: pending ((c) was not run)');
-    assert.equal(last(summarize(rows({ BE: 0.4, FE: 0.1 }, M6, { BE: 0.9, FE: 0.9 }))), '5-I: pending ((a) did not reproduce M6)');
+    assert.equal(last(summarize(rows({ 'BE-express': 0.4, 'FE-angular': 0.1 }, M6, { 'BE-express': 0.9, 'FE-angular': 0.9 }))), '5-I: pending ((a) did not reproduce M6)');
   });
 });

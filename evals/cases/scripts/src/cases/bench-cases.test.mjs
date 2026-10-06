@@ -23,8 +23,8 @@ describe('evals-bench: tickets', () => {
   });
 
   it('places the snapshot under the leading directory the truth resolves through', () => {
-    assert.equal(codeRoot([['app/x/a.ts', 'app/b.ts'], ['other/c.ts']], ['x/a.ts', 'b.ts', 'c.ts']), 'app');
-    assert.throws(() => codeRoot([['app/zzz.ts']], ['a.ts']), /no ground-truth path resolves/);
+    assert.equal(codeRoot([['app/x/a.ts', 'app/b.ts'], ['other/c.ts']], ['app/x/a.ts', 'app/b.ts', 'c.ts']), 'app');
+    assert.throws(() => codeRoot([['app/zzz.ts']], ['zzz.ts']), /no ground-truth path resolves/);
   });
 });
 
@@ -34,14 +34,14 @@ describe('evals-bench: generate', () => {
   before(() => {
     benchmarks = mkdtempSync(path.join(tmpdir(), 'bench-'));
     const side = path.join(benchmarks, 'SIDE');
-    mkdirSync(path.join(side, 'src', 'orders'), { recursive: true });
-    mkdirSync(path.join(side, '.ambicode', 'task', 'old-note'), { recursive: true });
+    mkdirSync(path.join(side, 'project', 'app', 'orders'), { recursive: true });
+    mkdirSync(path.join(side, 'project', '.ambicode', 'task', 'old-note'), { recursive: true });
     mkdirSync(path.join(side, 'assets'), { recursive: true });
-    writeFileSync(path.join(side, 'src', 'orders', 'service.ts'), 'export const total = 1;\n');
-    writeFileSync(path.join(side, 'src', 'orders', 'model.ts'), 'export type Order = {};\n');
-    writeFileSync(path.join(side, 'src', '.DS_Store'), 'x');
-    writeFileSync(path.join(side, '.ambicode', 'config.yaml'), 'schemaVersion: 1\n');
-    writeFileSync(path.join(side, '.ambicode', 'task', 'old-note', 'note.md'), 'the answer is app/orders/service.ts\n');
+    writeFileSync(path.join(side, 'project', 'app', 'orders', 'service.ts'), 'export const total = 1;\n');
+    writeFileSync(path.join(side, 'project', 'app', 'orders', 'model.ts'), 'export type Order = {};\n');
+    writeFileSync(path.join(side, 'project', 'app', '.DS_Store'), 'x');
+    writeFileSync(path.join(side, 'project', '.ambicode', 'config.yaml'), 'schemaVersion: 1\n');
+    writeFileSync(path.join(side, 'project', '.ambicode', 'task', 'old-note', 'note.md'), 'the answer is app/orders/service.ts\n');
     writeFileSync(path.join(side, 'assets', 'T-1.md'), ticket('Discount the order total.', ['app/orders/service.ts', 'app/orders/gone.ts']));
     writeFileSync(path.join(side, 'assets', 'T-2.md'), ticket('Only a removed file.', ['app/orders/removed.ts']));
     const version = path.join(side, 'reviews', 'T-1', '7-abcdef12');
@@ -54,7 +54,7 @@ describe('evals-bench: generate', () => {
     mkdirSync(path.join(side, 'reviews', 'T-1', '8-00000000'), { recursive: true });
     writeFileSync(path.join(side, 'reviews', 'T-1', '8-00000000', 'threads.json'), '[{"path":"app/x.ts","body":"b"}]');
     // A stale case from an earlier generation must not survive.
-    mkdirSync(path.join(benchmarks, 'cases', 'side-t-9'), { recursive: true });
+    mkdirSync(path.join(benchmarks, 'SIDE', 'cases', 'side-t-9'), { recursive: true });
     result = generate({ benchmarks });
   });
   after(() => rmSync(benchmarks, { recursive: true, force: true }));
@@ -65,17 +65,17 @@ describe('evals-bench: generate', () => {
       { name: 'side-t-2', reason: 'none of its 1 true file(s) exists in the snapshot' },
       { name: 'side-t-1-review-8-00000000', reason: 'change.patch is missing from the prepared version' },
     ]);
-    assert.deepEqual(readdirSync(path.join(benchmarks, 'cases')).filter((f) => f !== CASES_LOCK).sort(), ['side-t-1', 'side-t-1-review-7-abcdef12']);
-    assert.equal(casesLockStatus(path.join(benchmarks, 'cases')), null, 'generation released its claim');
+    assert.deepEqual(readdirSync(path.join(benchmarks, 'SIDE', 'cases')).filter((f) => f !== CASES_LOCK).sort(), ['side-t-1', 'side-t-1-review-7-abcdef12']);
+    assert.equal(casesLockStatus(path.join(benchmarks, 'SIDE', 'cases')), null, 'generation released its claim');
   });
 
   it('grades only the true files the snapshot still has, and records the others', () => {
-    const truth = JSON.parse(readFileSync(path.join(benchmarks, 'cases', 'side-t-1', 'truth.json'), 'utf8'));
+    const truth = JSON.parse(readFileSync(path.join(benchmarks, 'SIDE', 'cases', 'side-t-1', 'truth.json'), 'utf8'));
     assert.deepEqual(truth, { kind: 'localize', side: 'SIDE', ticket: 'T-1', root: 'app', truth: ['app/orders/service.ts'], missingFromSnapshot: ['app/orders/gone.ts'] });
   });
 
   it('puts the ticket in the prompt and the answer only in the graders', () => {
-    const directory = path.join(benchmarks, 'cases', 'side-t-1');
+    const directory = path.join(benchmarks, 'SIDE', 'cases', 'side-t-1');
     const prompt = readFileSync(path.join(directory, 'prompt.md'), 'utf8');
     assert.match(prompt, /Discount the order total\./);
     assert.doesNotMatch(prompt, /service\.ts/);
@@ -86,7 +86,7 @@ describe('evals-bench: generate', () => {
   });
 
   it('scores the answer with both arms, with no Skill or helper indicator (03b-H4)', () => {
-    const graders = path.join(benchmarks, 'cases', 'side-t-1', 'graders');
+    const graders = path.join(benchmarks, 'SIDE', 'cases', 'side-t-1', 'graders');
     const all = Object.fromEntries(readdirSync(graders).map((f) => [f.replace(/\.md$/, ''), frontmatter(path.join(graders, f))]));
     assert.equal(all['names-a-true-file'].type, 'llm');
     assert.equal(all['names-a-true-file'].focus, 'last_message');
@@ -104,7 +104,7 @@ describe('evals-bench: generate', () => {
   });
 
   it('fails any run whose tools reach into the data directory', () => {
-    const graders = path.join(benchmarks, 'cases', 'side-t-1', 'graders');
+    const graders = path.join(benchmarks, 'SIDE', 'cases', 'side-t-1', 'graders');
     for (const tool of ['read', 'grep', 'glob', 'bash']) {
       const meta = frontmatter(path.join(graders, `no-peek-${tool}.md`));
       assert.equal(meta.max, 0);
@@ -117,7 +117,7 @@ describe('evals-bench: generate', () => {
   it('scaffolds a clean committed repository at the truth root, with the config and without earlier task notes', () => {
     const run = mkdtempSync(path.join(tmpdir(), 'bench-run-'));
     try {
-      execFileSync('sh', [path.join(benchmarks, 'cases', 'side-t-1', 'scaffold.sh')], { cwd: run, env: { PATH: process.env.PATH, HOME: run } });
+      execFileSync('sh', [path.join(benchmarks, 'SIDE', 'cases', 'side-t-1', 'scaffold.sh')], { cwd: run, env: { PATH: process.env.PATH, HOME: run } });
       const repo = path.join(run, 'repo');
       assert.ok(existsSync(path.join(repo, 'app', 'orders', 'service.ts')));
       assert.ok(existsSync(path.join(repo, '.ambicode', 'config.yaml')));
@@ -130,7 +130,7 @@ describe('evals-bench: generate', () => {
     }
   });
   it('writes a review case whose graders are the human threads, one each', () => {
-    const directory = path.join(benchmarks, 'cases', 'side-t-1-review-7-abcdef12');
+    const directory = path.join(benchmarks, 'SIDE', 'cases', 'side-t-1-review-7-abcdef12');
     const prompt = readFileSync(path.join(directory, 'prompt.md'), 'utf8');
     assert.match(prompt, /Discount the order total\./);
     assert.doesNotMatch(prompt, /Hard-coded/, 'the human comment is the answer, not the question');
@@ -147,7 +147,7 @@ describe('evals-bench: generate', () => {
   it('scaffolds the change as the reviewer saw it: base committed, the change uncommitted on top', () => {
     const run = mkdtempSync(path.join(tmpdir(), 'bench-review-'));
     try {
-      execFileSync('sh', [path.join(benchmarks, 'cases', 'side-t-1-review-7-abcdef12', 'scaffold.sh')], { cwd: run, env: { PATH: process.env.PATH, HOME: run } });
+      execFileSync('sh', [path.join(benchmarks, 'SIDE', 'cases', 'side-t-1-review-7-abcdef12', 'scaffold.sh')], { cwd: run, env: { PATH: process.env.PATH, HOME: run } });
       const repo = path.join(run, 'repo');
       const at = (args) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' });
       // The snapshot had `total = 1`; the base put back `0`; the change makes it `2`.
@@ -189,15 +189,15 @@ describe('evals-bench: select', () => {
     base = mkdtempSync(path.join(tmpdir(), 'bench-select-'));
     const benchmarks = path.join(base, 'evals', 'benchmarks');
     const side = path.join(benchmarks, 'SIDE');
-    mkdirSync(path.join(side, 'src', 'orders'), { recursive: true });
-    mkdirSync(path.join(side, 'src', 'billing'), { recursive: true });
+    mkdirSync(path.join(side, 'project', 'app', 'orders'), { recursive: true });
+    mkdirSync(path.join(side, 'project', 'app', 'billing'), { recursive: true });
     mkdirSync(path.join(side, 'assets'), { recursive: true });
-    mkdirSync(path.join(side, '.ambicode'), { recursive: true });
-    writeFileSync(path.join(side, 'src', 'orders', 'service.ts'), 'export const total = 1;\n');
-    writeFileSync(path.join(side, 'src', 'orders', 'model.ts'), 'export type Order = {};\n');
-    writeFileSync(path.join(side, 'src', 'billing', 'charges.ts'), 'export const charge = 1;\n');
-    writeFileSync(path.join(side, 'src', 'billing', 'rates.ts'), 'export const rate = 1;\n');
-    writeFileSync(path.join(side, '.ambicode', 'config.yaml'), 'schemaVersion: 1\n');
+    mkdirSync(path.join(side, 'project', '.ambicode'), { recursive: true });
+    writeFileSync(path.join(side, 'project', 'app', 'orders', 'service.ts'), 'export const total = 1;\n');
+    writeFileSync(path.join(side, 'project', 'app', 'orders', 'model.ts'), 'export type Order = {};\n');
+    writeFileSync(path.join(side, 'project', 'app', 'billing', 'charges.ts'), 'export const charge = 1;\n');
+    writeFileSync(path.join(side, 'project', 'app', 'billing', 'rates.ts'), 'export const rate = 1;\n');
+    writeFileSync(path.join(side, 'project', '.ambicode', 'config.yaml'), 'schemaVersion: 1\n');
     const pad = ' The steps to reproduce and the acceptance criteria follow in detail.'.repeat(5);
     // Easy: both true files are named in the text. Hard: neither is.
     writeFileSync(path.join(side, 'assets', 'T-EASY.md'), ticket(`Update the order service and the order model.${pad}`, ['app/orders/service.ts', 'app/orders/model.ts']));
@@ -259,7 +259,7 @@ describe('evals-bench: select', () => {
 
   it('anchors the scaffold from the curated directory back to the data', () => {
     const scaffold = readFileSync(path.join(out, 'side-t-hard', 'scaffold.sh'), 'utf8');
-    assert.match(scaffold, /"\$\(dirname "\$0"\)\/\.\.\/\.\.\/\.\.\/\.\.\/benchmarks\/SIDE"/);
+    assert.match(scaffold, /"\$\(dirname "\$0"\)\/(?:\.\.\/){5}benchmarks\/SIDE\/project"/);
     const run = mkdtempSync(path.join(tmpdir(), 'bench-curated-run-'));
     try {
       execFileSync('sh', [path.join(out, 'side-t-hard', 'scaffold.sh')], { cwd: run, env: { PATH: process.env.PATH, HOME: run } });

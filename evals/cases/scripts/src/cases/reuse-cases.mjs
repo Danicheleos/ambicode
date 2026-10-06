@@ -1,18 +1,17 @@
 // Reuse cases: the ticket of a real change, asked as "survey what exists before building". The truth is what the
 // merged change imported from modules that already existed (types, interfaces, constants, functions), checked
 // against the snapshot. The score is how many of those the answer reuses and whether it proposes to create
-// something that already exists. Cases go to evals/benchmarks/reuse-cases (gitignored, NDA).
+// something that already exists. Cases go to evals/cases/<project>/reuse (gitignored, NDA).
 // Commands: [--list] [--side BE|FE] [--limit <n>] [--benchmarks <absolute dir>].
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
-import { BENCHMARKS, REUSE_CASES_DIRECTORY } from '../shared/bench-paths.mjs';
+import { BENCH_PROJECTS, BENCHMARKS, CASES_ROOT, casePrefix, PROJECT_CODE_ROOTS, projectCasesDir, projectCodeDir, REUSE_CASES_DIRECTORY, REUSE_EXPORTS_FILE } from '../shared/bench-paths.mjs';
 import { baseOf, sideRelFrom, writeBaseScaffold } from './base-scaffold.mjs';
 import { casePrompt, graderFiles, parseTicket, peekGraders } from './bench-cases.mjs';
 import { walk } from './impact-cases.mjs';
 
-const ROOTS = { BE: 'src', FE: 'main' };
 const NOT_CODE = /(\.(spec|test|mock|mocks|stories)\.ts$|\.d\.ts$|\/(mocks?|__mocks__|testing)\/)/;
 const MIN_SYMBOLS = 4;
 const MAX_SYMBOLS = 14;
@@ -109,18 +108,19 @@ Answer the question; do not edit anything.
 function main(argv) {
   const option = (flag, fallback) => (argv.includes(flag) ? argv[argv.indexOf(flag) + 1] : fallback);
   const list = argv.includes('--list');
-  const sides = option('--side') ? [option('--side')] : ['BE', 'FE'];
+  const sides = option('--side') ? [option('--side')] : BENCH_PROJECTS;
   const limit = Number(option('--limit', '4'));
   const benchmarks = option('--benchmarks', BENCHMARKS);
-  if (!path.isAbsolute(benchmarks)) throw new Error(`--benchmarks must be an absolute directory, got ${benchmarks}`);
-  const out = path.join(benchmarks, REUSE_CASES_DIRECTORY);
-  if (!list) {
-    rmSync(out, { recursive: true, force: true });
-    mkdirSync(out, { recursive: true });
-  }
+  const casesRoot = option('--cases', CASES_ROOT);
+  for (const [flag, dir] of [['--benchmarks', benchmarks], ['--cases', casesRoot]]) if (!path.isAbsolute(dir)) throw new Error(`${flag} must be an absolute directory, got ${dir}`);
   for (const side of sides) {
-    const root = ROOTS[side];
-    const sideDir = path.join(benchmarks, side, 'src');
+    const out = projectCasesDir(REUSE_CASES_DIRECTORY, side, casesRoot);
+    if (!list) {
+      rmSync(out, { recursive: true, force: true });
+      mkdirSync(out, { recursive: true });
+    }
+    const root = PROJECT_CODE_ROOTS[side];
+    const sideDir = path.join(projectCodeDir(benchmarks, side), root);
     const files = new Set(walk(sideDir).map((f) => `${root}/${f}`));
     const read = (p) => readFileSync(path.join(sideDir, p.slice(root.length + 1)), 'utf8');
     const exports = {};
@@ -159,7 +159,7 @@ function main(argv) {
       console.log(`  ${c.ticket}: ${c.symbols.size} existing symbols in ${c.folders} folders: ${[...c.symbols.keys()].join(', ')}`);
       if (list) continue;
       for (const forced of [false, true]) {
-      const name = `${side.toLowerCase()}-reuse-${c.ticket.toLowerCase()}${forced ? '-forced' : ''}`;
+      const name = `${casePrefix(side)}-reuse-${c.ticket.toLowerCase()}${forced ? '-forced' : ''}`;
       const dir = path.join(out, name);
       mkdirSync(path.join(dir, 'graders'), { recursive: true });
       const graders = { ...graderFiles([], root), 'names-a-true-file.md': reuseGraderBody() };
@@ -171,7 +171,7 @@ function main(argv) {
       writeFileSync(path.join(dir, 'truth.json'), JSON.stringify({ kind: 'reuse', ...(forced ? { variant: 'forced' } : {}), side, ticket: c.ticket, root, truth: [...c.symbols.keys()], definedIn: Object.fromEntries(c.symbols), missingFromSnapshot: [] }, null, 2));
       }
     }
-    if (!list) writeFileSync(path.join(out, `${side}-exports.json`), JSON.stringify(exports));
+    if (!list) writeFileSync(path.join(out, REUSE_EXPORTS_FILE), JSON.stringify(exports));
   }
   return 0;
 }

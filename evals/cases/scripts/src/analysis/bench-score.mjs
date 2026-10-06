@@ -1,7 +1,7 @@
 // Scoring and baseline identity; analysis caches exist only for one score or walkthrough.
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { BENCHMARKS, CASES_DIRECTORY, CURATED_CASES, IMPACT_CASES_DIRECTORY, NAKED_PLUGIN, REUSE_CASES_DIRECTORY } from '../shared/bench-paths.mjs';
+import { BENCHMARKS, CASES_DIRECTORY, CASES_ROOT, CURATED_CASES, IMPACT_CASES_DIRECTORY, NAKED_PLUGIN, projectCasesDir, REUSE_CASES_DIRECTORY, REUSE_EXPORTS_FILE } from '../shared/bench-paths.mjs';
 import { ledgerMetrics, ledgersOf, MCP_SPAWNS_UNMEASURED, tally } from './ledger-metrics.mjs';
 import { PROMPT, WITH_PROMPT } from '../harness/prompt-transport.mjs';
 import { scoreReuse } from './reuse-score.mjs';
@@ -55,7 +55,14 @@ export function scoreAnswer(message, truth, root) {
 
 const EVIDENCE_GRADER = 'names-a-true-file';
 
-export function createAnalysis({ benchmarks = BENCHMARKS, tracesDir = null } = {}) {
+const subdirectories = (dir) => (existsSync(dir) ? readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name) : []);
+/** Every `<benchmarks>/<project>/cases/<name>/truth.json` (the full sets) a case of that name could have. */
+const fullSetTruths = (benchmarks, name) => subdirectories(benchmarks).map((project) => path.join(benchmarks, project, CASES_DIRECTORY, name, 'truth.json'));
+/** Every `cases/<project>/<impact|reuse>/<name>/truth.json` a case of that name could have. */
+const projectTruths = (cases, name) =>
+  subdirectories(cases).flatMap((project) => [IMPACT_CASES_DIRECTORY, REUSE_CASES_DIRECTORY].map((kind) => path.join(cases, project, kind, name, 'truth.json')));
+
+export function createAnalysis({ benchmarks = BENCHMARKS, cases = CASES_ROOT, tracesDir = null } = {}) {
   const metadata = new Map();
   const traces = new Map();
   const exports = new Map();
@@ -63,9 +70,7 @@ export function createAnalysis({ benchmarks = BENCHMARKS, tracesDir = null } = {
     tracesDir,
     meta(evalCase) {
       if (!metadata.has(evalCase.name)) {
-        const file = [CASES_DIRECTORY, IMPACT_CASES_DIRECTORY, REUSE_CASES_DIRECTORY]
-          .map((dir) => path.join(benchmarks, dir, evalCase.name, 'truth.json'))
-          .concat(path.join(CURATED_CASES, evalCase.name, 'truth.json')).find(existsSync);
+        const file = [...fullSetTruths(benchmarks, evalCase.name), ...projectTruths(cases, evalCase.name), path.join(CURATED_CASES, evalCase.name, 'truth.json')].find(existsSync);
         metadata.set(evalCase.name, file ? JSON.parse(readFileSync(file, 'utf8')) : null);
       }
       return metadata.get(evalCase.name);
@@ -75,7 +80,7 @@ export function createAnalysis({ benchmarks = BENCHMARKS, tracesDir = null } = {
       return traces.get(run.tracePath);
     },
     exports(side) {
-      if (!exports.has(side)) exports.set(side, JSON.parse(readFileSync(path.join(benchmarks, REUSE_CASES_DIRECTORY, side + '-exports.json'), 'utf8')));
+      if (!exports.has(side)) exports.set(side, JSON.parse(readFileSync(path.join(projectCasesDir(REUSE_CASES_DIRECTORY, side, cases), REUSE_EXPORTS_FILE), 'utf8')));
       return exports.get(side);
     },
   };

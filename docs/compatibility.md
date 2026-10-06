@@ -1,7 +1,7 @@
 # Version compatibility
 
 What AMBICODE was built and observed against. Every capability claim in
-`src/checks/adapters.ts` points here, and each row says how it was established:
+`src/modules/checks/selection/adapters.ts` points here, and each row says how it was established:
 **observed** means it was exercised in this environment, **unverified** means the
 code is written against documented behaviour that nobody has run here yet.
 
@@ -251,7 +251,7 @@ refusal can be acted on without guessing which part was large.
 
 Unchanged lockfiles are skipped as sibling context. A lockfile the change
 *touches* is still reviewed — that decision is recorded in
-`src/snapshot/exclusions.ts` and stands — but an untouched one beside a changed
+`src/modules/review/snapshot/exclusions.ts` and stands — but an untouched one beside a changed
 source file tells a reviewer nothing while being the largest file in the
 directory. Measured on the `ts-source-regression` fixture with dependencies
 installed: a two-line source edit carried 195,977 context bytes before this
@@ -343,7 +343,7 @@ or review path.
 Re-confirmed on 2.1.272 through the **packaged** candidate rather than
 `--plugin-dir`, with no model call, via `npm run smoke:install-local` (doc 04
 P2.2 correction A, re-verified this session against the rewritten,
-failure-safe `install-local.mjs` of doc 04 P2.3 correction A):
+failure-safe `tools/install-local.mjs` of doc 04 P2.3 correction A):
 `claude plugin details ambicode@ambicode-team`, against the plugin installed
 from the durable local marketplace into an isolated `CLAUDE_CONFIG_DIR`,
 reports `Skills (5)  init, investigate, plan, review, task`. The two-skill
@@ -414,11 +414,11 @@ The marker dedup means it is sent once per epoch, not once per prompt, but the
 hook process itself does start on every user message (~190ms on the reference
 machine). That cost buys the post-compaction redelivery; dropping the
 `UserPromptSubmit` registration removes both, leaving `prepare --with-contract`
-as the manual fallback. `ADDITIONAL_CONTEXT_EVENTS` in `src/contracts/hook.ts`
+as the manual fallback. `ADDITIONAL_CONTEXT_EVENTS` in `src/types/hook.ts`
 holds the accepted names so the type system refuses the mistake. `SessionEnd` removes the
 hook's own dedup-marker directory. All of this is
 covered by `src/hook/events/run-hook.test.ts` (unit level, fake ports) and
-`hook-artifact.test.mjs` (built-artifact level: real bundled
+`tools/hook-artifact.test.mjs` (built-artifact level: real bundled
 `scripts/ambicode.mjs hook` invoked with piped stdin, no `claude` process
 involved).
 
@@ -441,7 +441,7 @@ the source tree, and this session additionally ran it directly against the
 zipped, allowlist-filtered artifact — not only the source checkout — passes
 strict validation on its own. `claude plugin list --json` returns an array
 of `{ id, version, scope, enabled, installPath, installedAt, lastUpdated,
-projectPath?, mcpServers }`; `verifyPostcondition` in `install-local.mjs`
+projectPath?, mcpServers }`; `verifyPostcondition` in `tools/install-local.mjs`
 (doc 04 P2.4 correction D) reads exactly this shape rather than a native
 command's exit code to decide whether an install actually took effect.
 
@@ -452,13 +452,13 @@ schema (fetched fresh; not recalled from an earlier version):
 
 | Component | Version | How established |
 |---|---|---|
-| `fflate` | 0.8.3 | pure-JavaScript deterministic ZIP generation in `package-candidate.mjs`; replaces the unavailable-on-Windows OS `zip` dependency |
+| `fflate` | 0.8.3 | pure-JavaScript deterministic ZIP generation in `tools/package-candidate.mjs`; replaces the unavailable-on-Windows OS `zip` dependency |
 | Marketplace source types | `local path`, `github`, `url`, `git-subdir`, `npm`, `archive` (sha256-pinned), `command` | current schema, fetched from `code.claude.com/docs/en/plugin-marketplaces` this session |
 | `CLAUDE_CONFIG_DIR` | isolates settings, session history and plugin state | observed directly: a fresh directory received its own `.claude.json` and an empty marketplace list, independent of the real `~/.claude` |
 | `claude plugin install/enable/disable/uninstall/update/list/details/validate` | all exercised | observed, against a local candidate marketplace, in an isolated config directory; see `docs/installation.md` |
 
 `scripts/ambicode.mjs` is gitignored and therefore absent from an ordinary
-git tag of this repository. `package-candidate.mjs` always rebuilds it and
+git tag of this repository. `tools/package-candidate.mjs` always rebuilds it and
 ships it in the local candidate. The ZIP is a reproducibility artifact; local
 installation uses the candidate directory. See `docs/installation.md`.
 
@@ -487,7 +487,7 @@ resolves the command and Execa surfaces the real `ENOENT`/`EACCES`.
 AMBICODE reuses the official `typescript-lsp@claude-plugins-official` and
 `pyright-lsp@claude-plugins-official` plugins. It does not bundle a language
 server or build another index. One registry in
-`src/code-intelligence/navigation.ts` maps the existing ecosystem enum to the
+`src/modules/search/text/navigation.ts` maps the existing ecosystem enum to the
 plugin, server command and setup commands. `init`, `config`, and `prepare`
 surface that guidance. Authoring skills record actual LSP symbol operations or
 a specific targeted-search fallback reason because the helper cannot inspect
@@ -563,8 +563,8 @@ Recorded per plan/11, "Dependency review evidence".
 
 | Package | Pinned | License | Upstream | Used by | Why not Node alone |
 |---|---|---|---|---|---|
-| `execa` | ^10.0.1 (10.0.1) | MIT | sindresorhus/execa | `src/ports/node-process-runner.ts` | Timeout with forceful descendant cleanup, `extendEnv: false`, normalized failure reporting, and a stable distinction between a spawn failure and a nonzero exit. The handwritten `child_process` version conflated them and counted output in UTF-16 code units. |
-| `isbinaryfile` | ^6.0.0 (6.0.0) | MIT | gjtorikian/isBinaryFile | `src/snapshot/exclusions.ts` | Content classification on bytes. The previous NUL-only check ran after decoding, which plan/11 rules out as the final decision. The extension list remains, as an early optimization only. |
+| `execa` | ^10.0.1 (10.0.1) | MIT | sindresorhus/execa | `src/platform/ports/node-process-runner.ts` | Timeout with forceful descendant cleanup, `extendEnv: false`, normalized failure reporting, and a stable distinction between a spawn failure and a nonzero exit. The handwritten `child_process` version conflated them and counted output in UTF-16 code units. |
+| `isbinaryfile` | ^6.0.0 (6.0.0) | MIT | gjtorikian/isBinaryFile | `src/modules/review/snapshot/exclusions.ts` | Content classification on bytes. The previous NUL-only check ran after decoding, which plan/11 rules out as the final decision. The extension list remains, as an early optimization only. |
 
 Both are MIT, bundled into `scripts/ambicode.mjs` by esbuild, and exercised
 through the built artifact (the smoke run below), not only through
@@ -575,19 +575,19 @@ supporting evidence, not a release decision on its own.
 
 | Package | Pinned | License | Upstream | Used by | Why not Node alone |
 |---|---|---|---|---|---|
-| `fflate` | ^0.8.3 (0.8.3) | MIT | 101arrowz/fflate | `package-candidate.mjs` | Node 24 has no ZIP writer. The previous `/usr/bin/zip` call made candidate construction fail on Windows. `zipSync` receives sorted paths, fixed timestamps and explicit modes, and `package:reproducible` compares two archive digests. It is not shipped in the plugin bundle. |
+| `fflate` | ^0.8.3 (0.8.3) | MIT | 101arrowz/fflate | `tools/package-candidate.mjs` | Node 24 has no ZIP writer. The previous `/usr/bin/zip` call made candidate construction fail on Windows. `zipSync` receives sorted paths, fixed timestamps and explicit modes, and `package:reproducible` compares two archive digests. It is not shipped in the plugin bundle. |
 
 ### The `view` page's server stack
 
 | Package | Pinned | License | Upstream | Used by | Why not Node alone |
 |---|---|---|---|---|---|
-| `fastify` | ^5.12.5 | MIT | fastify/fastify | `src/page/server.ts` | Routing, request/reply lifecycle, `.inject()` for socket-free testing, and the plugin points every other row here hangs off. A handwritten `http.createServer` would need to reimplement all of that to get the same test surface. |
-| `@fastify/formbody` | ^8.0.2 | MIT | fastify/fastify-formbody | `src/page/server.ts` | Parses `application/x-www-form-urlencoded`, including repeated field names as arrays — used to detect a duplicate submission of the same field as an attack rather than silently taking the last value. |
-| `@fastify/cookie` | ^11.1.2 | MIT | fastify/fastify-cookie | `src/page/server.ts` | Signs and verifies the session cookie. AMBICODE never invents its own cookie signing. |
-| `@fastify/csrf-protection` | ^7.1.0 | MIT | fastify/csrf-protection | `src/page/server.ts` | A per-render token plus a cookie-held secret, checked on every state-changing request. AMBICODE supplies no CSRF algorithm of its own. |
-| `@fastify/helmet` | ^13.1.1 | MIT | fastify/fastify-helmet | `src/page/server.ts` | The full security-header set (CSP, `Referrer-Policy`, `X-Content-Type-Options`, frame protection) from one audited source rather than a hand-assembled header list that silently drifts from best practice. |
-| `@fastify/view` | ^11.1.1 | MIT | fastify/point-of-view | `src/page/server.ts` | Wires a template engine to `reply.view()` so a route hands the engine data, never a hand-built HTML string. |
-| `eta` | ^3.5.0 | MIT | eta-dev/eta | `templates/*.eta` | Escaped interpolation by default (`<%= %>`). AMBICODE writes no HTML-escaping function of its own; every hostile string in a review — a finding's text, a requirement title, an existing GitLab note — passes through Eta's escaping, not a bespoke one. |
+| `fastify` | ^5.12.5 | MIT | fastify/fastify | `src/modules/review/page/server.ts` | Routing, request/reply lifecycle, `.inject()` for socket-free testing, and the plugin points every other row here hangs off. A handwritten `http.createServer` would need to reimplement all of that to get the same test surface. |
+| `@fastify/formbody` | ^8.0.2 | MIT | fastify/fastify-formbody | `src/modules/review/page/server.ts` | Parses `application/x-www-form-urlencoded`, including repeated field names as arrays — used to detect a duplicate submission of the same field as an attack rather than silently taking the last value. |
+| `@fastify/cookie` | ^11.1.2 | MIT | fastify/fastify-cookie | `src/modules/review/page/server.ts` | Signs and verifies the session cookie. AMBICODE never invents its own cookie signing. |
+| `@fastify/csrf-protection` | ^7.1.0 | MIT | fastify/csrf-protection | `src/modules/review/page/server.ts` | A per-render token plus a cookie-held secret, checked on every state-changing request. AMBICODE supplies no CSRF algorithm of its own. |
+| `@fastify/helmet` | ^13.1.1 | MIT | fastify/fastify-helmet | `src/modules/review/page/server.ts` | The full security-header set (CSP, `Referrer-Policy`, `X-Content-Type-Options`, frame protection) from one audited source rather than a hand-assembled header list that silently drifts from best practice. |
+| `@fastify/view` | ^11.1.1 | MIT | fastify/point-of-view | `src/modules/review/page/server.ts` | Wires a template engine to `reply.view()` so a route hands the engine data, never a hand-built HTML string. |
+| `eta` | ^3.5.0 | MIT | eta-dev/eta | `src/modules/review/page/templates/*.eta` | Escaped interpolation by default (`<%= %>`). AMBICODE writes no HTML-escaping function of its own; every hostile string in a review — a finding's text, a requirement title, an existing GitLab note — passes through Eta's escaping, not a bespoke one. |
 
 None of the seven has a transitive dependency outside the Fastify/`@fastify/*`
 family and `eta` itself; `npm audit` (below) covers the whole tree, not just
@@ -602,7 +602,7 @@ practice even though the ranges allow patch/minor movement.
 this writing. That is a snapshot,
 not a standing guarantee; a reachability assessment still matters more than the
 count — every one of the seven packages above is reachable only from
-`src/page/server.ts` and `templates/*.eta`, which run only when `ambicode view`
+`src/modules/review/page/server.ts` and `src/modules/review/page/templates/*.eta`, which run only when `ambicode view`
 is invoked, never during `review` or `bundle`.
 
 ### The `view` page, exercised through the built artifact
@@ -652,23 +652,22 @@ of that, plus exit, timeout, spawn failure and truncation staying distinct.
 ## Source files stay text
 
 A literal control byte in a TypeScript source — a NUL above all — makes git
-treat the file as binary, and `git diff` then stops showing it. `src/review/
-validate.ts` had one (a NUL used as a hash-seed separator) and now uses the
+treat the file as binary, and `git diff` then stops showing it. `src/modules/review/findings/validate.ts` had one (a NUL used as a hash-seed separator) and now uses the
 escaped source literal `'\0'`.
 
 Two unit tests keep it that way: one scans every `src/**/*.ts` for control bytes
 other than tab, newline and carriage return, and one asserts that `git diff
---numstat` reports real line counts for `src/review/validate.ts` rather than the
+--numstat` reports real line counts for `src/modules/review/findings/validate.ts` rather than the
 `-\t-` it prints for a binary path. The tree-wide scan exists because the defect
 is invisible in an editor and easy to reintroduce anywhere.
 
 Measured on the fixed file and on its predecessor:
 
 ```
-$ git diff --numstat --no-index -- /dev/null src/review/validate.ts
-210     0       /dev/null => src/review/validate.ts      # text
+$ git diff --numstat --no-index -- /dev/null src/modules/review/findings/validate.ts
+210     0       /dev/null => src/modules/review/findings/validate.ts      # text
 
-$ git show <previous>:src/review/validate.ts > old.ts
+$ git show <previous>:src/modules/review/findings/validate.ts > old.ts
 $ git diff --numstat --no-index -- /dev/null old.ts
 -       -       /dev/null => old.ts                      # binary
 ```

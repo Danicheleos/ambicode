@@ -62,7 +62,7 @@ describe('evals-bench: fresh evidence between invocations', () => {
   it('rereads changed truth and harvested traces for the next score', () => {
     const benchmarks = mkdtempSync(path.join(tmpdir(), 'bench-fresh-'));
     try {
-      const dir = path.join(benchmarks, 'cases', 'fresh');
+      const dir = path.join(benchmarks, 'SIDE', 'cases', 'fresh');
       const tracesDir = path.join(benchmarks, 'traces');
       mkdirSync(dir, { recursive: true });
       mkdirSync(tracesDir);
@@ -87,15 +87,15 @@ describe('evals-bench: fresh evidence between invocations', () => {
   it('rereads changed exports for the next reuse score', () => {
     const benchmarks = mkdtempSync(path.join(tmpdir(), 'bench-reuse-fresh-'));
     try {
-      const dir = path.join(benchmarks, 'reuse-cases', 'fresh');
+      const dir = path.join(benchmarks, 'SIDE', 'reuse', 'fresh');
       mkdirSync(dir, { recursive: true });
       writeFileSync(path.join(dir, 'truth.json'), JSON.stringify({ kind: 'reuse', side: 'SIDE', root: 'app', truth: ['existing'] }));
-      const exportsFile = path.join(benchmarks, 'reuse-cases', 'SIDE-exports.json');
+      const exportsFile = path.join(benchmarks, 'SIDE', 'reuse', 'exports.json');
       writeFileSync(exportsFile, JSON.stringify({ existing: ['app/a.ts'] }));
       const results = { cases: [{ name: 'fresh', arms: { with: [{ graders: [{ name: 'names-a-true-file', evidence: '## Reuse\n- `existing` in `app/a.ts`\n## New\n- `duplicate`' }] }] } }] };
-      assert.equal(score(results, { benchmarks }).runs[0].dupes, 0);
+      assert.equal(score(results, { benchmarks, cases: benchmarks }).runs[0].dupes, 0);
       writeFileSync(exportsFile, JSON.stringify({ existing: ['app/a.ts'], duplicate: ['app/b.ts'] }));
-      assert.equal(score(results, { benchmarks }).runs[0].dupes, 1);
+      assert.equal(score(results, { benchmarks, cases: benchmarks }).runs[0].dupes, 1);
     } finally { rmSync(benchmarks, { recursive: true, force: true }); }
   });
 });
@@ -104,8 +104,8 @@ describe('evals-bench: scoring a run', () => {
   let benchmarks;
   before(() => {
     benchmarks = mkdtempSync(path.join(tmpdir(), 'bench-score-'));
-    mkdirSync(path.join(benchmarks, 'cases', 'side-t-1'), { recursive: true });
-    writeFileSync(path.join(benchmarks, 'cases', 'side-t-1', 'truth.json'), JSON.stringify({ side: 'SIDE', ticket: 'T-1', root: 'app', truth: ['app/a.ts', 'app/b.ts'] }));
+    mkdirSync(path.join(benchmarks, 'SIDE', 'cases', 'side-t-1'), { recursive: true });
+    writeFileSync(path.join(benchmarks, 'SIDE', 'cases', 'side-t-1', 'truth.json'), JSON.stringify({ side: 'SIDE', ticket: 'T-1', root: 'app', truth: ['app/a.ts', 'app/b.ts'] }));
   });
   after(() => rmSync(benchmarks, { recursive: true, force: true }));
 
@@ -201,8 +201,8 @@ describe('evals-bench: scoring a review run', () => {
   let benchmarks;
   before(() => {
     benchmarks = mkdtempSync(path.join(tmpdir(), 'bench-review-score-'));
-    mkdirSync(path.join(benchmarks, 'cases', 'side-t-1-review-7-x'), { recursive: true });
-    writeFileSync(path.join(benchmarks, 'cases', 'side-t-1-review-7-x', 'truth.json'), JSON.stringify({ kind: 'review', side: 'SIDE', ticket: 'T-1', version: '7-x', root: 'app', threads: 2 }));
+    mkdirSync(path.join(benchmarks, 'SIDE', 'cases', 'side-t-1-review-7-x'), { recursive: true });
+    writeFileSync(path.join(benchmarks, 'SIDE', 'cases', 'side-t-1-review-7-x', 'truth.json'), JSON.stringify({ kind: 'review', side: 'SIDE', ticket: 'T-1', version: '7-x', root: 'app', threads: 2 }));
   });
   after(() => rmSync(benchmarks, { recursive: true, force: true }));
 
@@ -309,8 +309,8 @@ describe('evals-bench: ledgers and route measures', () => {
   it('attaches ledger measures to scored runs, and an infrastructure failure stays absent', () => {
     const benchmarks = mkdtempSync(path.join(tmpdir(), 'bench-ledger-score-'));
     try {
-      mkdirSync(path.join(benchmarks, 'cases', 'side-t-1'), { recursive: true });
-      writeFileSync(path.join(benchmarks, 'cases', 'side-t-1', 'truth.json'), JSON.stringify({ side: 'SIDE', ticket: 'T-1', root: 'app', truth: ['app/a.ts'] }));
+      mkdirSync(path.join(benchmarks, 'SIDE', 'cases', 'side-t-1'), { recursive: true });
+      writeFileSync(path.join(benchmarks, 'SIDE', 'cases', 'side-t-1', 'truth.json'), JSON.stringify({ side: 'SIDE', ticket: 'T-1', root: 'app', truth: ['app/a.ts'] }));
       const tracesDir = path.join(benchmarks, 'traces');
       for (const [id, tail] of [['e-ok', ''], ['e-dead', ''], ['e-torn', '{"kind":"exit","rea']]) {
         const dir = path.join(tracesDir, LEDGER_DIRECTORY, id, 'home', 'cwd', 'repo', '.ambicode', 'task', 's');
@@ -355,8 +355,8 @@ describe('evals-bench: scoring keeps unknown ledger measures unknown', () => {
   const scoreLedgers = (arms) => {
     const benchmarks = mkdtempSync(path.join(tmpdir(), 'bench-ledger-unknown-'));
     try {
-      mkdirSync(path.join(benchmarks, 'cases', 'side-t-1'), { recursive: true });
-      writeFileSync(path.join(benchmarks, 'cases', 'side-t-1', 'truth.json'), JSON.stringify({ side: 'SIDE', ticket: 'T-1', root: 'app', truth: ['app/a.ts'] }));
+      mkdirSync(path.join(benchmarks, 'SIDE', 'cases', 'side-t-1'), { recursive: true });
+      writeFileSync(path.join(benchmarks, 'SIDE', 'cases', 'side-t-1', 'truth.json'), JSON.stringify({ side: 'SIDE', ticket: 'T-1', root: 'app', truth: ['app/a.ts'] }));
       const tracesDir = path.join(benchmarks, 'traces');
       const cases = [{ name: 'side-t-1', arms: {} }];
       for (const [arm, ledgers] of Object.entries(arms))
@@ -455,8 +455,8 @@ describe('evals-bench: incomplete ledgers measure nothing', () => {
   it('keeps an infrastructure failure absent whatever its ledger holds', () => {
     const benchmarks = mkdtempSync(path.join(tmpdir(), 'bench-ledger-infra-'));
     try {
-      mkdirSync(path.join(benchmarks, 'cases', 'side-t-1'), { recursive: true });
-      writeFileSync(path.join(benchmarks, 'cases', 'side-t-1', 'truth.json'), JSON.stringify({ side: 'SIDE', ticket: 'T-1', root: 'app', truth: ['app/a.ts'] }));
+      mkdirSync(path.join(benchmarks, 'SIDE', 'cases', 'side-t-1'), { recursive: true });
+      writeFileSync(path.join(benchmarks, 'SIDE', 'cases', 'side-t-1', 'truth.json'), JSON.stringify({ side: 'SIDE', ticket: 'T-1', root: 'app', truth: ['app/a.ts'] }));
       const dir = path.join(benchmarks, 'traces', LEDGER_DIRECTORY, 'e-x', 'l');
       mkdirSync(dir, { recursive: true });
       writeFileSync(path.join(dir, 'ledger.jsonl'), 'torn');

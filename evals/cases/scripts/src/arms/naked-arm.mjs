@@ -1,11 +1,11 @@
 // Builds the naked plugin for `evals:baseline`: a plugin with no components, whose plugin arm is the model
 // alone. `claude plugin eval` has no without-only ablation, so this is how the baseline runs one arm.
-// Commands: [--out <dir>] [--benchmarks <absolute dir>]. See evals/cases/evals-core/README.md, "Baseline".
+// Commands: [--out <dir>] [--benchmarks <absolute dir>]. See evals/cases/common/core/README.md, "Baseline".
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
-import { BENCHMARKS, CURATED_CASES, NAKED_PLUGIN, ROOT } from '../shared/bench-paths.mjs';
+import { BENCHMARKS, CURATED_CASES, CURATED_EVAL_DIR, NAKED_PLUGIN, ROOT } from '../shared/bench-paths.mjs';
 import { refuseLegacyTwins } from '../cases/bench-cases.mjs';
 import { CASES_LOCK, withCasesLock } from '../harness/cases-lock.mjs';
 import { GENERATION_MARKER, NAKED_COPY, PROMPT, SWAP_MARKER, WITH_PROMPT } from '../harness/prompt-transport.mjs';
@@ -65,7 +65,7 @@ function buildLocked({ out, casesDir, benchmarks }) {
   // The harness refuses symlinks under --eval-dir, so cases are real copies; the scaffolds reach the data through
   // `../../../../benchmarks`, one symlink at the plugin root.
   for (const id of cases) {
-    const to = path.join(out, 'evals', 'cases', 'evals-core', 'cases', id);
+    const to = path.join(out, CURATED_EVAL_DIR, 'cases', id);
     cpSync(path.join(casesDir, id), to, { recursive: true, filter: (source) => !PLUGIN_ONLY_FILES.has(path.basename(source)) || path.dirname(source) !== path.join(casesDir, id) });
     const caseYaml = path.join(to, 'case.yaml');
     if (existsSync(caseYaml)) writeFileSync(caseYaml, controlCaseYaml(readFileSync(caseYaml, 'utf8')));

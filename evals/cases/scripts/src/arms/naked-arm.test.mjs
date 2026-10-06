@@ -33,7 +33,7 @@ describe('naked-arm', () => {
     buildNaked({ out: path.join(root, 'lock-out'), casesDir, benchmarks: path.join(root, 'benchmarks') });
     assert.ok(existsSync(path.join(casesDir, CASES_LOCK)), 'the copy held the cases lock');
     assert.deepEqual(baselineCases(casesDir), ['be-1', 'be-1-review-9-abc'], 'the lock directory is not a case');
-    assert.deepEqual(readdirSync(path.join(root, 'lock-out', 'evals', 'cases', 'evals-core', 'cases')).sort(), ['be-1', 'be-1-review-9-abc'], 'nor is it copied into the control');
+    assert.deepEqual(readdirSync(path.join(root, 'lock-out', 'evals', 'cases', 'common', 'core', 'cases')).sort(), ['be-1', 'be-1-review-9-abc'], 'nor is it copied into the control');
     mkdirSync(path.join(casesDir, 'be-1-review-9-abc-forced'));
     try {
       assert.throws(() => baselineCases(casesDir), /forced twin/);
@@ -47,20 +47,20 @@ describe('naked-arm', () => {
     buildNaked({ out, casesDir, benchmarks: path.join(root, 'benchmarks') });
     assert.deepEqual(JSON.parse(readFileSync(path.join(out, '.claude-plugin', 'plugin.json'), 'utf8')).name, NAKED_PLUGIN);
     assert.ok(lstatSync(path.join(out, 'evals', 'benchmarks')).isSymbolicLink());
-    assert.ok(!lstatSync(path.join(out, 'evals', 'cases', 'evals-core', 'cases', 'be-1')).isSymbolicLink(), 'the harness refuses symlinks under --eval-dir');
+    assert.ok(!lstatSync(path.join(out, 'evals', 'cases', 'common', 'core', 'cases', 'be-1')).isSymbolicLink(), 'the harness refuses symlinks under --eval-dir');
     assert.ok(runArgs(['--model', 'm', '--max-cost-usd', '1'], { plugin: out }).includes(out));
   });
 
   it('serves the generator\'s naked prompt bytes and carries no plugin prompt or selector', () => {
     const out = path.join(root, 'out-clean');
     buildNaked({ out, casesDir, benchmarks: path.join(root, 'benchmarks') });
-    const copy = path.join(out, 'evals', 'cases', 'evals-core', 'cases', 'be-1');
+    const copy = path.join(out, 'evals', 'cases', 'common', 'core', 'cases', 'be-1');
     assert.equal(readFileSync(path.join(copy, PROMPT), 'utf8'), NAKED_PROMPT);
     assert.ok(!existsSync(path.join(copy, WITH_PROMPT)) && !existsSync(path.join(copy, NAKED_COPY)));
     const caseYaml = parseYaml(readFileSync(path.join(copy, 'case.yaml'), 'utf8'));
     assert.deepEqual(caseYaml, { schema_version: '1.1', name: 'be-1', execution: { max_turns: 40 } });
     assert.equal(
-      readFileSync(path.join(out, 'evals', 'cases', 'evals-core', 'cases', 'be-1-review-9-abc', 'case.yaml'), 'utf8'),
+      readFileSync(path.join(out, 'evals', 'cases', 'common', 'core', 'cases', 'be-1-review-9-abc', 'case.yaml'), 'utf8'),
       readFileSync(path.join(casesDir, 'be-1-review-9-abc', 'case.yaml'), 'utf8'),
       'a case.yaml with no selector is copied byte for byte',
     );
@@ -76,7 +76,7 @@ describe('naked-arm', () => {
       restorePrompts(casesDir);
     }
     buildNaked({ out, casesDir, benchmarks: path.join(root, 'benchmarks') });
-    assert.equal(readFileSync(path.join(out, 'evals', 'cases', 'evals-core', 'cases', 'be-1', PROMPT), 'utf8'), NAKED_PROMPT);
+    assert.equal(readFileSync(path.join(out, 'evals', 'cases', 'common', 'core', 'cases', 'be-1', PROMPT), 'utf8'), NAKED_PROMPT);
   });
 
   it('refuses an interrupted generation, and a plugin prompt left in prompt.md without its marker', () => {

@@ -3,10 +3,10 @@ import { existsSync } from 'node:fs';
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, it } from 'node:test';
-import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
+import { REPO_ROOT } from '#testing/paths';
 
-const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const repositoryRoot = REPO_ROOT;
 const SKILLS_DIR = path.join(repositoryRoot, 'skills');
 
 /**
@@ -326,10 +326,10 @@ describe('P2.3 task skill', () => {
  */
 async function emittedErrorCodes(): Promise<Set<string>> {
   const DYNAMIC: Record<string, string[]> = {
-    'snapshot/remote-target.ts': ['provider-unsupported', 'provider-resolve-failed', 'provider-fetch-failed'],
+    'modules/review/snapshot/remote-target.ts': ['provider-unsupported', 'provider-resolve-failed', 'provider-fetch-failed'],
     // A handler's failure code passes through; the codes themselves are raised, and documented, where the handler raises them.
-    'route/engine.ts': [],
-    'cli/commands/requirements.ts': ['requirements-not-captured', 'requirements-missing'],
+    'harness/engine/engine.ts': [],
+    'cli/commands/requirements/requirements.ts': ['requirements-not-captured', 'requirements-missing'],
   };
   const codes = new Set<string>();
   const sourceDir = path.join(repositoryRoot, 'src');

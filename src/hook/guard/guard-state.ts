@@ -2,19 +2,10 @@
 import { createHash } from 'node:crypto';
 import { closeSync, constants, fstatSync, openSync, readSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import type { LedgerEntry } from '../../task/ledger.ts';
-import type { ActiveRoute, GuardState } from './guard-core.ts';
-
-// Equal to markers.ts HOOK_STATE_DIR_NAME and ledger.ts LEDGER_FILE (tested); importing either would bundle node:path and node:crypto.
-export const GUARD_STATE_DIR_NAME = 'ambicode-hook-state';
-export const ACTIVE_ROUTE_FILE = 'active-route';
-export const GUARD_LEDGER_FILE = 'ledger.jsonl';
+import type { LedgerEntry } from '#types/evidence';
+import { GUARD_STATE_DIR_NAME, ACTIVE_ROUTE_FILE, GUARD_LEDGER_FILE, LEDGER_LIMIT, type ActiveRoute, type GuardState } from '../types/guard.ts';
 
 const POINTER_LIMIT = 4 * 1024;
-// The 1 MiB ledger warning (01-contracts §1). Built guard, 20-spawn medians: 34-38 ms small, 40-43 ms at 1 MiB of
-// long records, 45-50 ms at 1 MiB of short ones, 53-57 ms at 2 MiB of short ones against 33 §7's 50 ms; a larger
-// ledger denies the plan-body write instead.
-export const LEDGER_LIMIT = 1024 * 1024;
 // Equal to stop-check.ts TRANSCRIPT_TAIL_BYTES (tested).
 export const TRANSCRIPT_TAIL = 1024 * 1024;
 

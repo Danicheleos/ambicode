@@ -41,7 +41,7 @@ to be tried when the skills show good results without them.
 
 | # | Layer | Tool | Cost | Answers | Who |
 |---|---|---|---|---|---|
-| `grep` | Text | `git grep -w -l` 🆕 (`grepWords` beside the existing `grepFiles`, which is `-i -F -l` with no `-w`, `src/git/git.ts:217-229`) | **70 ms BE / 151 ms FE per name with process spawn** (`queries.log`); 17/41 ms in-process from an unlogged re-run (#50) | occurrences; references of a unique name (M10, 1.00/1.00) | every skill; the model directly |
+| `grep` | Text | `git grep -w -l` 🆕 (`grepWords` beside the existing `grepFiles`, which is `-i -F -l` with no `-w`, `src/platform/git/git.ts:217-229`) | **70 ms BE / 151 ms FE per name with process spawn** (`queries.log`); 17/41 ms in-process from an unlogged re-run (#50) | occurrences; references of a unique name (M10, 1.00/1.00) | every skill; the model directly |
 | `shortlist` | Term shortlist | `locate` (exists: path, content, co-change) | ~0.3–1 s | files for a bag of terms | all, pass 1 and pass 2 |
 | `harvest` | **Regex harvest** 🆕 | the `DECLARATIONS` patterns of `dependents.ts:25-33` over the top 8 pass-1 files, run **globally** (today `declaredNames` takes the first match per pattern, ≤ 7 names per file, `:35-40`) with an `export` filter in TypeScript (#51) | I'd guess ~50 ms (unmeasured) | declared names to feed pass 2; **declaration counts per name** (collisions) | all, pass 2 |
 | `index.find` / `index.relates` | Symbol index (optional) | `codeindex` adapter, §3 | cold 0.9 s / 5.7 s (BE / FE); warm 0.15–0.5 s | declarations by name, importers of a file, blast radius of a diff | pass 2 improvement; review and task dependents |

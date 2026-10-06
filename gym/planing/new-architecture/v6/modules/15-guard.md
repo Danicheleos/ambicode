@@ -17,7 +17,7 @@ active route from session state or the ledger scan); `PostToolUse(AskUserQuestio
 
 `permissionDecision: ask|deny|allow` with a reason; **`updatedInput`** adding `--task <slug>` to an
 `ambicode` command that lacks it while a route is active — **unverified platform behaviour** (no
-mention in `docs/compatibility.md` or `src/contracts/hook.ts`; probe P47 before 41 step 1; the
+mention in `docs/compatibility.md` or `src/types/hook.ts`; probe P47 before 41 step 1; the
 fallback is that every step text already carries `--task <slug>`, so nothing depends on it, #64);
 `Stop`: `decision: block` with a reason, at most once per route.
 

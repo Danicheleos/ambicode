@@ -12,6 +12,12 @@ Implementation and unit tests live under `src/`, grouped by responsibility:
 | `shared/` | Repository and benchmark paths |
 | `testing/` | Shared synthetic fixtures and suite integration tests |
 
+`local/` is gitignored and holds one-off tools that name NDA data: `benchmark-prep/` (merge-request audit and
+review preparation) and `report-tools/` (trace and call-chain analyses behind `evals/reports/`).
+
+Every run files its output under `evals/outputs/<eval type>/<date>/<NN>_<HHMM>_<label>/` (`iterationDir` in
+`harness/run-options.mjs`) and appends a row to that date's `iterations.md`.
+
 Unit tests stay beside their modules. Run all eval tests without model calls:
 
 ```sh

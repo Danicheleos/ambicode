@@ -16,3 +16,7 @@ export class AmbicodeError extends Error {
 export function isAmbicodeError(value: unknown): value is AmbicodeError {
   return value instanceof AmbicodeError;
 }
+
+export function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}

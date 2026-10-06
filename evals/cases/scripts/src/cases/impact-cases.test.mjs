@@ -66,7 +66,7 @@ describe('impact-cases', () => {
   it('writes a case whose prompt names the symbol and whose grader lists only its users', () => {
     const out = path.join(dir, 'cases');
     const [risk] = analyse(dir, 'src').filter((s) => s.name === 'riskOf');
-    const name = writeImpactCase(out, 'BE', risk);
+    const name = writeImpactCase(out, 'BE-express', risk);
     assert.equal(name, 'be-impact-riskof');
     const grader = readFileSync(path.join(out, name, 'graders', 'names-a-true-file.md'), 'utf8');
     assert.match(grader, /use `riskOf`/);
@@ -81,7 +81,7 @@ describe('impact-cases', () => {
   it('05-K2: prompt.with.md is the naked prompt with the investigate command typed in, and truth carries declarations', () => {
     const out = path.join(dir, 'cases-k2');
     const risk = analyse(dir, 'src').find((s) => s.name === 'riskOf');
-    const name = writeImpactCase(out, 'BE', risk);
+    const name = writeImpactCase(out, 'BE-express', risk);
     const naked = readFileSync(path.join(out, name, 'prompt.md'), 'utf8');
     assert.equal(readFileSync(path.join(out, name, 'prompt.with.md'), 'utf8'), pluginPrompt(naked, INVESTIGATE_COMMAND));
     assert.equal(readFileSync(path.join(out, name, 'prompt.naked.md'), 'utf8'), naked);
@@ -94,21 +94,21 @@ describe('impact-cases CLI', () => {
   let bench;
   before(() => {
     bench = mkdtempSync(path.join(tmpdir(), 'impact-bench-'));
-    const src = path.join(bench, 'BE', 'src');
+    const src = path.join(bench, 'BE-express', 'project', 'src');
     write(src, 'util/risk.ts', 'export function riskOf(x: number): number { return x; }\n');
     write(src, 'legacy/risk.ts', 'export function riskOf(x: string): string { return x; }\n');
     for (const user of ['a', 'b', 'c']) write(src, `app/${user}.ts`, `import { riskOf } from "../util/risk";\nexport const v${user} = riskOf(1);\n`);
     write(src, 'app/note.ts', '// riskOf lives elsewhere\n');
   });
   after(() => rmSync(bench, { recursive: true, force: true }));
-  const run = (...args) => spawnSync(process.execPath, [script, '--side', 'BE', ...args], { encoding: 'utf8' });
+  const run = (...args) => spawnSync(process.execPath, [script, '--side', 'BE-express', ...args], { encoding: 'utf8' });
 
   it('05-K3 and 05-K4: reads and writes under --benchmarks and prints the case counts and the estimate', () => {
-    const result = run('--benchmarks', bench);
+    const result = run('--benchmarks', bench, '--cases', path.join(bench, 'cases'));
     assert.equal(result.status, 0, result.stderr);
-    assert.deepEqual(readdirSync(path.join(bench, 'impact-cases')), ['be-impact-riskof']);
-    assert.match(readFileSync(path.join(bench, 'impact-cases', 'be-impact-riskof', 'scaffold.sh'), 'utf8'), /SIDE="\$\(cd "\$\(dirname "\$0"\)\/\.\.\/\.\.\/BE" && pwd\)"/);
-    assert.match(result.stdout, /^BE: 1 cases$/m);
+    assert.deepEqual(readdirSync(path.join(bench, 'cases', 'BE-express', 'impact')), ['be-impact-riskof']);
+    assert.match(readFileSync(path.join(bench, 'cases', 'BE-express', 'impact', 'be-impact-riskof', 'scaffold.sh'), 'utf8'), /SIDE="\$\(cd "\$\(dirname "\$0"\)\/\.\.\/\.\.\/\.\.\/\.\.\/BE-express\/project" && pwd\)"/);
+    assert.match(result.stdout, /^BE-express: 1 cases$/m);
     assert.match(result.stdout, /^estimate: 1 cases × 3 runs × 2 arms × \$0\.18\/run ≈ \$1\.08 \(estimate, not an authorization\)$/m);
   });
 

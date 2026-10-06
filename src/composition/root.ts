@@ -1,41 +1,24 @@
 import path from 'node:path';
-import type { AmbicodeConfig, ProjectConfig } from '../contracts/config.ts';
-import { loadConfigWithNotices } from '../config/load.ts';
-import { Git } from '../git/git.ts';
-import { systemClock, type Clock } from '../ports/clock.ts';
-import { nodeFileSystem, type FileSystem } from '../ports/filesystem.ts';
-import { systemIds, type IdSource } from '../ports/ids.ts';
-import { NodeProcessRunner } from '../ports/node-process-runner.ts';
-import type { ProcessRunner } from '../ports/process.ts';
-import { processStandardInput, type StandardInput } from '../ports/stdin.ts';
-import { loadPacksForProject } from '../policy/load.ts';
-import { GitHubProvider } from '../providers/github/provider.ts';
-import { GitLabProvider } from '../providers/gitlab/provider.ts';
-import { ProviderRegistry } from '../providers/registry.ts';
-import { resolvePolicy } from '../policy/resolve.ts';
-import type { Activity } from '../contracts/primitives.ts';
-import type { ResolvedPolicy } from '../contracts/policy.ts';
-import { AmbicodeError } from '../util/errors.ts';
-import { mostSpecificRoot, normalizeRelative } from '../util/paths.ts';
-import { builtinPoliciesDirectory, resolvePluginRoot } from '../util/plugin-root.ts';
-
-/**
- * The only place that touches `node:fs`, `process`, `process.env`, `Date` or
- * `crypto`; everything deeper gets them from here.
- */
-export interface Runtime {
-  runner: ProcessRunner;
-  fs: FileSystem;
-  clock: Clock;
-  ids: IdSource;
-  cwd: string;
-  pluginRoot: string;
-  stdin: StandardInput;
-  env: Readonly<Record<string, string | undefined>>;
-  providers: ProviderRegistry;
-  /** Config notices collected while commands run; the CLI prints them to stderr. */
-  notices?: string[];
-}
+import type { AmbicodeConfig, ProjectConfig } from '#types/config';
+import { loadConfigWithNotices } from '#modules/config/load';
+import { Git } from '#platform/git/git';
+import { systemClock } from '#platform/ports/clock';
+import { nodeFileSystem } from '#platform/ports/filesystem';
+import { systemIds } from '#platform/ports/ids';
+import { NodeProcessRunner } from '#platform/ports/node-process-runner';
+import { processStandardInput } from '#platform/ports/stdin';
+import { loadPacksForProject } from '#modules/policy/packs/load';
+import { GitHubProvider } from '#platform/providers/github/provider';
+import { GitLabProvider } from '#platform/providers/gitlab/provider';
+import { ProviderRegistry } from '#platform/providers/registry';
+import { resolvePolicy } from '#modules/policy/packs/resolve';
+import type { Activity } from '#types/primitives';
+import type { ResolvedPolicy } from '#types/policy';
+import { AmbicodeError } from '#util/errors';
+import { mostSpecificRoot, normalizeRelative } from '#util/paths';
+import { builtinPoliciesDirectory, resolvePluginRoot } from '#util/plugin-root';
+import type { Runtime, Workspace } from '#types/composition';
+import type { Clock, FileSystem, IdSource, ProcessRunner, StandardInput } from '#types/ports';
 
 export interface RuntimeOverrides {
   runner?: ProcessRunner;
@@ -70,14 +53,6 @@ export async function createRuntime(overrides: RuntimeOverrides = {}): Promise<R
 
 export function defaultProviders(runner: ProcessRunner, cwd: string): ProviderRegistry {
   return new ProviderRegistry([new GitLabProvider({ runner, cwd }), new GitHubProvider()]);
-}
-
-export interface Workspace {
-  runtime: Runtime;
-  git: Git;
-  repositoryRoot: string;
-  config: AmbicodeConfig;
-  configPath: string;
 }
 
 export async function openRepository(runtime: Runtime): Promise<{ git: Git; repositoryRoot: string }> {

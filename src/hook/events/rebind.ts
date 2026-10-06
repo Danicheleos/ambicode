@@ -1,15 +1,16 @@
 import path from 'node:path';
-import { findSessionRepository } from '../../composition/session-repository.ts';
-import type { Runtime } from '../../composition/root.ts';
-import { TASKS_DIR } from '../../config/defaults.ts';
-import type { HookInput } from '../../contracts/hook.ts';
-import type { ActiveRoutePointer } from '../../route/active-route.ts';
-import { liveHeads } from '../../route/fold.ts';
-import { harnessOf } from '../../route/harness.ts';
-import { readLedger, type LedgerEntry } from '../../task/ledger.ts';
-import { withLedgerLock } from '../../task/ledger-lock.ts';
-import { taskDirFor } from '../../task/task-dir.ts';
+import { findSessionRepository } from '#composition/session-repository';
+import { TASKS_DIR } from '#types/defaults';
+import type { HookInput } from '#types/hook';
+import { liveHeads } from '#harness/engine/fold';
+import { harnessOf } from '#harness/session/harness';
+import { readLedger } from '#modules/evidence/ledger/ledger';
+import { withLedgerLock } from '#modules/evidence/ledger/ledger-lock';
+import { taskDirFor } from '#modules/evidence/task/task-dir';
 import { anySessionEnded, sessionEnded } from '../session/markers.ts';
+import type { Runtime } from '#types/composition';
+import type { LedgerEntry } from '#types/evidence';
+import type { ActiveRoutePointer } from '#types/harness';
 
 /**
  * Attaches a new Claude session to the one live route in the repository whose own session has ended; any other count

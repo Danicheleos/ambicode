@@ -36,7 +36,7 @@ jobs:
       - name: line endings are normalized
         if: runner.os == 'Windows'
         shell: cmd
-        run: node check-line-endings.mjs
+        run: node tools/check-line-endings.mjs
 
       # `npm run verify` validates the plugin with the Claude Code CLI.
       - name: install the Claude Code CLI

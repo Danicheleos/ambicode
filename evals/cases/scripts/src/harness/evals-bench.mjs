@@ -2,7 +2,7 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, linkSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, linkSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
@@ -13,7 +13,7 @@ import { walkReport } from '../analysis/bench-walk.mjs';
 import { casesLockStatus, lockCases, unlockCases } from './cases-lock.mjs';
 import { LEDGER_DIRECTORY, tally } from '../analysis/ledger-metrics.mjs';
 import { atomicWrite, FRONT_MATTER, GENERATION_MARKER, NAKED_COPY, outstandingSwap, PROMPT, promptBody, restorePrompts, swapInPluginPrompts, WITH_PROMPT } from './prompt-transport.mjs';
-import { FORCED_REMOVED, harnessArgv, parseRunOptions, PATH_OPTIONS, runSpec } from './run-options.mjs';
+import { FORCED_REMOVED, harnessArgv, parseRunOptions, PATH_OPTIONS, resultLayout, runSpec } from './run-options.mjs';
 import { trackSweep } from './sweep-events.mjs';
 import { harvestTraces, harvestedOfResult, removeSandboxes, sandboxIdsOfResult } from '../analysis/trace-analysis.mjs';
 
@@ -29,11 +29,46 @@ export * from './run-options.mjs';
 export { infrastructureError } from './run-validity.mjs';
 export { harvestTraces, harvestedOfResult, removeSandboxes, sandboxIdsOfResult, traceMetrics } from '../analysis/trace-analysis.mjs';
 
-/** Beside the result, so it stays in the same gitignored directory: it quotes the benchmark's answers. */
-const walkPathOf = (jsonPath) => path.join(path.dirname(path.resolve(jsonPath)), `${path.basename(jsonPath, '.json').replace(/^eval-/, 'walk-')}.md`);
+/** In the result's iteration `reports/`, else beside the result: either way gitignored, as it quotes the benchmark's answers. */
+function walkPathOf(jsonPath) {
+  const { iteration, reportsDir } = resultLayout(jsonPath);
+  if (iteration) return path.join(reportsDir, 'walk.md');
+  return path.join(reportsDir, `${path.basename(jsonPath, '.json').replace(/^eval-/, 'walk-')}.md`);
+}
+
+export const ITERATIONS_HEADER = `One row per iteration, appended when its run finishes. Times are UTC. Traces: harvested of those the result names.
+
+| iteration | started | cases | tags | plugin | prompt | model | cost $ | duration | status | traces |
+|---|---|---|---|---|---|---|---|---|---|---|
+`;
+
+/** Appends the run to its day's `iterations.md`, the summary log beside the iteration directories. */
+function logIteration(iteration, written, { status, traces }) {
+  const log = path.join(path.dirname(iteration), 'iterations.md');
+  if (!existsSync(log)) writeFileSync(log, `# ${path.basename(path.dirname(path.dirname(iteration)))} — ${path.basename(path.dirname(iteration))}\n\n${ITERATIONS_HEADER}`);
+  const minutes = Math.round((written?.durationSeconds ?? 0) / 60);
+  const cost = typeof written?.costUsd === 'number' ? written.costUsd.toFixed(2) : '—';
+  const state = written === null ? 'unreadable' : `${written.partial ? 'partial' : 'complete'}${status ? `, exit ${status}` : ''}`;
+  const suite = written?.suite ?? {};
+  const cells = [
+    path.basename(iteration),
+    written?.startedAt ?? '—',
+    written?.cases?.length ?? '—',
+    (suite.tagFilters ?? []).join(',') || '—',
+    (suite.plugins ?? []).map((p) => p.name).join(',') || '—',
+    suite.servedPrompt ?? '—',
+    suite.modelOverride ?? '—',
+    cost,
+    `${minutes} min`,
+    state,
+    traces ?? '—',
+  ];
+  appendFileSync(log, `| ${cells.join(' | ')} |\n`);
+}
 
 function writeWalk(jsonPath, { benchmarks, tracesDir }) {
   const out = walkPathOf(jsonPath);
+  mkdirSync(path.dirname(out), { recursive: true });
   writeFileSync(out, walkReport(JSON.parse(readFileSync(jsonPath, 'utf8')), { benchmarks, tracesDir, source: path.basename(jsonPath) }));
   return out;
 }
@@ -302,10 +337,12 @@ export async function runSweep(rest, { benchmarks = BENCHMARKS, now = new Date()
   const ledgerRuns = existsSync(path.join(tracesDir, LEDGER_DIRECTORY)) ? readdirSync(path.join(tracesDir, LEDGER_DIRECTORY)).length : 0;
   const produced = (statSync(reserved, { throwIfNoEntry: false })?.size ?? 0) > 0;
   let completeness = '; harvest completeness unknown (the run wrote no result of its own)';
+  let traceCount = null;
   if (produced)
     try {
       const { named, harvested, missing } = harvestedOfResult(reserved, tracesDir);
       completeness = `; the result names ${named}, ${harvested} of those harvested`;
+      traceCount = `${harvested}/${named}`;
       if (missing.length > 0) warn(`not harvested (no trace copy): ${missing.join(', ')}`);
     } catch (error) {
       completeness = `; harvest completeness unknown (${error.message})`;
@@ -342,10 +379,17 @@ export async function runSweep(rest, { benchmarks = BENCHMARKS, now = new Date()
     return status || 1;
   }
   rmSync(reserved);
+  if (plan.iteration)
+    try {
+      logIteration(plan.iteration, written, { status, traces: traceCount });
+    } catch (error) {
+      warn(`iteration log not written: ${error.message}`);
+    }
   if (plan.walk && written === null) {
     warn('walkthrough: skipped, the run\'s result is not readable JSON');
   } else if (plan.walk) {
     const walk = walkPathOf(plan.json);
+    mkdirSync(path.dirname(walk), { recursive: true });
     const text = walkReport(written, { benchmarks, tracesDir, source: path.basename(plan.json) });
     if (publishNew(walk, { text })) log(`walkthrough: ${walk}`);
     else {
@@ -399,7 +443,7 @@ export async function main(argv, options = {}) {
     const [file] = rest.filter((_, i) => !taken.has(i));
     if (!file || !statSync(file, { throwIfNoEntry: false }))
       throw new Error(`usage: evals-bench.mjs ${command} <eval-results.json> [--traces <dir>]${command === 'score' ? ' [--baseline <with-without-results.json>]' : ''}`);
-    const tracesDir = tracesAt ?? path.join(path.dirname(path.resolve(file)), 'traces');
+    const tracesDir = tracesAt ?? resultLayout(file).tracesDir;
     if (command === 'walk') {
       console.log(`walkthrough: ${writeWalk(file, { benchmarks, tracesDir })}`);
       return 0;
@@ -410,7 +454,7 @@ export async function main(argv, options = {}) {
     return 0;
   }
   throw new Error(
-    'usage: evals-bench.mjs generate | select [--localize <n>] [--review <n>] [--regenerate] | run [--set curated|full] [--plugin <dir>] [--prompt naked|with] [--dry-run] --model <m> --max-cost-usd <usd> [--walk] [options] | restore-prompts [--plugin <dir>] | score <eval-results.json> [--traces <dir>] [--baseline <file>] | walk <eval-results.json> [--traces <dir>]',
+    'usage: evals-bench.mjs generate | select [--localize <n>] [--review <n>] [--regenerate] | run [--set curated|task|full --project <project>] [--plugin <dir>] [--prompt naked|with] [--dry-run] --model <m> --max-cost-usd <usd> [--walk] [options] | restore-prompts [--plugin <dir>] | score <eval-results.json> [--traces <dir>] [--baseline <file>] | walk <eval-results.json> [--traces <dir>]',
   );
 }
 

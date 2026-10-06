@@ -2,15 +2,15 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { REGISTERED_HOOK_ENTRIES, REGISTERED_HOOK_EVENTS } from '../../contracts/hook.ts';
-import type { FileSystem } from '../../ports/filesystem.ts';
-import { A, B, TASK, planFixture, type PlanFixture } from '../../testing/plan-fixture.ts';
-import { CONFIG } from '../../testing/route-fixture.ts';
+import { REGISTERED_HOOK_ENTRIES, REGISTERED_HOOK_EVENTS, type HookDeps } from '#types/hook';
+import { A, B, TASK, planFixture, type PlanFixture } from '#testing/fixtures/plan-fixture';
+import { CONFIG } from '#testing/fixtures/route-fixture';
 import { answerGates } from './gate-answer.ts';
 import { splitLaunch } from './prompt-launch.ts';
-import { runHook, type HookDeps } from './run-hook.ts';
+import { runHook } from './run-hook.ts';
+import { REPO_ROOT } from '#testing/paths';
+import type { FileSystem } from '#types/ports';
 
-const ROOT = path.resolve(import.meta.dirname, '..', '..', '..');
 const deps = (plan: PlanFixture): HookDeps => ({ pointer: plan.fx.pointer, load: async () => ({ engine: plan.fx.engine, routes: plan.fx.routes, pointer: plan.fx.pointer }) });
 const hook = (plan: PlanFixture, event: Record<string, unknown>, session = A) =>
   runHook(plan.fx.runtime, JSON.stringify({ session_id: session, cwd: plan.fx.repo.root, scratchpad_dir: plan.fx.scratchpad, ...event }), deps(plan)) as Promise<{ hookSpecificOutput?: { additionalContext: string }; decision?: string; reason?: string }>;
@@ -19,14 +19,14 @@ const context = (output: { hookSpecificOutput?: { additionalContext: string } })
 
 describe('03-H1/03-H8 the hook matrix', () => {
   it('registers seven events and eleven handler entries, and the docs say so', async () => {
-    const manifest = JSON.parse(await readFile(path.join(ROOT, 'hooks', 'hooks.json'), 'utf8')) as { hooks: Record<string, { matcher?: string; hooks: unknown[] }[]> };
+    const manifest = JSON.parse(await readFile(path.join(REPO_ROOT, 'hooks', 'hooks.json'), 'utf8')) as { hooks: Record<string, { matcher?: string; hooks: unknown[] }[]> };
     assert.deepEqual(Object.keys(manifest.hooks), [...REGISTERED_HOOK_EVENTS]);
     const entries = Object.values(manifest.hooks).flatMap((groups) => groups.flatMap((group) => group.hooks));
     assert.equal(entries.length, REGISTERED_HOOK_ENTRIES);
     assert.deepEqual(manifest.hooks['PostToolUse']!.map((group) => group.matcher), ['mcp__.*', 'AskUserQuestion']);
     assert.ok(manifest.hooks['Stop'] !== undefined);
     for (const doc of ['docs/compatibility.md', 'docs/release-checklist.md']) {
-      const text = (await readFile(path.join(ROOT, doc), 'utf8')).replace(/\s+/g, ' ');
+      const text = (await readFile(path.join(REPO_ROOT, doc), 'utf8')).replace(/\s+/g, ' ');
       assert.match(text, /seven events/, doc);
       assert.match(text, /eleven handler entries/, doc);
     }

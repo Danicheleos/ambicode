@@ -1,5 +1,6 @@
 import path from 'node:path';
-import { createRuntime, openRepository, type Runtime } from './root.ts';
+import { createRuntime, openRepository } from './root.ts';
+import type { Runtime } from '#types/composition';
 
 /**
  * The repository the skill is about: the session's own when it carries a configuration, else the one

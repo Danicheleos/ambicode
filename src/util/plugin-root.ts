@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { FileSystem } from '../ports/filesystem.ts';
 import { AmbicodeError } from './errors.ts';
+import type { FileSystem } from '#types/ports';
 
 /**
  * `CLAUDE_PLUGIN_ROOT` when Claude Code exports it, else an upward search, so the
@@ -30,6 +30,11 @@ export async function resolvePluginRoot(
 
 export function builtinPoliciesDirectory(pluginRoot: string): string {
   return path.join(pluginRoot, 'policies');
+}
+
+/** The review page's Eta templates and stylesheet; the build copies them from `src/modules/review/page/templates`. */
+export function pageTemplatesDirectory(pluginRoot: string): string {
+  return path.join(pluginRoot, 'scripts', 'templates');
 }
 
 export function promptsDirectory(pluginRoot: string): string {

@@ -49,7 +49,7 @@ promote` → `note`). Reads from the Route fold, `report`, `route status`, the S
 Readers skip unknown kinds. **Ids are `<session8>-<n>`** (`a1b2c3d4-9`), monotonic per session,
 unique across sessions appending to one file; readers dedupe on the full id (#53). Clock timestamps,
 `O_APPEND`. Removed from v1: the `tool` kind (no recorder ships, §5). Today's **two** kinds are `note`
-(`src/cli/commands/note.ts:78`) and `review` (`src/review/bundle.ts:391`, written when a review runs
+(`src/cli/commands/route/note.ts:78`) and `review` (`src/modules/review/bundle/bundle.ts:391`, written when a review runs
 with a task directory); `prepare.ts:138` is a `policyProvenance` entry, not a ledger line (#91, #110).
 
 ### 2. Slug

@@ -4,11 +4,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, describe, it } from 'node:test';
 import { TRANSCRIPT_TAIL_BYTES } from '../events/stop-check.ts';
-import type { GuardState } from './guard-core.ts';
-import { ACTIVE_ROUTE_FILE, fsGuardState, GUARD_STATE_DIR_NAME, sessionStateDir, TRANSCRIPT_TAIL } from './guard-state.ts';
+import { fsGuardState, sessionStateDir, TRANSCRIPT_TAIL } from './guard-state.ts';
 import { hookStateBaseDir } from '../session/markers.ts';
-import { nodeFileSystem } from '../../ports/filesystem.ts';
+import { nodeFileSystem } from '#platform/ports/filesystem';
 import { toolTurns, toolTurnsNotice, toolTurnsText } from './tool-turns.ts';
+import { ACTIVE_ROUTE_FILE, GUARD_STATE_DIR_NAME, type GuardState } from '../types/guard.ts';
 
 const prompt = (text = 'q') => ({ type: 'user', message: { content: text } });
 const call = (message: string, ...ids: string[]) => ({ type: 'assistant', message: { id: message, content: ids.map((id) => ({ type: 'tool_use', id })) } });

@@ -19,7 +19,7 @@ against evidence that already exists, not as open-ended advice.
   rather than the checkout — so it leaves `dist/ambicode-<version>` behind and
   a separate `package:candidate` would only build the same bytes again.
 - [ ] Install the candidate into the normal Claude configuration with
-  `node install-local.mjs install dist/ambicode-<version>`; use the named
+  `node tools/install-local.mjs install dist/ambicode-<version>`; use the named
   `--config-dir <dir>` option only for an intentionally isolated test. Confirm
   ordinary `claude plugin list` and
   `claude plugin details ambicode@ambicode-team` report all six
@@ -34,7 +34,7 @@ against evidence that already exists, not as open-ended advice.
   deleted (checked from fresh `claude` processes, not the one that ran the
   install), and uninstall without that candidate directory — not merely
   that the commands exist.
-- [ ] Run `node --test install-local.test.mjs` (included in `npm run
+- [ ] Run `node --test tools/install-local.test.mjs` (included in `npm run
   test:unit`): proves install/uninstall failure-safety against a fake
   native-command adapter — a marketplace-update or plugin-update failure
   during an upgrade preserves the old installation, a plugin-uninstall or
@@ -54,7 +54,7 @@ against evidence that already exists, not as open-ended advice.
   `/bin/sh`, or `.venv/bin`, but macOS evidence is not Windows acceptance
   evidence — and neither is a green CI leg, which does not install the plugin
   or run a hook.
-- [ ] Run `node check-line-endings.mjs`: every tracked text file must be
+- [ ] Run `node tools/check-line-endings.mjs`: every tracked text file must be
   stored with LF. A file committed as CRLF before `.gitattributes` existed
   keeps its CRLF in the index, and a Windows checkout then differs byte for
   byte from a Linux one.

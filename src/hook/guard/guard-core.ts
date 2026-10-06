@@ -1,35 +1,10 @@
 // Imports only import-free modules: this file is bundled into a standalone entry whose startup time is the point
 // (see guard.ts). Files are read by the injected `GuardState`, never from here.
-import { ownerOfHarness } from '../../route/harness.ts';
-import { ownerOf } from '../../route/ownership.ts';
-import type { LedgerEntry } from '../../task/ledger.ts';
+import { ownerOfHarness } from '#harness/session/harness';
+import { ownerOf } from '#harness/session/ownership';
 import { basename, type Directories, parseCommand, type Segment } from '../shell/command-parser.ts';
-
-export interface GuardInput {
-  hook_event_name?: string;
-  session_id?: unknown;
-  cwd?: unknown;
-  scratchpad_dir?: unknown;
-  tool_name?: string;
-  tool_input?: { command?: unknown; file_path?: unknown; notebook_path?: unknown };
-}
-
-/** The session's cached pointer to its active route (30 §2). A pointer alone never authorizes a write. */
-export interface ActiveRoute {
-  task: string;
-  skill: string;
-  toolTurns?: number;
-}
-
-/** Bounded reads of session state and a task ledger; `null` when absent, too large or unreadable. */
-export interface GuardState {
-  activeRoute(scratchpadDir: string): ActiveRoute | null;
-  ledger(taskDirectory: string): LedgerEntry[] | null;
-  /** The last `TRANSCRIPT_TAIL` bytes of a transcript, from its first whole line. */
-  transcriptTail?(file: string): string | null;
-  /** The pointer of a session whose hook input has no `scratchpad_dir` (PostToolUse carries none). */
-  sessionRoute?(sessionId: string): ActiveRoute | null;
-}
+import type { LedgerEntry } from '#types/evidence';
+import type { GuardInput, GuardState } from '../types/guard.ts';
 
 type Decision = Record<string, unknown>;
 

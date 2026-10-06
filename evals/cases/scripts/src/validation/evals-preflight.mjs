@@ -7,14 +7,13 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { ROOT } from '../shared/bench-paths.mjs';
+import { ARCHIVED_EVAL_DIR as ARCHIVED_SUITES, ARCHIVED_REVIEWER_RECORDINGS, ROOT } from '../shared/bench-paths.mjs';
 
 // Relative to the plugin root, as `--eval-dir` takes it.
-export const ARCHIVED_EVAL_DIR = 'evals/cases/evals-archived/typescript';
+export const ARCHIVED_EVAL_DIR = `${ARCHIVED_SUITES}/typescript`;
 
-// Not under the eval directory: the sandbox's `denyRead` covers `<plugin>/evals`,
-// so the evaluated agent could not read a recording there.
-export const RECORDINGS = path.join(ROOT, 'fixtures', 'reviewer-recordings.json');
+// Outside the eval directory: the sandbox's `denyRead` covers it, so the agent could not read a recording there.
+export const RECORDINGS = ARCHIVED_REVIEWER_RECORDINGS;
 
 // Above the $0.4–0.7 estimate, so a normal run never trips it, and far below
 // a sweep, so a broken setup costs this at most.

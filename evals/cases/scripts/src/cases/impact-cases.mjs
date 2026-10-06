@@ -3,19 +3,18 @@
 // Here the question is a reference query, and the ground truth is exact: the files the TypeScript language
 // service reports as referencing the symbol, under the same tsconfig the eval's language server loads.
 // Only names declared in two or more files qualify: that is where a name search and a reference query disagree.
-// Cases go to evals/benchmarks/impact-cases (gitignored, NDA). Commands: [--list] [--side BE|FE] [--limit <n>] [--benchmarks <absolute dir>].
+// Cases go to evals/cases/<project>/impact (gitignored, NDA). Commands: [--list] [--side BE|FE] [--limit <n>] [--benchmarks <absolute dir>] [--cases <absolute dir>].
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
-import { BENCHMARKS, IMPACT_CASES_DIRECTORY } from '../shared/bench-paths.mjs';
-import { countDeclarations } from '../../../../../src/code-intelligence/harvest.ts';
+import { BENCH_PROJECTS, BENCHMARKS, CASES_ROOT, casePrefix, IMPACT_CASES_DIRECTORY, PROJECT_CODE_ROOTS, projectCasesDir, projectCodeDir } from '../shared/bench-paths.mjs';
+import { countDeclarations } from '../../../../../src/modules/search/declarations/harvest.ts';
 import { INVESTIGATE_COMMAND, writePluginPrompt } from '../harness/prompt-transport.mjs';
 import { casePrompt, graderFiles, peekGraders, regexEscape, scaffoldFile } from './bench-cases.mjs';
 import { tsconfigFor } from '../arms/lsp-arms.mjs';
-import { sideRelFrom } from './base-scaffold.mjs';
+import { codeRelFrom } from './base-scaffold.mjs';
 
-const ROOTS = { BE: 'src', FE: 'main' };
 const NOT_CODE_UNDER_TEST = /(\.(spec|test|mock|mocks|stories)\.ts$|\.d\.ts$|\/(mocks?|__mocks__|testing)\/)/;
 const TRUTH_RANGE = { min: 3, max: 8 };
 
@@ -131,11 +130,11 @@ Answer the question; do not edit anything.
 `);
 }
 
-export function writeImpactCase(out, side, symbol) {
-  const name = `${side.toLowerCase()}-impact-${symbol.name.replace(/[^A-Za-z0-9]+/g, '-').toLowerCase()}`;
+export function writeImpactCase(out, side, symbol, benchmarks = BENCHMARKS) {
+  const name = `${casePrefix(side)}-impact-${symbol.name.replace(/[^A-Za-z0-9]+/g, '-').toLowerCase()}`;
   const directory = path.join(out, name);
   mkdirSync(path.join(directory, 'graders'), { recursive: true });
-  const root = ROOTS[side];
+  const root = PROJECT_CODE_ROOTS[side];
   const graders = graderFiles(symbol.truth, root);
   graders['names-a-true-file.md'] = graders['names-a-true-file.md']
     .replace("The question asked which existing files a ticket's change would have to touch.\nThe change that was actually merged touched these files:", `The question asked which existing files use \`${symbol.name}\`. These files reference it:`)
@@ -146,7 +145,7 @@ export function writeImpactCase(out, side, symbol) {
   writeFileSync(path.join(directory, 'case.yaml'), `schema_version: "1.1"\nname: ${name}\ncontext:\n  scaffold_script: scaffold.sh\n`);
   writeFileSync(path.join(directory, 'prompt.md'), impactPrompt(name, side, symbol));
   writePluginPrompt(directory, INVESTIGATE_COMMAND);
-  writeFileSync(path.join(directory, 'scaffold.sh'), scaffoldFile(sideRelFrom(directory, path.dirname(out), side), root), { mode: 0o755 });
+  writeFileSync(path.join(directory, 'scaffold.sh'), scaffoldFile(codeRelFrom(directory, benchmarks, side), root), { mode: 0o755 });
   writeFileSync(path.join(directory, 'truth.json'), JSON.stringify({ kind: 'impact', side, ticket: `IMPACT-${symbol.name}`, root, symbol: symbol.name, declarations: symbol.declarations, definedIn: symbol.file, truth: symbol.truth, lookalikes: symbol.lookalikes, missingFromSnapshot: [] }, null, 2));
   return name;
 }
@@ -154,29 +153,32 @@ export function writeImpactCase(out, side, symbol) {
 function main(argv) {
   const option = (flag, fallback) => (argv.includes(flag) ? argv[argv.indexOf(flag) + 1] : fallback);
   const list = argv.includes('--list');
-  const sides = option('--side') ? [option('--side')] : ['BE', 'FE'];
+  const sides = option('--side') ? [option('--side')] : BENCH_PROJECTS;
   const limit = Number(option('--limit', '4'));
   const benchmarks = option('--benchmarks', BENCHMARKS);
-  if (!path.isAbsolute(benchmarks)) throw new Error(`--benchmarks must be an absolute directory, got ${benchmarks}`);
-  const out = path.join(benchmarks, IMPACT_CASES_DIRECTORY);
+  const casesRoot = option('--cases', CASES_ROOT);
+  for (const [flag, dir] of [['--benchmarks', benchmarks], ['--cases', casesRoot]]) if (!path.isAbsolute(dir)) throw new Error(`${flag} must be an absolute directory, got ${dir}`);
   let cases = 0;
-  if (!list) rmSync(out, { recursive: true, force: true });
   const written = [];
+  const outs = [];
   for (const side of sides) {
-    const sideDir = path.join(benchmarks, side, 'src');
-    if (!existsSync(sideDir)) throw new Error(`no snapshot at ${sideDir}`);
-    const found = analyse(sideDir, ROOTS[side]);
+    const out = projectCasesDir(IMPACT_CASES_DIRECTORY, side, casesRoot);
+    outs.push(out);
+    if (!list) rmSync(out, { recursive: true, force: true });
+    const sideDir = path.join(projectCodeDir(benchmarks, side), PROJECT_CODE_ROOTS[side]);
+    if (!existsSync(sideDir)) throw new Error(`no code root at ${sideDir}`);
+    const found = analyse(sideDir, PROJECT_CODE_ROOTS[side]);
     const chosen = pickHard(found, limit);
     console.log(`${side}: ${found.length} symbols with ${TRUTH_RANGE.min}-${TRUTH_RANGE.max} referencing files, ${chosen.length} chosen`);
     for (const symbol of chosen) {
       console.log(`  ${symbol.name} (${symbol.file}): ${symbol.truth.length} true, ${symbol.lookalikes.length} lookalike, ${symbol.hidden} not found by name`);
-      if (!list) written.push(writeImpactCase(out, side, symbol));
+      if (!list) written.push(writeImpactCase(out, side, symbol, benchmarks));
     }
     console.log(`${side}: ${chosen.length} cases`);
     cases += chosen.length;
   }
   console.log(`estimate: ${cases} cases × 3 runs × 2 arms × $0.18/run ≈ $${(cases * 3 * 2 * 0.18).toFixed(2)} (estimate, not an authorization)`);
-  if (!list) console.log(`wrote ${written.length} case(s) to ${out}`);
+  if (!list) console.log(`wrote ${written.length} case(s) to ${outs.join(', ')}`);
   return 0;
 }
 

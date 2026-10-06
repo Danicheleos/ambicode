@@ -1,7 +1,7 @@
 import path from 'node:path';
-import type { FileSystem } from '../ports/filesystem.ts';
 import { AmbicodeError } from './errors.ts';
 import { toPosix } from './glob.ts';
+import type { FileSystem } from '#types/ports';
 
 /** Repository-relative POSIX path, with no `.`/`..` segments and no leading slash. */
 export function normalizeRelative(value: string): string {

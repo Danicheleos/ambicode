@@ -13,10 +13,10 @@ describe('eval-gate', () => {
   let tracesDir;
   before(() => {
     benchmarks = mkdtempSync(path.join(tmpdir(), 'eval-gate-'));
-    mkdirSync(path.join(benchmarks, 'cases', 'side-t-1'), { recursive: true });
-    writeFileSync(path.join(benchmarks, 'cases', 'side-t-1', 'truth.json'), JSON.stringify({ side: 'SIDE', ticket: 'T-1', root: 'app', truth: ['app/a.ts', 'app/b.ts'] }));
-    mkdirSync(path.join(benchmarks, 'cases', 'side-t-1-review-7-x'), { recursive: true });
-    writeFileSync(path.join(benchmarks, 'cases', 'side-t-1-review-7-x', 'truth.json'), JSON.stringify({ kind: 'review', side: 'SIDE', ticket: 'T-1', version: '7-x', root: 'app', threads: 1 }));
+    mkdirSync(path.join(benchmarks, 'SIDE', 'cases', 'side-t-1'), { recursive: true });
+    writeFileSync(path.join(benchmarks, 'SIDE', 'cases', 'side-t-1', 'truth.json'), JSON.stringify({ side: 'SIDE', ticket: 'T-1', root: 'app', truth: ['app/a.ts', 'app/b.ts'] }));
+    mkdirSync(path.join(benchmarks, 'SIDE', 'cases', 'side-t-1-review-7-x'), { recursive: true });
+    writeFileSync(path.join(benchmarks, 'SIDE', 'cases', 'side-t-1-review-7-x', 'truth.json'), JSON.stringify({ kind: 'review', side: 'SIDE', ticket: 'T-1', version: '7-x', root: 'app', threads: 1 }));
     tracesDir = path.join(benchmarks, 'traces');
     mkdirSync(tracesDir);
   });

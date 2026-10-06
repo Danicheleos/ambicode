@@ -1,23 +1,6 @@
 import { parseArgs as nodeParseArgs } from 'node:util';
-import { AmbicodeError } from '../util/errors.ts';
-
-/**
- * Accepts only what a command declares. `--` ends option parsing, since paths
- * can start with a dash.
- */
-export interface OptionSpec {
-  values?: readonly string[];
-  flags?: readonly string[];
-  repeated?: readonly string[];
-  positionals?: boolean;
-}
-
-export interface ParsedArgs {
-  value(name: string): string | null;
-  flag(name: string): boolean;
-  all(name: string): string[];
-  positionals: string[];
-}
+import { AmbicodeError } from '#util/errors';
+import type { OptionSpec, ParsedArgs } from './types/cli.ts';
 
 type NodeOption = { type: 'boolean' | 'string'; multiple?: boolean };
 

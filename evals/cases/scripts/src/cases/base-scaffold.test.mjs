@@ -21,7 +21,7 @@ describe('base-scaffold', () => {
   let side;
   let base;
   let head;
-  const snapshot = () => `${git(path.join(side, '.git-cache'), 'for-each-ref')}\n${git(path.join(side, '.git-cache'), 'rev-parse', 'HEAD')}`;
+  const snapshot = () => `${git(path.join(side, '.git'), 'for-each-ref')}\n${git(path.join(side, '.git'), 'rev-parse', 'HEAD')}`;
   const run = (script, cwd) => {
     mkdirSync(cwd, { recursive: true });
     return spawnSync('sh', [script], { cwd, encoding: 'utf8' });
@@ -36,7 +36,7 @@ describe('base-scaffold', () => {
   before(() => {
     top = mkdtempSync(path.join(tmpdir(), 'base-scaffold-'));
     side = path.join(top, 'side');
-    const cache = path.join(side, '.git-cache');
+    const cache = path.join(top, 'work');
     mkdirSync(cache, { recursive: true });
     git(cache, 'init', '-q');
     put(path.join(cache, 'src/a.txt'), 'base\n');
@@ -51,7 +51,9 @@ describe('base-scaffold', () => {
     git(cache, 'add', '-A');
     git(cache, 'commit', '-q', '-m', 'head');
     head = git(cache, 'rev-parse', 'HEAD');
-    put(path.join(side, '.ambicode/config.yaml'), 'version: 3\n');
+    mkdirSync(side, { recursive: true });
+    git(top, 'clone', '-q', '--bare', cache, path.join(side, '.git'));
+    put(path.join(side, 'project/.ambicode/config.yaml'), 'version: 3\n');
   });
   after(() => rmSync(top, { recursive: true, force: true }));
 
@@ -90,7 +92,7 @@ describe('base-scaffold', () => {
     mkdirSync(path.join(top, 'lonely'), { recursive: true });
     const noCache = run(caseWith('c-nocache', {}, '../../lonely'), path.join(top, 'work-2'));
     assert.equal(noCache.status, 2);
-    assert.match(noCache.stderr, /scaffold: no .*lonely\/\.git-cache; run benchmarks\/prepare-reviews\.mjs/);
+    assert.match(noCache.stderr, /scaffold: no .*lonely\/\.git: the benchmark project clone is missing/);
     const noCommit = run(caseWith('c-nocommit', { base: 'f'.repeat(40) }), path.join(top, 'work-3'));
     assert.equal(noCommit.status, 2);
     assert.match(noCommit.stderr, /scaffold: base commit not in cache/);

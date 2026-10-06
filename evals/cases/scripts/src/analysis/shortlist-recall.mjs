@@ -4,17 +4,19 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRuntime, openWorkspace, projectForRequest } from '../../../../../src/composition/root.ts';
-import { locate, termsFromRequirements, PREPARE_SHORTLIST_LIMIT } from '../../../../../src/code-intelligence/locate.ts';
-import { buildMap } from '../../../../../src/code-intelligence/map.ts';
-import { indexAdapterFor } from '../../../../../src/code-intelligence/index/adapter.ts';
-import { indexDepsOf } from '../../../../../src/code-intelligence/index/codeindex.ts';
+import { locate, termsFromRequirements } from '../../../../../src/modules/search/text/locate.ts';
+import { PREPARE_SHORTLIST_LIMIT } from '../../../../../src/types/search.ts';
+import { buildMap } from '../../../../../src/modules/search/text/map.ts';
+import { indexAdapterFor } from '../../../../../src/modules/search/code-index/adapter.ts';
+import { indexDepsOf } from '../../../../../src/modules/search/code-index/codeindex.ts';
 
 
-import { BENCHMARKS } from '../shared/bench-paths.mjs';
+import { BENCHMARKS, CASES_DIRECTORY } from '../shared/bench-paths.mjs';
 
 const MAP_LAYERS = ['shortlist', 'harvest', 'shortlist'];
 /** M6 as measured before this script scored (b) and (c); (a) must reproduce it for the comparison to mean anything. */
-export const M6 = { BE: 0.499, FE: 0.123 };
+export const M6 = { 'BE-express': 0.499, 'FE-angular': 0.123 };
+const SIDES = Object.keys(M6);
 const THRESHOLD = 0.05;
 /** Absorbs float error in a difference of means (0.173 − 0.123 = 0.04999999999999999); far below any real gain step. */
 const EPSILON = 1e-9;
@@ -37,7 +39,6 @@ async function codeindexFor(side, dir, workspace, project, { bin, indexDir }) {
  * plus `index.find` over codeindex, all from the same terms (05-O2). `adapterFor` replaces the codeindex adapter in tests.
  */
 export async function shortlistRecall({ repos, benchmarks = BENCHMARKS, unfiltered = false, limit = PREPARE_SHORTLIST_LIMIT, termsOf = (ticket) => termsFromRequirements([{ title: '', content: ticket }]), codeindex = null, adapterFor = null }) {
-  const cases = path.join(benchmarks, 'cases');
   const sides = {};
   for (const [side, dir] of Object.entries(repos)) {
     const runtime = await createRuntime({ cwd: dir });
@@ -51,12 +52,17 @@ export async function shortlistRecall({ repos, benchmarks = BENCHMARKS, unfilter
     sides[side] = { runtime, workspace, project, index };
   }
   const rows = [];
-  for (const name of readdirSync(cases).filter((n) => !n.includes('review')).sort()) {
-    const truthFile = path.join(cases, name, 'truth.json');
+  // Each project's full set: `<benchmarks>/<project>/cases/`.
+  const caseDirs = Object.keys(repos).flatMap((side) => {
+    const cases = path.join(benchmarks, side, CASES_DIRECTORY);
+    return existsSync(cases) ? readdirSync(cases).filter((n) => !n.includes('review')).sort().map((n) => path.join(cases, n)) : [];
+  });
+  for (const caseDir of caseDirs) {
+    const truthFile = path.join(caseDir, 'truth.json');
     if (!existsSync(truthFile)) continue;
     const { side, truth, missingFromSnapshot = [] } = JSON.parse(readFileSync(truthFile, 'utf8'));
     const entry = sides[side];
-    const ticket = ticketOf(readFileSync(path.join(cases, name, 'prompt.md'), 'utf8'));
+    const ticket = ticketOf(readFileSync(path.join(caseDir, 'prompt.md'), 'utf8'));
     if (entry === undefined || ticket === null) continue;
     const reachable = truth.filter((file) => !missingFromSnapshot.includes(file));
     if (reachable.length === 0) continue;
@@ -81,7 +87,7 @@ const fixed = (x) => (x === null ? 'n/a' : x.toFixed(3));
 export function summarize(rows, { limit = PREPARE_SHORTLIST_LIMIT } = {}) {
   const lines = [];
   const stats = {};
-  for (const side of ['BE', 'FE']) {
+  for (const side of SIDES) {
     const group = rows.filter((row) => row.side === side);
     const a = mean(group.map((row) => row.a));
     const b = mean(group.map((row) => row.b));
@@ -89,16 +95,16 @@ export function summarize(rows, { limit = PREPARE_SHORTLIST_LIMIT } = {}) {
     stats[side] = { a, b, c, delta: c === null ? null : c - b };
     lines.push(`${side}: n=${group.length} recall@${limit} (a) ${fixed(a)} (b) ${fixed(b)} (c) ${fixed(c)} (c)-(b) ${fixed(stats[side].delta)}`);
   }
-  const reproduces = ['BE', 'FE'].every((side) => stats[side].a.toFixed(3) === M6[side].toFixed(3));
-  lines.push(`(a) reproduces M6: ${reproduces ? 'yes' : 'no'} (expected BE ${M6.BE.toFixed(3)}, FE ${M6.FE.toFixed(3)})`);
+  const reproduces = SIDES.every((side) => stats[side].a.toFixed(3) === M6[side].toFixed(3));
+  lines.push(`(a) reproduces M6: ${reproduces ? 'yes' : 'no'} (expected ${SIDES.map((side) => `${side} ${M6[side].toFixed(3)}`).join(', ')})`);
   lines.push(`5-I: ${decision(stats, reproduces)}`);
   return lines;
 }
 
 function decision(stats, reproduces) {
   if (!reproduces) return 'pending ((a) did not reproduce M6)';
-  if (stats.BE.delta === null || stats.FE.delta === null) return 'pending ((c) was not run)';
-  return stats.BE.delta >= THRESHOLD - EPSILON || stats.FE.delta >= THRESHOLD - EPSILON ? 'report' : 'none';
+  if (SIDES.some((side) => stats[side].delta === null)) return 'pending ((c) was not run)';
+  return SIDES.some((side) => stats[side].delta >= THRESHOLD - EPSILON) ? 'report' : 'none';
 }
 
 export function parseArgv(argv) {
@@ -115,9 +121,9 @@ export function parseArgv(argv) {
     } else positionals.push(argv[i]);
   }
   const [be, fe, limitAt] = positionals;
-  if (!be || !fe) throw new Error('usage: shortlist-recall.mjs <BE repo> <FE repo> [limit] [--unfiltered] [--benchmarks <absolute dir>] [--codeindex <bin> --index-dir <absolute dir>]');
+  if (!be || !fe) throw new Error('usage: shortlist-recall.mjs <BE-express repo> <FE-angular repo> [limit] [--unfiltered] [--benchmarks <absolute dir>] [--codeindex <bin> --index-dir <absolute dir>]');
   if ((options.codeindex === null) !== (options.indexDir === null)) throw new Error('--codeindex and --index-dir go together');
-  return { repos: { BE: be, FE: fe }, ...(limitAt === undefined ? {} : { limit: Number(limitAt) }), unfiltered: options.unfiltered, benchmarks: options.benchmarks, codeindex: options.codeindex === null ? null : { bin: path.resolve(options.codeindex), indexDir: options.indexDir } };
+  return { repos: { 'BE-express': be, 'FE-angular': fe }, ...(limitAt === undefined ? {} : { limit: Number(limitAt) }), unfiltered: options.unfiltered, benchmarks: options.benchmarks, codeindex: options.codeindex === null ? null : { bin: path.resolve(options.codeindex), indexDir: options.indexDir } };
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

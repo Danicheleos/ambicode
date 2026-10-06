@@ -33,14 +33,14 @@ hook entry until a pack opts in, the forced-prompt eval twins, `note save --kind
 
 | Files | Kept | Touched by |
 |---|---|---|
-| `src/review/prompt.ts`, `report.ts`, `src/snapshot/*`, `src/providers/*`, `src/publication/*`, `policies/*.yaml`, `prompts/reviewer-role.md`, `templates/*.eta` **except `review.eta`** (#70) | byte-for-byte | — |
-| `src/review/bundle.ts` | pipeline unchanged | `--task` baseline scoping (16 §4), `--estimate` dry mode (16 §5), tail advance |
-| `src/review/validate.ts` | rules unchanged | `review.onInvalid: drop` branch, off by default (16 §7) |
-| `src/review/claude-reviewer.ts` | invocation unchanged | generalized into the process runner (17 §1) |
-| `src/checks/run.ts`, `select.ts`, `authorize.ts` | selection and authorization unchanged | `--only` forced selection and runner summary parsing (16 §2); `format` (16 §3); tail advance |
-| `src/page/*`, `templates/review.eta` | page unchanged | `metrics.jsonl` on submit (16 §8) |
-| `src/policy/*` | resolver unchanged | `stage()` projection, `--drafts` checks (11) |
-| `src/code-intelligence/locate.ts`, `dependents.ts` | scoring and name search unchanged | pass 2 by a global regex harvest with declaration counts (10 §1); `grepWords` in `src/git/git.ts` |
+| `src/modules/review/reviewer/prompt.ts`, `report.ts`, `src/modules/review/snapshot/*`, `src/platform/providers/*`, `src/modules/review/publication/*`, `policies/*.yaml`, `prompts/reviewer-role.md`, `src/modules/review/page/templates/*.eta` **except `review.eta`** (#70) | byte-for-byte | — |
+| `src/modules/review/bundle/bundle.ts` | pipeline unchanged | `--task` baseline scoping (16 §4), `--estimate` dry mode (16 §5), tail advance |
+| `src/modules/review/findings/validate.ts` | rules unchanged | `review.onInvalid: drop` branch, off by default (16 §7) |
+| `src/modules/review/reviewer/claude-reviewer.ts` | invocation unchanged | generalized into the process runner (17 §1) |
+| `src/modules/checks/run/run.ts`, `select.ts`, `authorize.ts` | selection and authorization unchanged | `--only` forced selection and runner summary parsing (16 §2); `format` (16 §3); tail advance |
+| `src/modules/review/page/*`, `src/modules/review/page/templates/review.eta` | page unchanged | `metrics.jsonl` on submit (16 §8) |
+| `src/modules/policy/*` | resolver unchanged | `stage()` projection, `--drafts` checks (11) |
+| `src/modules/search/text/locate.ts`, `dependents.ts` | scoring and name search unchanged | pass 2 by a global regex harvest with declaration counts (10 §1); `grepWords` in `src/platform/git/git.ts` |
 | `skills/plan/SKILL.md` | judgments | `allowed-tools` gains `Write(.ambicode/task/*/steps/plan-body.md)` (#57) |
 
 ## Compatibility

@@ -80,7 +80,7 @@ Off by default; a flag for the experiment in 33 §6 only.
 ### 8. Selection metrics (D4)
 
 The page records offered/selected/edited/posted per finding into `result.json` and
-`.ambicode/metrics.jsonl` on submit. This touches `src/page/*` and `templates/review.eta` (41 names them).
+`.ambicode/metrics.jsonl` on submit. This touches `src/modules/review/page/*` and `src/modules/review/page/templates/review.eta` (41 names them).
 
 ## Interfaces
 
@@ -100,7 +100,7 @@ interface Reviewer { review(target, opts); estimate(target, opts) }
 
 ## What changes from v0.4.0
 
-Additions only, in `bundle.ts` (`--task` scoping, `--estimate`), `checks/run.ts` (`--only`, summary
+Additions only, in `bundle.ts` (`--task` scoping, `--estimate`), `modules/checks/run/run.ts` (`--only`, summary
 parsing, route advance at the tail), `validate.ts` (`onInvalid`, off), `page/*` + `review.eta`
 (metrics). Reviewer invocation unchanged.
 

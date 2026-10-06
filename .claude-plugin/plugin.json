@@ -16,6 +16,6 @@
     "python"
   ],
   "experimental": {
-    "evals": "evals/cases/evals-triggers"
+    "evals": "evals/cases/common/triggers"
   }
 }

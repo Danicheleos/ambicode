@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, it } from 'node:test';
-import { fileURLToPath } from 'node:url';
-import { NodeProcessRunner } from '../ports/node-process-runner.ts';
-import { nodeFileSystem } from '../ports/filesystem.ts';
+import { NodeProcessRunner } from '#platform/ports/node-process-runner';
+import { nodeFileSystem } from '#platform/ports/filesystem';
+import { REPO_ROOT } from '#testing/paths';
 
 /**
  * A literal control byte, a NUL above all, makes git treat the file as binary and hide
@@ -12,7 +12,7 @@ import { nodeFileSystem } from '../ports/filesystem.ts';
  * tree because the defect is easy to reintroduce and invisible in an editor.
  */
 
-const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const repositoryRoot = REPO_ROOT;
 
 async function sourceFiles(): Promise<string[]> {
   const found = await nodeFileSystem.glob('src/**/*.ts', repositoryRoot);
@@ -33,11 +33,11 @@ describe('source files stay text', () => {
     assert.deepEqual(offenders, [], `write the character as an escape instead:\n${offenders.join('\n')}`);
   });
 
-  it('lets git diff src/review/validate.ts as text', async () => {
+  it('lets git diff src/modules/review/findings/validate.ts as text', async () => {
     const runner = new NodeProcessRunner();
     // `--numstat` prints "-\t-" for a path git considers binary and real counts for text.
     const outcome = await runner.run({
-      argv: ['git', 'diff', '--numstat', '--no-index', '--', '/dev/null', 'src/review/validate.ts'],
+      argv: ['git', 'diff', '--numstat', '--no-index', '--', '/dev/null', 'src/modules/review/findings/validate.ts'],
       cwd: repositoryRoot,
       timeoutMs: 30_000,
       maxOutputBytes: 65_536,

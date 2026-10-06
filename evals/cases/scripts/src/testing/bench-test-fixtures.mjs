@@ -61,11 +61,12 @@ export function syntheticBenchmarks(root, { localize = 6, review = 5 } = {}) {
   const benchmarks = path.join(root, 'evals', 'benchmarks');
   for (const side of ['AA', 'BB']) {
     const base = path.join(benchmarks, side);
-    mkdirSync(path.join(base, 'src', 'mod'), { recursive: true });
+    const code = path.join(base, 'project');
+    mkdirSync(path.join(code, 'app', 'mod'), { recursive: true });
     mkdirSync(path.join(base, 'assets'), { recursive: true });
-    mkdirSync(path.join(base, '.ambicode'), { recursive: true });
-    writeFileSync(path.join(base, '.ambicode', 'config.yaml'), 'schemaVersion: 1\n');
-    for (let f = 0; f < 3; f++) writeFileSync(path.join(base, 'src', 'mod', `f${f}.ts`), `export const v${f} = ${f};\n`);
+    mkdirSync(path.join(code, '.ambicode'), { recursive: true });
+    writeFileSync(path.join(code, '.ambicode', 'config.yaml'), 'schemaVersion: 1\n');
+    for (let f = 0; f < 3; f++) writeFileSync(path.join(code, 'app', 'mod', `f${f}.ts`), `export const v${f} = ${f};\n`);
     for (let t = 0; t < Math.max(localize, review); t++) {
       const truth = t < localize ? ['app/mod/f0.ts', 'app/mod/f1.ts'] : ['app/mod/f0.ts'];
       writeFileSync(path.join(base, 'assets', `T-${t}.md`), ticket(`Ticket ${t} changes how amounts are computed.${PAD}`, truth));

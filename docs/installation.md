@@ -23,7 +23,7 @@ From the AMBICODE checkout:
 ```text
 npm ci
 npm run package:candidate
-node install-local.mjs install dist/ambicode-0.3.1
+node tools/install-local.mjs install dist/ambicode-0.3.1
 ```
 
 The default configuration directory is the same one ordinary Claude Code
@@ -38,7 +38,7 @@ Verify with ordinary commands in the same terminal:
 ```text
 claude plugin list
 claude plugin details ambicode@ambicode-team
-node install-local.mjs inspect
+node tools/install-local.mjs inspect
 ```
 
 The plugin appears in Claude's plugin list. It does **not** appear as a plugin
@@ -70,10 +70,10 @@ on the generated `bin/ambicode` shell script:
 ```powershell
 npm ci
 npm run package:candidate
-node .\install-local.mjs install .\dist\ambicode-0.3.1
+node .\tools\install-local.mjs install .\dist\ambicode-0.3.1
 claude plugin list
 claude plugin details ambicode@ambicode-team
-node .\install-local.mjs inspect
+node .\tools\install-local.mjs inspect
 ```
 
 Hooks use Claude's exec-form hook contract: `node` plus an argument array that
@@ -88,13 +88,13 @@ The default is `--scope user`. For a project-specific installation, identify
 the target explicitly:
 
 ```text
-node install-local.mjs install dist/ambicode-0.3.1 --scope project --project-dir /absolute/path/to/product
+node tools/install-local.mjs install dist/ambicode-0.3.1 --scope project --project-dir /absolute/path/to/product
 ```
 
 PowerShell example:
 
 ```powershell
-node .\install-local.mjs install .\dist\ambicode-0.3.1 --scope project --project-dir C:\work\product
+node .\tools\install-local.mjs install .\dist\ambicode-0.3.1 --scope project --project-dir C:\work\product
 ```
 
 `local` scope uses the same explicit `--project-dir` requirement. Claude Code
@@ -107,8 +107,8 @@ Use `--config-dir` only when you deliberately want an isolated Claude
 configuration for testing:
 
 ```text
-node install-local.mjs install dist/ambicode-0.3.1 --config-dir /absolute/path/to/test-config
-node install-local.mjs inspect --config-dir /absolute/path/to/test-config
+node tools/install-local.mjs install dist/ambicode-0.3.1 --config-dir /absolute/path/to/test-config
+node tools/install-local.mjs inspect --config-dir /absolute/path/to/test-config
 ```
 
 An ordinary `claude plugin list` reads the normal Claude configuration and
@@ -229,14 +229,14 @@ stages and validates the replacement first, preserves the previous source until
 native postconditions pass, and writes state atomically.
 
 ```text
-node install-local.mjs install dist/ambicode-0.3.1
-node install-local.mjs uninstall
+node tools/install-local.mjs install dist/ambicode-0.3.1
+node tools/install-local.mjs uninstall
 ```
 
 For an isolated configuration, repeat the exact named option:
 
 ```text
-node install-local.mjs uninstall --config-dir /absolute/path/to/test-config
+node tools/install-local.mjs uninstall --config-dir /absolute/path/to/test-config
 ```
 
 Uninstall reads the recorded scope and project directory. Conflicting caller
@@ -247,7 +247,7 @@ product repositories' `.ambicode/` directories remain.
 ## Troubleshooting
 
 **Installed, but absent from `claude plugin list`.** Run
-`node install-local.mjs inspect`. If you installed with `--config-dir`, use the
+`node tools/install-local.mjs inspect`. If you installed with `--config-dir`, use the
 same `--config-dir` for inspect or set `CLAUDE_CONFIG_DIR` for every Claude
 command. Otherwise confirm the install command did not inherit an unintended
 `CLAUDE_CONFIG_DIR`.

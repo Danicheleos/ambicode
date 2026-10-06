@@ -7,14 +7,14 @@ import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DEFAULTS } from '../../../../../src/config/defaults.ts';
-import { systemClock } from '../../../../../src/ports/clock.ts';
-import { nodeFileSystem } from '../../../../../src/ports/filesystem.ts';
-import { NodeProcessRunner } from '../../../../../src/ports/node-process-runner.ts';
-import { ClaudeReviewer } from '../../../../../src/review/claude-reviewer.ts';
+import { DEFAULTS } from '../../../../../src/types/defaults.ts';
+import { systemClock } from '../../../../../src/platform/ports/clock.ts';
+import { nodeFileSystem } from '../../../../../src/platform/ports/filesystem.ts';
+import { NodeProcessRunner } from '../../../../../src/platform/ports/node-process-runner.ts';
+import { ClaudeReviewer } from '../../../../../src/modules/review/reviewer/claude-reviewer.ts';
 
 import { OUTPUTS, ROOT } from '../shared/bench-paths.mjs';
-const EVALS = path.join(ROOT, 'evals', 'cases', 'evals-archived', 'typescript');
+const EVALS = path.join(ROOT, 'evals', 'cases', 'common', 'archived', 'typescript');
 const AMBICODE = path.join(ROOT, 'scripts', 'ambicode.mjs');
 const ARMS = ['ambicode', 'plain'];
 
@@ -359,8 +359,8 @@ function report(results) {
     '',
     '## Adjudication',
     '',
-    'Label every row of `adjudication-sheet.csv` per `evals/cases/evals-archived/typescript/adjudication.md`, against each case\'s',
-    '`evals/cases/evals-archived/typescript/<case>/ground-truth.md`. The sheet names no arm and is shuffled across cases;',
+    'Label every row of `adjudication-sheet.csv` per `evals/cases/common/archived/typescript/adjudication.md`, against each case\'s',
+    '`evals/cases/common/archived/typescript/<case>/ground-truth.md`. The sheet names no arm and is shuffled across cases;',
     '`adjudication-key.csv` maps each row back and must stay closed until labelling is done.',
     'Each claim is the reviewer\'s own words: where one gives its arm away, record that the blind failed for it.',
     'Actionable precision and recall are not computed here; they need the labels.',
@@ -398,7 +398,7 @@ export async function main(argv) {
   });
   const cases = await reviewCases(options.evals, options.cases);
   const startedAt = new Date().toISOString();
-  const out = options.out ?? path.join(OUTPUTS, 'archived', `reviewer-${startedAt.replaceAll(':', '-').replace(/\.\d+Z$/, 'Z')}`);
+  const out = options.out ?? path.join(OUTPUTS, 'archived', startedAt.slice(0, 10), `${startedAt.slice(11, 13)}${startedAt.slice(14, 16)}_reviewer`);
   await mkdir(path.join(out, 'raw'), { recursive: true });
 
   let claudeVersion = null;

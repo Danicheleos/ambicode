@@ -59,16 +59,16 @@ describe('reuse-cases generation', () => {
     const bench = mkdtempSync(path.join(tmpdir(), 'reuse-bench-'));
     try {
       const modules = { 'models/A.ts': 'A', 'lib/B.ts': 'B', 'util/C.ts': 'C', 'util/D.ts': 'D' };
-      for (const [file, name] of Object.entries(modules)) put(path.join(bench, 'BE/src', file), `export const ${name} = 1;\n`);
+      for (const [file, name] of Object.entries(modules)) put(path.join(bench, 'BE-express/project/src', file), `export const ${name} = 1;\n`);
       const patch = ['diff --git a/src/api/R.ts b/src/api/R.ts', '--- a/src/api/R.ts', '+++ b/src/api/R.ts', '@@ -1 +1,5 @@']
         .concat(Object.keys(modules).map((file) => `+import { ${modules[file]} } from "../${file.replace('.ts', '.js')}";`)).join('\n');
-      const version = path.join(bench, 'BE/reviews/T1/7-deadbeef');
+      const version = path.join(bench, 'BE-express/reviews/T1/7-deadbeef');
       put(path.join(version, 'change.patch'), patch);
       put(path.join(version, 'version.json'), JSON.stringify({ base, head: 'f'.repeat(40), root: 'src', touched: [], absentAtBase: [] }));
-      put(path.join(bench, 'BE/assets/T1.md'), `## build:context prompt\n${'Add reporting for scoring. '.repeat(20)}\n## TRUE RELATED CODE\n- src/api/R.ts\n`);
-      const result = spawnSync(process.execPath, [script, '--side', 'BE', '--benchmarks', bench], { encoding: 'utf8' });
+      put(path.join(bench, 'BE-express/assets/T1.md'), `## build:context prompt\n${'Add reporting for scoring. '.repeat(20)}\n## TRUE RELATED CODE\n- src/api/R.ts\n`);
+      const result = spawnSync(process.execPath, [script, '--side', 'BE-express', '--benchmarks', bench, '--cases', path.join(bench, 'cases')], { encoding: 'utf8' });
       assert.equal(result.status, 0, result.stderr);
-      const out = path.join(bench, 'reuse-cases');
+      const out = path.join(bench, 'cases', 'BE-express', 'reuse');
       const cases = readdirSync(out).filter((name) => name.includes('-reuse-'));
       assert.deepEqual(cases.sort(), ['be-reuse-t1', 'be-reuse-t1-forced']);
       for (const name of cases) {
@@ -76,7 +76,7 @@ describe('reuse-cases generation', () => {
         const body = readFileSync(file, 'utf8');
         assert.ok(body.includes(`archive '${base}' -- 'src'`), body);
         assert.doesNotMatch(body, /cp -R/);
-        assert.ok(body.includes(`SIDE="$(cd "$(dirname "$0")"/'../../BE' && pwd)"`), 'SIDE is relative to the case under --benchmarks');
+        assert.ok(body.includes(`SIDE="$(cd "$(dirname "$0")"/'../../../../BE-express' && pwd)"`), 'SIDE is relative to the case, reaching --benchmarks');
         assert.ok(statSync(file).mode & 0o100, 'executable');
       }
       const relative = spawnSync(process.execPath, [script, '--benchmarks', 'rel/dir'], { encoding: 'utf8' });

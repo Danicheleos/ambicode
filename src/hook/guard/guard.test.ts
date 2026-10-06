@@ -4,10 +4,12 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, describe, it } from 'node:test';
-import { LEDGER_FILE, type LedgerEntry } from '../../task/ledger.ts';
-import { guardDecision, type GuardInput } from './guard-core.ts';
-import { ACTIVE_ROUTE_FILE, fsGuardState, GUARD_LEDGER_FILE, GUARD_STATE_DIR_NAME, LEDGER_LIMIT } from './guard-state.ts';
-import { HOOK_STATE_DIR_NAME } from '../session/markers.ts';
+import { guardDecision } from './guard-core.ts';
+import { fsGuardState } from './guard-state.ts';
+import { LEDGER_FILE } from '#modules/evidence/types/ledger';
+import type { LedgerEntry } from '#types/evidence';
+import { ACTIVE_ROUTE_FILE, GUARD_LEDGER_FILE, GUARD_STATE_DIR_NAME, LEDGER_LIMIT, type GuardInput } from '../types/guard.ts';
+import { HOOK_STATE_DIR_NAME } from '../types/session.ts';
 
 type Output = { hookSpecificOutput?: { permissionDecision: string; permissionDecisionReason: string } };
 
@@ -701,7 +703,7 @@ describe('the built guard entry', () => {
       }
     };
     visit(built);
-    // node:module is build.mjs's shared banner (a require shim for `yaml`), present before this step.
+    // node:module is tools/build.mjs's shared banner (a require shim for `yaml`), present before this step.
     // node:crypto and node:os give the session state directory when PostToolUse carries no scratchpad (03b-B2).
     assert.deepEqual([...specifiers].sort(), ['node:crypto', 'node:fs', 'node:module', 'node:os']);
     assert.ok(seen.size <= 2, `the guard loads ${seen.size} files`);

@@ -1,15 +1,17 @@
 // `run`'s arguments, parsed once into one validated spec; the harness argv is built from that spec alone, so what
 // was checked is what is forwarded.
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
-import { BENCH_EVAL_DIR, BENCHMARKS, CASES_DIRECTORY, CURATED_EVAL_DIR, OUTPUTS, ROOT } from '../shared/bench-paths.mjs';
+import { BENCH_EVAL_DIR, BENCHMARKS, CASES_DIRECTORY, CURATED_EVAL_DIR, OUTPUTS, ROOT, TASK_EVAL_DIR } from '../shared/bench-paths.mjs';
+
+export { TASK_EVAL_DIR };
 
 export const FORCED_REMOVED = '--forced was removed: forced review twins are gone, the plugin arm types its command from prompt.with.md (`run --prompt with`); run `select` without it';
 
 // Values are singletons: a repeat is refused, not resolved by position. This order is the forwarded order.
-export const RUN_VALUES = ['--set', '--plugin', '--prompt', '--model', '--max-cost-usd', '--runs', '--ablation', '--case', '--json', '--report', '--output-dir', '--concurrency', '--judge-model', '--mocks', '--threshold'];
+export const RUN_VALUES = ['--set', '--project', '--plugin', '--prompt', '--model', '--max-cost-usd', '--runs', '--ablation', '--case', '--json', '--report', '--output-dir', '--concurrency', '--judge-model', '--mocks', '--threshold'];
 export const RUN_FLAGS = ['--walk', '--dry-run', '--trust-plugin', '--allow-real-servers', '--keep-temp', '--verbose'];
-const WRAPPER_OPTIONS = new Set(['--set', '--plugin', '--prompt', '--walk', '--dry-run']);
+const WRAPPER_OPTIONS = new Set(['--set', '--project', '--plugin', '--prompt', '--walk', '--dry-run']);
 export const PATH_OPTIONS = new Set(['--json', '--report', '--output-dir']);
 const RUN_ALIASES = { '-j': '--concurrency' };
 const RUN_FIXED = {
@@ -63,35 +65,69 @@ export function parseRunOptions(rest) {
   return { values, flags, tags };
 }
 
-export const TASK_EVAL_DIR = 'evals/cases/evals-task';
-const evalDirOf = (set) => (set === 'full' ? BENCH_EVAL_DIR : set === 'task' ? TASK_EVAL_DIR : CURATED_EVAL_DIR);
-const casesDirOf = (set, plugin, benchmarks) => (set === 'full' ? path.join(benchmarks, CASES_DIRECTORY) : path.join(plugin, evalDirOf(set), CASES_DIRECTORY));
+// The full set is one project's: `--eval-dir` is that project's folder, so discovery never crosses into another.
+const evalDirOf = (set, project) => (set === 'full' ? `${BENCH_EVAL_DIR}/${project}` : set === 'task' ? TASK_EVAL_DIR : CURATED_EVAL_DIR);
+const casesDirOf = (set, plugin, benchmarks, project) => (set === 'full' ? path.join(benchmarks, project, CASES_DIRECTORY) : path.join(plugin, evalDirOf(set), CASES_DIRECTORY));
+/** The eval type a set's runs are filed under in `evals/outputs/`. */
+export const EVAL_TYPES = Object.freeze({ curated: 'core', full: 'full', task: 'task' });
+
+/**
+ * A run's own directory, `outputs/<type>/<UTC date>/<NN>_<HHMM>_<label>/`, numbered after the iterations already
+ * filed that day. It holds `results/` (the harness result, the plugin-eval output), `traces/` and `reports/`.
+ * `type` defaults to the set's; suites run outside the harness (archived, triggers) name their own.
+ */
+export function iterationDir({ set, type = EVAL_TYPES[set], now, label, outputs = OUTPUTS }) {
+  const iso = now.toISOString();
+  const day = path.join(outputs, type, iso.slice(0, 10));
+  const taken = existsSync(day) ? readdirSync(day, { withFileTypes: true }).filter((e) => e.isDirectory()).length : 0;
+  return path.join(day, `${String(taken + 1).padStart(2, '0')}_${iso.slice(11, 13)}${iso.slice(14, 16)}_${label}`);
+}
+
+/** Where a result's traces and reports live: in its iteration when it sits in an iteration's `results/`, else beside it. */
+export function resultLayout(json, outputs = OUTPUTS) {
+  const dir = path.dirname(path.resolve(json));
+  if (path.basename(dir) !== 'results' || path.relative(outputs, dir).startsWith('..'))
+    return { iteration: null, tracesDir: path.join(dir, 'traces'), reportsDir: dir };
+  const iteration = path.dirname(dir);
+  return { iteration, tracesDir: path.join(iteration, 'traces'), reportsDir: path.join(iteration, 'reports') };
+}
+
+const slug = (text) => String(text).toLowerCase().replace(/^claude-/, '').replace(/[^a-z0-9.+-]+/g, '-').replace(/^-+|-+$/g, '');
+const labelOf = ({ tags, set, project, plugin, prompt, model }) =>
+  [tags.length ? tags.join('+') : set, project, path.basename(plugin), prompt === 'with' ? 'with-prompt' : null, model].filter(Boolean).map(slug).join('-');
 
 /**
  * The one validated run. `harness` holds the forwarded options as `[name, ...values]` in `RUN_VALUES` order,
  * `--json` always among them (the default result path when none was given). `set`/`plugin` in the second
  * argument are defaults for arguments that name none.
  */
-export function runSpec(options, { now = new Date(), benchmarks = BENCHMARKS, set: defaultSet = 'curated', plugin: defaultPlugin = ROOT } = {}) {
+export function runSpec(options, { now = new Date(), benchmarks = BENCHMARKS, outputs = OUTPUTS, set: defaultSet = 'curated', plugin: defaultPlugin = ROOT } = {}) {
   const { values, flags, tags } = Array.isArray(options) ? parseRunOptions(options) : options;
   const set = values['--set'] ?? defaultSet;
   if (!['curated', 'full', 'task'].includes(set)) throw new Error(`--set takes curated, full or task, not ${set}`);
   for (const name of Object.keys(REQUIRED)) if (!(name in values)) throw new Error(REQUIRED[name]);
+  const project = values['--project'] ?? null;
+  if (set === 'full' && project === null) throw new Error('--set full needs --project <benchmark project>: each project keeps its own full set');
+  if (set !== 'full' && project !== null) throw new Error(`--project selects a full set; the ${set} set spans every project`);
   const prompt = values['--prompt'] ?? 'naked';
   if (!['naked', 'with'].includes(prompt)) throw new Error(`--prompt takes naked or with, not ${prompt}`);
   const plugin = values['--plugin'] === undefined ? defaultPlugin : path.resolve(values['--plugin']);
   if (!existsSync(path.join(plugin, '.claude-plugin', 'plugin.json'))) throw new Error(`${plugin} is not a plugin: no .claude-plugin/plugin.json`);
-  const excluded = [benchmarks, path.join(OUTPUTS, 'core')];
+  const excluded = [benchmarks, outputs];
   for (const name of PATH_OPTIONS)
     if (name in values && excluded.every((dir) => path.relative(dir, path.resolve(values[name])).startsWith('..')))
       throw new Error(`${name} must stay under ${excluded.join(' or ')}: the result holds the benchmark's prompts and answers`);
-  const resultsDir = set === 'full' ? path.join(benchmarks, 'results') : path.join(OUTPUTS, 'core');
-  const json = values['--json'] === undefined ? path.join(resultsDir, `eval-${now.toISOString().replace(/[:.]/g, '-')}.json`) : path.resolve(values['--json']);
+  const jsonGiven = '--json' in values;
+  const json = jsonGiven
+    ? path.resolve(values['--json'])
+    : path.join(iterationDir({ set, now, outputs, label: labelOf({ tags, set, project, plugin, prompt, model: values['--model'] }) }), 'results', 'eval.json');
+  const { iteration, tracesDir, reportsDir } = resultLayout(json, outputs);
   const harness = [];
   for (const name of RUN_VALUES) {
     if (WRAPPER_OPTIONS.has(name)) continue;
     if (name === '--json') harness.push([name, json]);
     else if (name in values) harness.push([name, values[name]]);
+    else if (name === '--output-dir' && iteration) harness.push([name, path.join(iteration, 'results', 'plugin-eval')]);
   }
   for (const name of RUN_FLAGS) if (!WRAPPER_OPTIONS.has(name) && flags.has(name)) harness.push([name]);
   if (tags.length) harness.push(['--tag', ...tags]);
@@ -99,8 +135,9 @@ export function runSpec(options, { now = new Date(), benchmarks = BENCHMARKS, se
     set,
     plugin,
     prompt,
-    casesDir: casesDirOf(set, plugin, benchmarks),
-    evalDir: evalDirOf(set),
+    project,
+    casesDir: casesDirOf(set, plugin, benchmarks, project),
+    evalDir: evalDirOf(set, project),
     model: values['--model'],
     maxCostUsd: Number(values['--max-cost-usd']),
     runs: values['--runs'] ?? null,
@@ -111,8 +148,10 @@ export function runSpec(options, { now = new Date(), benchmarks = BENCHMARKS, se
     dryRun: flags.has('--dry-run'),
     trustPlugin: flags.has('--trust-plugin'),
     json,
-    jsonGiven: '--json' in values,
-    tracesDir: path.join(path.dirname(json), 'traces'),
+    jsonGiven,
+    iteration,
+    tracesDir,
+    reportsDir,
     harness,
   };
 }

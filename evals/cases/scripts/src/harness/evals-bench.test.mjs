@@ -15,7 +15,7 @@ describe('evals-bench: the curated cases stay out of git', () => {
   const ignored = (p) => execFileSync('git', ['check-ignore', '-v', p], { cwd: ROOT, encoding: 'utf8' });
 
   it('ignores the curated cases and their results, wherever the data they are generated from lives', () => {
-    assert.match(ignored(`${CURATED_EVAL_DIR}/cases/x`), /evals-core/);
+    assert.match(ignored(`${CURATED_EVAL_DIR}/cases/x`), /common\/core/);
     assert.match(ignored('evals/outputs/core/x'), /outputs/);
   });
 
@@ -43,11 +43,7 @@ describe('evals-bench: the real benchmark stays out of git', { skip: !existsSync
   it('has no ticket identifier in any tracked or addable file', () => {
     const ids = new Set();
     const dirs = (at) => (existsSync(at) ? readdirSync(at, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => path.join(at, e.name)) : []);
-    // Two layouts: ticket sources in <side>/assets/<id>.md, or generated cases in projects/<side>/cases/*/truth.json.
-    for (const side of dirs(REAL).filter((dir) => existsSync(path.join(dir, 'assets'))))
-      for (const f of readdirSync(path.join(side, 'assets'), { withFileTypes: true }).filter((e) => e.name.endsWith('.md')))
-        ids.add(path.basename(f.name, '.md'));
-    for (const caseDir of dirs(path.join(REAL, 'projects')).flatMap((side) => dirs(path.join(side, 'cases')))) {
+    for (const caseDir of dirs(REAL).flatMap((project) => dirs(path.join(project, 'cases')))) {
       const truth = path.join(caseDir, 'truth.json');
       const ticket = existsSync(truth) ? JSON.parse(readFileSync(truth, 'utf8')).ticket : undefined;
       if (typeof ticket === 'string' && ticket !== '') ids.add(ticket);
@@ -81,11 +77,11 @@ describe('evals-bench: per-arm prompts', () => {
     // Digests of what the unmodified generator wrote for this ticket (base revision 10cf672).
     const b = path.join(root, 'golden');
     const side = path.join(b, 'SIDE');
-    mkdirSync(path.join(side, 'src', 'orders'), { recursive: true });
+    mkdirSync(path.join(side, 'project', 'app', 'orders'), { recursive: true });
     mkdirSync(path.join(side, 'assets'), { recursive: true });
-    mkdirSync(path.join(side, '.ambicode'), { recursive: true });
-    writeFileSync(path.join(side, 'src', 'orders', 'service.ts'), 'x\n');
-    writeFileSync(path.join(side, '.ambicode', 'config.yaml'), 'schemaVersion: 1\n');
+    mkdirSync(path.join(side, 'project', '.ambicode'), { recursive: true });
+    writeFileSync(path.join(side, 'project', 'app', 'orders', 'service.ts'), 'x\n');
+    writeFileSync(path.join(side, 'project', '.ambicode', 'config.yaml'), 'schemaVersion: 1\n');
     writeFileSync(path.join(side, 'assets', 'T-1.md'), '# T\n\n## build:context prompt\n\nDiscount the order total.\n\n## TRUE RELATED CODE\n\n- `app/orders/service.ts`\n');
     const v = path.join(side, 'reviews', 'T-1', '7-abcdef12');
     mkdirSync(path.join(v, 'base'), { recursive: true });
@@ -241,8 +237,8 @@ describe('evals-bench: per-arm prompts', () => {
   });
 
   it('07-T4: a dry run names the eval dir of its set, not the curated one', () => {
-    const plan = { set: 'task', evalDir: 'evals/cases/evals-task', plugin: ROOT, harness: [], cases: [], prompt: 'with', model: 'm', maxCostUsd: 1, runs: '1', ablation: 'none', replay: 'unset' };
-    assert.match(formatPlan(plan), /--eval-dir evals\/cases\/evals-task --scaffold/);
+    const plan = { set: 'task', evalDir: 'evals/cases/common/task', plugin: ROOT, harness: [], cases: [], prompt: 'with', model: 'm', maxCostUsd: 1, runs: '1', ablation: 'none', replay: 'unset' };
+    assert.match(formatPlan(plan), /--eval-dir evals\/cases\/common\/task --scaffold/);
   });
 
   it('dry-runs without spawning or touching a file, and prints no prompt or case name', async () => {
@@ -256,7 +252,7 @@ describe('evals-bench: per-arm prompts', () => {
     assert.match(out, /cases: 2 \(localize 2\)/);
     assert.match(out, /model: m; cap: \$1/);
     assert.match(out, /hook support: not claimed/);
-    assert.match(out, /harness: claude plugin eval <plugin dir> --eval-dir evals\/cases\/evals-core/);
+    assert.match(out, /harness: claude plugin eval <plugin dir> --eval-dir evals\/cases\/common\/core/);
     assert.match(out, /harness options: --model m --max-cost-usd 1 --ablation none --json <benchmarks>\/…\/<name redacted>\.json --tag localize/);
     for (const c of resolveCases(casesDir)) assert.ok(!out.includes(c.name), 'no case name');
     assert.doesNotMatch(out, /Ticket \d|In the repository/, 'no prompt text');
@@ -591,7 +587,7 @@ describe('evals-bench: review cases under the plugin prompt (08-P3)', () => {
         mkdirSync(dir, { recursive: true });
         writeFileSync(path.join(dir, 'service.ts'), 'export const total = 0;\n');
       }
-      writeFileSync(path.join(benchmarks, side, '.ambicode', 'config.yaml'), CONFIG);
+      writeFileSync(path.join(benchmarks, side, 'project', '.ambicode', 'config.yaml'), CONFIG);
     }
     ({ plugin, casesDir } = syntheticPlugin(root, benchmarks, { pick: { localize: 0, review: 2 } }));
   });

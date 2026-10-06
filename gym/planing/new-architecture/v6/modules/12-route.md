@@ -531,7 +531,7 @@ MCP hook captures only (14 §3). Skill bodies lose their step lists. New ledger 
   (*keep open*) and the release are fixed by the registry. A model could ask nothing material and
   still produce a plan; the composite (33 §4) is the measure, not the gate count.
 - P48 Whether `PostToolUse(AskUserQuestion)` may return `additionalContext` with the next step
-  (`ADDITIONAL_CONTEXT_EVENTS` includes `PostToolUse`, `src/contracts/hook.ts:33`, so the contract
+  (`ADDITIONAL_CONTEXT_EVENTS` includes `PostToolUse`, `src/types/hook.ts:33`, so the contract
   allows it; the payload is P2). Fallback: the hook prints nothing and the gate text ends with "then
   run `$A route next`" (+1 ceremony turn per gate).
 - P54 Adopting a route from another session folds over two sessions' entries: a second **live**

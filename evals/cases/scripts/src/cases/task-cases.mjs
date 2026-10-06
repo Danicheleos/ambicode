@@ -1,5 +1,5 @@
 // Task cases: the ticket of a real defect fix, implemented from the base commit, graded by the merged fix's own test
-// held out of the scaffold. The prompt is the ticket text only. Cases go to evals/cases/evals-task/cases (gitignored, NDA).
+// held out of the scaffold. The prompt is the ticket text only. Cases go to evals/cases/common/task/cases (gitignored, NDA).
 // Commands: --test-command "<argv>" [--setup "<argv>"] [--limit <n>] [--sides BE,FE] [--benchmarks <absolute dir>]
 // [--unit "<argv with {files}>" --unit-adapter <id>]: the unit command written into the case's own config copy.
 import { spawnSync } from 'node:child_process';
@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseDocument } from 'yaml';
-import { BENCHMARKS, ROOT } from '../shared/bench-paths.mjs';
+import { BENCH_PROJECTS, BENCHMARKS, casePrefix, projectCodeDir, ROOT } from '../shared/bench-paths.mjs';
 import { scaffoldRunner } from '../analysis/task-score.mjs';
 import { baseOf, sideRelFrom, writeBaseScaffold } from './base-scaffold.mjs';
 import { casePrompt, parseTicket, peekGraders } from './bench-cases.mjs';
@@ -81,7 +81,7 @@ export function caseConfig(sideConfig, unit) {
 }
 
 /** Selects tickets in stable id order; `check({caseDir, patch})` runs the hidden test on a fresh scaffold. Returns counts. */
-export function generate({ benchmarks, out, limit = 10, testCommand, setup = null, sides = ['BE', 'FE'], unit = null, check }) {
+export function generate({ benchmarks, out, limit = 10, testCommand, setup = null, sides = BENCH_PROJECTS, unit = null, check }) {
   const counts = { candidates: 0, written: 0, noTest: 0, checkFailed: 0 };
   const tickets = [];
   for (const side of sides) {
@@ -102,9 +102,9 @@ export function generate({ benchmarks, out, limit = 10, testCommand, setup = nul
     counts.candidates += 1;
     const dir = path.join(reviews, version);
     const { base, root } = baseOf(dir);
-    const split = splitChange(readFileSync(path.join(dir, 'change.patch'), 'utf8'), (f) => gitShow(path.join(benchmarks, side, '.git-cache'), base, f));
+    const split = splitChange(readFileSync(path.join(dir, 'change.patch'), 'utf8'), (f) => gitShow(path.join(benchmarks, side, '.git'), base, f));
     if (!split) { counts.noTest += 1; continue; }
-    const caseDir = path.join(out, `${side.toLowerCase()}-task-${id.toLowerCase()}`);
+    const caseDir = path.join(out, `${casePrefix(side)}-task-${id.toLowerCase()}`);
     const name = path.basename(caseDir);
     mkdirSync(path.join(caseDir, 'graders'), { recursive: true });
     for (const [file, text] of Object.entries(split.merged)) put(path.join(caseDir, 'hidden', 'files', file), text);
@@ -114,7 +114,7 @@ export function generate({ benchmarks, out, limit = 10, testCommand, setup = nul
     writeFileSync(path.join(caseDir, 'case.yaml'), `schema_version: "1.1"\nname: ${name}\ncontext:\n  scaffold_script: scaffold.sh\n`);
     writeFileSync(path.join(caseDir, 'prompt.md'), taskPrompt(name, side, parsed.text));
     for (const [file, body] of Object.entries(peekGraders())) writeFileSync(path.join(caseDir, 'graders', file), body);
-    if (unit) writeFileSync(path.join(caseDir, 'config.yaml'), caseConfig(readFileSync(path.join(benchmarks, side, '.ambicode', 'config.yaml'), 'utf8'), unit));
+    if (unit) writeFileSync(path.join(caseDir, 'config.yaml'), caseConfig(readFileSync(path.join(projectCodeDir(benchmarks, side), '.ambicode', 'config.yaml'), 'utf8'), unit));
     // The whole tree: the hidden test needs the manifests, lock file and runner config outside the code root.
     writeBaseScaffold(caseDir, { sideRel: sideRelFrom(caseDir, benchmarks, side), base, root, withhold: Object.keys(split.merged), setup: setup && { argv: setup }, wholeTree: true, config: unit ? 'config.yaml' : null });
     writePluginPrompt(caseDir, TASK_COMMAND);
@@ -143,7 +143,7 @@ function main(argv) {
   const unitArgv = option('--unit')?.split(/\s+/).filter(Boolean);
   if (unitArgv && !option('--unit-adapter')) throw new Error('--unit needs --unit-adapter <id>');
   const unit = unitArgv ? { argv: unitArgv, adapter: option('--unit-adapter') } : null;
-  const sides = option('--sides', 'BE,FE').split(',');
+  const sides = option('--sides', BENCH_PROJECTS.join(',')).split(',');
   const counts = generate({ benchmarks, out: TASK_CASES, limit: Number(option('--limit', '10')), testCommand, setup, sides, unit, check: scaffoldRunner() });
   console.log(`task cases: ${counts.candidates} candidates, ${counts.written} written, ${counts.noTest} without a named test, ${counts.checkFailed} skipped (hidden test not fail-at-base and pass-at-merged)`);
   return 0;

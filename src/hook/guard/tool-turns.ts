@@ -1,14 +1,6 @@
-// Import-free like guard-core: it runs in the guard bundle after every tool call (see guard.ts).
-import type { GuardState } from './guard-core.ts';
+import type { GuardState, ToolTurnsInput } from '../types/guard.ts';
 
-export interface ToolTurnsInput {
-  hook_event_name?: string;
-  agent_id?: unknown;
-  scratchpad_dir?: unknown;
-  session_id?: unknown;
-  transcript_path?: unknown;
-  tool_use_id?: unknown;
-}
+// Import-free like guard-core: it runs in the guard bundle after every tool call (see guard.ts).
 
 export const toolTurnsText = (count: number): string =>
   `AMBICODE: ${count} tool turns in this answer. If what the request assumes is not in the code, say so and answer from what exists; otherwise answer from what you have read.`;

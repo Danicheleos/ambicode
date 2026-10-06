@@ -1,58 +1,30 @@
 import path from 'node:path';
-import {
-  createRuntime,
-  openRepository,
-  projectForPath,
-  resolvePolicyFor,
-  toRepositoryRelative,
-  type Runtime,
-} from '../../composition/root.ts';
-import { loadConfig } from '../../config/load.ts';
-import type { AmbicodeConfig } from '../../contracts/config.ts';
-import type { ResolvedRule } from '../../contracts/policy.ts';
-import {
-  EMPTY_HOOK_OUTPUT,
-  HookInput,
-  type AdditionalContextEvent,
-  type AdditionalContextHookOutput,
-  type PostToolUseHookOutput,
-} from '../../contracts/hook.ts';
+import { createRuntime, openRepository, projectForPath, resolvePolicyFor, toRepositoryRelative } from '#composition/root';
+import { loadConfig } from '#modules/config/load';
+import type { AmbicodeConfig } from '#types/config';
+import type { ResolvedRule } from '#types/policy';
+import { EMPTY_HOOK_OUTPUT, HookInput, type AdditionalContextEvent, type AdditionalContextHookOutput, type PostToolUseHookOutput, type RouteHookDeps, type HookDeps } from '#types/hook';
 import { prepareForSlashCommand } from './prepare-on-skill.ts';
-import { askedKeys } from '../../requirements/envelope.ts';
-import { captureRequirement } from '../../requirements/capture.ts';
-import { fsActiveRoutePointer, resolveActiveRoute, type ActiveRoutePointer } from '../../route/active-route.ts';
-import { openRouteView } from '../../route/context.ts';
-import { createEngine } from '../../route/engine.ts';
-import type { RouteArgs } from '../../route/flags.ts';
-import { defaultHandlers, handlerRegistry } from '../../route/handlers.ts';
-import { loadRouteRegistry } from '../../route/routes.ts';
-import { findSessionRepository } from '../../composition/session-repository.ts';
-import { withLedgerLock } from '../../task/ledger-lock.ts';
-import { taskDirFor } from '../../task/task-dir.ts';
+import { askedKeys } from '#modules/requirements/envelope/envelope';
+import { captureRequirement } from '#modules/requirements/capture/capture';
+import { fsActiveRoutePointer, resolveActiveRoute } from '#harness/session/active-route';
+import { openRouteView } from '#harness/engine/context';
+import { createEngine } from '#harness/engine/engine';
+import { defaultHandlers, handlerRegistry } from '#harness/engine/handlers';
+import { loadRouteRegistry } from '#harness/definition/routes';
+import { findSessionRepository } from '#composition/session-repository';
+import { withLedgerLock } from '#modules/evidence/ledger/ledger-lock';
+import { taskDirFor } from '#modules/evidence/task/task-dir';
 import { answerGates } from './gate-answer.ts';
-import { launchRoute, reinjectRoute, type RouteHookDeps } from './prompt-launch.ts';
+import { launchRoute, reinjectRoute } from './prompt-launch.ts';
 import { stopCheck } from './stop-check.ts';
-import { readSessionContract } from '../../policy/shared-contract.ts';
-import { contentHash } from '../../util/hash.ts';
+import { readSessionContract } from '#modules/policy/packs/shared-contract';
+import { contentHash } from '#util/hash';
 import { rebindSession } from './rebind.ts';
-import {
-  clearSessionEnded,
-  cleanupSessionState,
-  currentEpoch,
-  deliverOnce,
-  hookStateBaseDir,
-  markSessionEnded,
-  resetEpoch,
-  type DeliveryKey,
-} from '../session/markers.ts';
-
-export const MAX_HOOK_INPUT_BYTES = 1_048_576;
-
-/** The pointer is cheap to open; the route registry and the engine are built only by an event that needs them. */
-export interface HookDeps {
-  pointer: ActiveRoutePointer;
-  load(): Promise<RouteHookDeps>;
-}
+import { clearSessionEnded, cleanupSessionState, currentEpoch, deliverOnce, hookStateBaseDir, markSessionEnded, resetEpoch } from '../session/markers.ts';
+import type { Runtime } from '#types/composition';
+import type { RouteArgs } from '#types/harness';
+import type { DeliveryKey } from '../types/session.ts';
 
 export function defaultHookDeps(runtime: Runtime): HookDeps {
   const pointer = fsActiveRoutePointer(runtime.fs);

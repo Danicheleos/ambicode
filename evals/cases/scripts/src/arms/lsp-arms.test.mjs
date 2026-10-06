@@ -48,8 +48,8 @@ describe('lsp-arms', () => {
     assert.equal(JSON.parse(readFileSync(path.join(dist, '.claude-plugin', 'plugin.json'), 'utf8')).lspServers, undefined);
     for (const arm of arms) {
       assert.ok(lstatSync(path.join(arm, 'evals', 'benchmarks')).isSymbolicLink());
-      assert.ok(!lstatSync(path.join(arm, 'evals', 'cases', 'evals-core', 'cases', 'be-1')).isSymbolicLink(), 'the harness refuses symlinks under --eval-dir');
-      assert.equal(readFileSync(path.join(arm, 'evals', 'cases', 'evals-core', 'cases', 'fe-2', 'prompt.md'), 'utf8'), 'fe-2');
+      assert.ok(!lstatSync(path.join(arm, 'evals', 'cases', 'common', 'core', 'cases', 'be-1')).isSymbolicLink(), 'the harness refuses symlinks under --eval-dir');
+      assert.equal(readFileSync(path.join(arm, 'evals', 'cases', 'common', 'core', 'cases', 'fe-2', 'prompt.md'), 'utf8'), 'fe-2');
     }
   });
 

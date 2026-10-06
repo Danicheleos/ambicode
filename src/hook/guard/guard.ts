@@ -1,7 +1,8 @@
 // A separate entry from the CLI bundle: the bundle costs 88-143 ms to start and the guard runs before every Bash call.
-import { guardDecision, type GuardInput } from './guard-core.ts';
+import { guardDecision } from './guard-core.ts';
 import { fsGuardState } from './guard-state.ts';
-import { toolTurnsNotice, type ToolTurnsInput } from './tool-turns.ts';
+import { toolTurnsNotice } from './tool-turns.ts';
+import type { GuardInput, ToolTurnsInput } from '../types/guard.ts';
 
 let raw = '';
 process.stdin.setEncoding('utf8');
