@@ -10,17 +10,30 @@ Commands are described in the [manual in README.md](README.md#eval-commands-manu
 
 From the widest to the narrowest. A change in a layer reaches every layer under it.
 
-| # | Layer | What it is | Where | Ours? |
-|---|---|---|---|---|
-| L0 | Claude Code and the model | agent loop, tool set, sandbox, prompt cache, compaction, model choice | — | **no**. We pick the model and record the CC version; everything else is fixed |
-| L1 | Hooks | SessionStart, UserPromptSubmit, Stop, PostCompact, SessionEnd, PostToolUse (`mcp__*`, AskUserQuestion), PreToolUse guard (git, glab, `.ambicode/task`, Write/Edit) | `hooks/hooks.json`, `src/hook/` | yes |
-| L2 | Session prompts | the context every session gets: session contract, shared operating contract, reviewer role | `prompts/*.md` | yes |
-| L3 | Harness engine | route fold, step delivery, execution, gates, status, budgets, exits, the ledger | `src/harness/` | yes |
-| L4 | Shared modules | requirements (template, normalize, ACs); search (profile, index, map layers, locate, dependents); policy (`policies/*.yaml` stages); checks (baseline, test selection); review (estimate, reviewer worker); evidence (notes, navigation line); workers (plan-check); config defaults | `src/modules/`, `policies/` | yes |
-| L5 | Route definitions | per skill: budget (`modelSteps`, `wallMinutes`, `toolTurns`), exits, step order, `when`, `repeat`, `revisable`, gate questions and defaults | `routes/*.yaml`, `routes/gates.yaml` | yes |
-| L6 | Step payloads | what a step hands the model: `payload: [envelope, acs, map, policy:…]`, map size limits (leads 1200 B, feature 400 B) | route `payload:` + the module that renders it | yes |
-| L7 | Wording | step instructions (`routes/steps/*.md`, ≤1500 chars), `skills/*/SKILL.md` | `routes/steps/`, `skills/` | yes |
-| — | Eval side | cases, oracles, graders, the bare baseline | `evals/` | yes, but it is the ruler, not the plugin |
+| # | Layer | What it is | Where | Skills | Steps / actions | Ours? |
+|---|---|---|---|---|---|---|
+| L0 | Claude Code and the model | agent loop, tool set, sandbox, prompt cache, compaction, model choice | — | all 6 | every model step and tool call | **no**. We pick the model and record the CC version; everything else is fixed |
+| L1a | Hooks: SessionStart, UserPromptSubmit, PostCompact, SessionEnd | injected session context; UserPromptSubmit opens the route of a typed `/ambicode:<skill>`; rebind after compaction | `hooks/hooks.json`, `src/hook/` | all 6, and untyped sessions | session open; the route open of a typed `/ambicode:<skill>`; rebind after compaction (long runs: task, plan) | yes |
+| L1b | Hook: Stop | the stop check: holds the session while a route step is pending | `src/hook/events/stop-check.ts` | all 6 | route close; the last model step: investigate `read`, task `write`, review `view`, plan `plan-write`, rules `apply`, init `apply` | yes |
+| L1c | Hook: PostToolUse AskUserQuestion | records a human gate's answer | `src/hook/events/gate-answer.ts` | all 6 | every human gate: investigate `scope`; task `draft-ok`, `review-offer`; review `estimate`; plan `plan-accept`; rules `sources`, `rules-table`; init `init-apply` | yes |
+| L1d | Hook: PostToolUse `mcp__*` | captures what a tracker tool returned | `src/hook/` | investigate, task, review, plan | `fetch`, when the ticket comes from an MCP tracker | yes |
+| L1e | Hook: PreToolUse guard | git, glab, `.ambicode/task` writes, Write/Edit | `scripts/guard.mjs`, `src/hook/guard/` | task, review; read-only guard for investigate, plan | task `red`, `green`, `fix` (edits); review `fetch` (glab, git); note writes in every skill; any edit attempt in a read-only skill | yes |
+| L2a | Session contract, shared operating contract | the text every session gets | `prompts/session-contract.md`, `prompts/shared-operating-contract.md` | all 6, and untyped sessions | every model step | yes |
+| L2b | Reviewer role | the independent reviewer's system prompt | `prompts/reviewer-role.md` | review, task | review `review-run`; task `review-run`, `report-step` | yes |
+| L3 | Harness engine | route fold, step delivery, execution, gates, status, budgets, exits, the ledger | `src/harness/` | all 6 | every step; budgets per route; `repeat`/`revise`: investigate `ground`, review `ground`, the `estimate` revise loop, task red/green | yes |
+| L4a | Requirements | template, normalize, ACs | `src/modules/requirements/` | investigate, task, review, plan | `template`, `fetch`, `ground`; ACs feed investigate `read` and plan `design` | yes |
+| L4b | Search: profile, map layers, locate | the project profile; `search.map(prompt)` = `[shortlist, harvest, shortlist]`; `search.map(context)` = `[grep, harvest]` | `src/modules/search/` | investigate, task, plan, init | `map(prompt)`: investigate `ground` → `scope`, `read`. `map(context)`: task `ground` → `red`; plan `ground` → `design`. Profile: init `propose`, policy globs | yes |
+| L4c | Search: code index, dependents | declarations, relations, dependents, index drift (20 files) | `src/modules/search/` | task, review, init | task `ground` (`task.index`, the `callers` payload of `red`); review `estimate-step`, `review-run` (dependents in the bundle); init `propose` (index scan) | yes |
+| L4d | Policy | stage packs from `policies/*.yaml`: before-work, before-checks, before-report | `src/modules/policy/`, `policies/` | investigate, task, plan; packs written by rules | before-work: investigate `read`, task `red`, plan `design`. before-checks: task `red`/`green`. before-report: task `write`, plan `plan-step` | yes |
+| L4e | Checks | baseline, test selection (≤ 20 files, 120 s) | `src/modules/checks/` | task, init | task `ground` (`checks.baseline`), `red`, `green`, `fix`; init `propose` (baseline detection) | yes |
+| L4f | Review | estimate, bundle, reviewer worker (sonnet, 300 s) | `src/modules/review/` | review, task | review `estimate-step`, `estimate`, `review-run`, `readback`, `view`; task `review-run`, `report-step` | yes |
+| L4g | Evidence, workers | notes, navigation line, promotion; plan-check | `src/modules/evidence/`, `src/modules/workers/` | investigate, plan, task | investigate note (`read`); plan `plan-step`, `plan-check`, `promote`; task report | yes |
+| L4h | Config defaults | defaults, init proposal, doctor | `src/modules/config/` | init; defaults of all 6 | init `propose`, `close`; the defaults of every module above | yes |
+| L5 | Route definitions | per skill: budget (`modelSteps`, `wallMinutes`, `toolTurns`), exits, step order, `when`, `repeat`, `revisable`, gate questions and defaults | `routes/*.yaml`, `routes/gates.yaml` | one route per skill; `gates.yaml` all 6 | budget, exits, step order, `when`, gates of that route; `budget-exhausted` everywhere | yes |
+| L6 | Step payloads | what a step hands the model: `payload: [envelope, acs, map, policy:…]`, map size limits (leads 1,200 B, feature 400 B) | route `payload:` + the module that renders it | investigate, task, plan, rules, review | investigate `read`; task `red`, `write`; plan `design`; rules `draft`; `fetch` (template) in investigate, task, review, plan | yes |
+| L7a | Step instructions | `routes/<skill>/<step>.md`, ≤ 1,500 chars | `routes/<skill>/` | all 6 | one model step per file. Shared: `plan/fetch.md` = plan and task `fetch`; `init/apply-run.md` = init `apply`, `apply-adjusted`. Others: investigate `fetch`/`read`, review `fetch`/`readback`/`view`, task `red`/`green`/`fix`/`write`, plan `design`/`plan-write`, rules `draft`/`apply` | yes |
+| L7b | Skill bodies | `skills/*/SKILL.md` | `skills/` | one skill each | from the skill open to its first step | yes |
+| — | Eval side | cases, oracles, graders, the bare baseline | `evals/` | investigate, review, task, plan | what each is measured by: localize, review, task, epic cases | yes, but it is the ruler, not the plugin |
 
 Routes and their model steps:
 
