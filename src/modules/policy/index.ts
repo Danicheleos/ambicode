@@ -1,5 +1,9 @@
 // Policy packs: loading, validation, resolution, provenance, rule authoring and the per-stage projection.
 
+// resolve-for.ts: a project's packs loaded and resolved for one activity.
+/** resolvePolicyFor(options) — loads the policy packs for a project and returns its ResolvedPolicy. */
+export { resolvePolicyFor } from './resolve-for.ts';
+
 // authoring/: rule drafts and `rules` apply/revert.
 /** blockingProblem(check, root, file) — the pack-level problem that keeps a draft from being applied, if any. */
 export { blockingProblem } from './authoring/drafts.ts';

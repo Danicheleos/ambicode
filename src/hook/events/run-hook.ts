@@ -1,5 +1,8 @@
 import path from 'node:path';
-import { createRuntime, openRepository, projectForPath, resolvePolicyFor, toRepositoryRelative } from '#composition/root';
+import { createRuntime } from '#composition/root';
+import { openRepository } from '#platform/git/open';
+import { projectForPath, toRepositoryRelative } from '#modules/config/workspace';
+import { resolvePolicyFor } from '#modules/policy/resolve-for';
 import { loadConfig } from '#modules/config/load';
 import type { AmbicodeConfig } from '#types/modules/config';
 import type { ResolvedRule } from '#types/modules/policy';
@@ -12,8 +15,8 @@ import { openRouteView } from '#harness/engine/context';
 import { createEngine } from '#harness/engine/engine';
 import { defaultHandlers, handlerRegistry } from '#harness/engine/handlers';
 import { loadRouteRegistry } from '#harness/definition/routes';
-import { findSessionRepository } from '#composition/session-repository';
-import { withLedgerLock } from '#modules/evidence/ledger/ledger-lock';
+import { findSessionRepository } from '#platform/git/session-repository';
+import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { taskDirFor } from '#modules/evidence/task/task-dir';
 import { answerGates } from './gate-answer.ts';
 import { launchRoute, reinjectRoute } from './prompt-launch.ts';
@@ -21,10 +24,10 @@ import { stopCheck } from './stop-check.ts';
 import { readSessionContract } from '#modules/policy/packs/shared-contract';
 import { contentHash } from '#util/hash';
 import { rebindSession } from './rebind.ts';
-import { clearSessionEnded, cleanupSessionState, currentEpoch, deliverOnce, hookStateBaseDir, markSessionEnded, resetEpoch } from '../session/markers.ts';
+import { clearSessionEnded, cleanupSessionState, currentEpoch, deliverOnce, hookStateBaseDir, markSessionEnded, resetEpoch } from '#platform/claude/hook-state';
 import type { Runtime } from '#types/composition';
 import type { RouteArgs } from '#types/harness';
-import type { DeliveryKey } from '../types/session.ts';
+import type { DeliveryKey } from '#types/platform/claude';
 
 export function defaultHookDeps(runtime: Runtime): HookDeps {
   const pointer = fsActiveRoutePointer(runtime.fs);

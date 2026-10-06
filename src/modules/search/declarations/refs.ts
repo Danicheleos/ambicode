@@ -1,4 +1,4 @@
-import { openWorkspace } from '#composition/root';
+import { openWorkspace } from '#modules/config/workspace';
 import type { ProjectConfig } from '#types/modules/config';
 import { literalPathspec, type Git } from '#platform/git/git';
 import { normalizeRelative } from '#util/paths';

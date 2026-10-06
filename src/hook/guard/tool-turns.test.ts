@@ -6,7 +6,7 @@ import { after, describe, it } from 'node:test';
 import { POINTER_LIMIT } from '#harness/session/active-route';
 import { TRANSCRIPT_TAIL_BYTES } from '../events/stop-check.ts';
 import { fsGuardState, POINTER_LIMIT as GUARD_POINTER_LIMIT, sessionStateDir, TRANSCRIPT_TAIL_BYTES as GUARD_TRANSCRIPT_TAIL_BYTES } from './guard-state.ts';
-import { hookStateBaseDir } from '../session/markers.ts';
+import { hookStateBaseDir } from '#platform/claude/hook-state';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { toolTurns, toolTurnsNotice, toolTurnsText } from './tool-turns.ts';
 import { ACTIVE_ROUTE_FILE, GUARD_STATE_DIR_NAME, type GuardState } from '../types/guard.ts';

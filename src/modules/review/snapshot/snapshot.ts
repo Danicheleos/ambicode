@@ -3,7 +3,7 @@ import { MAX_SNAPSHOT_FILE_BYTES, MAX_SNAPSHOT_TOTAL_BYTES } from '#types/defaul
 import { markOwned } from '../page/cleanup.ts';
 import { AmbicodeError } from '#util/errors';
 import { uniqueDirectories } from './content.ts';
-import { describeExclusion, isUselessAsContext, pathExclusionReason } from './exclusions.ts';
+import { describeExclusion, isUselessAsContext, pathExclusionReason } from '#util/path-classes';
 import type { DiffFile } from '#types/platform/git';
 import type { Clock, FileSystem } from '#types/platform/ports';
 import type { SnapshotPlan, SnapshotEntry, Snapshot } from '#types/modules/review';

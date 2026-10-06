@@ -1,4 +1,4 @@
-import { openRepository } from '#composition/root';
+import { openRepository } from '#platform/git/open';
 import { chainKey, loadPayload } from '#harness/engine/delivery';
 import { isBoundAnswer } from '#harness/engine/fold';
 import { onGatePrint, onNeedCommand } from '#harness/gates/gates';

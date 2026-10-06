@@ -1,9 +1,9 @@
 import { z } from 'zod';
 import { DEFAULTS } from '../defaults.ts';
 import { AdapterId, Ecosystem } from '../primitives.ts';
-import { startIndexBuild } from '#modules/search/code-index/codeindex';
 import type { Runtime } from '../composition.ts';
 import type { RouteContextPort } from '../harness.ts';
+import type { IndexDeps, IndexStatus } from './search.ts';
 
 const RelativePath = z
   .string()
@@ -229,5 +229,5 @@ export interface DoctorOptions {
   /** Inside `init --apply` only: start step 05's detached build. Otherwise the index state is read, nothing written. */
   buildIndex?: boolean;
   /** Step 05's detached build; injected by tests. */
-  startIndex?: typeof startIndexBuild;
+  startIndex?: (deps: IndexDeps, project: ProjectConfig) => Promise<IndexStatus>;
 }

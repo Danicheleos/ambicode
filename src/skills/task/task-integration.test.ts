@@ -17,7 +17,7 @@ import { runCommandTail } from '#harness/engine/command-tail';
 import { defaultHandlers } from '#harness/engine/handlers';
 import { assembleEngine } from '#testing/fixtures/route-fixture';
 import { COMMAND_PACK, SplitRunner } from '#testing/fixtures/check-fixture';
-import { readLedger } from '#modules/evidence/ledger/ledger';
+import { readLedger } from '#platform/ledger/ledger';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { REPO_ROOT } from '#testing/paths';
 import type { CheckDeps } from '#types/modules/checks';

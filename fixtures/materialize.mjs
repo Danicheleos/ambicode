@@ -79,7 +79,8 @@ async function install(fixture, destination) {
 
 /** `wires` holds only after an install, so it is empty without one. */
 async function commitAmbicodeInit(fixture, destination, wires) {
-  const { createRuntime, openRepository } = await import('../src/composition/root.ts');
+  const { createRuntime } = await import('../src/composition/root.ts');
+  const { openRepository } = await import('../src/platform/git/open.ts');
   const { buildProposal, writeConfig } = await import('../src/modules/config/init/proposal.ts');
   const runtime = await createRuntime({ cwd: destination });
   const { repositoryRoot } = await openRepository(runtime);

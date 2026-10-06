@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { routeFixture, type RouteFixture } from '#testing/fixtures/route-fixture';
-import { openRepository } from '#composition/root';
+import { openRepository } from '#platform/git/open';
 import { buildProfile, readCatalog } from './profile.ts';
 
 async function repo(files: Record<string, string>): Promise<RouteFixture> {

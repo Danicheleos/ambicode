@@ -3,7 +3,7 @@ import path from 'node:path';
 import { openRouteView } from '#harness/engine/context';
 import { defaultHandlers } from '#harness/engine/handlers';
 import { CONFIG, routeFixture, type RouteFixture } from './route-fixture.ts';
-import { withLedgerLock } from '#modules/evidence/ledger/ledger-lock';
+import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { captureRequirement } from '#modules/requirements/capture/capture';
 import { normalizeEnvelope } from '#modules/requirements/envelope/envelope';

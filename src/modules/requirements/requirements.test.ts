@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { openRouteView } from '#harness/engine/context';
 import { CONFIG, routeFixture, type RouteFixture } from '#testing/fixtures/route-fixture';
-import { withLedgerLock } from '#modules/evidence/ledger/ledger-lock';
+import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { captureRequirement } from './capture/capture.ts';
 import { capturesFrom } from './capture/binding.ts';

@@ -1,4 +1,4 @@
-import { openWorkspace, projectForRequest } from '#composition/root';
+import { openWorkspace, projectForRequest } from '#modules/config/workspace';
 import { locate, termsFromRequirements } from '#modules/search/text/locate';
 import { LocateOutput as LocateOutputSchema, DEFAULT_LOCATE_LIMIT, type LocateOutput } from '#types/modules/search';
 import { loadRequirementEvidence } from '#modules/requirements/envelope/normalize';

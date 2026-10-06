@@ -1,11 +1,11 @@
 import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
-import { openRepository } from '#composition/root';
+import { openRepository } from '#platform/git/open';
 import { MAX_SNAPSHOT_FILE_BYTES } from '#types/defaults';
 import { DECLARATION_PATTERNS } from '#types/modules/ecosystems';
 import type { ProjectConfig, SearchProfile } from '#types/modules/config';
 import { literalPathspec } from '#platform/git/git';
-import { isTestPath, pathExclusionReason } from '#modules/review/snapshot/exclusions';
+import { isTestPath, pathExclusionReason } from '#util/path-classes';
 import { normalizeRelative } from '#util/paths';
 import { GENERIC_PROFILE } from '#types/modules/search';
 import type { Runtime } from '#types/composition';

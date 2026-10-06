@@ -8,7 +8,7 @@ import { guardDecision } from './guard-core.ts';
 import { fsGuardState } from './guard-state.ts';
 import { LEDGER_FILE, type LedgerEntry } from '#types/modules/evidence';
 import { ACTIVE_ROUTE_FILE, GUARD_LEDGER_FILE, GUARD_STATE_DIR_NAME, LEDGER_LIMIT, type GuardInput } from '../types/guard.ts';
-import { HOOK_STATE_DIR_NAME } from '../types/session.ts';
+import { HOOK_STATE_DIR_NAME } from '#types/platform/claude';
 
 type Output = { hookSpecificOutput?: { permissionDecision: string; permissionDecisionReason: string } };
 

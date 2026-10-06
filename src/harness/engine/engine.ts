@@ -6,7 +6,7 @@ import { indexDepsOf, startIndexBuild } from '#modules/search/code-index/codeind
 import { Git } from '#platform/git/git';
 import { raiseConflict } from '#modules/requirements/envelope/conflict';
 import { hasRequirement } from '#modules/requirements/capture/has-requirement';
-import { withLedgerLock } from '#modules/evidence/ledger/ledger-lock';
+import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { mintTaskSlug } from '#modules/evidence/task/slug';
 import { excludeWorkingDirs, resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { AmbicodeError } from '#util/errors';

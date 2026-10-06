@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile, realpath } from 'node:fs/promises';
 import { parseArgs } from '#cli/args';
 import { runFind, runMap, runRefs, MAP_OPTIONS, REFS_OPTIONS, FIND_OPTIONS } from '#cli/commands/search/search';
-import { openRepository } from '#composition/root';
+import { openRepository } from '#platform/git/open';
 import { routeFixture, type RouteFixture } from '#testing/fixtures/route-fixture';
 import { countDeclarations, declarationCensus, harvest } from './declarations/harvest.ts';
 import { fakeIndex } from '#testing/fakes/fake-index';

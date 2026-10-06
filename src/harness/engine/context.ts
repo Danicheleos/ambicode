@@ -1,5 +1,5 @@
 import { AmbicodeError } from '#util/errors';
-import { readLedgerStrict } from '#modules/evidence/ledger/ledger';
+import { readLedgerStrict } from '#platform/ledger/ledger';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { evaluateConsent } from '../gates/consent.ts';
 import { buildChain, exitOf, foldRoute, latestRouteOf, matches, windowOf } from './fold.ts';

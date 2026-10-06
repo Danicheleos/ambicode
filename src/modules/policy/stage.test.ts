@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { parseArgs } from '#cli/args';
 import { initConfig } from '#testing/fixtures/init-config';
 import { renderPolicy, runPolicy, POLICY_OPTIONS } from '#cli/commands/policy/policy';
-import { createRuntime, openWorkspace, projectForRequest } from '#composition/root';
+import { createRuntime } from '#composition/root';
+import { openWorkspace, projectForRequest } from '#modules/config/workspace';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { policyStage, STAGE_LIMITS } from './stage.ts';
 

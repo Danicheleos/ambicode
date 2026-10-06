@@ -1,6 +1,6 @@
 import { MAX_SNAPSHOT_FILE_BYTES, MAX_SNAPSHOT_TOTAL_BYTES } from '#types/defaults';
 import type { AmbicodeConfig, SearchProfile } from '#types/modules/config';
-import { openWorkspace } from '#composition/root';
+import { openWorkspace } from '#modules/config/workspace';
 import { shortlistRules } from '#modules/search/text/locate';
 import { profileLines } from './init.ts';
 import { navigationFor } from '#modules/search/text/navigation';

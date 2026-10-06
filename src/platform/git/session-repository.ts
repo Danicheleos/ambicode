@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { createRuntime, openRepository } from './root.ts';
+import { openRepository } from './open.ts';
 import type { Runtime } from '#types/composition';
 
 /**
@@ -9,11 +9,8 @@ import type { Runtime } from '#types/composition';
  */
 export async function findSessionRepository(runtime: Runtime, directory: string): Promise<{ repositoryRoot: string; where: string } | string> {
   const { fs } = runtime;
-  const isRepository = async (candidate: string): Promise<string | null> => {
-    const probe = await createRuntime({ ...runtime, cwd: candidate }).catch(() => null);
-    if (probe === null) return null;
-    return openRepository(probe).then((opened) => opened.repositoryRoot).catch(() => null);
-  };
+  const isRepository = (candidate: string): Promise<string | null> =>
+    openRepository({ ...runtime, cwd: candidate }).then((opened) => opened.repositoryRoot).catch(() => null);
   const configured = (root: string) => fs.exists(path.join(root, '.ambicode', 'config.yaml'));
 
   const here = await isRepository(directory);

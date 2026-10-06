@@ -1,12 +1,12 @@
 import path from 'node:path';
-import { openWorkspace } from '#composition/root';
+import { openWorkspace } from '#modules/config/workspace';
 import { SEARCH_LAYER_DEFAULTS } from '#types/defaults';
 import type { ProjectConfig, SearchConfig } from '#types/modules/config';
 import { literalPathspec } from '#platform/git/git';
 import { AmbicodeError } from '#util/errors';
 import { matchesAnyGlob } from '#util/glob';
 import { normalizeRelative } from '#util/paths';
-import { isTestPath, pathExclusionReason } from '#modules/review/snapshot/exclusions';
+import { isTestPath, pathExclusionReason } from '#util/path-classes';
 import { harvest } from '../declarations/harvest.ts';
 import { profileOf, readCatalog } from '../declarations/profile.ts';
 import { isPathReason, locate, termsFromRequirements } from './locate.ts';

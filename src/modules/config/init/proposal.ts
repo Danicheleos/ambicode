@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { parseDocument } from 'yaml';
-import { openRepository } from '#composition/root';
+import { openRepository } from '#platform/git/open';
 import { findCodeindex } from '#modules/search/code-index/codeindex';
 import { buildProfile } from '#modules/search/declarations/profile';
 import type { SearchProfile, SetPair, SetValue, InitProposal } from '#types/modules/config';

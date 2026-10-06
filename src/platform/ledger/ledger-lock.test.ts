@@ -31,7 +31,7 @@ function runChild(code: string): Promise<{ code: number | null; stderr: string }
 
 const appender = (directory: string, writer: string, count: number): string => `
   import { appendLedger } from ${JSON.stringify(new URL('./ledger.ts', import.meta.url).href)};
-  import { nodeFileSystem } from ${JSON.stringify(new URL('../../../platform/ports/filesystem.ts', import.meta.url).href)};
+  import { nodeFileSystem } from ${JSON.stringify(new URL('../ports/filesystem.ts', import.meta.url).href)};
   for (let i = 0; i < ${count}; i += 1) await appendLedger(nodeFileSystem, ${JSON.stringify(directory)}, new Date(), ${JSON.stringify(writer)}, { kind: 'note', i });
 `;
 

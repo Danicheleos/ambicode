@@ -11,7 +11,7 @@ import { createRuntime } from '#composition/root';
 import { NodeProcessRunner } from '#platform/ports/node-process-runner';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { initConfig } from '#testing/fixtures/init-config';
-import { readLedger } from '#modules/evidence/ledger/ledger';
+import { readLedger } from '#platform/ledger/ledger';
 import { REPO_ROOT } from '#testing/paths';
 import type { Runtime } from '#types/composition';
 import type { LedgerEntry } from '#types/modules/evidence';

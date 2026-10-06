@@ -1,4 +1,4 @@
-import { openRepository } from '#composition/root';
+import { openRepository } from '#platform/git/open';
 import { runDoctor } from '#modules/config/init/doctor';
 import { loadConfigWithNotices } from '#modules/config/load';
 import type { Runtime } from '#types/composition';

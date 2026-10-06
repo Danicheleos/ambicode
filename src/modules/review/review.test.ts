@@ -16,7 +16,7 @@ import { isAmbicodeError } from '#util/errors';
 import { ClaudeReviewer, parseReviewerOutput } from './reviewer/claude-reviewer.ts';
 import { validateFindings } from './findings/validate.ts';
 import { nameableLines } from './reviewer/prompt.ts';
-import { readLedger } from '#modules/evidence/ledger/ledger';
+import { readLedger } from '#platform/ledger/ledger';
 import { FakeClock } from '#testing/fixtures/page-harness';
 import type { Runtime } from '#types/composition';
 import type { DiffFile } from '#types/platform/git';

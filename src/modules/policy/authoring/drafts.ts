@@ -1,9 +1,9 @@
 import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
-import { projectById } from '#composition/root';
+import { projectById } from '#modules/config/workspace';
 import type { ProjectConfig } from '#types/modules/config';
 import { PolicyPack, DRAFTS_DIR, type Diagnostic, type PackWithPrompts, type DraftsCheck } from '#types/modules/policy';
-import { pathExclusionReason } from '#modules/review/snapshot/exclusions';
+import { pathExclusionReason } from '#util/path-classes';
 import { matchesGlob } from '#util/glob';
 import { contentHash } from '#util/hash';
 import { builtinPoliciesDirectory } from '#util/plugin-root';

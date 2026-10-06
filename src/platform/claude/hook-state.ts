@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { contentHash } from '#util/hash';
 import type { FileSystem, IdSource } from '#types/platform/ports';
-import { HOOK_STATE_DIR_NAME, type DeliveryKey } from '../types/session.ts';
+import { HOOK_STATE_DIR_NAME, type DeliveryKey } from '#types/platform/claude';
 
 /**
  * Per-session hook delivery state, never written into the product repository:

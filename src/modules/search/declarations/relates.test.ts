@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { parseArgs } from '#cli/args';
 import { runRelates, RELATES_OPTIONS } from '#cli/commands/search/search';
-import { openWorkspace } from '#composition/root';
+import { openWorkspace } from '#modules/config/workspace';
 import { routeFixture, type RouteFixture } from '#testing/fixtures/route-fixture';
 import { fakeIndex } from '#testing/fakes/fake-index';
 import { indexDepsOf } from '../code-index/codeindex.ts';

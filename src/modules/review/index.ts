@@ -60,12 +60,6 @@ export { ClaudeReviewer } from './reviewer/claude-reviewer.ts';
 /** ReplayReviewer — a reviewer that replays a recorded result for a snapshot. */
 export { ReplayReviewer } from './reviewer/replay-reviewer.ts';
 
-// snapshot/: what is excluded from the reviewed snapshot and size measures.
-/** isBinaryContent(bytes) — whether bytes are binary (the decision on content, not extension). */
-export { isBinaryContent } from './snapshot/exclusions.ts';
-/** isTestPath(relativePath) — whether a path matches the test-file conventions. */
-export { isTestPath } from './snapshot/exclusions.ts';
-/** pathExclusionReason(…) — why a path is excluded from the snapshot, or null. */
-export { pathExclusionReason } from './snapshot/exclusions.ts';
+// snapshot/: size measures (path classes are #util/path-classes, the binary check #platform/ports/binary).
 /** byteLength(value) — UTF-8 byte length of a string. */
 export { byteLength } from './snapshot/limits.ts';

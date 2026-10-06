@@ -1,9 +1,9 @@
 import path from 'node:path';
-import { openWorkspace } from '#composition/root';
+import { openWorkspace } from '#modules/config/workspace';
 import { loadConfigWithNotices } from '#modules/config/load';
 import { chainKey, loadPayload, savePayload } from '#harness/engine/delivery';
 import { latestBound } from '#harness/engine/fold';
-import { tokenize } from '#harness/definition/flags';
+import { tokenize } from '#util/text';
 import { onGatePrint } from '#harness/gates/gates';
 import { AmbicodeError } from '#util/errors';
 import { blockingProblem, checkDrafts } from '#modules/policy/authoring/drafts';

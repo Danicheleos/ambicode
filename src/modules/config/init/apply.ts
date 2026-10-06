@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { openRepository } from '#composition/root';
+import { openRepository } from '#platform/git/open';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { AmbicodeError } from '#util/errors';
 import { CONFIG_FILE } from '#types/defaults';

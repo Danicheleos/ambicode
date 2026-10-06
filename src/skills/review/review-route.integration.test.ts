@@ -17,7 +17,7 @@ import { ReviewResult } from '#types/modules/review';
 import { runHook } from '#hook/events/run-hook';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { fsActiveRoutePointer } from '#harness/session/active-route';
-import { readLedger } from '#modules/evidence/ledger/ledger';
+import { readLedger } from '#platform/ledger/ledger';
 import { COMMAND_PACK, SplitRunner } from '#testing/fixtures/check-fixture';
 import { notCoveredBlock } from '#modules/review/bundle/coverage-block';
 import { ROUTE_START_OPTIONS } from '#types/cli';

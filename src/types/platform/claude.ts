@@ -10,3 +10,13 @@ export const ANSWER_CONTEXT: Support = 'supported';
 export interface PlatformFlags { askBinding: Support; answerContext: Support }
 
 export const PLATFORM: PlatformFlags = { askBinding: ASK_BINDING, answerContext: ANSWER_CONTEXT };
+
+export const HOOK_STATE_DIR_NAME = 'ambicode-hook-state';
+
+export interface DeliveryKey {
+  epoch: string;
+  agentKey: string;
+  kind: 'edit-reminder' | 'shared-contract' | 'ticket-prepare' | 'route-step';
+  subject: string;
+  contentHash: string;
+}

@@ -23,26 +23,7 @@ export interface ContentSource {
   prime?(relativePaths: readonly string[]): Promise<void>;
 }
 
-export type ExclusionReason =
-  | 'excluded-directory'
-  | 'operator-pattern'
-  | 'not-selected'
-  | 'test-file'
-  | 'credential-like-name'
-  | 'binary-extension'
-  | 'binary-content'
-  | 'too-large'
-  | 'symlink';
-
-/**
- * `exclude` comes from `--exclude` and `review.excludePaths`; `include` from `--only`.
- * Both empty by default: a review only ever narrows because somebody said to.
- */
-export interface OperatorPatterns {
-  exclude?: readonly string[];
-  include?: readonly string[];
-  excludeTests?: boolean;
-}
+export type { ExclusionReason, OperatorPatterns } from '#types/util';
 
 export interface TargetResolution {
   target: ReviewTarget;

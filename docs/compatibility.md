@@ -251,7 +251,7 @@ refusal can be acted on without guessing which part was large.
 
 Unchanged lockfiles are skipped as sibling context. A lockfile the change
 *touches* is still reviewed — that decision is recorded in
-`src/modules/review/snapshot/exclusions.ts` and stands — but an untouched one beside a changed
+`src/util/path-classes.ts` and stands — but an untouched one beside a changed
 source file tells a reviewer nothing while being the largest file in the
 directory. Measured on the `ts-source-regression` fixture with dependencies
 installed: a two-line source edit carried 195,977 context bytes before this
@@ -564,7 +564,7 @@ Recorded per plan/11, "Dependency review evidence".
 | Package | Pinned | License | Upstream | Used by | Why not Node alone |
 |---|---|---|---|---|---|
 | `execa` | ^10.0.1 (10.0.1) | MIT | sindresorhus/execa | `src/platform/ports/node-process-runner.ts` | Timeout with forceful descendant cleanup, `extendEnv: false`, normalized failure reporting, and a stable distinction between a spawn failure and a nonzero exit. The handwritten `child_process` version conflated them and counted output in UTF-16 code units. |
-| `isbinaryfile` | ^6.0.0 (6.0.0) | MIT | gjtorikian/isBinaryFile | `src/modules/review/snapshot/exclusions.ts` | Content classification on bytes. The previous NUL-only check ran after decoding, which plan/11 rules out as the final decision. The extension list remains, as an early optimization only. |
+| `isbinaryfile` | ^6.0.0 (6.0.0) | MIT | gjtorikian/isBinaryFile | `src/platform/ports/binary.ts` | Content classification on bytes. The previous NUL-only check ran after decoding, which plan/11 rules out as the final decision. The extension list remains, as an early optimization only. |
 
 Both are MIT, bundled into `scripts/ambicode.mjs` by esbuild, and exercised
 through the built artifact (the smoke run below), not only through

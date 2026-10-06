@@ -2,7 +2,7 @@ import path from 'node:path';
 import { MAX_SNAPSHOT_FILE_BYTES } from '#types/defaults';
 import type { Git } from '#platform/git/git';
 import { contentHash } from '#util/hash';
-import { isBinaryContent } from './exclusions.ts';
+import { isBinaryContent } from '#platform/ports/binary';
 import type { FileSystem } from '#types/platform/ports';
 import type { FileContent, ContentSource } from '../types/snapshot.ts';
 

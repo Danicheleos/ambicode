@@ -1,5 +1,5 @@
 import { createRuntime } from '#composition/root';
-import { findSessionRepository } from '#composition/session-repository';
+import { findSessionRepository } from '#platform/git/session-repository';
 import { parseArgs } from '#cli/args';
 import { runPrepare } from '#cli/commands/prepare/prepare';
 import { termsFromRequirements } from '#modules/search/text/locate';

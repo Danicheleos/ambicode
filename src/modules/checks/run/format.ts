@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { MAX_COMMAND_OUTPUT_BYTES } from '#types/defaults';
-import { openWorkspace, projectForPath, resolvePolicyFor } from '#composition/root';
+import { openWorkspace, projectForPath } from '#modules/config/workspace';
+import { resolvePolicyFor } from '#modules/policy/resolve-for';
 import type { ProjectConfig } from '#types/modules/config';
 import { normalizeRelative } from '#util/paths';
 import { authorizeCommand } from '../selection/authorize.ts';

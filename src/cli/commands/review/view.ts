@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { REVIEWS_DIR, REVIEWS_LEAF, TASKS_DIR } from '#types/defaults';
-import { openRepository } from '#composition/root';
+import { openRepository } from '#platform/git/open';
 import type { PublicationPositions, PublicationRecord } from '#types/modules/publication';
 import type { RemoteTarget, ReviewProvider } from '#types/platform/provider';
 import type { ReviewResult } from '#types/modules/review';

@@ -3,7 +3,7 @@ import type { ProjectConfig, ShortlistConfig } from '#types/modules/config';
 import { SCORE_FILENAME, type LocateShortlist } from '#types/modules/search';
 import type { RequirementSource } from '#types/modules/requirements';
 import { literalPathspec, type Git } from '#platform/git/git';
-import { pathExclusionReason } from '#modules/review/snapshot/exclusions';
+import { pathExclusionReason } from '#util/path-classes';
 import { matchesAnyGlob, matchesGlob } from '#util/glob';
 import { normalizeRelative, toProjectRelative } from '#util/paths';
 import { profileOf, sourceGlob } from '../declarations/profile.ts';

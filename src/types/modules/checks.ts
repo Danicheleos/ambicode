@@ -1,5 +1,4 @@
-import { classifyProof } from '#modules/checks/selection/proof';
-import type { TypedEntry } from '#modules/evidence/ledger/kinds';
+import type { TypedEntry } from '#platform/ledger/kinds';
 import type { Workspace } from '../composition.ts';
 import type { ProjectConfig } from './config.ts';
 import type { LedgerEntry, NoteDeps, TaskDir } from './evidence.ts';
@@ -15,7 +14,7 @@ export const GATE = 'check-only-unauthorized';
 export interface CheckOnlyInput { task: string; key: string; only: string[]; phase: 'red' | 'green'; approve: string[]; decline: string[] }
 
 export type CheckOnlyOutcome =
-  | { outcome: 'ran'; entry: CheckEntry; proof: ReturnType<typeof classifyProof> }
+  | { outcome: 'ran'; entry: CheckEntry; proof: ProofVerdict }
   | { outcome: 'not-run'; status: 'timeout' | 'spawn-failed'; detail: string }
   | { outcome: 'waiting'; gate: typeof GATE; key: string }
   | { outcome: 'declined'; key: string };
@@ -51,3 +50,9 @@ export interface ChangedPath {
   oldPath: string | null;
   changeKind: DiffFile['changeKind'];
 }
+
+export type ProofCause = 'no-summary' | 'zero-tests' | 'load-error' | 'no-failure' | 'nonzero-exit';
+
+export type ProofVerdict =
+  | { proven: true }
+  | { proven: false; which: 'red-unproven' | 'green-unproven'; cause: ProofCause };

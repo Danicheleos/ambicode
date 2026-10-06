@@ -1,5 +1,5 @@
-import { Git } from '#platform/git/git';
-import { ProviderRegistry } from '#platform/providers/registry';
+import type { Git } from '#platform/git/git';
+import type { ProviderRegistry } from '#platform/providers/registry';
 import type { AmbicodeConfig } from './modules/config.ts';
 import type { ProcessRunner, FileSystem, Clock, IdSource, StandardInput } from './platform/ports.ts';
 

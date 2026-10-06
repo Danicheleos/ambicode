@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { routeFixture } from '#testing/fixtures/route-fixture';
 import { planFixture, PLAN_TASK } from '#testing/fixtures/plan-fixture';
 import { gatePrintText, gateThen, instantiateGate, raiseGate } from './gates.ts';
-import { withLedgerLock } from '#modules/evidence/ledger/ledger-lock';
+import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import type { Handler } from '#types/harness';
 

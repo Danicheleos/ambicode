@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { openRepository } from '#composition/root';
+import { openRepository } from '#platform/git/open';
 import { indexDepsOf, startIndexBuild } from '#modules/search/code-index/codeindex';
 import { refs } from '#modules/search/declarations/refs';
 import { touchedSet, captureBaseline } from '#modules/checks/workspace/baseline';

@@ -4,8 +4,6 @@
 // definition/: route YAML loading and the CLI flag helpers that name routes' arguments.
 /** parseAnswerFlag(value) — parses `--answer <gate>=<option>` into an Answer; throws bad-argument when malformed. */
 export { parseAnswerFlag } from './definition/flags.ts';
-/** tokenize(text) — splits text on whitespace into words; quotes group and a backslash escapes the next character. */
-export { tokenize } from './definition/flags.ts';
 /** loadRoute(file, text, context, registry?) — validates one route YAML document into a RouteDef. */
 export { loadRoute } from './definition/routes.ts';
 /** loadRouteRegistry(pluginRoot, fs) — reads and validates every shipped route file into a RouteRegistry. */

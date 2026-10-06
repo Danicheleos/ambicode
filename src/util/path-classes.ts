@@ -1,6 +1,5 @@
-import { isBinaryFile } from 'isbinaryfile';
 import { matchesAnyGlob } from '#util/glob';
-import type { OperatorPatterns, ExclusionReason } from '../types/snapshot.ts';
+import type { OperatorPatterns, ExclusionReason } from '#types/util';
 
 /**
  * Dependency manifests and lockfiles are deliberately absent: their textual
@@ -102,11 +101,6 @@ export function pathExclusionReason(
   const extension = relativePath.split('.').pop()?.toLowerCase();
   if (extension !== undefined && BINARY_EXTENSIONS.has(extension)) return 'binary-extension';
   return null;
-}
-
-/** The decision on bytes; the extension list above is only an early optimization. */
-export async function isBinaryContent(bytes: Uint8Array): Promise<boolean> {
-  return await isBinaryFile(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength));
 }
 
 export function describeExclusion(reason: ExclusionReason): string {

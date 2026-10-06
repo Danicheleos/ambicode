@@ -8,7 +8,7 @@ import { runPlanCheckCommand, PLAN_CHECK_OPTIONS } from '#cli/commands/workers/p
 import { answerGates } from '#hook/events/gate-answer';
 import { NodeProcessRunner } from '#platform/ports/node-process-runner';
 import { nodeFileSystem } from '#platform/ports/filesystem';
-import { readLedger } from '#modules/evidence/ledger/ledger';
+import { readLedger } from '#platform/ledger/ledger';
 import { assembleEngine, CONFIG } from '#testing/fixtures/route-fixture';
 import { defaultHandlers } from '#harness/engine/handlers';
 import { REPO_ROOT } from '#testing/paths';

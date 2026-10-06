@@ -1,4 +1,4 @@
-import { openRepository } from '#composition/root';
+import { openRepository } from '#platform/git/open';
 import { applyInit } from '#modules/config/init/apply';
 import { parseSets } from '#modules/config/init/init-sets';
 import { buildProposal } from '#modules/config/init/proposal';

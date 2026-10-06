@@ -1,15 +1,4 @@
-// The task ledger, notes, the evidence report and task directories. Nothing here is deliberately omitted.
-
-// ledger/: the append-only JSONL task ledger and its lock.
-export type { TypedEntry } from './ledger/kinds.ts';
-/** withLedgerLock(fs, taskDir, now, session, work) — runs `work` holding the ledger lock; use around any read-modify-append. */
-export { withLedgerLock } from './ledger/ledger-lock.ts';
-/** appendLedger(fs, taskDir, entry, …) — appends one entry to the ledger, refusing past the size cap. */
-export { appendLedger } from './ledger/ledger.ts';
-/** readLedger(fs, taskDir) — lenient read: skips torn, foreign or invalid lines; the first of a repeated id wins. */
-export { readLedger } from './ledger/ledger.ts';
-/** readLedgerStrict(fs, taskDir) — strict read like the guard's: anything suspicious makes the whole ledger unreadable. */
-export { readLedgerStrict } from './ledger/ledger.ts';
+// Notes, the evidence report and task directories (the ledger itself is #platform/ledger). Nothing here is deliberately omitted.
 
 // root: saved notes and plan promotion.
 export { NOTE_LABELS } from './notes.ts';

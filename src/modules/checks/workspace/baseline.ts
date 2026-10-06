@@ -1,4 +1,4 @@
-import { openRepository } from '#composition/root';
+import { openRepository } from '#platform/git/open';
 import { splitNul } from '#platform/git/git';
 import { fingerprintWorkspace } from './mutations.ts';
 import type { BaselineEntryFields } from '#types/modules/checks';

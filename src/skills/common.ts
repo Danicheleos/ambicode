@@ -1,4 +1,5 @@
-import { openRepository, projectForRequest } from '#composition/root';
+import { openRepository } from '#platform/git/open';
+import { projectForRequest } from '#modules/config/workspace';
 import { rankTerms, buildMap, leadsText, resolveLayers } from '#modules/search/text/map';
 import { loadConfigWithNotices } from '#modules/config/load';
 import type { AmbicodeConfig, ProjectConfig } from '#types/modules/config';

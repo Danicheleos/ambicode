@@ -1,4 +1,4 @@
-import { openRepository } from '#composition/root';
+import { openRepository } from '#platform/git/open';
 import { buildProposal, writeConfig } from '#modules/config/init/proposal';
 import type { Runtime } from '#types/composition';
 import type { SetPair } from '#types/modules/config';

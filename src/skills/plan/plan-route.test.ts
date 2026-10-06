@@ -9,7 +9,7 @@ import { renderPlanCheck, runPlanCheckCommand, PLAN_CHECK_OPTIONS } from '#cli/c
 import { answerGates } from '#hook/events/gate-answer';
 import { runHook } from '#hook/events/run-hook';
 import { buildReport } from '#modules/evidence/report/report';
-import { appendLedger } from '#modules/evidence/ledger/ledger';
+import { appendLedger } from '#platform/ledger/ledger';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { PLAN_TASK, planFixture, type PlanFixture } from '#testing/fixtures/plan-fixture';
 import { CONFIG } from '#testing/fixtures/route-fixture';

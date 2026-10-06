@@ -85,7 +85,7 @@ export type { CaptureDeps, EnvelopeSource, EnvelopeInput, NormalizedRequirements
 
 // modules/review.ts: review result, finding, reviewer run, snapshot and bundle schemas; the review checks gate.
 export { REVIEW_SCHEMA_VERSION, ReviewTarget, SelectedFile, CheckResult, FindingLocation, Finding, ReviewerOutput, ReviewInputs, ReviewerUsage, ReviewerRun, ReviewRequirementMode, SelectionRecord, ReviewResult, SESSION_COOKIE, REVIEWER_TOOLS, REVIEWER_REPLAY_VARIABLE, CHECKS_GATE } from './modules/review.ts';
-export type { ReviewBundle, TargetSelection, ReviewEstimate, SweepReport, PageServer, ComposedPrompt, MeasuredInput, Snapshot, SnapshotEntry, SnapshotPlan, AssembleOptions } from './modules/review.ts';
+export type { ReviewBundle, TargetSelection, ReviewEstimate, SweepReport, ComposedPrompt, MeasuredInput, Snapshot, SnapshotEntry, SnapshotPlan, AssembleOptions } from './modules/review.ts';
 
 // modules/search.ts: index adapter, locate, declarations and navigation shapes.
 export { DEFAULT_LOCATE_LIMIT, PREPARE_REASONS_PER_CANDIDATE, PREPARE_SHORTLIST_LIMIT, MAX_DEPENDENTS, GENERIC_PROFILE, LocateCandidate, PrepareShortlist, LocateOutput, SCORE_FILENAME, COMMON_NAMES } from './modules/search.ts';

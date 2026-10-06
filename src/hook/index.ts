@@ -33,17 +33,3 @@ export { stopCheck } from './events/stop-check.ts';
 export { ANSWER_CONTEXT, ASK_BINDING, PLATFORM } from '#types/platform/claude';
 /** prepareForSlashCommand(runtime, input) — for a `/ambicode:<skill>` prompt runs `prepare` and returns the PostToolUse output carrying its context. */
 export { prepareForSlashCommand } from './events/prepare-on-skill.ts';
-
-// session/: per-session delivery state (epoch and once-per-epoch markers), kept outside the product repository.
-/** cleanupSessionState(fs, baseDir) — removes a session's delivery markers and epoch state. */
-export { cleanupSessionState } from './session/markers.ts';
-/** currentEpoch(fs, ids, baseDir) — the session's current epoch id, created on first use. */
-export { currentEpoch } from './session/markers.ts';
-/** deliverOnce(fs, baseDir, key) — records a delivery for the epoch; true when this call recorded it, false when already recorded. */
-export { deliverOnce } from './session/markers.ts';
-/** hookStateBaseDir(fs, sessionId, scratchpadDir?) — the directory holding a session's hook state, outside the product repository. */
-export { hookStateBaseDir } from './session/markers.ts';
-/** resetEpoch(fs, ids, baseDir) — starts a new epoch, invalidating all delivery markers. */
-export { resetEpoch } from './session/markers.ts';
-export { HOOK_STATE_DIR_NAME } from './types/session.ts';
-export type { DeliveryKey } from './types/session.ts';

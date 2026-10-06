@@ -6,8 +6,8 @@ import { envelopeSources, normalizeEnvelope } from '#modules/requirements/envelo
 import { observedTools } from '#modules/requirements/capture/binding';
 import { requirementsTemplate } from '#modules/requirements/capture/template';
 import { taskSlugFor } from '#modules/review/bundle/review-name';
-import { readLedger } from '#modules/evidence/ledger/ledger';
-import { withLedgerLock } from '#modules/evidence/ledger/ledger-lock';
+import { readLedger } from '#platform/ledger/ledger';
+import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { AmbicodeError } from '#util/errors';
 import { ownerFor, routeTools, taskOf as requireTask } from '../route/route.ts';

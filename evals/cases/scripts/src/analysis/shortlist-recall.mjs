@@ -3,7 +3,8 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createRuntime, openWorkspace, projectForRequest } from '../../../../../src/composition/root.ts';
+import { createRuntime } from '../../../../../src/composition/root.ts';
+import { openWorkspace, projectForRequest } from '../../../../../src/modules/config/workspace.ts';
 import { locate, termsFromRequirements } from '../../../../../src/modules/search/text/locate.ts';
 import { PREPARE_SHORTLIST_LIMIT } from '../../../../../src/types/modules/search.ts';
 import { buildMap } from '../../../../../src/modules/search/text/map.ts';

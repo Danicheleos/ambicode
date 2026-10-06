@@ -25,3 +25,7 @@ export { outcomeFailure } from './process.ts';
 export { describeOutcome } from './process.ts';
 /** NodeProcessRunner — ProcessRunner implementation; `new NodeProcessRunner(env?)` then `.run(request)` for a bounded, timed process. */
 export { NodeProcessRunner } from './node-process-runner.ts';
+
+// binary.ts: binary-content detection.
+/** isBinaryContent(bytes) — whether bytes are binary (the decision on content, not extension). */
+export { isBinaryContent } from './binary.ts';

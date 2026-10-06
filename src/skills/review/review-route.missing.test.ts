@@ -13,7 +13,7 @@ import { TempRepo } from '#testing/fixtures/temp-repo';
 import { initConfig } from '#testing/fixtures/init-config';
 import { openRouteView } from '#harness/engine/context';
 import { defaultHandlers } from '#harness/engine/handlers';
-import { withLedgerLock } from '#modules/evidence/ledger/ledger-lock';
+import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { CONFIG, routeFixture, type RouteFixture } from '#testing/fixtures/route-fixture';
 import { REPO_ROOT } from '#testing/paths';

@@ -26,3 +26,9 @@ export { addressableLines } from './diff.ts';
 export { lineAt } from './diff.ts';
 /** totalChangedLines(files) — sum of added and removed lines across the files; used for size estimates. */
 export { totalChangedLines } from './diff.ts';
+
+// open.ts and session-repository.ts: locating and opening the repository a command or session works in.
+/** openRepository(runtime) — the Git handle and root of the repository around runtime.cwd; throws not-a-repository outside one. */
+export { openRepository } from './open.ts';
+/** findSessionRepository(runtime, directory) — the repository root a session directory belongs to with where it was found, or a reason string. */
+export { findSessionRepository } from './session-repository.ts';

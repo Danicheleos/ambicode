@@ -1,10 +1,5 @@
 import type { RunnerSummary } from '../types/selection.ts';
-
-type ProofCause = 'no-summary' | 'zero-tests' | 'load-error' | 'no-failure' | 'nonzero-exit';
-
-type ProofVerdict =
-  | { proven: true }
-  | { proven: false; which: 'red-unproven' | 'green-unproven'; cause: ProofCause };
+import type { ProofCause, ProofVerdict } from '#types/modules/checks';
 
 export function classifyProof(
   phase: 'red' | 'green',

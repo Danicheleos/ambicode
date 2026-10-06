@@ -1,6 +1,6 @@
 import path from 'node:path';
-import { openRepository } from '#composition/root';
-import { findSessionRepository } from '#composition/session-repository';
+import { openRepository } from '#platform/git/open';
+import { findSessionRepository } from '#platform/git/session-repository';
 import { IGNORE_ENTRIES, REVIEWS_LEAF, TASKS_DIR } from '#types/defaults';
 import { AmbicodeError } from '#util/errors';
 import type { Runtime } from '#types/composition';

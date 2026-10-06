@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { openWorkspace, projectForRequest, toRepositoryRelative } from '#composition/root';
+import { openWorkspace, projectForRequest, toRepositoryRelative } from '#modules/config/workspace';
 import { buildMap, resolveLayers, type MapResult } from '#modules/search/text/map';
 import { find, refs, renderFind } from '#modules/search/declarations/refs';
 import { relates, renderRelates } from '#modules/search/declarations/relates';
@@ -7,7 +7,7 @@ import { formatIndexStatus, indexAdapterFor } from '#modules/search/code-index/a
 import { indexDepsOf, runIndexBuild } from '#modules/search/code-index/codeindex';
 import { openRouteView } from '#harness/engine/context';
 import { taskSlugFor } from '#modules/review/bundle/review-name';
-import { withLedgerLock } from '#modules/evidence/ledger/ledger-lock';
+import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { AmbicodeError } from '#util/errors';
 import { routeTools } from '../route/route.ts';

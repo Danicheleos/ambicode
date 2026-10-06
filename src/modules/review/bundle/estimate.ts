@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { REVIEWS_DIR, REVIEWS_LEAF, TASKS_DIR } from '#types/defaults';
 import { ReviewResult, type ReviewEstimate, type AssembleOptions } from '#types/modules/review';
-import { tokenize } from '#harness/definition/flags';
+import { tokenize } from '#util/text';
 import { AmbicodeError } from '#util/errors';
 import { adapterFor } from '#modules/checks/selection/adapters';
 import { authorizeCommand, checkApprovalKey } from '#modules/checks/selection/authorize';

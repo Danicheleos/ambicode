@@ -20,7 +20,7 @@ import {
   type ReviewProvider,
 } from '#types/platform/provider';
 import { MAX_SNAPSHOT_FILE_BYTES } from '#types/defaults';
-import { isBinaryContent } from '#modules/review/snapshot/exclusions';
+import { isBinaryContent } from '#platform/ports/binary';
 import { toGitLabPositionFields } from '../position.ts';
 import { GitLabApi } from './api.ts';
 import { GitLabBlobBatch, GitLabCompare, GitLabCreatedDiscussion, GitLabDiscussion, GitLabFile, GitLabMergeRequest, GitLabProject, GitLabTreeEntry, GitLabUser, GitLabVersion, GitLabVersionDetail, type GitLabVersionDiff, type ApiResult } from './types/schemas.ts';

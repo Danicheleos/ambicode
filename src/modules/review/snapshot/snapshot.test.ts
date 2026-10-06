@@ -6,7 +6,7 @@ import path from 'node:path';
 import { DEFAULTS } from '#types/defaults';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { enforceReviewInputLimits, measureInput, partitionChange } from './limits.ts';
-import { pathExclusionReason } from './exclusions.ts';
+import { pathExclusionReason } from '#util/path-classes';
 import { buildSnapshot, planSnapshot } from './snapshot.ts';
 import { resolveBranchTarget, resolveWorkingTarget } from './target.ts';
 import { nodeFileSystem } from '#platform/ports/filesystem';

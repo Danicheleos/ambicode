@@ -9,7 +9,7 @@ import { runRouteStart } from '#cli/commands/route/route';
 import { CHECK_CONFIG, COMMAND_PACK, CHECK_TASK } from '#testing/fixtures/check-fixture';
 import { taskFixture } from '#testing/fixtures/task-fixture';
 import { TempRepo } from '#testing/fixtures/temp-repo';
-import { readLedger } from '#modules/evidence/ledger/ledger';
+import { readLedger } from '#platform/ledger/ledger';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { ROUTE_START_OPTIONS } from '#types/cli';
 

@@ -1,6 +1,8 @@
 import type { PublicationState } from '#types/primitives';
 import type { CoverageGap } from '#types/platform/provider';
 import type { ReviewResult } from '#types/modules/review';
+import type { FastifyInstance } from 'fastify';
+import type { SessionStore } from '../page/session.ts';
 
 export type ParsedSubmission =
   | {
@@ -139,4 +141,15 @@ export interface FindingCard {
   state: PublicationState;
   stateMessage: string | null;
   discussionUrl: string | null;
+}
+
+export interface PageServer {
+  app: FastifyInstance;
+  sessions: SessionStore;
+  capability: string;
+  setAuthority(authority: string): void;
+  stopped: Promise<string>;
+  beginShutdown(reason: string): void;
+  stop(reason: string): Promise<void>;
+  noteActivity(): void;
 }

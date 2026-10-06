@@ -2,14 +2,12 @@ import { z } from 'zod';
 import { COMPLETE_COVERAGE, RemoteDiscussion, RemoteTarget, ReviewCoverage } from '../platform/provider.ts';
 import { CheckStatus, Confidence, ReviewStatus, Risk, TargetKind } from '../primitives.ts';
 import { ProvenanceEntry, RequirementConflict, RequirementSource, type NormalizedRequirements, type EvidenceSource } from './requirements.ts';
-import { SessionStore } from '#modules/review/page/session';
 import type { PendingApproval } from './checks.ts';
 import type { Workspace, Runtime } from '../composition.ts';
 import type { ProjectConfig } from './config.ts';
 import type { DiffFile } from '../platform/git.ts';
 import type { ResolvedPolicy } from './policy.ts';
 import type { Dependent } from './search.ts';
-import type { FastifyInstance } from 'fastify';
 
 export const REVIEW_SCHEMA_VERSION = 1;
 
@@ -243,17 +241,6 @@ export interface SweepReport {
 }
 
 export const SESSION_COOKIE = 'ambicode_session';
-
-export interface PageServer {
-  app: FastifyInstance;
-  sessions: SessionStore;
-  capability: string;
-  setAuthority(authority: string): void;
-  stopped: Promise<string>;
-  beginShutdown(reason: string): void;
-  stop(reason: string): Promise<void>;
-  noteActivity(): void;
-}
 
 export const REVIEWER_TOOLS = ['Read', 'Grep', 'Glob'] as const;
 

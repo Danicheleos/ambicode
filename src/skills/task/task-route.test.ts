@@ -9,7 +9,7 @@ import { MAX_INSTRUCTION_CHARS } from '#harness/definition/routes';
 import { COMMAND_PACK, CHECK_TASK } from '#testing/fixtures/check-fixture';
 import { finding } from '#testing/fixtures/review-fixture';
 import { taskFixture } from '#testing/fixtures/task-fixture';
-import { appendLedger } from '#modules/evidence/ledger/ledger';
+import { appendLedger } from '#platform/ledger/ledger';
 import { REPO_ROOT } from '#testing/paths';
 import { SESSION_A } from '#testing/fixtures/ids';
 

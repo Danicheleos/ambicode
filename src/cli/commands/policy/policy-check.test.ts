@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { describe, it } from 'node:test';
-import { createRuntime, openWorkspace, projectById, resolvePolicyFor } from '#composition/root';
+import { createRuntime } from '#composition/root';
+import { openWorkspace, projectById } from '#modules/config/workspace';
+import { resolvePolicyFor } from '#modules/policy/resolve-for';
 import type { Diagnostic } from '#types/modules/policy';
 import { loadPacksForProject } from '#modules/policy/packs/load';
 import { nodeFileSystem } from '#platform/ports/filesystem';

@@ -1,4 +1,5 @@
-import { openWorkspace, resolvePolicyFor } from '#composition/root';
+import { openWorkspace } from '#modules/config/workspace';
+import { resolvePolicyFor } from '#modules/policy/resolve-for';
 import { MAX_SNAPSHOT_FILE_BYTES } from '#types/defaults';
 import type { ProjectConfig } from '#types/modules/config';
 import type { ResolvedRule, StagePayload } from '#types/modules/policy';

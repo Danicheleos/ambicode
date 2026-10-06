@@ -15,6 +15,18 @@ export { parseConfigWithNotices } from './load.ts';
 /** validateArgv(field, argv) — checks a command argument vector and returns its problems (empty when valid). */
 export { validateArgv } from './load.ts';
 
+// workspace.ts: the workspace (repository plus config) and project lookup.
+/** openWorkspace(runtime) — opens the repository and loads its config into a Workspace; config notices are appended to the runtime. */
+export { openWorkspace } from './workspace.ts';
+/** projectById(config, id) — the configured project with that id; throws unknown-project otherwise. */
+export { projectById } from './workspace.ts';
+/** projectForPath(config, repositoryRelativePath) — the project with the most specific root containing the path, or null. */
+export { projectForPath } from './workspace.ts';
+/** projectForRequest(config, requestedId, paths) — picks the project for a request by id or paths; throws when ambiguous. */
+export { projectForRequest } from './workspace.ts';
+/** toRepositoryRelative(workspace, value) — a path (absolute or cwd-relative) as a normalized repository-relative path, following symlinks. */
+export { toRepositoryRelative } from './workspace.ts';
+
 // init/: the init proposal, its application, `--set` parsing and doctor.
 /** applyInit(deps, {task, sets, refreshProfile?}) — runs the apply checks, then writes the config; nothing is written before the last check passes. */
 export { applyInit } from './init/apply.ts';

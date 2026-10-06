@@ -1,5 +1,6 @@
 import path from 'node:path';
-import { openWorkspace, projectForRequest, resolvePolicyFor, toRepositoryRelative } from '#composition/root';
+import { openWorkspace, projectForRequest, toRepositoryRelative } from '#modules/config/workspace';
+import { resolvePolicyFor } from '#modules/policy/resolve-for';
 import { Activity } from '#types/primitives';
 import type { ResolvedPolicy, ResolvedPromptRef } from '#types/modules/policy';
 import {

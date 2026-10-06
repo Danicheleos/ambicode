@@ -1,12 +1,12 @@
 import { parseArgs } from '#cli/args';
 import { startTarget } from '#cli/commands/route/route';
-import { findSessionRepository } from '#composition/session-repository';
+import { findSessionRepository } from '#platform/git/session-repository';
 import type { HookInput, RouteHookDeps } from '#types/hook';
 import { resolveActiveRoute } from '#harness/session/active-route';
 import { parseAnswerFlag } from '#harness/definition/flags';
 import { metricsIgnoreWarning } from '#skills/review/handlers';
 import { isAmbicodeError } from '#util/errors';
-import { currentEpoch, deliverOnce, hookStateBaseDir } from '../session/markers.ts';
+import { currentEpoch, deliverOnce, hookStateBaseDir } from '#platform/claude/hook-state';
 import { ROUTE_START_OPTIONS } from '#types/cli';
 import type { Runtime } from '#types/composition';
 

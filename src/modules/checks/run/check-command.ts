@@ -1,12 +1,13 @@
 import path from 'node:path';
-import { openWorkspace, projectById, resolvePolicyFor } from '#composition/root';
+import { openWorkspace, projectById } from '#modules/config/workspace';
+import { resolvePolicyFor } from '#modules/policy/resolve-for';
 import type { ProjectConfig } from '#types/modules/config';
 import type { ResolvedPolicy } from '#types/modules/policy';
 import { indexDepsOf, refreshIndex } from '#modules/search/code-index/codeindex';
 import { openRouteView, readEntries } from '#harness/engine/context';
 import { cycleEntries, liveHeads } from '#harness/engine/fold';
 import { raiseGate } from '#harness/gates/gates';
-import { withLedgerLock } from '#modules/evidence/ledger/ledger-lock';
+import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { AmbicodeError } from '#util/errors';
 import { normalizeRelative } from '#util/paths';

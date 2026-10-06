@@ -1,4 +1,4 @@
-import type { TypedEntry } from '#modules/evidence/ledger/kinds';
+import type { TypedEntry } from '#platform/ledger/kinds';
 import type { Runtime } from './composition.ts';
 import type { ArtifactRef, LedgerEntry, TaskDir, LockedLedger } from './modules/evidence.ts';
 

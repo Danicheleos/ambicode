@@ -10,7 +10,7 @@ import { nodeFileSystem } from '#platform/ports/filesystem';
 import { NodeProcessRunner } from '#platform/ports/node-process-runner';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { AmbicodeError } from '#util/errors';
-import { readLedger } from '#modules/evidence/ledger/ledger';
+import { readLedger } from '#platform/ledger/ledger';
 import { runWorker } from './worker-run.ts';
 import { REPO_ROOT } from '#testing/paths';
 import { LEDGER_FILE } from '#types/modules/evidence';

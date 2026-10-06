@@ -1,6 +1,7 @@
 import { Activity } from '#types/primitives';
 import type { ResolvedPolicy, StagePayload } from '#types/modules/policy';
-import { openWorkspace, projectById, projectForPath, resolvePolicyFor, toRepositoryRelative } from '#composition/root';
+import { openWorkspace, projectById, projectForPath, toRepositoryRelative } from '#modules/config/workspace';
+import { resolvePolicyFor } from '#modules/policy/resolve-for';
 import { policyStage } from '#modules/policy/stage';
 import { AmbicodeError } from '#util/errors';
 import type { Runtime } from '#types/composition';

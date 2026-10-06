@@ -1,13 +1,13 @@
 import path from 'node:path';
-import { findSessionRepository } from '#composition/session-repository';
+import { findSessionRepository } from '#platform/git/session-repository';
 import { TASKS_DIR } from '#types/defaults';
 import type { HookInput } from '#types/hook';
 import { liveHeads } from '#harness/engine/fold';
 import { harnessOf } from '#harness/session/harness';
-import { readLedger } from '#modules/evidence/ledger/ledger';
-import { withLedgerLock } from '#modules/evidence/ledger/ledger-lock';
+import { readLedger } from '#platform/ledger/ledger';
+import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { taskDirFor } from '#modules/evidence/task/task-dir';
-import { anySessionEnded, sessionEnded } from '../session/markers.ts';
+import { anySessionEnded, sessionEnded } from '#platform/claude/hook-state';
 import type { Runtime } from '#types/composition';
 import type { LedgerEntry } from '#types/modules/evidence';
 import type { ActiveRoutePointer } from '#types/harness';

@@ -6,7 +6,7 @@ import { createEngine } from '#harness/engine/engine';
 import { handlerRegistry } from '#harness/engine/handlers';
 import { loadRoute, routeRegistry } from '#harness/definition/routes';
 import { parseRegistry } from '#harness/gates/gates';
-import { readLedger } from '#modules/evidence/ledger/ledger';
+import { readLedger } from '#platform/ledger/ledger';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { TempRepo } from './temp-repo.ts';
 import { REPO_ROOT } from '../paths.ts';

@@ -1,7 +1,7 @@
 import type { ReviewConfig } from '#types/modules/config';
 import { totalChangedLines } from '#platform/git/diff';
 import { AmbicodeError } from '#util/errors';
-import { describeExclusion, isExcludedFromReview } from './exclusions.ts';
+import { describeExclusion, isExcludedFromReview } from '#util/path-classes';
 import type { DiffFile } from '#types/platform/git';
 import type { MeasuredInput } from '#types/modules/review';
 import type { OperatorPatterns } from '../types/snapshot.ts';

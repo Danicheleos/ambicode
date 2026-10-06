@@ -20,6 +20,12 @@ export { writeUniqueFile } from './files.ts';
 /** uniqueFileExhausted(what) — the error to throw when writeUniqueFile returns null. */
 export { uniqueFileExhausted } from './files.ts';
 
+// path-classes.ts: path classes shared by review, search and policy (excluded, test, credential-like, binary extension).
+/** isTestPath(relativePath) — whether a path matches the test-file conventions. */
+export { isTestPath } from './path-classes.ts';
+/** pathExclusionReason(…) — why a path is excluded from the snapshot, or null. */
+export { pathExclusionReason } from './path-classes.ts';
+
 // glob.ts: POSIX-style glob matching on repository-relative paths.
 /** matchesAnyGlob(relativePath, globs) — true when the path matches at least one glob. */
 export { matchesAnyGlob } from './glob.ts';
@@ -57,3 +63,7 @@ export { pageTemplatesDirectory } from './plugin-root.ts';
 export { promptsDirectory } from './plugin-root.ts';
 /** resolvePluginRoot(fs, env) — finds the plugin root from the environment or the running file's location. */
 export { resolvePluginRoot } from './plugin-root.ts';
+
+// text.ts: word splitting.
+/** tokenize(text) — splits text on whitespace into words; quotes group and a backslash escapes the next character. */
+export { tokenize } from './text.ts';

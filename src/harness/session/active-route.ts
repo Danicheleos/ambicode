@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { TASKS_DIR } from '#types/defaults';
-import { currentEpoch, deliverOnce, hookStateBaseDir } from '#hook/session/markers';
-import { readLedger } from '#modules/evidence/ledger/ledger';
+import { currentEpoch, deliverOnce, hookStateBaseDir } from '#platform/claude/hook-state';
+import { readLedger } from '#platform/ledger/ledger';
 import { buildChain, exitOf, latestRouteOf } from '../engine/fold.ts';
 import { ownerOfHarness } from './harness.ts';
 import type { LedgerEntry } from '#types/modules/evidence';

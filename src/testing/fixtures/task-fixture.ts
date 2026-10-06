@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Finding } from '#types/modules/review';
 import { defaultHandlers } from '#harness/engine/handlers';
-import { appendLedger } from '#modules/evidence/ledger/ledger';
+import { appendLedger } from '#platform/ledger/ledger';
 import { checkFixture, CHECK_TASK } from './check-fixture.ts';
 import { reviewResult } from './review-fixture.ts';
 import { REPO_ROOT } from '../paths.ts';

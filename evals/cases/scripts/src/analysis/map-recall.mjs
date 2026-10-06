@@ -6,7 +6,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createRuntime, openWorkspace, projectForRequest } from '../../../../../src/composition/root.ts';
+import { createRuntime } from '../../../../../src/composition/root.ts';
+import { openWorkspace, projectForRequest } from '../../../../../src/modules/config/workspace.ts';
 import { FEATURE_LIMIT_BYTES, LEADS_LIMIT_BYTES, buildMap, leadsText, rankTerms, resolveLayers } from '../../../../../src/modules/search/text/map.ts';
 import { splitLaunch } from '../../../../../src/hook/events/prompt-launch.ts';
 import { CURATED_CASES } from '../shared/bench-paths.mjs';
