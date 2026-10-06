@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { defaultHandlers } from '#harness/engine/handlers';
-import { A, checkFixture, COMMAND_PACK, TASK } from '#testing/fixtures/check-fixture';
+import { checkFixture, COMMAND_PACK, CHECK_TASK } from '#testing/fixtures/check-fixture';
 import { REPO_ROOT } from '#testing/paths';
+import { SESSION_A } from '#testing/fixtures/ids';
 
 const PROPOSE_UNIT = COMMAND_PACK.replace('{ command: unit, action: run', '{ command: unit, action: propose');
 
@@ -13,7 +14,7 @@ async function investigate() {
   const t = await checkFixture({ routes: { investigate: yaml! }, handlers: defaultHandlers(), step: { 'routes/steps/investigate-read.md': read!, 'routes/steps/investigate-fetch.md': 'Fetch.' }, pack: PROPOSE_UNIT });
   await t.fx.repo.write('src/orders.ts', 'export const total = 1;\n');
   await t.fx.repo.commitAll('orders');
-  const message = await t.fx.engine.start({ skill: 'investigate', text: 'why does `total` return 1', requirements: [], task: TASK, cwd: t.fx.repo.root, session: A, channel: 'hook', scratchpadDir: t.fx.scratchpad });
+  const message = await t.fx.engine.start({ skill: 'investigate', text: 'why does `total` return 1', requirements: [], task: CHECK_TASK, cwd: t.fx.repo.root, session: SESSION_A, channel: 'hook', scratchpadDir: t.fx.scratchpad });
   return { ...t, message };
 }
 
@@ -29,7 +30,7 @@ describe('investigate diagnostics (07-I1)', () => {
     try {
       assert.equal(message.position, 'read');
       assert.deepEqual(await check({ key: 'app/unit' }), { outcome: 'waiting', gate: 'check-only-unauthorized', key: 'app/unit' });
-      const [print] = await fx.kinds(TASK, 'gate');
+      const [print] = await fx.kinds(CHECK_TASK, 'gate');
       assert.equal(print?.['raisedBy'], 'read');
       assert.deepEqual(print?.['values'], { key: ['app/unit'], files: ['src/a.spec.ts'] });
       assert.equal(fx.routes.gate('check-only-unauthorized')?.default, 'decline');
@@ -43,13 +44,13 @@ describe('investigate diagnostics (07-I1)', () => {
     const { fx, check, runner } = await investigate();
     try {
       await check({ key: 'app/unit' });
-      const [print] = await fx.kinds(TASK, 'gate');
-      const after = await fx.engine.advance({ task: TASK, session: A, cause: 'gate-hook', answers: [{ gate: 'check-only-unauthorized', option: 'approve', instance: print!.id }], scratchpadDir: fx.scratchpad });
+      const [print] = await fx.kinds(CHECK_TASK, 'gate');
+      const after = await fx.engine.advance({ task: CHECK_TASK, session: SESSION_A, cause: 'gate-hook', answers: [{ gate: 'check-only-unauthorized', option: 'approve', instance: print!.id }], scratchpadDir: fx.scratchpad });
       assert.equal(after.position, 'read');
-      assert.deepEqual((await fx.kinds(TASK, 'revise')).map((entry) => entry['from']), ['read']);
+      assert.deepEqual((await fx.kinds(CHECK_TASK, 'revise')).map((entry) => entry['from']), ['read']);
       assert.equal((await check({ key: 'app/unit' })).outcome, 'ran');
       assert.deepEqual(runner.calls, [['jest', 'src/a.spec.ts']]);
-      assert.equal((await fx.kinds(TASK, 'check')).length, 1);
+      assert.equal((await fx.kinds(CHECK_TASK, 'check')).length, 1);
     } finally {
       await fx.dispose();
     }
@@ -59,8 +60,8 @@ describe('investigate diagnostics (07-I1)', () => {
     const { fx, check, runner } = await investigate();
     try {
       await check({ key: 'app/unit' });
-      const [print] = await fx.kinds(TASK, 'gate');
-      await fx.engine.advance({ task: TASK, session: A, cause: 'gate-hook', answers: [{ gate: 'check-only-unauthorized', option: 'approve', instance: print!.id }], scratchpadDir: fx.scratchpad });
+      const [print] = await fx.kinds(CHECK_TASK, 'gate');
+      await fx.engine.advance({ task: CHECK_TASK, session: SESSION_A, cause: 'gate-hook', answers: [{ gate: 'check-only-unauthorized', option: 'approve', instance: print!.id }], scratchpadDir: fx.scratchpad });
       assert.equal((await check({ key: 'app/e2e' })).outcome, 'waiting');
       assert.deepEqual(runner.calls, []);
     } finally {
@@ -73,10 +74,10 @@ describe('investigate diagnostics (07-I1)', () => {
     try {
       await check({ key: 'app/unit' });
       assert.equal((await check({ key: 'app/unit', approve: ['app/unit'] })).outcome, 'waiting');
-      const [declined] = await fx.kinds(TASK, 'declined');
+      const [declined] = await fx.kinds(CHECK_TASK, 'declined');
       assert.deepEqual([declined?.['gate'], declined?.['reason'], declined?.['via'], declined?.['answer']], ['check-only-unauthorized', 'acting-needs-human', 'flag', 'approve']);
       assert.deepEqual(runner.calls, []);
-      assert.equal((await fx.kinds(TASK, 'check')).length, 0);
+      assert.equal((await fx.kinds(CHECK_TASK, 'check')).length, 0);
     } finally {
       await fx.dispose();
     }

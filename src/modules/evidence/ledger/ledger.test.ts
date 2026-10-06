@@ -7,7 +7,7 @@ import { nodeFileSystem } from '#platform/ports/filesystem';
 import { withLedgerLock } from './ledger-lock.ts';
 import { appendLedger, MAX_ENTRY_BYTES, readLedger, readLedgerStrict, WARN_LEDGER_BYTES } from './ledger.ts';
 import { SRC_ROOT } from '#testing/paths';
-import { LEDGER_FILE } from '../types/ledger.ts';
+import { LEDGER_FILE } from '#types/modules/evidence';
 
 const NOW = new Date('2026-10-02T12:00:00.000Z');
 const A = 'a1b2c3d4';

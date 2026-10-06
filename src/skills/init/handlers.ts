@@ -7,18 +7,18 @@ import { CONFIG_FILE, TASKS_DIR } from '#types/defaults';
 import { adjustTokens, canonicalSets, parseSet, projectOfKey } from '#modules/config/init/init-sets';
 import { applyLineFor, buildProposal, configFileState } from '#modules/config/init/proposal';
 import type { Runtime } from '#types/composition';
-import { APPLY_OPTIONS, type SetPair, type InitProposal } from '#types/config';
-import type { LedgerEntry, TaskDir } from '#types/evidence';
+import { APPLY_OPTIONS, type SetPair, type InitProposal } from '#types/modules/config';
+import type { LedgerEntry, TaskDir } from '#types/modules/evidence';
 import type { Handler } from '#types/harness';
 
 const GATE = 'init-apply';
 const BACK_UP = 'back up and regenerate';
 const PROPOSAL_FILE = 'proposal.json';
 
-export interface InForce { pairs: SetPair[]; latest: string | null; notUnderstood: string[] }
+interface InForce { pairs: SetPair[]; latest: string | null; notUnderstood: string[] }
 
 /** Merges the `key=value` tokens of every free-text answer to the gate; later tokens win (09-G2). */
-export function valuesInForce(chain: readonly LedgerEntry[], declared: readonly string[], projects: readonly string[] | null): InForce {
+function valuesInForce(chain: readonly LedgerEntry[], declared: readonly string[], projects: readonly string[] | null): InForce {
   const merged = new Map<string, SetPair>();
   let latest: string | null = null;
   let notUnderstood: string[] = [];

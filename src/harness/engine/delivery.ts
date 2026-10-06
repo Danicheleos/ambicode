@@ -1,11 +1,11 @@
 import path from 'node:path';
-import type { TaskDir } from '#types/evidence';
-import type { FileSystem } from '#types/ports';
+import type { TaskDir } from '#types/modules/evidence';
+import type { FileSystem } from '#types/platform/ports';
 import type { DeliveryChannel, Composed } from '../types/engine.ts';
 
 export const CLI_LIMIT = 8000;
 export const HOOK_LIMIT = 9800;
-export const PREVIEW_CHARS = 300;
+const PREVIEW_CHARS = 300;
 
 /** The first route of a chain: it stays the same when a later route resumes it. */
 export const chainKey = (ids: readonly string[]): string => ids.at(-1) ?? '';

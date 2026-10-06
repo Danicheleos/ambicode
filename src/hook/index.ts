@@ -18,7 +18,7 @@ export type { Directories, ParseOptions, Segment, WriteTarget } from './shell/co
 export { defaultHookDeps } from './events/run-hook.ts';
 /** runHook(runtime, rawStdin, injected?) — dispatches one hook event from its stdin JSON and returns the output object; never blocks a finished tool call. */
 export { runHook } from './events/run-hook.ts';
-export { MAX_HOOK_INPUT_BYTES } from './types/events.ts';
+export { MAX_HOOK_INPUT_BYTES } from '#types/hook';
 export type { HookDeps } from '#types/hook';
 /** launchRoute(runtime, input, deps) — on `/ambicode:<skill> …` starts the shipped route and returns its first step as context, else null. */
 export { launchRoute } from './events/prompt-launch.ts';
@@ -30,7 +30,7 @@ export { answerGates } from './events/gate-answer.ts';
 export { redBeforeGreen } from './events/stop-check.ts';
 /** stopCheck(runtime, input, deps, options?) — evaluates Stop's conditions and returns the single block output they may cause, or null. */
 export { stopCheck } from './events/stop-check.ts';
-export { ANSWER_CONTEXT, ASK_BINDING, PLATFORM } from '#types/claude-platform';
+export { ANSWER_CONTEXT, ASK_BINDING, PLATFORM } from '#types/platform/claude';
 /** prepareForSlashCommand(runtime, input) — for a `/ambicode:<skill>` prompt runs `prepare` and returns the PostToolUse output carrying its context. */
 export { prepareForSlashCommand } from './events/prepare-on-skill.ts';
 

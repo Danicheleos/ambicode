@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import type { ReviewResult } from '#types/review';
+import type { ReviewResult } from '#types/modules/review';
 import { reviewResult } from '#testing/fixtures/review-fixture';
 import { renderReport } from './report.ts';
 

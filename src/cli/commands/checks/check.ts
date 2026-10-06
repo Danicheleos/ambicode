@@ -3,11 +3,11 @@ import { ledgerRouteContext } from '#harness/engine/context';
 import { runCommandTail } from '#harness/engine/command-tail';
 import { AmbicodeError } from '#util/errors';
 import { routeTools, taskOf } from '../route/route.ts';
-import type { CheckOnlyOutcome } from '#types/checks';
+import type { CheckOnlyOutcome } from '#types/modules/checks';
 import type { Runtime } from '#types/composition';
 import type { ParsedArgs } from '../../types/cli.ts';
 
-export interface CheckOutput { command: 'check'; task: string; key: string; result: CheckOnlyOutcome; next?: string }
+interface CheckOutput { command: 'check'; task: string; key: string; result: CheckOnlyOutcome; next?: string }
 
 export async function runCheckCommand(runtime: Runtime, args: ParsedArgs): Promise<CheckOutput> {
   const task = taskOf('check', args);

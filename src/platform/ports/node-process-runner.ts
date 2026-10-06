@@ -3,7 +3,7 @@ import { statSync } from 'node:fs';
 import path from 'node:path';
 import { execa, type Options, type ResultPromise } from 'execa';
 import { resolveEnvironment } from './process.ts';
-import type { ProcessOutcome, ProcessRequest, ProcessRunner } from '#types/ports';
+import type { ProcessOutcome, ProcessRequest, ProcessRunner } from '#types/platform/ports';
 import { messageOf } from '#util/errors';
 
 export class NodeProcessRunner implements ProcessRunner {

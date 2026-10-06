@@ -1,7 +1,7 @@
 import path from 'node:path';
-import { CapturedHits, CapturedRequirement } from '#types/requirements';
-import type { TaskDir } from '#types/evidence';
-import type { FileSystem } from '#types/ports';
+import { CapturedHits, CapturedRequirement } from '#types/modules/requirements';
+import type { TaskDir } from '#types/modules/evidence';
+import type { FileSystem } from '#types/platform/ports';
 
 const primary = (dir: TaskDir, key: string): string => path.join(dir.requirements, `${key}.json`);
 const versioned = (dir: TaskDir, key: string, rawHash: string): string => path.join(dir.requirements, `${key}.${rawHash.replace(/^sha256:/, '').slice(0, 12)}.json`);
@@ -29,7 +29,7 @@ export async function readCapture(fs: FileSystem, dir: TaskDir, key: string, raw
   return readParsed(fs, versioned(dir, key, rawHash));
 }
 
-export const capturePaths = (dir: TaskDir, key: string, rawHash: string): string[] => [primary(dir, key), versioned(dir, key, rawHash)];
+const capturePaths = (dir: TaskDir, key: string, rawHash: string): string[] => [primary(dir, key), versioned(dir, key, rawHash)];
 
 /** A capture as one chain recorded it: relation and derivation belong to the chain's ledger entry, not to the shared file. */
 export function asRecorded(capture: CapturedRequirement, entry: Readonly<Record<string, unknown>>): CapturedRequirement {

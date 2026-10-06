@@ -1,11 +1,11 @@
-import type { ProcessRunner } from '#types/ports';
+import type { ProcessRunner } from '#types/platform/ports';
 
 /**
  * Failure is ordinary (headless host, remote session, no handler) and never
  * stops the server: the URL printed to the terminal is the real interface.
  */
 
-export interface OpenResult {
+interface OpenResult {
   opened: boolean;
   detail: string;
 }

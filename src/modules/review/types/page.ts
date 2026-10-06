@@ -1,6 +1,6 @@
 import type { PublicationState } from '#types/primitives';
-import type { CoverageGap } from '#types/provider';
-import type { ReviewResult } from '#types/review';
+import type { CoverageGap } from '#types/platform/provider';
+import type { ReviewResult } from '#types/modules/review';
 
 export type ParsedSubmission =
   | {
@@ -41,7 +41,7 @@ export interface PageModel {
   lastSubmission: LastSubmission | null;
 }
 
-export interface TargetSummary {
+interface TargetSummary {
   kind: ReviewResult['target']['kind'];
   snapshotId: string;
   notes: string[];
@@ -58,7 +58,7 @@ export interface TargetSummary {
   } | null;
 }
 
-export interface RequirementSummary {
+interface RequirementSummary {
   id: string;
   url: string;
   title: string;
@@ -69,7 +69,7 @@ export interface RequirementSummary {
   failureReason: string | null;
 }
 
-export interface CheckSummary {
+interface CheckSummary {
   projectId: string;
   checkId: string;
   status: string;
@@ -81,7 +81,7 @@ export interface CheckSummary {
   mutations: string[];
 }
 
-export interface CoverageSummary {
+interface CoverageSummary {
   complete: boolean;
   declaredFileCount: number | null;
   deliveredFileCount: number;
@@ -89,7 +89,7 @@ export interface CoverageSummary {
   gaps: CoverageGap[];
 }
 
-export interface ReviewerSummary {
+interface ReviewerSummary {
   status: string;
   model: string;
   tools: string[];
@@ -98,7 +98,7 @@ export interface ReviewerSummary {
   rejections: string[];
 }
 
-export interface PublicationSummary {
+interface PublicationSummary {
   available: boolean;
   unavailableReason: string | null;
   revisionState: string | null;

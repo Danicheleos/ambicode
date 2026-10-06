@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import { createRuntime, openWorkspace, projectById, resolvePolicyFor } from '#composition/root';
-import type { Diagnostic } from '#types/policy';
+import type { Diagnostic } from '#types/modules/policy';
 import { loadPacksForProject } from '#modules/policy/packs/load';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { TempRepo } from '#testing/fixtures/temp-repo';
@@ -14,7 +14,7 @@ import { runPolicy } from './policy.ts';
 import { renderPolicyCheck, runPolicyCheck, type PolicyCheckOutput } from './policy-check.ts';
 import { REPO_ROOT } from '#testing/paths';
 import type { Runtime } from '#types/composition';
-import type { FileSystem } from '#types/ports';
+import type { FileSystem } from '#types/platform/ports';
 import { POLICY_OPTIONS, POLICY_CHECK_OPTIONS } from '../../types/commands.ts';
 
 const CONFIG_TAIL = [

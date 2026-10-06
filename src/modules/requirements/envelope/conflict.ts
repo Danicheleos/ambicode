@@ -1,6 +1,6 @@
 import { onRaisedAnswer } from '#harness/gates/gates';
 import { contentHash } from '#util/hash';
-import type { LedgerEntry, LockedLedger } from '#types/evidence';
+import type { LedgerEntry, LockedLedger } from '#types/modules/evidence';
 import type { HandlerResult, RouteView } from '#types/harness';
 
 const GATE = 'requirements-conflicting';

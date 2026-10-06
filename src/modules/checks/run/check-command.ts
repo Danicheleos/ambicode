@@ -1,12 +1,11 @@
 import path from 'node:path';
 import { openWorkspace, projectById, resolvePolicyFor } from '#composition/root';
-import type { ProjectConfig } from '#types/config';
-import type { ResolvedPolicy } from '#types/policy';
+import type { ProjectConfig } from '#types/modules/config';
+import type { ResolvedPolicy } from '#types/modules/policy';
 import { indexDepsOf, refreshIndex } from '#modules/search/code-index/codeindex';
 import { openRouteView, readEntries } from '#harness/engine/context';
 import { cycleEntries, liveHeads } from '#harness/engine/fold';
 import { raiseGate } from '#harness/gates/gates';
-import type { TypedEntry } from '#modules/evidence/ledger/kinds';
 import { withLedgerLock } from '#modules/evidence/ledger/ledger-lock';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { AmbicodeError } from '#util/errors';
@@ -15,15 +14,15 @@ import { adapterFor } from '../selection/adapters.ts';
 import { authorizeCommand, checkApprovalKey } from '../selection/authorize.ts';
 import { classifyProof } from '../selection/proof.ts';
 import { runChecks } from './run.ts';
-import { GATE, type CheckDeps, type Routed, type CheckOnlyInput, type CheckOnlyOutcome, type CheckEntry } from '#types/checks';
+import { GATE, type CheckDeps, type Routed, type CheckOnlyInput, type CheckOnlyOutcome, type CheckEntry } from '#types/modules/checks';
 import type { Workspace } from '#types/composition';
-import type { LedgerEntry, LockedLedger, NoteDeps, TaskDir } from '#types/evidence';
+import type { LedgerEntry, LockedLedger, NoteDeps, TaskDir } from '#types/modules/evidence';
 import type { RouteView } from '#types/harness';
 const CHECK_LIMIT = 5;
 
 const badArgument = (message: string, field: string): AmbicodeError => new AmbicodeError('bad-argument', message, { field });
 
-export const unauthorized = (key: string, reason: string): AmbicodeError =>
+const unauthorized = (key: string, reason: string): AmbicodeError =>
   new AmbicodeError('check-only-unauthorized', `${key} was not run: ${reason}.`, { details: ["Release: configure the check's policy, or run it inside /ambicode:task."] });
 
 /** The open route the call speaks for; `session: null` while the slug has one refuses (07-K5). */
@@ -51,7 +50,7 @@ export const projectRelative = (project: ProjectConfig, file: string): string =>
   return root === '' || root === '.' || !relative.startsWith(`${root}/`) ? relative : relative.slice(root.length + 1);
 };
 
-export const stepOf = (view: RouteView): string => (view.position === 'complete' ? 'complete' : view.position);
+const stepOf = (view: RouteView): string => (view.position === 'complete' ? 'complete' : view.position);
 
 const keyOf = (entry: LedgerEntry): readonly unknown[] => {
   const keys = (entry['values'] as { key?: unknown } | undefined)?.key;

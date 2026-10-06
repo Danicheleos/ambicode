@@ -1,9 +1,9 @@
 import path from 'node:path';
 import { REVIEWS_DIR, REVIEWS_LEAF, TASKS_DIR } from '#types/defaults';
 import { openRepository } from '#composition/root';
-import type { PublicationPositions, PublicationRecord } from '#types/publication';
-import type { RemoteTarget, ReviewProvider } from '#types/provider';
-import type { ReviewResult } from '#types/review';
+import type { PublicationPositions, PublicationRecord } from '#types/modules/publication';
+import type { RemoteTarget, ReviewProvider } from '#types/platform/provider';
+import type { ReviewResult } from '#types/modules/review';
 import { sweepOwnedTemporaries } from '#modules/review/page/cleanup';
 import { openInBrowser } from '#modules/review/page/open-browser';
 import { reopenCommand } from '#modules/review/page/reopen';
@@ -26,11 +26,11 @@ import type { ViewOutput } from '../../types/commands.ts';
 export { VIEW_OPTIONS } from '../../types/options.ts';
 
 /** Temporary directories older than this are swept at startup, if AMBICODE owns them. */
-export const SWEEP_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const SWEEP_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 const REVIEW_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
-export interface ViewDependencies {
+interface ViewDependencies {
   listen?: boolean;
   openBrowser?: boolean;
   platform?: string;

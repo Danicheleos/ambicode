@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { KINDS, type ArtifactRef } from '#types/evidence';
+import { KINDS, type ArtifactRef } from '#types/modules/evidence';
 export type Kind = (typeof KINDS)[number];
 
 /** Legacy `L<n>`, or `<writer8>-<n>`. */
@@ -11,7 +11,7 @@ const count = z.number().int().nonnegative();
 const present = z.custom<unknown>((value) => value !== undefined);
 const optionalList = z.array(z.unknown()).optional();
 
-export const ArtifactRefSchema = z.object({ kind: text, value: text, id: text, path: text, contentHash: text }) satisfies z.ZodType<ArtifactRef>;
+const ArtifactRefSchema = z.object({ kind: text, value: text, id: text, path: text, contentHash: text }) satisfies z.ZodType<ArtifactRef>;
 
 const base = { id: z.string().regex(ID), at: text, route: text.optional(), session: text.optional() };
 const entry = <K extends Kind, S extends z.ZodRawShape>(kind: K, shape: S) => z.looseObject({ ...base, kind: z.literal(kind), ...shape });

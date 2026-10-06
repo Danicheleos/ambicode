@@ -4,7 +4,7 @@
  * One change of the shell's directory: a literal path, `null` for one only the shell knows, or `{ maybe }` for a
  * change that only happens if an earlier command succeeded (`cd X; cmd`: `cmd` runs in X or where it was).
  */
-export type Move = string | null | { maybe: string };
+type Move = string | null | { maybe: string };
 
 /** The directory changes, from the hook's cwd, that a path is resolved after. */
 export type Directories = readonly Move[];

@@ -16,14 +16,15 @@ import { ledgerRouteContext } from '#harness/engine/context';
 import { runCommandTail } from '#harness/engine/command-tail';
 import { defaultHandlers } from '#harness/engine/handlers';
 import { assembleEngine } from '#testing/fixtures/route-fixture';
-import { A, COMMAND_PACK, SplitRunner } from '#testing/fixtures/check-fixture';
+import { COMMAND_PACK, SplitRunner } from '#testing/fixtures/check-fixture';
 import { readLedger } from '#modules/evidence/ledger/ledger';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { REPO_ROOT } from '#testing/paths';
-import type { CheckDeps } from '#types/checks';
+import type { CheckDeps } from '#types/modules/checks';
 import type { Runtime } from '#types/composition';
-import type { LedgerEntry } from '#types/evidence';
+import type { LedgerEntry } from '#types/modules/evidence';
 import type { HookDeps } from '#types/hook';
+import { SESSION_A } from '#testing/fixtures/ids';
 
 const TASK = 'page-last';
 const SPEC = 'tests/page-last.test.js';
@@ -53,9 +54,9 @@ async function offByOne() {
   const scratchpad = await assembled.runtime.fs.temporaryDirectory('ambicode-scratch-');
   const runner = new SplitRunner(assembled.runtime.runner);
   const runtime: Runtime = { ...assembled.runtime, runner };
-  const deps: CheckDeps = { runtime, session: A, routes: assembled.routes, context: ledgerRouteContext({ runtime, routes: assembled.routes }), warm: async () => undefined };
+  const deps: CheckDeps = { runtime, session: SESSION_A, routes: assembled.routes, context: ledgerRouteContext({ runtime, routes: assembled.routes }), warm: async () => undefined };
   const tail = (cause: 'check' | 'format', produced: string[]) =>
-    runCommandTail({ engine }, { task: TASK, cause, session: { state: 'bound', session: A } as never, produced, scratchpadDir: scratchpad });
+    runCommandTail({ engine }, { task: TASK, cause, session: { state: 'bound', session: SESSION_A } as never, produced, scratchpadDir: scratchpad });
   const check = async (phase: 'red' | 'green') => {
     const result = await runCheckOnly(deps, { task: TASK, key: 'app/unit', only: [SPEC], phase, approve: [], decline: [] });
     assert.equal(result.outcome, 'ran');
@@ -66,16 +67,16 @@ async function offByOne() {
   const stop = async (text: string) => {
     const transcript = path.join(scratchpad, 'transcript.jsonl');
     await writeFile(transcript, `${JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text }] } })}\n`);
-    return runHook(runtime, JSON.stringify({ hook_event_name: 'Stop', session_id: A, cwd: root, scratchpad_dir: scratchpad, transcript_path: transcript }), hookDeps) as Promise<{ decision?: string; reason?: string } | null>;
+    return runHook(runtime, JSON.stringify({ hook_event_name: 'Stop', session_id: SESSION_A, cwd: root, scratchpad_dir: scratchpad, transcript_path: transcript }), hookDeps) as Promise<{ decision?: string; reason?: string } | null>;
   };
   const ledger = (): Promise<LedgerEntry[]> => readLedger(nodeFileSystem, path.join(root, '.ambicode', 'task', TASK));
   return {
     root, engine, runner, check, format, stop,
-    start: () => engine.start({ skill: 'task', text: 'Fix the defect: `page` drops the last item of every page.', requirements: [], task: TASK, cwd: root, session: A, channel: 'hook', scratchpadDir: scratchpad }),
+    start: () => engine.start({ skill: 'task', text: 'Fix the defect: `page` drops the last item of every page.', requirements: [], task: TASK, cwd: root, session: SESSION_A, channel: 'hook', scratchpadDir: scratchpad }),
     ledger,
     skip: async () => {
       const print = (await ledger()).findLast((entry) => entry.kind === 'gate' && entry['gate'] === 'review-offer');
-      return engine.advance({ task: TASK, session: A, cause: 'gate-hook', answers: [{ gate: 'review-offer', option: 'skip — verification incomplete', instance: print!.id }], scratchpadDir: scratchpad });
+      return engine.advance({ task: TASK, session: SESSION_A, cause: 'gate-hook', answers: [{ gate: 'review-offer', option: 'skip — verification incomplete', instance: print!.id }], scratchpadDir: scratchpad });
     },
     write: (file: string, text: string) => writeFile(path.join(root, file), text),
     dispose: async () => {

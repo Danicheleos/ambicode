@@ -1,14 +1,12 @@
 import { TEST_EXCLUDES } from '#types/defaults';
-import type { ProjectConfig, ShortlistConfig } from '#types/config';
-import type { LocateCandidate } from '#types/locate';
-import type { RequirementSource } from '#types/requirements';
+import type { ProjectConfig, ShortlistConfig } from '#types/modules/config';
+import { SCORE_FILENAME, type LocateShortlist } from '#types/modules/search';
+import type { RequirementSource } from '#types/modules/requirements';
 import { literalPathspec, type Git } from '#platform/git/git';
 import { pathExclusionReason } from '#modules/review/snapshot/exclusions';
 import { matchesAnyGlob, matchesGlob } from '#util/glob';
 import { normalizeRelative, toProjectRelative } from '#util/paths';
 import { profileOf, sourceGlob } from '../declarations/profile.ts';
-import type { LocateShortlist } from '#types/search';
-import { SCORE_FILENAME } from '../types/text.ts';
 
 /**
  * Every signal is computed per call from git, with no index or cache, so the
@@ -58,7 +56,7 @@ function contentScore(hits: number): number {
   return hits <= 0 ? 0 : SCORE_CONTENT * (2 - 2 ** (1 - hits));
 }
 
-export interface LocateRequest {
+interface LocateRequest {
   git: Git;
   project: ProjectConfig;
   terms: readonly string[];
@@ -181,7 +179,7 @@ export function shortlistRules(project: ProjectConfig): ShortlistConfig {
   return project.shortlist ?? { include: [sourceGlob(profileOf(project).sources)], exclude: [...TEST_EXCLUDES] };
 }
 
-export function shortlistable(projectRelativePath: string, rules: ShortlistConfig): boolean {
+function shortlistable(projectRelativePath: string, rules: ShortlistConfig): boolean {
   return (rules.include.length === 0 || matchesAnyGlob(projectRelativePath, rules.include)) && !matchesAnyGlob(projectRelativePath, rules.exclude);
 }
 

@@ -1,19 +1,19 @@
 import path from 'node:path';
-import type { ProjectConfig } from '#types/config';
-import type { Diagnostic, PackWithPrompts } from '#types/policy';
+import type { ProjectConfig } from '#types/modules/config';
+import type { Diagnostic, PackWithPrompts } from '#types/modules/policy';
 import { readPackText, validatePack, validatePackSet } from './validate.ts';
-import type { FileSystem } from '#types/ports';
+import type { FileSystem } from '#types/platform/ports';
 
-export type { PackWithPrompts } from '#types/policy';
+export type { PackWithPrompts } from '#types/modules/policy';
 
-export interface LoadPacksOptions {
+interface LoadPacksOptions {
   fs: FileSystem;
   project: ProjectConfig;
   builtinDirectory: string;
   repositoryRoot: string;
 }
 
-export interface LoadedPacks {
+interface LoadedPacks {
   packs: PackWithPrompts[];
   diagnostics: Diagnostic[];
 }

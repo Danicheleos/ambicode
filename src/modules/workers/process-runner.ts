@@ -1,5 +1,5 @@
-import { WORKER_ENV_ALLOWLIST, STRUCTURED_OUTPUT_ATTEMPTS } from '#modules/types/workers';
-import type { EnvironmentPolicy, ProcessOutcome, ProcessRunner } from '#types/ports';
+import { WORKER_ENV_ALLOWLIST, STRUCTURED_OUTPUT_ATTEMPTS } from '#types/modules/workers';
+import type { EnvironmentPolicy, ProcessOutcome, ProcessRunner } from '#types/platform/ports';
 
 export interface WorkerProcessRequest {
   argv: readonly string[];
@@ -14,7 +14,7 @@ export interface WorkerProcessRequest {
   maxTurns?: number;
 }
 
-export type WorkerProcessResult =
+type WorkerProcessResult =
   | { kind: 'ok'; outcome: ProcessOutcome; argv: readonly string[] }
   | {
       kind: 'failed';

@@ -8,11 +8,11 @@ import { runReview } from '#cli/commands/review/review';
 import { DEFAULTS } from '#types/defaults';
 import { parseHunks } from '#platform/git/diff';
 import { enforceReviewInputLimits } from '../snapshot/limits.ts';
-import { TASK } from '#testing/fixtures/check-fixture';
+import { CHECK_TASK } from '#testing/fixtures/check-fixture';
 import { reviewRouteFixture } from '#testing/fixtures/review-route-fixture';
 import { validateFindings } from '../findings/validate.ts';
 import { REVIEW_OPTIONS } from '#cli/types/commands';
-import type { DiffFile } from '#types/git';
+import type { DiffFile } from '#types/platform/git';
 
 const section = ['@@ -1,1 +1,2 @@', ' export const a = 1;', '+export const b = 2;'].join('\n');
 const file: DiffFile = { oldPath: 'src/a.ts', newPath: 'src/a.ts', changeKind: 'modified', binary: false, addedLines: 1, removedLines: 0, hunks: parseHunks(section), patchSection: section };
@@ -47,7 +47,7 @@ describe('null review limits mean no limit (08-LIM)', () => {
       await t.hook('estimate', 'run');
       let prompt = '';
       const reviewer = { async invoke(request: { prompt: string }) { prompt = request.prompt; return { kind: 'ok', output: { findings: [], coverageNotes: [] }, rawLength: 2, argv: ['claude'] } as never; } };
-      await runReview(t.runtime, parseArgs('review', ['--task', TASK], REVIEW_OPTIONS), { reviewer: reviewer as never, warm: async () => {} });
+      await runReview(t.runtime, parseArgs('review', ['--task', CHECK_TASK], REVIEW_OPTIONS), { reviewer: reviewer as never, warm: async () => {} });
       assert.match(prompt, /Return the findings that most deserve a human's time\./);
       assert.doesNotMatch(prompt, /at most \d+ findings/);
     } finally {

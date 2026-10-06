@@ -12,8 +12,9 @@ export { readLedger } from './ledger/ledger.ts';
 export { readLedgerStrict } from './ledger/ledger.ts';
 
 // root: saved notes and plan promotion.
-export { NOTE_LABELS, SAVE_KINDS } from './notes.ts';
-export type { SaveKind } from './notes.ts';
+export { NOTE_LABELS } from './notes.ts';
+export { SAVE_KINDS } from '#types/modules/evidence';
+export type { SaveKind } from '#types/modules/evidence';
 /** listNotes(runtime, task) — the task's saved notes as rows. */
 export { listNotes } from './notes.ts';
 /** owningRoute(ledger, session, task) — the route a `plan-draft` is saved for, or null for a routeless save; other states refuse. */

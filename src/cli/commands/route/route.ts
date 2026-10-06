@@ -14,12 +14,12 @@ import { AmbicodeError } from '#util/errors';
 import { contentHash } from '#util/hash';
 import { validateTargetArgs } from '../../options/target-option.ts';
 import type { Runtime } from '#types/composition';
-import type { Position, StepMessage, ReviewTarget, SessionBinding } from '#types/harness';
+import type { Position, StepMessage, ReviewTargetArgs, SessionBinding } from '#types/harness';
 import type { ParsedArgs } from '../../types/cli.ts';
 import type { RouteTools } from '../../types/commands.ts';
 
 /** The review target of a start, refused as `review` refuses it; absent for uncommitted work (08-R2). */
-export function startTarget(skill: string, args: ParsedArgs): ReviewTarget | undefined {
+export function startTarget(skill: string, args: ParsedArgs): ReviewTargetArgs | undefined {
   if (skill !== 'review') {
     const field = args.value('mr') !== null ? '--mr' : args.value('base') !== null ? '--base' : args.flag('branch') ? '--branch' : null;
     if (field !== null) throw new AmbicodeError('bad-argument', `${field} names a review target; route ${skill} takes none.`, { field });
@@ -48,7 +48,7 @@ export function ownerFor(binding: SessionBinding, task: string): string {
   return binding.session;
 }
 
-export interface RouteOutput extends StepMessage { command: string; extra?: string }
+interface RouteOutput extends StepMessage { command: string; extra?: string }
 
 export async function runRouteStart(runtime: Runtime, args: ParsedArgs): Promise<RouteOutput> {
   const [skill, ...words] = args.positionals;
@@ -115,7 +115,7 @@ async function shownPayload(runtime: Runtime, task: string, session: string, key
   return head === null ? null : loadPayload(runtime.fs, await resolveTaskDir(runtime, task), chainKey([...buildChain(entries, head).ids]), key);
 }
 
-export interface RouteStatusOutput { command: 'route status'; task: string; routes: Position[] }
+interface RouteStatusOutput { command: 'route status'; task: string; routes: Position[] }
 
 export async function runRouteStatus(runtime: Runtime, args: ParsedArgs): Promise<RouteStatusOutput> {
   const task = taskOf('route status', args);
@@ -123,7 +123,7 @@ export async function runRouteStatus(runtime: Runtime, args: ParsedArgs): Promis
   return { command: 'route status', task, routes: await engine.status(task, null) };
 }
 
-export interface RouteStopOutput { command: 'route stop'; task: string; reason: string }
+interface RouteStopOutput { command: 'route stop'; task: string; reason: string }
 
 export async function runRouteStop(runtime: Runtime, args: ParsedArgs): Promise<RouteStopOutput> {
   const task = taskOf('route stop', args);

@@ -1,13 +1,12 @@
-import type { ReviewResult, MeasuredInput } from '#types/review';
+import type { ReviewResult, MeasuredInput } from '#types/modules/review';
 import { assembleBundle, writeBundleArtifacts } from '#modules/review/bundle/bundle';
 import { renderReport } from '#modules/review/findings/report';
 import { resolveTargetOptions } from '../../options/target-option.ts';
-import type { PendingApproval } from '#types/checks';
+import type { PendingApproval } from '#types/modules/checks';
 import type { Runtime } from '#types/composition';
 import type { ParsedArgs } from '../../types/cli.ts';
-import { TARGET_OPTIONS } from '../../types/options.ts';
 
-export interface BundleOutput {
+interface BundleOutput {
   command: 'bundle';
   reviewId: string;
   reviewDirectory: string;

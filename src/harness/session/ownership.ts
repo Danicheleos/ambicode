@@ -1,4 +1,4 @@
-import type { LedgerEntry } from '#types/evidence';
+import type { LedgerEntry } from '#types/modules/evidence';
 import type { PlanOwnership } from '#types/harness';
 
 // No runtime imports: the guard bundles this predicate and its startup time is the point (see hook/guard/guard.ts).

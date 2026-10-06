@@ -4,9 +4,8 @@ import { findSessionRepository } from '#composition/session-repository';
 import { IGNORE_ENTRIES, REVIEWS_LEAF, TASKS_DIR } from '#types/defaults';
 import { AmbicodeError } from '#util/errors';
 import type { Runtime } from '#types/composition';
-import type { TaskDir } from '#types/evidence';
-import type { FileSystem } from '#types/ports';
-import { LEDGER_FILE } from '../types/ledger.ts';
+import { LEDGER_FILE, type TaskDir } from '#types/modules/evidence';
+import type { FileSystem } from '#types/platform/ports';
 
 /** The only place that joins `TASKS_DIR` and a slug. */
 export function taskDirFor(repositoryRoot: string, slug: string, where = '.'): TaskDir {

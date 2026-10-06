@@ -1,6 +1,6 @@
 import type { TypedEntry } from '#modules/evidence/ledger/kinds';
 import type { Runtime } from './composition.ts';
-import type { ArtifactRef, LedgerEntry, TaskDir, LockedLedger } from './evidence.ts';
+import type { ArtifactRef, LedgerEntry, TaskDir, LockedLedger } from './modules/evidence.ts';
 
 export const EXITS = ['done', 'blocked', 'human', 'inconclusive', 'superseded', 'budget'] as const;
 
@@ -40,7 +40,7 @@ export interface GateDef {
 export interface Answer { gate: string; option: string; instance?: string; freeText?: boolean }
 
 /** `route start review --branch [--base <ref>] | --mr <url>`; absent for uncommitted work and every other skill (D12). */
-export interface ReviewTarget { branch: boolean; base: string | null; mr: string | null }
+export interface ReviewTargetArgs { branch: boolean; base: string | null; mr: string | null }
 
 /** Persisted in the `route` entry's `args` field (03-E8). */
 export interface RouteArgs {
@@ -52,7 +52,7 @@ export interface RouteArgs {
   answers: readonly string[];
   headless: boolean;
   hasRequirement: boolean;
-  target?: ReviewTarget;
+  target?: ReviewTargetArgs;
   hash: string;
 }
 
@@ -172,7 +172,7 @@ export interface StartInput {
   plan?: string;
   fromDraft?: string;
   /** Review only (08-R2); part of the args hash when present. */
-  target?: ReviewTarget;
+  target?: ReviewTargetArgs;
 }
 
 export interface AdvanceInput {
@@ -276,3 +276,5 @@ export type PlanOwnership =
 export type SessionBinding =
   | { state: 'bound'; session: string; via: 'hook' | 'env' | 'updated-input' | 'association' | 'task' }
   | { state: 'unbound'; reason: 'missing' | 'stale' | 'ambiguous' };
+
+export const RAISED_BY = '$raisedBy';

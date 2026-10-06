@@ -6,19 +6,19 @@ import {
   type CommentDraft,
   type PublicationOutcome,
   type SubmissionRecord,
-} from '#types/publication';
-import { ReviewResult } from '#types/review';
-import { AmbicodeError } from '#util/errors';
-import type { Clock, FileSystem } from '#types/ports';
+} from '#types/modules/publication';
+import { ReviewResult } from '#types/modules/review';
+import { AmbicodeError, messageOf } from '#util/errors';
+import type { Clock, FileSystem } from '#types/platform/ports';
 
 /**
  * Nothing written here may hold a capability, a session id, a cookie or CSRF
  * secret, a glab token or any model credential.
  */
 
-export const RESULT_FILE = 'result.json';
-export const POSITIONS_FILE = 'publication-positions.json';
-export const PUBLICATION_FILE = 'publication.json';
+const RESULT_FILE = 'result.json';
+const POSITIONS_FILE = 'publication-positions.json';
+const PUBLICATION_FILE = 'publication.json';
 
 export class ReviewStore {
   private readonly fs: FileSystem;
@@ -146,7 +146,7 @@ export class ReviewStore {
       return JSON.parse(text) as unknown;
     } catch (error) {
       throw new AmbicodeError('review-file-unreadable', `${absolute} is not valid JSON.`, {
-        details: [error instanceof Error ? error.message : String(error)],
+        details: [messageOf(error)],
       });
     }
   }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import type { PersistedPosition, PublicationOutcome } from '#types/publication';
+import type { PersistedPosition, PublicationOutcome } from '#types/modules/publication';
 import {
   FAKE_TARGET,
   FakeProvider,

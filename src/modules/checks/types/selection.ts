@@ -14,7 +14,7 @@ export interface SelectedFile {
   reason: string;
 }
 
-export interface ApprovalRequest {
+interface ApprovalRequest {
   reason: string;
   scope: string;
 }

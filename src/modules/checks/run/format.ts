@@ -1,8 +1,7 @@
 import path from 'node:path';
 import { MAX_COMMAND_OUTPUT_BYTES } from '#types/defaults';
 import { openWorkspace, projectForPath, resolvePolicyFor } from '#composition/root';
-import type { ProjectConfig } from '#types/config';
-import type { TypedEntry } from '#modules/evidence/ledger/kinds';
+import type { ProjectConfig } from '#types/modules/config';
 import { normalizeRelative } from '#util/paths';
 import { authorizeCommand } from '../selection/authorize.ts';
 import { authorizeKey, projectRelative, routedOf, withLedger } from './check-command.ts';
@@ -11,8 +10,8 @@ import { expandFiles } from '../selection/select.ts';
 import { touchedSet } from '../workspace/baseline.ts';
 import { readEntries } from '#harness/engine/context';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
-import type { CheckDeps, BaselineEntryFields, FormatEntry } from '#types/checks';
-export const FORMAT_COMMAND = 'format';
+import type { CheckDeps, BaselineEntryFields, FormatEntry } from '#types/modules/checks';
+const FORMAT_COMMAND = 'format';
 
 /** The task's baseline in this route's chain (or the latest one standalone); none → everything changed against HEAD. */
 export async function baselineOf(deps: CheckDeps, task: string, chainIds: readonly string[] | null): Promise<(BaselineEntryFields & { id: string }) | null> {

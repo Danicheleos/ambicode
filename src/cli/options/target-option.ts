@@ -1,8 +1,8 @@
 import path from 'node:path';
 import { AmbicodeError } from '#util/errors';
 import type { Runtime } from '#types/composition';
-import type { EvidenceSource } from '#types/requirements';
-import type { TargetSelection } from '#types/review';
+import type { EvidenceSource } from '#types/modules/requirements';
+import type { TargetSelection } from '#types/modules/review';
 import type { ParsedArgs } from '../types/cli.ts';
 import type { ResolvedTargetOptions } from '../types/options.ts';
 

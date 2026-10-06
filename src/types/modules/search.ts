@@ -1,6 +1,8 @@
-import type { ProjectConfig } from './config.ts';
-import type { LocateCandidate } from './locate.ts';
-import type { Ecosystem } from './primitives.ts';
+import type { ProjectConfig, SearchProfile, AmbicodeConfig } from './config.ts';
+import type { Ecosystem } from '../primitives.ts';
+import { z } from 'zod';
+import type { Git } from '#platform/git/git';
+import type { Runtime } from '../composition.ts';
 
 export type IndexName = 'none' | 'codeindex';
 
@@ -86,3 +88,72 @@ export interface MapFeature { root: string; paths: string[]; name?: string }
  * 15 is what fits beside the 5.5KB policy in the hook's 9,800-character inline window; `ambicode locate` gives the long list.
  */
 export const PREPARE_SHORTLIST_LIMIT = 15;
+
+/** The reviewer reads these on top of the change; eight keeps a wide change inside the input limit. */
+export const MAX_DEPENDENTS = 8;
+
+/** Used when a project has no profile: today's source extensions, nothing else assumed. */
+export const GENERIC_PROFILE: Omit<SearchProfile, 'stamp'> = {
+  sources: ['ts', 'tsx', 'mts', 'cts', 'js', 'jsx', 'mjs', 'cjs', 'vue', 'svelte', 'astro', 'graphql', 'gql', 'py', 'pyi'],
+  companions: [],
+  catalogs: [],
+  featureKinds: [],
+  exportOnly: false,
+};
+
+/**
+ * Deliberately not an index: nothing is persisted, every field is recomputed from
+ * git on each call. A shortlist that found nothing says so; it never widens to the project.
+ */
+
+export const LocateCandidate = z.strictObject({
+  path: z.string().min(1),
+  /** Higher ranks first. Comparable within one call, not across calls. */
+  score: z.number().positive(),
+  reasons: z.array(z.string().min(1)).min(1),
+});
+export type LocateCandidate = z.infer<typeof LocateCandidate>;
+
+/** Empty lists are omitted, except `candidates`: an explicit empty array is how emptiness is reported. */
+export const PrepareShortlist = z.strictObject({
+  terms: z.array(z.string().min(1)).min(1),
+  candidates: z.array(LocateCandidate),
+  limitations: z.array(z.string().min(1)).min(1).optional(),
+});
+export type PrepareShortlist = z.infer<typeof PrepareShortlist>;
+
+export const LocateOutput = z.strictObject({
+  command: z.literal('locate'),
+  projectId: z.string().min(1),
+  terms: z.array(z.string().min(1)),
+  limit: z.number().int().positive(),
+  candidates: z.array(LocateCandidate),
+  limitations: z.array(z.string().min(1)),
+});
+export type LocateOutput = z.infer<typeof LocateOutput>;
+
+export interface IndexDeps {
+  runtime: Runtime;
+  git: Git;
+  repositoryRoot: string;
+  config: AmbicodeConfig;
+  /** Production: `[process.execPath, process.argv[1]]`; the hook and the CLI are the same script. */
+  selfArgv: readonly string[];
+  /** Set only by the offline recall script. */
+  indexDir?: string;
+  isAlive?: (pid: number) => boolean;
+}
+
+export const SCORE_FILENAME = 3;
+
+/** Names that mean nothing on their own: matching them finds the whole project. */
+export const COMMON_NAMES = new Set(['constructor', 'index', 'default', 'main', 'get', 'set', 'run', 'init', 'test', 'it', 'describe', 'props', 'state']);
+
+export interface Declaration {
+  name: string;
+  kind: string;
+  path: string;
+  line: number;
+  /** Files, among those harvested, that declare this name. */
+  declarations: number;
+}

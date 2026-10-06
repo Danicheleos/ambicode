@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { INDEX_DIR, INDEX_DRIFT_FILES } from '#types/defaults';
-import type { AmbicodeConfig, ProjectConfig } from '#types/config';
+import type { AmbicodeConfig, ProjectConfig } from '#types/modules/config';
 import { literalPathspec, type Git } from '#platform/git/git';
 import { AmbicodeError } from '#util/errors';
 import { contentHash } from '#util/hash';
@@ -9,12 +9,11 @@ import { normalizeRelative } from '#util/paths';
 import { profileOf } from '../declarations/profile.ts';
 import { indexAdapterFor, indexStatus } from './adapter.ts';
 import type { Runtime } from '#types/composition';
-import type { ProcessOutcome } from '#types/ports';
-import type { IndexAdapter, IndexAnswer, IndexReference, IndexStatus } from '#types/search';
-import type { IndexDeps } from '../types/code-index.ts';
+import type { ProcessOutcome } from '#types/platform/ports';
+import type { IndexAdapter, IndexAnswer, IndexReference, IndexStatus, IndexDeps } from '#types/modules/search';
 
 /** Checked against the codeindex 2.31 README "Use as a CLI"; `refs` takes one symbol, so it runs once per name. File arguments are relative to `--repo .`, the project root. */
-export const CODEINDEX_ARGV = {
+const CODEINDEX_ARGV = {
   build: (dir: string) => ['index', '--repo', '.', '--out', dir],
   find: (dir: string, name: string) => ['find', name, '--repo', '.', '--index', dir],
   refs: (dir: string, name: string) => ['refs', name, '--repo', '.', '--index', dir],

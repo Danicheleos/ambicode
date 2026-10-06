@@ -1,17 +1,14 @@
-import path from 'node:path';
-import { CapturedRequirement, RequirementEvidence, type EnvelopeSource, type EnvelopeInput } from '#types/requirements';
+import { CapturedRequirement, RequirementEvidence, EXPANSION_FETCH, type EnvelopeSource, type EnvelopeInput } from '#types/modules/requirements';
 import { latestBound } from '#harness/engine/fold';
 import { contentHash } from '#util/hash';
 import { bindServer, capturedServers, observedTools, serverOf } from '../capture/binding.ts';
 import { asRecorded, readCapture } from '../capture/capture-files.ts';
 import { expansionFor } from '../capture/expansion.ts';
 import { classifySource, jiraFields, toolName } from '../capture/template.ts';
-import type { Runtime } from '#types/composition';
-import type { LedgerEntry, LockedLedger } from '#types/evidence';
+import type { LedgerEntry, LockedLedger } from '#types/modules/evidence';
 import type { RouteView, RouteArgs } from '#types/harness';
-import { EXPANSION_FETCH } from '../types/capture.ts';
 
-export type EnvelopeResult =
+type EnvelopeResult =
   | { state: 'ok'; sources: EnvelopeSource[]; builtFrom: 'captures' | 'args'; asked: string[]; missingAsked: string[]; notices: string[]; entry: LedgerEntry }
   | { state: 'failed'; code: 'requirements-not-captured' | 'requirements-missing' | typeof EXPANSION_FETCH; message: string; recoverable: true }
   | { state: 'raise'; gate: 'requirements-not-captured-twice' | 'requirements-server-ambiguous' | 'requirements-expansion-capped'; values: Readonly<Record<string, readonly string[]>> };

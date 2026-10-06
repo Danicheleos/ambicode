@@ -2,14 +2,14 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import path from 'node:path';
 import { runCommandTail } from './command-tail.ts';
 import { insideEngine } from './engine.ts';
 import { hookBinding } from '../session/session.ts';
-import { A, TASK, planFixture } from '#testing/fixtures/plan-fixture';
+import { PLAN_TASK, planFixture } from '#testing/fixtures/plan-fixture';
 import { routeFixture } from '#testing/fixtures/route-fixture';
 import { REPO_ROOT } from '#testing/paths';
 import type { Engine } from '#types/harness';
+import { SESSION_A } from '#testing/fixtures/ids';
 
 const run = promisify(execFile);
 
@@ -24,7 +24,7 @@ describe('command tail', () => {
     try {
       await plan.start();
       const { engine, calls } = counting(plan.fx.engine);
-      const message = await runCommandTail({ engine }, { task: TASK, cause: 'note save', session: hookBinding(A), scratchpadDir: plan.fx.scratchpad });
+      const message = await runCommandTail({ engine }, { task: PLAN_TASK, cause: 'note save', session: hookBinding(SESSION_A), scratchpadDir: plan.fx.scratchpad });
       assert.deepEqual(calls, ['note save']);
       assert.ok(message !== null);
     } finally {
@@ -37,8 +37,8 @@ describe('command tail', () => {
     try {
       await plan.start();
       const { engine, calls } = counting(plan.fx.engine);
-      assert.equal(await runCommandTail({ engine }, { task: TASK, cause: 'note save', session: hookBinding('cccccccc-3333-4333-8333-333333333333') }), null);
-      assert.equal(await runCommandTail({ engine }, { task: 'no-such-task', cause: 'note save', session: hookBinding(A) }), null);
+      assert.equal(await runCommandTail({ engine }, { task: PLAN_TASK, cause: 'note save', session: hookBinding('cccccccc-3333-4333-8333-333333333333') }), null);
+      assert.equal(await runCommandTail({ engine }, { task: 'no-such-task', cause: 'note save', session: hookBinding(SESSION_A) }), null);
       assert.equal(calls.length, 2);
     } finally {
       await plan.dispose();
@@ -51,13 +51,13 @@ describe('command tail', () => {
       await plan.start();
       const { engine, calls } = counting(plan.fx.engine);
       const warnings: string[] = [];
-      const before = await plan.fx.ledger(TASK);
-      const message = await runCommandTail({ engine, warn: (line) => warnings.push(line) }, { task: TASK, cause: 'note save', session: { state: 'unbound', reason: 'ambiguous' } });
+      const before = await plan.fx.ledger(PLAN_TASK);
+      const message = await runCommandTail({ engine, warn: (line) => warnings.push(line) }, { task: PLAN_TASK, cause: 'note save', session: { state: 'unbound', reason: 'ambiguous' } });
       assert.equal(message, null);
       assert.deepEqual(calls, []);
       assert.match(warnings.join('\n'), /Task ORD-17 has more than one live route/);
       assert.match(warnings.join('\n'), /--fresh/);
-      assert.deepEqual(await plan.fx.ledger(TASK), before);
+      assert.deepEqual(await plan.fx.ledger(PLAN_TASK), before);
     } finally {
       await plan.dispose();
     }
@@ -82,7 +82,7 @@ describe('command tail', () => {
       handlers: {
         't.step': async ({ ledger }) => {
           flag = insideEngine();
-          nested = await runCommandTail({ engine: plan0!.fx.engine }, { task: TASK, cause: 'note save', session: hookBinding(A) }).catch((error: unknown) => error);
+          nested = await runCommandTail({ engine: plan0!.fx.engine }, { task: PLAN_TASK, cause: 'note save', session: hookBinding(SESSION_A) }).catch((error: unknown) => error);
           await ledger.append({ kind: 'policy', stage: 'before-report', packs: [], rules: 0, omitted: 0, bytes: 1 });
           return { state: 'ok', payload: null };
         },
@@ -104,10 +104,10 @@ describe('command tail', () => {
     const plan = await planFixture();
     try {
       await plan.start();
-      const before = await plan.fx.ledger(TASK);
-      await plan.fx.engine.status(TASK, A);
-      await plan.fx.engine.status(TASK, null);
-      assert.deepEqual(await plan.fx.ledger(TASK), before);
+      const before = await plan.fx.ledger(PLAN_TASK);
+      await plan.fx.engine.status(PLAN_TASK, SESSION_A);
+      await plan.fx.engine.status(PLAN_TASK, null);
+      assert.deepEqual(await plan.fx.ledger(PLAN_TASK), before);
     } finally {
       await plan.dispose();
     }
@@ -117,9 +117,9 @@ describe('command tail', () => {
     const plan = await planFixture();
     try {
       await plan.start();
-      const before = await plan.fx.ledger(TASK);
+      const before = await plan.fx.ledger(PLAN_TASK);
       await assert.rejects(plan.saveDraft('   \n'));
-      assert.deepEqual(await plan.fx.ledger(TASK), before);
+      assert.deepEqual(await plan.fx.ledger(PLAN_TASK), before);
     } finally {
       await plan.dispose();
     }

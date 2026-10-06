@@ -1,11 +1,11 @@
 import { taskSlugFor } from '#modules/review/bundle/review-name';
 import { openRouteView, ledgerRouteContext } from '#harness/engine/context';
 import { runCommandTail } from '#harness/engine/command-tail';
-import { listNotes, promotePlan, SAVE_KINDS, saveNote, type SaveKind } from '#modules/evidence/notes';
+import { listNotes, promotePlan, saveNote } from '#modules/evidence/notes';
 import { AmbicodeError } from '#util/errors';
 import { ownerFor, routeTools } from './route.ts';
 import type { Runtime } from '#types/composition';
-import { MAX_NOTE_BYTES, type NoteRow } from '#types/evidence';
+import { MAX_NOTE_BYTES, SAVE_KINDS, type NoteRow, type SaveKind } from '#types/modules/evidence';
 import type { ParsedArgs } from '../../types/cli.ts';
 
 /** The owner of the task's live route and the route context; no live route (or several) leaves the session unbound. */
@@ -21,7 +21,7 @@ function taskOf(command: string, args: ParsedArgs): string {
   return task;
 }
 
-export interface NoteSaveOutput {
+interface NoteSaveOutput {
   command: 'note save';
   task: string;
   kind: SaveKind;
@@ -59,7 +59,7 @@ export function renderNoteSave(output: NoteSaveOutput): string {
   return `Saved ${output.kind} note: ${output.path}${output.next === undefined ? '' : `\n\n${output.next}`}`;
 }
 
-export interface NotePromoteOutput {
+interface NotePromoteOutput {
   command: 'note promote';
   task: string;
   outcome: 'promoted' | 'plan-already-promoted' | 'repaired';
@@ -82,7 +82,7 @@ export function renderNotePromote(output: NotePromoteOutput): string {
   return `${verb} ${output.path}${output.next === undefined ? '' : `\n\n${output.next}`}`;
 }
 
-export interface NoteListOutput {
+interface NoteListOutput {
   command: 'note list';
   task: string;
   notes: NoteRow[];

@@ -18,7 +18,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { FileSystem } from '#types/ports';
+import type { FileSystem } from '#types/platform/ports';
 
 export const nodeFileSystem: FileSystem = {
   readText: (absolutePath) => readFile(absolutePath, 'utf8'),

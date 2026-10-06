@@ -7,26 +7,13 @@ import { ledgerSizeWarning, readLedger } from './ledger/ledger.ts';
 import { withLedgerLock } from './ledger/ledger-lock.ts';
 import { resolveFrom, resolveTaskDir } from './task/task-dir.ts';
 import type { Runtime } from '#types/composition';
-import { MAX_NOTE_BYTES, type LedgerEntry, type LockedLedger, type TaskDir, type NoteDeps, type NoteRow } from '#types/evidence';
-import type { RouteContextPort } from '#types/harness';
+import { MAX_NOTE_BYTES, NOTE_KINDS, SAVE_KINDS, type LedgerEntry, type LockedLedger, type TaskDir, type NoteDeps, type NoteRow, type NoteKind, type SaveKind } from '#types/modules/evidence';
 const COLLISION_LIMIT = 9;
 
-const KINDS = {
-  investigation: { stem: 'investigation', stamped: true, label: '**investigation note** — not an accepted plan, not a task, not a decision record.' },
-  'plan-draft': { stem: 'plan-draft', stamped: true, label: '**plan draft** — acceptance is recorded by `note promote`, not in this file.' },
-  plan: { stem: 'plan', stamped: true, label: '**plan** — accepted' },
-  notes: { stem: 'notes', stamped: false, label: '**task note**' },
-} as const;
-
 /** The label line the note writer stamps on a note: not the author's words. */
-export const NOTE_LABELS: readonly string[] = Object.values(KINDS).map((kind) => kind.label);
+export const NOTE_LABELS: readonly string[] = Object.values(NOTE_KINDS).map((kind) => kind.label);
 
-export type NoteKind = keyof typeof KINDS;
-/** A `plan` note is written only by promotion; legacy ones stay readable. */
-export type SaveKind = Exclude<NoteKind, 'plan'>;
-export const SAVE_KINDS: readonly SaveKind[] = ['investigation', 'plan-draft', 'notes'];
-
-export interface SavedNote {
+interface SavedNote {
   task: string;
   kind: NoteKind;
   /** As the user reaches it from the session directory. */
@@ -74,7 +61,7 @@ export async function owningRoute(ledger: LockedLedger, session: string | null, 
 }
 
 function render(kind: NoteKind, body: string, iteration: number | null): string {
-  const { label } = KINDS[kind];
+  const { label } = NOTE_KINDS[kind];
   const content = iteration === null ? body : body.replace(ITERATION_HEADER, '');
   const marker = label.slice(0, label.indexOf('**', 2) + 2);
   const text = `${content.trimStart().startsWith(marker) ? '' : `${label}\n\n`}${content.trimEnd()}\n`;
@@ -82,7 +69,7 @@ function render(kind: NoteKind, body: string, iteration: number | null): string 
 }
 
 async function writeNote(runtime: Runtime, dir: TaskDir, kind: NoteKind, text: string): Promise<string> {
-  const { stem, stamped } = KINDS[kind];
+  const { stem, stamped } = NOTE_KINDS[kind];
   let file = path.join(dir.root, stamped ? `${stem}_${localTimestamp(runtime.clock.now())}.md` : `${stem}.md`);
   if (!stamped) {
     await runtime.fs.writeText(file, text);

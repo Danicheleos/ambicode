@@ -1,7 +1,7 @@
 import { openRepository, projectForRequest } from '#composition/root';
 import { rankTerms, buildMap, leadsText, resolveLayers } from '#modules/search/text/map';
 import { loadConfigWithNotices } from '#modules/config/load';
-import type { AmbicodeConfig, ProjectConfig } from '#types/config';
+import type { AmbicodeConfig, ProjectConfig } from '#types/modules/config';
 import { Activity } from '#types/primitives';
 import { policyStage } from '#modules/policy/stage';
 import { splitAcs } from '#modules/requirements/envelope/acs';
@@ -11,9 +11,9 @@ import { requirementsTemplate } from '#modules/requirements/capture/template';
 import { AmbicodeError } from '#util/errors';
 import { latestBound } from '#harness/engine/fold';
 import type { Runtime } from '#types/composition';
-import type { LedgerEntry } from '#types/evidence';
+import type { LedgerEntry } from '#types/modules/evidence';
 import type { Handler, HandlerInput, HandlerResult } from '#types/harness';
-import type { EnvelopeSource } from '#types/requirements';
+import type { EnvelopeSource } from '#types/modules/requirements';
 
 const MAX_SOURCE_CHARS = 2500;
 const MAX_TOTAL_CHARS = 4500;

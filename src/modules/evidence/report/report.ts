@@ -1,7 +1,7 @@
 import { contentHash } from '#util/hash';
 import { navigationLine } from './navigation-line.ts';
 import { isBoundAnswer } from '#harness/engine/fold';
-import type { LedgerEntry } from '#types/evidence';
+import type { LedgerEntry } from '#types/modules/evidence';
 
 const clip = (value: unknown, length = 80): string => {
   const text = String(value ?? '');

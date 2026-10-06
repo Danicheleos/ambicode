@@ -1,6 +1,6 @@
 import type { TypedEntry } from '#modules/evidence/ledger/kinds';
-import type { Runtime } from './composition.ts';
-import type { RouteContextPort } from './harness.ts';
+import type { Runtime } from '../composition.ts';
+import type { RouteContextPort } from '../harness.ts';
 
 export const MAX_NOTE_BYTES = 262_144;
 
@@ -62,3 +62,19 @@ export interface TaskDir {
   stopCheck: string;
   answerBlocked: string;
 }
+
+export const NOTE_KINDS = {
+  investigation: { stem: 'investigation', stamped: true, label: '**investigation note** — not an accepted plan, not a task, not a decision record.' },
+  'plan-draft': { stem: 'plan-draft', stamped: true, label: '**plan draft** — acceptance is recorded by `note promote`, not in this file.' },
+  plan: { stem: 'plan', stamped: true, label: '**plan** — accepted' },
+  notes: { stem: 'notes', stamped: false, label: '**task note**' },
+} as const;
+
+export type NoteKind = keyof typeof NOTE_KINDS;
+
+/** A `plan` note is written only by promotion; legacy ones stay readable. */
+export type SaveKind = Exclude<NoteKind, 'plan'>;
+
+export const SAVE_KINDS: readonly SaveKind[] = ['investigation', 'plan-draft', 'notes'];
+
+export const LEDGER_FILE = 'ledger.jsonl';

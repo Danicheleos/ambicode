@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { REVIEWS_DIR, REVIEWS_LEAF, TASKS_DIR } from '#types/defaults';
-import { ReviewResult, type ReviewEstimate } from '#types/review';
+import { ReviewResult, type ReviewEstimate, type AssembleOptions } from '#types/modules/review';
 import { tokenize } from '#harness/definition/flags';
 import { AmbicodeError } from '#util/errors';
 import { adapterFor } from '#modules/checks/selection/adapters';
@@ -8,9 +8,8 @@ import { authorizeCommand, checkApprovalKey } from '#modules/checks/selection/au
 import { selectionRunsCommand, selectLintFiles, selectTestFiles } from '#modules/checks/selection/select';
 import { assembleBundle, groupByProject } from './bundle.ts';
 import type { Runtime } from '#types/composition';
-import type { DiffFile } from '#types/git';
-import type { FileSystem, ProcessRunner } from '#types/ports';
-import type { AssembleOptions } from '../types/bundle.ts';
+import type { DiffFile } from '#types/platform/git';
+import type { FileSystem, ProcessRunner } from '#types/platform/ports';
 
 export const MAX_ESTIMATE_BYTES = 2_048;
 

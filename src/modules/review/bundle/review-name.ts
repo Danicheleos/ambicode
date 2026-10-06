@@ -1,4 +1,4 @@
-import type { ReviewTarget } from '#types/review';
+import type { ReviewTarget } from '#types/modules/review';
 
 /**
  * The directory name is also the review id (`view --review <name>`), so it must stay
@@ -28,7 +28,7 @@ export function localTimestamp(now: Date): string {
   return `${date}T${pad(now.getHours())}-${pad(now.getMinutes())}`;
 }
 
-export interface ReviewNameInput {
+interface ReviewNameInput {
   target: ReviewTarget;
   /** Requirement ids in the order supplied; only the first reaches the name. */
   requirementIds: readonly string[];

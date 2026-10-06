@@ -1,5 +1,5 @@
-import type { SearchProfile, SetPair } from '#types/config';
-import type { FileSystem } from '#types/ports';
+import type { SearchProfile, SetPair } from '#types/modules/config';
+import type { FileSystem } from '#types/platform/ports';
 import type { AdapterId, Ecosystem } from '#types/primitives';
 
 export interface DetectedCommand {

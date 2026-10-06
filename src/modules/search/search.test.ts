@@ -10,14 +10,13 @@ import { fakeIndex } from '#testing/fakes/fake-index';
 import { buildMap, cleanRequestText, featureOf, sequenceFiles, FEATURE_LIMIT_BYTES, leadsText, LEADS_LIMIT_BYTES, MAP_LIMIT_BYTES, rankTerms, resolveLayers } from './text/map.ts';
 import { excludeWorkingDirs } from '#modules/evidence/task/task-dir';
 import { find, refs, renderFind, SEARCH_LIMIT_BYTES } from './declarations/refs.ts';
-import { SearchConfig } from '#types/config';
+import { SearchConfig } from '#types/modules/config';
 import { isPathReason, shortlistRules } from './text/locate.ts';
 import { TEST_EXCLUDES } from '#types/defaults';
 import { sourceGlob } from './declarations/profile.ts';
 import { execFileSync } from 'node:child_process';
 import { MAP_OPTIONS, REFS_OPTIONS, FIND_OPTIONS } from '#cli/types/commands';
-import { GENERIC_PROFILE } from '#modules/types/search';
-import { SCORE_FILENAME } from './types/text.ts';
+import { GENERIC_PROFILE, SCORE_FILENAME } from '#types/modules/search';
 
 async function repo(extra: Record<string, string> = {}): Promise<RouteFixture> {
   const fx = await routeFixture({ routes: {} });

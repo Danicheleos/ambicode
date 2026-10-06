@@ -1,7 +1,7 @@
-import type { Finding, FindingLocation, ReviewerOutput } from '#types/review';
+import type { Finding, FindingLocation, ReviewerOutput } from '#types/modules/review';
 import { addressableLines, lineAt } from '#platform/git/diff';
 import { contentHash } from '#util/hash';
-import type { DiffFile } from '#types/git';
+import type { DiffFile } from '#types/platform/git';
 
 /**
  * Reviewer output is checked against the pinned bundle; nothing is repaired or re-asked.
@@ -22,7 +22,7 @@ export interface ValidateOptions {
   onInvalid?: 'void' | 'drop';
 }
 
-export type ValidatedFindings =
+type ValidatedFindings =
   | { kind: 'ok'; findings: Finding[] }
   /** `rejections` are persisted, because a refusal is evidence about the review. */
   | { kind: 'invalid'; reason: string; rejections: string[] }

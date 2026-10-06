@@ -1,5 +1,5 @@
-import type { PersistedPosition } from '#types/publication';
-import { samePosition, type RemoteDiscussion } from '#types/provider';
+import type { PersistedPosition } from '#types/modules/publication';
+import { samePosition, type RemoteDiscussion } from '#types/platform/provider';
 import { findMarker, markerMatches } from './marker.ts';
 
 /**
@@ -8,7 +8,7 @@ import { findMarker, markerMatches } from './marker.ts';
  * anything missing means "not found", not "probably the same".
  */
 
-export interface ReconcileRequest {
+interface ReconcileRequest {
   discussions: readonly RemoteDiscussion[];
   listingComplete: boolean;
   reviewId: string;
@@ -16,7 +16,7 @@ export interface ReconcileRequest {
   postedBy: string;
 }
 
-export type ReconcileResult =
+type ReconcileResult =
   | { kind: 'found'; discussionId: string; noteId: string; url: string }
   | { kind: 'absent' }
   | { kind: 'inconclusive'; reason: string };

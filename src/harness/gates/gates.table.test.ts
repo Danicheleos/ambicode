@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { routeFixture } from '#testing/fixtures/route-fixture';
-import { planFixture, TASK } from '#testing/fixtures/plan-fixture';
+import { planFixture, PLAN_TASK } from '#testing/fixtures/plan-fixture';
 import { gatePrintText, gateThen, instantiateGate, raiseGate } from './gates.ts';
 import { withLedgerLock } from '#modules/evidence/ledger/ledger-lock';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
@@ -246,8 +246,8 @@ describe('gate table: the shipped plan-accept gate', () => {
       await plan.next();
       await plan.next();
       await plan.next();
-      assert.equal((await plan.fx.kinds(TASK, 'default-taken')).at(-1)!['answer'], 'Reject');
-      assert.equal((await plan.fx.kinds(TASK, 'note')).filter((entry) => entry['note'] === 'plan').length, 0);
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'default-taken')).at(-1)!['answer'], 'Reject');
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'note')).filter((entry) => entry['note'] === 'plan').length, 0);
     } finally {
       await plan.dispose();
     }
@@ -267,7 +267,7 @@ describe('gate table: the shipped plan-accept gate', () => {
           }
         }
       }
-      assert.equal((await plan.fx.kinds(TASK, 'declined')).at(-1)!['reason'], 'max-revises');
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'declined')).at(-1)!['reason'], 'max-revises');
     } finally {
       await plan.dispose();
     }

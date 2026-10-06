@@ -1,9 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { evaluateConsent } from './consent.ts';
-import { TASK, planFixture, type PlanFixture } from '#testing/fixtures/plan-fixture';
+import { PLAN_TASK, planFixture, type PlanFixture } from '#testing/fixtures/plan-fixture';
 
-const notes = (plan: PlanFixture, note: string) => plan.fx.kinds(TASK, 'note').then((rows) => rows.filter((row) => row['note'] === note));
+const notes = (plan: PlanFixture, note: string) => plan.fx.kinds(PLAN_TASK, 'note').then((rows) => rows.filter((row) => row['note'] === note));
 const printOf = async (plan: PlanFixture) => (await plan.prints()).at(-1)!;
 const drain = async (plan: PlanFixture, limit = 6) => {
   let message = await plan.next();
@@ -16,13 +16,13 @@ describe('S1 untrusted headless start', () => {
     const plan = await planFixture();
     try {
       await plan.start({ channel: 'cli', headless: true, answers: [{ gate: 'plan-accept', option: 'Accept' }] });
-      const declined = await plan.fx.kinds(TASK, 'declined');
+      const declined = await plan.fx.kinds(PLAN_TASK, 'declined');
       assert.equal(declined[0]!['reason'], 'acting-needs-human');
-      assert.equal((await plan.fx.kinds(TASK, 'preanswer')).length, 0);
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'preanswer')).length, 0);
       await plan.body('# Plan\n');
       await drain(plan);
       assert.equal((await notes(plan, 'plan')).length, 0);
-      const taken = await plan.fx.kinds(TASK, 'default-taken');
+      const taken = await plan.fx.kinds(PLAN_TASK, 'default-taken');
       assert.equal(taken[0]!['answer'], 'Reject');
     } finally {
       await plan.dispose();
@@ -39,7 +39,7 @@ describe('S2 trusted preanswer', () => {
       await plan.body('# Plan\n\n1. Go.\n');
       const done = await plan.next();
       assert.equal(done.position, 'complete');
-      const acceptance = (await plan.fx.kinds(TASK, 'acceptance'))[0]!;
+      const acceptance = (await plan.fx.kinds(PLAN_TASK, 'acceptance'))[0]!;
       const print = await printOf(plan);
       assert.equal(acceptance['via'], 'prompt');
       assert.equal(acceptance['trusted'], true);
@@ -61,10 +61,10 @@ describe('S12 late bound answer', () => {
       await plan.next();
       await plan.next();
       const defaulted = await plan.next();
-      assert.equal((await plan.fx.kinds(TASK, 'default-taken')).at(-1)!['via'], 'never-asked');
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'default-taken')).at(-1)!['via'], 'never-asked');
       assert.ok(defaulted.position);
       const message = await plan.hook('plan-accept', 'Revise', first.id);
-      const acceptance = (await plan.fx.kinds(TASK, 'acceptance')).at(-1)!;
+      const acceptance = (await plan.fx.kinds(PLAN_TASK, 'acceptance')).at(-1)!;
       assert.equal(acceptance['instance'], first.id);
       assert.equal(message.position, 'design');
     } finally {
@@ -97,7 +97,7 @@ describe('S13 instance binding', () => {
       const print = await printOf(plan);
       await plan.hook('plan-accept', 'Accept', 'aaaaaaaa-99');
       const last = await plan.hook('budget-exhausted', 'Accept', print.id);
-      const unbound = (await plan.fx.kinds(TASK, 'declined')).filter((entry) => entry['unbound'] === true);
+      const unbound = (await plan.fx.kinds(PLAN_TASK, 'declined')).filter((entry) => entry['unbound'] === true);
       assert.deepEqual(unbound.map((entry) => entry['reason']), ['unknown-instance', 'wrong-gate']);
       assert.equal((await notes(plan, 'plan')).length, 0);
       assert.equal(last.position, 'plan-accept');
@@ -113,7 +113,7 @@ describe('S13 marker-less answer', () => {
     try {
       await plan.toGate();
       const message = await plan.hook('plan-accept', 'Accept', undefined);
-      assert.equal((await plan.fx.kinds(TASK, 'declined')).at(-1)!['reason'], 'no-instance');
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'declined')).at(-1)!['reason'], 'no-instance');
       assert.match(message.text, /carried no usable marker/);
     } finally {
       await plan.dispose();
@@ -129,7 +129,7 @@ describe('S14 trusted headless', () => {
       await plan.body('# Plan\n');
       await plan.next({ answers: [{ gate: 'plan-accept', option: 'Accept' }] });
       await drain(plan);
-      assert.equal((await plan.fx.kinds(TASK, 'declined'))[0]!['reason'], 'acting-needs-human');
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'declined'))[0]!['reason'], 'acting-needs-human');
       assert.equal((await notes(plan, 'plan')).length, 0);
     } finally {
       await plan.dispose();
@@ -143,7 +143,7 @@ describe('S14 trusted headless', () => {
       await plan.body('# Plan\n');
       await drain(plan);
       assert.equal((await notes(plan, 'plan')).length, 1);
-      assert.equal((await plan.fx.kinds(TASK, 'default-taken')).length, 0);
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'default-taken')).length, 0);
     } finally {
       await plan.dispose();
     }

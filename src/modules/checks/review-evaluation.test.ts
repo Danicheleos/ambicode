@@ -2,8 +2,8 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { finding, reviewResult } from '#testing/fixtures/review-fixture';
 import { evaluateReview } from './review-evaluation.ts';
-import type { ReviewEntry } from '#types/checks';
-import type { LedgerEntry } from '#types/evidence';
+import type { ReviewEntry } from '#types/modules/checks';
+import type { LedgerEntry } from '#types/modules/evidence';
 import type { RouteView } from '#types/harness';
 
 const VIEW: RouteView = { task: 't', routeId: 'route-1', chainIds: ['route-1'], skill: 'task', session: 's', mode: 'interactive', channel: 'hook', trusted: false, position: 'review-run' };

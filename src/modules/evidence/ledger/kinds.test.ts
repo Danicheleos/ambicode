@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { parseEntry, type Kind } from './kinds.ts';
-import { KINDS } from '#types/evidence';
+import { KINDS } from '#types/modules/evidence';
 
 const REF = { kind: 'note', value: 'plan-draft', id: 'a1b2c3d4-3', path: 'plan-draft_x.md', contentHash: 'sha256:x' };
 const ANSWER = { route: 'a1b2c3d4-1', gate: 'plan-accept', instance: 'a1b2c3d4-4', answer: 'Accept', via: 'hook' };

@@ -13,7 +13,7 @@ const PATTERN = new RegExp(
   `<!--\\s*ambicode:${VERSION}\\s+review=(${FIELD})\\s+finding=(${FIELD})\\s+position=(${FIELD})\\s*-->`,
 );
 
-export interface CommentMarker {
+interface CommentMarker {
   reviewId: string;
   findingId: string;
   positionDigest: string;

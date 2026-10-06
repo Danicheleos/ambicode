@@ -1,19 +1,19 @@
 import path from 'node:path';
 import type { Git } from '#platform/git/git';
 import { contentHash } from '#util/hash';
-import type { FileSystem } from '#types/ports';
+import type { FileSystem } from '#types/platform/ports';
 
 /**
  * Commands run in the developer's checkout and can change the code under review. AMBICODE
  * reports what moved and never undoes it.
  */
-export interface WorkspaceFingerprint {
+interface WorkspaceFingerprint {
   indexHash: string | null;
   statusHash: string;
   fileHashes: ReadonlyMap<string, string | null>;
 }
 
-export interface FingerprintOptions {
+interface FingerprintOptions {
   fs: FileSystem;
   git: Git;
   repositoryRoot: string;
@@ -38,7 +38,7 @@ export async function fingerprintWorkspace(options: FingerprintOptions): Promise
  * idempotent and `observe` re-baselines, so bracketing every process costs one
  * fingerprint per process that actually ran.
  */
-export interface WorkspaceWatch {
+interface WorkspaceWatch {
   baseline(): Promise<void>;
   observe(actor: string): Promise<string[]>;
 }
@@ -64,7 +64,7 @@ export function watchWorkspace(options: FingerprintOptions): WorkspaceWatch {
  * Reviewed files first: a rewritten file invalidates findings about it. Each
  * line names what ran. The caller adds the disclaimer, once per result.
  */
-export function describeMutations(
+function describeMutations(
   before: WorkspaceFingerprint,
   after: WorkspaceFingerprint,
   actor: string,

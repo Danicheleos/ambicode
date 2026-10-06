@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import { PrepareShortlist } from './locate.ts';
+import { PrepareShortlist } from './modules/search.ts';
 import { Activity, Authority, CommandAction, Ecosystem, PromptStage, RuleCategory } from './primitives.ts';
-import { ProvenanceEntry, RequirementMode, RequirementSource } from './requirements.ts';
+import { ProvenanceEntry, RequirementMode, RequirementSource } from './modules/requirements.ts';
 
 const PrepareDiagnostic = z.strictObject({
   severity: z.enum(['error', 'warning', 'notice']),

@@ -7,10 +7,10 @@ import { owningRoute } from '#modules/evidence/notes';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { AmbicodeError } from '#util/errors';
 import { runWorkerProcess } from './process-runner.ts';
-import type { LedgerEntry, LockedLedger, NoteDeps } from '#types/evidence';
-import type { FileSystem, ProcessRunner } from '#types/ports';
+import type { LedgerEntry, LockedLedger, NoteDeps } from '#types/modules/evidence';
+import type { FileSystem, ProcessRunner } from '#types/platform/ports';
 
-export const MAX_ARTIFACT_BYTES = 65_536;
+const MAX_ARTIFACT_BYTES = 65_536;
 const MAX_OUTPUT_BYTES = 1_048_576;
 const RELEASE = 'continue inline — do this work in the session; the worker\'s output was not used';
 
@@ -24,12 +24,12 @@ const Definition = z.strictObject({
   maxTurns: z.number().int().positive().optional(),
   outputSchema: z.strictObject({ type: z.literal('object'), required: z.array(z.string()), properties: z.record(z.string(), z.strictObject({ type: JsonType })) }),
 });
-export type WorkerDefinition = z.infer<typeof Definition>;
+type WorkerDefinition = z.infer<typeof Definition>;
 
 const badId = (id: string, why: string): AmbicodeError => new AmbicodeError('bad-argument', `Worker "${id}": ${why}`, { field: 'id' });
 
 /** `<pluginRoot>/workers/<id>.yaml`, validated; any failure names the id (06-W4). */
-export async function loadWorkerDefinition(fs: FileSystem, directory: string, id: string): Promise<WorkerDefinition> {
+async function loadWorkerDefinition(fs: FileSystem, directory: string, id: string): Promise<WorkerDefinition> {
   if (!/^[a-z0-9-]+$/.test(id)) throw badId(id, 'an id is lowercase letters, digits and dashes.');
   const text = await fs.readText(path.join(directory, `${id}.yaml`)).catch(() => null);
   if (text === null) throw badId(id, `no definition ${id}.yaml under ${directory}.`);

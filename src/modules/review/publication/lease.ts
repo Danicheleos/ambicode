@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { z } from 'zod';
-import type { Clock, FileSystem, IdSource } from '#types/ports';
+import type { Clock, FileSystem, IdSource } from '#types/platform/ports';
 
 /**
  * Per-review publication lease: one file made with atomic exclusive create, so two
@@ -10,7 +10,7 @@ import type { Clock, FileSystem, IdSource } from '#types/ports';
 
 export const LEASE_FILE = 'publication.lock';
 
-export const PublicationLease = z.strictObject({
+const PublicationLease = z.strictObject({
   tool: z.literal('ambicode'),
   reviewId: z.string().min(1),
   submissionId: z.string().min(1),
@@ -22,13 +22,13 @@ export const PublicationLease = z.strictObject({
    */
   token: z.string().min(1),
 });
-export type PublicationLease = z.infer<typeof PublicationLease>;
+type PublicationLease = z.infer<typeof PublicationLease>;
 
-export type LeaseResult =
+type LeaseResult =
   | { kind: 'acquired'; release: () => Promise<void> }
   | { kind: 'held'; message: string };
 
-export interface AcquireLeaseOptions {
+interface AcquireLeaseOptions {
   fs: FileSystem;
   clock: Clock;
   ids: IdSource;

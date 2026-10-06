@@ -3,14 +3,14 @@ import { MAX_SNAPSHOT_FILE_BYTES } from '#types/defaults';
 import type { Git } from '#platform/git/git';
 import { contentHash } from '#util/hash';
 import { isBinaryContent } from './exclusions.ts';
-import type { FileSystem } from '#types/ports';
+import type { FileSystem } from '#types/platform/ports';
 import type { FileContent, ContentSource } from '../types/snapshot.ts';
 
 /**
  * Bytes are classified before they are decoded: a binary file never becomes a
  * string, and text in an unfamiliar extension stays reviewable.
  */
-export async function classifyBytes(bytes: Uint8Array): Promise<FileContent> {
+async function classifyBytes(bytes: Uint8Array): Promise<FileContent> {
   if (await isBinaryContent(bytes)) return { kind: 'binary' };
   return { kind: 'text', text: new TextDecoder('utf-8').decode(bytes) };
 }
@@ -33,7 +33,7 @@ export function revisionContent(git: Git, revision: string): ContentSource {
   };
 }
 
-export interface CaptureOptions {
+interface CaptureOptions {
   fs: FileSystem;
   repositoryRoot: string;
   /** Post-image paths of the change; their directories supply context candidates. */
@@ -43,7 +43,7 @@ export interface CaptureOptions {
   extraPaths?: readonly string[];
 }
 
-export interface CapturedContent extends ContentSource {
+interface CapturedContent extends ContentSource {
   readonly capturedPaths: readonly string[];
   /** Content hash per captured path, used to detect later mutation. */
   hashOf(relativePath: string): string | null;

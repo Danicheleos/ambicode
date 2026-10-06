@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Activity, Authority, CommandAction, PromptStage, RuleCategory } from './primitives.ts';
+import { Activity, Authority, CommandAction, PromptStage, RuleCategory } from '../primitives.ts';
 
 export const RuleCheck = z.discriminatedUnion('kind', [
   z.strictObject({

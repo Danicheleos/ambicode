@@ -1,9 +1,8 @@
 import { isBoundAnswer, latestBound } from '../engine/fold.ts';
-import type { ArtifactRef, LedgerEntry } from '#types/evidence';
+import type { ArtifactRef, LedgerEntry } from '#types/modules/evidence';
 import type { AcceptanceEntry, ConsentResult } from '#types/harness';
 import type { ConsentBinding } from '../types/engine.ts';
 
-type Entry = LedgerEntry;
 
 const ANSWER_KINDS = ['acceptance', 'declined', 'default-taken'];
 
@@ -12,8 +11,8 @@ const ANSWER_KINDS = ['acceptance', 'declined', 'default-taken'];
  * acting option one that came from a printed instance through the hook or from a preanswer written at a trusted start.
  */
 export function evaluateConsent(input: {
-  window: readonly Entry[];
-  chain: readonly Entry[];
+  window: readonly LedgerEntry[];
+  chain: readonly LedgerEntry[];
   gate: string;
   acting: readonly string[];
   binding?: ConsentBinding | undefined;

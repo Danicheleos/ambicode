@@ -8,7 +8,7 @@ import { TempRepo } from '#testing/fixtures/temp-repo';
 import { taskDirFor } from '#modules/evidence/task/task-dir';
 import { builtinRules, checkDrafts, DUPLICATE_SIMILARITY, similarity } from './drafts.ts';
 import { POLICY_CHECK_OPTIONS } from '#cli/types/commands';
-import { DRAFTS_DIR } from '#types/policy';
+import { DRAFTS_DIR } from '#types/modules/policy';
 
 const QUOTE = 'Services must never call the transport layer directly.';
 const GUIDE = `# Contributing\n\nWe keep layers apart.\n${QUOTE}\nTests live beside the code.\n`;

@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { contentHash } from '#util/hash';
-import type { FileSystem, IdSource } from '#types/ports';
+import type { FileSystem, IdSource } from '#types/platform/ports';
 import { HOOK_STATE_DIR_NAME, type DeliveryKey } from '../types/session.ts';
 
 /**

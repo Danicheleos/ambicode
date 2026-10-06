@@ -12,8 +12,8 @@ import { loadConfigWithNotices } from '../load.ts';
 import { probeArgv, runDoctor } from './doctor.ts';
 import { DOCTOR_OPTIONS } from '#cli/types/commands';
 import type { Runtime } from '#types/composition';
-import type { SetPair } from '#types/config';
-import type { ProcessOutcome, ProcessRequest, ProcessRunner } from '#types/ports';
+import type { SetPair } from '#types/modules/config';
+import type { ProcessOutcome, ProcessRequest, ProcessRunner } from '#types/platform/ports';
 
 const outcome = (patch: Partial<ProcessOutcome>): ProcessOutcome => ({ kind: 'exited', exitCode: 0, stdout: '', stderr: '', truncated: false, durationMs: 1, failure: null, ...patch });
 

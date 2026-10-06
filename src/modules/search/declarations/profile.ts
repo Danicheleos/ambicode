@@ -2,12 +2,12 @@ import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { openRepository } from '#composition/root';
 import { MAX_SNAPSHOT_FILE_BYTES } from '#types/defaults';
-import { DECLARATION_PATTERNS } from '#modules/types/ecosystems';
-import type { ProjectConfig, SearchProfile } from '#types/config';
+import { DECLARATION_PATTERNS } from '#types/modules/ecosystems';
+import type { ProjectConfig, SearchProfile } from '#types/modules/config';
 import { literalPathspec } from '#platform/git/git';
 import { isTestPath, pathExclusionReason } from '#modules/review/snapshot/exclusions';
 import { normalizeRelative } from '#util/paths';
-import { GENERIC_PROFILE } from '#modules/types/search';
+import { GENERIC_PROFILE } from '#types/modules/search';
 import type { Runtime } from '#types/composition';
 
 /** One glob for the source extensions; a single extension takes no braces, which would not expand. */
@@ -47,7 +47,7 @@ const baseOf = (file: string): string => {
   return path.posix.join(path.posix.dirname(file), dot <= 0 ? name : name.slice(0, dot));
 };
 /** `x.mocks.ts` → `mocks`; `x.ts` → ''. */
-export const kindOfName = (file: string): string => path.posix.basename(file).split('.').slice(1, -1).join('.');
+const kindOfName = (file: string): string => path.posix.basename(file).split('.').slice(1, -1).join('.');
 const stemOfName = (file: string): string => path.posix.basename(file).split('.')[0]!;
 
 /** A catalog file as a key → value tree; null when the format is not one this reads. */

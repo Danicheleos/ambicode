@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { openWorkspace } from '#composition/root';
 import { SEARCH_LAYER_DEFAULTS } from '#types/defaults';
-import type { ProjectConfig, SearchConfig } from '#types/config';
+import type { ProjectConfig, SearchConfig } from '#types/modules/config';
 import { literalPathspec } from '#platform/git/git';
 import { AmbicodeError } from '#util/errors';
 import { matchesAnyGlob } from '#util/glob';
@@ -14,14 +14,12 @@ import { formatIndexStatus, indexAdapterFor, ledgerIndex } from '../code-index/a
 import { indexDepsOf } from '../code-index/codeindex.ts';
 import { breadthGuard } from '../declarations/refs.ts';
 import type { Runtime } from '#types/composition';
-import type { IndexAdapter, IndexStatus, MapCandidate, MapSymbol, MapFeature } from '#types/search';
-import { COMMON_NAMES, type Declaration } from '../types/declarations.ts';
-import { SCORE_FILENAME } from '../types/text.ts';
+import { COMMON_NAMES, SCORE_FILENAME, type IndexAdapter, type IndexStatus, type MapCandidate, type MapSymbol, type MapFeature, type Declaration } from '#types/modules/search';
 
-export const LAYER_NAMES = ['grep', 'shortlist', 'harvest', 'history', 'index.find', 'index.relates'] as const;
-export type LayerName = (typeof LAYER_NAMES)[number];
+const LAYER_NAMES = ['grep', 'shortlist', 'harvest', 'history', 'index.find', 'index.relates'] as const;
+type LayerName = (typeof LAYER_NAMES)[number];
 
-export interface MapLayer { name: LayerName; ms: number; hits: number }
+interface MapLayer { name: LayerName; ms: number; hits: number }
 
 export interface MapResult {
   mode: 'prompt' | 'context';

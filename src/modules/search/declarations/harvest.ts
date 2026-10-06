@@ -1,13 +1,13 @@
 import path from 'node:path';
-import { DECLARATION_PATTERNS } from '#modules/types/ecosystems';
+import { DECLARATION_PATTERNS } from '#types/modules/ecosystems';
 import { MAX_SNAPSHOT_FILE_BYTES } from '#types/defaults';
-import type { ProjectConfig } from '#types/config';
+import type { ProjectConfig } from '#types/modules/config';
 import { literalPathspec, type Git } from '#platform/git/git';
 import { matchesAnyGlob } from '#util/glob';
 import { normalizeRelative } from '#util/paths';
 import { profileOf, sourceGlob } from './profile.ts';
-import type { FileSystem } from '#types/ports';
-import { COMMON_NAMES, type Declaration } from '../types/declarations.ts';
+import type { FileSystem } from '#types/platform/ports';
+import { COMMON_NAMES, type Declaration } from '#types/modules/search';
 
 const MIN_NAME = 3;
 const EXPORT_LINE = /^\s*export\b/;
@@ -55,7 +55,7 @@ export async function harvest(fs: FileSystem, root: string, files: readonly stri
   return found.map((declaration) => ({ ...declaration, declarations: filesPerName.get(declaration.name)!.size }));
 }
 
-export interface CensusRow { declarations: number | null; files: string[] }
+interface CensusRow { declarations: number | null; files: string[] }
 
 /** Files declaring each name, every match of every pattern; one file counts once, so overloads do not collide (05-C1). */
 export function countDeclarations(

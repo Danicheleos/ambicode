@@ -15,7 +15,7 @@ import { initConfig } from '#testing/fixtures/init-config';
 import { renderPrepare, runPrepare as runPrepareCommand } from './prepare.ts';
 import { PREPARE_OPTIONS } from '#types/cli';
 import type { Runtime } from '#types/composition';
-import type { FileSystem, ProcessRunner } from '#types/ports';
+import type { FileSystem, ProcessRunner } from '#types/platform/ports';
 import type { OptionSpec, ParsedArgs } from '../../types/cli.ts';
 
 /**

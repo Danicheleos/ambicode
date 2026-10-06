@@ -1,5 +1,5 @@
 import type { Engine, RouteRegistry, SessionBinding } from '#types/harness';
-import type { SweepReport } from '#types/review';
+import type { SweepReport } from '#types/modules/review';
 import type { OptionSpec } from './cli.ts';
 import { TARGET_OPTIONS } from './options.ts';
 

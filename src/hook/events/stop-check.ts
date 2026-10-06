@@ -5,7 +5,7 @@ import { createRuntime, openRepository } from '#composition/root';
 import type { HookInput, StopHookOutput, RouteHookDeps } from '#types/hook';
 import { resolveActiveRoute } from '#harness/session/active-route';
 import { buildChain, currentIn, foldRoute, isBoundAnswer, isGreen, windowOf } from '#harness/engine/fold';
-import { ReviewResult } from '#types/review';
+import { ReviewResult } from '#types/modules/review';
 import { containsBlock, notCoveredBlock } from '#modules/review/bundle/coverage-block';
 import { harnessOf } from '#harness/session/harness';
 import { readLedger } from '#modules/evidence/ledger/ledger';
@@ -16,7 +16,7 @@ import { NOTE_LABELS, saveNote } from '#modules/evidence/notes';
 import { taskDirFor } from '#modules/evidence/task/task-dir';
 import { hookStateBaseDir, readStopCursor, writeStopCursor } from '../session/markers.ts';
 import type { Runtime } from '#types/composition';
-import type { LedgerEntry } from '#types/evidence';
+import type { LedgerEntry } from '#types/modules/evidence';
 import type { RouteDef } from '#types/harness';
 
 export const TRANSCRIPT_TAIL_BYTES = 1_048_576;
@@ -156,7 +156,7 @@ async function doctorReadBackProblem(runtime: Runtime, dir: { steps: string }, t
   return 'The doctor table in your answer does not match steps/doctor.md; quote it as printed.';
 }
 
-export const NOT_VERBATIM = 'the "not covered" block is not reproduced verbatim';
+const NOT_VERBATIM = 'the "not covered" block is not reproduced verbatim';
 
 /** Review route (08-C3): once its review ran, the final message must carry part 4 of that review's report verbatim. */
 async function coverageBlockMissing(runtime: Runtime, input: { root: string; def: RouteDef; chain: readonly LedgerEntry[]; head: LedgerEntry; ended: boolean; transcript: string | undefined }): Promise<string | null> {

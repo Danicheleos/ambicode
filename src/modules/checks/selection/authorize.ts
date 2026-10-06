@@ -1,8 +1,8 @@
-import type { ResolvedPolicy } from '#types/policy';
+import type { ResolvedPolicy } from '#types/modules/policy';
 import { decisionFor, explainRefusal } from '#modules/policy/packs/resolve';
 import type { CommandAuthorization } from '../types/selection.ts';
 
-export interface AuthorizeOptions {
+interface AuthorizeOptions {
   policy: ResolvedPolicy;
   commandId: string;
   approvalKey: string;

@@ -1,4 +1,4 @@
-import type { EnvironmentPolicy } from '#types/ports';
+import type { EnvironmentPolicy } from '#types/platform/ports';
 
 export function resolveEnvironment(
   policy: EnvironmentPolicy,

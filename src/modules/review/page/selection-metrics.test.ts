@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { ReviewResult } from '#types/review';
+import { ReviewResult } from '#types/modules/review';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { ReviewStore } from '../publication/store.ts';
 import { reopenCommand } from './reopen.ts';
@@ -12,7 +12,7 @@ import { AUTHORITY, CountingIds, FakeClock, form, openPage, ORIGIN, templatesDir
 import { FakeProvider } from '#testing/fakes/fake-provider';
 import { finding, publicationPositions, reviewResult } from '#testing/fixtures/review-fixture';
 import { METRICS_FILE, recordSelection, selectionRows, type SelectionRow } from './selection-metrics.ts';
-import type { FileSystem } from '#types/ports';
+import type { FileSystem } from '#types/platform/ports';
 import type { ParsedSubmission, PageModel } from '../types/page.ts';
 
 const AT = '2026-09-20T12:00:00.000Z';

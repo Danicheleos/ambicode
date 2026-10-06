@@ -1,1 +1,0 @@
-export const MAX_HOOK_INPUT_BYTES = 1_048_576;

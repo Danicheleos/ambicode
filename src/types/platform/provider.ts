@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ProviderId } from './primitives.ts';
+import { ProviderId } from '../primitives.ts';
 
 /** Local working and branch targets never pass through a provider; Git resolves them directly. */
 

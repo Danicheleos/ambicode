@@ -1,6 +1,6 @@
-import { COMPLETE_COVERAGE, type RemoteTarget } from '#types/provider';
-import { PUBLICATION_SCHEMA_VERSION, type PublicationPositions } from '#types/publication';
-import { REVIEW_SCHEMA_VERSION, type Finding, type ReviewResult } from '#types/review';
+import { COMPLETE_COVERAGE, type RemoteTarget } from '#types/platform/provider';
+import { PUBLICATION_SCHEMA_VERSION, type PublicationPositions } from '#types/modules/publication';
+import { REVIEW_SCHEMA_VERSION, type Finding, type ReviewResult } from '#types/modules/review';
 import { positionDigest } from '#modules/review/publication/positions';
 import { FAKE_TARGET } from '../fakes/fake-provider.ts';
 

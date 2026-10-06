@@ -4,14 +4,14 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import { DEFAULTS } from '#types/defaults';
-import type { AmbicodeConfig, ProjectConfig } from '#types/config';
-import type { ResolvedPolicy } from '#types/policy';
+import type { AmbicodeConfig, ProjectConfig } from '#types/modules/config';
+import type { ResolvedPolicy } from '#types/modules/policy';
 import { systemClock } from '#platform/ports/clock';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { FakeProcessRunner } from '#testing/fakes/fake-process-runner';
 import { runRemoteChecks } from './remote.ts';
 import { toPosix } from '#util/glob';
-import type { ChangedPath } from '#modules/types/checks';
+import type { ChangedPath } from '#types/modules/checks';
 
 const PINNED = 'registry.example.com/ambicode/ci@sha256:' + 'a'.repeat(64);
 

@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { CombinedCapture, NodeProcessRunner, decodeCompleteUtf8, windowsCommandExists } from './node-process-runner.ts';
-import type { ProcessOutcome } from '#types/ports';
+import type { ProcessOutcome } from '#types/platform/ports';
 
 const runner = new NodeProcessRunner();
 

@@ -7,18 +7,17 @@ import { TASK_HANDLERS } from '../task/handlers.ts';
 import { isAmbicodeError } from '#util/errors';
 import { estimateReview, parseNarrow, renderEstimate } from '#modules/review/bundle/estimate';
 import { routeEvidence } from '#modules/requirements/envelope/envelope';
-import type { ReviewEntry } from '#types/checks';
+import type { ReviewEntry } from '#types/modules/checks';
 import type { Runtime } from '#types/composition';
-import type { LedgerEntry } from '#types/evidence';
-import type { ReviewTarget, RouteArgs, Handler, HandlerResult } from '#types/harness';
-import type { TargetSelection } from '#types/review';
-import { CHECKS_GATE } from '#types/skills';
+import type { LedgerEntry } from '#types/modules/evidence';
+import type { ReviewTargetArgs, RouteArgs, Handler, HandlerResult } from '#types/harness';
+import { CHECKS_GATE, type TargetSelection } from '#types/modules/review';
 const ANSWERS = new Set(['acceptance', 'declined', 'default-taken']);
 const ESTIMATE_STEP = 'estimate-step';
 const NARROW_HINT = 'give the --only/--exclude tokens as your answer';
 const METRICS = '.ambicode/metrics.jsonl';
 
-export const selectionOf = (target: ReviewTarget | undefined): TargetSelection =>
+export const selectionOf = (target: ReviewTargetArgs | undefined): TargetSelection =>
   target === undefined ? { kind: 'working' } : target.mr !== null ? { kind: 'merge-request', url: target.mr } : { kind: 'branch', baseRef: target.base };
 
 const quote = (value: string): string => `'${value.replaceAll("'", `'\\''`)}'`;

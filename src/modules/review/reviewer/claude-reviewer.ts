@@ -1,11 +1,11 @@
 import path from 'node:path';
 import { z } from 'zod';
-import { ReviewerOutput, REVIEWER_TOOLS, type ReviewerUsage } from '#types/review';
+import { ReviewerOutput, REVIEWER_TOOLS, type ReviewerUsage } from '#types/modules/review';
 import { markOwned } from '../page/cleanup.ts';
 import { AmbicodeError, messageOf } from '#util/errors';
 import { runWorkerProcess } from '#modules/workers/process-runner';
-import { STRUCTURED_OUTPUT_ATTEMPTS } from '#modules/types/workers';
-import type { Clock, FileSystem, ProcessRunner, Reviewer, ReviewerInvocation, ReviewerRequest } from '#types/ports';
+import { STRUCTURED_OUTPUT_ATTEMPTS } from '#types/modules/workers';
+import type { Clock, FileSystem, ProcessRunner, Reviewer, ReviewerInvocation, ReviewerRequest } from '#types/platform/ports';
 
 /**
  * A fresh Claude Code process per review: three read tools, no MCP, no session on
@@ -49,7 +49,7 @@ export const REQUIRED_FLAGS = [
  * treats CR and LF as command separators with no escape, so the multi-line
  * contract (built from project policy packs) would be an injection vector.
  */
-export const SYSTEM_PROMPT_FILE_FLAG = '--append-system-prompt-file';
+const SYSTEM_PROMPT_FILE_FLAG = '--append-system-prompt-file';
 
 /**
  * `--help` spells the file variant only as `--append-system-prompt[-file]` inside
@@ -113,7 +113,7 @@ const Envelope = z.looseObject({
   errors: z.unknown().optional(),
 });
 
-export interface ClaudeReviewerOptions {
+interface ClaudeReviewerOptions {
   runner: ProcessRunner;
   fs: FileSystem;
   clock: Clock;

@@ -2,7 +2,7 @@ import { openRepository } from '#composition/root';
 import { applyInit } from '#modules/config/init/apply';
 import { parseSets } from '#modules/config/init/init-sets';
 import { buildProposal } from '#modules/config/init/proposal';
-import type { SearchProfile, DoctorTable, InitProposal } from '#types/config';
+import type { SearchProfile, DoctorTable, InitProposal } from '#types/modules/config';
 import { runCommandTail } from '#harness/engine/command-tail';
 import { ledgerRouteContext } from '#harness/engine/context';
 import { AmbicodeError } from '#util/errors';
@@ -10,7 +10,7 @@ import { routeTools } from '../route/route.ts';
 import type { Runtime } from '#types/composition';
 import type { ParsedArgs } from '../../types/cli.ts';
 
-export interface InitApplyOutput {
+interface InitApplyOutput {
   command: 'init';
   mode: 'apply';
   configPath: string;
@@ -22,7 +22,7 @@ export interface InitApplyOutput {
   next?: string;
 }
 
-export type InitOutput = InitProposal | InitApplyOutput;
+type InitOutput = InitProposal | InitApplyOutput;
 
 /**
  * Without `--apply` a dry run: it proposes and writes nothing (D1). `--apply` writes only after the

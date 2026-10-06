@@ -1,7 +1,7 @@
 import { openWorkspace, resolvePolicyFor } from '#composition/root';
 import { MAX_SNAPSHOT_FILE_BYTES } from '#types/defaults';
-import type { ProjectConfig } from '#types/config';
-import type { ResolvedRule, StagePayload } from '#types/policy';
+import type { ProjectConfig } from '#types/modules/config';
+import type { ResolvedRule, StagePayload } from '#types/modules/policy';
 import { Activity, RuleCategory, type PromptStage } from '#types/primitives';
 import { contentHash } from '#util/hash';
 import { applicablePrepareStages } from './packs/resolve.ts';
@@ -13,7 +13,7 @@ export const STAGE_LIMITS: Record<PromptStage, number> = { 'before-work': 4096, 
  * Investigate edits nothing and plan writes no code, so neither acts on those rules; `task` and `review` carry all.
  * Left out with a count and the command that reads them (D9).
  */
-export const RULE_CATEGORIES_NOT_CARRIED: Partial<Record<Activity, readonly RuleCategory[]>> = {
+const RULE_CATEGORIES_NOT_CARRIED: Partial<Record<Activity, readonly RuleCategory[]>> = {
   investigate: RuleCategory.options,
   plan: ['code-style'],
 };
@@ -21,7 +21,7 @@ export const RULE_CATEGORIES_NOT_CARRIED: Partial<Record<Activity, readonly Rule
 export const ruleCarriedFor = (activity: Activity, category: RuleCategory): boolean => !(RULE_CATEGORIES_NOT_CARRIED[activity] ?? []).includes(category);
 
 /** Task's code-style rules go before work when there are at most this many, else before the checks (07-G4). */
-export const CODE_STYLE_BEFORE_WORK = 8;
+const CODE_STYLE_BEFORE_WORK = 8;
 
 function stageRules(activity: Activity, stage: PromptStage, rules: readonly ResolvedRule[]): readonly ResolvedRule[] {
   const style = rules.filter((rule) => rule.category === 'code-style');

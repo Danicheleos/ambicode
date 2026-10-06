@@ -1,5 +1,5 @@
 import { AmbicodeError } from '#util/errors';
-import type { RawChange, DiffFile, DiffHunk, DiffLine } from '#types/git';
+import type { RawChange, DiffFile, DiffHunk, DiffLine } from '#types/platform/git';
 
 /**
  * Pairs the `--raw -z` change list with the patch body. The patch is split on

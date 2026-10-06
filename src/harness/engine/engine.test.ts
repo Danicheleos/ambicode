@@ -6,7 +6,7 @@ import { routeFixture } from '#testing/fixtures/route-fixture';
 import { handlerRegistry } from './handlers.ts';
 import { createEngine } from './engine.ts';
 import type { Handler, HandlerRegistry, StartInput } from '#types/harness';
-import type { IndexStatus } from '#types/search';
+import type { IndexStatus } from '#types/modules/search';
 
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';
 const HEAD = (skill: string, extra = '') => `skill: ${skill}\nversion: 3\nbudget: { modelSteps: 6 }\nexits: [done, blocked, human, inconclusive, superseded, budget]\nrevisable: [${extra}]\nsteps:\n`;

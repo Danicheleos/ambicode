@@ -5,7 +5,7 @@ import { reviewResult } from '#testing/fixtures/review-fixture';
 import { notCoveredBlock } from '../bundle/coverage-block.ts';
 import { renderReport } from './report.ts';
 import { validateFindings, type ValidateOptions } from './validate.ts';
-import type { DiffFile } from '#types/git';
+import type { DiffFile } from '#types/platform/git';
 
 const section = ['@@ -1,2 +1,3 @@', ' export const a = 1;', '-export const b = 1;', '+export const b = 2;', '+export const c = 3;'].join('\n');
 const file: DiffFile = { oldPath: 'src/a.ts', newPath: 'src/a.ts', changeKind: 'modified', binary: false, addedLines: 2, removedLines: 1, hunks: parseHunks(section), patchSection: section };

@@ -6,7 +6,7 @@ import { routeTools, taskOf } from '../route/route.ts';
 import type { Runtime } from '#types/composition';
 import type { ParsedArgs } from '../../types/cli.ts';
 
-export interface WorkerRunOutput { command: 'worker run'; task: string; worker: string; artifact: string; entry: string }
+interface WorkerRunOutput { command: 'worker run'; task: string; worker: string; artifact: string; entry: string }
 
 /** No command tail: `worker run` is not one of the commands that advance a route. */
 export async function runWorkerCommand(runtime: Runtime, args: ParsedArgs): Promise<WorkerRunOutput> {

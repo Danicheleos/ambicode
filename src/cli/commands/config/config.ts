@@ -1,13 +1,13 @@
 import { MAX_SNAPSHOT_FILE_BYTES, MAX_SNAPSHOT_TOTAL_BYTES } from '#types/defaults';
-import type { AmbicodeConfig, SearchProfile } from '#types/config';
+import type { AmbicodeConfig, SearchProfile } from '#types/modules/config';
 import { openWorkspace } from '#composition/root';
 import { shortlistRules } from '#modules/search/text/locate';
 import { profileLines } from './init.ts';
 import { navigationFor } from '#modules/search/text/navigation';
 import type { Runtime } from '#types/composition';
-import type { NavigationGuidance } from '#types/search';
+import type { NavigationGuidance } from '#types/modules/search';
 
-export interface ConfigOutput {
+interface ConfigOutput {
   command: 'config';
   configPath: string;
   repositoryRoot: string;

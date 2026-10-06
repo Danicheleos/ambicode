@@ -6,11 +6,12 @@ import { launchRoute } from '#hook/events/prompt-launch';
 import { STAGE_LIMITS } from '#modules/policy/stage';
 import { stepHeader } from '#harness/engine/delivery';
 import { MAX_INSTRUCTION_CHARS } from '#harness/definition/routes';
-import { A, COMMAND_PACK, TASK } from '#testing/fixtures/check-fixture';
+import { COMMAND_PACK, CHECK_TASK } from '#testing/fixtures/check-fixture';
 import { finding } from '#testing/fixtures/review-fixture';
 import { taskFixture } from '#testing/fixtures/task-fixture';
 import { appendLedger } from '#modules/evidence/ledger/ledger';
 import { REPO_ROOT } from '#testing/paths';
+import { SESSION_A } from '#testing/fixtures/ids';
 
 type Fixture = Awaited<ReturnType<typeof taskFixture>>;
 
@@ -250,7 +251,7 @@ describe('task route (07-R, 07-V, 07-G)', () => {
       assert.deepEqual([plan.plan, plan.fromDraft, draft.plan, draft.fromDraft], ['docs/plan.md', null, 'docs/plan.md', 'docs/plan.md']);
       assert.equal(new Set([none.hash, plan.hash, draft.hash]).size, 3);
       await t.fx.repo.write('.ambicode/task/ord-9/plan.md', '# Plan\n');
-      await t.fx.engine.start({ skill: 'task', text: 'go', requirements: [], plan: '.ambicode/task/ord-9/plan.md', cwd: t.fx.repo.root, session: A, channel: 'cli' });
+      await t.fx.engine.start({ skill: 'task', text: 'go', requirements: [], plan: '.ambicode/task/ord-9/plan.md', cwd: t.fx.repo.root, session: SESSION_A, channel: 'cli' });
       assert.equal((await t.fx.kinds('ord-9', 'route')).length, 1, 'the slug comes from the plan\'s task directory');
     });
   });
@@ -258,7 +259,7 @@ describe('task route (07-R, 07-V, 07-G)', () => {
   it('07-R1: a UserPromptSubmit /ambicode:task with --plan starts the route at red, without prepare', async () => {
     await withTask(async (t) => {
       await t.fx.repo.write('docs/plan.md', '# Plan\n\nSeed the reduce.\n');
-      const text = await launchRoute(t.fx.runtime, { hook_event_name: 'UserPromptSubmit', prompt: '/ambicode:task --task ord-7 --plan docs/plan.md fix total', session_id: A, cwd: t.fx.repo.root, scratchpad_dir: t.fx.scratchpad } as never, { engine: t.fx.engine, routes: t.fx.routes, pointer: t.fx.pointer });
+      const text = await launchRoute(t.fx.runtime, { hook_event_name: 'UserPromptSubmit', prompt: '/ambicode:task --task ord-7 --plan docs/plan.md fix total', session_id: SESSION_A, cwd: t.fx.repo.root, scratchpad_dir: t.fx.scratchpad } as never, { engine: t.fx.engine, routes: t.fx.routes, pointer: t.fx.pointer });
       assert.match(text ?? '', /step red/);
       assert.doesNotMatch(text ?? '', /prepare/);
       assert.equal(((await t.kinds('route'))[0]?.['args'] as { plan: string }).plan, 'docs/plan.md');
@@ -294,7 +295,7 @@ describe('task route (07-R, 07-V, 07-G)', () => {
   it('07-R8: every task step text is at most 1,500 characters after inclusion; start ≤ 4 KiB, report ≤ 3 KiB, before-checks ≤ 1.5 KiB', async () => {
     const cli = `node "${REPO_ROOT}/scripts/ambicode.mjs"`;
     for (const name of ['task-red', 'task-green', 'task-fix', 'task-write']) {
-      const text = (await readFile(path.join(REPO_ROOT, 'routes', 'steps', `${name}.md`), 'utf8')).replaceAll('{cli}', cli).replaceAll('{task}', TASK);
+      const text = (await readFile(path.join(REPO_ROOT, 'routes', 'steps', `${name}.md`), 'utf8')).replaceAll('{cli}', cli).replaceAll('{task}', CHECK_TASK);
       assert.ok(text.length <= MAX_INSTRUCTION_CHARS, `${name}: ${text.length}`);
     }
     assert.equal(STAGE_LIMITS['before-checks'], 1536);

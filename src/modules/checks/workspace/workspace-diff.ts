@@ -1,14 +1,15 @@
 import path from 'node:path';
 import { contentHash } from '#util/hash';
-import type { FileSystem } from '#types/ports';
+import type { FileSystem } from '#types/platform/ports';
 import type { TreeEntry } from '../types/workspace.ts';
+import { messageOf } from '#util/errors';
 
 /** Bounds the inspection: a command that filled the workspace is reported, not walked. */
-export const MAX_WORKSPACE_ENTRIES = 5_000;
-export const MAX_WORKSPACE_BYTES = 64 * 1024 * 1024;
-export const MAX_REPORTED_MUTATIONS = 50;
+const MAX_WORKSPACE_ENTRIES = 5_000;
+const MAX_WORKSPACE_BYTES = 64 * 1024 * 1024;
+const MAX_REPORTED_MUTATIONS = 50;
 
-export type TreeScan =
+type TreeScan =
   | { kind: 'ok'; entries: Map<string, TreeEntry> }
   | { kind: 'unavailable'; reason: string };
 
@@ -63,7 +64,7 @@ export async function scanTree(fs: FileSystem, root: string): Promise<TreeScan> 
   } catch (error) {
     return {
       kind: 'unavailable',
-      reason: error instanceof Error ? error.message : String(error),
+      reason: messageOf(error),
     };
   }
   return { kind: 'ok', entries };

@@ -11,9 +11,9 @@ import { loadPacksForProject } from '#modules/policy/packs/load';
 import { builtinPoliciesDirectory } from '#util/plugin-root';
 import { discoverRules } from '#modules/policy/authoring/rules';
 import type { Runtime } from '#types/composition';
-import type { LedgerEntry } from '#types/evidence';
+import type { LedgerEntry } from '#types/modules/evidence';
 import type { RouteArgs, Handler, HandlerInput, HandlerResult } from '#types/harness';
-import { DRAFTS_DIR, type DraftsCheck } from '#types/policy';
+import { DRAFTS_DIR, type DraftsCheck } from '#types/modules/policy';
 
 const NONE = 'none — stop';
 /** Comfortably under the 16 KiB ledger-entry cap once the gate's own envelope (question, options, values) is added (09-T2/B13). */

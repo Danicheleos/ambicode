@@ -1,4 +1,4 @@
-import type { LedgerEntry } from '#types/evidence';
+import type { LedgerEntry } from '#types/modules/evidence';
 
 /** Only code-made calls are recorded; a model's own reads are not, and the line says so. */
 export function navigationLine(entries: readonly LedgerEntry[]): string {

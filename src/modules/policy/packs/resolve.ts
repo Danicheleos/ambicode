@@ -1,4 +1,4 @@
-import type { ProjectConfig } from '#types/config';
+import type { ProjectConfig } from '#types/modules/config';
 import {
   COMMAND_ACTION_PRECEDENCE,
   type Activity,
@@ -11,12 +11,12 @@ import type {
   ResolvedPolicy,
   ResolvedPromptRef,
   ResolvedRule,
-} from '#types/policy';
+} from '#types/modules/policy';
 import { matchesAnyGlob } from '#util/glob';
 import { normalizeRelative, toProjectRelative } from '#util/paths';
 import type { PackWithPrompts } from './load.ts';
 
-export interface ResolveOptions {
+interface ResolveOptions {
   activity: Activity;
   project: ProjectConfig;
   packs: readonly PackWithPrompts[];
@@ -194,7 +194,7 @@ function scopeDiagnostics(
  * belongs only to the isolated reviewer prompt; `task` alone adds `before-checks`
  * because it runs checks.
  */
-export const PREPARE_PROMPT_STAGES: Readonly<Partial<Record<Activity, readonly PromptStage[]>>> = {
+const PREPARE_PROMPT_STAGES: Readonly<Partial<Record<Activity, readonly PromptStage[]>>> = {
   investigate: ['before-work', 'before-report'],
   plan: ['before-work', 'before-report'],
   task: ['before-work', 'before-checks', 'before-report'],
@@ -204,7 +204,7 @@ export function applicablePrepareStages(activity: Activity): readonly PromptStag
   return PREPARE_PROMPT_STAGES[activity] ?? [];
 }
 
-export function strongerAction(a: CommandAction, b: CommandAction): CommandAction {
+function strongerAction(a: CommandAction, b: CommandAction): CommandAction {
   return COMMAND_ACTION_PRECEDENCE[a] >= COMMAND_ACTION_PRECEDENCE[b] ? a : b;
 }
 

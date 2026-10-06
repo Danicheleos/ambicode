@@ -1,8 +1,8 @@
 import path from 'node:path';
 import { createRuntime, openRepository, projectForPath, resolvePolicyFor, toRepositoryRelative } from '#composition/root';
 import { loadConfig } from '#modules/config/load';
-import type { AmbicodeConfig } from '#types/config';
-import type { ResolvedRule } from '#types/policy';
+import type { AmbicodeConfig } from '#types/modules/config';
+import type { ResolvedRule } from '#types/modules/policy';
 import { EMPTY_HOOK_OUTPUT, HookInput, type AdditionalContextEvent, type AdditionalContextHookOutput, type PostToolUseHookOutput, type RouteHookDeps, type HookDeps } from '#types/hook';
 import { prepareForSlashCommand } from './prepare-on-skill.ts';
 import { askedKeys } from '#modules/requirements/envelope/envelope';

@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { openWorkspace, projectForRequest, resolvePolicyFor, toRepositoryRelative } from '#composition/root';
 import { Activity } from '#types/primitives';
-import type { ResolvedPolicy, ResolvedPromptRef } from '#types/policy';
+import type { ResolvedPolicy, ResolvedPromptRef } from '#types/modules/policy';
 import {
   PrepareCompactOutput as PrepareCompactOutputSchema,
   PrepareOutput as PrepareOutputSchema,
@@ -10,7 +10,7 @@ import {
   type PrepareOutput,
   type PreparePolicy,
 } from '#types/prepare';
-import type { ProjectConfig } from '#types/config';
+import type { ProjectConfig } from '#types/modules/config';
 import { MAX_SNAPSHOT_FILE_BYTES, TASKS_DIR } from '#types/defaults';
 import { taskSlugFor } from '#modules/review/bundle/review-name';
 import { mintTaskSlug } from '#modules/evidence/task/slug';
@@ -20,7 +20,7 @@ import { configProvenance, packProvenance } from '#modules/policy/packs/provenan
 import { canonicalUrl, loadRequirementEvidence, normalizeRequirements } from '#modules/requirements/envelope/normalize';
 import { readSharedOperatingContract } from '#modules/policy/packs/shared-contract';
 import { byteLength } from '#modules/review/snapshot/limits';
-import { AmbicodeError } from '#util/errors';
+import { AmbicodeError, messageOf } from '#util/errors';
 import { contentHash } from '#util/hash';
 import { formatJsonOutput } from '#util/json-output';
 import { evidenceSource } from '../../options/target-option.ts';
@@ -28,8 +28,8 @@ import { navigationFor } from '#modules/search/text/navigation';
 import { locate, termsFromRequirements } from '#modules/search/text/locate';
 import type { Git } from '#platform/git/git';
 import type { Runtime } from '#types/composition';
-import type { FileSystem } from '#types/ports';
-import { PREPARE_REASONS_PER_CANDIDATE, PREPARE_SHORTLIST_LIMIT, type LocateShortlist } from '#types/search';
+import type { FileSystem } from '#types/platform/ports';
+import { PREPARE_REASONS_PER_CANDIDATE, PREPARE_SHORTLIST_LIMIT, type LocateShortlist } from '#types/modules/search';
 import type { JsonFormat } from '#types/util';
 import type { ParsedArgs } from '../../types/cli.ts';
 
@@ -48,9 +48,9 @@ export function prepareAsRouteStart(args: ParsedArgs): { argv: string[]; notices
   return { argv, notices };
 }
 
-export interface PrepareDetail extends Omit<PrepareOutput, 'contextBudget'> {}
+interface PrepareDetail extends Omit<PrepareOutput, 'contextBudget'> {}
 
-export interface PrepareRun {
+interface PrepareRun {
   /** Exactly what `--json` prints, and what `contextBudget` measures. */
   data: PrepareOutput | PrepareCompactOutput;
   detail: PrepareDetail;
@@ -101,7 +101,7 @@ export async function runPrepare(
     throw new AmbicodeError(
       'shared-contract-unreadable',
       'The canonical shared operating contract could not be read from this installation.',
-      { details: [cause instanceof Error ? cause.message : String(cause)] },
+      { details: [messageOf(cause)] },
     );
   }
 
@@ -203,7 +203,7 @@ function measureAgainstOwnBytes<T>(
  * Decides nothing about what applies; drops per-rule constants, defaults,
  * hook-only metadata, setup guidance and the contract body the hook already delivered.
  */
-export function toCompactOutput(
+function toCompactOutput(
   detail: PrepareDetail,
   options: { includeContractContent: boolean },
 ): Omit<PrepareCompactOutput, 'contextBudget'> {
@@ -484,7 +484,7 @@ async function resolvePreparePrompt(
     diagnostics.push({
       severity: 'error',
       code: 'prompt-unreadable',
-      message: `${prompt.packReference}: prompt "${prompt.declaredPath}" could not be read: ${cause instanceof Error ? cause.message : String(cause)}`,
+      message: `${prompt.packReference}: prompt "${prompt.declaredPath}" could not be read: ${messageOf(cause)}`,
       where: prompt.absolutePath,
     });
     return null;

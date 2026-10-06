@@ -1,15 +1,14 @@
 import path from 'node:path';
-import { AmbicodeError } from '#util/errors';
+import { AmbicodeError, messageOf } from '#util/errors';
 import { parseEntry, type TypedEntry } from './kinds.ts';
 import { withLedgerLock } from './ledger-lock.ts';
-import type { NewEntry, LedgerEntry, StrictRead } from '#types/evidence';
-import type { FileSystem } from '#types/ports';
-import { LEDGER_FILE } from '../types/ledger.ts';
+import { LEDGER_FILE, type NewEntry, type LedgerEntry, type StrictRead } from '#types/modules/evidence';
+import type { FileSystem } from '#types/platform/ports';
 export const MAX_ENTRY_BYTES = 16 * 1024;
 export const WARN_LEDGER_BYTES = 1024 * 1024;
 
 /** The 8 `[0-9a-z]` characters an id carries for its writer; a session id is lowercased first. */
-export function writerPrefix(writer: string): string {
+function writerPrefix(writer: string): string {
   const prefix = writer.toLowerCase().replace(/[^0-9a-z]/g, '').slice(0, 8);
   if (prefix.length !== 8) throw new AmbicodeError('internal', `A ledger writer id needs 8 letters or digits; got "${writer}".`);
   return prefix;
@@ -105,7 +104,7 @@ export async function readLedgerStrict(fs: FileSystem, taskDirectory: string): P
     if (!(await fs.exists(file))) return { state: 'absent' };
     content = await fs.readText(file);
   } catch (error) {
-    return { state: 'unreadable', reason: `the ledger cannot be read: ${error instanceof Error ? error.message : String(error)}`, line: null };
+    return { state: 'unreadable', reason: `the ledger cannot be read: ${messageOf(error)}`, line: null };
   }
   const entries: TypedEntry[] = [];
   const seen = new Set<string>();

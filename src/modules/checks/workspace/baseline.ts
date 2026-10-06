@@ -1,7 +1,7 @@
 import { openRepository } from '#composition/root';
 import { splitNul } from '#platform/git/git';
 import { fingerprintWorkspace } from './mutations.ts';
-import type { BaselineEntryFields } from '#types/checks';
+import type { BaselineEntryFields } from '#types/modules/checks';
 import type { Runtime } from '#types/composition';
 
 /** Porcelain `-z` puts a rename or copy's origin in the next NUL field; both sides count as changed. */

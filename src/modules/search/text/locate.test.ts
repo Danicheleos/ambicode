@@ -7,8 +7,8 @@ import { parseArgs } from '#cli/args';
 import { initConfig } from '#testing/fixtures/init-config';
 import { runLocate } from '#cli/commands/search/locate';
 import { createRuntime } from '#composition/root';
-import { ProjectConfig } from '#types/config';
-import type { LocateCandidate } from '#types/locate';
+import { ProjectConfig } from '#types/modules/config';
+import { PREPARE_SHORTLIST_LIMIT, type LocateCandidate } from '#types/modules/search';
 import { Git } from '#platform/git/git';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { nodeFileSystem } from '#platform/ports/filesystem';
@@ -17,8 +17,7 @@ import { locate, pathHit, shortlistRules, termsFromRequirements } from './locate
 import { matchesGlob } from '#util/glob';
 import { REPO_ROOT } from '#testing/paths';
 import { LOCATE_OPTIONS } from '#cli/types/commands';
-import type { FileSystem } from '#types/ports';
-import { PREPARE_SHORTLIST_LIMIT } from '#types/search';
+import type { FileSystem } from '#types/platform/ports';
 
 /**
  * In `ts-feature-boundary` the decoy `src/legacy/invoice-export.ts` carries the

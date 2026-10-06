@@ -1,14 +1,13 @@
 import path from 'node:path';
-import type { CheckSpec, ProjectConfig } from '#types/config';
+import type { CheckSpec, ProjectConfig } from '#types/modules/config';
 import { matchesAnyGlob } from '#util/glob';
 import { normalizeRelative, toProjectRelative } from '#util/paths';
 import { adapterFor, enumerationExecutable } from './adapters.ts';
-import type { ChangedPath } from '#modules/types/checks';
-import type { DiffFile } from '#types/git';
-import type { FileSystem, ProcessRunner } from '#types/ports';
+import type { ChangedPath } from '#types/modules/checks';
+import type { FileSystem, ProcessRunner } from '#types/platform/ports';
 import type { CommandAuthorization, Selection, SelectedFile } from '../types/selection.ts';
 
-export interface SelectOptions {
+interface SelectOptions {
   fs: FileSystem;
   project: ProjectConfig;
   check: CheckSpec;

@@ -1,9 +1,9 @@
-import type { Finding, ReviewResult } from '#types/review';
+import type { Finding, ReviewResult } from '#types/modules/review';
 import { isBoundAnswer } from '#harness/engine/fold';
-import type { ReviewEntry } from '#types/checks';
-import type { LedgerEntry } from '#types/evidence';
+import type { ReviewEntry } from '#types/modules/checks';
+import type { LedgerEntry } from '#types/modules/evidence';
 import type { RouteView } from '#types/harness';
-export type ReviewEvaluation =
+type ReviewEvaluation =
   | { next: 'waiting'; keys: string[]; raisedBy: string }
   | { next: 'scope'; findings: string[]; more: number }
   | { next: 'revise-fix'; findings: string[] }
@@ -12,7 +12,7 @@ export type ReviewEvaluation =
 const SCOPE_SHOWN = 3;
 const ANSWERS = new Set(['acceptance', 'declined', 'default-taken']);
 
-export const findingLine = (finding: Finding): string => {
+const findingLine = (finding: Finding): string => {
   const where = finding.location.newPath ?? finding.location.oldPath ?? '(no path)';
   const line = finding.location.line === null ? '' : `:${finding.location.line}`;
   return `${finding.id} ${where}${line} — ${finding.explanation.replace(/\s+/g, ' ').slice(0, 140)}`;

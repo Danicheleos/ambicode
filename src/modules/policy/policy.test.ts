@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { ProjectConfig } from '#types/config';
+import type { ProjectConfig } from '#types/modules/config';
 import { loadPacksForProject } from './packs/load.ts';
 import { decisionFor, explainRefusal, resolvePolicy } from './packs/resolve.ts';
 import { nodeFileSystem } from '#platform/ports/filesystem';

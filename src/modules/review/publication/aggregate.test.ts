@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { emptyPublicationRecord, type PublicationOutcome } from '#types/publication';
+import { emptyPublicationRecord, type PublicationOutcome } from '#types/modules/publication';
 import { isAmbicodeError } from '#util/errors';
 import { FAKE_TARGET } from '#testing/fakes/fake-provider';
 import { publicationPositions, reviewResult } from '#testing/fixtures/review-fixture';

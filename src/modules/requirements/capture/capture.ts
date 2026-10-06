@@ -1,11 +1,10 @@
-import { CapturedRequirement, type CapturedHits, type CaptureDeps } from '#types/requirements';
+import { CapturedRequirement, type CapturedHits, type CaptureDeps } from '#types/modules/requirements';
 import type { HookInput } from '#types/hook';
 import { contentHash } from '#util/hash';
 import { capturesFrom, serverOf } from './binding.ts';
 import { asRecorded, readCapture, readList, searchName, writeCapture } from './capture-files.ts';
-import type { Runtime } from '#types/composition';
-import type { LedgerEntry } from '#types/evidence';
-import type { RouteView } from '#types/harness';
+import type { LedgerEntry } from '#types/modules/evidence';
+import { isObject } from '#util/guards';
 
 const KEY = /\b[A-Z][A-Z0-9]+-\d+\b/;
 const TOOL_CLASSES = ['get', 'search', 'fetch', 'read'] as const;
@@ -16,7 +15,6 @@ const MAX_CONTENT = 60_000;
 const NOT_THE_TICKET = new Set(['customFields', 'assignee', 'reporter', 'creator', 'status', 'priority', 'issuetype', 'type', 'id', 'self', 'expand', 'accountId', 'created', 'updated', 'updateAuthor', 'author', 'comment', 'comments', 'changelog', 'renderedFields']);
 
 type Json = Record<string, unknown>;
-const isObject = (value: unknown): value is Json => typeof value === 'object' && value !== null && !Array.isArray(value);
 const str = (value: unknown): string => (typeof value === 'string' ? value : '');
 
 /** Every JSON value a tool response holds, with JSON carried inside strings opened. */

@@ -13,10 +13,9 @@ import { appendLedger, readLedger } from './ledger/ledger.ts';
 import { withLedgerLock } from './ledger/ledger-lock.ts';
 import { listNotes, promotePlan, saveNote } from './notes.ts';
 import type { Runtime } from '#types/composition';
-import type { LedgerEntry, NoteDeps } from '#types/evidence';
+import { LEDGER_FILE, type LedgerEntry, type NoteDeps } from '#types/modules/evidence';
 import type { ConsentResult, RouteContextPort, RouteView } from '#types/harness';
-import type { FileSystem } from '#types/ports';
-import { LEDGER_FILE } from './types/ledger.ts';
+import type { FileSystem } from '#types/platform/ports';
 
 const NOW = new Date(2026, 9, 2, 14, 35);
 const TASK = 'ORD-17';

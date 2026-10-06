@@ -3,7 +3,7 @@ import { insideEngine } from './engine.ts';
 import { sessionUnbound } from '../session/session.ts';
 import type { CommandName, Engine, StepMessage, SessionBinding } from '#types/harness';
 
-export interface TailDeps {
+interface TailDeps {
   engine: Engine;
   /** Where the unbound notice goes: standard error, so a `--json` reader of stdout still gets one document. */
   warn?: (line: string) => void;

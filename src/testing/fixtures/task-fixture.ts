@@ -1,13 +1,14 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { Finding } from '#types/review';
+import type { Finding } from '#types/modules/review';
 import { defaultHandlers } from '#harness/engine/handlers';
 import { appendLedger } from '#modules/evidence/ledger/ledger';
-import { A, checkFixture, TASK } from './check-fixture.ts';
+import { checkFixture, CHECK_TASK } from './check-fixture.ts';
 import { reviewResult } from './review-fixture.ts';
 import { REPO_ROOT } from '../paths.ts';
-import type { LedgerEntry } from '#types/evidence';
+import type { LedgerEntry } from '#types/modules/evidence';
 import type { AdvanceInput, StartInput, StepMessage } from '#types/harness';
+import { SESSION_A } from './ids.ts';
 
 const STEPS = ['plan-fetch', 'task-red', 'task-green', 'task-fix', 'task-write'];
 
@@ -22,21 +23,21 @@ export async function taskFixture(options: { config?: string; pack?: string } = 
   const { fx } = base;
   await fx.repo.write('src/orders.ts', ORDERS);
   await fx.repo.commitAll('orders');
-  const dir = path.join(fx.repo.root, '.ambicode', 'task', TASK);
+  const dir = path.join(fx.repo.root, '.ambicode', 'task', CHECK_TASK);
   let reviews = 0;
 
   const start = (input: Partial<StartInput> = {}): Promise<StepMessage> =>
-    fx.engine.start({ skill: 'task', text: 'fix `total` for an empty list', requirements: [], task: TASK, cwd: fx.repo.root, session: A, channel: 'hook', scratchpadDir: fx.scratchpad, ...input });
+    fx.engine.start({ skill: 'task', text: 'fix `total` for an empty list', requirements: [], task: CHECK_TASK, cwd: fx.repo.root, session: SESSION_A, channel: 'hook', scratchpadDir: fx.scratchpad, ...input });
   const next = (input: Partial<AdvanceInput> = {}): Promise<StepMessage> =>
-    fx.engine.advance({ task: TASK, session: A, cause: 'route-next', scratchpadDir: fx.scratchpad, ...input });
+    fx.engine.advance({ task: CHECK_TASK, session: SESSION_A, cause: 'route-next', scratchpadDir: fx.scratchpad, ...input });
   /** The user's answer to the latest print of `gate`, as the AskUserQuestion hook records it. */
   const hook = async (gate: string, option: string): Promise<StepMessage> => {
-    const print = (await fx.kinds(TASK, 'gate')).findLast((entry) => entry['gate'] === gate);
+    const print = (await fx.kinds(CHECK_TASK, 'gate')).findLast((entry) => entry['gate'] === gate);
     return next({ cause: 'gate-hook', answers: [{ gate, option, ...(print === undefined ? {} : { instance: print.id }) }] });
   };
-  const routeId = async (): Promise<string> => (await fx.kinds(TASK, 'route')).at(-1)!.id;
+  const routeId = async (): Promise<string> => (await fx.kinds(CHECK_TASK, 'route')).at(-1)!.id;
   const append = async (fields: Record<string, unknown> & { kind: string }): Promise<LedgerEntry> =>
-    (await appendLedger(fx.runtime.fs, dir, fx.runtime.clock.now(), 'test-writer', { route: await routeId(), session: A, ...fields })).entry;
+    (await appendLedger(fx.runtime.fs, dir, fx.runtime.clock.now(), 'test-writer', { route: await routeId(), session: SESSION_A, ...fields })).entry;
 
   /** What `check --only` leaves for the tail, then the tail itself. */
   const check = async (phase: 'red' | 'green', summary: { ran: number; failed: number } | null, exit = phase === 'red' ? 1 : 0): Promise<StepMessage> => {
@@ -51,12 +52,12 @@ export async function taskFixture(options: { config?: string; pack?: string } = 
   const review = async (findings: Finding[], extra: { waiting?: string[]; reviewerRan?: boolean } = {}): Promise<StepMessage> => {
     reviews += 1;
     const reviewId = `r-${reviews}`;
-    const result = path.join('.ambicode', 'task', TASK, 'reviews', reviewId, 'result.json');
+    const result = path.join('.ambicode', 'task', CHECK_TASK, 'reviews', reviewId, 'result.json');
     await fx.repo.write(result, JSON.stringify({ ...reviewResult({ kind: 'working', findings }), reviewId }));
     const entry = await append({ kind: 'review', reviewId, result, status: 'partial', reviewerRan: extra.reviewerRan ?? true, findings: findings.length, waiting: extra.waiting ?? [] });
     return next({ cause: 'review', produced: [entry.id] });
   };
   /** Edits the committed source, so `src/orders.ts` is in the touched set. */
   const edit = (): Promise<void> => fx.repo.write('src/orders.ts', ORDERS.replace('a + b)', 'a + b, 0)'));
-  return { ...base, runCheck: base.check, dir, start, next, hook, append, check, format, review, edit, ledger: () => fx.ledger(TASK), kinds: (kind: string) => fx.kinds(TASK, kind) };
+  return { ...base, runCheck: base.check, dir, start, next, hook, append, check, format, review, edit, ledger: () => fx.ledger(CHECK_TASK), kinds: (kind: string) => fx.kinds(CHECK_TASK, kind) };
 }

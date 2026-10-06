@@ -1,8 +1,8 @@
 import path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import type { PublicationPositions, PublicationRecord } from '#types/publication';
-import { SESSION_COOKIE, type ReviewResult, type PageServer } from '#types/review';
+import type { PublicationPositions, PublicationRecord } from '#types/modules/publication';
+import { SESSION_COOKIE, type ReviewResult, type PageServer } from '#types/modules/review';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { createPageServer } from '#modules/review/page/server';
 import { reopenCommand } from '#modules/review/page/reopen';
@@ -10,7 +10,7 @@ import { ReviewStore } from '#modules/review/publication/store';
 import { FakeProvider } from '../fakes/fake-provider.ts';
 import { publicationPositions, reviewResult } from './review-fixture.ts';
 import { SRC_ROOT } from '../paths.ts';
-import type { Clock, IdSource } from '#types/ports';
+import type { Clock, IdSource } from '#types/platform/ports';
 
 export const AUTHORITY = '127.0.0.1:7777';
 export const ORIGIN = `http://${AUTHORITY}`;

@@ -2,7 +2,7 @@ import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import type { FileSystem } from '#types/ports';
+import type { FileSystem } from '#types/platform/ports';
 import { TAKEOVER_HEADER } from '../types/page.ts';
 import { messageOf } from '#util/errors';
 
@@ -24,7 +24,7 @@ type ControlFile = z.infer<typeof ControlFile>;
  * Machine-global, like the port. On a shared `/tmp` another local user could
  * read it and stop the page; publishing still needs the session and CSRF token.
  */
-export function controlFilePath(fs: FileSystem, port: number): string {
+function controlFilePath(fs: FileSystem, port: number): string {
   return path.join(fs.temporaryRoot(), `ambicode-view-${port}.json`);
 }
 
@@ -48,9 +48,9 @@ async function readControlFile(fs: FileSystem, port: number): Promise<ControlFil
   }
 }
 
-export type TakeoverResult = { kind: 'stopped' } | { kind: 'refused'; reason: string };
+type TakeoverResult = { kind: 'stopped' } | { kind: 'refused'; reason: string };
 
-export async function requestTakeover(
+async function requestTakeover(
   fs: FileSystem,
   port: number,
   fetchImpl: typeof fetch = fetch,

@@ -1,15 +1,16 @@
 import { z } from 'zod';
-import type { DeliveryCertainty } from '#types/provider';
-import type { ProcessRunner } from '#types/ports';
-import type { ApiResult } from './types/gitlab.ts';
+import type { DeliveryCertainty } from '#types/platform/provider';
+import type { ProcessRunner } from '#types/platform/ports';
+import type { ApiResult } from './types/schemas.ts';
+import { messageOf } from '#util/errors';
 
-export const GLAB_TIMEOUT_MS = 60_000;
-export const GLAB_MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
+const GLAB_TIMEOUT_MS = 60_000;
+const GLAB_MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
 
 /** GitLab's own maximum; asking for more is silently capped. */
 export const PAGE_SIZE = 100;
 
-export interface GitLabApiOptions {
+interface GitLabApiOptions {
   runner: ProcessRunner;
   host: string;
   cwd: string;
@@ -18,7 +19,7 @@ export interface GitLabApiOptions {
   maxOutputBytes?: number;
 }
 
-export interface ApiRequest {
+interface ApiRequest {
   path: string;
   query?: Readonly<Record<string, string | number>>;
   method?: 'GET' | 'POST';
@@ -108,7 +109,7 @@ export class GitLabApi {
       parsed = JSON.parse(outcome.stdout);
     } catch (error) {
       return failed(`glab api ${request.path} did not return JSON.`, [
-        error instanceof Error ? error.message : String(error),
+        messageOf(error),
       ]);
     }
 

@@ -1,5 +1,5 @@
 import type { Runtime } from '#types/composition';
-import type { LedgerEntry, TaskDir, LockedLedger } from '#types/evidence';
+import type { LedgerEntry, TaskDir, LockedLedger } from '#types/modules/evidence';
 import type { RouteRegistry, RouteDef } from '#types/harness';
 
 /** Binds an answer to what it consents to: a check key, or the exact values an `init --apply --set` writes. */
@@ -16,13 +16,12 @@ export interface Composed {
   bytes: number;
 }
 
-export type Entry = LedgerEntry;
 
 /** Entries of the route a session resolved plus the routes it resumes, in file order and from any session (03-F1). */
 export interface Chain {
-  head: Entry;
+  head: LedgerEntry;
   ids: ReadonlySet<string>;
-  entries: Entry[];
+  entries: LedgerEntry[];
 }
 
 /** Everything one advance works on. The ledger lock is held for the whole run (03-O6). */
@@ -33,8 +32,8 @@ export interface Run {
   task: string;
   dir: TaskDir;
   ledger: LockedLedger;
-  entries: Entry[];
-  head: Entry;
+  entries: LedgerEntry[];
+  head: LedgerEntry;
   session: string;
   /** The Claude session whose hook state (pointer, delivery markers) this route writes: its harness session, else its owner. */
   stateKey: string;

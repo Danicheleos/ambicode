@@ -1,6 +1,6 @@
 import { AmbicodeError } from '#util/errors';
 import { navigationLine } from '#modules/evidence/report/navigation-line';
-import { promotePlan, saveNote, type SaveKind } from '#modules/evidence/notes';
+import { promotePlan, saveNote } from '#modules/evidence/notes';
 import type { Call } from '../definition/routes.ts';
 import { MODULE_HANDLERS } from '#skills/common';
 import { INIT_HANDLERS } from '#skills/init/handlers';
@@ -8,8 +8,8 @@ import { RULES_HANDLERS } from '#skills/rules/handlers';
 import { planCheckStep } from '#modules/workers/plan-check';
 import { TASK_HANDLERS } from '#skills/task/handlers';
 import { REVIEW_HANDLERS } from '#skills/review/handlers';
-import type { Runtime } from '#types/composition';
 import type { Handler, HandlerRegistry, HandlerResult } from '#types/harness';
+import type { SaveKind } from '#types/modules/evidence';
 
 export function handlerRegistry(handlers: Readonly<Record<string, Handler>>): HandlerRegistry {
   return { get: (name) => handlers[name] ?? null, names: () => Object.keys(handlers) };

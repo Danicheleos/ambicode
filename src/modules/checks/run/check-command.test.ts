@@ -1,11 +1,12 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { RouteFixture } from '#testing/fixtures/route-fixture';
-import { A, checkFixture, TASK } from '#testing/fixtures/check-fixture';
+import { checkFixture, CHECK_TASK } from '#testing/fixtures/check-fixture';
 import { AmbicodeError } from '#util/errors';
+import { SESSION_A } from '#testing/fixtures/ids';
 
 const code = (expected: string) => (error: unknown) => error instanceof AmbicodeError && error.code === expected;
-const kinds = async (fx: RouteFixture, kind: string) => fx.kinds(TASK, kind);
+const kinds = async (fx: RouteFixture, kind: string) => fx.kinds(CHECK_TASK, kind);
 
 describe('check --only (07-C, 07-K)', () => {
   it('07-C1 malformed keys, a missing --only and an unknown check refuse bad-argument; an unknown project is unknown-project', async () => {
@@ -34,7 +35,7 @@ describe('check --only (07-C, 07-K)', () => {
       assert.deepEqual(entry?.['only'], ['src/a.spec.ts']);
       assert.equal(entry?.['key'], 'app/unit');
       assert.equal(typeof entry?.['route'], 'string');
-      assert.equal(entry?.['session'], A);
+      assert.equal(entry?.['session'], SESSION_A);
       assert.ok(result.outcome === 'ran' && result.proof.proven);
       assert.deepEqual(warmed, ['app']);
     } finally {
@@ -143,7 +144,7 @@ describe('check --only (07-C, 07-K)', () => {
       await start();
       await check({ key: 'app/e2e' });
       const [print] = await kinds(fx, 'gate');
-      await fx.engine.advance({ task: TASK, session: A, cause: 'gate-hook', answers: [{ gate: 'check-only-unauthorized', option: 'approve', instance: print!.id }], scratchpadDir: fx.scratchpad });
+      await fx.engine.advance({ task: CHECK_TASK, session: SESSION_A, cause: 'gate-hook', answers: [{ gate: 'check-only-unauthorized', option: 'approve', instance: print!.id }], scratchpadDir: fx.scratchpad });
       runner.out = { exitCode: 1, stdout: '  1 failed\n  3 passed\n' };
       assert.equal((await check({ key: 'app/e2e' })).outcome, 'ran');
       assert.equal((await check({ key: 'app/e2e' })).outcome, 'ran');
@@ -159,7 +160,7 @@ describe('check --only (07-C, 07-K)', () => {
     try {
       await start('hook', true, { answers: [{ gate: 'check-only-unauthorized', option: 'approve' }] });
       assert.equal((await check({ key: 'app/e2e' })).outcome, 'waiting');
-      await fx.engine.advance({ task: TASK, session: A, cause: 'check', scratchpadDir: fx.scratchpad });
+      await fx.engine.advance({ task: CHECK_TASK, session: SESSION_A, cause: 'check', scratchpadDir: fx.scratchpad });
       assert.equal((await kinds(fx, 'acceptance')).at(-1)?.['via'], 'prompt');
       assert.equal((await check({ key: 'app/e2e' })).outcome, 'ran');
       assert.equal(runner.calls.length, 1);
@@ -186,7 +187,7 @@ describe('check --only (07-C, 07-K)', () => {
     const { fx, start, check } = await checkFixture();
     try {
       await assert.rejects(check({ key: 'app/e2e' }), code('check-only-unauthorized'));
-      assert.deepEqual(await fx.ledger(TASK), []);
+      assert.deepEqual(await fx.ledger(CHECK_TASK), []);
       await start();
       await assert.rejects(check({}, null), code('session-unbound'));
     } finally {

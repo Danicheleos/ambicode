@@ -1,10 +1,10 @@
 import path from 'node:path';
-import type { ProjectConfig } from '#types/config';
+import type { ProjectConfig } from '#types/modules/config';
 import { AmbicodeError } from '#util/errors';
 import { normalizeRelative, toProjectRelative } from '#util/paths';
 import { formatIndexStatus, indexAdapterFor, type IndexDeps } from '../code-index/adapter.ts';
 import { breadthGuard, cut, pathspecOf, withLimitations } from './refs.ts';
-import type { IndexAdapter, IndexStatus } from '#types/search';
+import type { IndexAdapter, IndexStatus } from '#types/modules/search';
 
 export interface RelatesResult {
   path: string;

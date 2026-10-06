@@ -1,5 +1,5 @@
 import path from 'node:path';
-import type { AmbicodeConfig, ProjectConfig } from '#types/config';
+import type { AmbicodeConfig, ProjectConfig } from '#types/modules/config';
 import { loadConfigWithNotices } from '#modules/config/load';
 import { Git } from '#platform/git/git';
 import { systemClock } from '#platform/ports/clock';
@@ -13,14 +13,14 @@ import { GitLabProvider } from '#platform/providers/gitlab/provider';
 import { ProviderRegistry } from '#platform/providers/registry';
 import { resolvePolicy } from '#modules/policy/packs/resolve';
 import type { Activity } from '#types/primitives';
-import type { ResolvedPolicy } from '#types/policy';
+import type { ResolvedPolicy } from '#types/modules/policy';
 import { AmbicodeError } from '#util/errors';
 import { mostSpecificRoot, normalizeRelative } from '#util/paths';
 import { builtinPoliciesDirectory, resolvePluginRoot } from '#util/plugin-root';
 import type { Runtime, Workspace } from '#types/composition';
-import type { Clock, FileSystem, IdSource, ProcessRunner, StandardInput } from '#types/ports';
+import type { Clock, FileSystem, IdSource, ProcessRunner, StandardInput } from '#types/platform/ports';
 
-export interface RuntimeOverrides {
+interface RuntimeOverrides {
   runner?: ProcessRunner;
   fs?: FileSystem;
   clock?: Clock;
@@ -124,7 +124,7 @@ export function projectForRequest(
   );
 }
 
-export interface ResolvePolicyOptions {
+interface ResolvePolicyOptions {
   workspace: Workspace;
   project: ProjectConfig;
   activity: Activity;

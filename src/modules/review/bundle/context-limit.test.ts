@@ -11,7 +11,7 @@ import { TempRepo } from '#testing/fixtures/temp-repo';
 import { isAmbicodeError } from '#util/errors';
 import { REVIEW_OPTIONS } from '#cli/types/commands';
 import type { Runtime } from '#types/composition';
-import type { Reviewer, ReviewerInvocation, ReviewerRequest } from '#types/ports';
+import type { Reviewer, ReviewerInvocation, ReviewerRequest } from '#types/platform/ports';
 
 const JIRA = 'https://example.atlassian.net/browse/ORD-17';
 

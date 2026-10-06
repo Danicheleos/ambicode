@@ -1,13 +1,13 @@
 /** The host comes from the URL, never the checkout, so a review cannot silently ask the wrong server. */
 
-export interface GitLabMergeRequestRef {
+interface GitLabMergeRequestRef {
   host: string;
   projectPath: string;
   mergeRequestIid: number;
   canonicalUrl: string;
 }
 
-export type ParsedMergeRequestUrl =
+type ParsedMergeRequestUrl =
   | { kind: 'ok'; ref: GitLabMergeRequestRef }
   | { kind: 'invalid'; reason: string; details: string[] };
 

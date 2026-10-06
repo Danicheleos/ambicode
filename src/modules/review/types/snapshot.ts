@@ -1,5 +1,5 @@
-import type { DiffFile } from '#types/git';
-import type { ReviewTarget } from '#types/review';
+import type { DiffFile } from '#types/platform/git';
+import type { ReviewTarget } from '#types/modules/review';
 
 /**
  * A revision is immutable; the working tree is read once at target resolution and

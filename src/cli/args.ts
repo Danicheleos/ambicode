@@ -1,5 +1,5 @@
 import { parseArgs as nodeParseArgs } from 'node:util';
-import { AmbicodeError } from '#util/errors';
+import { AmbicodeError, messageOf } from '#util/errors';
 import type { OptionSpec, ParsedArgs } from './types/cli.ts';
 
 type NodeOption = { type: 'boolean' | 'string'; multiple?: boolean };
@@ -61,7 +61,7 @@ export function parseArgs(command: string, argv: readonly string[], spec: Option
 
 function badArgument(command: string, spec: OptionSpec, error: unknown): AmbicodeError {
   const valued = [...(spec.values ?? []), ...(spec.repeated ?? [])];
-  const message = error instanceof Error ? error.message : String(error);
+  const message = messageOf(error);
   const code = (error as { code?: unknown }).code;
   const summary =
     code === 'ERR_PARSE_ARGS_UNKNOWN_OPTION'

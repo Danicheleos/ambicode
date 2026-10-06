@@ -25,7 +25,7 @@ import { renderWorkerRun, runWorkerCommand } from './commands/workers/worker.ts'
 import { validateTargetArgs } from './options/target-option.ts';
 import { PREPARE_OPTIONS, ROUTE_START_OPTIONS } from '#types/cli';
 import type { Runtime } from '#types/composition';
-import { MAX_HOOK_INPUT_BYTES } from '#hook/types/events';
+import { MAX_HOOK_INPUT_BYTES } from '#types/hook';
 import type { JsonFormat } from '#types/util';
 import type { OptionSpec, ParsedArgs } from './types/cli.ts';
 import { BUNDLE_OPTIONS, CONFIG_OPTIONS, INIT_OPTIONS, DOCTOR_OPTIONS, RULES_APPLY_OPTIONS, RULES_DISCOVER_OPTIONS, RULES_REVERT_OPTIONS, LOCATE_OPTIONS, CHECK_OPTIONS, FORMAT_OPTIONS, NOTE_LIST_OPTIONS, NOTE_PROMOTE_OPTIONS, NOTE_SAVE_OPTIONS, PLAN_CHECK_OPTIONS, POLICY_OPTIONS, POLICY_CHECK_OPTIONS, REPORT_OPTIONS, FIND_OPTIONS, INDEX_OPTIONS, MAP_OPTIONS, REFS_OPTIONS, RELATES_OPTIONS, REQUIREMENTS_ACS_OPTIONS, REQUIREMENTS_NORMALIZE_OPTIONS, REQUIREMENTS_TEMPLATE_OPTIONS, ROUTE_NEXT_OPTIONS, ROUTE_STATUS_OPTIONS, ROUTE_STOP_OPTIONS, REVIEW_OPTIONS, WORKER_RUN_OPTIONS, type ViewOutput } from './types/commands.ts';

@@ -7,12 +7,12 @@ import type { ParsedSubmission } from '../types/page.ts';
  */
 
 /** Longer than this is a paste, not a review comment. */
-export const MAX_FIELD_BYTES = 16 * 1024;
-export const SELECT_PREFIX = 'select_';
-export const BODY_PREFIX = 'body_';
+const MAX_FIELD_BYTES = 16 * 1024;
+const SELECT_PREFIX = 'select_';
+const BODY_PREFIX = 'body_';
 const FIXED_FIELDS = new Set(['_csrf', 'submissionId']);
 
-export interface ParseSubmissionOptions {
+interface ParseSubmissionOptions {
   body: unknown;
   knownFindingIds: ReadonlySet<string>;
   publishableFindingIds: ReadonlySet<string>;

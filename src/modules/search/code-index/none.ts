@@ -1,5 +1,5 @@
 import { indexStatus } from './adapter.ts';
-import type { IndexAdapter } from '#types/search';
+import type { IndexAdapter } from '#types/modules/search';
 
 /** No index: every query answers "not ok" so callers fall back and say `index: none` (05-A2). */
 export function noneAdapter(): IndexAdapter {

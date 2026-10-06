@@ -8,7 +8,7 @@ import { AmbicodeError } from '#util/errors';
 import type { Runtime } from '#types/composition';
 import type { ParsedArgs } from '../../types/cli.ts';
 
-export type ReportOutput = ReturnType<typeof buildReport>;
+type ReportOutput = ReturnType<typeof buildReport>;
 
 /** Entries a later revise superseded are marked historical, per the latest route's windows (D10). */
 export async function runReport(runtime: Runtime, args: ParsedArgs): Promise<ReportOutput> {

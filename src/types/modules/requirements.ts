@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import type { Runtime } from './composition.ts';
+import type { Runtime } from '../composition.ts';
 import type { TaskDir, LockedLedger } from './evidence.ts';
-import type { RouteView, RouteArgs } from './harness.ts';
+import type { RouteView, RouteArgs } from '../harness.ts';
 
 /** `source-free` means no requirement URL was supplied; it is not a claim about quality. */
 export const RequirementMode = z.enum(['source-free', 'requirement-based']);
@@ -121,3 +121,6 @@ export interface NormalizedRequirements {
 
 /** `inline`: evidence a route already holds, e.g. its requirement envelope. */
 export type EvidenceSource = { kind: 'stdin' } | { kind: 'file'; path: string } | { kind: 'inline'; evidence: RequirementEvidence };
+
+/** The code of the ground step's recoverable failure that carries the chosen-keys instruction; once per answer. */
+export const EXPANSION_FETCH = 'requirements-expansion-fetch';

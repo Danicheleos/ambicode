@@ -1,7 +1,7 @@
 import path from 'node:path';
-import type { SubmissionRecord } from '#types/publication';
-import type { ReviewResult, SelectionRecord } from '#types/review';
-import type { FileSystem } from '#types/ports';
+import type { SubmissionRecord } from '#types/modules/publication';
+import type { ReviewResult, SelectionRecord } from '#types/modules/review';
+import type { FileSystem } from '#types/platform/ports';
 import type { ParsedSubmission, PageModel } from '../types/page.ts';
 
 export const METRICS_FILE = 'metrics.jsonl';

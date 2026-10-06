@@ -1,4 +1,3 @@
-import type { TypedEntry } from '#modules/evidence/ledger/kinds';
 import { AmbicodeError } from '#util/errors';
 import { readLedgerStrict } from '#modules/evidence/ledger/ledger';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
@@ -6,7 +5,7 @@ import { evaluateConsent } from '../gates/consent.ts';
 import { buildChain, exitOf, foldRoute, latestRouteOf, matches, windowOf } from './fold.ts';
 import { ownerOf, OWNING_SKILLS } from '../session/ownership.ts';
 import type { Runtime } from '#types/composition';
-import type { ArtifactRef, LedgerEntry } from '#types/evidence';
+import type { ArtifactRef, LedgerEntry } from '#types/modules/evidence';
 import type { RouteDef, RouteRegistry, RouteView, StartChannel, RouteContextPort } from '#types/harness';
 import type { Chain, ConsentBinding } from '../types/engine.ts';
 
@@ -22,7 +21,7 @@ export async function readEntries(runtime: Runtime, task: string): Promise<Ledge
   return read.state === 'ok' ? read.entries : [];
 }
 
-export function viewOf(task: string, def: RouteDef, chain: Chain): RouteView {
+function viewOf(task: string, def: RouteDef, chain: Chain): RouteView {
   const head = chain.head;
   const fold = foldRoute(def, chain);
   return {

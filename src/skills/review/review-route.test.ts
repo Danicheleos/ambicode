@@ -10,7 +10,7 @@ import { nodeFileSystem } from '#platform/ports/filesystem';
 import { defaultHandlers } from '#harness/engine/handlers';
 import { MAX_INSTRUCTION_CHARS, loadRouteRegistry } from '#harness/definition/routes';
 import { buildReport } from '#modules/evidence/report/report';
-import { TASK } from '#testing/fixtures/check-fixture';
+import { CHECK_TASK } from '#testing/fixtures/check-fixture';
 import { taskFixture } from '#testing/fixtures/task-fixture';
 import { reviewRouteFixture } from '#testing/fixtures/review-route-fixture';
 import { metricsIgnoreWarning, reviewCommand } from './handlers.ts';
@@ -257,7 +257,7 @@ describe('review route: the estimate gate (08-R4, 08-R5, S12, S14)', () => {
 });
 
 describe('review route: step texts, ceilings and the ignore warning (08-R6, 08-B1, 08-R7)', () => {
-  const read = async (name: string): Promise<string> => (await readFile(path.join(REPO_ROOT, 'routes', 'steps', `${name}.md`), 'utf8')).replaceAll('{cli}', `node "${REPO_ROOT}/scripts/ambicode.mjs"`).replaceAll('{task}', TASK);
+  const read = async (name: string): Promise<string> => (await readFile(path.join(REPO_ROOT, 'routes', 'steps', `${name}.md`), 'utf8')).replaceAll('{cli}', `node "${REPO_ROOT}/scripts/ambicode.mjs"`).replaceAll('{task}', CHECK_TASK);
 
   it('08-R6/08-B1: each review step text is at most 1,500 characters after inclusion', async () => {
     assert.equal(MAX_INSTRUCTION_CHARS, 1500);
@@ -313,7 +313,7 @@ describe('review --task under the review route (08-R8)', () => {
     const calls = { n: 0 };
     return { calls, deps: { reviewer: { async invoke() { calls.n += 1; return { kind: 'ok', output: { findings: [], coverageNotes: [] }, rawLength: 2, argv: ['claude'] } as never; } } as never, warm: async () => {} } };
   };
-  const review = (t: Fixture, deps: ReviewDependencies, ...extra: string[]) => runReview(t.runtime, parseArgs('review', ['--task', TASK, ...extra], REVIEW_OPTIONS), deps);
+  const review = (t: Fixture, deps: ReviewDependencies, ...extra: string[]) => runReview(t.runtime, parseArgs('review', ['--task', CHECK_TASK, ...extra], REVIEW_OPTIONS), deps);
 
   it('08-R8: without an honoured run the command refuses review-not-accepted and writes no review; no baseline-missing is raised', async () => {
     await withReview(async (t) => {

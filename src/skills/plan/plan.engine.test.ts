@@ -2,11 +2,11 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
-import { TASK, planFixture } from '#testing/fixtures/plan-fixture';
+import { PLAN_TASK, planFixture } from '#testing/fixtures/plan-fixture';
 
 const lastPrint = async (plan: Awaited<ReturnType<typeof planFixture>>) => (await plan.prints()).at(-1)!;
 const planFiles = async (plan: Awaited<ReturnType<typeof planFixture>>, prefix: string) =>
-  (await readdir(path.join(plan.fx.repo.root, '.ambicode', 'task', TASK))).filter((name) => name.startsWith(prefix));
+  (await readdir(path.join(plan.fx.repo.root, '.ambicode', 'task', PLAN_TASK))).filter((name) => name.startsWith(prefix));
 
 describe('plan-shaped route: reaching the gate', () => {
   it('prints plan-accept for the draft the check saved, with its identity and the marker', async () => {
@@ -26,7 +26,7 @@ describe('plan-shaped route: reaching the gate', () => {
   });
 });
 
-const answers = async (plan: Awaited<ReturnType<typeof planFixture>>, kind: string) => plan.fx.kinds(TASK, kind);
+const answers = async (plan: Awaited<ReturnType<typeof planFixture>>, kind: string) => plan.fx.kinds(PLAN_TASK, kind);
 
 describe('S1 untrusted model flag cannot accept', () => {
   it('declines --answer plan-accept=Accept as acting-needs-human and promotes nothing', async () => {
@@ -39,7 +39,7 @@ describe('S1 untrusted model flag cannot accept', () => {
       assert.equal(declined.at(-1)!['via'], 'flag');
       assert.equal(gate.position, 'plan-accept');
       assert.equal((await planFiles(plan, 'plan_')).length, 0);
-      assert.equal((await plan.fx.kinds(TASK, 'note')).filter((entry) => entry['note'] === 'plan').length, 0);
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'note')).filter((entry) => entry['note'] === 'plan').length, 0);
     } finally {
       await plan.dispose();
     }
@@ -65,7 +65,7 @@ describe('S3 re-accept after a new draft', () => {
       assert.equal((await planFiles(plan, 'plan_')).length, 1);
       const again = await plan.promote();
       assert.equal(again.outcome, 'plan-already-promoted');
-      assert.equal((await plan.fx.kinds(TASK, 'note')).filter((entry) => entry['note'] === 'plan').length, 1);
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'note')).filter((entry) => entry['note'] === 'plan').length, 1);
     } finally {
       await plan.dispose();
     }
@@ -82,9 +82,9 @@ describe('S4 write/check repair loop', () => {
       await plan.body('# Plan\n');
       let message = await plan.next();
       for (let attempt = 0; attempt < 6 && message.position !== 'complete'; attempt += 1) message = await plan.next();
-      const limits = await plan.fx.kinds(TASK, 'limit');
+      const limits = await plan.fx.kinds(PLAN_TASK, 'limit');
       assert.ok(limits.some((entry) => entry['which'] === 'repeat' && entry['step'] === 'plan-write'));
-      const revises = (await plan.fx.kinds(TASK, 'revise')).filter((entry) => entry['via'] === 'code');
+      const revises = (await plan.fx.kinds(PLAN_TASK, 'revise')).filter((entry) => entry['via'] === 'code');
       assert.equal(revises.length, 2);
       assert.equal(plan.state.checks, 3);
     } finally {
@@ -100,10 +100,10 @@ describe('S5 model revise vs human Revise', () => {
       await plan.toGate();
       const print = await lastPrint(plan);
       await plan.next({ answers: [{ gate: 'plan-accept', option: 'Revise' }] });
-      const flagRevise = (await plan.fx.kinds(TASK, 'revise')).at(-1)!;
+      const flagRevise = (await plan.fx.kinds(PLAN_TASK, 'revise')).at(-1)!;
       assert.equal(flagRevise['via'], 'model');
       assert.equal(flagRevise['from'], 'design');
-      assert.equal((await plan.fx.kinds(TASK, 'step')).at(-1)!['step'], 'design');
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'step')).at(-1)!['step'], 'design');
       void print;
     } finally {
       await plan.dispose();

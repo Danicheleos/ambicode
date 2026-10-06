@@ -3,10 +3,11 @@ import assert from 'node:assert/strict';
 import { parseArgs } from '#cli/args';
 import { runReview } from '#cli/commands/review/review';
 import { runCheckOnly } from '#modules/checks/run/check-command';
-import { A, checkFixture, TASK } from '#testing/fixtures/check-fixture';
+import { checkFixture, CHECK_TASK } from '#testing/fixtures/check-fixture';
 import { taskFixture } from '#testing/fixtures/task-fixture';
 import { REVIEW_OPTIONS } from '#cli/types/commands';
-import type { CheckDeps } from '#types/checks';
+import type { CheckDeps } from '#types/modules/checks';
+import { SESSION_A } from '#testing/fixtures/ids';
 
 const reviewer = { async invoke() { return { kind: 'ok', output: { findings: [], coverageNotes: [] }, rawLength: 2, argv: ['claude'] } as never; } };
 const NEVER: CheckDeps['warm'] = () => new Promise(() => {});
@@ -22,9 +23,9 @@ describe('index warm is detached (07-G3)', () => {
       const f = await checkFixture();
       try {
         await f.start();
-        const outcome = await withinMs(runCheckOnly({ ...f.deps(A), warm: async (...rest) => { calls.push('warm'); return warm!(...rest); } }, { task: TASK, key: 'app/unit', only: ['src/a.spec.ts'], phase: 'red', approve: [], decline: [] }));
+        const outcome = await withinMs(runCheckOnly({ ...f.deps(SESSION_A), warm: async (...rest) => { calls.push('warm'); return warm!(...rest); } }, { task: CHECK_TASK, key: 'app/unit', only: ['src/a.spec.ts'], phase: 'red', approve: [], decline: [] }));
         assert.ok(outcome !== undefined);
-        assert.equal((await f.fx.kinds(TASK, 'check')).length, 1);
+        assert.equal((await f.fx.kinds(CHECK_TASK, 'check')).length, 1);
         await new Promise((resolve) => setImmediate(resolve));
         assert.deepEqual(calls, ['warm']);
       } finally {
@@ -42,7 +43,7 @@ describe('index warm is detached (07-G3)', () => {
         await t.check('green', { ran: 1, failed: 0 });
         await t.format();
         await t.hook('review-offer', 'run');
-        const out = await withinMs(runReview(t.runtime, parseArgs('review', ['--task', TASK], REVIEW_OPTIONS), { reviewer: reviewer as never, warm: async (...rest) => { calls.push('warm'); return warm!(...rest); } }));
+        const out = await withinMs(runReview(t.runtime, parseArgs('review', ['--task', CHECK_TASK], REVIEW_OPTIONS), { reviewer: reviewer as never, warm: async (...rest) => { calls.push('warm'); return warm!(...rest); } }));
         assert.equal(out.command, 'review');
         assert.equal((await t.kinds('review')).length, 1);
         await new Promise((resolve) => setImmediate(resolve));

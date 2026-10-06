@@ -9,7 +9,7 @@ import { withLedgerLock } from '#modules/evidence/ledger/ledger-lock';
 import { taskDirFor } from '#modules/evidence/task/task-dir';
 import { anySessionEnded, sessionEnded } from '../session/markers.ts';
 import type { Runtime } from '#types/composition';
-import type { LedgerEntry } from '#types/evidence';
+import type { LedgerEntry } from '#types/modules/evidence';
 import type { ActiveRoutePointer } from '#types/harness';
 
 /**

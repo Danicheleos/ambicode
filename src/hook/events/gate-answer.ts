@@ -3,7 +3,7 @@ import { AskUserQuestionResponse, type HookInput, type RouteHookDeps } from '#ty
 import { resolveActiveRoute } from '#harness/session/active-route';
 import { readLedger } from '#modules/evidence/ledger/ledger';
 import { taskDirFor } from '#modules/evidence/task/task-dir';
-import { PLATFORM, type PlatformFlags } from '#types/claude-platform';
+import { PLATFORM, type PlatformFlags } from '#types/platform/claude';
 import type { Runtime } from '#types/composition';
 import { MARKER, type Answer } from '#types/harness';
 

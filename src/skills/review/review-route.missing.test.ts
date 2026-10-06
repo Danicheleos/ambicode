@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { captureRequirement } from '#modules/requirements/capture/capture';
 import { normalizeEnvelope } from '#modules/requirements/envelope/envelope';
-import { jira, mcp, search, A } from '#testing/fixtures/requirements-session';
+import { jira, mcp, search } from '#testing/fixtures/requirements-session';
 import { runReview } from '#cli/commands/review/review';
 import { parseArgs } from '#cli/args';
 import { createRuntime } from '#composition/root';
@@ -19,7 +19,8 @@ import { CONFIG, routeFixture, type RouteFixture } from '#testing/fixtures/route
 import { REPO_ROOT } from '#testing/paths';
 import { REVIEW_OPTIONS } from '#cli/types/commands';
 import type { RouteArgs } from '#types/harness';
-import type { CaptureDeps, EnvelopeInput } from '#types/requirements';
+import type { CaptureDeps, EnvelopeInput } from '#types/modules/requirements';
+import { SESSION_A } from '#testing/fixtures/ids';
 
 const GET = 'mcp__atlassian__getJiraIssue';
 const AMBIGUOUS = 'requirements-server-ambiguous';
@@ -43,23 +44,23 @@ async function shipped(options: { requirements?: string[]; headless?: boolean; s
   await fx.repo.commitAll('a');
   await fx.repo.write('src/a.ts', 'export const a = 2;\n');
   await fx.engine.start({
-    skill: 'review', text: 'review it', requirements: options.requirements ?? TWO_URLS, task: TASK, cwd: fx.repo.root, session: A, channel: 'hook',
+    skill: 'review', text: 'review it', requirements: options.requirements ?? TWO_URLS, task: TASK, cwd: fx.repo.root, session: SESSION_A, channel: 'hook',
     scratchpadDir: fx.scratchpad, ...(options.headless === true ? { headless: true } : {}),
   });
   const dir = await resolveTaskDir(fx.runtime, TASK);
   const args = ((await fx.kinds(TASK, 'route'))[0]!['args']) as RouteArgs;
   const under = <T>(body: (deps: Omit<CaptureDeps, 'mcpServer' | 'asked'> & { fx: RouteFixture }) => Promise<T>): Promise<T> =>
-    withLedgerLock(fx.runtime.fs, dir.root, () => new Date(), A, async (ledger) => {
-      const view = (await openRouteView(fx.runtime, fx.routes, TASK, A))!;
+    withLedgerLock(fx.runtime.fs, dir.root, () => new Date(), SESSION_A, async (ledger) => {
+      const view = (await openRouteView(fx.runtime, fx.routes, TASK, SESSION_A))!;
       return body({ runtime: fx.runtime, dir, ledger, view, fx });
     });
   const capture = (tool: string, response: unknown, extra: { server?: string | null; asked?: string[]; input?: Record<string, unknown> } = {}) =>
     under((deps) => captureRequirement(
-      { hook_event_name: 'PostToolUse', session_id: A, tool_name: tool, tool_response: response, ...(extra.input === undefined ? {} : { tool_input: extra.input }) } as never,
+      { hook_event_name: 'PostToolUse', session_id: SESSION_A, tool_name: tool, tool_response: response, ...(extra.input === undefined ? {} : { tool_input: extra.input }) } as never,
       { ...deps, mcpServer: extra.server === undefined ? server : extra.server, asked: extra.asked ?? [TASK] },
     ));
   const normalize = (overrides: Partial<EnvelopeInput> = {}) => under((deps) => normalizeEnvelope({ ...deps, args, mcpServer: server, ...overrides }));
-  const next = (input: Partial<Parameters<typeof fx.engine.advance>[0]> = {}) => fx.engine.advance({ task: TASK, session: A, cause: 'route-next', scratchpadDir: fx.scratchpad, ...input });
+  const next = (input: Partial<Parameters<typeof fx.engine.advance>[0]> = {}) => fx.engine.advance({ task: TASK, session: SESSION_A, cause: 'route-next', scratchpadDir: fx.scratchpad, ...input });
   const exits = async (): Promise<string[]> => (await fx.kinds(TASK, 'exit')).map((entry) => String(entry['reason']));
   return { fx, task: TASK, capture, normalize, next, exits };
 }

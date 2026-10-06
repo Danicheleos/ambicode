@@ -2,10 +2,9 @@ import type {
   CommentDraft,
   PublicationOutcome,
   PublicationPositions,
-} from '#types/publication';
+} from '#types/modules/publication';
 import type { PublicationState } from '#types/primitives';
-import type { CoverageGap } from '#types/provider';
-import type { ReviewResult } from '#types/review';
+import type { ReviewResult } from '#types/modules/review';
 import type { LastSubmission, PageModel, FindingCard } from '../types/page.ts';
 
 /**
@@ -14,7 +13,7 @@ import type { LastSubmission, PageModel, FindingCard } from '../types/page.ts';
  * cookie, credential or secret beyond the per-form CSRF token.
  */
 
-export interface BuildModelOptions {
+interface BuildModelOptions {
   result: ReviewResult;
   positions: PublicationPositions | null;
   drafts: readonly CommentDraft[];

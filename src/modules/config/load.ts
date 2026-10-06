@@ -1,11 +1,11 @@
 import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
-import { AmbicodeConfig, SUPPORTED_SCHEMA_VERSION } from '#types/config';
-import { AmbicodeError } from '#util/errors';
+import { AmbicodeConfig, SUPPORTED_SCHEMA_VERSION } from '#types/modules/config';
+import { AmbicodeError, messageOf } from '#util/errors';
 import { normalizeRelative } from '#util/paths';
 import { CONFIG_FILE } from '#types/defaults';
-import type { FileSystem } from '#types/ports';
+import type { FileSystem } from '#types/platform/ports';
 
 export interface LoadedConfig {
   config: AmbicodeConfig;
@@ -60,7 +60,7 @@ export function parseConfigWithNotices(raw: string): ConfigWithNotices {
   } catch (cause) {
     throw new AmbicodeError('config-unparsable', `${CONFIG_FILE} is not valid YAML.`, {
       field: CONFIG_FILE,
-      details: [cause instanceof Error ? cause.message : String(cause)],
+      details: [messageOf(cause)],
     });
   }
   if (document === null || typeof document !== 'object' || Array.isArray(document)) {

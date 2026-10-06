@@ -1,8 +1,9 @@
 import path from 'node:path';
 import type { Ecosystem } from '#types/primitives';
 import type { Runtime } from '#types/composition';
-import type { DirectoryEntry, FileSystem } from '#types/ports';
+import type { DirectoryEntry, FileSystem } from '#types/platform/ports';
 import type { DetectedProject, DetectedFormat, DetectedCommand } from '../types/init.ts';
+import { isObject } from '#util/guards';
 
 const SKIP_DIRECTORIES = new Set([
   '.git',
@@ -399,7 +400,6 @@ export async function detectBaseline(
 
 const SCAN_TIMEOUT_MS = 10_000;
 const SCAN_MAX_OUTPUT_BYTES = 65_536;
-const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 
 /** `codeindex scan`'s languages and file count for `profile.index` (amended 05-A8, 09-P3); null when the output is not that shape.
  * The pinned v2.31.4 CLI emits `fileCount` and `languages` as a histogram (`{typescript: 1, markdown: 1}`). */

@@ -1,8 +1,8 @@
 import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { projectById } from '#composition/root';
-import type { ProjectConfig } from '#types/config';
-import { PolicyPack, DRAFTS_DIR, type Diagnostic, type PackWithPrompts, type DraftsCheck } from '#types/policy';
+import type { ProjectConfig } from '#types/modules/config';
+import { PolicyPack, DRAFTS_DIR, type Diagnostic, type PackWithPrompts, type DraftsCheck } from '#types/modules/policy';
 import { pathExclusionReason } from '#modules/review/snapshot/exclusions';
 import { matchesGlob } from '#util/glob';
 import { contentHash } from '#util/hash';
@@ -10,17 +10,17 @@ import { builtinPoliciesDirectory } from '#util/plugin-root';
 import { loadPacksForProject } from '../packs/load.ts';
 import { readPackText, validatePack, validatePackSet } from '../packs/validate.ts';
 import type { Runtime, Workspace } from '#types/composition';
-import type { TaskDir } from '#types/evidence';
+import type { TaskDir } from '#types/modules/evidence';
 
 /** Highest similarity between two built-in rules, measured over all pairs: 0.522 (angular-style and express-style configured-style). */
 export const DUPLICATE_SIMILARITY = 0.55;
-export const MIN_QUOTE_CHARS = 20;
+const MIN_QUOTE_CHARS = 20;
 
 /** A pack-level problem that keeps a draft from being applied (09-T5); a rule-level quote failure does not. */
 export const blockingProblem = (check: DraftsCheck, root: string, file: string): Diagnostic | undefined =>
   check.diagnostics.find((diagnostic) => diagnostic.where === path.join(root, file) && ((diagnostic.severity === 'error' && diagnostic.code !== 'pack-quote-missing') || diagnostic.code === 'pack-glob-matches-nothing'));
 
-export const collapse = (text: string): string => text.replace(/\s+/g, ' ').trim();
+const collapse = (text: string): string => text.replace(/\s+/g, ' ').trim();
 
 /** 1 − Levenshtein distance / longer length, over lowercased, whitespace-collapsed text. */
 export function similarity(a: string, b: string): number {
@@ -64,7 +64,7 @@ async function capturedContents(runtime: Runtime, taskDir: TaskDir | null, url: 
 }
 
 /** The reason a quote is not verified, or null when it is (09-Q3). */
-export async function quoteProblem(runtime: Runtime, root: string, taskDir: TaskDir | null, source: { quote: string; location: string }): Promise<string | null> {
+async function quoteProblem(runtime: Runtime, root: string, taskDir: TaskDir | null, source: { quote: string; location: string }): Promise<string | null> {
   const quote = collapse(source.quote);
   if (source.location.startsWith('https://')) {
     const captured = await capturedContents(runtime, taskDir, source.location);

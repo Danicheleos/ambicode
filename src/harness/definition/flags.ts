@@ -1,7 +1,7 @@
 import { canonicalUrl } from '#modules/requirements/envelope/normalize';
 import { AmbicodeError } from '#util/errors';
 import { contentHash } from '#util/hash';
-import type { Answer, ReviewTarget, RouteArgs } from '#types/harness';
+import type { Answer, ReviewTargetArgs, RouteArgs } from '#types/harness';
 
 export function parseAnswerFlag(value: string): Answer {
   const at = value.indexOf('=');
@@ -21,7 +21,7 @@ export function canonicalArgs(input: {
   answers: readonly Answer[];
   headless: boolean;
   hasRequirement: boolean;
-  target?: ReviewTarget;
+  target?: ReviewTargetArgs;
 }): RouteArgs {
   const requirements = [...new Set(input.requirements.map(canonicalUrl))].sort();
   const answers = input.answers.map((answer) => `${answer.gate}=${answer.option}`).sort();

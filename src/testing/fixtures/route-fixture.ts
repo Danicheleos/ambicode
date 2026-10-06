@@ -11,7 +11,7 @@ import { nodeFileSystem } from '#platform/ports/filesystem';
 import { TempRepo } from './temp-repo.ts';
 import { REPO_ROOT } from '../paths.ts';
 import type { Runtime } from '#types/composition';
-import { KINDS, type LedgerEntry } from '#types/evidence';
+import { KINDS, type LedgerEntry } from '#types/modules/evidence';
 import { HANDLER_NAMES, type ActiveRoutePointer, type Engine, type Handler, type HandlerRegistry, type RouteDef, type RouteRegistry } from '#types/harness';
 
 

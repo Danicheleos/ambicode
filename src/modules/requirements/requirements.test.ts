@@ -13,7 +13,7 @@ import { splitAcs } from './envelope/acs.ts';
 import { hasRequirement } from './capture/has-requirement.ts';
 import { requirementsTemplate } from './capture/template.ts';
 import type { RouteArgs } from '#types/harness';
-import type { CaptureDeps, EnvelopeInput } from '#types/requirements';
+import type { CaptureDeps, EnvelopeInput } from '#types/modules/requirements';
 
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';
 const ROUTE = `skill: investigate

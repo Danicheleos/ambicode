@@ -1,12 +1,12 @@
 import { Activity } from '#types/primitives';
-import type { ResolvedPolicy, StagePayload } from '#types/policy';
+import type { ResolvedPolicy, StagePayload } from '#types/modules/policy';
 import { openWorkspace, projectById, projectForPath, resolvePolicyFor, toRepositoryRelative } from '#composition/root';
 import { policyStage } from '#modules/policy/stage';
 import { AmbicodeError } from '#util/errors';
 import type { Runtime } from '#types/composition';
 import type { ParsedArgs } from '../../types/cli.ts';
 
-export interface PolicyOutput {
+interface PolicyOutput {
   command: 'policy';
   projectId: string;
   activity: string;

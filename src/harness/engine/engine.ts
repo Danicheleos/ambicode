@@ -25,13 +25,13 @@ import { payloadKey } from './handlers.ts';
 import { ownerOf, OWNING_SKILLS } from '../session/ownership.ts';
 import { append, chainOf, gateFor, latestPrint, viewFor } from './run-context.ts';
 import type { Runtime } from '#types/composition';
-import type { LedgerEntry, LockedLedger, TaskDir } from '#types/evidence';
+import type { LedgerEntry, LockedLedger, TaskDir } from '#types/modules/evidence';
 import type { ActiveRoutePointer, StartChannel, Exit, GateDef, Answer, RouteArgs, HandlerRegistry, RouteRegistry, StepDef, Engine, StepMessage, StartInput, AdvanceInput, Position } from '#types/harness';
 import type { Composed, DeliveryChannel, Run } from '../types/engine.ts';
 
 export type { Answer } from '#types/harness';
 
-export interface EngineDeps { runtime: Runtime; routes: RouteRegistry; handlers: HandlerRegistry; pointer: ActiveRoutePointer; startIndex?: typeof startIndexBuild }
+interface EngineDeps { runtime: Runtime; routes: RouteRegistry; handlers: HandlerRegistry; pointer: ActiveRoutePointer; startIndex?: typeof startIndexBuild }
 
 const inside = new AsyncLocalStorage<true>();
 /** Handlers run inside the engine; a command tail started from one would advance twice (03-T3). */

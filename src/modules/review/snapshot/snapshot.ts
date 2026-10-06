@@ -4,12 +4,12 @@ import { markOwned } from '../page/cleanup.ts';
 import { AmbicodeError } from '#util/errors';
 import { uniqueDirectories } from './content.ts';
 import { describeExclusion, isUselessAsContext, pathExclusionReason } from './exclusions.ts';
-import type { DiffFile } from '#types/git';
-import type { Clock, FileSystem } from '#types/ports';
-import type { SnapshotPlan, SnapshotEntry, Snapshot } from '#types/review';
+import type { DiffFile } from '#types/platform/git';
+import type { Clock, FileSystem } from '#types/platform/ports';
+import type { SnapshotPlan, SnapshotEntry, Snapshot } from '#types/modules/review';
 import type { ContentSource, FileContent, ExclusionReason, OperatorPatterns } from '../types/snapshot.ts';
 
-export const SNAPSHOT_PREFIX = 'ambicode-snapshot-';
+const SNAPSHOT_PREFIX = 'ambicode-snapshot-';
 
 /**
  * A changed file that will not fit stops the review: the reviewer would not see all of
@@ -85,7 +85,7 @@ async function readAll(
   return found;
 }
 
-export interface PlanSnapshotOptions {
+interface PlanSnapshotOptions {
   files: readonly DiffFile[];
   content: ContentSource;
   includeSiblingContext?: boolean;
@@ -325,7 +325,7 @@ export async function writeSnapshot(
   };
 }
 
-export interface BuildSnapshotOptions extends PlanSnapshotOptions {
+interface BuildSnapshotOptions extends PlanSnapshotOptions {
   fs: FileSystem;
   patch: string;
   clock: Clock;

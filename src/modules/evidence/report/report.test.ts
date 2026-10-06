@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import { navigationLine } from './navigation-line.ts';
 import { buildReport } from './report.ts';
 import { contentHash } from '#util/hash';
-import type { LedgerEntry } from '#types/evidence';
+import type { LedgerEntry } from '#types/modules/evidence';
 
 let counter = 0;
 const entry = (kind: string, fields: object = {}): LedgerEntry => ({ id: `a1b2c3d4-${(counter += 1)}`, at: '2026-10-05T10:00:00.000Z', kind, ...fields });

@@ -1,6 +1,6 @@
 import { systemClock } from '#platform/ports/clock';
 import { nodeFileSystem } from '#platform/ports/filesystem';
-import type { FileSystem } from '#types/ports';
+import type { FileSystem } from '#types/platform/ports';
 
 /**
  * The real adapter, not a fake: the point is that a real temporary directory is created,

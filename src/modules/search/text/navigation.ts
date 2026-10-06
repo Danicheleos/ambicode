@@ -1,5 +1,5 @@
 import type { Ecosystem } from '#types/primitives';
-import type { NavigationGuidance } from '#types/search';
+import type { NavigationGuidance } from '#types/modules/search';
 
 // Sent on every call; context-cost.test.ts caps both lines under 100 chars. The full reading guidance is a route step's text.
 const EVIDENCE_REQUIREMENT = 'Only CLI calls (map, refs, find) are recorded. Run find before adding a helper.';

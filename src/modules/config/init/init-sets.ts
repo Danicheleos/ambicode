@@ -1,10 +1,10 @@
 import { AmbicodeError } from '#util/errors';
-import type { SetPair } from '#types/config';
+import type { SetPair } from '#types/modules/config';
 
 const PROJECT_ID = '[a-z0-9]+(?:-[a-z0-9]+)*';
 
 /** The only config slots `init --apply --set` and an *Adjust* answer may set (09-G3). */
-export const SETTABLE_KEYS: readonly RegExp[] = [
+const SETTABLE_KEYS: readonly RegExp[] = [
   /^requirements\.mcpServer$/,
   /^requirements\.acceptanceField$/,
   /^search\.index$/,

@@ -6,10 +6,10 @@ import { liveHeads } from '../engine/fold.ts';
 import type { Runtime } from '#types/composition';
 import type { SessionBinding } from '#types/harness';
 
-export interface SessionSource { resolve(runtime: Runtime): Promise<SessionBinding> }
+interface SessionSource { resolve(runtime: Runtime): Promise<SessionBinding> }
 
 /** Proves a start came from the evaluation harness: the run, the session and the intended start must all match (P58). */
-export interface HarnessTokenPort { validate(runtime: Runtime, session: string, intendedStart: string): Promise<boolean> }
+interface HarnessTokenPort { validate(runtime: Runtime, session: string, intendedStart: string): Promise<boolean> }
 
 /** The owner is the session of the task's one live route chain; none or several are not guessed. */
 export function taskSessionSource(task: string): SessionSource {
@@ -46,7 +46,7 @@ export function updatedInputSessionSource(value: string | null): SessionSource {
   return { resolve: async () => (value === null || value === '' ? { state: 'unbound', reason: 'missing' } : { state: 'bound', session: value, via: 'updated-input' }) };
 }
 
-export const associationDirectory = (runtime: Runtime, repositoryRoot: string): string =>
+const associationDirectory = (runtime: Runtime, repositoryRoot: string): string =>
   path.join(runtime.fs.temporaryRoot(), 'ambicode-hook-state', 'assoc', contentHash(repositoryRoot).replace(/[^a-z0-9]/gi, '').slice(0, 40));
 
 /** Every hook event writes one file per session; the CLI binds only when exactly one exists for its repository. */

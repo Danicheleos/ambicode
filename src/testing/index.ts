@@ -1,8 +1,11 @@
 // Test helpers: fakes and fixtures. Never imported by production code.
-// route-child.ts is a script that runs on import and is not re-exported; plan-fixture's and requirements-session's `A`/`TASK` clash with check-fixture's and are left out.
+// route-child.ts is a script that runs on import and is not re-exported.
 
 // ./: repository paths.
 export { REPO_ROOT, SRC_ROOT } from './paths.ts';
+
+// fixtures/ids.ts: the session ids fixtures and tests share.
+export { SESSION_A, SESSION_B } from './fixtures/ids.ts';
 
 // fakes/: in-memory stand-ins for ports.
 export type { FakeIndexOptions } from './fakes/fake-index.ts';
@@ -24,7 +27,7 @@ export type { ReviewerIo } from './fakes/reviewer-io.ts';
 export { reviewerIo } from './fakes/reviewer-io.ts';
 
 // fixtures/: repositories, routes, pages and results that tests build on.
-export { A, CHECK_CONFIG, COMMAND_PACK, DEMO, SplitRunner, TASK } from './fixtures/check-fixture.ts';
+export { CHECK_CONFIG, COMMAND_PACK, DEMO, SplitRunner, CHECK_TASK } from './fixtures/check-fixture.ts';
 /** checkFixture(options?) — a routeFixture with the check config and command pack, over real git and a scripted runner. */
 export { checkFixture } from './fixtures/check-fixture.ts';
 /** initConfig(runtime, overrides?) — writes a config into the runtime's repository as a user would have. */
@@ -48,7 +51,7 @@ export { hiddenField } from './fixtures/page-harness.ts';
 export { cookieJar } from './fixtures/page-harness.ts';
 /** form(fields) — url-encodes form fields into a request body. */
 export { form } from './fixtures/page-harness.ts';
-export { B, PLAN } from './fixtures/plan-fixture.ts';
+export { PLAN, PLAN_TASK } from './fixtures/plan-fixture.ts';
 export type { PlanFixture, PlanState } from './fixtures/plan-fixture.ts';
 /** planHandlers(state) — scripted handlers for the plan-shaped route, counting checks and steps in `state`. */
 export { planHandlers } from './fixtures/plan-fixture.ts';

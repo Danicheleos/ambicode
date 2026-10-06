@@ -4,11 +4,11 @@ import { AmbicodeError } from '#util/errors';
 import { runPlanCheck } from '#modules/workers/plan-check';
 import { routeTools, taskOf } from '../route/route.ts';
 import type { Runtime } from '#types/composition';
-import { MAX_NOTE_BYTES } from '#types/evidence';
-import type { PlanCheckResult } from '#types/workers';
+import { MAX_NOTE_BYTES } from '#types/modules/evidence';
+import type { PlanCheckResult } from '#types/modules/workers';
 import type { ParsedArgs } from '../../types/cli.ts';
 
-export interface PlanCheckOutput extends PlanCheckResult {
+interface PlanCheckOutput extends PlanCheckResult {
   command: 'plan check';
   task: string;
   draft: string;

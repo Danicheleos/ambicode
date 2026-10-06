@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { AmbicodeError } from './errors.ts';
 import { toPosix } from './glob.ts';
-import type { FileSystem } from '#types/ports';
+import type { FileSystem } from '#types/platform/ports';
 
 /** Repository-relative POSIX path, with no `.`/`..` segments and no leading slash. */
 export function normalizeRelative(value: string): string {
@@ -18,7 +18,7 @@ export function toProjectRelative(projectRoot: string, repositoryRelativePath: s
   return value.startsWith(`${projectRoot}/`) ? value.slice(projectRoot.length + 1) : null;
 }
 
-export function isInside(parent: string, child: string): boolean {
+function isInside(parent: string, child: string): boolean {
   const relative = path.relative(parent, child);
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }

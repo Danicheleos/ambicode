@@ -15,9 +15,9 @@ import { narrowingInForce, reviewCommand } from '#skills/review/handlers';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { REVIEW_OPTIONS } from '#cli/types/commands';
 import type { Runtime } from '#types/composition';
-import type { LedgerEntry } from '#types/evidence';
-import type { FileSystem, ProcessRunner } from '#types/ports';
-import type { ReviewEstimate } from '#types/review';
+import type { LedgerEntry } from '#types/modules/evidence';
+import type { FileSystem, ProcessRunner } from '#types/platform/ports';
+import type { ReviewEstimate } from '#types/modules/review';
 
 const MAP = '{ kind: mapping, mappings: [{ source: ["src/a.ts"], tests: ["src/a.spec.ts"] }] }';
 const MAPPED = CHECK_CONFIG

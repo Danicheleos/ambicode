@@ -6,9 +6,8 @@ import path from 'node:path';
 import { createRuntime } from '#composition/root';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { codeindexAdapter, refreshIndex, runIndexBuild, startIndexBuild } from './codeindex.ts';
-import type { ProcessOutcome, ProcessRequest, ProcessRunner } from '#types/ports';
-import type { IndexStatus } from '#types/search';
-import type { IndexDeps } from '../types/code-index.ts';
+import type { ProcessOutcome, ProcessRequest, ProcessRunner } from '#types/platform/ports';
+import type { IndexStatus, IndexDeps } from '#types/modules/search';
 
 const TS = ['ts', 'tsx', 'js'];
 const SELF = ['/usr/bin/node', '/plugin/ambicode.mjs'];

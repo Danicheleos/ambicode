@@ -1,4 +1,4 @@
-import type { LedgerEntry } from '#types/evidence';
+import type { LedgerEntry } from '#types/modules/evidence';
 
 export interface GuardInput {
   hook_event_name?: string;

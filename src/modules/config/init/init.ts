@@ -1,14 +1,14 @@
 import path from 'node:path';
 import { Document, isMap, isSeq, parseDocument, Scalar, visit, type YAMLMap, type YAMLSeq } from 'yaml';
-import type { AmbicodeConfig, SearchProfile, SetPair } from '#types/config';
+import type { AmbicodeConfig, SearchProfile, SetPair } from '#types/modules/config';
 import { normalizeRelative } from '#util/paths';
 import { CONFIG_FILE, DEFAULTS, SEARCH_LAYER_DEFAULTS, TEST_EXCLUDES } from '#types/defaults';
 import { sourceGlob } from '#modules/search/declarations/profile';
 import { suggestedPacks } from './detect.ts';
 import { projectOfKey } from './init-sets.ts';
 import { parseConfig } from '../load.ts';
-import { GENERIC_PROFILE } from '#modules/types/search';
-import type { FileSystem } from '#types/ports';
+import { GENERIC_PROFILE } from '#types/modules/search';
+import type { FileSystem } from '#types/platform/ports';
 import type { DetectedProject, PlanInitOptions } from '../types/init.ts';
 
 interface PreservedFlowSeq { node: YAMLSeq; originalText: string; snapshot: string }
@@ -51,7 +51,7 @@ function stringifyPreserving(document: Document, preserved: readonly PreservedFl
   return text;
 }
 
-export interface InitPlan {
+interface InitPlan {
   yaml: string | null;
   created: boolean;
   changes: string[];

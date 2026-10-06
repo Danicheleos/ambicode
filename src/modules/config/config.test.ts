@@ -7,7 +7,7 @@ import { createRuntime, openWorkspace } from '#composition/root';
 import { Ecosystem } from '#types/primitives';
 import { TEST_EXCLUDES } from '#types/defaults';
 import { sourceGlob } from '#modules/search/declarations/profile';
-import { DECLARATION_PATTERNS } from '#modules/types/ecosystems';
+import { DECLARATION_PATTERNS } from '#types/modules/ecosystems';
 import { detectProjects } from './init/detect.ts';
 import { planInit } from './init/init.ts';
 import { loadConfig, loadConfigWithNotices, parseConfig, parseConfigWithNotices, validateArgv } from './load.ts';
@@ -15,7 +15,7 @@ import { loadPacksForProject } from '#modules/policy/packs/load';
 import { mostSpecificRoot, normalizeRelative, toProjectRelative } from '#util/paths';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { REPO_ROOT } from '#testing/paths';
-import { GENERIC_PROFILE } from '#modules/types/search';
+import { GENERIC_PROFILE } from '#types/modules/search';
 
 async function sandbox(t: { after(fn: () => unknown): void }): Promise<string> {
   const directory = await mkdtemp(path.join(tmpdir(), 'ambicode-config-'));

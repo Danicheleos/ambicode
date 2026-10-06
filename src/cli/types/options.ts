@@ -1,5 +1,5 @@
-import type { EvidenceSource } from '#types/requirements';
-import type { TargetSelection } from '#types/review';
+import type { EvidenceSource } from '#types/modules/requirements';
+import type { TargetSelection } from '#types/modules/review';
 
 /**
  * Shared by `review` and `bundle`. `validateTargetArgs` must stay pure: `main`

@@ -8,7 +8,7 @@ import { runBundle } from './bundle.ts';
 import { initConfig } from '#testing/fixtures/init-config';
 import { runReview } from './review.ts';
 import { TempRepo } from '#testing/fixtures/temp-repo';
-import type { FileSystem, Reviewer, ReviewerInvocation } from '#types/ports';
+import type { FileSystem, Reviewer, ReviewerInvocation } from '#types/platform/ports';
 import { BUNDLE_OPTIONS, REVIEW_OPTIONS } from '../../types/commands.ts';
 
 function recording(inner: FileSystem): { fs: FileSystem; writes: string[]; dirs: string[] } {

@@ -6,7 +6,7 @@ import { nodeFileSystem } from '#platform/ports/filesystem';
 import { resolveEnvironment } from '#platform/ports/process';
 import { FakeProcessRunner } from '#testing/fakes/fake-process-runner';
 import { reviewerIo } from '#testing/fakes/reviewer-io';
-import { STRUCTURED_OUTPUT_ATTEMPTS, WORKER_ENV_ALLOWLIST } from '#modules/types/workers';
+import { STRUCTURED_OUTPUT_ATTEMPTS, WORKER_ENV_ALLOWLIST } from '#types/modules/workers';
 import { defaultWorkerEnvironment } from '#modules/workers/process-runner';
 import { ClaudeReviewer, parseReviewerOutput } from './claude-reviewer.ts';
 import { REPO_ROOT } from '#testing/paths';

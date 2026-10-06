@@ -4,15 +4,15 @@ import { indexDepsOf, startIndexBuild } from '#modules/search/code-index/codeind
 import { refs } from '#modules/search/declarations/refs';
 import { touchedSet, captureBaseline } from '#modules/checks/workspace/baseline';
 import { evaluateReview } from '#modules/checks/review-evaluation';
-import { ReviewResult } from '#types/review';
+import { ReviewResult } from '#types/modules/review';
 import { estimateReview, renderEstimate } from '#modules/review/bundle/estimate';
 import { buildChain, currentIn } from '#harness/engine/fold';
 import { onGatePrint, onRaisedAnswer, raiseGate } from '#harness/gates/gates';
 import { chainEntries, configOf, isResult, projectOf } from '../common.ts';
 import { isAmbicodeError } from '#util/errors';
 import { buildReport } from '#modules/evidence/report/report';
-import type { BaselineEntryFields, ReviewEntry } from '#types/checks';
-import type { LedgerEntry } from '#types/evidence';
+import type { BaselineEntryFields, ReviewEntry } from '#types/modules/checks';
+import type { LedgerEntry } from '#types/modules/evidence';
 import type { Handler, HandlerInput, HandlerResult } from '#types/harness';
 
 const MAX_START_BYTES = 4096;

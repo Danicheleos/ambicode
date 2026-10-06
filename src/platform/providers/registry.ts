@@ -1,5 +1,5 @@
 import type { ProviderId } from '#types/primitives';
-import type { ReviewProvider } from '#types/provider';
+import type { ReviewProvider } from '#types/platform/provider';
 import { AmbicodeError } from '#util/errors';
 
 /** The only place a provider is chosen; no other module may switch on a provider name. */

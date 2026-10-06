@@ -1,15 +1,14 @@
 import path from 'node:path';
-import type { ReviewTarget } from '#types/review';
 import { combineDiff } from '#platform/git/diff';
 import { Git } from '#platform/git/git';
 import { AmbicodeError } from '#util/errors';
 import { contentHash } from '#util/hash';
 import { captureWorkingTree, revisionContent } from './content.ts';
-import type { DiffFile } from '#types/git';
-import type { FileSystem } from '#types/ports';
+import type { DiffFile } from '#types/platform/git';
+import type { FileSystem } from '#types/platform/ports';
 import type { TargetResolution } from '../types/snapshot.ts';
 
-export interface WorkingTargetOptions {
+interface WorkingTargetOptions {
   fs: FileSystem;
   git: Git;
   repositoryRoot: string;
@@ -106,7 +105,7 @@ export async function resolveWorkingTarget(options: WorkingTargetOptions): Promi
   }
 }
 
-export interface BranchTargetOptions {
+interface BranchTargetOptions {
   git: Git;
   repositoryRoot: string;
   baseRef: string;

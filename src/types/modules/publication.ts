@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { PublicationState, ProviderId } from './primitives.ts';
-import { RemotePosition, RemoteTarget } from './provider.ts';
+import { PublicationState, ProviderId } from '../primitives.ts';
+import { RemotePosition, RemoteTarget } from '../platform/provider.ts';
 
 /**
  * Positions are derived once from the pinned diff and never recomputed on reopen:
@@ -98,4 +98,9 @@ export function emptyPublicationRecord(reviewId: string, at: string): Publicatio
 /** The comment exists on the merge request; re-sending it would duplicate it, so publication refuses. */
 export function isSettled(state: PublicationState): boolean {
   return state === 'published' || state === 'already-published';
+}
+
+export interface SelectedComment {
+  findingId: string;
+  body: string;
 }

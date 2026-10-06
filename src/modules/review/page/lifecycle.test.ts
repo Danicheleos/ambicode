@@ -14,7 +14,7 @@ import {
   startHarness,
 } from '#testing/fixtures/page-harness';
 import { SRC_ROOT } from '#testing/paths';
-import type { FileSystem } from '#types/ports';
+import type { FileSystem } from '#types/platform/ports';
 import { TAKEOVER_HEADER } from '../types/page.ts';
 
 describe('U24 the page stops on its own', () => {

@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AmbicodeError } from './errors.ts';
-import type { FileSystem } from '#types/ports';
+import type { FileSystem } from '#types/platform/ports';
 
 /**
  * `CLAUDE_PLUGIN_ROOT` when Claude Code exports it, else an upward search, so the

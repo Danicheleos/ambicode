@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { REVIEWER_TOOLS, REVIEWER_REPLAY_VARIABLE, type ReviewResult, type ReviewerRun, type ReviewBundle, type TargetSelection, type ReviewEstimate } from '#types/review';
+import { REVIEWER_TOOLS, REVIEWER_REPLAY_VARIABLE, CHECKS_GATE, type ReviewResult, type ReviewerRun, type ReviewBundle, type TargetSelection, type ReviewEstimate } from '#types/modules/review';
 import { ClaudeReviewer } from '#modules/review/reviewer/claude-reviewer';
 import { ReplayReviewer } from '#modules/review/reviewer/replay-reviewer';
 import { assembleBundle, writeBundleArtifacts } from '#modules/review/bundle/bundle';
@@ -19,13 +19,12 @@ import { ledgerRouteContext, readEntries } from '#harness/engine/context';
 import { runCommandTail } from '#harness/engine/command-tail';
 import { AmbicodeError } from '#util/errors';
 import { routeTools } from '../route/route.ts';
-import { GATE, type PendingApproval, type CheckDeps, type Routed } from '#types/checks';
+import { GATE, type PendingApproval, type CheckDeps, type Routed } from '#types/modules/checks';
 import type { Runtime } from '#types/composition';
-import type { LedgerEntry } from '#types/evidence';
+import type { LedgerEntry } from '#types/modules/evidence';
 import type { RouteArgs } from '#types/harness';
-import type { Reviewer } from '#types/ports';
-import type { EvidenceSource } from '#types/requirements';
-import { CHECKS_GATE } from '#types/skills';
+import type { Reviewer } from '#types/platform/ports';
+import type { EvidenceSource } from '#types/modules/requirements';
 import type { ParsedArgs } from '../../types/cli.ts';
 import type { RouteTools } from '../../types/commands.ts';
 import type { ResolvedTargetOptions } from '../../types/options.ts';
@@ -156,7 +155,7 @@ async function taskScope(runtime: Runtime, options: ResolvedTargetOptions, mode:
   return scope;
 }
 
-export interface ReviewEstimateOutput { command: 'review --estimate'; estimate: ReviewEstimate; text: string }
+interface ReviewEstimateOutput { command: 'review --estimate'; estimate: ReviewEstimate; text: string }
 
 /** Read-only: no ledger entry, no snapshot, no review directory, no step acknowledged (07-E3). */
 export async function runReviewEstimate(runtime: Runtime, args: ParsedArgs): Promise<ReviewEstimateOutput> {
@@ -169,7 +168,7 @@ export async function runReviewEstimate(runtime: Runtime, args: ParsedArgs): Pro
 /** Beside `result.json`; see `ReviewerRun.rejectedOutputRef`. */
 export const REJECTED_OUTPUT_FILE = 'reviewer-rejected-output.json';
 
-export interface ReviewOutput {
+interface ReviewOutput {
   command: 'review';
   reviewId: string;
   reviewDirectory: string;

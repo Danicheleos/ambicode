@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import type { ReviewTarget } from '#types/review';
+import type { ReviewTarget } from '#types/modules/review';
 import { reviewNameBase, taskSlugFor, uniqueReviewName } from './review-name.ts';
 
 const NOW = new Date('2026-09-22T14:35:00');

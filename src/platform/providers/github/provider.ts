@@ -9,7 +9,7 @@ import {
   type RemoteRevision,
   type RemoteTarget,
   type ReviewProvider,
-} from '#types/provider';
+} from '#types/platform/provider';
 
 /** Deliberately imports no runner, HTTP client or GitLab code, so it can never reach a remote. */
 

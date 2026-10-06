@@ -15,7 +15,7 @@ import { readLedger } from '#modules/evidence/ledger/ledger';
 import { REPO_ROOT } from '#testing/paths';
 import { POLICY_CHECK_OPTIONS, RULES_APPLY_OPTIONS, RULES_REVERT_OPTIONS } from '#cli/types/commands';
 import type { Runtime } from '#types/composition';
-import type { LedgerEntry } from '#types/evidence';
+import type { LedgerEntry } from '#types/modules/evidence';
 
 const SESSION = 'aaaaaaaa-1111-4111-8111-111111111111';
 const TASK = 'rules-1';

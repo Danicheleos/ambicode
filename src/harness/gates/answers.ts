@@ -2,12 +2,10 @@ import { AmbicodeError } from '#util/errors';
 import { askedCount, executions, foldRoute, humanRevisesLeft, printsOf, unconsumedPreanswer, windowOf } from '../engine/fold.ts';
 import { raisedAnswerHandler, offersOption, shapePrint } from './gates.ts';
 import { append, chainOf, gateFor, latestPrint, objectOf, viewFor } from '../engine/run-context.ts';
-import type { ArtifactRef, LedgerEntry } from '#types/evidence';
-import type { Answer, Exit, GateDef, Revise } from '#types/harness';
-import { RAISED_BY } from '../types/definition.ts';
+import type { ArtifactRef, LedgerEntry } from '#types/modules/evidence';
+import { RAISED_BY, type Answer, type Exit, type GateDef, type Revise } from '#types/harness';
 import type { Run } from '../types/engine.ts';
 
-type Entry = LedgerEntry;
 type RevisePath = 'gate' | 'code' | 'model';
 
 export async function exitRoute(run: Run, reason: Exit | string, detail?: string, extra: object = {}): Promise<void> {
@@ -19,7 +17,7 @@ export async function exitRoute(run: Run, reason: Exit | string, detail?: string
 const stopReason = (gate: string): string => (gate === 'draft-ok' ? 'draft-stop' : gate === 'budget-exhausted' ? 'budget' : gate === 'project-ambiguous' || gate === 'scope' ? 'human' : 'blocked');
 
 /** The window a gate's answers are read in: its own step's, or for a raised gate the step that raised it. */
-export function gateWindow(run: Run, gateId: string): Entry[] {
+function gateWindow(run: Run, gateId: string): LedgerEntry[] {
   const chain = chainOf(run);
   const fold = foldRoute(run.def, chain);
   const declared = run.def.steps.find((step) => step.gate?.id === gateId);
@@ -71,7 +69,7 @@ interface Recorded {
 }
 
 /** Writes a bound answer, then applies the gate's `onAnswer` (03-G5, 03-F7). */
-export async function recordAnswer(run: Run, gate: GateDef, recorded: Recorded, raisedBy?: string): Promise<void> {
+async function recordAnswer(run: Run, gate: GateDef, recorded: Recorded, raisedBy?: string): Promise<void> {
   const free = !gate.options.includes(recorded.answer);
   const revise = gate.onAnswer[recorded.answer] ?? (free ? gate.onAnswer['*'] : undefined);
   const entries = chainOf(run).entries;
@@ -131,10 +129,10 @@ export async function recordDefaultFlag(run: Run, gateId: string): Promise<void>
 
 /** A hook answer binds to the exact printed instance in this chain or it is unbound and changes nothing (03-G4, 03-G6). */
 export async function recordHookAnswer(run: Run, answer: Answer & { question?: string }): Promise<void> {
-  const unbound = (reason: string): Promise<Entry> =>
+  const unbound = (reason: string): Promise<LedgerEntry> =>
     append(run, { kind: 'declined', gate: answer.gate, instance: null, answer: answer.option, via: 'hook', unbound: true, reason });
   const chain = chainOf(run).entries;
-  let print: Entry | undefined;
+  let print: LedgerEntry | undefined;
   if (answer.instance === undefined) {
     if (!answer.gate.startsWith('decision:')) return void (await unbound('no-instance'));
     const decision = gateFor(run, answer.gate);
@@ -156,7 +154,7 @@ export async function recordHookAnswer(run: Run, answer: Answer & { question?: s
   await recordAnswer(run, gate, { kind: 'acceptance', answer: answer.option, via: 'hook', instance: print.id, object: (print['object'] as ArtifactRef | undefined) ?? null, revisePath: 'gate' }, print['raisedBy'] as string | undefined);
 }
 
-export type GateOutcome = { state: 'continue' } | { state: 'print'; print: Entry; gate: GateDef; retry: boolean };
+type GateOutcome = { state: 'continue' } | { state: 'print'; print: LedgerEntry; gate: GateDef; retry: boolean };
 
 /**
  * A gate at the position: convert a preanswer, take the headless default, take the default after three unanswered
@@ -164,11 +162,11 @@ export type GateOutcome = { state: 'continue' } | { state: 'print'; print: Entry
  */
 export async function serviceGate(run: Run, gate: GateDef, stepId: string): Promise<GateOutcome> {
   const step = run.def.steps.find((candidate) => candidate.id === stepId)!;
-  const window = (): Entry[] => windowOf(foldRoute(run.def, chainOf(run)), step);
+  const window = (): LedgerEntry[] => windowOf(foldRoute(run.def, chainOf(run)), step);
   const declaredStep = run.def.steps.find((candidate) => candidate.gate?.id === gate.id);
   const raisedPrint = declaredStep === undefined ? latestPrint(window(), gate.id) : null;
   const raisedBy = declaredStep === undefined ? String(raisedPrint?.['raisedBy'] ?? stepId) : undefined;
-  const newPrint = async (): Promise<Entry> => {
+  const newPrint = async (): Promise<LedgerEntry> => {
     // A gate raised by this very run was just printed by the raise: that print is the one delivered.
     const raised = declaredStep === undefined ? latestPrint(window(), gate.id) : null;
     if (raised !== null && run.written.includes(raised.id) && (raised['openAt'] ?? raised['raisedBy']) === stepId) return raised;
@@ -204,7 +202,7 @@ export async function serviceGate(run: Run, gate: GateDef, stepId: string): Prom
 
   const prints = printsOf(window(), gate.id);
   const asked = askedCount(window(), gate.id);
-  const takeDefault = async (print: Entry, via: string): Promise<GateOutcome> => {
+  const takeDefault = async (print: LedgerEntry, via: string): Promise<GateOutcome> => {
     await recordAnswer(run, gate, { kind: 'default-taken', answer: gate.default, via, instance: print.id, object: (print['object'] as ArtifactRef | undefined) ?? null, revisePath: 'code' }, raisedBy);
     return { state: 'continue' };
   };

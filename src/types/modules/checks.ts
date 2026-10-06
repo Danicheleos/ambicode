@@ -1,9 +1,10 @@
 import { classifyProof } from '#modules/checks/selection/proof';
 import type { TypedEntry } from '#modules/evidence/ledger/kinds';
-import type { Workspace } from './composition.ts';
+import type { Workspace } from '../composition.ts';
 import type { ProjectConfig } from './config.ts';
 import type { LedgerEntry, NoteDeps, TaskDir } from './evidence.ts';
-import type { RouteRegistry, RouteView } from './harness.ts';
+import type { RouteRegistry, RouteView } from '../harness.ts';
+import type { DiffFile } from '../platform/git.ts';
 
 export type ReviewEntry = LedgerEntry & { kind: 'review' };
 
@@ -43,4 +44,10 @@ export interface PendingApproval {
 export interface BaselineEntryFields {
   head: string | null;
   dirty: { path: string; hash: string | null }[];
+}
+
+export interface ChangedPath {
+  newPath: string | null;
+  oldPath: string | null;
+  changeKind: DiffFile['changeKind'];
 }

@@ -1,9 +1,9 @@
-export type Binding =
+type Binding =
   | { state: 'bound'; server: string; how: 'exact' | 'token' | 'only-candidate' }
   | { state: 'none' }
   | { state: 'ambiguous'; servers: string[] };
 
-export const CANDIDATE_TOKENS = ['atlassian', 'jira', 'confluence', 'rovo'] as const;
+const CANDIDATE_TOKENS = ['atlassian', 'jira', 'confluence', 'rovo'] as const;
 
 const tokensOf = (server: string): string[] => server.toLowerCase().split(/[_.-]+/).filter((token) => token !== '');
 

@@ -6,7 +6,7 @@ import { routeTools, taskOf } from '../route/route.ts';
 import type { Runtime } from '#types/composition';
 import type { ParsedArgs } from '../../types/cli.ts';
 
-export interface RulesOutput { command: string; text: string; [field: string]: unknown }
+interface RulesOutput { command: string; text: string; [field: string]: unknown }
 
 export async function runRulesDiscover(runtime: Runtime, args: ParsedArgs): Promise<RulesOutput> {
   const discovery = await discoverRules(runtime, args.positionals, { project: args.value('project') });

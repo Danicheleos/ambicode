@@ -4,8 +4,8 @@ import { canonicalUrl } from '../envelope/normalize.ts';
 const MAX_BYTES = 1536;
 const FIELDS = ['summary', 'description', 'issuetype', 'parent', 'issuelinks'];
 
-export type AskedSource = { kind: 'jira'; key: string; url: string | null } | { kind: 'confluence'; id: string; url: string };
-export type OtherSource = { kind: 'other'; url: string };
+type AskedSource = { kind: 'jira'; key: string; url: string | null } | { kind: 'confluence'; id: string; url: string };
+type OtherSource = { kind: 'other'; url: string };
 
 /** A source string by what it names: a Jira key or `/browse/<KEY>` URL, a Confluence page URL, or any other address. */
 export function classifySource(source: string): AskedSource | OtherSource {

@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import type { IdSource } from '#types/ports';
+import type { IdSource } from '#types/platform/ports';
 
 export const systemIds: IdSource = {
   reviewId: () => randomUUID(),

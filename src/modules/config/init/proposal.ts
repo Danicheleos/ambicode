@@ -3,7 +3,7 @@ import { parseDocument } from 'yaml';
 import { openRepository } from '#composition/root';
 import { findCodeindex } from '#modules/search/code-index/codeindex';
 import { buildProfile } from '#modules/search/declarations/profile';
-import type { SearchProfile, SetPair, SetValue, InitProposal } from '#types/config';
+import type { SearchProfile, SetPair, SetValue, InitProposal } from '#types/modules/config';
 import { AmbicodeError } from '#util/errors';
 import { normalizeRelative } from '#util/paths';
 import { CONFIG_FILE, GITIGNORE_ENTRIES } from '#types/defaults';
@@ -12,12 +12,12 @@ import { planInit } from './init.ts';
 import { canonicalSets, projectOfKey, setArguments } from './init-sets.ts';
 import { parseConfigWithNotices } from '../load.ts';
 import type { Runtime } from '#types/composition';
-import type { FileSystem } from '#types/ports';
+import type { FileSystem } from '#types/platform/ports';
 import type { PlanInitOptions } from '../types/init.ts';
 
 export const MAX_PROPOSAL_BYTES = 6144;
 
-export interface ProposalOptions {
+interface ProposalOptions {
   task?: string;
   refreshProfile?: boolean;
   /** The unparsable file was backed up under an honoured `config-unparsable` answer: regenerate from detection. */
@@ -29,14 +29,14 @@ export interface ProposalOptions {
 /** Detection results a proposal was built from, so the writer plans the same document; never serialized. */
 const PLANNED = new WeakMap<InitProposal, Omit<PlanInitOptions, 'fs' | 'overrides'>>();
 
-export const initTaskFor = (runtime: Runtime): string => `init-${runtime.clock.now().toISOString().slice(0, 10)}`;
+const initTaskFor = (runtime: Runtime): string => `init-${runtime.clock.now().toISOString().slice(0, 10)}`;
 
 export function applyLineFor(runtime: Runtime, task: string, overrides: readonly SetPair[]): string {
   return `node "${runtime.pluginRoot}/scripts/ambicode.mjs" init --apply --task ${task}${setArguments(overrides)}`;
 }
 
 /** `.gitignore` lines `init --apply` would add; `/x/` and `x/` are one rule to git. */
-export async function gitignoreState(fs: FileSystem, repositoryRoot: string): Promise<{ missing: string[]; present: string[] }> {
+async function gitignoreState(fs: FileSystem, repositoryRoot: string): Promise<{ missing: string[]; present: string[] }> {
   const text = await fs.readText(path.join(repositoryRoot, '.gitignore')).catch(() => '');
   const anchored = (entry: string): string => entry.replace(/^\//, '');
   const lines = new Set(text.split('\n').map((line) => anchored(line.trim())));

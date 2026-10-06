@@ -6,10 +6,10 @@ import { appendLedger } from '#modules/evidence/ledger/ledger';
 import { taskDirFor } from '#modules/evidence/task/task-dir';
 import { taskSlugFor, uniqueReviewName } from './review-name.ts';
 import { openWorkspace, projectForPath, resolvePolicyFor } from '#composition/root';
-import type { ProjectConfig } from '#types/config';
-import type { ResolvedPolicy } from '#types/policy';
-import { COMPLETE_COVERAGE } from '#types/provider';
-import { REVIEW_SCHEMA_VERSION, type CheckResult, type ReviewResult, type Snapshot, type SnapshotPlan, type ReviewBundle } from '#types/review';
+import type { ProjectConfig } from '#types/modules/config';
+import type { ResolvedPolicy } from '#types/modules/policy';
+import { COMPLETE_COVERAGE } from '#types/platform/provider';
+import { REVIEW_SCHEMA_VERSION, type CheckResult, type ReviewResult, type Snapshot, type SnapshotPlan, type ReviewBundle, type AssembleOptions } from '#types/modules/review';
 import { configProvenance, policyProvenance } from '#modules/policy/packs/provenance';
 import { canonicalUrl, normalizeRequirements, loadRequirementEvidence } from '#modules/requirements/envelope/normalize';
 import { describeExclusion, isExcludedFromReview } from '../snapshot/exclusions.ts';
@@ -17,26 +17,23 @@ import { byteLength, enforceReviewInputLimits, measureInput, partitionChange } f
 import { resolveMergeRequestTarget } from '../snapshot/remote-target.ts';
 import { planSnapshot, writeSnapshot } from '../snapshot/snapshot.ts';
 import { resolveBranchTarget, resolveWorkingTarget } from '../snapshot/target.ts';
-import { AmbicodeError } from '#util/errors';
+import { AmbicodeError, messageOf } from '#util/errors';
 import { normalizeRelative } from '#util/paths';
 import { findDependents } from '#modules/search/declarations/dependents';
 import { declarationCensus } from '#modules/search/declarations/harvest';
 import { indexAdapterFor } from '#modules/search/code-index/adapter';
 import { indexDepsOf } from '#modules/search/code-index/codeindex';
 import { composeReviewerPrompt, estimatePromptOverheadBytes } from '../reviewer/prompt.ts';
-import type { ChangedPath } from '#modules/types/checks';
-import { MAX_DEPENDENTS } from '#modules/types/search';
-import type { PendingApproval } from '#types/checks';
+import type { ChangedPath, PendingApproval } from '#types/modules/checks';
+import { MAX_DEPENDENTS, type Dependent } from '#types/modules/search';
 import type { Runtime, Workspace } from '#types/composition';
-import type { LedgerEntry } from '#types/evidence';
-import type { DiffFile } from '#types/git';
-import type { FileSystem } from '#types/ports';
-import type { Dependent } from '#types/search';
-import type { AssembleOptions } from '../types/bundle.ts';
+import type { LedgerEntry } from '#types/modules/evidence';
+import type { DiffFile } from '#types/platform/git';
+import type { FileSystem } from '#types/platform/ports';
 import type { TargetResolution } from '../types/snapshot.ts';
 
 /** What a dry run measured; a limit refusal is returned, not thrown. */
-export interface DryRunPlan {
+interface DryRunPlan {
   workspace: Workspace;
   target: TargetResolution['target'] | Awaited<ReturnType<typeof resolveMergeRequestTarget>>['target'];
   files: DiffFile[];
@@ -48,7 +45,7 @@ export interface DryRunPlan {
 const DRY_REFUSALS = new Set(['input-too-large', 'snapshot-too-large']);
 
 /** `not covered: pre-existing changes: …`, first 10 paths. */
-export function preexistingOmission(paths: readonly string[]): string {
+function preexistingOmission(paths: readonly string[]): string {
   const more = paths.length > 10 ? ` (+${paths.length - 10} more)` : '';
   return `not covered: pre-existing changes: ${paths.slice(0, 10).join(', ')}${more}`;
 }
@@ -473,7 +470,7 @@ async function indexedDependents(workspace: Workspace, projects: readonly { proj
       }
     }
   } catch (error) {
-    return { kind: 'unavailable', reason: error instanceof Error ? error.message : String(error) };
+    return { kind: 'unavailable', reason: messageOf(error) };
   }
   return { kind: 'ok', dependents: [...found.values()].slice(0, MAX_DEPENDENTS) };
 }

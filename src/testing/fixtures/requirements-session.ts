@@ -9,9 +9,8 @@ import { captureRequirement } from '#modules/requirements/capture/capture';
 import { normalizeEnvelope } from '#modules/requirements/envelope/envelope';
 import { REPO_ROOT } from '../paths.ts';
 import type { Handler, StartInput, RouteArgs } from '#types/harness';
-import type { CaptureDeps, EnvelopeInput } from '#types/requirements';
-
-export const A = 'aaaaaaaa-1111-4111-8111-111111111111';
+import type { CaptureDeps, EnvelopeInput } from '#types/modules/requirements';
+import { SESSION_A } from './ids.ts';
 export const FIXTURE_ROUTE = path.join(import.meta.dirname, 'review-requirements.yaml');
 
 export const jira = (key: string, fields: object = {}): string =>
@@ -54,24 +53,24 @@ export async function session(options: SessionOptions = {}) {
     await fx.repo.commitAll('cart');
   }
   const startInput: StartInput = {
-    skill, text: options.text ?? 'ORD-17 which files?', requirements: options.requirements ?? ['https://x.atlassian.net/browse/ORD-17'], task, cwd: fx.repo.root, session: A, channel: 'hook',
+    skill, text: options.text ?? 'ORD-17 which files?', requirements: options.requirements ?? ['https://x.atlassian.net/browse/ORD-17'], task, cwd: fx.repo.root, session: SESSION_A, channel: 'hook',
     scratchpadDir: fx.scratchpad, ...(options.headless === true ? { headless: true } : {}),
   };
   const started = await fx.engine.start(startInput);
   const dir = await resolveTaskDir(fx.runtime, task);
   const args = ((await fx.kinds(task, 'route'))[0]!['args']) as RouteArgs;
   const under = <T>(body: (deps: Omit<CaptureDeps, 'mcpServer' | 'asked'> & { fx: RouteFixture }) => Promise<T>): Promise<T> =>
-    withLedgerLock(fx.runtime.fs, dir.root, () => new Date(), A, async (ledger) => {
-      const view = (await openRouteView(fx.runtime, fx.routes, task, A))!;
+    withLedgerLock(fx.runtime.fs, dir.root, () => new Date(), SESSION_A, async (ledger) => {
+      const view = (await openRouteView(fx.runtime, fx.routes, task, SESSION_A))!;
       return body({ runtime: fx.runtime, dir, ledger, view, fx });
     });
   const capture = (tool: string, response: unknown, extra: { server?: string | null; asked?: string[]; input?: Record<string, unknown> } = {}) =>
     under((deps) => captureRequirement(
-      { hook_event_name: 'PostToolUse', session_id: A, tool_name: tool, tool_response: response, ...(extra.input === undefined ? {} : { tool_input: extra.input }) } as never,
+      { hook_event_name: 'PostToolUse', session_id: SESSION_A, tool_name: tool, tool_response: response, ...(extra.input === undefined ? {} : { tool_input: extra.input }) } as never,
       { ...deps, mcpServer: extra.server === undefined ? server : extra.server, asked: extra.asked ?? [task] },
     ));
   const normalize = (overrides: Partial<EnvelopeInput> = {}) => under((deps) => normalizeEnvelope({ ...deps, args, mcpServer: server, ...overrides }));
-  const next = (input: Partial<Parameters<typeof fx.engine.advance>[0]> = {}) => fx.engine.advance({ task, session: A, cause: 'route-next', scratchpadDir: fx.scratchpad, ...input });
+  const next = (input: Partial<Parameters<typeof fx.engine.advance>[0]> = {}) => fx.engine.advance({ task, session: SESSION_A, cause: 'route-next', scratchpadDir: fx.scratchpad, ...input });
   const exits = async (): Promise<string[]> => (await fx.kinds(task, 'exit')).map((entry) => String(entry['reason']));
   return { fx, dir, args, started, under, capture, normalize, next, exits, task };
 }

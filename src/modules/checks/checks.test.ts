@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { AmbicodeConfig, ProjectConfig } from '#types/config';
-import type { ResolvedPolicy } from '#types/policy';
+import type { AmbicodeConfig, ProjectConfig } from '#types/modules/config';
+import type { ResolvedPolicy } from '#types/modules/policy';
 import { DEFAULTS } from '#types/defaults';
 import { Git } from '#platform/git/git';
 import { NodeProcessRunner } from '#platform/ports/node-process-runner';
@@ -12,8 +12,8 @@ import { FakeProcessRunner } from '#testing/fakes/fake-process-runner';
 import { runChecks, type RunChecksOptions } from './run/run.ts';
 import { selectLintFiles } from './selection/select.ts';
 import { nodeFileSystem } from '#platform/ports/filesystem';
-import type { ChangedPath } from '#modules/types/checks';
-import type { Clock, ProcessRunner } from '#types/ports';
+import type { ChangedPath } from '#types/modules/checks';
+import type { Clock, ProcessRunner } from '#types/platform/ports';
 
 const clock: Clock = { now: () => new Date('2026-09-18T00:00:00Z'), elapsed: () => 0 };
 

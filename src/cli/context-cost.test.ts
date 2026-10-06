@@ -12,7 +12,7 @@ import { runPrepare } from './commands/prepare/prepare.ts';
 import { evidenceSource } from './options/target-option.ts';
 import { REPO_ROOT } from '#testing/paths';
 import { PREPARE_OPTIONS } from '#types/cli';
-import type { StandardInput } from '#types/ports';
+import type { StandardInput } from '#types/platform/ports';
 
 /**
  * The ceilings below are drift detectors, not budgets: they sit just above what

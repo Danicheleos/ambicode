@@ -4,6 +4,12 @@
 export { AmbicodeError } from './errors.ts';
 /** isAmbicodeError(value) — type guard for AmbicodeError. */
 export { isAmbicodeError } from './errors.ts';
+/** messageOf(error) — an Error's message, or the thrown value as a string. */
+export { messageOf } from './errors.ts';
+
+// guards.ts: structural type guards.
+/** isObject(value) — true for a plain non-null, non-array object, narrowed to a string-keyed record. */
+export { isObject } from './guards.ts';
 
 // glob.ts: POSIX-style glob matching on repository-relative paths.
 /** matchesAnyGlob(relativePath, globs) — true when the path matches at least one glob. */
@@ -16,6 +22,8 @@ export { toPosix } from './glob.ts';
 // hash.ts: content hashing.
 /** contentHash(value) — `sha256:` plus the first 32 hex characters of the SHA-256 of a string or bytes. */
 export { contentHash } from './hash.ts';
+/** hash12(hash) — the first 12 hex digits of a `contentHash`, for messages. */
+export { hash12 } from './hash.ts';
 
 // json-output.ts: CLI JSON rendering.
 /** formatJsonOutput(value, format?) — JSON text with a trailing newline, pretty (default) or compact. */

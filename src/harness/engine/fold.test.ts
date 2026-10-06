@@ -6,7 +6,7 @@ import { buildChain, executions, foldRoute, humanRevisesLeft, isGreen, latestBou
 import { parseRegistry } from '../gates/gates.ts';
 import { loadRoute } from '../definition/routes.ts';
 import { REPO_ROOT } from '#testing/paths';
-import { KINDS, type LedgerEntry } from '#types/evidence';
+import { KINDS, type LedgerEntry } from '#types/modules/evidence';
 import type { RouteDef } from '#types/harness';
 
 const HEAD = 'skill: demo\nversion: 3\nbudget: { modelSteps: 6 }\nexits: [done, blocked]\nrevisable: [ground]\nsteps:\n';

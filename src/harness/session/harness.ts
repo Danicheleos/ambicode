@@ -1,4 +1,4 @@
-import type { LedgerEntry } from '#types/evidence';
+import type { LedgerEntry } from '#types/modules/evidence';
 
 // No runtime imports: the guard bundles this (see hook/guard/guard.ts).
 

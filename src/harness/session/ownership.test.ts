@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { ownerOf } from './ownership.ts';
-import type { LedgerEntry } from '#types/evidence';
+import type { LedgerEntry } from '#types/modules/evidence';
 
 const at = '2026-10-05T10:00:00.000Z';
 const route = (id: string, session: string, extra: Record<string, unknown> = {}): LedgerEntry => ({ id, at, kind: 'route', skill: 'plan', session, ...extra });

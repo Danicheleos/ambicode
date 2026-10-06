@@ -17,14 +17,14 @@ import type {
   RemoteRevision,
   RemoteTarget,
   ReviewProvider,
-} from '#types/provider';
+} from '#types/platform/provider';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { ProviderRegistry } from '#platform/providers/registry';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { isAmbicodeError } from '#util/errors';
 import { BUNDLE_OPTIONS, REVIEW_OPTIONS } from '#cli/types/commands';
 import type { Runtime } from '#types/composition';
-import type { Reviewer, ReviewerInvocation, ReviewerRequest } from '#types/ports';
+import type { Reviewer, ReviewerInvocation, ReviewerRequest } from '#types/platform/ports';
 
 const MR_URL = 'https://gitlab.example.com/group/sub/project/-/merge_requests/42';
 

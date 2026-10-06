@@ -2,10 +2,10 @@ import { openRepository } from '#composition/root';
 import { runDoctor } from '#modules/config/init/doctor';
 import { loadConfigWithNotices } from '#modules/config/load';
 import type { Runtime } from '#types/composition';
-import type { DoctorTable } from '#types/config';
+import type { DoctorTable } from '#types/modules/config';
 import type { ParsedArgs } from '../../types/cli.ts';
 
-export interface DoctorOutput extends DoctorTable { command: 'doctor' }
+interface DoctorOutput extends DoctorTable { command: 'doctor' }
 
 /** Prints the table; writes nothing (09-D5). */
 export async function runDoctorCommand(runtime: Runtime, args: ParsedArgs): Promise<DoctorOutput> {

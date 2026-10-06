@@ -1,17 +1,18 @@
 import path from 'node:path';
 import { MAX_COMMAND_OUTPUT_BYTES } from '#types/defaults';
-import type { AmbicodeConfig, ProjectConfig } from '#types/config';
-import type { ResolvedPolicy } from '#types/policy';
-import type { CheckResult } from '#types/review';
+import type { AmbicodeConfig, ProjectConfig } from '#types/modules/config';
+import type { ResolvedPolicy } from '#types/modules/policy';
+import type { CheckResult } from '#types/modules/review';
 import { normalizeRelative } from '#util/paths';
 import { adapterFor } from '../selection/adapters.ts';
 import { authorizeCommand, checkApprovalKey } from '../selection/authorize.ts';
 import { expandFiles, selectLintFiles, selectTestFiles } from '../selection/select.ts';
 import { compareTrees, scanTree, summarizeMutations } from '../workspace/workspace-diff.ts';
-import type { ChangedPath } from '#modules/types/checks';
-import type { Clock, FileSystem, ProcessRunner } from '#types/ports';
+import type { ChangedPath } from '#types/modules/checks';
+import type { Clock, FileSystem, ProcessRunner } from '#types/platform/ports';
 import type { Selection } from '../types/selection.ts';
 import type { TreeEntry } from '../types/workspace.ts';
+import { messageOf } from '#util/errors';
 
 /**
  * Merge request code never runs in the developer's checkout, not even as a fallback. Without
@@ -31,7 +32,7 @@ const CONTAINER_ADMIN_TIMEOUT_MS = 60_000;
 /** Digest pinning is the whole point: a tag can be moved under the review. */
 const DIGEST_PINNED = /^[^\s@]+@sha256:[0-9a-f]{64}$/;
 
-export interface RemoteChecksOptions {
+interface RemoteChecksOptions {
   fs: FileSystem;
   config: AmbicodeConfig;
   runner: ProcessRunner;
@@ -44,7 +45,7 @@ export interface RemoteChecksOptions {
   limits?: Partial<ContainerLimits>;
 }
 
-export interface ContainerLimits {
+interface ContainerLimits {
   cpus: string;
   memory: string;
   pids: number;
@@ -58,7 +59,7 @@ const DEFAULT_LIMITS: ContainerLimits = {
   timeoutMs: 300_000,
 };
 
-export interface RemoteChecksOutcome {
+interface RemoteChecksOutcome {
   results: CheckResult[];
   notes: string[];
 }
@@ -480,7 +481,7 @@ async function executeInContainer(
         await options.fs.remove(inspectionDirectory);
       } catch (error) {
         note(
-          `The temporary workspace inspection copy could not be deleted: ${error instanceof Error ? error.message : String(error)}.`,
+          `The temporary workspace inspection copy could not be deleted: ${messageOf(error)}.`,
         );
       }
     }

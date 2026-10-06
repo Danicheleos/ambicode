@@ -1,10 +1,9 @@
-import type { ProjectConfig } from '#types/config';
+import type { ProjectConfig } from '#types/modules/config';
 import { codeindexAdapter } from './codeindex.ts';
 import { noneAdapter } from './none.ts';
-import type { IndexName, IndexState, IndexStatus, IndexAdapter } from '#types/search';
-import type { IndexDeps } from '../types/code-index.ts';
+import type { IndexName, IndexState, IndexStatus, IndexAdapter, IndexDeps } from '#types/modules/search';
 
-export type { IndexDeps } from '../types/code-index.ts';
+export type { IndexDeps } from '#types/modules/search';
 
 export const indexStatus = (tool: IndexName, state: IndexState, builtMs: number | null = null, reason: string | null = null, drift: number | null = null): IndexStatus => ({
   tool,

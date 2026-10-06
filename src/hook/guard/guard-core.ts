@@ -3,7 +3,6 @@
 import { ownerOfHarness } from '#harness/session/harness';
 import { ownerOf } from '#harness/session/ownership';
 import { basename, type Directories, parseCommand, type Segment } from '../shell/command-parser.ts';
-import type { LedgerEntry } from '#types/evidence';
 import type { GuardInput, GuardState } from '../types/guard.ts';
 
 type Decision = Record<string, unknown>;

@@ -4,7 +4,7 @@ import { ClaudeReviewer, REVIEWER_JSON_SCHEMA } from '#modules/review/reviewer/c
 import { FakeProcessRunner } from '#testing/fakes/fake-process-runner';
 import { reviewerIo } from '#testing/fakes/reviewer-io';
 import { defaultWorkerEnvironment, runWorkerProcess, type WorkerProcessRequest } from './process-runner.ts';
-import type { ProcessOutcome, ProcessRequest, ProcessRunner } from '#types/ports';
+import type { ProcessOutcome, ProcessRequest, ProcessRunner } from '#types/platform/ports';
 
 const BASE = { argv: ['claude', '--print'], cwd: '/w', timeoutMs: 5_000, maxOutputBytes: 100 };
 

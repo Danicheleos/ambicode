@@ -1,7 +1,7 @@
 import path from 'node:path';
-import type { AmbicodeConfig, ProjectConfig } from '#types/config';
-import type { ResolvedPolicy } from '#types/policy';
-import type { CheckResult } from '#types/review';
+import type { AmbicodeConfig, ProjectConfig } from '#types/modules/config';
+import type { ResolvedPolicy } from '#types/modules/policy';
+import type { CheckResult } from '#types/modules/review';
 import { MAX_COMMAND_OUTPUT_BYTES } from '#types/defaults';
 import type { Git } from '#platform/git/git';
 import { normalizeRelative } from '#util/paths';
@@ -9,9 +9,8 @@ import { adapterFor } from '../selection/adapters.ts';
 import { authorizeCommand, checkApprovalKey, selectorApprovalKey } from '../selection/authorize.ts';
 import { watchWorkspace } from '../workspace/mutations.ts';
 import { expandFiles, selectionRunsCommand, selectLintFiles, selectorCommandPlan, selectTestFiles } from '../selection/select.ts';
-import type { ChangedPath } from '#modules/types/checks';
-import type { PendingApproval } from '#types/checks';
-import type { Clock, FileSystem, ProcessRunner } from '#types/ports';
+import type { ChangedPath, PendingApproval } from '#types/modules/checks';
+import type { Clock, FileSystem, ProcessRunner } from '#types/platform/ports';
 import type { Selection } from '../types/selection.ts';
 import { MUTATION_DISCLAIMER } from '../types/workspace.ts';
 
@@ -43,7 +42,7 @@ export interface RunChecksOptions {
   only?: { checkId: string; files: readonly string[] };
 }
 
-export interface RunChecksOutcome {
+interface RunChecksOutcome {
   results: CheckResult[];
   pendingApprovals: PendingApproval[];
 }

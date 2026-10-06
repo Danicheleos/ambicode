@@ -9,11 +9,11 @@ import { saveNote } from '#modules/evidence/notes';
 import { routeFixture, type RouteFixture } from '#testing/fixtures/route-fixture';
 import { taskFixture } from '#testing/fixtures/task-fixture';
 import { reviewRouteFixture } from '#testing/fixtures/review-route-fixture';
-import { ReviewResult } from '#types/review';
+import { ReviewResult } from '#types/modules/review';
 import { notCoveredBlock } from '#modules/review/bundle/coverage-block';
 import { runHook } from './run-hook.ts';
 import { lastAssistantText, redBeforeGreen, REASON_LIMIT_BYTES, TRANSCRIPT_TAIL_BYTES } from './stop-check.ts';
-import type { LedgerEntry } from '#types/evidence';
+import type { LedgerEntry } from '#types/modules/evidence';
 import type { HookDeps } from '#types/hook';
 
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';

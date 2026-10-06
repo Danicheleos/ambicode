@@ -1,19 +1,18 @@
 import { z } from 'zod';
-import { COMPLETE_COVERAGE, RemoteDiscussion, RemoteTarget, ReviewCoverage } from './provider.ts';
-import { CheckStatus, Confidence, ReviewStatus, Risk, TargetKind } from './primitives.ts';
-import { ProvenanceEntry, RequirementConflict, RequirementSource, type NormalizedRequirements } from './requirements.ts';
+import { COMPLETE_COVERAGE, RemoteDiscussion, RemoteTarget, ReviewCoverage } from '../platform/provider.ts';
+import { CheckStatus, Confidence, ReviewStatus, Risk, TargetKind } from '../primitives.ts';
+import { ProvenanceEntry, RequirementConflict, RequirementSource, type NormalizedRequirements, type EvidenceSource } from './requirements.ts';
 import { SessionStore } from '#modules/review/page/session';
 import type { PendingApproval } from './checks.ts';
-import type { Workspace } from './composition.ts';
+import type { Workspace, Runtime } from '../composition.ts';
 import type { ProjectConfig } from './config.ts';
-import type { DiffFile } from './git.ts';
+import type { DiffFile } from '../platform/git.ts';
 import type { ResolvedPolicy } from './policy.ts';
 import type { Dependent } from './search.ts';
 import type { FastifyInstance } from 'fastify';
 
 export const REVIEW_SCHEMA_VERSION = 1;
 
-export { ProvenanceEntry, RequirementConflict, RequirementSource };
 
 export const ReviewTarget = z.strictObject({
   kind: TargetKind,
@@ -315,4 +314,25 @@ export interface SnapshotPlan {
   totalBytes: number;
   /** Unchanged files included because they rely on the change; a subset of `entries`. */
   dependentPaths: string[];
+}
+
+export const CHECKS_GATE = 'review-checks';
+
+export interface AssembleOptions {
+  runtime: Runtime;
+  target: TargetSelection;
+  requirementUrls: readonly string[];
+  evidence: EvidenceSource | null;
+  approvals: ReadonlySet<string>;
+  declines: ReadonlySet<string>;
+  task: string | null;
+  excludePaths?: readonly string[];
+  onlyPaths?: readonly string[];
+  withTests?: boolean;
+  /** `--context <path>`: unchanged files the caller found relying on the change, e.g. by LSP references. */
+  contextPaths?: readonly string[];
+  /** Dirty before the task began and untouched since: left out of the review and of check selection (07-B3). */
+  preexisting?: readonly string[];
+  /** Stop after `planSnapshot`: nothing is written and no check runs (07-E1). */
+  dryRun?: boolean;
 }

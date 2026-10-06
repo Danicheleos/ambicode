@@ -4,10 +4,9 @@ import { z } from 'zod';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { invalid, normalizeGate, parseCall, parseOnError, parseQualified, parseRevise, parseWhen } from './dsl.ts';
 import { parseRegistry } from '../gates/gates.ts';
-import { KINDS } from '#types/evidence';
-import { EXITS, HANDLER_NAMES, type GateDef, type Qualified, type Revise, type RouteDef, type StepDef, type RouteRegistry } from '#types/harness';
-import type { FileSystem } from '#types/ports';
-import { RAISED_BY } from '../types/definition.ts';
+import { KINDS } from '#types/modules/evidence';
+import { EXITS, HANDLER_NAMES, RAISED_BY, type GateDef, type Qualified, type Revise, type RouteDef, type StepDef, type RouteRegistry } from '#types/harness';
+import type { FileSystem } from '#types/platform/ports';
 
 export type { Call, Exit, GateDef, OnError, Qualified, Revise, When } from '#types/harness';
 
@@ -53,14 +52,14 @@ const RawRoute = z.strictObject({
   steps: z.array(RawStep).min(1),
 });
 
-export interface LoaderContext {
+interface LoaderContext {
   /** The plugin root: `file:` instructions resolve under it. */
   root: string;
   handlers: readonly string[];
   readInstruction(relative: string): Promise<string>;
 }
 
-export function parseYamlFile(file: string, text: string): unknown {
+function parseYamlFile(file: string, text: string): unknown {
   try {
     return parseYaml(text);
   } catch (cause) {
@@ -192,7 +191,7 @@ function validateRoute(file: string, route: RouteDef, registry: readonly GateDef
   }
 }
 
-export interface RouteFiles { routes: RouteDef[]; registry: GateDef[] }
+interface RouteFiles { routes: RouteDef[]; registry: GateDef[] }
 
 export async function validateRouteFiles(root: string, options: { handlers?: readonly string[]; fs?: FileSystem } = {}): Promise<RouteFiles> {
   const fs = options.fs ?? nodeFileSystem;

@@ -1,12 +1,12 @@
-import type { ReviewResult } from '#types/review';
+import type { ReviewResult } from '#types/modules/review';
 import { reopenCommand } from '../page/reopen.ts';
-import type { PendingApproval } from '#types/checks';
+import type { PendingApproval } from '#types/modules/checks';
 
 /**
  * The last part, what was not covered, is not optional: a result without it reads
  * like a clean bill of health.
  */
-export interface ReportOptions {
+interface ReportOptions {
   result: ReviewResult;
   snapshotDirectory: string;
   resultPath: string;

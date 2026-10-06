@@ -3,11 +3,11 @@ import type {
   RemoteTarget,
   ReviewCoverage,
   ReviewProvider,
-} from '#types/provider';
+} from '#types/platform/provider';
 import { combineDiff } from '#platform/git/diff';
 import { parseRemoteProject } from '#platform/git/git';
 import { AmbicodeError } from '#util/errors';
-import type { RawChange } from '#types/git';
+import type { RawChange } from '#types/platform/git';
 import type { ContentSource, FileContent, TargetResolution } from '../types/snapshot.ts';
 
 /**
@@ -15,7 +15,7 @@ import type { ContentSource, FileContent, TargetResolution } from '../types/snap
  * index write. Everything comes from the provider at the pinned revision.
  */
 
-export interface RemoteTargetOptions {
+interface RemoteTargetOptions {
   provider: ReviewProvider;
   url: string;
   /** The repository the command was run in; it supplies configuration only. */
@@ -26,7 +26,7 @@ export interface RemoteTargetOptions {
   maxDiscussions: number;
 }
 
-export interface RemoteTargetResolution extends TargetResolution {
+interface RemoteTargetResolution extends TargetResolution {
   remote: RemoteTarget;
   discussions: RemoteDiscussion[];
   omissions: string[];

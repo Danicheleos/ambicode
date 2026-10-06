@@ -4,16 +4,17 @@ import {
   MAX_DISCUSSION_NOTE_BYTES,
   PROMPT_EVIDENCE_RESERVE_BYTES,
 } from '#types/defaults';
-import type { ResolvedPolicy } from '#types/policy';
-import type { RemoteDiscussion } from '#types/provider';
-import type { ProvenanceEntry, RequirementSource, ReviewBundle, ComposedPrompt } from '#types/review';
+import type { ResolvedPolicy } from '#types/modules/policy';
+import type { RemoteDiscussion } from '#types/platform/provider';
+import type { ProvenanceEntry, RequirementSource } from '#types/modules/requirements';
+import type { ReviewBundle, ComposedPrompt } from '#types/modules/review';
 import { addressableLines } from '#platform/git/diff';
 import { byteLength } from '../snapshot/limits.ts';
 import { promptsDirectory } from '#util/plugin-root';
 import { contentHash } from '#util/hash';
 import { readSharedOperatingContract } from '#modules/policy/packs/shared-contract';
-import type { DiffFile } from '#types/git';
-import type { FileSystem } from '#types/ports';
+import type { DiffFile } from '#types/platform/git';
+import type { FileSystem } from '#types/platform/ports';
 
 /**
  * Composed from Markdown files, so calibration is a Markdown edit. The shared

@@ -12,10 +12,10 @@ import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { AmbicodeError } from '#util/errors';
 import { routeTools } from '../route/route.ts';
 import type { Runtime } from '#types/composition';
-import type { RefsResult } from '#types/search';
+import type { RefsResult } from '#types/modules/search';
 import type { ParsedArgs } from '../../types/cli.ts';
 
-export interface SearchOutput { command: 'map' | 'refs' | 'find' | 'relates'; text: string; bytes: number; file?: string; data: unknown }
+interface SearchOutput { command: 'map' | 'refs' | 'find' | 'relates'; text: string; bytes: number; file?: string; data: unknown }
 
 /** The ledger entry goes to the task's one live route, if any; otherwise it is recorded without one. */
 async function record(runtime: Runtime, args: ParsedArgs, entry: { kind: string; [field: string]: unknown }): Promise<void> {

@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { z } from 'zod';
-import type { Clock, FileSystem } from '#types/ports';
-import type { SweepReport } from '#types/review';
+import type { Clock, FileSystem } from '#types/platform/ports';
+import type { SweepReport } from '#types/modules/review';
 import { messageOf } from '#util/errors';
 
 /**
@@ -20,14 +20,14 @@ export const OWNED_PREFIXES = [
   'ambicode-reviewer-',
 ];
 
-export const OwnershipMarker = z.strictObject({
+const OwnershipMarker = z.strictObject({
   tool: z.literal('ambicode'),
   kind: z.enum(['snapshot', 'page-session', 'workspace-inspection', 'index', 'reviewer-prompt']),
   createdAt: z.string().min(1),
   /** Informational; ownership does not depend on the process still existing. */
   pid: z.number().int().nonnegative(),
 });
-export type OwnershipMarker = z.infer<typeof OwnershipMarker>;
+type OwnershipMarker = z.infer<typeof OwnershipMarker>;
 
 export async function markOwned(
   fs: FileSystem,
@@ -45,7 +45,7 @@ export async function markOwned(
   await fs.writeText(path.join(directory, OWNERSHIP_MARKER), `${JSON.stringify(marker, null, 2)}\n`);
 }
 
-export async function readOwnership(fs: FileSystem, directory: string): Promise<OwnershipMarker | null> {
+async function readOwnership(fs: FileSystem, directory: string): Promise<OwnershipMarker | null> {
   const marker = path.join(directory, OWNERSHIP_MARKER);
   if (!(await fs.exists(marker))) return null;
   try {
@@ -56,7 +56,7 @@ export async function readOwnership(fs: FileSystem, directory: string): Promise<
   }
 }
 
-export interface SweepOptions {
+interface SweepOptions {
   fs: FileSystem;
   clock: Clock;
   maxAgeMs: number;

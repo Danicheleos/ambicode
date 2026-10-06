@@ -1,6 +1,6 @@
-import type { EnvelopeSource } from '#types/requirements';
+import type { EnvelopeSource } from '#types/modules/requirements';
 
-export interface AcceptanceCriterion { id: string; key: string; quote: string; where: string }
+interface AcceptanceCriterion { id: string; key: string; quote: string; where: string }
 
 const BULLET = /^\s*(?:[-*•]|\d+[.)])\s+(\S.*)$/;
 const SECTION = /^\s*(?:#{1,6}\s*)?(?:\*\*)?(acceptance criteria|definition of done|\bAC\b|\bDoD\b)(?:\*\*)?\s*:?\s*$/i;

@@ -1,46 +1,46 @@
 import type { GateDef, Qualified, When } from '../definition/routes.ts';
-import type { LedgerEntry } from '#types/evidence';
 import type { RouteDef, StepDef } from '#types/harness';
-import type { Entry, Chain } from '../types/engine.ts';
+import type { LedgerEntry } from '#types/modules/evidence';
+import type { Chain } from '../types/engine.ts';
 
-const text = (entry: Entry, field: string): string | null => (typeof entry[field] === 'string' ? (entry[field] as string) : null);
-const isBoundKind = (entry: Entry): boolean => entry.kind === 'acceptance' || entry.kind === 'declined' || entry.kind === 'default-taken';
+const text = (entry: LedgerEntry, field: string): string | null => (typeof entry[field] === 'string' ? (entry[field] as string) : null);
+const isBoundKind = (entry: LedgerEntry): boolean => entry.kind === 'acceptance' || entry.kind === 'declined' || entry.kind === 'default-taken';
 
-export function buildChain(all: readonly Entry[], head: Entry): Chain {
+export function buildChain(all: readonly LedgerEntry[], head: LedgerEntry): Chain {
   const routes = new Map(all.filter((entry) => entry.kind === 'route').map((entry) => [entry.id, entry]));
   const ids = new Set<string>([head.id]);
-  for (let current: Entry | undefined = head; current !== undefined; ) {
+  for (let current: LedgerEntry | undefined = head; current !== undefined; ) {
     const next = text(current, 'resumes');
     if (next === null || ids.has(next)) break;
     ids.add(next);
     current = routes.get(next);
   }
-  const member = (entry: Entry): boolean => (entry.kind === 'route' ? ids.has(entry.id) : ids.has(text(entry, 'route') ?? ''));
+  const member = (entry: LedgerEntry): boolean => (entry.kind === 'route' ? ids.has(entry.id) : ids.has(text(entry, 'route') ?? ''));
   return { head, ids, entries: all.filter(member) };
 }
 
 /** Heads of the chains no exit has closed: routes nothing resumes. */
-export function liveHeads(entries: readonly Entry[]): Entry[] {
+export function liveHeads(entries: readonly LedgerEntry[]): LedgerEntry[] {
   const resumed = new Set(entries.filter((entry) => entry.kind === 'route' && typeof entry['resumes'] === 'string').map((entry) => entry['resumes'] as string));
   return entries.filter((entry) => entry.kind === 'route' && !resumed.has(entry.id)).filter((head) => exitOf(buildChain(entries, head)) === null);
 }
 
 /** The latest `route` entry written by this session. */
-export function latestRouteOf(all: readonly Entry[], session: string): Entry | null {
+export function latestRouteOf(all: readonly LedgerEntry[], session: string): LedgerEntry | null {
   return all.findLast((entry) => entry.kind === 'route' && entry.session === session) ?? null;
 }
 
-export function exitOf(chain: Chain): Entry | null {
+export function exitOf(chain: Chain): LedgerEntry | null {
   return chain.entries.findLast((entry) => entry.kind === 'exit') ?? null;
 }
 
-export const isGreen = (entry: Entry): boolean => {
+export const isGreen = (entry: LedgerEntry): boolean => {
   const summary = entry['summary'] as { ran?: number; failed?: number } | null | undefined;
   return entry['exit'] === 0 && summary != null && (summary.ran ?? 0) >= 1 && summary.failed === 0;
 };
 
 /** `kind{value}` matches on the field that kind carries its qualifier in (01-contracts §1). */
-export function matches(entry: Entry, qualified: Qualified): boolean {
+export function matches(entry: LedgerEntry, qualified: Qualified): boolean {
   if (entry.kind !== qualified.kind) return false;
   if (qualified.value === null) return true;
   switch (qualified.kind) {
@@ -53,17 +53,17 @@ export function matches(entry: Entry, qualified: Qualified): boolean {
 }
 
 /** A bound answer: not an unbound hook answer and not a decline that was never an answer (03-G5). */
-export function isBoundAnswer(entry: Entry): boolean {
+export function isBoundAnswer(entry: LedgerEntry): boolean {
   if (!isBoundKind(entry) || entry['unbound'] === true) return false;
   return !(entry.kind === 'declined' && (entry['reason'] === 'acting-needs-human' || entry['reason'] === 'option-not-offered'));
 }
 
-export function latestBound(window: readonly Entry[], gate: string): Entry | null {
+export function latestBound(window: readonly LedgerEntry[], gate: string): LedgerEntry | null {
   return window.findLast((entry) => isBoundAnswer(entry) && entry['gate'] === gate) ?? null;
 }
 
 /** Entries after the latest `revise` aimed at or before this step (03-F2). */
-export function windowStart(def: RouteDef, entries: readonly Entry[], stepIndex: number): number {
+function windowStart(def: RouteDef, entries: readonly LedgerEntry[], stepIndex: number): number {
   const index = entries.findLastIndex((entry) => {
     if (entry.kind !== 'revise') return false;
     const target = def.steps.find((step) => step.id === entry['from']);
@@ -72,9 +72,9 @@ export function windowStart(def: RouteDef, entries: readonly Entry[], stepIndex:
   return index + 1;
 }
 
-export interface FoldContext { mode: 'interactive' | 'headless'; args: { hasRequirement?: boolean; plan?: string | null; fromDraft?: string | null } }
+interface FoldContext { mode: 'interactive' | 'headless'; args: { hasRequirement?: boolean; plan?: string | null; fromDraft?: string | null } }
 
-function evaluate(when: When, window: readonly Entry[], all: readonly Entry[], context: FoldContext, gateWindow: (gate: string) => readonly Entry[], opener: Entry | undefined, step: StepDef): boolean {
+function evaluate(when: When, window: readonly LedgerEntry[], all: readonly LedgerEntry[], context: FoldContext, gateWindow: (gate: string) => readonly LedgerEntry[], opener: LedgerEntry | undefined, step: StepDef): boolean {
   switch (when.predicate) {
     case 'args.hasRequirement': return context.args.hasRequirement === true;
     case '!args.hasRequirement': return context.args.hasRequirement !== true;
@@ -92,14 +92,14 @@ function evaluate(when: When, window: readonly Entry[], all: readonly Entry[], c
   }
 }
 
-export const ownCompletion = (window: readonly Entry[], step: StepDef): boolean =>
+const ownCompletion = (window: readonly LedgerEntry[], step: StepDef): boolean =>
   window.some((entry) => entry.kind === 'step' && entry['step'] === step.id && entry['status'] === 'completed');
 
-const limited = (window: readonly Entry[], step: StepDef): boolean =>
+const limited = (window: readonly LedgerEntry[], step: StepDef): boolean =>
   window.some((entry) => entry.kind === 'limit' && entry['step'] === step.id && (entry['which'] === 'missing-produces' || entry['which'] === 'identical-next'));
 
 /** Done-ness per actor (03-F3). */
-export function isDone(step: StepDef, window: readonly Entry[]): boolean {
+function isDone(step: StepDef, window: readonly LedgerEntry[]): boolean {
   const produced = (): boolean => step.produces.every((qualified) => window.some((entry) => matches(entry, qualified)));
   switch (step.actor) {
     case 'code': return ownCompletion(window, step) && produced();
@@ -109,13 +109,13 @@ export function isDone(step: StepDef, window: readonly Entry[]): boolean {
   }
 }
 
-export interface StepState {
+interface StepState {
   step: StepDef;
   state: 'done' | 'pending' | 'skipped';
   windowStart: number;
 }
 
-export interface Fold {
+interface Fold {
   chain: Chain;
   steps: StepState[];
   position: StepDef | null;
@@ -127,7 +127,7 @@ export function foldRoute(def: RouteDef, chain: Chain): Fold {
   const steps: StepState[] = [];
   let position: StepDef | null = null;
   // A gate's answer is read in its own step's window: a revise to a later step does not unanswer it.
-  const gateWindow = (gate: string): readonly Entry[] => {
+  const gateWindow = (gate: string): readonly LedgerEntry[] => {
     const owner = def.steps.find((step) => step.gate?.id === gate);
     return owner === undefined ? chain.entries : chain.entries.slice(windowStart(def, chain.entries, owner.index));
   };
@@ -147,35 +147,35 @@ export function foldRoute(def: RouteDef, chain: Chain): Fold {
   return { chain, steps, position };
 }
 
-export const windowOf = (fold: Fold, step: StepDef): Entry[] => fold.chain.entries.slice(fold.steps[step.index]!.windowStart);
+export const windowOf = (fold: Fold, step: StepDef): LedgerEntry[] => fold.chain.entries.slice(fold.steps[step.index]!.windowStart);
 
 /** Entries after the latest human revise: the current cycle (03-F6). */
-export function cycleEntries(entries: readonly Entry[]): Entry[] {
+export function cycleEntries(entries: readonly LedgerEntry[]): LedgerEntry[] {
   return entries.slice(entries.findLastIndex((entry) => entry.kind === 'revise' && entry['via'] === 'gate') + 1);
 }
 
 /** Executions of a step in this cycle: completions of a code step, deliveries of a model step. */
-export function executions(entries: readonly Entry[], step: StepDef): number {
+export function executions(entries: readonly LedgerEntry[], step: StepDef): number {
   const status = step.actor === 'code' ? 'completed' : 'delivered';
   return cycleEntries(entries).filter((entry) => entry.kind === 'step' && entry['step'] === step.id && entry['status'] === status).length;
 }
 
-export const humanRevisesLeft = (entries: readonly Entry[], gate: GateDef): number =>
+export const humanRevisesLeft = (entries: readonly LedgerEntry[], gate: GateDef): number =>
   Math.max(0, gate.maxRevises - entries.filter((entry) => entry.kind === 'revise' && entry['via'] === 'gate' && entry['gate'] === gate.id).length);
 
-export const printsOf = (window: readonly Entry[], gate: string): Entry[] => window.filter((entry) => entry.kind === 'gate' && entry['gate'] === gate);
+export const printsOf = (window: readonly LedgerEntry[], gate: string): LedgerEntry[] => window.filter((entry) => entry.kind === 'gate' && entry['gate'] === gate);
 
 /** Entries the hook wrote for this gate, unbound included; prints never count (03-G7). */
-export const askedCount = (window: readonly Entry[], gate: string): number =>
+export const askedCount = (window: readonly LedgerEntry[], gate: string): number =>
   window.filter((entry) => (entry.kind === 'acceptance' || entry.kind === 'declined') && entry['via'] === 'hook' && entry['gate'] === gate).length;
 
 /** The first preanswer for this gate that no answer names yet; preanswers are read outside windows (03-G3). */
-export function unconsumedPreanswer(entries: readonly Entry[], gate: string): Entry | null {
+export function unconsumedPreanswer(entries: readonly LedgerEntry[], gate: string): LedgerEntry | null {
   const consumed = new Set(entries.filter((entry) => isBoundKind(entry)).map((entry) => text(entry, 'preanswer')).filter((id): id is string => id !== null));
   return entries.find((entry) => entry.kind === 'preanswer' && entry['gate'] === gate && !consumed.has(entry.id)) ?? null;
 }
 
-export function modelDeliveries(def: RouteDef, entries: readonly Entry[]): number {
+export function modelDeliveries(def: RouteDef, entries: readonly LedgerEntry[]): number {
   const models = new Set(def.steps.filter((step) => step.actor === 'model').map((step) => step.id));
   return entries.filter((entry) => entry.kind === 'step' && entry['status'] === 'delivered' && models.has(String(entry['step']))).length;
 }
@@ -184,7 +184,7 @@ export function modelDeliveries(def: RouteDef, entries: readonly Entry[]): numbe
  * Whether an entry still stands (D10): it is in the chain and no later `revise` targets a step at or before the
  * step it is attributed to, the step of the latest `step` entry before it.
  */
-export function currentIn(def: RouteDef, chain: Chain): (entry: Entry) => boolean {
+export function currentIn(def: RouteDef, chain: Chain): (entry: LedgerEntry) => boolean {
   const where = new Map<string, { position: number; step: number }>();
   const revises: { position: number; step: number }[] = [];
   let attributed = 0;

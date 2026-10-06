@@ -14,7 +14,7 @@ import { readLedger } from '#modules/evidence/ledger/ledger';
 import { runWorker } from './worker-run.ts';
 import { REPO_ROOT } from '#testing/paths';
 import { WORKER_RUN_OPTIONS } from '#cli/types/commands';
-import { LEDGER_FILE } from '#modules/evidence/types/ledger';
+import { LEDGER_FILE } from '#types/modules/evidence';
 import type { Runtime } from '#types/composition';
 
 const NOW = new Date(2026, 9, 2, 14, 35);

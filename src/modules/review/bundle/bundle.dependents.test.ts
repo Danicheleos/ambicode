@@ -7,8 +7,8 @@ import { findDependents } from '#modules/search/declarations/dependents';
 import { CONFIG } from '#testing/fixtures/route-fixture';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { assembleBundle } from './bundle.ts';
-import { MAX_DEPENDENTS } from '#modules/types/search';
-import type { ProcessOutcome, ProcessRequest, ProcessRunner } from '#types/ports';
+import { MAX_DEPENDENTS } from '#types/modules/search';
+import type { ProcessOutcome, ProcessRequest, ProcessRunner } from '#types/platform/ports';
 
 interface Script { importers: string[]; fail: boolean; calls: string[] }
 

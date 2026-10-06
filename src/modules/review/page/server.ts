@@ -7,9 +7,9 @@ import view from '@fastify/view';
 import { Eta } from 'eta';
 import { timingSafeEqual } from 'node:crypto';
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
-import type { PublicationPositions, PublicationRecord } from '#types/publication';
-import type { RemoteTarget, ReviewProvider } from '#types/provider';
-import { SESSION_COOKIE, type ReviewResult, type PageServer } from '#types/review';
+import type { PublicationPositions, PublicationRecord, SelectedComment } from '#types/modules/publication';
+import type { RemoteTarget, ReviewProvider } from '#types/platform/provider';
+import { SESSION_COOKIE, type ReviewResult, type PageServer } from '#types/modules/review';
 import { acquirePublicationLease } from '../publication/lease.ts';
 import { runPublication } from '../publication/publish.ts';
 import type { ReviewStore } from '../publication/store.ts';
@@ -17,13 +17,13 @@ import { recordSelection, selectionRows } from './selection-metrics.ts';
 import { SessionStore } from './session.ts';
 import { parseSubmission } from './submission.ts';
 import { buildPageModel, publicationAvailability, summarizeSubmission } from './view-model.ts';
-import type { Clock, FileSystem, IdSource } from '#types/ports';
+import type { Clock, FileSystem, IdSource } from '#types/platform/ports';
 import { TAKEOVER_HEADER, type ParsedSubmission, type LastSubmission } from '../types/page.ts';
-import type { SelectedComment } from '../types/publication.ts';
-export const LINK_TOKEN = '[A-Za-z0-9_-]{16,128}';
-export const MAX_BODY_BYTES = 512 * 1024;
+import { messageOf } from '#util/errors';
+const LINK_TOKEN = '[A-Za-z0-9_-]{16,128}';
+const MAX_BODY_BYTES = 512 * 1024;
 
-export interface PageServerOptions {
+interface PageServerOptions {
   fs: FileSystem;
   clock: Clock;
   ids: IdSource;
@@ -381,7 +381,7 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
         await (async () => {
           const offered = buildPageModel({ result: options.result, positions: options.positions, drafts: offeredRecord.drafts, outcomes: offeredRecord.outcomes, lastSubmission: null, csrfToken: '', submissionId: parsed.submissionId });
           await recordSelection(options.fs, options.store.directory, selectionRows({ at: submission.submittedAt, result: options.result, model: offered, submission: parsed, outcome: submission }));
-        })().catch((error: unknown) => options.log?.(`selection metrics not recorded: ${error instanceof Error ? error.message : String(error)}`));
+        })().catch((error: unknown) => options.log?.(`selection metrics not recorded: ${messageOf(error)}`));
       } finally {
         await lease.release();
         sessions.endSubmission(session);

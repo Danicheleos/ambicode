@@ -1,11 +1,10 @@
 import { openWorkspace, projectForRequest } from '#composition/root';
 import { locate, termsFromRequirements } from '#modules/search/text/locate';
-import { LocateOutput as LocateOutputSchema, type LocateOutput } from '#types/locate';
+import { LocateOutput as LocateOutputSchema, DEFAULT_LOCATE_LIMIT, type LocateOutput } from '#types/modules/search';
 import { loadRequirementEvidence } from '#modules/requirements/envelope/normalize';
 import { AmbicodeError } from '#util/errors';
 import { evidenceSource } from '../../options/target-option.ts';
 import type { Runtime } from '#types/composition';
-import { DEFAULT_LOCATE_LIMIT } from '#types/search';
 import type { ParsedArgs } from '../../types/cli.ts';
 
 export type { LocateOutput };

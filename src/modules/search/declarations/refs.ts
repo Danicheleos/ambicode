@@ -1,5 +1,5 @@
 import { openWorkspace } from '#composition/root';
-import type { ProjectConfig } from '#types/config';
+import type { ProjectConfig } from '#types/modules/config';
 import { literalPathspec, type Git } from '#platform/git/git';
 import { normalizeRelative } from '#util/paths';
 import { declarationCensus, harvest } from './harvest.ts';
@@ -8,7 +8,7 @@ import { indexDepsOf } from '../code-index/codeindex.ts';
 import { isTooBroad } from '../text/locate.ts';
 import { profileOf } from './profile.ts';
 import type { Runtime } from '#types/composition';
-import type { IndexAdapter, IndexStatus, RefsResult } from '#types/search';
+import type { IndexAdapter, IndexStatus, RefsResult } from '#types/modules/search';
 
 export const SEARCH_LIMIT_BYTES = 4096;
 const MAX_LINES_PER_NAME = 500;
@@ -70,8 +70,8 @@ export async function refs(runtime: Runtime, names: readonly string[], options: 
   return { names: summary, hits: summary.reduce((total, row) => total + row.hits, 0), limitations: allLimitations, text: shown, full, bytes: Buffer.byteLength(shown), truncated: truncated && !options.show };
 }
 
-export interface FoundDeclaration { name: string; kind: string | null; path: string; line: number | null }
-export interface FindResult { name: string; via: 'index' | 'harvest'; declarations: FoundDeclaration[]; collides: boolean | null; index: IndexStatus; limitations: string[] }
+interface FoundDeclaration { name: string; kind: string | null; path: string; line: number | null }
+interface FindResult { name: string; via: 'index' | 'harvest'; declarations: FoundDeclaration[]; collides: boolean | null; index: IndexStatus; limitations: string[] }
 
 /** The index's declarations when it answers, else the census files harvested for kind and line (05-F1). */
 export async function find(runtime: Runtime, name: string, options: { project: ProjectConfig; kind: string | null; index?: IndexAdapter }): Promise<FindResult> {

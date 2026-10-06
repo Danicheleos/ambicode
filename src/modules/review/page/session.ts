@@ -1,5 +1,5 @@
 import { timingSafeEqual } from 'node:crypto';
-import type { Clock, IdSource } from '#types/ports';
+import type { Clock, IdSource } from '#types/platform/ports';
 
 /**
  * In memory for one `ambicode view` process, never on disk or in a log. The
@@ -7,7 +7,7 @@ import type { Clock, IdSource } from '#types/ports';
  * be spent by the browser launch before the link reported in chat is opened.
  */
 
-export interface Session {
+interface Session {
   readonly id: string;
   readonly createdAt: number;
   lastSeenAt: number;
@@ -15,11 +15,11 @@ export interface Session {
   readonly seenSubmissions: Set<string>;
 }
 
-export type CapabilityResult =
+type CapabilityResult =
   | { kind: 'ok'; session: Session }
   | { kind: 'rejected'; reason: string };
 
-export interface SessionStoreOptions {
+interface SessionStoreOptions {
   ids: IdSource;
   clock: Clock;
   sessionTtlMs: number;

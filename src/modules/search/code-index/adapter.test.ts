@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { formatIndexStatus, indexAdapterFor, indexStatus, ledgerIndex } from './adapter.ts';
-import type { IndexState } from '#types/search';
+import type { IndexState } from '#types/modules/search';
 
 const deps = (index?: string) => ({ runtime: { fs: {} }, repositoryRoot: '/r', config: { search: index === undefined ? {} : { index } } }) as never;
 const project = { id: 'app', root: '.', ecosystem: 'typescript', commands: {} } as never;

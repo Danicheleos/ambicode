@@ -3,16 +3,17 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { REGISTERED_HOOK_ENTRIES, REGISTERED_HOOK_EVENTS, type HookDeps } from '#types/hook';
-import { A, B, TASK, planFixture, type PlanFixture } from '#testing/fixtures/plan-fixture';
+import { PLAN_TASK, planFixture, type PlanFixture } from '#testing/fixtures/plan-fixture';
 import { CONFIG } from '#testing/fixtures/route-fixture';
 import { answerGates } from './gate-answer.ts';
 import { splitLaunch } from './prompt-launch.ts';
 import { runHook } from './run-hook.ts';
 import { REPO_ROOT } from '#testing/paths';
-import type { FileSystem } from '#types/ports';
+import type { FileSystem } from '#types/platform/ports';
+import { SESSION_A, SESSION_B } from '#testing/fixtures/ids';
 
 const deps = (plan: PlanFixture): HookDeps => ({ pointer: plan.fx.pointer, load: async () => ({ engine: plan.fx.engine, routes: plan.fx.routes, pointer: plan.fx.pointer }) });
-const hook = (plan: PlanFixture, event: Record<string, unknown>, session = A) =>
+const hook = (plan: PlanFixture, event: Record<string, unknown>, session = SESSION_A) =>
   runHook(plan.fx.runtime, JSON.stringify({ session_id: session, cwd: plan.fx.repo.root, scratchpad_dir: plan.fx.scratchpad, ...event }), deps(plan)) as Promise<{ hookSpecificOutput?: { additionalContext: string }; decision?: string; reason?: string }>;
 const prompt = (plan: PlanFixture, text: string, extra: Record<string, unknown> = {}) => hook(plan, { hook_event_name: 'UserPromptSubmit', prompt: text, ...extra });
 const context = (output: { hookSpecificOutput?: { additionalContext: string } }): string => output.hookSpecificOutput?.additionalContext ?? '';
@@ -39,12 +40,12 @@ describe('03-H3 launch', () => {
     try {
       const launched = await prompt(plan, '/ambicode:plan add a limit to the cart --task ORD-17');
       assert.match(context(launched), /\[ambicode\] plan · task ORD-17 · step design/);
-      assert.equal((await plan.fx.kinds(TASK, 'route')).length, 1);
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'route')).length, 1);
       const plain = await prompt(plan, 'which files handle the cart?');
       assert.doesNotMatch(context(plain), /\[ambicode\]/);
       const ticket = await hook(plan, { hook_event_name: 'PostToolUse', tool_name: 'mcp__atlassian__getJiraIssue', tool_response: { content: [{ type: 'text', text: '{"key":"ORD-17"}' }] } });
       assert.deepEqual(ticket, {});
-      assert.equal((await plan.fx.kinds(TASK, 'route')).length, 1);
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'route')).length, 1);
     } finally {
       await plan.dispose();
     }
@@ -57,10 +58,10 @@ describe('03-H3 launch', () => {
     const plan = await planFixture();
     try {
       await prompt(plan, '/ambicode:plan "add a limit" --task ORD-17 --answer plan-accept=Accept');
-      const route = (await plan.fx.kinds(TASK, 'route'))[0]!;
+      const route = (await plan.fx.kinds(PLAN_TASK, 'route'))[0]!;
       assert.deepEqual([route['channel'], route['trusted']], ['hook', true]);
-      assert.equal((await plan.fx.kinds(TASK, 'preanswer')).length, 1);
-      const busy = await prompt(plan, '/ambicode:plan "add a limit" --task ORD-17', {}).then(() => hook(plan, { hook_event_name: 'UserPromptSubmit', prompt: '/ambicode:plan other --task ORD-17' }, B));
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'preanswer')).length, 1);
+      const busy = await prompt(plan, '/ambicode:plan "add a limit" --task ORD-17', {}).then(() => hook(plan, { hook_event_name: 'UserPromptSubmit', prompt: '/ambicode:plan other --task ORD-17' }, SESSION_B));
       assert.match(context(busy), /could not start the plan route: route-busy/);
     } finally {
       await plan.dispose();
@@ -72,7 +73,7 @@ describe('03-H3 launch', () => {
     try {
       const output = await prompt(plan, '/ambicode:plan add a limit --task ORD-17', { agent_id: 'sub' });
       assert.doesNotMatch(context(output), /\[ambicode\] plan/);
-      assert.equal((await plan.fx.kinds(TASK, 'route')).length, 0);
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'route')).length, 0);
       assert.deepEqual(await hook(plan, { hook_event_name: 'Stop', agent_id: 'sub' }), {});
       assert.deepEqual(await hook(plan, { hook_event_name: 'PostToolUse', tool_name: 'AskUserQuestion', agent_id: 'sub' }), {});
     } finally {
@@ -88,10 +89,10 @@ describe('03-H4 re-injection', () => {
       await prompt(plan, '/ambicode:plan add a limit --task ORD-17');
       assert.doesNotMatch(context(await prompt(plan, 'continue')), /\[ambicode\] plan/, 'the start already delivered this epoch');
       await hook(plan, { hook_event_name: 'PostCompact' });
-      const before = await plan.fx.ledger(TASK);
+      const before = await plan.fx.ledger(PLAN_TASK);
       const again = await prompt(plan, 'continue');
       assert.match(context(again), /\[ambicode\] plan · task ORD-17 · step design/);
-      assert.deepEqual(await plan.fx.ledger(TASK), before);
+      assert.deepEqual(await plan.fx.ledger(PLAN_TASK), before);
       assert.doesNotMatch(context(await prompt(plan, 'continue')), /\[ambicode\] plan/);
     } finally {
       await plan.dispose();
@@ -122,17 +123,17 @@ describe('03-H5/03-L1..L4 AskUserQuestion', () => {
 
   const deps2 = (plan: PlanFixture) => ({ engine: plan.fx.engine, routes: plan.fx.routes, pointer: plan.fx.pointer });
   const gateAsk = (plan: PlanFixture, event: object, platform?: { askBinding: 'supported' | 'unsupported'; answerContext: 'supported' | 'unsupported' }) =>
-    answerGates(plan.fx.runtime, { session_id: A, cwd: plan.fx.repo.root, scratchpad_dir: plan.fx.scratchpad, ...event } as never, deps2(plan), platform);
+    answerGates(plan.fx.runtime, { session_id: SESSION_A, cwd: plan.fx.repo.root, scratchpad_dir: plan.fx.scratchpad, ...event } as never, deps2(plan), platform);
 
   it('03-L1/03-L3: with binding unsupported, nothing is recorded and nothing is returned', async () => {
     const plan = await planFixture();
     try {
       await plan.toGate();
       const print = (await plan.prints()).at(-1)!;
-      const before = await plan.fx.ledger(TASK);
+      const before = await plan.fx.ledger(PLAN_TASK);
       assert.equal(await gateAsk(plan, answered(`Accept this plan? [ambicode gate plan-accept ${print.id}]`, 'Accept'), { askBinding: 'unsupported', answerContext: 'unsupported' }), null);
       assert.equal(await gateAsk(plan, answered(`Accept this plan? [ambicode gate plan-accept ${print.id}]`, 'Accept'), { askBinding: 'unsupported', answerContext: 'supported' }), null);
-      assert.deepEqual(await plan.fx.ledger(TASK), before);
+      assert.deepEqual(await plan.fx.ledger(PLAN_TASK), before);
     } finally {
       await plan.dispose();
     }
@@ -144,10 +145,10 @@ describe('03-H5/03-L1..L4 AskUserQuestion', () => {
       await plan.toGate();
       const print = (await plan.prints()).at(-1)!;
       const output = await hook(plan, answered(`Accept this plan? [ambicode gate plan-accept ${print.id}]`, 'Accept'));
-      const acceptance = (await plan.fx.kinds(TASK, 'acceptance')).at(-1)!;
+      const acceptance = (await plan.fx.kinds(PLAN_TASK, 'acceptance')).at(-1)!;
       assert.deepEqual([acceptance['via'], acceptance['gate'], acceptance['instance'], acceptance['answer']], ['hook', 'plan-accept', print.id, 'Accept']);
       assert.notEqual(context(output), '');
-      assert.equal((await plan.fx.kinds(TASK, 'note')).filter((entry) => entry['note'] === 'plan').length, 1);
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'note')).filter((entry) => entry['note'] === 'plan').length, 1);
     } finally {
       await plan.dispose();
     }
@@ -168,7 +169,7 @@ describe('03-H5/03-L1..L4 AskUserQuestion', () => {
         tool_response: { questions, answers: { [question]: 'Accept' }, annotations: {} },
         duration_ms: 1,
       });
-      const acceptance = (await plan.fx.kinds(TASK, 'acceptance')).at(-1)!;
+      const acceptance = (await plan.fx.kinds(PLAN_TASK, 'acceptance')).at(-1)!;
       assert.deepEqual([acceptance['via'], acceptance['instance'], acceptance['answer']], ['hook', print.id, 'Accept']);
       assert.notEqual(context(output), '');
     } finally {
@@ -185,7 +186,7 @@ describe('03-H5/03-L1..L4 AskUserQuestion', () => {
       const delivered = (await plan.prints()).at(-1)!;
       assert.match(context(out), new RegExp(`plan-accept ${delivered.id}`), 'the hook delivered the next gate');
       const count = (await plan.prints()).length;
-      const again = await plan.fx.engine.advance({ task: TASK, session: A, cause: 'route-next', scratchpadDir: plan.fx.scratchpad });
+      const again = await plan.fx.engine.advance({ task: PLAN_TASK, session: SESSION_A, cause: 'route-next', scratchpadDir: plan.fx.scratchpad });
       assert.match(again.text, new RegExp(`plan-accept ${delivered.id}`));
       assert.equal((await plan.prints()).length, count);
     } finally {
@@ -198,11 +199,11 @@ describe('03-H5/03-L1..L4 AskUserQuestion', () => {
     try {
       await plan.toGate();
       const print = (await plan.prints()).at(-1)!;
-      await plan.fx.engine.advance({ task: TASK, session: A, cause: 'route-next', answers: [{ gate: 'plan-accept', option: 'Accept' }] });
-      assert.equal((await plan.fx.kinds(TASK, 'declined')).at(-1)!['reason'], 'acting-needs-human');
-      assert.equal((await plan.fx.kinds(TASK, 'note')).filter((entry) => entry['note'] === 'plan').length, 0);
+      await plan.fx.engine.advance({ task: PLAN_TASK, session: SESSION_A, cause: 'route-next', answers: [{ gate: 'plan-accept', option: 'Accept' }] });
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'declined')).at(-1)!['reason'], 'acting-needs-human');
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'note')).filter((entry) => entry['note'] === 'plan').length, 0);
       await hook(plan, answered(`Accept this plan? [ambicode gate plan-accept ${print.id}]`, 'Accept'));
-      assert.equal((await plan.fx.kinds(TASK, 'note')).filter((entry) => entry['note'] === 'plan').length, 1);
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'note')).filter((entry) => entry['note'] === 'plan').length, 1);
     } finally {
       await plan.dispose();
     }
@@ -214,11 +215,11 @@ describe('03-H5/03-L1..L4 AskUserQuestion', () => {
       try {
         await plan.toGate();
         const print = (await plan.prints()).at(-1)!;
-        const output = await answerGates(plan.fx.runtime, { session_id: A, cwd: plan.fx.repo.root, scratchpad_dir: plan.fx.scratchpad, ...answered(`Accept this plan? [ambicode gate plan-accept ${print.id}]`, 'Accept') } as never, { engine: plan.fx.engine, routes: plan.fx.routes, pointer: plan.fx.pointer }, { askBinding: 'supported', answerContext });
-        const acceptance = (await plan.fx.kinds(TASK, 'acceptance')).at(-1)!;
+        const output = await answerGates(plan.fx.runtime, { session_id: SESSION_A, cwd: plan.fx.repo.root, scratchpad_dir: plan.fx.scratchpad, ...answered(`Accept this plan? [ambicode gate plan-accept ${print.id}]`, 'Accept') } as never, { engine: plan.fx.engine, routes: plan.fx.routes, pointer: plan.fx.pointer }, { askBinding: 'supported', answerContext });
+        const acceptance = (await plan.fx.kinds(PLAN_TASK, 'acceptance')).at(-1)!;
         assert.deepEqual([acceptance['via'], acceptance['instance'], acceptance['answer']], ['hook', print.id, 'Accept']);
         assert.equal(output !== null, expected);
-        assert.equal((await plan.fx.kinds(TASK, 'note')).filter((entry) => entry['note'] === 'plan').length, 1);
+        assert.equal((await plan.fx.kinds(PLAN_TASK, 'note')).filter((entry) => entry['note'] === 'plan').length, 1);
       } finally {
         await plan.dispose();
       }
@@ -229,9 +230,9 @@ describe('03-H5/03-L1..L4 AskUserQuestion', () => {
     const plan = await planFixture();
     try {
       await plan.toGate();
-      const before = await plan.fx.ledger(TASK);
+      const before = await plan.fx.ledger(PLAN_TASK);
       assert.deepEqual(await hook(plan, answered('Which database?', 'postgres')), {});
-      assert.deepEqual(await plan.fx.ledger(TASK), before);
+      assert.deepEqual(await plan.fx.ledger(PLAN_TASK), before);
     } finally {
       await plan.dispose();
     }
@@ -242,14 +243,14 @@ describe('03-H5/03-L1..L4 AskUserQuestion', () => {
     try {
       await plan.toGate();
       const platform = { askBinding: 'supported', answerContext: 'unsupported' } as const;
-      const run = (event: object) => answerGates(plan.fx.runtime, { session_id: A, cwd: plan.fx.repo.root, scratchpad_dir: plan.fx.scratchpad, ...event } as never, { engine: plan.fx.engine, routes: plan.fx.routes, pointer: plan.fx.pointer }, platform);
+      const run = (event: object) => answerGates(plan.fx.runtime, { session_id: SESSION_A, cwd: plan.fx.repo.root, scratchpad_dir: plan.fx.scratchpad, ...event } as never, { engine: plan.fx.engine, routes: plan.fx.routes, pointer: plan.fx.pointer }, platform);
       await run(answered('Which database?', 'postgres'));
-      assert.equal((await plan.fx.kinds(TASK, 'declined')).length, 0);
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'declined')).length, 0);
       await run(answered('Accept this plan?', 'Accept'));
-      assert.equal((await plan.fx.kinds(TASK, 'declined')).at(-1)!['reason'], 'no-instance');
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'declined')).at(-1)!['reason'], 'no-instance');
       const print = (await plan.prints()).at(-1)!;
       await run(answered(`Accept this plan? [ambicode gate plan-accept ${print.id}]`, 'maybe later'));
-      assert.equal((await plan.fx.kinds(TASK, 'declined')).at(-1)!['reason'], 'option-not-offered');
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'declined')).at(-1)!['reason'], 'option-not-offered');
     } finally {
       await plan.dispose();
     }
@@ -262,7 +263,7 @@ describe('03-H6 MCP capture', () => {
     try {
       const reads: string[] = [];
       const fs: FileSystem = new Proxy(plan.fx.runtime.fs, { get: (target, key) => (typeof key === 'string' && key.startsWith('read') ? (...args: unknown[]) => (reads.push(String(args[0])), (target as never as Record<string, (...rest: unknown[]) => unknown>)[key]!(...args)) : (target as never as Record<string | symbol, unknown>)[key]) });
-      const output = await runHook({ ...plan.fx.runtime, fs }, JSON.stringify({ hook_event_name: 'PostToolUse', session_id: A, cwd: plan.fx.repo.root, scratchpad_dir: plan.fx.scratchpad, tool_name: 'mcp__atlassian__getJiraIssue', tool_response: {} }), deps(plan));
+      const output = await runHook({ ...plan.fx.runtime, fs }, JSON.stringify({ hook_event_name: 'PostToolUse', session_id: SESSION_A, cwd: plan.fx.repo.root, scratchpad_dir: plan.fx.scratchpad, tool_name: 'mcp__atlassian__getJiraIssue', tool_response: {} }), deps(plan));
       assert.deepEqual(output, {});
       assert.deepEqual(reads.filter((file) => /config\.yaml|ledger\.jsonl/.test(file)), []);
     } finally {
@@ -278,11 +279,11 @@ describe('03-H6 MCP capture with a route', () => {
       await prompt(plan, '/ambicode:plan ORD-17 add a limit --task ORD-17');
       const response = { content: [{ type: 'text', text: JSON.stringify({ key: 'ORD-17', fields: { summary: 'Limit', description: 'Cap the cart at 50 items.' } }) }] };
       await hook(plan, { hook_event_name: 'PostToolUse', tool_name: 'mcp__linear__getIssue', tool_response: response });
-      assert.equal((await plan.fx.kinds(TASK, 'requirement')).length, 0);
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'requirement')).length, 0);
       assert.deepEqual(await hook(plan, { hook_event_name: 'PostToolUse', tool_name: 'mcp__claude_ai_Atlassian__getJiraIssue', tool_response: response }), {});
-      const [entry] = await plan.fx.kinds(TASK, 'requirement');
+      const [entry] = await plan.fx.kinds(PLAN_TASK, 'requirement');
       assert.deepEqual([entry!['key'], entry!['relation'], entry!['capture']], ['ORD-17', 'asked', 'full']);
-      assert.equal(entry!['route'], (await plan.fx.kinds(TASK, 'route'))[0]!.id);
+      assert.equal(entry!['route'], (await plan.fx.kinds(PLAN_TASK, 'route'))[0]!.id);
     } finally {
       await plan.dispose();
     }
@@ -295,7 +296,7 @@ describe('04-B hook binding', () => {
     try {
       const reads: string[] = [];
       const fs: FileSystem = new Proxy(plan.fx.runtime.fs, { get: (target, key) => (typeof key === 'string' && key.startsWith('read') ? (...args: unknown[]) => (reads.push(String(args[0])), (target as never as Record<string, (...rest: unknown[]) => unknown>)[key]!(...args)) : (target as never as Record<string | symbol, unknown>)[key]) });
-      const output = await runHook({ ...plan.fx.runtime, fs }, JSON.stringify({ hook_event_name: 'PostToolUse', session_id: A, cwd: plan.fx.repo.root, scratchpad_dir: plan.fx.scratchpad, tool_name: 'mcp__claude_ai_Atlassian_Rovo__getJiraIssue', tool_response: {} }), deps(plan));
+      const output = await runHook({ ...plan.fx.runtime, fs }, JSON.stringify({ hook_event_name: 'PostToolUse', session_id: SESSION_A, cwd: plan.fx.repo.root, scratchpad_dir: plan.fx.scratchpad, tool_name: 'mcp__claude_ai_Atlassian_Rovo__getJiraIssue', tool_response: {} }), deps(plan));
       assert.deepEqual(output, {});
       assert.deepEqual(reads.filter((file) => /config\.yaml|ledger\.jsonl/.test(file)), []);
     } finally {
@@ -309,9 +310,9 @@ describe('04-B hook binding', () => {
       await prompt(plan, '/ambicode:plan ORD-17 add a limit --task ORD-17');
       const response = { content: [{ type: 'text', text: JSON.stringify({ key: 'ORD-17', fields: { summary: 'Limit', description: 'Cap the cart at 50 items.' } }) }] };
       await hook(plan, { hook_event_name: 'PostToolUse', tool_name: 'mcp__linear__getIssue', tool_response: response });
-      assert.equal((await plan.fx.kinds(TASK, 'requirement')).length, 0);
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'requirement')).length, 0);
       await hook(plan, { hook_event_name: 'PostToolUse', tool_name: 'mcp__claude_ai_Atlassian_Rovo__getJiraIssue', tool_response: response });
-      assert.equal((await plan.fx.kinds(TASK, 'requirement')).length, 1);
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'requirement')).length, 1);
     } finally {
       await plan.dispose();
     }
@@ -323,11 +324,11 @@ describe('03-H7 SessionEnd', () => {
     const plan = await planFixture();
     try {
       await plan.start();
-      await plan.fx.engine.stop(TASK, A, 'blocked', 'x', plan.fx.scratchpad);
-      assert.ok((await plan.fx.pointer.readEnded(A, plan.fx.scratchpad)) !== null);
+      await plan.fx.engine.stop(PLAN_TASK, SESSION_A, 'blocked', 'x', plan.fx.scratchpad);
+      assert.ok((await plan.fx.pointer.readEnded(SESSION_A, plan.fx.scratchpad)) !== null);
       await hook(plan, { hook_event_name: 'SessionEnd' });
-      assert.equal(await plan.fx.pointer.readEnded(A, plan.fx.scratchpad), null);
-      assert.equal(await plan.fx.pointer.read(A, plan.fx.scratchpad), null);
+      assert.equal(await plan.fx.pointer.readEnded(SESSION_A, plan.fx.scratchpad), null);
+      assert.equal(await plan.fx.pointer.read(SESSION_A, plan.fx.scratchpad), null);
     } finally {
       await plan.dispose();
     }

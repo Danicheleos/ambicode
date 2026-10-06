@@ -1,4 +1,3 @@
-import { z } from 'zod';
 import {
   providerFailed,
   providerOk,
@@ -19,28 +18,14 @@ import {
   type ResolveTargetRequest,
   type ReviewCoverage,
   type ReviewProvider,
-} from '#types/provider';
+} from '#types/platform/provider';
 import { MAX_SNAPSHOT_FILE_BYTES } from '#types/defaults';
 import { isBinaryContent } from '#modules/review/snapshot/exclusions';
 import { toGitLabPositionFields } from '../position.ts';
 import { GitLabApi } from './api.ts';
-import {
-  GitLabBlobBatch,
-  GitLabCompare,
-  GitLabCreatedDiscussion,
-  GitLabDiscussion,
-  GitLabFile,
-  GitLabMergeRequest,
-  GitLabProject,
-  GitLabTreeEntry,
-  GitLabUser,
-  GitLabVersion,
-  GitLabVersionDetail,
-  type GitLabVersionDiff,
-} from './types/schemas.ts';
+import { GitLabBlobBatch, GitLabCompare, GitLabCreatedDiscussion, GitLabDiscussion, GitLabFile, GitLabMergeRequest, GitLabProject, GitLabTreeEntry, GitLabUser, GitLabVersion, GitLabVersionDetail, type GitLabVersionDiff, type ApiResult } from './types/schemas.ts';
 import { encodeProjectIdentity, parseMergeRequestUrl } from './url.ts';
-import type { ProcessRunner } from '#types/ports';
-import type { ApiResult } from './types/gitlab.ts';
+import type { ProcessRunner } from '#types/platform/ports';
 
 const GITLAB_HOST_PATTERN = /(^|\.)gitlab\b/i;
 
@@ -486,14 +471,14 @@ export class GitLabProvider implements ReviewProvider {
  * GitLab abbreviates a sha in some payloads, so two spellings are compared on their common prefix.
  * Seven hex characters is git's own minimum for an unambiguous abbreviation.
  */
-export function sameSha(left: string | null, right: string | null): boolean {
+function sameSha(left: string | null, right: string | null): boolean {
   if (left === null || right === null) return false;
   const length = Math.min(left.length, right.length);
   if (length < 7) return false;
   return left.slice(0, length) === right.slice(0, length);
 }
 
-export function assessCoverage(
+function assessCoverage(
   version: { real_size: string | null; state: string | null; diffs: readonly unknown[] },
   files: readonly RemoteFetchedFile[],
 ): ReviewCoverage {

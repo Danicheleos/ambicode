@@ -2,10 +2,10 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import path from 'node:path';
 import { AmbicodeError } from '#util/errors';
 import { appendLocked, readLedgerStrict } from './ledger.ts';
-import type { LockedLedger } from '#types/evidence';
-import type { FileSystem } from '#types/ports';
+import type { LockedLedger } from '#types/modules/evidence';
+import type { FileSystem } from '#types/platform/ports';
 
-export interface LockOptions {
+interface LockOptions {
   /** Whether a process is running; `process.kill(pid, 0)` unless a test says otherwise. */
   alive?: (pid: number) => boolean;
   timeoutMs?: number;

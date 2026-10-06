@@ -1,5 +1,5 @@
 import { indexStatus } from '#modules/search/code-index/adapter';
-import type { IndexAdapter, IndexAnswer, IndexDeclaration, IndexName, IndexState } from '#types/search';
+import type { IndexAdapter, IndexAnswer, IndexDeclaration, IndexName, IndexState } from '#types/modules/search';
 
 export interface FakeIndexOptions {
   state?: IndexState;

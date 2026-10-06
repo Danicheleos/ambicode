@@ -1,4 +1,4 @@
-import type { ReviewResult } from '#types/review';
+import type { ReviewResult } from '#types/modules/review';
 import { renderReport } from '../findings/report.ts';
 
 const PART_4 = '4. OMISSIONS, UNCERTAINTY AND UNAVAILABLE COVERAGE';

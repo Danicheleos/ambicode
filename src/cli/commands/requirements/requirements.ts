@@ -15,7 +15,7 @@ import type { Runtime } from '#types/composition';
 import type { RouteArgs } from '#types/harness';
 import type { ParsedArgs } from '../../types/cli.ts';
 
-export interface RequirementsOutput { command: string; task: string; text: string; data: unknown; next?: string }
+interface RequirementsOutput { command: string; task: string; text: string; data: unknown; next?: string }
 
 export async function runRequirementsTemplate(runtime: Runtime, args: ParsedArgs): Promise<RequirementsOutput> {
   const task = requireTask('requirements template', args);

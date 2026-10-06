@@ -7,14 +7,14 @@ import { parseArgs } from '#cli/args';
 import { initConfig } from '#testing/fixtures/init-config';
 import { runReview, renderReview } from '#cli/commands/review/review';
 import { createRuntime } from '#composition/root';
-import { REVIEWER_REPLAY_VARIABLE, type ReviewerOutput } from '#types/review';
+import { REVIEWER_REPLAY_VARIABLE, type ReviewerOutput } from '#types/modules/review';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { NodeProcessRunner } from '#platform/ports/node-process-runner';
 import { FakeProcessRunner } from '#testing/fakes/fake-process-runner';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { ReplayReviewer, type ReviewerRecordings } from './replay-reviewer.ts';
 import { REVIEW_OPTIONS } from '#cli/types/commands';
-import type { ProcessOutcome, ProcessRequest, ProcessRunner } from '#types/ports';
+import type { ProcessOutcome, ProcessRequest, ProcessRunner } from '#types/platform/ports';
 
 class ClaudeGuard implements ProcessRunner {
   readonly claudeCalls: ProcessRequest[] = [];

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Git } from '#platform/git/git';
 import { NodeProcessRunner } from '#platform/ports/node-process-runner';
-import type { ProcessRunner } from '#types/ports';
+import type { ProcessRunner } from '#types/platform/ports';
 
 /** A real git repository: a fake would only re-state the parser's own assumptions about git's output. */
 export class TempRepo {

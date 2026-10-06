@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseArgs } from '#cli/args';
 import { runReview } from '#cli/commands/review/review';
-import { TASK } from '#testing/fixtures/check-fixture';
+import { CHECK_TASK } from '#testing/fixtures/check-fixture';
 import { PROPOSED, reviewRouteFixture } from '#testing/fixtures/review-route-fixture';
 import { REVIEW_OPTIONS } from '#cli/types/commands';
 import type { StartChannel } from '#types/harness';
@@ -110,7 +110,7 @@ describe('review route: waiting checks are one explicit question (08-W1 … 08-W
       await withReview(async (t) => {
         await toRun(t, { channel });
         const { seen, deps } = countingReviewer();
-        const run = (...extra: string[]) => runReview(t.runtime, parseArgs('review', ['--task', TASK, ...extra], REVIEW_OPTIONS), deps);
+        const run = (...extra: string[]) => runReview(t.runtime, parseArgs('review', ['--task', CHECK_TASK, ...extra], REVIEW_OPTIONS), deps);
         await run();
         await run('--approve', 'app/lint');
         assert.equal(seen.invoked, 0);
@@ -125,7 +125,7 @@ describe('review route: waiting checks are one explicit question (08-W1 … 08-W
     await withReview(async (t) => {
       assert.equal((await t.start({ headless: true, answers: [{ gate: 'estimate', option: 'run' }] })).position, 'review-run');
       const { seen, deps } = countingReviewer();
-      const run = (...extra: string[]) => runReview(t.runtime, parseArgs('review', ['--task', TASK, ...extra], REVIEW_OPTIONS), deps);
+      const run = (...extra: string[]) => runReview(t.runtime, parseArgs('review', ['--task', CHECK_TASK, ...extra], REVIEW_OPTIONS), deps);
       await run();
       assert.deepEqual((await t.kinds('default-taken')).map((entry) => [entry['gate'], entry['answer'], entry['via']]), [[GATE, 'without', 'headless']]);
       await run('--approve', 'app/lint');
@@ -139,7 +139,7 @@ describe('review route: waiting checks are one explicit question (08-W1 … 08-W
     await withReview(async (t) => {
       await toRun(t);
       const { seen, deps } = countingReviewer();
-      const run = () => runReview(t.runtime, parseArgs('review', ['--task', TASK], REVIEW_OPTIONS), deps);
+      const run = () => runReview(t.runtime, parseArgs('review', ['--task', CHECK_TASK], REVIEW_OPTIONS), deps);
       await run();
       assert.equal(seen.invoked, 0);
       await t.hook(GATE, 'with');

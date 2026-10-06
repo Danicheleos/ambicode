@@ -1,4 +1,4 @@
-import type { ProcessOutcome, ProcessRequest, ProcessRunner } from '#types/ports';
+import type { ProcessOutcome, ProcessRequest, ProcessRunner } from '#types/platform/ports';
 
 export interface StubbedCall {
   /** Matched against the argument vector joined by a space. */

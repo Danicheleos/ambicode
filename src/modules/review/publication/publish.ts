@@ -1,4 +1,4 @@
-import { isSettled, type PersistedPosition, type PublicationOutcome, type SubmissionRecord } from '#types/publication';
+import { isSettled, type PersistedPosition, type PublicationOutcome, type SubmissionRecord, type SelectedComment } from '#types/modules/publication';
 import type { PublicationState } from '#types/primitives';
 import {
   revisionMatches,
@@ -8,11 +8,10 @@ import {
   type RemoteRevision,
   type RemoteTarget,
   type ReviewProvider,
-} from '#types/provider';
+} from '#types/platform/provider';
 import { appendMarker } from './marker.ts';
 import { describeNearMiss, reconcile } from './reconcile.ts';
-import type { Clock } from '#types/ports';
-import type { SelectedComment } from '../types/publication.ts';
+import type { Clock } from '#types/platform/ports';
 
 /**
  * The only path that writes to a merge request. Nothing retries a write: a lost
@@ -20,7 +19,7 @@ import type { SelectedComment } from '../types/publication.ts';
  * one comment becomes two.
  */
 
-export interface PublishRunOptions {
+interface PublishRunOptions {
   provider: ReviewProvider;
   target: RemoteTarget;
   reviewId: string;
@@ -353,7 +352,7 @@ export function classifyWriteFailure(outcome: {
   return outcome.certainty === 'before-send' ? 'failed-before-send' : 'uncertain';
 }
 
-export interface ReconcileReopenOptions {
+interface ReconcileReopenOptions {
   provider: ReviewProvider;
   target: RemoteTarget;
   reviewId: string;
@@ -362,7 +361,7 @@ export interface ReconcileReopenOptions {
   clock: Clock;
 }
 
-export interface ReconcileReopenResult {
+interface ReconcileReopenResult {
   updated: PublicationOutcome[];
   notes: string[];
 }

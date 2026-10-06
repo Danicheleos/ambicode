@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { parseHunks } from '#platform/git/diff';
 import { changeTerms } from './dependents.ts';
-import type { DiffFile } from '#types/git';
+import type { DiffFile } from '#types/platform/git';
 
 function file(oldPath: string | null, newPath: string | null, body: string[]): DiffFile {
   const patchSection = ['@@ -1,9 +1,9 @@', ...body].join('\n');

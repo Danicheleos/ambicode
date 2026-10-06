@@ -1,8 +1,8 @@
-import type { ResolvedPolicy } from '#types/policy';
-import type { ProvenanceEntry } from '#types/requirements';
+import type { ResolvedPolicy } from '#types/modules/policy';
+import type { ProvenanceEntry } from '#types/modules/requirements';
 import { contentHash } from '#util/hash';
 import type { Workspace } from '#types/composition';
-import type { FileSystem } from '#types/ports';
+import type { FileSystem } from '#types/platform/ports';
 
 export function policyProvenance(policies: readonly { policy: ResolvedPolicy }[]): ProvenanceEntry[] {
   const entries = new Map<string, ProvenanceEntry>();

@@ -3,7 +3,7 @@ import { isMap, isScalar, isSeq, parse as parseYaml, parseDocument } from 'yaml'
 import { openRepository, openWorkspace } from '#composition/root';
 import { detectRuleSources } from '#modules/config/init/init';
 import { loadConfigWithNotices } from '#modules/config/load';
-import type { ProjectConfig } from '#types/config';
+import type { ProjectConfig, ApplyDeps } from '#types/modules/config';
 import { refOf } from '#harness/engine/context';
 import { classifySource, requirementsTemplate } from '#modules/requirements/capture/template';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
@@ -17,20 +17,19 @@ import { pathExclusionReason } from '#modules/review/snapshot/exclusions';
 import { blockingProblem, checkDrafts } from './drafts.ts';
 import { loadPacksForProject, type PackWithPrompts } from '../packs/load.ts';
 import { resolvePolicy } from '../packs/resolve.ts';
-import type { ApplyDeps } from '#modules/types/config';
 import type { Runtime, Workspace } from '#types/composition';
-import { DRAFTS_DIR, type DraftsCheck } from '#types/policy';
+import { DRAFTS_DIR, type DraftsCheck } from '#types/modules/policy';
 
 const LIVE_DIR = '.ambicode/policies';
 
-export interface RulesDiscovery { candidates: string[]; named: string[]; missing: string[]; urls: string[]; fetch: string | null; text: string }
-export interface AppliedPack { id: string; path: string; rules: number }
-export interface PackProbe { pack: string; covered: { path: string; ok: boolean } | null; uncovered: { path: string; ok: boolean } | 'n/a' | null }
-export interface RulesApplied { packs: AppliedPack[]; skipped: { file: string; reason: string }[]; notMigrated: { rule: string; reason: string }[]; probes: PackProbe[]; text: string; hash: string }
+interface RulesDiscovery { candidates: string[]; named: string[]; missing: string[]; urls: string[]; fetch: string | null; text: string }
+interface AppliedPack { id: string; path: string; rules: number }
+interface PackProbe { pack: string; covered: { path: string; ok: boolean } | null; uncovered: { path: string; ok: boolean } | 'n/a' | null }
+interface RulesApplied { packs: AppliedPack[]; skipped: { file: string; reason: string }[]; notMigrated: { rule: string; reason: string }[]; probes: PackProbe[]; text: string; hash: string }
 
 const badArgument = (message: string, field: string): AmbicodeError => new AmbicodeError('bad-argument', message, { field });
 
-export function rulesUnconfirmed(reason: string): AmbicodeError {
+function rulesUnconfirmed(reason: string): AmbicodeError {
   return new AmbicodeError('rules-apply-unconfirmed', `rules apply needs the user's own "Apply all" answer to the rules table (reason: ${reason}). Nothing was written.`, {
     details: [`reason: ${reason}`, 'Release: answer the rules-table gate in /ambicode:rules; the default is to apply nothing.'],
   });

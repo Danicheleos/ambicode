@@ -1,13 +1,12 @@
 import { ledgerRouteContext } from '#harness/engine/context';
 import { runCheckOnly } from '#modules/checks/run/check-command';
 import { CONFIG, routeFixture } from './route-fixture.ts';
-import type { CheckDeps, CheckOnlyInput } from '#types/checks';
+import type { CheckDeps, CheckOnlyInput } from '#types/modules/checks';
 import type { Runtime } from '#types/composition';
 import type { StartChannel } from '#types/harness';
-import type { ProcessOutcome, ProcessRequest, ProcessRunner } from '#types/ports';
-
-export const A = 'aaaaaaaa-1111-4111-8111-111111111111';
-export const TASK = 'ord-7';
+import type { ProcessOutcome, ProcessRequest, ProcessRunner } from '#types/platform/ports';
+import { SESSION_A } from './ids.ts';
+export const CHECK_TASK = 'ord-7';
 export const DEMO = `skill: demo
 version: 3
 budget: { modelSteps: 10 }
@@ -72,14 +71,14 @@ export async function checkFixture(options: { routes?: Record<string, string>; c
   const runner = new SplitRunner(fx.runtime.runner);
   const runtime: Runtime = { ...fx.runtime, runner };
   const warmed: string[] = [];
-  const deps = (session: string | null = A): CheckDeps => ({
+  const deps = (session: string | null = SESSION_A): CheckDeps => ({
     runtime, session, routes: fx.routes, context: ledgerRouteContext({ runtime, routes: fx.routes }),
     warm: async (_workspace, project) => { warmed.push(project.id); },
   });
   const start = (channel: StartChannel = 'hook', headless = false, extra: object = {}) =>
-    fx.engine.start({ skill: 'demo', text: 'fix the total', requirements: [], task: TASK, cwd: fx.repo.root, session: A, channel, headless, scratchpadDir: fx.scratchpad, ...extra });
-  const check = (input: Partial<CheckOnlyInput> = {}, session: string | null = A) =>
-    runCheckOnly(deps(session), { task: TASK, key: 'app/unit', only: ['src/a.spec.ts'], phase: 'red', approve: [], decline: [], ...input });
+    fx.engine.start({ skill: 'demo', text: 'fix the total', requirements: [], task: CHECK_TASK, cwd: fx.repo.root, session: SESSION_A, channel, headless, scratchpadDir: fx.scratchpad, ...extra });
+  const check = (input: Partial<CheckOnlyInput> = {}, session: string | null = SESSION_A) =>
+    runCheckOnly(deps(session), { task: CHECK_TASK, key: 'app/unit', only: ['src/a.spec.ts'], phase: 'red', approve: [], decline: [], ...input });
   return { fx, runner, runtime, deps, start, check, warmed };
 }
 

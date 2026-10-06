@@ -1,10 +1,10 @@
 import { z } from 'zod';
 import { describeIssues } from '#modules/config/load';
-import { RequirementConflict, RequirementSource, RequirementEvidence, type RequirementMode, type NormalizedRequirements, type EvidenceSource } from '#types/requirements';
+import { RequirementConflict, RequirementSource, RequirementEvidence, type RequirementMode, type NormalizedRequirements, type EvidenceSource } from '#types/modules/requirements';
 import { MAX_EVIDENCE_BYTES } from '#types/defaults';
-import { AmbicodeError } from '#util/errors';
+import { AmbicodeError, messageOf } from '#util/errors';
 import { contentHash } from '#util/hash';
-import type { FileSystem, StandardInput } from '#types/ports';
+import type { FileSystem, StandardInput } from '#types/platform/ports';
 
 /**
  * Validates what the outer session retrieved over MCP. This module never fetches
@@ -13,7 +13,7 @@ import type { FileSystem, StandardInput } from '#types/ports';
 
 export type { RequirementMode };
 
-export interface NormalizeOptions {
+interface NormalizeOptions {
   urls: readonly string[];
   evidence: RequirementEvidence | null;
   configuredServer: string | null;
@@ -21,7 +21,7 @@ export interface NormalizeOptions {
   declared?: 'urls' | 'captured';
 }
 
-export const SOURCE_FREE: NormalizedRequirements = {
+const SOURCE_FREE: NormalizedRequirements = {
   mode: 'source-free',
   sources: [],
   conflicts: [],
@@ -30,7 +30,7 @@ export const SOURCE_FREE: NormalizedRequirements = {
   provenance: [],
 };
 
-export interface EvidenceInput {
+interface EvidenceInput {
   fs: FileSystem;
   stdin: StandardInput;
 }
@@ -69,7 +69,7 @@ export async function loadRequirementEvidence(
   return parseRequirementEvidence(raw, 'standard input');
 }
 
-export async function readRequirementEvidence(
+async function readRequirementEvidence(
   fs: FileSystem,
   filePath: string,
 ): Promise<RequirementEvidence> {
@@ -95,7 +95,7 @@ function parseRequirementEvidence(raw: string, where: string): RequirementEviden
   } catch (cause) {
     throw new AmbicodeError('requirements-unparsable', 'The requirement evidence is not valid JSON.', {
       field: where,
-      details: [cause instanceof Error ? cause.message : String(cause)],
+      details: [messageOf(cause)],
     });
   }
 

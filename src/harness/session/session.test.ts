@@ -5,13 +5,14 @@ import path from 'node:path';
 import { parseArgs } from '#cli/args';
 import { runRouteNext, runRouteStop } from '#cli/commands/route/route';
 import { routeFixture } from '#testing/fixtures/route-fixture';
-import { A, B, TASK, planFixture } from '#testing/fixtures/plan-fixture';
+import { PLAN_TASK, planFixture } from '#testing/fixtures/plan-fixture';
 import { resolveActiveRoute } from './active-route.ts';
 import {
   associationSessionSource, cliHarnessPort, environmentSessionSource, hookBinding, removeAssociation, rejectingHarnessPort,
   sessionUnbound, taskSessionSource, updatedInputSessionSource, writeAssociation,
 } from './session.ts';
 import { ROUTE_NEXT_OPTIONS, ROUTE_STOP_OPTIONS } from '#cli/types/commands';
+import { SESSION_A, SESSION_B } from '#testing/fixtures/ids';
 
 const codeOf = (promise: Promise<unknown>): Promise<string> => promise.then(() => 'ok', (error: { code?: string }) => error.code ?? 'unknown');
 
@@ -19,12 +20,12 @@ describe('03-S2/5.1: the CLI finds the owner from the task', () => {
   it('a task with no live route is missing, one live route binds its owner, two live chains are ambiguous', async () => {
     const plan = await planFixture();
     try {
-      const source = taskSessionSource(TASK);
+      const source = taskSessionSource(PLAN_TASK);
       assert.deepEqual(await source.resolve(plan.fx.runtime), { state: 'unbound', reason: 'missing' });
-      await plan.start({ session: 'owner-one', harnessSession: A });
+      await plan.start({ session: 'owner-one', harnessSession: SESSION_A });
       assert.deepEqual(await source.resolve(plan.fx.runtime), { state: 'bound', session: 'owner-one', via: 'task' });
       assert.deepEqual(await taskSessionSource('another-task').resolve(plan.fx.runtime), { state: 'unbound', reason: 'missing' });
-      await plan.fx.engine.stop(TASK, 'owner-one', 'blocked', 'x', plan.fx.scratchpad);
+      await plan.fx.engine.stop(PLAN_TASK, 'owner-one', 'blocked', 'x', plan.fx.scratchpad);
       assert.deepEqual(await source.resolve(plan.fx.runtime), { state: 'unbound', reason: 'missing' });
     } finally {
       await plan.dispose();
@@ -48,7 +49,7 @@ describe('03-S2/5.1: the CLI finds the owner from the task', () => {
   });
 
   it('03-S1: a hook binding names the hook input session and never trust', () => {
-    assert.deepEqual(hookBinding(A), { state: 'bound', session: A, via: 'hook' });
+    assert.deepEqual(hookBinding(SESSION_A), { state: 'bound', session: SESSION_A, via: 'hook' });
   });
 });
 
@@ -84,14 +85,14 @@ describe('03-S5: hook-written association', () => {
       const root = fx.repo.root;
       const source = associationSessionSource(root);
       assert.deepEqual(await source.resolve(fx.runtime), { state: 'unbound', reason: 'missing' });
-      await writeAssociation(fx.runtime, root, A);
-      assert.deepEqual(await source.resolve(fx.runtime), { state: 'bound', session: A, via: 'association' });
-      await writeAssociation(fx.runtime, root, B);
+      await writeAssociation(fx.runtime, root, SESSION_A);
+      assert.deepEqual(await source.resolve(fx.runtime), { state: 'bound', session: SESSION_A, via: 'association' });
+      await writeAssociation(fx.runtime, root, SESSION_B);
       assert.deepEqual(await source.resolve(fx.runtime), { state: 'unbound', reason: 'ambiguous' });
-      await removeAssociation(fx.runtime, root, B);
-      await removeAssociation(fx.runtime, root, A);
+      await removeAssociation(fx.runtime, root, SESSION_B);
+      await removeAssociation(fx.runtime, root, SESSION_A);
       assert.deepEqual(await source.resolve(fx.runtime), { state: 'unbound', reason: 'missing' });
-      await writeAssociation(fx.runtime, '/another/repo', A);
+      await writeAssociation(fx.runtime, '/another/repo', SESSION_A);
       assert.deepEqual(await source.resolve(fx.runtime), { state: 'unbound', reason: 'missing' });
     } finally {
       await fx.dispose();
@@ -104,7 +105,7 @@ describe('03-S6: harness token port', () => {
     const fx = await routeFixture({ routes: {} });
     try {
       assert.equal(cliHarnessPort, rejectingHarnessPort);
-      assert.equal(await cliHarnessPort.validate(fx.runtime, A, 'start'), false);
+      assert.equal(await cliHarnessPort.validate(fx.runtime, SESSION_A, 'start'), false);
     } finally {
       await fx.dispose();
     }
@@ -116,13 +117,13 @@ describe('03-S7: the pointer is a cache', () => {
     const plan = await planFixture();
     try {
       await plan.start();
-      assert.deepEqual(await plan.fx.pointer.read(A, plan.fx.scratchpad), { task: TASK, skill: 'plan', owner: A });
-      await plan.fx.engine.stop(TASK, A, 'blocked', 'x', plan.fx.scratchpad);
-      assert.equal(await plan.fx.pointer.read(A, plan.fx.scratchpad), null);
-      const ended = await plan.fx.pointer.readEnded(A, plan.fx.scratchpad);
-      assert.equal(ended?.task, TASK);
-      await plan.fx.pointer.clearEnded(A, plan.fx.scratchpad);
-      assert.equal(await plan.fx.pointer.readEnded(A, plan.fx.scratchpad), null);
+      assert.deepEqual(await plan.fx.pointer.read(SESSION_A, plan.fx.scratchpad), { task: PLAN_TASK, skill: 'plan', owner: SESSION_A });
+      await plan.fx.engine.stop(PLAN_TASK, SESSION_A, 'blocked', 'x', plan.fx.scratchpad);
+      assert.equal(await plan.fx.pointer.read(SESSION_A, plan.fx.scratchpad), null);
+      const ended = await plan.fx.pointer.readEnded(SESSION_A, plan.fx.scratchpad);
+      assert.equal(ended?.task, PLAN_TASK);
+      await plan.fx.pointer.clearEnded(SESSION_A, plan.fx.scratchpad);
+      assert.equal(await plan.fx.pointer.readEnded(SESSION_A, plan.fx.scratchpad), null);
     } finally {
       await plan.dispose();
     }
@@ -133,12 +134,12 @@ describe('03-S7: the pointer is a cache', () => {
     try {
       const scope = { repositoryRoot: plan.fx.repo.root, scratchpad: plan.fx.scratchpad };
       await plan.start();
-      await plan.fx.pointer.write(A, plan.fx.scratchpad, { task: 'no-such-task', skill: 'plan' });
-      const found = await resolveActiveRoute(plan.fx.runtime.fs, plan.fx.pointer, { ...scope, session: A });
-      assert.equal(found?.task, TASK);
-      assert.equal(await resolveActiveRoute(plan.fx.runtime.fs, plan.fx.pointer, { ...scope, session: B }), null);
-      await plan.fx.engine.stop(TASK, A, 'blocked', 'x', plan.fx.scratchpad);
-      assert.equal(await resolveActiveRoute(plan.fx.runtime.fs, plan.fx.pointer, { ...scope, session: A }), null);
+      await plan.fx.pointer.write(SESSION_A, plan.fx.scratchpad, { task: 'no-such-task', skill: 'plan' });
+      const found = await resolveActiveRoute(plan.fx.runtime.fs, plan.fx.pointer, { ...scope, session: SESSION_A });
+      assert.equal(found?.task, PLAN_TASK);
+      assert.equal(await resolveActiveRoute(plan.fx.runtime.fs, plan.fx.pointer, { ...scope, session: SESSION_B }), null);
+      await plan.fx.engine.stop(PLAN_TASK, SESSION_A, 'blocked', 'x', plan.fx.scratchpad);
+      assert.equal(await resolveActiveRoute(plan.fx.runtime.fs, plan.fx.pointer, { ...scope, session: SESSION_A }), null);
     } finally {
       await plan.dispose();
     }
@@ -150,10 +151,10 @@ describe('03-S7: the pointer is a cache', () => {
       for (let index = 0; index < 50; index += 1) {
         const dir = path.join(plan.fx.repo.root, '.ambicode', 'task', `bulk-${index}`);
         await plan.fx.runtime.fs.mkdirp(dir);
-        await writeFile(path.join(dir, 'ledger.jsonl'), `${JSON.stringify({ id: `x-${index}`, at: '2026-10-05T10:00:00.000Z', kind: 'route', skill: 'investigate', session: B })}\n`);
+        await writeFile(path.join(dir, 'ledger.jsonl'), `${JSON.stringify({ id: `x-${index}`, at: '2026-10-05T10:00:00.000Z', kind: 'route', skill: 'investigate', session: SESSION_B })}\n`);
       }
       await plan.start();
-      const scope = { repositoryRoot: plan.fx.repo.root, scratchpad: plan.fx.scratchpad, session: A };
+      const scope = { repositoryRoot: plan.fx.repo.root, scratchpad: plan.fx.scratchpad, session: SESSION_A };
       const times: number[] = [];
       for (let run = 0; run < 20; run += 1) {
         const started = performance.now();

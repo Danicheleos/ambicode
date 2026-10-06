@@ -1,6 +1,6 @@
 import path from 'node:path';
-import type { AmbicodeConfig, ProjectConfig } from '#types/config';
-import { DRAFTS_DIR, type Diagnostic, type PackConstraints, type PackWithPrompts } from '#types/policy';
+import type { AmbicodeConfig, ProjectConfig } from '#types/modules/config';
+import { DRAFTS_DIR, type Diagnostic, type PackConstraints, type PackWithPrompts } from '#types/modules/policy';
 import { openWorkspace, projectById, toRepositoryRelative } from '#composition/root';
 import { checkDrafts } from '#modules/policy/authoring/drafts';
 import { loadPacksForProject } from '#modules/policy/packs/load';
@@ -16,7 +16,7 @@ import { withLedgerLock } from '#modules/evidence/ledger/ledger-lock';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { routeTools } from '../route/route.ts';
 import type { Runtime, Workspace } from '#types/composition';
-import type { FileSystem } from '#types/ports';
+import type { FileSystem } from '#types/platform/ports';
 import type { ParsedArgs } from '../../types/cli.ts';
 
 const EXAMPLES_PER_GLOB = 3;
@@ -27,7 +27,7 @@ const EXAMPLES_PER_GLOB = 3;
  */
 const MAX_GLOB_ENTRIES = 20_000;
 
-export interface GlobMatch {
+interface GlobMatch {
   glob: string;
   matched: number;
   examples: string[];
@@ -35,7 +35,7 @@ export interface GlobMatch {
   truncated: boolean;
 }
 
-export interface CheckedPackFile {
+interface CheckedPackFile {
   path: string;
   packId: string | null;
   authority: string | null;

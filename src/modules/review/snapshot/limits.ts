@@ -1,12 +1,12 @@
-import type { ReviewConfig } from '#types/config';
+import type { ReviewConfig } from '#types/modules/config';
 import { totalChangedLines } from '#platform/git/diff';
 import { AmbicodeError } from '#util/errors';
 import { describeExclusion, isExcludedFromReview } from './exclusions.ts';
-import type { DiffFile } from '#types/git';
-import type { MeasuredInput } from '#types/review';
+import type { DiffFile } from '#types/platform/git';
+import type { MeasuredInput } from '#types/modules/review';
 import type { OperatorPatterns } from '../types/snapshot.ts';
 
-export interface ReviewableChange {
+interface ReviewableChange {
   files: DiffFile[];
   excluded: { path: string; reason: string }[];
   /** The patch rebuilt from the included files only. */
@@ -45,7 +45,7 @@ export function partitionChange(
   return { files: included, excluded, patch };
 }
 
-export interface MeasureParts {
+interface MeasureParts {
   /** Bytes the mirrored tree holds; zero when only the cheap counts are wanted. */
   snapshotBytes?: number;
   requirementBytes?: number;

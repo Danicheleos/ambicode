@@ -14,7 +14,7 @@ import {
   type RemoteRevision,
   type RemoteTarget,
   type ReviewProvider,
-} from '#types/provider';
+} from '#types/platform/provider';
 
 export const FAKE_TARGET: RemoteTarget = {
   provider: 'gitlab',

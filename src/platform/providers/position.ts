@@ -1,7 +1,7 @@
-import type { RemotePosition, RemoteTarget } from '#types/provider';
-import type { FindingLocation } from '#types/review';
+import type { RemotePosition, RemoteTarget } from '#types/platform/provider';
+import type { FindingLocation } from '#types/modules/review';
 import { lineAt } from '#platform/git/diff';
-import type { DiffFile } from '#types/git';
+import type { DiffFile } from '#types/platform/git';
 
 /**
  * SHAs come from the pinned diff version, never GitLab's current head, so a comment lands on the

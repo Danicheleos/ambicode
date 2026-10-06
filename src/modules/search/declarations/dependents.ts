@@ -1,12 +1,10 @@
-import type { ProjectConfig } from '#types/config';
+import type { ProjectConfig } from '#types/modules/config';
 import type { Git } from '#platform/git/git';
-import { DECLARATION_PATTERNS } from '#modules/types/ecosystems';
+import { DECLARATION_PATTERNS } from '#types/modules/ecosystems';
 import { isTestPath } from '#modules/review/snapshot/exclusions';
 import { locate } from '../text/locate.ts';
-import { MAX_DEPENDENTS } from '#modules/types/search';
-import type { DiffFile } from '#types/git';
-import type { Dependent } from '#types/search';
-import { COMMON_NAMES } from '../types/declarations.ts';
+import { MAX_DEPENDENTS, COMMON_NAMES, type Dependent } from '#types/modules/search';
+import type { DiffFile } from '#types/platform/git';
 
 /**
  * Terms are locate's twelve at most; a removal outranks an addition because a caller of something
@@ -76,7 +74,7 @@ export function changeTerms(files: readonly DiffFile[]): string[] {
   return [...new Set(ordered)].slice(0, MAX_DEPENDENT_TERMS);
 }
 
-export interface Dependents {
+interface Dependents {
   terms: string[];
   dependents: Dependent[];
   limitations: string[];

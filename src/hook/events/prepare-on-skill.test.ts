@@ -8,7 +8,6 @@ import { parseArgs } from '#cli/args';
 import { initConfig } from '#testing/fixtures/init-config';
 import { runPrepare } from '#cli/commands/prepare/prepare';
 import { createRuntime } from '#composition/root';
-import { nodeFileSystem } from '#platform/ports/filesystem';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { prepareForActivity } from './prepare-on-skill.ts';
 import { runHook } from './run-hook.ts';

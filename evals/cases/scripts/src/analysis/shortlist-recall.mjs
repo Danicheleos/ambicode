@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRuntime, openWorkspace, projectForRequest } from '../../../../../src/composition/root.ts';
 import { locate, termsFromRequirements } from '../../../../../src/modules/search/text/locate.ts';
-import { PREPARE_SHORTLIST_LIMIT } from '../../../../../src/types/search.ts';
+import { PREPARE_SHORTLIST_LIMIT } from '../../../../../src/types/modules/search.ts';
 import { buildMap } from '../../../../../src/modules/search/text/map.ts';
 import { indexAdapterFor } from '../../../../../src/modules/search/code-index/adapter.ts';
 import { indexDepsOf } from '../../../../../src/modules/search/code-index/codeindex.ts';

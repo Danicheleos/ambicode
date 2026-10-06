@@ -13,7 +13,7 @@ import { parseArgs } from '#cli/args';
 import { runReview, type ReviewDependencies } from '#cli/commands/review/review';
 import { routeTools, runRouteStart } from '#cli/commands/route/route';
 import { createRuntime } from '#composition/root';
-import { ReviewResult } from '#types/review';
+import { ReviewResult } from '#types/modules/review';
 import { runHook } from '#hook/events/run-hook';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { fsActiveRoutePointer } from '#harness/session/active-route';
@@ -23,7 +23,7 @@ import { notCoveredBlock } from '#modules/review/bundle/coverage-block';
 import { REVIEW_OPTIONS } from '#cli/types/commands';
 import { ROUTE_START_OPTIONS } from '#types/cli';
 import type { Runtime } from '#types/composition';
-import type { LedgerEntry } from '#types/evidence';
+import type { LedgerEntry } from '#types/modules/evidence';
 import type { HookDeps } from '#types/hook';
 
 const TASK = 'src-regression';

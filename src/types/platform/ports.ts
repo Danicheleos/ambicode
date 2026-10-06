@@ -1,4 +1,4 @@
-import type { ReviewerOutput, ReviewerUsage } from './review.ts';
+import type { ReviewerOutput, ReviewerUsage } from '../modules/review.ts';
 
 export interface Clock {
   now(): Date;

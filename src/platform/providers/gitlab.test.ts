@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { MAX_SNAPSHOT_FILE_BYTES } from '#types/defaults';
-import { revisionMatches, type RemoteTarget } from '#types/provider';
+import { revisionMatches, type RemoteTarget } from '#types/platform/provider';
 import { parseHunks } from '#platform/git/diff';
 import { PAGE_SIZE } from './gitlab/api.ts';
 import { GitLabProvider } from './gitlab/provider.ts';
 import { parseMergeRequestUrl } from './gitlab/url.ts';
 import { positionForLocation, toGitLabPositionFields } from './position.ts';
 import { FakeProcessRunner } from '#testing/fakes/fake-process-runner';
-import type { DiffFile } from '#types/git';
+import type { DiffFile } from '#types/platform/git';
 
 const URL_BASE = 'https://gitlab.example.com/group/sub/project/-/merge_requests/42';
 

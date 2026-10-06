@@ -72,7 +72,7 @@ export function parseWhen(file: string, where: string, text: string): When {
   throw invalid(file, where, `"${text}" is not in the when vocabulary`);
 }
 
-export interface RawGate {
+interface RawGate {
   question: string;
   options: string[];
   default: string;

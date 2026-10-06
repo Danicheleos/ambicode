@@ -1,10 +1,10 @@
 import { z } from 'zod';
 import { parse as parseYaml } from 'yaml';
-import { AmbicodeError } from '#util/errors';
-import { PLATFORM, type PlatformFlags } from '#types/claude-platform';
+import { AmbicodeError, messageOf } from '#util/errors';
+import { PLATFORM, type PlatformFlags } from '#types/platform/claude';
 import { invalid, normalizeGate } from '../definition/dsl.ts';
 import type { Runtime } from '#types/composition';
-import type { TaskDir, LedgerEntry, LockedLedger, ArtifactRef } from '#types/evidence';
+import type { TaskDir, LedgerEntry, LockedLedger, ArtifactRef } from '#types/modules/evidence';
 import type { RouteView, RouteArgs, GateDef, RouteRegistry } from '#types/harness';
 import { hash12 } from '#util/hash';
 
@@ -19,7 +19,7 @@ const RawEntry = z.strictObject({
   policy: z.record(z.string(), z.literal('stop')).optional(),
 });
 
-export const DECISION_PREFIX = 'decision:';
+const DECISION_PREFIX = 'decision:';
 
 export function parseRegistry(file: string, text: string, kinds: readonly string[]): GateDef[] {
   let document: unknown;
@@ -27,7 +27,7 @@ export function parseRegistry(file: string, text: string, kinds: readonly string
     document = parseYaml(text);
   } catch (cause) {
     const line = (cause as { linePos?: { line: number }[] }).linePos?.[0]?.line;
-    throw invalid(file, line === undefined ? 'yaml' : `line ${line}`, cause instanceof Error ? cause.message : String(cause));
+    throw invalid(file, line === undefined ? 'yaml' : `line ${line}`, messageOf(cause));
   }
   if (document === null || typeof document !== 'object' || Array.isArray(document)) throw invalid(file, 'root', 'must be a mapping of gate ids');
   const gates: GateDef[] = [];
@@ -83,9 +83,9 @@ export function instantiateGate(
 }
 
 
-export const gateMarker = (gate: string, instance: string): string => `[ambicode gate ${gate} ${instance}]`;
+const gateMarker = (gate: string, instance: string): string => `[ambicode gate ${gate} ${instance}]`;
 
-export interface PrintInput {
+interface PrintInput {
   task: string;
   gate: GateDef;
   entry: LedgerEntry;
@@ -169,7 +169,7 @@ const OPEN_OPTIONS: Readonly<Record<string, RegExp>> = { 'requirements-expansion
 
 export const offersOption = (gate: string, options: readonly string[], option: string): boolean => options.includes(option) || OPEN_OPTIONS[gate]?.test(option) === true;
 
-export type RaisedAnswerHandler = (input: { view: RouteView; ledger: LockedLedger; acceptance: LedgerEntry; routes: RouteRegistry }) => Promise<void>;
+type RaisedAnswerHandler = (input: { view: RouteView; ledger: LockedLedger; acceptance: LedgerEntry; routes: RouteRegistry }) => Promise<void>;
 const ANSWER_HANDLERS = new Map<string, RaisedAnswerHandler>();
 
 /** Runs once, inside the advance that folds the acceptance, when a raised gate gets a bound answer. */
@@ -177,14 +177,14 @@ export const onRaisedAnswer = (gate: string, handler: RaisedAnswerHandler): void
 export const raisedAnswerHandler = (gate: string): RaisedAnswerHandler | undefined => ANSWER_HANDLERS.get(gate);
 
 /** A route's own command for a code step's unmet `needs` kind (08-R5); without one the engine prints its generic command. */
-export type NeedCommand = (input: { runtime: Runtime; task: string; args: RouteArgs; chain: readonly LedgerEntry[] }) => Promise<string>;
+type NeedCommand = (input: { runtime: Runtime; task: string; args: RouteArgs; chain: readonly LedgerEntry[] }) => Promise<string>;
 const NEED_COMMANDS = new Map<string, NeedCommand>();
 export const onNeedCommand = (skill: string, need: string, command: NeedCommand): void => void NEED_COMMANDS.set(`${skill}:${need}`, command);
 export const needCommandFor = (skill: string, need: string): NeedCommand | undefined => NEED_COMMANDS.get(`${skill}:${need}`);
 
 /** Print-time text and offered options a module adds to a gate's question (09-G1). */
-export interface PrintShape { line: string; offered?: readonly string[] }
-export type PrintShaper = (input: { runtime: Runtime; dir: TaskDir; task: string; chain: readonly LedgerEntry[]; gate: GateDef }) => Promise<PrintShape | null>;
+interface PrintShape { line: string; offered?: readonly string[] }
+type PrintShaper = (input: { runtime: Runtime; dir: TaskDir; task: string; chain: readonly LedgerEntry[]; gate: GateDef }) => Promise<PrintShape | null>;
 const PRINT_SHAPERS = new Map<string, PrintShaper>();
 
 export const onGatePrint = (gate: string, shaper: PrintShaper): void => void PRINT_SHAPERS.set(gate, shaper);

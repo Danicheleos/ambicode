@@ -2,11 +2,11 @@ import { runFormat } from '#modules/checks/run/format';
 import { ledgerRouteContext } from '#harness/engine/context';
 import { runCommandTail } from '#harness/engine/command-tail';
 import { routeTools, taskOf } from '../route/route.ts';
-import type { FormatEntry } from '#types/checks';
+import type { FormatEntry } from '#types/modules/checks';
 import type { Runtime } from '#types/composition';
 import type { ParsedArgs } from '../../types/cli.ts';
 
-export interface FormatOutput { command: 'format'; task: string; entries: FormatEntry[]; next?: string }
+interface FormatOutput { command: 'format'; task: string; entries: FormatEntry[]; next?: string }
 
 export async function runFormatCommand(runtime: Runtime, args: ParsedArgs): Promise<FormatOutput> {
   const task = taskOf('format', args);

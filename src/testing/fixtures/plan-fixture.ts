@@ -5,12 +5,10 @@ import { ledgerRouteContext } from '#harness/engine/context';
 import { promotePlan, saveNote } from '#modules/evidence/notes';
 import { routeFixture, type RouteFixture } from './route-fixture.ts';
 import { REPO_ROOT } from '../paths.ts';
-import type { LedgerEntry } from '#types/evidence';
+import type { LedgerEntry } from '#types/modules/evidence';
 import type { AdvanceInput, StartInput, StepMessage, Handler } from '#types/harness';
-
-export const A = 'aaaaaaaa-1111-4111-8111-111111111111';
-export const B = 'bbbbbbbb-2222-4222-8222-222222222222';
-export const TASK = 'ORD-17';
+import { SESSION_A } from './ids.ts';
+export const PLAN_TASK = 'ORD-17';
 
 /** A plan-shaped route: the S2–S5 and S10–S14 mechanisms run on it until the real plan route ships (step 06). */
 export const PLAN = `skill: plan
@@ -89,7 +87,6 @@ export interface PlanFixture {
   dispose(): Promise<void>;
 }
 
-
 /** The shipped `routes/plan.yaml` with its step texts and the real handlers; `state` is then left untouched. */
 async function shippedRoute(): Promise<{ plan: string; step: Record<string, string>; handlers: Record<string, Handler> }> {
   const step: Record<string, string> = {};
@@ -111,9 +108,9 @@ export async function planFixture(options: { extra?: Record<string, string>; han
     await fx.repo.commitAll('orders');
   }
   const start = (input: Partial<StartInput> = {}) =>
-    fx.engine.start({ skill: 'plan', text: 'add a limit', requirements: [], task: TASK, cwd: fx.repo.root, session: A, channel: 'hook', scratchpadDir: fx.scratchpad, ...input });
-  const next = (input: Partial<AdvanceInput> = {}) => fx.engine.advance({ task: TASK, session: A, cause: 'route-next', scratchpadDir: fx.scratchpad, ...input });
-  const body = async (text: string, task = TASK): Promise<void> => {
+    fx.engine.start({ skill: 'plan', text: 'add a limit', requirements: [], task: PLAN_TASK, cwd: fx.repo.root, session: SESSION_A, channel: 'hook', scratchpadDir: fx.scratchpad, ...input });
+  const next = (input: Partial<AdvanceInput> = {}) => fx.engine.advance({ task: PLAN_TASK, session: SESSION_A, cause: 'route-next', scratchpadDir: fx.scratchpad, ...input });
+  const body = async (text: string, task = PLAN_TASK): Promise<void> => {
     const file = path.join(fx.repo.root, '.ambicode', 'task', task, 'steps', 'plan-body.md');
     await mkdir(path.dirname(file), { recursive: true });
     await writeFile(file, text);
@@ -126,18 +123,18 @@ export async function planFixture(options: { extra?: Record<string, string>; han
     hook: (gate, option, instance, input = {}) =>
       next({ cause: 'gate-hook', answers: [{ gate, option, ...(instance === undefined ? {} : { instance }) }], ...input }),
     body,
-    async saveDraft(text, session = A) {
+    async saveDraft(text, session = SESSION_A) {
       await body(text);
-      return saveNote({ runtime: fx.runtime, session, context: ledgerRouteContext({ runtime: fx.runtime, routes: fx.routes }) }, { task: TASK, kind: 'plan-draft', body: null, from: 'steps/plan-body.md', iteration: null });
+      return saveNote({ runtime: fx.runtime, session, context: ledgerRouteContext({ runtime: fx.runtime, routes: fx.routes }) }, { task: PLAN_TASK, kind: 'plan-draft', body: null, from: 'steps/plan-body.md', iteration: null });
     },
-    promote: (session = A) => promotePlan({ runtime: fx.runtime, session, context: ledgerRouteContext({ runtime: fx.runtime, routes: fx.routes }) }, TASK),
+    promote: (session = SESSION_A) => promotePlan({ runtime: fx.runtime, session, context: ledgerRouteContext({ runtime: fx.runtime, routes: fx.routes }) }, PLAN_TASK),
     async toGate(input = {}) {
       await start(input);
       await next();
       await body('# Plan\n\n1. Do it.\n');
       return next();
     },
-    prints: (task = TASK) => fx.kinds(task, 'gate'),
+    prints: (task = PLAN_TASK) => fx.kinds(task, 'gate'),
     dispose: () => fx.dispose(),
   };
 }

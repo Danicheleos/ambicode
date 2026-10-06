@@ -4,13 +4,13 @@ import { currentEpoch, deliverOnce, hookStateBaseDir } from '#hook/session/marke
 import { readLedger } from '#modules/evidence/ledger/ledger';
 import { buildChain, exitOf, latestRouteOf } from '../engine/fold.ts';
 import { ownerOfHarness } from './harness.ts';
-import type { LedgerEntry } from '#types/evidence';
+import type { LedgerEntry } from '#types/modules/evidence';
 import type { ActiveRoutePointer } from '#types/harness';
-import type { FileSystem, IdSource } from '#types/ports';
+import type { FileSystem, IdSource } from '#types/platform/ports';
 
 const ACTIVE = 'active-route';
 const ENDED = 'ended-route';
-export const POINTER_LIMIT = 4 * 1024;
+const POINTER_LIMIT = 4 * 1024;
 
 /** The pointer is a cache of "which route is active"; the ledger stays the authority (03-S7). */
 export function fsActiveRoutePointer(fs: FileSystem): ActiveRoutePointer {
@@ -72,7 +72,7 @@ const openRouteOf = (entries: readonly LedgerEntry[], harness: string): { head: 
   return head !== null && owner !== null && exitOf(buildChain(entries, head)) === null ? { head, owner } : null;
 };
 
-export interface ActiveRoute { task: string; skill: string; routeId: string; owner: string }
+interface ActiveRoute { task: string; skill: string; routeId: string; owner: string }
 
 /**
  * The open route of this Claude session: the pointer when the ledger confirms it, otherwise a scan of the task ledgers.

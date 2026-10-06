@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { DeliveryCertainty } from '#types/platform/provider';
 
 const ProjectId = z.union([z.number().int().positive(), z.string().min(1)]).transform(String);
 
@@ -10,7 +11,7 @@ export const GitLabProject = z.looseObject({
 });
 export type GitLabProject = z.infer<typeof GitLabProject>;
 
-export const GitLabDiffRefs = z.looseObject({
+const GitLabDiffRefs = z.looseObject({
   base_sha: Sha.nullable(),
   start_sha: Sha.nullable(),
   head_sha: Sha.nullable(),
@@ -88,7 +89,7 @@ export const GitLabTreeEntry = z.looseObject({
 });
 export type GitLabTreeEntry = z.infer<typeof GitLabTreeEntry>;
 
-export const GitLabNotePosition = z.looseObject({
+const GitLabNotePosition = z.looseObject({
   base_sha: z.string().nullable().default(null),
   start_sha: z.string().nullable().default(null),
   head_sha: z.string().nullable().default(null),
@@ -98,7 +99,7 @@ export const GitLabNotePosition = z.looseObject({
   new_line: z.number().int().positive().nullable().default(null),
 });
 
-export const GitLabNote = z.looseObject({
+const GitLabNote = z.looseObject({
   id: z.union([z.number().int(), z.string().min(1)]).transform(String),
   body: z.string().default(''),
   author: z.looseObject({ username: z.string().default(''), name: z.string().default('') }).nullable().default(null),
@@ -109,7 +110,7 @@ export const GitLabNote = z.looseObject({
   resolved: z.boolean().nullable().default(null),
   position: GitLabNotePosition.nullable().default(null),
 });
-export type GitLabNote = z.infer<typeof GitLabNote>;
+type GitLabNote = z.infer<typeof GitLabNote>;
 
 export const GitLabDiscussion = z.looseObject({
   id: z.string().min(1),
@@ -157,3 +158,7 @@ export const GitLabBlobBatch = z.object({
   }),
 });
 export type GitLabBlobBatch = z.infer<typeof GitLabBlobBatch>;
+
+export type ApiResult<T> =
+  | { kind: 'ok'; value: T }
+  | { kind: 'failed'; message: string; details: string[]; certainty: DeliveryCertainty };

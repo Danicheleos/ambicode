@@ -1,4 +1,4 @@
-import type { StandardInput } from '#types/ports';
+import type { StandardInput } from '#types/platform/ports';
 
 export async function readBoundedStream(
   stream: NodeJS.ReadableStream,

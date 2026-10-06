@@ -1,9 +1,9 @@
-import { PUBLICATION_SCHEMA_VERSION, type PersistedPosition, type PublicationPositions, type UnplaceableFinding } from '#types/publication';
-import type { RemotePosition, RemoteTarget } from '#types/provider';
-import type { Finding } from '#types/review';
+import { PUBLICATION_SCHEMA_VERSION, type PersistedPosition, type PublicationPositions, type UnplaceableFinding } from '#types/modules/publication';
+import type { RemotePosition, RemoteTarget } from '#types/platform/provider';
+import type { Finding } from '#types/modules/review';
 import { positionForLocation } from '#platform/providers/position';
 import { contentHash } from '#util/hash';
-import type { DiffFile } from '#types/git';
+import type { DiffFile } from '#types/platform/git';
 
 /**
  * Derived once, while the pinned diff is in hand. Never recomputed on reopen, when
@@ -11,7 +11,7 @@ import type { DiffFile } from '#types/git';
  * selectable.
  */
 
-export interface DerivePositionsOptions {
+interface DerivePositionsOptions {
   reviewId: string;
   target: RemoteTarget;
   files: readonly DiffFile[];

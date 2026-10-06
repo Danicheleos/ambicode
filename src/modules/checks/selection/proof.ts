@@ -1,8 +1,8 @@
 import type { RunnerSummary } from '../types/selection.ts';
 
-export type ProofCause = 'no-summary' | 'zero-tests' | 'load-error' | 'no-failure' | 'nonzero-exit';
+type ProofCause = 'no-summary' | 'zero-tests' | 'load-error' | 'no-failure' | 'nonzero-exit';
 
-export type ProofVerdict =
+type ProofVerdict =
   | { proven: true }
   | { proven: false; which: 'red-unproven' | 'green-unproven'; cause: ProofCause };
 

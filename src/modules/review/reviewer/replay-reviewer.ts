@@ -1,7 +1,8 @@
 import path from 'node:path';
 import { z } from 'zod';
-import { ReviewerOutput, REVIEWER_REPLAY_VARIABLE } from '#types/review';
-import type { FileSystem, Reviewer, ReviewerInvocation, ReviewerRequest } from '#types/ports';
+import { ReviewerOutput, REVIEWER_REPLAY_VARIABLE } from '#types/modules/review';
+import type { FileSystem, Reviewer, ReviewerInvocation, ReviewerRequest } from '#types/platform/ports';
+import { messageOf } from '#util/errors';
 
 /**
  * For `claude plugin eval` only: inside that sandbox a nested `claude` reads as signed
@@ -23,7 +24,7 @@ export const ReviewerRecordings = z.strictObject({
 });
 export type ReviewerRecordings = z.infer<typeof ReviewerRecordings>;
 
-export interface ReplayReviewerOptions {
+interface ReplayReviewerOptions {
   fs: FileSystem;
   recordingsPath: string;
   snapshotId: string;
@@ -53,13 +54,13 @@ export class ReplayReviewer implements Reviewer {
     try {
       text = await this.fs.readText(this.recordingsPath);
     } catch (error) {
-      return fail('replay-unreadable', `cannot read ${this.recordingsPath}: ${error instanceof Error ? error.message : String(error)}`);
+      return fail('replay-unreadable', `cannot read ${this.recordingsPath}: ${messageOf(error)}`);
     }
     let document: unknown;
     try {
       document = JSON.parse(text);
     } catch (error) {
-      return fail('replay-invalid', `${this.recordingsPath} is not JSON: ${error instanceof Error ? error.message : String(error)}`);
+      return fail('replay-invalid', `${this.recordingsPath} is not JSON: ${messageOf(error)}`);
     }
     const parsed = ReviewerRecordings.safeParse(document);
     if (!parsed.success) {

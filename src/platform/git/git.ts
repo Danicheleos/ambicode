@@ -1,6 +1,6 @@
 import { AmbicodeError } from '#util/errors';
-import type { RawChange } from '#types/git';
-import type { ProcessRunner } from '#types/ports';
+import type { RawChange } from '#types/platform/git';
+import type { ProcessRunner } from '#types/platform/ports';
 
 /**
  * Every git invocation goes through here with external diff drivers and

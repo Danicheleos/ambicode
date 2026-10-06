@@ -7,24 +7,21 @@ import { runDoctor } from './doctor.ts';
 import { canonicalSets, parseSets } from './init-sets.ts';
 import { loadConfigWithNotices } from '../load.ts';
 import { buildProposal, configFileState, configUnparsable, writeConfig } from './proposal.ts';
-import type { ApplyDeps } from '#modules/types/config';
-import type { Runtime } from '#types/composition';
-import { APPLY_OPTIONS, type DoctorTable } from '#types/config';
-import type { RouteContextPort } from '#types/harness';
-import type { FileSystem } from '#types/ports';
+import { APPLY_OPTIONS, type ApplyDeps, type DoctorTable } from '#types/modules/config';
+import type { FileSystem } from '#types/platform/ports';
 
 export { writeConfig } from './proposal.ts';
 const VALUES_PREFIX = 'Values: ';
-export const AS_PROPOSED = 'as proposed';
+const AS_PROPOSED = 'as proposed';
 
-export function initUnconfirmed(reason: string, detail?: string): AmbicodeError {
+function initUnconfirmed(reason: string, detail?: string): AmbicodeError {
   return new AmbicodeError('init-unconfirmed', `init --apply needs the user's own answer to the init question (reason: ${reason}). Nothing was written.`, {
     details: [`reason: ${reason}`, ...(detail === undefined ? [] : [detail]), 'Release: answer the init question in /ambicode:init, then run the line printed with the option chosen.'],
   });
 }
 
 /** The accepted values a print carries: its `Values:` line, '' for "as proposed" (D2). */
-export function valuesOf(question: string): string | null {
+function valuesOf(question: string): string | null {
   const line = question.split('\n').find((candidate) => candidate.startsWith(VALUES_PREFIX));
   if (line === undefined) return null;
   const values = line.slice(VALUES_PREFIX.length).trim();

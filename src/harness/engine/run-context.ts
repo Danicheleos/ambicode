@@ -2,15 +2,14 @@ import { refOf } from './context.ts';
 import { buildChain, foldRoute, matches, windowOf } from './fold.ts';
 import { instantiateGate } from '../gates/gates.ts';
 import type { GateDef } from '../definition/routes.ts';
-import type { Runtime } from '#types/composition';
-import type { ArtifactRef } from '#types/evidence';
+import type { ArtifactRef, LedgerEntry } from '#types/modules/evidence';
 import type { RouteView, StepDef } from '#types/harness';
-import type { Chain, Run, Entry } from '../types/engine.ts';
+import type { Chain, Run } from '../types/engine.ts';
 
 export const chainOf = (run: Run): Chain => buildChain(run.entries, run.head);
 
 /** The run's ledger tracks what it writes: the shared entry list and the run's written ids. */
-export const append = (run: Run, entry: { kind: string; [field: string]: unknown }): Promise<Entry> => run.ledger.append(entry);
+export const append = (run: Run, entry: { kind: string; [field: string]: unknown }): Promise<LedgerEntry> => run.ledger.append(entry);
 
 export function viewFor(run: Run, position: string | 'complete'): RouteView {
   const head = run.head;
@@ -28,7 +27,7 @@ export function viewFor(run: Run, position: string | 'complete'): RouteView {
 }
 
 /** A route's own gate, or a registry gate instantiated from the values its print recorded. */
-export function gateFor(run: Run, gateId: string, print?: Entry | null): GateDef | null {
+export function gateFor(run: Run, gateId: string, print?: LedgerEntry | null): GateDef | null {
   const declared = run.def.steps.find((step) => step.gate?.id === gateId)?.gate;
   if (declared !== undefined && declared !== null) return declared;
   const registry = run.routes.gate(gateId);
@@ -37,7 +36,7 @@ export function gateFor(run: Run, gateId: string, print?: Entry | null): GateDef
   return instantiateGate(registry, { skill: String(run.head['skill']), values }, gateId);
 }
 
-export const latestPrint = (entries: readonly Entry[], gateId: string): Entry | null =>
+export const latestPrint = (entries: readonly LedgerEntry[], gateId: string): LedgerEntry | null =>
   entries.findLast((entry) => entry.kind === 'gate' && entry['gate'] === gateId) ?? null;
 
 /** The object a gate asks about: the latest matching entry in the window of the step that produces it (03-G10). */

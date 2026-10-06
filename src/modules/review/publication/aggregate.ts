@@ -1,6 +1,6 @@
-import type { PersistedPosition, PublicationPositions, PublicationRecord } from '#types/publication';
-import type { RemoteTarget } from '#types/provider';
-import type { ReviewResult } from '#types/review';
+import type { PersistedPosition, PublicationPositions, PublicationRecord } from '#types/modules/publication';
+import type { RemoteTarget } from '#types/platform/provider';
+import type { ReviewResult } from '#types/modules/review';
 import { AmbicodeError } from '#util/errors';
 import { positionDigest } from './positions.ts';
 
@@ -9,7 +9,7 @@ import { positionDigest } from './positions.ts';
  * yet disagree with the others. A mismatch is refused, never repaired or
  * recomputed from the current merge request.
  */
-export interface ReviewAggregate {
+interface ReviewAggregate {
   result: ReviewResult;
   positions: PublicationPositions | null;
   record: PublicationRecord;

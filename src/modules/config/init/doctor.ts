@@ -2,14 +2,13 @@ import path from 'node:path';
 import { checkApprovalKey, authorizeCommand } from '#modules/checks/selection/authorize';
 import { indexAdapterFor } from '#modules/search/code-index/adapter';
 import { indexDepsOf, startIndexBuild } from '#modules/search/code-index/codeindex';
-import type { AmbicodeConfig, ProjectConfig, DoctorRow, DoctorTable } from '#types/config';
+import type { AmbicodeConfig, ProjectConfig, DoctorRow, DoctorTable, DoctorOptions } from '#types/modules/config';
 import { Git } from '#platform/git/git';
 import { loadPacksForProject } from '#modules/policy/packs/load';
 import { resolvePolicy } from '#modules/policy/packs/resolve';
-import { AmbicodeError } from '#util/errors';
+import { AmbicodeError, messageOf } from '#util/errors';
 import { contentHash } from '#util/hash';
 import { builtinPoliciesDirectory } from '#util/plugin-root';
-import type { DoctorOptions } from '#modules/types/config';
 import type { Runtime } from '#types/composition';
 
 const PROBE_TIMEOUT_MS = 15_000;
@@ -89,7 +88,7 @@ export async function runDoctor(runtime: Runtime, repositoryRoot: string, config
     const start = options.buildIndex === true ? (options.startIndex ?? startIndexBuild) : (_: typeof deps, project: ProjectConfig) => indexAdapterFor(deps, project).status(project);
     const states: string[] = [];
     for (const project of projects) {
-      const status = await start(deps, project).catch((error: unknown) => ({ state: 'error', reason: error instanceof Error ? error.message : String(error) }));
+      const status = await start(deps, project).catch((error: unknown) => ({ state: 'error', reason: messageOf(error) }));
       states.push(`${projects.length === 1 ? '' : `${project.id} `}${config.search.index} ${status.state}${'reason' in status && status.reason ? ` (${status.reason})` : ''}`);
     }
     index = states.join('; ');

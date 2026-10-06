@@ -1,20 +1,20 @@
 import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { describeIssues } from '#modules/config/load';
-import { PolicyPack, type Diagnostic, type ResolvedPromptRef, type PackWithPrompts, type PackConstraints } from '#types/policy';
-import { AmbicodeError } from '#util/errors';
+import { PolicyPack, type Diagnostic, type ResolvedPromptRef, type PackWithPrompts, type PackConstraints } from '#types/modules/policy';
+import { AmbicodeError, messageOf } from '#util/errors';
 import { contentHash } from '#util/hash';
 import { resolveInsideBoundary } from '#util/paths';
-import type { FileSystem } from '#types/ports';
+import type { FileSystem } from '#types/platform/ports';
 
-export interface PackSource {
+interface PackSource {
   raw: string;
   filePath: string;
   reference: string;
   origin: 'builtin' | 'project';
 }
 
-export interface PackValidation {
+interface PackValidation {
   pack: PackWithPrompts | null;
   diagnostics: Diagnostic[];
 }
@@ -42,7 +42,7 @@ export async function validatePack(
     diagnostics.push({
       severity: 'error',
       code: 'pack-unparsable',
-      message: `${reference} is not valid YAML: ${cause instanceof Error ? cause.message : String(cause)}`,
+      message: `${reference} is not valid YAML: ${messageOf(cause)}`,
       where: filePath,
     });
     return { pack: null, diagnostics };
@@ -82,7 +82,7 @@ export async function validatePack(
       diagnostics.push({
         severity: 'error',
         code: error instanceof AmbicodeError ? error.code : 'prompt-unreadable',
-        message: `${reference}: ${error instanceof Error ? error.message : String(error)}`,
+        message: `${reference}: ${messageOf(error)}`,
         where: filePath,
       });
     }
@@ -153,7 +153,7 @@ export async function validatePack(
   };
 }
 
-export interface PackSetValidation {
+interface PackSetValidation {
   packs: PackWithPrompts[];
   diagnostics: Diagnostic[];
 }

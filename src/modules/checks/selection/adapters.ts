@@ -2,12 +2,12 @@ import path from 'node:path';
 import type { AdapterId } from '#types/primitives';
 import type { RunnerSummary } from '../types/selection.ts';
 
-export type EnumerationMode =
+type EnumerationMode =
   | { kind: 'none' }
   | { kind: 'from-files'; argv: (executable: string, files: readonly string[]) => string[] }
   | { kind: 'from-revision'; argv: (executable: string, revision: string) => string[] };
 
-export interface CheckAdapter {
+interface CheckAdapter {
   id: AdapterId;
   role: 'lint' | 'test';
   executableNames: readonly string[];

@@ -12,9 +12,9 @@ import { saveNote } from '#modules/evidence/notes';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { AmbicodeError } from '#util/errors';
 import type { Runtime } from '#types/composition';
-import type { LedgerEntry, LockedLedger, NoteDeps, TaskDir } from '#types/evidence';
+import type { LedgerEntry, LockedLedger, NoteDeps, TaskDir } from '#types/modules/evidence';
 import type { RouteArgs, HandlerInput, HandlerResult } from '#types/harness';
-import type { PlanCheckResult, BadAnchor } from '#types/workers';
+import type { PlanCheckResult, BadAnchor } from '#types/modules/workers';
 
 export const MAX_LISTED = 50;
 type Find = (name: string) => Promise<readonly { path: string; line: number }[]>;
@@ -100,7 +100,7 @@ export async function checkPlan(input: { body: string; repositoryRoot: string; a
   };
 }
 
-export const LAST_ROUND = 'last automatic round: list anything you cannot fix under `## Known limitations`';
+const LAST_ROUND = 'last automatic round: list anything you cannot fix under `## Known limitations`';
 
 /** The acceptance unit ids of the route's latest envelope (step 04's `acs`); none without a captured requirement. */
 async function acIdsOf(runtime: Runtime, dir: TaskDir, entries: readonly LedgerEntry[], head: LedgerEntry | undefined): Promise<string[]> {
@@ -127,7 +127,7 @@ async function finderOf(runtime: Runtime, dir: TaskDir, entries: readonly Ledger
 }
 
 /** Checks a saved draft, writes the artifact, then the `worker` entry; a throw leaves no `worker` entry (06-P2). */
-export async function checkDraft(deps: NoteDeps & { ledger: LockedLedger }, task: string, draft: LedgerEntry): Promise<{ worker: LedgerEntry; result: PlanCheckResult; artifact: string }> {
+async function checkDraft(deps: NoteDeps & { ledger: LockedLedger }, task: string, draft: LedgerEntry): Promise<{ worker: LedgerEntry; result: PlanCheckResult; artifact: string }> {
   const { runtime, ledger } = deps;
   const started = runtime.clock.now().getTime();
   const dir = await resolveTaskDir(runtime, task);

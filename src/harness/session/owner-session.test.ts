@@ -5,7 +5,7 @@ import { runNoteSave } from '#cli/commands/route/note';
 import { runRouteNext, runRouteStart, runRouteStatus, runRouteStop } from '#cli/commands/route/route';
 import { answerGates } from '#hook/events/gate-answer';
 import { hookRunner, investigation, type Hooked } from '#testing/fixtures/owner-fixture';
-import { planFixture, TASK, type PlanFixture } from '#testing/fixtures/plan-fixture';
+import { planFixture, PLAN_TASK, type PlanFixture } from '#testing/fixtures/plan-fixture';
 import { resolveActiveRoute } from './active-route.ts';
 import { harnessOf, ownerOfHarness } from './harness.ts';
 import { ownerOf } from './ownership.ts';
@@ -143,24 +143,24 @@ describe('5.1 / 03-S2: routed CLI calls find the owner from --task', () => {
 });
 
 describe('5.1 / 03-O1: ownership is by owner id', () => {
-  const asked = (plan: PlanFixture, hooked: Hooked, session: string, extra = '') => launch(hooked, `/ambicode:plan add a limit --task ${TASK}${extra}`, session).then(context).then((text) => ({ text, plan }));
+  const asked = (plan: PlanFixture, hooked: Hooked, session: string, extra = '') => launch(hooked, `/ambicode:plan add a limit --task ${PLAN_TASK}${extra}`, session).then(context).then((text) => ({ text, plan }));
 
   it('a second Claude session starting the same plan task is route-busy and writes nothing; --adopt makes a new owner', async () => {
     const plan = await planFixture();
     const hooked = hookRunner(plan.fx, plan.fx.runtime, { pointer: plan.fx.pointer, load: async () => ({ engine: plan.fx.engine, routes: plan.fx.routes, pointer: plan.fx.pointer }) });
     try {
       assert.match((await asked(plan, hooked, CLAUDE_1)).text, /step design/);
-      const first = (await plan.fx.kinds(TASK, 'route'))[0]!;
+      const first = (await plan.fx.kinds(PLAN_TASK, 'route'))[0]!;
       const busy = await asked(plan, hooked, CLAUDE_2);
       assert.match(busy.text, /could not start the plan route: route-busy/);
-      assert.equal((await plan.fx.kinds(TASK, 'route')).length, 1);
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'route')).length, 1);
 
       assert.match((await asked(plan, hooked, CLAUDE_2, ' --adopt')).text, /\[ambicode\] plan/);
-      const routes = await plan.fx.kinds(TASK, 'route');
+      const routes = await plan.fx.kinds(PLAN_TASK, 'route');
       assert.equal(routes.length, 2);
       assert.notEqual(routes[1]!['session'], first['session']);
       assert.deepEqual([routes[1]!['harnessSession'], routes[1]!['resumes'], routes[1]!['adopts']], [CLAUDE_2, first.id, true]);
-      const owner = ownerOf(await plan.fx.ledger(TASK), TASK);
+      const owner = ownerOf(await plan.fx.ledger(PLAN_TASK), PLAN_TASK);
       assert.deepEqual(owner.state === 'owned' ? [owner.session, owner.takenOver] : null, [routes[1]!['session'], [first['session']]]);
     } finally {
       await plan.dispose();
@@ -172,8 +172,8 @@ describe('5.1 / 03-O1: ownership is by owner id', () => {
     const hooked = hookRunner(plan.fx, plan.fx.runtime, { pointer: plan.fx.pointer, load: async () => ({ engine: plan.fx.engine, routes: plan.fx.routes, pointer: plan.fx.pointer }) });
     try {
       await asked(plan, hooked, CLAUDE_1);
-      const route = (await plan.fx.kinds(TASK, 'route'))[0]!;
-      assert.deepEqual(await taskSessionSource(TASK).resolve(plan.fx.runtime), { state: 'bound', session: route['session'], via: 'task' });
+      const route = (await plan.fx.kinds(PLAN_TASK, 'route'))[0]!;
+      assert.deepEqual(await taskSessionSource(PLAN_TASK).resolve(plan.fx.runtime), { state: 'bound', session: route['session'], via: 'task' });
       assert.equal(await codeOf(plan.next({ session: String(route['session']) })), 'ok');
     } finally {
       await plan.dispose();
@@ -218,18 +218,18 @@ describe('5.1 / 03-G3/03-G4: the owner id is never consent', () => {
     const hookDeps = { engine: plan.fx.engine, routes: plan.fx.routes, pointer: plan.fx.pointer };
     const hooked = hookRunner(plan.fx, plan.fx.runtime, { pointer: plan.fx.pointer, load: async () => hookDeps });
     try {
-      await launch(hooked, `/ambicode:plan add a limit --task ${TASK}`, CLAUDE_1);
-      const owner = (await taskSessionSource(TASK).resolve(plan.fx.runtime)) as { session: string };
-      const advance = (extra: object = {}) => plan.fx.engine.advance({ task: TASK, session: owner.session, cause: 'route-next', scratchpadDir: hooked.scratchpad(CLAUDE_1), ...extra });
+      await launch(hooked, `/ambicode:plan add a limit --task ${PLAN_TASK}`, CLAUDE_1);
+      const owner = (await taskSessionSource(PLAN_TASK).resolve(plan.fx.runtime)) as { session: string };
+      const advance = (extra: object = {}) => plan.fx.engine.advance({ task: PLAN_TASK, session: owner.session, cause: 'route-next', scratchpadDir: hooked.scratchpad(CLAUDE_1), ...extra });
       await advance();
       await plan.body('# Plan\n\n1. Do it.\n');
       await advance();
       const print = (await plan.prints()).at(-1)!;
       const platform = { askBinding: 'supported', answerContext: 'supported' } as const;
-      const notes = async () => (await plan.fx.kinds(TASK, 'note')).filter((entry) => entry['note'] === 'plan').length;
+      const notes = async () => (await plan.fx.kinds(PLAN_TASK, 'note')).filter((entry) => entry['note'] === 'plan').length;
 
       await advance({ answers: [{ gate: 'plan-accept', option: 'Accept' }] });
-      assert.equal((await plan.fx.kinds(TASK, 'declined')).at(-1)!['reason'], 'acting-needs-human');
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'declined')).at(-1)!['reason'], 'acting-needs-human');
       assert.equal(await notes(), 0);
 
       const question = `Accept this plan? [ambicode gate plan-accept ${print.id}]`;
@@ -241,7 +241,7 @@ describe('5.1 / 03-G3/03-G4: the owner id is never consent', () => {
 
       const real = { session_id: CLAUDE_1, cwd: plan.fx.repo.root, scratchpad_dir: hooked.scratchpad(CLAUDE_1), ...answered(question, 'Accept') };
       assert.notEqual(await answerGates(plan.fx.runtime, real as never, hookDeps, platform), null);
-      const acceptance = (await plan.fx.kinds(TASK, 'acceptance')).at(-1)!;
+      const acceptance = (await plan.fx.kinds(PLAN_TASK, 'acceptance')).at(-1)!;
       assert.deepEqual([acceptance['via'], acceptance['instance']], ['hook', print.id]);
       assert.equal(await notes(), 1);
     } finally {
@@ -262,12 +262,12 @@ describe('5.1 / 03-S7: a Claude session change re-attaches the session only when
     const runtime: Runtime = { ...plan.fx.runtime, fs: { ...plan.fx.runtime.fs, temporaryRoot: () => tmp } };
     return { plan, hooked: hookRunner(plan.fx, runtime, deps), tmp };
   };
-  const routes = (plan: PlanFixture, task = TASK) => plan.fx.kinds(task, 'route');
+  const routes = (plan: PlanFixture, task = PLAN_TASK) => plan.fx.kinds(task, 'route');
 
   it('one live route whose Claude session ended is re-attached to the new session, keeping its owner', async () => {
     const { plan, hooked } = await setup();
     try {
-      await planTask(hooked, plan, TASK, CLAUDE_1);
+      await planTask(hooked, plan, PLAN_TASK, CLAUDE_1);
       const first = (await routes(plan))[0]!;
       await hooked.event({ hook_event_name: 'SessionEnd' }, CLAUDE_1);
       await hooked.event({ hook_event_name: 'SessionStart', source: 'clear' }, CLAUDE_2);
@@ -275,15 +275,15 @@ describe('5.1 / 03-S7: a Claude session change re-attaches the session only when
       const all = await routes(plan);
       assert.equal(all.length, 2);
       assert.deepEqual([all[1]!['session'], all[1]!['harnessSession'], all[1]!['resumes'], all[1]!['adopts'], all[1]!['channel'], all[1]!['trusted']], [first['session'], CLAUDE_2, first.id, true, first['channel'], first['trusted']]);
-      const owner = ownerOf(await plan.fx.ledger(TASK), TASK);
+      const owner = ownerOf(await plan.fx.ledger(PLAN_TASK), PLAN_TASK);
       assert.deepEqual(owner.state === 'owned' ? [owner.session, owner.takenOver] : null, [first['session'], []]);
 
       const resolve = (session: string) => resolveActiveRoute(plan.fx.runtime.fs, plan.fx.pointer, { repositoryRoot: plan.fx.repo.root, session, scratchpad: hooked.scratchpad(session) });
       assert.equal((await resolve(CLAUDE_2))?.owner, first['session']);
       assert.equal(await resolve(CLAUDE_1), null, 'the ended session is detached');
-      assert.deepEqual(await plan.fx.pointer.read(CLAUDE_2, hooked.scratchpad(CLAUDE_2)), { task: TASK, skill: 'plan', owner: first['session'] });
+      assert.deepEqual(await plan.fx.pointer.read(CLAUDE_2, hooked.scratchpad(CLAUDE_2)), { task: PLAN_TASK, skill: 'plan', owner: first['session'] });
       assert.match(context(await launch(hooked, 'continue', CLAUDE_2)), /\[ambicode\] plan · task ORD-17 · step design/);
-      assert.equal((await taskSessionSource(TASK).resolve(plan.fx.runtime) as { session: string }).session, first['session']);
+      assert.equal((await taskSessionSource(PLAN_TASK).resolve(plan.fx.runtime) as { session: string }).session, first['session']);
     } finally {
       await plan.dispose();
     }
@@ -292,7 +292,7 @@ describe('5.1 / 03-S7: a Claude session change re-attaches the session only when
   it('nothing is attached when the route session has not ended, on a fresh startup, or for a subagent', async () => {
     const { plan, hooked } = await setup();
     try {
-      await planTask(hooked, plan, TASK, CLAUDE_1);
+      await planTask(hooked, plan, PLAN_TASK, CLAUDE_1);
       await hooked.event({ hook_event_name: 'SessionStart', source: 'clear' }, CLAUDE_2);
       await hooked.event({ hook_event_name: 'SessionEnd' }, CLAUDE_1);
       await hooked.event({ hook_event_name: 'SessionStart', source: 'startup' }, CLAUDE_3);
@@ -306,7 +306,7 @@ describe('5.1 / 03-S7: a Claude session change re-attaches the session only when
   it('two live routes of ended sessions are ambiguous: nothing is attached, and --adopt stays the way', async () => {
     const { plan, hooked } = await setup();
     try {
-      await planTask(hooked, plan, TASK, CLAUDE_1);
+      await planTask(hooked, plan, PLAN_TASK, CLAUDE_1);
       await planTask(hooked, plan, 'ORD-18', CLAUDE_2);
       await hooked.event({ hook_event_name: 'SessionEnd' }, CLAUDE_1);
       await hooked.event({ hook_event_name: 'SessionEnd' }, CLAUDE_2);
@@ -314,7 +314,7 @@ describe('5.1 / 03-S7: a Claude session change re-attaches the session only when
       assert.equal((await routes(plan)).length, 1);
       assert.equal((await routes(plan, 'ORD-18')).length, 1);
       assert.equal(await plan.fx.pointer.read(CLAUDE_3, hooked.scratchpad(CLAUDE_3)), null);
-      assert.match(context(await launch(hooked, `/ambicode:plan add a limit --task ${TASK}`, CLAUDE_3)), /route-busy/);
+      assert.match(context(await launch(hooked, `/ambicode:plan add a limit --task ${PLAN_TASK}`, CLAUDE_3)), /route-busy/);
     } finally {
       await plan.dispose();
     }
@@ -323,7 +323,7 @@ describe('5.1 / 03-S7: a Claude session change re-attaches the session only when
   it('a session that already holds a route is not re-attached to another, and a resumed id clears its ended mark', async () => {
     const { plan, hooked } = await setup();
     try {
-      await planTask(hooked, plan, TASK, CLAUDE_1);
+      await planTask(hooked, plan, PLAN_TASK, CLAUDE_1);
       await planTask(hooked, plan, 'ORD-18', CLAUDE_2);
       await hooked.event({ hook_event_name: 'SessionEnd' }, CLAUDE_1);
       await hooked.event({ hook_event_name: 'SessionStart', source: 'resume' }, CLAUDE_2);

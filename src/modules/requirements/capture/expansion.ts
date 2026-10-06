@@ -1,17 +1,16 @@
-import type { CapturedHits } from '#types/requirements';
+import { EXPANSION_FETCH, type CapturedHits } from '#types/modules/requirements';
 import { readList } from './capture-files.ts';
 import type { Runtime } from '#types/composition';
-import type { LedgerEntry, TaskDir } from '#types/evidence';
-import { EXPANSION_FETCH } from '../types/capture.ts';
+import type { LedgerEntry, TaskDir } from '#types/modules/evidence';
 
-export type CapturedList = CapturedHits;
-export type ExpansionDecision =
+type CapturedList = CapturedHits;
+type ExpansionDecision =
   | { state: 'none-needed' }
   | { state: 'raise'; parent: string; keys: string[] }
   | { state: 'fetch'; parent: string; keys: string[] }
   | { state: 'done' };
 
-export const EXPANSION_GATE = 'requirements-expansion-capped';
+const EXPANSION_GATE = 'requirements-expansion-capped';
 const CAP = 10;
 const JIRA_KEY = /^[A-Z][A-Z0-9]+-\d+$/;
 
