@@ -211,10 +211,14 @@ export async function validateRouteFiles(root: string, options: { handlers?: rea
     readInstruction: (relative) => fs.readText(path.join(root, relative)),
   };
   const routes: RouteDef[] = [];
-  for (const entry of entries.filter((candidate) => candidate.isFile() && candidate.name.endsWith('.yaml') && candidate.name !== 'gates.yaml').sort((a, b) => a.name.localeCompare(b.name))) {
-    const file = path.join('routes', entry.name);
-    const route = await loadRoute(file, await fs.readText(path.join(root, file)), context, registry);
-    if (entry.name !== `${route.skill}.yaml`) throw invalid(file, 'skill', `"${route.skill}" does not match the file name`);
+  // One folder per route: `routes/<skill>/<skill>.yaml` beside its step texts.
+  for (const entry of entries.filter((candidate) => candidate.isDirectory()).sort((a, b) => a.name.localeCompare(b.name))) {
+    const file = path.join('routes', entry.name, `${entry.name}.yaml`);
+    const text = await fs.readText(path.join(root, file)).catch(() => {
+      throw invalid(file, 'file', `routes/${entry.name}/ holds no ${entry.name}.yaml`);
+    });
+    const route = await loadRoute(file, text, context, registry);
+    if (entry.name !== route.skill) throw invalid(file, 'skill', `"${route.skill}" does not match the folder name`);
     routes.push(route);
   }
   return { routes, registry };

@@ -11,7 +11,7 @@ steps:
   - id: fetch
     actor: model
     when: args.hasRequirement
-    instruction: file:routes/steps/plan-fetch.md
+    instruction: file:routes/plan/fetch.md
     payload: [template]
   - id: ground
     actor: code
@@ -20,7 +20,7 @@ steps:
     repeat: 2                                     # one automatic re-run; a human scope answer starts a new cycle
   - id: design
     actor: model
-    instruction: file:routes/steps/plan-design.md
+    instruction: file:routes/plan/design.md
     payload: [map, "policy:before-work", acs]
     repeat: 2
   - id: plan-step
@@ -29,7 +29,7 @@ steps:
     produces: ["policy{before-report}"]           # qualified: a before-work policy entry is already in the window
   - id: plan-write
     actor: model
-    instruction: file:routes/steps/plan-write.md
+    instruction: file:routes/plan/write.md
     repeat: 3
   - id: plan-check
     actor: code

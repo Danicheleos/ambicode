@@ -39,9 +39,9 @@ export async function session(options: SessionOptions = {}) {
   const task = options.task ?? 'ORD-17';
   const server = options.server === undefined ? 'atlassian' : options.server;
   const root = REPO_ROOT;
-  const route = options.shipped === true ? await readFile(path.join(root, 'routes', 'investigate.yaml'), 'utf8') : (options.route ?? (await readFile(FIXTURE_ROUTE, 'utf8')).replace('skill: review', `skill: ${skill}`));
+  const route = options.shipped === true ? await readFile(path.join(root, 'routes', 'investigate', 'investigate.yaml'), 'utf8') : (options.route ?? (await readFile(FIXTURE_ROUTE, 'utf8')).replace('skill: review', `skill: ${skill}`));
   const step: Record<string, string> = {};
-  if (options.shipped === true) for (const name of ['investigate-fetch', 'investigate-read']) step[`routes/steps/${name}.md`] = await readFile(path.join(root, 'routes', 'steps', `${name}.md`), 'utf8');
+  if (options.shipped === true) for (const name of ['investigate/fetch', 'investigate/read']) step[`routes/${name}.md`] = await readFile(path.join(root, 'routes', `${name}.md`), 'utf8');
   const fx = await routeFixture({
     routes: { [skill]: route },
     handlers: { ...defaultHandlers(), ...options.handlers },

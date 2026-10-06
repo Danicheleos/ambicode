@@ -294,8 +294,8 @@ describe('task route (07-R, 07-V, 07-G)', () => {
 
   it('07-R8: every task step text is at most 1,500 characters after inclusion; start ≤ 4 KiB, report ≤ 3 KiB, before-checks ≤ 1.5 KiB', async () => {
     const cli = `node "${REPO_ROOT}/scripts/ambicode.mjs"`;
-    for (const name of ['task-red', 'task-green', 'task-fix', 'task-write']) {
-      const text = (await readFile(path.join(REPO_ROOT, 'routes', 'steps', `${name}.md`), 'utf8')).replaceAll('{cli}', cli).replaceAll('{task}', CHECK_TASK);
+    for (const name of ['task/red', 'task/green', 'task/fix', 'task/write']) {
+      const text = (await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8')).replaceAll('{cli}', cli).replaceAll('{task}', CHECK_TASK);
       assert.ok(text.length <= MAX_INSTRUCTION_CHARS, `${name}: ${text.length}`);
     }
     assert.equal(STAGE_LIMITS['before-checks'], 1536);

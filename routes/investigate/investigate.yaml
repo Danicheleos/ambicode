@@ -11,7 +11,7 @@ steps:
   - id: fetch
     actor: model
     when: args.hasRequirement
-    instruction: "file:routes/steps/investigate-fetch.md"
+    instruction: "file:routes/investigate/fetch.md"
     payload: [template]
   - id: ground
     actor: code
@@ -29,7 +29,7 @@ steps:
       onAnswer: { "*": "revise ground --term $answer" }
   - id: read
     actor: model
-    instruction: "file:routes/steps/investigate-read.md"
+    instruction: "file:routes/investigate/read.md"
     payload: [envelope, acs, map, "policy:before-work"]
     produces: ["note{investigation}"]
     answer: note

@@ -34,6 +34,7 @@ src/
     modules/      L1 contracts, one file per module: checks, config, ecosystems, evidence, policy,
                   publication, requirements, review, search, workers
   util/           dependency-free helpers (errors, files, glob, guards, hash, paths, …)
+routes/           gates.yaml plus one folder per route: <skill>/<skill>.yaml and its step texts <skill>/<step>.md
 tools/            build, packaging, install, smoke and line-ending scripts (were in the repo root)
 ```
 

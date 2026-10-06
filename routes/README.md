@@ -8,9 +8,9 @@ This directory is developer documentation plus the route files; this README is n
 
 | File | What it is |
 |---|---|
-| `<skill>.yaml` | One route. The file name must equal its `skill`. Today: `investigate.yaml`. |
+| `<skill>/<skill>.yaml` | One route. The folder and file name must equal its `skill`. |
 | `gates.yaml` | The gate registry: gates a route can raise from code (not declared on a step). |
-| `steps/<name>.md` | Instruction text of model steps, referenced as `file:routes/steps/<name>.md`. |
+| `<skill>/<step>.md` | Instruction text of the route's model steps, referenced as `file:routes/<skill>/<step>.md`. A route may reference another route's text (task uses `plan/fetch.md`). |
 
 Routes are checked by `npm run build`, `npm run verify` and the package build. A mistake fails with
 `route-invalid: <file>: <where>: <what is wrong>`.
@@ -52,7 +52,7 @@ Unknown fields are rejected. Step ids are unique inside a route.
 | `id` | string | Name used in the ledger, in `when`, `revisable` and revise targets. |
 | `actor` | `code`, `model`, `human`, `worker` | `code`: runs handlers, no model turn. `model`: the model gets instruction text and must do the work. `human`: asks the user through a gate. `worker`: reserved, not implemented yet. |
 | `run` | handler call or list | **Code steps only** (required there). Handlers run in order, as `name` or `name(param, param)`. Allowed names are listed below. |
-| `instruction` | inline text or `file:<path>` | **Model steps only** (required there). At most 1,500 characters. Put long text in `routes/steps/*.md` and reference it. The placeholders `{cli}` (command prefix) and `{task}` (task slug) are filled in. |
+| `instruction` | inline text or `file:<path>` | **Model steps only** (required there). At most 1,500 characters. Put long text in `routes/<skill>/<step>.md` and reference it. The placeholders `{cli}` (command prefix) and `{task}` (task slug) are filled in. |
 | `payload` | list of keys | **Model steps.** Outputs of earlier handlers appended to the instruction under `## <key>`. Empty outputs are left out. Keys below. |
 | `needs` | list of `kind` or `kind{value}` | Records that must already be in the ledger when the step starts, else `route-needs-unmet`. |
 | `produces` | list of `kind` or `kind{value}` | Records the step must leave in the ledger. A code step that does not write them fails with `route-produces-missing`. A model step stays open ("Not done yet") until they exist. |
@@ -121,8 +121,8 @@ Gates are asked with AskUserQuestion; the printed line `[ambicode gate <id> <ins
 
 ## Adding or changing a route
 
-1. Write or edit `routes/<skill>.yaml`; the file name equals `skill`.
-2. Put model instruction text longer than a few lines in `routes/steps/<skill>-<step>.md` (limit 1,500 characters).
+1. Write or edit `routes/<skill>/<skill>.yaml`; the folder and file name equal `skill`.
+2. Put model instruction text longer than a few lines in `routes/<skill>/<step>.md` (limit 1,500 characters).
 3. Every `run` name must be a registered handler; new handlers live in `src/route/handlers*.ts`.
 4. Check the route: `npm run build` (validates every file). Add a walk test in `src/route/` named after the rule it covers.
 5. A revise or `onFail` target must be an earlier step or the next one, and a code or model target needs `repeat` >= 2.

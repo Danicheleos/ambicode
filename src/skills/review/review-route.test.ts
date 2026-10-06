@@ -45,8 +45,8 @@ const spied = (): { calls: { n: number }; handlers: Record<string, Handler> } =>
 };
 
 describe('review route: shape and start (08-R1, 08-R2, 08-R3)', () => {
-  it('08-R1: routes/review.yaml has the contract steps, the estimate gate, loads with the registry and is packaged with its step files', async () => {
-    const route = YAML.parse(await readFile(path.join(REPO_ROOT, 'routes', 'review.yaml'), 'utf8')) as { skill: string; version: number; budget: Record<string, number>; steps: { id: string; actor: string; when?: string; needs?: string[]; repeat?: number; gate?: Record<string, unknown> }[] };
+  it('08-R1: routes/review/review.yaml has the contract steps, the estimate gate, loads with the registry and is packaged with its step files', async () => {
+    const route = YAML.parse(await readFile(path.join(REPO_ROOT, 'routes', 'review', 'review.yaml'), 'utf8')) as { skill: string; version: number; budget: Record<string, number>; steps: { id: string; actor: string; when?: string; needs?: string[]; repeat?: number; gate?: Record<string, unknown> }[] };
     assert.deepEqual([route.skill, route.version, route.budget], ['review', 3, { modelSteps: 6, wallMinutes: 45 }]);
     assert.deepEqual(route.steps.map((step) => [step.id, step.actor]), [['template', 'code'], ['fetch', 'model'], ['ground', 'code'], ['estimate-step', 'code'], ['estimate', 'human'], ['review-run', 'code'], ['readback', 'model'], ['view', 'model']]);
     const gate = route.steps.find((step) => step.id === 'estimate')!.gate!;
@@ -56,7 +56,7 @@ describe('review route: shape and start (08-R1, 08-R2, 08-R3)', () => {
     assert.deepEqual([run.when, run.needs, run.repeat], ['gate.estimate.is(run)', ['review'], undefined]);
     assert.ok((await loadRouteRegistry(REPO_ROOT, nodeFileSystem)).route('review') !== null);
     assert.match(await readFile(path.join(REPO_ROOT, 'tools', 'package-candidate.mjs'), 'utf8'), /from: 'routes', extensions: \['\.yaml', '\.md'\]/);
-    for (const name of ['review-fetch', 'review-readback', 'review-view']) assert.ok((await readFile(path.join(REPO_ROOT, 'routes', 'steps', `${name}.md`), 'utf8')).length > 0, name);
+    for (const name of ['review/fetch', 'review/readback', 'review/view']) assert.ok((await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8')).length > 0, name);
   });
 
   it('08-R2: one-target refusals happen before any route entry is written', async () => {
@@ -256,20 +256,20 @@ describe('review route: the estimate gate (08-R4, 08-R5, S12, S14)', () => {
 });
 
 describe('review route: step texts, ceilings and the ignore warning (08-R6, 08-B1, 08-R7)', () => {
-  const read = async (name: string): Promise<string> => (await readFile(path.join(REPO_ROOT, 'routes', 'steps', `${name}.md`), 'utf8')).replaceAll('{cli}', `node "${REPO_ROOT}/scripts/ambicode.mjs"`).replaceAll('{task}', CHECK_TASK);
+  const read = async (name: string): Promise<string> => (await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8')).replaceAll('{cli}', `node "${REPO_ROOT}/scripts/ambicode.mjs"`).replaceAll('{task}', CHECK_TASK);
 
   it('08-R6/08-B1: each review step text is at most 1,500 characters after inclusion', async () => {
     assert.equal(MAX_INSTRUCTION_CHARS, 1500);
-    for (const name of ['review-fetch', 'review-readback', 'review-view']) assert.ok((await read(name)).length <= 1500, name);
+    for (const name of ['review/fetch', 'review/readback', 'review/view']) assert.ok((await read(name)).length <= 1500, name);
   });
 
   it('08-R6: readback points an --mr review to references/merge-request.md, which ships beside the review skill', async () => {
-    assert.match(await read('review-readback'), /\(`--mr`\), read `references\/merge-request\.md` beside the review skill's SKILL\.md/);
+    assert.match(await read('review/readback'), /\(`--mr`\), read `references\/merge-request\.md` beside the review skill's SKILL\.md/);
     assert.ok((await readFile(path.join(REPO_ROOT, 'skills', 'review', 'references', 'merge-request.md'), 'utf8')).length > 0);
   });
 
   it('08-R6: readback reads the four parts in order, copies part 4 verbatim and names references/outcomes.md', async () => {
-    const text = await read('review-readback');
+    const text = await read('review/readback');
     assert.match(text, /1\. what was reviewed, 2\. findings, 3\. verification, 4\. omissions, uncertainty and unavailable coverage/);
     assert.match(text, /Part 4 copied verbatim/);
     assert.match(text, /references\/outcomes\.md/);
@@ -277,7 +277,7 @@ describe('review route: step texts, ceilings and the ignore warning (08-R6, 08-B
   });
 
   it('08-R6: view runs view --review in the background for an --mr target or at least one finding, and publication stays human', async () => {
-    const text = await read('review-view');
+    const text = await read('review/view');
     assert.match(text, /merge request \(`--mr`\) or the review has at least one finding/);
     assert.match(text, /view --review <reviewId>/);
     assert.match(text, /background/);

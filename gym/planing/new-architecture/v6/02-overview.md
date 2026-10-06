@@ -43,7 +43,7 @@ holds every platform number and event name.
 
 ## 3. Framework or not
 
-**An internal framework, not a product one.** Routes (`routes/<skill>.yaml`, `routes/gates.yaml`)
+**An internal framework, not a product one.** Routes (`routes/<skill>/<skill>.yaml`, `routes/gates.yaml`)
 and module interfaces are data and seams; the engine is generic. It enforces three things only:
 code-owned steps ran (they ran because code ran them), gates were released by someone on record, and
 a report does not contradict the ledger. It never decides what the model should conclude, and the

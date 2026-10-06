@@ -20,7 +20,7 @@ async function filesUnder(directory: string): Promise<string[]> {
 describe('09-M2: ecosystem neutrality', () => {
   it('09-M2: route code, routes and the map name no language or tool', async () => {
     const files = [...(await filesUnder(path.join(REPO_ROOT, 'src', 'harness'))), path.join(REPO_ROOT, 'src', 'skills', 'common.ts'), ...(await filesUnder(path.join(REPO_ROOT, 'routes'))), path.join(REPO_ROOT, 'src', 'modules', 'search', 'text', 'map.ts')];
-    assert.ok(files.some((file) => file.endsWith(path.join('routes', 'steps', 'init-apply-run.md'))), 'routes/steps is scanned');
+    assert.ok(files.some((file) => file.endsWith(path.join('routes', 'init', 'apply-run.md'))), 'step texts are scanned');
     const hits: string[] = [];
     for (const file of files) {
       const lines = (await readFile(file, 'utf8')).split('\n');

@@ -61,8 +61,8 @@ describe('06-H1/06-H2 plan route integration on ts-feature-boundary', () => {
     const root = await materialized();
     try {
       const step: Record<string, string> = {};
-      for (const name of ['plan-fetch', 'plan-design', 'plan-write']) step[`routes/steps/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', 'steps', `${name}.md`), 'utf8');
-      const assembled = await assembleEngine({ root, routes: { plan: await readFile(path.join(REPO_ROOT, 'routes', 'plan.yaml'), 'utf8') }, step });
+      for (const name of ['plan/fetch', 'plan/design', 'plan/write']) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
+      const assembled = await assembleEngine({ root, routes: { plan: await readFile(path.join(REPO_ROOT, 'routes', 'plan', 'plan.yaml'), 'utf8') }, step });
       const engine = assembled.build(defaultHandlers());
       const scratchpad = await assembled.runtime.fs.temporaryDirectory('ambicode-scratch-');
       const deps = { engine, routes: assembled.routes, pointer: assembled.pointer };

@@ -31,14 +31,14 @@ const BASE = {
 async function root(t: { after(fn: () => unknown): void }, files: Record<string, string>): Promise<string> {
   const directory = await mkdtemp(path.join(tmpdir(), 'ambicode-routes-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
-  await mkdir(path.join(directory, 'routes', 'steps'), { recursive: true });
+  await mkdir(path.join(directory, 'routes', 'demo'), { recursive: true });
   await writeFile(path.join(directory, 'routes', 'gates.yaml'), await readFile(path.join(REPO_ROOT, 'routes', 'gates.yaml'), 'utf8'));
   for (const [name, text] of Object.entries(files)) await writeFile(path.join(directory, name), text);
   return directory;
 }
 
 async function refuses(t: { after(fn: () => unknown): void }, yaml: string, expected: RegExp, extra: Record<string, string> = {}): Promise<void> {
-  const directory = await root(t, { 'routes/demo.yaml': yaml, ...extra });
+  const directory = await root(t, { 'routes/demo/demo.yaml': yaml, ...extra });
   await assert.rejects(
     validateRouteFiles(directory, { handlers: HANDLERS }),
     (error: Error & { code?: string }) => error.code === 'route-invalid' && expected.test(error.message),
@@ -47,7 +47,7 @@ async function refuses(t: { after(fn: () => unknown): void }, yaml: string, expe
 }
 
 test('03-R1: a valid route loads and normalizes its steps, gate and defaults', async (t) => {
-  const directory = await root(t, { 'routes/demo.yaml': `${BASE.head}${BASE.code}${BASE.model}${BASE.gate}` });
+  const directory = await root(t, { 'routes/demo/demo.yaml': `${BASE.head}${BASE.code}${BASE.model}${BASE.gate}` });
   const { routes } = await validateRouteFiles(directory, { handlers: HANDLERS });
   const route = routes[0]!;
   assert.deepEqual([route.skill, route.version, route.budget.modelSteps], ['demo', 3, 6]);
@@ -60,7 +60,7 @@ test('03-R1: a valid route loads and normalizes its steps, gate and defaults', a
 });
 
 test('03b-B1: a route budget takes an optional tool-turn count', async (t) => {
-  const directory = await root(t, { 'routes/demo.yaml': `${BASE.head.replace('{ modelSteps: 6 }', '{ modelSteps: 6, toolTurns: 12 }')}${BASE.model}` });
+  const directory = await root(t, { 'routes/demo/demo.yaml': `${BASE.head.replace('{ modelSteps: 6 }', '{ modelSteps: 6, toolTurns: 12 }')}${BASE.model}` });
   const { routes } = await validateRouteFiles(directory, { handlers: HANDLERS });
   assert.deepEqual(routes[0]!.budget, { modelSteps: 6, toolTurns: 12 });
 });
@@ -83,7 +83,7 @@ test('03-R1: one rejection per schema rule, each naming the file and the field',
 test('03-R2: when accepts the fixed vocabulary and gate predicates of this route only', async (t) => {
   const withWhen = (when: string): string => `${BASE.head}${BASE.code}${BASE.gate}  - id: after\n    actor: code\n    run: code.two\n    when: "${when}"\n`;
   for (const when of ['args.hasRequirement', '!args.hasRequirement', 'map.empty', 'plan.isDraft', 'headless', 'interactive', 'index.present', 'revised', 'gate.ask.answered', 'gate.ask.is(Yes)']) {
-    const directory = await root(t, { 'routes/demo.yaml': withWhen(when) });
+    const directory = await root(t, { 'routes/demo/demo.yaml': withWhen(when) });
     await validateRouteFiles(directory, { handlers: HANDLERS });
   }
   await refuses(t, withWhen('args.other'), /after\.when: "args\.other" is not in the when vocabulary/);
@@ -94,7 +94,7 @@ test('03-R2: when accepts the fixed vocabulary and gate predicates of this route
 test('03-R3: needs and produces are known kinds; a qualifier is checked against its kind field', async (t) => {
   const withProduces = (produces: string): string => `${BASE.head}  - id: x\n    actor: model\n    instruction: Do.\n    produces: [${produces}]\n`;
   for (const [kind, values] of Object.entries(QUALIFIERS)) {
-    for (const value of values) await validateRouteFiles(await root(t, { 'routes/demo.yaml': withProduces(`"${kind}{${value}}"`) }), { handlers: HANDLERS });
+    for (const value of values) await validateRouteFiles(await root(t, { 'routes/demo/demo.yaml': withProduces(`"${kind}{${value}}"`) }), { handlers: HANDLERS });
   }
   await refuses(t, withProduces('"note{plan-v2}"'), /not a note qualifier/);
   await refuses(t, withProduces('"map{x}"'), /"map" takes no qualifier/);
@@ -105,11 +105,11 @@ test('03-R3: needs and produces are known kinds; a qualifier is checked against 
 test('03-R4: a model step has an instruction of at most 1,500 characters, inline or included; run names registered handlers', async (t) => {
   await refuses(t, `${BASE.head}  - id: x\n    actor: model\n`, /a model step has an instruction/);
   await refuses(t, `${BASE.head}  - id: x\n    actor: model\n    instruction: "${'a'.repeat(MAX_INSTRUCTION_CHARS + 1)}"\n`, /1501 characters/);
-  await refuses(t, `${BASE.head}  - id: x\n    actor: model\n    instruction: "file:routes/steps/long.md"\n`, /1501 characters/, { 'routes/steps/long.md': 'b'.repeat(MAX_INSTRUCTION_CHARS + 1) });
-  await refuses(t, `${BASE.head}  - id: x\n    actor: model\n    instruction: "file:routes/steps/missing.md"\n`, /cannot be read/);
+  await refuses(t, `${BASE.head}  - id: x\n    actor: model\n    instruction: "file:routes/demo/long.md"\n`, /1501 characters/, { 'routes/demo/long.md': 'b'.repeat(MAX_INSTRUCTION_CHARS + 1) });
+  await refuses(t, `${BASE.head}  - id: x\n    actor: model\n    instruction: "file:routes/demo/missing.md"\n`, /cannot be read/);
   await refuses(t, `${BASE.head}  - id: x\n    actor: code\n    run: nobody.knows\n`, /"nobody\.knows" is not a registered handler/);
   await refuses(t, `${BASE.head}  - id: x\n    actor: code\n`, /a code step runs at least one handler/);
-  const included = await root(t, { 'routes/demo.yaml': `${BASE.head}  - id: x\n    actor: model\n    instruction: "file:routes/steps/ok.md"\n`, 'routes/steps/ok.md': 'c'.repeat(MAX_INSTRUCTION_CHARS) });
+  const included = await root(t, { 'routes/demo/demo.yaml': `${BASE.head}  - id: x\n    actor: model\n    instruction: "file:routes/demo/ok.md"\n`, 'routes/demo/ok.md': 'c'.repeat(MAX_INSTRUCTION_CHARS) });
   assert.equal((await validateRouteFiles(included, { handlers: HANDLERS })).routes[0]!.steps[0]!.instruction?.length, MAX_INSTRUCTION_CHARS);
 });
 
@@ -125,7 +125,7 @@ test('03-R5: a gate sits on a human step with a non-acting default and a release
   await refuses(t, gate('      maxRevises: 0\n'), /maxRevises/);
   await refuses(t, gate('      object: "envelope"\n', ''), /no earlier step produces envelope/);
   await refuses(t, gate('      object: "note{plan-draft}"\n'), /no earlier step produces note\{plan-draft\}/);
-  const fine = await root(t, { 'routes/demo.yaml': gate('      acting: [Accept]\n      object: envelope\n') });
+  const fine = await root(t, { 'routes/demo/demo.yaml': gate('      acting: [Accept]\n      object: envelope\n') });
   const { routes } = await validateRouteFiles(fine, { handlers: HANDLERS });
   assert.deepEqual(routes[0]!.steps[1]!.gate!.object, { kind: 'envelope', value: null });
   assert.deepEqual(routes[0]!.steps[1]!.gate!.acting, ['Accept']);
@@ -138,23 +138,23 @@ test('03-R6: revision targets are earlier steps, the firing step, $raisedBy or t
   await refuses(t, steps('    onFail: revise c\n', ''), /"c" is later than the next step/);
   await refuses(t, steps('', '    onFail: revise a\n'), /"a" has repeat 1/);
   for (const fine of [steps('    repeat: 2\n', '    onFail: revise a\n'), steps('', '    onFail: revise b\n    repeat: 2\n'), steps('    onFail: revise b\n', '    repeat: 2\n'), steps('', '    onFail: "revise $raisedBy"\n')]) {
-    await validateRouteFiles(await root(t, { 'routes/demo.yaml': fine }), { handlers: HANDLERS });
+    await validateRouteFiles(await root(t, { 'routes/demo/demo.yaml': fine }), { handlers: HANDLERS });
   }
   const withGate = (target: string, repeat = ''): string =>
     `${BASE.head}  - id: a\n    actor: code\n    run: code.one\n${repeat}  - id: ask\n    actor: human\n    gate:\n      question: Q\n      options: [Go, Back]\n      default: Go\n      release: Go\n      onAnswer: { Back: "revise ${target}" }\n`;
-  await validateRouteFiles(await root(t, { 'routes/demo.yaml': withGate('a') }), { handlers: HANDLERS });
+  await validateRouteFiles(await root(t, { 'routes/demo/demo.yaml': withGate('a') }), { handlers: HANDLERS });
   await refuses(t, withGate('ghost'), /onAnswer\.Back: "ghost" is not a step/);
   const human = `${BASE.head}  - id: ask\n    actor: human\n    gate: { question: Q, options: [Go], default: Go, release: Go }\n  - id: after\n    actor: code\n    run: code.one\n    onFail: revise ask\n`;
-  await validateRouteFiles(await root(t, { 'routes/demo.yaml': human }), { handlers: HANDLERS });
+  await validateRouteFiles(await root(t, { 'routes/demo/demo.yaml': human }), { handlers: HANDLERS });
   await refuses(t, `${BASE.head.replace('revisable: []', 'revisable: [ghost]')}${BASE.model}`, /revisable: "ghost" is not a step/);
   await refuses(t, `${BASE.head.replace('revisable: []', 'revisable: [read]')}${BASE.model}`, /"read" has repeat 1/);
-  await validateRouteFiles(await root(t, { 'routes/demo.yaml': `${BASE.head.replace('revisable: []', 'revisable: [ground]')}${BASE.code}` }), { handlers: HANDLERS });
+  await validateRouteFiles(await root(t, { 'routes/demo/demo.yaml': `${BASE.head.replace('revisable: []', 'revisable: [ground]')}${BASE.code}` }), { handlers: HANDLERS });
 });
 
 test('03-R6: default repeat counts follow the step id', async (t) => {
   const ids = ['ground', 'design', 'plan-write', 'draft', 'fix', 'review-run', 'other'];
   const yaml = BASE.head + ids.map((id) => `  - id: ${id}\n    actor: code\n    run: code.one\n`).join('');
-  const { routes } = await validateRouteFiles(await root(t, { 'routes/demo.yaml': yaml }), { handlers: HANDLERS });
+  const { routes } = await validateRouteFiles(await root(t, { 'routes/demo/demo.yaml': yaml }), { handlers: HANDLERS });
   assert.deepEqual(routes[0]!.steps.map((step) => step.repeat), [2, 2, 3, 3, 2, 2, 1]);
 });
 
@@ -208,7 +208,7 @@ test('03-R8: dynamic options are instantiated before validation; the review poli
 });
 
 test('03-R9: the DSL gate id is the logical id; a declared gate takes its step id', async (t) => {
-  const { routes } = await validateRouteFiles(await root(t, { 'routes/demo.yaml': `${BASE.head}${BASE.code}${BASE.gate}` }), { handlers: HANDLERS });
+  const { routes } = await validateRouteFiles(await root(t, { 'routes/demo/demo.yaml': `${BASE.head}${BASE.code}${BASE.gate}` }), { handlers: HANDLERS });
   assert.equal(routes[0]!.steps[1]!.gate!.id, routes[0]!.steps[1]!.id);
 });
 
@@ -233,7 +233,7 @@ test('03-R10: the shipped route files validate; build and packaging call the val
 
 test('03b-N1: answer: note loads on a model step producing one note, and is refused anywhere else', async (t) => {
   const answering = '  - id: read\n    actor: model\n    instruction: Read the code.\n    produces: ["note{investigation}"]\n    answer: note\n';
-  const directory = await root(t, { 'routes/demo.yaml': `${BASE.head}${BASE.code}${answering}` });
+  const directory = await root(t, { 'routes/demo/demo.yaml': `${BASE.head}${BASE.code}${answering}` });
   const { routes } = await validateRouteFiles(directory, { handlers: HANDLERS });
   assert.deepEqual(routes[0]!.steps.map((step) => step.answer), [null, 'note']);
   await refuses(t, `${BASE.head}  - id: read\n    actor: model\n    instruction: Read the code.\n    answer: note\n`, /answer: note needs produces note\{<kind>\}/);

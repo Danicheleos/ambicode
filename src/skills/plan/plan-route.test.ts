@@ -19,7 +19,7 @@ import { REPO_ROOT } from '#testing/paths';
 import { SESSION_A, SESSION_B } from '#testing/fixtures/ids';
 
 /** SHA-256 of the step-06 Contract YAML with amend-06-review-r1 P2 (`fetch` gets `payload: [template]`). */
-const CONTRACT_SHA256 = '03f2bd3ce885eedf4d07ea6ab792531e3aeb5a745dbd7474751e3e652784c6c3';
+const CONTRACT_SHA256 = 'cfebbb49f47f32bb8d043e7f014c13fdee24c771027f1a9a557ac5e54ce5b341';
 const GOOD = '# Plan\n\n- *Changes*: `src/orders/limit.ts:1` `orderLimit`\n';
 const BAD = '# Plan\n\n- *Changes*: `src/orders/limit.ts:40` `orderLimit`\n';
 const PLATFORM = { askBinding: 'supported', answerContext: 'supported' } as const;
@@ -66,8 +66,8 @@ describe('06-R1/06-R2 the shipped plan route', () => {
     }
   });
 
-  it('06-R1: routes/plan.yaml is the Contract YAML, parses cleanly, builds, is packaged and marks Accept acting', async () => {
-    const text = await readFile(path.join(REPO_ROOT, 'routes', 'plan.yaml'), 'utf8');
+  it('06-R1: routes/plan/plan.yaml is the Contract YAML, parses cleanly, builds, is packaged and marks Accept acting', async () => {
+    const text = await readFile(path.join(REPO_ROOT, 'routes', 'plan', 'plan.yaml'), 'utf8');
     assert.equal(createHash('sha256').update(text).digest('hex'), CONTRACT_SHA256);
     assert.deepEqual(YAML.parseDocument(text).errors, []);
     const route = YAML.parse(text) as { steps: { id: string; gate?: { acting?: string[] } }[] };
@@ -79,14 +79,14 @@ describe('06-R1/06-R2 the shipped plan route', () => {
   });
 
   it('06-R2: each step text is at most 1,500 characters and names --task', async () => {
-    for (const name of ['plan-fetch', 'plan-design', 'plan-write']) {
-      const text = await readFile(path.join(REPO_ROOT, 'routes', 'steps', `${name}.md`), 'utf8');
+    for (const name of ['plan/fetch', 'plan/design', 'plan/write']) {
+      const text = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
       assert.ok(text.length <= 1500, `${name}: ${text.length}`);
       assert.match(text, /--task \{task\}/, name);
     }
-    const write = await readFile(path.join(REPO_ROOT, 'routes', 'steps', 'plan-write.md'), 'utf8');
+    const write = await readFile(path.join(REPO_ROOT, 'routes', 'plan', 'write.md'), 'utf8');
     assert.match(write, /plan check --task \{task\} --from steps\/plan-body\.md/);
-    assert.match(await readFile(path.join(REPO_ROOT, 'routes', 'steps', 'plan-design.md'), 'utf8'), /\[ambicode gate decision:<slug>\]/);
+    assert.match(await readFile(path.join(REPO_ROOT, 'routes', 'plan', 'design.md'), 'utf8'), /\[ambicode gate decision:<slug>\]/);
   });
 
   it('06-H1: the start, design and plan-write deliveries stay within their byte caps', async () => {

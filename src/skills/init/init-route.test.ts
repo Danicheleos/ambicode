@@ -13,7 +13,7 @@ import { REPO_ROOT } from '#testing/paths';
 import type { HookDeps } from '#types/hook';
 
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';
-const STEP = 'routes/steps/init-apply-run.md';
+const STEP = 'routes/init/apply-run.md';
 
 async function fixture(config: string | null = null): Promise<RouteFixture & {
   start(extra?: object): ReturnType<RouteFixture['engine']['start']>;
@@ -23,7 +23,7 @@ async function fixture(config: string | null = null): Promise<RouteFixture & {
   exists(relative: string): Promise<boolean>;
 }> {
   const fx = await routeFixture({
-    routes: { init: await readFile(path.join(REPO_ROOT, 'routes', 'init.yaml'), 'utf8') },
+    routes: { init: await readFile(path.join(REPO_ROOT, 'routes', 'init', 'init.yaml'), 'utf8') },
     handlers: { ...INIT_HANDLERS },
     step: { [STEP]: await readFile(path.join(REPO_ROOT, STEP), 'utf8') },
     config,

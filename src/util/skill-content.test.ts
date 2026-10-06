@@ -125,7 +125,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
   });
 
   it('03b-N9: the read step answers with citations and treats the map as leads, with no note command', async () => {
-    const read = await readFile(path.join(repositoryRoot, 'routes', 'steps', 'investigate-read.md'), 'utf8');
+    const read = await readFile(path.join(repositoryRoot, 'routes', 'investigate', 'read.md'), 'utf8');
     assert.match(read, /`path:line`/);
     assert.match(read, /leads, not answers/);
     assert.match(read, /Edit nothing/);
@@ -137,7 +137,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.doesNotMatch(read, /note save|route next|\{cli\} (find|refs)/);
     // 07-I1 adds one Diagnostics sentence on top of the 700-character read text.
     assert.ok(read.replace(/^Diagnostics .*\n/m, '').length <= 700);
-    assert.equal(existsSync(path.join(repositoryRoot, 'routes', 'steps', 'investigate-write.md')), false);
+    assert.equal(existsSync(path.join(repositoryRoot, 'routes', 'investigate', 'write.md')), false);
   });
 
   it('03b-N10: the body names the read-only boundary, the saved answer and the fallback line (03-I3)', async () => {
@@ -165,7 +165,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
   });
 
   it('07-R7: task\'s write step holds its single note-writing boundary, separate from investigate\'s and plan\'s', async () => {
-    const write = await readFile(path.join(repositoryRoot, 'routes', 'steps', 'task-write.md'), 'utf8');
+    const write = await readFile(path.join(repositoryRoot, 'routes', 'task', 'write.md'), 'utf8');
     assert.match(write, /note save --task \{task\} --kind notes --iteration <n>/);
     assert.doesNotMatch(await readFile(path.join(SKILLS_DIR, 'task', 'SKILL.md'), 'utf8'), /note save/);
   });
@@ -190,7 +190,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
 
   it('06-S4: plan and its write step name the six iteration fields', async () => {
     const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
-    const write = await readFile(path.join(repositoryRoot, 'routes', 'steps', 'plan-write.md'), 'utf8');
+    const write = await readFile(path.join(repositoryRoot, 'routes', 'plan', 'write.md'), 'utf8');
     for (const field of ['Goal', 'Changes', 'Tests', 'Accept', 'Checks', 'Leaves out']) {
       assert.ok(plan.includes(`*${field}*`), `plan/SKILL.md lacks *${field}*`);
       assert.ok(write.includes(`*${field}*`), `plan-write.md lacks *${field}*`);
@@ -211,7 +211,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
   it('06-S4/06-R10: plan accepts through the route gate, whose decline is the default, not through ExitPlanMode', async () => {
     const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
     assert.doesNotMatch(plan, /ExitPlanMode/);
-    const route = YAML.parse(await readFile(path.join(repositoryRoot, 'routes', 'plan.yaml'), 'utf8')) as { steps: { id: string; gate?: Record<string, unknown> }[] };
+    const route = YAML.parse(await readFile(path.join(repositoryRoot, 'routes', 'plan', 'plan.yaml'), 'utf8')) as { steps: { id: string; gate?: Record<string, unknown> }[] };
     const gate = route.steps.find((step) => step.id === 'plan-accept')?.gate;
     assert.deepEqual(gate?.['options'], ['Accept', 'Revise', 'Reject']);
     assert.equal(gate?.['default'], 'Reject');
@@ -386,7 +386,7 @@ describe('07-M2 task outcomes', () => {
 
 describe('F7 rules confirmation gate', () => {
   it('09-T2/09-T6: the rules table is answered before any pack goes live, and the skill states how to undo one', async () => {
-    const route = YAML.parse(await readFile(path.join(repositoryRoot, 'routes', 'rules.yaml'), 'utf8')) as { steps: { id: string; when?: string; gate?: { acting?: string[]; default?: string } }[] };
+    const route = YAML.parse(await readFile(path.join(repositoryRoot, 'routes', 'rules', 'rules.yaml'), 'utf8')) as { steps: { id: string; when?: string; gate?: { acting?: string[]; default?: string } }[] };
     const ids = route.steps.map((step) => step.id);
     const table = route.steps.find((step) => step.id === 'rules-table');
     assert.ok(table?.gate?.acting?.includes('Apply all'));
@@ -410,8 +410,8 @@ describe('09-R3/09-W1: the init skill and the init route steps', () => {
   });
 
   it('09-W1: each init step instruction is at most 1,500 characters', async () => {
-    for (const file of (await readdir(path.join(repositoryRoot, 'routes', 'steps'))).filter((name) => name.startsWith('init-'))) {
-      const text = await readFile(path.join(repositoryRoot, 'routes', 'steps', file), 'utf8');
+    for (const file of (await readdir(path.join(repositoryRoot, 'routes', 'init'))).filter((name) => name.endsWith('.md'))) {
+      const text = await readFile(path.join(repositoryRoot, 'routes', 'init', file), 'utf8');
       assert.ok(text.length <= 1500, `${file}: ${text.length} characters`);
     }
   });

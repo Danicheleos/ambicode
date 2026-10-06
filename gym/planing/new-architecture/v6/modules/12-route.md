@@ -11,7 +11,7 @@ languages or ecosystems (R16).
 
 ## Inputs
 
-- A route definition per skill, `routes/<skill>.yaml`, zod-validated at build (32 §3).
+- A route definition per skill, `routes/<skill>/<skill>.yaml`, zod-validated at build (32 §3).
 - The gate registry `routes/gates.yaml` for gates raised by error codes and commands (§3.5).
 - The ledger of the task directory. No other state.
 - Triggers: `UserPromptSubmit` whose text starts with `/ambicode:<skill>`; the model running

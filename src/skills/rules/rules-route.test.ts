@@ -412,12 +412,12 @@ describe('09-Q5: policy check --drafts and the ledger', () => {
 
 describe('09-T1: route text', () => {
   it('09-T1: the step instructions stay under 1,500 characters and name no ecosystem', async () => {
-    for (const name of ['rules-draft', 'rules-apply-run']) {
-      const text = await readFile(path.join(REPO_ROOT, 'routes', 'steps', `${name}.md`), 'utf8');
+    for (const name of ['rules/draft', 'rules/apply-run']) {
+      const text = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
       assert.ok(text.trim().length <= 1_500, `${name} is ${text.trim().length} characters`);
       assert.doesNotMatch(text, /typescript|python|angular|express|eslint|jest/i);
     }
-    const route = await readFile(path.join(REPO_ROOT, 'routes', 'rules.yaml'), 'utf8');
+    const route = await readFile(path.join(REPO_ROOT, 'routes', 'rules', 'rules.yaml'), 'utf8');
     assert.match(route, /modelSteps: 8/);
     assert.doesNotMatch(route, /typescript|python|angular/i);
   });

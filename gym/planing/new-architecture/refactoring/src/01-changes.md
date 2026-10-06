@@ -86,3 +86,8 @@ File, type and function moves are not listed here. Everything below changes code
       - Each command file exports its `*_OPTIONS` and a `CliCommand` record (`{ name, options, validate?, run }`). `main.ts` builds a name → record map; `SPECS` is derived from it, and the 140-line switch and `validateCombination` are gone.
       - `view` and `version` stay in `main.ts`, so `view.ts` is still imported lazily and its chunk split is unchanged.
       - `cli/types/commands.ts` is deleted: `Rendered`, `CliCommand`, `RouteTools` and `ViewOutput` are in `cli/types/cli.ts`, and the tests import options from the command files.
+17. **`routes/` grouped by route:**
+    - Each route is now `routes/<skill>/<skill>.yaml`, with its step texts beside it as `routes/<skill>/<step>.md` (the old `routes/steps/<skill>-<step>.md`). `gates.yaml` and `README.md` stay at the top.
+    - The loader (`validateRouteFiles`) reads one folder per route and refuses a folder without `<skill>.yaml`, or a `skill` that differs from the folder name.
+    - Updated: the `file:` instruction paths in the routes, the fixtures, the tests, `routes/README.md`, v6 `02-overview`, `32-artifacts` and `modules/12-route`, and `evals/TRAINING-PLAN.md`. The package copies the tree recursively, so the packaging tool is unchanged.
+    - `plan-route.test.ts` pins the SHA-256 of `plan.yaml`, so `CONTRACT_SHA256` was updated for the new instruction paths.

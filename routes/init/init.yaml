@@ -20,11 +20,11 @@ steps:
   - id: apply
     actor: model
     when: gate.init-apply.is(Apply as proposed)
-    instruction: "file:routes/steps/init-apply-run.md"
+    instruction: "file:routes/init/apply-run.md"
   - id: apply-adjusted
     actor: model
     when: gate.init-apply.is(Apply as adjusted)
-    instruction: "file:routes/steps/init-apply-run.md"
+    instruction: "file:routes/init/apply-run.md"
   - id: close
     actor: code
     run: [init.close]

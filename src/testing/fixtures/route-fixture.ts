@@ -51,7 +51,7 @@ export async function assembleEngine(options: { root: string; routes: Record<str
   const registry = parseRegistry('routes/gates.yaml', await readFile(path.join(REPO_ROOT, 'routes', 'gates.yaml'), 'utf8'), KINDS);
   const context = { root: REPO_ROOT, handlers: handlerNames, readInstruction: async (relative: string) => options.step?.[relative] ?? '' };
   const defs: RouteDef[] = [];
-  for (const [name, text] of Object.entries(options.routes)) defs.push(await loadRoute(`routes/${name}.yaml`, text, context, registry));
+  for (const [name, text] of Object.entries(options.routes)) defs.push(await loadRoute(`routes/${name}/${name}.yaml`, text, context, registry));
   const routes = routeRegistry({ routes: defs, registry });
   const pointer = fsActiveRoutePointer(runtime.fs);
   return {

@@ -11,15 +11,15 @@ import type { LedgerEntry } from '#types/modules/evidence';
 import type { AdvanceInput, StartInput, StepMessage, Handler } from '#types/harness';
 import { SESSION_A } from './ids.ts';
 
-const STEPS = ['review-fetch', 'review-readback', 'review-view'];
+const STEPS = ['review/fetch', 'review/readback', 'review/view'];
 
 export const PROPOSED = COMMAND_PACK.replace('{ command: lint, action: forbid, reason: "never here" }', '{ command: lint, action: propose, reason: "ask" }');
 
 /** The shipped review route with its step texts and the real handlers, on an uncommitted change to `src/orders.ts`. */
 export async function reviewRouteFixture(options: { config?: string; pack?: string; dirty?: boolean; handlers?: Record<string, Handler> } = {}) {
   const step: Record<string, string> = {};
-  for (const name of STEPS) step[`routes/steps/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', 'steps', `${name}.md`), 'utf8');
-  const review = await readFile(path.join(REPO_ROOT, 'routes', 'review.yaml'), 'utf8');
+  for (const name of STEPS) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
+  const review = await readFile(path.join(REPO_ROOT, 'routes', 'review', 'review.yaml'), 'utf8');
   const { dirty, handlers, ...rest } = options;
   const base = await checkFixture({ routes: { review }, handlers: { ...defaultHandlers(), ...(handlers ?? {}) }, step, ...rest });
   const { fx } = base;

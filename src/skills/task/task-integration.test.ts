@@ -48,8 +48,8 @@ async function offByOne() {
   execFileSync('git', ['-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'wire jest'], { cwd: root });
 
   const step: Record<string, string> = {};
-  for (const name of ['plan-fetch', 'task-red', 'task-green', 'task-fix', 'task-write']) step[`routes/steps/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', 'steps', `${name}.md`), 'utf8');
-  const assembled = await assembleEngine({ root, routes: { task: await readFile(path.join(REPO_ROOT, 'routes', 'task.yaml'), 'utf8') }, step });
+  for (const name of ['plan/fetch', 'task/red', 'task/green', 'task/fix', 'task/write']) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
+  const assembled = await assembleEngine({ root, routes: { task: await readFile(path.join(REPO_ROOT, 'routes', 'task', 'task.yaml'), 'utf8') }, step });
   const engine = assembled.build(defaultHandlers());
   const scratchpad = await assembled.runtime.fs.temporaryDirectory('ambicode-scratch-');
   const runner = new SplitRunner(assembled.runtime.runner);

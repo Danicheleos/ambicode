@@ -123,8 +123,8 @@ describe('plan check command and runPlanCheck', () => {
 
   async function planFixture() {
     const step: Record<string, string> = {};
-    for (const name of ['plan-fetch', 'plan-design', 'plan-write']) step[`routes/steps/${name}.md`] = await readFile(join(REPO_ROOT, 'routes', 'steps', `${name}.md`), 'utf8');
-    const fx = await routeFixture({ routes: { plan: await readFile(join(REPO_ROOT, 'routes', 'plan.yaml'), 'utf8') }, handlers: defaultHandlers(), step });
+    for (const name of ['plan/fetch', 'plan/design', 'plan/write']) step[`routes/${name}.md`] = await readFile(join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
+    const fx = await routeFixture({ routes: { plan: await readFile(join(REPO_ROOT, 'routes', 'plan', 'plan.yaml'), 'utf8') }, handlers: defaultHandlers(), step });
     await fx.repo.write('src/a.ts', 'export function targetName() {}\n');
     await fx.repo.commitAll('src');
     const task = 't1';

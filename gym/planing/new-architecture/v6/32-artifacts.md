@@ -23,8 +23,8 @@
 
 `init --apply` gitignores `index/`, `metrics.jsonl`, `reviews/`, `task/` (and the legacy `notes/`).
 
-Plugin-side data: `routes/<skill>.yaml` (one per skill), `routes/gates.yaml` (raised gates),
-`routes/steps/*.md` (step instructions).
+Plugin-side data: `routes/<skill>/<skill>.yaml` (one per skill), `routes/gates.yaml` (raised gates),
+`routes/<skill>/<step>.md` (step instructions).
 
 ## 2. Ledger line
 
@@ -45,7 +45,7 @@ instance the marker `[ambicode gate plan-accept a1b2c3d4-19]` carries and the an
 Append-only; `O_APPEND`; ids `<session8>-<n>` (#53); unknown kinds skipped; `session` on `route`
 entries; no entry over 16 KB (payloads go to files, the entry holds path and hash). Kinds in 13 §1.
 
-## 3. Route definition (`routes/<skill>.yaml`), zod-validated at build
+## 3. Route definition (`routes/<skill>/<skill>.yaml`), zod-validated at build
 
 ```yaml
 skill: plan
@@ -61,7 +61,7 @@ steps:
   - id: fetch
     actor: model
     when: args.hasRequirement
-    instruction: file:routes/steps/plan-fetch.md          # "fetch with the field lists, then `route next`"
+    instruction: file:routes/plan/fetch.md          # "fetch with the field lists, then `route next`"
   - id: ground
     actor: code
     run: [requirements.normalize, requirements.acs, search.map(context), policy.stage(before-work)]
@@ -69,7 +69,7 @@ steps:
     repeat: 2                                             # one automatic re-run (code/model revise); a human scope answer starts a new cycle (D14, #111)
   - id: design
     actor: model
-    instruction: file:routes/steps/plan-design.md         # decisions via AskUserQuestion with [ambicode gate decision:<slug>]
+    instruction: file:routes/plan/design.md         # decisions via AskUserQuestion with [ambicode gate decision:<slug>]
     payload: [map, policy:before-work, acs]
     repeat: 2
   - id: plan-step
@@ -78,7 +78,7 @@ steps:
     produces: [policy{before-report}]                       # qualified: a before-work policy entry is already in the window (#105)
   - id: plan-write
     actor: model
-    instruction: file:routes/steps/plan-write.md          # "write steps/plan-body.md once, then `plan check --from`"
+    instruction: file:routes/plan/write.md          # "write steps/plan-body.md once, then `plan check --from`"
     repeat: 3
   - id: plan-check
     actor: code

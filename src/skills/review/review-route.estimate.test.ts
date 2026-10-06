@@ -8,9 +8,9 @@ import { REPO_ROOT } from '#testing/paths';
 
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';
 const TASK = 'ORD-17';
-const SHIPPED = await readFile(path.join(REPO_ROOT, 'routes', 'review.yaml'), 'utf8');
+const SHIPPED = await readFile(path.join(REPO_ROOT, 'routes', 'review', 'review.yaml'), 'utf8');
 const STEPS: Record<string, string> = {};
-for (const name of ['review-fetch', 'review-readback', 'review-view']) STEPS[`routes/steps/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', 'steps', `${name}.md`), 'utf8');
+for (const name of ['review/fetch', 'review/readback', 'review/view']) STEPS[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
 
 describe('review route, model-typed estimate answer (08-P3)', () => {
   it('08-P3: a later model route next --answer estimate=run is declined and no reviewer step runs', async () => {

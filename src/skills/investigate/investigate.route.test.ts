@@ -14,12 +14,12 @@ import { REPO_ROOT } from '#testing/paths';
 import type { StartInput } from '#types/harness';
 
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';
-const STEPS = ['investigate-fetch', 'investigate-read'];
+const STEPS = ['investigate/fetch', 'investigate/read'];
 
 async function investigation() {
   const step: Record<string, string> = {};
-  for (const name of STEPS) step[`routes/steps/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', 'steps', `${name}.md`), 'utf8');
-  const fx = await routeFixture({ routes: { investigate: await readFile(path.join(REPO_ROOT, 'routes', 'investigate.yaml'), 'utf8') }, handlers: defaultHandlers(), step });
+  for (const name of STEPS) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
+  const fx = await routeFixture({ routes: { investigate: await readFile(path.join(REPO_ROOT, 'routes', 'investigate', 'investigate.yaml'), 'utf8') }, handlers: defaultHandlers(), step });
   await fx.repo.write('src/cart.ts', 'export function addToCart(items: string[], item: string): string[] {\n  return [...items, item];\n}\n');
   await fx.repo.write('src/checkout.ts', "import { addToCart } from '#route/cart';\n\nexport const checkout = (): string[] => addToCart([], 'book');\n");
   await fx.repo.commitAll('cart');
@@ -152,8 +152,8 @@ describe('investigate route: a synthetic walk on ts-feature-boundary (03-I1, 03-
     const root = await materialized();
     try {
       const step: Record<string, string> = {};
-      for (const name of STEPS) step[`routes/steps/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', 'steps', `${name}.md`), 'utf8');
-      const routes = { investigate: await readFile(path.join(REPO_ROOT, 'routes', 'investigate.yaml'), 'utf8') };
+      for (const name of STEPS) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
+      const routes = { investigate: await readFile(path.join(REPO_ROOT, 'routes', 'investigate', 'investigate.yaml'), 'utf8') };
       const assembled = await assembleEngine({ root, routes, step });
       const engine = assembled.build({ ...defaultHandlers(), 'requirements.normalize': async ({ ledger, view }) => {
         await ledger.append({ kind: 'envelope', route: view.routeId, sources: [], builtFrom: 'args', asked: [], missingAsked: [], hash: 'stub' });

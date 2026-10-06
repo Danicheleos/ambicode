@@ -20,7 +20,7 @@ steps:
     onError: stop:human
   - id: draft
     actor: model
-    instruction: "file:routes/steps/rules-draft.md"
+    instruction: "file:routes/rules/draft.md"
     payload: [rules.discover, rules.context, rules.draftsCheck]
     repeat: 3
   - id: drafts-check
@@ -42,7 +42,7 @@ steps:
   - id: apply
     actor: model
     when: gate.rules-table.is(Apply all)
-    instruction: "file:routes/steps/rules-apply-run.md"
+    instruction: "file:routes/rules/apply-run.md"
     produces: ["policy{apply}"]
   - id: close
     actor: code

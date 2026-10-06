@@ -10,7 +10,7 @@ steps:
   - id: fetch
     actor: model
     when: args.hasRequirement
-    instruction: file:routes/steps/plan-fetch.md
+    instruction: file:routes/plan/fetch.md
     payload: [template]
   - id: start
     actor: code
@@ -29,12 +29,12 @@ steps:
     produces: [baseline, map, policy]
   - id: red
     actor: model
-    instruction: file:routes/steps/task-red.md
+    instruction: file:routes/task/red.md
     payload: [brief, envelope, baseline, map, callers, "policy:before-work", "policy:before-checks"]
     produces: ["check{red}"]
   - id: green
     actor: model
-    instruction: file:routes/steps/task-green.md
+    instruction: file:routes/task/green.md
     produces: ["check{green}", format]
   - id: review-offer
     actor: human
@@ -54,7 +54,7 @@ steps:
   - id: fix
     actor: model
     when: revised                                 # entered only by a revise aimed at fix: review findings or an approved key
-    instruction: file:routes/steps/task-fix.md
+    instruction: file:routes/task/fix.md
     produces: ["check{green}", review]
     repeat: 2
   - id: report-step
@@ -63,5 +63,5 @@ steps:
     onFail: revise fix                            # a fix-round review with findings; bounded by fix's repeat
   - id: write
     actor: model
-    instruction: file:routes/steps/task-write.md
+    instruction: file:routes/task/write.md
     payload: [report, "policy:before-report"]

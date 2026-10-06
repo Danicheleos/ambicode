@@ -27,8 +27,8 @@ export function hookRunner(fx: RouteFixture, runtime: Runtime, deps: HookDeps): 
 /** The shipped investigate route over a small repository, with the hook runner in front of the same engine. */
 export async function investigation() {
   const step: Record<string, string> = {};
-  for (const name of ['investigate-fetch', 'investigate-read']) step[`routes/steps/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', 'steps', `${name}.md`), 'utf8');
-  const fx = await routeFixture({ routes: { investigate: await readFile(path.join(REPO_ROOT, 'routes', 'investigate.yaml'), 'utf8') }, handlers: defaultHandlers(), step });
+  for (const name of ['investigate/fetch', 'investigate/read']) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
+  const fx = await routeFixture({ routes: { investigate: await readFile(path.join(REPO_ROOT, 'routes', 'investigate', 'investigate.yaml'), 'utf8') }, handlers: defaultHandlers(), step });
   await fx.repo.write('src/cart.ts', 'export function addToCart(items: string[], item: string): string[] {\n  return [...items, item];\n}\n');
   await fx.repo.write('src/checkout.ts', "import { addToCart } from '../cart.ts';\n\nexport const checkout = (): string[] => addToCart([], 'book');\n");
   await fx.repo.commitAll('cart');

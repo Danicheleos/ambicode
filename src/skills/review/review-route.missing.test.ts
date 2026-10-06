@@ -27,9 +27,9 @@ const TWICE = 'requirements-not-captured-twice';
 const TWO_URLS = ['https://x.atlassian.net/browse/ORD-17', 'https://x.atlassian.net/browse/ORD-18'];
 const ASKED = ['ORD-17', 'ORD-18'];
 const TASK = 'ORD-17';
-const SHIPPED = await readFile(path.join(REPO_ROOT, 'routes', 'review.yaml'), 'utf8');
+const SHIPPED = await readFile(path.join(REPO_ROOT, 'routes', 'review', 'review.yaml'), 'utf8');
 const STEPS: Record<string, string> = {};
-for (const name of ['review-fetch', 'review-readback', 'review-view']) STEPS[`routes/steps/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', 'steps', `${name}.md`), 'utf8');
+for (const name of ['review/fetch', 'review/readback', 'review/view']) STEPS[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
 
 async function shipped(options: { requirements?: string[]; headless?: boolean; server?: string | null } = {}) {
   const server = options.server === undefined ? 'atlassian' : options.server;

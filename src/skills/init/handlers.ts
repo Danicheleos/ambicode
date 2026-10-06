@@ -62,7 +62,7 @@ onGatePrint(GATE, async ({ runtime, dir, task, chain, gate }) => {
   return { line: lines.join('\n'), offered: [adjusted ? 'Apply as adjusted' : 'Apply as proposed', 'Adjust', 'Cancel'] };
 });
 
-/** Code steps of `routes/init.yaml` (09-R1). */
+/** Code steps of `routes/init/init.yaml` (09-R1). */
 export const INIT_HANDLERS: Readonly<Record<string, Handler>> = {
   'init.propose': async ({ runtime, view, context, dir }) => {
     const root = dir.repositoryRoot;

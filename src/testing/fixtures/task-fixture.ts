@@ -10,15 +10,15 @@ import type { LedgerEntry } from '#types/modules/evidence';
 import type { AdvanceInput, StartInput, StepMessage } from '#types/harness';
 import { SESSION_A } from './ids.ts';
 
-const STEPS = ['plan-fetch', 'task-red', 'task-green', 'task-fix', 'task-write'];
+const STEPS = ['plan/fetch', 'task/red', 'task/green', 'task/fix', 'task/write'];
 
 export const ORDERS = 'export function total(amounts: number[]): number {\n  return amounts.reduce((a, b) => a + b);\n}\n';
 
 /** The shipped task route with its step texts and the real handlers, on `checkFixture`'s repository. */
 export async function taskFixture(options: { config?: string; pack?: string } = {}) {
   const step: Record<string, string> = {};
-  for (const name of STEPS) step[`routes/steps/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', 'steps', `${name}.md`), 'utf8');
-  const task = await readFile(path.join(REPO_ROOT, 'routes', 'task.yaml'), 'utf8');
+  for (const name of STEPS) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
+  const task = await readFile(path.join(REPO_ROOT, 'routes', 'task', 'task.yaml'), 'utf8');
   const base = await checkFixture({ routes: { task }, handlers: defaultHandlers(), step, ...options });
   const { fx } = base;
   await fx.repo.write('src/orders.ts', ORDERS);

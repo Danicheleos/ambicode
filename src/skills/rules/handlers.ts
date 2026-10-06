@@ -88,7 +88,7 @@ onGatePrint('rules-table', async ({ runtime, dir, chain }) => {
   }
 });
 
-/** Code steps of `routes/rules.yaml` (09-T1). */
+/** Code steps of `routes/rules/rules.yaml` (09-T1). */
 export const RULES_HANDLERS: Readonly<Record<string, Handler>> = {
   'rules.discover': async (input) => {
     const chosen = input.revise?.args['source']?.flatMap((value) => value.split(/[\s,]+/)).filter((value) => value !== '');
