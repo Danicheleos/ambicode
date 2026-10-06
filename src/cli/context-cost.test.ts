@@ -9,7 +9,7 @@ import type { StandardInput } from '../ports/stdin.ts';
 import { TempRepo } from '../testing/temp-repo.ts';
 import { formatJsonOutput } from '../util/json-output.ts';
 import { parseArgs } from './args.ts';
-import { INIT_OPTIONS, runInit } from './commands/init.ts';
+import { initConfig } from '../testing/init-config.ts';
 import { PREPARE_OPTIONS, runPrepare } from './commands/prepare.ts';
 import { evidenceSource } from './target-option.ts';
 
@@ -65,7 +65,7 @@ async function fixture(): Promise<TempRepo> {
   await repo.commitAll('initial');
 
   const runtime = await createRuntime({ cwd: repo.root });
-  await runInit(runtime, parseArgs('init', [], INIT_OPTIONS));
+  await initConfig(runtime);
 
   await repo.write('.ambicode/policies/cost.yaml', PACK_A);
   await repo.write('.ambicode/policies/before-work.md', '# Before work\n\nScoped guidance for this fixture.\n');

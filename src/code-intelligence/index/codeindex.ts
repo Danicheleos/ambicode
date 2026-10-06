@@ -53,7 +53,10 @@ const oneLine = (text: string, limit: number): string => text.replace(/\s+/g, ' 
 const lastLine = (text: string): string => text.trim().split(/\r?\n/).pop() ?? '';
 
 /** `node_modules/.bin` of the repository, then the first `PATH` entry holding the binary (05-A3). */
-async function resolveBinary(deps: IndexDeps): Promise<string | null> {
+const resolveBinary = (deps: IndexDeps): Promise<string | null> => findCodeindex(deps.runtime, deps.repositoryRoot);
+
+export async function findCodeindex(runtime: Runtime, repositoryRoot: string): Promise<string | null> {
+  const deps = { runtime, repositoryRoot };
   const names = process.platform === 'win32' ? ['codeindex.cmd', 'codeindex'] : ['codeindex'];
   const directories = [path.join(deps.repositoryRoot, 'node_modules', '.bin'), ...(deps.runtime.env['PATH'] ?? '').split(path.delimiter).filter((entry) => entry !== '')];
   for (const directory of directories) {

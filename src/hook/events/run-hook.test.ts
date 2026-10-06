@@ -3,7 +3,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { describe, it } from 'node:test';
 import { parseArgs } from '../../cli/args.ts';
-import { INIT_OPTIONS, runInit } from '../../cli/commands/init.ts';
+import { initConfig } from '../../testing/init-config.ts';
 import { createRuntime } from '../../composition/root.ts';
 import { nodeFileSystem } from '../../ports/filesystem.ts';
 import { TempRepo } from '../../testing/temp-repo.ts';
@@ -18,7 +18,7 @@ async function fixtureWithPack(options: { editReminders?: boolean } = {}): Promi
   await repo.commitAll('initial');
 
   const runtime = await createRuntime({ cwd: repo.root });
-  await runInit(runtime, parseArgs('init', [], INIT_OPTIONS));
+  await initConfig(runtime);
 
   await repo.write(
     '.ambicode/policies/reminders.yaml',

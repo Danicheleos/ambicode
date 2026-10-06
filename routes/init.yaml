@@ -1,0 +1,30 @@
+skill: init
+version: 3
+budget: { modelSteps: 2 }
+exits: [done, blocked, human, inconclusive, superseded, budget]
+steps:
+  - id: propose
+    actor: code
+    run: [init.propose]
+    onError: "stop:blocked"
+  - id: init-apply
+    actor: human
+    gate:
+      question: "Write this configuration?"
+      options: ["Apply as proposed", "Apply as adjusted", "Adjust", "Cancel"]
+      acting: ["Apply as proposed", "Apply as adjusted"]
+      default: "Cancel"
+      release: "Cancel"
+      onAnswer: { "Adjust": "revise init-apply", "*": "revise init-apply" }
+      maxRevises: 3
+  - id: apply
+    actor: model
+    when: gate.init-apply.is(Apply as proposed)
+    instruction: "file:routes/steps/init-apply-run.md"
+  - id: apply-adjusted
+    actor: model
+    when: gate.init-apply.is(Apply as adjusted)
+    instruction: "file:routes/steps/init-apply-run.md"
+  - id: close
+    actor: code
+    run: [init.close]

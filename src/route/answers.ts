@@ -4,7 +4,7 @@ import { AmbicodeError } from '../util/errors.ts';
 import type { Answer } from './flags.ts';
 import { askedCount, executions, foldRoute, humanRevisesLeft, printsOf, unconsumedPreanswer, windowOf } from './fold.ts';
 import { RAISED_BY, type Exit, type GateDef, type Revise } from './dsl.ts';
-import { raisedAnswerHandler, offersOption } from './gates.ts';
+import { raisedAnswerHandler, offersOption, shapePrint } from './gates.ts';
 import { append, chainOf, gateFor, latestPrint, objectOf, viewFor, type Run } from './run-context.ts';
 
 type Entry = LedgerEntry;
@@ -105,8 +105,12 @@ export async function recordFlagAnswer(run: Run, answer: Answer): Promise<void> 
     throw new AmbicodeError('gate-option-unknown', `Gate ${gate.id} has no option "${answer.option}".`, { details: [`Options: ${options.join(', ')}.`] });
   }
   const instance = print?.id ?? null;
-  if (known && gate.acting.includes(answer.option)) {
+  if ((known || gate.options.includes(answer.option)) && gate.acting.includes(answer.option)) {
     await append(run, { kind: 'declined', gate: gate.id, instance, answer: answer.option, via: 'flag', reason: 'acting-needs-human' });
+    return;
+  }
+  if (!known && gate.options.includes(answer.option)) {
+    await append(run, { kind: 'declined', gate: gate.id, instance, answer: answer.option, via: 'flag', reason: 'option-not-offered' });
     return;
   }
   await recordAnswer(run, gate, { kind: 'acceptance', answer: answer.option, via: 'flag', instance, object: (print?.['object'] as ArtifactRef | undefined) ?? null, revisePath: 'model' }, print?.['raisedBy'] as string | undefined);
@@ -144,7 +148,8 @@ export async function recordHookAnswer(run: Run, answer: Answer & { question?: s
   const gate = gateFor(run, answer.gate, print);
   if (gate === null) return void (await unbound('unknown-gate'));
   const options = (print['options'] as string[] | undefined) ?? gate.options;
-  if (!offersOption(gate.id, options, answer.option) && gate.class !== 'decision' && gate.onAnswer['*'] === undefined) {
+  const declaredOnly = gate.options.includes(answer.option);
+  if (!offersOption(gate.id, options, answer.option) && gate.class !== 'decision' && (gate.onAnswer['*'] === undefined || declaredOnly)) {
     await append(run, { kind: 'declined', gate: gate.id, instance: print.id, answer: answer.option, via: 'hook', reason: 'option-not-offered' });
     return;
   }
@@ -169,14 +174,15 @@ export async function serviceGate(run: Run, gate: GateDef, stepId: string): Prom
     const prints = printsOf(chainOf(run).entries, gate.id).length;
     const source = latestPrint(window(), gate.id);
     const object = declaredStep === undefined ? null : objectOf(run, declaredStep);
+    const shaped = await shapePrint(gate, { runtime: run.runtime, dir: run.dir, task: run.task, chain: chainOf(run).entries });
     return append(run, {
       kind: 'gate',
       gate: gate.id,
       class: declaredStep === undefined ? (gate.class === 'decision' ? 'decision' : 'raised') : 'declared',
-      question: gate.question,
+      question: shaped.question,
       print: prints + 1,
       cause: run.cause,
-      options: gate.options,
+      options: shaped.options,
       ...(declaredStep === undefined ? { raisedBy: stepId, ...(source?.['values'] === undefined ? {} : { values: source['values'] }) } : {}),
       ...(object === null ? {} : { object }),
     });
@@ -186,7 +192,7 @@ export async function serviceGate(run: Run, gate: GateDef, stepId: string): Prom
   if (preanswer !== null) {
     const print = await newPrint();
     const option = String(preanswer['option']);
-    if (!gate.options.includes(option)) {
+    if (!offersOption(gate.id, (print['options'] as string[] | undefined) ?? gate.options, option)) {
       await append(run, { kind: 'declined', gate: gate.id, instance: print.id, answer: option, via: 'prompt', reason: 'option-not-offered', preanswer: preanswer.id });
     } else {
       const trusted = preanswer['trusted'] === true;

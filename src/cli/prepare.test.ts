@@ -12,7 +12,7 @@ import { TempRepo } from '../testing/temp-repo.ts';
 import { formatJsonOutput } from '../util/json-output.ts';
 import type { PrepareOutput } from '../contracts/prepare.ts';
 import { parseArgs as parseCliArgs, type OptionSpec, type ParsedArgs } from './args.ts';
-import { INIT_OPTIONS, runInit } from './commands/init.ts';
+import { initConfig } from '../testing/init-config.ts';
 import { PREPARE_OPTIONS, renderPrepare, runPrepare as runPrepareCommand } from './commands/prepare.ts';
 
 /**
@@ -131,7 +131,7 @@ describe('P2.1 ambicode prepare', () => {
       await repo.write('src/app.ts', 'export const a = 1;\n');
       await repo.commitAll('initial');
       const runtime = await createRuntime({ cwd: repo.root });
-      await runInit(runtime, parseArgs('init', [], INIT_OPTIONS));
+      await initConfig(runtime);
 
       assert.equal(
         await code(runPrepare(runtime, parseArgs('prepare', [], PREPARE_OPTIONS))),
@@ -148,10 +148,11 @@ describe('P2.1 ambicode prepare', () => {
       await repo.write('src/app.ts', 'export const a = 1;\n');
       await repo.commitAll('initial');
       const runtime = await createRuntime({ cwd: repo.root });
-      await runInit(runtime, parseArgs('init', [], INIT_OPTIONS));
+      await initConfig(runtime);
       const configPath = path.join(repo.root, '.ambicode', 'config.yaml');
       const config = await nodeFileSystem.readText(configPath);
-      assert.match(config, /lsp:\s*\n\s*- typescript-lsp@claude-plugins-official/);
+      await nodeFileSystem.writeText(configPath, config.replace(/requirements:.*\n(?:  .*\n)*/, (block) => `${block}  lsp: [typescript-lsp@claude-plugins-official]\n`));
+      assert.match(await nodeFileSystem.readText(configPath), /lsp: \[typescript-lsp@claude-plugins-official\]/);
 
       const output = await runPrepare(runtime, parseArgs('prepare', ['--activity', 'investigate'], PREPARE_OPTIONS));
       assert.match(output.navigation.evidenceRequirement, /Only CLI calls \(map, refs, find\) are recorded/);
@@ -166,7 +167,7 @@ describe('P2.1 ambicode prepare', () => {
       await repo.write('src/app.ts', 'export const a = 1;\n');
       await repo.commitAll('initial');
       const runtime = await createRuntime({ cwd: repo.root });
-      await runInit(runtime, parseArgs('init', [], INIT_OPTIONS));
+      await initConfig(runtime);
 
       const output = await runPrepare(
         runtime,
@@ -182,7 +183,7 @@ describe('P2.1 ambicode prepare', () => {
       assert.equal(output.navigation.plugin, 'typescript-lsp@claude-plugins-official');
       assert.equal(output.navigation.serverCommand, 'typescript-language-server');
       assert.equal(output.navigation.statusSource, 'current-session');
-      // init still writes requirements.lsp, but the reader drops it: nothing makes LSP mandatory.
+      // Nothing makes LSP mandatory.
       assert.match(output.navigation.evidenceRequirement, /Only CLI calls \(map, refs, find\) are recorded/);
       assert.match(output.navigation.readGuidance, /hypothesis/i);
       assert.match(output.navigation.readGuidance, /spans/i);
@@ -250,7 +251,7 @@ describe('P2.1 ambicode prepare', () => {
       await repo.write('src/app.ts', 'export const a = 1;\n');
       await repo.commitAll('initial');
       const runtime = await createRuntime({ cwd: repo.root });
-      await runInit(runtime, parseArgs('init', [], INIT_OPTIONS));
+      await initConfig(runtime);
 
       const evidencePath = path.join(repo.root, 'evidence.json');
       await repo.write(
@@ -302,7 +303,7 @@ describe('P2.1 ambicode prepare', () => {
       await repo.write('src/app.ts', 'export const a = 1;\n');
       await repo.commitAll('initial');
       const runtime = await createRuntime({ cwd: repo.root });
-      await runInit(runtime, parseArgs('init', [], INIT_OPTIONS));
+      await initConfig(runtime);
 
       const evidencePath = path.join(repo.root, 'evidence.json');
       const evidence = {
@@ -372,7 +373,7 @@ describe('P2.1 ambicode prepare', () => {
       await repo.write('src/app.ts', 'export const a = 1;\n');
       await repo.commitAll('initial');
       const runtime = await createRuntime({ cwd: repo.root });
-      await runInit(runtime, parseArgs('init', [], INIT_OPTIONS));
+      await initConfig(runtime);
 
       assert.equal(
         await code(
@@ -406,7 +407,7 @@ describe('P2.1 ambicode prepare', () => {
       await repo.write('src/app.ts', 'export const a = 1;\n');
       await repo.commitAll('initial');
       const runtime = await createRuntime({ cwd: repo.root });
-      await runInit(runtime, parseArgs('init', [], INIT_OPTIONS));
+      await initConfig(runtime);
 
       assert.equal(
         await code(
@@ -499,7 +500,7 @@ describe('P2.1 ambicode prepare', () => {
       await repo.write('src/app.ts', 'export const a = 1;\n');
       await repo.commitAll('initial');
       const runtime = await createRuntime({ cwd: repo.root });
-      await runInit(runtime, parseArgs('init', [], INIT_OPTIONS));
+      await initConfig(runtime);
 
       const output = await runPrepare(
         runtime,
@@ -518,7 +519,7 @@ describe('P2.1 ambicode prepare', () => {
       await repo.write('src/app.ts', 'export const a = 1;\n');
       await repo.commitAll('initial');
       const setup = await createRuntime({ cwd: repo.root });
-      await runInit(setup, parseArgs('init', [], INIT_OPTIONS));
+      await initConfig(setup);
 
       const runner = recordingRunner(setup.runner);
       const fs = recordingFs(nodeFileSystem);
@@ -541,7 +542,7 @@ describe('P2.1 ambicode prepare', () => {
       await repo.write('src/app.ts', 'export const a = 1;\n');
       await repo.commitAll('initial');
       const setup = await createRuntime({ cwd: repo.root });
-      await runInit(setup, parseArgs('init', [], INIT_OPTIONS));
+      await initConfig(setup);
 
       // A contradiction flagged by the retrieving session: code cannot find one in prose.
       await repo.write(
@@ -611,7 +612,7 @@ describe('P2.1 ambicode prepare', () => {
       await repo.write('src/app.ts', 'export const a = 1;\n');
       await repo.commitAll('initial');
       const runtime = await createRuntime({ cwd: repo.root });
-      await runInit(runtime, parseArgs('init', [], INIT_OPTIONS));
+      await initConfig(runtime);
 
       const baseline = await runPrepare(
         runtime,
@@ -1195,7 +1196,7 @@ describe('P2.4 correction A4: shared operating contract delivered through prepar
       await repo.write('src/app.ts', 'export const a = 1;\n');
       await repo.commitAll('initial');
       const runtime = await createRuntime({ cwd: repo.root });
-      await runInit(runtime, parseArgs('init', [], INIT_OPTIONS));
+      await initConfig(runtime);
 
       const output = await runPrepare(
         runtime,
@@ -1228,7 +1229,7 @@ describe('P2.4 correction A4: shared operating contract delivered through prepar
       await repo.write('src/app.ts', 'export const a = 1;\n');
       await repo.commitAll('initial');
       const runtime = await createRuntime({ cwd: repo.root });
-      await runInit(runtime, parseArgs('init', [], INIT_OPTIONS));
+      await initConfig(runtime);
 
       const output = await runPrepare(
         runtime,
@@ -1252,7 +1253,7 @@ describe('P2.4 correction A4: shared operating contract delivered through prepar
       await repo.write('src/app.ts', 'export const a = 1;\n');
       await repo.commitAll('initial');
       const runtime = await createRuntime({ cwd: repo.root });
-      await runInit(runtime, parseArgs('init', [], INIT_OPTIONS));
+      await initConfig(runtime);
 
       const hashes = new Set<string>();
       for (const activity of ['investigate', 'plan', 'task']) {
@@ -1273,7 +1274,7 @@ describe('prepare output shape', () => {
       await repo.write('src/app.ts', 'export const a = 1;\n');
       await repo.commitAll('initial');
       const runtime = await createRuntime({ cwd: repo.root });
-      await runInit(runtime, parseArgs('init', [], INIT_OPTIONS));
+      await initConfig(runtime);
 
       const run = await runPrepareCommand(
         runtime,
@@ -1302,7 +1303,7 @@ describe('prepare output shape', () => {
       await repo.write('src/app.ts', 'export const a = 1;\n');
       await repo.commitAll('initial');
       const runtime = await createRuntime({ cwd: repo.root });
-      await runInit(runtime, parseArgs('init', [], INIT_OPTIONS));
+      await initConfig(runtime);
       // init nulls undetected commands while builtin/common-checks still declares `run`.
       const config = await nodeFileSystem.readText(path.join(repo.root, '.ambicode/config.yaml'));
       assert.match(config, /lint: null/);
@@ -1335,7 +1336,7 @@ describe('prepare output shape', () => {
       await repo.write('src/app.ts', 'export const a = 1;\n');
       await repo.commitAll('initial');
       const runtime = await createRuntime({ cwd: repo.root });
-      await runInit(runtime, parseArgs('init', [], INIT_OPTIONS));
+      await initConfig(runtime);
       const configPath = path.join(repo.root, '.ambicode/config.yaml');
       const config = await nodeFileSystem.readText(configPath);
       // The first `lint: null` must be the command catalog's, not the project's `checks` entry.
@@ -1358,7 +1359,7 @@ describe('prepare output shape', () => {
       await repo.write('src/app.ts', 'export const a = 1;\n');
       await repo.commitAll('initial');
       const runtime = await createRuntime({ cwd: repo.root });
-      await runInit(runtime, parseArgs('init', [], INIT_OPTIONS));
+      await initConfig(runtime);
 
       const run = await runPrepareCommand(
         runtime,

@@ -9,7 +9,7 @@ import { TempRepo } from '../testing/temp-repo.ts';
 import { builtinPoliciesDirectory } from '../util/plugin-root.ts';
 import { isAmbicodeError } from '../util/errors.ts';
 import { parseArgs } from './args.ts';
-import { INIT_OPTIONS, runInit } from './commands/init.ts';
+import { buildProposal } from '../config/proposal.ts';
 import { POLICY_OPTIONS, runPolicy } from './commands/policy.ts';
 import { POLICY_CHECK_OPTIONS, renderPolicyCheck, runPolicyCheck, type PolicyCheckOutput } from './commands/policy-check.ts';
 
@@ -626,7 +626,7 @@ describe('R3 init names rule sources without reading them', () => {
       };
       const runtime = await createRuntime({ cwd: repo.root, fs });
 
-      const output = await runInit(runtime, parseArgs('init', ['--dry-run'], INIT_OPTIONS));
+      const output = await buildProposal(runtime, repo.root, []);
 
       assert.deepEqual(output.ruleSources, ['CLAUDE.md', 'CONTRIBUTING.md', 'docs', '.cursor/rules']);
       const notice = output.notices.find((candidate) => candidate.includes('/ambicode:rules'));

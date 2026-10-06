@@ -5,7 +5,7 @@ import { createRuntime } from '../composition/root.ts';
 import { nodeFileSystem, type FileSystem } from '../ports/filesystem.ts';
 import { parseArgs } from './args.ts';
 import { BUNDLE_OPTIONS, runBundle } from './commands/bundle.ts';
-import { INIT_OPTIONS, runInit } from './commands/init.ts';
+import { initConfig } from '../testing/init-config.ts';
 import { REVIEW_OPTIONS, runReview } from './commands/review.ts';
 import type { Reviewer, ReviewerInvocation } from '../ports/reviewer.ts';
 import { TempRepo } from '../testing/temp-repo.ts';
@@ -53,7 +53,7 @@ describe('U28 bundle writes only through the filesystem port', () => {
       await repo.commitAll('initial');
 
       const setup = await createRuntime({ cwd: repo.root });
-      await runInit(setup, parseArgs('init', [], INIT_OPTIONS));
+      await initConfig(setup);
 
       await repo.write('src/app.ts', 'export const a = 2;\n');
 
@@ -82,7 +82,7 @@ describe('U28 bundle writes only through the filesystem port', () => {
       await repo.commitAll('initial');
 
       const setup = await createRuntime({ cwd: repo.root });
-      await runInit(setup, parseArgs('init', [], INIT_OPTIONS));
+      await initConfig(setup);
       await repo.write('src/app.ts', 'export const a = 2;\n');
 
       const recorder = recording(nodeFileSystem);
@@ -115,7 +115,7 @@ describe('U09 --exclude narrows a review the limits would otherwise refuse', () 
     await repo.write('package.json', '{"name":"app","version":"1.0.0"}\n');
     await repo.write('src/app.ts', 'export const a = 1;\n');
     const setup = await createRuntime({ cwd: repo.root });
-    await runInit(setup, parseArgs('init', [], INIT_OPTIONS));
+    await initConfig(setup);
     await repo.commitAll('initial');
     await repo.write('src/app.ts', 'export const a = 2;\n');
     await repo.write('assets/i18n/cs.json', `{"k":"${'x'.repeat(300_000)}"}\n`);
@@ -173,7 +173,7 @@ describe('U09 the reviewed set is bounded on both sides, and never empty', () =>
     await created.write('src/app.ts', 'export const a = 1;\n');
     await created.write('web/page.ts', 'export const p = 1;\n');
     const setup = await createRuntime({ cwd: created.root });
-    await runInit(setup, parseArgs('init', [], INIT_OPTIONS));
+    await initConfig(setup);
     await created.commitAll('initial');
     return created;
   }

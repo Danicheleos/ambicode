@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { parse as parseYaml } from 'yaml';
+import type { Runtime } from '../composition/root.ts';
+import type { TaskDir } from '../task/task-dir.ts';
 import type { LedgerEntry } from '../task/ledger.ts';
 import type { LockedLedger } from '../task/ledger-lock.ts';
 import type { ArtifactRef } from '../task/kinds.ts';
@@ -176,3 +178,22 @@ const ANSWER_HANDLERS = new Map<string, RaisedAnswerHandler>();
 /** Runs once, inside the advance that folds the acceptance, when a raised gate gets a bound answer. */
 export const onRaisedAnswer = (gate: string, handler: RaisedAnswerHandler): void => void ANSWER_HANDLERS.set(gate, handler);
 export const raisedAnswerHandler = (gate: string): RaisedAnswerHandler | undefined => ANSWER_HANDLERS.get(gate);
+
+/** Print-time text and offered options a module adds to a gate's question (09-G1). */
+export interface PrintShape { line: string; offered?: readonly string[] }
+export type PrintShaper = (input: { runtime: Runtime; dir: TaskDir; task: string; chain: readonly LedgerEntry[]; gate: GateDef }) => Promise<PrintShape | null>;
+const PRINT_SHAPERS = new Map<string, PrintShaper>();
+
+export const onGatePrint = (gate: string, shaper: PrintShaper): void => void PRINT_SHAPERS.set(gate, shaper);
+
+/** The question and options one print records; `offered` stays within the declared options and keeps default and release. */
+export async function shapePrint(gate: GateDef, input: Omit<Parameters<PrintShaper>[0], 'gate'>): Promise<{ question: string; options: readonly string[] }> {
+  const shape = (await PRINT_SHAPERS.get(gate.id)?.({ ...input, gate })) ?? null;
+  if (shape === null) return { question: gate.question, options: gate.options };
+  const offered = shape.offered ?? gate.options;
+  const required = [gate.default, gate.release].filter((option) => gate.options.includes(option));
+  if (offered.some((option) => !gate.options.includes(option)) || required.some((option) => !offered.includes(option))) {
+    throw new AmbicodeError('internal', `gate ${gate.id}: a print offered options outside the declared ones or without the default and release.`);
+  }
+  return { question: shape.line === '' ? gate.question : `${gate.question}\n${shape.line}`, options: [...offered] };
+}

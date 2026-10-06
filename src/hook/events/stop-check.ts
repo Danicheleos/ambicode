@@ -130,6 +130,28 @@ async function problemsOf(input: Checked, runtime: Runtime): Promise<string[]> {
   return problems;
 }
 
+/** Cell text only: column padding, Markdown pipes, separator rows and code fences do not count. */
+const cells = (value: string): string =>
+  squash(
+    value
+      .split('\n')
+      .filter((line) => !/^\s*(```.*|[|:\-\s]+)$/.test(line))
+      .join('\n')
+      .replaceAll('|', ' '),
+  );
+
+/** A final message presenting the doctor table must carry the same cells as `steps/doctor.md`, however it is laid out (09-D5). */
+async function doctorReadBackProblem(runtime: Runtime, dir: { steps: string }, text: string): Promise<string | null> {
+  const expected = await runtime.fs.readText(path.join(dir.steps, 'doctor.md')).catch(() => null);
+  if (expected === null) return null;
+  const table = expected.replace(/\n<!-- ambicode doctor \S+ -->\s*$/, '').trimEnd();
+  const header = cells(table.split('\n')[0] ?? '');
+  const said = cells(text);
+  if (header === '' || !said.includes(header)) return null;
+  if (said.includes(cells(table))) return null;
+  return 'The doctor table in your answer does not match steps/doctor.md; quote it as printed.';
+}
+
 /** Stop's three conditions, the checks they run, and the single block they may cause (03-K1 … 03-K7). */
 export async function stopCheck(runtime: Runtime, input: HookInput, deps: RouteHookDeps, options: { defectBrief?: boolean } = {}): Promise<StopHookOutput | null> {
   if (input.agent_id !== undefined) return null;
@@ -201,6 +223,8 @@ export async function stopCheck(runtime: Runtime, input: HookInput, deps: RouteH
     if (unreadable) await finish({ which: 'stop-unreadable', count: 1 });
     else if (text !== null && !blockedBefore) {
       const problems = await problemsOf({ chain, def, root, text, defectBrief: options.defectBrief === true, files, citationsOnly: saveAnswer }, runtime);
+      const doctorProblem = await doctorReadBackProblem(runtime, dir, text);
+      if (doctorProblem !== null) problems.push(doctorProblem);
       if (problems.length > 0) {
         const where = path.relative(root, dir.stopCheck);
         await runtime.fs.mkdirp(dir.root);

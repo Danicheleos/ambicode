@@ -540,15 +540,34 @@ describe('F3 documented outcomes', () => {
 });
 
 describe('F7 rules confirmation gate', () => {
-  it('asks for confirmation before any pack is wired in, and states how to undo the wiring', async () => {
+  it('09-T2/09-T6: the rules table is answered before any pack goes live, and the skill states how to undo one', async () => {
+    const route = YAML.parse(await readFile(path.join(repositoryRoot, 'routes', 'rules.yaml'), 'utf8')) as { steps: { id: string; when?: string; gate?: { acting?: string[]; default?: string } }[] };
+    const ids = route.steps.map((step) => step.id);
+    const table = route.steps.find((step) => step.id === 'rules-table');
+    assert.ok(table?.gate?.acting?.includes('Apply all'));
+    assert.notEqual(table?.gate?.default, 'Apply all');
+    assert.ok(ids.indexOf('rules-table') < ids.indexOf('apply'), 'a gate after the change it guards cannot stop it');
+    assert.equal(route.steps.find((step) => step.id === 'apply')?.when, 'gate.rules-table.is(Apply all)');
     const content = await readFile(path.join(SKILLS_DIR, 'rules', 'SKILL.md'), 'utf8');
-    const steps = [...content.matchAll(/^### (\d+)\. (.+)$/gm)].map((m) => ({ n: Number(m[1]), title: m[2]!, at: m.index }));
-    const confirm = steps.find((s) => /disposition table/i.test(s.title));
-    const wire = steps.find((s) => /wire the packs in/i.test(s.title));
-    assert.ok(confirm && wire, 'both steps exist');
-    assert.ok(confirm.at < wire.at, 'a gate after the change it guards cannot stop it');
-    const wiring = content.slice(wire.at, steps.find((s) => s.n === wire.n + 1)?.at ?? content.indexOf('\n## ', wire.at));
-    assert.match(wiring, /policyFiles/);
-    assert.match(wiring.replace(/\s+/g, ' '), /to undo|roll back|rollback/i);
+    assert.match(content, /rules revert <pack-id>` undoes one pack/);
+  });
+});
+
+describe('09-R3/09-W1: the init skill and the init route steps', () => {
+  it('09-R3: the init body stays within 1,536 bytes, starts the route, and grants no config or ignore writes', async () => {
+    const content = await readFile(path.join(SKILLS_DIR, 'init', 'SKILL.md'), 'utf8');
+    const fm = frontmatter(content, 'init/SKILL.md');
+    const body = content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '');
+    assert.ok(Buffer.byteLength(body) <= 1536, `${Buffer.byteLength(body)} bytes`);
+    assert.match(body, /route start init/);
+    assert.equal(fm['disable-model-invocation'], true);
+    assert.doesNotMatch(requiredString(fm, 'allowed-tools', 'init/SKILL.md'), /Write|Edit/);
+  });
+
+  it('09-W1: each init step instruction is at most 1,500 characters', async () => {
+    for (const file of (await readdir(path.join(repositoryRoot, 'routes', 'steps'))).filter((name) => name.startsWith('init-'))) {
+      const text = await readFile(path.join(repositoryRoot, 'routes', 'steps', file), 'utf8');
+      assert.ok(text.length <= 1500, `${file}: ${text.length} characters`);
+    }
   });
 });

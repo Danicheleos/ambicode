@@ -1,42 +1,42 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { createRuntime } from '../composition/root.ts';
+import { buildProposal, writeConfig } from '../config/proposal.ts';
 import { TempRepo } from '../testing/temp-repo.ts';
-import { parseArgs } from './args.ts';
-import { INIT_OPTIONS, runInit } from './commands/init.ts';
 
-describe('init keeps optional notes out of the product repository history', () => {
-  it('adds .ambicode/reviews/ and .ambicode/notes/ to a fresh .gitignore', async () => {
+async function apply(root: string) {
+  const runtime = await createRuntime({ cwd: root });
+  const proposal = await buildProposal(runtime, root, []);
+  return { proposal, written: await writeConfig(runtime.fs, root, proposal, []), runtime };
+}
+
+describe('09-G5: the ignore lines are written with the config, on acceptance', () => {
+  it('09-G5: adds every ignore line to a fresh .gitignore', async () => {
     const repo = await TempRepo.create();
     try {
       await repo.write('src/app.ts', 'export const a = 1;\n');
       await repo.commitAll('initial');
-      const runtime = await createRuntime({ cwd: repo.root });
-
-      const output = await runInit(runtime, parseArgs('init', [], INIT_OPTIONS));
-
+      const { proposal, written, runtime } = await apply(repo.root);
+      assert.deepEqual(proposal.gitignore.present, []);
       const ignore = await runtime.fs.readText(`${repo.root}/.gitignore`);
-      assert.match(ignore, /^\.ambicode\/reviews\/$/m);
-      assert.match(ignore, /^\.ambicode\/notes\/$/m);
-      assert.ok(output.notices.some((notice) => notice.includes('.ambicode/notes/')));
+      for (const line of ['.ambicode/index/', '.ambicode/metrics.jsonl', '.ambicode/reviews/', '.ambicode/task/', '.ambicode/notes/']) {
+        assert.match(ignore, new RegExp(`^${line.replaceAll('.', '\\.')}$`, 'm'));
+      }
+      assert.deepEqual(written.gitignoreAdded, proposal.gitignore.missing);
     } finally {
       await repo.dispose();
     }
   });
 
-  it('preserves an existing .gitignore and adds only what is missing', async () => {
+  it('09-G5: preserves an existing .gitignore and adds only what is missing', async () => {
     const repo = await TempRepo.create();
     try {
       await repo.write('src/app.ts', 'export const a = 1;\n');
       await repo.write('.gitignore', '# already here\nnode_modules/\n.ambicode/reviews/\n');
       await repo.commitAll('initial');
-      const runtime = await createRuntime({ cwd: repo.root });
-
-      await runInit(runtime, parseArgs('init', [], INIT_OPTIONS));
-
+      const { runtime } = await apply(repo.root);
       const ignore = await runtime.fs.readText(`${repo.root}/.gitignore`);
-      assert.match(ignore, /^# already here$/m);
-      assert.match(ignore, /^node_modules\/$/m);
+      assert.match(ignore, /^# already here\nnode_modules\/\n\.ambicode\/reviews\/\n/);
       assert.match(ignore, /^\.ambicode\/notes\/$/m);
       assert.equal(ignore.split('\n').filter((line) => line.trim() === '.ambicode/reviews/').length, 1);
     } finally {
@@ -44,25 +44,17 @@ describe('init keeps optional notes out of the product repository history', () =
     }
   });
 
-  it('recognises the root-anchored spelling of an entry it would otherwise add', async () => {
-    // `/.ambicode/reviews/` and `.ambicode/reviews/` are one rule to git: a
-    // pattern with a slash in it is already relative to the .gitignore.
+  it('09-P2: the root-anchored spelling counts as present', async () => {
     const repo = await TempRepo.create();
     try {
       await repo.write('src/app.ts', 'export const a = 1;\n');
-      await repo.write('.gitignore', '/.ambicode/reviews/\n/.ambicode/notes/\n/.ambicode/task/\n');
+      const all = '/.ambicode/index/\n/.ambicode/metrics.jsonl\n/.ambicode/reviews/\n/.ambicode/notes/\n/.ambicode/task/\n';
+      await repo.write('.gitignore', all);
       await repo.commitAll('initial');
-      const runtime = await createRuntime({ cwd: repo.root });
-
-      const output = await runInit(runtime, parseArgs('init', [], INIT_OPTIONS));
-
-      const ignore = await runtime.fs.readText(`${repo.root}/.gitignore`);
-      assert.equal(
-        ignore,
-        '/.ambicode/reviews/\n/.ambicode/notes/\n/.ambicode/task/\n',
-        'nothing was appended',
-      );
-      assert.ok(!output.notices.some((notice) => notice.includes('.gitignore')));
+      const { proposal, written, runtime } = await apply(repo.root);
+      assert.deepEqual(proposal.gitignore.missing, []);
+      assert.deepEqual(written.gitignoreAdded, []);
+      assert.equal(await runtime.fs.readText(`${repo.root}/.gitignore`), all, 'nothing was appended');
     } finally {
       await repo.dispose();
     }

@@ -1,143 +1,85 @@
-import path from 'node:path';
-import { CONFIG_DIR, CONFIG_FILE, IGNORE_ENTRIES } from '../../config/defaults.ts';
-import { detectBaseline, detectProjects } from '../../config/detect.ts';
-import { planInit } from '../../config/init.ts';
 import { openRepository, type Runtime } from '../../composition/root.ts';
-import type { FileSystem } from '../../ports/filesystem.ts';
-import type { ParsedArgs } from '../args.ts';
-import { navigationFor, type NavigationGuidance } from '../../code-intelligence/navigation.ts';
-import { buildProfile } from '../../code-intelligence/profile.ts';
+import { applyInit } from '../../config/apply.ts';
+import type { DoctorTable } from '../../config/doctor.ts';
+import { parseSets } from '../../config/init-sets.ts';
+import { buildProposal, type InitProposal } from '../../config/proposal.ts';
 import type { SearchProfile } from '../../contracts/config.ts';
-import { normalizeRelative } from '../../util/paths.ts';
+import { runCommandTail } from '../../route/command-tail.ts';
+import { ledgerRouteContext } from '../../route/context.ts';
+import { AmbicodeError } from '../../util/errors.ts';
+import type { ParsedArgs } from '../args.ts';
+import { routeTools } from './route.ts';
 
-export const INIT_OPTIONS = { flags: ['json', 'dry-run', 'refresh-profile'] } as const;
+export const INIT_OPTIONS = { values: ['task'], repeated: ['set'], flags: ['json', 'dry-run', 'apply', 'refresh-profile'] } as const;
 
-export interface InitOutput {
+export interface InitApplyOutput {
   command: 'init';
+  mode: 'apply';
   configPath: string;
   created: boolean;
-  written: boolean;
   changes: string[];
   notices: string[];
-  /**
-   * Rule files detected by existence only: migration candidates for `/ambicode:rules`, never
-   * rules init has understood. The runtime reads policy only from YAML packs.
-   */
-  ruleSources: string[];
-  projects: { id: string; root: string; ecosystem: string; configured: string[]; missing: string[]; navigation: NavigationGuidance; profile: SearchProfile | null }[];
+  gitignoreAdded: string[];
+  doctor: DoctorTable;
+  next?: string;
 }
+
+export type InitOutput = InitProposal | InitApplyOutput;
 
 /**
- * First run writes a configuration the user owns; later runs propose additions only. Runs no
- * project script and installs nothing, so it is safe on a freshly cloned repository.
+ * Without `--apply` a dry run: it proposes and writes nothing (D1). `--apply` writes only after the
+ * human's answer to the init question in the live init route (09-G4).
  */
 export async function runInit(runtime: Runtime, args: ParsedArgs): Promise<InitOutput> {
-  const { fs } = runtime;
-  const { git, repositoryRoot } = await openRepository(runtime);
-
-  const detected = await detectProjects(fs, repositoryRoot);
-  const baseline = await detectBaseline(repositoryRoot, () => git.originHead());
-  const profiles = new Map<string, SearchProfile>();
-  for (const root of detected.length === 0 ? [''] : detected.map((project) => normalizeRelative(project.root))) profiles.set(root, await buildProfile(runtime, { root: root === '' ? '.' : root }));
-  const plan = await planInit({
-    fs,
-    repositoryRoot,
-    detected,
-    baseline: baseline.baseline,
-    baselineNotice: baseline.notice,
-    profiles,
-    refreshProfile: args.flag('refresh-profile'),
-  });
-
-  const configPath = path.join(repositoryRoot, CONFIG_FILE);
-  const dryRun = args.flag('dry-run');
-  let written = false;
-
-  if (plan.yaml !== null && !dryRun) {
-    await fs.mkdirp(path.join(repositoryRoot, CONFIG_DIR));
-    await fs.writeText(configPath, plan.yaml);
-    written = true;
-    await addIgnoreEntries(fs, repositoryRoot, plan.notices);
+  const sets = args.all('set');
+  if (!args.flag('apply')) {
+    const { repositoryRoot } = await openRepository(runtime);
+    const task = args.value('task');
+    return buildProposal(runtime, repositoryRoot, parseSets(sets), { refreshProfile: args.flag('refresh-profile'), ...(task === null ? {} : { task }) });
   }
-
-  return {
-    command: 'init',
-    configPath,
-    created: plan.created,
-    written,
-    changes: plan.changes,
-    notices: plan.notices,
-    ruleSources: plan.ruleSources,
-    projects: plan.config.projects.map((project) => ({
-      id: project.id,
-      root: project.root,
-      ecosystem: project.ecosystem,
-      navigation: navigationFor(project.ecosystem),
-      profile: project.profile ?? null,
-      configured: Object.entries(project.checks)
-        .filter(([, check]) => check !== null)
-        .map(([id]) => id)
-        .sort(),
-      missing: Object.entries(project.checks)
-        .filter(([, check]) => check === null)
-        .map(([id]) => id)
-        .sort(),
-    })),
-  };
-}
-
-async function addIgnoreEntries(fs: FileSystem, repositoryRoot: string, notices: string[]): Promise<void> {
-  const ignorePath = path.join(repositoryRoot, '.gitignore');
-  let existing = '';
-  try {
-    existing = await fs.readText(ignorePath);
-  } catch {
-    existing = '';
-  }
-  // A pattern containing a slash is already anchored, so `/x/` and `x/` are the same rule to git.
-  const anchored = (entry: string): string => entry.replace(/^\//, '');
-  const lines = new Set(existing.split('\n').map((line) => anchored(line.trim())));
-  const missing = IGNORE_ENTRIES.filter((entry) => !lines.has(anchored(entry)));
-  if (missing.length === 0) return;
-
-  const separator = existing === '' || existing.endsWith('\n') ? '' : '\n';
-  await fs.writeText(ignorePath, `${existing}${separator}${missing.join('\n')}\n`);
-  notices.push(`Added ${missing.join(', ')} to .gitignore so review artifacts are not committed.`);
+  const task = args.value('task');
+  if (task === null) throw new AmbicodeError('bad-argument', '"init --apply" needs --task <slug>: the init task the question was asked in.', { field: 'task' });
+  const tools = await routeTools(runtime, task);
+  const session = tools.binding.state === 'bound' ? tools.binding.session : null;
+  const result = await applyInit({ runtime, session, context: ledgerRouteContext({ runtime, routes: tools.routes }) }, { task, sets, refreshProfile: args.flag('refresh-profile') });
+  const next = await runCommandTail({ engine: tools.engine }, { task, cause: 'init --apply', session: tools.binding });
+  return { command: 'init', mode: 'apply', ...result, ...(next === null ? {} : { next: next.text }) };
 }
 
 export function renderInit(output: InitOutput): string {
-  const lines: string[] = [];
-  if (!output.written && !output.created && output.changes.length === 0) {
-    lines.push(`Checked ${output.configPath}: nothing to change.`);
-  } else {
-    lines.push(output.created ? `Created ${output.configPath}` : `Updated ${output.configPath}`);
-    if (!output.written) lines.push('(dry run: nothing was written)');
-  }
+  return output.mode === 'apply' ? renderApply(output) : renderProposal(output);
+}
 
+function renderApply(output: InitApplyOutput): string {
+  const lines = [`${output.created ? 'Created' : 'Updated'} ${output.configPath}`];
+  if (output.gitignoreAdded.length > 0) lines.push(`Added to .gitignore: ${output.gitignoreAdded.join(', ')}`);
+  if (output.changes.length > 0) lines.push('', 'Changes:', ...output.changes.map((change) => `  - ${change}`));
+  if (output.notices.length > 0) lines.push('', 'Notices:', ...output.notices.map((notice) => `  - ${notice.split('\n').join('\n    ')}`));
+  lines.push('', 'Doctor:', output.doctor.text.trimEnd());
+  if (output.next !== undefined) lines.push('', output.next);
+  return lines.join('\n');
+}
+
+function renderProposal(output: InitProposal): string {
+  const lines = [`Proposal for ${output.configPath} (${output.configState}; dry run: nothing was written)`];
   for (const project of output.projects) {
-    lines.push('');
-    lines.push(`${project.id}  [${project.ecosystem}]  root: ${project.root}`);
-    lines.push(`  checks configured: ${project.configured.join(', ') || '(none)'}`);
-    lines.push(`  checks missing:    ${project.missing.join(', ') || '(none)'}`);
-    lines.push(`  code intelligence: ${project.navigation.plugin} (session-observed; optional setup below)`);
-    lines.push(...project.navigation.setupCommands.map((command) => `    ${command}`));
+    lines.push('', `${project.id}  [${project.ecosystem}]  root: ${project.root}`);
+    for (const [slot, argv] of Object.entries({ ...project.commands, format: project.format })) lines.push(`  ${slot.padEnd(7)} ${argv === null ? '(none)' : argv.join(' ')}`);
+    lines.push(`  packs   ${project.packs.join(', ') || '(none)'}`);
     lines.push(...profileLines(project.profile));
   }
-
+  lines.push('', `index: ${output.index.proposed} (tool: ${output.index.tool ?? 'not found'}; decision 5-I: ${output.index.decision5I})`);
+  lines.push(`search layers: prompt ${output.searchLayers.prompt.join(', ')}; context ${output.searchLayers.context.join(', ')}`);
+  if (output.gitignore.missing.length > 0) lines.push(`.gitignore lines to add: ${output.gitignore.missing.join(', ')}`);
+  if (output.removedFields.length > 0) lines.push(`removed fields: ${output.removedFields.join(', ')}`);
   if (output.ruleSources.length > 0) {
-    lines.push('', 'Rule sources to migrate (none was read):');
-    for (const source of output.ruleSources) lines.push(`  - ${source}`);
+    lines.push('', 'Rule sources to migrate (none was read):', ...output.ruleSources.map((source) => `  - ${source}`));
     lines.push('  Run /ambicode:rules to turn the rules these state into scoped YAML packs.');
   }
-
-  if (output.changes.length > 0) {
-    lines.push('', 'Changes:');
-    for (const change of output.changes) lines.push(`  - ${change}`);
-  }
-  if (output.notices.length > 0) {
-    lines.push('', 'Notices:');
-    for (const notice of output.notices) lines.push(`  - ${notice.split('\n').join('\n    ')}`);
-  }
+  if (output.changes.length > 0) lines.push('', 'Changes:', ...output.changes.map((change) => `  - ${change}`));
+  if (output.notices.length > 0) lines.push('', 'Notices:', ...output.notices.map((notice) => `  - ${notice.split('\n').join('\n    ')}`));
+  if (output.noticesOmitted > 0) lines.push(`  (${output.noticesOmitted} more notices omitted)`);
+  lines.push('', 'Apply it through /ambicode:init: the init question records your answer; then the route runs:', `  ${output.applyLine}`);
   return lines.join('\n');
 }
 

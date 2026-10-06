@@ -1,20 +1,17 @@
 #!/usr/bin/env node
 /**
  * Usage: <name> <empty-destination> | --all <directory> | --list  [--install] [--ambicode-init]
- * Without --install no project script runs. --ambicode-init commits init's output
+ * Without --install no project script runs. --ambicode-init commits the config and ignore lines the pure writer produces
  * before the uncommitted change is replayed, keeping the config out of the reviewed change.
  */
 import { execFile } from 'node:child_process';
 import { mkdir, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { parse as parseYaml } from 'yaml';
 import { FIXTURES, fixtureByName } from './definitions.mjs';
 
 const run = promisify(execFile);
-
-const BUNDLE = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'ambicode.mjs');
 
 async function git(cwd, args) {
   await run('git', args, {
@@ -82,13 +79,12 @@ async function install(fixture, destination) {
 
 /** `wires` holds only after an install, so it is empty without one. */
 async function commitAmbicodeInit(fixture, destination, wires) {
-  try {
-    await stat(BUNDLE);
-  } catch (error) {
-    if (error.code === 'ENOENT') throw new Error(`${BUNDLE} does not exist; run "npm run build" first.`);
-    throw error;
-  }
-  await run(process.execPath, [BUNDLE, 'init', '--json'], { cwd: destination });
+  const { createRuntime, openRepository } = await import('../src/composition/root.ts');
+  const { buildProposal, writeConfig } = await import('../src/config/proposal.ts');
+  const runtime = await createRuntime({ cwd: destination });
+  const { repositoryRoot } = await openRepository(runtime);
+  const proposal = await buildProposal(runtime, repositoryRoot, []);
+  await writeConfig(runtime.fs, repositoryRoot, proposal, []);
   if (wires.length > 0) {
     const config = parseYaml(await readFile(path.join(destination, '.ambicode', 'config.yaml'), 'utf8'));
     const root = config.projects.find((project) => project.root === '.');

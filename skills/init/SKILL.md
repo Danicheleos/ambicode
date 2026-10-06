@@ -1,85 +1,33 @@
 ---
 name: init
-description: "Set up AMBICODE — detect projects and write .ambicode/config.yaml. Run at setup, or when an AMBICODE skill reports no configuration."
+description: "Set up AMBICODE — propose .ambicode/config.yaml from the repository and write it after the user accepts. Run at setup, or when an AMBICODE skill reports no configuration."
 disable-model-invocation: true
-allowed-tools: Read, Grep, Glob, Write(.ambicode/config.yaml), Edit(.ambicode/config.yaml), Bash(node *ambicode.mjs*)
+allowed-tools: Read, Grep, Glob, Bash(node *ambicode.mjs*)
 ---
 
 # Set up AMBICODE
 
-Run the helper, read its output back to the user, and help them decide what to
-fill in.
+A route detects the projects, writes a proposal, and asks the user one question. Nothing is
+written until the user accepts; then the route gives you one line to run. Do what each step says.
 
-## Steps
+If no step message appeared, start the route yourself:
 
-1. Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" init`. Add `--dry-run` first if the user wants to see the
-   proposal before anything is written.
-2. Read the result to the user: which projects were detected, which checks are
-   configured, which are missing, and each project's code-intelligence
-   recommendation. Explain that the listed official LSP plugin and server are
-   optional setup; only the active Claude session can confirm LSP availability.
-3. For every missing check, give the notice verbatim. The notices say exactly why
-   a slot is null and what to do about it.
-4. Stop. Do not edit `.ambicode/config.yaml` yourself unless the user asks for a
-   specific change.
+```sh
+node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" route start init
+```
 
-## What init will and will not do
+## Presenting the proposal
 
-It reads `package.json`, `pyproject.toml` and `requirements*.txt`, and looks for
-installed executables under `node_modules/.bin` and `.venv`; the `scripts`
-section is evidence only. It does **not** run a project script, install
-anything, or invent a command line: a tool it cannot find becomes a `null`
-command with a notice, and a skipped check rather than a guess.
+Read `steps/proposal.json` (the question names its path) and tell the user, briefly: the
+projects and their commands (a `null` command is a skipped check, with its notice), the
+`.gitignore` lines to add, the index choice, removed fields, and the rule sources found.
 
-`@angular/core` or `express` in `package.json` also enables that framework's
-built-in packs.
+## The one question
 
-Re-running init is safe. It adds missing command slots and framework packs and
-never overwrites a value the user has set, including an explicit `null`.
-Comments in the file survive.
+Ask it with AskUserQuestion exactly as printed, marker included. To change values, the user
+picks *Adjust* and types `key=value` pairs; the question is asked again with them. Name the
+Jira or Confluence MCP servers you can see, so the user can pick one with
+`requirements.mcpServer=<name>`. Never choose for them.
 
-## Things that will come up
-
-**A check is null even though the tool is installed.** pytest and Playwright
-cannot report which tests a change affects. Rather than write a selector that
-selects nothing, init leaves the check null and prints a worked `mapping`
-example. Offer to add the mapping using the project's real directory layout.
-
-**`npm run test` exists but the check is still null.** AMBICODE runs the runner
-directly, because it cannot scope a wrapper to the changed files or ask a wrapper
-which tests a change affects. Point the `argv` at `./node_modules/.bin/<tool>`.
-
-**The lint tool is not eslint or ruff.** Set `adapter: generic`: any tool whose
-exit code is the verdict (`prettier --check`, stylelint, biome, `tsc`). The
-adapters are eslint, ruff, generic, jest, vitest, pytest and playwright.
-
-**No baseline was recorded.** AMBICODE does not assume a branch is called `main`.
-Either set `baseline` in the configuration or pass `--base <ref>` when reviewing
-a branch.
-
-**`requirements.mcpServer` is null.** Requirement-based review retrieves Jira and
-Confluence content through one bound MCP server, and the helper cannot see which
-servers this session has. Look at what is connected:
-
-- exactly one compatible Jira/Confluence server — offer to write its name;
-- more than one — **ask the user which one this repository should use**, then
-  write that name. Do not choose for them;
-- none — leave it null and say that requirement-based review is unavailable
-  until a server is connected. Quality review still works.
-
-The name is written as `requirements.mcpServer` in `.ambicode/config.yaml`.
-
-**Nothing was detected at all.** One project covering the repository root is
-written with every command null: a working configuration with no checks yet.
-
-**Rule sources were reported.** Init lists documents that usually hold written
-rules — `CLAUDE.md`, `CONTRIBUTING.md`, `docs`, `.cursor/rules` — when they
-exist. It has not read any of them, and rules written in Markdown are not in
-effect: AMBICODE resolves policy from YAML packs only. Offer `/ambicode:rules`,
-which turns them into scoped packs once, at setup. Do not attempt the migration
-yourself here.
-
-## After init
-
-`node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" config` prints the effective values, including the limits that are not
-stored in the file. Quote it rather than repeating numbers from memory.
+After an apply, show the doctor table as printed. You never write `.ambicode/config.yaml` or
+`.gitignore` yourself; rule sources are for `/ambicode:rules`.

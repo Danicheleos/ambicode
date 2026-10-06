@@ -8,6 +8,8 @@ import type { RouteContextPort, RouteView } from './context.ts';
 import type { RouteArgs } from './flags.ts';
 import type { Call } from './routes.ts';
 import { MODULE_HANDLERS } from './handlers-modules.ts';
+import { INIT_HANDLERS } from '../config/init-route.ts';
+import { RULES_HANDLERS } from '../policy/rules-route.ts';
 
 export interface HandlerInput {
   view: RouteView;
@@ -85,5 +87,5 @@ export const EVIDENCE_HANDLERS: Readonly<Record<string, Handler>> = {
 };
 
 export function defaultHandlers(): Record<string, Handler> {
-  return { ...MODULE_HANDLERS, ...EVIDENCE_HANDLERS };
+  return { ...MODULE_HANDLERS, ...EVIDENCE_HANDLERS, ...INIT_HANDLERS, ...RULES_HANDLERS };
 }

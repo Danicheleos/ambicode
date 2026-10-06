@@ -3,6 +3,7 @@ import type { AmbicodeConfig, ProjectConfig } from '../../contracts/config.ts';
 import type { Diagnostic } from '../../contracts/policy.ts';
 import { openWorkspace, projectById, toRepositoryRelative, type Runtime, type Workspace } from '../../composition/root.ts';
 import type { FileSystem } from '../../ports/filesystem.ts';
+import { checkDrafts, DRAFTS_DIR } from '../../policy/drafts.ts';
 import { loadPacksForProject } from '../../policy/load.ts';
 import {
   readPackText,
@@ -16,11 +17,16 @@ import { AmbicodeError } from '../../util/errors.ts';
 import { matchesGlob } from '../../util/glob.ts';
 import { normalizeRelative } from '../../util/paths.ts';
 import { builtinPoliciesDirectory } from '../../util/plugin-root.ts';
+import { openRouteView, ledgerRouteContext } from '../../route/context.ts';
+import { runCommandTail } from '../../route/command-tail.ts';
+import { withLedgerLock } from '../../task/ledger-lock.ts';
+import { resolveTaskDir } from '../../task/task-dir.ts';
 import type { ParsedArgs } from '../args.ts';
+import { routeTools } from './route.ts';
 
 export const POLICY_CHECK_OPTIONS = {
-  values: ['project'],
-  flags: ['json'],
+  values: ['project', 'task'],
+  flags: ['json', 'drafts'],
   positionals: true,
 } as const;
 
@@ -56,6 +62,48 @@ export interface PolicyCheckOutput {
   files: CheckedPackFile[];
   diagnostics: Diagnostic[];
   ok: boolean;
+  /** Present with `--drafts`. */
+  drafts?: { rulesBySource: Record<string, number>; rules: number; notMigrated: { rule: string; reason: string }[]; aggregateHash: string };
+  /** The next step of the task's rules route, printed by the command tail. */
+  next?: string;
+}
+
+/**
+ * Validates every draft under `DRAFTS_DIR` (09-Q2); with `--task` naming the caller's live rules route the result is
+ * recorded once and the route's tail runs.
+ */
+async function runDraftsCheck(runtime: Runtime, args: ParsedArgs): Promise<PolicyCheckOutput> {
+  if (args.positionals.length > 0) {
+    throw new AmbicodeError('bad-argument', '"policy check --drafts" checks the whole drafts directory and takes no files.', { field: 'policy check', details: [`Drafts live in ${DRAFTS_DIR}/.`] });
+  }
+  const workspace = await openWorkspace(runtime);
+  const task = args.value('task');
+  const dir = task === null ? null : await resolveTaskDir(runtime, task);
+  const check = await checkDrafts(runtime, workspace, { project: args.value('project'), taskDir: dir });
+  const output: PolicyCheckOutput = {
+    command: 'policy-check',
+    projectId: args.value('project') ?? (workspace.config.projects.length === 1 ? workspace.config.projects[0]!.id : null),
+    files: check.files.map((file) => ({ path: file.path, packId: file.packId, authority: null, appliesTo: [], rules: check.rules.filter((rule) => rule.startsWith(`${file.packId}/`)).length, prompts: 0, commandDecisions: 0 })),
+    diagnostics: check.diagnostics,
+    ok: check.ok,
+    drafts: { rulesBySource: check.rulesBySource, rules: check.rules.length, notMigrated: check.notMigrated, aggregateHash: check.aggregateHash },
+  };
+  if (task === null || dir === null) return output;
+
+  const tools = await routeTools(runtime, task);
+  const session = tools.binding.state === 'bound' ? tools.binding.session : null;
+  const view = session === null ? null : await openRouteView(runtime, tools.routes, task, session);
+  if (view === null || view.skill !== 'rules') {
+    output.diagnostics.push({ severity: 'notice', code: 'drafts-not-recorded', message: `Task ${task} has no live rules route of this session, so nothing was recorded.` });
+    return output;
+  }
+  await ledgerRouteContext({ runtime, routes: tools.routes }).assertOwner(view);
+  await withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), view.session, (ledger) =>
+    ledger.append({ kind: 'policy', route: view.routeId, stage: 'drafts', path: DRAFTS_DIR, contentHash: check.aggregateHash, drafts: check.files, errors: check.diagnostics.filter((diagnostic) => diagnostic.severity === 'error').length }),
+  );
+  const next = await runCommandTail({ engine: tools.engine }, { task, cause: 'policy check --drafts', session: tools.binding });
+  if (next !== null) output.next = next.text;
+  return output;
 }
 
 /**
@@ -63,6 +111,8 @@ export interface PolicyCheckOutput {
  * and the resolver's `matchesGlob`, so a file called clean here cannot be rejected once wired in.
  */
 export async function runPolicyCheck(runtime: Runtime, args: ParsedArgs): Promise<PolicyCheckOutput> {
+  if (args.flag('drafts')) return runDraftsCheck(runtime, args);
+  if (args.value('task') !== null) throw new AmbicodeError('bad-argument', '--task goes with --drafts.', { field: 'task' });
   const workspace = await openWorkspace(runtime);
   if (args.positionals.length === 0) {
     throw new AmbicodeError('bad-argument', '"policy check" needs at least one candidate policy file.', {
@@ -290,10 +340,18 @@ export function renderPolicyCheck(output: PolicyCheckOutput): string {
     lines.push('');
   }
 
+  if (output.drafts !== undefined) {
+    const sources = Object.entries(output.drafts.rulesBySource).map(([location, count]) => `  ${location}: ${count}`);
+    lines.push(`rules: ${output.drafts.rules}`, 'rules by source', ...sources, '');
+    for (const entry of output.drafts.notMigrated) lines.push(`not migrated: ${entry.rule} (${entry.reason})`);
+    if (output.drafts.notMigrated.length > 0) lines.push('');
+  }
+
   lines.push(
     output.ok
       ? 'No errors. These files can be added to the project\'s policyFiles.'
       : 'Errors above. Fix them before adding these files to the project\'s policyFiles.',
   );
+  if (output.next !== undefined) lines.push('', output.next);
   return lines.join('\n');
 }

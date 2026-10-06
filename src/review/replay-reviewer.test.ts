@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { parseArgs } from '../cli/args.ts';
-import { INIT_OPTIONS, runInit } from '../cli/commands/init.ts';
+import { initConfig } from '../testing/init-config.ts';
 import { REVIEW_OPTIONS, runReview, renderReview } from '../cli/commands/review.ts';
 import { createRuntime } from '../composition/root.ts';
 import type { ReviewerOutput } from '../contracts/review.ts';
@@ -90,7 +90,7 @@ describe('replay reviewer, selected by EVAL_AMBICODE_REVIEWER_REPLAY', () => {
     await repo.write('package.json', '{"name":"app","version":"1.0.0"}\n');
     await repo.write('src/orders.ts', 'export function total(amounts: number[]) {\n  return amounts.length;\n}\n');
     await repo.commitAll('initial');
-    await runInit(await createRuntime({ cwd: repo.root }), parseArgs('init', [], INIT_OPTIONS));
+    await initConfig(await createRuntime({ cwd: repo.root }));
     await repo.write(
       'src/orders.ts',
       'export function total(amounts: number[]) {\n  return amounts.reduce((a, b) => a + b, 0);\n}\n',

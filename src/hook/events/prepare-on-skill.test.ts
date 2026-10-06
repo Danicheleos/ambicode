@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import { parseArgs } from '../../cli/args.ts';
-import { INIT_OPTIONS, runInit } from '../../cli/commands/init.ts';
+import { initConfig } from '../../testing/init-config.ts';
 import { PREPARE_OPTIONS, runPrepare } from '../../cli/commands/prepare.ts';
 import { createRuntime } from '../../composition/root.ts';
 import { nodeFileSystem } from '../../ports/filesystem.ts';
@@ -18,7 +18,7 @@ async function initializedRepo(): Promise<TempRepo> {
   await repo.write('src/orders/service.ts', 'export function reserveStock(orderId: string) { return orderId; }\n');
   await repo.write('src/unrelated.ts', 'export const x = 0;\n');
   await repo.commitAll('initial');
-  await runInit(await createRuntime({ cwd: repo.root }), parseArgs('init', [], INIT_OPTIONS));
+  await initConfig(await createRuntime({ cwd: repo.root }));
   return repo;
 }
 
@@ -222,7 +222,7 @@ describe('UserPromptSubmit on a typed /ambicode:plan or /ambicode:task runs prep
       // A term reaching 60% of the files is ignored as describing the project, so most files must not match.
       for (let index = 1; index <= 40; index += 1) await repo.write(`src/unrelated-${index}.ts`, `export const x${index} = 0;\n`);
       await repo.commitAll('initial');
-      await runInit(await createRuntime({ cwd: repo.root }), parseArgs('init', [], INIT_OPTIONS));
+      await initConfig(await createRuntime({ cwd: repo.root }));
 
       const unfitted = await runPrepare(await createRuntime({ cwd: repo.root }), parseArgs('prepare', ['--activity', 'investigate', '--json', '--term', 'reserveStock'], PREPARE_OPTIONS));
       const all = JSON.stringify(unfitted.data).length;

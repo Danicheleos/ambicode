@@ -6,6 +6,8 @@ import { parseArgs, type OptionSpec, type ParsedArgs } from './args.ts';
 import { BUNDLE_OPTIONS, renderBundle, runBundle } from './commands/bundle.ts';
 import { CONFIG_OPTIONS, renderConfig, runConfig } from './commands/config.ts';
 import { INIT_OPTIONS, renderInit, runInit } from './commands/init.ts';
+import { DOCTOR_OPTIONS, renderDoctor, runDoctorCommand } from './commands/doctor.ts';
+import { RULES_APPLY_OPTIONS, RULES_DISCOVER_OPTIONS, RULES_REVERT_OPTIONS, renderRules, runRulesApply, runRulesDiscover, runRulesRevert } from './commands/rules.ts';
 import { LOCATE_OPTIONS, renderLocate, runLocate } from './commands/locate.ts';
 import { NOTE_LIST_OPTIONS, NOTE_PROMOTE_OPTIONS, NOTE_SAVE_OPTIONS, renderNoteList, renderNotePromote, renderNoteSave, runNoteList, runNotePromote, runNoteSave } from './commands/note.ts';
 import { POLICY_OPTIONS, renderPolicy, runPolicy } from './commands/policy.ts';
@@ -22,11 +24,25 @@ import { validateTargetArgs } from './target-option.ts';
 
 export const USAGE = `ambicode <command> [options]
 
-  init                    Detect projects and write .ambicode/config.yaml.
-                            --dry-run    Report what would change, write nothing.
-                            --refresh-profile
-                                         Re-measure each project's search profile and
-                                         replace the stored one.
+  init                    Propose .ambicode/config.yaml: detected projects, commands,
+                          packs, ignore lines, search layers. Writes nothing.
+                            --task <slug>  --dry-run  --refresh-profile
+                            --apply --task <slug>  --set <key>=<value> (repeatable)
+                                write config v3 and the ignore lines the user
+                                accepted at the init question, then run doctor.
+                                Only inside the init route, with the user's own
+                                answer.
+
+  doctor                  Check that every configured command starts (its version
+                          probe, through the command policy). Writes nothing.
+                            --project <id>
+
+  rules discover [sources…]
+                          List rule-source candidates for /ambicode:rules.
+  rules apply             Make the drafts the user accepted live packs.
+                            --task <slug>  --project <id>
+  rules revert <pack-id>  Unwire a live pack and move it back to the drafts.
+                            --project <id>
 
   config                  Print the effective configuration, including limits
                           that are not stored in the file.
@@ -49,6 +65,11 @@ export const USAGE = `ambicode <command> [options]
                                                   are judged against. Required
                                                   when more than one project is
                                                   configured.
+                            --drafts [--task <slug>]  check the drafts under
+                                                  .ambicode/policies/drafts/ and
+                                                  their source quotes; with
+                                                  --task, record the result in
+                                                  the rules route.
                           To resolve policy for a path literally named "check",
                           write "policy -- check".
 
@@ -302,7 +323,7 @@ export async function main(argv: readonly string[]): Promise<number> {
   // Recognized here rather than by `runPolicy` inspecting its operands, so a
   // path literally named "check" stays reachable as `policy -- check`.
   const subcommand =
-    command === 'policy' && rest[0] === 'check' ? 'check' : command === 'note' && NOTE_COMMANDS.includes(rest[0] ?? '') ? rest[0] : command === 'route' && ROUTE_COMMANDS.includes(rest[0] ?? '') ? rest[0] : command === 'requirements' && REQUIREMENTS_COMMANDS.includes(rest[0] ?? '') ? rest[0] : command === 'index' && INDEX_COMMANDS.includes(rest[0] ?? '') ? rest[0] : undefined;
+    command === 'policy' && rest[0] === 'check' ? 'check' : command === 'note' && NOTE_COMMANDS.includes(rest[0] ?? '') ? rest[0] : command === 'route' && ROUTE_COMMANDS.includes(rest[0] ?? '') ? rest[0] : command === 'requirements' && REQUIREMENTS_COMMANDS.includes(rest[0] ?? '') ? rest[0] : command === 'index' && INDEX_COMMANDS.includes(rest[0] ?? '') ? rest[0] : command === 'rules' && RULES_COMMANDS.includes(rest[0] ?? '') ? rest[0] : undefined;
   const name = subcommand === undefined ? command : `${command} ${subcommand}`;
   const commandArgv = subcommand === undefined ? rest : rest.slice(1);
 
@@ -337,9 +358,14 @@ const NOTE_COMMANDS = ['save', 'promote', 'list'];
 const ROUTE_COMMANDS = ['start', 'next', 'status', 'stop'];
 const REQUIREMENTS_COMMANDS = ['template', 'normalize', 'acs'];
 const INDEX_COMMANDS = ['build', 'status'];
+const RULES_COMMANDS = ['discover', 'apply', 'revert'];
 
 export const SPECS: Record<string, OptionSpec | undefined> = {
   init: INIT_OPTIONS,
+  doctor: DOCTOR_OPTIONS,
+  'rules discover': RULES_DISCOVER_OPTIONS,
+  'rules apply': RULES_APPLY_OPTIONS,
+  'rules revert': RULES_REVERT_OPTIONS,
   config: CONFIG_OPTIONS,
   locate: LOCATE_OPTIONS,
   policy: POLICY_OPTIONS,
@@ -384,6 +410,22 @@ async function run(command: string, args: ParsedArgs, runtime: Runtime): Promise
     case 'init': {
       const output = await runInit(runtime, args);
       return { text: renderInit(output), data: output };
+    }
+    case 'doctor': {
+      const output = await runDoctorCommand(runtime, args);
+      return { text: renderDoctor(output), data: output };
+    }
+    case 'rules discover': {
+      const output = await runRulesDiscover(runtime, args);
+      return { text: renderRules(output), data: output };
+    }
+    case 'rules apply': {
+      const output = await runRulesApply(runtime, args);
+      return { text: renderRules(output), data: output };
+    }
+    case 'rules revert': {
+      const output = await runRulesRevert(runtime, args);
+      return { text: renderRules(output), data: output };
     }
     case 'config': {
       const output = await runConfig(runtime);

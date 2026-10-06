@@ -52,9 +52,15 @@ In the target repository, start or restart Claude Code and run:
 /ambicode:init
 ```
 
-`/ambicode:init` creates the repository-owned `.ambicode/config.yaml`. That
-configuration file is the expected repository-visible result of initialization;
-the installed plugin itself remains in Claude's plugin storage.
+`/ambicode:init` proposes the repository-owned `.ambicode/config.yaml` and asks
+one question: *Apply as proposed*, *Adjust* (type `key=value` pairs, such as
+`requirements.mcpServer=<server>`), or *Cancel*. Only an accepted answer writes
+the config and the `.gitignore` lines, then prints a `doctor` table that probes
+every configured command. *Cancel*, or a headless run, writes nothing outside
+`.ambicode/task/init-<date>/`. `ambicode init` on its own is a dry run;
+`ambicode doctor` reprints the table at any time. That configuration file is
+the expected repository-visible result of initialization; the installed plugin
+itself remains in Claude's plugin storage.
 
 ## Windows PowerShell
 
@@ -166,8 +172,8 @@ claude plugin install pyright-lsp@claude-plugins-official --scope user
 pipx install pyright
 ```
 
-Restart or reload Claude after installing. `ambicode init` and `ambicode
-config` show the recommendation for every project; `ambicode prepare --json`
+Restart or reload Claude after installing. `ambicode config` shows the
+recommendation for every project; `ambicode prepare --json`
 deliberately leaves installation guidance out of its per-call payload and
 carries only the search strategy, the evidence requirement, and the boundary
 shortlist when the call asked for one. During `investigate`, `plan`, and

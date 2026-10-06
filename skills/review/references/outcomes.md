@@ -77,7 +77,28 @@ repository has no commit yet. Run from the checkout, or make the first commit.
 `.ambicode/config.yaml` is absent, not YAML, not a mapping, or written by a
 newer AMBICODE. Offer `/ambicode:init` for the first; show the user the error
 for the others. For a too-new schema, upgrade the plugin rather than editing
-the file down.
+the file down. In `/ambicode:init`, an unparsable file raises the
+`config-unparsable` question: *back up and regenerate* copies it to
+`.ambicode/config.yaml.bak-<time>` and proposes a new one; *stop* (the default)
+copies and writes nothing.
+
+**`init-unconfirmed`.** `init --apply` ran without the user's own answer to the
+init question. `reason` says which: `no-init-route` (no live init route for the
+task), a consent refusal (`no-answer`, `superseded`, `unbound`,
+`acting-needs-human`, `not-accepted`), or `values-differ` (the typed `--set`
+pairs are not the `Values:` line the user accepted). Nothing was written.
+Release: answer the init question in `/ambicode:init`, then run the line printed
+with the option chosen. Never retry with other values.
+
+**`rules-apply-unconfirmed`.** `rules apply` ran without the user's *Apply all*
+answer to the rules table. `reason`: `no-rules-route`, a consent refusal, or
+`object-changed` (a draft changed after the answer). Nothing went live. Release:
+answer the `rules-table` question in `/ambicode:rules`; headless runs never apply.
+
+**`pack-quote-missing` / `pack-duplicates-builtin`.** A draft rule's
+`source.quote` was not found at its `source.location` (an error: fix the quote
+or drop the rule; after three tries it is listed as not migrated), or a draft
+rule repeats a built-in rule (a warning naming it: drop the draft rule).
 
 **`path-missing` / `path-escape`.** A path the configuration or a pack declares
 does not exist, or resolves outside the repository. The message names which.

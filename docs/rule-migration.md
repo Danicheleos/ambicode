@@ -30,13 +30,23 @@ a Confluence page through the bound MCP server — and then, with you:
 
 1. classifies each rule as global or scoped to a path pattern, deriving the glob
    from your repository's **actual** layout and verifying what it matches;
-2. drafts one pack per coherent scope into `.ambicode/policies/<id>.yaml`, with
-   `source.location` naming the document and section each rule came from;
-3. validates every draft with `ambicode policy check` and loops until clean;
-4. adds the files to the right project's `policyFiles`, preserving the rest of
-   `.ambicode/config.yaml`;
-5. shows you a disposition table like the ones below and **asks you to confirm
-   the drops** before finishing.
+2. drafts one pack per coherent scope into `.ambicode/policies/drafts/<id>.yaml`.
+   Each rule carries `source.quote`, a verbatim passage, and `source.location`,
+   the file or page it came from; nothing in `drafts/` is in force;
+3. validates the drafts with `ambicode policy check --drafts` and loops until
+   clean. The check confirms every quote is in its source, warns when a rule
+   duplicates a built-in (`pack-duplicates-builtin`), and reports a glob that
+   matches nothing. A rule whose quote cannot be found is not migrated;
+4. shows you a table with one row per rule, applied or not migrated and why, and
+   asks: Apply all, Apply with changes, or Discard drafts;
+5. on Apply all only, `ambicode rules apply` moves each draft to
+   `.ambicode/policies/<id>.yaml` and adds it to the project's `policyFiles`,
+   preserving the rest of `.ambicode/config.yaml`, then probes a covered and an
+   uncovered path. `ambicode rules revert <pack-id>` moves one pack back to
+   `drafts/` and removes it from `policyFiles`.
+
+`ambicode rules discover [<path-or-url>...]` lists the candidate sources
+without reading them into rules.
 
 `ambicode policy check <file...>` is usable on its own, for a pack you wrote by
 hand. It validates a candidate file that nothing references yet — the schema,

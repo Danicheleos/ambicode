@@ -62,7 +62,13 @@ const schemas = [
     candidatePaths: z.array(text).optional(), feature: z.object({ root: text, paths: count }).optional(),
   }),
   entry('search', { command: z.enum(['refs', 'find', 'relates']), names: z.array(text), hits: count, bytes: count }),
-  entry('policy', { stage: z.enum(['before-work', 'before-report']), packs: z.array(text), rules: count, omitted: count, bytes: count }),
+  entry('policy', {
+    stage: z.enum(['before-work', 'before-report', 'drafts', 'apply']), packs: optionalList, rules: count.optional(), omitted: count.optional(), bytes: count.optional(),
+    path: text.optional(), contentHash: text.optional(), drafts: optionalList, errors: count.optional(), probes: optionalList,
+  }).superRefine((value, context) => {
+    const required = { drafts: ['path', 'contentHash', 'drafts', 'errors'], apply: ['packs', 'probes'] }[value.stage as string] ?? ['packs', 'rules', 'omitted', 'bytes'];
+    for (const field of required) if ((value as Record<string, unknown>)[field] === undefined) context.addIssue({ code: 'custom', path: [field], message: `required for stage ${value.stage}` });
+  }),
   // Written by later steps; each owner tightens its schema here (02-D4).
   entry('baseline', { head: text.optional(), dirty: optionalList }),
   entry('check', {

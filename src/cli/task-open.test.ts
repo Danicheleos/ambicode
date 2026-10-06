@@ -5,7 +5,7 @@ import { createRuntime } from '../composition/root.ts';
 import { nodeFileSystem } from '../ports/filesystem.ts';
 import { TempRepo } from '../testing/temp-repo.ts';
 import { parseArgs } from './args.ts';
-import { INIT_OPTIONS, runInit } from './commands/init.ts';
+import { initConfig } from '../testing/init-config.ts';
 import { PREPARE_OPTIONS, renderPrepare, runPrepare } from './commands/prepare.ts';
 import { NOTE_SAVE_OPTIONS, runNoteSave } from './commands/note.ts';
 
@@ -16,7 +16,7 @@ async function inRepo(run: (repo: TempRepo) => Promise<void>): Promise<void> {
   try {
     await repo.write('src/app.ts', 'export const a = 1;\n');
     await repo.commitAll('initial');
-    await runInit(await createRuntime({ cwd: repo.root }), parseArgs('init', [], INIT_OPTIONS));
+    await initConfig(await createRuntime({ cwd: repo.root }));
     await run(repo);
   } finally {
     await repo.dispose();

@@ -37,6 +37,12 @@ export const HANDLER_NAMES = [
   'evidence.navigationLine',
   'evidence.notes.save',
   'evidence.notes.promote',
+  'init.propose',
+  'init.close',
+  'rules.discover',
+  'rules.context',
+  'rules.draftsCheck',
+  'rules.close',
 ] as const;
 
 export interface StepDef {

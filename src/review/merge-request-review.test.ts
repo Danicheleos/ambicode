@@ -3,7 +3,7 @@ import path from 'node:path';
 import { describe, it } from 'node:test';
 import { parseArgs } from '../cli/args.ts';
 import { BUNDLE_OPTIONS, runBundle } from '../cli/commands/bundle.ts';
-import { INIT_OPTIONS, runInit } from '../cli/commands/init.ts';
+import { initConfig } from '../testing/init-config.ts';
 import { REVIEW_OPTIONS, runReview } from '../cli/commands/review.ts';
 import { createRuntime, type Runtime } from '../composition/root.ts';
 import type {
@@ -257,7 +257,7 @@ async function fixture(): Promise<Fixture> {
   await repo.commitAll('initial');
 
   const setup = await createRuntime({ cwd: repo.root });
-  await runInit(setup, parseArgs('init', [], INIT_OPTIONS));
+  await initConfig(setup);
 
   await repo.write('src/orders.ts', 'export const localEdit = true;\n');
   await repo.write('src/staged.ts', 'export const staged = 1;\n');
@@ -662,7 +662,7 @@ describe('U18 merge-request review leaves the change test code out', () => {
       await repo.write('src/orders.ts', 'export const total = 0;\n');
       await repo.write('src/orders.spec.ts', 'it("works", () => {});\n');
       const setup = await createRuntime({ cwd: repo.root });
-      await runInit(setup, parseArgs('init', [], INIT_OPTIONS));
+      await initConfig(setup);
       await repo.commitAll('initial');
       await repo.write('src/orders.ts', 'export const total = 1;\n');
       await repo.write('src/orders.spec.ts', 'it("works", () => { expect(1).toBe(1); });\n');

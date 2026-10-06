@@ -26,3 +26,18 @@ so `SKILL.md` stays within its per-call budget. The worked example is
 - **`remindOnEdit`** — only on a path-scoped pack. It is rejected on a pack
   whose `appliesTo` includes `**/*`, because such a reminder would fire on
   every edit anywhere.
+
+## Provenance on every drafted rule
+
+A rule in `.ambicode/policies/drafts/` carries a `source` block:
+
+- **`source.quote`** — a passage copied verbatim from the source, at least 20
+  characters. Whitespace and line breaks are collapsed before comparing;
+  case is not. A quote that is not found makes the rule `pack-quote-missing` and
+  it is not migrated.
+- **`source.location`** — the file path (a trailing `:line` is ignored) or the
+  page URL. A URL is checked against the content captured for the task; a page
+  that was not captured fails with `source not captured`.
+
+A rule too close to a built-in instruction gets the warning
+`pack-duplicates-builtin` naming that rule; drop it unless it adds something.

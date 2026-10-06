@@ -31,6 +31,20 @@ const MINIMAL = [
   'remoteChecks: { image: null }',
 ].join('\n');
 
+/** A current (schema 3) file: re-init has nothing to migrate in it. */
+const CURRENT = [
+  'schemaVersion: 3',
+  'baseline: origin/main',
+  'review: { model: sonnet, timeoutSeconds: 300, maxFindings: 7, maxChangedFiles: 50, maxChangedLines: 2000, maxContextBytes: 524288, onInvalid: void }',
+  'checks: { timeoutSeconds: 120, maxSelectedTestFiles: 20 }',
+  'page: { idleTimeoutSeconds: 1800, port: 45831 }',
+  'requirements: { mcpServer: null, acceptanceField: null }',
+  'remoteChecks: { image: null }',
+  'search: { index: none, layers: { prompt: [shortlist, harvest, shortlist], context: [grep, harvest] } }',
+  'workers: { approved: [] }',
+  'guard: { askOutsideMap: false }',
+].join('\n');
+
 const BEFORE_PORT = MINIMAL.replace(', port: 45831 }', ' }');
 
 function withProjects(body: string): string {
@@ -421,18 +435,17 @@ test('re-init leaves a project that already has every framework pack untouched',
   await mkdir(path.join(directory, '.ambicode'), { recursive: true });
   await writeFile(
     path.join(directory, '.ambicode', 'config.yaml'),
-    withProjects(
+    `${CURRENT}\nprojects:\n${
       [
         '  - id: app',
         '    root: .',
         '    ecosystem: typescript',
         `    packs: [builtin/common-quality, builtin/common-checks, ${ANGULAR_PACKS.join(', ')}]`,
         '    shortlist: { include: ["**/*.ts"], exclude: [] }',
-        '    commands: { lint: null, unit: null, e2e: null }',
+        '    commands: { lint: null, unit: null, e2e: null, format: null }',
         '    checks: { lint: null, unit: null, e2e: null }',
         'authoring: { editReminders: true }',
-      ].join('\n'),
-    ),
+      ].join('\n')}`,
     'utf8',
   );
 
@@ -542,9 +555,8 @@ test('re-init adds the shortlist to a project without one, and never rewrites on
   await mkdir(path.join(directory, '.ambicode'), { recursive: true });
   const configPath = path.join(directory, '.ambicode', 'config.yaml');
   const project = (extra: string) =>
-    withProjects(
-      `  - id: app\n    root: .\n    ecosystem: typescript\n    packs: []\n${extra}    commands: { lint: null, unit: null, e2e: null }\n    checks: { lint: null, unit: null, e2e: null }\nauthoring: { editReminders: true }`,
-    );
+    `${CURRENT}\nprojects:\n` +
+      `  - id: app\n    root: .\n    ecosystem: typescript\n    packs: []\n${extra}    commands: { lint: null, unit: null, e2e: null, format: null }\n    checks: { lint: null, unit: null, e2e: null }\nauthoring: { editReminders: true }`;
   const options = async () => ({
     fs: nodeFileSystem,
     repositoryRoot: directory,
@@ -564,65 +576,12 @@ test('re-init adds the shortlist to a project without one, and never rewrites on
   assert.deepEqual(kept.config.projects[0]?.shortlist?.include, ['**/*.html']);
 });
 
-test('fresh init requires the language server of the first project, and says how to turn that off', async (t) => {
-  const directory = await sandbox(t);
-  await writeFile(path.join(directory, 'package.json'), JSON.stringify({ name: 'x' }), 'utf8');
-  const plan = await planInit({
-    fs: nodeFileSystem,
-    repositoryRoot: directory,
-    detected: await detectProjects(nodeFileSystem, directory),
-    baseline: '',
-    baselineNotice: 'x',
-  });
-  assert.match(plan.yaml ?? '', /requirements:\s*\n\s*mcpServer: null\s*\n\s*lsp:\s*\n\s*- typescript-lsp@claude-plugins-official/);
-  assert.ok(plan.notices.some((notice) => notice.includes('requirements.lsp') && notice.includes('[]')), plan.notices.join('\n'));
-});
-
-test('init requires one language server per ecosystem the repository holds', async (t) => {
-  const directory = await sandbox(t);
-  await writeFile(path.join(directory, 'package.json'), JSON.stringify({ name: 'web' }), 'utf8');
-  await mkdir(path.join(directory, 'services', 'api'), { recursive: true });
-  await writeFile(path.join(directory, 'services', 'api', 'pyproject.toml'), '[project]\nname = "api"\n', 'utf8');
-  const plan = await planInit({
-    fs: nodeFileSystem,
-    repositoryRoot: directory,
-    detected: await detectProjects(nodeFileSystem, directory),
-    baseline: '',
-    baselineNotice: 'x',
-  });
-  assert.match(plan.yaml ?? '', /lsp:\s*\n\s*- typescript-lsp@claude-plugins-official\s*\n\s*- pyright-lsp@claude-plugins-official|lsp:\s*\n\s*- pyright-lsp@claude-plugins-official\s*\n\s*- typescript-lsp@claude-plugins-official/);
-});
-
-test('re-init adds requirements.lsp to a config without it, and never rewrites a value set, empty included', async (t) => {
-  const directory = await sandbox(t);
-  await writeFile(path.join(directory, 'package.json'), JSON.stringify({ name: 'x' }), 'utf8');
-  await mkdir(path.join(directory, '.ambicode'), { recursive: true });
-  const configPath = path.join(directory, '.ambicode', 'config.yaml');
-  const body = '  - { id: app, root: ".", ecosystem: typescript, packs: [], commands: {}, checks: {}, shortlist: {} }\nauthoring: { editReminders: true }';
-  const options = async () => ({
-    fs: nodeFileSystem,
-    repositoryRoot: directory,
-    detected: await detectProjects(nodeFileSystem, directory),
-    baseline: '',
-    baselineNotice: 'x',
-  });
-
-  await writeFile(configPath, withProjects(body).replace(', lsp: []', ''), 'utf8');
-  const added = await planInit(await options());
-  assert.ok(added.changes.some((change) => change.startsWith('Added "requirements.lsp: [typescript-lsp@claude-plugins-official]"')), added.changes.join('\n'));
-  assert.match(added.yaml ?? '', /lsp: \[ typescript-lsp@claude-plugins-official \]/);
-
-  await writeFile(configPath, withProjects(body), 'utf8');
-  const kept = await planInit(await options());
-  assert.ok(!kept.changes.some((change) => change.includes('requirements.lsp')), kept.changes.join('\n'));
-});
-
 test('P2.4 correction F: re-init never overwrites an explicit authoring.editReminders: false', async (t) => {
   const directory = await sandbox(t);
   await mkdir(path.join(directory, '.ambicode'), { recursive: true });
   await writeFile(
     path.join(directory, '.ambicode', 'config.yaml'),
-    `${MINIMAL}\nauthoring:\n  editReminders: false\nprojects:\n` +
+    `${CURRENT}\nauthoring:\n  editReminders: false\nprojects:\n` +
       '  - id: app\n    root: .\n    ecosystem: typescript\n    packs: []\n    policyFiles: []\n    commands: {}\n    checks: {}\n',
     'utf8',
   );

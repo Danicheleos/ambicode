@@ -202,7 +202,10 @@ export function createEngine(deps: EngineDeps): Engine {
       status = items === 0 ? 'complete' : `complete, ${items} items not verified`;
     }
     const header = `[ambicode] ${run.def.skill} · task ${run.task} · ${status}`;
-    return (await partOf(run, null, header, status.startsWith('ended') ? 'The route has ended.' : 'The route is complete. Nothing further is required of you.')).part;
+    // A route that ends on a code step (init, rules) closes with that step's text.
+    const last = run.def.steps.at(-1);
+    const closing = last?.actor === 'code' && ended === null ? (await Promise.all(last.run.map((call) => loadPayload(run.runtime.fs, run.dir, chainKey([...chain.ids]), payloadKey(call))))).filter((text) => text !== null && text.trim() !== '').join('\n\n') : '';
+    return (await partOf(run, null, header, closing !== '' ? closing : status.startsWith('ended') ? 'The route has ended.' : 'The route is complete. Nothing further is required of you.')).part;
   }
 
   // ---------------------------------------------------------------- one advance
@@ -325,6 +328,12 @@ export function createEngine(deps: EngineDeps): Engine {
     // The header's `Now:` already carries a plain first line; a heading stays, it is the shape the step asks for.
     const body = /^\s*#/.test(instruction) || nowLine.replace(/\s+/g, ' ').trim().length > 160 ? instruction : instruction.replace(/^\s*[^\n]*\n?/, '').trimStart();
     const sections: string[] = body === '' ? [] : [body];
+    const start = fold.steps[step.index]!.windowStart;
+    const reviseEntry = start > 0 ? fold.chain.entries[start - 1] : undefined;
+    const reviseArgs = reviseEntry?.kind === 'revise' ? (reviseEntry['args'] as Record<string, string[]> | undefined) : undefined;
+    for (const [key, values] of Object.entries(reviseArgs ?? {})) {
+      if (values.length > 0) sections.push(`## ${key}\n${values.join('\n')}`);
+    }
     for (const key of step.payload) {
       const payload = await loadPayload(run.runtime.fs, run.dir, chainKey([...chainOf(run).ids]), key);
       if (payload !== null && payload.trim() !== '') sections.push(`## ${key}\n${payload}`);

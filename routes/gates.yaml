@@ -49,6 +49,7 @@ config-unparsable:
   default: "stop"
   release: "stop"
   acting: ["back up and regenerate"]
+  onAnswer: { "back up and regenerate": "revise $raisedBy" }
 budget-exhausted:
   question: "The route's model-step budget is spent. Continue or stop?"
   options: [continue, stop]

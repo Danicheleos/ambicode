@@ -1,5 +1,5 @@
 export const DEFAULTS = {
-  schemaVersion: 1 as const,
+  schemaVersion: 3 as const,
   review: {
     model: 'sonnet',
     timeoutSeconds: 300,
@@ -89,3 +89,6 @@ const LEGACY_NOTES_DIR = '.ambicode/notes/';
 export const INDEX_DIR = '.ambicode/index';
 
 export const IGNORE_ENTRIES = ['.ambicode/reviews/', LEGACY_NOTES_DIR, '.ambicode/task/'];
+
+/** Written to `.gitignore` by `init --apply` only: an ignored index directory is the consent `index build` checks. */
+export const GITIGNORE_ENTRIES = [`${INDEX_DIR}/`, '.ambicode/metrics.jsonl', '.ambicode/reviews/', '.ambicode/task/', LEGACY_NOTES_DIR];

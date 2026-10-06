@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseArgs } from '../cli/args.ts';
-import { INIT_OPTIONS, runInit } from '../cli/commands/init.ts';
+import { initConfig } from '../testing/init-config.ts';
 import { POLICY_OPTIONS, renderPolicy, runPolicy } from '../cli/commands/policy.ts';
 import { createRuntime, openWorkspace, projectForRequest } from '../composition/root.ts';
 import { TempRepo } from '../testing/temp-repo.ts';
@@ -13,7 +13,7 @@ async function repo() {
   await temp.write('src/a.ts', 'export const a = 1;\n');
   await temp.commitAll('initial');
   const runtime = await createRuntime({ cwd: temp.root });
-  await runInit(runtime, parseArgs('init', [], INIT_OPTIONS));
+  await initConfig(runtime);
   const workspace = await openWorkspace(runtime);
   return { temp, runtime, project: projectForRequest(workspace.config, null, []) };
 }

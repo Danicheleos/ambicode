@@ -13,7 +13,7 @@ import { publicationPositions, reviewResult } from '../testing/review-fixture.ts
 import { TempRepo } from '../testing/temp-repo.ts';
 import { isAmbicodeError } from '../util/errors.ts';
 import { parseArgs } from './args.ts';
-import { INIT_OPTIONS, runInit } from './commands/init.ts';
+import { initConfig } from '../testing/init-config.ts';
 import { renderView, runView, VIEW_OPTIONS } from './commands/view.ts';
 
 interface Fixture {
@@ -30,7 +30,7 @@ async function fixture(options: { kind?: 'merge-request' | 'working' } = {}): Pr
   await repo.commitAll('initial');
 
   const setup = await createRuntime({ cwd: repo.root });
-  await runInit(setup, parseArgs('init', [], INIT_OPTIONS));
+  await initConfig(setup);
 
   const result = reviewResult(
     options.kind === 'working' ? { kind: 'working', remote: null } : {},
@@ -71,7 +71,7 @@ async function taskFixture(slug: string, reviewId: string): Promise<Fixture> {
   await repo.commitAll('initial');
 
   const setup = await createRuntime({ cwd: repo.root });
-  await runInit(setup, parseArgs('init', [], INIT_OPTIONS));
+  await initConfig(setup);
 
   const result = { ...reviewResult({ kind: 'working', remote: null }), reviewId };
   const reviewDirectory = path.join(repo.root, '.ambicode', 'task', slug, 'reviews', reviewId);

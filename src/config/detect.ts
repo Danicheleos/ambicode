@@ -1,6 +1,7 @@
 import type { DirectoryEntry, FileSystem } from '../ports/filesystem.ts';
 import path from 'node:path';
 import type { AdapterId, Ecosystem } from '../contracts/primitives.ts';
+import type { Runtime } from '../composition/root.ts';
 
 const SKIP_DIRECTORIES = new Set([
   '.git',
@@ -28,6 +29,12 @@ export interface DetectedCommand {
   notice: string;
 }
 
+/** `commands.format`: the first installed formatter, or null with the reason. */
+export interface DetectedFormat {
+  argv: string[] | null;
+  notice: string;
+}
+
 export interface DetectedProject {
   id: string;
   root: string;
@@ -35,6 +42,7 @@ export interface DetectedProject {
   lint: DetectedCommand | null;
   unit: DetectedCommand | null;
   e2e: DetectedCommand | null;
+  format: DetectedFormat | null;
   frameworkPacks: string[];
   notices: string[];
 }
@@ -163,10 +171,23 @@ function scriptInvoking(
   return null;
 }
 
-async function detectTypescript(
-  fs: FileSystem,
-  absoluteRoot: string,
-): Promise<Pick<DetectedProject, 'lint' | 'unit' | 'e2e' | 'frameworkPacks' | 'notices'>> {
+type Detected = Pick<DetectedProject, 'lint' | 'unit' | 'e2e' | 'format' | 'frameworkPacks' | 'notices'>;
+
+/** Formatters by tool name, in detection order: argv = [installed binary, ...args] (09-E3). */
+async function detectFormat(
+  formatters: readonly (readonly [tool: string, args: readonly string[]])[],
+  binary: (name: string) => Promise<string | null>,
+  declared: ReadonlySet<string>,
+): Promise<DetectedFormat | null> {
+  for (const [tool, args] of formatters) {
+    const bin = await binary(tool);
+    if (bin !== null) return { argv: [bin, ...args], notice: `found ${bin}` };
+  }
+  const named = formatters.find(([tool]) => declared.has(tool));
+  return named === undefined ? null : { argv: null, notice: `${named[0]} is declared but not installed; install dependencies, then re-run init` };
+}
+
+async function detectTypescript(fs: FileSystem, absoluteRoot: string): Promise<Detected> {
   const manifest = await readJson(fs, path.join(absoluteRoot, 'package.json'));
   const declared = declaredDependencies(manifest);
   const scripts = packageScripts(manifest);
@@ -256,13 +277,11 @@ async function detectTypescript(
       `package.json declares ${framework.dependency}, so the ${framework.name} packs are enabled: ${framework.packs.join(', ')}.`,
     );
   }
-  return { lint, unit, e2e, frameworkPacks: framework === undefined ? [] : [...framework.packs], notices };
+  const format = await detectFormat([['prettier', ['--write', '--', '{files}']]], binary, declared);
+  return { lint, unit, e2e, format, frameworkPacks: framework === undefined ? [] : [...framework.packs], notices };
 }
 
-async function detectPython(
-  fs: FileSystem,
-  absoluteRoot: string,
-): Promise<Pick<DetectedProject, 'lint' | 'unit' | 'e2e' | 'frameworkPacks' | 'notices'>> {
+async function detectPython(fs: FileSystem, absoluteRoot: string): Promise<Detected> {
   const notices: string[] = [];
   const declared = await readPythonDependencies(fs, absoluteRoot);
 
@@ -320,7 +339,8 @@ async function detectPython(
   if (declared.size === 0) {
     notices.push('No Python dependency declarations were readable; commands were left null');
   }
-  return { lint, unit, e2e: null, frameworkPacks: [], notices };
+  const format = await detectFormat([['black', ['--', '{files}']], ['ruff', ['format', '--', '{files}']]], venvBinary, declared);
+  return { lint, unit, e2e: null, format, frameworkPacks: [], notices };
 }
 
 async function readPythonDependencies(fs: FileSystem, absoluteRoot: string): Promise<Set<string>> {
@@ -398,4 +418,22 @@ export async function detectBaseline(
     };
   }
   return { baseline: originHead, notice: `baseline taken from refs/remotes/origin/HEAD (${originHead})` };
+}
+
+const SCAN_TIMEOUT_MS = 10_000;
+const SCAN_MAX_OUTPUT_BYTES = 65_536;
+const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/** `codeindex scan`'s languages and file count for `profile.index` (amended 05-A8, 09-P3); null when the output is not that shape.
+ * The pinned v2.31.4 CLI emits `fileCount` and `languages` as a histogram (`{typescript: 1, markdown: 1}`). */
+export async function scanCodeindex(runtime: Runtime, binary: string, projectRoot: string): Promise<{ languages: string[]; files: number } | null> {
+  const outcome = await runtime.runner.run({ argv: [binary, 'scan', '--repo', '.'], cwd: projectRoot, timeoutMs: SCAN_TIMEOUT_MS, maxOutputBytes: SCAN_MAX_OUTPUT_BYTES, env: { kind: 'inherited' } });
+  if (outcome.kind !== 'exited' || outcome.exitCode !== 0) return null;
+  try {
+    const parsed: unknown = JSON.parse(outcome.stdout);
+    if (!isObject(parsed) || !isObject(parsed['languages']) || typeof parsed['fileCount'] !== 'number') return null;
+    return { languages: Object.keys(parsed['languages']).sort(), files: parsed['fileCount'] };
+  } catch {
+    return null;
+  }
 }

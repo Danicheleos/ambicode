@@ -18,6 +18,10 @@ export const RuleCheck = z.discriminatedUnion('kind', [
 ]);
 export type RuleCheck = z.infer<typeof RuleCheck>;
 
+/** Where a migrated rule came from: the verbatim text and its file or URL (09-Q1). */
+export const RuleSource = z.strictObject({ quote: z.string(), location: z.string().min(1) });
+export type RuleSource = z.infer<typeof RuleSource>;
+
 const KebabId = z
   .string()
   .min(1)
@@ -33,8 +37,13 @@ export const PolicyRule = z.strictObject({
    * `policy/load.ts` because the check needs the pack's `appliesTo`.
    */
   remindOnEdit: z.boolean().default(false),
+  source: RuleSource.optional(),
 });
 export type PolicyRule = z.infer<typeof PolicyRule>;
+
+/** A rule in `.ambicode/policies/drafts/`: it must say where it came from. */
+export const DraftPolicyRule = PolicyRule.extend({ source: RuleSource });
+export type DraftPolicyRule = z.infer<typeof DraftPolicyRule>;
 
 export const PolicyPromptRef = z.strictObject({
   stage: PromptStage,

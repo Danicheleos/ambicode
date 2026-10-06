@@ -36,7 +36,7 @@ export const RAISED_BY = '$raisedBy';
 /** The field of a kind that a `kind{value}` qualifier is checked against. */
 export const QUALIFIERS: Readonly<Record<string, readonly string[]>> = {
   note: ['investigation', 'plan-draft', 'plan', 'notes'],
-  policy: ['before-work', 'before-checks', 'before-report'],
+  policy: ['before-work', 'before-checks', 'before-report', 'drafts', 'apply'],
   check: ['green'],
   requirement: ['full', 'list'],
 };

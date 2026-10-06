@@ -5,7 +5,7 @@ import path from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from '../cli/args.ts';
-import { INIT_OPTIONS, runInit } from '../cli/commands/init.ts';
+import { initConfig } from '../testing/init-config.ts';
 import { LOCATE_OPTIONS, runLocate } from '../cli/commands/locate.ts';
 import { createRuntime } from '../composition/root.ts';
 import { ProjectConfig } from '../contracts/config.ts';
@@ -265,7 +265,7 @@ describe('R4 boundary shortlist', () => {
   it('builds no index and writes nothing: the injected filesystem observes no mutation', async () => {
     const root = await materialize('ts-feature-boundary');
     try {
-      await runInit(await createRuntime({ cwd: root }), parseArgs('init', [], INIT_OPTIONS));
+      await initConfig(await createRuntime({ cwd: root }));
 
       const recorder = recording(nodeFileSystem);
       const runtime = await createRuntime({ cwd: root, fs: recorder.fs });
@@ -324,7 +324,7 @@ describe('R4 terms from requirement text', () => {
   it('finds the boundary from the requirement text alone, through the same envelope every command reads', async () => {
     const root = await materialize('ts-feature-boundary');
     try {
-      await runInit(await createRuntime({ cwd: root }), parseArgs('init', [], INIT_OPTIONS));
+      await initConfig(await createRuntime({ cwd: root }));
 
       const envelope = JSON.stringify({
         mcpServer: 'frozen-evidence',

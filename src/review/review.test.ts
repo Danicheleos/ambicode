@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import { parseArgs } from '../cli/args.ts';
-import { INIT_OPTIONS, runInit } from '../cli/commands/init.ts';
+import { initConfig } from '../testing/init-config.ts';
 import { REJECTED_OUTPUT_FILE, REVIEW_OPTIONS, runReview } from '../cli/commands/review.ts';
 import { createRuntime, type Runtime } from '../composition/root.ts';
 import type { ReviewerOutput } from '../contracts/review.ts';
@@ -58,7 +58,7 @@ async function fixture(options: { source?: string } = {}): Promise<Fixture> {
   await repo.commitAll('initial');
 
   const setup = await createRuntime({ cwd: repo.root });
-  await runInit(setup, parseArgs('init', [], INIT_OPTIONS));
+  await initConfig(setup);
 
   await repo.write(
     'src/orders.ts',
@@ -244,7 +244,7 @@ describe('files that rely on the change', () => {
     await repo.write('src/other/legacy.ts', 'export const legacy = 1;\n');
     for (let index = 0; index < 20; index += 1) await repo.write(`src/other/f${index}.ts`, `export const other${index} = ${index};\n`);
     await repo.commitAll('initial');
-    await runInit(await createRuntime({ cwd: repo.root }), parseArgs('init', [], INIT_OPTIONS));
+    await initConfig(await createRuntime({ cwd: repo.root }));
     await repo.write('src/pricing/pricing.service.ts', 'export function shippingFee(weight: number) {\n  return weight * 3;\n}\n');
     return { repo, runtime: await createRuntime({ cwd: repo.root }), dispose: () => repo.dispose() };
   }
