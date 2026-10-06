@@ -37,6 +37,7 @@ export const HANDLER_NAMES = [
   'evidence.navigationLine',
   'evidence.notes.save',
   'evidence.notes.promote',
+  'workers.planCheck',
   'init.propose',
   'init.close',
   'rules.discover',

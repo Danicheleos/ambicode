@@ -1,7 +1,7 @@
 import type { Runtime } from '../composition/root.ts';
 import { AmbicodeError } from '../util/errors.ts';
 import { navigationLine } from '../task/navigation-line.ts';
-import { promotePlan, saveNote, type NoteKind } from '../task/notes.ts';
+import { promotePlan, saveNote, type SaveKind } from '../task/notes.ts';
 import type { TaskDir } from '../task/task-dir.ts';
 import type { LockedLedger } from '../task/ledger-lock.ts';
 import type { RouteContextPort, RouteView } from './context.ts';
@@ -10,6 +10,7 @@ import type { Call } from './routes.ts';
 import { MODULE_HANDLERS } from './handlers-modules.ts';
 import { INIT_HANDLERS } from '../config/init-route.ts';
 import { RULES_HANDLERS } from '../policy/rules-route.ts';
+import { planCheckStep } from '../workers/plan-check.ts';
 
 export interface HandlerInput {
   view: RouteView;
@@ -21,12 +22,14 @@ export interface HandlerInput {
   runtime: Runtime;
   raisedBy: string;
   revise: { args: Readonly<Record<string, readonly string[]>> } | null;
+  /** Entry ids the command that advanced the route wrote for this step to consume (D1); empty otherwise. */
+  produced: readonly string[];
 }
 
 /** Handlers never parse CLI flags, call wrappers or advance the engine. */
 export type HandlerResult =
   | { state: 'ok'; payload: string | null }
-  | { state: 'failed'; code: string; message: string; recoverable: boolean }
+  | { state: 'failed'; code: string; message: string; recoverable: boolean; revise?: { args: Readonly<Record<string, readonly string[]>>; lastRound?: string } }
   | { state: 'raise'; gate: string; values: Readonly<Record<string, readonly string[]>> };
 
 export type Handler = (input: HandlerInput) => Promise<HandlerResult>;
@@ -65,10 +68,11 @@ export const EVIDENCE_HANDLERS: Readonly<Record<string, Handler>> = {
     const entries = read.state === 'ok' ? read.entries.filter((entry) => view.chainIds.includes(String((entry as { route?: unknown }).route ?? entry.id))) : [];
     return { state: 'ok', payload: navigationLine(entries) };
   },
-  'evidence.notes.save': async ({ params, ledger, runtime, view, context }) => {
-    const kind = params[0] as NoteKind | undefined;
+  'evidence.notes.save': async ({ params, ledger, runtime, view, context, produced, raisedBy }) => {
+    const kind = params[0] as SaveKind | undefined;
     const from = params.find((param) => param.startsWith('from:'))?.slice('from:'.length).trim() ?? null;
     if (kind === undefined) return { state: 'failed', code: 'internal', message: 'evidence.notes.save needs a note kind.', recoverable: false };
+    if (produced.length > 0 && (await context.window(view, raisedBy)).some((entry) => produced.includes(entry.id) && entry.kind === 'note' && entry['note'] === kind)) return { state: 'ok', payload: null };
     try {
       await saveNote({ runtime, session: view.session, context, ledger }, { task: view.task, kind, body: null, from, iteration: null, route: view.routeId });
       return { state: 'ok', payload: null };
@@ -84,6 +88,7 @@ export const EVIDENCE_HANDLERS: Readonly<Record<string, Handler>> = {
       return failedWith(error);
     }
   },
+  'workers.planCheck': planCheckStep,
 };
 
 export function defaultHandlers(): Record<string, Handler> {

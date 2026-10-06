@@ -10,6 +10,7 @@ import { DOCTOR_OPTIONS, renderDoctor, runDoctorCommand } from './commands/docto
 import { RULES_APPLY_OPTIONS, RULES_DISCOVER_OPTIONS, RULES_REVERT_OPTIONS, renderRules, runRulesApply, runRulesDiscover, runRulesRevert } from './commands/rules.ts';
 import { LOCATE_OPTIONS, renderLocate, runLocate } from './commands/locate.ts';
 import { NOTE_LIST_OPTIONS, NOTE_PROMOTE_OPTIONS, NOTE_SAVE_OPTIONS, renderNoteList, renderNotePromote, renderNoteSave, runNoteList, runNotePromote, runNoteSave } from './commands/note.ts';
+import { PLAN_CHECK_OPTIONS, renderPlanCheck, runPlanCheckCommand } from './commands/plan-check.ts';
 import { POLICY_OPTIONS, renderPolicy, runPolicy } from './commands/policy.ts';
 import { POLICY_CHECK_OPTIONS, renderPolicyCheck, runPolicyCheck } from './commands/policy-check.ts';
 import { PREPARE_OPTIONS, prepareAsRouteStart, renderPrepare, runPrepare } from './commands/prepare.ts';
@@ -20,6 +21,7 @@ import { ROUTE_NEXT_OPTIONS, ROUTE_START_OPTIONS, ROUTE_STATUS_OPTIONS, ROUTE_ST
 import { REVIEW_OPTIONS, renderReview, runReview } from './commands/review.ts';
 import type { ViewOutput } from './commands/view.ts';
 import { VIEW_OPTIONS } from './view-options.ts';
+import { WORKER_RUN_OPTIONS, renderWorkerRun, runWorkerCommand } from './commands/worker.ts';
 import { validateTargetArgs } from './target-option.ts';
 
 export const USAGE = `ambicode <command> [options]
@@ -91,6 +93,16 @@ export const USAGE = `ambicode <command> [options]
 
   note list               List the notes of a task: kind, path, time, heading,
                           iteration and promotion.
+                            --task <slug>
+
+  plan check              Save steps/plan-body.md as a plan draft, then check it by
+                          code: anchors, acceptance units, new names already
+                          declared. Exits 0 when the check ran, pass or fail.
+                            --task <slug>
+                            --from steps/plan-body.md   else the plan on standard input
+
+  worker run <id>         Run the worker defined in the plugin's workers/<id>.yaml
+                          and keep its JSON output as an artifact of the task.
                             --task <slug>
 
   route start <skill> [request…]
@@ -323,7 +335,7 @@ export async function main(argv: readonly string[]): Promise<number> {
   // Recognized here rather than by `runPolicy` inspecting its operands, so a
   // path literally named "check" stays reachable as `policy -- check`.
   const subcommand =
-    command === 'policy' && rest[0] === 'check' ? 'check' : command === 'note' && NOTE_COMMANDS.includes(rest[0] ?? '') ? rest[0] : command === 'route' && ROUTE_COMMANDS.includes(rest[0] ?? '') ? rest[0] : command === 'requirements' && REQUIREMENTS_COMMANDS.includes(rest[0] ?? '') ? rest[0] : command === 'index' && INDEX_COMMANDS.includes(rest[0] ?? '') ? rest[0] : command === 'rules' && RULES_COMMANDS.includes(rest[0] ?? '') ? rest[0] : undefined;
+    command === 'policy' && rest[0] === 'check' ? 'check' : command === 'note' && NOTE_COMMANDS.includes(rest[0] ?? '') ? rest[0] : command === 'route' && ROUTE_COMMANDS.includes(rest[0] ?? '') ? rest[0] : command === 'requirements' && REQUIREMENTS_COMMANDS.includes(rest[0] ?? '') ? rest[0] : command === 'index' && INDEX_COMMANDS.includes(rest[0] ?? '') ? rest[0] : command === 'rules' && RULES_COMMANDS.includes(rest[0] ?? '') ? rest[0] : command === 'plan' && rest[0] === 'check' ? 'check' : command === 'worker' && rest[0] === 'run' ? 'run' : undefined;
   const name = subcommand === undefined ? command : `${command} ${subcommand}`;
   const commandArgv = subcommand === undefined ? rest : rest.slice(1);
 
@@ -373,6 +385,8 @@ export const SPECS: Record<string, OptionSpec | undefined> = {
   'note save': NOTE_SAVE_OPTIONS,
   'note promote': NOTE_PROMOTE_OPTIONS,
   'note list': NOTE_LIST_OPTIONS,
+  'plan check': PLAN_CHECK_OPTIONS,
+  'worker run': WORKER_RUN_OPTIONS,
   report: REPORT_OPTIONS,
   'route start': ROUTE_START_OPTIONS,
   'route next': ROUTE_NEXT_OPTIONS,
@@ -450,6 +464,14 @@ async function run(command: string, args: ParsedArgs, runtime: Runtime): Promise
     case 'note list': {
       const output = await runNoteList(runtime, args);
       return { text: renderNoteList(output), data: output };
+    }
+    case 'plan check': {
+      const output = await runPlanCheckCommand(runtime, args);
+      return { text: renderPlanCheck(output), data: output };
+    }
+    case 'worker run': {
+      const output = await runWorkerCommand(runtime, args);
+      return { text: renderWorkerRun(output), data: output };
     }
     case 'route start': {
       const output = await runRouteStart(runtime, args);

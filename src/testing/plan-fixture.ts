@@ -1,7 +1,7 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { AdvanceInput, StartInput, StepMessage } from '../route/engine.ts';
-import { EVIDENCE_HANDLERS, type Handler } from '../route/handlers.ts';
+import { defaultHandlers, EVIDENCE_HANDLERS, type Handler } from '../route/handlers.ts';
 import type { LedgerEntry } from '../task/ledger.ts';
 import { ledgerRouteContext } from '../route/context.ts';
 import { promotePlan, saveNote } from '../task/notes.ts';
@@ -66,7 +66,7 @@ export function planHandlers(state: PlanState): Record<string, Handler> {
     },
     't.check': async ({ ledger }) => {
       state.checks += 1;
-      await ledger.append({ kind: 'worker', worker: 'plan-check', outcome: state.checkOk ? 'pass' : 'fail', ms: 1, artifact: 'workers/x.json' });
+      await ledger.append({ kind: 'worker', worker: 'plan-check', outcome: 'ran', ms: 1, artifact: 'workers/x.json', summary: { failed: !state.checkOk, anchorsBad: state.checkOk ? 0 : 1, acsUnmapped: 0, duplicates: 0 } });
       return state.checkOk ? { state: 'ok', payload: null } : { state: 'failed', code: 'plan-check-failed', message: 'bad anchors', recoverable: true };
     },
   };
@@ -88,9 +88,28 @@ export interface PlanFixture {
   dispose(): Promise<void>;
 }
 
-export async function planFixture(options: { extra?: Record<string, string>; handlers?: Record<string, Handler>; config?: string } = {}): Promise<PlanFixture> {
+const ROOT = path.resolve(import.meta.dirname, '..', '..');
+
+/** The shipped `routes/plan.yaml` with its step texts and the real handlers; `state` is then left untouched. */
+async function shippedRoute(): Promise<{ plan: string; step: Record<string, string>; handlers: Record<string, Handler> }> {
+  const step: Record<string, string> = {};
+  for (const name of ['plan-fetch', 'plan-design', 'plan-write']) step[`routes/steps/${name}.md`] = await readFile(path.join(ROOT, 'routes', 'steps', `${name}.md`), 'utf8');
+  return { plan: await readFile(path.join(ROOT, 'routes', 'plan.yaml'), 'utf8'), step, handlers: defaultHandlers() };
+}
+
+export async function planFixture(options: { extra?: Record<string, string>; handlers?: Record<string, Handler>; config?: string; shipped?: boolean } = {}): Promise<PlanFixture> {
   const state: PlanState = { checkOk: true, checks: 0, steps: 0 };
-  const fx = await routeFixture({ routes: { plan: PLAN, ...(options.extra ?? {}) }, handlers: { ...planHandlers(state), ...(options.handlers ?? {}) }, ...(options.config === undefined ? {} : { config: options.config }) });
+  const shipped = options.shipped === true ? await shippedRoute() : null;
+  const fx = await routeFixture({
+    routes: { plan: shipped?.plan ?? PLAN, ...(options.extra ?? {}) },
+    handlers: { ...(shipped?.handlers ?? planHandlers(state)), ...(options.handlers ?? {}) },
+    ...(shipped === null ? {} : { step: shipped.step }),
+    ...(options.config === undefined ? {} : { config: options.config }),
+  });
+  if (shipped !== null) {
+    await fx.repo.write('src/orders/limit.ts', 'export function orderLimit(total: number): number {\n  return total;\n}\n');
+    await fx.repo.commitAll('orders');
+  }
   const start = (input: Partial<StartInput> = {}) =>
     fx.engine.start({ skill: 'plan', text: 'add a limit', requirements: [], task: TASK, cwd: fx.repo.root, session: A, channel: 'hook', scratchpadDir: fx.scratchpad, ...input });
   const next = (input: Partial<AdvanceInput> = {}) => fx.engine.advance({ task: TASK, session: A, cause: 'route-next', scratchpadDir: fx.scratchpad, ...input });

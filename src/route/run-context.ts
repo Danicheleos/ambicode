@@ -33,6 +33,8 @@ export interface Run {
   written: string[];
   notes: string[];
   exited: string | null;
+  /** Entry ids the advancing command wrote for the step it completes (D1). */
+  produced?: readonly string[];
 }
 
 export const chainOf = (run: Run): Chain => buildChain(run.entries, run.head);

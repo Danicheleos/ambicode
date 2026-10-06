@@ -6,6 +6,7 @@ import path from 'node:path';
 import { describe, it } from 'node:test';
 import { createRuntime } from '../../composition/root.ts';
 import { contentHash } from '../../util/hash.ts';
+import { CONFIG } from '../../testing/route-fixture.ts';
 import { TempRepo } from '../../testing/temp-repo.ts';
 import { parseArgs } from '../args.ts';
 import { NOTE_SAVE_OPTIONS, runNoteSave } from './note.ts';
@@ -45,13 +46,10 @@ describe('note save owns the name, the time and the label of a task note', () =>
     });
   });
 
-  it('does not label twice when the body already starts with the label, and labels a plan "accepted"', async () => {
+  it('does not label twice when the body already starts with the label', async () => {
     await inRepo(async (repo) => {
-      const plan = await save(repo, ['--task', 'ORD-17', '--kind', 'plan'], '**plan** — accepted\n\n# Plan\n');
-      const text = await readFile(path.join(repo.root, plan.path), 'utf8');
-      assert.equal(text.match(/\*\*plan\*\*/g)?.length, 1);
-      const bare = await save(repo, ['--task', 'ORD-18', '--kind', 'plan'], '# Plan\n');
-      assert.match(await readFile(path.join(repo.root, bare.path), 'utf8'), /^\*\*plan\*\* — accepted\n\n# Plan/);
+      const note = await save(repo, ['--task', 'ORD-17', '--kind', 'investigation'], '**investigation note** — mine\n\n# Findings\n');
+      assert.equal((await readFile(path.join(repo.root, note.path), 'utf8')).match(/\*\*investigation note\*\*/g)?.length, 1);
     });
   });
 
@@ -127,9 +125,9 @@ describe('note save owns the name, the time and the label of a task note', () =>
   it('refuses a missing kind, a missing task and an empty body, writing nothing', async () => {
     await inRepo(async (repo) => {
       await assert.rejects(save(repo, ['--task', 'x'], 'body'), /--kind/);
-      await assert.rejects(save(repo, ['--kind', 'plan'], 'body'), /--task/);
-      await assert.rejects(save(repo, ['--task', 'x', '--kind', 'plan'], '  \n'), /standard input/);
-      await assert.rejects(save(repo, ['--task', 'x', '--kind', 'plan'], null), /standard input/);
+      await assert.rejects(save(repo, ['--kind', 'notes'], 'body'), /--task/);
+      await assert.rejects(save(repo, ['--task', 'x', '--kind', 'notes'], '  \n'), /standard input/);
+      await assert.rejects(save(repo, ['--task', 'x', '--kind', 'notes'], null), /standard input/);
       await assert.rejects(readFile(path.join(repo.root, '.ambicode/task/x/plan.md')));
       await assert.rejects(readdir(path.join(repo.root, '.ambicode/task')));
     });
@@ -156,7 +154,8 @@ describe('the note and report commands', () => {
     await inRepo(async (repo) => {
       const dir = path.join(repo.root, '.ambicode/task/ORD-17');
       await mkdir(dir, { recursive: true });
-      const route = { id: 'aaaaaaaa-1', at: 't', kind: 'route', skill: 'plan', args: 'x', mode: 'interactive', channel: 'hook', trusted: true, session: 'aaaaaaaa', epoch: 1 };
+      await repo.write('.ambicode/config.yaml', CONFIG);
+      const route = { id: 'aaaaaaaa-1', at: 't', kind: 'route', skill: 'plan', args: { text: 'x', requirements: [] }, mode: 'interactive', channel: 'hook', trusted: true, session: 'aaaaaaaa', epoch: 1 };
       await writeFile(path.join(dir, 'ledger.jsonl'), `${JSON.stringify(route)}\n`);
       const out = cli(repo, ['note', 'save', '--task', 'ORD-17', '--kind', 'plan-draft', '--json'], '# Plan');
       assert.equal(out.status, 0, out.stderr);
@@ -165,12 +164,13 @@ describe('the note and report commands', () => {
     });
   });
 
-  it('02-N5: --kind plan still saves, and says on standard error that it is deprecated', async () => {
+  it('06-N1: --kind plan is a bad argument naming the three save kinds, and writes nothing', async () => {
     await inRepo(async (repo) => {
       const out = cli(repo, ['note', 'save', '--task', 'ORD-17', '--kind', 'plan', '--json'], '# Plan');
-      assert.equal(out.status, 0);
-      assert.match(out.stderr, /"--kind plan" is deprecated/);
-      assert.equal(JSON.parse(out.stdout).kind, 'plan');
+      assert.equal(out.status, 2);
+      assert.match(out.stderr, /bad-argument/);
+      assert.match(out.stderr, /investigation, plan-draft or notes/);
+      await assert.rejects(readdir(path.join(repo.root, '.ambicode/task/ORD-17')));
     });
   });
 

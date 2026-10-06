@@ -3,7 +3,7 @@ import { taskSlugFor } from '../../review/review-name.ts';
 import { openRouteView } from '../../route/context.ts';
 import { ledgerRouteContext } from '../../route/context.ts';
 import { runCommandTail } from '../../route/command-tail.ts';
-import { listNotes, MAX_NOTE_BYTES, promotePlan, saveNote, type NoteKind, type NoteRow } from '../../task/notes.ts';
+import { listNotes, MAX_NOTE_BYTES, promotePlan, SAVE_KINDS, saveNote, type NoteRow, type SaveKind } from '../../task/notes.ts';
 import { AmbicodeError } from '../../util/errors.ts';
 import type { ParsedArgs } from '../args.ts';
 import { ownerFor, routeTools } from './route.ts';
@@ -14,8 +14,6 @@ export const NOTE_SAVE_OPTIONS = {
 } as const;
 export const NOTE_PROMOTE_OPTIONS = { values: ['task'], flags: ['json'] } as const;
 export const NOTE_LIST_OPTIONS = { values: ['task'], flags: ['json'] } as const;
-
-const SAVE_KINDS: readonly string[] = ['investigation', 'plan-draft', 'notes', 'plan'];
 
 /** The owner of the task's live route and the route context; no live route (or several) leaves the session unbound. */
 async function depsFor(runtime: Runtime, task: string) {
@@ -33,9 +31,9 @@ function taskOf(command: string, args: ParsedArgs): string {
 export interface NoteSaveOutput {
   command: 'note save';
   task: string;
-  kind: NoteKind;
+  kind: SaveKind;
   path: string;
-  /** Printed to standard error as well: the 1 MiB ledger warning, the `--kind plan` deprecation. */
+  /** Printed to standard error as well: the 1 MiB ledger warning. */
   warnings?: string[];
   /** The next step of the task's route, printed by the command tail. */
   next?: string;
@@ -47,7 +45,7 @@ export interface NoteSaveOutput {
  */
 export async function runNoteSave(runtime: Runtime, args: ParsedArgs): Promise<NoteSaveOutput> {
   const kind = args.value('kind');
-  if (kind === null || !SAVE_KINDS.includes(kind)) {
+  if (kind === null || !(SAVE_KINDS as readonly string[]).includes(kind)) {
     throw new AmbicodeError('bad-argument', '"note save" needs --kind investigation, plan-draft or notes.', { field: 'kind' });
   }
   const task = taskOf('note save', args);
@@ -58,13 +56,10 @@ export async function runNoteSave(runtime: Runtime, args: ParsedArgs): Promise<N
   const body = from === null ? ((await runtime.stdin.read(MAX_NOTE_BYTES)) ?? null) : null;
   const { tools, session, deps } = await depsFor(runtime, task);
   const view = session === null ? null : await openRouteView(runtime, tools.routes, task, session);
-  const saved = await saveNote(deps, { task, kind: kind as NoteKind, body, from, iteration: iteration === null ? null : Number(iteration), route: view?.routeId ?? null });
+  const saved = await saveNote(deps, { task, kind: kind as SaveKind, body, from, iteration: iteration === null ? null : Number(iteration), route: view?.routeId ?? null });
   const next = await runCommandTail({ engine: tools.engine }, { task, cause: 'note save', session: tools.binding });
-  const warnings = [
-    ...(kind === 'plan' ? ['"--kind plan" is deprecated: a plan is saved as --kind plan-draft and promoted with "note promote".'] : []),
-    ...(saved.warning === null ? [] : [saved.warning]),
-  ];
-  return { command: 'note save', task, kind: kind as NoteKind, path: saved.path, ...(warnings.length === 0 ? {} : { warnings }), ...(next === null ? {} : { next: next.text }) };
+  const warnings = saved.warning === null ? [] : [saved.warning];
+  return { command: 'note save', task, kind: kind as SaveKind, path: saved.path, ...(warnings.length === 0 ? {} : { warnings }), ...(next === null ? {} : { next: next.text }) };
 }
 
 export function renderNoteSave(output: NoteSaveOutput): string {

@@ -37,7 +37,7 @@ function documentedOptions(): Map<string, string[]> {
   let current: string | null = null;
   for (const line of USAGE.split('\n')) {
     if (line === GLOBAL) documented.set((current = GLOBAL), []);
-    const command = /^  ([a-z]+(?: check| save| promote| list| start| next| status| stop| template| normalize| acs| build| discover| apply| revert)?)(?: |$)/.exec(line);
+    const command = /^  ([a-z]+(?: check| save| promote| list| start| next| status| stop| template| normalize| acs| build| discover| apply| revert| run)?)(?: |$)/.exec(line);
     if (command !== null) {
       current = command[1] ?? null;
       if (current !== null) documented.set(current, []);

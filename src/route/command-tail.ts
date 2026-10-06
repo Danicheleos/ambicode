@@ -15,7 +15,7 @@ export interface TailDeps {
  */
 export async function runCommandTail(
   deps: TailDeps,
-  input: { task: string; cause: CommandName; session: SessionBinding; scratchpadDir?: string },
+  input: { task: string; cause: CommandName; session: SessionBinding; scratchpadDir?: string; produced?: readonly string[] },
 ): Promise<StepMessage | null> {
   if (insideEngine()) throw new Error(`The ${input.cause} tail ran inside the route engine; a handler must not call a command tail.`);
   if (input.session.state === 'unbound') {
@@ -25,7 +25,7 @@ export async function runCommandTail(
     return null;
   }
   try {
-    return await deps.engine.advance({ task: input.task, session: input.session.session, cause: input.cause, ...(input.scratchpadDir === undefined ? {} : { scratchpadDir: input.scratchpadDir }) });
+    return await deps.engine.advance({ task: input.task, session: input.session.session, cause: input.cause, ...(input.produced === undefined ? {} : { produced: input.produced }), ...(input.scratchpadDir === undefined ? {} : { scratchpadDir: input.scratchpadDir }) });
   } catch (error) {
     if (isAmbicodeError(error) && error.code === 'route-not-open') return null;
     throw error;

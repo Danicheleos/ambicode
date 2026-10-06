@@ -23,6 +23,9 @@ const KINDS = {
 export const NOTE_LABELS: readonly string[] = Object.values(KINDS).map((kind) => kind.label);
 
 export type NoteKind = keyof typeof KINDS;
+/** A `plan` note is written only by promotion; legacy ones stay readable. */
+export type SaveKind = Exclude<NoteKind, 'plan'>;
+export const SAVE_KINDS: readonly SaveKind[] = ['investigation', 'plan-draft', 'notes'];
 
 export interface NoteDeps {
   runtime: Runtime;
@@ -74,7 +77,7 @@ const draftMissing = (task: string): AmbicodeError =>
   });
 
 /** The route a `plan-draft` is saved for, or `null` for a routeless save; every other state refuses before anything is written. */
-async function owningRoute(ledger: LockedLedger, session: string | null, task: string): Promise<string | null> {
+export async function owningRoute(ledger: LockedLedger, session: string | null, task: string): Promise<string | null> {
   const read = await ledger.read();
   if (read.state === 'unreadable') throw unreadable(task, read.reason);
   const owner = ownerOf(read.state === 'ok' ? read.entries : [], task);
@@ -115,10 +118,11 @@ async function writeNote(runtime: Runtime, dir: TaskDir, kind: NoteKind, text: s
 
 export async function saveNote(
   deps: NoteDeps,
-  input: { task: string; kind: NoteKind; body: string | null; from: string | null; iteration: number | null; route?: string | null },
+  input: { task: string; kind: SaveKind; body: string | null; from: string | null; iteration: number | null; route?: string | null },
 ): Promise<SavedNote> {
   const { runtime, session } = deps;
   const { task, kind, from, iteration } = input;
+  if (!SAVE_KINDS.includes(kind)) throw badArgument(`A note is saved as ${SAVE_KINDS.join(', ')}; an accepted plan comes only from "note promote".`, 'kind');
   if (iteration !== null && (kind !== 'notes' || !Number.isInteger(iteration) || iteration < 1)) {
     throw badArgument('--iteration takes an integer of at least 1 and goes with --kind notes only.', 'iteration');
   }

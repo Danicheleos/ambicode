@@ -80,7 +80,10 @@ const schemas = [
     reviewId: text, status: text.optional(), statusReason: text.nullable().optional(), reviewerRan: z.boolean().optional(),
     findings: count.optional(), omissions: z.unknown().optional(),
   }),
-  entry('worker', { worker: text, outcome: text, ms: z.number(), artifact: text, costUsd: z.number().optional() }),
+  entry('worker', {
+    worker: text, outcome: z.enum(['ran', 'inline', 'skipped']), ms: z.number(), artifact: text.nullable(), costUsd: z.number().optional(), reason: text.optional(),
+    summary: z.object({ failed: z.boolean(), anchorsBad: count, acsUnmapped: count, duplicates: count }).optional(),
+  }),
   entry('note', {
     note: z.enum(['investigation', 'plan-draft', 'plan', 'notes']), path: text, contentHash: text,
     iteration: z.number().int().min(1).optional(), promotedFrom: text.optional(), from: text.optional(),

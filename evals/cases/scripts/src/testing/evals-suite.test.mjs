@@ -777,3 +777,24 @@ describe('eval fixtures: running a Python test leaves nothing git can see', () =
     }
   });
 });
+
+describe('eval triggers: migrated skills never fire on phrasing', () => {
+  it('06-T1: no evals-triggers grader expects ambicode:plan, investigate, init or rules with min ≥ 1', async () => {
+    const root = path.join(ROOT, 'evals', 'cases', 'evals-triggers');
+    const offenders = [];
+    let scanned = 0;
+    for (const file of await readdir(root, { recursive: true })) {
+      // url-bare is the diagnostic case: its per-skill graders can never all pass, by design.
+      if (!/(^|[\\/])graders[\\/][^\\/]+\.md$/.test(file) || file.startsWith('url-bare')) continue;
+      const match = /^---\n([\s\S]*?)\n---/.exec(await readFile(path.join(root, file), 'utf8'));
+      assert.ok(match, `${file} has no frontmatter`);
+      const grader = parseYaml(match[1]);
+      scanned++;
+      const names = /ambicode:(?:\(([^)]*)\)|([a-z-]+))/.exec(String(grader.input_match ?? ''));
+      const skills = names ? (names[1] ?? names[2]).split('|') : [];
+      if ((grader.min ?? 0) >= 1 && skills.some((skill) => ['plan', 'investigate', 'init', 'rules'].includes(skill))) offenders.push(file);
+    }
+    assert.ok(scanned > 0, 'no trigger grader found');
+    assert.deepEqual(offenders, []);
+  });
+});

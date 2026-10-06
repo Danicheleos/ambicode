@@ -165,7 +165,7 @@ async function deliverSharedContract(
   return output;
 }
 
-/** A launch first, then the plan/task slash command that still prepares, then re-injection of the active route's step. */
+/** A launch first, then the task slash command that still prepares, then re-injection of the active route's step. */
 async function promptContext(runtime: Runtime, input: HookInput, deps: HookDeps): Promise<string | null> {
   const prompt = (input.prompt ?? '').trim();
   if (/^\/ambicode:\w+/.test(prompt)) {

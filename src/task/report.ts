@@ -66,7 +66,9 @@ export function buildReport(
 
   const decisions: string[] = [];
   for (const entry of of('preanswer', 'acceptance', 'declined', 'default-taken')) {
-    const how = entry.kind === 'preanswer' ? `"${clip(entry.option)}" (preanswer)` : `${entry.kind === 'acceptance' ? '' : `${entry.kind} `}"${clip(entry.answer)}" (via ${clip(entry.via)})`;
+    // A preanswer converted at the print was given before the draft it accepts existed (P42).
+    const via = entry.kind === 'acceptance' && entry.via === 'prompt' && entry.gate === 'plan-accept' ? 'answered in the prompt (before the artifact existed)' : `via ${clip(entry.via)}`;
+    const how = entry.kind === 'preanswer' ? `"${clip(entry.option)}" (preanswer)` : `${entry.kind === 'acceptance' ? '' : `${entry.kind} `}"${clip(entry.answer)}" (${via})`;
     decisions.push(`${clip(entry.gate)} ${how}${historical(entry)}`);
     if (entry.kind === 'declined') notVerified.push(`${clip(entry.gate)}: declined "${clip(entry.answer)}"${entry.reason === undefined ? '' : ` (${clip(entry.reason)})`}${historical(entry)}`);
     if (entry.kind === 'default-taken') notVerified.push(`${clip(entry.gate)}: default taken, "${clip(entry.answer)}" (${clip(entry.via)})${historical(entry)}`);

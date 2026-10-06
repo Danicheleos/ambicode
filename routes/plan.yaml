@@ -1,0 +1,55 @@
+skill: plan
+version: 3
+budget: { modelSteps: 14, wallMinutes: 45 }      # wallMinutes applies in --headless only
+exits: [done, blocked, human, inconclusive, superseded, budget]
+revisable: [design]                               # the model may `route next --revise design`
+steps:
+  - id: template
+    actor: code
+    when: args.hasRequirement
+    run: requirements.template
+  - id: fetch
+    actor: model
+    when: args.hasRequirement
+    instruction: file:routes/steps/plan-fetch.md
+    payload: [template]
+  - id: ground
+    actor: code
+    run: [requirements.normalize, requirements.acs, "search.map(context)", "policy.stage(before-work)"]
+    produces: [envelope, map, policy]
+    repeat: 2                                     # one automatic re-run; a human scope answer starts a new cycle
+  - id: design
+    actor: model
+    instruction: file:routes/steps/plan-design.md
+    payload: [map, "policy:before-work", acs]
+    repeat: 2
+  - id: plan-step
+    actor: code
+    run: ["policy.stage(before-report)", evidence.navigationLine]
+    produces: ["policy{before-report}"]           # qualified: a before-work policy entry is already in the window
+  - id: plan-write
+    actor: model
+    instruction: file:routes/steps/plan-write.md
+    repeat: 3
+  - id: plan-check
+    actor: code
+    run: ["evidence.notes.save(plan-draft, from: steps/plan-body.md)", workers.planCheck]
+    produces: ["note{plan-draft}", worker]
+    onFail: revise plan-write                     # bounded by plan-write's repeat (3), not by this step's
+  - id: plan-accept
+    actor: human
+    gate:
+      question: "Accept this plan?"
+      object: "note{plan-draft}"                  # the latest draft in plan-check's window; the answer carries its hash
+      options: [Accept, Revise, Reject]
+      acting: [Accept]                            # 01-contracts §5: Accept is an acting option
+      default: Reject                             # non-acting: the draft stays a draft
+      release: Reject
+      onAnswer: { Revise: revise design }         # a human cycle: resets design/plan-write repeats
+      maxRevises: 3                               # printed as "Revise (N left)"
+  - id: promote
+    actor: code
+    when: gate.plan-accept.is(Accept)             # the latest answer in this step's window
+    run: evidence.notes.promote                   # the bound predicate of v6/13 §3
+    onFail: revise plan-accept                    # plan-not-accepted {object-changed}: re-print the gate for the current draft
+    produces: ["note{plan}"]                      # a note{plan-draft} does not satisfy it

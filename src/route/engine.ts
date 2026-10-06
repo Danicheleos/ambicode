@@ -61,6 +61,8 @@ export interface AdvanceInput {
   show?: string;
   cause: Cause;
   scratchpadDir?: string;
+  /** What the command (`plan check`) already wrote for the code step it reaches; that step consumes it (D1). */
+  produced?: readonly string[];
 }
 
 export interface StepMessage {
@@ -251,7 +253,7 @@ export function createEngine(deps: EngineDeps): Engine {
     for (const call of step.run) {
       const handler = handlers.get(call.name);
       if (handler === null) throw new AmbicodeError('internal', `No handler "${call.name}" is registered.`);
-      const result = await handler({ view, context, dir: run.dir, args, params: call.params, ledger: run.ledger, runtime: run.runtime, raisedBy: step.id, revise });
+      const result = await handler({ view, context, dir: run.dir, args, params: call.params, ledger: run.ledger, runtime: run.runtime, raisedBy: step.id, revise, produced: run.produced ?? [] });
       if (result.state === 'ok') {
         // An empty file, not none: a payload left by an earlier run of this step in the chain would be delivered again.
         await savePayload(run.runtime.fs, run.dir, chainKey(view.chainIds), payloadKey(call), result.payload ?? '');
@@ -273,14 +275,17 @@ export function createEngine(deps: EngineDeps): Engine {
     return null;
   }
 
-  async function failure(run: Run, step: StepDef, result: { code: string; message: string; recoverable: boolean }): Promise<Part | null> {
+  async function failure(run: Run, step: StepDef, result: { code: string; message: string; recoverable: boolean; revise?: { args: Readonly<Record<string, readonly string[]>>; lastRound?: string } }): Promise<Part | null> {
     const window = windowOf(foldRoute(run.def, chainOf(run)), step);
     const earlier = window.filter((entry) => entry.kind === 'step' && entry['step'] === step.id && entry['status'] === 'failed' && entry['code'] === result.code).length;
     await append(run, { kind: 'step', step: step.id, actor: 'code', status: 'failed', cause: run.cause, code: result.code, message: result.message.slice(0, 300) });
     if (step.onFail !== null) {
       // The step ran and its result is on record; the failure is what the route wants redone (S4).
       await append(run, { kind: 'step', step: step.id, actor: 'code', status: 'completed', cause: run.cause, failed: true });
-      await reviseTo(run, step.onFail, 'code', { reason: `${step.id}: ${result.code}`, raisedBy: step.id });
+      const target = run.def.steps.find((candidate) => candidate.id === step.onFail!.target);
+      const last = result.revise?.lastRound !== undefined && target !== undefined && executions(chainOf(run).entries, target) + 1 === target.repeat;
+      const args = { ...step.onFail.args, ...result.revise?.args, ...(last ? { 'Last round': [result.revise!.lastRound!] } : {}) };
+      await reviseTo(run, { target: step.onFail.target, args }, 'code', { reason: `${step.id}: ${result.code}`, raisedBy: step.id });
       return null;
     }
     const error = step.onError;
@@ -593,6 +598,7 @@ export function createEngine(deps: EngineDeps): Engine {
         throw new AmbicodeError('route-not-open', `The route on task ${input.task} ended (${quiet(ended['reason'])}).`, { details: [`Start one: route start ${def.skill} --task ${input.task}`] });
       }
       const run = newRun({ runtime, def, task: input.task, dir, ledger, entries, head, session: input.session, stateKey: harnessOf(head) ?? input.session, cause: input.cause, channel: input.cause === 'gate-hook' ? 'hook' : 'cli', ...scratchOf(head, input.scratchpadDir) });
+      if (input.produced !== undefined) run.produced = input.produced;
       const position = foldRoute(def, chain).position;
       const raised = input.conflict !== undefined && position !== null
         ? await raiseConflict({ view: viewFor(run, position.id), ledger: run.ledger, summary: input.conflict.summary, sources: input.conflict.sources })

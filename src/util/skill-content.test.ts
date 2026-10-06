@@ -66,7 +66,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
     }
   });
 
-  it('keeps init, rules and the route-driven investigate user-invoked only, and scopes every skill tool grant', async () => {
+  it('keeps init, rules and the route-driven investigate and plan user-invoked only, and scopes every skill tool grant', async () => {
     for (const dir of ['init', 'investigate', 'plan', 'review', 'rules', 'task']) {
       const what = `${dir}/SKILL.md`;
       const fm = frontmatter(await readFile(path.join(SKILLS_DIR, dir, 'SKILL.md'), 'utf8'), what);
@@ -83,11 +83,11 @@ describe('P2.2/P2.3 shipped skill content', () => {
       }
       // Setup-time skills are run by the user, never by the model, so their
       // descriptions stay out of the always-on skill list.
-      const setupOnly = dir === 'init' || dir === 'rules' || dir === 'investigate';
+      const userOnly = dir === 'init' || dir === 'rules' || dir === 'investigate' || dir === 'plan';
       assert.equal(
         fm['disable-model-invocation'] === true,
-        setupOnly,
-        `${what}: exactly the setup-time skills disable model invocation`,
+        userOnly,
+        `${what}: exactly the setup-time and route-driven skills disable model invocation`,
       );
     }
   });
@@ -100,7 +100,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
       const content = await readFile(path.join(SKILLS_DIR, relative), 'utf8');
       assert.doesNotMatch(content, /skills\/shared|requirements-mcp|prepare-output|shared file/, `${relative} still points at a deleted shared file`);
     }
-    for (const relative of ['task/SKILL.md', 'plan/SKILL.md', 'review/references/requirements.md']) {
+    for (const relative of ['task/SKILL.md', 'review/references/requirements.md']) {
       const content = await readFile(path.join(SKILLS_DIR, relative), 'utf8');
       assert.match(content, /requirements\.mcpServer/, `${relative} binds the server inline`);
       assert.match(content, /--evidence -/, `${relative} pipes the envelope`);
@@ -148,16 +148,26 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.ok(Buffer.byteLength(investigate) <= 900);
   });
 
-  it('tells plan and task to pass the terms prepare needs for a shortlist (R4)', async () => {
-    for (const name of ['plan', 'task']) {
+  it('tells task to pass the terms prepare needs for a shortlist (R4)', async () => {
+    for (const name of ['task']) {
       const content = await readFile(path.join(SKILLS_DIR, name, 'SKILL.md'), 'utf8');
       assert.match(content, /--term <term>/, `${name}/SKILL.md must offer --term in its prepare argv`);
     }
   });
 
-  it('plan documents its single note-writing boundary, separate from investigate\'s', async () => {
+  it('06-S4: plan leaves the draft and the accepted note to the route, and never names --kind plan', async () => {
     const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
-    assert.match(plan, /note save --task <slug> --kind plan/);
+    assert.doesNotMatch(plan, /--kind plan\b/);
+  });
+
+  it('06-S1/06-S2: plan stays within 2,560 bytes, is user-invoked only and may write only its plan body', async () => {
+    const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
+    assert.ok(Buffer.byteLength(plan) <= 2560, `${Buffer.byteLength(plan)} bytes`);
+    const fm = frontmatter(plan, 'plan/SKILL.md');
+    assert.equal(fm['disable-model-invocation'], true);
+    assert.equal(requiredString(fm, 'allowed-tools', 'plan/SKILL.md'), 'Read, Grep, Glob, Bash(node *ambicode.mjs*), Write(.ambicode/task/*/steps/plan-body.md)');
+    const normalized = plan.replace(/\s+/g, ' ');
+    for (const judgment of [/material versus routine/i, /reuse over new/i, /independently reviewable iterations/i]) assert.match(normalized, judgment);
   });
 
   it('task documents its single note-writing boundary, separate from investigate\'s and plan\'s', async () => {
@@ -183,15 +193,16 @@ describe('P2.2/P2.3 shipped skill content', () => {
     }
   });
 
-  it('plan writes each iteration as a brief task can start from, not a one-line title', async () => {
+  it('06-S4: plan and its write step name the six iteration fields', async () => {
     const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
+    const write = await readFile(path.join(repositoryRoot, 'routes', 'steps', 'plan-write.md'), 'utf8');
     for (const field of ['Goal', 'Changes', 'Tests', 'Accept', 'Checks', 'Leaves out']) {
-      assert.match(plan, new RegExp(`^  - \\*${field}\\*:`, 'm'), `plan/SKILL.md iteration brief lacks *${field}*`);
+      assert.ok(plan.includes(`*${field}*`), `plan/SKILL.md lacks *${field}*`);
+      assert.ok(write.includes(`*${field}*`), `plan-write.md lacks *${field}*`);
     }
-    assert.match(plan, /mini-prompt/);
   });
 
-  it('plan distinguishes draft from accepted status, and requires explicit human acceptance', async () => {
+  it('06-S3: plan distinguishes draft from accepted status, and requires explicit human acceptance', async () => {
     const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
     assert.match(plan, /\bdraft\b/i);
     assert.match(plan, /\baccepted\b/i);
@@ -202,13 +213,14 @@ describe('P2.2/P2.3 shipped skill content', () => {
     );
   });
 
-  it('plan names an acceptance gate that works outside plan mode, and offers a decline', async () => {
+  it('06-S4/06-R10: plan accepts through the route gate, whose decline is the default, not through ExitPlanMode', async () => {
     const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
-    // Outside plan mode `ExitPlanMode` is not available, so both paths and the decline
-    // must be named: a gate whose only answer is yes is not a gate.
-    assert.match(plan, /ExitPlanMode/);
-    assert.match(plan, /AskUserQuestion/);
-    assert.match(plan, /\bReject\b/);
+    assert.doesNotMatch(plan, /ExitPlanMode/);
+    const route = YAML.parse(await readFile(path.join(repositoryRoot, 'routes', 'plan.yaml'), 'utf8')) as { steps: { id: string; gate?: Record<string, unknown> }[] };
+    const gate = route.steps.find((step) => step.id === 'plan-accept')?.gate;
+    assert.deepEqual(gate?.['options'], ['Accept', 'Revise', 'Reject']);
+    assert.equal(gate?.['default'], 'Reject');
+    assert.equal(gate?.['release'], 'Reject');
   });
   it('plan states it never implements, never invokes the reviewer, and never publishes, commits, or pushes', async () => {
     const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
@@ -222,19 +234,18 @@ describe('P2.2/P2.3 shipped skill content', () => {
     }
   });
 
-  it('plan explicitly refuses ambiguous monorepository project selection instead of guessing', async () => {
-    const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
-    assert.match(plan, /ambiguous-project/);
-    assert.match(plan, /refuse to guess/i);
-  });
-
   it('plan treats requirement and repository content as evidence, never as authorization', async () => {
     const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
     assert.match(plan, /never\s+instructions?\s+or\s+authorization/i);
   });
 
-  it('plan and task define the primary request as the complete span before --requirement, preserving multiword intent, never the first token alone (doc 04 P2.3 correction D)', async () => {
-    for (const name of ['plan', 'task']) {
+  it('06-S4: plan passes $ARGUMENTS to the route unchanged, so the whole primary request reaches it', async () => {
+    const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
+    assert.ok(plan.includes('node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" route start plan "$ARGUMENTS"'));
+  });
+
+  it('task defines the primary request as the complete span before --requirement, preserving multiword intent, never the first token alone (doc 04 P2.3 correction D)', async () => {
+    for (const name of ['task']) {
       const content = await readFile(path.join(SKILLS_DIR, name, 'SKILL.md'), 'utf8');
       const normalized = content.replace(/\s+/g, ' ');
       assert.match(normalized, /primary request is the complete argument span before the first recognized/i, `${name}/SKILL.md`);
@@ -271,8 +282,8 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.ok(!/suggestedComment|coverageNotes/i.test(content), 'must not carry reviewer-only finding/output vocabulary');
   });
 
-  it('plan and task point at the prepared shared operating contract for authority guidance, instead of duplicating its definition (doc 04 P2.4 correction A6)', async () => {
-    for (const name of ['plan', 'task']) {
+  it('task points at the prepared shared operating contract for authority guidance, instead of duplicating its definition (doc 04 P2.4 correction A6)', async () => {
+    for (const name of ['task']) {
       const content = await readFile(path.join(SKILLS_DIR, name, 'SKILL.md'), 'utf8');
       assert.match(
         content,
@@ -292,7 +303,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
   });
 
   it('every authoring skill invokes ambicode prepare with --json and reads its structured output (doc 04 P2.4 correction A1)', async () => {
-    for (const name of ['plan', 'task']) {
+    for (const name of ['task']) {
       const content = await readFile(path.join(SKILLS_DIR, name, 'SKILL.md'), 'utf8');
       assert.match(
         content,
@@ -303,7 +314,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
   });
 
   it('makes LSP-first navigation observable instead of silently claiming or skipping it', async () => {
-    for (const name of ['plan', 'task']) {
+    for (const name of ['task']) {
       const content = await readFile(path.join(SKILLS_DIR, name, 'SKILL.md'), 'utf8');
       assert.match(content, /`navigation`/, `${name}/SKILL.md must read prepare's navigation contract`);
       assert.match(content, /Navigation: LSP/);

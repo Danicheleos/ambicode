@@ -210,6 +210,12 @@ changed). Ask the user `plan-accept` again for the current draft; do not
 rewrite or re-check the plan. `plan-already-promoted` is not an error: the plan
 exists and its path is printed.
 
+**`worker-output-invalid`.** A worker run by `worker run` gave no usable output:
+the process failed, or its output was not one JSON object matching the worker's
+schema within 64 KiB; the `reason` detail says which. No artifact was written.
+Release: continue inline — do this work in the session; the worker's output was
+not used.
+
 **Init owns its files.** While an init route is active, editing
 `.ambicode/config.yaml` or `.gitignore` is denied: `init --apply --set` writes
 them when the user accepts the proposal. Answer the init gate instead.

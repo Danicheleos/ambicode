@@ -52,7 +52,7 @@ async function snapshot(repo: TempRepo, slug = TASK): Promise<string> {
   return `${names.sort().join(',')}\n${ledger}`;
 }
 
-const save = (deps: NoteDeps, kind: 'investigation' | 'plan-draft' | 'notes' | 'plan', body: string | null, extra: { from?: string; iteration?: number } = {}) =>
+const save = (deps: NoteDeps, kind: 'investigation' | 'plan-draft' | 'notes', body: string | null, extra: { from?: string; iteration?: number } = {}) =>
   saveNote(deps, { task: TASK, kind, body, from: extra.from ?? null, iteration: extra.iteration ?? null });
 
 const entriesOf = async (repo: TempRepo): Promise<LedgerEntry[]> => readLedger(nodeFileSystem, taskDir(repo));
@@ -120,14 +120,13 @@ describe('note save: kinds, bodies and headers', () => {
     });
   });
 
-  it('02-N5: --kind plan still writes the legacy accepted label, with no route check', async () => {
+  it('06-N1: saveNote refuses kind plan before writing anything', async () => {
     await inRepo(async (repo) => {
       await seed(repo, [route(`${A}-1`, A)]);
+      const before = await snapshot(repo);
       const deps = { runtime: await runtimeFor(repo), session: null, context: null };
-      const saved = await save(deps, 'plan', '# Plan');
-      assert.match(await readFile(path.join(repo.root, saved.path), 'utf8'), /^\*\*plan\*\* — accepted\n\n# Plan/);
-      assert.equal(saved.entry.note, 'plan');
-      assert.equal(saved.entry.promotedFrom, undefined);
+      await assert.rejects(saveNote(deps, { task: TASK, kind: 'plan' as never, body: '# Plan', from: null, iteration: null }), (error: AmbicodeError) => error.code === 'bad-argument' && error.field === 'kind');
+      assert.equal(await snapshot(repo), before);
     });
   });
 });
@@ -398,7 +397,8 @@ describe('note promote: the accepted draft, and only that draft, becomes the pla
   it('02-P5: a legacy plan note neither satisfies nor blocks a promotion', async () => {
     await inRepo(async (repo) => {
       const scenario = await Scenario.start(repo);
-      await save({ runtime: scenario.runtime, session: null, context: null }, 'plan', '# Old way');
+      await writeFile(path.join(taskDir(repo), 'plan_old.md'), '**plan** — accepted\n\n# Old way\n');
+      await appendLedger(nodeFileSystem, taskDir(repo), new Date(), 'legacy00', { kind: 'note', note: 'plan', path: `.ambicode/task/${TASK}/plan_old.md`, contentHash: 'h' });
       const gate = await scenario.gate(await scenario.draft('# Plan'));
       await scenario.answer(gate, 'Accept');
       assert.equal((await scenario.promote()).outcome, 'promoted');

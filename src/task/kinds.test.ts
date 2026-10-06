@@ -48,7 +48,7 @@ const TABLE: Record<Kind, { valid: object; invalid: object }> = {
   check: { valid: CHECK, invalid: { ...CHECK, summary: undefined } },
   format: { valid: { key: 'web/format', files: [], exit: 0, via: 'model' }, invalid: { exit: 'zero' } },
   review: { valid: { reviewId: 'local_2026', status: 'complete', reviewerRan: true, findings: 2, omissions: 0 }, invalid: { status: 'complete' } },
-  worker: { valid: { worker: 'plan-checker', outcome: 'ok', ms: 5, artifact: 'workers/x.json', costUsd: 0.1 }, invalid: { outcome: 'ok', ms: 5, artifact: 'x' } },
+  worker: { valid: { worker: 'plan-checker', outcome: 'ran', ms: 5, artifact: 'workers/x.json', costUsd: 0.1 }, invalid: { outcome: 'ok', ms: 5, artifact: 'x' } },
   note: { valid: { note: 'plan', path: 'plan_x.md', contentHash: 'sha256:x', promotedFrom: 'a1b2c3d4-3' }, invalid: { note: 'draft', path: 'plan_x.md', contentHash: 'sha256:x' } },
 };
 const common = { id: 'a1b2c3d4-9', at: '2026-10-05T10:00:00.000Z' };

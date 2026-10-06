@@ -8,7 +8,9 @@ its report by default — runs this suite and nothing under NDA.
 
 The suite becomes a negative-only check as each remaining skill migrates to a
 route: a migrated skill disables model invocation, so no phrasing fires it. It is no
-longer a release gate for description edits. Steps 06, 07, 08 and 09 convert
+longer a release gate for description edits. Step 06 did so for `plan-think`, `plan-roadmap` and `url-plan` (`plan-fired.md` now expects no
+skill; `url-bare`'s `fired-plan` is `max: 0`): `plan` is user-typed only
+(`disable-model-invocation`), so no phrasing fires it. Steps 07, 08 and 09 convert
 their skill's positive cases to `no-skill-fired.md` in the same change as that
 skill's `disable-model-invocation`. Step 03 did so for the five investigate
 cases (`casual-look`, `how-much-work`, `url-question`, `which-files`,

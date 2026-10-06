@@ -18,7 +18,7 @@ const INLINE_LIMIT = 9_800;
 const FIT_ATTEMPTS = 3;
 
 /** A typed slash command is expanded by Claude Code without a Skill tool call, so no PostToolUse fires for it (2026-10-02 headless runs). */
-const SLASH_COMMAND = /^\/ambicode:(plan|task)(?:\s+([\s\S]*))?$/;
+const SLASH_COMMAND = /^\/ambicode:(task)(?:\s+([\s\S]*))?$/;
 
 export async function prepareForSlashCommand(
   runtime: Runtime,

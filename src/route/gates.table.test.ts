@@ -236,9 +236,9 @@ describe('gate table: every registry gate', () => {
   });
 });
 
-describe('gate table: the declared plan-accept gate', () => {
+describe('gate table: the shipped plan-accept gate', () => {
   it('03-G7: unanswered prints take the default Reject; --default before asking is refused; defaults promote nothing', async () => {
-    const plan = await planFixture();
+    const plan = await planFixture({ shipped: true });
     try {
       await plan.toGate();
       await assert.rejects(plan.next({ default: 'plan-accept' }), (error: { code?: string }) => error.code === 'default-not-allowed');
@@ -253,7 +253,7 @@ describe('gate table: the declared plan-accept gate', () => {
   });
 
   it('03-F7: a gate Revise past maxRevises is declined as max-revises', async () => {
-    const plan = await planFixture();
+    const plan = await planFixture({ shipped: true });
     try {
       await plan.toGate();
       for (let cycle = 0; cycle < 4; cycle += 1) {

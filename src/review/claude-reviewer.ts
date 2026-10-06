@@ -7,6 +7,12 @@ import type { FileSystem } from '../ports/filesystem.ts';
 import type { EnvironmentPolicy, ProcessRunner } from '../ports/process.ts';
 import type { Reviewer, ReviewerInvocation, ReviewerRequest } from '../ports/reviewer.ts';
 import { AmbicodeError } from '../util/errors.ts';
+import {
+  STRUCTURED_OUTPUT_ATTEMPTS,
+  WORKER_ENV_ALLOWLIST,
+  defaultWorkerEnvironment,
+  runWorkerProcess,
+} from '../workers/process-runner.ts';
 
 /**
  * A fresh Claude Code process per review: three read tools, no MCP, no session on
@@ -66,49 +72,9 @@ const SYSTEM_PROMPT_FILE = 'system-prompt.md';
 
 const CAPABILITY_TIMEOUT_MS = 30_000;
 
-/**
- * The only host variables the reviewer receives; every other token or secret the
- * shell holds is absent from the child, not merely unused. `HOME` and XDG stay
- * because subscription/keychain authentication reads them.
- */
-export const REVIEWER_ENV_ALLOWLIST = [
-  'PATH',
-  'HOME',
-  // The keychain account a claude.ai login is stored under; without it Claude Code
-  // on macOS reports "Not logged in". A user name, not a secret.
-  'USER',
-  'TMPDIR',
-  // Claude Code's temp base: it reads this, else a literal "/tmp", never TMPDIR, so
-  // sandboxed reviewers die on EPERM without it. A path, not a secret.
-  'CLAUDE_CODE_TMPDIR',
-  'LANG',
-  'LC_ALL',
-  'TERM',
-  'XDG_CONFIG_HOME',
-  'XDG_CACHE_HOME',
-  'XDG_DATA_HOME',
-  'XDG_STATE_HOME',
-  'NODE_EXTRA_CA_CERTS',
-  'SSL_CERT_FILE',
-  'SSL_CERT_DIR',
-  'HTTPS_PROXY',
-  'HTTP_PROXY',
-  'NO_PROXY',
-  'https_proxy',
-  'http_proxy',
-  'no_proxy',
-  'ANTHROPIC_API_KEY',
-  'ANTHROPIC_AUTH_TOKEN',
-  'ANTHROPIC_BASE_URL',
-  'CLAUDE_CODE_OAUTH_TOKEN',
-] as const;
+export const REVIEWER_ENV_ALLOWLIST = WORKER_ENV_ALLOWLIST;
 
-/**
- * A retry re-asks for the same answer, correctly serialized; it repairs no finding,
- * as `parseReviewerOutput` still validates. 1 would discard a whole review on one
- * slip; 3 bounds the cost while a persistent failure still fails.
- */
-export const STRUCTURED_OUTPUT_ATTEMPTS = '3';
+export { STRUCTURED_OUTPUT_ATTEMPTS };
 
 export const REVIEWER_JSON_SCHEMA = {
   type: 'object',
@@ -187,12 +153,11 @@ export class ClaudeReviewer implements Reviewer {
   }
 
   async assertIsolationAvailable(): Promise<void> {
-    const outcome = await this.runner.run({
+    const { outcome } = await runWorkerProcess(this.runner, {
       argv: [this.executable, '--help'],
       cwd: this.cwd,
       timeoutMs: CAPABILITY_TIMEOUT_MS,
       maxOutputBytes: 1024 * 1024,
-      env: reviewerEnvironment(),
     });
 
     if (outcome.kind === 'spawn-failed') {
@@ -285,12 +250,11 @@ export class ClaudeReviewer implements Reviewer {
   }
 
   private async run(request: ReviewerRequest, argv: string[]): Promise<ReviewerInvocation> {
-    const outcome = await this.runner.run({
+    const { outcome } = await runWorkerProcess(this.runner, {
       argv,
       cwd: request.workingDirectory,
       timeoutMs: request.timeoutMs,
       maxOutputBytes: this.maxOutputBytes,
-      env: reviewerEnvironment(),
       // Large and may hold option-like text; stdin keeps it out of the argument vector.
       stdin: request.prompt,
     });
@@ -327,11 +291,7 @@ export class ClaudeReviewer implements Reviewer {
 }
 
 export function reviewerEnvironment(): EnvironmentPolicy {
-  return {
-    kind: 'replacement',
-    allow: [...REVIEWER_ENV_ALLOWLIST],
-    set: { MAX_STRUCTURED_OUTPUT_RETRIES: STRUCTURED_OUTPUT_ATTEMPTS },
-  };
+  return defaultWorkerEnvironment();
 }
 
 /**

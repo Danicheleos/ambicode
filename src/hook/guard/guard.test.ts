@@ -355,7 +355,7 @@ describe('note save and promote pass in any segment, with any prefix and quoting
     b3,
     'node /p/scripts/ambicode.mjs note promote --task T',
     "env A=1 node '/p q/scripts/ambicode.mjs' note save --task T --kind notes <<-EOF\n\tx > .ambicode/task/T/a\n\tEOF",
-    'npx node "/p/scripts/ambicode.mjs" note save --task T --kind plan --from .ambicode/task/T/steps/plan-body.md',
+    'npx node "/p/scripts/ambicode.mjs" note save --task T --kind plan-draft --from .ambicode/task/T/steps/plan-body.md',
   ]) {
     it(`no decision: ${JSON.stringify(command).slice(0, 70)}`, () => assert.deepEqual(bash(command), {}));
   }
