@@ -13,7 +13,7 @@ export type OnError =
   | { kind: 'stop'; reason: Exit };
 
 export type When =
-  | { predicate: 'args.hasRequirement' | '!args.hasRequirement' | 'map.empty' | 'plan.isDraft' | 'headless' | 'interactive' | 'index.present' }
+  | { predicate: 'args.hasRequirement' | '!args.hasRequirement' | 'map.empty' | 'plan.isDraft' | 'headless' | 'interactive' | 'index.present' | 'revised' }
   | { predicate: 'gate.answered'; gate: string }
   | { predicate: 'gate.is'; gate: string; option: string };
 
@@ -37,7 +37,7 @@ export const RAISED_BY = '$raisedBy';
 export const QUALIFIERS: Readonly<Record<string, readonly string[]>> = {
   note: ['investigation', 'plan-draft', 'plan', 'notes'],
   policy: ['before-work', 'before-checks', 'before-report', 'drafts', 'apply'],
-  check: ['green'],
+  check: ['red', 'green'],
   requirement: ['full', 'list'],
 };
 
@@ -92,7 +92,7 @@ export function parseOnError(file: string, where: string, text: string): OnError
   throw invalid(file, where, `"${text}" is not retry-with <hint>, ask <gate> or stop:<reason>`);
 }
 
-const SIMPLE_WHEN = ['args.hasRequirement', '!args.hasRequirement', 'map.empty', 'plan.isDraft', 'headless', 'interactive', 'index.present'];
+const SIMPLE_WHEN = ['args.hasRequirement', '!args.hasRequirement', 'map.empty', 'plan.isDraft', 'headless', 'interactive', 'index.present', 'revised'];
 
 export function parseWhen(file: string, where: string, text: string): When {
   const trimmed = text.trim();

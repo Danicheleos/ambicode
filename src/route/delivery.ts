@@ -23,9 +23,11 @@ export const chainKey = (ids: readonly string[]): string => ids.at(-1) ?? '';
 /** Three lines every step message starts with: where we are, what to do now, the command that ends the step. */
 export function stepHeader(input: { skill: string; task: string; step: string; position: number; total: number; now: string; then: string }): string {
   const now = input.now.replace(/\s+/g, ' ').trim();
+  // A command in backticks is never cut: a cut one cannot be run.
+  const clipped = now.length <= 160 || now.includes('`') ? now : `${now.slice(0, 157)}…`;
   return [
     `[ambicode] ${input.skill} · task ${input.task} · step ${input.step} (${input.position}/${input.total})`,
-    `Now: ${now.length > 160 ? `${now.slice(0, 157)}…` : now}`,
+    `Now: ${clipped}`,
     `Then: ${input.then}`,
   ].join('\n');
 }

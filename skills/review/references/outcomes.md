@@ -63,6 +63,27 @@ build or editor to settle and run it again.
 
 **`baseline-missing`.** Branch review needs a baseline. AMBICODE will not guess a
 default branch name. Pass `--base <ref>`.
+Second cause: `review --task` in an open task route with no task baseline yet.
+Release: `$A route next --task <slug>` (its ground step records the baseline), then
+run the review again.
+
+**`check-only-unauthorized`.** `check --only` or `format` met a command policy of
+`forbid`, an undeclared command, or `propose` with no route on the task. Release:
+configure the check's policy, or run it inside `/ambicode:task`. Inside a task route
+a `propose` check asks the user instead; a typed `--approve` never approves it.
+
+**`ambiguous-project`.** More than one configured project matches the paths and
+none was named. Refuse to guess: ask which project, then pass `--project <id>` or
+narrower paths.
+
+**`check-limit`.** A sixth `check` of one phase in the current step. Release: state
+the gap in the report; `$A route next --task <slug>`.
+
+**`review-not-accepted`.** `review --task` in a task route before the user answered
+the review offer with *run*. Release: answer the review-offer question.
+
+**`format-unconfigured`.** Not an error: the project has no `commands.format`, so
+nothing was formatted; the run exits 0 and the report lists it under Not verified.
 
 **`baseline-unresolvable` / `no-merge-base`.** The `--base` ref names no commit,
 or shares no history with HEAD. Fetch it or correct the name. AMBICODE will not

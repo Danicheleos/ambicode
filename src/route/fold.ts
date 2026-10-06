@@ -53,7 +53,7 @@ export function matches(entry: Entry, qualified: Qualified): boolean {
   switch (qualified.kind) {
     case 'note': return entry['note'] === qualified.value;
     case 'policy': return entry['stage'] === qualified.value;
-    case 'check': return isGreen(entry);
+    case 'check': return entry['phase'] === qualified.value;
     case 'requirement': return entry['capture'] === qualified.value;
     default: return true;
   }
@@ -79,9 +79,9 @@ export function windowStart(def: RouteDef, entries: readonly Entry[], stepIndex:
   return index + 1;
 }
 
-export interface FoldContext { mode: 'interactive' | 'headless'; args: { hasRequirement?: boolean; fromDraft?: string | null } }
+export interface FoldContext { mode: 'interactive' | 'headless'; args: { hasRequirement?: boolean; plan?: string | null; fromDraft?: string | null } }
 
-function evaluate(when: When, window: readonly Entry[], all: readonly Entry[], context: FoldContext): boolean {
+function evaluate(when: When, window: readonly Entry[], all: readonly Entry[], context: FoldContext, gateWindow: (gate: string) => readonly Entry[], opener: Entry | undefined, step: StepDef): boolean {
   switch (when.predicate) {
     case 'args.hasRequirement': return context.args.hasRequirement === true;
     case '!args.hasRequirement': return context.args.hasRequirement !== true;
@@ -89,12 +89,13 @@ function evaluate(when: When, window: readonly Entry[], all: readonly Entry[], c
       const map = all.findLast((entry) => entry.kind === 'map');
       return map !== undefined && map['candidates'] === 0;
     }
-    case 'plan.isDraft': return context.args.fromDraft != null;
+    case 'plan.isDraft': return context.args.fromDraft != null || /(^|[\\/])plan-draft[^\\/]*$/.test(context.args.plan ?? '');
     case 'headless': return context.mode === 'headless';
     case 'interactive': return context.mode === 'interactive';
     case 'index.present': return false;
-    case 'gate.answered': return latestBound(window, when.gate) !== null;
-    case 'gate.is': return latestBound(window, when.gate)?.['answer'] === when.option;
+    case 'revised': return opener?.kind === 'revise' && opener['from'] === step.id;
+    case 'gate.answered': return latestBound(gateWindow(when.gate), when.gate) !== null;
+    case 'gate.is': return latestBound(gateWindow(when.gate), when.gate)?.['answer'] === when.option;
   }
 }
 
@@ -132,12 +133,17 @@ export function foldRoute(def: RouteDef, chain: Chain): Fold {
   const context: FoldContext = { mode: head['mode'] === 'headless' ? 'headless' : 'interactive', args: (head['args'] ?? {}) as FoldContext['args'] };
   const steps: StepState[] = [];
   let position: StepDef | null = null;
+  // A gate's answer is read in its own step's window: a revise to a later step does not unanswer it.
+  const gateWindow = (gate: string): readonly Entry[] => {
+    const owner = def.steps.find((step) => step.gate?.id === gate);
+    return owner === undefined ? chain.entries : chain.entries.slice(windowStart(def, chain.entries, owner.index));
+  };
   for (const step of def.steps) {
     const start = windowStart(def, chain.entries, step.index);
     const window = chain.entries.slice(start);
     let state: StepState['state'];
     if (position !== null) state = 'pending';
-    else if (step.when !== null && !evaluate(step.when, window, chain.entries, context)) state = 'skipped';
+    else if (step.when !== null && !evaluate(step.when, window, chain.entries, context, gateWindow, chain.entries[start - 1], step)) state = 'skipped';
     else if (isDone(step, window)) state = 'done';
     else {
       state = 'pending';

@@ -3,7 +3,7 @@ import { describe, it, before, after } from 'node:test';
 import { execFileSync } from 'node:child_process';
 import { ROOT } from '../shared/bench-paths.mjs';
 import assert from 'node:assert/strict';
-import { CURATED_EVAL_DIR, generate, resolveCases, PROMPT, WITH_PROMPT, NAKED_COPY, promptBody, writePluginPrompt, pluginPrompt, swapInPluginPrompts, outstandingSwap, INVESTIGATE_COMMAND, restorePrompts, runSweep, withBaseline, planRun, CASES_LOCK, main, casesLockStatus, lockCases, unlockCases } from './evals-bench.mjs';
+import { CURATED_EVAL_DIR, formatPlan, generate, resolveCases, PROMPT, WITH_PROMPT, NAKED_COPY, promptBody, writePluginPrompt, pluginPrompt, swapInPluginPrompts, outstandingSwap, INVESTIGATE_COMMAND, restorePrompts, runSweep, withBaseline, planRun, CASES_LOCK, main, casesLockStatus, lockCases, unlockCases } from './evals-bench.mjs';
 import { readFileSync, existsSync, readdirSync, mkdtempSync, rmSync, mkdirSync, writeFileSync, cpSync, chmodSync } from 'node:fs';
 import path from 'node:path';
 import { tmpdir, hostname } from 'node:os';
@@ -220,6 +220,11 @@ describe('evals-bench: per-arm prompts', () => {
     await assert.rejects(runSweep(args('--ablation', 'none', '--prompt', 'with'), { ...quiet, benchmarks, spawnRun: neverSpawn }), /have no prompt\.with\.md/, 'review cases have no plugin prompt yet');
     await assert.rejects(runSweep(args('--prompt', 'plugin'), { ...quiet, benchmarks, spawnRun: neverSpawn }), /naked or with/);
     assert.equal(outstandingSwap(casesDir), null);
+  });
+
+  it('07-T4: a dry run names the eval dir of its set, not the curated one', () => {
+    const plan = { set: 'task', evalDir: 'evals/cases/evals-task', plugin: ROOT, harness: [], cases: [], prompt: 'with', model: 'm', maxCostUsd: 1, runs: '1', ablation: 'none', replay: 'unset' };
+    assert.match(formatPlan(plan), /--eval-dir evals\/cases\/evals-task --scaffold/);
   });
 
   it('dry-runs without spawning or touching a file, and prints no prompt or case name', async () => {

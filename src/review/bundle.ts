@@ -3,7 +3,7 @@ import { runChecks, type PendingApproval } from '../checks/run.ts';
 import { runRemoteChecks } from '../checks/remote.ts';
 import type { ChangedPath } from '../checks/select.ts';
 import { MAX_REVIEWED_DISCUSSIONS, REVIEWS_DIR } from '../config/defaults.ts';
-import { appendLedger } from '../task/ledger.ts';
+import { appendLedger, type LedgerEntry } from '../task/ledger.ts';
 import { taskDirFor } from '../task/task-dir.ts';
 import { taskSlugFor, uniqueReviewName } from './review-name.ts';
 import {
@@ -92,6 +92,28 @@ export interface AssembleOptions {
   withTests?: boolean;
   /** `--context <path>`: unchanged files the caller found relying on the change, e.g. by LSP references. */
   contextPaths?: readonly string[];
+  /** Dirty before the task began and untouched since: left out of the review and of check selection (07-B3). */
+  preexisting?: readonly string[];
+  /** Stop after `planSnapshot`: nothing is written and no check runs (07-E1). */
+  dryRun?: boolean;
+}
+
+/** What a dry run measured; a limit refusal is returned, not thrown. */
+export interface DryRunPlan {
+  workspace: Workspace;
+  target: TargetResolution['target'] | Awaited<ReturnType<typeof resolveMergeRequestTarget>>['target'];
+  files: DiffFile[];
+  policies: { project: ProjectConfig; policy: ResolvedPolicy }[];
+  plan: SnapshotPlan | null;
+  refusal: AmbicodeError | null;
+}
+
+const DRY_REFUSALS = new Set(['input-too-large', 'snapshot-too-large']);
+
+/** `not covered: pre-existing changes: …`, first 10 paths. */
+export function preexistingOmission(paths: readonly string[]): string {
+  const more = paths.length > 10 ? ` (+${paths.length - 10} more)` : '';
+  return `not covered: pre-existing changes: ${paths.slice(0, 10).join(', ')}${more}`;
 }
 
 function quoteAll(globs: readonly string[]): string {
@@ -130,7 +152,9 @@ function nothingToReview(
   );
 }
 
-export async function assembleBundle(options: AssembleOptions): Promise<ReviewBundle> {
+export async function assembleBundle(options: AssembleOptions & { dryRun: true }): Promise<DryRunPlan>;
+export async function assembleBundle(options: AssembleOptions): Promise<ReviewBundle>;
+export async function assembleBundle(options: AssembleOptions): Promise<ReviewBundle | DryRunPlan> {
   const runtime = options.runtime;
   const workspace = await openWorkspace(runtime);
   const limits = workspace.config.review;
@@ -160,7 +184,10 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
     return lookedUp;
   };
 
-  const resolution = await resolveTarget(workspace, options, async (files) => (await lookUp(files)).map((entry) => entry.path));
+  const resolved = await resolveTarget(workspace, options, async (files) => (await lookUp(files)).map((entry) => entry.path));
+  const preexisting = new Set(options.preexisting ?? []);
+  if (preexisting.size > 0) resolved.files = resolved.files.filter((file) => !preexisting.has(file.newPath ?? '') && !preexisting.has(file.oldPath ?? ''));
+  const resolution = resolved;
   const discussions = 'discussions' in resolution ? resolution.discussions : [];
   const remoteOmissions = 'omissions' in resolution ? resolution.omissions : [];
   const coverage = 'coverage' in resolution ? resolution.coverage : COMPLETE_COVERAGE;
@@ -183,11 +210,20 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
     throw nothingToReview(resolution.files.length, excludePaths, onlyPaths);
   }
 
-  enforceReviewInputLimits(
-    measureInput(reviewable.files, reviewable.patch, { requirementBytes }),
-    limits,
-    reviewable.files,
-  );
+  const dry = (plan: SnapshotPlan | null, refusal: AmbicodeError | null, policies: DryRunPlan['policies']): DryRunPlan =>
+    ({ workspace, target: resolution.target, files: reviewable.files, policies, plan, refusal });
+  const refused = (error: unknown): AmbicodeError | null => (options.dryRun === true && error instanceof AmbicodeError && DRY_REFUSALS.has(error.code) ? error : null);
+  try {
+    enforceReviewInputLimits(
+      measureInput(reviewable.files, reviewable.patch, { requirementBytes }),
+      limits,
+      reviewable.files,
+    );
+  } catch (error) {
+    const refusal = refused(error);
+    if (refusal === null) throw error;
+    return dry(null, refusal, await resolveProjectPolicies(workspace, reviewable.files));
+  }
 
   const policies = await resolveProjectPolicies(workspace, reviewable.files);
 
@@ -202,14 +238,22 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
   const local = resolution.target.kind !== 'merge-request';
   const wanted: Dependent[] = !local ? [] : lookedUp ?? (await lookUp(resolution.files));
 
-  const plan = await planSnapshot({
-    files: reviewable.files,
-    content: resolution.content,
-    includeSiblingContext: local,
-    operator: patterns,
-    contextBudgetBytes: Math.max(0, limits.maxContextBytes - overheadBytes),
-    dependentPaths: wanted.map((entry) => entry.path),
-  });
+  let plan: SnapshotPlan;
+  try {
+    plan = await planSnapshot({
+      files: reviewable.files,
+      content: resolution.content,
+      includeSiblingContext: local,
+      operator: patterns,
+      contextBudgetBytes: Math.max(0, limits.maxContextBytes - overheadBytes),
+      dependentPaths: wanted.map((entry) => entry.path),
+    });
+  } catch (error) {
+    const refusal = refused(error);
+    if (refusal === null) throw error;
+    return dry(null, refusal, policies);
+  }
+  if (options.dryRun === true) return dry(plan, null, policies);
 
   const snapshot = await writeSnapshot(runtime.fs, plan, reviewable.patch, runtime.clock);
 
@@ -308,6 +352,7 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
     findings: [],
     omissions: [
       ...remoteOmissions,
+      ...(preexisting.size === 0 ? [] : [preexistingOmission([...preexisting].sort())]),
       ...(onlyPaths.length === 0
         ? []
         : [
@@ -373,7 +418,8 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
   return bundle;
 }
 
-export async function writeBundleArtifacts(runtime: Runtime, bundle: ReviewBundle): Promise<void> {
+/** `ledger` adds fields to the `review` entry (route, session, baseline, preexisting); the entry is returned. */
+export async function writeBundleArtifacts(runtime: Runtime, bundle: ReviewBundle, ledger: Readonly<Record<string, unknown>> = {}): Promise<LedgerEntry | null> {
   await runtime.fs.writeText(bundle.resultPath, `${JSON.stringify(bundle.result, null, 2)}\n`);
   await runtime.fs.writeText(
     path.join(bundle.reviewDirectory, 'reviewer-system-prompt.md'),
@@ -389,9 +435,11 @@ export async function writeBundleArtifacts(runtime: Runtime, bundle: ReviewBundl
   );
   if (bundle.taskDirectory !== null) {
     const { result } = bundle;
-    await appendLedger(runtime.fs, bundle.taskDirectory, runtime.clock.now(), runtime.ids.writerId(), {
+    return (await appendLedger(runtime.fs, bundle.taskDirectory, runtime.clock.now(), runtime.ids.writerId(), {
+      ...ledger,
       kind: 'review',
       reviewId: bundle.reviewId,
+      result: path.relative(bundle.workspace.repositoryRoot, bundle.resultPath),
       status: result.status,
       statusReason: result.statusReason,
       reviewerRan: result.reviewer !== null,
@@ -399,8 +447,9 @@ export async function writeBundleArtifacts(runtime: Runtime, bundle: ReviewBundl
       omissions: result.omissions.length,
       checks: result.checks.map((check) => ({ projectId: check.projectId, commandId: check.commandId, status: check.status, exitCode: check.exitCode })),
       waiting: bundle.pendingApprovals.map((approval) => approval.approvalKey),
-    });
+    })).entry;
   }
+  return null;
 }
 
 async function resolveTarget(
@@ -458,7 +507,7 @@ async function resolveProjectPolicies(
   return policies;
 }
 
-function groupByProject(
+export function groupByProject(
   workspace: Workspace,
   reviewableFiles: readonly DiffFile[],
 ): { project: ProjectConfig; changed: ChangedPath[] }[] {

@@ -48,6 +48,9 @@ export interface StartInput {
   harnessSession?: string;
   channel: StartChannel;
   scratchpadDir?: string;
+  /** `--plan <file>`: the plan a task route implements; `--from-draft <file>`: a draft, implemented anyway. */
+  plan?: string;
+  fromDraft?: string;
 }
 
 export interface AdvanceInput {
@@ -114,6 +117,9 @@ const EXPLICIT: ReadonlySet<string> = new Set(['route-next', 'requirements norma
 interface Part { text: string; file: string | null; bytes: number; position: string | 'complete'; full: string }
 
 const quiet = (value: unknown): string => String(value ?? '');
+
+/** A code step's `needs` that a model-run command records: the step prints the command instead of refusing. */
+const NEED_COMMANDS: Readonly<Record<string, string>> = { review: 'review --task' };
 
 export function createEngine(deps: EngineDeps): Engine {
   const { runtime, routes, handlers, pointer, startIndex = startIndexBuild } = deps;
@@ -220,7 +226,7 @@ export function createEngine(deps: EngineDeps): Engine {
 
   function openRaisedGate(run: Run, step: StepDef): GateDef | null {
     const entries = chainOf(run).entries;
-    const print = entries.findLast((entry) => entry.kind === 'gate' && entry['raisedBy'] === step.id && entry['class'] !== 'declared');
+    const print = entries.findLast((entry) => entry.kind === 'gate' && (entry['openAt'] ?? entry['raisedBy']) === step.id && entry['class'] !== 'declared');
     if (print === undefined) return null;
     const answered = entries.slice(entries.indexOf(print) + 1).some((entry) => ['acceptance', 'default-taken', 'declined'].includes(entry.kind) && entry['gate'] === print['gate'] && entry['unbound'] !== true && entry['reason'] !== 'acting-needs-human' && entry['reason'] !== 'option-not-offered');
     return answered ? null : gateFor(run, String(print['gate']), print);
@@ -240,6 +246,12 @@ export function createEngine(deps: EngineDeps): Engine {
     const window = windowOf(fold, step);
     const missing = step.needs.filter((need) => !window.some((entry) => matches(entry, need)));
     if (missing.length > 0) {
+      const commands = missing.map((need) => NEED_COMMANDS[need.kind]);
+      if (commands.every((command) => command !== undefined)) {
+        const lines = commands.map((command) => `\`${commandFor(`${command} ${run.task}`)}\``);
+        const header = stepHeader({ skill: run.def.skill, task: run.task, step: step.id, position: step.index + 1, total: run.def.steps.length, now: `Run ${lines.join(', then ')}`, then: 'its output brings the next step' });
+        return (await partOf(run, step, header, '')).part;
+      }
       const names = missing.map((need) => `${need.kind}${need.value === null ? '' : `{${need.value}}`}`);
       throw new AmbicodeError('route-needs-unmet', `Step ${step.id} needs ${names.join(', ')}, which is not on record.`, {
         details: missing.map((need) => `${need.kind} is written by ${run.def.steps.find((candidate) => candidate.produces.some((produced) => produced.kind === need.kind))?.id ?? 'an earlier step'}.`),
@@ -250,17 +262,22 @@ export function createEngine(deps: EngineDeps): Engine {
     const revise = reviseEntry?.kind === 'revise' ? { args: (reviseEntry['args'] ?? {}) as Record<string, string[]> } : null;
     const view = viewFor(run, step.id);
     const args = (run.head['args'] ?? {}) as RouteArgs;
+    const record: Record<string, unknown> = {};
+    let exit: string | undefined;
     for (const call of step.run) {
       const handler = handlers.get(call.name);
       if (handler === null) throw new AmbicodeError('internal', `No handler "${call.name}" is registered.`);
-      const result = await handler({ view, context, dir: run.dir, args, params: call.params, ledger: run.ledger, runtime: run.runtime, raisedBy: step.id, revise, produced: run.produced ?? [] });
+      const result = await handler({ view, context, dir: run.dir, args, params: call.params, ledger: run.ledger, runtime: run.runtime, raisedBy: step.id, revise, produced: run.produced ?? [], def: run.def });
       if (result.state === 'ok') {
         // An empty file, not none: a payload left by an earlier run of this step in the chain would be delivered again.
         await savePayload(run.runtime.fs, run.dir, chainKey(view.chainIds), payloadKey(call), result.payload ?? '');
+        Object.assign(record, result.record);
+        if (result.exit !== undefined) exit = result.exit;
         continue;
       }
       if (result.state === 'raise') {
-        await raiseGate(run.ledger, view, { gate: result.gate, values: result.values, raisedBy: step.id }, routes);
+        const elsewhere = result.raisedBy !== undefined && result.raisedBy !== step.id;
+        await raiseGate(run.ledger, view, { gate: result.gate, values: result.values, raisedBy: result.raisedBy ?? step.id, ...(elsewhere ? { openAt: step.id } : {}) }, routes);
         return null;
       }
       return failure(run, step, result);
@@ -271,7 +288,8 @@ export function createEngine(deps: EngineDeps): Engine {
       const names = unmet.map((need) => `${need.kind}${need.value === null ? '' : `{${need.value}}`}`);
       return failure(run, step, { code: 'route-produces-missing', message: `Step ${step.id} ran but did not record ${names.join(', ')}.`, recoverable: false });
     }
-    await append(run, { kind: 'step', step: step.id, actor: 'code', status: 'completed', cause: run.cause });
+    await append(run, { ...record, kind: 'step', step: step.id, actor: 'code', status: 'completed', cause: run.cause });
+    if (exit !== undefined) await exitRoute(run, exit);
     return null;
   }
 
@@ -366,7 +384,7 @@ export function createEngine(deps: EngineDeps): Engine {
   /** An accepted raised-gate answer whose effect an interrupted advance did not record; the handlers are idempotent per acceptance. */
   async function applyRaisedAnswers(run: Run): Promise<void> {
     for (const entry of chainOf(run).entries) {
-      if (entry.kind === 'acceptance') await raisedAnswerHandler(String(entry['gate']))?.({ view: viewFor(run, ''), ledger: run.ledger, acceptance: entry });
+      if (entry.kind === 'acceptance') await raisedAnswerHandler(String(entry['gate']))?.({ view: viewFor(run, ''), ledger: run.ledger, acceptance: entry, routes });
     }
   }
 
@@ -474,13 +492,16 @@ export function createEngine(deps: EngineDeps): Engine {
     if (def === null) {
       throw new AmbicodeError('route-unknown', `No route ships for "${input.skill}".`, { details: [`Shipped routes: ${routes.skills().join(', ') || 'none'}.`] });
     }
-    const answers = input.answers ?? [];
+    const draft = input.fromDraft !== undefined && def.steps.some((step) => step.gate?.id === 'draft-ok') ? [{ gate: 'draft-ok', option: 'implement anyway' }] : [];
+    const answers = [...(input.answers ?? []), ...draft];
     validateAnswers(def, answers);
     const rt: Runtime = input.cwd === runtime.cwd ? runtime : { ...runtime, cwd: input.cwd };
     const trusted = input.channel !== 'cli';
     const headless = input.headless === true;
 
-    const slug = input.task ?? (input.skill === 'init' ? `init-${now().toISOString().slice(0, 10)}` : (mintTaskSlug([...input.requirements, input.text].join(' ')) ?? `task-${contentHash(`${input.cwd}${now().toISOString()}`).slice(7, 15)}`));
+    const planFile = input.fromDraft ?? input.plan;
+    const planTask = planFile === undefined ? undefined : /(?:^|[\\/])\.ambicode[\\/]task[\\/]([^\\/]+)[\\/][^\\/]+$/.exec(planFile)?.[1];
+    const slug = input.task ?? planTask ?? (input.skill === 'init' ? `init-${now().toISOString().slice(0, 10)}` : (mintTaskSlug([...input.requirements, input.text].join(' ')) ?? `task-${contentHash(`${input.cwd}${now().toISOString()}`).slice(7, 15)}`));
     const dir = await resolveTaskDir(rt, slug);
     await excludeWorkingDirs(rt, dir.repositoryRoot);
     const config = input.skill === 'init' ? null : (await loadConfigWithNotices(rt.fs, dir.repositoryRoot)).config;
@@ -488,6 +509,8 @@ export function createEngine(deps: EngineDeps): Engine {
       text: input.text,
       requirements: input.requirements,
       project: input.project ?? null,
+      plan: planFile ?? null,
+      fromDraft: input.fromDraft ?? null,
       answers,
       headless,
       hasRequirement: hasRequirement({ text: input.text, requirements: input.requirements, headless }, { mcpServer: config?.requirements.mcpServer ?? null }),

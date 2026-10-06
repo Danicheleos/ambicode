@@ -1,11 +1,12 @@
 // Evaluation CLI and run ownership. Generation, evidence analysis, and reporting live in leaf modules.
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, linkSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
-import { BENCH_EVAL_DIR, BENCHMARKS, CASES_DIRECTORY, CURATED_CASES, CURATED_EVAL_DIR, NAKED_PLUGIN, ROOT } from '../shared/bench-paths.mjs';
+import { BENCHMARKS, CASES_DIRECTORY, CURATED_CASES, CURATED_EVAL_DIR, NAKED_PLUGIN, ROOT } from '../shared/bench-paths.mjs';
 import { generate, refuseLegacyTwins, SELECT } from '../cases/bench-cases.mjs';
 import { score, withBaseline } from '../analysis/bench-score.mjs';
 import { walkReport } from '../analysis/bench-walk.mjs';
@@ -68,6 +69,24 @@ export function resolveCases(casesDir, { tags = [], caseGlob } = {}) {
   return cases;
 }
 
+/** Task runs only: the sandbox repo's change against its base commit, untracked files included, beside the ledgers. */
+export function harvestPatches(outDir, { sandboxRoots = [...new Set(['/tmp', tmpdir()])], git = (cwd, args) => execFileSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 1 << 28 }) } = {}) {
+  for (const root of sandboxRoots) {
+    let names = [];
+    try { names = readdirSync(root).filter((name) => name.startsWith('e-')); } catch { continue; }
+    for (const name of names) {
+      const repo = path.join(root, name, 'home', 'cwd', 'repo');
+      if (!existsSync(path.join(repo, '.git'))) continue;
+      try {
+        git(repo, ['add', '-A']);
+        const patch = git(repo, ['diff', '--cached', '--binary', 'HEAD', '--', '.', ':(exclude).ambicode']);
+        mkdirSync(path.join(outDir, 'patches'), { recursive: true });
+        writeFileSync(path.join(outDir, 'patches', `${name}.patch`), patch);
+      } catch { /* the sandbox may still be mid-write; the next pass retries */ }
+    }
+  }
+}
+
 const sha = (text) => createHash('sha256').update(text).digest('hex').slice(0, 12);
 
 /**
@@ -95,6 +114,8 @@ function planSpec(spec, { benchmarks, env }) {
     const missing = cases.filter((c) => !c.hasWith).length;
     if (missing) throw new Error(`--prompt with refused: ${missing} of ${cases.length} selected case(s) have no ${WITH_PROMPT} (review and task prompts come with steps 07/08)`);
   }
+  // A task case's reviewer must run live: an old recording would grade a different change.
+  if (spec.set === 'task' && env.EVAL_AMBICODE_REVIEWER_REPLAY) throw new Error('--set task refuses EVAL_AMBICODE_REVIEWER_REPLAY: old reviewer recordings never apply to task cases');
   const marker = outstandingSwap(casesDir);
   // Bodies are read now, before any swap: prompt.md may hold the plugin prompt only while a swap is outstanding,
   // and then the naked copy is the naked prompt.
@@ -148,7 +169,7 @@ export function formatPlan(plan) {
       lock ? `${lock.state}, held by ${lock.purpose ?? 'unknown'}; a real run would ${lock.state === 'abandoned' ? 'recover it' : 'be refused'}` : 'free'
     }`,
     'hook support: not claimed (probe P37 pending); a dry run cannot show whether a typed command expands',
-    `harness: claude plugin eval ${pluginShown} --eval-dir ${plan.set === 'full' ? BENCH_EVAL_DIR : CURATED_EVAL_DIR} --scaffold --allow-tools Bash --no-publish`,
+    `harness: claude plugin eval ${pluginShown} --eval-dir ${plan.evalDir} --scaffold --allow-tools Bash --no-publish`,
     `harness options: ${harness.join(' ')}`,
   ].join('\n');
 }
@@ -245,6 +266,7 @@ export async function runSweep(rest, { benchmarks = BENCHMARKS, now = new Date()
     try {
       tracker.tick();
       harvest(tracesDir);
+      if (spec.set === 'task') harvestPatches(tracesDir);
     } catch (error) {
       if (!harvestErrors.has(error.message)) warn(`trace harvest failing: ${error.message}`);
       harvestErrors.add(error.message);

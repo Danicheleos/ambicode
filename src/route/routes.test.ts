@@ -82,7 +82,7 @@ test('03-R1: one rejection per schema rule, each naming the file and the field',
 
 test('03-R2: when accepts the fixed vocabulary and gate predicates of this route only', async (t) => {
   const withWhen = (when: string): string => `${BASE.head}${BASE.code}${BASE.gate}  - id: after\n    actor: code\n    run: code.two\n    when: "${when}"\n`;
-  for (const when of ['args.hasRequirement', '!args.hasRequirement', 'map.empty', 'plan.isDraft', 'headless', 'interactive', 'index.present', 'gate.ask.answered', 'gate.ask.is(Yes)']) {
+  for (const when of ['args.hasRequirement', '!args.hasRequirement', 'map.empty', 'plan.isDraft', 'headless', 'interactive', 'index.present', 'revised', 'gate.ask.answered', 'gate.ask.is(Yes)']) {
     const directory = await root(t, { 'routes/demo.yaml': withWhen(when) });
     await validateRouteFiles(directory, { handlers: HANDLERS });
   }
@@ -99,7 +99,7 @@ test('03-R3: needs and produces are known kinds; a qualifier is checked against 
   await refuses(t, withProduces('"note{plan-v2}"'), /not a note qualifier/);
   await refuses(t, withProduces('"map{x}"'), /"map" takes no qualifier/);
   await refuses(t, withProduces('bogus'), /"bogus" is not a ledger kind/);
-  await refuses(t, `${BASE.head}  - id: x\n    actor: model\n    instruction: Do.\n    needs: ["check{red}"]\n`, /not a check qualifier/);
+  await refuses(t, `${BASE.head}  - id: x\n    actor: model\n    instruction: Do.\n    needs: ["check{amber}"]\n`, /not a check qualifier/);
 });
 
 test('03-R4: a model step has an instruction of at most 1,500 characters, inline or included; run names registered handlers', async (t) => {

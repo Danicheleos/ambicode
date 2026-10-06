@@ -1,0 +1,67 @@
+skill: task
+version: 3
+budget: { modelSteps: 18, wallMinutes: 90 }      # wallMinutes applies in --headless only
+exits: [done, blocked, human, inconclusive, superseded, budget]
+steps:
+  - id: template
+    actor: code
+    when: args.hasRequirement
+    run: requirements.template
+  - id: fetch
+    actor: model
+    when: args.hasRequirement
+    instruction: file:routes/steps/plan-fetch.md
+    payload: [template]
+  - id: start
+    actor: code
+    run: task.start                               # may exit iterations-complete
+  - id: draft-ok
+    actor: human
+    when: plan.isDraft
+    gate:
+      question: "The plan is a draft nobody accepted. Implement it anyway?"
+      options: ["implement anyway", stop]
+      default: stop                               # non-acting: --from-draft records it as a preanswer
+      release: stop
+  - id: ground
+    actor: code
+    run: [requirements.normalize, checks.baseline, "search.map(context)", task.inventory, "policy.stage(before-work)", "policy.stage(before-checks)", task.index]
+    produces: [baseline, map, policy]
+  - id: red
+    actor: model
+    instruction: file:routes/steps/task-red.md
+    payload: [brief, envelope, baseline, map, callers, "policy:before-work", "policy:before-checks"]
+    produces: ["check{red}"]
+  - id: green
+    actor: model
+    instruction: file:routes/steps/task-green.md
+    produces: ["check{green}", format]
+  - id: review-offer
+    actor: human
+    gate:
+      question: "Run the independent review of this change?"
+      options: [run, "skip — verification incomplete"]
+      default: "skip — verification incomplete"
+      release: "skip — verification incomplete"
+      acting: [run]
+  - id: review-run
+    actor: code
+    when: gate.review-offer.is(run)
+    needs: [review]                               # unmet: the step prints the review command
+    run: review.evaluate
+    repeat: 2
+    onFail: revise fix                            # review-findings: the first entry to fix
+  - id: fix
+    actor: model
+    when: revised                                 # entered only by a revise aimed at fix: review findings or an approved key
+    instruction: file:routes/steps/task-fix.md
+    produces: ["check{green}", review]
+    repeat: 2
+  - id: report-step
+    actor: code
+    run: [review.evaluate, "policy.stage(before-report)", task.report]
+    onFail: revise fix                            # a fix-round review with findings; bounded by fix's repeat
+  - id: write
+    actor: model
+    instruction: file:routes/steps/task-write.md
+    payload: [report, "policy:before-report"]

@@ -17,19 +17,23 @@ const INLINE_LIMIT = 9_800;
 /** Each pass cuts the overflow at the average candidate size; candidates are not uniform, so it may take a second. */
 const FIT_ATTEMPTS = 3;
 
-/** A typed slash command is expanded by Claude Code without a Skill tool call, so no PostToolUse fires for it (2026-10-02 headless runs). */
-const SLASH_COMMAND = /^\/ambicode:(task)(?:\s+([\s\S]*))?$/;
+/**
+ * A typed slash command is expanded by Claude Code without a Skill tool call, so no PostToolUse fires for it (2026-10-02
+ * headless runs). Every skill with a shipped route launches that route instead, so the set is empty.
+ */
+const SLASH_SKILLS: ReadonlySet<string> = new Set();
+const SLASH_COMMAND = /^\/ambicode:([\w-]+)(?:\s+([\s\S]*))?$/;
 
 export async function prepareForSlashCommand(
   runtime: Runtime,
   input: { cwd?: string | undefined; prompt?: string | undefined },
 ): Promise<PostToolUseHookOutput | null> {
   const match = SLASH_COMMAND.exec((input.prompt ?? '').trim());
-  if (match === null) return null;
+  if (match === null || !SLASH_SKILLS.has(match[1]!)) return null;
   return prepareForActivity(runtime, input.cwd ?? runtime.cwd, match[1]!, match[2] ?? '');
 }
 
-async function prepareForActivity(runtime: Runtime, sessionDirectory: string, activity: string, skillArgs: string): Promise<PostToolUseHookOutput> {
+export async function prepareForActivity(runtime: Runtime, sessionDirectory: string, activity: string, skillArgs: string): Promise<PostToolUseHookOutput> {
 
   // Args that only name a ticket have no question in them: terms from `VS-001` find nothing, and the
   // fetch that follows carries the real text, which the ticket hook prepares from.

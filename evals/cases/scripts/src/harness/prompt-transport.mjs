@@ -13,6 +13,7 @@ export const SWAP_MARKER = '.prompt-swap.json';
 /** In a cases directory: written before generation removes anything, removed when it has written everything. */
 export const GENERATION_MARKER = '.generation-incomplete';
 export const INVESTIGATE_COMMAND = '/ambicode:investigate --headless';
+export const TASK_COMMAND = '/ambicode:task --headless --answer review-offer=run';
 
 export const FRONT_MATTER = /^---\n[\s\S]*?\n---\n?/;
 /** What the harness records as a case's `promptMarkdown`: the body after the front matter, trimmed. */

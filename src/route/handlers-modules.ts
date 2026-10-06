@@ -17,13 +17,13 @@ import type { Handler, HandlerInput, HandlerResult } from './handlers.ts';
 const MAX_SOURCE_CHARS = 2500;
 const MAX_TOTAL_CHARS = 4500;
 
-async function configOf(input: HandlerInput): Promise<AmbicodeConfig> {
+export async function configOf(input: HandlerInput): Promise<AmbicodeConfig> {
   const loaded = await loadConfigWithNotices(input.runtime.fs, input.dir.repositoryRoot);
   for (const notice of loaded.notices) if (input.runtime.notices !== undefined && !input.runtime.notices.includes(notice)) input.runtime.notices.push(notice);
   return loaded.config;
 }
 
-async function chainEntries(input: HandlerInput): Promise<LedgerEntry[]> {
+export async function chainEntries(input: HandlerInput): Promise<LedgerEntry[]> {
   const read = await input.ledger.read();
   return read.state === 'ok' ? read.entries.filter((entry) => input.view.chainIds.includes(entry.kind === 'route' ? entry.id : String(entry['route'] ?? ''))) : [];
 }
@@ -34,7 +34,7 @@ const failed = (error: unknown): HandlerResult => {
 };
 
 /** The project the route works in: the one its args name, the only one, or the user's answer to `project-ambiguous`. */
-async function projectOf(input: HandlerInput, config: AmbicodeConfig): Promise<ProjectConfig | HandlerResult> {
+export async function projectOf(input: HandlerInput, config: AmbicodeConfig): Promise<ProjectConfig | HandlerResult> {
   const answered = latestBound(await chainEntries(input), 'project-ambiguous');
   const requested = input.args.project ?? (answered !== null && answered['answer'] !== 'stop' ? String(answered['answer']) : null);
   try {
@@ -44,7 +44,7 @@ async function projectOf(input: HandlerInput, config: AmbicodeConfig): Promise<P
     throw error;
   }
 }
-const isResult = (value: ProjectConfig | HandlerResult): value is HandlerResult => 'state' in value;
+export const isResult = (value: ProjectConfig | HandlerResult): value is HandlerResult => 'state' in value;
 
 function renderSources(sources: readonly EnvelopeSource[]): string {
   let left = MAX_TOTAL_CHARS;
@@ -118,7 +118,7 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
 
   'policy.stage': async (input) => {
     const stage = input.params[0];
-    if (stage !== 'before-work' && stage !== 'before-report') return { state: 'failed', code: 'internal', message: `policy.stage takes before-work or before-report, not "${stage ?? ''}".`, recoverable: false };
+    if (stage !== 'before-work' && stage !== 'before-checks' && stage !== 'before-report') return { state: 'failed', code: 'internal', message: `policy.stage takes before-work, before-checks or before-report, not "${stage ?? ''}".`, recoverable: false };
     const config = await configOf(input);
     const project = await projectOf(input, config);
     if (isResult(project)) return project;

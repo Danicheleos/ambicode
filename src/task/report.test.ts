@@ -201,3 +201,41 @@ describe('04-R1: the Requirements line names where the envelope came from', () =
     assert.match(buildReport([envelope({ missingAsked: ['ORD-9'] })]).evidence, /Requirements: built from the args text \(not captured\); missing: ORD-9/);
   });
 });
+
+describe('07-R9: Not verified for the task route', () => {
+  const offer = (kind: string, answer: string, fields: object = {}): LedgerEntry => entry(kind, { route: 'r', gate: 'review-offer', instance: null, answer, via: 'headless', ...fields });
+
+  it('07-R9: a bound acceptance or a default-taken review-offer starting with skip is listed; run is not', () => {
+    const skipped = 'independent review skipped — verification incomplete';
+    assert.match(buildReport([offer('acceptance', 'skip — verification incomplete', { instance: 'i', via: 'hook' })]).notVerified, new RegExp(skipped));
+    assert.match(buildReport([offer('default-taken', 'skip — verification incomplete')]).notVerified, new RegExp(skipped));
+    assert.doesNotMatch(buildReport([offer('acceptance', 'run', { instance: 'i', via: 'hook' })]).notVerified, /skipped/);
+  });
+
+  it('07-R9: an unbound skip answer is not counted as a bound one', () => {
+    const report = buildReport([offer('acceptance', 'skip — verification incomplete', { instance: 'i', unbound: true })]);
+    assert.doesNotMatch(report.notVerified, /independent review skipped/);
+  });
+
+  it('07-R9: a format entry that is not formatted lists the key and outcome; formatted does not', () => {
+    const format = (outcome: string): LedgerEntry => entry('format', { key: 'app/format', files: [], exit: null, via: 'model', outcome });
+    for (const outcome of ['unconfigured', 'failed', 'refused']) assert.match(buildReport([format(outcome)]).notVerified, new RegExp(`  not formatted: app/format \\(${outcome}\\)`));
+    assert.equal(buildReport([format('formatted')]).notVerified, 'Not verified\n  none recorded');
+  });
+
+  it('07-R9: limit missing-produces at red reads no-red; at another step it stays a generic limit', () => {
+    assert.match(buildReport([entry('limit', { which: 'missing-produces', step: 'red', count: 3 })]).notVerified, /^ {2}no-red: no failing-first test recorded$/m);
+    const other = buildReport([entry('limit', { which: 'missing-produces', step: 'green', count: 3 })]);
+    assert.match(other.notVerified, /missing-produces limit \(3\) at green/);
+    assert.doesNotMatch(other.notVerified, /no-red/);
+  });
+
+  it('07-R9: a failed check and an absent check or format stay in Not verified, never in a clean report', () => {
+    const failed = buildReport([check({ exit: 1, summary: { ran: 2, failed: 1 } })]);
+    assert.match(failed.notVerified, /web\/unit: last run exited 1/);
+    const absent = buildReport([]);
+    assert.match(absent.evidence, /Checks: none recorded/);
+    assert.equal(absent.notVerified, 'Not verified\n  none recorded');
+    assert.doesNotMatch(absent.text, /not formatted|green/);
+  });
+});

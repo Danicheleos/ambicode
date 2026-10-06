@@ -55,6 +55,8 @@ async function skillSubcommands() {
     for (const match of source.matchAll(/ambicode\.mjs" ([a-z-]+)/g)) subcommands.add(match[1]);
   }
   assert.ok(subcommands.has('review'), 'the skills no longer call ambicode.mjs review');
+  // Archived cases stay unchanged, so a subcommand no skill prescribes any more still counts while the CLI has it.
+  for (const file of await readdir(path.join(ROOT, 'src', 'cli', 'commands'))) if (/^[a-z-]+\.ts$/.test(file)) subcommands.add(file.slice(0, -3));
   return [...subcommands];
 }
 
@@ -796,5 +798,19 @@ describe('eval triggers: migrated skills never fire on phrasing', () => {
     }
     assert.ok(scanned > 0, 'no trigger grader found');
     assert.deepEqual(offenders, []);
+  });
+  it('07-G5: no trigger grader expects ambicode:task to fire, and the five task cases expect no skill', async () => {
+    const root = path.join(ROOT, 'evals', 'cases', 'evals-triggers');
+    const read = async (file) => parseYaml(/^---\n([\s\S]*?)\n---/.exec(await readFile(path.join(root, file), 'utf8'))[1]);
+    for (const file of await readdir(root, { recursive: true })) {
+      if (!/(^|[\\/])graders[\\/][^\\/]+\.md$/.test(file)) continue;
+      const grader = await read(file);
+      if (/ambicode:(?:\([^)]*\b)?task\b/.test(String(grader.input_match ?? ''))) assert.ok((grader.min ?? 0) < 1 || file.includes('any-skill'), `${file} expects task to fire`);
+    }
+    for (const name of ['build-ticket-casual', 'fix-bug-plain', 'fix-ticket', 'url-implement', 'verb-implement']) {
+      const grader = await read(`${name}/graders/no-skill-fired.md`);
+      assert.equal(grader.max, 0);
+      assert.match(grader.input_match, /task/);
+    }
   });
 });

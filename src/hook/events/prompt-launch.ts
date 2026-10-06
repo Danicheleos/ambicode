@@ -55,6 +55,8 @@ export async function launchRoute(runtime: Runtime, input: HookInput, deps: Rout
   }
   const task = parsed?.value('task') ?? null;
   const project = parsed?.value('project') ?? null;
+  const plan = parsed?.value('plan') ?? null;
+  const fromDraft = parsed?.value('from-draft') ?? null;
   const attached = await resolveActiveRoute(runtime.fs, deps.pointer, { repositoryRoot: found.repositoryRoot, session: input.session_id, scratchpad: input.scratchpad_dir });
   try {
     const message = await deps.engine.start({
@@ -63,6 +65,8 @@ export async function launchRoute(runtime: Runtime, input: HookInput, deps: Rout
       requirements: parsed?.all('requirement') ?? [],
       ...(task === null ? {} : { task }),
       ...(project === null ? {} : { project }),
+      ...(plan === null ? {} : { plan }),
+      ...(fromDraft === null ? {} : { fromDraft }),
       headless: parsed?.flag('headless') ?? false,
       answers: (parsed?.all('answer') ?? []).map(parseAnswerFlag),
       fresh: parsed?.flag('fresh') ?? false,

@@ -60,6 +60,8 @@ export async function lastAssistantText(transcript: string): Promise<string | nu
   }
 }
 
+const TESTS_PASS = [/\btests? (?:pass(?:ed|es|ing)?|are green)\b/i, /\ball tests pass/i];
+
 const squash = (value: string): string => value.replace(/\s+/g, ' ').trim();
 const firstHeading = (instruction: string | null): string | null => instruction?.split('\n').find((line) => /^#+\s/.test(line))?.trim() ?? null;
 const firstLine = (text: string): string => text.split('\n').find((line) => line.trim() !== '')?.trim() ?? '';
@@ -123,7 +125,7 @@ async function problemsOf(input: Checked, runtime: Runtime): Promise<string[]> {
     if (hash !== undefined && hash !== report.hash) problems.push('The report hash comment does not match the generated report.');
   }
   if (/\b(accepted|approved)\b/i.test(NOTE_LABELS.reduce((rest, label) => rest.replaceAll(label, ''), text)) && !input.chain.some((entry) => entry.kind === 'acceptance' && isBoundAnswer(entry))) problems.push('The text says accepted or approved; no bound acceptance is recorded.');
-  if (/\b(all )?tests? pass(?:ed|es)?\b/i.test(text) && !input.chain.some(isGreen)) problems.push('The text says tests pass; no check with exit 0, a test count and no failures is recorded.');
+  if (TESTS_PASS.some((phrase) => phrase.test(text)) && !input.chain.some((entry) => entry.kind === 'check' && entry['phase'] !== 'red' && isGreen(entry))) problems.push('The text says tests pass; no check with exit 0, a test count and no failures is recorded.');
   if (input.defectBrief) {
     for (const key of new Set(input.chain.filter(isGreen).map((entry) => String(entry['key'])))) if (!redBeforeGreen(input.chain, key)) problems.push(`${key}: no failing run precedes the first green one.`);
   }
@@ -222,7 +224,9 @@ export async function stopCheck(runtime: Runtime, input: HookInput, deps: RouteH
     };
     if (unreadable) await finish({ which: 'stop-unreadable', count: 1 });
     else if (text !== null && !blockedBefore) {
-      const problems = await problemsOf({ chain, def, root, text, defectBrief: options.defectBrief === true, files, citationsOnly: saveAnswer }, runtime);
+      // The task route's ground step records a defect brief (07-S2).
+      const defectBrief = options.defectBrief ?? chain.some((entry) => entry.kind === 'step' && entry['defectBrief'] === true);
+      const problems = await problemsOf({ chain, def, root, text, defectBrief, files, citationsOnly: saveAnswer }, runtime);
       const doctorProblem = await doctorReadBackProblem(runtime, dir, text);
       if (doctorProblem !== null) problems.push(doctorProblem);
       if (problems.length > 0) {

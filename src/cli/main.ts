@@ -9,6 +9,8 @@ import { INIT_OPTIONS, renderInit, runInit } from './commands/init.ts';
 import { DOCTOR_OPTIONS, renderDoctor, runDoctorCommand } from './commands/doctor.ts';
 import { RULES_APPLY_OPTIONS, RULES_DISCOVER_OPTIONS, RULES_REVERT_OPTIONS, renderRules, runRulesApply, runRulesDiscover, runRulesRevert } from './commands/rules.ts';
 import { LOCATE_OPTIONS, renderLocate, runLocate } from './commands/locate.ts';
+import { CHECK_OPTIONS, renderCheck, runCheckCommand } from './commands/check.ts';
+import { FORMAT_OPTIONS, renderFormat, runFormatCommand } from './commands/format.ts';
 import { NOTE_LIST_OPTIONS, NOTE_PROMOTE_OPTIONS, NOTE_SAVE_OPTIONS, renderNoteList, renderNotePromote, renderNoteSave, runNoteList, runNotePromote, runNoteSave } from './commands/note.ts';
 import { PLAN_CHECK_OPTIONS, renderPlanCheck, runPlanCheckCommand } from './commands/plan-check.ts';
 import { POLICY_OPTIONS, renderPolicy, runPolicy } from './commands/policy.ts';
@@ -18,7 +20,7 @@ import { REPORT_OPTIONS, renderReport, runReport } from './commands/report.ts';
 import { FIND_OPTIONS, INDEX_OPTIONS, MAP_OPTIONS, REFS_OPTIONS, RELATES_OPTIONS, renderSearch, runFind, runIndex, runMap, runRefs, runRelates } from './commands/search.ts';
 import { REQUIREMENTS_ACS_OPTIONS, REQUIREMENTS_NORMALIZE_OPTIONS, REQUIREMENTS_TEMPLATE_OPTIONS, renderRequirements, runRequirementsAcs, runRequirementsNormalize, runRequirementsTemplate } from './commands/requirements.ts';
 import { ROUTE_NEXT_OPTIONS, ROUTE_START_OPTIONS, ROUTE_STATUS_OPTIONS, ROUTE_STOP_OPTIONS, renderMessage, renderRouteStatus, runRouteNext, runRouteStart, runRouteStatus, runRouteStop } from './commands/route.ts';
-import { REVIEW_OPTIONS, renderReview, runReview } from './commands/review.ts';
+import { REVIEW_OPTIONS, renderReview, runReview, runReviewEstimate } from './commands/review.ts';
 import type { ViewOutput } from './commands/view.ts';
 import { VIEW_OPTIONS } from './view-options.ts';
 import { WORKER_RUN_OPTIONS, renderWorkerRun, runWorkerCommand } from './commands/worker.ts';
@@ -95,6 +97,17 @@ export const USAGE = `ambicode <command> [options]
                           iteration and promotion.
                             --task <slug>
 
+  check <projectId>/<checkId>
+                          Run one configured check on the named files and record
+                          it, with the runner's summary and whether it proves the
+                          phase (red: a test failed; green: exit 0, tests ran).
+                            --task <slug>  --only <file> (repeatable)  --phase red|green
+                            --approve <key> | --decline <key>
+
+  format [paths…]         Run each project's format command on the files this
+                          task touched (narrowed to paths) and record it.
+                            --task <slug>
+
   plan check              Save steps/plan-body.md as a plan draft, then check it by
                           code: anchors, acceptance units, new names already
                           declared. Exits 0 when the check ran, pass or fail.
@@ -108,6 +121,8 @@ export const USAGE = `ambicode <command> [options]
   route start <skill> [request…]
                           Start a skill's route. The first step is printed.
                             --task <slug>  --headless  --project <id>
+                            --plan <file> | --from-draft <file>   task: the plan
+                                                       (or draft) to implement
                             --answer <gate>=<option>   repeatable
                             --requirement <url>        repeatable
                             --fresh | --adopt          restart or take over a route
@@ -243,7 +258,11 @@ export const USAGE = `ambicode <command> [options]
                             --task <slug>         Save under this task's directory.
                                                   Without it, the first --requirement
                                                   names the directory, and a run with
-                                                  neither belongs to no task.
+                                                  neither belongs to no task. With a
+                                                  task baseline, changes that predate
+                                                  the task are left out.
+                            --estimate            Print what the review would cover
+                                                  and run, and write nothing.
                             --exclude <glob>      Do not review paths matching this
                                                   glob; repeatable, added to
                                                   review.excludePaths. The way past a
@@ -386,6 +405,8 @@ export const SPECS: Record<string, OptionSpec | undefined> = {
   'note promote': NOTE_PROMOTE_OPTIONS,
   'note list': NOTE_LIST_OPTIONS,
   'plan check': PLAN_CHECK_OPTIONS,
+  check: CHECK_OPTIONS,
+  format: FORMAT_OPTIONS,
   'worker run': WORKER_RUN_OPTIONS,
   report: REPORT_OPTIONS,
   'route start': ROUTE_START_OPTIONS,
@@ -465,6 +486,14 @@ async function run(command: string, args: ParsedArgs, runtime: Runtime): Promise
       const output = await runNoteList(runtime, args);
       return { text: renderNoteList(output), data: output };
     }
+    case 'check': {
+      const output = await runCheckCommand(runtime, args);
+      return { text: renderCheck(output), data: output };
+    }
+    case 'format': {
+      const output = await runFormatCommand(runtime, args);
+      return { text: renderFormat(output), data: output };
+    }
     case 'plan check': {
       const output = await runPlanCheckCommand(runtime, args);
       return { text: renderPlanCheck(output), data: output };
@@ -525,6 +554,10 @@ async function run(command: string, args: ParsedArgs, runtime: Runtime): Promise
       return { text: renderPrepare(run), data: run.data, json: run.json };
     }
     case 'review': {
+      if (args.flag('estimate')) {
+        const estimate = await runReviewEstimate(runtime, args);
+        return { text: estimate.text, data: estimate };
+      }
       const output = await runReview(runtime, args);
       return { text: renderReview(output), data: output };
     }

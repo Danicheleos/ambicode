@@ -6,7 +6,7 @@ import { Activity, RuleCategory, type PromptStage } from '../contracts/primitive
 import { contentHash } from '../util/hash.ts';
 import { applicablePrepareStages } from './resolve.ts';
 
-export const STAGE_LIMITS: Record<PromptStage, number> = { 'before-work': 4096, 'before-report': 1536, 'before-checks': 2048, 'before-review': 2048 };
+export const STAGE_LIMITS: Record<PromptStage, number> = { 'before-work': 4096, 'before-report': 1536, 'before-checks': 1536, 'before-review': 2048 };
 
 /**
  * Investigate edits nothing and plan writes no code, so neither acts on those rules; `task` and `review` carry all.
@@ -27,6 +27,16 @@ export interface StagePayload {
   entry: { stage: PromptStage; packs: string[]; rules: number; omitted: number; bytes: number };
 }
 
+/** Task's code-style rules go before work when there are at most this many, else before the checks (07-G4). */
+export const CODE_STYLE_BEFORE_WORK = 8;
+
+function stageRules(activity: Activity, stage: PromptStage, rules: readonly ResolvedRule[]): readonly ResolvedRule[] {
+  const style = rules.filter((rule) => rule.category === 'code-style');
+  const late = activity === 'task' && style.length > CODE_STYLE_BEFORE_WORK;
+  if (stage === 'before-checks') return late ? style : [];
+  return late && stage === 'before-work' ? rules.filter((rule) => rule.category !== 'code-style') : rules;
+}
+
 const render = (rule: ResolvedRule): string => `${rule.qualifiedId} (${rule.authority}): ${rule.instruction}`;
 
 /** The projection of `resolvePolicy` one stage of a route delivers: that stage's prompts, then the rules the activity carries (03-P1 … 03-P3). */
@@ -35,7 +45,7 @@ export async function policyStage(input: {
   project: ProjectConfig;
   activity: Activity;
   paths: readonly string[];
-  stage: 'before-work' | 'before-report';
+  stage: 'before-work' | 'before-checks' | 'before-report';
   show: boolean;
 }): Promise<StagePayload> {
   const workspace = await openWorkspace(input.runtime);
@@ -52,8 +62,8 @@ export async function policyStage(input: {
       lines.push(`${prompt.packReference}: prompt ${prompt.declaredPath} could not be read.`);
     }
   }
-  const carried = policy.rules.filter((rule) => ruleCarriedFor(input.activity, rule.category));
-  const omitted = policy.rules.length - carried.length;
+  const carried = stageRules(input.activity, input.stage, policy.rules.filter((rule) => ruleCarriedFor(input.activity, rule.category)));
+  const omitted = policy.rules.filter((rule) => !ruleCarriedFor(input.activity, rule.category)).length;
   const show = `policy --activity ${input.activity} --stage ${input.stage} --show`;
   if (carried.length > 0) lines.push('Rules:', ...carried.map(render));
   if (omitted > 0) lines.push(`rulesOmitted: ${omitted} (read them: ${show})`);

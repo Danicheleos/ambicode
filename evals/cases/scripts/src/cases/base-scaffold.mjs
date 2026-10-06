@@ -21,8 +21,12 @@ export function baseOf(versionDir) {
   return { base, root };
 }
 
-/** `sideRel` is the side directory relative to the script's own location. `withhold` paths are relative to the repo. */
-export function baseScaffoldScript({ sideRel, base, root, withhold = [], setup = null }) {
+/**
+ * `sideRel` is the side directory relative to the script's own location. `withhold` paths are relative to the repo.
+ * `wholeTree` extracts the whole base tree (manifests, lock file, runner config) instead of `root` alone; `config`
+ * names a config file beside the script that replaces the side's.
+ */
+export function baseScaffoldScript({ sideRel, base, root, withhold = [], setup = null, wholeTree = false, config = null }) {
   for (const entry of withhold)
     if (path.posix.isAbsolute(entry) || entry.split('/').includes('..')) throw new Error(`withhold path must stay inside the repo: ${entry}`);
   const lines = [
@@ -40,8 +44,8 @@ export function baseScaffoldScript({ sideRel, base, root, withhold = [], setup =
     '  exit 2',
     'fi',
     'mkdir -p "$PWD/repo/.ambicode"',
-    `git -C "$CACHE" archive ${quote(base)} -- ${quote(root)} | tar -x -C "$PWD/repo"`,
-    'cp "$SIDE/.ambicode/config.yaml" "$PWD/repo/.ambicode/config.yaml"',
+    wholeTree ? `git -C "$CACHE" archive ${quote(base)} | tar -x -C "$PWD/repo"` : `git -C "$CACHE" archive ${quote(base)} -- ${quote(root)} | tar -x -C "$PWD/repo"`,
+    config ? `cp "$(dirname "$0")"/${quote(config)} "$PWD/repo/.ambicode/config.yaml"` : 'cp "$SIDE/.ambicode/config.yaml" "$PWD/repo/.ambicode/config.yaml"',
     ...withhold.map((entry) => `rm -rf -- ${quote(`repo/${entry}`)}`),
   ];
   if (setup)

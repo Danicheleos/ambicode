@@ -10,10 +10,96 @@ import { renderReport } from '../../review/report.ts';
 import { validateFindings } from '../../review/validate.ts';
 import { derivePositions } from '../../publication/positions.ts';
 import { ReviewStore } from '../../publication/store.ts';
-import type { ParsedArgs } from '../args.ts';
-import { resolveTargetOptions, TARGET_OPTIONS } from '../target-option.ts';
+import type { OptionSpec, ParsedArgs } from '../args.ts';
+import { resolveTargetOptions, TARGET_OPTIONS, type ResolvedTargetOptions } from '../target-option.ts';
+import { consentForKey, GATE, routedOf, warmIndex, type CheckDeps, type Routed } from '../../checks/check-command.ts';
+import { baselineOf } from '../../checks/format.ts';
+import { touchedSet } from '../../checks/baseline.ts';
+import { estimateReview, renderEstimate, type ReviewEstimate } from '../../review/estimate.ts';
+import { taskSlugFor } from '../../review/review-name.ts';
+import { ledgerRouteContext, readEntries } from '../../route/context.ts';
+import { runCommandTail } from '../../route/command-tail.ts';
+import { AmbicodeError } from '../../util/errors.ts';
+import { routeTools, type RouteTools } from './route.ts';
 
-export const REVIEW_OPTIONS = TARGET_OPTIONS;
+export const REVIEW_OPTIONS: OptionSpec = { ...TARGET_OPTIONS, flags: [...TARGET_OPTIONS.flags, 'estimate'] };
+
+/** What `--task` adds to a review (07-B3 … 07-B5, 07-K5): the baseline scope, consent-checked approvals and the ledger fields. */
+interface TaskScope {
+  task: string;
+  tools: RouteTools;
+  deps: CheckDeps;
+  routed: Routed | null;
+  preexisting: string[];
+  omissions: string[];
+  approvals: Set<string>;
+  declines: Set<string>;
+  ledger: Record<string, unknown>;
+}
+
+async function taskScope(runtime: Runtime, options: ResolvedTargetOptions, mode: 'review' | 'estimate', warm?: CheckDeps['warm']): Promise<TaskScope | null> {
+  if (options.task === null || options.target.kind === 'merge-request') return null;
+  const task = taskSlugFor({ requirementIds: [], task: options.task }) ?? options.task;
+  const tools = await routeTools(runtime, task);
+  const session = tools.binding.state === 'bound' ? tools.binding.session : null;
+  const deps: CheckDeps = { runtime, session, context: ledgerRouteContext({ runtime, routes: tools.routes }), routes: tools.routes, ...(warm === undefined ? {} : { warm }) };
+  const routed = await routedOf(deps, task);
+  const scope: TaskScope = {
+    task, tools, deps, routed, preexisting: [], omissions: [], approvals: options.approvals, declines: options.declines,
+    ledger: { ...(routed === null ? {} : { route: routed.view.routeId }), ...(session === null ? {} : { session }) },
+  };
+  // Baseline scoping and its refusals belong to a task route; consent applies under any route (07-B4, 07-K5).
+  const scoped = routed === null || routed.view.skill === 'task';
+  const baseline = scoped ? await baselineOf(deps, task, routed?.view.chainIds ?? null) : null;
+  if (routed !== null && scoped && mode === 'review') {
+    if (baseline === null) {
+      throw new AmbicodeError('baseline-missing', `Task ${task} has an open task route but no task baseline, so the review cannot tell this task's changes from earlier ones.`, {
+        details: [`Release: $A route next --task ${task} (ground records it), then run the review again.`],
+      });
+    }
+    const offer = await deps.context!.consent(routed.view, 'review-offer');
+    if (offer.state !== 'honoured' || offer.source.answer !== 'run') {
+      throw new AmbicodeError('review-not-accepted', `The independent review of task ${task} was not accepted (${offer.state === 'refused' ? offer.reason : 'not run'}).`, {
+        details: ['Release: answer the review-offer question.'],
+      });
+    }
+  }
+  if (routed !== null) {
+    // A typed --approve never approves by itself: only an honoured answer for that key does.
+    const entries = (await readEntries(runtime, task)).filter((entry) => routed.view.chainIds.includes(String(entry['route'])));
+    const waiting = entries.filter((entry) => entry.kind === 'review').flatMap((entry) => (Array.isArray(entry['waiting']) ? (entry['waiting'] as string[]) : []));
+    scope.approvals = new Set();
+    scope.declines = new Set();
+    for (const key of new Set([...waiting, ...options.approvals, ...options.declines])) {
+      const consent = mode === 'estimate'
+        ? ((await deps.context!.consent(routed.view, GATE, { key })).state === 'honoured' ? 'honoured' : 'waiting')
+        : await consentForKey(deps, routed, { key, files: [], approve: [...options.approvals], decline: [...options.declines], raise: false });
+      if (consent === 'honoured') scope.approvals.add(key);
+      if (consent === 'declined') scope.declines.add(key);
+    }
+  }
+  if (!scoped) return scope;
+  if (baseline === null) {
+    scope.omissions.push('no task baseline: pre-existing changes included');
+    scope.ledger = { ...scope.ledger, baseline: null, preexisting: [] };
+    return scope;
+  }
+  const touched = await touchedSet(runtime, baseline);
+  scope.preexisting = touched.preexisting;
+  if (touched.headMoved) scope.omissions.push('HEAD moved since the task baseline');
+  scope.ledger = { ...scope.ledger, baseline: baseline.id, preexisting: touched.preexisting };
+  return scope;
+}
+
+export interface ReviewEstimateOutput { command: 'review --estimate'; estimate: ReviewEstimate; text: string }
+
+/** Read-only: no ledger entry, no snapshot, no review directory, no step acknowledged (07-E3). */
+export async function runReviewEstimate(runtime: Runtime, args: ParsedArgs): Promise<ReviewEstimateOutput> {
+  const resolved = resolveTargetOptions('review', runtime, args);
+  const scope = await taskScope(runtime, resolved, 'estimate');
+  const estimate = await estimateReview(runtime, { runtime, ...resolved, ...(scope === null ? {} : { approvals: scope.approvals, declines: scope.declines, preexisting: scope.preexisting }) });
+  return { command: 'review --estimate', estimate, text: renderEstimate(estimate) };
+}
 
 /** Beside `result.json`; see `ReviewerRun.rejectedOutputRef`. */
 export const REJECTED_OUTPUT_FILE = 'reviewer-rejected-output.json';
@@ -33,10 +119,14 @@ export interface ReviewOutput {
    * finding list is then absent rather than empty.
    */
   awaitingAuthorization: boolean;
+  /** The task route's next step, printed by the command tail under `--task`. */
+  next?: string;
 }
 
 export interface ReviewDependencies {
   reviewer?: Reviewer;
+  /** The detached index refresh after a routed `review --task` (07-G3). */
+  warm?: CheckDeps['warm'];
 }
 
 /**
@@ -50,10 +140,22 @@ export async function runReview(
 ): Promise<ReviewOutput> {
   // The bundle refuses the whole review if the measured prompt exceeds the
   // limit, so nothing below can reach a model with more than configured.
-  const bundle = await assembleBundle({ runtime, ...resolveTargetOptions('review', runtime, args) });
+  const resolved = resolveTargetOptions('review', runtime, args);
+  const scope = await taskScope(runtime, resolved, 'review', dependencies.warm);
+  const bundle = await assembleBundle({ runtime, ...resolved, ...(scope === null ? {} : { approvals: scope.approvals, declines: scope.declines, preexisting: scope.preexisting }) });
+  if (scope !== null) bundle.result.omissions = [...bundle.result.omissions, ...scope.omissions];
+  const output = await reviewWith(runtime, bundle, dependencies, scope?.ledger ?? {});
+  if (scope === null) return output;
+  const entry = output.entryId;
+  delete output.entryId;
+  if (scope.routed !== null) warmIndex(scope.deps, bundle.workspace, bundle.policies[0]?.project ?? bundle.workspace.config.projects[0]!);
+  const next = await runCommandTail({ engine: scope.tools.engine }, { task: scope.task, cause: 'review', session: scope.tools.binding, ...(entry === undefined ? {} : { produced: [entry] }) });
+  return next === null ? output : { ...output, next: next.text };
+}
 
+async function reviewWith(runtime: Runtime, bundle: ReviewBundle, dependencies: ReviewDependencies, ledger: Record<string, unknown>): Promise<ReviewOutput & { entryId?: string }> {
   if (bundle.pendingApprovals.length > 0) {
-    return await stopForAuthorization(runtime, bundle);
+    return await stopForAuthorization(runtime, bundle, ledger);
   }
 
   const reviewConfig = bundle.workspace.config.review;
@@ -137,7 +239,7 @@ export async function runReview(
   bundle.result.reviewer = run;
   applyStatus(bundle, reviewerOk);
 
-  await writeBundleArtifacts(runtime, bundle);
+  const entry = await writeBundleArtifacts(runtime, bundle, ledger);
   // Derived while the pinned diff is in hand: afterwards the snapshot is
   // disposable and the merge request may move, so a position is never recomputed.
   const positions = await persistPublicationPositions(runtime, bundle);
@@ -161,10 +263,11 @@ export async function runReview(
     pendingApprovals: bundle.pendingApprovals,
     publishablePositions: positions,
     awaitingAuthorization: false,
+    ...(entry === null ? {} : { entryId: entry.id }),
   };
 }
 
-async function stopForAuthorization(runtime: Runtime, bundle: ReviewBundle): Promise<ReviewOutput> {
+async function stopForAuthorization(runtime: Runtime, bundle: ReviewBundle, ledger: Record<string, unknown>): Promise<ReviewOutput & { entryId?: string }> {
   const keys = bundle.pendingApprovals.map((approval) => approval.approvalKey);
   bundle.result.status = 'partial';
   bundle.result.statusReason =
@@ -176,7 +279,7 @@ async function stopForAuthorization(runtime: Runtime, bundle: ReviewBundle): Pro
     `Answer each waiting check with --approve <key> or --decline <key>, then re-run. Keys: ${keys.join(', ')}.`,
   ];
 
-  await writeBundleArtifacts(runtime, bundle);
+  const entry = await writeBundleArtifacts(runtime, bundle, ledger);
   const reportPath = path.join(bundle.reviewDirectory, 'report.txt');
   const report = renderReport({
     result: bundle.result,
@@ -187,6 +290,7 @@ async function stopForAuthorization(runtime: Runtime, bundle: ReviewBundle): Pro
   await runtime.fs.writeText(reportPath, `${report}\n`);
 
   return {
+    ...(entry === null ? {} : { entryId: entry.id }),
     command: 'review',
     reviewId: bundle.reviewId,
     reviewDirectory: bundle.reviewDirectory,
@@ -285,10 +389,11 @@ function toolsOf(argv: readonly string[]): string[] {
 }
 
 export function renderReview(output: ReviewOutput): string {
-  return renderReport({
+  const report = renderReport({
     result: output.result,
     snapshotDirectory: output.snapshotDirectory,
     resultPath: output.resultPath,
     pendingApprovals: output.pendingApprovals,
   });
+  return output.next === undefined ? report : `${report}\n\n${output.next}`;
 }

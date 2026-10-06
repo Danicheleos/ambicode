@@ -10,13 +10,13 @@ import { append, chainOf, gateFor, latestPrint, objectOf, viewFor, type Run } fr
 type Entry = LedgerEntry;
 type RevisePath = 'gate' | 'code' | 'model';
 
-export async function exitRoute(run: Run, reason: Exit, detail?: string, extra: object = {}): Promise<void> {
+export async function exitRoute(run: Run, reason: Exit | string, detail?: string, extra: object = {}): Promise<void> {
   await append(run, { kind: 'exit', reason, ...(detail === undefined ? {} : { detail }), ...extra });
   run.exited = reason;
 }
 
 /** An option named `stop` records an exit: the budget gate exits `budget`, a project question `human`, the rest `blocked` (D12). */
-const stopReason = (gate: string): Exit => (gate === 'budget-exhausted' ? 'budget' : gate === 'project-ambiguous' || gate === 'scope' ? 'human' : 'blocked');
+const stopReason = (gate: string): string => (gate === 'draft-ok' ? 'draft-stop' : gate === 'budget-exhausted' ? 'budget' : gate === 'project-ambiguous' || gate === 'scope' ? 'human' : 'blocked');
 
 /** The window a gate's answers are read in: its own step's, or for a raised gate the step that raised it. */
 export function gateWindow(run: Run, gateId: string): Entry[] {
@@ -81,7 +81,7 @@ export async function recordAnswer(run: Run, gate: GateDef, recorded: Recorded, 
     return;
   }
   const written = await append(run, { kind: recorded.kind, ...body });
-  if (recorded.kind === 'acceptance') await raisedAnswerHandler(gate.id)?.({ view: viewFor(run, raisedBy ?? ''), ledger: run.ledger, acceptance: written });
+  if (recorded.kind === 'acceptance') await raisedAnswerHandler(gate.id)?.({ view: viewFor(run, raisedBy ?? ''), ledger: run.ledger, acceptance: written, routes: run.routes });
   if (recorded.answer === 'stop' || recorded.answer === 'pause') return exitRoute(run, stopReason(gate.id), `${gate.id}: stop`);
   if (revise !== undefined) {
     await reviseTo(run, revise, recorded.revisePath, { reason: `${gate.id}: ${recorded.answer}`, gate: gate.id, answer: recorded.answer, ...(raisedBy === undefined ? {} : { raisedBy }) });
@@ -166,11 +166,12 @@ export async function serviceGate(run: Run, gate: GateDef, stepId: string): Prom
   const step = run.def.steps.find((candidate) => candidate.id === stepId)!;
   const window = (): Entry[] => windowOf(foldRoute(run.def, chainOf(run)), step);
   const declaredStep = run.def.steps.find((candidate) => candidate.gate?.id === gate.id);
-  const raisedBy = declaredStep === undefined ? stepId : undefined;
+  const raisedPrint = declaredStep === undefined ? latestPrint(window(), gate.id) : null;
+  const raisedBy = declaredStep === undefined ? String(raisedPrint?.['raisedBy'] ?? stepId) : undefined;
   const newPrint = async (): Promise<Entry> => {
     // A gate raised by this very run was just printed by the raise: that print is the one delivered.
     const raised = declaredStep === undefined ? latestPrint(window(), gate.id) : null;
-    if (raised !== null && run.written.includes(raised.id) && raised['raisedBy'] === stepId) return raised;
+    if (raised !== null && run.written.includes(raised.id) && (raised['openAt'] ?? raised['raisedBy']) === stepId) return raised;
     const prints = printsOf(chainOf(run).entries, gate.id).length;
     const source = latestPrint(window(), gate.id);
     const object = declaredStep === undefined ? null : objectOf(run, declaredStep);
@@ -183,7 +184,7 @@ export async function serviceGate(run: Run, gate: GateDef, stepId: string): Prom
       print: prints + 1,
       cause: run.cause,
       options: shaped.options,
-      ...(declaredStep === undefined ? { raisedBy: stepId, ...(source?.['values'] === undefined ? {} : { values: source['values'] }) } : {}),
+      ...(declaredStep === undefined ? { raisedBy, ...(source?.['openAt'] === undefined ? {} : { openAt: source['openAt'] }), ...(source?.['values'] === undefined ? {} : { values: source['values'] }) } : {}),
       ...(object === null ? {} : { object }),
     });
   };

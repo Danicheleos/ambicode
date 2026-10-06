@@ -63,7 +63,9 @@ export function parseRunOptions(rest) {
   return { values, flags, tags };
 }
 
-const casesDirOf = (set, plugin, benchmarks) => (set === 'full' ? path.join(benchmarks, CASES_DIRECTORY) : path.join(plugin, CURATED_EVAL_DIR, CASES_DIRECTORY));
+export const TASK_EVAL_DIR = 'evals/cases/evals-task';
+const evalDirOf = (set) => (set === 'full' ? BENCH_EVAL_DIR : set === 'task' ? TASK_EVAL_DIR : CURATED_EVAL_DIR);
+const casesDirOf = (set, plugin, benchmarks) => (set === 'full' ? path.join(benchmarks, CASES_DIRECTORY) : path.join(plugin, evalDirOf(set), CASES_DIRECTORY));
 
 /**
  * The one validated run. `harness` holds the forwarded options as `[name, ...values]` in `RUN_VALUES` order,
@@ -73,7 +75,7 @@ const casesDirOf = (set, plugin, benchmarks) => (set === 'full' ? path.join(benc
 export function runSpec(options, { now = new Date(), benchmarks = BENCHMARKS, set: defaultSet = 'curated', plugin: defaultPlugin = ROOT } = {}) {
   const { values, flags, tags } = Array.isArray(options) ? parseRunOptions(options) : options;
   const set = values['--set'] ?? defaultSet;
-  if (!['curated', 'full'].includes(set)) throw new Error(`--set takes curated or full, not ${set}`);
+  if (!['curated', 'full', 'task'].includes(set)) throw new Error(`--set takes curated, full or task, not ${set}`);
   for (const name of Object.keys(REQUIRED)) if (!(name in values)) throw new Error(REQUIRED[name]);
   const prompt = values['--prompt'] ?? 'naked';
   if (!['naked', 'with'].includes(prompt)) throw new Error(`--prompt takes naked or with, not ${prompt}`);
@@ -98,6 +100,7 @@ export function runSpec(options, { now = new Date(), benchmarks = BENCHMARKS, se
     plugin,
     prompt,
     casesDir: casesDirOf(set, plugin, benchmarks),
+    evalDir: evalDirOf(set),
     model: values['--model'],
     maxCostUsd: Number(values['--max-cost-usd']),
     runs: values['--runs'] ?? null,
@@ -117,7 +120,7 @@ export function runSpec(options, { now = new Date(), benchmarks = BENCHMARKS, se
 /** The `claude` argv of a spec; `json` replaces the result path (a run writes to its private one). */
 export function harnessArgv(spec, { json = spec.json } = {}) {
   const options = spec.harness.flatMap(([name, ...rest]) => (name === '--json' ? [name, json] : [name, ...rest]));
-  return ['plugin', 'eval', spec.plugin, '--eval-dir', spec.set === 'full' ? BENCH_EVAL_DIR : CURATED_EVAL_DIR, '--scaffold', '--allow-tools', 'Bash', '--no-publish', '--keep-temp', ...options];
+  return ['plugin', 'eval', spec.plugin, '--eval-dir', spec.evalDir, '--scaffold', '--allow-tools', 'Bash', '--no-publish', '--keep-temp', ...options];
 }
 
 /** Compatibility adapter: the argv of raw `run` arguments, validated as `run` validates them. */

@@ -391,6 +391,12 @@ single-select `AskUserQuestion` answer reaches `PostToolUse` as
 answers, multi-question or multi-select calls, resume between ask and answer,
 subagent askers, and any other Claude Code version.
 
+A probe on 2026-10-06 (Claude Code 2.1.289, one `claude -p`, P17) blocked `Stop` once with both
+`reason` and `hookSpecificOutput.additionalContext`: the output validated, the reason reached the
+model as a "Stop hook feedback" user message, and `additionalContext` as a system reminder. `Stop`
+keeps its bounded reason plus `stop-check.md`; the list does not also go to `additionalContext`,
+which would only repeat it. Record: `plan/migration-v6-reports/step-07/probe-p17.md`.
+
 Which of them may *carry* the contract is not a free choice. Claude Code's
 hook-output schema has a `hookSpecificOutput` variant for only some events,
 and `PostCompact` is not among them (verified against 2.1.278: the accepted

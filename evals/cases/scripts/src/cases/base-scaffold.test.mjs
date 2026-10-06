@@ -116,6 +116,19 @@ describe('base-scaffold', () => {
     assert.match(failing.stderr, /scaffold: dependency setup failed \(exit 7\)/);
   });
 
+  it('07-T2: wholeTree extracts the whole base tree and config replaces the side config from beside the script', () => {
+    const script = caseWith('c10', { wholeTree: true, config: 'config.yaml', withhold: ['src/tests'] });
+    writeFileSync(path.join(path.dirname(script), 'config.yaml'), 'case: own\n');
+    const work = path.join(top, 'work-10');
+    const result = run(script, work);
+    assert.equal(result.status, 0, result.stderr);
+    const repo = path.join(work, 'repo');
+    assert.equal(readFileSync(path.join(repo, 'other/o.txt'), 'utf8'), 'outside root\n');
+    assert.equal(readFileSync(path.join(repo, 'src/a.txt'), 'utf8'), 'base\n');
+    assert.ok(!existsSync(path.join(repo, 'src/tests')));
+    assert.equal(readFileSync(path.join(repo, '.ambicode/config.yaml'), 'utf8'), 'case: own\n');
+  });
+
   it('05-S2: SIDE resolves from the script location; sideRelFrom fits any case directory under any root; a moved copy is regenerated', () => {
     const script = caseWith('c7', {});
     const deeper = path.join(top, 'cases', 'nested', 'c7');

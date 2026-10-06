@@ -6,11 +6,12 @@ import type { TaskDir } from '../task/task-dir.ts';
 import type { LockedLedger } from '../task/ledger-lock.ts';
 import type { RouteContextPort, RouteView } from './context.ts';
 import type { RouteArgs } from './flags.ts';
-import type { Call } from './routes.ts';
+import type { Call, RouteDef } from './routes.ts';
 import { MODULE_HANDLERS } from './handlers-modules.ts';
 import { INIT_HANDLERS } from '../config/init-route.ts';
 import { RULES_HANDLERS } from '../policy/rules-route.ts';
 import { planCheckStep } from '../workers/plan-check.ts';
+import { TASK_HANDLERS } from '../task/task-route.ts';
 
 export interface HandlerInput {
   view: RouteView;
@@ -24,13 +25,18 @@ export interface HandlerInput {
   revise: { args: Readonly<Record<string, readonly string[]>> } | null;
   /** Entry ids the command that advanced the route wrote for this step to consume (D1); empty otherwise. */
   produced: readonly string[];
+  def?: RouteDef;
 }
 
-/** Handlers never parse CLI flags, call wrappers or advance the engine. */
+/**
+ * Handlers never parse CLI flags, call wrappers or advance the engine. `record` adds fields to the step's completed
+ * record; `exit` ends the route with that reason once the step is recorded. A `raisedBy` other than the running step
+ * makes an approval revise that step; the print stays open at the running one.
+ */
 export type HandlerResult =
-  | { state: 'ok'; payload: string | null }
+  | { state: 'ok'; payload: string | null; record?: Readonly<Record<string, unknown>>; exit?: string }
   | { state: 'failed'; code: string; message: string; recoverable: boolean; revise?: { args: Readonly<Record<string, readonly string[]>>; lastRound?: string } }
-  | { state: 'raise'; gate: string; values: Readonly<Record<string, readonly string[]>> };
+  | { state: 'raise'; gate: string; values: Readonly<Record<string, readonly string[]>>; raisedBy?: string };
 
 export type Handler = (input: HandlerInput) => Promise<HandlerResult>;
 
@@ -52,6 +58,10 @@ export function payloadKey(call: Call): string {
     case 'requirements.template': return 'template';
     case 'requirements.normalize': return 'envelope';
     case 'evidence.navigationLine': return 'navigation';
+    case 'task.start': return 'brief';
+    case 'task.inventory': return 'callers';
+    case 'checks.baseline': return 'baseline';
+    case 'task.report': return 'report';
     default: return call.name;
   }
 }
@@ -92,5 +102,5 @@ export const EVIDENCE_HANDLERS: Readonly<Record<string, Handler>> = {
 };
 
 export function defaultHandlers(): Record<string, Handler> {
-  return { ...MODULE_HANDLERS, ...EVIDENCE_HANDLERS, ...INIT_HANDLERS, ...RULES_HANDLERS };
+  return { ...MODULE_HANDLERS, ...EVIDENCE_HANDLERS, ...INIT_HANDLERS, ...RULES_HANDLERS, ...TASK_HANDLERS };
 }

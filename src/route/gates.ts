@@ -146,7 +146,7 @@ export function gateThen(task: string, runner: string, platform: PlatformFlags =
 export async function raiseGate(
   ledger: LockedLedger,
   view: RouteView,
-  input: { gate: string; values: Readonly<Record<string, readonly string[]>>; raisedBy: string },
+  input: { gate: string; values: Readonly<Record<string, readonly string[]>>; raisedBy: string; openAt?: string },
   routes: RouteRegistry,
 ): Promise<LedgerEntry> {
   const definition = routes.gate(input.gate);
@@ -160,6 +160,7 @@ export async function raiseGate(
     gate: gate.id,
     class: gate.class === 'decision' ? 'decision' : 'raised',
     raisedBy: input.raisedBy,
+    ...(input.openAt === undefined ? {} : { openAt: input.openAt }),
     question: gate.question,
     print: earlier + 1,
     options: gate.options,
@@ -172,7 +173,7 @@ const OPEN_OPTIONS: Readonly<Record<string, RegExp>> = { 'requirements-expansion
 
 export const offersOption = (gate: string, options: readonly string[], option: string): boolean => options.includes(option) || OPEN_OPTIONS[gate]?.test(option) === true;
 
-export type RaisedAnswerHandler = (input: { view: RouteView; ledger: LockedLedger; acceptance: LedgerEntry }) => Promise<void>;
+export type RaisedAnswerHandler = (input: { view: RouteView; ledger: LockedLedger; acceptance: LedgerEntry; routes: RouteRegistry }) => Promise<void>;
 const ANSWER_HANDLERS = new Map<string, RaisedAnswerHandler>();
 
 /** Runs once, inside the advance that folds the acceptance, when a raised gate gets a bound answer. */

@@ -10,6 +10,7 @@ import { PREPARE_OPTIONS, runPrepare } from '../../cli/commands/prepare.ts';
 import { createRuntime } from '../../composition/root.ts';
 import { nodeFileSystem } from '../../ports/filesystem.ts';
 import { TempRepo } from '../../testing/temp-repo.ts';
+import { prepareForActivity } from './prepare-on-skill.ts';
 import { runHook } from './run-hook.ts';
 
 async function initializedRepo(): Promise<TempRepo> {
@@ -22,12 +23,16 @@ async function initializedRepo(): Promise<TempRepo> {
   return repo;
 }
 
-async function contextOf(cwd: string, skill: string, args: string | undefined): Promise<string | null> {
+async function hookContextOf(cwd: string, prompt: string): Promise<string> {
   const runtime = await createRuntime({ cwd });
-  const prompt = `/${skill}${args === undefined ? '' : ` ${args}`}`;
   const output = (await runHook(runtime, JSON.stringify({ hook_event_name: 'UserPromptSubmit', session_id: randomUUID(), cwd, prompt }))) as {
     hookSpecificOutput?: { hookEventName: string; additionalContext: string };
   };
+  return output.hookSpecificOutput?.additionalContext ?? '';
+}
+
+async function contextOf(cwd: string, skill: string, args: string | undefined): Promise<string | null> {
+  const output = await prepareForActivity(await createRuntime({ cwd }), cwd, skill.replace(/^ambicode:/, ''), args ?? '');
   const context = output.hookSpecificOutput?.additionalContext ?? '';
   const at = context.search(/AMBICODE (ran|did not run|could not run)/);
   return at < 0 ? null : context.slice(at);
@@ -38,7 +43,7 @@ function preparedJson(context: string): { navigation: { shortlist?: { terms: str
   return JSON.parse(context.slice(start + 1));
 }
 
-describe('UserPromptSubmit on a typed /ambicode:task or /ambicode:task runs prepare by construction', () => {
+describe('prepare for a skill activity, and no slash command left that triggers it', () => {
   it('hands task the prepare output, with a shortlist taken from the skill args', async () => {
     const repo = await initializedRepo();
     try {
@@ -69,11 +74,12 @@ describe('UserPromptSubmit on a typed /ambicode:task or /ambicode:task runs prep
     }
   });
 
-  it('06-R11: leaves /ambicode:plan to the route launch and prepares only for task', async () => {
+  it('07-R1: leaves a typed /ambicode:task and /ambicode:plan to the route launch and prepares for neither', async () => {
     const repo = await initializedRepo();
     try {
-      assert.match((await contextOf(repo.root, 'ambicode:task', 'add retries to reserveStock')) ?? '', /--activity task --json/);
-      assert.doesNotMatch(JSON.stringify(await runHook(await createRuntime({ cwd: repo.root }), JSON.stringify({ hook_event_name: 'UserPromptSubmit', session_id: randomUUID(), cwd: repo.root, prompt: '/ambicode:plan add retries to reserveStock' }))), /AMBICODE ran `prepare/);
+      for (const prompt of ['/ambicode:task add retries to reserveStock', '/ambicode:plan add retries to reserveStock']) {
+        assert.doesNotMatch(await hookContextOf(repo.root, prompt), /AMBICODE (ran|did not run|could not run) prepare/, prompt);
+      }
     } finally {
       await repo.dispose();
     }
@@ -162,37 +168,17 @@ describe('UserPromptSubmit on a typed /ambicode:task or /ambicode:task runs prep
     }
   });
 
-  it('ignores every other command, every other tool and the Skill tool', async () => {
+  it('ignores every typed command, every other tool and the Skill tool', async () => {
     const repo = await initializedRepo();
     try {
-      for (const skill of ['ambicode:review', 'ambicode:init', 'ambicode:rules', 'ambicode:investigate', 'code-review']) {
-        assert.equal(await contextOf(repo.root, skill, 'x'), null, skill);
+      for (const prompt of ['/ambicode:review --branch', '/ambicode:init', '/ambicode:investigate x', '/ambicode:task ORD-17 add a limit', 'how does reserveStock work?']) {
+        assert.doesNotMatch(await hookContextOf(repo.root, prompt), /AMBICODE (ran|did not run|could not run) prepare/, prompt);
       }
       const runtime = await createRuntime({ cwd: repo.root });
       for (const tool of ['Bash', 'Skill']) {
         const other = JSON.stringify({ hook_event_name: 'PostToolUse', session_id: 's', cwd: repo.root, tool_name: tool, tool_input: { skill: 'ambicode:task', args: 'x' } });
         assert.deepEqual(await runHook(runtime, other), {});
       }
-    } finally {
-      await repo.dispose();
-    }
-  });
-
-  it('prepares for a typed slash command too, which Claude Code expands without a Skill tool call', async () => {
-    const repo = await initializedRepo();
-    try {
-      const run = async (prompt: string): Promise<string> => {
-        const runtime = await createRuntime({ cwd: repo.root });
-        const raw = JSON.stringify({ hook_event_name: 'UserPromptSubmit', session_id: randomUUID(), cwd: repo.root, prompt });
-        const output = (await runHook(runtime, raw)) as { hookSpecificOutput?: { additionalContext: string } };
-        return output.hookSpecificOutput?.additionalContext ?? '';
-      };
-      const typed = await run('/ambicode:task How does reserveStock in the orders service handle an order?');
-      assert.match(typed, /AMBICODE ran `prepare --activity task --json`/);
-      assert.equal(preparedJson(typed).navigation.shortlist?.candidates[0]?.path, 'src/orders/service.ts');
-      assert.doesNotMatch(await run('/ambicode:review --branch'), /AMBICODE ran/);
-      assert.doesNotMatch(await run('how does reserveStock work?'), /AMBICODE ran/);
-      assert.match(await run('/ambicode:task ORD-17 add a limit'), /did not run prepare: your skill args name a ticket/);
     } finally {
       await repo.dispose();
     }

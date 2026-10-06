@@ -1,6 +1,7 @@
 import { contentHash } from '../util/hash.ts';
 import type { LedgerEntry } from './ledger.ts';
 import { navigationLine } from './navigation-line.ts';
+import { isBoundAnswer } from '../route/fold.ts';
 
 const clip = (value: unknown, length = 80): string => {
   const text = String(value ?? '');
@@ -35,7 +36,7 @@ export function buildReport(
     return `${layers === '' ? 'map' : `layers ${layers}`}, ${list(entry.collisions).length} colliding names, index ${clip(typeof entry.index === 'object' && entry.index !== null ? `${String((entry.index as { tool?: unknown }).tool)} ${String((entry.index as { state?: unknown }).state)}` : (entry.index ?? 'none'))}${historical(entry)}`;
   });
 
-  const baselines = of('baseline').map((entry) => `${clip(entry.head ?? 'unknown', 12)}, dirty: ${list(entry.dirty).join(', ') || 'none'}${historical(entry)}`);
+  const baselines = of('baseline').map((entry) => `${clip(entry.head ?? 'unknown', 12)}, dirty: ${list(entry.dirty).map((item) => (typeof item === 'string' ? item : clip((item as { path?: unknown } | null)?.path))).join(', ') || 'none'}${historical(entry)}`);
 
   const keys = new Map<string, LedgerEntry[]>();
   for (const entry of of('check')) keys.set(String(entry.key), [...(keys.get(String(entry.key)) ?? []), entry]);
@@ -72,12 +73,17 @@ export function buildReport(
     decisions.push(`${clip(entry.gate)} ${how}${historical(entry)}`);
     if (entry.kind === 'declined') notVerified.push(`${clip(entry.gate)}: declined "${clip(entry.answer)}"${entry.reason === undefined ? '' : ` (${clip(entry.reason)})`}${historical(entry)}`);
     if (entry.kind === 'default-taken') notVerified.push(`${clip(entry.gate)}: default taken, "${clip(entry.answer)}" (${clip(entry.via)})${historical(entry)}`);
+    if (entry.kind !== 'preanswer' && entry.gate === 'review-offer' && String(entry.answer).startsWith('skip') && isBoundAnswer(entry)) notVerified.push(`independent review skipped — verification incomplete${historical(entry)}`);
   }
+  for (const entry of of('format')) if (entry.outcome !== 'formatted') notVerified.push(`not formatted: ${clip(entry.key)} (${clip(entry.outcome)})${historical(entry)}`);
 
   const revisions = new Map<string, LedgerEntry[]>();
   for (const entry of of('revise')) revisions.set(String(entry.from), [...(revisions.get(String(entry.from)) ?? []), entry]);
 
-  for (const entry of of('limit')) notVerified.push(`${clip(entry.which)} limit (${entry.count})${typeof entry.step === 'string' ? ` at ${entry.step}` : ''}${historical(entry)}`);
+  for (const entry of of('limit')) {
+    if (entry.which === 'missing-produces' && entry.step === 'red') notVerified.push(`no-red: no failing-first test recorded${historical(entry)}`);
+    else notVerified.push(`${clip(entry.which)} limit (${entry.count})${typeof entry.step === 'string' ? ` at ${entry.step}` : ''}${historical(entry)}`);
+  }
   for (const entry of of('envelope')) for (const missing of list(entry.missingAsked)) notVerified.push(`Requirement not captured: ${clip(missing)}${historical(entry)}`);
   for (const entry of of('route')) {
     if (entry.mode === 'headless' && entry.channel === 'cli') notVerified.push(`Route ${entry.id}: headless set by an untrusted start (channel cli)${historical(entry)}`);

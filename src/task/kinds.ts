@@ -63,22 +63,23 @@ const schemas = [
   }),
   entry('search', { command: z.enum(['refs', 'find', 'relates']), names: z.array(text), hits: count, bytes: count }),
   entry('policy', {
-    stage: z.enum(['before-work', 'before-report', 'drafts', 'apply']), packs: optionalList, rules: count.optional(), omitted: count.optional(), bytes: count.optional(),
+    stage: z.enum(['before-work', 'before-checks', 'before-report', 'drafts', 'apply']), packs: optionalList, rules: count.optional(), omitted: count.optional(), bytes: count.optional(),
     path: text.optional(), contentHash: text.optional(), drafts: optionalList, errors: count.optional(), probes: optionalList,
   }).superRefine((value, context) => {
     const required = { drafts: ['path', 'contentHash', 'drafts', 'errors'], apply: ['packs', 'probes'] }[value.stage as string] ?? ['packs', 'rules', 'omitted', 'bytes'];
     for (const field of required) if ((value as Record<string, unknown>)[field] === undefined) context.addIssue({ code: 'custom', path: [field], message: `required for stage ${value.stage}` });
   }),
-  // Written by later steps; each owner tightens its schema here (02-D4).
-  entry('baseline', { head: text.optional(), dirty: optionalList }),
+  entry('baseline', { head: text.nullable(), dirty: z.array(z.object({ path: text, hash: text.nullable() })) }),
   entry('check', {
-    key: text, argv: z.array(text), only: z.array(text), exit: z.number().int(), phase: text,
+    key: text, argv: z.array(text), only: z.array(text), exit: z.number().int(), phase: z.enum(['red', 'green']),
     summary: z.object({ ran: count, failed: count }).nullable(), ms: z.number(), mutations: z.unknown().optional(),
   }),
-  entry('format', { key: text.optional(), files: optionalList, exit: z.number().int().optional(), via: text.optional() }),
+  entry('format', {
+    key: text, files: z.array(text), exit: z.number().int().nullable(), via: z.literal('model'), outcome: z.enum(['formatted', 'unconfigured', 'failed', 'refused']),
+  }),
   entry('review', {
     reviewId: text, status: text.optional(), statusReason: text.nullable().optional(), reviewerRan: z.boolean().optional(),
-    findings: count.optional(), omissions: z.unknown().optional(),
+    findings: count.optional(), omissions: z.unknown().optional(), preexisting: z.array(text).optional(), baseline: text.nullable().optional(),
   }),
   entry('worker', {
     worker: text, outcome: z.enum(['ran', 'inline', 'skipped']), ms: z.number(), artifact: text.nullable(), costUsd: z.number().optional(), reason: text.optional(),

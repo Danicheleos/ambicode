@@ -14,7 +14,7 @@ import { AmbicodeError } from '../../util/errors.ts';
 import { contentHash } from '../../util/hash.ts';
 import type { ParsedArgs } from '../args.ts';
 
-export const ROUTE_START_OPTIONS = { values: ['task', 'project'], repeated: ['answer', 'requirement'], flags: ['json', 'headless', 'fresh', 'adopt'], positionals: true } as const;
+export const ROUTE_START_OPTIONS = { values: ['task', 'project', 'plan', 'from-draft'], repeated: ['answer', 'requirement'], flags: ['json', 'headless', 'fresh', 'adopt'], positionals: true } as const;
 export const ROUTE_NEXT_OPTIONS = { values: ['task', 'default', 'revise', 'conflict', 'sources', 'project', 'show'], repeated: ['answer'], flags: ['json'] } as const;
 export const ROUTE_STATUS_OPTIONS = { values: ['task'], flags: ['json'] } as const;
 export const ROUTE_STOP_OPTIONS = { values: ['task', 'reason', 'detail'], flags: ['json'] } as const;
@@ -51,6 +51,8 @@ export async function runRouteStart(runtime: Runtime, args: ParsedArgs): Promise
   const channel = (await cliHarnessPort.validate(runtime, session, contentHash(`${skill} ${text}`))) ? 'harness' : 'cli';
   const task = args.value('task');
   const project = args.value('project');
+  const plan = args.value('plan');
+  const fromDraft = args.value('from-draft');
   const message = await engine.start({
     skill,
     text,
@@ -58,6 +60,8 @@ export async function runRouteStart(runtime: Runtime, args: ParsedArgs): Promise
     ...(task === null ? {} : { task: taskSlugFor({ requirementIds: [], task }) ?? task }),
     headless: args.flag('headless'),
     ...(project === null ? {} : { project }),
+    ...(plan === null ? {} : { plan }),
+    ...(fromDraft === null ? {} : { fromDraft }),
     answers: args.all('answer').map(parseAnswerFlag),
     fresh: args.flag('fresh'),
     adopt: args.flag('adopt'),

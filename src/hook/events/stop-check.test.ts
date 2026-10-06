@@ -8,6 +8,7 @@ import { ledgerRouteContext } from '../../route/context.ts';
 import { buildReport } from '../../task/report.ts';
 import { saveNote } from '../../task/notes.ts';
 import { routeFixture, type RouteFixture } from '../../testing/route-fixture.ts';
+import { taskFixture } from '../../testing/task-fixture.ts';
 import type { HookDeps } from './run-hook.ts';
 import { runHook } from './run-hook.ts';
 import { lastAssistantText, redBeforeGreen, REASON_LIMIT_BYTES, TRANSCRIPT_TAIL_BYTES } from './stop-check.ts';
@@ -395,6 +396,181 @@ describe('03b-N: the answer is the note', () => {
       assert.match(blocked.reason!, /gone\.ts:4: gone\.ts does not exist/);
     } finally {
       await s.fx.dispose();
+    }
+  });
+});
+
+describe('07-S task stop inputs', () => {
+  const heading = '## Confirmed facts\n';
+  const LEDGER = (s: Stopper): string => path.join(s.fx.repo.root, '.ambicode', 'task', TASK, 'ledger.jsonl');
+  let serial = 0;
+  const append = async (s: Stopper, entries: Record<string, unknown>[]): Promise<void> => {
+    const route = (await s.fx.kinds(TASK, 'route'))[0]!.id;
+    const lines = entries.map((fields) => `${JSON.stringify({ id: `zzzzzzzz-${(serial += 1)}`, at: '2026-10-05T10:00:00.000Z', route, ...fields })}\n`);
+    await writeFile(LEDGER(s), (await readFile(LEDGER(s), 'utf8')) + lines.join(''));
+  };
+  const BRIEF = { kind: 'step', step: 'ground', actor: 'code', status: 'completed', cause: 'route-next', defectBrief: true };
+  const run = (phase: string, exit: number, summary: { ran: number; failed: number } | null, key = 'app/unit'): Record<string, unknown> => ({ kind: 'check', key, argv: ['jest'], only: ['a.spec.ts'], exit, phase, summary, ms: 3 });
+  async function withStop(body: (s: Stopper) => Promise<void>): Promise<void> {
+    const s = await stopper();
+    try {
+      await toWrite(s);
+      await body(s);
+    } finally {
+      await s.dispose();
+    }
+  }
+
+  it('07-S1/07-S4: each "tests pass" phrasing without a green check that ran tests blocks once, then the second failure allows', async () => {
+    for (const phrase of ['tests pass', 'All tests pass.', 'The tests are green.', 'test passed']) {
+      await withStop(async (s) => {
+        await s.say(`${heading}Done: ${phrase}`);
+        const blocked = await s.stop();
+        assert.equal(blocked.decision, 'block', phrase);
+        assert.match(blocked.reason!, /says tests pass/);
+        assert.deepEqual(await s.limits(), ['stop-block']);
+        assert.deepEqual(await s.stop(), {}, '07-S4 second failure allows');
+        assert.deepEqual(await s.limits(), ['stop-block']);
+      });
+    }
+  });
+
+  it('07-S1: a text without the phrase is not blocked for lack of a green check', async () => {
+    await withStop(async (s) => {
+      await s.say(`${heading}The failing test now fails for the right reason; nothing was run to completion.`);
+      assert.deepEqual(await s.stop(), {});
+    });
+  });
+
+  it('07-S1: a green check that ran tests allows the claim', async () => {
+    await withStop(async (s) => {
+      await append(s, [run('red', 1, { ran: 1, failed: 1 }), run('green', 0, { ran: 3, failed: 0 })]);
+      await s.say(`${heading}All tests pass.`);
+      assert.deepEqual(await s.stop(), {});
+      assert.deepEqual(await s.limits(), []);
+    });
+  });
+
+  it('07-S1: a red-phase check shaped green, a zero-test green and a green with failures do not count', async () => {
+    const cases: [string, Record<string, unknown>][] = [
+      ['red phase shaped green', run('red', 0, { ran: 3, failed: 0 })],
+      ['zero tests', run('green', 0, { ran: 0, failed: 0 })],
+      ['null summary', run('green', 0, null)],
+      ['failures', run('green', 0, { ran: 3, failed: 1 })],
+      ['nonzero exit', run('green', 1, { ran: 3, failed: 0 })],
+    ];
+    for (const [name, entry] of cases) {
+      await withStop(async (s) => {
+        await append(s, [entry]);
+        await s.say(`${heading}Tests pass.`);
+        const blocked = await s.stop();
+        assert.equal(blocked.decision, 'block', name);
+        assert.match(blocked.reason!, /says tests pass/, name);
+      });
+    }
+  });
+
+  it('07-S2: a defect brief with a green check and no failing run before it blocks; a failing run first allows', async () => {
+    await withStop(async (s) => {
+      await append(s, [BRIEF, run('green', 0, { ran: 3, failed: 0 })]);
+      await s.say(`${heading}Fixed it.`);
+      const blocked = await s.stop();
+      assert.equal(blocked.decision, 'block');
+      assert.match(blocked.reason!, /app\/unit: no failing run precedes the first green one/);
+    });
+    await withStop(async (s) => {
+      await append(s, [BRIEF, run('red', 1, { ran: 1, failed: 1 }), run('green', 0, { ran: 3, failed: 0 })]);
+      await s.say(`${heading}Fixed it.`);
+      assert.deepEqual(await s.stop(), {});
+    });
+  });
+
+  it('07-S2: a red run with no failed test does not satisfy red-before-green; without a defect brief no red is required', async () => {
+    await withStop(async (s) => {
+      await append(s, [BRIEF, run('red', 1, { ran: 0, failed: 0 }), run('green', 0, { ran: 3, failed: 0 })]);
+      await s.say(`${heading}Fixed it.`);
+      assert.equal((await s.stop()).decision, 'block');
+    });
+    await withStop(async (s) => {
+      await append(s, [run('green', 0, { ran: 3, failed: 0 })]);
+      await s.say(`${heading}Fixed it.`);
+      assert.deepEqual(await s.stop(), {});
+    });
+  });
+
+  it('07-S2: the red-before-green rule applies to each key with a green check', async () => {
+    await withStop(async (s) => {
+      await append(s, [BRIEF, run('red', 1, { ran: 1, failed: 1 }), run('green', 0, { ran: 1, failed: 0 }), run('green', 0, { ran: 2, failed: 0 }, 'app/e2e')]);
+      await s.say(`${heading}Fixed it.`);
+      const blocked = await s.stop();
+      assert.match(blocked.reason!, /app\/e2e: no failing run/);
+      assert.doesNotMatch(blocked.reason!, /app\/unit: no failing/);
+    });
+  });
+
+  const generated = async (s: Stopper): Promise<string> => {
+    const entries = await s.fx.ledger(TASK);
+    const chain = buildChain(entries, entries.find((entry) => entry.kind === 'route')!);
+    const report = buildReport(chain.entries, { current: currentIn(s.fx.routes.route('inv')!, chain) });
+    return `${report.evidence}\n${report.notVerified}\n<!-- ambicode report ${report.hash} -->`;
+  };
+  const declined = { kind: 'declined', gate: 'check-only-unauthorized', instance: null, answer: 'approve', via: 'flag', reason: 'acting-needs-human', key: 'app/e2e' };
+
+  it('07-S3: a declined key missing from the pasted Not verified blocks; the regenerated block allows', async () => {
+    await withStop(async (s) => {
+      const stale = await generated(s);
+      await append(s, [declined]);
+      await s.say(`${heading}${stale}`);
+      const blocked = await s.stop();
+      assert.equal(blocked.decision, 'block');
+      assert.match(blocked.reason!, /differs from the generated one/);
+    });
+    await withStop(async (s) => {
+      await append(s, [declined]);
+      const fresh = await generated(s);
+      assert.match(fresh, /check-only-unauthorized: declined "approve" \(acting-needs-human\)/);
+      await s.say(`${heading}${fresh}`);
+      assert.deepEqual(await s.stop(), {});
+    });
+  });
+
+  it('07-S3: a Not verified section with the declined line deleted blocks even when the hash comment is kept', async () => {
+    await withStop(async (s) => {
+      await append(s, [declined]);
+      const fresh = await generated(s);
+      await s.say(`${heading}${fresh.replace(/ {2}check-only-unauthorized: declined[^\n]*\n/, '  none recorded\n')}`);
+      assert.equal((await s.stop()).decision, 'block');
+    });
+  });
+
+  it('07-S5: with many problems the reason stays within the limit and stop-check.md lists them all', async () => {
+    await withStop(async (s) => {
+      const missing = Array.from({ length: 60 }, (_, index) => `src/missing-${index}.ts:${index + 1}`).join(' ');
+      await s.say(`${heading}All tests pass. ${missing}`);
+      const blocked = await s.stop();
+      assert.equal(blocked.decision, 'block');
+      assert.ok(Buffer.byteLength(blocked.reason!) <= REASON_LIMIT_BYTES, `${Buffer.byteLength(blocked.reason!)} bytes`);
+      const full = await readFile(path.join(s.fx.repo.root, '.ambicode', 'task', TASK, 'stop-check.md'), 'utf8');
+      assert.equal(full.split('\n').filter((line) => line.startsWith('- ')).length, 61);
+      assert.match(full, /says tests pass/);
+      assert.match(blocked.reason!, /stop-check\.md/);
+    });
+  });
+
+  it('07-S2: on the shipped task route a defect request is recorded by ground and a green check with no red blocks the report', async () => {
+    const t = await taskFixture();
+    try {
+      await t.start({ text: 'fix the defect in `total`', headless: true });
+      assert.equal((await t.kinds('step')).find((entry) => entry['step'] === 'ground' && entry['defectBrief'] === true) !== undefined, true);
+      await t.check('green', { ran: 1, failed: 0 });
+      const transcript = path.join(t.fx.scratchpad, 'transcript.jsonl');
+      await writeFile(transcript, `${JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: '# Task report\nDone: fixed it.' }] } })}\n`);
+      const deps: HookDeps = { pointer: t.fx.pointer, load: async () => ({ engine: t.fx.engine, routes: t.fx.routes, pointer: t.fx.pointer }) };
+      const out = (await runHook(t.fx.runtime, JSON.stringify({ hook_event_name: 'Stop', session_id: A, cwd: t.fx.repo.root, scratchpad_dir: t.fx.scratchpad, transcript_path: transcript }), deps)) as { decision?: string; reason?: string };
+      assert.equal(out.decision, 'block');
+      assert.match(out.reason!, /app\/unit: no failing run precedes the first green one/);
+    } finally {
+      await t.fx.dispose();
     }
   });
 });

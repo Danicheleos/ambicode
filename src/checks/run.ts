@@ -45,6 +45,8 @@ export interface RunChecksOptions {
    * waiting, so a caller that gates on pending approvals can proceed.
    */
   declines: ReadonlySet<string>;
+  /** Runs that one check on exactly these files; no selector or enumeration runs. */
+  only?: { checkId: string; files: readonly string[] };
 }
 
 export interface PendingApproval {
@@ -74,7 +76,10 @@ export async function runChecks(options: RunChecksOptions): Promise<RunChecksOut
   const projectRoot = normalizeRelative(options.project.root);
   const absoluteRoot = path.join(options.repositoryRoot, projectRoot);
 
-  for (const checkId of Object.keys(options.project.checks).sort()) {
+  const checkIds = options.only === undefined
+    ? Object.keys(options.project.checks).sort()
+    : Object.keys(options.project.checks).filter((id) => id === options.only?.checkId);
+  for (const checkId of checkIds) {
     const check = options.project.checks[checkId];
     const approvalKey = checkApprovalKey(options.project.id, checkId);
     const selectorKey = selectorApprovalKey(options.project.id, checkId);
@@ -122,7 +127,7 @@ export async function runChecks(options: RunChecksOptions): Promise<RunChecksOut
     }
 
     // A command selector runs project code, so it is authorized in its own right before selection begins.
-    if (check.selector?.kind === 'command') {
+    if (check.selector?.kind === 'command' && options.only === undefined) {
       const selectorCommandId = check.selector.command;
       const selectorAuthorization = authorizeCommand({
         policy: options.policy,
@@ -192,11 +197,15 @@ export async function runChecks(options: RunChecksOptions): Promise<RunChecksOut
         }),
     };
 
-    const selectionExecutes = adapter.role !== 'lint' && selectionRunsCommand(check);
+    const selectionExecutes = options.only === undefined && adapter.role !== 'lint' && selectionRunsCommand(check);
     if (selectionExecutes) await watch.baseline();
 
     const selection: Selection =
-      adapter.role === 'lint' ? selectLintFiles(selectOptions) : await selectTestFiles(selectOptions);
+      options.only !== undefined
+        ? forcedSelection(options.only.files)
+        : adapter.role === 'lint'
+          ? selectLintFiles(selectOptions)
+          : await selectTestFiles(selectOptions);
 
     const selectionMutations = selectionExecutes
       ? await watch.observe(`the selector for check "${checkId}"`)
@@ -357,6 +366,15 @@ export async function runChecks(options: RunChecksOptions): Promise<RunChecksOut
   }
 
   return { results, pendingApprovals };
+}
+
+function forcedSelection(files: readonly string[]): Selection {
+  return {
+    files: files.map((file) => ({ path: normalizeRelative(file), reason: 'named with --only' })),
+    complete: true,
+    limitations: [],
+    approval: null,
+  };
 }
 
 function reportMutations(...groups: readonly (readonly string[])[]): string[] {

@@ -138,4 +138,10 @@ describe('fold', () => {
     assert.equal(matches(entry('check', { exit: 1, summary: { ran: 1, failed: 1 } }), { kind: 'check', value: 'green' }), false);
     assert.equal(matches(entry('requirement', { capture: 'list' }), { kind: 'requirement', value: 'full' }), false);
   });
+
+  it('07-D4 check{red} and check{green} match on phase alone; an unproven green still meets check{green}', () => {
+    assert.equal(matches(entry('check', { phase: 'green', exit: 1, summary: null }), { kind: 'check', value: 'green' }), true);
+    assert.equal(matches(entry('check', { phase: 'red', exit: 0, summary: { ran: 0, failed: 0 } }), { kind: 'check', value: 'red' }), true);
+    assert.equal(matches(entry('check', { phase: 'red', exit: 1, summary: { ran: 1, failed: 1 } }), { kind: 'check', value: 'green' }), false);
+  });
 });

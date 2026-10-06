@@ -19,7 +19,7 @@ describe('evals-bench: running', () => {
     assert.equal(full[full.indexOf('--eval-dir') + 1], BENCH_EVAL_DIR);
     assert.throws(() => runArgs([...M, '--publish-report']), /NDA/);
     assert.throws(() => runArgs([...M, '--eval-dir', 'evals']), /fixed/);
-    assert.throws(() => runArgs([...M], { set: 'both' }), /curated or full/);
+    assert.throws(() => runArgs([...M], { set: 'both' }), /curated, full or task/);
   });
 
   it('refuses a run whose model is not pinned', () => {

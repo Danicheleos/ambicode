@@ -44,6 +44,12 @@ export const HANDLER_NAMES = [
   'rules.context',
   'rules.draftsCheck',
   'rules.close',
+  'task.start',
+  'task.inventory',
+  'task.index',
+  'task.report',
+  'checks.baseline',
+  'review.evaluate',
 ] as const;
 
 export interface StepDef {
