@@ -162,7 +162,7 @@ interface Evidence {
 | Crash between the rename and the `note {plan}` entry | the next `note promote` appends the entry for the existing `plan_<ts>.md` (12 §8) |
 | A file exists under the task directory with no ledger entry (orphan) | `route status` lists it; the producing step is not done and re-runs; the orphan is overwritten or left beside (notes keep both) |
 
-## What changes from v0.4.0
+## What changes from v0.5.0
 
 Ledger 2 → 21 kinds; `plan-draft` always first, `promote`; `note list`; `--from`; `--iteration`;
 `report`; generated navigation line labelled partial; session-scoped ids.
@@ -170,7 +170,7 @@ Ledger 2 → 21 kinds; `plan-draft` always first, `promote`; `note list`; `--fro
 ## Open problems
 
 - P6 The model may strip the hash comment; normalized diff is the fallback.
-- P38 "Model reads not recorded" makes the navigation line weaker than v0.4.0's self-report in
+- P38 "Model reads not recorded" makes the navigation line weaker than v0.5.0's self-report in
   coverage and stronger in honesty; a reviewer of the report may want more. Accepted until measured.
 
 ## v7 changes

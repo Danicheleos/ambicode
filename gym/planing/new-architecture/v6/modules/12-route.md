@@ -494,7 +494,7 @@ command calls `advance({cause: <its name>})` after its own ledger write.
 | A new session on an open route | skill owning no file: adopted when `hash(args)` matches (§2.3), else a new route beside it; `plan`: `route-busy` until `--adopt` or `--fresh` (H2); `--fresh` restarts (#114) |
 | Two sessions, one slug, both live | skill owning no file — same args: each `route start` adopts and the fold is over the union; different args: two routes side by side (P54); `plan`: the second is `route-busy` (H2); ids carry the session (13 §1); `O_APPEND` keeps lines whole (#114) |
 
-## What changes from v0.4.0
+## What changes from v0.5.0
 
 `prepare-on-skill.ts` becomes `route start`; the `Skill` hook entry is removed (dead under D2); the
 MCP hook captures only (14 §3). Skill bodies lose their step lists. New ledger kinds (13 §1).

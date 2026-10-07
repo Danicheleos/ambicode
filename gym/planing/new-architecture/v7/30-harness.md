@@ -47,7 +47,7 @@ written to disk, **not** what the model holds: a `PostToolUse` hook runs after t
 the window (#47). The only lever on requirement text in context is the field list in the template
 (14 §2), which the model may or may not obey (M2). The peak is measured, not predicted (33 §7, P32).
 
-| Skill | Body | Start | Largest step | Report step | Fixed cap | Expected fixed | Variable (not capped) | v0.4.0 fixed files |
+| Skill | Body | Start | Largest step | Report step | Fixed cap | Expected fixed | Variable (not capped) | v0.5.0 fixed files |
 |---|---|---|---|---|---|---|---|---|
 | investigate | 2.0 | 4 | 8 | 2 | 16 KB | 6–8 KB | requirement text as returned by MCP (28 KB epic + ≤ 10 children in the real run; 53 KB for a `*all` JQL); file read-back 14.5–17.6 KB when a step overflows | ≈ 21–27 KB |
 | plan | 2.5 | 4 | 9 (file) | 3 | 18.5 KB | 8–12 KB | as above + the plan body once (78 KB in the real run) | ≈ 25–34 KB |

@@ -5,7 +5,7 @@
 Answer one bounded question about the code with cited evidence, editing nothing, and leave a note
 the plan route reads. **The bar** (01 §1, confirmed by the user, D7): recall within the noise band
 of the naked model at ≤ 1.15x cost; turns reported against the ceremony budget. The expected win is
-cost against v0.4.0 and a cited note that feeds plan; the quality win is claimed in plan and task,
+cost against v0.5.0 and a cited note that feeds plan; the quality win is claimed in plan and task,
 not here. Because every module is behind an interface, investigate can later be tuned on its own
 (layers, pass count, step text) without touching the other skills.
 
@@ -69,7 +69,7 @@ because the naked `prompt.md` does not change (D19, #87); cost ≤ 1.15x; turns 
 `map` present with pass 2 in 100% of plugin runs; 100% of cited `path:line` exist. The decision to
 proceed or roll back is the user's (D10).
 
-## What changes from v0.4.0
+## What changes from v0.5.0
 
 No LSP, no `ToolSearch`, no shared-reference reads, no self-reported navigation line, no "stop if
 LSP finds nothing". Epic expansion with field lists. Two-pass map without an index, layers explicit.

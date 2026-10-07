@@ -43,7 +43,7 @@ run    model            plugin  arm   localize R   prepare ran  prepare piped/tr
   "each run tested a different plugin version", which was wrong, as was its
   claim that the traces were gone. Both are now corrected there.
 - **What was measured is not HEAD.** The traces carry version 0.3.4.
-  `plugin.json` at HEAD says 0.4.0, and the investigate body differs from
+  `plugin.json` at HEAD says 0.5.0, and the investigate body differs from
   `skills/investigate/SKILL.md`. So the baseline must be re-run on HEAD.
 - **The skill's procedure depends on the model.**
   - With Opus, the agent runs `prepare` and the review skill fires.
@@ -622,7 +622,7 @@ task                        16,510    16,172    33 / 31  (11.5 / 11.1 KB)
 task BE, rule fields:  instructions 5,846 B, check text 2,356 B, ids 609 B, category 5 groups
 ```
 
-Four headless Sonnet runs (`claude -p --plugin-dir dist/ambicode-0.4.0`, $0.13–0.29 each): all four opened with a
+Four headless Sonnet runs (`claude -p --plugin-dir dist/ambicode-0.5.0`, $0.13–0.29 each): all four opened with a
 `Read` of the saved payload (14.5, 14.6, 17.3 and 17.6 KB, whole), then navigated. The cost of the file path is one
 turn. Cutting rules would trade that turn for applicable policy; rendering the rules as text instead of JSON saves
 about 2 KB (estimate, not built), which does not reach the window either. Dropped on that evidence.

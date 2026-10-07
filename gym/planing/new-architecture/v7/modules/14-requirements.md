@@ -150,7 +150,7 @@ interface Requirements {
 | `requirements-missing` | review only: an asked source has no complete capture (from `requirements-partial`, or a list-only `search*` hit for an asked key) | ⛔ refusal of the `ground` step (no `exit` entry; the route stays at `ground`), the sources named; release: fetch them and `route next` (ground re-runs normalize), or `route start` without that `--requirement`; a second identical refusal → `stop:blocked` offered (12 §5, #143) |
 | existing 13 codes | unchanged | unchanged |
 
-## What changes from v0.4.0
+## What changes from v0.5.0
 
 Capture replaces the model-built envelope for MCP sources; args envelope for everything else;
 template replaces the shared reference; expansion allowed and instructed with field lists; `search*`

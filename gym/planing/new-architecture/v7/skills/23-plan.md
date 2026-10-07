@@ -66,7 +66,7 @@ lost on `--resume`); hand-labelled ACs; `plan check` as the anchor grader; ≈ $
 (#59). The composite: win beyond the naked arm's run-to-run spread on ≥ 2 of 3 metrics with no loss
 beyond the spread on the third (33 §4). The result is presented; the user decides (D10).
 
-## What changes from v0.4.0
+## What changes from v0.5.0
 
 Expansion; AC table; `plan check` with re-entry; **draft saved before the gate**; promotion instead
 of a `plan` save; decision gates bound by id; plan body written once; `Write` grant for the one file;

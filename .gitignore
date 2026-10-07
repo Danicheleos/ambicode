@@ -38,3 +38,8 @@ gym/planing/abstract
 gym/planing/new-architecture/implementation-reports
 
 .ambicode/*
+.ambicode/index/
+.ambicode/metrics.jsonl
+.ambicode/reviews/
+.ambicode/task/
+.ambicode/notes/

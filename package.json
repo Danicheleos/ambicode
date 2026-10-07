@@ -1,6 +1,6 @@
 {
   "name": "ambicode",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "description": "AMBICODE Claude Code plugin helpers: scoped policy, evidence checks, independent review, human-selected publication.",
   "license": "UNLICENSED",
@@ -28,7 +28,7 @@
     "fixtures": "node fixtures/materialize.mjs",
     "evals": "npm run evals:walk",
     "evals:bench": "node evals/cases/scripts/src/harness/evals-bench.mjs",
-    "evals:run": "EVAL_AMBICODE_REVIEWER_REPLAY=\"$PWD/evals/cases/common/reviewer-recordings/core.json\" npm run evals:bench -- run",
+    "evals:run": "EVAL_AMBICODE_REVIEWER_REPLAY=\"$PWD/evals/cases/common/reviewer-recordings/core.json\" npm run evals:bench -- run --prompt with",
     "evals:walk": "npm run evals:select && npm run evals:run -- --tag walk --runs 1 --ablation none --model claude-sonnet-5-5 --max-cost-usd 2 -j 4 --walk",
     "evals:walk:haiku": "npm run evals:select && npm run evals:run -- --tag walk --runs 1 --ablation none --model claude-haiku-4-5-20251001 --max-cost-usd 2 -j 4 --walk",
     "evals:baseline": "npm run evals:select && node evals/cases/scripts/src/arms/naked-arm.mjs && npm run evals:bench -- run --plugin .tmp/naked --trust-plugin --runs 3 --ablation none --model claude-sonnet-5-5 --max-cost-usd 15 -j 4",

@@ -84,7 +84,7 @@ interface Policy {
 | `pack-duplicates-builtin` 🆕 | near-duplicate | warning with the built-in id |
 | `rules-apply-unconfirmed` 🆕 | no `acceptance {gate: rules-table}` honoured per 12 §3.4 | the gate; headless default: do not apply |
 
-## What changes from v0.4.0
+## What changes from v0.5.0
 
 Staged delivery; `format` slot; `rules` discover/apply/revert, drafts, quotes, confirmation before
 wiring; `source.quote` (required for drafts, optional for built-ins). No other schema change.

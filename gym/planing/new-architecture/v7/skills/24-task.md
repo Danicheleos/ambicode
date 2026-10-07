@@ -59,7 +59,7 @@ Hidden test passes (with) vs (without), with the minimum detectable effect for 1
 stated (≈ 20 pp); `check {red}` then `check {green}` with summaries in 100% of with-runs; no weakened
 assertion; cost ≤ 1.2x. No third arm (nothing to isolate without LSP). The user decides (D10).
 
-## What changes from v0.4.0
+## What changes from v0.5.0
 
 `check --only` with summaries, model-run `format`, baseline scoping, caller inventory by code with
 collision flags, generated report sections, estimate gate (default skip), re-entry for the fix

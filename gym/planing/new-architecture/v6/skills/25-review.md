@@ -48,7 +48,7 @@ commands: `review` ×1–2. Turns reported, not gated (D10).
 accepted rate tracked. Finder decision point: live-reviewer thread recall ≤ naked at > 1.5x cost over
 3 runs → the user decides whether review is described as a publication tool (01 §1 then says so).
 
-## What changes from v0.4.0
+## What changes from v0.5.0
 
 Estimate gate with a non-acting default; index dependents when present; verbatim coverage checked;
 selection metrics; user-invoked only (the trade above); no LSP, no `impact.md` LSP procedure, no

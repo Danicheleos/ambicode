@@ -105,7 +105,7 @@ interface Guard {
 | A stop that is both a question and a report | (b) wins only if the header is first |
 | `updatedInput` ignored by the platform | the command runs as typed; `--task` is in the step text anyway |
 
-## What changes from v0.4.0
+## What changes from v0.5.0
 
 Structural parser; `updatedInput` (if P47); Stop hook scoped to report-shaped stops; plan-body allow
 row; config and `.gitignore` deny during init; gate table (both classes) validated at build.

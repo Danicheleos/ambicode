@@ -39,7 +39,7 @@ per rule, verbatim quote, prefer `observed`, drop version-bound API rules), the 
 step 7 (fixture with a declining fake human); source rule count equals table rows (CLI count); the
 `revise draft` loop stops at 3 writes in the fixture with a permanently bad quote.
 
-## What changes from v0.4.0
+## What changes from v0.5.0
 
 Drafts; quotes; confirmation before wiring (F7); CLI wires and probes; revert; bounded loop by
 re-entry; the model no longer edits `config.yaml`.

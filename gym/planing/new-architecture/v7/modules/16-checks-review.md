@@ -98,7 +98,7 @@ interface Reviewer { review(target, opts); estimate(target, opts) }
 | `baseline-missing` | `review --task` before `checks.baseline` | the route runs it first |
 | `snapshot-too-large` | i18n JSON over 262,144 bytes | unchanged refusal; caught by the estimate first |
 
-## What changes from v0.4.0
+## What changes from v0.5.0
 
 Additions only, in `bundle.ts` (`--task` scoping, `--estimate`), `modules/checks/run/run.ts` (`--only`, summary
 parsing, route advance at the tail), `validate.ts` (`onInvalid`, off), `page/*` + `review.eta`

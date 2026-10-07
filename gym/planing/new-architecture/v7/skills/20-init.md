@@ -54,7 +54,7 @@ projects[].commands.format: null | { argv: [...] }
 100% of non-null commands pass `doctor` on the 20 fixtures; 0 model edits of YAML or `.gitignore`
 (guard deny count); median command-to-config under 60 s on the fixtures.
 
-## What changes from v0.4.0
+## What changes from v0.5.0
 
 Mandatory dry run; one gate with a non-acting default; `--apply --set`; `doctor`; index and format
 detection; explicit layer lists; LSP mandate removed.

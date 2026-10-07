@@ -164,7 +164,7 @@ CLI: `$A map …`, `$A refs <name>…`, `$A find <name> [--kind k]`, `$A relates
 | A name collides | `collides: true` in the map; step text says to verify imports; no exact tool (P51) |
 | Two projects | `--project` or the paths decide; at a hook-run start the raised gate `project-ambiguous`, release `route next --project <id>` (12 §3) |
 
-## What changes from v0.4.0
+## What changes from v0.5.0
 
 `prepare` no longer owns navigation; `map` does, in two passes, with the layer list in config.
 `READING_ORDER` is replaced by §5. `dependents.ts` keeps its name search as the fallback; with an

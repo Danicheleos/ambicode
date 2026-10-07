@@ -39,7 +39,7 @@ unchanged; nothing from the backlog moved.
 
 ## Why a new architecture
 
-The plugin at v0.4.0 **ties the naked model** on the only valid comparison
+The plugin at v0.5.0 **ties the naked model** on the only valid comparison
 (`archive/baseline-2026-10-02.md`): localize recall 0.720 vs 0.697 inside a 0.101 noise band, at
 **1.42x cost and +4.7 turns**. On a real epic (`archive/real-run-VS-6735-2026-10-02.md`) the full
 chain made the best-anchored plan but read fewer requirements than the naked model and cost 41%
@@ -81,7 +81,7 @@ whether it was logged.
 ## How to read this
 
 Same structure as v1 and v2. Each module and skill file: **Purpose, Inputs, Outputs, Workflow,
-Interfaces, Failure modes and exits, What changes from v0.4.0, Open problems**. All open problems
+Interfaces, Failure modes and exits, What changes from v0.5.0, Open problems**. All open problems
 are collected in [40-open-problems.md](40-open-problems.md); deferred items in [50-backlog.md](50-backlog.md).
 
 | File | What it settles |

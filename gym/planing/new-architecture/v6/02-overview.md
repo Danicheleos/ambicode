@@ -54,7 +54,7 @@ and 41 names the point of no return.
 
 ## 4. Module map
 
-| Module | Owns | Absorbs from v0.4.0 | Verdict |
+| Module | Owns | Absorbs from v0.5.0 | Verdict |
 |---|---|---|---|
 | **Search** [10](modules/10-search.md) | text, term shortlist, regex pass 2 with declaration counts, optional index, **declared layer lists** | `locate.ts`, `dependents.ts`, `navigation.ts` | ♻ shortlist kept; 🆕 pass 2, `refs/find/relates`, adapter, layers; ✂ LSP, exact refs (backlog) |
 | **Policy** [11](modules/11-policy.md) | packs, resolution, staged delivery, command slots, `rules` path | `policy/*`, `policies/*`, `config/*` | ✅ resolver; ♻ staging; 🆕 drafts/quotes/revert |
@@ -95,7 +95,7 @@ gate; +1 when the JQL has more than 10 hits (the early stop, 14 §2). Today: `Sk
 the +4.7 turns are meant to fall; it is a prediction, and 33 §1 reports it per route and gates the
 point of no return on cost and recall (D10).
 
-## 6. Keep, rework, drop (v0.4.0 → v4)
+## 6. Keep, rework, drop (v0.5.0 → v4)
 
 | Component | Verdict | Fact |
 |---|---|---|

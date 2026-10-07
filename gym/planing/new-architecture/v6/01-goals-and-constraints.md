@@ -9,7 +9,7 @@ verbatim in its skill file and in [33-measurement.md](33-measurement.md). A bar 
 
 ```
 investigate   recall(with) within the noise band of recall(without)   cost <= 1.15x   turns reported against the route's ceremony budget
-              (confirmed by the user, D7: the win is cost against v0.4.0 and a cited note the plan route reads; not a recall win)
+              (confirmed by the user, D7: the win is cost against v0.5.0 and a cited note the plan route reads; not a recall win)
 plan          composite above the naked arm on >= 3 epics x 3 runs: better than naked beyond naked's run-to-run spread on >= 2 of
               {existing-file recall, anchor validity by `plan check`, AC coverage} and not worse beyond the spread on the third;
               a tie on AC coverage is the expected outcome of expansion (the naked model already expands)

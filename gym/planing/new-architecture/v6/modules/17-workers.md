@@ -77,7 +77,7 @@ interface Workers { propose(id, task, input): Proposal; run(id, task, input): Pr
 | `plan check` finds > 50 bad anchors | lists the first 50 and the count; `repeat: 3` on `plan-write` still bounds the revisions |
 | schema invalid | `worker-output-invalid`; the route continues inline |
 
-## What changes from v0.4.0
+## What changes from v0.5.0
 
 Process runner shared; `plan check` as a code step; `workers.approved`; the `worker` step kind
 (unused until a model worker ships).
