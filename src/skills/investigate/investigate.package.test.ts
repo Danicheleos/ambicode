@@ -10,20 +10,20 @@ const FLIPPED = ['casual-look', 'how-much-work', 'url-question', 'which-files', 
 
 describe('investigate evals, packaging and navigation guidance', () => {
   it('03-V1: the five investigate-positive trigger cases assert no skill fires; url-bare keeps its diagnostics', async () => {
-    const negative = await text('evals/cases/common/triggers/neg-http/graders/no-skill-fired.md');
+    const negative = await text('evals/common/triggers/neg-http/graders/no-skill-fired.md');
     for (const name of FLIPPED) {
-      assert.equal(await text(`evals/cases/common/triggers/${name}/graders/no-skill-fired.md`), negative);
-      await assert.rejects(text(`evals/cases/common/triggers/${name}/graders/investigate-fired.md`));
+      assert.equal(await text(`evals/common/triggers/${name}/graders/no-skill-fired.md`), negative);
+      await assert.rejects(text(`evals/common/triggers/${name}/graders/investigate-fired.md`));
     }
     assert.match(negative, /ambicode:\(investigate\|plan\|task\|review\|init\|rules\)/);
-    await assert.doesNotReject(text('evals/cases/common/triggers/url-bare/graders/fired-investigate.md'));
+    await assert.doesNotReject(text('evals/common/triggers/url-bare/graders/fired-investigate.md'));
   });
 
   it('03-V2: the gate script is gone, the suite and its validity check stay, and the README says it is negative-only', async () => {
     const scripts = (JSON.parse(await text('package.json')) as { scripts: Record<string, string> }).scripts;
     assert.equal(scripts['evals:triggers:gate'], undefined);
     assert.match(scripts['evals:triggers'] ?? '', /run-validity\.mjs/);
-    const readme = (await text('evals/cases/common/triggers/README.md')).replace(/\s+/g, ' ');
+    const readme = (await text('evals/common/triggers/README.md')).replace(/\s+/g, ' ');
     assert.match(readme, /negative-only check/);
     assert.match(readme, /no longer a release gate for description edits/);
   });

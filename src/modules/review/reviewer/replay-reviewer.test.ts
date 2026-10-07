@@ -233,7 +233,7 @@ describe('replay reviewer, reading the recordings file', () => {
   }
 
   it('refuses a relative path, which would resolve inside the repository under review', async () => {
-    assert.match(await reasonFor(null, 'evals/cases/common/reviewer-recordings/archived.json'), /^replay-unreadable: .* must be an absolute path/);
+    assert.match(await reasonFor(null, 'evals/common/reviewer-recordings/archived.json'), /^replay-unreadable: .* must be an absolute path/);
   });
 
   it('names a missing file, a non-JSON file and a malformed one as distinct failures', async () => {

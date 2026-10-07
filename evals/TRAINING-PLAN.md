@@ -107,7 +107,7 @@ Work:
 | cases where both arms are saturated (≥ 0.95) or at the floor (≤ 0.2) | ≤ 1 of 10 |
 | bare baseline | same model and CC version, ≥ 3 runs per case |
 | noise band on recall, from the baseline | ≤ 0.10 |
-| unit tests of `evals/cases/scripts` | all pass |
+| unit tests of `evals/scripts` | all pass |
 
 ### Stage 1 — Session cost: hooks and session prompts (L1, L2)
 
@@ -296,4 +296,4 @@ Last, and only for a step whose tool levers are used up. One file per change; ru
 4. `npm run build`, then `evals:walk`. Stop if a stage-0 or stage-2 finding appears.
 5. `evals:decide` with `--tag <kind>` for the stage's skill, then `evals:gate` and `evals:report`.
 6. Keep the change if the stage threshold moved and no passed stage regressed. Otherwise revert.
-7. Record the result in `outputs/<type>/<date>/iterations.md` with the stage number in the label.
+7. Record the result in `../ambicode-evals-assets/outputs/<type>/<date>/iterations.md` with the stage number in the label.

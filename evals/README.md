@@ -2,10 +2,16 @@
 
 | Folder | Holds | In git |
 | --- | --- | --- |
-| `benchmarks/<project>/` | Static benchmark data, one folder per project: `.git/` (history), `project/` (code snapshot), `cases/` (its full generated case set) | no (NDA) |
-| `cases/` | The suites that run: `common/` for the shared ones, `<project>/` for the per-project pools, `scripts/` for the harness | suites under NDA are not; see `cases/.gitignore` |
-| `outputs/<eval type>/<date>/` | Raw run output: one `<NN>_<HHMM>_<label>/` folder per iteration with `results/`, `traces/`, `reports/`, and `iterations.md` with one row per iteration | no |
-| `reports/<eval type>/<date>/<iteration>/` | Analyses written from the raw output | no |
+| `evals/common/` | The shared suites (`core`, `task`, `triggers`, `archived`) and the reviewer recordings | suites under NDA are not; see `evals/.gitignore` |
+| `evals/<project>/` | Per-project suites: `full/` (the generated full set), `impact/`, `reuse/` | no (NDA) |
+| `evals/scripts/` | The harness (`src/`) and one-off local tools (`local/`, gitignored) | `src/` yes |
+| `../ambicode-evals-assets/benchmarks/<project>/` | Static benchmark data, one folder per project: `.git/` (history), `project/` (code snapshot), `assets/` (tickets), `reviews/` (prepared review versions) | no (NDA) |
+| `../ambicode-evals-assets/outputs/<eval type>/<date>/` | Raw run output: one `<NN>_<HHMM>_<label>/` folder per iteration with `results/`, `traces/`, `reports/`, and `iterations.md` with one row per iteration | no |
+| `../ambicode-evals-assets/reports/<eval type>/<date>/<iteration>/` | Analyses written from the raw output | no |
+
+`ambicode-evals-assets/` sits beside the repo, not in it: the harness walks the whole plugin directory for eval folders
+and refuses one over 20,000 entries. `AMBICODE_EVALS_ASSETS` points elsewhere; scaffolds reach it by relative path,
+so regenerate the suites after moving it.
 
 Eval types: `core` (the curated suite), `full`, `task`, `archived`, `triggers`, `search-maps` (offline map scoring).
 An iteration is numbered in start order within its date; its label is the tag or set, the plugin, the prompt arm and the model.
@@ -17,7 +23,7 @@ How to tune the plugin layer by layer, with pass thresholds per stage: [TRAINING
 # Eval commands manual
 
 Every `evals:*` script in `package.json`: what it does, what it measures, and why it exists. Folder layout is in
-[README.md](README.md). Case design is in [cases/common/core/README.md](cases/common/core/README.md).
+[README.md](README.md). Case design is in [common/core/README.md](common/core/README.md).
 
 Before any paid run, run `npm run build`. The evals run the bundle (`scripts/ambicode.mjs`), not `src/`.
 
@@ -42,7 +48,7 @@ The other scripts call these. You rarely call them yourself.
 
 ### `evals:bench`
 
-`node evals/cases/scripts/src/harness/evals-bench.mjs`. This is the harness CLI. Its subcommands are `select`,
+`node evals/scripts/src/harness/evals-bench.mjs`. This is the harness CLI. Its subcommands are `select`,
 `generate`, `run`, `restore-prompts`, `score` and `walk`.
 
 - `run` wraps `claude plugin eval` for the benchmark suites. It always passes `--no-publish`. It also refuses
@@ -52,46 +58,51 @@ The other scripts call these. You rarely call them yourself.
 - `run` refuses a sweep without `--max-cost-usd`. An uncapped campaign once spent about $221.
 - While a sweep runs, `run` copies every trace into the iteration. The harness deletes its sandboxes when it
   finishes, so a trace that was not copied is lost.
-- `run` writes to `outputs/<type>/<date>/<NN>_<HHMM>_<label>/` and appends a row to `iterations.md`.
+- `run` writes to `../ambicode-evals-assets/outputs/<type>/<date>/<NN>_<HHMM>_<label>/` and appends a row to `iterations.md`.
 - `--dry-run` prints the plan and spends nothing.
 
 ### `evals:run`
 
 This is `evals:bench run` with `EVAL_AMBICODE_REVIEWER_REPLAY` pointed at
-`cases/common/reviewer-recordings/core.json`. The independent reviewer cannot sign in inside the eval sandbox,
+`evals/common/reviewer-recordings/core.json`. The independent reviewer cannot sign in inside the eval sandbox,
 so the curated review cases replay its recorded answers.
 
 ### `evals:plugin-eval`
 
 This is `claude plugin eval . --scaffold --no-publish` with the archived reviewer recordings
 (`reviewer-recordings/archived.json`). It is the plain harness, used by the tracked synthetic suites
-(`archived`, `triggers`). It has no NDA guards, so never point it at `cases/common/core` or at `evals/` as a whole.
+(`archived`, `triggers`). It has no NDA guards, so never point it at `evals/common/core` or at `evals/` as a whole.
 
 ## Cases
 
 ### `evals:select`
 
-**Does:** fills `cases/common/core/cases/` with the curated set, picked from `benchmarks/<project>/assets/`. It
-takes 5 localize and 4 review cases per project. It makes no model calls.
+**Does:** fills `evals/common/core/cases/` with the curated set, picked from `../ambicode-evals-assets/benchmarks/<project>/assets/`. It
+takes up to 5 localize and 4 review cases per project (`--localize`, `--review`). It makes no model calls.
 
 **Measures:** nothing. It chooses cases by criteria only, and `selection.json` records each case's numbers.
 
 - Localize cases are ranked by *hardness*: the share of true files the ticket never names. A plain grep
   over the ticket cannot solve them.
-- Review cases are ranked by *substance*: resolved, replied-to and long human threads, at most 600 changed
+- Review cases are ranked by *substance*: resolved, replied-to and long human threads, at most 1,000 changed
   lines.
+- `--candidates` keeps the same rules and adds the review rules below, without the recall range. It builds the
+  pool that `evals:baseline` measures.
+- `--baseline <naked eval.json>` ranks by *discrimination*: a localize case needs the bare model's mean recall
+  in 0.15–0.9 (a case with no baseline data is dropped); a review version needs at least 3 threads, and only the
+  best version of each merge request is kept. Run it on the result of `--candidates` plus a naked baseline.
 
 **Why:** a small, hard and provable set lets one cheap run tell signal from noise. Every curated run calls
 it first, so the cases always match the current generator. `--regenerate` rewrites the per-arm prompts.
 
 ### `evals:generate`
 
-**Does:** writes every ticket of each project into `benchmarks/<project>/cases/` (the full set). It makes no
+**Does:** writes every ticket of each project into `evals/<project>/full/` (the full set). It makes no
 model calls.
 
 **Why:** gives `evals:full` its cases, and gives a source to curate from.
 
-Both `select` and `generate` need `benchmarks/<project>/{assets,reviews}` and
+Both `select` and `generate` need `../ambicode-evals-assets/benchmarks/<project>/{assets,reviews}` and
 `project/.ambicode/config.yaml` on disk.
 
 ## Paid runs on the benchmark
@@ -106,7 +117,7 @@ It uses 1 run, Sonnet 5.5, `-j 4` and a $2 cap, and writes `reports/walk.md` in 
 **Measures:** per run, the cost, turns, skills fired, `prepare` use and score. It also records the **first
 deviation** in trace order, which is the first of:
 
-- a peek into `benchmarks/`;
+- a peek into `../ambicode-evals-assets/benchmarks/`;
 - an edit to the code;
 - `prepare` cut short;
 - a re-run review;
@@ -203,7 +214,7 @@ expensive" a rule instead of a judgment call.
 
 Usage: `-- <iteration dir | result.json> [--baseline <result.json>] [--previous <n>] [--out <dir>] [--full]`
 
-**Does:** writes the standard analysis of one run into `reports/<type>/<date>/<iteration>/`:
+**Does:** writes the standard analysis of one run into `../ambicode-evals-assets/reports/<type>/<date>/<iteration>/`:
 
 - `report.md`:
   - every metric of this run beside the bare model and the 2 previous iterations, with the delta against bare;
@@ -302,7 +313,7 @@ stops if it fails.
 
 ### `evals:archived`
 
-**Does:** runs the preflight, reserves an `outputs/archived/<date>/…typescript-sonnet-5-5` iteration, then runs
+**Does:** runs the preflight, reserves an `../ambicode-evals-assets/outputs/archived/<date>/…typescript-sonnet-5-5` iteration, then runs
 the 13 synthetic TypeScript cases. It uses `--ablation with-without`, 3 runs, Sonnet 5.5 and a $10 cap.
 
 **Measures:** graded findings for six review categories, plus investigate, plan and task cases. It compares a
@@ -313,7 +324,7 @@ categories that real tickets rarely hit.
 
 ### `evals:triggers`
 
-**Does:** reserves an `outputs/triggers/<date>/…sonnet-5-5` iteration, then runs the 28 trigger cases. It uses
+**Does:** reserves an `../ambicode-evals-assets/outputs/triggers/<date>/…sonnet-5-5` iteration, then runs the 28 trigger cases. It uses
 1 run, no ablation and a $4 cap. It then runs `harness/run-validity.mjs` on the result.
 
 **Measures:** which skill (if any) fires on each phrasing, graded structurally from tool calls with no LLM
@@ -328,7 +339,7 @@ run that did nothing.
 
 **Does:** runs as you, outside the sandbox. It reviews the archived review cases twice: once with the built
 `ambicode review --json`, and once as `plain`, the same isolated `claude` without AMBICODE's prompt, bundle,
-checks or validation. Output goes to `outputs/archived/<date>/<HHMM>_reviewer`. The `record` subcommand turns
+checks or validation. Output goes to `../ambicode-evals-assets/outputs/archived/<date>/<HHMM>_reviewer`. The `record` subcommand turns
 the ambicode answers into replay recordings.
 
 **Measures:** whether AMBICODE's reviewer finds more than plain Claude asked to review.
@@ -340,4 +351,4 @@ also how the replay recordings that the other suites use are made.
 
 - `fixtures` (`node fixtures/materialize.mjs`) builds the synthetic repositories the archived and trigger
   scaffolds use.
-- Unit tests for every script, with no model calls: `node --test 'evals/cases/scripts/src/**/*.test.mjs'`.
+- Unit tests for every script, with no model calls: `node --test 'evals/scripts/src/**/*.test.mjs'`.

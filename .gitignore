@@ -16,10 +16,12 @@ __pycache__/
 *.py[cod]
 
 /evals/outputs
-/evals/benchmarks
+/benchmarks
 /evals/reports
 /eval-results.json
-/evals/**/results/
+/evals/python/
+/evals/FE-angular/
+/evals/BE-express/
 
 /research/
 /review/
