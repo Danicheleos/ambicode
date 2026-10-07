@@ -124,11 +124,7 @@ async function deliverSharedContract(
   const output: AdditionalContextHookOutput = {
     hookSpecificOutput: {
       hookEventName: event,
-      additionalContext: [
-        `AMBICODE operating contract (${contract.reference}, ${contract.contentHash}). It governs every AMBICODE skill in this session.`,
-        '',
-        contract.content.trimEnd(),
-      ].join('\n'),
+      additionalContext: contract.content.trimEnd(),
     },
   };
   return output;

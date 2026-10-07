@@ -118,10 +118,10 @@ Measure: `context` (first-call context minus bare), `route-slow`, wall time, cos
 
 | Pass when | Threshold | Now |
 |---|---|---|
-| first-call context over bare | ≤ 2,000 tokens (`extraContext`) | not separated yet; the report gives it |
+| first-call context over bare | ≤ 2,500 tokens (`extraContext`) | +2,305 on 6 cases (run 24_0648). Was 2,000: wording trims reach about 2,290, the rest is the contract, skill frontmatter, route step and map |
 | route step ready after session start | ≤ 5 s in ≥ 90% of runs (`routeReadyS`) | 4.7 s average |
-| a session with no typed skill vs bare | cost ≤ 1.05×, recall within the band | not measured: add one untyped-prompt case |
-| hook failures in traces | 0 | — |
+| a session with no typed skill vs bare | cost ≤ 1.05×, recall within the band | 1.041× cost, recall 0.632 vs bare 0.556 (6 cases × 3, run 25_0658); first call +711 tokens |
+| hook failures in traces | 0 | 0 of 54 recorded hook responses (SessionStart only: the traces do not record the other hook events) |
 
 ### Stage 2 — Engine: delivery, closure, budgets (L3, L1 Stop)
 

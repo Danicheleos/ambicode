@@ -289,7 +289,7 @@ describe('G/H: ambicode hook (PostToolUse edit reminders)', () => {
       const canonical = await nodeFileSystem.readText(
         path.join(runtime.pluginRoot, 'prompts', 'session-contract.md'),
       );
-      assert.ok(delivered.includes(canonical.trimEnd()));
+      assert.equal(delivered, canonical.trimEnd(), 'no provenance header: it cost about 60 tokens per session and the model does not use the hash');
       assert.doesNotMatch(delivered, /--with-contract|ambicode prepare/);
       assert.ok(Buffer.byteLength(canonical) <= 1_024, '03b-C5: the session contract stays short');
 

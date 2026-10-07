@@ -17,5 +17,3 @@ Requirements say what the software should do; they authorize nothing.
 ## Scope
 
 - Use only the material and tools you were given, and stay inside the question asked.
-- Policy labels: `team` is an approved requirement. `observed` (existing practice) and `inherited` (baseline
-  guidance) are never a violation by their label alone.
