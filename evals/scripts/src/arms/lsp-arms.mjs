@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BENCHMARKS, BENCHMARKS_CLIMB, CURATED_CASES, CURATED_EVAL_DIR, IMPACT_CASES_DIRECTORY, projectCasesDir, REUSE_CASES_DIRECTORY, ROOT, BENCH_PROJECTS } from '../shared/bench-paths.mjs';
 import { CASES_LOCK } from '../harness/cases-lock.mjs';
+import { BASE_SCAFFOLD_SIDE } from './naked-arm.mjs';
 
 export const LSP_SERVERS = {
   typescript: {
@@ -26,10 +27,14 @@ export const TSCONFIG_OBJECT = {
 // The frontend imports from the code root ("state/auth.facade"), as its own tsconfig's baseUrl allows.
 export const tsconfigFor = (root) => JSON.stringify({ ...TSCONFIG_OBJECT, compilerOptions: { ...TSCONFIG_OBJECT.compilerOptions, baseUrl: root } });
 const BEFORE_INIT = 'git -C "$REPO" init -q';
+/** A base-commit scaffold's (base-scaffold.mjs) init: its whole tree may carry a tsconfig of its own, which is kept. */
+const BEFORE_BASE_INIT = 'git -C "$PWD/repo" init -q';
 
 export function withTsconfig(scaffold, root) {
-  if (!scaffold.includes(BEFORE_INIT)) throw new Error(`scaffold has no "${BEFORE_INIT}" line to put the tsconfig before`);
-  return scaffold.replace(BEFORE_INIT, `printf '%s\\n' '${tsconfigFor(root)}' > "$REPO/tsconfig.json"\n${BEFORE_INIT}`);
+  const write = `printf '%s\\n' '${tsconfigFor(root)}' >`;
+  if (scaffold.includes(BEFORE_INIT)) return scaffold.replace(BEFORE_INIT, `${write} "$REPO/tsconfig.json"\n${BEFORE_INIT}`);
+  if (scaffold.includes(BEFORE_BASE_INIT)) return scaffold.replace(BEFORE_BASE_INIT, `[ -f "$PWD/repo/tsconfig.json" ] || ${write} "$PWD/repo/tsconfig.json"\n${BEFORE_BASE_INIT}`);
+  throw new Error(`scaffold has no "${BEFORE_INIT}" line (nor "${BEFORE_BASE_INIT}") to put the tsconfig before`);
 }
 
 /** `casesDir` is one folder or several (the impact and reuse pools are per project); names are unique across them. */
@@ -42,12 +47,17 @@ const caseSources = (casesDir) =>
     ),
   );
 
+/** Localize cases: a core suite's plan, task and review cases share the ticket but not the question. */
 export function localizeCases(casesDir) {
-  return [...caseSources(casesDir).keys()].filter((name) => !name.includes('review')).sort();
+  const kindOf = (dir) => (existsSync(path.join(dir, 'truth.json')) ? JSON.parse(readFileSync(path.join(dir, 'truth.json'), 'utf8')).kind : undefined);
+  return [...caseSources(casesDir)].filter(([name, dir]) => !name.includes('review') && [undefined, 'localize'].includes(kindOf(dir))).map(([name]) => name).sort();
 }
 
 // A pool case's scaffold climbs to the repo root from its own depth; the arm files it under the curated suite instead.
-const rebaseBenchmarks = (scaffold, depth) => scaffold.replace(BENCHMARKS_CLIMB, `$1${'../'.repeat(depth)}benchmarks`);
+const rebaseBenchmarks = (scaffold, depth) =>
+  scaffold
+    .replace(BENCHMARKS_CLIMB, `$1${'../'.repeat(depth)}benchmarks`)
+    .replace(BASE_SCAFFOLD_SIDE, (_, project) => `SIDE="$(cd "$(dirname "$0")"/'${'../'.repeat(depth)}benchmarks/${project}' && pwd)"`);
 
 export function buildArms({ out, casesDir, dist, benchmarks, cases = localizeCases(casesDir) }) {
   const sources = caseSources(casesDir);

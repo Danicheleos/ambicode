@@ -3,7 +3,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { BASELINE_LOCK_FILE, NAKED_PLUGIN } from '../shared/bench-paths.mjs';
+import { BASELINE_LOCK_FILE, CORE_PRESET, NAKED_PLUGIN } from '../shared/bench-paths.mjs';
 import { bareArmOf, bareMeansByCase, createAnalysis, withBaseline } from './bench-score.mjs';
 
 const LOCK_VERSION = 1;
@@ -67,6 +67,8 @@ export const needsBaseline = (results) =>
 export function resolveBaseline(results, { baselinePath, lockFile = BASELINE_LOCK_FILE, analysis = createAnalysis() } = {}) {
   if (baselinePath !== undefined && baselinePath !== null) return { file: path.resolve(baselinePath), results: JSON.parse(readFileSync(baselinePath, 'utf8')) };
   if (!needsBaseline(results)) return null;
+  // The lock pins the core suite's bare means; a run of another preset is compared only against a `--baseline` it names.
+  if ((results.cases ?? []).length && results.cases.every((c) => { const preset = analysis.meta(c)?.preset; return preset && preset !== CORE_PRESET; })) return null;
   const locked = lockedBaseline({ lockFile });
   if (locked !== null) refuseChangedTruth(locked.lock, results, analysis);
   return locked;

@@ -27,6 +27,8 @@ const AMBICODE_TIMEOUT_MS = (DEFAULTS.review.timeoutSeconds + 300) * 1000;
 const PLAIN_SYSTEM_PROMPT = 'You are reviewing a code change for its author.';
 
 const isBenchReview = (scaffoldSource) => scaffoldSource.includes('ambicode-evals-assets/benchmarks/');
+/** A benchmark review case: `be-vs-12-review-03` (curated) or `be-vs-12-review` (preset). */
+export const isBenchReviewCase = (scaffold) => isBenchReview(scaffold.source) && /-review(-|$)/.test(scaffold.name);
 
 export async function loadScaffolds(evalsDirectory = EVALS) {
   const scaffolds = [];
@@ -46,7 +48,7 @@ async function reviewCases(evalsDirectory, only) {
   const cases = [];
   for (const scaffold of await loadScaffolds(evalsDirectory)) {
     const fired = await readFile(path.join(scaffold.directory, 'graders', 'plugin-fired.md'), 'utf8').catch(() => '');
-    if (!fired.includes('"ambicode:review"') && !(isBenchReview(scaffold.source) && scaffold.name.includes('-review-'))) continue;
+    if (!fired.includes('"ambicode:review"') && !isBenchReviewCase(scaffold)) continue;
     if (only.length > 0 && !only.includes(scaffold.name)) continue;
     const prompt = await readFile(path.join(scaffold.directory, 'prompt.md'), 'utf8');
     const body = /^---\n[\s\S]*?\n---\n([\s\S]*)$/.exec(prompt)?.[1]?.trim();

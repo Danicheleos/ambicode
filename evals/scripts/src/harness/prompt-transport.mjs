@@ -15,6 +15,10 @@ export const GENERATION_MARKER = '.generation-incomplete';
 export const INVESTIGATE_COMMAND = '/ambicode:investigate --headless';
 export const TASK_COMMAND = '/ambicode:task --headless --answer review-offer=run';
 export const REVIEW_COMMAND = '/ambicode:review --headless --answer estimate=run';
+/** plan-accept defaults to Reject, so a headless plan would never promote its draft without this answer. */
+export const PLAN_COMMAND = '/ambicode:plan --headless --answer plan-accept=Accept';
+/** The presets skip the optional review: headless takes review-offer's default, "skip — verification incomplete". */
+export const PRESET_TASK_COMMAND = '/ambicode:task --headless';
 
 export const FRONT_MATTER = /^---\n[\s\S]*?\n---\n?/;
 /** What the harness records as a case's `promptMarkdown`: the body after the front matter, trimmed. */

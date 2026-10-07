@@ -13,7 +13,7 @@
 and refuses one over 20,000 entries. `AMBICODE_EVALS_ASSETS` points elsewhere; scaffolds reach it by relative path,
 so regenerate the suites after moving it.
 
-Eval types: `core` (the curated suite), `full`, `task`, `archived`, `triggers`, `search-maps` (offline map scoring).
+Eval types: `core` (the average preset, run as `--set curated`), `full`, `task`, `archived`, `triggers`, `search-maps` (offline map scoring).
 An iteration is numbered in start order within its date; its label is the tag or set, the plugin, the prompt arm and the model.
 
 What each `npm run evals:*` command does, measures and is for: the manual below.
@@ -32,11 +32,12 @@ Before any paid run, run `npm run build`. The evals run the bundle (`scripts/amb
 | Question | Command | Cost |
 | --- | --- | --- |
 | Did my change to `locate` or the map lose true files? | `evals:shortlist-recall`, `evals:map-recall` | free |
-| Does the plugin still behave on real tickets? | `evals:walk` | ~$1.2 |
-| Is the plugin better than the bare model? | `evals:decide`, then `evals:gate` against `evals:baseline` | ~$13–16 |
+| Does the plugin still behave on real tickets? | `evals:walk` | ~$3 (estimate) |
+| Is the plugin better than the bare model? | `evals:decide`, then `evals:gate` against `evals:baseline` | ~$80 (estimate) |
 | What happened in a run, and where should I focus? | `evals:report` | free |
-| Did Claude Code change under us? | `evals:baseline` | ~$10 |
+| Did Claude Code change under us? | `evals:baseline` | ~$80 (estimate) |
 | How does it do on every ticket? | `evals:full` | up to $45 |
+| How does each skill do on smaller or larger tickets? | `evals:presets`, then `run --set preset --preset light\|large` | set by `--max-cost-usd` |
 | Does the right skill fire on each phrasing? | `evals:triggers` | ~$2.3 |
 | Does the old synthetic suite still pass? | `evals:archived` | up to $10 |
 
@@ -66,7 +67,8 @@ The other scripts call these. You rarely call them yourself.
 
 This is `evals:bench run` with `EVAL_AMBICODE_REVIEWER_REPLAY` pointed at
 `eval-replay/core.json`. The independent reviewer cannot sign in inside the eval sandbox,
-so the curated review cases replay its recorded answers.
+so the core review cases replay its recorded answers. Recordings made for the earlier core cases do not match
+the current ones; record them again with `evals:reviewer` (below) before trusting review results.
 
 ### `evals:plugin-eval`
 
@@ -78,28 +80,21 @@ This is `claude plugin eval . --scaffold --no-publish` with the archived reviewe
 
 ### `evals:select`
 
-**Does:** fills `evals/common/core/cases/` with the curated set, picked from `../ambicode-evals-assets/benchmarks/<project>/assets/`. It
-takes up to 10 localize cases per project and no review cases (`--localize`, `--review`; review cases are rebuilt for
-stage 9 of the training plan). It makes no model calls.
+**Does:** fills `evals/common/core/cases/` with the core suite: the **average** preset, generated from
+`../ambicode-evals-assets/presets/average/` exactly as `evals:presets` would. That is 76 cases on 20 merged
+tickets: 20 investigate, 20 plan, 20 task and 16 review. It makes no model calls. `--regenerate` rewrites the
+per-arm prompts; `--presets <dir>` reads another source.
 
-**Measures:** nothing. It chooses cases by criteria only, and `selection.json` records each case's numbers.
+**Measures:** nothing. `manifest.json` lists the cases per skill and the hash of each source ticket.
 
-- Localize cases are ranked by *hardness*: the share of true files the ticket never names. A plain grep
-  over the ticket cannot solve them.
-- Review cases are ranked by *substance*: resolved, replied-to and long human threads, at most 1,000 changed
-  lines.
-- `--candidates` keeps the same rules and adds the review rules below, without the recall range. It builds the
-  pool that `evals:baseline` measures.
-- `--baseline <naked eval.json>` ranks by *discrimination*: a localize case needs the bare model's mean recall
-  in 0.2–0.9 (a case with no baseline data is dropped); a review version needs at least 3 threads, and only the
-  best version of each merge request is kept. Two localize tickets that share 70% of their words are one case. Run it
-  on the result of `--candidates` plus a naked baseline. It also pins that result as the bare reference in
-  `evals/common/core/baseline.lock.json` (gitignored: its numbers come from the benchmark), the same as
-  `evals:bench lock <naked eval.json>`. Every later `select` without `--candidates` reads the lock, so `walk` and
-  `decide` keep the discriminating set. With no lock, `select` falls back to criteria only.
+Eight cases are tagged `walk`: per project and skill, the eligible ticket that touches the fewest files.
 
-**Why:** a small, hard and provable set lets one cheap run tell signal from noise. Every curated run calls
-it first, so the cases always match the current generator. `--regenerate` rewrites the per-arm prompts.
+`--localize`, `--review`, `--candidates` and `--baseline` are refused: cases are no longer picked from
+`benchmarks/<project>/assets/`. The earlier 18-case core and its lock are archived in
+`../ambicode-evals-assets/archive/core-2026-10-07/`.
+
+**Why:** one set of real tickets measures every skill on its own metric, and every core run calls `select` first, so the
+cases always match the generator.
 
 ### `evals:generate`
 
@@ -108,8 +103,19 @@ model calls.
 
 **Why:** gives `evals:full` its cases, and gives a source to curate from.
 
-Both `select` and `generate` need `../ambicode-evals-assets/benchmarks/<project>/{assets,reviews}` and
-`project/.ambicode/config.yaml` on disk.
+### `evals:presets`
+
+**Does:** writes the light and large preset sets into `evals/common/presets/<preset>/`, and average into the core
+suite (`evals/common/core/cases/`), from
+`../ambicode-evals-assets/presets/`: one case per ticket and eligible skill (investigate, plan, task, review).
+It makes no model calls. `--preset <name>` writes one set.
+
+**Why:** gives each skill its own case on real merged tickets, scored by that skill's metric. Run them with
+`npm run evals:bench -- run --set preset --preset light|large …`; average runs as the core suite. [common/presets/README.md](common/presets/README.md)
+has the layout, the metrics and the bare-model arm.
+
+`generate` needs `../ambicode-evals-assets/benchmarks/<project>/{assets,reviews}` and `project/.ambicode/config.yaml`
+on disk. `select` and `evals:presets` need `../ambicode-evals-assets/presets/` and each project's `.git`.
 
 ## Paid runs on the benchmark
 
@@ -117,8 +123,9 @@ All of these use the plugin arm with `--ablation none`. The bare-model side come
 
 ### `evals:walk` (also `npm run evals`)
 
-**Does:** runs `select`, then the 4 `walk`-tagged cases: the top localize and top review case of each project.
-It uses 1 run, Sonnet 5.5, `-j 4` and a $2 cap, and writes `reports/walk.md` in the iteration.
+**Does:** runs `select`, then the 8 `walk`-tagged cases: one per skill per project where the skill is eligible
+(investigate, plan and task on both; review on both). It uses 1 run, Sonnet 5.5, `-j 4` and a $5 cap, and writes
+`reports/walk.md` in the iteration.
 
 **Measures:** per run, the cost, turns, skills fired, `prepare` use and score. It also records the **first
 deviation** in trace order, which is the first of:
@@ -131,7 +138,7 @@ deviation** in trace order, which is the first of:
 - no skill fired;
 - the turn limit.
 
-**Why:** this is the cheapest way (~$1.2, 2 min) to see *how* a change behaves before paying to measure *how
+**Why:** this is the cheapest way (an estimated ~$3) to see *how* a change behaves before paying to measure *how
 much* it helps. Read the first deviations and note what you saw, not why.
 
 ### `evals:walk:haiku`
@@ -143,15 +150,19 @@ takes: Sonnet ran `prepare` in 3 of 50 runs where Opus ran it in 26 of 29.
 
 ### `evals:decide`
 
-**Does:** runs `select`, then all 18 curated cases (10 localize, 8 review). It uses 3 runs, Sonnet 5.5 and a
-$20 cap. `--tag localize` narrows it to the localize cases.
+**Does:** runs `select`, then all 76 core cases. It uses 3 runs, Sonnet 5.5 and a $90 cap.
+`--tag localize|plan|task|review` narrows it to one skill.
 
 **Measures:**
 
-- **Localize:** precision, recall, F1 and hit of the `## Files` list against the merged change's files.
-- **Review:** recall of the human reviewers' inline threads, one LLM judge per thread. Precision is not
-  measured: a concern no human raised cannot be graded.
-- **Both:** cost and turns.
+- **Investigate (localize):** precision, recall, F1 and hit of the `## Files` list against the merged change's files.
+- **Plan:** the same file metrics, read from the plan note, else from the final message.
+- **Task:** the run's patch against the merged one: file P/R/F1, hunk and identifier recall.
+- **Review:** recall of the human reviewers' inline threads, one LLM judge per thread, also per label. Precision is
+  not measured: a concern no human raised cannot be graded.
+- **All:** cost and turns.
+
+[common/presets/README.md](common/presets/README.md) defines each metric.
 
 **Why:** this is the decision run. Feed its result to `evals:gate` with the baseline. Three runs per case are
 needed because one run is noisy by ±5–10 percentage points.
@@ -159,7 +170,7 @@ needed because one run is noisy by ±5–10 percentage points.
 ### `evals:baseline`
 
 **Does:** runs `select`. Then `arms/naked-arm.mjs` builds `.tmp/naked`, a plugin with no components, and the
-18 cases run against it. It uses 3 runs, Sonnet 5.5 and a $15 cap.
+76 cases run against it. It uses 3 runs, Sonnet 5.5 and a $90 cap.
 
 **Measures:** the bare model on the same cases and graders, with recall, cost and turns as in `decide`.
 
@@ -176,14 +187,14 @@ empty plugin stands in for it.
 **Does:** runs `generate`, then `run --set full --project BE-express` and `--project FE-angular`. It uses 1 run,
 Sonnet 5.5 and a $22.5 cap per project.
 
-**Measures:** the same graders as `decide`, over every ticket rather than the curated few.
+**Measures:** the same graders as `decide`, over every ticket of each project, investigate and review only.
 
-**Why:** a broad check that the curated 18 cases are not misleading. Inside the sandbox, `--eval-dir` is the
+**Why:** a broad check that the core cases are not misleading. Inside the sandbox, `--eval-dir` is the
 project folder, so the agent cannot read the tickets or the truth.
 
 ## Reading a result
 
-Each of these takes `<iteration>/results/eval.json`, reads the traces beside it, and makes no model calls.
+Each of these takes `<iteration>/results/eval.json`, reads the traces beside it, and makes no model calls, except `judge-task`.
 
 ### `evals:score`
 
@@ -197,6 +208,18 @@ Each of these takes `<iteration>/results/eval.json`, reads the traces beside it,
 - **Runs:** cost, turns, absent runs, and ledger metrics such as `check` and `prepare` use.
 
 **Why:** the harness reports grader pass rates only. This turns them into the numbers decisions are made on.
+
+Preset runs are scored per skill: plan from the harvested plan note, task from the harvested patch (files, hunk
+and identifier recall), and review recall per thread label.
+
+### `evals:bench -- judge-task`
+
+**Does:** `judge-task <eval.json> --model <m> --max-cost-usd <usd>` asks one `claude -p` call per harvested
+preset task run whether its patch implements the merged change. It writes `reports/task-judge.json` and never
+replaces an earlier one. `score` then adds `judgeScore` and reports the judge's cost apart from the agent's.
+
+**Why:** hunk and identifier overlap score a valid alternative implementation as a miss. This is the only paid
+command in this section; runs past the cap are recorded as skipped.
 
 ### `evals:gate`
 
@@ -290,7 +313,7 @@ them to the earlier measurement (BE-express 0.499, FE-angular 0.123).
 
 Usage: `[--cases <dir>] [--show <dir>] [--save <file>] [--expect <file>]`
 
-**Measures:** for each curated localize case, how many true files the investigate route's map lists (leads and
+**Measures:** for each core investigate case, how many true files the investigate route's map lists (leads and
 same-feature files), and the map's size in bytes. `--expect` exits 1 when a case loses a true file or a text
 grows past its cap.
 
@@ -356,7 +379,7 @@ run that did nothing.
 `ambicode review --json`, and once as `plain`, the same isolated `claude` without AMBICODE's prompt, bundle,
 checks or validation. Output goes to `../ambicode-evals-assets/outputs/archived/<date>/<HHMM>_reviewer`. The `record` subcommand turns
 the ambicode answers into replay recordings.
-For the curated review cases: `--evals evals/common/core/cases --arm ambicode --runs 1 --out <dir>`, then `record <dir> --evals evals/common/core/cases`,
+For the 16 core review cases: `--evals evals/common/core/cases --arm ambicode --runs 1 --out <dir>`, then `record <dir> --evals evals/common/core/cases`,
 then copy `<dir>/recordings.json` to `eval-replay/core.json`. A recording is keyed on the snapshot hash, so re-record after any change to what the
 review mirrors.
 

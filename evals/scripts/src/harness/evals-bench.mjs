@@ -2,14 +2,16 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
-import { appendFileSync, cpSync, existsSync, linkSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, copyFileSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
-import { BASELINE_LOCK_FILE, BENCHMARKS, CASES_DIRECTORY, CURATED_CASES, CURATED_EVAL_DIR, NAKED_PLUGIN, REPLAY_REPORTS, ROOT } from '../shared/bench-paths.mjs';
-import { generate, refuseLegacyTwins, SELECT } from '../cases/bench-cases.mjs';
-import { score } from '../analysis/bench-score.mjs';
-import { attachBaseline, bareRates, readBaselineLock, writeBaselineLock } from '../analysis/baseline-lock.mjs';
+import { BASELINE_LOCK_FILE, BENCHMARKS, CASES_DIRECTORY, CORE_PRESET, CURATED_EVAL_DIR, NAKED_PLUGIN, PRESET_NAMES, presetCasesDir, REPLAY_REPORTS, ROOT } from '../shared/bench-paths.mjs';
+import { generate, refuseLegacyTwins } from '../cases/bench-cases.mjs';
+import { generatePreset } from '../cases/preset-cases.mjs';
+import { createAnalysis, score } from '../analysis/bench-score.mjs';
+import { claudeJudge, JUDGE_FILE, judgeTaskRuns, writeJudgeFile } from '../analysis/task-judge.mjs';
+import { attachBaseline, writeBaselineLock } from '../analysis/baseline-lock.mjs';
 import { walkReport } from '../analysis/bench-walk.mjs';
 import { casesLockStatus, lockCases, unlockCases } from './cases-lock.mjs';
 import { LEDGER_DIRECTORY, tally } from '../analysis/ledger-metrics.mjs';
@@ -116,27 +118,41 @@ export function resolveCases(casesDir, { tags = [], caseGlob } = {}) {
     const caseTags = Array.isArray(top.tags) ? top.tags : [];
     if (glob && !glob.test(name)) continue;
     if (tags.length && !tags.some((t) => caseTags.includes(t))) continue;
-    const kind = ['review', 'localize', 'task'].find((k) => caseTags.includes(k)) ?? 'other';
+    const kind = ['review', 'localize', 'plan', 'task'].find((k) => caseTags.includes(k)) ?? 'other';
     cases.push({ name, directory: entry.name, dir, tags: caseTags, kind, hasWith: existsSync(path.join(dir, WITH_PROMPT)) });
   }
   return cases;
 }
 
-/** Task runs only: the sandbox repo's change against its base commit, untracked files included, beside the ledgers. */
-export function harvestPatches(outDir, { sandboxRoots = [...new Set(['/tmp', tmpdir()])], git = (cwd, args) => execFileSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 1 << 28 }) } = {}) {
-  for (const root of sandboxRoots) {
-    let names = [];
-    try { names = readdirSync(root).filter((name) => name.startsWith('e-')); } catch { continue; }
-    for (const name of names) {
-      const repo = path.join(root, name, 'home', 'cwd', 'repo');
-      if (!existsSync(path.join(repo, '.git'))) continue;
-      try {
-        git(repo, ['add', '-A']);
-        const patch = git(repo, ['diff', '--cached', '--binary', 'HEAD', '--', '.', ':(exclude).ambicode']);
-        mkdirSync(path.join(outDir, 'patches'), { recursive: true });
-        writeFileSync(path.join(outDir, 'patches', `${name}.patch`), patch);
-      } catch { /* the sandbox may still be mid-write; the next pass retries */ }
+/**
+ * The sandbox repo's change against its base (root) commit, untracked files included, beside the ledgers. Staged in a
+ * copy of the index: a pass runs every 2 s in every sandbox, and staging in the real one hid a review case's unstaged
+ * change from `git diff`. Diffing the root, not HEAD, keeps a run that commits its change from scoring as empty.
+ */
+export function harvestPatches(outDir, { sandboxRoots = [...new Set(['/tmp', tmpdir()])], git = (cwd, args, env) => execFileSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 1 << 28, env: { ...process.env, ...env } }) } = {}) {
+  const scratch = mkdtempSync(path.join(tmpdir(), 'ambicode-harvest-'));
+  try {
+    for (const root of sandboxRoots) {
+      let names = [];
+      try { names = readdirSync(root).filter((name) => name.startsWith('e-')); } catch { continue; }
+      for (const name of names) {
+        const repo = path.join(root, name, 'home', 'cwd', 'repo');
+        if (!existsSync(path.join(repo, '.git'))) continue;
+        try {
+          const index = path.join(scratch, `${name}.index`);
+          // The real index's stat cache spares rehashing every unchanged file.
+          if (existsSync(path.join(repo, '.git', 'index'))) copyFileSync(path.join(repo, '.git', 'index'), index);
+          const env = { GIT_INDEX_FILE: index };
+          const base = git(repo, ['rev-list', '--max-parents=0', 'HEAD']).trim().split('\n').pop();
+          git(repo, ['add', '-A'], env);
+          const patch = git(repo, ['diff', '--cached', '--binary', base, '--', '.', ':(exclude).ambicode'], env);
+          mkdirSync(path.join(outDir, 'patches'), { recursive: true });
+          writeFileSync(path.join(outDir, 'patches', `${name}.patch`), patch);
+        } catch { /* the sandbox may still be mid-write; the next pass retries */ }
+      }
     }
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
   }
 }
 
@@ -155,8 +171,8 @@ function planSpec(spec, { benchmarks, env }) {
   const { casesDir, prompt, ablation, plugin } = spec;
   // A result already there is earlier evidence: this run neither overwrites it nor reads it as its own.
   if (existsSync(spec.json)) throw new Error('the --json target already exists: an earlier result is never overwritten or read as this run\'s; pass a new path');
-  if (!existsSync(casesDir)) throw new Error(`no generated cases at ${casesDir}: run \`npm run evals:${spec.set === 'full' ? 'generate' : 'select'}\` first`);
-  if (existsSync(path.join(casesDir, GENERATION_MARKER))) throw new Error(`the generation of ${casesDir} was interrupted: recreate it with \`select --regenerate\``);
+  if (!existsSync(casesDir)) throw new Error(`no generated cases at ${casesDir}: run \`npm run evals:${{ full: 'generate', preset: 'presets' }[spec.set] ?? 'select'}\` first`);
+  if (existsSync(path.join(casesDir, GENERATION_MARKER))) throw new Error(`the generation of ${casesDir} was interrupted: recreate it with \`${spec.set === 'preset' ? 'npm run evals:presets -- --regenerate' : 'select --regenerate'}\``);
   refuseLegacyTwins(casesDir);
   const cases = resolveCases(casesDir, { tags: spec.tags, caseGlob: spec.caseGlob ?? undefined });
   if (cases.length === 0) throw new Error('no case matches the --tag/--case filter');
@@ -169,6 +185,8 @@ function planSpec(spec, { benchmarks, env }) {
   }
   // A task case's reviewer must run live: an old recording would grade a different change.
   if (spec.set === 'task' && env.EVAL_AMBICODE_REVIEWER_REPLAY) throw new Error('--set task refuses EVAL_AMBICODE_REVIEWER_REPLAY: old reviewer recordings never apply to task cases');
+  // The recordings are keyed on the curated snapshots; a preset's review runs at its own historical base.
+  if (spec.set === 'preset' && env.EVAL_AMBICODE_REVIEWER_REPLAY) throw new Error('--set preset refuses EVAL_AMBICODE_REVIEWER_REPLAY: the reviewer recordings belong to the curated review cases');
   const marker = outstandingSwap(casesDir);
   // Bodies are read now, before any swap: prompt.md may hold the plugin prompt only while a swap is outstanding,
   // and then the naked copy is the naked prompt.
@@ -192,7 +210,7 @@ function planSpec(spec, { benchmarks, env }) {
 }
 
 // Tags the generators write; any other value could carry a name and is shown redacted.
-const PLAIN_TAGS = new Set(['bench', 'localize', 'review', 'task', 'walk', 'reuse', 'impact']);
+const PLAIN_TAGS = new Set(['bench', 'localize', 'plan', 'review', 'task', 'walk', 'reuse', 'impact', ...PRESET_NAMES]);
 
 /** The plan with no prompt text, case name or identifying path: counts, kinds, digests and settings only. */
 export function formatPlan(plan) {
@@ -319,7 +337,7 @@ export async function runSweep(rest, { benchmarks = BENCHMARKS, now = new Date()
     try {
       tracker.tick();
       harvest(tracesDir);
-      if (spec.set === 'task') harvestPatches(tracesDir);
+      if (plan.cases.some((c) => c.kind === 'task')) harvestPatches(tracesDir);
     } catch (error) {
       if (!harvestErrors.has(error.message)) warn(`trace harvest failing: ${error.message}`);
       harvestErrors.add(error.message);
@@ -439,29 +457,23 @@ export async function main(argv, options = {}) {
     taken.add(i).add(i + 1);
     return rest[i + 1];
   };
-  /** `--baseline` pins a naked result as the bare reference; later selects read the pin back. No pin, no discrimination. */
-  const lockRates = (baselineAt) => bareRates(baselineAt === undefined ? readBaselineLock() : writeBaselineLock(baselineAt));
   const benchmarksAt = option('--benchmarks');
   const benchmarks = benchmarksAt === undefined ? BENCHMARKS : path.resolve(benchmarksAt);
-  if (command === 'generate' || command === 'select') {
+  if (command === 'select') {
     if (rest.includes('--forced')) throw new Error(FORCED_REMOVED);
-    const baselineAt = option('--baseline');
-    const pick =
-      command === 'select'
-        ? {
-            localize: Number(option('--localize') ?? SELECT.localize),
-            review: Number(option('--review') ?? SELECT.review),
-            ...(rest.includes('--candidates') ? { candidates: true } : {}),
-            ...(rest.includes('--candidates') ? {} : lockRates(baselineAt)),
-          }
-        : null;
-    const out = command === 'select' ? CURATED_CASES : undefined;
-    const { out: outDir, written, refused, selection } = generate({ benchmarks, out, pick, regenerate: rest.includes('--regenerate') });
+    // The core suite is the average preset now: which tickets it holds is the preset's choice, not a ranking here.
+    const retired = ['--localize', '--review', '--candidates', '--baseline'].filter((flag) => rest.includes(flag));
+    if (retired.length) throw new Error(`select no longer picks cases (${retired.join(', ')}): the core suite is the ${CORE_PRESET} preset; lock a naked run with \`lock <eval.json>\``);
+    const presetsAt = option('--presets');
+    const { out, written } = generatePreset({ preset: CORE_PRESET, benchmarks, ...(presetsAt === undefined ? {} : { presets: path.resolve(presetsAt) }), regenerate: rest.includes('--regenerate') });
+    const bySkill = Object.entries(Object.groupBy(written, (w) => w.skill)).map(([skill, rows]) => `${skill} ${rows.length}`).join(', ');
+    console.log(`wrote the ${CORE_PRESET} preset's ${written.length} case(s) to ${out} (${bySkill})`);
+    return 0;
+  }
+  if (command === 'generate') {
+    if (rest.includes('--forced')) throw new Error(FORCED_REMOVED);
+    const { out: outDir, written, refused } = generate({ benchmarks, regenerate: rest.includes('--regenerate') });
     for (const r of refused) console.log(`refused ${r.name}: ${r.reason}`);
-    if (selection)
-      for (const [side, kinds] of Object.entries(selection.sides))
-        for (const [kind, s] of Object.entries(kinds))
-          console.log(`${side} ${kind}: chose ${s.chosen.length} of ${s.eligible} eligible (${s.of} in all): ${s.chosen.map((c) => c.name).join(', ')}`);
     const bySide = {};
     for (const w of written) bySide[w.side] = (bySide[w.side] ?? 0) + 1;
     console.log(`wrote ${written.length} case(s) to ${outDir} (${Object.entries(bySide).map(([s, n]) => `${s} ${n}`).join(', ')}), refused ${refused.length}`);
@@ -477,7 +489,10 @@ export async function main(argv, options = {}) {
   if (command === 'run') return runSweep(rest.filter((_, i) => !taken.has(i)), { benchmarks, ...options });
   if (command === 'restore-prompts') {
     const pluginAt = option('--plugin');
-    const casesDir = path.join(pluginAt === undefined ? ROOT : path.resolve(pluginAt), CURATED_EVAL_DIR, CASES_DIRECTORY);
+    const preset = option('--preset');
+    if (preset !== undefined && !PRESET_NAMES.includes(preset)) throw new Error(`--preset takes ${PRESET_NAMES.join(', ')}, not ${preset}`);
+    const plugin = pluginAt === undefined ? ROOT : path.resolve(pluginAt);
+    const casesDir = preset === undefined ? path.join(plugin, CURATED_EVAL_DIR, CASES_DIRECTORY) : presetCasesDir(preset, path.join(plugin, 'evals'));
     const restored = restorePrompts(casesDir);
     console.log(restored ? `restored ${restored} naked prompt(s) in ${casesDir}` : `no outstanding swap in ${casesDir}`);
     return 0;
@@ -494,7 +509,23 @@ export async function main(argv, options = {}) {
       return 0;
     }
     const results = attachBaseline(JSON.parse(readFileSync(file, 'utf8')), baselinePath);
-    console.log(JSON.stringify(score(results, { tracesDir }).arms, null, 2));
+    console.log(JSON.stringify(score(results, { tracesDir, judgeFile: path.join(resultLayout(file).reportsDir, JUDGE_FILE) }).arms, null, 2));
+    return 0;
+  }
+  if (command === 'judge-task') {
+    const tracesAt = option('--traces');
+    const model = option('--model');
+    const cap = option('--max-cost-usd');
+    const [file] = rest.filter((_, i) => !taken.has(i));
+    if (!file || !statSync(file, { throwIfNoEntry: false })) throw new Error('usage: evals-bench.mjs judge-task <eval-results.json> --model <m> --max-cost-usd <usd> [--traces <dir>]');
+    // The same two refusals as `run`: a judge's numbers are compared across runs, and each call is paid.
+    if (!model) throw new Error('--model is required: verdicts from different judges are not comparable');
+    if (!(Number(cap) > 0)) throw new Error('--max-cost-usd <usd> is required: every judged run is a paid call');
+    const tracesDir = tracesAt ?? resultLayout(file).tracesDir;
+    const verdicts = judgeTaskRuns(JSON.parse(readFileSync(file, 'utf8')), { judge: claudeJudge({ model }), maxCostUsd: Number(cap), model, analysis: createAnalysis({ tracesDir }) });
+    const out = writeJudgeFile(resultLayout(file).reportsDir, verdicts);
+    const judged = verdicts.runs.filter((r) => r.judgeScore !== undefined);
+    console.log(`judged ${judged.length} task run(s) for $${verdicts.costUsd.toFixed(2)} (skipped ${verdicts.runs.length - judged.length}, no verdict ${judged.filter((r) => r.judgeScore === null).length}): ${out}`);
     return 0;
   }
   if (command === 'tuning-summary') {
@@ -515,7 +546,7 @@ export async function main(argv, options = {}) {
     throw new Error('usage: evals-bench.mjs live-review dry-run [run options] | live-review replay [<recordings.json>]');
   }
   throw new Error(
-    'usage: evals-bench.mjs generate | select [--localize <n>] [--review <n>] [--candidates] [--baseline <naked eval.json>] [--regenerate] | run [--set curated|task|full --project <project>] [--plugin <dir>] [--prompt naked|with] [--dry-run] --model <m> --max-cost-usd <usd> [--walk] [options] | restore-prompts [--plugin <dir>] | score <eval-results.json> [--traces <dir>] [--baseline <file>] | walk <eval-results.json> [--traces <dir>] | tuning-summary <traces-dir> | task-suite [run options] | live-review dry-run [run options] | live-review replay [<recordings.json>]',
+    'usage: evals-bench.mjs generate [--regenerate] | select [--presets <dir>] [--regenerate] | lock <naked eval.json> | run [--set curated|task|full --project <project>|preset --preset light|large] [--plugin <dir>] [--prompt naked|with] [--dry-run] --model <m> --max-cost-usd <usd> [--walk] [options] | restore-prompts [--plugin <dir>] [--preset <name>] | score <eval-results.json> [--traces <dir>] [--baseline <file>] | walk <eval-results.json> [--traces <dir>] | judge-task <eval-results.json> --model <m> --max-cost-usd <usd> [--traces <dir>] | tuning-summary <traces-dir> | task-suite [run options] | live-review dry-run [run options] | live-review replay [<recordings.json>]',
   );
 }
 

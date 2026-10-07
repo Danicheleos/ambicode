@@ -5,7 +5,10 @@ import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { parse as parseYaml } from 'yaml';
 import { CASES_LOCK, GENERATION_MARKER, INVESTIGATE_COMMAND, NAKED_COPY, NAKED_PLUGIN, PROMPT, SWAP_MARKER, WITH_PROMPT, restorePrompts, runArgs, swapInPluginPrompts, writePluginPrompt } from '../harness/evals-bench.mjs';
-import { baselineCases, buildNaked, parseArgs } from './naked-arm.mjs';
+import { baselineCases, buildNaked, parseArgs, rebaseScaffold } from './naked-arm.mjs';
+import { baseScaffoldScript } from '../cases/base-scaffold.mjs';
+import { ROOT } from '../shared/bench-paths.mjs';
+import { spawnSync } from 'node:child_process';
 
 const NAKED_PROMPT = '---\nname: be-1\ntags: ["bench", "localize"]\n---\n\nIn the repository at `repo/`, find the files.\n\nAnswer the question.\n';
 
@@ -104,6 +107,33 @@ describe('naked-arm', () => {
       assert.throws(() => parseArgs(['--benchmarks']), /unknown argument/);
     } finally {
       rmSync(external, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('naked-arm: preset cases', () => {
+  it('rewrites a base-commit scaffold\'s quoted climb to the absolute project, and copies a preset into its own eval dir', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'naked-preset-'));
+    try {
+      const script = baseScaffoldScript({ sideRel: '../../../../../../assets/benchmarks/BE-express', base: 'a'.repeat(40), root: 'src', wholeTree: true });
+      const external = path.join(root, "it's here", 'benchmarks');
+      const rebased = rebaseScaffold(script, external);
+      assert.match(rebased, /^SIDE='.*benchmarks\/BE-express'$/m);
+      assert.ok(!rebased.includes('dirname "$0")"/'), 'no relative climb is left');
+      assert.equal(spawnSync('sh', ['-c', `${rebased.split('\n').find((l) => l.startsWith('SIDE='))}; printf %s "$SIDE"`], { encoding: 'utf8' }).stdout, path.join(external, 'BE-express'));
+      const options = parseArgs(['--preset', 'light', '--out', path.join(root, 'out')]);
+      assert.deepEqual([path.relative(ROOT, options.casesDir), options.evalCases], ['evals/common/presets/light', 'evals/common/presets/light']);
+      assert.throws(() => parseArgs(['--preset', 'huge']), /--preset takes/);
+      const core = parseArgs(['--preset', 'average']);
+      assert.deepEqual([path.relative(ROOT, core.casesDir), core.evalCases], [path.join('evals', 'common', 'core', 'cases'), 'evals/common/core/cases'], 'the average preset is the core suite');
+      const casesDir = path.join(root, 'light');
+      mkdirSync(path.join(casesDir, 'be-1-task'), { recursive: true });
+      writeFileSync(path.join(casesDir, 'be-1-task', PROMPT), NAKED_PROMPT);
+      writeFileSync(path.join(casesDir, 'be-1-task', 'scaffold.sh'), script);
+      buildNaked({ out: path.join(root, 'out'), casesDir, benchmarks: external, evalCases: 'evals/common/presets/light' });
+      assert.equal(readFileSync(path.join(root, 'out', 'evals/common/presets/light/be-1-task/scaffold.sh'), 'utf8'), rebased);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });

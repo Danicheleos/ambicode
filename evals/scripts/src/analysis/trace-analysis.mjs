@@ -138,6 +138,7 @@ const SANDBOX_ROOTS = [...new Set(['/tmp', tmpdir()])];
 // puts the repository at `repo/` under it, so task ledgers sit one level down. Deeper is not searched: the
 // snapshot is thousands of files.
 const SANDBOX_CWD = ['home', 'cwd'];
+const PLAN_NOTE = /^plan(-draft)?_.*\.md$/;
 
 function sandboxLedgers(sandbox) {
   const cwd = path.join(sandbox, ...SANDBOX_CWD);
@@ -157,7 +158,18 @@ function sandboxLedgers(sandbox) {
       if (error.code === 'ENOENT' || error.code === 'ENOTDIR') continue;
       throw error;
     }
-    for (const slug of slugs) found.push(path.relative(sandbox, path.join(base, '.ambicode', 'task', slug, 'ledger.jsonl')));
+    for (const slug of slugs) {
+      const task = path.join(base, '.ambicode', 'task', slug);
+      found.push(path.relative(sandbox, path.join(task, 'ledger.jsonl')));
+      // The plan notes beside it: a plan run is scored from its promoted plan (`scoredPlan`), not from its last message.
+      let names = [];
+      try {
+        names = readdirSync(task).filter((name) => PLAN_NOTE.test(name));
+      } catch (error) {
+        if (error.code !== 'ENOENT' && error.code !== 'ENOTDIR') throw error;
+      }
+      for (const name of names) found.push(path.relative(sandbox, path.join(task, name)));
+    }
   }
   return found;
 }

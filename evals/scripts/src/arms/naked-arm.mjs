@@ -5,7 +5,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, write
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
-import { BENCHMARKS, BENCHMARKS_CLIMB, CURATED_CASES, CURATED_EVAL_DIR, NAKED_PLUGIN, ROOT } from '../shared/bench-paths.mjs';
+import { BENCHMARKS, BENCHMARKS_CLIMB, CURATED_CASES, CURATED_EVAL_DIR, NAKED_PLUGIN, PRESET_NAMES, presetCasesDir, presetCasesRel, ROOT } from '../shared/bench-paths.mjs';
 import { refuseLegacyTwins } from '../cases/bench-cases.mjs';
 import { CASES_LOCK, withCasesLock } from '../harness/cases-lock.mjs';
 import { GENERATION_MARKER, NAKED_COPY, PROMPT, SWAP_MARKER, WITH_PROMPT } from '../harness/prompt-transport.mjs';
@@ -42,12 +42,20 @@ function controlCaseYaml(source) {
   return dropped ? stringifyYaml(doc) : source;
 }
 
-/** Copies under the cases lock: a run swapping prompts, or a generation, would change the files mid-copy. */
-export function buildNaked({ out = NAKED_OUT, casesDir = CURATED_CASES, benchmarks = BENCHMARKS } = {}) {
-  return withCasesLock(casesDir, 'naked-arm copy', () => buildLocked({ out, casesDir, benchmarks }));
+/**
+ * A base-commit scaffold's (base-scaffold.mjs) quoted climb to its project, `SIDE="$(cd "$(dirname "$0")"/'../…/benchmarks/<project>' && pwd)"`:
+ * the curated climb's pattern cannot rewrite it inside the quotes, so its whole line is replaced.
+ */
+export const BASE_SCAFFOLD_SIDE = /^SIDE="\$\(cd "\$\(dirname "\$0"\)"\/'(?:\.\.\/)+(?:[\w.-]+\/)*?benchmarks\/([^'\/]+)' && pwd\)"$/m;
+export const rebaseScaffold = (text, benchmarks) =>
+  text.replace(BENCHMARKS_CLIMB, benchmarks).replace(BASE_SCAFFOLD_SIDE, (_, project) => `SIDE='${path.join(benchmarks, project).replace(/'/g, `'\\''`)}'`);
+
+/** Copies under the cases lock: a run swapping prompts, or a generation, would change the files mid-copy. `evalCases` is where the copies go in the control. */
+export function buildNaked({ out = NAKED_OUT, casesDir = CURATED_CASES, benchmarks = BENCHMARKS, evalCases = `${CURATED_EVAL_DIR}/cases` } = {}) {
+  return withCasesLock(casesDir, 'naked-arm copy', () => buildLocked({ out, casesDir, benchmarks, evalCases }));
 }
 
-function buildLocked({ out, casesDir, benchmarks }) {
+function buildLocked({ out, casesDir, benchmarks, evalCases }) {
   // A swapped prompt.md is the plugin prompt; copied now, the control would serve it on every baseline run.
   for (const marker of [SWAP_MARKER, GENERATION_MARKER])
     if (existsSync(path.join(casesDir, marker)))
@@ -65,12 +73,12 @@ function buildLocked({ out, casesDir, benchmarks }) {
   // The harness refuses symlinks under the eval directory, so cases are real copies and each scaffold reaches the
   // data by absolute path instead of the relative climb.
   for (const id of cases) {
-    const to = path.join(out, CURATED_EVAL_DIR, 'cases', id);
+    const to = path.join(out, ...evalCases.split('/'), id);
     cpSync(path.join(casesDir, id), to, { recursive: true, filter: (source) => !PLUGIN_ONLY_FILES.has(path.basename(source)) || path.dirname(source) !== path.join(casesDir, id) });
     const caseYaml = path.join(to, 'case.yaml');
     if (existsSync(caseYaml)) writeFileSync(caseYaml, controlCaseYaml(readFileSync(caseYaml, 'utf8')));
     const scaffold = path.join(to, 'scaffold.sh');
-    if (existsSync(scaffold)) writeFileSync(scaffold, readFileSync(scaffold, 'utf8').replace(BENCHMARKS_CLIMB, benchmarks));
+    if (existsSync(scaffold)) writeFileSync(scaffold, rebaseScaffold(readFileSync(scaffold, 'utf8'), benchmarks));
   }
   return { out, cases };
 }
@@ -80,11 +88,16 @@ export function parseArgs(argv) {
   for (let i = 0; i < argv.length; i += 2) {
     const value = argv[i + 1];
     if (argv[i] === '--out' && value) options.out = path.resolve(value);
+    else if (argv[i] === '--preset' && value) {
+      if (!PRESET_NAMES.includes(value)) throw new Error(`--preset takes ${PRESET_NAMES.join(', ')}, not ${value}`);
+      options.casesDir = presetCasesDir(value);
+      options.evalCases = `evals/${presetCasesRel(value)}`;
+    }
     // The symlink's target is stored as given, so a relative one would resolve from inside the plugin.
     else if (argv[i] === '--benchmarks' && value) {
       if (!path.isAbsolute(value)) throw new Error(`--benchmarks takes an absolute path, not ${value}`);
       options.benchmarks = value;
-    } else throw new Error(`unknown argument ${argv[i]}; usage: naked-arm.mjs [--out <dir>] [--benchmarks <absolute dir>]`);
+    } else throw new Error(`unknown argument ${argv[i]}; usage: naked-arm.mjs [--out <dir>] [--benchmarks <absolute dir>] [--preset <name>]`);
   }
   return options;
 }

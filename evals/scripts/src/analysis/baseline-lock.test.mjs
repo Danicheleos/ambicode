@@ -61,6 +61,14 @@ describe('baseline-lock: the pinned bare reference', () => {
     assert.equal(resolveBaseline(own, { lockFile }), null);
   });
 
+  it('leaves a run of another preset alone: the lock pins only the core suite, the average preset', () => {
+    writeBaselineLock(source, { lockFile, analysis });
+    const presetOf = (name) => ({ ...analysis, meta: () => ({ ...analysis.meta(), preset: name }) });
+    assert.equal(resolveBaseline(pluginRun, { lockFile, analysis: presetOf('light') }), null);
+    assert.equal(resolveBaseline(pluginRun, { lockFile, analysis: presetOf('average') }).file, source, 'the core suite takes the lock');
+    assert.equal(resolveBaseline(pluginRun, { lockFile, analysis }).file, source);
+  });
+
   it('refuses a changed or missing source, and an incompatible run, instead of falling back', () => {
     writeBaselineLock(source, { lockFile, analysis });
     assert.throws(() => attachBaseline({ ...pluginRun, claudeVersion: '2.2' }, undefined, { lockFile }), /Claude Code version 2\.1, this run on 2\.2/);

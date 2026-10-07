@@ -52,6 +52,23 @@ describe('evals-bench: measures taken from the trace', () => {
   });
 });
 
+describe('evals-bench: plan notes', () => {
+  it('copies a task directory\'s plan and plan-draft notes beside its ledger, and no other note', () => {
+    const sandboxRoot = realpathSync(mkdtempSync(path.join(tmpdir(), 'harvest-plan-')));
+    const outDir = path.join(sandboxRoot, 'kept');
+    try {
+      const task = path.join('home', 'cwd', 'repo', '.ambicode', 'task', 'cart');
+      mkdirSync(path.join(sandboxRoot, 'e-one', task), { recursive: true });
+      for (const name of ['ledger.jsonl', 'plan_2026-10-07T10-00.md', 'plan-draft_2026-10-07T09-59.md', 'investigate_2026-10-07T09-58.md'])
+        writeFileSync(path.join(sandboxRoot, 'e-one', task, name), name);
+      harvestTraces(outDir, { sandboxRoots: [sandboxRoot] });
+      assert.deepEqual(readdirSync(path.join(outDir, LEDGER_DIRECTORY, 'e-one', task)).sort(), ['ledger.jsonl', 'plan-draft_2026-10-07T09-59.md', 'plan_2026-10-07T10-00.md']);
+    } finally {
+      rmSync(sandboxRoot, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('evals-bench: the Stop hook\'s exported ledgers', () => {
   it('lays an export over a shorter polled copy of the same sandbox ledger, never over a longer one', () => {
     const sandboxRoot = realpathSync(mkdtempSync(path.join(tmpdir(), 'harvest-export-')));

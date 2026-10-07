@@ -5,7 +5,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { buildArms, LSP_SERVERS, localizeCases, withTsconfig } from './lsp-arms.mjs';
+import { baseScaffoldScript } from '../cases/base-scaffold.mjs';
 
+const BASE_SCAFFOLD = baseScaffoldScript({ sideRel: '../../../../ambicode-evals-assets/benchmarks/BE-express', base: 'abc', root: 'src', wholeTree: true });
 const SCAFFOLD = ['#!/bin/sh', 'set -e', 'REPO="$PWD/repo"', 'mkdir -p "$REPO/src"', 'echo "export const a = 1;" > "$REPO/src/a.ts"', 'git -C "$REPO" init -q', 'git -C "$REPO" add -A', 'git -C "$REPO" -c user.name=t -c user.email=t@x commit -qm s', ''].join('\n');
 
 describe('lsp-arms', () => {
@@ -21,6 +23,13 @@ describe('lsp-arms', () => {
       writeFileSync(path.join(casesDir, id, 'prompt.md'), id);
       writeFileSync(path.join(casesDir, id, 'truth.json'), JSON.stringify({ root: 'src' }));
     }
+    // A core-suite ticket: its investigate case is a localize case, its plan case is not.
+    for (const [id, kind] of [['be-vs-3-investigate', 'localize'], ['be-vs-3-plan', 'plan']]) {
+      mkdirSync(path.join(casesDir, id), { recursive: true });
+      writeFileSync(path.join(casesDir, id, 'scaffold.sh'), BASE_SCAFFOLD);
+      writeFileSync(path.join(casesDir, id, 'prompt.md'), id);
+      writeFileSync(path.join(casesDir, id, 'truth.json'), JSON.stringify({ kind, root: 'src' }));
+    }
     dist = path.join(root, 'dist');
     mkdirSync(path.join(dist, '.claude-plugin'), { recursive: true });
     writeFileSync(path.join(dist, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'ambicode', version: '9.9.9' }));
@@ -29,10 +38,10 @@ describe('lsp-arms', () => {
   after(() => rmSync(root, { recursive: true, force: true }));
 
   it('takes the localize cases only, since review cases replay a reviewer the LSP arms do not change', () => {
-    assert.deepEqual(localizeCases(casesDir), ['be-1', 'fe-2']);
+    assert.deepEqual(localizeCases(casesDir), ['be-1', 'be-vs-3-investigate', 'fe-2']);
     mkdirSync(path.join(casesDir, '.cases.lock'), { recursive: true });
     try {
-      assert.deepEqual(localizeCases(casesDir), ['be-1', 'fe-2'], 'the cases lock directory is not a case');
+      assert.deepEqual(localizeCases(casesDir), ['be-1', 'be-vs-3-investigate', 'fe-2'], 'the cases lock directory is not a case');
     } finally {
       rmSync(path.join(casesDir, '.cases.lock'), { recursive: true });
     }
@@ -50,6 +59,9 @@ describe('lsp-arms', () => {
       assert.ok(lstatSync(path.join(arm, 'benchmarks')).isSymbolicLink());
       assert.ok(!lstatSync(path.join(arm, 'evals', 'common', 'core', 'cases', 'be-1')).isSymbolicLink(), 'the harness refuses symlinks under --eval-dir');
       assert.equal(readFileSync(path.join(arm, 'evals', 'common', 'core', 'cases', 'fe-2', 'prompt.md'), 'utf8'), 'fe-2');
+      const base = readFileSync(path.join(arm, 'evals', 'common', 'core', 'cases', 'be-vs-3-investigate', 'scaffold.sh'), 'utf8');
+      assert.match(base, /^SIDE="\$\(cd "\$\(dirname "\$0"\)"\/'\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/benchmarks\/BE-express' && pwd\)"$/m, 'a base scaffold climbs to the arm\'s benchmarks link');
+      assert.match(base, /\[ -f "\$PWD\/repo\/tsconfig\.json" \] \|\| printf/, 'a whole tree keeps its own tsconfig');
     }
   });
 

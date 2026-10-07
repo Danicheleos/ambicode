@@ -28,9 +28,9 @@ export function baseOf(versionDir) {
 /**
  * `sideRel` is the project directory relative to the script's own location. `withhold` paths are relative to the repo.
  * `wholeTree` extracts the whole base tree (manifests, lock file, runner config) instead of `root` alone; `config`
- * names a config file beside the script that replaces the side's.
+ * names a config file beside the script that replaces the side's. `applyPatch` names a patch beside the script.
  */
-export function baseScaffoldScript({ sideRel, base, root, withhold = [], setup = null, wholeTree = false, config = null }) {
+export function baseScaffoldScript({ sideRel, base, root, withhold = [], setup = null, wholeTree = false, config = null, applyPatch = null }) {
   for (const entry of withhold)
     if (path.posix.isAbsolute(entry) || entry.split('/').includes('..')) throw new Error(`withhold path must stay inside the repo: ${entry}`);
   const lines = [
@@ -60,8 +60,10 @@ export function baseScaffoldScript({ sideRel, base, root, withhold = [], setup =
     `GIT_AUTHOR_NAME="AMBICODE Benchmark" GIT_AUTHOR_EMAIL=benchmark@example.invalid GIT_AUTHOR_DATE=${FIXED_DATE} \\`,
     `  GIT_COMMITTER_NAME="AMBICODE Benchmark" GIT_COMMITTER_EMAIL=benchmark@example.invalid GIT_COMMITTER_DATE=${FIXED_DATE} \\`,
     '  git -C "$PWD/repo" -c commit.gpgsign=false commit -q -m "benchmark base"',
-    '',
   );
+  // A review case's change, applied after the commit so it stays uncommitted: the reviewer sees it as the diff.
+  if (applyPatch) lines.push(`git -C "$PWD/repo" apply --binary "$(cd "$(dirname "$0")" && pwd)"/${quote(applyPatch)}`);
+  lines.push('');
   return lines.join('\n');
 }
 

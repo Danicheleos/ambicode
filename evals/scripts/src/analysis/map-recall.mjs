@@ -31,7 +31,9 @@ export async function mapRecall({ cases = CURATED_CASES, show = null } = {}) {
   for (const name of readdirSync(cases).filter((n) => !n.includes('review')).sort()) {
     const dir = path.join(cases, name);
     if (!existsSync(path.join(dir, 'prompt.with.md')) || !existsSync(path.join(dir, 'truth.json'))) continue;
-    const { truth, root = '' } = JSON.parse(readFileSync(path.join(dir, 'truth.json'), 'utf8'));
+    const { kind, truth, root = '' } = JSON.parse(readFileSync(path.join(dir, 'truth.json'), 'utf8'));
+    // The core suite's plan and task cases share the ticket and truth, but not the investigate route this measures.
+    if (kind !== undefined && kind !== 'localize') continue;
     const work = mkdtempSync(path.join(tmpdir(), 'map-recall-'));
     try {
       execFileSync('sh', [path.join(dir, 'scaffold.sh')], { cwd: work, stdio: 'ignore' });

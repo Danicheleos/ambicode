@@ -1,8 +1,11 @@
 // Scoring and baseline identity; analysis caches exist only for one score or walkthrough.
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { BENCHMARKS, CASES_ROOT, CURATED_CASES, FULL_CASES_DIRECTORY, IMPACT_CASES_DIRECTORY, NAKED_PLUGIN, projectCasesDir, REUSE_CASES_DIRECTORY, REUSE_EXPORTS_FILE } from '../shared/bench-paths.mjs';
-import { ledgerMetrics, ledgersOf, MCP_SPAWNS_UNMEASURED, tally } from './ledger-metrics.mjs';
+import { BENCHMARKS, CASES_ROOT, CURATED_CASES, FULL_CASES_DIRECTORY, IMPACT_CASES_DIRECTORY, NAKED_PLUGIN, PRESET_NAMES, presetCasesDir, projectCasesDir, REUSE_CASES_DIRECTORY, REUSE_EXPORTS_FILE } from '../shared/bench-paths.mjs';
+import { LEDGER_DIRECTORY, ledgerMetrics, ledgersOf, MCP_SPAWNS_UNMEASURED, sandboxIdOf, tally } from './ledger-metrics.mjs';
+import { hunkRecall, identifierRecall, patchPaths } from './patch-overlap.mjs';
+import { scoredPlan } from './plan-score.mjs';
+import { readJudgeFile } from './task-judge.mjs';
 import { PROMPT, WITH_PROMPT } from '../harness/prompt-transport.mjs';
 import { scoreReuse } from './reuse-score.mjs';
 import { infrastructureError } from '../harness/run-validity.mjs';
@@ -28,11 +31,19 @@ function fileSection(message) {
  * `./`, `repo/` and absolute prefixes are dropped. A path missing the code root (`controllers/x.ts` for
  * `src/controllers/x.ts`) or more leading directories matches when exactly one true path ends that way.
  */
-export function namedFiles(message, truth, root) {
+const BARE_NAME = '[\\w@.+-]+\\.[A-Za-z0-9]*[A-Za-z][A-Za-z0-9]*';
+const BARE_BULLET = new RegExp(`^\\s*[-*]\\s+(?:\\*\\*)?(?:\`(${BARE_NAME})\`|(${BARE_NAME})(?=\\*\\*|\\s*$|\\s+[—–-]\\s|[:,(]|\\s+\\())`, 'gm');
+
+export function namedFiles(message, truth, root, { bareBullets = false } = {}) {
   const { text, sectioned } = fileSection(message);
   const named = new Set();
-  for (const match of text.matchAll(/(?:^|[\s`'"(\[*|])(\/?(?:[\w@.+-]+\/)+[\w@.+-]+\.[A-Za-z0-9]+)/g)) {
-    let p = match[1].replace(/^(?:.*\/)?repo\//, '').replace(/^\.\//, '');
+  const paths = [...text.matchAll(/(?:^|[\s`'"(\[*|])(\/?(?:[\w@.+-]+\/)+[\w@.+-]+\.[A-Za-z0-9]+)/g)].map((m) => m[1]);
+  // A preset's truth spans the whole tree, so `package.json` at the root is a true file; the path pattern needs a
+  // slash, so a bullet naming a root file is read on its own. Only a backticked name, or one the bullet ends at or
+  // sets off with a dash, colon or bracket: `- Node.js runtime` and `- e.g. the service` name no file.
+  if (bareBullets && sectioned) paths.push(...[...text.matchAll(BARE_BULLET)].map((m) => m[1] ?? m[2]));
+  for (const path of paths) {
+    let p = path.replace(/^(?:.*\/)?repo\//, '').replace(/^\.\//, '');
     if (!truth.includes(p) && !p.startsWith(`${root}/`)) {
       const candidates = truth.filter((t) => t === `${root}/${p}`);
       const ending = truth.filter((t) => t.endsWith(`/${p}`));
@@ -46,38 +57,113 @@ export function namedFiles(message, truth, root) {
 
 export function scoreAnswer(message, truth, root) {
   const { named, sectioned } = namedFiles(message, truth, root);
+  return { ...fileMatch(named, truth), sectioned };
+}
+
+/** Precision, recall, F1 and hit of `named` paths against `truth`. */
+export function fileMatch(named, truth) {
   const correct = named.filter((p) => truth.includes(p)).length;
   const precision = named.length ? correct / named.length : 0;
   const recall = correct / truth.length;
   const f1 = precision + recall ? (2 * precision * recall) / (precision + recall) : 0;
-  return { named: named.length, correct, truth: truth.length, precision, recall, f1, hit: correct > 0 ? 1 : 0, sectioned };
+  return { named: named.length, correct, truth: truth.length, precision, recall, f1, hit: correct > 0 ? 1 : 0 };
+}
+
+/**
+ * A preset truth splits the touched files into existing, created and deleted; each part's recall is reported apart
+ * (null when the change has none of that part), since naming a file to create is a different skill from finding one.
+ */
+export function splitRecall(named, meta) {
+  const out = {};
+  for (const [key, list] of [['existingRecall', meta.existing], ['createdRecall', meta.created], ['deletedRecall', meta.deleted]])
+    if (Array.isArray(list)) out[key] = list.length ? list.filter((p) => named.includes(p)).length / list.length : null;
+  return out;
+}
+
+/** A preset answer's file match, with root files read from bullets and the existing/created/deleted split. */
+function presetAnswer(text, meta) {
+  const { named, sectioned } = namedFiles(text, meta.truth, meta.root, { bareBullets: true });
+  return { ...fileMatch(named, meta.truth), sectioned, ...splitRecall(named, meta) };
+}
+
+/** Per review label (`defect`, `opinion`, `unclassified`), the raised share of that label's threads; null when the case has none. */
+export function labelRecall(raised, labels) {
+  const out = {};
+  for (const label of ['defect', 'opinion', 'unclassified']) {
+    const indexes = labels.map((l, i) => (l === label ? i : -1)).filter((i) => i >= 0);
+    out[`${label}Threads`] = indexes.length;
+    out[`${label}Recall`] = indexes.length ? indexes.filter((i) => raised.has(i)).length / indexes.length : null;
+  }
+  return out;
 }
 
 const EVIDENCE_GRADER = 'names-a-true-file';
+/**
+ * The preset measures; each is averaged over the runs that have it, so a case with no created file does not pull
+ * createdRecall to 0. `<measure>N` says how many that was: a judge stopped by its cap after 3 of 20 runs is a mean of 3.
+ */
+const SPLIT_METRICS = ['existingRecall', 'createdRecall', 'deletedRecall', 'hunkRecall', 'identifierRecall', 'defectRecall', 'opinionRecall', 'unclassifiedRecall', 'judgeScore', 'judgeCostUsd'];
 
 const subdirectories = (dir) => (existsSync(dir) ? readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name) : []);
 /** Every `evals/<project>/full/<name>/truth.json` (the full sets) a case of that name could have. */
 const fullSetTruths = (cases, name) => subdirectories(cases).map((project) => path.join(projectCasesDir(FULL_CASES_DIRECTORY, project, cases), name, 'truth.json'));
+/** Every preset `truth.json` a case of that name could have: `evals/common/presets/<preset>/<name>/`, the core one's under `common/core/cases/`. */
+const presetTruths = (cases, name) => PRESET_NAMES.map((preset) => path.join(presetCasesDir(preset, cases), name, 'truth.json'));
 /** Every `cases/<project>/<impact|reuse>/<name>/truth.json` a case of that name could have. */
 const projectTruths = (cases, name) =>
   subdirectories(cases).flatMap((project) => [IMPACT_CASES_DIRECTORY, REUSE_CASES_DIRECTORY].map((kind) => path.join(cases, project, kind, name, 'truth.json')));
 
-export function createAnalysis({ cases = CASES_ROOT, tracesDir = null } = {}) {
+/** The first of the traces dirs (one, or several as `run-report` passes them) holding `parts`; null when none does. */
+const harvested = (tracesDir, ...parts) => (tracesDir ? [].concat(tracesDir).map((dir) => path.join(dir, ...parts)).find((file) => existsSync(file)) ?? null : null);
+
+/** `judgeFile`: a `judge-task` result, whose verdicts join the task runs by sandbox id. */
+export function createAnalysis({ cases = CASES_ROOT, tracesDir = null, judgeFile = null } = {}) {
   const metadata = new Map();
+  let verdicts = null;
   const traces = new Map();
   const exports = new Map();
   return {
     tracesDir,
     meta(evalCase) {
       if (!metadata.has(evalCase.name)) {
-        const file = [...fullSetTruths(cases, evalCase.name), ...projectTruths(cases, evalCase.name), path.join(CURATED_CASES, evalCase.name, 'truth.json')].find(existsSync);
-        metadata.set(evalCase.name, file ? JSON.parse(readFileSync(file, 'utf8')) : null);
+        const file = [...fullSetTruths(cases, evalCase.name), ...projectTruths(cases, evalCase.name), ...presetTruths(cases, evalCase.name), path.join(CURATED_CASES, evalCase.name, 'truth.json')].find(existsSync);
+        // caseDir reaches files beside the truth (a task's oracle patch); it is not part of the truth's identity.
+        metadata.set(evalCase.name, file ? Object.defineProperty(JSON.parse(readFileSync(file, 'utf8')), 'caseDir', { value: path.dirname(file) }) : null);
       }
       return metadata.get(evalCase.name);
     },
     trace(run) {
       if (!traces.has(run.tracePath)) traces.set(run.tracePath, readTrace(run, tracesDir));
       return traces.get(run.tracePath);
+    },
+    /** The task judge's verdict on the run; null when it was not judged. */
+    verdict(run) {
+      verdicts ??= readJudgeFile(judgeFile);
+      const id = sandboxIdOf(run);
+      return (id && verdicts.get(id)) ?? null;
+    },
+    /** The run's sandbox change as `harvestPatches` kept it; null when none was harvested. */
+    patch(run) {
+      const id = sandboxIdOf(run);
+      const file = id ? harvested(tracesDir, 'patches', `${id}.patch`) : null;
+      return file ? readFileSync(file, 'utf8') : null;
+    },
+    /** The run's promoted plan, else its latest draft, from the notes harvested beside its ledgers; null when none. */
+    plan(run) {
+      const id = sandboxIdOf(run);
+      const top = id ? harvested(tracesDir, LEDGER_DIRECTORY, id) : null;
+      if (!top) return null;
+      const plans = [];
+      const walk = (dir) => {
+        for (const entry of readdirSync(dir, { withFileTypes: true }))
+          if (entry.isDirectory()) walk(path.join(dir, entry.name));
+          else if (entry.name === 'ledger.jsonl') {
+            const found = scoredPlan(dir);
+            if (found) plans.push(found);
+          }
+      };
+      walk(top);
+      return plans.find((p) => p.kind === 'promoted') ?? plans[0] ?? null;
     },
     exports(side) {
       if (!exports.has(side)) exports.set(side, JSON.parse(readFileSync(path.join(projectCasesDir(REUSE_CASES_DIRECTORY, side, cases), REUSE_EXPORTS_FILE), 'utf8')));
@@ -143,12 +229,41 @@ export function scoreWithAnalysis(results, analysis) {
           // A run whose judges never ran (a breached cost ceiling skips paid
           // graders) is absent, not a run that raised nothing.
           if (raised.length !== meta.threads || run.skippedPaidGraders) runs.push({ ...base, absent: true });
-          else runs.push({ ...base, absent: false, threads: meta.threads, raised: raised.filter((g) => g.passed).length, recall: raised.filter((g) => g.passed).length / meta.threads });
+          else {
+            const passed = raised.filter((g) => g.passed);
+            const byLabel = Array.isArray(meta.labels) ? labelRecall(new Set(passed.map((g) => Number(g.name.slice('raises-'.length)) - 1)), meta.labels) : {};
+            runs.push({ ...base, absent: false, threads: meta.threads, raised: passed.length, recall: passed.length / meta.threads, ...byLabel });
+          }
+          return;
+        }
+        if (meta.kind === 'task') {
+          // No harvested patch is a run that was not measured, never one that changed nothing (that is an empty patch).
+          const patch = analysis.patch(run);
+          if (patch === null) {
+            runs.push({ ...base, absent: true });
+            return;
+          }
+          const named = patchPaths(patch);
+          const oracle = meta.oracle && meta.caseDir ? readFileSync(path.join(meta.caseDir, meta.oracle), 'utf8') : null;
+          const overlap = oracle === null ? {} : { hunkRecall: hunkRecall(oracle, patch).recall, identifierRecall: identifierRecall(oracle, patch).recall };
+          // The judge's cost stays out of costUsd: it is the grader's spend, not the agent's.
+          const verdict = analysis.verdict(run);
+          const judged = verdict ? { judgeScore: verdict.judgeScore, judgeCostUsd: verdict.judgeCostUsd } : {};
+          runs.push({ ...base, absent: false, ...fileMatch(named, meta.truth), ...splitRecall(named, meta), ...overlap, ...judged });
           return;
         }
         const evidence = (run.graders ?? []).find((g) => g.name === EVIDENCE_GRADER)?.evidence;
+        if (meta.kind === 'plan') {
+          // The route arm's plan is its promoted note; the naked arm has no note, so its final message is the plan.
+          const note = analysis.plan(run);
+          const text = note?.text ?? evidence;
+          if (typeof text !== 'string') runs.push({ ...base, absent: true });
+          else runs.push({ ...base, absent: false, ...presetAnswer(text, meta), scoredText: note?.kind ?? 'message' });
+          return;
+        }
         if (typeof evidence !== 'string') runs.push({ ...base, absent: true });
         else if (meta.kind === 'reuse') runs.push({ ...base, absent: false, ...scoreReuse(evidence, meta.truth, analysis.exports(meta.side)) });
+        else if (meta.preset) runs.push({ ...base, absent: false, ...presetAnswer(evidence, meta) });
         else runs.push({ ...base, absent: false, ...scoreAnswer(evidence, meta.truth, meta.root) });
       });
   }
@@ -156,10 +271,14 @@ export function scoreWithAnalysis(results, analysis) {
   const summarize = (rows) => {
     const scored = rows.filter((r) => !r.absent);
     const out = { runs: rows.length, scored: scored.length, absent: rows.length - scored.length };
-    for (const m of ['precision', 'recall', 'f1', 'hit', 'named', 'dupes', 'created', 'raised', 'threads', 'costUsd', 'turns']) {
+    for (const m of ['precision', 'recall', 'f1', 'hit', 'named', 'dupes', 'created', 'raised', 'threads', ...SPLIT_METRICS, 'costUsd', 'turns']) {
       const values = scored.map((r) => r[m]).filter((x) => x !== null && x !== undefined);
       if (values.length) out[m] = mean(values);
+      if (values.length && SPLIT_METRICS.includes(m)) out[`${m}N`] = values.length;
     }
+    // A plan route that left no note is scored from its final message; counted, so that failure stays visible.
+    const fromText = scored.filter((r) => typeof r.scoredText === 'string');
+    if (fromText.length) out.scoredFrom = Object.fromEntries([...new Set(fromText.map((r) => r.scoredText))].sort().map((k) => [k, fromText.filter((r) => r.scoredText === k).length]));
     // An answer without a `Files` heading is scored whole, so every path it mentions counts as named.
     const sectioned = scored.filter((r) => typeof r.sectioned === 'boolean');
     if (sectioned.length) out.sectioned = sectioned.filter((r) => r.sectioned).length;

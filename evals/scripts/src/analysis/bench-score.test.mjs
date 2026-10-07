@@ -45,6 +45,16 @@ describe('evals-bench: scoring an answer', () => {
     assert.deepEqual(namedFiles('## Files\n- a/index.ts\n- x/index.ts\n', deep, 'src').named, ['src/features/a/index.ts', 'x/index.ts']);
   });
 
+  it('reads a bare root file from a Files bullet only when asked, and never from prose', () => {
+    const rooted = ['package.json', 'src/a.ts'];
+    const message = '## Files\n- `package.json` — bump\n- src/a.ts\n\nAlso see README.md.\n';
+    assert.deepEqual(namedFiles(message, rooted, 'src').named, ['src/a.ts'], 'curated scoring is unchanged');
+    assert.deepEqual(namedFiles(message, rooted, 'src', { bareBullets: true }).named.sort(), ['package.json', 'src/a.ts']);
+    assert.deepEqual(namedFiles('- package.json\n', rooted, 'src', { bareBullets: true }).named, [], 'no Files section: not read');
+    const words = '## Files\n- e.g. the service\n- Node.js runtime\n- v1.2 config\n- tsconfig.json: paths\n- **Dockerfile.dev** (new)\n- .env.example — sample\n';
+    assert.deepEqual(namedFiles(words, rooted, 'src', { bareBullets: true }).named.sort(), ['.env.example', 'Dockerfile.dev', 'tsconfig.json']);
+  });
+
   it('falls back to the whole message when there is no Files section, and says so', () => {
     const s = scoreAnswer('Touch app/orders/model.ts only.', truth, 'app');
     assert.equal(s.sectioned, false);
@@ -465,5 +475,89 @@ describe('evals-bench: incomplete ledgers measure nothing', () => {
     } finally {
       rmSync(benchmarks, { recursive: true, force: true });
     }
+  });
+});
+
+describe('preset scoring', () => {
+  const PATCH = (file, start, added) => `diff --git a/${file} b/${file}\n--- a/${file}\n+++ b/${file}\n@@ -${start},1 +${start},1 @@\n-old();\n+${added}\n`;
+  const CREATE = (file) => `diff --git a/${file} b/${file}\nnew file mode 100644\n--- /dev/null\n+++ b/${file}\n@@ -0,0 +1 @@\n+export const orderTotal = 1;\n`;
+  let cases;
+  let tracesDir;
+  const presetCase = (name, truth, files = {}) => {
+    const dir = path.join(cases, 'common', 'presets', 'light', name);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, 'truth.json'), JSON.stringify({ preset: 'light', side: 'SIDE', root: 'src', ...truth }));
+    for (const [file, text] of Object.entries(files)) writeFileSync(path.join(dir, file), text);
+  };
+  const run = (id, extra = {}) => ({ tracePath: `/tmp/${id}/out/trace.jsonl`, ...extra });
+  const touched = { truth: ['src/a.ts', 'src/new.ts'], existing: ['src/a.ts'], created: ['src/new.ts'], deleted: [] };
+  before(() => {
+    cases = mkdtempSync(path.join(tmpdir(), 'preset-score-'));
+    tracesDir = path.join(cases, 'traces');
+    presetCase('c-investigate', { kind: 'localize', ...touched });
+    presetCase('c-plan', { kind: 'plan', ...touched });
+    presetCase('c-task', { kind: 'task', ...touched, oracle: 'oracle.patch' }, { 'oracle.patch': PATCH('src/a.ts', 10, 'computeTotal();') + CREATE('src/new.ts') });
+    presetCase('c-review', { kind: 'review', threads: 3, labels: ['defect', 'opinion', 'opinion'] });
+    mkdirSync(path.join(tracesDir, 'patches'), { recursive: true });
+    writeFileSync(path.join(tracesDir, 'patches', 'e-task.patch'), PATCH('src/a.ts', 11, 'computeTotal();') + PATCH('src/other.ts', 1, 'x();'));
+    writeFileSync(path.join(tracesDir, 'patches', 'e-empty.patch'), '');
+    const task = path.join(tracesDir, LEDGER_DIRECTORY, 'e-plan', 'home', 'cwd', 'repo', '.ambicode', 'task', 'slug');
+    mkdirSync(task, { recursive: true });
+    writeFileSync(path.join(task, 'ledger.jsonl'), '');
+    writeFileSync(path.join(task, 'plan-draft_2026-10-07T10-00.md'), '## Files\n- src/other.ts\n');
+    writeFileSync(path.join(task, 'plan_2026-10-07T10-01.md'), '## Files\n- src/a.ts\n- src/new.ts\n');
+  });
+  after(() => rmSync(cases, { recursive: true, force: true }));
+  const scoreOf = (name, runs) => score({ cases: [{ name, arms: { with: runs } }] }, { cases, tracesDir }).runs;
+
+  it('investigate splits recall into existing and created files; a part the change lacks is null', () => {
+    const [r] = scoreOf('c-investigate', [run('e-inv', { graders: [{ name: 'names-a-true-file', evidence: '## Files\n- src/a.ts\n- src/b.ts\n' }] })]);
+    assert.deepEqual([r.kind, r.recall, r.precision, r.existingRecall, r.createdRecall, r.deletedRecall], ['localize', 0.5, 0.5, 1, 0, null]);
+  });
+
+  it('plan scores the promoted note over the draft and the message, and the message when no note was harvested', () => {
+    const [noted, bare] = scoreOf('c-plan', [
+      run('e-plan', { graders: [{ name: 'names-a-true-file', evidence: 'no files' }] }),
+      run('e-naked', { graders: [{ name: 'names-a-true-file', evidence: '## Files\n- src/a.ts\n' }] }),
+    ]);
+    assert.deepEqual([noted.kind, noted.recall, noted.scoredText], ['plan', 1, 'promoted']);
+    assert.deepEqual([bare.recall, bare.createdRecall, bare.scoredText], [0.5, 0, 'message']);
+    assert.equal(scoreOf('c-plan', [run('e-none', { graders: [] })])[0].absent, true);
+  });
+
+  it('task scores the harvested patch: files, hunks and identifiers; no patch is absent, an empty one is zero', () => {
+    const [r, empty, missing] = scoreOf('c-task', [run('e-task'), run('e-empty'), run('e-gone')]);
+    assert.deepEqual([r.named, r.correct, r.recall, r.precision, r.existingRecall, r.createdRecall], [2, 1, 0.5, 0.5, 1, 0]);
+    assert.deepEqual([r.hunkRecall, r.identifierRecall], [0.5, 0.5], 'the a.ts hunk within the slack, not the uncreated file; computeTotal yes, orderTotal no');
+    assert.deepEqual([empty.absent, empty.recall, empty.named], [false, 0, 0]);
+    assert.equal(missing.absent, true);
+  });
+
+  it('summaries count the runs behind each preset mean and where each plan was read from', () => {
+    const arms = score({ cases: [
+      { name: 'c-plan', arms: { with: [run('e-plan', { graders: [] }), run('e-naked', { graders: [{ name: 'names-a-true-file', evidence: '## Files\n- src/a.ts\n' }] })] } },
+      { name: 'c-investigate', arms: { with: [run('e-inv', { graders: [{ name: 'names-a-true-file', evidence: '## Files\n- src/a.ts\n' }] })] } },
+    ] }, { cases, tracesDir }).arms;
+    const plan = Object.entries(arms).find(([key]) => key.startsWith('plan/'))[1];
+    assert.deepEqual(plan.scoredFrom, { message: 1, promoted: 1 });
+    assert.equal(plan.existingRecallN, 2);
+    assert.equal(plan.deletedRecallN, undefined, 'no run had the measure: no mean and no count');
+  });
+
+  it('finds the patch and the plan note in any of several traces dirs, as run-report passes them', () => {
+    const empty = mkdtempSync(path.join(tmpdir(), 'no-traces-'));
+    try {
+      const many = (name, runs) => score({ cases: [{ name, arms: { with: runs } }] }, { cases, tracesDir: [empty, tracesDir] }).runs;
+      assert.deepEqual(many('c-task', [run('e-task')]).map((r) => [r.absent, r.recall]), [[false, 0.5]]);
+      assert.equal(many('c-plan', [run('e-plan', { graders: [] })])[0].scoredText, 'promoted');
+    } finally {
+      rmSync(empty, { recursive: true, force: true });
+    }
+  });
+
+  it('review reports each label against its own denominator', () => {
+    const graders = (passed) => passed.map((p, i) => ({ name: `raises-${String(i + 1).padStart(2, '0')}`, passed: p }));
+    const [r] = scoreOf('c-review', [run('e-rev', { graders: graders([true, false, true]) })]);
+    assert.deepEqual([r.recall, r.defectRecall, r.opinionRecall, r.unclassifiedRecall, r.defectThreads, r.opinionThreads], [2 / 3, 1, 0.5, null, 1, 2]);
   });
 });

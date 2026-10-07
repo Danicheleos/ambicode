@@ -137,6 +137,21 @@ describe('task cases', () => {
     assert.match(patch, /\+two/);
     assert.match(patch, /new\.txt/);
     assert.doesNotMatch(patch, /ledger\.jsonl/);
+    assert.equal(git(repo, 'diff', '--cached', '--name-only').trim(), '', 'the sandbox index is never touched: a review there must still see an unstaged change');
+    assert.match(git(repo, 'status', '--porcelain'), /\?\? new\.txt/);
+  });
+
+  it('harvest diffs against the base commit, so a run that commits its change is not scored as empty', () => {
+    const root = path.join(top, 'committed');
+    const repo = path.join(root, 'e-2', 'home', 'cwd', 'repo');
+    put(path.join(repo, 'f.txt'), 'one\n');
+    git(repo, 'init', '-q');
+    git(repo, 'add', '-A');
+    git(repo, 'commit', '-qm', 'base');
+    put(path.join(repo, 'f.txt'), 'two\n');
+    git(repo, 'commit', '-qam', 'agent');
+    harvestPatches(path.join(top, 'traces2'), { sandboxRoots: [root] });
+    assert.match(readFileSync(path.join(top, 'traces2', 'patches', 'e-2.patch'), 'utf8'), /\+two/);
   });
 });
 

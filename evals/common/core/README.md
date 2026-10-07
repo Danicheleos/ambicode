@@ -6,23 +6,25 @@ The previous suite (13 synthetic TypeScript cases) is archived in
 `../archived/typescript/` and still runs with `npm run evals:archived`;
 the trigger-boundary suite is `../triggers/`.
 
-The suite that runs by default is **curated**: `evals-bench.mjs select`
-(`evals/scripts/src/`, like every eval harness script) picks
-the strongest, most provable cases per side (5 localize + 4 review; 18 in the
-2026-09-28 data) into `cases/` here, by measurable criteria only (`SELECT` in
-`evals-bench.mjs`):
+The suite that runs by default is **core** (`--set curated`): the **average** preset, 76 cases on 20 merged
+tickets, generated into `cases/` here by `evals-bench.mjs select` (`evals/scripts/src/`, like every eval harness
+script) from `../ambicode-evals-assets/presets/average/`:
 
-- **Localize**: every true file still in the snapshot, 2–10 of them, a ticket
-  of 300+ characters — ranked by *hardness*, the fraction of true files whose
-  name the ticket never mentions. Every selected case scores 1.0: grep over
-  the ticket's own words reaches none of its files, so naming them requires
-  actual localization.
-- **Review**: the change fits the case timeout (≤600 changed lines; a
-  1,623-line version timed out at 300 s) — ranked by *substance*, how much
-  proof the human threads carry (resolved by the author, replied to,
-  120+-character bodies).
+| Skill | Cases | Scored by |
+| --- | --- | --- |
+| investigate | 20 | the `## Files` list against the merged change's files |
+| plan | 20 | the same file metrics, from the plan note or the final message |
+| task | 20 | the run's patch against the merged one: files, hunks, identifiers |
+| review | 16 | recall of the human threads, also per `defect` / `opinion` label |
 
-`cases/selection.json` records the criteria and each chosen case's numbers.
+[../presets/README.md](../presets/README.md) has the case layout, leakage rules and every metric. The light and large
+presets run apart, as `--set preset`. `cases/manifest.json` lists the cases per skill and each source ticket's hash.
+Eight cases carry the `walk` tag: per project and skill, the eligible ticket that touches the fewest files.
+
+Until 2026-10-07 core was 18 cases (10 localize, 8 review) picked by criteria from `benchmarks/<project>/assets/`.
+Those cases, their `selection.json`, `bare-recall.json` and `baseline.lock.json` are in
+`../ambicode-evals-assets/archive/core-2026-10-07/`. The measurements quoted below from before that date are on
+the old 18 cases.
 
 The harness implementation is [grouped by responsibility](../scripts/README.md)
 under `evals/scripts/src/`: `cases/bench-cases.mjs` selects and generates cases,
@@ -38,11 +40,11 @@ scaffolds, graders, and score/report formats are unchanged.
 ```sh
 npm run build
 npm run evals                 # = evals:walk
-npm run evals:walk            # 4 walk-tagged cases (2 localize, 2 review), plugin arm, 1 run, Sonnet 5.5, $2 cap, writes reports/walk.md in its iteration
+npm run evals:walk            # 8 walk-tagged cases, plugin arm, 1 run, Sonnet 5.5, $5 cap, writes reports/walk.md in its iteration
 npm run evals:walk:haiku      # the same on Haiku 4.5
-npm run evals:baseline        # 18 cases, naked plugin only, 3 runs, Sonnet 5.5, $15 cap: once per Claude Code version
-npm run evals:decide          # all 18 cases, plugin arm, 3 runs, Sonnet 5.5, $20 cap: gate it against the baseline
-npm run evals:select          # evals/common/core/cases/ only, no run (--regenerate: see "Per-arm prompts")
+npm run evals:baseline        # 76 cases, naked plugin only, 3 runs, Sonnet 5.5, $90 cap: once per Claude Code version
+npm run evals:decide          # all 76 cases, plugin arm, 3 runs, Sonnet 5.5, $90 cap: gate it against the baseline
+npm run evals:select          # evals/common/core/cases/ only, no run, no model call (--regenerate: see "Per-arm prompts")
 node evals/scripts/src/harness/evals-bench.mjs run … --dry-run     # print the execution plan; spawns and changes nothing
 node evals/scripts/src/harness/evals-bench.mjs restore-prompts     # put back prompts an interrupted --prompt with run left
 npm run evals:score -- ../ambicode-evals-assets/outputs/core/<date>/<iteration>/results/eval.json [--baseline <eval-baseline>.json]
@@ -52,8 +54,7 @@ npm run evals:full            # every project's full set (run --set full --proje
 npm run evals:generate        # evals/<project>/full/ only, no run
 ```
 
-`evals-bench.mjs` holds no word of the data — the selection is criteria, not a
-list — and `evals-bench.test.mjs` fails if `evals/common/core/cases/` or its
+`evals-bench.mjs` holds no word of the data, and `evals-bench.test.mjs` fails if `evals/common/core/cases/` or its
 `results/` is not gitignored, or any file git would take names a ticket
 identifier.
 
@@ -80,14 +81,16 @@ comparable with earlier runs:
 <project>/reviews/<ticket>/<iid>-<head8>/   prepared review versions (below)
 ```
 
-Suites generated from it live under `evals/`, all gitignored: the curated set in
-`common/core/cases/`, the task set in `common/task/cases/`, each project's full set in `<project>/full/`, the impact
+Suites generated from it live under `evals/`, all gitignored: the core set in
+`common/core/cases/` (from `presets/`, not `benchmarks/<project>/assets/`), the task set in `common/task/cases/`, each project's full set in `<project>/full/`, the impact
 and reuse pools in `<project>/{impact,reuse}/`. Their scaffolds reach back into `../ambicode-evals-assets/benchmarks/` by a relative
 path the generator computes from where it writes — after moving a suite, regenerate it.
 Run output goes to `../ambicode-evals-assets/outputs/<eval type>/<date>/<NN>_<HHMM>_<label>/{results,traces,reports}/`,
 one row per run in that date's `iterations.md`.
 
-## Two kinds of case
+## Kinds of case
+
+Core cases are the four preset kinds above. The full sets (`evals/<project>/full/`) keep the two older kinds:
 
 **Localize** (`<side>-<ticket>`), one per ticket. The prompt is the ticket and a
 question: which existing files would the change touch, as a `## Files` list.
@@ -190,7 +193,7 @@ any run whose tool input reaches a path containing `../ambicode-evals-assets/ben
 ## Live reviewer tier
 
 The curated review cases score a replayed reviewer. The live tier runs the
-real reviewer on the 8 review cases, 3 runs each, in two arms (plugin: the
+real reviewer on the 16 core review cases, 3 runs each, in two arms (plugin: the
 served `prompt.with.md`; naked: `prompt.md`). It is paid and runs only on a
 named go. It also needs one of two things: a decided launch route (decision
 0-R: credential pass-through inside the sandbox, or a runner outside it) or a
@@ -239,9 +242,9 @@ agent, $165 on the evals the lead started) and used up a weekly plan limit.
 **Three tiers, cheapest first.** Only go up a tier when the one below says the
 change is worth it.
 
-1. **Walk** (`evals:walk`, about $1.1–1.3 and 2 min, measured). This runs
-   one case per kind per side, from the `walk` tag (the top pick of each), with
-   one run and the plugin arm only. `walk-<ts>.md` then lists each run's cost,
+1. **Walk** (`evals:walk`, about $3 estimated; the old 4-case walk measured $1.1–1.3 and 2 min). This
+   runs the 8 `walk`-tagged cases, one per skill per project where the skill is eligible, with one run and
+   the plugin arm only. `walk-<ts>.md` then lists each run's cost,
    turns, skills, `prepare` use and score, plus its **first deviation** in trace
    order:
    - a `../ambicode-evals-assets/benchmarks/` peek;
@@ -267,20 +270,19 @@ change is worth it.
    gitignored and safe. `--case <glob>` takes one glob, so braces do not
    select two cases; run once per case. The result records the plugin path,
    and the walk header prints it.
-2. **Decide** (`evals:decide`, about $13–16 projected, unmeasured: the
-   2026-10-04 baseline's measured $10.16 for 54 naked runs × the 1.25–1.6×
-   plugin cost ratios of 2026-09-29). All 18 cases (10 localize, 8 review),
-   3 runs, the plugin arm only. `--tag localize` narrows it to the 10
-   localize cases; the gate then checks localize only, since `withBaseline`
-   matches the run's own cases. `evals:gate -- <decide>.json --baseline
-   <baseline>.json` takes the no-plugin arm from the baseline. That arm depends
+2. **Decide** (`evals:decide`, about $80 estimated, unmeasured: measured per-run costs of $0.17–0.18
+   localize and $0.15–0.21 review, one task run at $0.51, plan assumed $0.5; × 76 cases × 3 runs). All 76
+   cases, 3 runs, the plugin arm only, under a $90 cap. `--tag localize|plan|task|review` narrows it to one
+   skill; the gate then checks that skill only, since `withBaseline` matches the run's own cases.
+   `evals:gate -- <decide>.json --baseline <baseline>.json` takes the no-plugin arm from the baseline. That arm depends
    on the model, the Claude Code version and the prompt, and not on the plugin.
    A baseline that differs in any of those, or one that is partial, is
    refused. The gate prints which baseline it used and how old it is. It
    reports `meanDelta` as **GAP**, since the harness computes that only with
    both arms in one run; the recall check is the Δ check.
-3. **Baseline** (`evals:baseline`, $10.16 and 11.3 min measured on
-   2026-10-04, 18 cases × 3 runs). Run once per Claude Code version. It
+3. **Baseline** (`evals:baseline`, about $80 estimated for 76 cases × 3 runs; the old 18 cases measured
+   $10.16 and 11.3 min on 2026-10-04). **There is no lock for the current core yet**: run this once and
+   `lock` it before `decide` can be gated. Run once per Claude Code version. It
    runs only the no-plugin side, since every decide run brings its own plugin
    arm:
    - `naked-arm.mjs` builds `.tmp/naked`, a plugin with no components, and
@@ -293,9 +295,9 @@ change is worth it.
      and copies no `prompt.with.md`, `prompt.naked.md` or per-arm prompt key:
      the control serves the generator's `prompt.md` bytes.
    - The naked plugin's arm is assumed to equal the harness's no-plugin arm.
-     The user declined the paid equivalence check on 2026-10-04. The working
-     reference is `eval-2026-10-04T19-44-56-791Z.json` (Claude Code 2.1.289,
-     Sonnet 5.5, 18 cases × 3, not partial); naked/without equivalence
+     The user declined the paid equivalence check on 2026-10-04. The reference
+     for the old 18 cases was `eval-2026-10-04T19-44-56-791Z.json` (Claude Code 2.1.289,
+     Sonnet 5.5, 18 cases × 3, not partial; archived with its lock); naked/without equivalence
      remains **unverified** and must be reported in comparisons: the gate
      prints "naked/without equivalence unverified" whenever its baseline's
      plugin is `naked`. A further baseline or equivalence run requires a new
@@ -324,7 +326,8 @@ Thinking was about 4.5% of a Sonnet run's cost anyway. Details are in
 The curated scripts set `EVAL_AMBICODE_REVIEWER_REPLAY` to
 `eval-replay/core.json`. Inside the sandbox, no nested reviewer
 signs in: without the replay, every review failed with `reviewer-error: Not
-logged in` (2026-09-30).
+logged in` (2026-09-30). Recordings are keyed on the snapshot hash, so those made for the old review cases
+miss on the current 16: record them with `evals:reviewer` (see `evals/README.md`) before reading review results.
 
 `score` reads the harvested traces beside the result and adds what the
 agent actually did, counted from its tool calls:
@@ -403,8 +406,8 @@ per recording, `record-*.log`) is not in the arm.
 ## Per-arm prompts
 
 The forced review twins are gone; `select --forced` refuses with a migration
-message. Instead each localize case carries `prompt.with.md`, the same prompt
-with `/ambicode:investigate --headless` typed before its first body line, and
+message. Instead each case carries `prompt.with.md`, the same prompt
+with its skill's command (`/ambicode:investigate --headless`, …) typed before its first body line, and
 `prompt.naked.md`, a byte copy of `prompt.md`. `prompt.md` itself is
 unchanged, so the naked baseline still matches.
 
@@ -418,9 +421,8 @@ recreates the cases instead). `--prompt with` is refused with the naked
 plugin or without `--ablation none`, before anything is spawned. After the
 run the result keeps the naked prompt as `promptMarkdown` (what the baseline
 comparison reads), the served one as `pluginPromptMarkdown`, and
-`suite.servedPrompt`; the gate and the walkthrough print it. Review and task
-cases get their plugin prompts from the same `writePluginPrompt` in later
-steps.
+`suite.servedPrompt`; the gate and the walkthrough print it. Every kind gets its
+plugin prompt from the same `writePluginPrompt`.
 
 `run --dry-run` resolves the cases as the harness filters them, the served
 prompts (as digests), the harness options, model, cap, ablation, trust and
@@ -428,8 +430,8 @@ the cases lock, prints that without case names, case selectors, result file
 names or prompt text, and exits without spawning or changing a file. It cannot say whether a typed command expands in the sandbox (P37).
 
 The harness keeps a case carrying **any** of several `--tag` values, so `run`
-refuses more than one. For walk cases of one kind, select only that kind
-(`select --review 0`, then `run --tag walk`).
+refuses more than one. For walk cases of one kind, add a name glob, which the harness ANDs with the tag:
+`run --tag walk --case '*-review'`.
 
 Cost, measured:
 

@@ -7,7 +7,7 @@ import { CURATED_EVAL_DIR, runSweep, planRun } from './evals-bench.mjs';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
-import { fullEvalDir, OUTPUTS, ROOT } from '../shared/bench-paths.mjs';
+import { fullEvalDir, OUTPUTS, presetEvalDir, ROOT } from '../shared/bench-paths.mjs';
 
 describe('evals-bench: running', () => {
   it('runs the curated suite by default, the full set with --set full, and never publishes', () => {
@@ -21,7 +21,19 @@ describe('evals-bench: running', () => {
     assert.throws(() => runArgs([...M, '--project', 'BE-express']), /selects a full set/);
     assert.throws(() => runArgs([...M, '--publish-report']), /NDA/);
     assert.throws(() => runArgs([...M, '--eval-dir', 'evals']), /fixed/);
-    assert.throws(() => runArgs([...M], { set: 'both' }), /curated, full or task/);
+    assert.throws(() => runArgs([...M], { set: 'both' }), /curated, full, task or preset/);
+  });
+
+  it('runs one preset with --set preset --preset <name>, filed under the presets type', () => {
+    const argv = runArgs([...M, '--set', 'preset', '--preset', 'large']);
+    assert.equal(argv[argv.indexOf('--eval-dir') + 1], presetEvalDir('large'));
+    assert.match(jsonOf(argv), /[/\\]presets[/\\]\d{4}-\d\d-\d\d[/\\]\d\d_\d{4}_preset-large-/);
+    assert.ok(!argv.includes('--preset'), 'a wrapper option, not forwarded to the harness');
+    assert.throws(() => runArgs([...M, '--set', 'preset']), /needs --preset light\|large/);
+    assert.throws(() => runArgs([...M, '--set', 'preset', '--preset', 'average']), /is the core suite: run it as --set curated/);
+    assert.equal(presetEvalDir('average'), CURATED_EVAL_DIR, 'the average preset is generated into the core suite');
+    assert.throws(() => runArgs([...M, '--set', 'preset', '--preset', 'huge']), /not huge/);
+    assert.throws(() => runArgs([...M, '--preset', 'light']), /selects a preset set/);
   });
 
   it('refuses a run whose model is not pinned', () => {

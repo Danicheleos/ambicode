@@ -8,4 +8,5 @@
 /python/
 /scripts/local/
 **/results/
-/common/presets
+/common/presets/*
+!/common/presets/README.md

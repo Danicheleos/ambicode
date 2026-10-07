@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { blindSheet } from './evals-reviewer.mjs';
+import { blindSheet, isBenchReviewCase } from './evals-reviewer.mjs';
 import { ROOT } from '../shared/bench-paths.mjs';
 import { REQUIRED_FLAGS } from '../../../../src/modules/review/reviewer/claude-reviewer.ts';
 
@@ -56,6 +56,15 @@ async function caseDirectory(evals, name, skill, scaffoldLog) {
       `node "${path.join(ROOT, 'fixtures', 'materialize.mjs')}" ts-off-by-one "$PWD/repo" --ambicode-init\n`,
   );
 }
+
+describe('evals-reviewer: which bench cases are review cases', () => {
+  it('takes curated and preset review names, not other kinds', () => {
+    const source = 'git -C "$(dirname "$0")/../../ambicode-evals-assets/benchmarks/BE-express/.git" archive';
+    const named = (name) => isBenchReviewCase({ name, source });
+    assert.deepEqual(['be-vs-1-review-03', 'be-vs-1-review', 'be-vs-1-task', 'be-vs-1-reviewer-x', 'be-vs-1-plan'].map(named), [true, true, false, false, false]);
+    assert.equal(isBenchReviewCase({ name: 'x-review', source: 'materialize.mjs" fixture' }), false);
+  });
+});
 
 describe('evals-reviewer: the blind sheet', () => {
   const runs = ['a-ts', 'b-ts'].flatMap((name) =>

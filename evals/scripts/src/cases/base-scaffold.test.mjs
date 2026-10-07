@@ -131,6 +131,20 @@ describe('base-scaffold', () => {
     assert.equal(readFileSync(path.join(repo, '.ambicode/config.yaml'), 'utf8'), 'case: own\n');
   });
 
+  it('applyPatch applies the patch beside the script after the commit, leaving it uncommitted; a patch that does not apply fails', () => {
+    const script = caseWith('c11', { wholeTree: true, applyPatch: 'review/change.patch' });
+    put(path.join(path.dirname(script), 'review/change.patch'), 'diff --git a/src/a.txt b/src/a.txt\n--- a/src/a.txt\n+++ b/src/a.txt\n@@ -1 +1 @@\n-base\n+reviewed\n');
+    const work = path.join(top, 'work-11');
+    const result = run(script, work);
+    assert.equal(result.status, 0, result.stderr);
+    const repo = path.join(work, 'repo');
+    assert.equal(readFileSync(path.join(repo, 'src/a.txt'), 'utf8'), 'reviewed\n');
+    assert.equal(git(repo, 'status', '--porcelain'), 'M src/a.txt');
+    assert.equal(git(repo, 'rev-list', '--all', '--count'), '1');
+    put(path.join(path.dirname(script), 'review/change.patch'), 'diff --git a/src/a.txt b/src/a.txt\n--- a/src/a.txt\n+++ b/src/a.txt\n@@ -1 +1 @@\n-absent\n+reviewed\n');
+    assert.notEqual(run(script, path.join(top, 'work-12')).status, 0);
+  });
+
   it('05-S2: SIDE resolves from the script location; sideRelFrom fits any case directory under any root; a moved copy is regenerated', () => {
     const script = caseWith('c7', {});
     const deeper = path.join(top, 'cases', 'nested', 'c7');

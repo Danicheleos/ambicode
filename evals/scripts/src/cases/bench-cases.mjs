@@ -118,11 +118,11 @@ export function reviewSubstance(threads) {
 const yamlString = (value) => JSON.stringify(value);
 export const regexEscape = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-export function casePrompt({ name, side, kind, description, walk = false }, body) {
+export function casePrompt({ name, side, kind, description, walk = false, tags = [] }, body) {
   return `---
 name: ${name}
 description: ${description}
-tags: ["bench", "${kind}", ${yamlString(casePrefix(side))}${walk ? ', "walk"' : ''}]
+tags: ["bench", "${kind}", ${yamlString(casePrefix(side))}${walk ? ', "walk"' : ''}${tags.map((t) => `, ${yamlString(t)}`).join('')}]
 runs: 1
 max_turns: 40
 timeout_seconds: 900
@@ -219,13 +219,13 @@ Investigation is read-only: no ${tool} call on a file under the code.
  * The curated suite's `denyRead` does not cover `benchmarks/`, and the run's own repository is copied to
  * `repo/`, so any tool input reaching a `benchmarks/` path is a peek. Glob too: the truth IS file names.
  */
-export function peekGraders() {
+export function peekGraders(inputMatch = 'benchmarks/') {
   const files = {};
   for (const tool of ['Read', 'Grep', 'Glob', 'Bash']) {
     files[`no-peek-${tool.toLowerCase()}.md`] = `---
 type: tool_used
 tool: ${tool}
-input_match: 'benchmarks/'
+input_match: '${inputMatch}'
 min: 0
 max: 0
 weight: 1
@@ -297,7 +297,7 @@ git -C "$REPO" apply --binary "$VERSION/change.patch"
 `;
 }
 
-function reviewGraderFiles(threads) {
+export function reviewGraderFiles(threads) {
   const files = {};
   threads.forEach((thread, i) => {
     const where = thread.newLine ?? thread.oldLine;

@@ -240,9 +240,12 @@ function listLedgers(directory) {
   return out;
 }
 
+/** The sandbox id (`e-…`) a run's trace path names; it keys the run's harvested ledgers and patch. */
+export const sandboxIdOf = (run) => /[/\\](e-[^/\\]+)[/\\]/.exec(run.tracePath ?? '')?.[1] ?? null;
+
 /** The run's harvested ledgers, each with its own entries in line order and its unreadable-line count; null when none. */
 export function ledgersOf(run, tracesDir) {
-  const id = /[/\\](e-[^/\\]+)[/\\]/.exec(run.tracePath ?? '')?.[1];
+  const id = sandboxIdOf(run);
   const directory = tracesDir && id ? [].concat(tracesDir).map((dir) => path.join(dir, LEDGER_DIRECTORY, id)).find((dir) => existsSync(dir)) : null;
   if (!directory) return null;
   return listLedgers(directory).map((file) => {

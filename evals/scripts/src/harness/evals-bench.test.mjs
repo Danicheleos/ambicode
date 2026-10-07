@@ -7,8 +7,62 @@ import { CURATED_EVAL_DIR, formatPlan, generate, resolveCases, PROMPT, WITH_PROM
 import { readFileSync, existsSync, readdirSync, mkdtempSync, rmSync, mkdirSync, writeFileSync, cpSync, chmodSync } from 'node:fs';
 import path from 'node:path';
 import { tmpdir, hostname } from 'node:os';
+import { GENERATION_MARKER } from './prompt-transport.mjs';
 import { syntheticBenchmarks, syntheticPlugin, sha256, snapshot, jsonOf, neverSpawn } from '../testing/bench-test-fixtures.mjs';
 import { buildNaked } from '../arms/naked-arm.mjs';
+
+describe('evals-bench: preset sets', () => {
+  it('ignores the generated presets but their README, and plans a preset run with plan cases and no reviewer replay', () => {
+    const ignored = (p) => spawnSync('git', ['check-ignore', '-q', p], { cwd: ROOT }).status === 0;
+    assert.ok(ignored('evals/common/presets/light/be-vs-1-task/oracle.patch'));
+    assert.ok(!ignored('evals/common/presets/README.md'));
+    const root = mkdtempSync(path.join(tmpdir(), 'preset-plan-'));
+    try {
+      const plugin = path.join(root, 'plugin');
+      mkdirSync(path.join(plugin, '.claude-plugin'), { recursive: true });
+      writeFileSync(path.join(plugin, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'ambicode' }));
+      for (const [name, kind] of [['be-1-plan', 'plan'], ['be-1-review', 'review']]) {
+        const dir = path.join(plugin, 'evals', 'common', 'presets', 'light', name);
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(path.join(dir, PROMPT), `---\nname: ${name}\ntags: ["bench", "${kind}", "be", "light"]\n---\n\nDo it.\n`);
+      }
+      const args = ['--set', 'preset', '--preset', 'light', '--plugin', plugin, '--model', 'm', '--max-cost-usd', '1', '--json', path.join(root, 'out', 'eval.json')];
+      const plan = planRun(args, { benchmarks: root });
+      assert.deepEqual(plan.cases.map((c) => c.kind), ['plan', 'review']);
+      assert.match(formatPlan(plan), /set: preset; cases: 2 \(plan 1, review 1\)/);
+      assert.throws(() => planRun(args, { benchmarks: root, env: { EVAL_AMBICODE_REVIEWER_REPLAY: 'x.json' } }), /--set preset refuses EVAL_AMBICODE_REVIEWER_REPLAY/);
+      writeFileSync(path.join(plugin, 'evals', 'common', 'presets', 'light', GENERATION_MARKER), '');
+      assert.throws(() => planRun(args, { benchmarks: root }), /interrupted: recreate it with `npm run evals:presets -- --regenerate`/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('restore-prompts takes a preset; judge-task refuses a missing model or cap before any call', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'preset-cli-'));
+    const logged = [];
+    const log = console.log;
+    try {
+      await assert.rejects(main(['restore-prompts', '--preset', 'huge']), /--preset takes light, average, large, not huge/);
+      mkdirSync(path.join(root, 'evals', 'common', 'presets', 'large'), { recursive: true });
+      mkdirSync(path.join(root, 'evals', 'common', 'core', 'cases'), { recursive: true });
+      console.log = (line) => logged.push(line);
+      await main(['restore-prompts', '--plugin', root, '--preset', 'large']);
+      await main(['restore-prompts', '--plugin', root, '--preset', 'average']);
+      console.log = log;
+      assert.deepEqual(logged, [`no outstanding swap in ${path.join(root, 'evals', 'common', 'presets', 'large')}`, `no outstanding swap in ${path.join(root, 'evals', 'common', 'core', 'cases')}`], 'the average preset is the core suite');
+      await assert.rejects(main(['select', '--localize', '5']), /select no longer picks cases \(--localize\): the core suite is the average preset/);
+      const results = path.join(root, 'eval.json');
+      writeFileSync(results, JSON.stringify({ cases: [] }));
+      await assert.rejects(main(['judge-task', results, '--max-cost-usd', '1']), /--model is required/);
+      await assert.rejects(main(['judge-task', results, '--model', 'm']), /--max-cost-usd <usd> is required/);
+      await assert.rejects(main(['judge-task', path.join(root, 'missing.json'), '--model', 'm', '--max-cost-usd', '1']), /usage: evals-bench\.mjs judge-task/);
+    } finally {
+      console.log = log;
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
 
 describe('evals-bench: the curated cases stay out of git', () => {
   // check-ignore exits non-zero when the path is not ignored, which throws.
