@@ -147,6 +147,8 @@ export interface PageServer {
   app: FastifyInstance;
   sessions: SessionStore;
   capability: string;
+  /** The session id inside a signed cookie value, or `valid: false` for one this server did not sign. */
+  unsignCookie(value: string): { valid: boolean; value: string | null };
   setAuthority(authority: string): void;
   stopped: Promise<string>;
   beginShutdown(reason: string): void;

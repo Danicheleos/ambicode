@@ -3,6 +3,7 @@ import { MAX_SNAPSHOT_FILE_BYTES, MAX_SNAPSHOT_TOTAL_BYTES } from '#types/defaul
 import { markOwned } from '../page/cleanup.ts';
 import { AmbicodeError } from '#util/errors';
 import { uniqueDirectories } from './content.ts';
+import { excerptOf } from './excerpt.ts';
 import { describeExclusion, isUselessAsContext, pathExclusionReason } from '#util/path-classes';
 import type { DiffFile } from '#types/platform/git';
 import type { Clock, FileSystem } from '#types/platform/ports';
@@ -122,6 +123,20 @@ export async function planSnapshot(options: PlanSnapshotOptions): Promise<Snapsh
     omissions.push(`${relativePath}: not included because it is ${describeExclusion(reason)}.`);
   };
 
+  const excerpted: { target: string; fileBytes: number; contextLines: number }[] = [];
+
+  // A changed file over the ceiling is mirrored as its changed hunks with some context; the patch still carries
+  // the whole change. False when there is no text to cut from or the hunks alone do not fit.
+  const mirrorExcerpt = (file: DiffFile, target: string, fileBytes: number, text: string | undefined): boolean => {
+    if (text === undefined) return false;
+    const excerpt = excerptOf(text, file.hunks, target, fileBytes, MAX_SNAPSHOT_FILE_BYTES);
+    if (excerpt === null) return false;
+    if (totalBytes + excerpt.bytes > MAX_SNAPSHOT_TOTAL_BYTES) throw totalTooLarge(target, totalBytes + excerpt.bytes);
+    add(target, excerpt.text);
+    excerpted.push({ target, fileBytes, contextLines: excerpt.contextLines });
+    return true;
+  };
+
   // What needs reading is decided before anything is read, so the reads can run
   // in parallel while the decisions below stay in diff order.
   const needed: string[] = [];
@@ -165,7 +180,7 @@ export async function planSnapshot(options: PlanSnapshotOptions): Promise<Snapsh
       continue;
     }
     if (contents.kind === 'too-large') {
-      oversized.push({ path: target, bytes: contents.bytes });
+      if (!mirrorExcerpt(file, target, contents.bytes, contents.text)) oversized.push({ path: target, bytes: contents.bytes });
       continue;
     }
     if (contents.kind === 'binary') {
@@ -174,7 +189,7 @@ export async function planSnapshot(options: PlanSnapshotOptions): Promise<Snapsh
     }
     const size = Buffer.byteLength(contents.text, 'utf8');
     if (size > MAX_SNAPSHOT_FILE_BYTES) {
-      oversized.push({ path: target, bytes: size });
+      if (!mirrorExcerpt(file, target, size, contents.text)) oversized.push({ path: target, bytes: size });
       continue;
     }
     if (totalBytes + size > MAX_SNAPSHOT_TOTAL_BYTES) {
@@ -260,6 +275,14 @@ export async function planSnapshot(options: PlanSnapshotOptions): Promise<Snapsh
     }
   }
 
+  // One line for all of them: a line per file made part 4 of the report long enough that the model abbreviated it
+  // and the Stop check blocked the answer in 2 of 2 review runs of the walk.
+  for (const contextLines of [...new Set(excerpted.map((file) => file.contextLines))]) {
+    const group = excerpted.filter((file) => file.contextLines === contextLines);
+    omissions.push(
+      `${group.length} changed file(s) above the ${MAX_SNAPSHOT_FILE_BYTES}-byte per-file ceiling were mirrored as their changed hunks with ${contextLines} line(s) around each; the patch holds the whole change: ${group.map((file) => `${file.target} (${file.fileBytes} bytes)`).join(', ')}.`,
+    );
+  }
   if (dependentPaths.length > 0) {
     omissions.push(
       `${dependentPaths.length} unchanged file(s) that mention names this change adds, removes or renames were included so the reviewer could check them: ${dependentPaths.join(', ')}. They were found by name, not by type: a caller that reaches the code another way is not among them.`,

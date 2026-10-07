@@ -408,8 +408,8 @@ const SCAN_MAX_OUTPUT_BYTES = 65_536;
 
 /** `codeindex scan`'s languages and file count for `profile.index` (amended 05-A8, 09-P3); null when the output is not that shape.
  * The pinned v2.31.4 CLI emits `fileCount` and `languages` as a histogram (`{typescript: 1, markdown: 1}`). */
-export async function scanCodeindex(runtime: Runtime, binary: string, projectRoot: string): Promise<{ languages: string[]; files: number } | null> {
-  const outcome = await runtime.runner.run({ argv: [binary, 'scan', '--repo', '.'], cwd: projectRoot, timeoutMs: SCAN_TIMEOUT_MS, maxOutputBytes: SCAN_MAX_OUTPUT_BYTES, env: { kind: 'inherited' } });
+export async function scanCodeindex(runtime: Runtime, binary: string | readonly string[], projectRoot: string): Promise<{ languages: string[]; files: number } | null> {
+  const outcome = await runtime.runner.run({ argv: [...(typeof binary === 'string' ? [binary] : binary), 'scan', '--repo', '.'], cwd: projectRoot, timeoutMs: SCAN_TIMEOUT_MS, maxOutputBytes: SCAN_MAX_OUTPUT_BYTES, env: { kind: 'inherited' } });
   if (outcome.kind !== 'exited' || outcome.exitCode !== 0) return null;
   try {
     const parsed: unknown = JSON.parse(outcome.stdout);

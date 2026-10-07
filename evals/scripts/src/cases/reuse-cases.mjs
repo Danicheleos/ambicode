@@ -163,7 +163,6 @@ function main(argv) {
       const dir = path.join(out, name);
       mkdirSync(path.join(dir, 'graders'), { recursive: true });
       const graders = { ...graderFiles([], root), 'names-a-true-file.md': reuseGraderBody() };
-      delete graders['helper-ran.md'];
       for (const [file, body] of Object.entries({ ...graders, ...peekGraders() })) writeFileSync(path.join(dir, 'graders', file), body);
       writeFileSync(path.join(dir, 'case.yaml'), `schema_version: "1.1"\nname: ${name}\ncontext:\n  scaffold_script: scaffold.sh\n`);
       writeFileSync(path.join(dir, 'prompt.md'), reusePrompt(name, side, c.text, { forced }));

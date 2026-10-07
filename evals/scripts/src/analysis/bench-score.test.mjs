@@ -110,16 +110,15 @@ describe('evals-bench: scoring a run', () => {
   after(() => rmSync(benchmarks, { recursive: true, force: true }));
 
   it('reports a run with no final message as absent, not as an answer that scored zero', () => {
-    const graders = (evidence, fired) => [
+    const graders = (evidence) => [
       { name: 'names-a-true-file', passed: true, ...(evidence === undefined ? {} : { evidence }) },
-      ...(fired === undefined ? [] : [{ name: 'plugin-fired', passed: fired }]),
     ];
     const results = {
       cases: [
         {
           name: 'side-t-1',
           arms: {
-            with: [{ graders: graders('## Files\n- app/a.ts\n', true), costUsd: 0.2, turns: 5 }, { graders: graders(undefined, false), error: 'timeout' }],
+            with: [{ graders: graders('## Files\n- app/a.ts\n'), costUsd: 0.2, turns: 5 }, { graders: graders(undefined), error: 'timeout' }],
             without: [{ graders: graders('## Files\n- app/a.ts\n- app/b.ts\n- app/c.ts\n'), costUsd: 0.1, turns: 3 }],
           },
         },
@@ -132,7 +131,7 @@ describe('evals-bench: scoring a run', () => {
     const w = arms['localize/with'];
     assert.deepEqual([w.runs, w.scored, w.absent], [2, 1, 1]);
     assert.equal(w.recall, 0.5);
-    assert.equal(w['plugin-fired'], 1);
+    assert.equal(w['plugin-fired'], undefined);
     assert.equal(w.sectioned, 1, '03b-H7: sectioned answers are counted');
     assert.equal(arms['localize/without'].precision, 2 / 3);
     assert.equal(arms['localize/without'].recall, 1);

@@ -28,6 +28,7 @@ Date: 2026-10-07. Input: [../gap-report-v6-vs-implementation.md](../gap-report-v
 | B16 | Init draft saved first and pinned by hash; separate choices; `ConsentBinding.set` | 14 | 20 |
 | B17 | `prepare` fully deprecated → `route start` | 9 | 31 |
 | B18 | Headless visibility in start message and `route status` | 11 | 12 |
+| C1 | First real run (2026-10-07): a gate answer's trailing " (Recommended)" is stripped; the `project-ambiguous` answer is reused by later tasks of the same harness session; a CLI-started `project-ambiguous` print tells the model to ask the user; `plan-check` has no `onFail` revise — a failed check is recorded, `plan-accept` prints "Plan check FAILED" and withholds Accept (so no preanswer accepts it); `task` takes `iteration N of <slug>` and a bare `iteration N` continues the task of the latest accepted plan | — | 12, 23, 24 |
 | B19 | See A4 | 8 | 12 |
 
 New ledger kinds: `session`, `command`, `hook`, `turn`. Extended: `route` (`reopens`, `rebind`), `step`, `revise` (`via: reopen`, `source`), `limit` (`source`), `exit` (`complete`, `unverified`, `source`, `budget`, reason `dismissed`). The command kind field is named `type` in the schema (the plan called it `kind`).

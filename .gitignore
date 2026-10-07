@@ -2,6 +2,7 @@
 *.tsbuildinfo
 /scripts/*
 /dist/
+/vendor/
 /coverage/
 .cache/
 .tmp/
@@ -16,6 +17,7 @@ __pycache__/
 *.py[cod]
 
 /evals/outputs
+/eval-replay/
 /benchmarks
 /evals/reports
 /eval-results.json

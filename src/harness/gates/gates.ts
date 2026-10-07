@@ -167,7 +167,10 @@ export async function raiseGate(
 /** Gates whose answer is open text after a fixed lead: the instantiated option lists the stored choices, not each subset. */
 const OPEN_OPTIONS: Readonly<Record<string, RegExp>> = { 'requirements-expansion-capped': /^read these:\s*\S/ };
 
-export const offersOption = (gate: string, options: readonly string[], option: string): boolean => options.includes(option) || OPEN_OPTIONS[gate]?.test(option) === true;
+/** AskUserQuestion labels often carry a trailing " (Recommended)"; the option is what precedes it. */
+export const stripRecommended = (option: string): string => option.replace(/\s*\(Recommended\)\s*$/i, '');
+
+export const offersOption = (gate: string, options: readonly string[], option: string): boolean => options.includes(option) || options.includes(stripRecommended(option)) || OPEN_OPTIONS[gate]?.test(option) === true;
 
 type RaisedAnswerHandler = (input: { view: RouteView; ledger: LockedLedger; acceptance: LedgerEntry; routes: RouteRegistry }) => Promise<void>;
 const ANSWER_HANDLERS = new Map<string, RaisedAnswerHandler>();

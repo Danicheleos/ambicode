@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { MAX_SNAPSHOT_FILE_BYTES } from '#types/defaults';
+import { MAX_EXCERPT_SOURCE_BYTES, MAX_SNAPSHOT_FILE_BYTES } from '#types/defaults';
 import { revisionMatches, type RemoteTarget } from '#types/platform/provider';
 import { parseHunks } from '#platform/git/diff';
 import { PAGE_SIZE } from './gitlab/api.ts';
@@ -804,10 +804,28 @@ describe('U18 fetching the pinned snapshot', () => {
       assert.equal(runner.argvs().filter(isFileRead).length, 1);
     });
 
-    it('takes a blob over the per-file ceiling from its size alone', async () => {
+    it('fetches the text of a blob between the per-file ceiling and the excerpt bound', async () => {
+      const text = 'x'.repeat(MAX_SNAPSHOT_FILE_BYTES + 1);
+      const runner = changed()
+        .stub(isGraphql, { stdout: blobs([{ path: 'src/a.ts', rawSize: String(text.length), rawTextBlob: '' }]) })
+        .stub(isFileRead, {
+          stdout: JSON.stringify({ file_path: 'src/a.ts', size: text.length, encoding: 'base64', content: Buffer.from(text, 'utf8').toString('base64') }),
+        });
+      const snapshot = await snapshotWith(runner);
+      if (snapshot === null) return;
+
+      await snapshot.prime?.(['src/a.ts']);
+      const a = await snapshot.read('src/a.ts');
+
+      assert.equal(a?.kind, 'too-large');
+      assert.equal(a?.kind === 'too-large' ? a.text : null, text, 'the excerpt is cut from this text');
+      assert.equal(runner.argvs().filter(isFileRead).length, 1);
+    });
+
+    it('takes a blob over the excerpt bound from its size alone', async () => {
       const runner = changed()
         .stub(isGraphql, {
-          stdout: blobs([{ path: 'src/a.ts', rawSize: String(MAX_SNAPSHOT_FILE_BYTES + 1), rawTextBlob: '' }]),
+          stdout: blobs([{ path: 'src/a.ts', rawSize: String(MAX_EXCERPT_SOURCE_BYTES + 1), rawTextBlob: '' }]),
         })
         .stub(isFileRead, { exitCode: 1, stderr: 'this must not be reached' });
       const snapshot = await snapshotWith(runner);

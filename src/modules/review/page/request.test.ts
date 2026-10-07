@@ -183,7 +183,7 @@ describe('U21 the page accepts only its own form', () => {
       const first = await harness.server.app.inject({ method: 'GET', url, headers: { host: AUTHORITY } });
       const jar = cookieJar(first.cookies);
       const signed = first.cookies.find((cookie) => cookie.name === 'ambicode_session')?.value ?? '';
-      const session = harness.server.sessions.get(harness.server.app.unsignCookie(signed).value ?? undefined);
+      const session = harness.server.sessions.get(harness.server.unsignCookie(signed).value ?? undefined);
       assert.ok(session);
       const seen = session.lastSeenAt;
 

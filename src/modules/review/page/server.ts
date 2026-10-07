@@ -1,8 +1,5 @@
 import path from 'node:path';
-import cookie from '@fastify/cookie';
-import csrf from '@fastify/csrf-protection';
 import formbody from '@fastify/formbody';
-import helmet from '@fastify/helmet';
 import view from '@fastify/view';
 import { Eta } from 'eta';
 import { timingSafeEqual } from 'node:crypto';
@@ -21,8 +18,17 @@ import { buildPageModel, publicationAvailability, summarizeSubmission } from './
 import type { Clock, FileSystem, IdSource } from '#types/platform/ports';
 import { TAKEOVER_HEADER, type ParsedSubmission, type LastSubmission } from '../types/page.ts';
 import { messageOf } from '#util/errors';
+import { csrfMatches, csrfTokenFor, readCookie, sessionCookie, signValue, unsignValue } from './cookies.ts';
 const LINK_TOKEN = '[A-Za-z0-9_-]{16,128}';
 const MAX_BODY_BYTES = 512 * 1024;
+const SECURITY_HEADERS: Readonly<Record<string, string>> = {
+  'content-security-policy': "default-src 'none'; style-src 'self'; script-src 'none'; img-src 'none'; connect-src 'none'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+  'referrer-policy': 'no-referrer',
+  'x-content-type-options': 'nosniff',
+  'x-frame-options': 'DENY',
+  'cross-origin-opener-policy': 'same-origin',
+  'cross-origin-resource-policy': 'same-origin',
+};
 
 interface PageServerOptions {
   fs: FileSystem;
@@ -66,32 +72,15 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
 
   // A fresh secret per process, held only in memory: cookies from an earlier
   // run cannot be presented to this one.
-  await app.register(cookie, { secret: options.ids.capability() });
-  await app.register(csrf, {
-    cookieKey: '_csrf',
-    cookieOpts: { signed: true, path: '/', sameSite: 'strict', httpOnly: true },
-  });
+  const secret = options.ids.capability();
   await app.register(formbody, { bodyLimit: MAX_BODY_BYTES });
   // This server accepts exactly one content type: the one its own form posts.
   // Fastify's default JSON and text parsers would otherwise make the page
   // reachable by a request no browser form could produce.
   app.removeContentTypeParser(['application/json', 'text/plain']);
-  await app.register(helmet, {
-    contentSecurityPolicy: {
-      directives: {
-        'default-src': ["'none'"],
-        'style-src': ["'self'"],
-        'script-src': ["'none'"],
-        'img-src': ["'none'"],
-        'connect-src': ["'none'"],
-        'form-action': ["'self'"],
-        'frame-ancestors': ["'none'"],
-        'base-uri': ["'none'"],
-      },
-    },
-    referrerPolicy: { policy: 'no-referrer' },
-    hsts: false,
-    crossOriginEmbedderPolicy: false,
+  app.addHook('onSend', async (_request, reply, payload) => {
+    for (const [name, value] of Object.entries(SECURITY_HEADERS)) reply.header(name, value);
+    return payload;
   });
   await app.register(view, {
     engine: { eta: new Eta() },
@@ -211,15 +200,7 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
         return reply;
       }
       logBootstrap(request, 'redeemed');
-      reply.setCookie(SESSION_COOKIE, consumed.session.id, {
-        httpOnly: true,
-        sameSite: 'strict',
-        path: '/',
-        signed: true,
-        maxAge: options.idleTimeoutSeconds,
-        // `secure` is deliberately unset: this is plain HTTP on 127.0.0.1, where a
-        // Secure cookie would never be sent back. Browsers treat loopback as secure.
-      });
+      reply.header('set-cookie', sessionCookie(SESSION_COOKIE, signValue(secret, consumed.session.id), options.idleTimeoutSeconds));
       noteActivity();
       reply.redirect('/', 303);
       return reply;
@@ -246,14 +227,14 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
 
     const record = await options.store.readPublication(options.result.reviewId);
     reply.type('text/html; charset=utf-8');
-    return await reply.view('review', await model(reply, record, {}));
+    return await reply.view('review', await model(session.id, record, {}));
   });
 
   /**
    * Ends a publish-nothing review: Ctrl-C does not reach a `view` a skill started
    * in the background. It passes the `/publish` guards so another tab cannot close it.
    */
-  app.post('/close', { preHandler: [disconnectGuard, originGuard, app.csrfProtection] }, async (request, reply) => {
+  app.post('/close', { preHandler: [disconnectGuard, originGuard, csrfGuard] }, async (request, reply) => {
     const session = authenticate(request);
     if (session === null) {
       await refuse(
@@ -278,7 +259,7 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
 
   app.post(
     '/publish',
-    { preHandler: [disconnectGuard, originGuard, app.csrfProtection] },
+    { preHandler: [disconnectGuard, originGuard, csrfGuard] },
     async (request, reply) => {
       const session = authenticate(request);
       if (session === null) {
@@ -320,7 +301,7 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
         reply.status(400).type('text/html; charset=utf-8');
         return await reply.view(
           'review',
-          await model(reply, record, {
+          await model(session.id, record, {
             errors: parsed.errors,
             pendingDrafts: parsed.drafts,
             selected: parsed.selected,
@@ -428,15 +409,6 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
 
   app.setErrorHandler(async (error, request, reply) => {
     const code = (error as { code?: string }).code ?? '';
-    if (code.startsWith('FST_CSRF')) {
-      await refuse(
-        reply,
-        403,
-        'That submission was refused.',
-        'Its form token was missing or did not match this session. Nothing was published. Reload the page and submit again.',
-      );
-      return reply;
-    }
     if (code === 'FST_ERR_CTP_INVALID_MEDIA_TYPE' || code === 'FST_ERR_CTP_EMPTY_TYPE') {
       await refuse(
         reply,
@@ -474,7 +446,7 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
       `page: ${request.method} /<link> ${outcome} ` +
         `(sec-fetch-mode ${header('sec-fetch-mode')}, sec-fetch-dest ${header('sec-fetch-dest')}, ` +
         `sec-purpose ${header('sec-purpose')}, purpose ${header('purpose')}, ` +
-        `session cookie ${request.cookies[SESSION_COOKIE] === undefined ? 'absent' : 'present'}, ` +
+        `session cookie ${readCookie(request.headers.cookie, SESSION_COOKIE) === undefined ? 'absent' : 'present'}, ` +
         `user-agent ${header('user-agent')})`;
     // Header values reach the operator's terminal: control bytes, ANSI escapes
     // and the Unicode line separators are replaced at the sink.
@@ -487,8 +459,8 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
    * rather than given a CSRF or session refusal that reads like a bug.
    */
   function fromEarlierServer(request: FastifyRequest): boolean {
-    const raw = request.cookies[SESSION_COOKIE];
-    return raw !== undefined && !request.unsignCookie(raw).valid;
+    const raw = readCookie(request.headers.cookie, SESSION_COOKIE);
+    return raw !== undefined && !unsignValue(secret, raw).valid;
   }
 
   async function refuseDisconnected(reply: FastifyReply, outcome: string): Promise<void> {
@@ -505,10 +477,22 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
     if (fromEarlierServer(request)) await refuseDisconnected(reply, 'Nothing was published.');
   }
 
+  /** After the origin check: the form's `_csrf` must be this session's token. */
+  async function csrfGuard(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+    const session = authenticate(request);
+    if (session !== null && csrfMatches(secret, session.id, (request.body as Record<string, unknown> | undefined)?.['_csrf'])) return;
+    await refuse(
+      reply,
+      403,
+      'That submission was refused.',
+      'Its form token was missing or did not match this session. Nothing was published. Reload the page and submit again.',
+    );
+  }
+
   function authenticate(request: FastifyRequest): ReturnType<SessionStore['get']> {
-    const raw = request.cookies[SESSION_COOKIE];
+    const raw = readCookie(request.headers.cookie, SESSION_COOKIE);
     if (raw === undefined) return null;
-    const unsigned = request.unsignCookie(raw);
+    const unsigned = unsignValue(secret, raw);
     if (!unsigned.valid || unsigned.value === null) return null;
     return sessions.get(unsigned.value);
   }
@@ -516,7 +500,7 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
   /**
    * An absent `Origin` is not a mismatch: same-origin form POSTs need not send it.
    * Same origin is then taken from `Sec-Fetch-Site` or a same-origin `Referer`;
-   * the Host check, CSRF token and signed session still stop a cross-site post.
+   * the Host check, the form token and the signed session still stop a cross-site post.
    */
   async function originGuard(request: FastifyRequest, reply: FastifyReply): Promise<void> {
     if (authority === '') return;
@@ -551,7 +535,7 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
   }
 
   async function model(
-    reply: FastifyReply,
+    sessionId: string,
     record: PublicationRecord,
     extra: {
       errors?: string[];
@@ -571,7 +555,7 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
       drafts: record.drafts,
       outcomes: record.outcomes,
       lastSubmission,
-      csrfToken: reply.generateCsrf(),
+      csrfToken: csrfTokenFor(secret, sessionId),
       submissionId: options.ids.capability(),
       ...(extra.errors === undefined ? {} : { errors: extra.errors }),
       ...(extra.pendingDrafts === undefined ? {} : { pendingDrafts: extra.pendingDrafts }),
@@ -583,6 +567,7 @@ export async function createPageServer(options: PageServerOptions): Promise<Page
     app,
     sessions,
     capability: sessions.issueCapability(),
+    unsignCookie: (value: string) => unsignValue(secret, value),
     setAuthority: (value: string) => {
       authority = value;
     },

@@ -51,6 +51,16 @@ describe('task route (07-R, 07-V, 07-G)', () => {
     });
   });
 
+  it('07-R2: `iteration 2 of <slug>` continues that task\'s accepted plan at that iteration', async () => {
+    await withTask(async (t) => {
+      const dir = path.join(t.fx.repo.root, '.ambicode', 'task', 'ord-7');
+      await t.fx.repo.write('.ambicode/task/ord-7/plan.md', '# Plan\n\n## Iteration 1\nAdd the guard.\n\n## Iteration 2\nSeed the reduce.\n');
+      await appendLedger(t.fx.runtime.fs, dir, t.fx.runtime.clock.now(), 'test-writer', { kind: 'note', note: 'plan', path: '.ambicode/task/ord-7/plan.md', contentHash: 'sha256:0' });
+      const red = await t.fx.engine.start({ skill: 'task', text: 'iteration 2 of ord-7', requirements: [], cwd: t.fx.repo.root, session: SESSION_A, channel: 'hook', scratchpadDir: t.fx.scratchpad });
+      assert.match(red.text, /Task ord-7 · iteration 2 of 2 · plan: \.ambicode\/task\/ord-7\/plan\.md\n\n## Iteration 2\nSeed the reduce\./);
+    });
+  });
+
   it('07-R3: a draft plan meets draft-ok, whose default stop exits draft-stop', async () => {
     await withTask(async (t) => {
       await t.fx.repo.write('docs/plan-draft.md', '# Plan\n\nDo it.\n');

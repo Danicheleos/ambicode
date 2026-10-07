@@ -642,3 +642,25 @@ describe('evals-bench: review cases under the plugin prompt (08-P3)', () => {
     assert.equal(run.stdout.includes('"files": 2'), false);
   });
 });
+
+describe('evals-bench: the HTML report is copied under eval-replay', () => {
+  it('copies plugin-eval beside the result to <date>/<iteration>, and never replaces a copy', async () => {
+    const { saveReplayReport } = await import('./evals-bench.mjs');
+    const root = mkdtempSync(path.join(tmpdir(), 'replay-report-'));
+    try {
+      const iteration = path.join(root, 'outputs', 'core', '2026-10-07', '17_0452_x');
+      mkdirSync(path.join(iteration, 'results', 'plugin-eval'), { recursive: true });
+      writeFileSync(path.join(iteration, 'results', 'plugin-eval', 'report.html'), 'first');
+      const replay = path.join(root, 'eval-replay');
+      assert.equal(saveReplayReport(iteration, path.join(iteration, 'results', 'eval.json'), replay), true);
+      assert.equal(readFileSync(path.join(replay, '2026-10-07', '17_0452_x', 'report.html'), 'utf8'), 'first');
+      writeFileSync(path.join(iteration, 'results', 'plugin-eval', 'report.html'), 'second');
+      assert.equal(saveReplayReport(iteration, path.join(iteration, 'results', 'eval.json'), replay), false);
+      assert.equal(readFileSync(path.join(replay, '2026-10-07', '17_0452_x', 'report.html'), 'utf8'), 'first');
+      rmSync(path.join(iteration, 'results', 'plugin-eval'), { recursive: true });
+      assert.equal(saveReplayReport(iteration, path.join(iteration, 'results', 'eval.json'), path.join(root, 'other')), false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});

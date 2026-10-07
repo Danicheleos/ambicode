@@ -4,7 +4,7 @@ import path from 'node:path';
 import { CURATED_CASES, ROOT } from '../shared/bench-paths.mjs';
 import { LEDGER_DIRECTORY, tally } from './ledger-metrics.mjs';
 
-export const DEFAULT_RECORDINGS = path.join(ROOT, 'evals', 'common', 'reviewer-recordings', 'core.json');
+export const DEFAULT_RECORDINGS = path.join(ROOT, 'eval-replay', 'core.json');
 
 function ledgerFiles(directory) {
   const out = [];

@@ -19,7 +19,7 @@ import { REPO_ROOT } from '#testing/paths';
 import { SESSION_A, SESSION_B } from '#testing/fixtures/ids';
 
 /** SHA-256 of the step-06 Contract YAML with amend-06-review-r1 P2 (`fetch` gets `payload: [template]`, `plan-write` gets `payload: [policy:before-report]`). */
-const CONTRACT_SHA256 = '846d597200997b92f43b8662d06faf33566425bf4d23ba1ec3ae63fb473a7fe6';
+const CONTRACT_SHA256 = '9dbc06996ab1a851eb6bfbe3250f4b0c075885ae08a1c42b388c56e917e86e6b';
 const GOOD = '# Plan\n\n- *Changes*: `src/orders/limit.ts:1` `orderLimit`\n';
 const BAD = '# Plan\n\n- *Changes*: `src/orders/limit.ts:40` `orderLimit`\n';
 const PLATFORM = { askBinding: 'supported', answerContext: 'supported' } as const;
@@ -132,41 +132,19 @@ describe('06-P5/06-P6/06-P7 write and check', () => {
     }
   });
 
-  it('S4 06-P6/06-P7/D2: two failures then a pass: three completions, two code revises, the bad list and the last round printed', async () => {
+  it('S4 06-P6: a failing check is recorded, nothing is rewritten, and the route goes to plan-accept without Accept', async () => {
     const plan = await shipped();
     try {
       await toWrite(plan);
-      const first = await planCheck(plan, BAD);
-      assert.equal(first.failed, true);
-      assert.match(first.next ?? '', /step plan-write/);
-      assert.match(first.next ?? '', /## Bad anchors\nsrc\/orders\/limit\.ts:40 line-out-of-range/);
-      assert.doesNotMatch(first.next ?? '', /Last round/);
-      const second = await planCheck(plan, BAD);
-      assert.match(second.next ?? '', /## Last round\nlast automatic round: list anything you cannot fix under `## Known limitations`/);
-      const third = await planCheck(plan, GOOD);
-      assert.equal(third.failed, false);
-      assert.match(third.next ?? '', /Accept this plan\?/);
-      assert.equal((await steps(plan, 'plan-write', 'delivered')).length, 3);
-      assert.equal((await steps(plan, 'plan-check', 'completed')).length, 3);
-      assert.deepEqual((await plan.fx.kinds(PLAN_TASK, 'revise')).map((entry) => [entry['via'], entry['from']]), [['code', 'plan-write'], ['code', 'plan-write']]);
-      assert.equal((await plan.fx.kinds(PLAN_TASK, 'limit')).length, 0);
-    } finally {
-      await plan.dispose();
-    }
-  });
-
-  it('S4 06-P6: a third failure is limited on plan-write and the route moves to plan-accept', async () => {
-    const plan = await shipped();
-    try {
-      await toWrite(plan);
-      await planCheck(plan, BAD);
-      await planCheck(plan, BAD);
-      const third = await planCheck(plan, BAD);
-      assert.equal(third.failed, true);
-      const limit = (await plan.fx.kinds(PLAN_TASK, 'limit')).at(-1)!;
-      assert.deepEqual([limit['which'], limit['step']], ['repeat', 'plan-write']);
+      const failed = await planCheck(plan, BAD);
+      assert.equal(failed.failed, true);
+      assert.match(failed.next ?? '', /Accept this plan\?/);
+      assert.match(failed.next ?? '', /Plan check FAILED: 1 bad anchors/);
+      assert.doesNotMatch(failed.next ?? '', /  - Accept/);
+      assert.equal((await steps(plan, 'plan-write', 'delivered')).length, 1);
+      assert.deepEqual(await plan.fx.kinds(PLAN_TASK, 'revise'), []);
       assert.equal((await lastPrint(plan))['gate'], 'plan-accept');
-      assert.equal((await notes(plan, 'plan-draft')).length, 3, '06-P9: drafts of failed rounds stay');
+      assert.equal((await notes(plan, 'plan-draft')).length, 1, '06-P9: the failed draft stays');
     } finally {
       await plan.dispose();
     }
@@ -302,21 +280,16 @@ describe('06-R8/06-R9/06-H4 acting authority', () => {
     }
   });
 
-  it('S14 06-R9/06-H4: a trusted preanswer survives revise plan-write, binds at the reached print, and the report says so', async () => {
+  it('S14 06-R9/06-H4: a trusted Accept preanswer never accepts a draft whose check failed: Accept is not offered, so it is declined', async () => {
     const plan = await shipped();
     try {
       await toWrite(plan, { answers: [{ gate: 'plan-accept', option: 'Accept' }] });
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'preanswer')).length, 1);
       await planCheck(plan, BAD);
-      assert.equal((await notes(plan, 'plan')).length, 0, 'the preanswer is not consumed by a failing round');
-      const out = await planCheck(plan, GOOD);
-      const acceptance = (await plan.fx.kinds(PLAN_TASK, 'acceptance')).at(-1)!;
-      assert.equal(acceptance['via'], 'prompt');
-      const draft = (await notes(plan, 'plan-draft')).at(-1)!;
-      assert.equal((acceptance['object'] as { contentHash: string }).contentHash, draft['contentHash']);
-      assert.equal((await notes(plan, 'plan')).length, 1);
-      assert.doesNotMatch(out.next ?? '', /Accept this plan\?/, 'no second question after an honoured Accept');
-      assert.match(buildReport(await plan.fx.ledger(PLAN_TASK)).text, /answered in the prompt \(before the artifact existed\)/);
+      assert.equal((await notes(plan, 'plan')).length, 0);
+      const declined = (await plan.fx.kinds(PLAN_TASK, 'declined')).at(-1)!;
+      assert.deepEqual([declined['reason'], declined['via']], ['option-not-offered', 'prompt']);
+      assert.equal((await lastPrint(plan))['gate'], 'plan-accept');
     } finally {
       await plan.dispose();
     }
@@ -460,7 +433,7 @@ describe('06-H1 caps with many diagnostics', () => {
   const missing = (count: number): string =>
     `# Plan\n\n${Array.from({ length: count }, (_, i) => `- \`src/features/orders/limits/validation/rules/nested/deeply/rule-${i}.ts:3\``).join('\n')}\n`;
 
-  it('06-H1/06-P7: 60 missing files keep plan check under 8,000 characters and the re-print under 3,072 bytes, pointing at the artifact', async () => {
+  it('06-H1/06-P7: 60 missing files keep plan check under 8,000 characters and the gate print under 3,072 bytes', async () => {
     const plan = await shipped();
     try {
       await toWrite(plan);
@@ -470,7 +443,7 @@ describe('06-H1 caps with many diagnostics', () => {
       assert.equal(out.listsCut, true);
       const reprint = out.next ?? '';
       assert.ok(Buffer.byteLength(reprint) <= 3072, `${Buffer.byteLength(reprint)} bytes`);
-      assert.match(reprint, new RegExp(`… \\d+ more in ${out.artifact.replace(/[.]/g, '\\.')}`));
+      assert.match(reprint, /Plan check FAILED: 60 bad anchors/);
       const artifact = JSON.parse(await readFile(path.join(plan.fx.repo.root, out.artifact), 'utf8')) as { anchors: { bad: unknown[] } };
       assert.equal(artifact.anchors.bad.length, 50, 'the artifact keeps the first 50 (D7)');
     } finally {
@@ -486,7 +459,7 @@ describe('06-H1/06-P8 mixed diagnostics on a long task', () => {
   const check = async (plan: PlanFixture, task: string) =>
     runPlanCheckCommand(plan.fx.runtime, parseArgs('plan check', ['--task', task, '--from', 'steps/plan-body.md'], PLAN_CHECK_OPTIONS));
 
-  it('06-H1/06-P7: 60 bad anchors and 60 unmapped ACs keep the retry and the last-round re-print under 3,072 bytes', async () => {
+  it('06-H1/06-P7: 60 bad anchors and 60 unmapped ACs keep the gate print under 3,072 bytes', async () => {
     const plan = await planFixture({ shipped: true, config: CONFIG.replace('mcpServer: null', 'mcpServer: atlassian') });
     try {
       assert.equal((await plan.start({ task: long, requirements: ['ORD-17'] })).position, 'fetch');
@@ -499,18 +472,12 @@ describe('06-H1/06-P8 mixed diagnostics on a long task', () => {
       await plan.next({ task: long });
       assert.equal((await plan.next({ task: long })).position, 'plan-write');
       await plan.body(`# Plan\n\n${anchors(60)}\n`, long);
-      for (const round of ['retry', 'last round']) {
-        const out = await check(plan, long);
-        assert.equal(out.acs.unmappedTotal, 60);
-        assert.equal(out.anchors.badTotal, 60);
-        const reprint = out.next ?? '';
-        assert.ok(Buffer.byteLength(reprint) <= 3072, `${round}: ${Buffer.byteLength(reprint)} bytes`);
-        assert.equal(round === 'last round', reprint.includes('last automatic round'), round);
-        assert.match(reprint, /## Bad anchors\n[\s\S]*… \d+ more in /);
-        assert.match(reprint, /## Unmapped acceptance units\n[\s\S]*… \d+ more in /);
-        const delivered = (await plan.fx.ledger(long)).findLast((entry) => entry.kind === 'step' && entry['step'] === 'plan-write' && entry['status'] === 'delivered');
-        assert.ok(Number(delivered?.['bytes']) <= 3072, `${round}: ledger ${String(delivered?.['bytes'])} bytes`);
-      }
+      const out = await check(plan, long);
+      assert.equal(out.acs.unmappedTotal, 60);
+      assert.equal(out.anchors.badTotal, 60);
+      const reprint = out.next ?? '';
+      assert.ok(Buffer.byteLength(reprint) <= 3072, `${Buffer.byteLength(reprint)} bytes`);
+      assert.match(reprint, /Plan check FAILED: 60 bad anchors, 60 unmapped acceptance units/);
     } finally {
       await plan.dispose();
     }
@@ -550,6 +517,18 @@ describe('06-C7/06-P2 duplicates on a monorepo', () => {
       const checked = await runPlanCheck({ runtime: plan.fx.runtime, session: SESSION_A, context: commandContext({ runtime: plan.fx.runtime, routes: plan.fx.routes }) }, { task: PLAN_TASK, body: null, from: 'steps/plan-body.md' });
       assert.deepEqual(checked.result.duplicates, [{ name: 'orderLimit', declaredAt: 'src/orders/limit.ts:1' }]);
       assert.equal(checked.result.duplicatesSkipped, undefined);
+    } finally {
+      await plan.dispose();
+    }
+  });
+
+  it('06-C7: the project answered in one task is not asked again by another task of the same session', async () => {
+    const config = CONFIG.replace('  - { id: app, root: ".", ecosystem: typescript }', '  - { id: orders, root: "src/orders", ecosystem: typescript }\n  - { id: invoices, root: "src/invoices", ecosystem: typescript }');
+    const plan = await planFixture({ shipped: true, config });
+    try {
+      await plan.start({ text: 'Add orderLimit' });
+      assert.equal((await plan.next({ project: 'orders' })).position, 'design');
+      assert.equal((await plan.start({ text: 'Add another limit', task: 'second-task' })).position, 'design');
     } finally {
       await plan.dispose();
     }

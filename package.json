@@ -1,6 +1,6 @@
 {
   "name": "ambicode",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": true,
   "description": "AMBICODE Claude Code plugin helpers: scoped policy, evidence checks, independent review, human-selected publication.",
   "license": "UNLICENSED",
@@ -21,17 +21,17 @@
     "#util/*": "./src/util/*.ts"
   },
   "scripts": {
-    "build": "node tools/build.mjs",
+    "build": "node tools/build.mjs && node tools/vendor-codeindex.mjs",
     "typecheck": "tsc --noEmit",
     "test:unit": "node --test --test-reporter=spec \"src/**/*.test.ts\" \"tools/*.test.mjs\" \"fixtures/*.test.mjs\" \"evals/scripts/src/**/*.test.mjs\"",
     "validate:plugin": "node tools/package-candidate.mjs --validate-plugin",
     "fixtures": "node fixtures/materialize.mjs",
     "evals": "npm run evals:walk",
     "evals:bench": "node evals/scripts/src/harness/evals-bench.mjs",
-    "evals:run": "EVAL_AMBICODE_REVIEWER_REPLAY=\"$PWD/evals/common/reviewer-recordings/core.json\" npm run evals:bench -- run --prompt with",
+    "evals:run": "EVAL_AMBICODE_REVIEWER_REPLAY=\"$PWD/eval-replay/core.json\" npm run evals:bench -- run --prompt with",
     "evals:walk": "npm run evals:select && npm run evals:run -- --tag walk --runs 1 --ablation none --model claude-sonnet-5-5 --max-cost-usd 2 -j 4 --walk",
     "evals:walk:haiku": "npm run evals:select && npm run evals:run -- --tag walk --runs 1 --ablation none --model claude-haiku-4-5-20251001 --max-cost-usd 2 -j 4 --walk",
-    "evals:baseline": "npm run evals:select && node evals/scripts/src/arms/naked-arm.mjs && npm run evals:bench -- run --plugin .tmp/naked --trust-plugin --runs 3 --ablation none --model claude-sonnet-5-5 --max-cost-usd 15 -j 4",
+    "evals:baseline": "npm run evals:select -- --candidates --localize 15 && node evals/scripts/src/arms/naked-arm.mjs && npm run evals:bench -- run --plugin .tmp/naked --trust-plugin --runs 3 --ablation none --model claude-sonnet-5-5 --max-cost-usd 15 -j 4",
     "evals:decide": "npm run evals:select && npm run evals:run -- --runs 3 --ablation none --model claude-sonnet-5-5 --max-cost-usd 20 -j 4",
     "evals:gate": "node evals/scripts/src/validation/eval-gate.mjs",
     "evals:walk-report": "npm run evals:bench -- walk",
@@ -51,29 +51,25 @@
     "evals:layer-audit": "node evals/scripts/src/analysis/layer-audit.mjs",
     "evals:preflight": "node evals/scripts/src/validation/evals-preflight.mjs",
     "evals:reviewer": "node evals/scripts/src/validation/evals-reviewer.mjs",
+    "version": "node tools/sync-plugin-version.mjs",
+    "bump": "npm version patch --no-git-tag-version",
     "package:candidate": "node tools/package-candidate.mjs",
     "package:reproducible": "node tools/package-candidate.mjs --check-reproducible",
     "smoke:candidate": "node tools/smoke-candidate.mjs",
     "smoke:install-local": "node tools/install-local.smoke.mjs",
     "verify": "npm run build && npm run typecheck && npm run test:unit && npm run validate:plugin"
   },
-  "dependencies": {
-    "@fastify/cookie": "^11.1.2",
-    "@fastify/csrf-protection": "^7.1.0",
-    "@fastify/formbody": "^8.0.2",
-    "@fastify/helmet": "^13.1.1",
-    "@fastify/view": "^11.1.1",
-    "eta": "^3.5.0",
-    "execa": "^10.0.1",
-    "fastify": "^5.12.5",
-    "isbinaryfile": "^6.0.0",
-    "yaml": "^2.9.1",
-    "zod": "^4.6.5"
-  },
   "devDependencies": {
+    "@fastify/formbody": "^8.0.2",
+    "@fastify/view": "^11.1.1",
+    "@maxgfr/codeindex": "2.31.4",
     "@types/node": "^24.0.0",
     "esbuild": "^0.28.2",
+    "eta": "^3.5.0",
+    "fastify": "^5.12.5",
     "fflate": "^0.8.3",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.5"
   }
 }

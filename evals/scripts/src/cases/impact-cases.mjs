@@ -140,7 +140,6 @@ export function writeImpactCase(out, side, symbol, benchmarks = BENCHMARKS) {
     .replace("The question asked which existing files a ticket's change would have to touch.\nThe change that was actually merged touched these files:", `The question asked which existing files use \`${symbol.name}\`. These files reference it:`)
     .replace('as a file the\nchange would touch.', 'as a file that uses it.')
     .replace('as part of the change.', 'as a user of the symbol.');
-  delete graders['helper-ran.md'];
   for (const [file, body] of Object.entries({ ...graders, ...peekGraders() })) writeFileSync(path.join(directory, 'graders', file), body);
   writeFileSync(path.join(directory, 'case.yaml'), `schema_version: "1.1"\nname: ${name}\ncontext:\n  scaffold_script: scaffold.sh\n`);
   writeFileSync(path.join(directory, 'prompt.md'), impactPrompt(name, side, symbol));

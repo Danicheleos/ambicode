@@ -2,13 +2,13 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
-import { appendFileSync, existsSync, linkSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, cpSync, existsSync, linkSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
-import { BENCHMARKS, CASES_DIRECTORY, CURATED_CASES, CURATED_EVAL_DIR, NAKED_PLUGIN, ROOT } from '../shared/bench-paths.mjs';
+import { BARE_RECALL_FILE, BENCHMARKS, CASES_DIRECTORY, CURATED_CASES, CURATED_EVAL_DIR, NAKED_PLUGIN, REPLAY_REPORTS, ROOT } from '../shared/bench-paths.mjs';
 import { generate, refuseLegacyTwins, SELECT } from '../cases/bench-cases.mjs';
-import { bareRecallByCase, score, withBaseline } from '../analysis/bench-score.mjs';
+import { barePrecisionByCase, bareRecallByCase, score, withBaseline } from '../analysis/bench-score.mjs';
 import { walkReport } from '../analysis/bench-walk.mjs';
 import { casesLockStatus, lockCases, unlockCases } from './cases-lock.mjs';
 import { LEDGER_DIRECTORY, tally } from '../analysis/ledger-metrics.mjs';
@@ -42,6 +42,19 @@ export const ITERATIONS_HEADER = `One row per iteration, appended when its run f
 | iteration | started | cases | tags | plugin | prompt | model | cost $ | duration | status | traces |
 |---|---|---|---|---|---|---|---|---|---|---|
 `;
+
+/**
+ * Copies the harness's `plugin-eval/` folder (the HTML report) from beside the result to
+ * `<replayRoot>/<date>/<iteration>/`. Never replaces a copy already there; false when nothing was copied.
+ */
+export function saveReplayReport(iteration, resultFile, replayRoot = REPLAY_REPORTS) {
+  const source = path.join(path.dirname(resultFile), 'plugin-eval');
+  if (!existsSync(source)) return false;
+  const target = path.join(replayRoot, path.basename(path.dirname(iteration)), path.basename(iteration));
+  if (existsSync(target)) return false;
+  cpSync(source, target, { recursive: true });
+  return true;
+}
 
 /** Appends the run to its day's `iterations.md`, the summary log beside the iteration directories. */
 function logIteration(iteration, written, { status, traces }) {
@@ -382,6 +395,12 @@ export async function runSweep(rest, { benchmarks = BENCHMARKS, now = new Date()
   rmSync(reserved);
   if (plan.iteration)
     try {
+      saveReplayReport(plan.iteration, plan.json);
+    } catch (error) {
+      warn(`report not copied to eval-replay: ${error.message}`);
+    }
+  if (plan.iteration)
+    try {
       logIteration(plan.iteration, written, { status, traces: traceCount });
     } catch (error) {
       warn(`iteration log not written: ${error.message}`);
@@ -410,6 +429,19 @@ export async function main(argv, options = {}) {
     taken.add(i).add(i + 1);
     return rest[i + 1];
   };
+  /** `--baseline` records a naked result's per-case recall and precision in `bare-recall.json`; later selects read it back. No file, no discrimination. */
+  const bareRates = (baselineAt) => {
+    if (baselineAt !== undefined) {
+      const result = JSON.parse(readFileSync(path.resolve(baselineAt), 'utf8'));
+      const [recalls, precisions] = [bareRecallByCase(result), barePrecisionByCase(result)];
+      const sorted = (map) => Object.fromEntries([...map].sort());
+      writeFileSync(BARE_RECALL_FILE, `${JSON.stringify({ source: path.resolve(baselineAt), recalls: sorted(recalls), precisions: sorted(precisions) }, null, 2)}\n`);
+      return { bare: recalls, barePrecision: precisions };
+    }
+    if (!existsSync(BARE_RECALL_FILE)) return {};
+    const saved = JSON.parse(readFileSync(BARE_RECALL_FILE, 'utf8'));
+    return { bare: new Map(Object.entries(saved.recalls)), barePrecision: new Map(Object.entries(saved.precisions ?? {})) };
+  };
   const benchmarksAt = option('--benchmarks');
   const benchmarks = benchmarksAt === undefined ? BENCHMARKS : path.resolve(benchmarksAt);
   if (command === 'generate' || command === 'select') {
@@ -421,7 +453,7 @@ export async function main(argv, options = {}) {
             localize: Number(option('--localize') ?? SELECT.localize),
             review: Number(option('--review') ?? SELECT.review),
             ...(rest.includes('--candidates') ? { candidates: true } : {}),
-            ...(baselineAt === undefined ? {} : { bare: bareRecallByCase(JSON.parse(readFileSync(path.resolve(baselineAt), 'utf8'))) }),
+            ...(rest.includes('--candidates') ? {} : bareRates(baselineAt)),
           }
         : null;
     const out = command === 'select' ? CURATED_CASES : undefined;

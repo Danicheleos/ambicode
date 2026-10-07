@@ -94,8 +94,7 @@ question: which existing files would the change touch, as a `## Files` list.
 
 - In the harness: `names-a-true-file` (weight 3, llm judge with the true list),
   `no-code-edit` and `no-code-write` (weight 1 each, no Edit/Write under the
-  code), and the with-only indicators `plugin-fired` and `helper-ran`
-  (`prepare` or `locate`).
+  code). The ledger, not a with-only indicator, shows whether the plugin ran.
 - Graded against the true files **present in the snapshot**: a file the
   snapshot no longer has cannot be found, so it is recorded in `truth.json`
   as `missingFromSnapshot` and not graded. A ticket with none left is refused.
@@ -323,7 +322,7 @@ Thinking was about 4.5% of a Sonnet run's cost anyway. Details are in
 `gym/planing/investigation/archive/probes-2026-09-30.md` §5.
 
 The curated scripts set `EVAL_AMBICODE_REVIEWER_REPLAY` to
-`evals/common/reviewer-recordings/core.json`. Inside the sandbox, no nested reviewer
+`eval-replay/core.json`. Inside the sandbox, no nested reviewer
 signs in: without the replay, every review failed with `reviewer-error: Not
 logged in` (2026-09-30).
 

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createRuntime } from '#composition/root';
 import { TempRepo } from '#testing/fixtures/temp-repo';
-import { codeindexAdapter, refreshIndex, runIndexBuild, startIndexBuild } from './codeindex.ts';
+import { codeindexAdapter, VENDORED_CODEINDEX, refreshIndex, runIndexBuild, startIndexBuild } from './codeindex.ts';
 import type { ProcessOutcome, ProcessRequest, ProcessRunner } from '#types/platform/ports';
 import type { IndexStatus, IndexDeps } from '#types/modules/search';
 
@@ -40,7 +40,7 @@ async function setup(options: { binary?: 'modules' | 'path' | null; ignored?: bo
   const runner = new FakeRunner();
   const time = { now: Date.UTC(2026, 9, 5, 10, 0, 0) };
   let tick = 0;
-  const runtime = await createRuntime({ cwd: repo.root, runner, env: { PATH: kind === 'path' ? scratch : '' }, clock: { now: () => new Date(time.now), elapsed: () => (tick += 40) } });
+  const runtime = { ...(await createRuntime({ cwd: repo.root, runner, env: { PATH: kind === 'path' ? scratch : '' }, clock: { now: () => new Date(time.now), elapsed: () => (tick += 40) } })), pluginRoot: path.join(scratch, 'plugin') };
   const project = { id: 'app', root: options.root ?? '.', ecosystem: 'typescript', commands: {}, profile: { stamp: { commit: '', files: 0 }, sources: TS, companions: [], catalogs: [], featureKinds: [], exportOnly: true, ...(options.indexFiles === undefined ? {} : { index: { tool: 'codeindex', languages: [], files: options.indexFiles } }) } } as never;
   const deps: IndexDeps = { runtime, git: repo.git, repositoryRoot: repo.root, config: { search: { index: 'codeindex', ...(options.driftFiles === undefined ? {} : { indexDriftFiles: options.driftFiles }) } } as never, selfArgv: SELF, ...(options.alive === undefined ? {} : { isAlive: options.alive }), ...(options.indexDir === undefined ? {} : { indexDir: options.indexDir }) };
   return {
@@ -79,12 +79,25 @@ describe('05-A3 binary resolution', () => {
       try {
         const status = await ctx.adapter().build(ctx.project, { detached: false });
         if (found) assert.equal(ctx.runner.requests[0]!.argv[0], ctx.binary);
-        else assert.deepEqual([status.state, status.reason, ctx.runner.requests.length], ['error', 'codeindex not found (node_modules/.bin or PATH)', 0]);
+        else assert.deepEqual([status.state, status.reason, ctx.runner.requests.length], ['error', 'codeindex not found (plugin vendor/, node_modules/.bin or PATH)', 0]);
       } finally {
         await ctx.dispose();
       }
     });
   }
+
+  it('05-A3: the copy shipped in the plugin wins over node_modules/.bin and runs under Node', async () => {
+    const ctx = await setup({ binary: 'modules' });
+    try {
+      const entry = path.join(ctx.deps.runtime.pluginRoot, VENDORED_CODEINDEX);
+      await mkdir(path.dirname(entry), { recursive: true });
+      await writeFile(entry, '');
+      await ctx.adapter().build(ctx.project, { detached: false });
+      assert.deepEqual(ctx.runner.requests[0]!.argv.slice(0, 2), [process.execPath, entry]);
+    } finally {
+      await ctx.dispose();
+    }
+  });
 
   it('05-A3: node_modules/.bin wins over PATH', async () => {
     const ctx = await setup({ binary: 'modules' });

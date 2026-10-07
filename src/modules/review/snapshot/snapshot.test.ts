@@ -304,6 +304,28 @@ test('U09 a changed file that will not fit blocks the review instead of being om
   );
 });
 
+test('U09 a changed file over the ceiling is mirrored as its changed hunks, and the report says so', async (t) => {
+  const repo = await TempRepo.create();
+  t.after(() => repo.dispose());
+
+  const body = (value: string) => `${Array.from({ length: 20_000 }, (_, i) => `  "key${i}": "${i === 9_000 ? value : 'text value'}",`).join('\n')}\n`;
+  await repo.write('assets/i18n/cs.json', body('before'));
+  await repo.commitAll('init');
+  await repo.write('assets/i18n/cs.json', body('after'));
+
+  const resolution = await resolveWorkingTarget({ fs: nodeFileSystem, git: repo.git, repositoryRoot: repo.root });
+  const reviewable = partitionChange(resolution.files);
+  const plan = await planSnapshot({ files: reviewable.files, content: resolution.content, includeSiblingContext: false });
+
+  const entry = plan.entries.find((candidate) => candidate.path === 'assets/i18n/cs.json');
+  assert.ok(entry, 'the oversized file is mirrored, not refused');
+  assert.ok(entry.bytes < 262_144);
+  assert.match(entry.text, /9000\| {3}"key8999"/);
+  assert.match(entry.text, /9001\| {3}"key9000": "after"/);
+  assert.match(entry.text, /\[lines 1-\d+ not mirrored\]/);
+  assert.ok(plan.omissions.some((line) => line.includes('assets/i18n/cs.json') && line.includes('mirrored as their changed hunks')));
+});
+
 test('U09 a path the operator excludes leaves the review instead of blocking it', async (t) => {
   const repo = await TempRepo.create();
   t.after(() => repo.dispose());

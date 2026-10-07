@@ -1,7 +1,6 @@
 import { spawn } from 'node:child_process';
 import { statSync } from 'node:fs';
 import path from 'node:path';
-import { execa, type Options, type ResultPromise } from 'execa';
 import { resolveEnvironment } from './process.ts';
 import type { ProcessOutcome, ProcessRequest, ProcessRunner } from '#types/platform/ports';
 import { messageOf } from '#util/errors';
@@ -32,64 +31,54 @@ export class NodeProcessRunner implements ProcessRunner {
     const capture = new CombinedCapture(request.maxOutputBytes);
     const started = performance.now();
 
-    const ownDeadline = process.platform === 'win32';
-
     const output = request.output === 'ignore' ? 'ignore' : 'pipe';
-    const options: Options = {
-      cwd: request.cwd,
-      env: environment,
-      extendEnv: false,
-      shell: false,
-      timeout: ownDeadline ? undefined : request.timeoutMs,
-      forceKillAfterDelay: 2_000,
-      killSignal: 'SIGKILL',
-      cleanup: true,
-      encoding: 'buffer',
-      buffer: false,
-      stdin: request.stdin === undefined ? 'ignore' : 'pipe',
-      stdout: output,
-      stderr: output,
-      reject: false,
-    };
-
-    let child: ResultPromise<Options>;
+    let child: ReturnType<typeof spawn>;
     try {
-      child = execa(executable, args, options);
+      child = spawn(executable, args, {
+        cwd: request.cwd,
+        env: environment,
+        shell: false,
+        windowsHide: true,
+        stdio: [request.stdin === undefined ? 'ignore' : 'pipe', output, output],
+      });
     } catch (error) {
       return outcome('spawn-failed', { failure: messageOf(error) });
     }
 
     child.stdout?.on('data', (chunk: Buffer) => capture.push('stdout', chunk));
     child.stderr?.on('data', (chunk: Buffer) => capture.push('stderr', chunk));
-    if (request.stdin !== undefined) child.stdin?.end(request.stdin);
+    if (request.stdin !== undefined) {
+      child.stdin?.on('error', () => {});
+      child.stdin?.end(request.stdin);
+    }
 
-    // Replaces Execa's timeout rather than running beside it: `taskkill /T` walks living children,
-    // and once Execa's kill has taken the shim down there is no tree left to walk.
+    // A child left running when this process exits would hold the user's terminal or a port.
+    const cleanup = (): void => void child.kill('SIGKILL');
+    process.once('exit', cleanup);
+
+    // Windows: `taskkill /T` walks the tree, so a `.cmd` shim's child dies with it.
     let killedByDeadline = false;
     const deadline =
-      ownDeadline && request.timeoutMs > 0
+      request.timeoutMs > 0
         ? setTimeout(() => {
             killedByDeadline = true;
-            killProcessTree(child.pid);
+            if (process.platform === 'win32') killProcessTree(child.pid);
+            else child.kill('SIGKILL');
           }, request.timeoutMs)
         : undefined;
 
-    let result: Awaited<ResultPromise<Options>>;
-    try {
-      result = await child;
-    } finally {
-      if (deadline !== undefined) clearTimeout(deadline);
-    }
-    const durationMs = Math.round(performance.now() - started);
-    const decoded = capture.decode();
+    const settled = await new Promise<{ code: number | null; error: Error | null }>((resolve) => {
+      child.once('error', (error) => resolve({ code: null, error }));
+      child.once('close', (code) => resolve({ code, error: null }));
+    });
+    if (deadline !== undefined) clearTimeout(deadline);
+    process.removeListener('exit', cleanup);
 
-    const base = { ...decoded, durationMs };
-    if (result.timedOut === true || killedByDeadline) return outcome('timed-out', base);
-    // No exit code and no signal: it never started (permission error, missing `cwd`).
-    if (result.failed === true && result.exitCode === undefined && result.signal === undefined) {
-      return outcome('spawn-failed', { ...base, failure: result.shortMessage ?? messageOf(result) });
-    }
-    return outcome('exited', { ...base, exitCode: result.exitCode ?? null });
+    const base = { ...capture.decode(), durationMs: Math.round(performance.now() - started) };
+    if (killedByDeadline) return outcome('timed-out', base);
+    // An error event without a close: it never started (missing command, permission error, missing `cwd`).
+    if (settled.error !== null) return outcome('spawn-failed', { ...base, failure: messageOf(settled.error) });
+    return outcome('exited', { ...base, exitCode: settled.code });
   }
 }
 
@@ -113,8 +102,8 @@ function runDetached(executable: string, args: readonly string[], cwd: string, e
 }
 
 /**
- * Windows only. Execa's kills reach only the spawned process, so a `.cmd` shim's child survives,
- * holds the pipes and `await child` never settles. Failures are ignored: it may already have exited.
+ * Windows only. A plain kill reaches only the spawned process, so a `.cmd` shim's child survives
+ * and holds the pipes open. Failures are ignored: it may already have exited.
  */
 function killProcessTree(pid: number | undefined): void {
   if (pid === undefined) return;
@@ -133,8 +122,8 @@ function killProcessTree(pid: number | undefined): void {
 const DEFAULT_PATHEXT = '.COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC';
 
 /**
- * Windows only. Execa hands an unresolvable command to `cmd.exe`, which exits 1 like a check that
- * ran and failed, so absence is detected before spawn. More permissive than Execa's search, and
+ * Windows only. Spawning an unresolvable command can look like a check that ran and failed, so
+ * absence is detected before spawn. Permissive on purpose, and
  * uses `statSync` rather than the port to see the same filesystem `CreateProcess` will.
  */
 export function windowsCommandExists(
@@ -162,7 +151,7 @@ function* windowsCandidates(
   };
 
   // Windows uses `;` whatever the host's `path.delimiter`. `||` so an empty `PATHEXT` falls back
-  // to the default; the leading '' tries the name verbatim, wider than Execa on purpose.
+  // to the default; the leading '' tries the name verbatim.
   const extensions = ['', ...(lookup('PATHEXT') || DEFAULT_PATHEXT).split(';').filter(Boolean)];
 
   const directories = /[\\/:]/.test(command)

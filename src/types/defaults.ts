@@ -68,6 +68,12 @@ export const MAX_EVIDENCE_BYTES = 4 * 1024 * 1024;
 
 export const MAX_SNAPSHOT_FILE_BYTES = 262_144;
 
+/**
+ * A changed file over the per-file ceiling is mirrored as an excerpt of its changed hunks. Reading it stays
+ * bounded: past this size the file is refused as before.
+ */
+export const MAX_EXCERPT_SOURCE_BYTES = 8 * 1024 * 1024;
+
 /** Unchanged sibling context still has a budget when `review.maxContextBytes` sets no limit. */
 export const UNLIMITED_CONTEXT_BUDGET_BYTES = 524_288;
 export const MAX_SNAPSHOT_TOTAL_BYTES = 4 * 1024 * 1024;

@@ -7,8 +7,8 @@ export { formatIndexStatus } from './code-index/adapter.ts';
 export { indexAdapterFor } from './code-index/adapter.ts';
 /** indexStatus(tool, state, builtMs?, reason?, drift?) — builds an IndexStatus value. */
 export { indexStatus } from './code-index/adapter.ts';
-/** findCodeindex(runtime, repositoryRoot) — locates the binary in `node_modules/.bin`, then PATH; null when absent. */
-export { findCodeindex } from './code-index/codeindex.ts';
+/** findCodeindex(runtime, repositoryRoot) — locates the binary in the plugin's `vendor/codeindex`, then `node_modules/.bin`, then PATH; null when absent. */
+export { findCodeindex, codeindexCommand } from './code-index/codeindex.ts';
 /** indexDepsOf(runtime, git, repositoryRoot, config) — bundles the dependencies the index functions take. */
 export { indexDepsOf } from './code-index/codeindex.ts';
 /** refreshIndex(deps, project) — starts a rebuild even when the index is fresh (warm rebuilds). */

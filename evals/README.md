@@ -60,11 +60,12 @@ The other scripts call these. You rarely call them yourself.
   finishes, so a trace that was not copied is lost.
 - `run` writes to `../ambicode-evals-assets/outputs/<type>/<date>/<NN>_<HHMM>_<label>/` and appends a row to `iterations.md`.
 - `--dry-run` prints the plan and spends nothing.
+- When a run finishes, its `results/plugin-eval/` (`report.html`, `aggregate-result.json`) is also copied to `eval-replay/<date>/<iteration>/` (gitignored); an existing copy is never replaced.
 
 ### `evals:run`
 
 This is `evals:bench run` with `EVAL_AMBICODE_REVIEWER_REPLAY` pointed at
-`evals/common/reviewer-recordings/core.json`. The independent reviewer cannot sign in inside the eval sandbox,
+`eval-replay/core.json`. The independent reviewer cannot sign in inside the eval sandbox,
 so the curated review cases replay its recorded answers.
 
 ### `evals:plugin-eval`
@@ -78,7 +79,8 @@ This is `claude plugin eval . --scaffold --no-publish` with the archived reviewe
 ### `evals:select`
 
 **Does:** fills `evals/common/core/cases/` with the curated set, picked from `../ambicode-evals-assets/benchmarks/<project>/assets/`. It
-takes up to 5 localize and 4 review cases per project (`--localize`, `--review`). It makes no model calls.
+takes up to 10 localize cases per project and no review cases (`--localize`, `--review`; review cases are rebuilt for
+stage 9 of the training plan). It makes no model calls.
 
 **Measures:** nothing. It chooses cases by criteria only, and `selection.json` records each case's numbers.
 
@@ -89,8 +91,11 @@ takes up to 5 localize and 4 review cases per project (`--localize`, `--review`)
 - `--candidates` keeps the same rules and adds the review rules below, without the recall range. It builds the
   pool that `evals:baseline` measures.
 - `--baseline <naked eval.json>` ranks by *discrimination*: a localize case needs the bare model's mean recall
-  in 0.15–0.9 (a case with no baseline data is dropped); a review version needs at least 3 threads, and only the
-  best version of each merge request is kept. Run it on the result of `--candidates` plus a naked baseline.
+  in 0.2–0.9 (a case with no baseline data is dropped); a review version needs at least 3 threads, and only the
+  best version of each merge request is kept. Two localize tickets that share 70% of their words are one case. Run it
+  on the result of `--candidates` plus a naked baseline. It also saves the per-case recall to
+  `evals/common/core/bare-recall.json`; every later `select` without `--candidates` reads that file, so `walk` and
+  `decide` keep the discriminating set. With no file, `select` falls back to criteria only.
 
 **Why:** a small, hard and provable set lets one cheap run tell signal from noise. Every curated run calls
 it first, so the cases always match the current generator. `--regenerate` rewrites the per-arm prompts.
@@ -341,6 +346,9 @@ run that did nothing.
 `ambicode review --json`, and once as `plain`, the same isolated `claude` without AMBICODE's prompt, bundle,
 checks or validation. Output goes to `../ambicode-evals-assets/outputs/archived/<date>/<HHMM>_reviewer`. The `record` subcommand turns
 the ambicode answers into replay recordings.
+For the curated review cases: `--evals evals/common/core/cases --arm ambicode --runs 1 --out <dir>`, then `record <dir> --evals evals/common/core/cases`,
+then copy `<dir>/recordings.json` to `eval-replay/core.json`. A recording is keyed on the snapshot hash, so re-record after any change to what the
+review mirrors.
 
 **Measures:** whether AMBICODE's reviewer finds more than plain Claude asked to review.
 

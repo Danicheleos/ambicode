@@ -37,6 +37,8 @@ export const BENCHMARKS_CLIMB = /(\$\(dirname "\$0"\)\/)(?:\.\.\/)+(?:[\w.-]+\/)
 /** Never the bare `evals/`: discovery is recursive, so that would sweep every suite at once. */
 export const CURATED_EVAL_DIR = 'evals/common/core';
 export const CURATED_CASES = path.join(ROOT, CURATED_EVAL_DIR, CASES_DIRECTORY);
+/** The bare model's mean recall per case, kept from the naked baseline so every `select` ranks by discrimination. */
+export const BARE_RECALL_FILE = path.join(ROOT, CURATED_EVAL_DIR, 'bare-recall.json');
 export const TASK_EVAL_DIR = 'evals/common/task';
 export const TRIGGERS_EVAL_DIR = 'evals/common/triggers';
 export const ARCHIVED_EVAL_DIR = 'evals/common/archived';
@@ -45,7 +47,11 @@ export const ARCHIVED_EVAL_DIR = 'evals/common/archived';
  * suites, never inside an `--eval-dir`: the sandbox denies reads there, and the replay runs inside the sandbox.
  */
 export const REVIEWER_RECORDINGS = path.join(CASES_ROOT, 'common', 'reviewer-recordings');
-export const CURATED_REVIEWER_RECORDINGS = path.join(REVIEWER_RECORDINGS, 'core.json');
+export const CURATED_REVIEWER_RECORDINGS = path.join(ROOT, 'eval-replay', 'core.json');
+/** Per-thread `defect` / `opinion` labels (see classify-threads.mjs); the review cases keep only the defects. */
+export const THREAD_CLASSES = path.join(BENCHMARKS, 'thread-classes.json');
+/** Each run's `plugin-eval/` (report.html, aggregate-result.json) is copied to `<this>/<date>/<iteration>/`; the originals stay in the iteration. */
+export const REPLAY_REPORTS = path.join(ROOT, 'eval-replay');
 /** The synthetic archived suite's recordings; committed, unlike the curated ones. */
 export const ARCHIVED_REVIEWER_RECORDINGS = path.join(REVIEWER_RECORDINGS, 'archived.json');
 /** The plugin `naked-arm.mjs` builds: no components, so its plugin arm stands in for the no-plugin arm. */

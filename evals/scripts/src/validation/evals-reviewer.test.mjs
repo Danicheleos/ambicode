@@ -192,13 +192,14 @@ describe('evals-reviewer: the reviewer-quality harness', () => {
       recorded = JSON.parse(await readFile(path.join(out, 'recordings.json'), 'utf8'));
     });
 
-    it('records the first answer per case as a reviewer would give it, coverage notes included', () => {
+    it('records the union of the answered runs per case as a reviewer would give it, coverage notes included', () => {
       assert.equal(recorded.schemaVersion, 1);
       assert.equal(recorded.recordings.length, 1);
       const [recording] = recorded.recordings;
       assert.equal(recording.case, 'demo-ts');
       assert.match(recording.snapshotId, /^working-[0-9a-f]{16}$/);
-      assert.match(recording.recordedFrom, /to-record\/raw\/demo-ts-ambicode-1\.json$/);
+      assert.match(recording.recordedFrom, /^2 runs: .*to-record\/raw\/demo-ts-ambicode-1\.json, .*to-record\/raw\/demo-ts-ambicode-2\.json$/);
+      assert.equal(recording.output.findings.length, 1, 'the same finding in both runs is kept once');
       // The validator's own additions are not part of an answer.
       assert.deepEqual(Object.keys(recording.output.findings[0]).sort(), [
         'category', 'confidence', 'explanation', 'location', 'requirementRefs', 'risk', 'ruleRefs',
@@ -232,6 +233,7 @@ describe('evals-reviewer: the reviewer-quality harness', () => {
       const raw = JSON.parse(await readFile(path.join(out, 'raw', 'demo-ts-ambicode-1.json'), 'utf8'));
       raw.stdout.result.inputs.changedLines += 1;
       await writeFile(path.join(drifted, 'raw', 'demo-ts-ambicode-1.json'), JSON.stringify(raw));
+      await writeFile(path.join(drifted, 'raw', 'demo-ts-ambicode-2.json'), await readFile(path.join(out, 'raw', 'demo-ts-ambicode-2.json')));
       const child = spawnSync(process.execPath, [path.join(HERE, 'evals-reviewer.mjs'), 'record', drifted, '--evals', evals], {
         env: stubbed(),
         encoding: 'utf8',

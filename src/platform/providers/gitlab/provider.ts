@@ -19,7 +19,7 @@ import {
   type ReviewCoverage,
   type ReviewProvider,
 } from '#types/platform/provider';
-import { MAX_SNAPSHOT_FILE_BYTES } from '#types/defaults';
+import { MAX_EXCERPT_SOURCE_BYTES, MAX_SNAPSHOT_FILE_BYTES } from '#types/defaults';
 import { isBinaryContent } from '#platform/ports/binary';
 import { toGitLabPositionFields } from '../position.ts';
 import { GitLabApi } from './api.ts';
@@ -596,6 +596,8 @@ class RemoteContent {
       const rawSize = node.rawSize === null ? null : Number(node.rawSize);
       if (rawSize === null || !Number.isSafeInteger(rawSize)) continue;
       if (rawSize > MAX_SNAPSHOT_FILE_BYTES) {
+        // Within the excerpt bound it stays uncached, so `read` fetches the text the excerpt is cut from.
+        if (rawSize <= MAX_EXCERPT_SOURCE_BYTES) continue;
         this.files.set(node.path, { kind: 'too-large', bytes: rawSize });
         continue;
       }
@@ -635,7 +637,10 @@ class RemoteContent {
     }
 
     const bytes = Buffer.from(file.content, 'base64');
-    if (bytes.length > MAX_SNAPSHOT_FILE_BYTES) return { kind: 'too-large', bytes: bytes.length };
+    if (bytes.length > MAX_SNAPSHOT_FILE_BYTES) {
+      if (bytes.length > MAX_EXCERPT_SOURCE_BYTES || (await isBinaryContent(bytes))) return { kind: 'too-large', bytes: bytes.length };
+      return { kind: 'too-large', bytes: bytes.length, text: bytes.toString('utf8') };
+    }
     if (await isBinaryContent(bytes)) return { kind: 'binary' };
     return { kind: 'text', text: bytes.toString('utf8') };
   }

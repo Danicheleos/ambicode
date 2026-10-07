@@ -7,10 +7,17 @@ import { GENERATION_MARKER, INVESTIGATE_COMMAND, PROMPT, REVIEW_COMMAND, SWAP_MA
 
 // All measurable from the data alone. 2..10 true files: one is named by luck, past ten the change was a
 // sweep. 300 ticket characters: shorter ones test guessing. 600 changed lines keeps a review inside the
-// 900 s case timeout. 5 localize + 4 review per side is about the archived suite's size per arm.
-export const SELECT = { minTruth: 2, maxTruth: 15, minTicketChars: 300, maxChangedLines: 1000, localize: 5, review: 4 };
+// 900 s case timeout. Localize is capped at 10 per side, which the discrimination and duplicate rules cut to 6 BE + 4 FE.
+// Review is 0: the review cases are rebuilt for the review stage (TRAINING-PLAN stage 9).
+export const SELECT = { minTruth: 2, maxTruth: 15, minTicketChars: 300, maxChangedLines: 1000, localize: 10, review: 0 };
 /** Used when a baseline is given: a case must separate the arms, so the bare model neither saturates nor floors on it. */
-export const DISCRIMINATE = { minBareRecall: 0.15, maxBareRecall: 0.9, minThreads: 3 };
+// minThreads is 1: with defect-only threads (see `defectThreads`) 21 of the 23 versions that have one have exactly one.
+export const DISCRIMINATE = { minBareRecall: 0.2, maxBareRecall: 0.9, minThreads: 1 };
+/**
+ * Two localize tickets whose word sets overlap this much are one case. Measured on BE-express: tickets 4384, 4606,
+ * 4814, 4855 and 4875 pair at 0.84-0.99 and no other pair in the curated pool exceeds 0.56, so 0.7 sits in the gap.
+ */
+export const DUPLICATE_TICKET_OVERLAP = 0.7;
 
 const PROMPT_HEADING = '## build:context prompt';
 const TRUTH_HEADING = '## TRUE RELATED CODE';
@@ -82,6 +89,22 @@ export function localizeHardness(text, truth) {
 
 export function changedLines(patch) {
   return patch.split('\n').filter((line) => /^[+-]/.test(line) && !/^(\+\+\+|---) /.test(line)).length;
+}
+
+/** `<benchmarks>/thread-classes.json` (classify-threads.mjs), or null when there is none and every thread counts. */
+export function threadClasses(benchmarks) {
+  const file = path.join(benchmarks, 'thread-classes.json');
+  return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : null;
+}
+
+/**
+ * The threads that report a defect. A reviewer's taste (naming, style, "why did you...") cannot be reproduced and says
+ * nothing about whether the change is broken, so it is no ground truth. Without labels every thread is kept; a thread
+ * with no label is dropped once labels exist, so a new version is labelled before it can be selected.
+ */
+export function defectThreads(threads, versionId, classes) {
+  if (classes === null) return threads;
+  return threads.filter((_, index) => classes[`${versionId}#${index}`]?.label === 'defect');
 }
 
 /** Per thread: 1 for existing, +1 resolved, +1 the author replied, +1 a body of 120+ characters. */
@@ -342,6 +365,14 @@ function writeCase(out, plan) {
   return { kind: 'review', name: plan.name, side: plan.side, threads: plan.threads.length };
 }
 
+const wordSet = (text) => new Set(text.toLowerCase().match(/[\p{L}\p{N}_]{4,}/gu) ?? []);
+export function ticketOverlap(a, b) {
+  const [x, y] = [wordSet(a), wordSet(b)];
+  let shared = 0;
+  for (const w of x) if (y.has(w)) shared++;
+  return x.size + y.size === 0 ? 0 : shared / (x.size + y.size - shared);
+}
+
 const bareInRange = (recall) => recall !== undefined && recall >= DISCRIMINATE.minBareRecall && recall <= DISCRIMINATE.maxBareRecall;
 /** A review version is `<merge request>-<hash>`; two versions of one merge request are one case. */
 const mergeRequestOf = (plan) => `${plan.side}/${plan.ticket}/${String(plan.version).split('-')[0]}`;
@@ -349,11 +380,21 @@ const mergeRequestOf = (plan) => `${plan.side}/${plan.ticket}/${String(plan.vers
 /** `pick.candidates` applies the same rules without the bare-recall range: the pool a baseline run will measure. */
 const discriminating = (pick) => Boolean(pick.bare || pick.candidates);
 
+/**
+ * With a baseline: least bare recall first (most room for the plugin), then least bare precision. Without one:
+ * hardest ticket first.
+ */
+export const rankLocalize = (pick) => (a, b) => {
+  const bare = (map, c) => map?.get(c.plan.name) ?? 0;
+  const headroom = pick.bare ? bare(pick.bare, a) - bare(pick.bare, b) || bare(pick.barePrecision, a) - bare(pick.barePrecision, b) : 0;
+  return headroom || b.hardness - a.hardness || b.plan.truth.length - a.plan.truth.length || b.plan.text.length - a.plan.text.length || a.plan.name.localeCompare(b.plan.name);
+};
+
 /** `pick.bare`, when set, maps a case name to the bare model's mean recall and switches on the discrimination rules. */
 function selectPlans(plans, pick) {
   const chosen = [];
   const sides = {};
-  for (const side of [...new Set(plans.map((p) => p.side))].sort()) {
+  const perSideRanked = [...new Set(plans.map((p) => p.side))].sort().map((side) => {
     const localize = plans
       .filter((p) => p.side === side && p.kind === 'localize')
       .map((p) => ({
@@ -368,8 +409,14 @@ function selectPlans(plans, pick) {
       }));
     const pickedLocalize = localize
       .filter((c) => c.eligible)
-      .sort((a, b) => b.hardness - a.hardness || b.plan.truth.length - a.plan.truth.length || b.plan.text.length - a.plan.text.length || a.plan.name.localeCompare(b.plan.name))
-      .slice(0, pick.localize);
+      .sort(rankLocalize(pick))
+      .reduce((kept, c) => (discriminating(pick) && kept.some((o) => ticketOverlap(o.plan.text, c.plan.text) >= DUPLICATE_TICKET_OVERLAP) ? kept : [...kept, c]), []);
+    return { side, localize, ranked: pickedLocalize };
+  });
+  // With a baseline every side gets the same number of localize cases, so no side outweighs the others in the decision.
+  const perSide = pick.bare ? Math.min(pick.localize, ...perSideRanked.map((r) => r.ranked.length)) : pick.localize;
+  for (const { side, localize, ranked } of perSideRanked) {
+    const pickedLocalize = ranked.slice(0, perSide);
     const review = plans
       .filter((p) => p.side === side && p.kind === 'review')
       .map((p) => ({ plan: p, substance: reviewSubstance(p.threads), changed: changedLines(readFileSync(path.join(p.dir, 'change.patch'), 'utf8')) }))
@@ -437,6 +484,7 @@ function generateLocked({ benchmarks, out, pick, regenerate, sides }) {
       .map((f) => ({ id: path.basename(f, '.md'), ...parseTicket(readFileSync(path.join(base, 'assets', f), 'utf8')) }));
     const root = codeRoot(tickets.filter((t) => !t.error).map((t) => t.truth), snapshot);
     const present = new Set(snapshot);
+    const classes = threadClasses(benchmarks);
     for (const ticket of tickets) {
       const name = `${casePrefix(side)}-${ticket.id}`.toLowerCase();
       if (ticket.error) {
@@ -453,13 +501,13 @@ function generateLocked({ benchmarks, out, pick, regenerate, sides }) {
     const texts = new Map(tickets.filter((t) => !t.error).map((t) => [t.id, t.text]));
     for (const v of reviewVersions(base)) {
       const name = `${casePrefix(side)}-${v.ticket}-review-${v.version}`.toLowerCase();
-      const threads = JSON.parse(readFileSync(path.join(v.dir, 'threads.json'), 'utf8'));
+      const threads = defectThreads(JSON.parse(readFileSync(path.join(v.dir, 'threads.json'), 'utf8')), `${side}/${v.ticket}/${v.version}`, classes);
       if (!texts.has(v.ticket)) {
         refused.push({ name, reason: 'its ticket has no usable text' });
         continue;
       }
       if (threads.length === 0) {
-        refused.push({ name, reason: 'no reviewer thread' });
+        refused.push({ name, reason: classes === null ? 'no reviewer thread' : 'no reviewer thread that reports a defect' });
         continue;
       }
       const missing = ['change.patch', 'absent.txt', 'base'].find((required) => !existsSync(path.join(v.dir, required)));

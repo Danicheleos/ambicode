@@ -9,7 +9,8 @@ export async function briefOf(input: HandlerInput, entries: readonly LedgerEntry
   const planPath = input.args.plan ?? (entries.findLast((entry) => entry.kind === 'note' && entry['note'] === 'plan')?.['path'] as string | undefined) ?? null;
   const plan = planPath === null ? null : await input.runtime.fs.readText(path.resolve(input.dir.repositoryRoot, planPath)).catch(() => null);
   const done = entries.findLast((entry) => entry.kind === 'note' && entry['note'] === 'notes' && typeof entry['iteration'] === 'number')?.['iteration'] as number | undefined;
-  const iteration = (done ?? 0) + 1;
+  const named = /^\s*iteration\s+(\d+)\b/i.exec(input.args.text);
+  const iteration = named === null ? (done ?? 0) + 1 : Number(named[1]);
   const headings = plan === null ? [] : [...plan.matchAll(ITERATION)];
   const at = headings.findIndex((heading) => Number(heading[1]) === iteration);
   const brief = plan === null ? null : headings.length === 0 ? plan : at < 0 ? null : plan.slice(headings[at]!.index, headings[at + 1]?.index ?? plan.length);

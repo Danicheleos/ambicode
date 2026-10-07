@@ -96,10 +96,15 @@ const estimate: Handler = async (input) => {
     const estimated = await estimateReview(input.runtime, {
       runtime: input.runtime, target: selectionOf(input.args.target), ...requirements, approvals: new Set(), declines: new Set(), task: input.view.task, ...narrowed,
     });
-    return { state: 'ok', payload: [...notes, ...(narrowing === null ? [] : [`narrowed: ${narrowing}`]), renderEstimate(estimated)].join('\n') };
+    const payload = [...notes, ...(narrowing === null ? [] : [`narrowed: ${narrowing}`]), renderEstimate(estimated)].join('\n');
+    // Headless nobody can narrow or decline, and a preanswered `run` would deliver a command that refuses the same way and leave the route open.
+    if (input.args.headless && estimated.refusal !== null) return { state: 'ok', payload, exit: 'blocked', exitDetail: `${estimated.refusal.code}: ${estimated.refusal.message.slice(0, 200)}` };
+    return { state: 'ok', payload };
   } catch (error) {
     if (!isAmbicodeError(error)) throw error;
-    return { state: 'ok', payload: [...notes, `Review estimate unavailable: ${error.code}: ${error.message}`].join('\n') };
+    const unavailable = `Review estimate unavailable: ${error.code}: ${error.message}`;
+    if (input.args.headless) return { state: 'ok', payload: [...notes, unavailable].join('\n'), exit: 'blocked', exitDetail: `${error.code}: ${error.message.slice(0, 200)}` };
+    return { state: 'ok', payload: [...notes, unavailable].join('\n') };
   }
 };
 

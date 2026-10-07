@@ -1,10 +1,16 @@
 import path from 'node:path';
-import { MAX_SNAPSHOT_FILE_BYTES } from '#types/defaults';
+import { MAX_EXCERPT_SOURCE_BYTES, MAX_SNAPSHOT_FILE_BYTES } from '#types/defaults';
 import type { Git } from '#platform/git/git';
 import { contentHash } from '#util/hash';
 import { isBinaryContent } from '#platform/ports/binary';
 import type { FileSystem } from '#types/platform/ports';
 import type { FileContent, ContentSource } from '../types/snapshot.ts';
+
+/** The text rides along while it is small enough to excerpt; a larger or binary file carries only its size. */
+async function tooLarge(bytes: Uint8Array): Promise<FileContent> {
+  if (bytes.length > MAX_EXCERPT_SOURCE_BYTES || (await isBinaryContent(bytes))) return { kind: 'too-large', bytes: bytes.length };
+  return { kind: 'too-large', bytes: bytes.length, text: new TextDecoder('utf-8').decode(bytes) };
+}
 
 /**
  * Bytes are classified before they are decoded: a binary file never becomes a
@@ -23,7 +29,7 @@ export function revisionContent(git: Git, revision: string): ContentSource {
       const text = await git.showFile(revision, relativePath);
       if (text === null) return null;
       const bytes = Buffer.from(text, 'utf8');
-      if (bytes.length > MAX_SNAPSHOT_FILE_BYTES) return { kind: 'too-large', bytes: bytes.length };
+      if (bytes.length > MAX_SNAPSHOT_FILE_BYTES) return await tooLarge(bytes);
       return await classifyBytes(bytes);
     },
     async list(directoryName: string): Promise<string[]> {
@@ -55,9 +61,10 @@ export async function captureWorkingTree(options: CaptureOptions): Promise<Captu
   const hashes = new Map<string, string>();
   const listings = new Map<string, string[]>();
 
+  const changed = new Set(options.changedPaths);
   const capture = async (relativePath: string): Promise<void> => {
     if (entries.has(relativePath)) return;
-    const content = await readWorkingFile(options.fs, options.repositoryRoot, relativePath);
+    const content = await readWorkingFile(options.fs, options.repositoryRoot, relativePath, changed.has(relativePath));
     if (content === null) return;
     entries.set(relativePath, content);
     if (content.kind === 'text') hashes.set(relativePath, contentHash(content.text));
@@ -103,6 +110,7 @@ async function readWorkingFile(
   fs: FileSystem,
   repositoryRoot: string,
   relativePath: string,
+  excerptable: boolean,
 ): Promise<FileContent | null> {
   const absolute = path.join(repositoryRoot, relativePath);
   try {
@@ -111,7 +119,10 @@ async function readWorkingFile(
     if (stats.isSymbolicLink()) return { kind: 'symlink' };
     if (!stats.isFile()) return null;
     // The size guard runs first, so the read that follows is bounded.
-    if (stats.size > MAX_SNAPSHOT_FILE_BYTES) return { kind: 'too-large', bytes: stats.size };
+    if (stats.size > MAX_SNAPSHOT_FILE_BYTES) {
+      if (!excerptable || stats.size > MAX_EXCERPT_SOURCE_BYTES) return { kind: 'too-large', bytes: stats.size };
+      return await tooLarge(await fs.readBytes(absolute));
+    }
     return await classifyBytes(await fs.readBytes(absolute));
   } catch {
     return null;

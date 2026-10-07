@@ -146,6 +146,7 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     const args = (run.head['args'] ?? {}) as RouteArgs;
     const record: Record<string, unknown> = {};
     let exit: string | undefined;
+    let exitDetail: string | undefined;
     const started = run.runtime.clock.elapsed();
     const spentMs = (): number => Math.max(0, Math.round(run.runtime.clock.elapsed() - started));
     for (const call of step.run) {
@@ -157,6 +158,7 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
         await savePayload(run.runtime.fs, run.dir, chainKey(view.chainIds), payloadKey(call), result.payload ?? '');
         Object.assign(record, result.record);
         if (result.exit !== undefined) exit = result.exit;
+        if (result.exitDetail !== undefined) exitDetail = result.exitDetail;
         continue;
       }
       if (result.state === 'raise') {
@@ -173,7 +175,7 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
       return failure(run, step, { code: 'route-produces-missing', message: `Step ${step.id} ran but did not record ${names.join(', ')}.`, recoverable: false }, spentMs());
     }
     await append(run, { ...record, kind: 'step', step: step.id, actor: 'code', status: 'completed', cause: run.cause, ms: spentMs(), ...(exit === undefined ? {} : { exit }) });
-    if (exit !== undefined) await exitRoute(run, exit);
+    if (exit !== undefined) await exitRoute(run, exit, exitDetail);
     return null;
   }
 

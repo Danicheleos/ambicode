@@ -14,6 +14,7 @@ import { contentHash } from '#util/hash';
 import { endRoute, markStepDelivered } from '../session/active-route.ts';
 import { exitRoute, recordDefaultFlag, recordFlagAnswer, recordHookAnswer, reviseTo } from '../gates/answers.ts';
 import { checkOwner, commandContext, ledgerUnreadable, readEntries } from './context.ts';
+import { continuedTask } from './plan-task.ts';
 import { canonicalArgs } from '../definition/flags.ts';
 import { buildChain, exitOf, foldRoute, latestRouteOf, liveHeads, openPrint, windowOf } from './fold.ts';
 import { dismissedGate, stopHook } from './stop.ts';
@@ -162,7 +163,8 @@ export function createEngine(deps: EngineDeps): Engine {
 
     const planFile = input.fromDraft ?? input.plan;
     const planTask = planFile === undefined ? undefined : /(?:^|[\\/])\.ambicode[\\/]task[\\/]([^\\/]+)[\\/][^\\/]+$/.exec(planFile)?.[1];
-    let slug = input.task ?? planTask ?? (input.skill === 'init' ? `init-${now().toISOString().slice(0, 10)}` : (mintTaskSlug([...input.requirements, input.text].join(' ')) ?? `task-${contentHash(`${input.cwd}${now().toISOString()}`).slice(7, 15)}`));
+    const continued = input.task === undefined && planTask === undefined && input.skill === 'task' ? await continuedTask(rt, input.text) : null;
+    let slug = input.task ?? planTask ?? continued ?? (input.skill === 'init' ? `init-${now().toISOString().slice(0, 10)}` : (mintTaskSlug([...input.requirements, input.text].join(' ')) ?? `task-${contentHash(`${input.cwd}${now().toISOString()}`).slice(7, 15)}`));
     const derived = await resolveTaskDir(rt, slug);
     const reopen = await resolveReopen(rt, { skill: def.skill, session: input.session, repositoryRoot: derived.repositoryRoot, ...(input.task === undefined ? {} : { task: input.task }), slug, adopt: input.adopt === true, fresh: input.fresh === true }, (task) => readEntries(rt, task));
     const derivedSlug = slug;

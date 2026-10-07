@@ -163,8 +163,6 @@ export function scoreWithAnalysis(results, analysis) {
     // An answer without a `Files` heading is scored whole, so every path it mentions counts as named.
     const sectioned = scored.filter((r) => typeof r.sectioned === 'boolean');
     if (sectioned.length) out.sectioned = sectioned.filter((r) => r.sectioned).length;
-    for (const g of ['plugin-fired', 'helper-ran'])
-      if (rows.some((r) => g in r.graders)) out[g] = rows.filter((r) => r.graders[g]).length;
     // An untraced run is left out of these counts and shown in `traced`, not counted as a run that did nothing.
     const traced = rows.filter((r) => r.trace);
     out.traced = traced.length;
@@ -216,14 +214,20 @@ export function scoreWithAnalysis(results, analysis) {
   return { runs, arms: Object.fromEntries(Object.entries(groups).sort().map(([k, rows]) => [k, summarize(rows)])) };
 }
 
-/** Mean recall of the bare model per case name, from a naked-baseline result: the input of discrimination-ranked `select`. */
-export function bareRecallByCase(baseline) {
+/** Mean of a run metric per case name for the naked arm of a baseline result. */
+function bareMeanByCase(baseline, metric) {
   const arm = baseline.suite?.plugins?.[0]?.name === NAKED_PLUGIN ? 'with' : 'without';
   const byCase = new Map();
   for (const r of scoreWithAnalysis(baseline, createAnalysis()).runs)
-    if (r.arm === arm && !r.absent && typeof r.recall === 'number') byCase.set(r.case, [...(byCase.get(r.case) ?? []), r.recall]);
+    if (r.arm === arm && !r.absent && typeof r[metric] === 'number') byCase.set(r.case, [...(byCase.get(r.case) ?? []), r[metric]]);
   return new Map([...byCase].map(([name, values]) => [name, values.reduce((a, b) => a + b, 0) / values.length]));
 }
+
+/** Mean recall of the bare model per case name, from a naked-baseline result: the input of discrimination-ranked `select`. */
+export const bareRecallByCase = (baseline) => bareMeanByCase(baseline, 'recall');
+
+/** Mean precision of the bare model per case name: the tie-break of discrimination-ranked `select`. */
+export const barePrecisionByCase = (baseline) => bareMeanByCase(baseline, 'precision');
 
 export const servedPromptLine = (results) =>
   ({ with: `with (${WITH_PROMPT}; promptMarkdown records the naked ${PROMPT})`, naked: `naked (${PROMPT})` })[results.suite?.servedPrompt] ??

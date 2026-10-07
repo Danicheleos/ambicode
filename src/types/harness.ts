@@ -284,7 +284,7 @@ export interface HandlerInput {
  * makes an approval revise that step; the print stays open at the running one.
  */
 export type HandlerResult =
-  | { state: 'ok'; payload: string | null; record?: Readonly<Record<string, unknown>>; exit?: string }
+  | { state: 'ok'; payload: string | null; record?: Readonly<Record<string, unknown>>; exit?: string; exitDetail?: string }
   | { state: 'failed'; code: string; message: string; recoverable: boolean; revise?: { args: Readonly<Record<string, readonly string[]>>; lastRound?: string } }
   | { state: 'raise'; gate: string; values: Readonly<Record<string, readonly string[]>>; raisedBy?: string };
 

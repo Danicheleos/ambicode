@@ -92,7 +92,7 @@ describe('06-H1/06-H2 plan route integration on ts-feature-boundary', () => {
 
       const failing = await check(body('src/invoices/service.ts:30'));
       assert.equal(failing.failed, true);
-      assert.match(failing.next ?? '', /## Bad anchors\nsrc\/invoices\/service\.ts:30 line-out-of-range/);
+      assert.match(failing.next ?? '', /Plan check FAILED: 1 bad anchors/);
       const passing = await check(body('src/invoices/service.ts:3-6'));
       assert.equal(passing.failed, false);
       assert.match(passing.next ?? '', /Revise \(3 left\)/);

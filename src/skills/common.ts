@@ -4,6 +4,8 @@ import { rankTerms, buildMap, leadsText, resolveLayers, resolveTuning } from '#m
 import { pathsCitedIn, symbolsCitedIn } from '#modules/search/text/seed';
 import { seedTextOf } from './brief.ts';
 import { loadConfigWithNotices } from '#modules/config/load';
+import { readLedgerStrict } from '#platform/ledger/ledger';
+import path from 'node:path';
 import type { AmbicodeConfig, ProjectConfig } from '#types/modules/config';
 import { Activity } from '#types/primitives';
 import { policyStage } from '#modules/policy/stage';
@@ -13,12 +15,18 @@ import { observedTools } from '#modules/requirements/capture/binding';
 import { requirementsTemplate } from '#modules/requirements/capture/template';
 import { AmbicodeError } from '#util/errors';
 import { latestBound } from '#harness/engine/fold';
-import { onRaisedAnswer } from '#harness/gates/gates';
+import { onGatePrint, onRaisedAnswer } from '#harness/gates/gates';
 import { CONFLICT_GATE, recordGoverning } from '#modules/requirements/envelope/conflict';
 import type { Runtime } from '#types/composition';
 import type { LedgerEntry } from '#types/modules/evidence';
 import type { Handler, HandlerInput, HandlerResult } from '#types/harness';
 import type { EnvelopeSource } from '#types/modules/requirements';
+
+onGatePrint('project-ambiguous', async ({ task, chain }) => {
+  const head = chain.findLast((entry) => entry.kind === 'route');
+  if (head?.['channel'] !== 'cli') return null;
+  return { line: `The user's prompt did not start this route, so no hook records their answer. Ask the user which project with AskUserQuestion and wait for the reply; do not run route next before it. Then run: route next --task ${task} --project <id>` };
+});
 
 onRaisedAnswer(CONFLICT_GATE, async (input) => void (await recordGoverning(input)));
 
@@ -41,10 +49,29 @@ const failed = (error: unknown): HandlerResult => {
   throw error;
 };
 
+/** The project this harness session already chose in another task, so a later route in the session does not ask again. */
+async function sessionProject(input: HandlerInput, config: AmbicodeConfig): Promise<string | null> {
+  if (config.projects.length < 2) return null;
+  const tasks = path.dirname(input.dir.root);
+  const names = (await input.runtime.fs.readdir(tasks).catch(() => [])).filter((entry) => entry.isDirectory() && entry.name !== input.view.task).map((entry) => entry.name);
+  let found: { at: string; project: string } | null = null;
+  for (const name of names) {
+    const read = await readLedgerStrict(input.runtime.fs, path.join(tasks, name));
+    if (read.state !== 'ok') continue;
+    const mine = new Set(read.entries.filter((entry) => entry.kind === 'route' && entry['session'] === input.view.session).map((entry) => String(entry['id'] ?? '')));
+    for (const entry of read.entries) {
+      const answer = String(entry['answer'] ?? '');
+      if (entry.kind === 'acceptance' && entry['gate'] === 'project-ambiguous' && mine.has(String(entry['route'])) && config.projects.some((project) => project.id === answer) && (found === null || entry.at > found.at)) found = { at: entry.at, project: answer };
+    }
+  }
+  return found?.project ?? null;
+}
+
 /** The project the route works in: the one its args name, the only one, or the user's answer to `project-ambiguous`. */
 export async function projectOf(input: HandlerInput, config: AmbicodeConfig): Promise<ProjectConfig | HandlerResult> {
   const answered = latestBound(await chainEntries(input), 'project-ambiguous');
-  const requested = input.args.project ?? (answered !== null && answered['answer'] !== 'stop' ? String(answered['answer']) : null);
+  const chosen = answered !== null && answered['answer'] !== 'stop' ? String(answered['answer']) : null;
+  const requested = input.args.project ?? chosen ?? (await sessionProject(input, config));
   try {
     return projectForRequest(config, requested, []);
   } catch (error) {

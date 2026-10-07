@@ -1,6 +1,6 @@
 import { AmbicodeError } from '#util/errors';
 import { askedCount, executions, foldRoute, humanRevisesLeft, modelDeliveries, printsOf, sinceReopen, unconsumedPreanswer, windowOf } from '../engine/fold.ts';
-import { raisedAnswerHandler, offersOption, shapePrint } from './gates.ts';
+import { raisedAnswerHandler, offersOption, shapePrint, stripRecommended } from './gates.ts';
 import { append, chainOf, gateFor, latestPrint, objectOf, viewFor } from '../engine/run-context.ts';
 import type { ArtifactRef, LedgerEntry } from '#types/modules/evidence';
 import { RAISED_BY, type Answer, type Exit, type GateDef, type Revise } from '#types/harness';
@@ -108,7 +108,8 @@ const unknownGate = (run: Run, gate: string): AmbicodeError =>
   });
 
 /** `route next --answer <gate>=<option>`: a model-typed answer. It selects a non-acting option and never authorizes (03-G1). */
-export async function recordFlagAnswer(run: Run, answer: Answer): Promise<void> {
+export async function recordFlagAnswer(run: Run, given: Answer): Promise<void> {
+  const answer = { ...given, option: stripRecommended(given.option) };
   const window = gateWindow(run, answer.gate);
   const print = latestPrint(window, answer.gate);
   const gate = gateFor(run, answer.gate, print);
@@ -144,7 +145,8 @@ export async function recordDefaultFlag(run: Run, gateId: string): Promise<void>
 }
 
 /** A hook answer binds to the exact printed instance in this chain or it is unbound and changes nothing (03-G4, 03-G6). */
-export async function recordHookAnswer(run: Run, answer: Answer & { question?: string }): Promise<void> {
+export async function recordHookAnswer(run: Run, given: Answer & { question?: string }): Promise<void> {
+  const answer = { ...given, option: stripRecommended(given.option) };
   const unbound = (reason: string): Promise<LedgerEntry> =>
     append(run, { kind: 'declined', gate: answer.gate, instance: null, answer: answer.option, via: 'hook', unbound: true, reason });
   const chain = chainOf(run).entries;
@@ -207,7 +209,7 @@ export async function serviceGate(run: Run, gate: GateDef, stepId: string): Prom
   const preanswer = run.deliverOnly ? null : unconsumedPreanswer(chainOf(run).entries, gate.id);
   if (preanswer !== null) {
     const print = await newPrint();
-    const option = String(preanswer['option']);
+    const option = stripRecommended(String(preanswer['option']));
     if (!offersOption(gate.id, (print['options'] as string[] | undefined) ?? gate.options, option)) {
       await append(run, { kind: 'declined', gate: gate.id, instance: print.id, answer: option, via: 'prompt', reason: 'option-not-offered', preanswer: preanswer.id });
     } else {

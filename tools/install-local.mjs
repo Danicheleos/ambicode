@@ -1,7 +1,7 @@
 // Claude Code loads a local-directory marketplace source in place, so the marketplace
 // lives durably under <config-dir>/ambicode-install/, removed only by a successful uninstall.
 // Usage: install <candidate-dir> | uninstall | inspect  [--config-dir] [--scope user|project|local] [--project-dir]
-import { execaSync } from 'execa';
+import { spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { cp, mkdir, open, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -361,17 +361,16 @@ function describe(cause) {
 
 /** Never throws: a failing native command is data, so callers decide what a failure means. */
 function runClaude(args, { configDir, projectDir }) {
-  const result = execaSync('claude', args, {
-    cwd: projectDir ?? undefined,
-    env: { ...process.env, CLAUDE_CONFIG_DIR: configDir },
-    encoding: 'utf8',
-    stdin: 'ignore',
-    reject: false,
-  });
+  return claudeSync(args, { cwd: projectDir ?? undefined, env: { ...process.env, CLAUDE_CONFIG_DIR: configDir } });
+}
+
+/** `claude` is a `.cmd` shim on Windows, which only a shell can start. */
+function claudeSync(args, options = {}) {
+  const result = spawnSync('claude', args, { ...options, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], shell: process.platform === 'win32' });
   return {
-    ok: result.exitCode === 0 && !result.failed,
-    stdout: typeof result.stdout === 'string' ? result.stdout : '',
-    stderr: typeof result.stderr === 'string' ? result.stderr : (result.shortMessage ?? result.message ?? ''),
+    ok: result.status === 0 && result.error === undefined,
+    stdout: result.stdout ?? '',
+    stderr: result.error === undefined ? (result.stderr ?? '') : result.error.message,
   };
 }
 
@@ -438,16 +437,7 @@ export function createRealNativeCommands() {
     },
     /** `--strict` treats warnings as failures too. */
     pluginValidateStrict(pluginDir) {
-      const result = execaSync('claude', ['plugin', 'validate', pluginDir, '--strict', '--json'], {
-        encoding: 'utf8',
-        stdin: 'ignore',
-        reject: false,
-      });
-      const r = {
-        ok: result.exitCode === 0 && !result.failed,
-        stdout: typeof result.stdout === 'string' ? result.stdout : '',
-        stderr: typeof result.stderr === 'string' ? result.stderr : (result.shortMessage ?? result.message ?? ''),
-      };
+      const r = claudeSync(['plugin', 'validate', pluginDir, '--strict', '--json']);
       let report = null;
       try {
         report = JSON.parse(r.stdout);

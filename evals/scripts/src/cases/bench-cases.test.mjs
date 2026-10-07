@@ -1,6 +1,6 @@
 // Regression assertions moved intact from the approved harness suite.
 import { describe, it, before, after } from 'node:test';
-import { parseTicket, codeRoot, generate, localizeHardness, changedLines, reviewSubstance, SELECT } from './bench-cases.mjs';
+import { parseTicket, codeRoot, generate, localizeHardness, changedLines, reviewSubstance, defectThreads, SELECT, ticketOverlap, DUPLICATE_TICKET_OVERLAP, rankLocalize } from './bench-cases.mjs';
 import { ticket, CHANGE, frontmatter, syntheticBenchmarks, tally, syntheticPlugin } from '../testing/bench-test-fixtures.mjs';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync, readFileSync, existsSync } from 'node:fs';
@@ -281,7 +281,7 @@ describe('evals-bench: curated selection without twins', () => {
   it('selects 18 cases, 10 localize and 8 review, with no forced twin', () => {
     const benchmarks = syntheticBenchmarks(root);
     const out = path.join(root, 'cases');
-    const { written } = generate({ benchmarks, out, pick: { localize: SELECT.localize, review: SELECT.review } });
+    const { written } = generate({ benchmarks, out, pick: { localize: 5, review: 4 } });
     assert.equal(written.length, 18);
     assert.deepEqual(tally(written.map((w) => w.kind)), { localize: 10, review: 8 });
     assert.ok(!readdirSync(out).some((n) => n.endsWith('-forced')));
@@ -357,8 +357,42 @@ describe('evals-bench: select by discrimination', () => {
     assert.deepEqual(s.localize.chosen.map((c) => c.name), ['side-t-mid']);
   });
 
-  it('keeps review versions with at least three threads and one version per merge request', () => {
+  it('keeps one of two localize tickets that share their words, the harder first', () => {
+    const s = pickWith(new Map([['side-t-mid', 0.5], ['side-t-new', 0.5]]));
+    assert.equal(s.localize.chosen.length, 1);
+  });
+
+  it('ranks by least bare recall, then least bare precision, when a baseline is given', () => {
+    const c = (name) => ({ plan: { name, truth: [], text: '' }, hardness: 0 });
+    const pick = { bare: new Map([['a', 0.5], ['b', 0.3], ['c', 0.3]]), barePrecision: new Map([['a', 0.1], ['b', 0.8], ['c', 0.4]]) };
+    assert.deepEqual([c('a'), c('b'), c('c')].sort(rankLocalize(pick)).map((x) => x.plan.name), ['c', 'b', 'a']);
+  });
+
+  it('scores identical tickets 1 and disjoint ones below the duplicate overlap', () => {
+    assert.equal(ticketOverlap('alpha bravo charlie delta', 'alpha bravo charlie delta'), 1);
+    assert.ok(ticketOverlap('alpha bravo charlie delta', 'echo foxtrot golf hotel') < DUPLICATE_TICKET_OVERLAP);
+  });
+
+  it('keeps review versions with a thread and one version per merge request', () => {
     const s = pickWith(new Map());
-    assert.deepEqual(s.review.chosen.map((c) => c.name), ['side-t-mid-review-5-bbbbbbbb']);
+    assert.deepEqual(s.review.chosen.map((c) => c.name).sort(), ['side-t-mid-review-5-bbbbbbbb', 'side-t-mid-review-6-cccccccc']);
+  });
+
+  it('with labels, a review case keeps only the defect threads and a version with none is refused', () => {
+    const labels = path.join(benchmarks, 'thread-classes.json');
+    writeFileSync(labels, JSON.stringify({ 'SIDE/T-MID/6-cccccccc#1': { label: 'defect' }, 'SIDE/T-MID/6-cccccccc#0': { label: 'opinion' }, 'SIDE/T-MID/5-bbbbbbbb#0': { label: 'opinion' } }));
+    try {
+      const s = pickWith(new Map());
+      assert.deepEqual(s.review.chosen.map((c) => [c.name, c.threads]), [['side-t-mid-review-6-cccccccc', 1]]);
+      assert.equal(readFileSync(path.join(base, 'out', 'side-t-mid-review-6-cccccccc', 'graders', 'raises-01.md'), 'utf8').includes('comment 1'), true);
+    } finally {
+      rmSync(labels);
+    }
+  });
+
+  it('defectThreads keeps every thread without labels and drops the unlabelled ones with labels', () => {
+    const threads = [{ body: 'a' }, { body: 'b' }, { body: 'c' }];
+    assert.deepEqual(defectThreads(threads, 'S/T/1', null), threads);
+    assert.deepEqual(defectThreads(threads, 'S/T/1', { 'S/T/1#0': { label: 'opinion' }, 'S/T/1#2': { label: 'defect' } }), [{ body: 'c' }]);
   });
 });

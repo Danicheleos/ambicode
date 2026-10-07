@@ -227,7 +227,7 @@ export type FetchedContent =
   | { kind: 'text'; text: string }
   | { kind: 'binary' }
   | { kind: 'symlink' }
-  | { kind: 'too-large'; bytes: number }
+  | { kind: 'too-large'; bytes: number; text?: string }
   | { kind: 'unavailable'; reason: string };
 
 export interface RemoteFetchedFile {

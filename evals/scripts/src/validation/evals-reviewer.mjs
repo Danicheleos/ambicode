@@ -26,14 +26,17 @@ const AMBICODE_TIMEOUT_MS = (DEFAULTS.review.timeoutSeconds + 300) * 1000;
 // to review", not an untested empty-prompt edge of the CLI.
 const PLAIN_SYSTEM_PROMPT = 'You are reviewing a code change for its author.';
 
+const isBenchReview = (scaffoldSource) => scaffoldSource.includes('ambicode-evals-assets/benchmarks/');
+
 export async function loadScaffolds(evalsDirectory = EVALS) {
   const scaffolds = [];
   for (const entry of await readdir(evalsDirectory, { withFileTypes: true })) {
-    if (!entry.isDirectory() || entry.name === 'results') continue;
+    if (!entry.isDirectory() || entry.name === 'results' || entry.name.startsWith('.')) continue;
     const directory = path.join(evalsDirectory, entry.name);
     const source = await readFile(path.join(directory, 'scaffold.sh'), 'utf8');
     const fixture = /materialize\.mjs" ([a-z0-9-]+)/.exec(source)?.[1];
-    if (!fixture) throw new Error(`${entry.name}/scaffold.sh materializes no fixture`);
+    // Curated benchmark cases scaffold from a checked-out project, not a fixture.
+    if (!fixture && !isBenchReview(source)) throw new Error(`${entry.name}/scaffold.sh materializes no fixture`);
     scaffolds.push({ name: entry.name, directory, source, fixture });
   }
   return scaffolds;
@@ -43,7 +46,7 @@ async function reviewCases(evalsDirectory, only) {
   const cases = [];
   for (const scaffold of await loadScaffolds(evalsDirectory)) {
     const fired = await readFile(path.join(scaffold.directory, 'graders', 'plugin-fired.md'), 'utf8').catch(() => '');
-    if (!fired.includes('"ambicode:review"')) continue;
+    if (!fired.includes('"ambicode:review"') && !(isBenchReview(scaffold.source) && scaffold.name.includes('-review-'))) continue;
     if (only.length > 0 && !only.includes(scaffold.name)) continue;
     const prompt = await readFile(path.join(scaffold.directory, 'prompt.md'), 'utf8');
     const body = /^---\n[\s\S]*?\n---\n([\s\S]*)$/.exec(prompt)?.[1]?.trim();
@@ -260,15 +263,27 @@ export async function record(resultsDirectory, { evalsDirectory = EVALS } = {}) 
   const recordings = [];
   const refused = [];
   for (const evalCase of await reviewCases(evalsDirectory, [])) {
-    const chosen = results.results
+    const answered = results.results
       .filter((r) => r.case === evalCase.name && r.arm === 'ambicode' && r.status === 'ok')
-      .sort((a, b) => a.run - b.run)[0];
+      .sort((a, b) => a.run - b.run);
+    const chosen = answered[0];
     if (chosen === undefined) {
       refused.push(`${evalCase.name}: no ambicode run answered`);
       continue;
     }
     const rawPath = path.join(resultsDirectory, chosen.raw);
     const recorded = JSON.parse(await readFile(rawPath, 'utf8')).stdout.result;
+    // One sample of a reviewer is one draw of its findings; the union of every answered run is the recording, so
+    // the replay's recall does not hang on which draw was kept. The first run's bundle fields are the ones checked.
+    const found = new Map();
+    for (const run of answered) {
+      const result = JSON.parse(await readFile(path.join(resultsDirectory, run.raw), 'utf8')).stdout.result;
+      for (const finding of result.findings) {
+        const { location } = finding;
+        const key = `${location.newPath ?? location.oldPath}:${location.side}:${location.line}`;
+        if (!found.has(key)) found.set(key, finding);
+      }
+    }
     const fresh = await withScaffold(evalCase, async (directory, evidence) => ambicodeJson(directory, evidence, 'bundle'));
     const now = fresh.output?.result;
     if (now === undefined) {
@@ -296,8 +311,8 @@ export async function record(resultsDirectory, { evalsDirectory = EVALS } = {}) 
       snapshotId: now.target.snapshotId,
       case: evalCase.name,
       model: recorded.reviewer.model,
-      recordedFrom: path.relative(ROOT, rawPath),
-      output: { findings: recorded.findings.map(reviewerFinding), coverageNotes: recorded.omissions.slice(before.length) },
+      recordedFrom: answered.length > 1 ? `${answered.length} runs: ${answered.map((run) => path.relative(ROOT, path.join(resultsDirectory, run.raw))).join(', ')}` : path.relative(ROOT, rawPath),
+      output: { findings: [...found.values()].map(reviewerFinding), coverageNotes: recorded.omissions.slice(before.length) },
     });
   }
   const document = { schemaVersion: 1, recordings };
@@ -370,7 +385,7 @@ function report(results) {
 }
 
 function parseArgs(argv) {
-  const options = { runs: 3, cases: [], evals: EVALS, out: null, seed: null, model: DEFAULTS.review.model };
+  const options = { runs: 3, cases: [], evals: EVALS, out: null, seed: null, model: DEFAULTS.review.model, arms: [] };
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
     const value = () => {
@@ -384,8 +399,10 @@ function parseArgs(argv) {
     else if (flag === '--out') options.out = path.resolve(value());
     else if (flag === '--seed') options.seed = Number(value());
     else if (flag === '--model') options.model = value();
+    else if (flag === '--arm') options.arms.push(value());
     else throw new Error(`unknown option ${flag}`);
   }
+  if (options.arms.some((arm) => !ARMS.includes(arm))) throw new Error(`--arm must be one of ${ARMS.join(', ')}`);
   if (!Number.isInteger(options.runs) || options.runs < 1) throw new Error('--runs must be a positive integer');
   if (options.seed !== null && !Number.isInteger(options.seed)) throw new Error('--seed must be an integer');
   return options;
@@ -420,7 +437,8 @@ export async function main(argv) {
 
   for (let run = 1; run <= options.runs; run += 1) {
     // Alternated, so neither arm always runs first against a warm cache.
-    const arms = run % 2 === 1 ? ARMS : [...ARMS].reverse();
+    const chosen = options.arms.length > 0 ? ARMS.filter((arm) => options.arms.includes(arm)) : ARMS;
+    const arms = run % 2 === 1 ? chosen : [...chosen].reverse();
     for (const evalCase of cases) {
       for (const arm of arms) {
         process.stderr.write(`${evalCase.name} ${arm} run ${run}/${options.runs}… `);

@@ -41,11 +41,19 @@ const processAlive = (pid: number): boolean => {
 const oneLine = (text: string, limit: number): string => text.replace(/\s+/g, ' ').trim().slice(0, limit);
 const lastLine = (text: string): string => text.trim().split(/\r?\n/).pop() ?? '';
 
-/** `node_modules/.bin` of the repository, then the first `PATH` entry holding the binary (05-A3). */
+/** The copy shipped in the plugin, then `node_modules/.bin` of the repository, then the first `PATH` entry holding the binary (05-A3). */
 const resolveBinary = (deps: IndexDeps): Promise<string | null> => findCodeindex(deps.runtime, deps.repositoryRoot);
+
+/** The shipped copy's Node entry, relative to the plugin root. */
+export const VENDORED_CODEINDEX = path.join('vendor', 'codeindex', 'scripts', 'cli.mjs');
+
+/** What to spawn for a located binary: the vendored `.mjs` entry runs under the current Node. */
+export const codeindexCommand = (binary: string): string[] => (binary.endsWith('.mjs') ? [process.execPath, binary] : [binary]);
 
 export async function findCodeindex(runtime: Runtime, repositoryRoot: string): Promise<string | null> {
   const deps = { runtime, repositoryRoot };
+  const vendored = path.join(runtime.pluginRoot, VENDORED_CODEINDEX);
+  if (await runtime.fs.exists(vendored)) return vendored;
   const names = process.platform === 'win32' ? ['codeindex.cmd', 'codeindex'] : ['codeindex'];
   const directories = [path.join(deps.repositoryRoot, 'node_modules', '.bin'), ...(deps.runtime.env['PATH'] ?? '').split(path.delimiter).filter((entry) => entry !== '')];
   for (const directory of directories) {
@@ -89,7 +97,7 @@ export function codeindexAdapter(deps: IndexDeps, project: ProjectConfig): Index
   /** The binary, or the error status for its absence or for a project init measured as holding no indexable file (05-A8). */
   async function prerequisites(): Promise<{ binary: string } | { status: IndexStatus }> {
     const binary = await resolveBinary(deps);
-    if (binary === null) return { status: indexStatus('codeindex', 'error', null, 'codeindex not found (node_modules/.bin or PATH)') };
+    if (binary === null) return { status: indexStatus('codeindex', 'error', null, 'codeindex not found (plugin vendor/, node_modules/.bin or PATH)') };
     if (profileOf(project).index?.files === 0) return { status: indexStatus('codeindex', 'error', null, 'codeindex indexes no file of this project') };
     return { binary };
   }
@@ -147,7 +155,7 @@ export function codeindexAdapter(deps: IndexDeps, project: ProjectConfig): Index
   const status = (): Promise<IndexStatus> => (known ??= computeStatus());
 
   async function run(binary: string, argv: readonly string[], timeoutMs: number): Promise<ProcessOutcome> {
-    return deps.runtime.runner.run({ argv: [binary, ...argv], cwd, timeoutMs, maxOutputBytes: QUERY_MAX_OUTPUT_BYTES, env: { kind: 'inherited' }, purpose: 'index' });
+    return deps.runtime.runner.run({ argv: [...codeindexCommand(binary), ...argv], cwd, timeoutMs, maxOutputBytes: QUERY_MAX_OUTPUT_BYTES, env: { kind: 'inherited' }, purpose: 'index' });
   }
 
   /** Never throws: a failed query is an error status the caller falls back from (05-A6, 05-A7). */
@@ -156,7 +164,7 @@ export function codeindexAdapter(deps: IndexDeps, project: ProjectConfig): Index
     if (current.state !== 'fresh' && current.state !== 'stale') return { ok: false, status: current };
     const binary = await resolveBinary(deps);
     const failed = (reason: string): IndexAnswer<T> => ({ ok: false, status: { ...current, state: 'error', fresh: false, reason: oneLine(reason, 200) } });
-    if (binary === null) return failed('codeindex not found (node_modules/.bin or PATH)');
+    if (binary === null) return failed('codeindex not found (plugin vendor/, node_modules/.bin or PATH)');
     const parsed: unknown[] = [];
     for (const argv of argvs) {
       const outcome = await run(binary, argv, QUERY_TIMEOUT_MS);
@@ -254,7 +262,7 @@ export async function runIndexBuild(deps: IndexDeps, project: ProjectConfig): Pr
   const adapter = indexAdapterFor(deps, project);
   if (adapter.name === 'none') return adapter.status(project);
   const current = await adapter.status(project);
-  if (current.state === 'error') throw new AmbicodeError('index-unavailable', `The index cannot be built: ${current.reason ?? 'unknown'}.`, { details: ['Install codeindex in the project or on PATH, or set search.index: none.'] });
+  if (current.state === 'error') throw new AmbicodeError('index-unavailable', `The index cannot be built: ${current.reason ?? 'unknown'}.`, { details: ['Run `npm run vendor:codeindex` (plugin checkout), or install codeindex on PATH, or set search.index: none.'] });
   if (deps.indexDir === undefined && !(await deps.git.isIgnored(`${INDEX_DIR}/`))) {
     throw new AmbicodeError('index-not-ignored', `${INDEX_DIR}/ is not ignored by git.`, { details: [`Add ${INDEX_DIR}/ to .gitignore; init --apply writes it on acceptance.`] });
   }

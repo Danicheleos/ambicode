@@ -227,7 +227,7 @@ describe('U24 a newer page takes over the fixed port', () => {
         headers: { host: AUTHORITY },
       });
       const signed = bootstrap.cookies.find((cookie) => cookie.name === 'ambicode_session')?.value ?? '';
-      const session = harness.server.sessions.get(harness.server.app.unsignCookie(signed).value ?? undefined);
+      const session = harness.server.sessions.get(harness.server.unsignCookie(signed).value ?? undefined);
       assert.ok(session);
       harness.server.sessions.beginSubmission(session, 'sub-1');
       const busy = await takeover(harness, TOKEN);

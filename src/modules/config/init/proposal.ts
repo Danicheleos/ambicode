@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { parseDocument } from 'yaml';
 import { openRepository } from '#platform/git/open';
-import { findCodeindex } from '#modules/search/code-index/codeindex';
+import { codeindexCommand, findCodeindex } from '#modules/search/code-index/codeindex';
 import { buildProfile } from '#modules/search/declarations/profile';
 import type { SearchProfile, SetPair, SetValue, InitProposal } from '#types/modules/config';
 import { AmbicodeError } from '#util/errors';
@@ -81,7 +81,7 @@ export async function buildProposal(runtime: Runtime, repositoryRoot: string, ov
   const profiles = new Map<string, SearchProfile>();
   for (const root of detected.length === 0 ? [''] : detected.map((project) => normalizeRelative(project.root))) {
     const profile = await buildProfile({ ...runtime, cwd: repositoryRoot }, { root: root === '' ? '.' : root });
-    const scanned = binary === null ? null : await scanCodeindex(runtime, binary, path.join(repositoryRoot, root === '' ? '.' : root));
+    const scanned = binary === null ? null : await scanCodeindex(runtime, codeindexCommand(binary), path.join(repositoryRoot, root === '' ? '.' : root));
     profiles.set(root, scanned === null ? profile : { ...profile, index: { tool: 'codeindex', ...scanned } });
   }
   const planned: Omit<PlanInitOptions, 'fs' | 'overrides'> = {

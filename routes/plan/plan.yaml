@@ -36,7 +36,6 @@ steps:
     actor: code
     run: ["evidence.notes.save(plan-draft, from: steps/plan-body.md)", workers.planCheck]
     produces: ["note{plan-draft}", worker]
-    onFail: revise plan-write                     # bounded by plan-write's repeat (3), not by this step's
   - id: plan-accept
     actor: human
     gate:
