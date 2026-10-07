@@ -6,9 +6,10 @@ import { appendFileSync, cpSync, existsSync, linkSync, mkdirSync, readdirSync, r
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
-import { BARE_RECALL_FILE, BENCHMARKS, CASES_DIRECTORY, CURATED_CASES, CURATED_EVAL_DIR, NAKED_PLUGIN, REPLAY_REPORTS, ROOT } from '../shared/bench-paths.mjs';
+import { BASELINE_LOCK_FILE, BENCHMARKS, CASES_DIRECTORY, CURATED_CASES, CURATED_EVAL_DIR, NAKED_PLUGIN, REPLAY_REPORTS, ROOT } from '../shared/bench-paths.mjs';
 import { generate, refuseLegacyTwins, SELECT } from '../cases/bench-cases.mjs';
-import { barePrecisionByCase, bareRecallByCase, score, withBaseline } from '../analysis/bench-score.mjs';
+import { score } from '../analysis/bench-score.mjs';
+import { attachBaseline, bareRates, readBaselineLock, writeBaselineLock } from '../analysis/baseline-lock.mjs';
 import { walkReport } from '../analysis/bench-walk.mjs';
 import { casesLockStatus, lockCases, unlockCases } from './cases-lock.mjs';
 import { LEDGER_DIRECTORY, tally } from '../analysis/ledger-metrics.mjs';
@@ -16,7 +17,10 @@ import { atomicWrite, FRONT_MATTER, GENERATION_MARKER, NAKED_COPY, outstandingSw
 import { FORCED_REMOVED, harnessArgv, parseRunOptions, PATH_OPTIONS, resultLayout, runSpec } from './run-options.mjs';
 import { trackSweep } from './sweep-events.mjs';
 import { dryRunArgs, DEFAULT_RECORDINGS, replaySummary, reviewCaseNames, tuningSummaryOf } from '../analysis/model-free-runners.mjs';
-import { harvestTraces, harvestedOfResult, removeSandboxes, sandboxIdsOfResult } from '../analysis/trace-analysis.mjs';
+import { EXPORT_DIRECTORY, harvestTraces, harvestedOfResult, removeSandboxes, sandboxIdsOfResult } from '../analysis/trace-analysis.mjs';
+
+// The Stop hook's variable (src/harness/engine/stop.ts): the EVAL_AMBICODE_ prefix is the one the reviewer replay already reaches the sandbox with.
+const EVAL_EXPORT_VARIABLE = 'EVAL_AMBICODE_EXPORT';
 
 // Existing consumers can still import the approved APIs from the CLI.
 export * from '../shared/bench-paths.mjs';
@@ -83,7 +87,7 @@ function logIteration(iteration, written, { status, traces }) {
 function writeWalk(jsonPath, { tracesDir }) {
   const out = walkPathOf(jsonPath);
   mkdirSync(path.dirname(out), { recursive: true });
-  writeFileSync(out, walkReport(JSON.parse(readFileSync(jsonPath, 'utf8')), { tracesDir, source: path.basename(jsonPath) }));
+  writeFileSync(out, walkReport(attachBaseline(JSON.parse(readFileSync(jsonPath, 'utf8'))), { tracesDir, source: path.basename(jsonPath) }));
   return out;
 }
 
@@ -270,8 +274,8 @@ function publishNew(target, { from, text }) {
   }
 }
 
-function spawnClaude(argv) {
-  const child = spawn('claude', argv, { stdio: 'inherit' });
+function spawnClaude(argv, { env = {} } = {}) {
+  const child = spawn('claude', argv, { stdio: 'inherit', env: { ...process.env, ...env } });
   return new Promise((resolve) => {
     child.on('error', (error) => {
       console.error(error.message);
@@ -330,7 +334,7 @@ export async function runSweep(rest, { benchmarks = BENCHMARKS, now = new Date()
       pass(); // setInterval's first tick is a whole interval away; a short-lived sandbox would be missed.
       const timer = setInterval(pass, HARVEST_INTERVAL_MS);
       try {
-        status = await spawnRun(harnessArgv(plan, { json: reserved }));
+        status = await spawnRun(harnessArgv(plan, { json: reserved }), { env: { [EVAL_EXPORT_VARIABLE]: path.join(tracesDir, EXPORT_DIRECTORY) } });
       } finally {
         clearInterval(timer);
         tracker.finish(status);
@@ -410,7 +414,13 @@ export async function runSweep(rest, { benchmarks = BENCHMARKS, now = new Date()
   } else if (plan.walk) {
     const walk = walkPathOf(plan.json);
     mkdirSync(path.dirname(walk), { recursive: true });
-    const text = walkReport(written, { tracesDir, source: path.basename(plan.json) });
+    let compared = written;
+    try {
+      compared = attachBaseline(written);
+    } catch (error) {
+      warn(`walkthrough: written without a baseline, ${error.message}`);
+    }
+    const text = walkReport(compared, { tracesDir, source: path.basename(plan.json) });
     if (publishNew(walk, { text })) log(`walkthrough: ${walk}`);
     else {
       warn('walkthrough: skipped, a file is already at its path and is never replaced');
@@ -429,19 +439,8 @@ export async function main(argv, options = {}) {
     taken.add(i).add(i + 1);
     return rest[i + 1];
   };
-  /** `--baseline` records a naked result's per-case recall and precision in `bare-recall.json`; later selects read it back. No file, no discrimination. */
-  const bareRates = (baselineAt) => {
-    if (baselineAt !== undefined) {
-      const result = JSON.parse(readFileSync(path.resolve(baselineAt), 'utf8'));
-      const [recalls, precisions] = [bareRecallByCase(result), barePrecisionByCase(result)];
-      const sorted = (map) => Object.fromEntries([...map].sort());
-      writeFileSync(BARE_RECALL_FILE, `${JSON.stringify({ source: path.resolve(baselineAt), recalls: sorted(recalls), precisions: sorted(precisions) }, null, 2)}\n`);
-      return { bare: recalls, barePrecision: precisions };
-    }
-    if (!existsSync(BARE_RECALL_FILE)) return {};
-    const saved = JSON.parse(readFileSync(BARE_RECALL_FILE, 'utf8'));
-    return { bare: new Map(Object.entries(saved.recalls)), barePrecision: new Map(Object.entries(saved.precisions ?? {})) };
-  };
+  /** `--baseline` pins a naked result as the bare reference; later selects read the pin back. No pin, no discrimination. */
+  const lockRates = (baselineAt) => bareRates(baselineAt === undefined ? readBaselineLock() : writeBaselineLock(baselineAt));
   const benchmarksAt = option('--benchmarks');
   const benchmarks = benchmarksAt === undefined ? BENCHMARKS : path.resolve(benchmarksAt);
   if (command === 'generate' || command === 'select') {
@@ -453,7 +452,7 @@ export async function main(argv, options = {}) {
             localize: Number(option('--localize') ?? SELECT.localize),
             review: Number(option('--review') ?? SELECT.review),
             ...(rest.includes('--candidates') ? { candidates: true } : {}),
-            ...(rest.includes('--candidates') ? {} : bareRates(baselineAt)),
+            ...(rest.includes('--candidates') ? {} : lockRates(baselineAt)),
           }
         : null;
     const out = command === 'select' ? CURATED_CASES : undefined;
@@ -466,6 +465,13 @@ export async function main(argv, options = {}) {
     const bySide = {};
     for (const w of written) bySide[w.side] = (bySide[w.side] ?? 0) + 1;
     console.log(`wrote ${written.length} case(s) to ${outDir} (${Object.entries(bySide).map(([s, n]) => `${s} ${n}`).join(', ')}), refused ${refused.length}`);
+    return 0;
+  }
+  if (command === 'lock') {
+    const [file] = rest;
+    if (!file) throw new Error('usage: evals-bench.mjs lock <naked eval.json>');
+    const lock = writeBaselineLock(file);
+    console.log(`locked ${lock.source} (${Object.keys(lock.cases).length} case(s), ${lock.model ?? 'unpinned model'}, Claude Code ${lock.claudeVersion ?? 'unrecorded'}) in ${BASELINE_LOCK_FILE}`);
     return 0;
   }
   if (command === 'run') return runSweep(rest.filter((_, i) => !taken.has(i)), { benchmarks, ...options });
@@ -487,8 +493,7 @@ export async function main(argv, options = {}) {
       console.log(`walkthrough: ${writeWalk(file, { tracesDir })}`);
       return 0;
     }
-    let results = JSON.parse(readFileSync(file, 'utf8'));
-    if (baselinePath !== undefined) results = withBaseline(results, JSON.parse(readFileSync(baselinePath, 'utf8')), { baselinePath });
+    const results = attachBaseline(JSON.parse(readFileSync(file, 'utf8')), baselinePath);
     console.log(JSON.stringify(score(results, { tracesDir }).arms, null, 2));
     return 0;
   }

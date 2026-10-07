@@ -251,14 +251,20 @@ export async function dismissedGate(ports: StopPorts, input: HookInput): Promise
 interface Verdict { output: StopHookOutput | null; paused: boolean; save: { text: string; kind: RouteDef['steps'][number]; chain: readonly LedgerEntry[] } | null; head: LedgerEntry }
 
 /** Stop's three conditions, the checks they run, and the single block they may cause, all decided under one ledger lock. */
+/** A Stop that did nothing is not the same as a Stop that was never reached: the reason is left on stderr, where the session record keeps it. */
+function skipped(reason: string): null {
+  process.stderr.write(`ambicode stop: skipped, ${reason}\n`);
+  return null;
+}
+
 export async function stopHook(ports: StopPorts, input: HookInput, options: { defectBrief?: boolean } = {}): Promise<StopHookOutput | null> {
   const { runtime, pointer, routes } = ports;
   const startedAt = runtime.clock.elapsed();
   const where = await locate(ports, input);
-  if (where === null) return null;
+  if (where === null) return skipped(`no session repository from ${input.cwd ?? runtime.cwd}`);
   const { root, session, scratchpad, base, active } = where;
   const target = active ?? where.ended;
-  if (target === null) return null;
+  if (target === null) return skipped(`no route pointer for session ${session} in ${root}`);
 
   try {
     const dir = taskDirFor(root, target.task);
@@ -266,7 +272,7 @@ export async function stopHook(ports: StopPorts, input: HookInput, options: { de
       const entries = await entriesOf(ledger);
       const head = entries.find((entry) => entry.kind === 'route' && entry.id === target.routeId && harnessOf(entry) === session);
       const def = routes.route(target.skill);
-      if (head === undefined || def === null) return null;
+      if (head === undefined || def === null) return skipped(`route ${target.routeId} of ${target.skill} is not in the ledger or the route set`);
       const chain = buildChain(entries, head).entries;
       if (active !== null && (await pauseOnDismissal(ledger, chain, head, input.transcript_path, 'stop'))) return { output: null, paused: true, save: null, head };
       const seen = await readStopCursor(runtime.fs, base, target.routeId);
@@ -352,11 +358,34 @@ export async function stopHook(ports: StopPorts, input: HookInput, options: { de
     if (verdict.save !== null) await saveAsNote(ports, { root, task: target.task, head: verdict.head, scratchpad, ...verdict.save });
     else if (active !== null && verdict.output === null) await ports.closeFinal(target.task, target.routeId, scratchpad);
     const after = await readLedger(runtime.fs, dir.root);
+    process.stderr.write(`ambicode stop: done, ${after.length} ledger entries, output ${verdict.output === null ? 'none' : 'block'}\n`);
+    await exportForEval(runtime, { root, session, task: target.task, ledger: dir.ledger, entries: after });
     await writeStopCursor(runtime.fs, base, target.routeId, buildChain(after, verdict.head).entries.length);
     if (verdict.save !== null) await pointer.clearEnded(session, scratchpad);
     return verdict.output;
   } finally {
     if (active === null) await pointer.clearEnded(session, scratchpad);
+  }
+}
+
+export const EVAL_EXPORT_VARIABLE = 'EVAL_AMBICODE_EXPORT';
+
+/**
+ * Under an eval, the final ledger and its notes are copied out of the sandbox, which the harness deletes when the run
+ * ends: polling it every 2 s left 7 of runs 24–27's ledgers short of their last entries. A failure is said, never thrown.
+ */
+async function exportForEval(runtime: Runtime, input: { root: string; session: string; task: string; ledger: string; entries: readonly LedgerEntry[] }): Promise<void> {
+  const root = runtime.env[EVAL_EXPORT_VARIABLE];
+  if (root === undefined || root === '') return;
+  try {
+    const target = path.join(root, input.session, input.task);
+    await runtime.fs.mkdirp(path.join(target, 'notes'));
+    await runtime.fs.copyFile(input.ledger, path.join(target, 'ledger.jsonl'));
+    const notes = [...new Set(input.entries.filter((entry) => entry.kind === 'note' && typeof entry['path'] === 'string').map((entry) => String(entry['path'])))];
+    for (const note of notes) await runtime.fs.copyFile(path.join(input.root, note), path.join(target, 'notes', path.basename(note))).catch(() => undefined);
+    await runtime.fs.writeText(path.join(target, 'source.json'), `${JSON.stringify({ ledger: input.ledger, entries: input.entries.length, notes })}\n`);
+  } catch (error) {
+    process.stderr.write(`ambicode stop: export failed, ${(error as Error).message}\n`);
   }
 }
 

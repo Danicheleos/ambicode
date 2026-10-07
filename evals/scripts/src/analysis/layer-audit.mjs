@@ -41,6 +41,24 @@ export function callClass(name, input) {
   return 'bash';
 }
 
+/**
+ * Whether a call reads file contents, whatever `callClass` files it under: `grep … && sed -n …` is a grep by class
+ * but still a read. Run 27's mixed Bash reads were invisible to a class-only count.
+ */
+export function readsFiles(name, input) {
+  return name === 'Read' || readSegments(name, input).length > 0;
+}
+
+/** The parts of a Bash command that read files, so their operands can be told from a grep's in the same command. */
+export function readSegments(name, input) {
+  if (name !== 'Bash') return [];
+  const command = String(input?.command ?? '');
+  if (/ambicode\.mjs\\?"?\s+read\b/.test(command)) return [command.slice(command.search(/ambicode\.mjs/))];
+  // A segment after a single `|` filters the pipe (`grep … | head -20`) and reads no file.
+  const parts = command.split(/(&&|\|\||;|\||\n)/);
+  return parts.filter((segment, i) => i % 2 === 0 && parts[i - 1] !== '|' && CAT.has(segment.trim().split(/\s+/)[0]));
+}
+
 /** Tool turns, result bytes by call class, run usage and self-hits, from the run's trace. */
 export function traceFacts(events) {
   const turns = new Map();
@@ -76,6 +94,13 @@ export function sessionFacts(events) {
   for (const event of events)
     if (event.attachment?.type === 'hook_success' && typeof event.attachment.durationMs === 'number') (durations[event.attachment.hookEvent] ??= []).push(event.attachment.durationMs);
   return { step, notices: contexts.filter((context) => context.event === 'PostToolUse').length, durations };
+}
+
+/** The ledger entry count the Stop hook reported on stderr when it finished (`ambicode stop: done, N ledger entries`); null when it did not say. */
+export function stopWrote(events) {
+  const stderr = events.findLast((event) => event.attachment?.hookEvent === 'Stop' && typeof event.attachment.stderr === 'string')?.attachment.stderr;
+  const match = /ambicode stop: done, (\d+) ledger entries/.exec(stderr ?? '');
+  return match ? Number(match[1]) : null;
 }
 
 export function sessionEvents(id, tracesDirs) {

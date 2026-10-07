@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { auditRuns, callClass, sessionFacts, summarize, traceFacts } from './layer-audit.mjs';
+import { auditRuns, callClass, readsFiles, sessionFacts, stopWrote, summarize, traceFacts } from './layer-audit.mjs';
 import { SESSION_DIRECTORY } from './trace-analysis.mjs';
 
 const jsonl = (events) => `${events.map((event) => JSON.stringify(event)).join('\n')}\n`;
@@ -23,6 +23,14 @@ const session = (lead, notices) => [
   ...Array.from({ length: notices }, () => ({ attachment: { type: 'hook_additional_context', hookEvent: 'PostToolUse', content: ['AMBICODE: 12 tool turns'] } })),
   { attachment: { type: 'hook_success', hookEvent: 'PreToolUse', durationMs: 40 } },
 ];
+
+describe('layer-audit: which calls read files', () => {
+  it('counts a read inside mixed Bash, but not a filter on a pipe', () => {
+    const bash = (command) => readsFiles('Bash', { command });
+    assert.deepEqual([readsFiles('Read', {}), readsFiles('Grep', {}), bash('rg -n x src && sed -n 1,40p src/a.ts'), bash('rg -n x src | head -20'), bash('cat a.ts | grep y')], [true, false, true, false, true]);
+    assert.deepEqual([bash('node "/p/scripts/ambicode.mjs" read src/a.ts src/b.ts'), bash('node "/p/scripts/ambicode.mjs" route next')], [true, false]);
+  });
+});
 
 describe('layer-audit: what each run got from the layers', () => {
   it('03b-H6: tool turns count a message once; bytes by call class; self-hits; step and notices from the session', () => {
@@ -54,5 +62,16 @@ describe('layer-audit: what each run got from the layers', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('stopWrote', () => {
+  const stop = (stderr) => ({ attachment: { hookEvent: 'Stop', stderr } });
+  it('reads the entry count the Stop hook reported, the last report winning', () => {
+    assert.equal(stopWrote([stop('ambicode stop: done, 12 ledger entries, output block\n'), stop('ambicode stop: done, 14 ledger entries, output none\n')]), 14);
+  });
+  it('is null when the hook said nothing about its write', () => {
+    assert.equal(stopWrote([stop('')]), null);
+    assert.equal(stopWrote([]), null);
   });
 });

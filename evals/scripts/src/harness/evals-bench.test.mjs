@@ -454,17 +454,20 @@ describe('evals-bench: a run owns only the result it wrote', () => {
 
   it('keeps and walks a partial result the failing run itself wrote', async () => {
     const json = fresh();
+    let exportedTo;
     const status = await runSweep(argv(json), {
       harvest: () => 0, clean: () => 0,
       log: () => {},
       warn: () => {},
       benchmarks,
-      spawnRun: async (harnessArgv) => {
+      spawnRun: async (harnessArgv, spawnOptions) => {
+        exportedTo = spawnOptions?.env?.EVAL_AMBICODE_EXPORT;
         writeFileSync(jsonOf(harnessArgv), JSON.stringify({ partial: true, claudeVersion: '2.1.289', suite: { modelOverride: 'm' }, cases: cases() }));
         return 2;
       },
     });
     assert.equal(status, 2);
+    assert.equal(exportedTo, path.join(path.dirname(json), 'traces', 'exports'), 'the Stop hook is told where to copy its final ledger');
     const result = JSON.parse(readFileSync(json, 'utf8'));
     assert.deepEqual([result.partial, result.suite.servedPrompt], [true, 'naked']);
     assert.ok(existsSync(walkOf(json)));

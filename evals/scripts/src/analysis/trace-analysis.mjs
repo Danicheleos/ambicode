@@ -1,5 +1,5 @@
 // Parse observed trace evidence and harvest it before the sandbox disappears.
-import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { LEDGER_DIRECTORY } from './ledger-metrics.mjs';
@@ -246,8 +246,59 @@ export function harvestTraces(outDir, { sandboxRoots = SANDBOX_ROOTS } = {}) {
       }
     }
   }
+  try {
+    harvestExports(outDir, { sandboxRoots });
+  } catch (error) {
+    failure ??= error;
+  }
   if (failure) throw failure;
   return copied;
+}
+
+/** Where `runSweep` points `EVAL_AMBICODE_EXPORT`: the Stop hook's copies of each session's final ledger. */
+export const EXPORT_DIRECTORY = 'exports';
+
+const lineCount = (file) => {
+  try {
+    return readFileSync(file, 'utf8').split('\n').filter((line) => line.trim() !== '').length;
+  } catch (error) {
+    if (error.code === 'ENOENT') return -1;
+    throw error;
+  }
+};
+
+/**
+ * Lays each exported ledger over the polled copy of the same sandbox ledger, when it holds at least as many entries:
+ * the poll can miss a run's last seconds, the Stop hook's copy cannot. A source outside every sandbox root is skipped.
+ */
+export function harvestExports(outDir, { sandboxRoots = SANDBOX_ROOTS, exportDir = path.join(outDir, EXPORT_DIRECTORY) } = {}) {
+  let laid = 0;
+  const roots = sandboxRoots.flatMap((root) => {
+    try {
+      return [...new Set([root, realpathSync(root)])];
+    } catch {
+      return [root];
+    }
+  });
+  for (const session of existsSync(exportDir) ? readdirSync(exportDir) : [])
+    for (const task of readdirSync(path.join(exportDir, session))) {
+      const dir = path.join(exportDir, session, task);
+      const sourceFile = path.join(dir, 'source.json');
+      if (!existsSync(sourceFile)) continue;
+      const { ledger } = JSON.parse(readFileSync(sourceFile, 'utf8'));
+      const root = roots.find((r) => typeof ledger === 'string' && ledger.startsWith(`${r}${path.sep}`));
+      if (root === undefined) continue;
+      const [name, ...relative] = path.relative(root, ledger).split(path.sep);
+      if (!name.startsWith('e-') || relative.length === 0) continue;
+      const target = path.join(outDir, LEDGER_DIRECTORY, name, ...relative);
+      const exported = path.join(dir, 'ledger.jsonl');
+      if (lineCount(exported) < lineCount(target)) continue;
+      mkdirSync(path.dirname(target), { recursive: true });
+      copyFileSync(exported, `${target}.tmp`);
+      renameSync(`${target}.tmp`, target);
+      laid += 1;
+    }
+  return laid;
 }
 
 /** The sandbox ids (`e-…`) a result's runs name. */

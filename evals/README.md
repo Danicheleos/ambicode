@@ -93,9 +93,10 @@ stage 9 of the training plan). It makes no model calls.
 - `--baseline <naked eval.json>` ranks by *discrimination*: a localize case needs the bare model's mean recall
   in 0.2–0.9 (a case with no baseline data is dropped); a review version needs at least 3 threads, and only the
   best version of each merge request is kept. Two localize tickets that share 70% of their words are one case. Run it
-  on the result of `--candidates` plus a naked baseline. It also saves the per-case recall to
-  `evals/common/core/bare-recall.json`; every later `select` without `--candidates` reads that file, so `walk` and
-  `decide` keep the discriminating set. With no file, `select` falls back to criteria only.
+  on the result of `--candidates` plus a naked baseline. It also pins that result as the bare reference in
+  `evals/common/core/baseline.lock.json` (gitignored: its numbers come from the benchmark), the same as
+  `evals:bench lock <naked eval.json>`. Every later `select` without `--candidates` reads the lock, so `walk` and
+  `decide` keep the discriminating set. With no lock, `select` falls back to criteria only.
 
 **Why:** a small, hard and provable set lets one cheap run tell signal from noise. Every curated run calls
 it first, so the cases always match the current generator. `--regenerate` rewrites the per-arm prompts.
@@ -163,8 +164,12 @@ needed because one run is noisy by ±5–10 percentage points.
 **Measures:** the bare model on the same cases and graders, with recall, cost and turns as in `decide`.
 
 **Why:** the bare model's numbers depend on the model, the Claude Code version and the prompt, not on the
-plugin. Run it once per Claude Code version and reuse it for every `decide`. That halves each decision's cost.
-The harness cannot run a no-plugin arm on its own, so an empty plugin stands in for it.
+plugin. Run it once per Claude Code version or case set, then pin it with `npm run evals:bench -- lock <its eval.json>`.
+`score`, `walk`, `gate` and `report` then compare every plugin-only run against the lock without another bare run.
+The lock records the result's hash, model, Claude Code version, and per case the prompt and truth hashes and the bare
+means. A changed or missing source, another model or version, an unknown case, a changed prompt or a changed truth is an
+error naming the mismatch, never a fallback to another run. The harness cannot run a no-plugin arm on its own, so an
+empty plugin stands in for it.
 
 ### `evals:full`
 
@@ -182,8 +187,8 @@ Each of these takes `<iteration>/results/eval.json`, reads the traces beside it,
 
 ### `evals:score`
 
-**Does:** prints per-case and per-arm scores. With `--baseline <file>`, it takes the no-plugin arm from a
-baseline result.
+**Does:** prints per-case and per-arm scores. A run with no no-plugin arm takes it from the locked baseline;
+`--baseline <file>` names another one.
 
 **Measures:**
 
@@ -195,7 +200,9 @@ baseline result.
 
 ### `evals:gate`
 
-**Does:** turns a with/without result (or a `decide` result plus `--baseline`) into a pass or fail verdict.
+**Does:** turns a with/without result, or a `decide` result against the locked baseline (or `--baseline`), into a pass or
+fail verdict. Thresholds live in `ACCEPTANCE` in `eval-gate.mjs`; ratios print to 4 digits, so a 1.1008× cost reads
+as the failure it is.
 
 **Checks:**
 
@@ -206,7 +213,7 @@ baseline result.
 | runs per case | each case has at least 3 runs |
 | absent runs | at most 20% of an arm's runs are absent |
 | recall | the plugin is no worse than the no-plugin arm beyond the noise band |
-| cost | at most 1.1× the no-plugin arm |
+| cost | at most 1.1× the no-plugin arm, agent cost only (the harness keeps judging in `judgeCostUsd`) |
 | turns | at most 2 more turns than the no-plugin arm |
 | meanDelta | the harness's meanDelta is within the noise band |
 
@@ -238,8 +245,8 @@ Usage: `-- <iteration dir | result.json> [--baseline <result.json>] [--previous 
 
 **Comparisons:**
 
-- **Bare:** the run's own without arm if it has one. Otherwise the newest naked baseline of the same type and model, or
-  `--baseline`.
+- **Bare:** the run's own without arm if it has one. Otherwise the locked baseline, or `--baseline`. Never the newest
+  naked run found on disk.
 - **Previous:** the newest earlier plugin runs. Runs that cover every case come first.
 
 **Measures:**
@@ -249,6 +256,9 @@ Usage: `-- <iteration dir | result.json> [--baseline <result.json>] [--previous 
   and time to the route step.
 - **Context and tokens:** first and peak context, output tokens.
 - **Files:** files and true files read, and the call of the first true-file read.
+- **Reads:** model calls that read, those naming one path, paths per reading call, and the result bytes of reads
+  naming only paths read before. A read is a Read call or a reading segment (`cat`, `sed`, `head`, …, `ambicode read`)
+  of a Bash command, mixed ones included; its paths are the operands as written.
 - **Map:** the map's true files, which of them the answer used or dropped, and true files the model found outside the
   map.
 

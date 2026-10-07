@@ -131,11 +131,11 @@ Measure: `route-open`, `route-exit`, `stop-blocked`, `step-unstable`, `turns`, t
 
 | Pass when | Threshold | Now |
 |---|---|---|
-| runs that end with an exit entry | ≥ 29 / 30 (97%) | 26 / 30 |
-| `budget` exits on the curated set | 0 | — |
-| Stop blocks that the model did not need | 0 | — |
-| model calls over bare | ≤ +2 per run (`extraCalls`, gate `maxExtraTurns`) | — |
-| distinct route signatures per case | 1 (`step-unstable` absent) | — |
+| runs that end with an exit entry | ≥ 29 / 30 (97%) | 36 / 36 written by the Stop hook (run 27_0733); 33 / 36 in the harvested ledgers, 3 copies are short (`ledger-stale`) |
+| `budget` exits on the curated set | 0 | 0 of 36 (33 `done`, 3 stale copies) |
+| Stop blocks that the model did not need | 0 | 0 of 36 |
+| model calls over bare | ≤ +2 per run (`extraCalls`, gate `maxExtraTurns`) | -0.3 (7.6 vs 7.9); fe-vs-6269 +2.8 on its own |
+| distinct route signatures per case | 1 (`step-unstable` absent) | `step-unstable` absent; the 2 signatures per case are the closed ledger and a stale copy |
 | task walk | route closes with `exit:done`; no repeated red/green after a limit entry | open at `write:delivered` |
 
 ### Stage 3 — Search map: profile, index, locate (L4 search, L6 map payload)

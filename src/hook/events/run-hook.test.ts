@@ -316,6 +316,23 @@ describe('G/H: ambicode hook (PostToolUse edit reminders)', () => {
     }
   });
 
+  it('stays a no-op for input it cannot use, and says why on stderr', async () => {
+    const { repo, dispose } = await fixtureWithPack();
+    const stderr = process.stderr.write.bind(process.stderr);
+    let written = '';
+    process.stderr.write = ((chunk: string) => ((written += String(chunk)), true)) as typeof process.stderr.write;
+    try {
+      const runtime = await createRuntime({ cwd: repo.root });
+      assert.deepEqual(await runHook(runtime, 'not json'), {});
+      assert.deepEqual(await runHook(runtime, JSON.stringify({ hook_event_name: 'Stop' })), {});
+      assert.match(written, /stdin is not JSON/);
+      assert.match(written, /input rejected: session_id/);
+    } finally {
+      process.stderr.write = stderr;
+      await dispose();
+    }
+  });
+
   it('stays a silent no-op when the contract cannot be read, rather than failing the session event', async () => {
     const { repo, dispose } = await fixtureWithPack();
     try {

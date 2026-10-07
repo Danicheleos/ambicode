@@ -37,8 +37,8 @@ export const BENCHMARKS_CLIMB = /(\$\(dirname "\$0"\)\/)(?:\.\.\/)+(?:[\w.-]+\/)
 /** Never the bare `evals/`: discovery is recursive, so that would sweep every suite at once. */
 export const CURATED_EVAL_DIR = 'evals/common/core';
 export const CURATED_CASES = path.join(ROOT, CURATED_EVAL_DIR, CASES_DIRECTORY);
-/** The bare model's mean recall per case, kept from the naked baseline so every `select` ranks by discrimination. */
-export const BARE_RECALL_FILE = path.join(ROOT, CURATED_EVAL_DIR, 'bare-recall.json');
+/** The pinned naked baseline: every score, gate, report and `select` compares against it. Gitignored with the rest of core/, as its numbers derive from the benchmark. */
+export const BASELINE_LOCK_FILE = path.join(ROOT, CURATED_EVAL_DIR, 'baseline.lock.json');
 export const TASK_EVAL_DIR = 'evals/common/task';
 export const TRIGGERS_EVAL_DIR = 'evals/common/triggers';
 export const ARCHIVED_EVAL_DIR = 'evals/common/archived';

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CASES_ROOT } from '../shared/bench-paths.mjs';
 import { NAKED_EQUIVALENCE, baselineProvenance, score, servedPromptLine, withBaseline } from '../analysis/bench-score.mjs';
+import { resolveBaseline } from '../analysis/baseline-lock.mjs';
 
 export { NAKED_EQUIVALENCE };
 
@@ -15,9 +16,20 @@ export { NAKED_EQUIVALENCE };
  */
 export const BUDGET = { minRuns: 3, maxCostRatio: 1.1, maxExtraTurns: 2, maxAbsentShare: 0.2 };
 
+/**
+ * The one acceptance policy: `gate` decides a run, `report` raises per-case findings. report.extraContext is 2,500
+ * (TRAINING-PLAN stage 1): wording trims reached about +2,290 tokens on run 24_0648; 2,000 flagged the contract itself.
+ */
+export const ACCEPTANCE = {
+  gate: BUDGET,
+  report: { costRatio: 1.2, cheapRatio: 0.9, extraCalls: 2, saturated: 0.95, floor: 0.2, spread: 0.5, routeReadyS: 5, extraContext: 2500 },
+};
+
 const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
 const range = (xs) => (xs.length ? Math.max(...xs) - Math.min(...xs) : 0);
 const fmt = (x, digits = 3) => (x === null || x === undefined ? 'n/a' : Number(x).toFixed(digits));
+// Four digits: run 27_0733's 1.1008× printed as "1.10× … budget 1.1×" beside a FAIL.
+const RATIO_DIGITS = 4;
 
 /**
  * The noise band is how far the arm's mean moves between repetitions of the same cases (run 0, run 1, …),
@@ -82,11 +94,12 @@ export function gate(given, { cases = CASES_ROOT, tracesDir = null, budget = BUD
     const scored = (rows, key) => mean(rows.filter((r) => !r.absent && typeof r[key] === 'number').map((r) => r[key]));
     const costRatio = scored(withRows, 'costUsd') / scored(withoutRows, 'costUsd');
     const replayed = withRows.filter((r) => r.trace?.replayedReviews > 0).length;
-    if (replayed)
-      gap(`${kind}: cost`, `${fmt(costRatio, 2)}× the no-plugin arm, but ${replayed} run(s) replayed the reviewer, whose cost is not in the arm`);
-    else check(`${kind}: cost`, costRatio <= budget.maxCostRatio, `${fmt(costRatio, 2)}× the no-plugin arm, budget ${budget.maxCostRatio}×`);
+    // The harness keeps judging in `judgeCostUsd`, outside `costUsd`: the ratio is the agent's spend alone.
+    const costDetail = `${fmt(costRatio, RATIO_DIGITS)}× the no-plugin arm (agent cost, judging excluded), budget ${budget.maxCostRatio}×`;
+    if (replayed) gap(`${kind}: cost`, `${costDetail}, but ${replayed} run(s) replayed the reviewer, whose cost is not in the arm`);
+    else check(`${kind}: cost`, costRatio <= budget.maxCostRatio, costDetail);
     const extraTurns = scored(withRows, 'turns') - scored(withoutRows, 'turns');
-    check(`${kind}: turns`, extraTurns <= budget.maxExtraTurns, `${fmt(extraTurns, 1)} more turns than the no-plugin arm, budget ${budget.maxExtraTurns}`);
+    check(`${kind}: turns`, extraTurns <= budget.maxExtraTurns, `${fmt(extraTurns, 2)} more turns than the no-plugin arm, budget ${budget.maxExtraTurns}`);
 
     for (const key of ['precision', 'f1']) {
       const a = scored(withRows, key);
@@ -149,9 +162,12 @@ function main(argv) {
   if (!file)
     throw new Error('usage: eval-gate.mjs <eval-results.json> [--baseline <with-without-results.json> [--baseline-arm without|with]] [--traces <dir>] [--min-runs n] [--max-cost-ratio x] [--max-extra-turns n] [--max-absent-share x]');
   const results = JSON.parse(readFileSync(file, 'utf8'));
-  const baseline = baselinePath === undefined ? null : JSON.parse(readFileSync(baselinePath, 'utf8'));
-  const tracesDir = tracesAt ?? [path.join(path.dirname(path.resolve(file)), 'traces'), ...(baselinePath === undefined ? [] : [path.join(path.dirname(path.resolve(baselinePath)), 'traces')])];
-  const verdict = gate(results, { tracesDir, budget, baseline, baselinePath, baselineArm });
+  const resolved = resolveBaseline(results, { baselinePath });
+  // Both layouts: traces beside the result, and in the iteration above `results/` (where every 2026-10-07 run wrote
+  // them; looking only beside the result failed pinned-model as "no run is traced" on runs 24–27).
+  const tracesOf = (at) => [path.join(path.dirname(path.resolve(at)), 'traces'), path.join(path.dirname(path.dirname(path.resolve(at))), 'traces')];
+  const tracesDir = tracesAt ?? [...tracesOf(file), ...(resolved ? tracesOf(resolved.file) : [])];
+  const verdict = gate(results, { tracesDir, budget, baseline: resolved?.results ?? null, baselinePath: resolved?.file ?? null, baselineArm });
   for (const c of verdict.checks) console.log(`${{ pass: 'pass', fail: 'FAIL', gap: 'GAP ' }[c.status]}  ${c.name}: ${c.detail}`);
   for (const line of verdict.info) console.log(`info  ${line}`);
   const gaps = verdict.gaps ? `, ${verdict.gaps} unmeasured` : '';

@@ -40,8 +40,9 @@ export function defaultHookDeps(runtime: Runtime): HookDeps {
 const stateDir = (runtime: Runtime, input: HookInput): string => hookStateBaseDir(runtime.fs, input.session_id, input.scratchpad_dir);
 
 /**
- * Never throws: any failure is a silent no-op, because a hook is advisory and
- * must never block or alter the tool call that already happened.
+ * Never throws: any failure is a no-op, because a hook is advisory and must never block or alter the tool call that
+ * already happened. The reason goes to stderr: 3 of 36 investigate runs ended with no Stop-hook ledger entry and nothing
+ * in the trace said why.
  */
 export async function runHook(runtime: Runtime, rawStdin: string, injected?: HookDeps): Promise<unknown> {
   const deps = injected ?? defaultHookDeps(runtime);
@@ -49,10 +50,14 @@ export async function runHook(runtime: Runtime, rawStdin: string, injected?: Hoo
   try {
     parsed = JSON.parse(rawStdin);
   } catch {
+    process.stderr.write('ambicode hook: stdin is not JSON\n');
     return EMPTY_HOOK_OUTPUT;
   }
   const result = HookInput.safeParse(parsed);
-  if (!result.success) return EMPTY_HOOK_OUTPUT;
+  if (!result.success) {
+    process.stderr.write(`ambicode hook: input rejected: ${result.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ')}\n`);
+    return EMPTY_HOOK_OUTPUT;
+  }
   const input = result.data;
 
   try {
@@ -96,7 +101,8 @@ export async function runHook(runtime: Runtime, rawStdin: string, injected?: Hoo
       default:
         return EMPTY_HOOK_OUTPUT;
     }
-  } catch {
+  } catch (error) {
+    process.stderr.write(`ambicode hook ${input.hook_event_name}: ${error instanceof Error ? (error.stack ?? error.message).split('\n').slice(0, 3).join(' | ') : String(error)}\n`);
     return EMPTY_HOOK_OUTPUT;
   }
 }

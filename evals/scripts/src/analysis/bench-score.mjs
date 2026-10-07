@@ -95,7 +95,7 @@ export function createAnalysis({ cases = CASES_ROOT, tracesDir = null } = {}) {
  * LSP-only control). Unset, it is `with` for a baseline run on the naked plugin, `without` otherwise.
  * `promptMarkdown` is the naked prompt even for a run that served prompt.with.md (`recordServedPrompts`).
  */
-export function withBaseline(results, baseline, { baselinePath, arm = baseline.suite?.plugins?.[0]?.name === NAKED_PLUGIN ? 'with' : 'without' }) {
+export function withBaseline(results, baseline, { baselinePath, arm = bareArmOf(baseline) }) {
   const refuse = (why) => {
     throw new Error(`baseline ${baselinePath} refused: ${why}`);
   };
@@ -214,14 +214,27 @@ export function scoreWithAnalysis(results, analysis) {
   return { runs, arms: Object.fromEntries(Object.entries(groups).sort().map(([k, rows]) => [k, summarize(rows)])) };
 }
 
-/** Mean of a run metric per case name for the naked arm of a baseline result. */
-function bareMeanByCase(baseline, metric) {
-  const arm = baseline.suite?.plugins?.[0]?.name === NAKED_PLUGIN ? 'with' : 'without';
+/** The arm of a baseline result that stands in for the bare model: the naked plugin's own arm, else `without`. */
+export const bareArmOf = (baseline) => (baseline.suite?.plugins?.[0]?.name === NAKED_PLUGIN ? 'with' : 'without');
+
+/** Per case name, the scored run count and each metric's mean (null when no run recorded it) over the bare arm. */
+export function bareMeansByCase(baseline, metrics, analysis = createAnalysis()) {
+  const arm = bareArmOf(baseline);
   const byCase = new Map();
-  for (const r of scoreWithAnalysis(baseline, createAnalysis()).runs)
-    if (r.arm === arm && !r.absent && typeof r[metric] === 'number') byCase.set(r.case, [...(byCase.get(r.case) ?? []), r[metric]]);
-  return new Map([...byCase].map(([name, values]) => [name, values.reduce((a, b) => a + b, 0) / values.length]));
+  for (const r of scoreWithAnalysis(baseline, analysis).runs) {
+    if (r.arm !== arm || r.absent) continue;
+    const rows = byCase.get(r.case) ?? [];
+    rows.push(r);
+    byCase.set(r.case, rows);
+  }
+  const meanOf = (values) => (values.length ? values.reduce((a, b) => a + b, 0) / values.length : null);
+  return new Map(
+    [...byCase].map(([name, rows]) => [name, { runs: rows.length, ...Object.fromEntries(metrics.map((m) => [m, meanOf(rows.map((r) => r[m]).filter((x) => typeof x === 'number'))])) }]),
+  );
 }
+
+const bareMeanByCase = (baseline, metric) =>
+  new Map([...bareMeansByCase(baseline, [metric])].filter(([, row]) => row[metric] !== null).map(([name, row]) => [name, row[metric]]));
 
 /** Mean recall of the bare model per case name, from a naked-baseline result: the input of discrimination-ranked `select`. */
 export const bareRecallByCase = (baseline) => bareMeanByCase(baseline, 'recall');

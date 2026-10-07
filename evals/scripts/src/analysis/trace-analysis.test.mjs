@@ -1,8 +1,9 @@
 // Regression assertions moved intact from the approved harness suite.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { traceMetrics, harvestTraces, harvestedOfResult, removeSandboxes } from './trace-analysis.mjs';
-import { chmodSync, existsSync } from 'node:fs';
+import { EXPORT_DIRECTORY, traceMetrics, harvestExports, harvestTraces, harvestedOfResult, removeSandboxes } from './trace-analysis.mjs';
+import { LEDGER_DIRECTORY } from './ledger-metrics.mjs';
+import { chmodSync, existsSync, realpathSync } from 'node:fs';
 import { TRACE, ticket, M, event } from '../testing/bench-test-fixtures.mjs';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -47,6 +48,35 @@ describe('evals-bench: measures taken from the trace', () => {
       assert.equal(score(results, { cases: benchmarks }).arms['localize/with'].traced, 0, 'no traces directory: nothing is traced, nothing is invented');
     } finally {
       rmSync(benchmarks, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('evals-bench: the Stop hook\'s exported ledgers', () => {
+  it('lays an export over a shorter polled copy of the same sandbox ledger, never over a longer one', () => {
+    const sandboxRoot = realpathSync(mkdtempSync(path.join(tmpdir(), 'harvest-export-')));
+    const outDir = path.join(sandboxRoot, 'kept');
+    try {
+      const relative = path.join('home', 'cwd', 'repo', '.ambicode', 'task', 'cart', 'ledger.jsonl');
+      const live = path.join(sandboxRoot, 'e-one', relative);
+      mkdirSync(path.dirname(live), { recursive: true });
+      writeFileSync(live, '{"n":1}\n');
+      harvestTraces(outDir, { sandboxRoots: [sandboxRoot] });
+      const polled = path.join(outDir, LEDGER_DIRECTORY, 'e-one', relative);
+      assert.equal(readFileSync(polled, 'utf8'), '{"n":1}\n');
+      const exported = path.join(outDir, EXPORT_DIRECTORY, 'session-a', 'cart');
+      mkdirSync(exported, { recursive: true });
+      writeFileSync(path.join(exported, 'ledger.jsonl'), '{"n":1}\n{"n":2}\n{"n":3}\n');
+      writeFileSync(path.join(exported, 'source.json'), JSON.stringify({ ledger: live, entries: 3 }));
+      rmSync(path.join(sandboxRoot, 'e-one'), { recursive: true }); // the harness deleted the sandbox before the last poll
+      harvestTraces(outDir, { sandboxRoots: [sandboxRoot] });
+      assert.equal(readFileSync(polled, 'utf8'), '{"n":1}\n{"n":2}\n{"n":3}\n', 'the export carries the entries the poll missed');
+      writeFileSync(polled, '{"n":1}\n{"n":2}\n{"n":3}\n{"n":4}\n');
+      assert.equal(harvestExports(outDir, { sandboxRoots: [sandboxRoot] }), 0, 'a later turn the poll saw is not rolled back');
+      writeFileSync(path.join(exported, 'source.json'), JSON.stringify({ ledger: '/elsewhere/e-one/ledger.jsonl', entries: 3 }));
+      assert.equal(harvestExports(outDir, { sandboxRoots: [sandboxRoot] }), 0, 'a source outside every sandbox root is skipped');
+    } finally {
+      rmSync(sandboxRoot, { recursive: true, force: true });
     }
   });
 });

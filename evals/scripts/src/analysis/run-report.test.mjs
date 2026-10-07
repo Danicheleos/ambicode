@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { buildReport, callChain, findComparisons, findingsOf, layoutOf, proposalsOf, routeChain, toolFiles } from './run-report.mjs';
+import { buildReport, callChain, findComparisons, findingsOf, layoutOf, proposalsOf, readOperands, readRequests, routeChain, toolFiles } from './run-report.mjs';
 
 const jsonl = (events) => `${events.map((event) => JSON.stringify(event)).join('\n')}\n`;
 const usage = (read, write, output) => ({ input_tokens: 2, cache_read_input_tokens: read, cache_creation_input_tokens: write, output_tokens: output });
@@ -55,7 +55,7 @@ describe('run-report: the chain of one run', () => {
 describe('run-report: comparisons and findings', () => {
   const result = (startedAt, plugin, names, model = 'm') => ({ startedAt, suite: { modelOverride: model, plugins: [{ name: plugin }] }, cases: names.map((name) => ({ name })) });
 
-  it('takes the newest naked run of the same model, and earlier plugin runs covering every case first', () => {
+  it('takes earlier plugin runs covering every case first, and never a naked run as the baseline', () => {
     const current = result('2026-01-05T00:00:00Z', 'ambicode', ['a', 'b']);
     const candidates = [
       { file: '/x/later.json', results: result('2026-01-06T00:00:00Z', 'ambicode', ['a', 'b']) },
@@ -66,8 +66,17 @@ describe('run-report: comparisons and findings', () => {
       { file: '/x/unrelated.json', results: result('2026-01-01T00:00:00Z', 'ambicode', ['z']) },
     ];
     const found = findComparisons(current, '/x/current.json', candidates, 2);
-    assert.equal(found.baseline.file, '/x/naked.json');
+    assert.equal(found.baseline, undefined, 'the bare reference is the lock, not the newest naked run');
     assert.deepEqual(found.previous.map((p) => p.file), ['/x/full.json', '/x/probe.json']);
+  });
+
+  it('groups reads by the model call that asked for them, and counts bytes spent re-reading', () => {
+    const read = (file, resultBytes = 100) => ({ name: 'Read', input: { file_path: `/private/tmp/e-x/home/cwd/repo/${file}` }, resultBytes });
+    const grep = { name: 'Grep', input: { path: 'src/a.ts' }, resultBytes: 50 };
+    const mixed = { name: 'Bash', input: { command: 'rg -n x src/z.ts && sed -n 1,9p src/c.ts; cat "src/d.ts" | head -5' }, resultBytes: 30 };
+    const calls = [{ tools: [read('src/a.ts'), read('src/b.ts')] }, { tools: [grep] }, { tools: [read('src/a.ts', 70)] }, { tools: [mixed] }];
+    assert.deepEqual(readOperands(mixed), ['src/c.ts', 'src/d.ts'], 'the grep target beside the reads is not a read');
+    assert.deepEqual(readRequests(calls), { readRequests: 3, singleFileReads: 1, readPaths: 5, rereadBytes: 70 });
   });
 
   it('maps an iteration under outputs to the same path under reports', () => {

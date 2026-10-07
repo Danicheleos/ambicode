@@ -4,17 +4,18 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CASES_DIRECTORY, CASES_ROOT, NAKED_PLUGIN, OUTPUTS, REPORTS, ROOT, TASK_EVAL_DIR } from '../shared/bench-paths.mjs';
+import { BASELINE_LOCK_FILE, CASES_DIRECTORY, CASES_ROOT, NAKED_PLUGIN, OUTPUTS, REPORTS, ROOT, TASK_EVAL_DIR } from '../shared/bench-paths.mjs';
 import { infrastructureError } from '../harness/run-validity.mjs';
-import { repetitionMeans } from '../validation/eval-gate.mjs';
-import { createAnalysis, namedFiles, scoreWithAnalysis } from './bench-score.mjs';
-import { callClass, PRICES, readJsonl, sessionEvents, sessionFacts, textOf } from './layer-audit.mjs';
+import { ACCEPTANCE, repetitionMeans } from '../validation/eval-gate.mjs';
+import { resolveBaseline } from './baseline-lock.mjs';
+import { createAnalysis, namedFiles, scoreWithAnalysis, withBaseline } from './bench-score.mjs';
+import { callClass, PRICES, readJsonl, readSegments, readsFiles, sessionEvents, sessionFacts, stopWrote, textOf } from './layer-audit.mjs';
 import { ledgersOf } from './ledger-metrics.mjs';
 import { mapPaths } from './map-recall.mjs';
 
 const PREVIOUS = 2;
 const TRIM = 400;
-const THRESHOLDS = { costRatio: 1.2, cheapRatio: 0.9, extraCalls: 2, saturated: 0.95, floor: 0.2, spread: 0.5, routeReadyS: 5, extraContext: 2000 };
+const THRESHOLDS = ACCEPTANCE.report;
 
 const mean = (values) => {
   const xs = values.filter((x) => typeof x === 'number' && Number.isFinite(x));
@@ -85,8 +86,48 @@ export function toolFiles(tool, truth, root) {
   return namedFiles(` ${text}`, truth, root).named;
 }
 
-const READ_CLASSES = new Set(['Read', 'cat']);
+const isRead = (tool) => readsFiles(tool.name, tool.input);
 const SEARCH_CLASSES = new Set(['grep', 'ls', 'Grep', 'Glob']);
+
+const OPERAND = /^[\w@.+~/-]*[\w-]\.[A-Za-z0-9]+$/;
+const normalOperand = (p) => p.replace(/^(?:.*\/)?repo\//, '').replace(/^\.\//, '');
+
+/**
+ * The files a read call names as operands: Read's path, or the file arguments of the read segments of a Bash command
+ * (not a grep's targets beside them). Inferred from the command text, so a glob or a `cd` is not resolved.
+ */
+export function readOperands(tool) {
+  if (tool.name === 'Read') return typeof tool.input?.file_path === 'string' ? [normalOperand(tool.input.file_path)] : [];
+  return readSegments(tool.name, tool.input).flatMap((segment) =>
+    segment.split(/\s+/).slice(1).map((word) => word.replace(/^['"]|['"]$/g, '').replace(/:\d+(?:-\d+)?$/, '')).filter((word) => !word.startsWith('-') && OPERAND.test(word)).map(normalOperand),
+  );
+}
+
+/**
+ * Reads grouped by the model call that asked for them (the measure for "fetch every needed file in one turn"): calls
+ * that read, those naming one path, distinct paths per reading call, and result bytes of reads naming only paths read before.
+ */
+export function readRequests(calls) {
+  const seen = new Set();
+  let requests = 0;
+  let single = 0;
+  let paths = 0;
+  let rereadBytes = 0;
+  for (const call of calls) {
+    const reads = call.tools.filter(isRead);
+    if (!reads.length) continue;
+    const operands = reads.map(readOperands);
+    const named = new Set(operands.flat());
+    requests += 1;
+    paths += named.size;
+    if (named.size === 1) single += 1;
+    reads.forEach((t, i) => {
+      if (operands[i].length && operands[i].every((f) => seen.has(f))) rereadBytes += t.resultBytes ?? 0;
+    });
+    for (const f of named) seen.add(f);
+  }
+  return { readRequests: requests, singleFileReads: single, readPaths: paths, rereadBytes };
+}
 
 /** The session's first timestamp: when the agent's session began, after the harness built the scaffold. */
 export const sessionStartOf = (events) => events.map((e) => e.timestamp).filter(Boolean).sort()[0] ?? null;
@@ -171,9 +212,9 @@ export function analyzeResult(results, { tracesDirs, cases = CASES_ROOT, withCha
           const reads = [];
           tools.forEach((tool) => {
             tool.files = toolFiles(tool, truth, root);
-            if (READ_CLASSES.has(tool.class)) reads.push(...tool.files);
+            if (isRead(tool)) reads.push(...tool.files);
           });
-          const firstTrue = calls.findIndex((c) => c.tools.some((t) => READ_CLASSES.has(t.class) && t.files.some((f) => truth.includes(f))));
+          const firstTrue = calls.findIndex((c) => c.tools.some((t) => isRead(t) && t.files.some((f) => truth.includes(f))));
           const counts = {};
           const kb = {};
           for (const tool of tools) {
@@ -192,6 +233,7 @@ export function analyzeResult(results, { tracesDirs, cases = CASES_ROOT, withCha
             rereads: [...readCounts.values()].filter((n) => n > 1).length, firstTrueReadCall: firstTrue < 0 ? null : firstTrue + 1,
             firstTool: tools[0] ? { class: tools[0].class, files: tools[0].files } : null,
           });
+          Object.assign(row, readRequests(calls));
           if (withChains) row.calls = calls;
         }
         if (session) {
@@ -203,9 +245,15 @@ export function analyzeResult(results, { tracesDirs, cases = CASES_ROOT, withCha
             row.step = { bytes: Buffer.byteLength(step), text: step, leads: listed.leads.map(full), feature: listed.feature.map(full) };
           }
         }
-        const route = routeChain(id ? ledgersOf(run, tracesDirs) : null);
+        const ledgers = id ? ledgersOf(run, tracesDirs) : null;
+        const route = routeChain(ledgers);
         if (route) {
           row.route = route;
+          // The sandbox's ledger is copied when the session ends, and 3 of 36 copies came out 4 entries short of what the
+          // Stop hook reported writing (10 against 14, every other run complete): the route was closed, the copy was early.
+          const wrote = session ? stopWrote(session) : null;
+          const harvested = ledgers.reduce((n, l) => n + l.entries.length, 0);
+          if (!route.exit && wrote !== null && wrote > harvested) route.stale = { wrote, harvested };
           row.routeReadyS = start && route.deliveredAt ? elapsedMs(start, route.deliveredAt) / 1000 : null;
           row.mapMs = route.mapLayers.reduce((a, l) => a + (l.ms ?? 0), 0) || null;
         }
@@ -278,16 +326,16 @@ export function resultFiles(outputs, type) {
 const pluginName = (results) => results.suite?.plugins?.[0]?.name ?? null;
 const sharesCases = (a, b) => (a.cases ?? []).some((c) => (b.cases ?? []).some((d) => d.name === c.name));
 
-/** The newest naked run of the same model sharing cases with this one, and the N newest earlier plugin runs, those covering every case first. */
+/**
+ * The N newest earlier plugin runs sharing cases with this one, those covering every case first. The bare reference
+ * is not looked up here: it is the pinned baseline (`resolveBaseline`), never whichever naked run is newest.
+ */
 export function findComparisons(current, file, candidates, previous = PREVIOUS) {
-  const others = candidates.filter((c) => path.resolve(c.file) !== path.resolve(file) && sharesCases(c.results, current));
-  const before = others.filter((c) => Date.parse(c.results.startedAt) < Date.parse(current.startedAt));
-  const model = current.suite?.modelOverride ?? null;
-  const baseline = others.find((c) => pluginName(c.results) === NAKED_PLUGIN && (c.results.suite?.modelOverride ?? null) === model) ?? null;
+  const before = candidates.filter((c) => path.resolve(c.file) !== path.resolve(file) && sharesCases(c.results, current) && Date.parse(c.results.startedAt) < Date.parse(current.startedAt));
   const coverage = (c) => (current.cases ?? []).filter((x) => (c.results.cases ?? []).some((y) => y.name === x.name)).length;
   const runs = before.filter((c) => pluginName(c.results) !== NAKED_PLUGIN);
   const ranked = [...runs.filter((c) => coverage(c) === (current.cases ?? []).length), ...runs.filter((c) => coverage(c) < (current.cases ?? []).length)];
-  return { baseline, previous: ranked.slice(0, previous) };
+  return { previous: ranked.slice(0, previous) };
 }
 
 /** Where a result's traces and report live: `outputs/<type>/<date>/<iteration>/` maps to `reports/<type>/<date>/<iteration>/`. */
@@ -371,7 +419,9 @@ export function findingsOf({ plugin, bare, previous, band, servedPrompt, current
   if (top && excess > 0 && top[1] >= excess) add('info', 'cost-driver', `${top[0]} accounts for all of the +$${excess.toFixed(3)} excess over bare; without it the plugin arm is not dearer`);
 
   const routed = plugin.filter((r) => r.route?.routes);
-  const open = routed.filter((r) => !r.route.exit);
+  const stale = routed.filter((r) => !r.route.exit && r.route.stale);
+  if (stale.length) add('caveat', 'ledger-stale', `${stale.length} of ${routed.length} harvested ledgers are short of what the Stop hook wrote, so the route is not counted open`, stale.map((r) => `${r.case} run ${r.run}: ${r.route.stale.harvested} entries harvested, ${r.route.stale.wrote} written`));
+  const open = routed.filter((r) => !r.route.exit && !r.route.stale);
   if (open.length) add('weak', 'route-open', `${open.length} of ${routed.length} routed runs ended with no exit entry`, open.map((r) => `${r.case} run ${r.run}: ${r.route.signature}`));
   const notDone = routed.filter((r) => r.route.exit && r.route.exit.reason !== 'done');
   if (notDone.length) add('weak', 'route-exit', `${notDone.length} routed runs exited other than done`, notDone.map((r) => `${r.case} run ${r.run}: exit ${r.route.exit.reason}`));
@@ -397,6 +447,8 @@ export function findingsOf({ plugin, bare, previous, band, servedPrompt, current
   const bContext = mean(bare.map((r) => r.firstContext));
   if (pContext !== null && bContext !== null && pContext - bContext > THRESHOLDS.extraContext)
     add('info', 'context', `the plugin's first request carries ${Math.round(pContext - bContext)} more tokens than bare; every later call pays them as cache reads`);
+  else if (pContext === null || bContext === null)
+    add('caveat', 'context-unmeasured', `first-request context is unmeasured for the ${pContext === null ? 'plugin' : 'bare'} arm (no trace), so the ${THRESHOLDS.extraContext}-token budget is unchecked, not met`);
 
   const pPrimary = mean(plugin.filter((r) => !r.absent).map(primaryOf));
   for (const prev of previous) {
@@ -473,7 +525,8 @@ export function renderReport({ label, file, current, plugin, bare, bareSource, b
   out.push(`Source: \`${path.relative(ROOT, file)}\`. Started ${current.startedAt}, Claude Code ${current.claudeVersion}, model ${current.suite?.modelOverride ?? 'unpinned'}, plugin ${pluginName(current) ?? '?'}, served prompt ${current.suite?.servedPrompt ?? 'unrecorded'}, ablation ${current.suite?.ablation ?? '?'}.`);
   out.push(`${new Set(plugin.map((r) => r.case)).size} cases, ${plugin.length} plugin runs, $${totalCost.toFixed(2)} (harness total $${cell(current.costUsd)}), ${cell((current.durationSeconds ?? 0) / 60, 1)} min, ${current.partial ? '**partial**' : 'complete'}.`);
   out.push(`Bare: ${bareSource ? `${bareSource}${baselineFile ? ` (\`${path.relative(ROOT, baselineFile)}\`)` : ''}, ${bare.length} runs` : 'none found: no comparison with the bare model'}. Previous: ${previous.length ? previous.map((p) => `\`${p.label}\``).join(', ') : 'none'}.`);
-  out.push(`Noise band (widest repetition range of the primary metric): ${band === null ? 'none (one repetition)' : band.toFixed(3)}. Prices: list, per token (input ${PRICES.input}, cache write ${PRICES.cacheWrite}, cache read ${PRICES.cacheRead}, output ${PRICES.output}).`, '');
+  out.push(`Noise band (widest repetition range of the primary metric): ${band === null ? 'none (one repetition)' : band.toFixed(3)}. Prices: list, per token (input ${PRICES.input}, cache write ${PRICES.cacheWrite}, cache read ${PRICES.cacheRead}, output ${PRICES.output}).`);
+  out.push(`Policy (\`ACCEPTANCE\` in eval-gate.mjs): gate ${JSON.stringify(ACCEPTANCE.gate)}; findings ${JSON.stringify(ACCEPTANCE.report)}.`, '');
 
   out.push('## 1. This run against bare and the previous iterations', '');
   for (const kind of kinds) {
@@ -549,12 +602,21 @@ export function renderReport({ label, file, current, plugin, bare, bareSource, b
   out.push('## 7. Tools and files', '');
   const classes = [...new Set([...plugin, ...bare].flatMap((r) => Object.keys(r.toolCounts ?? {})))].sort();
   const perRun = (rows, pick) => mean(rows.filter((r) => r.traced).map(pick));
+  const pooled = (rows) => {
+    const traced = rows.filter((r) => r.traced);
+    const requests = traced.reduce((n, r) => n + (r.readRequests ?? 0), 0);
+    return requests ? traced.reduce((n, r) => n + (r.readPaths ?? 0), 0) / requests : null;
+  };
   if (classes.length)
     out.push(table(['tool class', 'calls/run plugin', 'calls/run bare', 'result KB/run plugin', 'result KB/run bare'], classes.map((c) => [c, cell(perRun(plugin, (r) => r.toolCounts[c] ?? 0), 2), cell(perRun(bare, (r) => r.toolCounts[c] ?? 0), 2), cell(perRun(plugin, (r) => r.resultKb[c] ?? 0), 1), cell(perRun(bare, (r) => r.resultKb[c] ?? 0), 1)])), '');
   out.push(table(['', 'plugin', 'bare'], [
     ['files read / run', cell(perRun(plugin, (r) => r.filesRead), 1), cell(perRun(bare, (r) => r.filesRead), 1)],
     ['true files read / run', cell(perRun(plugin, (r) => r.trueFilesRead), 1), cell(perRun(bare, (r) => r.trueFilesRead), 1)],
     ['files read twice or more / run', cell(perRun(plugin, (r) => r.rereads), 2), cell(perRun(bare, (r) => r.rereads), 2)],
+    ['model calls that read / run', cell(perRun(plugin, (r) => r.readRequests), 2), cell(perRun(bare, (r) => r.readRequests), 2)],
+    ['  of those naming one path / run', cell(perRun(plugin, (r) => r.singleFileReads), 2), cell(perRun(bare, (r) => r.singleFileReads), 2)],
+    ['paths per reading call (pooled)', cell(pooled(plugin), 2), cell(pooled(bare), 2)],
+    ['re-read result KB / run', cell(perRun(plugin, (r) => r.rereadBytes / 1024), 1), cell(perRun(bare, (r) => r.rereadBytes / 1024), 1)],
     ['call of the first true-file read', cell(perRun(plugin, (r) => r.firstTrueReadCall), 1), cell(perRun(bare, (r) => r.firstTrueReadCall), 1)],
     ['calls issuing > 1 tool / run', cell(perRun(plugin, (r) => r.parallelCalls), 2), cell(perRun(bare, (r) => r.parallelCalls), 2)],
     ['failed tool calls / run', cell(perRun(plugin, (r) => r.failedCalls), 2), cell(perRun(bare, (r) => r.failedCalls), 2)],
@@ -633,13 +695,15 @@ function resolveResult(target) {
 
 const strip = (rows) => rows.map(({ calls, answer, step, ...rest }) => ({ ...rest, ...(step ? { step: { bytes: step.bytes, leads: step.leads, feature: step.feature } } : {}) }));
 
-export function buildReport(target, { baseline = null, previous = PREVIOUS, out = null, full = false, outputs = OUTPUTS, reports = REPORTS, cases = CASES_ROOT } = {}) {
+export function buildReport(target, { baseline = null, lockFile = BASELINE_LOCK_FILE, previous = PREVIOUS, out = null, full = false, outputs = OUTPUTS, reports = REPORTS, cases = CASES_ROOT } = {}) {
   const file = resolveResult(target);
   const current = JSON.parse(readFileSync(file, 'utf8'));
   const layout = layoutOf(file, { outputs, reports });
   const candidates = resultFiles(outputs, layout.type);
   const found = findComparisons(current, file, candidates, previous);
-  const baselineEntry = baseline ? { file: path.resolve(baseline), results: JSON.parse(readFileSync(baseline, 'utf8')) } : found.baseline;
+  const baselineEntry = resolveBaseline(current, { baselinePath: baseline ?? undefined, lockFile });
+  // Thrown away; run only for its refusal of a baseline of another model, Claude Code version, case or prompt.
+  if (baselineEntry) withBaseline(current, baselineEntry.results, { baselinePath: baselineEntry.file });
   const rows = analyzeResult(current, { tracesDirs: layout.tracesDirs, cases });
   const baselineRows = baselineEntry ? analyzeResult(baselineEntry.results, { tracesDirs: layoutOf(baselineEntry.file, { outputs, reports }).tracesDirs, cases, withChains: false }) : null;
   const { plugin, bare, bareSource } = armsOf(rows, baselineRows, baselineEntry?.results);
