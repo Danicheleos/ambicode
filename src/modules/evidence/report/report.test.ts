@@ -223,8 +223,8 @@ describe('07-R9: Not verified for the task route', () => {
     assert.equal(buildReport([format('formatted')]).notVerified, 'Not verified\n  none recorded');
   });
 
-  it('07-R9: limit missing-produces at red reads no-red; at another step it stays a generic limit', () => {
-    assert.match(buildReport([entry('limit', { which: 'missing-produces', step: 'red', count: 3 })]).notVerified, /^ {2}no-red: no failing-first test recorded$/m);
+  it('07-R9: limit no-red reads no-red; missing-produces at any step stays a generic limit', () => {
+    assert.match(buildReport([entry('limit', { which: 'no-red', step: 'red', count: 2 })]).notVerified, /^ {2}no-red: no failing-first test recorded$/m);
     const other = buildReport([entry('limit', { which: 'missing-produces', step: 'green', count: 3 })]);
     assert.match(other.notVerified, /missing-produces limit \(3\) at green/);
     assert.doesNotMatch(other.notVerified, /no-red/);

@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { DEFAULTS } from '../defaults.ts';
 import { AdapterId, Ecosystem } from '../primitives.ts';
 import type { Runtime } from '../composition.ts';
-import type { RouteContextPort } from '../harness.ts';
+import type { CommandContext } from '../harness.ts';
 import type { IndexDeps, IndexStatus } from './search.ts';
 
 const RelativePath = z
@@ -74,6 +74,15 @@ export const ShortlistConfig = z.strictObject({
 });
 export type ShortlistConfig = z.infer<typeof ShortlistConfig>;
 
+const RegexSource = z.string().min(1).refine((source) => {
+  try {
+    new RegExp(source);
+    return true;
+  } catch {
+    return false;
+  }
+}, 'not a valid regular expression');
+
 export const SearchProfile = z.strictObject({
   stamp: z.strictObject({ commit: z.string(), files: z.number().int().nonnegative() }),
   sources: z.array(z.string().min(1)),
@@ -81,6 +90,10 @@ export const SearchProfile = z.strictObject({
   catalogs: z.array(z.string().min(1)),
   featureKinds: z.array(z.string().min(1)),
   exportOnly: z.boolean(),
+  /** Declaration patterns (regex sources) measured in the project's sources; absent means the catalog. */
+  declarations: z.array(RegexSource).optional(),
+  /** Test-path patterns (regex sources) measured over the tracked files; absent means the catalog. */
+  tests: z.array(RegexSource).optional(),
   /** Measured by init from the index tool itself; absent means not measured, and the tool decides. */
   index: z.strictObject({ tool: z.literal('codeindex'), languages: z.array(z.string().min(1)), files: z.number().int().nonnegative() }).optional(),
 });
@@ -139,6 +152,26 @@ export const AuthoringConfig = z.strictObject({
 });
 export type AuthoringConfig = z.infer<typeof AuthoringConfig>;
 
+const count = z.number().int().positive();
+const share = z.number().gt(0).lte(1);
+/** Any ranking constant of the map; absent ones keep `SEARCH_TUNING_DEFAULTS`. */
+export const SearchTuningOverrides = z.strictObject({
+  topFiles: count.optional(),
+  maxTerms: count.optional(),
+  proseRetryTerms: count.optional(),
+  pass2Names: count.optional(),
+  pass2Outside: share.optional(),
+  spansPerCandidate: count.optional(),
+  sequenceDirMin: count.optional(),
+  sequenceShare: share.optional(),
+  layerMin: count.optional(),
+  layeredShare: share.optional(),
+  nameMaxFiles: count.optional(),
+  leads: count.optional(),
+  featureLeads: count.optional(),
+  featurePaths: count.optional(),
+});
+
 /** Absent lists mean the defaults in `config/defaults.ts`; the map prints which one it used. */
 export const SearchConfig = z.strictObject({
   index: z.enum(['none', 'codeindex']).default('none'),
@@ -149,6 +182,7 @@ export const SearchConfig = z.strictObject({
       context: z.array(z.string().min(1)).optional(),
     })
     .optional(),
+  tuning: SearchTuningOverrides.optional(),
 });
 export type SearchConfig = z.infer<typeof SearchConfig>;
 
@@ -222,7 +256,7 @@ export interface InitProposal {
   applyLine: string;
 }
 
-export interface ApplyDeps { runtime: Runtime; session: string | null; context: RouteContextPort | null; doctor?: DoctorOptions }
+export interface ApplyDeps { runtime: Runtime; session: string | null; context: CommandContext | null; doctor?: DoctorOptions }
 
 export interface DoctorOptions {
   project?: string;

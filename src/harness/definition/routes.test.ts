@@ -59,10 +59,8 @@ test('03-R1: a valid route loads and normalizes its steps, gate and defaults', a
   assert.deepEqual(gate.onAnswer['Maybe'], { target: 'ground', args: {} });
 });
 
-test('03b-B1: a route budget takes an optional tool-turn count', async (t) => {
-  const directory = await root(t, { 'routes/demo/demo.yaml': `${BASE.head.replace('{ modelSteps: 6 }', '{ modelSteps: 6, toolTurns: 12 }')}${BASE.model}` });
-  const { routes } = await validateRouteFiles(directory, { handlers: HANDLERS });
-  assert.deepEqual(routes[0]!.budget, { modelSteps: 6, toolTurns: 12 });
+test('a route budget refuses a tool-turn count', async (t) => {
+  await refuses(t, `${BASE.head.replace('{ modelSteps: 6 }', '{ modelSteps: 6, toolTurns: 12 }')}${BASE.model}`, /toolTurns/);
 });
 
 test('03-R1: one rejection per schema rule, each naming the file and the field', async (t) => {
@@ -72,7 +70,6 @@ test('03-R1: one rejection per schema rule, each naming the file and the field',
     ['unknown actor', `${BASE.head}  - id: x\n    actor: robot\n`, /steps\.0\.actor/],
     ['version 2', BASE.head.replace('version: 3', 'version: 2') + BASE.model, /version/],
     ['no modelSteps', BASE.head.replace('{ modelSteps: 6 }', '{ wallMinutes: 5 }') + BASE.model, /budget\.modelSteps/],
-    ['toolTurns not a positive integer', BASE.head.replace('{ modelSteps: 6 }', '{ modelSteps: 6, toolTurns: 0 }') + BASE.model, /budget\.toolTurns/],
     ['exit outside the set', BASE.head.replace('[done, blocked, human]', '[done, vanished]') + BASE.model, /exits/],
     ['a yaml parse error names its line', `${BASE.head}  - id: x\n    actor: code\n    run: [a, b: c\n`, /demo\.yaml: (line \d+|yaml)/],
     ['an unquoted brace in a flow sequence', `${BASE.head}  - id: x\n    actor: code\n    run: code.one\n    produces: [policy{before-report}]\n`, /demo\.yaml/],
@@ -163,7 +160,7 @@ test('03-R7: the registry holds every v6/32 §4 gate with a question, default an
   const ids = registry.map((gate) => gate.id).sort();
   assert.deepEqual(ids, [
     'budget-exhausted', 'check-only-unauthorized', 'config-unparsable', 'decision:*', 'project-ambiguous', 'requirements-conflicting',
-    'requirements-expansion-capped', 'requirements-not-captured-twice', 'requirements-server-ambiguous', 'requirements-server-disconnected', 'review-checks', 'scope-expanding',
+    'requirements-expansion-capped', 'requirements-not-captured-twice', 'requirements-server-ambiguous', 'requirements-server-disconnected', 'review-again', 'review-checks', 'scope-expanding',
   ]);
   for (const gate of registry) {
     assert.ok(gate.question !== '' && gate.default !== '' && gate.release !== '', gate.id);
@@ -174,7 +171,7 @@ test('03-R7: the registry holds every v6/32 §4 gate with a question, default an
   assert.deepEqual(acting['check-only-unauthorized'], ['approve']);
   assert.deepEqual(acting['config-unparsable'], ['back up and regenerate']);
   assert.deepEqual(acting['review-checks'], ['with']);
-  assert.deepEqual(Object.entries(acting).filter(([id]) => !['check-only-unauthorized', 'config-unparsable', 'review-checks'].includes(id)).flatMap(([, value]) => value), []);
+  assert.deepEqual(Object.entries(acting).filter(([id]) => !['check-only-unauthorized', 'config-unparsable', 'review-again', 'review-checks'].includes(id)).flatMap(([, value]) => value), []);
   const reviewStop = registry.filter((gate) => gate.policy['review'] === 'stop').map((gate) => gate.id).sort();
   assert.deepEqual(reviewStop, ['requirements-not-captured-twice', 'requirements-server-ambiguous', 'requirements-server-disconnected']);
   const decision = registry.find((gate) => gate.id === 'decision:*')!;

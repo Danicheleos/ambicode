@@ -30,7 +30,7 @@ export function fsActiveRoutePointer(fs: FileSystem): ActiveRoutePointer {
   };
   return {
     write: (session, scratchpad, value) =>
-      put(file(session, scratchpad, ACTIVE), { task: value.task, skill: value.skill, ...(value.owner === undefined ? {} : { owner: value.owner }), ...(value.toolTurns === undefined ? {} : { toolTurns: value.toolTurns }) }),
+      put(file(session, scratchpad, ACTIVE), { task: value.task, skill: value.skill, ...(value.owner === undefined ? {} : { owner: value.owner }), ...(value.headless === true ? { headless: true } : {}) }),
     async clear(session, scratchpad) {
       await fs.remove(file(session, scratchpad, ACTIVE));
     },

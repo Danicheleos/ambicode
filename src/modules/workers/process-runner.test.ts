@@ -112,7 +112,8 @@ describe('process runner', () => {
     await reviewer.invoke({
       systemPrompt: 'sys', prompt: 'review this', workingDirectory: '/tmp/ambicode-snapshot-x', model: 'sonnet', timeoutMs: 1_000,
     });
-    const captured = runner.calls.map((call) => ({ ...call, argv: call.argv.map((a) => (a.endsWith('system-prompt.md') ? SYSTEM_FILE : a)) }));
+    assert.deepEqual(runner.calls.map((call) => call.purpose), [undefined, 'reviewer']);
+    const captured = runner.calls.map(({ purpose: _purpose, ...call }) => ({ ...call, argv: call.argv.map((a) => (a.endsWith('system-prompt.md') ? SYSTEM_FILE : a)) }));
     assert.deepEqual(captured, BASELINE_REQUESTS);
   });
 });

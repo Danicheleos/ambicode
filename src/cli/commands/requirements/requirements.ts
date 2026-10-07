@@ -1,5 +1,5 @@
 import { loadConfigWithNotices } from '#modules/config/load';
-import { openRouteView } from '#harness/engine/context';
+import { COMMAND_SPECS } from '#skills/investigate/commands';
 import { runCommandTail } from '#harness/engine/command-tail';
 import { splitAcs } from '#modules/requirements/envelope/acs';
 import { envelopeSources, normalizeEnvelope } from '#modules/requirements/envelope/envelope';
@@ -10,7 +10,7 @@ import { readLedger } from '#platform/ledger/ledger';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { AmbicodeError } from '#util/errors';
-import { ownerFor, routeTools, taskOf as requireTask } from '../route/route.ts';
+import { routeTools, taskOf as requireTask } from '../route/route.ts';
 import type { Runtime } from '#types/composition';
 import type { RouteArgs } from '#types/harness';
 import type { ParsedArgs, CliCommand } from '../../types/cli.ts';
@@ -36,7 +36,7 @@ export async function runRequirementsTemplate(runtime: Runtime, args: ParsedArgs
 export async function runRequirementsNormalize(runtime: Runtime, args: ParsedArgs): Promise<RequirementsOutput> {
   const task = requireTask('requirements normalize', args);
   const tools = await routeTools(runtime, task);
-  const view = await openRouteView(runtime, tools.routes, task, ownerFor(tools.binding, task));
+  const { view } = await tools.engine.command(COMMAND_SPECS.requirementsNormalize, { task }, async (scope) => scope);
   if (view === null) throw new AmbicodeError('route-not-open', `Session has no open route on task ${task}.`, { details: [`Start one: route start <skill> --task ${task}`] });
   const dir = await resolveTaskDir(runtime, task);
   const config = (await loadConfigWithNotices(runtime.fs, dir.repositoryRoot)).config;

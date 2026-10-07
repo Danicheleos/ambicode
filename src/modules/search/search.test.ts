@@ -1,13 +1,14 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, realpath } from 'node:fs/promises';
-import { parseArgs } from '#cli/args';
+import { parseArgs } from '#util/args';
 import { runFind, runMap, runRefs, MAP_OPTIONS, REFS_OPTIONS, FIND_OPTIONS } from '#cli/commands/search/search';
 import { openRepository } from '#platform/git/open';
 import { routeFixture, type RouteFixture } from '#testing/fixtures/route-fixture';
 import { countDeclarations, declarationCensus, harvest } from './declarations/harvest.ts';
 import { fakeIndex } from '#testing/fakes/fake-index';
-import { buildMap, cleanRequestText, featureOf, sequenceFiles, FEATURE_LIMIT_BYTES, leadsText, LEADS_LIMIT_BYTES, MAP_LIMIT_BYTES, rankTerms, resolveLayers } from './text/map.ts';
+import { buildMap, cleanRequestText, featureOf, sequenceFiles, FEATURE_LIMIT_BYTES, leadsText, LEADS_LIMIT_BYTES, MAP_LIMIT_BYTES, rankTerms, resolveLayers, resolveTuning } from './text/map.ts';
+import { pathsCitedIn, symbolsCitedIn } from './text/seed.ts';
 import { excludeWorkingDirs } from '#modules/evidence/task/task-dir';
 import { find, refs, renderFind, SEARCH_LIMIT_BYTES } from './declarations/refs.ts';
 import { SearchConfig } from '#types/modules/config';
@@ -15,7 +16,7 @@ import { isPathReason, shortlistRules } from './text/locate.ts';
 import { TEST_EXCLUDES } from '#types/defaults';
 import { sourceGlob } from './declarations/profile.ts';
 import { execFileSync } from 'node:child_process';
-import { GENERIC_PROFILE, SCORE_FILENAME } from '#types/modules/search';
+import { GENERIC_PROFILE, SCORE_FILENAME, SEARCH_TUNING_DEFAULTS } from '#types/modules/search';
 
 async function repo(extra: Record<string, string> = {}): Promise<RouteFixture> {
   const fx = await routeFixture({ routes: {} });
@@ -705,5 +706,71 @@ describe('05-L breadth and limitations', () => {
     } finally {
       await fx.dispose();
     }
+  });
+});
+
+describe('A6 tuning', () => {
+  it('resolveTuning keeps the defaults, hashes every value and lists the overrides', () => {
+    const base = resolveTuning(SearchConfig.parse({}));
+    assert.deepEqual(base.tuning, SEARCH_TUNING_DEFAULTS);
+    assert.deepEqual(base.overrides, []);
+    assert.match(base.hash, /^[0-9a-f]{12}$/);
+    assert.equal(resolveTuning(SearchConfig.parse({ tuning: {} })).hash, base.hash);
+    const tuned = resolveTuning(SearchConfig.parse({ tuning: { topFiles: 3, pass2Outside: 0.25 } }));
+    assert.equal(tuned.tuning.topFiles, 3);
+    assert.deepEqual(tuned.overrides, ['topFiles', 'pass2Outside']);
+    assert.notEqual(tuned.hash, base.hash);
+    assert.throws(() => SearchConfig.parse({ tuning: { nonsense: 1 } }));
+  });
+
+  it('golden: default tuning leaves the investigate map and leads unchanged except the hash line', async () => {
+    const fx = await repo();
+    try {
+      const run = (tuning?: ReturnType<typeof resolveTuning>) =>
+        buildMap({ runtime: fx.runtime, project: project(fx), paths: [], symbols: [], mode: 'prompt', layers: ['shortlist', 'harvest', 'shortlist'], layersSource: 'default', terms: ['cart'], ...(tuning === undefined ? {} : { tuning }) });
+      const plain = await run();
+      const explicit = await run(resolveTuning(SearchConfig.parse({})));
+      const leads = leadsText(explicit, SEARCH_TUNING_DEFAULTS.leads);
+      const [hashLine, ...rest] = leads.split('\n');
+      assert.equal(hashLine, `tuning: ${resolveTuning({}).hash}`);
+      assert.equal(rest.join('\n'), leadsText({ ...plain, tuningHash: undefined }));
+      assert.equal(explicit.text, plain.text);
+      assert.deepEqual(rest, [
+        'Leads from the terms cart; then CartService, applyDiscount, bundleRate, DISCOUNT_RATE:',
+        '1. src/cart/discount.ts:1 — sits under a directory matching "cart"',
+        '2. src/cart/cart.service.ts:1 — sits under a directory matching "cart"',
+        '3. src/billing/invoice.ts:1 — contains "cart"',
+        'Declared more than once: applyDiscount.',
+      ]);
+      assert.deepEqual(plain.candidates.map((candidate) => [candidate.path, candidate.score]), explicit.candidates.map((candidate) => [candidate.path, candidate.score]));
+      const { tuning, profile, decisions, ...fields } = explicit.entry;
+      assert.deepEqual(tuning, { hash: resolveTuning({}).hash, overrides: [] });
+      assert.deepEqual(profile, TS_PROFILE.stamp);
+      assert.deepEqual(Object.keys(decisions as object).sort(), ['feature', 'harvestFiles', 'pass2Downweighted', 'proseRetry', 'sequenceFiles']);
+      const { tuning: _t, profile: _p, decisions: _d, ...before } = plain.entry;
+      assert.deepEqual(fields, before);
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('a tuned topFiles changes what harvest reads and the entry records the override', async () => {
+    const fx = await repo();
+    try {
+      const tuned = resolveTuning(SearchConfig.parse({ tuning: { topFiles: 1 } }));
+      const map = await buildMap({ runtime: fx.runtime, project: project(fx), paths: [], symbols: [], mode: 'prompt', layers: ['shortlist', 'harvest', 'shortlist'], layersSource: 'default', terms: ['cart'], tuning: tuned });
+      assert.equal((map.entry['decisions'] as { harvestFiles: number }).harvestFiles, 1);
+      assert.deepEqual((map.entry['tuning'] as { overrides: string[] }).overrides, ['topFiles']);
+    } finally {
+      await fx.dispose();
+    }
+  });
+});
+
+describe('B8 seed extraction', () => {
+  it('pathsCitedIn keeps tracked paths with or without a line; symbolsCitedIn keeps code-shaped names', () => {
+    const files = ['src/cart/cart.service.ts', 'src/other.ts'];
+    assert.deepEqual(pathsCitedIn('See src/cart/cart.service.ts:12-20, then ./src/other.ts. Also docs/missing.md.', files), ['src/cart/cart.service.ts', 'src/other.ts']);
+    assert.deepEqual(symbolsCitedIn('Change `applyDiscount()` and CartService.addItem_now; AC-ORD-01 plain words'), ['applyDiscount', 'CartService', 'addItem_now']);
   });
 });

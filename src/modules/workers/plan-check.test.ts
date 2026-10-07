@@ -5,9 +5,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { createRuntime } from '#composition/root';
-import { parseArgs } from '#cli/args';
+import { parseArgs } from '#util/args';
 import { renderPlanCheck, runPlanCheckCommand, PLAN_CHECK_OPTIONS } from '#cli/commands/workers/plan-check';
-import { ledgerRouteContext } from '#harness/engine/context';
+import { commandContext } from '#harness/engine/context';
 import { skillHandlers } from '#skills/handlers';
 import { routeFixture } from '#testing/fixtures/route-fixture';
 import { AmbicodeError } from '#util/errors';
@@ -138,7 +138,7 @@ describe('plan check command and runPlanCheck', () => {
     const steps = async () => (await fx.ledger(task)).filter((e) => e.kind === 'step').map((e) => `${e['step']}:${e['status']}`);
     const writeBody = async (text: string) => { await mkdir(join(taskDir, 'steps'), { recursive: true }); await writeFile(join(taskDir, 'steps', 'plan-body.md'), text); };
     const cmd = (body: string | null, argv: string[] = ['--task', task]) => runPlanCheckCommand(withStdin(body), parseArgs('plan check', argv, PLAN_CHECK_OPTIONS));
-    const deps = (session: string | null, rt: Runtime = runtime) => ({ runtime: rt, session, context: ledgerRouteContext({ runtime: rt, routes: fx.routes }) });
+    const deps = (session: string | null, rt: Runtime = runtime) => ({ runtime: rt, session, context: commandContext({ runtime: rt, routes: fx.routes }) });
     const kinds = async () => (await fx.ledger(task)).map((e) => (e.kind === 'note' ? `note:${e['note']}` : e.kind === 'worker' ? `worker:${e['worker']}` : e.kind));
     return { fx, task, taskDir, runtime, startRoute, steps, writeBody, cmd, deps, kinds };
   }

@@ -13,17 +13,13 @@ export interface GuardInput {
 export interface ActiveRoute {
   task: string;
   skill: string;
-  toolTurns?: number;
+  headless?: boolean;
 }
 
 /** Bounded reads of session state and a task ledger; `null` when absent, too large or unreadable. */
 export interface GuardState {
   activeRoute(scratchpadDir: string): ActiveRoute | null;
   ledger(taskDirectory: string): LedgerEntry[] | null;
-  /** The last `TRANSCRIPT_TAIL_BYTES` bytes of a transcript, from its first whole line. */
-  transcriptTail?(file: string): string | null;
-  /** The pointer of a session whose hook input has no `scratchpad_dir` (PostToolUse carries none). */
-  sessionRoute?(sessionId: string): ActiveRoute | null;
 }
 
 // Equal to markers.ts HOOK_STATE_DIR_NAME and ledger.ts LEDGER_FILE (tested); importing either would bundle node:path and node:crypto.
@@ -37,12 +33,3 @@ export const GUARD_LEDGER_FILE = 'ledger.jsonl';
 // long records, 45-50 ms at 1 MiB of short ones, 53-57 ms at 2 MiB of short ones against 33 §7's 50 ms; a larger
 // ledger denies the plan-body write instead.
 export const LEDGER_LIMIT = 1024 * 1024;
-
-export interface ToolTurnsInput {
-  hook_event_name?: string;
-  agent_id?: unknown;
-  scratchpad_dir?: unknown;
-  session_id?: unknown;
-  transcript_path?: unknown;
-  tool_use_id?: unknown;
-}

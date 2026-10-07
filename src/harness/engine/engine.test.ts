@@ -114,6 +114,25 @@ describe('engine: entry points and the one algorithm', () => {
     }
   });
 
+  it('step entries carry timing, budget use and the printed size; the exit carries the budget spent', async () => {
+    const { fx, start, next } = await inv();
+    try {
+      const first = await start();
+      await next();
+      await fx.engine.stop('cart', A, 'blocked', undefined, fx.scratchpad);
+      const steps = await fx.kinds('cart', 'step');
+      const ground = steps.find((entry) => entry['step'] === 'ground' && entry['status'] === 'completed');
+      const read = steps.find((entry) => entry['step'] === 'read' && entry['status'] === 'delivered');
+      assert.equal(typeof ground?.['ms'], 'number');
+      assert.deepEqual([read?.['payloadBytes'], read?.['payloadTokens']], [first.bytes, Math.ceil(first.bytes / 4)]);
+      assert.equal((read?.['budget'] as { modelSteps: number }).modelSteps, 1);
+      const exit = (await fx.kinds('cart', 'exit')).at(-1);
+      assert.equal(typeof (exit?.['budget'] as { modelSteps: number } | undefined)?.modelSteps, 'number');
+    } finally {
+      await fx.dispose();
+    }
+  });
+
   it('03-E1/03-E3: a command tail at a model step completes it exactly as route next does; delivery alone completes nothing', async () => {
     const { fx, start, next } = await inv();
     try {
@@ -285,6 +304,64 @@ describe('05-B6 index build at route start', () => {
       } finally {
         await fx.dispose();
       }
+    }
+  });
+});
+
+const WORKER_ROUTE = `${HEAD('wk')}  - id: scout
+    actor: worker
+    gate:
+      question: "Run the scout worker?"
+      options: [run, inline, skip]
+      default: skip
+      release: skip
+  - id: write
+    actor: model
+    instruction: "Write it."
+`;
+
+describe('engine: headless visibility and worker steps (B18, B15)', () => {
+  it('B18: a model-set headless start says so, a user-set one says that, and route status shows mode, channel and the defaults taken', async () => {
+    for (const [channel, said] of [['cli', /headless \(set by the model\)/], ['hook', /headless \(set by the user\)/]] as const) {
+      const { fx, start } = await inv({ candidates: 0 });
+      try {
+        const first = await start({ headless: true, channel, task: `cart-${channel}` });
+        assert.match(first.text, said);
+        const [position] = await fx.engine.status(`cart-${channel}`, null);
+        assert.equal(position?.mode, 'headless');
+        assert.equal(position?.channel, channel);
+        assert.deepEqual(position?.decisions.map((entry) => [entry.kind, entry['gate']]), [['default-taken', 'scope']]);
+      } finally {
+        await fx.dispose();
+      }
+    }
+  });
+
+  it('B15: a worker step prints a run/inline/skip gate and does not throw; the default skips it and records the skip', async () => {
+    const fx = await routeFixture({ routes: { wk: WORKER_ROUTE } });
+    try {
+      const input = { skill: 'wk', text: 'go', requirements: [], task: 'w1', cwd: fx.repo.root, session: A, channel: 'hook' as const, scratchpadDir: fx.scratchpad };
+      const first = await fx.engine.start(input);
+      assert.equal(first.position, 'scout');
+      assert.match(first.text, /Run the scout worker\?/);
+      const headless = await fx.engine.start({ ...input, task: 'w2', headless: true, session: 'bbbbbbbb-1111-4111-8111-111111111111' });
+      assert.equal(headless.position, 'write');
+      assert.deepEqual((await fx.kinds('w2', 'worker')).map((entry) => [entry['worker'], entry['outcome']]), [['scout', 'skipped']]);
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('B15: a run answer for a worker that is not in workers.approved is not run and records inline', async () => {
+    const fx = await routeFixture({ routes: { wk: WORKER_ROUTE } });
+    try {
+      await fx.engine.start({ skill: 'wk', text: 'go', requirements: [], task: 'w1', cwd: fx.repo.root, session: A, channel: 'hook', scratchpadDir: fx.scratchpad });
+      const print = (await fx.kinds('w1', 'gate')).at(-1)!;
+      const after = await fx.engine.advance({ task: 'w1', session: A, cause: 'gate-hook', scratchpadDir: fx.scratchpad, answers: [{ gate: 'scout', option: 'run', instance: print.id }] });
+      assert.equal(after.position, 'write');
+      assert.deepEqual((await fx.kinds('w1', 'worker')).map((entry) => [entry['outcome'], entry['reason']]), [['inline', 'not in workers.approved']]);
+    } finally {
+      await fx.dispose();
     }
   });
 });

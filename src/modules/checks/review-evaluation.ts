@@ -1,5 +1,5 @@
 import type { Finding, ReviewResult } from '#types/modules/review';
-import { isBoundAnswer } from '#harness/engine/fold';
+import { isBoundAnswer } from '#modules/evidence/ledger-chain';
 import type { ReviewEntry } from '#types/modules/checks';
 import type { LedgerEntry } from '#types/modules/evidence';
 import type { RouteView } from '#types/harness';

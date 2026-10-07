@@ -3,13 +3,12 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile, mkdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { ledgerRouteContext } from '#harness/engine/context';
+import { commandContext } from '#harness/engine/context';
 import { loadPayload } from '#harness/engine/delivery';
 import { skillHandlers } from '#skills/handlers';
 import { saveNote } from '#modules/evidence/notes';
 import { assembleEngine, CONFIG, routeFixture } from '#testing/fixtures/route-fixture';
 import { NodeProcessRunner } from '#platform/ports/node-process-runner';
-import { fsGuardState } from '#hook/guard/guard-state';
 import { REPO_ROOT } from '#testing/paths';
 import type { StartInput } from '#types/harness';
 
@@ -44,7 +43,6 @@ describe('investigate route (03-I1, 03-I2)', () => {
       assert.match(first.text, /src\/cart\.ts/);
       assert.doesNotMatch(first.text, /note save|route next/);
       assert.ok(first.bytes <= 8_192, `03-X1: ground-and-read message is ${first.bytes} bytes`);
-      assert.equal(fsGuardState.activeRoute(fx.scratchpad)?.toolTurns, 12, '03b-B1: the answering step carries the budget');
       const dir = path.join(fx.repo.root, '.ambicode', 'task', 'cart');
       for (const [key, limit] of [['map', 6_144], ['policy:before-work', 8_192]] as const) {
         const payload = await loadPayload(fx.runtime.fs, { steps: path.join(dir, 'steps') } as never, (await fx.kinds('cart', 'route'))[0]!.id, key);
@@ -119,7 +117,7 @@ describe('investigate route (03-I1, 03-I2)', () => {
       assert.equal(again.position, 'read');
       assert.doesNotMatch(again.text, /Not done yet/);
       assert.ok(!(await rows()).includes('read:repeated'));
-      const context = ledgerRouteContext({ runtime: fx.runtime, routes: fx.routes });
+      const context = commandContext({ runtime: fx.runtime, routes: fx.routes });
       await saveNote({ runtime: fx.runtime, session: A, context }, { task: 'cart', kind: 'investigation', body: '## Files\n- src/cart.ts:2 appends\n', from: null, iteration: null, route: first.routeId });
       const done = await next({ cause: 'note save' });
       assert.equal(done.position, 'complete');
@@ -128,6 +126,161 @@ describe('investigate route (03-I1, 03-I2)', () => {
       assert.deepEqual(fx.routes.route('investigate')!.steps.map((step) => step.id), ['template', 'fetch', 'ground', 'scope', 'read']);
     } finally {
       await fx.dispose();
+    }
+  });
+});
+
+const B = 'bbbbbbbb-2222-4222-8222-222222222222';
+
+describe('reopen: typing the skill again continues a finished route', () => {
+  type Fixture = Awaited<ReturnType<typeof investigation>>;
+  const finish = async (t: Fixture, first: { task: string; routeId: string }, session = A) => {
+    const context = commandContext({ runtime: t.fx.runtime, routes: t.fx.routes });
+    await saveNote({ runtime: t.fx.runtime, session, context }, { task: first.task, kind: 'investigation', body: '## Files\n- src/cart.ts:2 appends\n', from: null, iteration: null, route: first.routeId });
+    return t.fx.engine.advance({ task: first.task, session, cause: 'note save', scratchpadDir: t.fx.scratchpad });
+  };
+  const maps = async (t: Fixture) => (await t.fx.kinds('cart', 'map')).length;
+  const bare = (t: Fixture, input: Partial<StartInput> = {}) =>
+    t.fx.engine.start({ skill: 'investigate', text: 'how does addToCart work', requirements: [], cwd: t.fx.repo.root, session: A, channel: 'hook', scratchpadDir: t.fx.scratchpad, ...input });
+
+  it('with more context the map reruns, the args merge and the finished chain is reopened', async () => {
+    const t = await investigation();
+    try {
+      const first = await t.start();
+      await finish(t, first);
+      assert.equal(await maps(t), 1);
+      const again = await t.start({ text: 'and where checkout calls it' });
+      assert.equal(again.position, 'read');
+      assert.equal(await maps(t), 2);
+      const revise = (await t.fx.kinds('cart', 'revise')).at(-1)!;
+      assert.equal(revise['via'], 'reopen');
+      assert.equal(revise['route'], first.routeId);
+      const routes = await t.fx.kinds('cart', 'route');
+      assert.equal(routes.length, 2);
+      assert.equal(routes[1]!['resumes'], first.routeId);
+      assert.equal(routes[1]!['reopens'], first.routeId);
+      assert.equal((routes[1]!['args'] as { text: string }).text, 'how does addToCart work and where checkout calls it');
+    } finally {
+      await t.fx.dispose();
+    }
+  });
+
+  it('a pause at the scope question is continued by typing the skill again with the missing context', async () => {
+    const t = await investigation();
+    try {
+      await t.start({ text: 'zzqqxx wwvvuu' });
+      await t.next({ answers: [{ gate: 'scope', option: 'pause' }] });
+      const again = await t.start({ text: 'addToCart in src/cart.ts' });
+      assert.equal(again.position, 'read');
+      assert.equal((await t.fx.kinds('cart', 'revise')).at(-1)?.['via'], 'reopen');
+      assert.equal((await t.fx.kinds('cart', 'route')).at(-1)?.['reopens'], undefined);
+    } finally {
+      await t.fx.dispose();
+    }
+  });
+
+  it('the scope question tells how to come back with more context', async () => {
+    const t = await investigation();
+    try {
+      const first = await t.start({ text: 'zzqqxx wwvvuu' });
+      assert.match(first.text, /type \/ambicode:investigate again/);
+    } finally {
+      await t.fx.dispose();
+    }
+  });
+
+  it('order: without --task a finished route is continued only by text that names its task; other text is new work', async () => {
+    const t = await investigation();
+    try {
+      const first = await t.start();
+      await finish(t, first);
+      const again = await bare(t, { text: 'unrelated wording entirely' });
+      assert.notEqual(again.task, 'cart');
+      assert.equal((await t.fx.kinds('cart', 'route')).length, 1);
+    } finally {
+      await t.fx.dispose();
+    }
+  });
+
+  it('order: an explicit --task wins over the session\'s latest route', async () => {
+    const t = await investigation();
+    try {
+      await finish(t, await t.start({ task: 'other' }));
+      await finish(t, await t.start({ task: 'cart' }));
+      const again = await t.start({ task: 'other', text: 'more' });
+      assert.equal(again.task, 'other');
+      assert.equal((await t.fx.kinds('other', 'route')).length, 2);
+      assert.equal((await t.fx.kinds('cart', 'route')).length, 1);
+    } finally {
+      await t.fx.dispose();
+    }
+  });
+
+  it('order: by slug another session continues a finished route only after its session ended or with --adopt, else it starts a new one', async () => {
+    for (const how of ['none', 'session-end', 'adopt'] as const) {
+      const t = await investigation();
+      try {
+        const first = await bare(t, { text: 'addToCart work again now soon' });
+        await finish(t, first);
+        if (how === 'session-end') {
+          const file = path.join(t.fx.repo.root, '.ambicode', 'task', first.task, 'ledger.jsonl');
+          await writeFile(file, `${await readFile(file, 'utf8')}${JSON.stringify({ id: 'aaaaaaaa-900', at: '2026-10-05T09:00:00.000Z', kind: 'session', route: first.routeId, harnessSession: A, event: 'end', reason: 'exit' })}\n`);
+        }
+        await bare(t, { session: B, harnessSession: B, text: 'addToCart work again now soon plus context', ...(how === 'adopt' ? { adopt: true } : {}) });
+        const revises = (await t.fx.kinds(first.task, 'revise')).filter((entry) => entry['via'] === 'reopen');
+        assert.equal(revises.length, how === 'none' ? 0 : 1, how);
+        if (how !== 'none') assert.equal(revises[0]!['source'], how);
+        if (how === 'none') continue;
+        assert.equal((await t.fx.kinds(first.task, 'route')).at(-1)?.['session'], B);
+        assert.equal((await t.fx.kinds(first.task, 'route')).at(-1)?.['resumes'], first.routeId);
+      } finally {
+        await t.fx.dispose();
+      }
+    }
+  });
+
+  it('--fresh starts a new route and does not reopen', async () => {
+    const t = await investigation();
+    try {
+      await finish(t, await t.start());
+      await t.start({ fresh: true });
+      assert.equal((await t.fx.kinds('cart', 'revise')).filter((entry) => entry['via'] === 'reopen').length, 0);
+      assert.equal((await t.fx.kinds('cart', 'route')).at(-1)?.['resumes'], undefined);
+    } finally {
+      await t.fx.dispose();
+    }
+  });
+});
+
+describe('--fresh supersedes only its own session\'s routes and those of ended sessions', () => {
+  const setup = async (ended: boolean) => {
+    const t = await investigation();
+    const mine = await t.start({ text: 'first question' });
+    const theirs = await t.start({ session: B, harnessSession: B, text: 'second question entirely' });
+    if (ended) {
+      const file = path.join(t.fx.repo.root, '.ambicode', 'task', 'cart', 'ledger.jsonl');
+      await writeFile(file, `${await readFile(file, 'utf8')}${JSON.stringify({ id: 'aaaaaaaa-901', at: '2026-10-05T09:00:00.000Z', kind: 'session', route: theirs.routeId, harnessSession: B, event: 'end', reason: 'exit' })}\n`);
+    }
+    await t.start({ text: 'third question', fresh: true });
+    const exits = (await t.fx.kinds('cart', 'exit')).map((entry) => `${entry['route']}:${entry['reason']}`);
+    return { t, mine, theirs, exits };
+  };
+
+  it('another live session\'s route stays live', async () => {
+    const { t, mine, exits } = await setup(false);
+    try {
+      assert.deepEqual(exits, [`${mine.routeId}:superseded`]);
+    } finally {
+      await t.fx.dispose();
+    }
+  });
+
+  it('a route whose session ended is superseded', async () => {
+    const { t, mine, theirs, exits } = await setup(true);
+    try {
+      assert.deepEqual(exits, [`${mine.routeId}:superseded`, `${theirs.routeId}:superseded`]);
+    } finally {
+      await t.fx.dispose();
     }
   });
 });
@@ -167,7 +320,7 @@ describe('investigate route: a synthetic walk on ts-feature-boundary (03-I1, 03-
         positions.push(message.position);
         texts.push(message.text);
         if (message.position === 'read') {
-          const context = ledgerRouteContext({ runtime: assembled.runtime, routes: assembled.routes });
+          const context = commandContext({ runtime: assembled.runtime, routes: assembled.routes });
           await saveNote({ runtime: assembled.runtime, session: A, context }, { task: 'invoices', kind: 'investigation', body: '## Confirmed facts\n- none\n', from: null, iteration: null, route: message.routeId });
         }
         message = await engine.advance({ task: 'invoices', session: A, cause: message.position === 'read' ? 'note save' : 'route-next', scratchpadDir });

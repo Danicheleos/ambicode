@@ -40,5 +40,5 @@ export function capturedServers(entries: readonly { kind: string; [field: string
 
 /** The distinct tool names that produced a task's captures (04-T6). */
 export function observedTools(entries: readonly { kind: string; [field: string]: unknown }[]): string[] {
-  return [...new Set(entries.flatMap((entry) => (entry.kind === 'requirement' ? [String(entry['via'])] : [])))];
+  return [...new Set(entries.flatMap((entry) => (entry.kind === 'requirement' && entry['capture'] !== 'disconnected' ? [String(entry['via'])] : [])))];
 }

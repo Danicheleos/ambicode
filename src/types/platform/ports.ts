@@ -67,6 +67,9 @@ export type EnvironmentPolicy =
       set?: Readonly<Record<string, string>>;
     };
 
+export const COMMAND_TYPES = ['ambicode', 'check', 'format', 'baseline', 'reviewer', 'worker', 'index'] as const;
+export type CommandType = (typeof COMMAND_TYPES)[number];
+
 export interface ProcessRequest {
   argv: readonly string[];
   cwd: string;
@@ -80,6 +83,8 @@ export interface ProcessRequest {
    * process group and resolves once it has spawned, without waiting for it. Default `capture`.
    */
   output?: 'capture' | 'ignore' | 'detached';
+  /** Names the run for the command log; an untagged run is not logged. */
+  purpose?: CommandType;
 }
 
 export interface ProcessOutcome {

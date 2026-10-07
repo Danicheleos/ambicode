@@ -16,14 +16,14 @@ export { routeRegistry } from './definition/routes.ts';
 export { createEngine } from './engine/engine.ts';
 /** runCommandTail(deps, input) — after a CLI command wrote its evidence, advances the route and returns the next step message or null. */
 export { runCommandTail } from './engine/command-tail.ts';
-/** ledgerRouteContext({ runtime, routes }) — the RouteContextPort that reads a route's context from the task ledger. */
-export { ledgerRouteContext } from './engine/context.ts';
+/** commandContext({ runtime, routes }) — the CommandContext that reads a route's context from the task ledger. */
+export { commandContext } from './engine/context.ts';
 /** openRouteView(runtime, routes, task, session) — the session's unfinished route as a RouteView, or null when it has none. */
 export { openRouteView } from './engine/context.ts';
 /** readEntries(runtime, task) — reads the task ledger strictly; throws when it is unreadable. */
 export { readEntries } from './engine/context.ts';
 /** refOf(entry, kind, value) — an ArtifactRef of the given kind pointing at a ledger entry and its content hash. */
-export { refOf } from './engine/context.ts';
+export { refOf } from '#modules/evidence/ledger-chain';
 /** chainKey(ids) — the first route id of a chain; stays the same when a later route resumes it. */
 export { chainKey } from './engine/delivery.ts';
 /** loadPayload(fs, dir, chain, key) — reads a step's saved payload text, or null when none was saved. */
@@ -77,7 +77,7 @@ export { harnessOf } from './session/harness.ts';
 /** ownerOfHarness(entries, harness) — the owner key a Claude session speaks for, if it is still the latest on that owner's routes. */
 export { ownerOfHarness } from './session/harness.ts';
 /** ownerOf(entries, slug) — the PlanOwnership (state, owner, reason) of a task read from its ledger entries. */
-export { ownerOf } from './session/ownership.ts';
+export { ownerOf } from '#modules/evidence/ownership';
 export { cliHarnessPort } from './session/session.ts';
 /** sessionUnbound(binding, task?) — the session-unbound AmbicodeError for a CLI call that cannot tell which route it speaks for. */
 export { sessionUnbound } from './session/session.ts';

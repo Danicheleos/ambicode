@@ -462,7 +462,7 @@ ambicode view --review <review-id>
 
 ```sh
 ambicode view --review <review-id-or-path-to-result.json>
-ambicode view --review <review-id> --no-open
+ambicode view --review <review-id>
 ```
 
 Starts a local page, bound only to `127.0.0.1` on port 45831 (`page.port`;

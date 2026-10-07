@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import { createRuntime } from '#composition/root';
 import { buildProposal, writeConfig } from '#modules/config/init/proposal';
 import { TempRepo } from '#testing/fixtures/temp-repo';
-import { parseArgs } from '../../args.ts';
+import { parseArgs } from '#util/args';
 import { renderConfig, runConfig } from './config.ts';
 import { renderInit, runInit, INIT_OPTIONS } from './init.ts';
 

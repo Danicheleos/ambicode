@@ -14,12 +14,10 @@ export type { Runtime, Workspace } from './composition.ts';
 export { PREPARE_OPTIONS, ROUTE_START_OPTIONS } from './cli.ts';
 
 // prepare.ts: prepare output, policy, navigation and compact-output schemas.
-export { PreparePolicy, PrepareContextBudget, PrepareSharedContract, PrepareNavigation, PrepareTask, PrepareOutput, PrepareCompactOutput } from './prepare.ts';
-export type { PrepareCompactRule } from './prepare.ts';
 
 // harness.ts: route, step, gate, handler and engine contracts.
 export { EXITS, HANDLER_NAMES, MARKER, RAISED_BY } from './harness.ts';
-export type { Exit, Qualified, Call, Revise, OnError, When, GateDef, Answer, ReviewTargetArgs, RouteArgs, StepDef, RouteDef, RouteRegistry, StartChannel, CommandName, Cause, AcceptanceEntry, RouteView, ConsentResult, RouteContextPort, StartInput, AdvanceInput, StepMessage, Position, Engine, HandlerInput, HandlerResult, Handler, HandlerRegistry, ActiveRoutePointer, PlanOwnership, SessionBinding } from './harness.ts';
+export type { Exit, Qualified, Call, Revise, OnError, When, GateDef, Answer, ReviewTargetArgs, RouteArgs, StepDef, RouteDef, RouteRegistry, StartChannel, CommandName, Cause, AcceptanceEntry, RouteView, ConsentResult, CommandContext, GuardedCommand, CommandScope, StartInput, AdvanceInput, StepMessage, Position, Engine, HandlerInput, HandlerResult, Handler, HandlerRegistry, ActiveRoutePointer, PlanOwnership, SessionBinding } from './harness.ts';
 
 // hook.ts: Claude Code hook input/output schemas, limits and hook dependency shapes.
 export { HookInput, ADDITIONAL_CONTEXT_EVENTS, EMPTY_HOOK_OUTPUT, AskUserQuestionResponse, REGISTERED_HOOK_EVENTS, REGISTERED_HOOK_ENTRIES, MAX_HOOK_INPUT_BYTES } from './hook.ts';
@@ -36,7 +34,7 @@ export type { Support, PlatformFlags } from './platform/claude.ts';
 export type { DiffLine, DiffHunk, DiffFile, RawChangeKind, RawChange } from './platform/git.ts';
 
 // platform/ports.ts: port interfaces (Clock, FileSystem, IdSource, ProcessRunner, Reviewer, StandardInput).
-export type { Clock, FileStats, DirectoryEntry, FileSystem, IdSource, EnvironmentPolicy, ProcessRequest, ProcessOutcome, ProcessRunner, ReviewerRequest, ReviewerInvocation, Reviewer, StandardInput } from './platform/ports.ts';
+export type { Clock, FileStats, DirectoryEntry, FileSystem, IdSource, CommandType, EnvironmentPolicy, ProcessRequest, ProcessOutcome, ProcessRunner, ReviewerRequest, ReviewerInvocation, Reviewer, StandardInput } from './platform/ports.ts';
 
 // platform/provider.ts: ReviewProvider contract, remote target/position/discussion schemas and outcome helpers.
 export { DeliveryCertainty, RemoteTarget, RemotePosition, RemoteNote, RemoteDiscussion, RemoteRevisionState, RemoteRevision, CoverageGap, ReviewCoverage, COMPLETE_COVERAGE } from './platform/provider.ts';

@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { parseArgs } from '#cli/args';
+import { parseArgs } from '#util/args';
 import { runRouteNext, runRouteStop, ROUTE_NEXT_OPTIONS, ROUTE_STOP_OPTIONS } from '#cli/commands/route/route';
 import { routeFixture } from '#testing/fixtures/route-fixture';
 import { PLAN_TASK, planFixture } from '#testing/fixtures/plan-fixture';

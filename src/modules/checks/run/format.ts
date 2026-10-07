@@ -9,14 +9,13 @@ import { authorizeKey, projectRelative, routedOf, withLedger } from './check-com
 import { fingerprintWorkspace } from '../workspace/mutations.ts';
 import { expandFiles } from '../selection/select.ts';
 import { touchedSet } from '../workspace/baseline.ts';
-import { readEntries } from '#harness/engine/context';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import type { CheckDeps, BaselineEntryFields, FormatEntry } from '#types/modules/checks';
 const FORMAT_COMMAND = 'format';
 
 /** The task's baseline in this route's chain (or the latest one standalone); none → everything changed against HEAD. */
 export async function baselineOf(deps: CheckDeps, task: string, chainIds: readonly string[] | null): Promise<(BaselineEntryFields & { id: string }) | null> {
-  const entry = (await readEntries(deps.runtime, task)).findLast((candidate) => candidate.kind === 'baseline' && (chainIds === null || chainIds.includes(String(candidate['route']))));
+  const entry = (await deps.context!.entries(task)).findLast((candidate) => candidate.kind === 'baseline' && (chainIds === null || chainIds.includes(String(candidate['route']))));
   return entry === undefined ? null : { id: entry.id, head: (entry['head'] as string | null) ?? null, dirty: (entry['dirty'] as BaselineEntryFields['dirty']) ?? [] };
 }
 
@@ -69,6 +68,7 @@ export async function runFormat(deps: CheckDeps, input: { task: string; paths: s
       timeoutMs: (command.timeoutSeconds ?? workspace.config.checks.timeoutSeconds) * 1000,
       maxOutputBytes: MAX_COMMAND_OUTPUT_BYTES,
       env: { kind: 'inherited' },
+      purpose: 'format',
     });
     const after = await hashes();
     const changed = files.filter((file) => before.get(file) !== after.get(file));

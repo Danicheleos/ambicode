@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { skillHandlers } from '#skills/handlers';
 import { EVIDENCE_HANDLERS } from '#skills/evidence';
-import { ledgerRouteContext } from '#harness/engine/context';
+import { commandContext } from '#harness/engine/context';
 import { promotePlan, saveNote } from '#modules/evidence/notes';
 import { routeFixture, type RouteFixture } from './route-fixture.ts';
 import { REPO_ROOT } from '../paths.ts';
@@ -126,9 +126,9 @@ export async function planFixture(options: { extra?: Record<string, string>; han
     body,
     async saveDraft(text, session = SESSION_A) {
       await body(text);
-      return saveNote({ runtime: fx.runtime, session, context: ledgerRouteContext({ runtime: fx.runtime, routes: fx.routes }) }, { task: PLAN_TASK, kind: 'plan-draft', body: null, from: 'steps/plan-body.md', iteration: null });
+      return saveNote({ runtime: fx.runtime, session, context: commandContext({ runtime: fx.runtime, routes: fx.routes }) }, { task: PLAN_TASK, kind: 'plan-draft', body: null, from: 'steps/plan-body.md', iteration: null });
     },
-    promote: (session = SESSION_A) => promotePlan({ runtime: fx.runtime, session, context: ledgerRouteContext({ runtime: fx.runtime, routes: fx.routes }) }, PLAN_TASK),
+    promote: (session = SESSION_A) => promotePlan({ runtime: fx.runtime, session, context: commandContext({ runtime: fx.runtime, routes: fx.routes }) }, PLAN_TASK),
     async toGate(input = {}) {
       await start(input);
       await next();

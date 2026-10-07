@@ -1,5 +1,6 @@
 import type { TypedEntry } from '#platform/ledger/kinds';
 import type { Runtime } from './composition.ts';
+import type { HookInput, StopHookOutput } from './hook.ts';
 import type { ArtifactRef, LedgerEntry, TaskDir, LockedLedger } from './modules/evidence.ts';
 
 export const EXITS = ['done', 'blocked', 'human', 'inconclusive', 'superseded', 'budget'] as const;
@@ -98,13 +99,16 @@ export interface StepDef {
   repeat: number;
   /** `note`: the model's final answer is the step's note; the Stop hook saves it. */
   answer: 'note' | null;
+  /** `next`: the following command-less model step is delivered in this step's message. */
+  chain: 'next' | null;
+  /** The model's final message is this step's work; the next prompt closes the route. */
+  final: boolean;
 }
 
 export interface RouteDef {
   skill: string;
   version: 3;
-  /** `toolTurns`: model turns with tool calls at an `answer: note` step before the PostToolUse notice. */
-  budget: { modelSteps: number; wallMinutes?: number; toolTurns?: number };
+  budget: { modelSteps: number; wallMinutes?: number };
   exits: readonly Exit[];
   revisable: readonly string[];
   steps: readonly StepDef[];
@@ -143,12 +147,36 @@ export type ConsentResult =
   | { state: 'honoured'; source: AcceptanceEntry; object: ArtifactRef | null }
   | { state: 'refused'; reason: 'no-answer' | 'superseded' | 'unbound' | 'acting-needs-human' | 'not-accepted'; source: LedgerEntry | null };
 
-export interface RouteContextPort {
+/** What a guarded command may ask of the route it speaks for; the engine builds it, modules only read through it. */
+export interface CommandContext {
   resolve(task: string, session: string): Promise<RouteView | null>;
+  /** Like `resolve`, but null once the route has ended. */
+  open(task: string, session: string): Promise<RouteView | null>;
   assertOwner(view: RouteView): Promise<void>;
   window(view: RouteView, stepId: string): Promise<readonly LedgerEntry[]>;
   object(view: RouteView, gateId: string): Promise<ArtifactRef | null>;
   consent(view: RouteView, gateId: string, binding?: object): Promise<ConsentResult>;
+  /** The task ledger, read strictly. */
+  entries(task: string): Promise<LedgerEntry[]>;
+  /** Prints a raised gate for the route, under the caller's ledger lock. */
+  raise(ledger: LockedLedger, view: RouteView, input: { gate: string; values: Readonly<Record<string, readonly string[]>>; raisedBy: string; openAt?: string }): Promise<LedgerEntry>;
+}
+
+/** One guarded command a skill declares: `owned` refuses unless exactly one live route binds the call to an owner. */
+export interface GuardedCommand {
+  name: string;
+  skill: string;
+  route: 'optional' | 'owned';
+}
+
+export interface CommandScope {
+  task: string;
+  /** The owner of the task's one live route, null when none or several. */
+  session: string | null;
+  binding: SessionBinding;
+  /** The session's open route, null without one. */
+  view: RouteView | null;
+  context: CommandContext;
 }
 
 export interface StartInput {
@@ -207,6 +235,10 @@ export interface Position {
   sessions: readonly { session: string; routeId: string; adopts: boolean }[];
   owner: PlanOwnership | null;
   position: string | 'complete';
+  mode: 'interactive' | 'headless';
+  channel: string;
+  /** Every default taken and every revise the route made by itself, in order. */
+  decisions: readonly LedgerEntry[];
   steps: readonly { id: string; state: 'done' | 'pending' | 'skipped'; windowStart: number }[];
   cycles: number;
   repeatsLeft: Readonly<Record<string, number>>;
@@ -223,11 +255,17 @@ export interface Engine {
   deliver(task: string, session: string, scratchpadDir?: string): Promise<StepMessage | null>;
   status(task: string, session: string | null): Promise<Position[]>;
   stop(task: string, session: string, reason: 'blocked' | 'human' | 'inconclusive' | 'budget', detail?: string, scratchpadDir?: string): Promise<void>;
+  /** Stop: the checks on the final message under one ledger lock, the single block they may cause, and the pause on a dismissed gate question. */
+  stopHook(input: HookInput, options?: { defectBrief?: boolean }): Promise<StopHookOutput | null>;
+  /** UserPromptSubmit: pause the open route when its gate question was dismissed; whether it did. */
+  dismissedGate(input: HookInput): Promise<boolean>;
+  /** Runs a guarded command's body with the route the call speaks for resolved and its context supplied. */
+  command<T>(spec: GuardedCommand, request: { task: string }, body: (scope: CommandScope) => Promise<T>): Promise<T>;
 }
 
 export interface HandlerInput {
   view: RouteView;
-  context: RouteContextPort;
+  context: CommandContext;
   dir: TaskDir;
   args: RouteArgs;
   params: readonly string[];
@@ -260,7 +298,7 @@ export interface HandlerRegistry {
 export const MARKER = /\[ambicode gate ([\w:.-]+)(?: ([\w-]+))?\]/;
 
 export interface ActiveRoutePointer {
-  write(session: string, scratchpad: string | undefined, value: { task: string; skill: string; owner?: string; toolTurns?: number }): Promise<void>;
+  write(session: string, scratchpad: string | undefined, value: { task: string; skill: string; owner?: string; headless?: boolean }): Promise<void>;
   clear(session: string, scratchpad: string | undefined): Promise<void>;
   read(session: string, scratchpad: string | undefined): Promise<{ task: string; skill: string; owner?: string } | null>;
   /** Written when exit or completion clears `active-route`; read and removed only by Stop. */

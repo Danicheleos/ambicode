@@ -24,10 +24,15 @@ projects and their commands (a `null` command is a skipped check, with its notic
 
 ## The one question
 
-Ask it with AskUserQuestion exactly as printed, marker included. To change values, the user
-picks *Adjust* and types `key=value` pairs; the question is asked again with them. Name the
-Jira or Confluence MCP servers you can see, so the user can pick one with
-`requirements.mcpServer=<name>`. Never choose for them.
+Ask it with AskUserQuestion exactly as printed, marker included. The route has saved the draft
+config as `.ambicode/config.draft.yaml`; the print names its hash. Apply writes exactly that draft.
+
+The print lists separate choices: MCP server, runner (skip a detected command, or keep it) and
+search index. Each is an answer; the user picks one and the question is asked again with the draft
+updated. For the MCP server, offer the Jira or Confluence servers you can see as
+`MCP server: <name>`. Never choose for them.
+
+If the route reports the draft changed, show the user the diff it printed and ask again.
 
 After an apply, show the doctor table as printed. You never write `.ambicode/config.yaml` or
 `.gitignore` yourself; rule sources are for `/ambicode:rules`.

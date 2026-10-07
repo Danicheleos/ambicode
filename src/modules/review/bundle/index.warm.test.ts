@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseArgs } from '#cli/args';
+import { parseArgs } from '#util/args';
 import { runReview, REVIEW_OPTIONS } from '#cli/commands/review/review';
 import { runCheckOnly } from '#modules/checks/run/check-command';
 import { checkFixture, CHECK_TASK } from '#testing/fixtures/check-fixture';

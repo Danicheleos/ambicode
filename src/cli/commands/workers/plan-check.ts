@@ -1,4 +1,4 @@
-import { ledgerRouteContext } from '#harness/engine/context';
+import { COMMAND_SPECS } from '#skills/plan/commands';
 import { runCommandTail } from '#harness/engine/command-tail';
 import { AmbicodeError } from '#util/errors';
 import { runPlanCheck } from '#modules/workers/plan-check';
@@ -34,9 +34,11 @@ export async function runPlanCheckCommand(runtime: Runtime, args: ParsedArgs): P
     throw new AmbicodeError('bad-argument', `"plan check" reads the plan from --from steps/plan-body.md or from standard input, up to ${MAX_NOTE_BYTES} bytes; it got neither.`, { field: 'from' });
   }
   const tools = await routeTools(runtime, task);
-  const session = tools.binding.state === 'bound' ? tools.binding.session : null;
-  const checked = await runPlanCheck({ runtime, session, context: ledgerRouteContext({ runtime, routes: tools.routes }) }, { task, body, from });
-  const next = await runCommandTail({ engine: tools.engine }, { task, cause: 'plan check', session: tools.binding, produced: [checked.draft.id, checked.worker.id] });
+  const { checked, binding } = await tools.engine.command(COMMAND_SPECS.planCheck, { task }, async ({ session, context, binding }) => ({
+    binding,
+    checked: await runPlanCheck({ runtime, session, context }, { task, body, from }),
+  }));
+  const next = await runCommandTail({ engine: tools.engine }, { task, cause: 'plan check', session: binding, produced: [checked.draft.id, checked.worker.id] });
   const summary = checked.worker['summary'] as { failed: boolean };
   return fitted({ command: 'plan check', task, draft: String(checked.draft['path']), artifact: checked.artifact, failed: summary.failed, ...checked.result, duplicatesTotal: checked.result.duplicates.length, ...(next === null ? {} : { next: next.text }) });
 }

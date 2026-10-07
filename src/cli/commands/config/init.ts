@@ -4,7 +4,7 @@ import { parseSets } from '#modules/config/init/init-sets';
 import { buildProposal } from '#modules/config/init/proposal';
 import type { SearchProfile, DoctorTable, InitProposal } from '#types/modules/config';
 import { runCommandTail } from '#harness/engine/command-tail';
-import { ledgerRouteContext } from '#harness/engine/context';
+import { COMMAND_SPECS } from '#skills/init/commands';
 import { AmbicodeError } from '#util/errors';
 import { routeTools } from '../route/route.ts';
 import type { Runtime } from '#types/composition';
@@ -37,12 +37,15 @@ export async function runInit(runtime: Runtime, args: ParsedArgs): Promise<InitO
     const task = args.value('task');
     return buildProposal(runtime, repositoryRoot, parseSets(sets), { refreshProfile: args.flag('refresh-profile'), ...(task === null ? {} : { task }) });
   }
+  if (sets.length > 0) throw new AmbicodeError('bad-argument', '"init --apply" takes no --set: it writes the draft you approved.', { field: 'set' });
   const task = args.value('task');
   if (task === null) throw new AmbicodeError('bad-argument', '"init --apply" needs --task <slug>: the init task the question was asked in.', { field: 'task' });
   const tools = await routeTools(runtime, task);
-  const session = tools.binding.state === 'bound' ? tools.binding.session : null;
-  const result = await applyInit({ runtime, session, context: ledgerRouteContext({ runtime, routes: tools.routes }) }, { task, sets, refreshProfile: args.flag('refresh-profile') });
-  const next = await runCommandTail({ engine: tools.engine }, { task, cause: 'init --apply', session: tools.binding });
+  const { result, binding } = await tools.engine.command(COMMAND_SPECS.initApply, { task }, async ({ session, context, binding }) => ({
+    binding,
+    result: await applyInit({ runtime, session, context }, { task }),
+  }));
+  const next = await runCommandTail({ engine: tools.engine }, { task, cause: 'init --apply', session: binding });
   return { command: 'init', mode: 'apply', ...result, ...(next === null ? {} : { next: next.text }) };
 }
 

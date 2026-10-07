@@ -1,4 +1,4 @@
-import { refOf } from './context.ts';
+import { refOf } from '#modules/evidence/ledger-chain';
 import { buildChain, foldRoute, matches, windowOf } from './fold.ts';
 import { instantiateGate } from '../gates/gates.ts';
 import type { GateDef } from '../definition/routes.ts';

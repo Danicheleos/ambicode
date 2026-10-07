@@ -1,5 +1,5 @@
 import { AmbicodeError } from '#util/errors';
-import { askedCount, executions, foldRoute, humanRevisesLeft, printsOf, unconsumedPreanswer, windowOf } from '../engine/fold.ts';
+import { askedCount, executions, foldRoute, humanRevisesLeft, modelDeliveries, printsOf, sinceReopen, unconsumedPreanswer, windowOf } from '../engine/fold.ts';
 import { raisedAnswerHandler, offersOption, shapePrint } from './gates.ts';
 import { append, chainOf, gateFor, latestPrint, objectOf, viewFor } from '../engine/run-context.ts';
 import type { ArtifactRef, LedgerEntry } from '#types/modules/evidence';
@@ -8,13 +8,21 @@ import type { Run } from '../types/engine.ts';
 
 type RevisePath = 'gate' | 'code' | 'model';
 
+/** What the route had spent when it ended, counted from the latest reopen. */
+function budgetUsed(run: Run): Record<string, number> {
+  const current = sinceReopen(chainOf(run).entries);
+  const started = Date.parse(current[0]?.at ?? '');
+  const wallMs = Number.isNaN(started) ? 0 : Math.max(0, run.runtime.clock.now().getTime() - started);
+  return { modelSteps: modelDeliveries(run.def, current), wallMs };
+}
+
 export async function exitRoute(run: Run, reason: Exit | string, detail?: string, extra: object = {}): Promise<void> {
-  await append(run, { kind: 'exit', reason, ...(detail === undefined ? {} : { detail }), ...extra });
+  await append(run, { kind: 'exit', reason, ...(detail === undefined ? {} : { detail }), budget: budgetUsed(run), ...extra });
   run.exited = reason;
 }
 
 /** An option named `stop` records an exit: the budget gate exits `budget`, a project question `human`, the rest `blocked` (D12). */
-const stopReason = (gate: string): string => (gate === 'draft-ok' ? 'draft-stop' : gate === 'budget-exhausted' ? 'budget' : gate === 'project-ambiguous' || gate === 'scope' ? 'human' : 'blocked');
+export const stopReason = (gate: string): string => (gate === 'draft-ok' ? 'draft-stop' : gate === 'budget-exhausted' ? 'budget' : gate === 'project-ambiguous' || gate === 'scope' ? 'human' : 'blocked');
 
 /** The window a gate's answers are read in: its own step's, or for a raised gate the step that raised it. */
 function gateWindow(run: Run, gateId: string): LedgerEntry[] {
@@ -30,17 +38,25 @@ export async function reviseTo(
   run: Run,
   revise: Revise,
   via: RevisePath,
-  info: { reason: string; gate?: string; raisedBy?: string; answer?: string },
+  info: { reason: string; gate?: string; raisedBy?: string; answer?: string; maxRevises?: number; source?: string },
 ): Promise<boolean> {
   const exempt = revise.target === RAISED_BY;
   const target = exempt ? info.raisedBy : revise.target;
   const step = run.def.steps.find((candidate) => candidate.id === target);
   if (step === undefined) throw new AmbicodeError('internal', `Revise target "${revise.target}" is not a step of route ${run.def.skill}.`);
   const chain = chainOf(run);
+  const mark = { ...(info.source === undefined ? {} : { source: info.source }), ...(info.gate === undefined ? {} : { gate: info.gate }) };
   if (via !== 'gate' && !exempt && step.actor !== 'human') {
     const done = executions(chain.entries, step);
     if (done + 1 > step.repeat) {
-      await append(run, { kind: 'limit', which: 'repeat', step: step.id, count: done });
+      await append(run, { kind: 'limit', which: 'repeat', step: step.id, count: done, ...mark });
+      return false;
+    }
+  }
+  if (exempt && info.maxRevises !== undefined) {
+    const done = chain.entries.filter((entry) => entry.kind === 'revise' && entry['from'] === step.id && entry['gate'] === info.gate).length;
+    if (done >= info.maxRevises) {
+      await append(run, { kind: 'limit', which: 'max-revises', step: step.id, count: done, ...mark });
       return false;
     }
   }
@@ -53,7 +69,7 @@ export async function reviseTo(
     cycle: humanCycles + (via === 'gate' ? 1 : 0),
     reason: info.reason,
     ...(Object.keys(args).length === 0 ? {} : { args }),
-    ...(info.gate === undefined ? {} : { gate: info.gate }),
+    ...mark,
   });
   return true;
 }
@@ -71,7 +87,7 @@ interface Recorded {
 /** Writes a bound answer, then applies the gate's `onAnswer` (03-G5, 03-F7). */
 async function recordAnswer(run: Run, gate: GateDef, recorded: Recorded, raisedBy?: string): Promise<void> {
   const free = !gate.options.includes(recorded.answer);
-  const revise = gate.onAnswer[recorded.answer] ?? (free ? gate.onAnswer['*'] : undefined);
+  const revise = recorded.kind === 'default-taken' ? undefined : (gate.onAnswer[recorded.answer] ?? (free ? gate.onAnswer['*'] : undefined));
   const entries = chainOf(run).entries;
   const body = { gate: gate.id, instance: recorded.instance, answer: recorded.answer, via: recorded.via, ...(recorded.object === null ? {} : { object: recorded.object }), ...recorded.extra };
   if (recorded.kind === 'acceptance' && revise !== undefined && recorded.revisePath === 'gate' && humanRevisesLeft(entries, gate) === 0) {
@@ -82,7 +98,7 @@ async function recordAnswer(run: Run, gate: GateDef, recorded: Recorded, raisedB
   if (recorded.kind === 'acceptance') await raisedAnswerHandler(gate.id)?.({ view: viewFor(run, raisedBy ?? ''), ledger: run.ledger, acceptance: written, routes: run.routes });
   if (recorded.answer === 'stop' || recorded.answer === 'pause') return exitRoute(run, stopReason(gate.id), `${gate.id}: stop`);
   if (revise !== undefined) {
-    await reviseTo(run, revise, recorded.revisePath, { reason: `${gate.id}: ${recorded.answer}`, gate: gate.id, answer: recorded.answer, ...(raisedBy === undefined ? {} : { raisedBy }) });
+    await reviseTo(run, revise, recorded.revisePath, { reason: `${gate.id}: ${recorded.answer}`, gate: gate.id, answer: recorded.answer, maxRevises: gate.maxRevises, ...(raisedBy === undefined ? {} : { raisedBy }) });
   }
 }
 
@@ -182,6 +198,7 @@ export async function serviceGate(run: Run, gate: GateDef, stepId: string): Prom
       print: prints + 1,
       cause: run.cause,
       options: shaped.options,
+      ...(shaped.values === undefined ? {} : { values: shaped.values }),
       ...(declaredStep === undefined ? { raisedBy, ...(source?.['openAt'] === undefined ? {} : { openAt: source['openAt'] }), ...(source?.['values'] === undefined ? {} : { values: source['values'] }) } : {}),
       ...(object === null ? {} : { object }),
     });
@@ -201,6 +218,9 @@ export async function serviceGate(run: Run, gate: GateDef, stepId: string): Prom
   }
 
   const prints = printsOf(window(), gate.id);
+  const markers = chainOf(run).entries.filter((entry) => entry.kind === 'step' && String(entry['source'] ?? '').startsWith('print:'));
+  // A ledger written before delivery markers existed counts every print as delivered.
+  const delivered = markers.length === 0 ? prints : prints.filter((print) => run.written.includes(print.id) || markers.some((entry) => entry['source'] === `print:${print.id}`));
   const asked = askedCount(window(), gate.id);
   const takeDefault = async (print: LedgerEntry, via: string): Promise<GateOutcome> => {
     await recordAnswer(run, gate, { kind: 'default-taken', answer: gate.default, via, instance: print.id, object: (print['object'] as ArtifactRef | undefined) ?? null, revisePath: 'code' }, raisedBy);
@@ -208,7 +228,7 @@ export async function serviceGate(run: Run, gate: GateDef, stepId: string): Prom
   };
   if (run.head['mode'] === 'headless' && !run.deliverOnly) return takeDefault(prints.at(-1) ?? (await newPrint()), 'headless');
   if (run.deliverOnly) return { state: 'print', print: prints.at(-1) ?? (await newPrint()), gate, retry: false };
-  if (prints.length >= 3 && preanswer === null) return takeDefault(prints.at(-1)!, asked === 0 ? 'never-asked' : 'unanswered');
+  if (delivered.length >= 3 && preanswer === null) return takeDefault(prints.at(-1)!, asked === 0 ? 'never-asked' : 'unanswered');
   const latest = prints.at(-1);
   if (run.cause === 'route-next' && latest !== undefined && latest['cause'] === 'gate-hook') {
     const after = chainOf(run).entries.slice(chainOf(run).entries.indexOf(latest) + 1);

@@ -19,5 +19,5 @@ steps:
       onAnswer: { narrow: revise estimate-step --narrow $answer, "*": revise estimate-step --narrow $answer }
       maxRevises: 3
   - { id: review-run, actor: code, when: gate.estimate.is(run), needs: [review], run: review.evaluate, produces: [review] }
-  - { id: readback, actor: model, when: gate.estimate.is(run), instruction: file:routes/review/readback.md }
-  - { id: view, actor: model, when: gate.estimate.is(run), instruction: file:routes/review/view.md }
+  - { id: readback, actor: model, when: gate.estimate.is(run), instruction: file:routes/review/readback.md, chain: next }
+  - { id: view, actor: model, when: gate.estimate.is(run), instruction: file:routes/review/view.md, final: true }

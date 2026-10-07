@@ -15,7 +15,7 @@ it ends with brings the next step.
 ## Judgments the route leaves to you
 
 - **Smallest coherent change** that satisfies the request, or the one plan iteration the route names — not a later one.
-- **Reuse before adding:** look for the existing helper, adapter or dependency first, and say when you reused one.
+- **Reuse before adding:** look for the existing model, helper, adapter or dependency first, and say when you reused one.
 - **Never weaken a test:** no loosened assertion, no test rewritten to keep the defect, no snapshot updated for a green run.
 - **Ask when a finding expands scope:** a review finding outside the brief is the user's call, never implemented silently.
 

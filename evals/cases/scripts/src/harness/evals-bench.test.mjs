@@ -622,7 +622,7 @@ describe('evals-bench: review cases under the plugin prompt (08-P3)', () => {
     const repo = scaffolded();
     const changed = execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: repo, encoding: 'utf8' }).split('\n').filter(Boolean).map((line) => line.slice(3)).filter((file) => !file.startsWith('.ambicode'));
     assert.deepEqual(changed.sort(), ['app/orders/model.ts', 'app/orders/service.ts']);
-    const outsideGit = () => Object.fromEntries(Object.entries(snapshot(repo)).filter(([file]) => !file.startsWith('.git')));
+    const outsideGit = () => Object.fromEntries(Object.entries(snapshot(repo)).filter(([file]) => !file.startsWith('.git') && file !== '.ambicode/metrics.jsonl'));
     const before = outsideGit();
     const run = cli(repo);
     assert.equal(run.status, 0, run.stderr);

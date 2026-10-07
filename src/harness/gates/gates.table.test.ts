@@ -20,6 +20,9 @@ steps:
   - id: after
     actor: model
     instruction: "After."
+  - id: review-run
+    actor: model
+    instruction: "Review."
 `;
 
 const VALUES: Record<string, Record<string, string[]>> = {
@@ -30,6 +33,7 @@ const VALUES: Record<string, Record<string, string[]>> = {
   'requirements-not-captured-twice': {},
   'check-only-unauthorized': { key: ['unit'], files: ['src/a.ts'] },
   'review-checks': { key: ['app/lint', 'app/test'] },
+  'review-again': {},
   'scope-expanding': { finding: ['extra file'] },
   'project-ambiguous': { projects: ['app', 'lib'] },
   'config-unparsable': {},

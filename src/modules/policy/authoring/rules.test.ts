@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import { parseDocument, type YAMLMap, type YAMLSeq } from 'yaml';
-import { parseArgs } from '#cli/args';
+import { parseArgs } from '#util/args';
 import { runRulesDiscover, runRulesRevert, RULES_DISCOVER_OPTIONS, RULES_REVERT_OPTIONS } from '#cli/commands/policy/rules';
 import { createRuntime } from '#composition/root';
 import { initConfig } from '#testing/fixtures/init-config';

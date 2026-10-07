@@ -1,20 +1,21 @@
 import path from 'node:path';
 import { openWorkspace } from '#modules/config/workspace';
 import { SEARCH_LAYER_DEFAULTS } from '#types/defaults';
+import { contentHash, hash12 } from '#util/hash';
 import type { ProjectConfig, SearchConfig } from '#types/modules/config';
 import { literalPathspec } from '#platform/git/git';
 import { AmbicodeError } from '#util/errors';
 import { matchesAnyGlob } from '#util/glob';
 import { normalizeRelative } from '#util/paths';
-import { isTestPath, pathExclusionReason } from '#util/path-classes';
+import { pathExclusionReason } from '#util/path-classes';
 import { harvest } from '../declarations/harvest.ts';
-import { profileOf, readCatalog } from '../declarations/profile.ts';
+import { declarationPatternsOf, profileOf, readCatalog, testPatternsOf } from '../declarations/profile.ts';
 import { isPathReason, locate, termsFromRequirements } from './locate.ts';
 import { formatIndexStatus, indexAdapterFor, ledgerIndex } from '../code-index/adapter.ts';
 import { indexDepsOf } from '../code-index/codeindex.ts';
 import { breadthGuard } from '../declarations/refs.ts';
 import type { Runtime } from '#types/composition';
-import { COMMON_NAMES, SCORE_FILENAME, type IndexAdapter, type IndexStatus, type MapCandidate, type MapSymbol, type MapFeature, type Declaration } from '#types/modules/search';
+import { COMMON_NAMES, TEST_CANDIDATES, SCORE_FILENAME, SEARCH_TUNING_DEFAULTS, type SearchTuning, type IndexAdapter, type IndexStatus, type MapCandidate, type MapSymbol, type MapFeature, type Declaration } from '#types/modules/search';
 
 const LAYER_NAMES = ['grep', 'shortlist', 'harvest', 'history', 'index.find', 'index.relates'] as const;
 type LayerName = (typeof LAYER_NAMES)[number];
@@ -36,17 +37,23 @@ export interface MapResult {
   /** The first line is the layer list; the rest is compact JSON. At most 6,144 bytes. */
   text: string;
   bytes: number;
+  tuningHash: string;
   /** The `map` ledger entry's fields. */
   entry: Record<string, unknown>;
 }
 
 export const MAP_LIMIT_BYTES = 6144;
-const TOP_FILES = 8;
-const MAX_TERMS = 12;
-const PROSE_RETRY_TERMS = 8;
-const PASS2_NAMES = 6;
-const PASS2_OUTSIDE = 0.5;
-const SPANS_PER_CANDIDATE = 3;
+
+export interface ResolvedTuning { tuning: SearchTuning; hash: string; overrides: string[] }
+
+/** The defaults with the config's `search.tuning` applied; the hash covers every value, so a changed default changes it too. */
+export function resolveTuning(search: Pick<SearchConfig, 'tuning'>): ResolvedTuning {
+  const given = search.tuning ?? {};
+  const keys = Object.keys(SEARCH_TUNING_DEFAULTS) as (keyof SearchTuning)[];
+  const tuning = { ...SEARCH_TUNING_DEFAULTS, ...Object.fromEntries(keys.flatMap((key) => (given[key] === undefined ? [] : [[key, given[key]]]))) } as SearchTuning;
+  const hash = hash12(contentHash(JSON.stringify(keys.map((key) => [key, tuning[key]]))));
+  return { tuning, hash, overrides: keys.filter((key) => tuning[key] !== SEARCH_TUNING_DEFAULTS[key]) };
+}
 
 export function resolveLayers(search: SearchConfig, mode: 'prompt' | 'context'): { layers: string[]; source: 'config' | 'default' } {
   const configured = search.layers?.[mode];
@@ -87,28 +94,29 @@ function ticketParts(ids: readonly string[], files: readonly string[]): string[]
 /** Identifiers first, then quoted UI strings (as i18n keys when such files exist), prose only when identifiers are scarce. */
 export async function rankTerms(
   sources: readonly { title: string; content: string }[],
-  options: { runtime: Runtime; root: string; project: ProjectConfig; files: readonly string[]; withProse?: boolean },
+  options: { runtime: Runtime; root: string; project: ProjectConfig; files: readonly string[]; withProse?: boolean; tuning?: SearchTuning },
 ): Promise<string[]> {
+  const { maxTerms, proseRetryTerms } = options.tuning ?? SEARCH_TUNING_DEFAULTS;
   const clean = sources.map((source) => ({ title: cleanRequestText(source.title), content: cleanRequestText(source.content) }));
   const text = clean.map((source) => `${source.title}\n${source.content}`).join('\n');
   const all = termsFromRequirements(clean, 60).filter((term) => !isRequestWord(term));
   const parts = ticketParts(all.filter((term) => TICKET_ID.test(term)), options.files);
-  const mined = all.filter((term) => !TICKET_ID.test(term)).slice(0, MAX_TERMS);
+  const mined = all.filter((term) => !TICKET_ID.test(term)).slice(0, maxTerms);
   const identifiers = mined.filter((term) => IDENTIFIER.test(term));
   const backticked = [...text.matchAll(/`([^`\s]{3,60})`/g)].map((match) => match[1]!).filter((term) => IDENTIFIER.test(term) && !isBoilerplate(term) && !TICKET_ID.test(term));
   const strings = [...text.matchAll(QUOTED)].map((match) => match[1]!.trim()).filter((value) => /\s|\p{Lu}/u.test(value) && !/^[`]/.test(value) && !isBoilerplate(value));
-  const keys = await i18nKeys(options, strings, text);
+  const keys = await i18nKeys(options, strings, text, maxTerms);
   const ranked = [...new Set([...backticked, ...parts, ...identifiers, ...keys])];
   if (options.withProse === true) {
-    const prose = termsFromRequirements(clean, 60).filter((term) => !IDENTIFIER.test(term) && !isRequestWord(term)).slice(0, PROSE_RETRY_TERMS);
-    return [...new Set([...prose, ...ranked])].slice(0, MAX_TERMS);
+    const prose = termsFromRequirements(clean, 60).filter((term) => !IDENTIFIER.test(term) && !isRequestWord(term)).slice(0, proseRetryTerms);
+    return [...new Set([...prose, ...ranked])].slice(0, maxTerms);
   }
   // Catalog keys and UI strings say what screen, not which code: they do not count as identifiers here.
   if (new Set([...backticked, ...parts, ...identifiers]).size < 3) {
     const prose = mined.filter((term) => !IDENTIFIER.test(term)).flatMap((term) => term.split('-').filter((part) => part.length >= 3));
     ranked.push(...prose);
   }
-  return [...new Set(ranked)].slice(0, MAX_TERMS);
+  return [...new Set(ranked)].slice(0, maxTerms);
 }
 
 const ENGLISH_CATALOG = /(^|[/._-])en([._-][a-z]{2})?\.\w+$/i;
@@ -116,7 +124,7 @@ const spacing = (value: string): string => value.replace(/\s+/g, ' ').trim();
 const phraseOf = (value: string): string => spacing(value).toLowerCase();
 
 /** Keys of catalog values equal to a quoted string (any case), or to a 2–5 word phrase the request spells unquoted in the same case. */
-async function i18nKeys(options: { runtime: Runtime; root: string; project: ProjectConfig; files: readonly string[] }, strings: readonly string[], text: string): Promise<string[]> {
+async function i18nKeys(options: { runtime: Runtime; root: string; project: ProjectConfig; files: readonly string[] }, strings: readonly string[], text: string, maxTerms: number): Promise<string[]> {
   const globs = [...profileOf(options.project).catalogs];
   const catalogs = options.files
     .filter((file) => globs.length > 0 && matchesAnyGlob(file, globs))
@@ -145,7 +153,7 @@ async function i18nKeys(options: { runtime: Runtime; root: string; project: Proj
       // An unreadable catalog contributes nothing.
     }
   }
-  const keys = [...new Set([...found, ...spelledKeys])].slice(0, MAX_TERMS);
+  const keys = [...new Set([...found, ...spelledKeys])].slice(0, maxTerms);
   return found.length === 0 ? [...strings, ...keys] : keys;
 }
 
@@ -162,7 +170,11 @@ export async function buildMap(input: {
   symbols: readonly string[];
   /** Absent: the configured adapter (05-A1). */
   index?: IndexAdapter;
+  /** Absent: the defaults. */
+  tuning?: ResolvedTuning;
 }): Promise<MapResult> {
+  const resolved = input.tuning ?? resolveTuning({});
+  const tune = resolved.tuning;
   const unknown = input.layers.filter((layer) => !(LAYER_NAMES as readonly string[]).includes(layer));
   if (unknown.length > 0) {
     throw new AmbicodeError('search-layer-unknown', `Unknown search layer: ${unknown.join(', ')}.`, { details: [`Known layers: ${LAYER_NAMES.join(', ')}. Fix search.layers in .ambicode/config.yaml.`] });
@@ -177,11 +189,13 @@ export async function buildMap(input: {
   const layers: MapLayer[] = [];
   const candidates = new Map<string, MapCandidate>();
   let declarations: Declaration[] = [];
-  const pass1 = [...input.terms].slice(0, MAX_TERMS);
+  const pass1 = [...input.terms].slice(0, tune.maxTerms);
   let pass2: string[] = [];
   let shortlists = 0;
   const listed = input.mode === 'prompt' ? await git.listFiles(pathspec) : [];
-  const sequence = sequenceFiles(listed);
+  const sequence = sequenceFiles(listed, tune);
+  let downweighted = 0;
+  let harvested = 0;
 
   const merge = (found: readonly MapCandidate[]): void => {
     for (const candidate of found) {
@@ -193,12 +207,12 @@ export async function buildMap(input: {
       }
     }
   };
-  const topFiles = (): string[] => [...candidates.values()].sort((a, b) => b.score - a.score).slice(0, TOP_FILES).map((candidate) => candidate.path);
+  const topFiles = (): string[] => [...candidates.values()].sort((a, b) => b.score - a.score).slice(0, tune.topFiles).map((candidate) => candidate.path);
   // Names harvested from a file found only by its contents pull in a sibling feature; a path hit says where the request lives.
   const harvestFiles = (): string[] => {
     const ranked = [...candidates.values()].filter((candidate) => !sequence.has(candidate.path)).sort((a, b) => b.score - a.score);
     const placed = ranked.filter((candidate, index) => index === 0 || candidate.reasons.some(isPathReason));
-    return placed.slice(0, TOP_FILES).map((candidate) => candidate.path);
+    return placed.slice(0, tune.topFiles).map((candidate) => candidate.path);
   };
   let placedDirs: string[] = [];
   const timed = async (name: LayerName, run: () => Promise<number>): Promise<void> => {
@@ -210,7 +224,7 @@ export async function buildMap(input: {
 
   for (const layer of input.layers as readonly LayerName[]) {
     if (layer === 'index.find' || layer === 'index.relates') {
-      const queries = layer === 'index.find' ? names(declarations).slice(0, PASS2_NAMES) : [...input.paths];
+      const queries = layer === 'index.find' ? names(declarations).slice(0, tune.pass2Names) : [...input.paths];
       const started = runtime.clock.elapsed();
       const found = new Map<string, string[]>();
       let skipped: IndexStatus | null = indexState.state === 'fresh' || indexState.state === 'stale' ? null : indexState;
@@ -238,20 +252,29 @@ export async function buildMap(input: {
       shortlists += 1;
       const second = shortlists > 1;
       // Harvested names take the second half, so a full first pass still lets them in.
-      const used = second ? [...new Set([...pass1.slice(0, MAX_TERMS - PASS2_NAMES), ...names(declarations).slice(0, PASS2_NAMES), ...pass1.slice(MAX_TERMS - PASS2_NAMES)])].slice(0, MAX_TERMS) : pass1;
+      const used = second ? [...new Set([...pass1.slice(0, tune.maxTerms - tune.pass2Names), ...names(declarations).slice(0, tune.pass2Names), ...pass1.slice(tune.maxTerms - tune.pass2Names)])].slice(0, tune.maxTerms) : pass1;
       if (second) pass2 = used;
       await timed(layer, async () => {
         const found = await locate({ git, project, terms: used, limit: 20 });
         if (!second) placedDirs = [...new Set(found.candidates.filter((candidate) => candidate.reasons.some(isPathReason)).map((candidate) => path.posix.dirname(candidate.path)))];
         const outside = (file: string): boolean => placedDirs.length > 0 && !candidates.has(file) && !placedDirs.some((dir) => file.startsWith(`${dir}/`));
-        merge(second ? found.candidates.map((candidate) => (outside(candidate.path) ? { ...candidate, score: candidate.score * PASS2_OUTSIDE } : candidate)) : found.candidates);
+        merge(
+          second
+            ? found.candidates.map((candidate) => {
+                if (!outside(candidate.path)) return candidate;
+                downweighted += 1;
+                return { ...candidate, score: candidate.score * tune.pass2Outside };
+              })
+            : found.candidates,
+        );
         for (const line of found.limitations) if (!limitations.includes(line)) limitations.push(line);
         return found.candidates.length;
       });
     } else if (layer === 'harvest') {
       await timed(layer, async () => {
-        const files = input.mode === 'context' ? [...new Set([...input.paths, ...topFiles()])].slice(0, TOP_FILES) : harvestFiles();
-        declarations = await harvest(runtime.fs, repositoryRoot, files, profileOf(project).exportOnly);
+        const files = input.mode === 'context' ? [...new Set([...input.paths, ...topFiles()])].slice(0, tune.topFiles) : harvestFiles();
+        harvested = files.length;
+        declarations = await harvest(runtime.fs, repositoryRoot, files, profileOf(project).exportOnly, declarationPatternsOf(project));
         return declarations.length;
       });
     } else {
@@ -276,13 +299,13 @@ export async function buildMap(input: {
     }
   }
   const ordered = [...candidates.values()].sort((a, b) => b.score - a.score || a.path.localeCompare(b.path)).map((candidate) => {
-    const spans = declarations.filter((declaration) => declaration.path === candidate.path).slice(0, SPANS_PER_CANDIDATE).map((declaration) => `${declaration.name}:${declaration.line}`);
+    const spans = declarations.filter((declaration) => declaration.path === candidate.path).slice(0, tune.spansPerCandidate).map((declaration) => `${declaration.name}:${declaration.line}`);
     return { ...candidate, score: Math.round(candidate.score * 100) / 100, reasons: [...candidate.reasons.slice(0, 2), ...candidate.reasons.slice(2).filter((reason) => reason.startsWith('index.'))], ...(spans.length === 0 ? {} : { spans }) };
   });
 
   if (sequence.size > 0) ordered.sort((a, b) => Number(sequence.has(a.path)) - Number(sequence.has(b.path)));
-  const feature = input.mode === 'prompt' ? featureOf(ordered, listed.filter((file) => !sequence.has(file)), profileOf(project).featureKinds, [...pass1, ...pass2], pass1) : null;
-  if (input.mode === 'prompt') await anchor(ordered.slice(0, LEADS), declarations, [...new Set([...pass1, ...pass2])], git);
+  const feature = input.mode === 'prompt' ? featureOf(ordered, listed.filter((file) => !sequence.has(file)), profileOf(project).featureKinds, [...pass1, ...pass2], pass1, testPatternsOf(project), tune) : null;
+  if (input.mode === 'prompt') await anchor(ordered.slice(0, tune.leads), declarations, [...new Set([...pass1, ...pass2])], git);
   const head = `layers: ${layers.map((layer) => layer.name).join(' → ') || 'none'} (${input.layersSource}); ${formatIndexStatus(indexState)}`;
   const render = (kept: readonly MapCandidate[]): string => {
     const document = {
@@ -316,31 +339,27 @@ export async function buildMap(input: {
     omitted: ordered.length - kept.length,
     text,
     bytes,
-    entry: { mode: input.mode, layers, layersSource: input.layersSource, terms: { pass1, pass2 }, candidates: ordered.length, limitations, index: ledgerIndex(indexState), collisions, bytes, ...(feature === null ? {} : { feature: { root: feature.root, paths: feature.paths.length } }), candidatePaths: ordered.slice(0, CANDIDATE_PATHS).map((candidate) => candidate.path) },
+    tuningHash: resolved.hash,
+    entry: { mode: input.mode, layers, layersSource: input.layersSource, terms: { pass1, pass2 }, candidates: ordered.length, limitations, index: ledgerIndex(indexState), collisions, bytes, ...(feature === null ? {} : { feature: { root: feature.root, paths: feature.paths.length } }), candidatePaths: ordered.slice(0, CANDIDATE_PATHS).map((candidate) => candidate.path), tuning: { hash: resolved.hash, overrides: resolved.overrides }, profile: project.profile?.stamp ?? null, decisions: { sequenceFiles: sequence.size, pass2Downweighted: downweighted, harvestFiles: harvested, feature: feature === null ? null : feature.root === '' ? 'named' : 'folder', proseRetry: false } },
   };
 }
 
 const SEQUENCE_NAME = /^(?:v\d+__|\d{3,}|\d{4}-\d\d-\d\d)/i;
-const SEQUENCE_DIR_MIN = 5;
-const SEQUENCE_SHARE = 0.8;
 
 /** Files of directories whose names mostly start with a number or date (migrations and the like): written once, rarely the change. */
-export function sequenceFiles(files: readonly string[]): Set<string> {
+export function sequenceFiles(files: readonly string[], tune: SearchTuning = SEARCH_TUNING_DEFAULTS): Set<string> {
   const byDir = new Map<string, string[]>();
   for (const file of files) byDir.set(path.posix.dirname(file), [...(byDir.get(path.posix.dirname(file)) ?? []), file]);
   const out = new Set<string>();
   for (const group of byDir.values()) {
-    if (group.length >= SEQUENCE_DIR_MIN && group.filter((file) => SEQUENCE_NAME.test(path.posix.basename(file))).length / group.length >= SEQUENCE_SHARE) group.forEach((file) => out.add(file));
+    if (group.length >= tune.sequenceDirMin && group.filter((file) => SEQUENCE_NAME.test(path.posix.basename(file))).length / group.length >= tune.sequenceShare) group.forEach((file) => out.add(file));
   }
   return out;
 }
 
 export const LEADS_LIMIT_BYTES = 1200;
 export const FEATURE_LIMIT_BYTES = 400;
-const LEADS = 8;
 const REASON_CHARS = 90;
-const FEATURE_LEADS = 4;
-const FEATURE_PATHS = 12;
 const stemOf = (file: string): string => path.posix.basename(file).split('.')[0]!;
 const kindOf = (file: string): string => path.posix.basename(file).split('.').slice(1, -1).join('.');
 
@@ -349,26 +368,23 @@ const kindOf = (file: string): string => path.posix.basename(file).split('.').sl
  * name stem is a lead's stem or the directory's own name, and that are tests or of a profile feature kind (`x.<kind>.ext`). Executable
  * siblings are left out: answers took them as changed when they were not.
  */
-export function featureOf(ordered: readonly MapCandidate[], files: readonly string[], featureKinds: readonly string[] = [], terms: readonly string[] = [], requested: readonly string[] = terms): MapFeature | null {
-  return folderFeature(ordered, files, featureKinds) ?? namedFeature(ordered, files, terms, requested);
+export function featureOf(ordered: readonly MapCandidate[], files: readonly string[], featureKinds: readonly string[] = [], terms: readonly string[] = [], requested: readonly string[] = terms, tests: readonly RegExp[] = TEST_CANDIDATES, tune: SearchTuning = SEARCH_TUNING_DEFAULTS): MapFeature | null {
+  return folderFeature(ordered, files, featureKinds, tests, tune) ?? namedFeature(ordered, files, terms, requested, tune);
 }
 
-const LAYER_MIN = 3;
-const NAME_MAX_FILES = 60;
 const tokensOf = (text: string): string[] => text.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
 const sameWord = (a: string, b: string): boolean => a === b || a === `${b}s` || b === `${a}s` || (a.endsWith('ies') && b === `${a.slice(0, -3)}y`) || (b.endsWith('ies') && a === `${b.slice(0, -3)}y`);
 const layerOf = (file: string): string => file.split('/').slice(0, -1).slice(0, 2).join('/');
-const LAYERED_SHARE = 0.6;
 const singular = (word: string): string => (word.endsWith('ies') ? `${word.slice(0, -3)}y` : word.endsWith('s') ? word.slice(0, -1) : word);
 
 /** Code split by layer: most file-name words found in two or more top folders are found in three or more. */
-function layered(files: readonly string[]): boolean {
+function layered(files: readonly string[], tune: SearchTuning): boolean {
   const where = new Map<string, Set<string>>();
   for (const file of files) {
     for (const word of new Set(tokensOf(stemOf(file)).filter((token) => token.length >= 4).map(singular))) where.set(word, (where.get(word) ?? new Set()).add(layerOf(file)));
   }
   const spread = [...where.values()].filter((layers) => layers.size >= 2);
-  return spread.length > 0 && spread.filter((layers) => layers.size >= LAYER_MIN).length / spread.length >= LAYERED_SHARE;
+  return spread.length > 0 && spread.filter((layers) => layers.size >= tune.layerMin).length / spread.length >= tune.layeredShare;
 }
 const namesFile = (file: string, name: string): boolean => [...tokensOf(stemOf(file)), ...file.split('/').slice(0, -1)].some((word) => sameWord(word, name));
 
@@ -376,14 +392,14 @@ const namesFile = (file: string, name: string): boolean => [...tokensOf(stemOf(f
  * Code split by layer: a word of the terms that names files (by stem or directory) in three or more top folders and no more than
  * sixty files; the word most top leads' paths carry wins. Lists those files one folder at a time.
  */
-function namedFeature(ordered: readonly MapCandidate[], files: readonly string[], terms: readonly string[], requested: readonly string[]): MapFeature | null {
+function namedFeature(ordered: readonly MapCandidate[], files: readonly string[], terms: readonly string[], requested: readonly string[], tune: SearchTuning): MapFeature | null {
   const usable = files.filter((file) => pathExclusionReason(file) === null && !stemOf(file).startsWith('_'));
-  if (!layered(usable)) return null;
-  const leads = ordered.slice(0, LEADS).map((candidate) => candidate.path);
+  if (!layered(usable, tune)) return null;
+  const leads = ordered.slice(0, tune.leads).map((candidate) => candidate.path);
   let best: { name: string; hits: string[]; carried: number } | null = null;
   for (const name of new Set(terms.flatMap(tokensOf).filter((word) => word.length >= 4))) {
     const hits = usable.filter((file) => namesFile(file, name));
-    if (hits.length === 0 || hits.length > NAME_MAX_FILES || new Set(hits.map(layerOf)).size < LAYER_MIN) continue;
+    if (hits.length === 0 || hits.length > tune.nameMaxFiles || new Set(hits.map(layerOf)).size < tune.layerMin) continue;
     const carried = leads.filter((file) => namesFile(file, name)).length;
     if (carried > 0 && (best === null || carried > best.carried || (carried === best.carried && hits.length < best.hits.length))) best = { name, hits, carried };
   }
@@ -394,7 +410,7 @@ function namedFeature(ordered: readonly MapCandidate[], files: readonly string[]
   const extra = (file: string): number => others.filter((other) => tokensOf(stemOf(file)).some((token) => sameWord(token, other))).length;
   const rest = best.hits.filter((hit) => !listed.has(hit)).sort((a, b) => extra(b) - extra(a) || a.localeCompare(b));
   const strong = rest.filter((file) => leadsWith(file, word) || extra(file) > 0);
-  const paths = [...byLayers(strong), ...byLayers(rest.filter((file) => !strong.includes(file)))].slice(0, FEATURE_PATHS);
+  const paths = [...byLayers(strong), ...byLayers(rest.filter((file) => !strong.includes(file)))].slice(0, tune.featurePaths);
   return paths.length === 0 ? null : { root: '', paths, name: word };
 }
 
@@ -410,8 +426,8 @@ function byLayers(files: readonly string[]): string[] {
   return out;
 }
 
-function folderFeature(ordered: readonly MapCandidate[], files: readonly string[], featureKinds: readonly string[]): MapFeature | null {
-  const top = ordered.slice(0, FEATURE_LEADS).filter((candidate) => candidate.reasons.some(isPathReason)).map((candidate) => candidate.path);
+function folderFeature(ordered: readonly MapCandidate[], files: readonly string[], featureKinds: readonly string[], tests: readonly RegExp[], tune: SearchTuning): MapFeature | null {
+  const top = ordered.slice(0, tune.featureLeads).filter((candidate) => candidate.reasons.some(isPathReason)).map((candidate) => candidate.path);
   let best: { root: string; count: number } | null = null;
   for (const lead of top) {
     const parts = lead.split('/').slice(0, -1);
@@ -423,12 +439,12 @@ function folderFeature(ordered: readonly MapCandidate[], files: readonly string[
   }
   if (best === null) return null;
   const { root } = best;
-  const listed = new Set(ordered.slice(0, LEADS).map((candidate) => candidate.path));
+  const listed = new Set(ordered.slice(0, tune.leads).map((candidate) => candidate.path));
   const stems = new Set([path.posix.basename(root), ...top.filter((file) => file.startsWith(`${root}/`)).map(stemOf)]);
   const paths = files
-    .filter((file) => file.startsWith(`${root}/`) && !listed.has(file) && pathExclusionReason(file) === null && stems.has(stemOf(file)) && (isTestPath(file) || featureKinds.includes(kindOf(file))))
+    .filter((file) => file.startsWith(`${root}/`) && !listed.has(file) && pathExclusionReason(file) === null && stems.has(stemOf(file)) && (tests.some((pattern) => pattern.test(file)) || featureKinds.includes(kindOf(file))))
     .sort()
-    .slice(0, FEATURE_PATHS);
+    .slice(0, tune.featurePaths);
   return paths.length === 0 ? null : { root, paths };
 }
 
@@ -443,10 +459,10 @@ async function anchor(leads: MapCandidate[], declarations: readonly Declaration[
 }
 
 /** The route's short form of a map: the terms, then the top candidates with their first reason, one per line. */
-export function leadsText(map: Pick<MapResult, 'terms' | 'candidates' | 'collisions'> & { feature?: MapFeature | null }): string {
+export function leadsText(map: Pick<MapResult, 'terms' | 'candidates' | 'collisions'> & { feature?: MapFeature | null; tuningHash?: string }, leadCount: number = SEARCH_TUNING_DEFAULTS.leads): string {
   const added = map.terms.pass2.filter((term) => !map.terms.pass1.includes(term));
   const head = `Leads from the terms ${map.terms.pass1.join(', ') || '(none)'}${added.length === 0 ? '' : `; then ${added.join(', ')}`}:`;
-  const rows = map.candidates.slice(0, LEADS).map((candidate, index) => {
+  const rows = map.candidates.slice(0, leadCount).map((candidate, index) => {
     const reason = candidate.reasons[0] ?? '';
     return `${index + 1}. ${candidate.path}${candidate.line === undefined ? '' : `:${candidate.line}`}${reason === '' ? '' : ` — ${reason.length > REASON_CHARS ? `${reason.slice(0, REASON_CHARS - 1)}…` : reason}`}`;
   });
@@ -454,7 +470,7 @@ export function leadsText(map: Pick<MapResult, 'terms' | 'candidates' | 'collisi
   const text = (): string => [head, ...rows, ...collides].join('\n');
   while (Buffer.byteLength(text()) > LEADS_LIMIT_BYTES && rows.length > 0) rows.pop();
   const feature = map.feature === undefined || map.feature === null ? [] : [featureLine(map.feature)];
-  return [head, ...rows, ...feature, ...collides].join('\n');
+  return [...(map.tuningHash === undefined ? [] : [`tuning: ${map.tuningHash}`]), head, ...rows, ...feature, ...collides].join('\n');
 }
 
 function featureLine(feature: MapFeature): string {

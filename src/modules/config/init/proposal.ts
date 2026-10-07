@@ -5,11 +5,12 @@ import { findCodeindex } from '#modules/search/code-index/codeindex';
 import { buildProfile } from '#modules/search/declarations/profile';
 import type { SearchProfile, SetPair, SetValue, InitProposal } from '#types/modules/config';
 import { AmbicodeError } from '#util/errors';
+import { contentHash } from '#util/hash';
 import { normalizeRelative } from '#util/paths';
 import { CONFIG_FILE, GITIGNORE_ENTRIES } from '#types/defaults';
 import { detectBaseline, detectProjects, scanCodeindex } from './detect.ts';
 import { planInit } from './init.ts';
-import { canonicalSets, projectOfKey, setArguments } from './init-sets.ts';
+import { canonicalSets, projectOfKey } from './init-sets.ts';
 import { parseConfigWithNotices } from '../load.ts';
 import type { Runtime } from '#types/composition';
 import type { FileSystem } from '#types/platform/ports';
@@ -31,8 +32,18 @@ const PLANNED = new WeakMap<InitProposal, Omit<PlanInitOptions, 'fs' | 'override
 
 const initTaskFor = (runtime: Runtime): string => `init-${runtime.clock.now().toISOString().slice(0, 10)}`;
 
-export function applyLineFor(runtime: Runtime, task: string, overrides: readonly SetPair[]): string {
-  return `node "${runtime.pluginRoot}/scripts/ambicode.mjs" init --apply --task ${task}${setArguments(overrides)}`;
+export const DRAFT_FILE = '.ambicode/config.draft.yaml';
+
+export function applyLineFor(runtime: Runtime, task: string): string {
+  return `node "${runtime.pluginRoot}/scripts/ambicode.mjs" init --apply --task ${task}`;
+}
+
+/** The config text the proposal would write with these overrides ('' when nothing changes), planned from the proposal's own detection. */
+export async function planDraft(fs: FileSystem, proposal: InitProposal, overrides: readonly SetPair[]): Promise<{ yaml: string; created: boolean; changes: string[] }> {
+  const planned = PLANNED.get(proposal);
+  if (planned === undefined) throw new AmbicodeError('internal', 'planDraft needs a proposal built by buildProposal in this process.');
+  const plan = await planInit({ ...planned, fs, overrides });
+  return { yaml: plan.yaml ?? '', created: plan.created, changes: plan.changes };
 }
 
 /** `.gitignore` lines `init --apply` would add; `/x/` and `x/` are one rule to git. */
@@ -118,7 +129,7 @@ export async function buildProposal(runtime: Runtime, repositoryRoot: string, ov
     notices: plan.notices,
     noticesOmitted: 0,
     values: canonicalSets(overrides),
-    applyLine: applyLineFor(runtime, task, overrides),
+    applyLine: applyLineFor(runtime, task),
   };
   while (Buffer.byteLength(JSON.stringify(proposal)) > MAX_PROPOSAL_BYTES && proposal.notices.length > 0) {
     proposal.notices.pop();
@@ -134,13 +145,15 @@ export async function writeConfig(
   repositoryRoot: string,
   proposal: InitProposal,
   overrides: readonly SetPair[],
+  approvedYaml?: string,
 ): Promise<{ created: boolean; changes: string[]; gitignoreAdded: string[] }> {
   const planned = PLANNED.get(proposal);
   if (planned === undefined) throw new AmbicodeError('internal', 'writeConfig needs a proposal built by buildProposal in this process.');
   const plan = await planInit({ ...planned, fs, overrides });
-  if (plan.yaml !== null) {
+  const yaml = plan.yaml === null ? null : (approvedYaml ?? plan.yaml);
+  if (yaml !== null) {
     await fs.mkdirp(path.join(repositoryRoot, path.dirname(CONFIG_FILE)));
-    await fs.writeText(path.join(repositoryRoot, CONFIG_FILE), plan.yaml);
+    await fs.writeText(path.join(repositoryRoot, CONFIG_FILE), yaml);
   }
   const ignore = await gitignoreState(fs, repositoryRoot);
   if (ignore.missing.length > 0) {
@@ -152,3 +165,15 @@ export async function writeConfig(
 }
 
 export type { SetPair, SetValue };
+
+/** Plans the draft for these overrides and saves it as the draft file; the hash is what an answer is pinned to. */
+export async function saveDraft(fs: FileSystem, repositoryRoot: string, proposal: InitProposal, overrides: readonly SetPair[]): Promise<{ yaml: string; hash: string }> {
+  const { yaml } = await planDraft(fs, proposal, overrides);
+  const file = path.join(repositoryRoot, DRAFT_FILE);
+  if (yaml === '') await fs.remove(file).catch(() => undefined);
+  else {
+    await fs.mkdirp(path.dirname(file));
+    await fs.writeText(file, yaml);
+  }
+  return { yaml, hash: contentHash(yaml) };
+}

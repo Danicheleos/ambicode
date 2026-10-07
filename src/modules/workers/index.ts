@@ -12,3 +12,5 @@ export { defaultWorkerEnvironment } from './process-runner.ts';
 export { runWorkerProcess } from './process-runner.ts';
 /** runWorker(deps, {id, task}) — `worker run <id>`: one process through the runner; anything but a valid object leaves no artifact. */
 export { runWorker } from './worker-run.ts';
+/** approvedWorkers(runtime, root) — the ids `workers.approved` lets run. */
+export { approvedWorkers } from './worker-run.ts';

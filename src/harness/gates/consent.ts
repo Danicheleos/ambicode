@@ -40,9 +40,11 @@ export function evaluateConsent(input: {
     const keys = (print?.['values'] as { key?: unknown } | undefined)?.key;
     if (!Array.isArray(keys) || !keys.includes(binding.key)) return { state: 'refused', reason: 'not-accepted', source: bound };
   }
-  if (binding?.set !== undefined) {
-    const accepted = Array.isArray(bound['set']) ? (bound['set'] as string[]) : [];
-    if (JSON.stringify([...accepted].sort()) !== JSON.stringify([...binding.set].sort())) return { state: 'refused', reason: 'not-accepted', source: bound };
+  if (binding?.set !== undefined || binding?.draft !== undefined) {
+    const shown = (chain.find((entry) => entry.kind === 'gate' && entry.id === bound['instance'])?.['values'] ?? {}) as { set?: unknown; draft?: unknown };
+    const accepted = Array.isArray(shown.set) ? (shown.set as string[]) : [];
+    if (binding.set !== undefined && JSON.stringify([...accepted].sort()) !== JSON.stringify([...binding.set].sort())) return { state: 'refused', reason: 'not-accepted', source: bound };
+    if (binding.draft !== undefined && shown.draft !== binding.draft) return { state: 'refused', reason: 'not-accepted', source: bound };
   }
   return { state: 'honoured', source: bound as unknown as AcceptanceEntry, object: (bound['object'] as ArtifactRef | undefined) ?? null };
 }

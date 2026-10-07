@@ -147,7 +147,7 @@ export function codeindexAdapter(deps: IndexDeps, project: ProjectConfig): Index
   const status = (): Promise<IndexStatus> => (known ??= computeStatus());
 
   async function run(binary: string, argv: readonly string[], timeoutMs: number): Promise<ProcessOutcome> {
-    return deps.runtime.runner.run({ argv: [binary, ...argv], cwd, timeoutMs, maxOutputBytes: QUERY_MAX_OUTPUT_BYTES, env: { kind: 'inherited' } });
+    return deps.runtime.runner.run({ argv: [binary, ...argv], cwd, timeoutMs, maxOutputBytes: QUERY_MAX_OUTPUT_BYTES, env: { kind: 'inherited' }, purpose: 'index' });
   }
 
   /** Never throws: a failed query is an error status the caller falls back from (05-A6, 05-A7). */
@@ -185,7 +185,7 @@ export function codeindexAdapter(deps: IndexDeps, project: ProjectConfig): Index
       await fs.mkdirp(indexDir);
       if (options.detached) {
         await fs.writeText(path.join(indexDir, BUILDING), JSON.stringify({ pid: null, startedAt: deps.runtime.clock.now().toISOString() }));
-        const spawned = await deps.runtime.runner.run({ argv: [...deps.selfArgv, 'index', 'build', '--project', project.id], cwd: deps.repositoryRoot, timeoutMs: 0, maxOutputBytes: 0, env: { kind: 'inherited' }, output: 'detached' });
+        const spawned = await deps.runtime.runner.run({ argv: [...deps.selfArgv, 'index', 'build', '--project', project.id], cwd: deps.repositoryRoot, timeoutMs: 0, maxOutputBytes: 0, env: { kind: 'inherited' }, output: 'detached', purpose: 'index' });
         if (spawned.kind === 'detached') return indexStatus('codeindex', 'building');
         await fs.remove(path.join(indexDir, BUILDING));
         return indexStatus('codeindex', 'error', null, oneLine(`index build did not start: ${spawned.failure ?? spawned.kind}`, 200));

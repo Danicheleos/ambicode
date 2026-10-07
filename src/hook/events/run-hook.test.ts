@@ -2,12 +2,11 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { describe, it } from 'node:test';
-import { parseArgs } from '#cli/args';
+import { parseArgs } from '#util/args';
 import { initConfig } from '#testing/fixtures/init-config';
 import { createRuntime } from '#composition/root';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { TempRepo } from '#testing/fixtures/temp-repo';
-import { runPrepare } from '#cli/commands/prepare/prepare';
 import { runHook } from './run-hook.ts';
 import { PREPARE_OPTIONS } from '#types/cli';
 
@@ -312,16 +311,6 @@ describe('G/H: ambicode hook (PostToolUse edit reminders)', () => {
       )) as { hookSpecificOutput?: { hookEventName?: string; additionalContext?: string } };
       assert.equal(afterCompact.hookSpecificOutput?.hookEventName, 'UserPromptSubmit');
       assert.ok((afterCompact.hookSpecificOutput?.additionalContext ?? '').includes(canonical.trimEnd()));
-
-      const prepared = await runPrepare(
-        runtime,
-        parseArgs('prepare', ['--activity', 'task'], PREPARE_OPTIONS),
-      );
-      assert.equal(prepared.shape, 'compact', 'prepare must emit the compact projection by default');
-      assert.equal(
-        (prepared.data as { sharedOperatingContract: { content?: string } }).sharedOperatingContract.content,
-        undefined,
-      );
     } finally {
       await dispose();
     }

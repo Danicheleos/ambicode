@@ -188,7 +188,8 @@ directory. `session-unbound`: the call names no task, so the CLI cannot
 tell which route it speaks for; pass `--task <slug>`. `route-ambiguous`: the task has more than
 one live route; `route start <skill> --task <slug> --fresh` ends the others, or continue under
 another `--task`. `route-busy`: another session owns the task's live plan route; the
-user chooses `--adopt`, `--fresh` or another `--task`. `plan-draft-missing`:
+user chooses `--adopt`, `--fresh` or another `--task`. `route-conflict`: another start
+changed the task's route while this one was reopening it; type the skill again. `plan-draft-missing`:
 no plan draft exists to promote; write `steps/plan-body.md` and let the plan
 route save the draft.
 
@@ -236,6 +237,10 @@ the process failed, or its output was not one JSON object matching the worker's
 schema within 64 KiB; the `reason` detail says which. No artifact was written.
 Release: continue inline — do this work in the session; the worker's output was
 not used.
+
+**`worker-not-approved`.** `worker run` named a worker that is not listed in
+`workers.approved` in `.ambicode/config.yaml`. Nothing ran. Release: continue
+inline, or ask the user to add the id to the list.
 
 **`artifact-collision`.** `worker run` or `plan check` found nine artifacts of
 the same name already written this minute, so it wrote none. Wait for the next

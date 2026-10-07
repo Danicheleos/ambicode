@@ -23,6 +23,22 @@ Method: I read the design and the reports. Four read-only audits then compared t
 
 The Origin column says whether a deviation was **accepted** (a user decision or an amendment exists), **documented** (written in a report, but never decided), or **undocumented** (found only in the code).
 
+## Status (2026-10-07, after steps 1-18)
+
+| Item | Status |
+|---|---|
+| A1 | partly resolved, steps 1, 2, 9: imports point down, empty ALLOWLIST, seam via `Engine.command`; orchestration inside L1 through `CommandContext`, accepted by the user |
+| A2 | resolved, steps 3, 6: ledger `session{end}` and rebind; late SessionEnd after same-id resume can mark a live session ended (open) |
+| A3 | resolved, steps 3-5 |
+| A4 | resolved, steps 3, 8: `engine.stopHook` |
+| A5 | resolved, steps 9, 15: measured profile, LSP table deleted |
+| A6 | resolved, step 16: `SEARCH_TUNING_DEFAULTS`, `resolveTuning` |
+| A7 | resolved, step 10 |
+| A8 | resolved, step 7 |
+| A9 | instrumented, step 17; decision runs remain the user's call (open) |
+
+B-item status is in the last column of the §3 table.
+
 ---
 
 ## 1. Verdict
@@ -211,27 +227,27 @@ v6 itself was never updated (§5). It no longer describes the plugin for investi
 
 ## 3. Deviations that change mechanism or contracts (DRIFT)
 
-| # | Area | Design | Implementation | Origin |
-|---|---|---|---|---|
-| B1 | Fold | 12 §1: a human revise resets `repeat` on **the steps it covers** | `cycleEntries` (`fold.ts:153-155`) resets every step after any human revise | undocumented |
-| B2 | Start | 12 §2.3: `--fresh` supersedes the route being resumed | supersedes **every** live head of the skill on the slug, including other sessions' side-by-side routes (`engine.ts:200-201`) | undocumented |
-| B3 | Consent | windowed consent | a raised gate's consent (`check-only-unauthorized`) is read over the whole chain (`context.ts:109`), so an approve from an earlier cycle still counts | undocumented |
-| B4 | Same-error bound | 12 §4: `promote→plan-accept` re-ask bounded by the same-error counter | the counter is never reached on the `onFail` path (`execute.ts:159-166`) | undocumented |
-| B5 | Stop | 15 §3 / 13: generated sections "present and unchanged" | compared only when the text already contains both headings (`stop-check.ts:122`), so a report that leaves them out passes; "accepted/approved" is satisfied by any bound acceptance in the chain (`:129`) | undocumented |
-| B6 | Requirements | 14 §2: asked URLs of any kind; `mention` relation | a URL that is neither Jira nor Confluence is keyed by its raw URL (`envelope.ts:19-22`), and no capture produces that key, so it is always `missingAsked` and a review on it always refuses; `mention` is not in the relation enum; `requirements-server-disconnected` is never raised | undocumented |
-| B7 | Ceremony | 02 §5 / 24 / 25: task 1–2, review 1–2 | task 2–3 (`task-write.md:8`, `plan-fetch.md:4`), up to +3 on the no-red path (re-print ladder instead of `limit {no-red}`); review up to 4 (`review-readback.md`, `review-view.md` each end with `route next`); investigate fell from 3 to 0 (A4) | partly documented |
-| B8 | Plan and task map | 23 step 3: seed from the note's citations and the AC identifiers; 24 step 2: from the brief's paths and symbols | `search.map` always gets `paths: [], symbols: []` (`src/skills/common.ts:97-107`); a task from a plan ranks the string "iteration N of <slug>" | undocumented (step 06 follow-up noted empty maps) |
-| B9 | Policy staging | 11 §2 table | `before-report` gets every carried rule; `before-checks` only late code-style rules; task delivers `before-work` and `before-checks` together at `ground`; investigate gets no `before-report` (`stage.ts:26-31`, `task.yaml:28`) | undocumented |
-| B10 | Budgets | no turn budget; D10: turns reported, not steered; 31: only Stop reads the transcript | `budget.toolTurns` in the DSL and in `investigate.yaml`; the guard counter reads the transcript; **not registered** in `hooks.json` (03b round 6), so it is dead config | documented |
-| B11 | Hook matrix | 30 §1: Bash `if:` includes `Bash(*ambicode.mjs*)`; `updatedInput --task`; guard asks for `rm -rf` at the repo root | the `ambicode.mjs` matcher and `updatedInput` are absent (P47 not run, accepted); the `rm -rf` row exists in `guard-core.ts:246-249` but is reachable only when the command also matches `git *`, `glab mr*` or `*.ambicode/task*` | partly accepted |
-| B12 | Headless guard | 30 §6: a guard `ask` in headless → `stop:blocked`, counted | no headless handling in the guard; no step text tells the model to record `route stop --reason blocked --detail "permission-denied: …"` (step 07 follow-up on 03-E13) | documented |
-| B13 | Task route | 24: `fix.when: gate.review-offer.is(run)`; waiting key per D15 | `fix.when: revised`; `openAt` raised gates, D15 amended in-session (PLAN-1/PLAN-2) — **no amend-07 file and no CHANGELOG entry exist**; the report says "the amendment file is the dispatcher's" | accepted, record missing |
-| B14 | Review limits and evidence | 41: `prompt.ts`, `report.ts`, `limits.ts` kept byte-for-byte; quality review without requirements | limits null = unlimited; route envelope passed in-process as evidence; reviewer argv gains `--tools`/`--json-schema` from the runner; `snapshot/target.ts:43` `gitCommonDir()` → `gitDir()` (changes which index is copied in a linked worktree; probably a fix, never recorded) | accepted except `target.ts` |
-| B15 | Workers | 17 §1: run/inline/skip gate, `workers.approved` | `worker run <id>` runs any definition under `<plugin>/workers/` with no gate; `workers.approved` is never read (harmless: no worker ships); worker route steps throw `internal` (`execute.ts:283`) | undocumented |
-| B16 | Init | 20: one question with separate MCP-server, runner and `search.index` choices; model steps 2 and 6 | `key=value` text under *Adjust*; listing the servers and reading back the doctor table moved into skill and payload text; `ConsentBinding.set` unused, values bound through the print's `Values:` line; step 09 says both "the writer never re-detects" (Decisions) and "apply re-detects after consent; only the override set is bound" (follow-up N6) | accepted (amend-09), N6 contradiction open |
-| B17 | `prepare` | 31: the whole command aliases `route start` for one release | only `--activity investigate` is aliased (`prepare.ts:41-51`); other activities run the old prepare, including the LSP guidance (A5) | undocumented |
-| B18 | Headless visibility | 12 §2.4: "headless set by the model" in the start message and `route status` | shown only in the report's Not verified (`report.ts:89`); `route status` lists neither mode/channel nor the automatic revises (`status.ts:47-60`) | undocumented |
-| B19 | Gate print | R12: three unanswered advances, then the default | the print says "Do not run a route command before then" (`gates.ts:131-133`); a dismissed question gets no hook answer, and the three advances need commands the model was told not to run | undocumented |
+| # | Area | Design | Implementation | Origin | Status |
+|---|---|---|---|---|---|
+| B1 | Fold | 12 §1: a human revise resets `repeat` on **the steps it covers** | `cycleEntries` (`fold.ts:153-155`) resets every step after any human revise | undocumented | kept |
+| B2 | Start | 12 §2.3: `--fresh` supersedes the route being resumed | supersedes **every** live head of the skill on the slug, including other sessions' side-by-side routes (`engine.ts:200-201`) | undocumented | resolved, step 5 |
+| B3 | Consent | windowed consent | a raised gate's consent (`check-only-unauthorized`) is read over the whole chain (`context.ts:109`), so an approve from an earlier cycle still counts | undocumented | kept |
+| B4 | Same-error bound | 12 §4: `promote→plan-accept` re-ask bounded by the same-error counter | the counter is never reached on the `onFail` path (`execute.ts:159-166`) | undocumented | kept |
+| B5 | Stop | 15 §3 / 13: generated sections "present and unchanged" | compared only when the text already contains both headings (`stop-check.ts:122`), so a report that leaves them out passes; "accepted/approved" is satisfied by any bound acceptance in the chain (`:129`) | undocumented | resolved, step 8 |
+| B6 | Requirements | 14 §2: asked URLs of any kind; `mention` relation | a URL that is neither Jira nor Confluence is keyed by its raw URL (`envelope.ts:19-22`), and no capture produces that key, so it is always `missingAsked` and a review on it always refuses; `mention` is not in the relation enum; `requirements-server-disconnected` is never raised | undocumented | resolved, step 12 |
+| B7 | Ceremony | 02 §5 / 24 / 25: task 1–2, review 1–2 | task 2–3 (`task-write.md:8`, `plan-fetch.md:4`), up to +3 on the no-red path (re-print ladder instead of `limit {no-red}`); review up to 4 (`review-readback.md`, `review-view.md` each end with `route next`); investigate fell from 3 to 0 (A4) | partly documented | resolved, step 11 |
+| B8 | Plan and task map | 23 step 3: seed from the note's citations and the AC identifiers; 24 step 2: from the brief's paths and symbols | `search.map` always gets `paths: [], symbols: []` (`src/skills/common.ts:97-107`); a task from a plan ranks the string "iteration N of <slug>" | undocumented (step 06 follow-up noted empty maps) | resolved, step 16 |
+| B9 | Policy staging | 11 §2 table | `before-report` gets every carried rule; `before-checks` only late code-style rules; task delivers `before-work` and `before-checks` together at `ground`; investigate gets no `before-report` (`stage.ts:26-31`, `task.yaml:28`) | undocumented | resolved, step 11 |
+| B10 | Budgets | no turn budget; D10: turns reported, not steered; 31: only Stop reads the transcript | `budget.toolTurns` in the DSL and in `investigate.yaml`; the guard counter reads the transcript; **not registered** in `hooks.json` (03b round 6), so it is dead config | documented | resolved, steps 13 and 17 |
+| B11 | Hook matrix | 30 §1: Bash `if:` includes `Bash(*ambicode.mjs*)`; `updatedInput --task`; guard asks for `rm -rf` at the repo root | the `ambicode.mjs` matcher and `updatedInput` are absent (P47 not run, accepted); the `rm -rf` row exists in `guard-core.ts:246-249` but is reachable only when the command also matches `git *`, `glab mr*` or `*.ambicode/task*` | partly accepted | resolved, step 13 (updatedInput unverified live) |
+| B12 | Headless guard | 30 §6: a guard `ask` in headless → `stop:blocked`, counted | no headless handling in the guard; no step text tells the model to record `route stop --reason blocked --detail "permission-denied: …"` (step 07 follow-up on 03-E13) | documented | resolved, step 13 |
+| B13 | Task route | 24: `fix.when: gate.review-offer.is(run)`; waiting key per D15 | `fix.when: revised`; `openAt` raised gates, D15 amended in-session (PLAN-1/PLAN-2) — **no amend-07 file and no CHANGELOG entry exist**; the report says "the amendment file is the dispatcher's" | accepted, record missing | kept (final fix-round mechanism, step 10) |
+| B14 | Review limits and evidence | 41: `prompt.ts`, `report.ts`, `limits.ts` kept byte-for-byte; quality review without requirements | limits null = unlimited; route envelope passed in-process as evidence; reviewer argv gains `--tools`/`--json-schema` from the runner; `snapshot/target.ts:43` `gitCommonDir()` → `gitDir()` (changes which index is copied in a linked worktree; probably a fix, never recorded) | accepted except `target.ts` | kept |
+| B15 | Workers | 17 §1: run/inline/skip gate, `workers.approved` | `worker run <id>` runs any definition under `<plugin>/workers/` with no gate; `workers.approved` is never read (harmless: no worker ships); worker route steps throw `internal` (`execute.ts:283`) | undocumented | resolved, step 11 (gate used by no shipped route) |
+| B16 | Init | 20: one question with separate MCP-server, runner and `search.index` choices; model steps 2 and 6 | `key=value` text under *Adjust*; listing the servers and reading back the doctor table moved into skill and payload text; `ConsentBinding.set` unused, values bound through the print's `Values:` line; step 09 says both "the writer never re-detects" (Decisions) and "apply re-detects after consent; only the override set is bound" (follow-up N6) | accepted (amend-09), N6 contradiction open | resolved, step 14 |
+| B17 | `prepare` | 31: the whole command aliases `route start` for one release | only `--activity investigate` is aliased (`prepare.ts:41-51`); other activities run the old prepare, including the LSP guidance (A5) | undocumented | resolved, step 9 |
+| B18 | Headless visibility | 12 §2.4: "headless set by the model" in the start message and `route status` | shown only in the report's Not verified (`report.ts:89`); `route status` lists neither mode/channel nor the automatic revises (`status.ts:47-60`) | undocumented | resolved, step 11 |
+| B19 | Gate print | R12: three unanswered advances, then the default | the print says "Do not run a route command before then" (`gates.ts:131-133`); a dismissed question gets no hook answer, and the three advances need commands the model was told not to run | undocumented | resolved, step 8 (dismissal shape unverified live) |
 
 ## 4. Small differences that keep the intent (FITS)
 

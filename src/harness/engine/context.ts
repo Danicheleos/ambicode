@@ -2,11 +2,13 @@ import { AmbicodeError } from '#util/errors';
 import { readLedgerStrict } from '#platform/ledger/ledger';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { evaluateConsent } from '../gates/consent.ts';
+import { raiseGate } from '../gates/gates.ts';
 import { buildChain, exitOf, foldRoute, latestRouteOf, matches, windowOf } from './fold.ts';
-import { ownerOf, OWNING_SKILLS } from '../session/ownership.ts';
+import { ownerOf, OWNING_SKILLS } from '#modules/evidence/ownership';
 import type { Runtime } from '#types/composition';
 import type { ArtifactRef, LedgerEntry } from '#types/modules/evidence';
-import type { RouteDef, RouteRegistry, RouteView, StartChannel, RouteContextPort } from '#types/harness';
+import type { RouteDef, RouteRegistry, RouteView, StartChannel, CommandContext } from '#types/harness';
+import { refOf } from '#modules/evidence/ledger-chain';
 import type { Chain, ConsentBinding } from '../types/engine.ts';
 
 export const ledgerUnreadable = (task: string, reason: string): AmbicodeError =>
@@ -63,7 +65,7 @@ export async function openRouteView(runtime: Runtime, routes: RouteRegistry, tas
   return exitOf(chain) === null ? viewOf(task, def, chain) : null;
 }
 
-export function ledgerRouteContext(deps: { runtime: Runtime; routes: RouteRegistry }): RouteContextPort {
+export function commandContext(deps: { runtime: Runtime; routes: RouteRegistry }): CommandContext {
   const { runtime, routes } = deps;
   const loaded = async (view: RouteView): Promise<{ entries: LedgerEntry[]; def: RouteDef; chain: Chain }> => {
     const entries = await readEntries(runtime, view.task);
@@ -84,6 +86,9 @@ export function ledgerRouteContext(deps: { runtime: Runtime; routes: RouteRegist
       const def = head === null ? null : routes.route(String(head['skill']));
       return head === null || def === null ? null : viewOf(task, def, buildChain(entries, head));
     },
+    open: (task, session) => openRouteView(runtime, routes, task, session),
+    entries: (task) => readEntries(runtime, task),
+    raise: (ledger, view, input) => raiseGate(ledger, view, input, routes),
     async assertOwner(view) {
       checkOwner(await readEntries(runtime, view.task), view);
     },
@@ -109,16 +114,5 @@ export function ledgerRouteContext(deps: { runtime: Runtime; routes: RouteRegist
       const window = step === undefined ? chain.entries : windowOf(foldRoute(def, chain), step);
       return evaluateConsent({ window, chain: chain.entries, gate: gateId, acting: gate?.acting ?? [], binding: binding as ConsentBinding | undefined });
     },
-  };
-}
-
-export function refOf(entry: LedgerEntry, kind: string, value: string | null): ArtifactRef {
-  const hash = entry['contentHash'] ?? entry['hash'] ?? entry['rawHash'];
-  return {
-    kind,
-    value: value ?? (typeof entry[kind] === 'string' ? (entry[kind] as string) : ''),
-    id: entry.id,
-    path: typeof entry['path'] === 'string' ? entry['path'] : '',
-    contentHash: typeof hash === 'string' ? hash : '',
   };
 }

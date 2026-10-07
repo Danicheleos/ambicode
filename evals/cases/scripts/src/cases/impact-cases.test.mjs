@@ -118,7 +118,7 @@ describe('impact-cases CLI', () => {
     assert.match(result.stderr, /absolute/);
   });
 
-  it('05-K5: no .ts file under src/, tests included, imports typescript', () => {
+  it('05-K5: no .ts file under src/, tests included, imports typescript, except the architecture test that parses imports', () => {
     const srcDir = fileURLToPath(new URL('../../../../../src', import.meta.url));
     const offenders = [];
     const visit = (directory) => {
@@ -129,6 +129,6 @@ describe('impact-cases CLI', () => {
       }
     };
     visit(srcDir);
-    assert.deepEqual(offenders, []);
+    assert.deepEqual(offenders, ['architecture.test.ts']);
   });
 });

@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
-import { parseArgs } from '#cli/args';
+import { parseArgs } from '#util/args';
 import { runPolicyCheck, POLICY_CHECK_OPTIONS } from '#cli/commands/policy/policy-check';
 import { routeTools } from '#cli/commands/route/route';
 import { runRulesApply, runRulesRevert, RULES_APPLY_OPTIONS, RULES_REVERT_OPTIONS } from '#cli/commands/policy/rules';

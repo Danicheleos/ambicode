@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { parseArgs } from '#cli/args';
+import { parseArgs } from '#util/args';
 import { runConfig, renderConfig } from '#cli/commands/config/config';
 import { runReview, REVIEW_OPTIONS } from '#cli/commands/review/review';
 import { DEFAULTS } from '#types/defaults';

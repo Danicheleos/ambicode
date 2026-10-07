@@ -5,7 +5,7 @@ import { openWorkspace } from '#modules/config/workspace';
 import { detectRuleSources } from '#modules/config/init/init';
 import { loadConfigWithNotices } from '#modules/config/load';
 import type { ProjectConfig, ApplyDeps } from '#types/modules/config';
-import { refOf } from '#harness/engine/context';
+import { refOf } from '#modules/evidence/ledger-chain';
 import { classifySource, requirementsTemplate } from '#modules/requirements/capture/template';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';

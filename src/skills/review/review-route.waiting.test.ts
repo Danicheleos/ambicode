@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseArgs } from '#cli/args';
+import { parseArgs } from '#util/args';
 import { runReview, REVIEW_OPTIONS } from '#cli/commands/review/review';
 import { CHECK_TASK } from '#testing/fixtures/check-fixture';
 import { PROPOSED, reviewRouteFixture } from '#testing/fixtures/review-route-fixture';
@@ -55,7 +55,6 @@ describe('review route: waiting checks are one explicit question (08-W1 … 08-W
         assert.match(rerun.text, RERUN);
         assert.doesNotMatch(rerun.text, /--approve/);
         assert.deepEqual((await t.kinds('revise')).map((entry) => [entry['from'], entry['reason']]), [['review-run', `${GATE}: ${option}`]]);
-        assert.equal((await t.synthetic([])).position, 'readback');
         assert.equal((await gates(t)).length, 1);
       });
     });
@@ -71,14 +70,14 @@ describe('review route: waiting checks are one explicit question (08-W1 … 08-W
     });
   });
 
-  it('08-W3: an unanswered question takes without as never-asked: one re-run, no loop', async () => {
+  it('08-W3: an unanswered question takes without as never-asked: nothing re-runs, no loop', async () => {
     await withReview(async (t) => {
       await toRun(t);
       await t.synthetic([], { waiting: ['app/e2e'] });
       for (let turn = 0; turn < 4; turn += 1) await t.next();
       assert.deepEqual((await t.kinds('default-taken')).map((entry) => [entry['gate'], entry['answer'], entry['via']]), [[GATE, 'without', 'never-asked']]);
-      assert.equal((await t.kinds('revise')).length, 1);
-      assert.equal((await t.synthetic([])).position, 'readback');
+      assert.equal((await t.kinds('revise')).length, 0);
+      assert.equal((await t.kinds('review')).length, 1);
     });
   });
 

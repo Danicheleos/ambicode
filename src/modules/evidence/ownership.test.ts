@@ -102,4 +102,13 @@ describe('the ownership module', () => {
     const source = readFileSync(new URL('./ownership.ts', import.meta.url), 'utf8');
     for (const line of source.split('\n').filter((text) => /^\s*import\s/.test(text))) assert.match(line, /^import type /);
   });
+
+  it('a reopened chain is live again and owned by its latest session; a later exit closes it', () => {
+    const reopen = { id: 'v-1', at, kind: 'revise', route: 'a-1', from: 'read', via: 'reopen' } as LedgerEntry;
+    const base = [route('a-1', 'A'), exit('e-1', 'a-1', 'done'), reopen];
+    assert.deepEqual(ownerOf(base, 'T'), { task: 'T', state: 'owned', session: 'A', routeId: 'a-1', chainIds: ['a-1'], takenOver: [] });
+    const resumed = ownerOf([...base, route('b-1', 'B', { resumes: 'a-1', adopts: true })], 'T');
+    assert.equal(resumed.state === 'owned' && resumed.session, 'B');
+    assert.deepEqual(ownerOf([...base, exit('e-2', 'a-1', 'done')], 'T'), { task: 'T', state: 'none' });
+  });
 });

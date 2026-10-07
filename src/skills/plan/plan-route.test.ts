@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
-import { parseArgs } from '#cli/args';
+import { parseArgs } from '#util/args';
 import { renderPlanCheck, runPlanCheckCommand, PLAN_CHECK_OPTIONS } from '#cli/commands/workers/plan-check';
 import { answerGates } from '#hook/events/gate-answer';
 import { runHook } from '#hook/events/run-hook';
@@ -13,13 +13,13 @@ import { appendLedger } from '#platform/ledger/ledger';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { PLAN_TASK, planFixture, type PlanFixture } from '#testing/fixtures/plan-fixture';
 import { CONFIG } from '#testing/fixtures/route-fixture';
-import { ledgerRouteContext } from '#harness/engine/context';
+import { commandContext } from '#harness/engine/context';
 import { runPlanCheck } from '#modules/workers/plan-check';
 import { REPO_ROOT } from '#testing/paths';
 import { SESSION_A, SESSION_B } from '#testing/fixtures/ids';
 
-/** SHA-256 of the step-06 Contract YAML with amend-06-review-r1 P2 (`fetch` gets `payload: [template]`). */
-const CONTRACT_SHA256 = 'cfebbb49f47f32bb8d043e7f014c13fdee24c771027f1a9a557ac5e54ce5b341';
+/** SHA-256 of the step-06 Contract YAML with amend-06-review-r1 P2 (`fetch` gets `payload: [template]`, `plan-write` gets `payload: [policy:before-report]`). */
+const CONTRACT_SHA256 = '846d597200997b92f43b8662d06faf33566425bf4d23ba1ec3ae63fb473a7fe6';
 const GOOD = '# Plan\n\n- *Changes*: `src/orders/limit.ts:1` `orderLimit`\n';
 const BAD = '# Plan\n\n- *Changes*: `src/orders/limit.ts:40` `orderLimit`\n';
 const PLATFORM = { askBinding: 'supported', answerContext: 'supported' } as const;
@@ -384,7 +384,7 @@ describe('06-P9/D1 interruption', () => {
     try {
       await toWrite(plan);
       await plan.body(GOOD);
-      await runPlanCheck({ runtime: plan.fx.runtime, session: SESSION_A, context: ledgerRouteContext({ runtime: plan.fx.runtime, routes: plan.fx.routes }) }, { task: PLAN_TASK, body: null, from: 'steps/plan-body.md' });
+      await runPlanCheck({ runtime: plan.fx.runtime, session: SESSION_A, context: commandContext({ runtime: plan.fx.runtime, routes: plan.fx.routes }) }, { task: PLAN_TASK, body: null, from: 'steps/plan-body.md' });
       assert.equal((await plan.next()).position, 'plan-accept');
       assert.equal((await notes(plan, 'plan-draft')).length, 2);
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'worker')).length, 2);
@@ -430,7 +430,7 @@ describe('06-N2 write-time ownership on the shipped route', () => {
       await assert.rejects(plan.next(), taken);
       await assert.rejects(plan.saveDraft('# Plan\n'), taken);
       await plan.body(GOOD);
-      await assert.rejects(runPlanCheck({ runtime: plan.fx.runtime, session: SESSION_A, context: ledgerRouteContext({ runtime: plan.fx.runtime, routes: plan.fx.routes }) }, { task: PLAN_TASK, body: null, from: 'steps/plan-body.md' }), taken);
+      await assert.rejects(runPlanCheck({ runtime: plan.fx.runtime, session: SESSION_A, context: commandContext({ runtime: plan.fx.runtime, routes: plan.fx.routes }) }, { task: PLAN_TASK, body: null, from: 'steps/plan-body.md' }), taken);
       await assert.rejects(plan.promote(SESSION_A), taken);
       assert.equal((await notes(plan, 'plan-draft')).length, 0);
     } finally {
@@ -547,7 +547,7 @@ describe('06-C7/06-P2 duplicates on a monorepo', () => {
       assert.equal((await plan.next({ project: 'orders' })).position, 'design');
       await plan.next();
       await plan.body('# Plan\n\nAdd `orderLimit` in src/orders/limit.ts:1\n');
-      const checked = await runPlanCheck({ runtime: plan.fx.runtime, session: SESSION_A, context: ledgerRouteContext({ runtime: plan.fx.runtime, routes: plan.fx.routes }) }, { task: PLAN_TASK, body: null, from: 'steps/plan-body.md' });
+      const checked = await runPlanCheck({ runtime: plan.fx.runtime, session: SESSION_A, context: commandContext({ runtime: plan.fx.runtime, routes: plan.fx.routes }) }, { task: PLAN_TASK, body: null, from: 'steps/plan-body.md' });
       assert.deepEqual(checked.result.duplicates, [{ name: 'orderLimit', declaredAt: 'src/orders/limit.ts:1' }]);
       assert.equal(checked.result.duplicatesSkipped, undefined);
     } finally {
@@ -560,7 +560,7 @@ describe('06-C7/06-P2 duplicates on a monorepo', () => {
     const plan = await planFixture({ shipped: true, config });
     try {
       await plan.body('# Plan\n\nAdd `orderLimit`\n');
-      const checked = await runPlanCheck({ runtime: plan.fx.runtime, session: null, context: ledgerRouteContext({ runtime: plan.fx.runtime, routes: plan.fx.routes }) }, { task: PLAN_TASK, body: null, from: 'steps/plan-body.md' });
+      const checked = await runPlanCheck({ runtime: plan.fx.runtime, session: null, context: commandContext({ runtime: plan.fx.runtime, routes: plan.fx.routes }) }, { task: PLAN_TASK, body: null, from: 'steps/plan-body.md' });
       assert.deepEqual(checked.result.duplicates, []);
       assert.match(checked.result.duplicatesSkipped ?? '', /^ambiguous-project/);
     } finally {

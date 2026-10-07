@@ -2,7 +2,7 @@ import type { TypedEntry } from '#platform/ledger/kinds';
 import type { Workspace } from '../composition.ts';
 import type { ProjectConfig } from './config.ts';
 import type { LedgerEntry, NoteDeps, TaskDir } from './evidence.ts';
-import type { RouteRegistry, RouteView } from '../harness.ts';
+import type { RouteView } from '../harness.ts';
 import type { DiffFile } from '../platform/git.ts';
 
 export type ReviewEntry = LedgerEntry & { kind: 'review' };
@@ -20,7 +20,6 @@ export type CheckOnlyOutcome =
   | { outcome: 'declined'; key: string };
 
 export interface CheckDeps extends NoteDeps {
-  routes: RouteRegistry;
   /** The detached warm rebuild (07-G3); never awaited. */
   warm?: (workspace: Workspace, project: ProjectConfig) => Promise<unknown>;
 }

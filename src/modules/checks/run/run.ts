@@ -269,6 +269,7 @@ export async function runChecks(options: RunChecksOptions): Promise<RunChecksOut
       timeoutMs: (command.timeoutSeconds ?? options.config.checks.timeoutSeconds) * 1000,
       maxOutputBytes: MAX_COMMAND_OUTPUT_BYTES,
       env: { kind: 'inherited' },
+      purpose: 'check',
     });
     const durationMs = Math.round(options.clock.elapsed() - started);
 

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { buildChain, currentIn } from '#harness/engine/fold';
-import { ledgerRouteContext } from '#harness/engine/context';
+import { commandContext } from '#harness/engine/context';
 import { buildReport } from '#modules/evidence/report/report';
 import { saveNote } from '#modules/evidence/notes';
 import { routeFixture, type RouteFixture } from '#testing/fixtures/route-fixture';
@@ -48,7 +48,7 @@ async function stopper(): Promise<Stopper> {
     stop: (extra = {}) => runHook(fx.runtime, JSON.stringify({ hook_event_name: 'Stop', session_id: A, cwd: fx.repo.root, scratchpad_dir: fx.scratchpad, transcript_path: transcript, ...extra }), deps) as Promise<{ decision?: string; reason?: string }>,
     limits: async () => (await fx.kinds(TASK, 'limit')).map((entry) => String(entry['which'])),
     async saveNote(body) {
-      await saveNote({ runtime: fx.runtime, session: A, context: ledgerRouteContext({ runtime: fx.runtime, routes: fx.routes }) }, { task: TASK, kind: 'investigation', body, from: null, iteration: null, route: (await fx.kinds(TASK, 'route'))[0]!.id });
+      await saveNote({ runtime: fx.runtime, session: A, context: commandContext({ runtime: fx.runtime, routes: fx.routes }) }, { task: TASK, kind: 'investigation', body, from: null, iteration: null, route: (await fx.kinds(TASK, 'route'))[0]!.id });
     },
     dispose: () => fx.dispose(),
   };
@@ -185,13 +185,50 @@ describe('03-K3 checks', () => {
       await toWrite(backed);
       const route = (await backed.fx.kinds(TASK, 'route'))[0]!.id;
       await writeFile(path.join(backed.fx.repo.root, '.ambicode', 'task', TASK, 'ledger.jsonl'), (await readFile(path.join(backed.fx.repo.root, '.ambicode', 'task', TASK, 'ledger.jsonl'), 'utf8')) + [
-        { id: 'zzzzzzzz-901', at: '2026-10-05T10:00:00.000Z', kind: 'acceptance', route, gate: 'g', instance: 'x', answer: 'Accept', via: 'hook' },
+        { id: 'zzzzzzzz-901', at: '2026-10-05T10:00:00.000Z', kind: 'acceptance', route, gate: 'check-only-unauthorized', instance: 'x', answer: 'approve', via: 'hook' },
         { id: 'zzzzzzzz-902', at: '2026-10-05T10:00:00.000Z', kind: 'check', route, key: 'app/unit', argv: ['npm', 'test'], only: [], exit: 0, phase: 'green', summary: { ran: 3, failed: 0 }, ms: 10 },
       ].map((entry) => `${JSON.stringify(entry)}\n`).join(''));
       await backed.say(`${heading}The plan was accepted and all tests pass.`);
       assert.deepEqual(await backed.stop(), {});
     } finally {
       await backed.dispose();
+    }
+  });
+
+  it('"approved" needs a current acceptance of an acting option: not a non-acting answer, not one a revise replaced', async () => {
+    const attempt = async (rows: (route: string) => object[]) => {
+      const t = await stopper();
+      try {
+        await toWrite(t);
+        const route = (await t.fx.kinds(TASK, 'route'))[0]!.id;
+        const file = path.join(t.fx.repo.root, '.ambicode', 'task', TASK, 'ledger.jsonl');
+        await writeFile(file, (await readFile(file, 'utf8')) + rows(route).map((entry) => `${JSON.stringify(entry)}\n`).join(''));
+        await t.say(`${heading}The plan was approved.`);
+        return (await t.stop()).decision;
+      } finally {
+        await t.dispose();
+      }
+    };
+    const accept = (route: string, answer: string, n: number) => ({ id: `zzzzzzzz-91${n}`, at: '2026-10-05T10:00:00.000Z', kind: 'acceptance', route, gate: 'check-only-unauthorized', instance: 'x', answer, via: 'hook' });
+    assert.equal(await attempt((route) => [accept(route, 'approve', 1)]), undefined);
+    assert.equal(await attempt((route) => [accept(route, 'decline', 1)]), 'block');
+    assert.equal(await attempt((route) => [accept(route, 'approve', 1), { id: 'zzzzzzzz-929', at: '2026-10-05T10:00:01.000Z', kind: 'revise', route, from: 'read', via: 'reopen', cycle: 0, reason: 'more' }]), 'block');
+  });
+
+  it('the generated sections are checked once the report was written, even with neither heading in the text', async () => {
+    const withReport = INV.replace('instruction: "## Confirmed facts\\nWrite the note."', 'payload: [report]\n    instruction: "## Confirmed facts\\nWrite the note."');
+    const fx = await routeFixture({ routes: { inv: withReport } });
+    try {
+      await fx.engine.start({ skill: 'inv', text: 'why is it slow', requirements: [], task: TASK, cwd: fx.repo.root, session: A, channel: 'hook', scratchpadDir: fx.scratchpad });
+      await fx.engine.advance({ task: TASK, session: A, cause: 'route-next', scratchpadDir: fx.scratchpad });
+      const transcript = path.join(fx.scratchpad, 'transcript.jsonl');
+      await writeFile(transcript, `${JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: `${heading}Done, nothing else to add.` }] } })}\n`);
+      const deps: HookDeps = { pointer: fx.pointer, load: async () => ({ engine: fx.engine, routes: fx.routes, pointer: fx.pointer }) };
+      const out = (await runHook(fx.runtime, JSON.stringify({ hook_event_name: 'Stop', session_id: A, cwd: fx.repo.root, scratchpad_dir: fx.scratchpad, transcript_path: transcript }), deps)) as { decision?: string; reason?: string };
+      assert.equal(out.decision, 'block');
+      assert.match(out.reason!, /differs from the generated one/);
+    } finally {
+      await fx.dispose();
     }
   });
 
@@ -328,7 +365,7 @@ describe('03b-N: the answer is the note', () => {
       await s.say('It is in src/cart/add-item.ts:9, as said.');
       assert.deepEqual(await s.stop(), {});
       assert.equal((await s.notes()).length, 1);
-      assert.deepEqual(await s.exits(), [], 'the recorded block leaves an unverified item, so the route completes without an exit');
+      assert.deepEqual(await s.exits(), ['done'], 'the recorded block leaves an unverified item; the route still exits complete');
     } finally {
       await s.fx.dispose();
     }

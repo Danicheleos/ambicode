@@ -1,13 +1,10 @@
-// node:fs (plus crypto and os for the session key) only: the guard bundle may read bounded state and ledger files and nothing else (see guard.ts).
-import { createHash } from 'node:crypto';
+// node:fs only: the guard bundle may read bounded state and ledger files and nothing else (see guard.ts).
 import { closeSync, constants, fstatSync, openSync, readSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import type { LedgerEntry } from '#types/modules/evidence';
 import { GUARD_STATE_DIR_NAME, ACTIVE_ROUTE_FILE, GUARD_LEDGER_FILE, LEDGER_LIMIT, type ActiveRoute, type GuardState } from '../types/guard.ts';
 
-// Copies, so the guard bundle stays import-light; tool-turns.test.ts pins them to the originals.
+// Copies, so the guard bundle stays import-light.
 export const POINTER_LIMIT = 4 * 1024;
-export const TRANSCRIPT_TAIL_BYTES = 1024 * 1024;
 
 // Opening a FIFO without a writer would block the hook; non-blocking, it opens at once and fstat rejects it.
 const OPEN_FLAGS = constants.O_RDONLY | (constants.O_NONBLOCK ?? 0);
@@ -28,34 +25,6 @@ function bounded(file: string, limit: number): string | null {
       length += read;
     }
     return buffer.toString('utf8', 0, length);
-  } catch {
-    return null;
-  } finally {
-    try {
-      if (descriptor !== undefined) closeSync(descriptor);
-    } catch {
-      // Nothing was decided from this descriptor that closing it could change.
-    }
-  }
-}
-
-/** The last `limit` bytes of a regular file, from the first line that starts inside them; any error is `null`. */
-function tail(file: string, limit: number): string | null {
-  let descriptor: number | undefined;
-  try {
-    descriptor = openSync(file, OPEN_FLAGS);
-    const stat = fstatSync(descriptor);
-    if (!stat.isFile()) return null;
-    const start = Math.max(0, stat.size - limit);
-    const buffer = Buffer.alloc(stat.size - start);
-    let length = 0;
-    while (length < buffer.length) {
-      const read = readSync(descriptor, buffer, length, buffer.length - length, start + length);
-      if (read === 0) break;
-      length += read;
-    }
-    const text = buffer.toString('utf8', 0, length);
-    return start === 0 ? text : text.slice(text.indexOf('\n') + 1);
   } catch {
     return null;
   } finally {
@@ -89,18 +58,13 @@ function entries(text: string): LedgerEntry[] | null {
   return found;
 }
 
-/** markers.ts `hookStateBaseDir` without a scratchpad: the state of a session whose hook input carries none (tested equal). */
-export function sessionStateDir(sessionId: string): string {
-  return `${tmpdir()}/${GUARD_STATE_DIR_NAME}/sha256${createHash('sha256').update(sessionId).digest('hex').slice(0, 32)}`;
-}
-
 function pointerAt(file: string): ActiveRoute | null {
   const text = bounded(file, POINTER_LIMIT);
   if (text === null) return null;
   try {
     const pointer = JSON.parse(text) as Partial<ActiveRoute> | null;
     if (typeof pointer?.task !== 'string' || typeof pointer.skill !== 'string') return null;
-    return { task: pointer.task, skill: pointer.skill, ...(typeof pointer.toolTurns === 'number' ? { toolTurns: pointer.toolTurns } : {}) };
+    return { task: pointer.task, skill: pointer.skill, ...(pointer.headless === true ? { headless: true } : {}) };
   } catch {
     return null;
   }
@@ -108,12 +72,8 @@ function pointerAt(file: string): ActiveRoute | null {
 
 export const fsGuardState: GuardState = {
   activeRoute: (scratchpadDir: string) => pointerAt(`${scratchpadDir}/${GUARD_STATE_DIR_NAME}/${ACTIVE_ROUTE_FILE}`),
-  sessionRoute: (sessionId: string) => pointerAt(`${sessionStateDir(sessionId)}/${ACTIVE_ROUTE_FILE}`),
   ledger(taskDirectory: string): LedgerEntry[] | null {
     const text = bounded(`${taskDirectory}/${GUARD_LEDGER_FILE}`, LEDGER_LIMIT);
     return text === null ? null : entries(text);
-  },
-  transcriptTail(file: string): string | null {
-    return tail(file, TRANSCRIPT_TAIL_BYTES);
   },
 };

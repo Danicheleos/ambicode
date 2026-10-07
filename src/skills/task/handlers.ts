@@ -9,6 +9,8 @@ import { estimateReview, renderEstimate } from '#modules/review/bundle/estimate'
 import { buildChain, currentIn } from '#harness/engine/fold';
 import { onGatePrint, onNeedCommand, onRaisedAnswer, raiseGate } from '#harness/gates/gates';
 import { chainEntries, configOf, isResult, projectOf } from '../common.ts';
+import { briefOf } from '../brief.ts';
+import { CODE_SHAPED } from '#modules/search/text/seed';
 import { isAmbicodeError } from '#util/errors';
 import { buildReport } from '#modules/evidence/report/report';
 import type { BaselineEntryFields, ReviewEntry } from '#types/modules/checks';
@@ -18,8 +20,6 @@ import type { Handler, HandlerInput, HandlerResult } from '#types/harness';
 const MAX_START_BYTES = 4096;
 const MAX_REPORT_BYTES = 3072;
 const MAX_CALLERS = 8;
-const ITERATION = /^##\s+Iteration\s+(\d+)\b.*$/gim;
-const CODE_SHAPED = /`([^`\s]{2,80})`|\b([A-Za-z_$][\w$]*(?:[a-z0-9][A-Z]|_[A-Za-z0-9])[\w$]*)\b/g;
 const KEY_GATE = 'check-only-unauthorized';
 const keyValues = (key: string): Record<string, string[]> => ({ key: [key], files: ['the change under review'] });
 const DEFECT = /\bdefect\b|\b(?:issue\s*)?type\W{0,3}(?:bug|defect)\b/i;
@@ -30,18 +30,6 @@ const cutTo = (text: string, bytes: number, rest: string): string => {
   while (Buffer.byteLength(`${kept}\n${rest}`) > bytes) kept = kept.slice(0, -1);
   return `${kept}\n${rest}`;
 };
-
-/** The plan this route implements, its iteration count, and the brief of the iteration it starts at (07-R2, D18). */
-async function briefOf(input: HandlerInput, entries: readonly LedgerEntry[]): Promise<{ planPath: string | null; iteration: number; iterations: number; brief: string | null }> {
-  const planPath = input.args.plan ?? (entries.findLast((entry) => entry.kind === 'note' && entry['note'] === 'plan')?.['path'] as string | undefined) ?? null;
-  const plan = planPath === null ? null : await input.runtime.fs.readText(path.resolve(input.dir.repositoryRoot, planPath)).catch(() => null);
-  const done = entries.findLast((entry) => entry.kind === 'note' && entry['note'] === 'notes' && typeof entry['iteration'] === 'number')?.['iteration'] as number | undefined;
-  const iteration = (done ?? 0) + 1;
-  const headings = plan === null ? [] : [...plan.matchAll(ITERATION)];
-  const at = headings.findIndex((heading) => Number(heading[1]) === iteration);
-  const brief = plan === null ? null : headings.length === 0 ? plan : at < 0 ? null : plan.slice(headings[at]!.index, headings[at + 1]?.index ?? plan.length);
-  return { planPath, iteration, iterations: Math.max(1, headings.length), brief: brief?.trim() ?? null };
-}
 
 const identifiers = (text: string): string[] => {
   const names = [...text.matchAll(CODE_SHAPED)].map((match) => (match[1] ?? match[2] ?? '').replace(/\(\)$/, '').split('.').at(-1) ?? '');

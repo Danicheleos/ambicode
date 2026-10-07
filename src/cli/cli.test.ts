@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { parseArgs } from './args.ts';
+import { parseArgs } from '#util/args';
 import { PREPARE_DEPRECATED, prepareAsRouteStart } from './commands/prepare/prepare.ts';
 import { SPECS as COMMAND_SPECS, USAGE } from './main.ts';
 import { runIndex, INDEX_OPTIONS, RELATES_OPTIONS } from './commands/search/search.ts';

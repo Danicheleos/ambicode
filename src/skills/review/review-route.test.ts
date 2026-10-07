@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
-import { parseArgs } from '#cli/args';
+import { parseArgs } from '#util/args';
 import { runReview, REVIEW_OPTIONS, type ReviewDependencies } from '#cli/commands/review/review';
 import { startTarget } from '#cli/commands/route/route';
 import { nodeFileSystem } from '#platform/ports/filesystem';
@@ -14,6 +14,7 @@ import { CHECK_TASK } from '#testing/fixtures/check-fixture';
 import { taskFixture } from '#testing/fixtures/task-fixture';
 import { reviewRouteFixture } from '#testing/fixtures/review-route-fixture';
 import { metricsIgnoreWarning, reviewCommand } from './handlers.ts';
+import { SESSION_A } from '#testing/fixtures/ids';
 import { REPO_ROOT } from '#testing/paths';
 import { ROUTE_START_OPTIONS } from '#types/cli';
 import type { Handler } from '#types/harness';
@@ -149,7 +150,7 @@ describe('review route: the estimate gate (08-R4, 08-R5, S12, S14)', () => {
   it('08-R4: a never-asked gate takes the default skip after three unanswered advances; no reviewer starts', async () => {
     await withReview(async (t) => {
       await t.start();
-      for (let turn = 0; turn < 4; turn += 1) await t.next();
+      for (let turn = 0; turn < 3; turn += 1) await t.next();
       assert.deepEqual((await t.kinds('default-taken')).map((entry) => [entry['gate'], entry['answer'], entry['via']]), [['estimate', 'skip', 'never-asked']]);
       assert.equal((await t.kinds('review')).length, 0);
       assert.ok((await steps(t, 'skipped')).includes('review-run'));
@@ -208,6 +209,24 @@ describe('review route: the estimate gate (08-R4, 08-R5, S12, S14)', () => {
     }, { handlers: spy.handlers });
   });
 
+  it('B7: a review run needs no route next: the estimate answer and one review reach readback and view in one message, and Stop after the final message closes the route', async () => {
+    await withReview(async (t) => {
+      await t.start();
+      await t.hook('estimate', 'run');
+      const readback = await t.synthetic([]);
+      assert.equal(readback.position, 'readback');
+      assert.match(readback.text, /Review read-back/);
+      assert.match(readback.text, /Review page/);
+      assert.doesNotMatch(readback.text, /route next/);
+      const steps = (await t.kinds('step')).map((entry) => `${entry['step']}:${entry['status']}`);
+      assert.ok(steps.includes('readback:completed') && steps.includes('view:delivered'), steps.join(' '));
+      assert.notEqual(await t.fx.engine.deliver(CHECK_TASK, SESSION_A, t.fx.scratchpad), null, 'a resume or another prompt does not close it');
+      assert.equal((await t.kinds('exit')).length, 0);
+      await t.fx.engine.stopHook({ hook_event_name: 'Stop', session_id: SESSION_A, cwd: t.fx.repo.root, scratchpad_dir: t.fx.scratchpad });
+      assert.equal((await t.kinds('exit')).at(-1)?.['reason'], 'done');
+    });
+  });
+
   it('08-R5: the delivered command names the task and the narrowing last used; narrow reprints the gate with the hint', async () => {
     await withReview(async (t) => {
       await t.start();
@@ -245,7 +264,7 @@ describe('review route: the estimate gate (08-R4, 08-R5, S12, S14)', () => {
     await withReview(async (t) => {
       await t.start();
       const print = (await prints(t, 'estimate'))[0]!;
-      for (let turn = 0; turn < 4; turn += 1) await t.next();
+      for (let turn = 0; turn < 3; turn += 1) await t.next();
       assert.equal((await t.kinds('default-taken')).at(-1)?.['via'], 'never-asked');
       const late = await t.next({ cause: 'gate-hook', answers: [{ gate: 'estimate', option: 'run', instance: print.id }] });
       assert.equal((await t.kinds('acceptance')).at(-1)?.['instance'], print.id);
@@ -273,7 +292,7 @@ describe('review route: step texts, ceilings and the ignore warning (08-R6, 08-B
     assert.match(text, /1\. what was reviewed, 2\. findings, 3\. verification, 4\. omissions, uncertainty and unavailable coverage/);
     assert.match(text, /Part 4 copied verbatim/);
     assert.match(text, /references\/outcomes\.md/);
-    assert.match(text, /route next --task ord-7/);
+    assert.doesNotMatch(text, /route next/);
   });
 
   it('08-R6: view runs view --review in the background for an --mr target or at least one finding, and publication stays human', async () => {
@@ -282,6 +301,7 @@ describe('review route: step texts, ceilings and the ignore warning (08-R6, 08-B
     assert.match(text, /view --review <reviewId>/);
     assert.match(text, /background/);
     assert.match(text, /Publishing is the user's/);
+    assert.doesNotMatch(text, /route next/);
   });
 
   it('08-B1: the route start output is at most 3,072 bytes and the printed estimate at most 2,048', async () => {
@@ -335,6 +355,18 @@ describe('review --task under the review route (08-R8)', () => {
       assert.doesNotMatch(out.result.omissions.join('\n'), /baseline|pre-existing/);
       assert.ok(out.result.changedFiles.some((file) => file.newPath === 'src/orders.ts'));
       assert.match(out.next ?? '', /step readback/);
+      assert.equal((await t.kinds('review')).length, 1);
+    });
+  });
+
+  it('08-R8: one acceptance is one reviewer run; a second run without a new acceptance is refused', async () => {
+    await withReview(async (t) => {
+      await t.start();
+      await t.hook('estimate', 'run');
+      const spy = reviewer();
+      await review(t, spy.deps);
+      assert.equal(await code(review(t, spy.deps)), 'review-not-accepted');
+      assert.equal(spy.calls.n, 1);
       assert.equal((await t.kinds('review')).length, 1);
     });
   });

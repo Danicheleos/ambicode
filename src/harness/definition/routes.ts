@@ -41,12 +41,14 @@ const RawStep = z.strictObject({
   onError: z.string().optional(),
   repeat: z.number().int().min(1).optional(),
   answer: z.literal('note').optional(),
+  chain: z.literal('next').optional(),
+  final: z.boolean().optional(),
 });
 
 const RawRoute = z.strictObject({
   skill: z.string().min(1),
   version: z.literal(3),
-  budget: z.strictObject({ modelSteps: z.number().int().positive(), wallMinutes: z.number().int().positive().optional(), toolTurns: z.number().int().positive().optional() }),
+  budget: z.strictObject({ modelSteps: z.number().int().positive(), wallMinutes: z.number().int().positive().optional() }),
   exits: z.array(z.enum(EXITS)),
   revisable: z.array(z.string()).default([]),
   steps: z.array(RawStep).min(1),
@@ -119,14 +121,16 @@ async function normalizeStep(file: string, raw: z.infer<typeof RawStep>, index: 
     throw invalid(file, `${where}.instruction`, `only a model step has an instruction; this is ${raw.actor}`);
   }
 
+  if ((raw.chain !== undefined || raw.final !== undefined) && raw.actor !== 'model') throw invalid(file, `${where}.chain`, 'chain and final are for model steps only');
   if (raw.answer !== undefined) {
     if (raw.actor !== 'model') throw invalid(file, `${where}.answer`, 'answer is for model steps only');
     const notes = (raw.produces ?? []).filter((text) => /^note\{[^}]+\}$/.test(text.trim()));
     if (notes.length !== 1) throw invalid(file, `${where}.answer`, 'answer: note needs produces note{<kind>}');
   }
 
-  if (raw.actor === 'human' && raw.gate === undefined) throw invalid(file, `${where}.gate`, 'a human step declares its gate');
-  if (raw.actor !== 'human' && raw.gate !== undefined) throw invalid(file, `${where}.gate`, `a gate goes on a human step; this is ${raw.actor}`);
+  const gated = raw.actor === 'human' || raw.actor === 'worker';
+  if (gated && raw.gate === undefined) throw invalid(file, `${where}.gate`, `a ${raw.actor} step declares its gate`);
+  if (!gated && raw.gate !== undefined) throw invalid(file, `${where}.gate`, `a gate goes on a human step or a worker step; this is ${raw.actor}`);
 
   return {
     id: raw.id,
@@ -143,6 +147,8 @@ async function normalizeStep(file: string, raw: z.infer<typeof RawStep>, index: 
     onError: raw.onError === undefined ? { kind: 'default' } : parseOnError(file, `${where}.onError`, raw.onError),
     repeat: raw.repeat ?? DEFAULT_REPEAT[raw.id] ?? 1,
     answer: raw.answer ?? null,
+    chain: raw.chain ?? null,
+    final: raw.final ?? false,
   };
 }
 

@@ -3,7 +3,7 @@ import type { SetPair } from '#types/modules/config';
 
 const PROJECT_ID = '[a-z0-9]+(?:-[a-z0-9]+)*';
 
-/** The only config slots `init --apply --set` and an *Adjust* answer may set (09-G3). */
+/** The only config slots the init choices and a dry-run `--set` may set (09-G3). */
 const SETTABLE_KEYS: readonly RegExp[] = [
   /^requirements\.mcpServer$/,
   /^requirements\.acceptanceField$/,
@@ -65,43 +65,9 @@ export function parseSets(raws: readonly string[], projects: readonly string[] |
 }
 
 /** Sorted by key, `key=<JSON value>` joined by one space; '' for no pairs. */
-export function canonicalSets(pairs: readonly SetPair[]): string {
-  return [...pairs]
-    .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
-    .map((pair) => `${pair.key}=${JSON.stringify(pair.value)}`)
-    .join(' ');
-}
+export const canonicalSets = (pairs: readonly SetPair[]): string => setStrings(pairs).join(' ');
 
-const shellQuote = (text: string): string => `'${text.replaceAll("'", `'\\''`)}'`;
-
-/** The pairs as shell arguments, single-quoted (embedded quotes escaped). */
-export const setArguments = (pairs: readonly SetPair[]): string =>
-  [...pairs].sort((a, b) => (a.key < b.key ? -1 : 1)).map((pair) => ` --set ${shellQuote(`${pair.key}=${JSON.stringify(pair.value)}`)}`).join('');
-
-/** An Adjust answer split on whitespace, except inside a JSON array or a double-quoted string (09-G2, amend-09 P4). */
-export function adjustTokens(text: string): string[] {
-  const tokens: string[] = [];
-  let current = '';
-  let depth = 0;
-  let quoted = false;
-  for (let at = 0; at < text.length; at += 1) {
-    const char = text[at]!;
-    if (quoted) {
-      current += char;
-      if (char === '\\') current += text[(at += 1)] ?? '';
-      else if (char === '"') quoted = false;
-      continue;
-    }
-    if (/\s/.test(char) && depth === 0) {
-      if (current !== '') tokens.push(current);
-      current = '';
-      continue;
-    }
-    if (char === '"') quoted = true;
-    else if (char === '[') depth += 1;
-    else if (char === ']' && depth > 0) depth -= 1;
-    current += char;
-  }
-  if (current !== '') tokens.push(current);
-  return tokens;
+/** The pairs as sorted `key=<JSON value>` strings. */
+export function setStrings(pairs: readonly SetPair[]): string[] {
+  return [...pairs].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)).map((pair) => `${pair.key}=${JSON.stringify(pair.value)}`);
 }

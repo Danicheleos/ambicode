@@ -7,23 +7,22 @@ import { loadConfig } from '#modules/config/load';
 import type { AmbicodeConfig } from '#types/modules/config';
 import type { ResolvedRule } from '#types/modules/policy';
 import { EMPTY_HOOK_OUTPUT, HookInput, type AdditionalContextEvent, type AdditionalContextHookOutput, type PostToolUseHookOutput, type RouteHookDeps, type HookDeps } from '#types/hook';
-import { prepareForSlashCommand } from './prepare-on-skill.ts';
 import { askedKeys } from '#modules/requirements/envelope/envelope';
 import { captureRequirement } from '#modules/requirements/capture/capture';
 import { fsActiveRoutePointer, resolveActiveRoute } from '#harness/session/active-route';
 import { openRouteView } from '#harness/engine/context';
-import { createAppEngine } from '#composition/engine';
-import { loadRouteRegistry } from '#harness/definition/routes';
+import { createApp } from '#composition/app';
 import { findSessionRepository } from '#platform/git/session-repository';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { taskDirFor } from '#modules/evidence/task/task-dir';
 import { answerGates } from './gate-answer.ts';
 import { launchRoute, reinjectRoute } from './prompt-launch.ts';
 import { stopCheck } from './stop-check.ts';
+import { rejectedGateMarker } from '#platform/claude/transcript';
 import { readSessionContract } from '#modules/policy/packs/shared-contract';
 import { contentHash } from '#util/hash';
-import { rebindSession } from './rebind.ts';
-import { clearSessionEnded, cleanupSessionState, currentEpoch, deliverOnce, hookStateBaseDir, markSessionEnded, resetEpoch } from '#platform/claude/hook-state';
+import { endSession, rebindSession } from '#harness/session/rebind';
+import { cleanupSessionState, currentEpoch, deliverOnce, hookStateBaseDir, resetEpoch } from '#platform/claude/hook-state';
 import type { Runtime } from '#types/composition';
 import type { RouteArgs } from '#types/harness';
 import type { DeliveryKey } from '#types/platform/claude';
@@ -34,11 +33,7 @@ export function defaultHookDeps(runtime: Runtime): HookDeps {
   return {
     pointer,
     load: () =>
-      (loaded ??= loadRouteRegistry(runtime.pluginRoot, runtime.fs).then((routes) => ({
-        routes,
-        pointer,
-        engine: createAppEngine(runtime, routes, pointer),
-      }))),
+      (loaded ??= createApp(runtime).then(({ routes, engine }) => ({ routes, pointer, engine }))),
   };
 }
 
@@ -65,7 +60,6 @@ export async function runHook(runtime: Runtime, rawStdin: string, injected?: Hoo
       case 'SessionStart': {
         const base = stateDir(runtime, input);
         await resetEpoch(runtime.fs, runtime.ids, base);
-        await clearSessionEnded(runtime.fs, input.session_id);
         if (input['source'] !== 'startup') await rebindSession(runtime, input, deps.pointer).catch(() => false);
         return await deliverSharedContract(runtime, input, base, 'SessionStart');
       }
@@ -83,16 +77,17 @@ export async function runHook(runtime: Runtime, rawStdin: string, injected?: Hoo
         const contract = (await deliverSharedContract(runtime, input, base, 'UserPromptSubmit')) as {
           hookSpecificOutput?: { additionalContext: string };
         };
+        if (input.transcript_path !== undefined && (await deps.pointer.read(input.session_id, input.scratchpad_dir)) !== null && (await rejectedGateMarker(input.transcript_path)) !== null) await (await deps.load()).engine.dismissedGate(input).catch(() => false);
         const routed = await promptContext(runtime, input, deps);
         if (routed === null) return contract;
         const context = [contract.hookSpecificOutput?.additionalContext, routed].filter(Boolean).join('\n\n');
         return { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: context } };
       }
       case 'Stop':
-        return (await stopCheck(runtime, input, await deps.load())) ?? EMPTY_HOOK_OUTPUT;
+        return (await stopCheck(input, await deps.load())) ?? EMPTY_HOOK_OUTPUT;
       case 'SessionEnd': {
         const base = stateDir(runtime, input);
-        if ((await deps.pointer.read(input.session_id, input.scratchpad_dir)) !== null) await markSessionEnded(runtime.fs, input.session_id);
+        await endSession(runtime, input).catch(() => undefined);
         await cleanupSessionState(runtime.fs, base);
         return EMPTY_HOOK_OUTPUT;
       }
@@ -139,13 +134,11 @@ async function deliverSharedContract(
   return output;
 }
 
-/** A launch first, then the task slash command that still prepares, then re-injection of the active route's step. */
+/** A route launch first, then re-injection of the active route's step. */
 async function promptContext(runtime: Runtime, input: HookInput, deps: HookDeps): Promise<string | null> {
   const prompt = (input.prompt ?? '').trim();
   if (/^\/ambicode:\w+/.test(prompt)) {
-    const launched = await launchRoute(runtime, input, await deps.load());
-    if (launched !== null) return launched;
-    return (await prepareForSlashCommand(runtime, input))?.hookSpecificOutput.additionalContext ?? null;
+    return launchRoute(runtime, input, await deps.load());
   }
   if (input.agent_id !== undefined || (await deps.pointer.read(input.session_id, input.scratchpad_dir)) === null) return null;
   return reinjectRoute(runtime, input, await deps.load());
@@ -176,7 +169,7 @@ async function handlePostToolUse(runtime: Runtime, input: HookInput, deps: HookD
     const context = await answerGates(runtime, input, await deps.load());
     return context === null ? EMPTY_HOOK_OUTPUT : { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: context } };
   }
-  if (input.tool_name?.startsWith('mcp__')) {
+  if (input.tool_name === 'WebFetch' || input.tool_name?.startsWith('mcp__')) {
     await captureForRoute(runtime, input, deps);
     return EMPTY_HOOK_OUTPUT;
   }

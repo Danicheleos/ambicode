@@ -10,7 +10,7 @@ import { AmbicodeError } from '#util/errors';
 import { matchesGlob } from '#util/glob';
 import { normalizeRelative } from '#util/paths';
 import { builtinPoliciesDirectory } from '#util/plugin-root';
-import { openRouteView, ledgerRouteContext } from '#harness/engine/context';
+import { COMMAND_SPECS } from '#skills/rules/commands';
 import { runCommandTail } from '#harness/engine/command-tail';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
@@ -86,13 +86,12 @@ async function runDraftsCheck(runtime: Runtime, args: ParsedArgs): Promise<Polic
   if (task === null || dir === null) return output;
 
   const tools = await routeTools(runtime, task);
-  const session = tools.binding.state === 'bound' ? tools.binding.session : null;
-  const view = session === null ? null : await openRouteView(runtime, tools.routes, task, session);
+  const { view, context } = await tools.engine.command(COMMAND_SPECS.policyCheckDrafts, { task }, async (scope) => scope);
   if (view === null || view.skill !== 'rules') {
     output.diagnostics.push({ severity: 'notice', code: 'drafts-not-recorded', message: `Task ${task} has no live rules route of this session, so nothing was recorded.` });
     return output;
   }
-  await ledgerRouteContext({ runtime, routes: tools.routes }).assertOwner(view);
+  await context.assertOwner(view);
   await withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), view.session, (ledger) =>
     ledger.append({ kind: 'policy', route: view.routeId, stage: 'drafts', path: DRAFTS_DIR, contentHash: check.aggregateHash, drafts: check.files, errors: check.diagnostics.filter((diagnostic) => diagnostic.severity === 'error').length }),
   );

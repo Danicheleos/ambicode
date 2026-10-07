@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { AmbicodeError } from '#util/errors';
-import { adjustTokens, canonicalSets, parseSet, parseSets, setArguments } from './init-sets.ts';
+import { canonicalSets, parseSet, parseSets, setStrings } from './init-sets.ts';
 
 const refused = (run: () => unknown): void =>
   assert.throws(run, (error: unknown) => error instanceof AmbicodeError && error.code === 'bad-argument' && error.field === '--set');
@@ -81,18 +81,9 @@ describe('09-G3: canonical form', () => {
     assert.deepEqual(pairs.map((pair) => pair.key), ['search.index', 'requirements.mcpServer']);
   });
 
-  it('09-G3: setArguments single-quotes each pair, sorted, with a leading space', () => {
+  it('09-G3: setStrings are sorted key=<JSON> strings', () => {
     const pairs = parseSets(['search.index=codeindex', 'projects.app.commands.lint=null']);
-    assert.equal(setArguments(pairs), " --set 'projects.app.commands.lint=null' --set 'search.index=\"codeindex\"'");
-    assert.equal(setArguments([]), '');
-  });
-});
-
-describe('09-G2: Adjust tokens', () => {
-  it('09-G2 (amend-09 P4): a JSON array or quoted string with spaces stays one token', () => {
-    const tokens = adjustTokens(' projects.app.commands.unit=["pytest", "-k", "foo or bar"]  requirements.mcpServer="my jira" search.index=none ');
-    assert.deepEqual(tokens, ['projects.app.commands.unit=["pytest", "-k", "foo or bar"]', 'requirements.mcpServer="my jira"', 'search.index=none']);
-    assert.deepEqual(parseSet(tokens[0]!).value, ['pytest', '-k', 'foo or bar']);
-    assert.deepEqual(adjustTokens('a=["x\\"] y"] b=1'), ['a=["x\\"] y"]', 'b=1']);
+    assert.deepEqual(setStrings(pairs), ['projects.app.commands.lint=null', 'search.index="codeindex"']);
+    assert.deepEqual(setStrings([]), []);
   });
 });

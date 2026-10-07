@@ -41,8 +41,8 @@ async function session(text = 'ORD-17 which files?', requirements: string[] = []
       const view = (await openRouteView(fx.runtime, fx.routes, 'ORD-17', A))!;
       return body({ runtime: fx.runtime, dir, ledger, view, fx });
     });
-  const capture = (tool: string, response: unknown, options: { mcpServer?: string | null; asked?: string[] } = {}) =>
-    under((deps) => captureRequirement({ hook_event_name: 'PostToolUse', session_id: A, tool_name: tool, tool_response: response }, { ...deps, mcpServer: options.mcpServer === undefined ? SERVER : options.mcpServer, asked: options.asked ?? ['ORD-17'] }));
+  const capture = (tool: string, response: unknown, options: { mcpServer?: string | null; asked?: string[]; input?: Record<string, unknown> } = {}) =>
+    under((deps) => captureRequirement({ hook_event_name: 'PostToolUse', session_id: A, tool_name: tool, tool_response: response, ...(options.input === undefined ? {} : { tool_input: options.input }) }, { ...deps, mcpServer: options.mcpServer === undefined ? SERVER : options.mcpServer, asked: options.asked ?? ['ORD-17'] }));
   const normalize = (overrides: Partial<EnvelopeInput> = {}) => under((deps) => normalizeEnvelope({ ...deps, args, mcpServer: SERVER, ...overrides }));
   return { fx, dir, args, under, capture, normalize };
 }
@@ -231,6 +231,55 @@ describe('03-Q5/03-Q6/03-Q7 normalize', () => {
     assert.deepEqual(askedKeys({ requirements: ['https://x.atlassian.net/browse/ORD-5?focus=1'], text: 'ORD-17 see https://x.atlassian.net/wiki/spaces/A/pages/42/T and ORD-99' }), ['ORD-5', 'page-42', 'ORD-17']);
   });
 
+  it('a generic asked URL is captured by WebFetch under its normalized key and is not missing', async () => {
+    const url = 'https://Example.com/spec/';
+    const s = await session('read the spec', [url]);
+    try {
+      const entry = await s.capture('WebFetch', { result: 'The spec says X.' }, { asked: askedKeys({ requirements: [url], text: '' }), input: { url } });
+      assert.deepEqual([entry?.['key'], entry?.['relation']], ['https://example.com/spec', 'asked']);
+      const result = await s.normalize();
+      assert.equal(result.state, 'ok');
+      if (result.state === 'ok') assert.deepEqual([result.builtFrom, result.missingAsked], ['captures', []]);
+    } finally {
+      await s.fx.dispose();
+    }
+  });
+
+  it('a disconnected server result raises requirements-server-disconnected when nothing was captured', async () => {
+    const s = await session('ORD-17 which files?', ['https://x.atlassian.net/browse/ORD-17']);
+    try {
+      const entry = await s.capture('mcp__atlassian__getJiraIssue', mcp('The atlassian server is not connected; authenticate first.'));
+      assert.equal(entry?.['capture'], 'disconnected');
+      const result = await s.normalize();
+      assert.deepEqual(result.state === 'raise' ? result.gate : result.state, 'requirements-server-disconnected');
+    } finally {
+      await s.fx.dispose();
+    }
+  });
+
+  it('a fragment does not change a URL key, and an unasked, unmentioned fetch writes nothing', async () => {
+    const url = 'https://example.com/spec#intro';
+    const s = await session('read the spec', [url]);
+    try {
+      const asked = askedKeys({ requirements: [url], text: '' });
+      assert.deepEqual(asked, ['https://example.com/spec']);
+      assert.equal(await s.capture('WebFetch', { result: 'Other.' }, { asked, input: { url: 'https://example.com/specs' } }), null);
+      assert.equal((await s.capture('WebFetch', { result: 'Spec.' }, { asked, input: { url: 'https://example.com/spec#other' } }))?.['key'], 'https://example.com/spec');
+    } finally {
+      await s.fx.dispose();
+    }
+  });
+
+  it('a page that discusses being disconnected is not a server error', async () => {
+    const s = await session('ORD-17 which files?', ['https://x.atlassian.net/browse/ORD-17']);
+    try {
+      const entry = await s.capture('mcp__atlassian__getJiraIssue', mcp(`When the VPN is disconnected, retry. ${'Detail. '.repeat(60)}`));
+      assert.notEqual(entry?.['capture'], 'disconnected');
+    } finally {
+      await s.fx.dispose();
+    }
+  });
+
   it('complete captures build the envelope from captures; a list-only hit is not complete; the asked set is recorded', async () => {
     const s = await session('ORD-17 which files?', ['https://x.atlassian.net/browse/ORD-17']);
     try {
@@ -350,7 +399,7 @@ describe('03-T8 requirements commands', () => {
   it('template prints the calls for the asked sources; acs on a task with no envelope says so; normalize finds the owner from the task (5.1)', async () => {
     const { runRequirementsAcs, runRequirementsNormalize, runRequirementsTemplate } = await import('#cli/commands/requirements/requirements');
     const { REQUIREMENTS_ACS_OPTIONS, REQUIREMENTS_NORMALIZE_OPTIONS, REQUIREMENTS_TEMPLATE_OPTIONS } = await import('#cli/commands/requirements/requirements');
-    const { parseArgs } = await import('#cli/args');
+    const { parseArgs } = await import('#util/args');
     const s = await session();
     try {
       const template = await runRequirementsTemplate(s.fx.runtime, parseArgs('requirements template', ['--task', 'ORD-17', '--requirement', 'https://x.atlassian.net/browse/ORD-17'], REQUIREMENTS_TEMPLATE_OPTIONS));

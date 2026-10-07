@@ -10,9 +10,10 @@ import { routeEvidence } from '#modules/requirements/envelope/envelope';
 import type { ReviewEntry } from '#types/modules/checks';
 import type { Runtime } from '#types/composition';
 import type { LedgerEntry } from '#types/modules/evidence';
-import type { ReviewTargetArgs, RouteArgs, Handler, HandlerResult } from '#types/harness';
+import type { ReviewTargetArgs, RouteArgs, Handler, HandlerInput, HandlerResult } from '#types/harness';
 import { CHECKS_GATE, type TargetSelection } from '#types/modules/review';
 const ANSWERS = new Set(['acceptance', 'declined', 'default-taken']);
+const AGAIN_GATE = 'review-again';
 const ESTIMATE_STEP = 'estimate-step';
 const NARROW_HINT = 'give the --only/--exclude tokens as your answer';
 const METRICS = '.ambicode/metrics.jsonl';
@@ -53,8 +54,8 @@ export function reviewCommand(task: string, args: RouteArgs, chain: readonly Led
  * review once more; `no review` and any later answer go on to readback. Nothing re-runs without an answer.
  */
 const evaluate: Handler = async (input): Promise<HandlerResult> => {
-  if (input.view.skill !== 'review') return TASK_HANDLERS['review.evaluate']!(input);
   const chain = await chainEntries(input);
+  if (input.view.skill !== 'review') return (await fixNotReviewed(input, chain)) ?? TASK_HANDLERS['review.evaluate']!(input);
   const review = chain.findLast((entry): entry is ReviewEntry => entry.kind === 'review');
   if (review === undefined) return { state: 'ok', payload: null };
   const waiting = Array.isArray(review['waiting']) ? (review['waiting'] as string[]) : [];
@@ -62,6 +63,16 @@ const evaluate: Handler = async (input): Promise<HandlerResult> => {
   if (waiting.length === 0 || answered) return { state: 'ok', payload: null };
   return { state: 'raise', gate: CHECKS_GATE, values: { key: waiting }, raisedBy: 'review-run' };
 };
+
+/** After a fix round the review does not rerun on its own: report-step asks once whether it should, and a skip goes on with the fix as it is. */
+async function fixNotReviewed(input: HandlerInput, chain: readonly LedgerEntry[]): Promise<HandlerResult | null> {
+  if (input.raisedBy !== 'report-step') return null;
+  const fixed = chain.findLastIndex((entry) => entry.kind === 'step' && entry['step'] === 'fix' && entry['status'] === 'delivered');
+  const review = chain.findLastIndex((entry) => entry.kind === 'review' && entry['reviewerRan'] !== false);
+  if (fixed === -1 || review === -1 || fixed < review) return null;
+  const answered = chain.slice(fixed + 1).some((entry) => ANSWERS.has(entry.kind) && entry['gate'] === AGAIN_GATE && isBoundAnswer(entry));
+  return answered ? { state: 'ok', payload: null } : { state: 'raise', gate: AGAIN_GATE, values: {}, raisedBy: 'report-step' };
+}
 
 const estimate: Handler = async (input) => {
   const chain = await chainEntries(input);

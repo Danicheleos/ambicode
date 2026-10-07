@@ -54,5 +54,7 @@ export { leadsText } from './text/map.ts';
 export { rankTerms } from './text/map.ts';
 /** resolveLayers(search, mode) — the search layers for a mode from config or defaults. */
 export { resolveLayers } from './text/map.ts';
+/** resolveTuning(search) — the map's ranking constants (defaults plus `search.tuning`) with a stable hash. */
+export { resolveTuning } from './text/map.ts';
 /** navigationFor(ecosystem) — the navigation guidance text for an ecosystem. */
 export { navigationFor } from './text/navigation.ts';

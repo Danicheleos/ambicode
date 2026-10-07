@@ -2,16 +2,24 @@ import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { openRepository } from '#platform/git/open';
 import { MAX_SNAPSHOT_FILE_BYTES } from '#types/defaults';
-import { DECLARATION_PATTERNS } from '#types/modules/ecosystems';
 import type { ProjectConfig, SearchProfile } from '#types/modules/config';
 import { literalPathspec } from '#platform/git/git';
 import { isTestPath, pathExclusionReason } from '#util/path-classes';
 import { normalizeRelative } from '#util/paths';
-import { GENERIC_PROFILE } from '#types/modules/search';
+import { GENERIC_PROFILE, DECLARATION_CANDIDATES, TEST_CANDIDATES } from '#types/modules/search';
 import type { Runtime } from '#types/composition';
 
 /** One glob for the source extensions; a single extension takes no braces, which would not expand. */
 export const sourceGlob = (sources: readonly string[]): string => (sources.length === 1 ? `**/*.${sources[0]!}` : `**/*.{${sources.join(',')}}`);
+
+const compile = (sources: readonly string[] | undefined, catalog: readonly RegExp[]): RegExp[] =>
+  sources === undefined || sources.length === 0 ? [...catalog] : sources.map((source) => new RegExp(source));
+
+/** The declaration patterns a project's sources use; the whole catalog when none were measured. */
+export const declarationPatternsOf = (project: Pick<ProjectConfig, 'profile'>): RegExp[] => compile(project.profile?.declarations, DECLARATION_CANDIDATES);
+
+/** The test-path patterns that match the project's files; the whole catalog when none were measured. */
+export const testPatternsOf = (project: Pick<ProjectConfig, 'profile'>): RegExp[] => compile(project.profile?.tests, TEST_CANDIDATES);
 
 export const profileOf = (project: ProjectConfig): Omit<SearchProfile, 'stamp'> => project.profile ?? GENERIC_PROFILE;
 
@@ -114,13 +122,16 @@ export async function buildProfile(runtime: Runtime, project: Pick<ProjectConfig
   const sources: { extension: string; count: number }[] = [];
   let declarationLines = 0;
   let exportLines = 0;
+  const patternLines = DECLARATION_CANDIDATES.map(() => 0);
   for (const [extension, group] of byExtension) {
     if (extension === '' || CATALOG_EXTENSIONS.includes(extension) || group.length < SOURCE_MIN_FILES) continue;
     let declaring = 0;
     let declared = 0;
     let exported = 0;
     for (const file of sample(group, SOURCE_SAMPLE)) {
-      const lines = (await read(file))?.split(/\r?\n/).filter((line) => DECLARATION_PATTERNS.some((pattern) => pattern.test(line))) ?? [];
+      const text = (await read(file))?.split(/\r?\n/) ?? [];
+      const lines = text.filter((line) => DECLARATION_CANDIDATES.some((pattern) => pattern.test(line)));
+      for (const line of lines) DECLARATION_CANDIDATES.forEach((pattern, index) => { if (pattern.test(line)) patternLines[index]! += 1; });
       if (lines.length > 0) declaring += 1;
       declared += lines.length;
       const top = lines.filter((line) => TOP_LEVEL.test(line));
@@ -197,5 +208,7 @@ export async function buildProfile(runtime: Runtime, project: Pick<ProjectConfig
     catalogs: [...new Set(catalogs)].sort(),
     featureKinds: featureKinds.sort(),
     exportOnly: declarationLines > 0 && exportLines / declarationLines >= EXPORT_SHARE,
+    declarations: DECLARATION_CANDIDATES.filter((_, index) => patternLines[index]! > 0).map((pattern) => pattern.source),
+    tests: TEST_CANDIDATES.filter((pattern) => files.some((file) => pattern.test(file))).map((pattern) => pattern.source),
   };
 }

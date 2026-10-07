@@ -1,5 +1,5 @@
-import { parseArgs } from '#cli/args';
-import { startTarget } from '#cli/commands/route/route';
+import { parseArgs } from '#util/args';
+import { startTarget } from '#composition/start';
 import { findSessionRepository } from '#platform/git/session-repository';
 import type { HookInput, RouteHookDeps } from '#types/hook';
 import { resolveActiveRoute } from '#harness/session/active-route';

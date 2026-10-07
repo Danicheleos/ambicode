@@ -1,21 +1,21 @@
-import { fsActiveRoutePointer } from '#harness/session/active-route';
-import { createAppEngine } from '#composition/engine';
+import { createApp } from '#composition/app';
 import { chainKey, loadPayload } from '#harness/engine/delivery';
 import { readEntries } from '#harness/engine/context';
 import { buildChain, latestRouteOf } from '#harness/engine/fold';
 import { parseAnswerFlag } from '#harness/definition/flags';
 import { metricsIgnoreWarning } from '#skills/review/handlers';
-import { loadRouteRegistry } from '#harness/definition/routes';
 import { cliHarnessPort, sessionUnbound, taskSessionSource } from '#harness/session/session';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { taskSlugFor } from '#modules/review/bundle/review-name';
 import { AmbicodeError } from '#util/errors';
 import { contentHash } from '#util/hash';
-import { validateTargetArgs } from '../../options/target-option.ts';
+import { startTarget } from '#composition/start';
 import type { Runtime } from '#types/composition';
 import type { Position, StepMessage, ReviewTargetArgs, SessionBinding } from '#types/harness';
 import type { ParsedArgs, RouteTools, CliCommand } from '../../types/cli.ts';
 import { ROUTE_START_OPTIONS } from '#types/cli';
+
+export { startTarget };
 
 export const ROUTE_NEXT_OPTIONS = { values: ['task', 'default', 'revise', 'conflict', 'sources', 'project', 'show'], repeated: ['answer'], flags: ['json'] } as const;
 
@@ -23,21 +23,9 @@ export const ROUTE_STATUS_OPTIONS = { values: ['task'], flags: ['json'] } as con
 
 export const ROUTE_STOP_OPTIONS = { values: ['task', 'reason', 'detail'], flags: ['json'] } as const;
 
-/** The review target of a start, refused as `review` refuses it; absent for uncommitted work (08-R2). */
-export function startTarget(skill: string, args: ParsedArgs): ReviewTargetArgs | undefined {
-  if (skill !== 'review') {
-    const field = args.value('mr') !== null ? '--mr' : args.value('base') !== null ? '--base' : args.flag('branch') ? '--branch' : null;
-    if (field !== null) throw new AmbicodeError('bad-argument', `${field} names a review target; route ${skill} takes none.`, { field });
-  }
-  const selection = validateTargetArgs('route start', args);
-  if (selection.kind === 'working') return undefined;
-  return selection.kind === 'branch' ? { branch: true, base: selection.baseRef, mr: null } : { branch: false, base: null, mr: selection.url };
-}
-
 /** The engine over the shipped routes; `binding` is the owner of the named task's one live route, unbound when there is none to name. */
 export async function routeTools(runtime: Runtime, task: string | null): Promise<RouteTools> {
-  const routes = await loadRouteRegistry(runtime.pluginRoot, runtime.fs);
-  const engine = createAppEngine(runtime, routes, fsActiveRoutePointer(runtime.fs));
+  const { engine, routes } = await createApp(runtime);
   return { engine, routes, binding: task === null ? { state: 'unbound', reason: 'missing' } : await taskSessionSource(task).resolve(runtime) };
 }
 
@@ -150,6 +138,8 @@ export function renderRouteStatus(output: RouteStatusOutput): string {
     .map((route) => {
       const lines = [
         `Route ${route.routeId} (${route.skill}) at ${route.position}; sessions: ${route.sessions.map((entry) => `${entry.session}${entry.adopts ? ' (adopted)' : ''}`).join(', ')}`,
+        `  mode: ${route.mode}; channel: ${route.channel}`,
+        ...route.decisions.map((entry) => (entry.kind === 'default-taken' ? `  default taken: ${entry['gate']} = ${entry['answer']}` : `  automatic revise: ${entry['from']} (${entry['reason']})`)),
         ...(route.owner === null || route.owner.state !== 'owned' ? [] : [`  owner: ${route.owner.session}`]),
         ...route.steps.map((step) => `  ${step.state.padEnd(8)} ${step.id}`),
         `  cycles ${route.cycles}; repeats left ${JSON.stringify(route.repeatsLeft)}; revises left ${JSON.stringify(route.revisesLeft)}`,

@@ -10,7 +10,7 @@ import { nodeFileSystem } from '#platform/ports/filesystem';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { builtinPoliciesDirectory } from '#util/plugin-root';
 import { isAmbicodeError } from '#util/errors';
-import { parseArgs } from '../../args.ts';
+import { parseArgs } from '#util/args';
 import { buildProposal } from '#modules/config/init/proposal';
 import { runPolicy, POLICY_OPTIONS } from './policy.ts';
 import { renderPolicyCheck, runPolicyCheck, POLICY_CHECK_OPTIONS, type PolicyCheckOutput } from './policy-check.ts';

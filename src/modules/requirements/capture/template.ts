@@ -7,6 +7,17 @@ const FIELDS = ['summary', 'description', 'issuetype', 'parent', 'issuelinks'];
 type AskedSource = { kind: 'jira'; key: string; url: string | null } | { kind: 'confluence'; id: string; url: string };
 type OtherSource = { kind: 'other'; url: string };
 
+/** The key a source is recorded and asked under: a Jira key, `page-<id>`, or the normalized URL. */
+export function keyOfSource(source: string): string {
+  const classified = classifySource(source);
+  return classified.kind === 'jira' ? classified.key : classified.kind === 'confluence' ? `page-${classified.id}` : withoutFragment(classified.url);
+}
+
+function withoutFragment(url: string): string {
+  const at = url.indexOf('#');
+  return at === -1 ? url : url.slice(0, at);
+}
+
 /** A source string by what it names: a Jira key or `/browse/<KEY>` URL, a Confluence page URL, or any other address. */
 export function classifySource(source: string): AskedSource | OtherSource {
   const text = source.trim();

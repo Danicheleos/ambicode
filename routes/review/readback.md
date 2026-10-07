@@ -1,5 +1,5 @@
 # Review read-back
-Your final message reads the review report back. Before writing it, run `{cli} route next --task {task}`: it brings the last step.
+Your final message reads the review report back; the review page step below comes with it.
 The final message:
 - The four parts in the order printed: 1. what was reviewed, 2. findings, 3. verification, 4. omissions, uncertainty and unavailable coverage.
 - Part 4 copied verbatim, every line as printed, from its heading to its last line. Do not summarize, merge or drop a line: the Stop check compares it with the report.

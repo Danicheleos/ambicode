@@ -3,23 +3,8 @@ import type { Engine, RouteRegistry, SessionBinding } from '#types/harness';
 import type { SweepReport } from '#types/modules/review';
 import type { JsonFormat } from '#types/util';
 
-/**
- * Accepts only what a command declares. `--` ends option parsing, since paths
- * can start with a dash.
- */
-export interface OptionSpec {
-  values?: readonly string[];
-  flags?: readonly string[];
-  repeated?: readonly string[];
-  positionals?: boolean;
-}
-
-export interface ParsedArgs {
-  value(name: string): string | null;
-  flag(name: string): boolean;
-  all(name: string): string[];
-  positionals: string[];
-}
+export type { OptionSpec, ParsedArgs } from '#types/cli';
+import type { OptionSpec, ParsedArgs } from '#types/cli';
 
 export interface Rendered {
   text: string;

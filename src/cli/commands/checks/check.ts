@@ -1,5 +1,5 @@
 import { runCheckOnly } from '#modules/checks/run/check-command';
-import { ledgerRouteContext } from '#harness/engine/context';
+import { COMMAND_SPECS } from '#skills/task/commands';
 import { runCommandTail } from '#harness/engine/command-tail';
 import { AmbicodeError } from '#util/errors';
 import { routeTools, taskOf } from '../route/route.ts';
@@ -18,13 +18,12 @@ export async function runCheckCommand(runtime: Runtime, args: ParsedArgs): Promi
   const phase = args.value('phase');
   if (phase !== 'red' && phase !== 'green') throw new AmbicodeError('bad-argument', '"check" needs --phase red|green.', { field: 'phase' });
   const tools = await routeTools(runtime, task);
-  const session = tools.binding.state === 'bound' ? tools.binding.session : null;
-  const result = await runCheckOnly(
-    { runtime, session, context: ledgerRouteContext({ runtime, routes: tools.routes }), routes: tools.routes },
-    { task, key, only: args.all('only'), phase, approve: args.all('approve'), decline: args.all('decline') },
-  );
+  const { result, binding } = await tools.engine.command(COMMAND_SPECS.check, { task }, async ({ session, context, binding }) => ({
+    binding,
+    result: await runCheckOnly({ runtime, session, context }, { task, key, only: args.all('only'), phase, approve: args.all('approve'), decline: args.all('decline') }),
+  }));
   const produced = result.outcome === 'ran' ? [result.entry.id] : undefined;
-  const next = await runCommandTail({ engine: tools.engine }, { task, cause: 'check', session: tools.binding, ...(produced === undefined ? {} : { produced }) });
+  const next = await runCommandTail({ engine: tools.engine }, { task, cause: 'check', session: binding, ...(produced === undefined ? {} : { produced }) });
   return { command: 'check', task, key, result, ...(next === null ? {} : { next: next.text }) };
 }
 

@@ -40,5 +40,5 @@ export interface ResolvedTargetOptions {
  */
 export const VIEW_OPTIONS = {
   values: ['review'],
-  flags: ['json', 'no-open'],
+  flags: ['json', 'open'],
 } as const;

@@ -25,8 +25,11 @@ const SKIP_DIRECTORIES = new Set([
 
 const MAX_DEPTH = 4;
 
+const NO_MANIFEST = { lint: null, unit: null, e2e: null, format: null, frameworkPacks: [], notices: ['no project manifest found; commands are not configured'] };
+
 export async function detectProjects(fs: FileSystem, repositoryRoot: string): Promise<DetectedProject[]> {
   const roots = await findProjectRoots(fs, repositoryRoot);
+  if (roots.length === 0) roots.push({ relativeRoot: '', ecosystem: 'generic' });
   const projects: DetectedProject[] = [];
   const usedIds = new Set<string>();
 
@@ -35,7 +38,9 @@ export async function detectProjects(fs: FileSystem, repositoryRoot: string): Pr
     const detected =
       ecosystem === 'typescript'
         ? await detectTypescript(fs, absoluteRoot)
-        : await detectPython(fs, absoluteRoot);
+        : ecosystem === 'python'
+          ? await detectPython(fs, absoluteRoot)
+          : NO_MANIFEST;
     projects.push({
       id: uniqueId(projectId(relativeRoot, ecosystem), usedIds),
       root: relativeRoot === '' ? '.' : relativeRoot,
@@ -47,7 +52,7 @@ export async function detectProjects(fs: FileSystem, repositoryRoot: string): Pr
 }
 
 function projectId(relativeRoot: string, ecosystem: Ecosystem): string {
-  if (relativeRoot === '') return ecosystem === 'python' ? 'python' : 'app';
+  if (relativeRoot === '') return ecosystem === 'typescript' ? 'app' : ecosystem;
   const slug = relativeRoot
     .split('/')
     .filter((segment) => segment !== '')

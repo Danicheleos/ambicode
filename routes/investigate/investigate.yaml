@@ -1,6 +1,6 @@
 skill: investigate
 version: 3
-budget: { modelSteps: 6, toolTurns: 12 }
+budget: { modelSteps: 6 }
 exits: [done, blocked, human, inconclusive, superseded, budget]
 revisable: [ground]
 steps:
@@ -15,14 +15,14 @@ steps:
     payload: [template]
   - id: ground
     actor: code
-    run: [requirements.normalize, requirements.acs, search.map(prompt), policy.stage(before-work)]
+    run: [requirements.normalize, requirements.acs, search.map(prompt), policy.stage(before-work), policy.stage(before-report)]
     produces: [envelope, map, policy]
     repeat: 2
   - id: scope
     actor: human
     when: map.empty
     gate:
-      question: "Nothing matched the request. Name a file, a symbol or a word to look at, or pause and add the context later in the chat."
+      question: "Nothing matched the request. Name a file, a symbol or a word to look at, or pause, and when you have more context type /ambicode:investigate again with it: the route reopens and the search reruns."
       options: ["pause"]
       default: "pause"
       release: "pause"
@@ -30,6 +30,6 @@ steps:
   - id: read
     actor: model
     instruction: "file:routes/investigate/read.md"
-    payload: [envelope, acs, map, "policy:before-work"]
+    payload: [envelope, acs, map, "policy:before-work", "policy:before-report"]
     produces: ["note{investigation}"]
     answer: note

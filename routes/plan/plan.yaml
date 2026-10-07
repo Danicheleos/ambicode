@@ -30,6 +30,7 @@ steps:
   - id: plan-write
     actor: model
     instruction: file:routes/plan/write.md
+    payload: ["policy:before-report"]
     repeat: 3
   - id: plan-check
     actor: code

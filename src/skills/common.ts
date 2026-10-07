@@ -1,6 +1,8 @@
 import { openRepository } from '#platform/git/open';
 import { projectForRequest } from '#modules/config/workspace';
-import { rankTerms, buildMap, leadsText, resolveLayers } from '#modules/search/text/map';
+import { rankTerms, buildMap, leadsText, resolveLayers, resolveTuning } from '#modules/search/text/map';
+import { pathsCitedIn, symbolsCitedIn } from '#modules/search/text/seed';
+import { seedTextOf } from './brief.ts';
 import { loadConfigWithNotices } from '#modules/config/load';
 import type { AmbicodeConfig, ProjectConfig } from '#types/modules/config';
 import { Activity } from '#types/primitives';
@@ -11,10 +13,14 @@ import { observedTools } from '#modules/requirements/capture/binding';
 import { requirementsTemplate } from '#modules/requirements/capture/template';
 import { AmbicodeError } from '#util/errors';
 import { latestBound } from '#harness/engine/fold';
+import { onRaisedAnswer } from '#harness/gates/gates';
+import { CONFLICT_GATE, recordGoverning } from '#modules/requirements/envelope/conflict';
 import type { Runtime } from '#types/composition';
 import type { LedgerEntry } from '#types/modules/evidence';
 import type { Handler, HandlerInput, HandlerResult } from '#types/harness';
 import type { EnvelopeSource } from '#types/modules/requirements';
+
+onRaisedAnswer(CONFLICT_GATE, async (input) => void (await recordGoverning(input)));
 
 const MAX_SOURCE_CHARS = 2500;
 const MAX_TOTAL_CHARS = 4500;
@@ -95,24 +101,37 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
     const mode = input.params[0] === 'context' ? 'context' : 'prompt';
     const stated = input.revise?.args['term'] ?? [];
     let terms = [...stated];
+    const chain = await chainEntries(input);
+    const { git } = await openRepository(input.runtime);
+    const envelope = chain.findLast((entry) => entry.kind === 'envelope');
+    const envelopeSourcesOf = envelope === undefined ? [] : await envelopeSources(input, envelope);
+    const seedText = mode === 'context' ? await seedTextOf(input, chain) : null;
+    const units = splitAcs(envelopeSourcesOf.filter((source) => source.relation !== 'args'));
+    const seedable = seedText === null ? null : [seedText, ...units.map((unit) => unit.quote)].join('\n');
+    const files = seedable !== null || stated.length === 0 ? await git.listFiles(null) : [];
+    const tuning = resolveTuning(config.search);
     const rank = async (withProse: boolean): Promise<string[]> => {
-      const envelope = (await chainEntries(input)).findLast((entry) => entry.kind === 'envelope');
-      const sources = envelope === undefined ? [] : await envelopeSources(input, envelope);
-      const { git } = await openRepository(input.runtime);
-      const files = await git.listFiles(null);
-      return rankTerms(sources.length === 0 ? [{ title: '', content: input.args.text }] : sources, { runtime: input.runtime, root: input.dir.repositoryRoot, project, files, withProse });
+      const sources = seedText === null ? envelopeSourcesOf : [...envelopeSourcesOf.filter((source) => source.relation !== 'args'), { title: '', content: seedText }];
+      return rankTerms(sources.length === 0 ? [{ title: '', content: input.args.text }] : sources, { runtime: input.runtime, root: input.dir.repositoryRoot, project, files, withProse, tuning: tuning.tuning });
     };
     if (terms.length === 0) terms = await rank(false);
     const { layers, source } = resolveLayers(config.search, mode);
+    const paths = seedable === null ? [] : pathsCitedIn(seedable, files);
+    const symbols = seedable === null ? [] : symbolsCitedIn(seedable);
     try {
-      const build = (given: readonly string[]) => buildMap({ runtime: input.runtime, project, mode, layers, layersSource: source, terms: given, paths: [], symbols: [] });
+      const build = (given: readonly string[]) => buildMap({ runtime: input.runtime, project, mode, layers, layersSource: source, terms: given, paths, symbols, tuning });
       let map = await build(terms);
+      let retried = false;
       if (map.candidates.length === 0 && stated.length === 0) {
         const wider = await rank(true);
-        if (wider.join('\n') !== terms.join('\n')) map = await build(wider);
+        if (wider.join('\n') !== terms.join('\n')) {
+          map = await build(wider);
+          retried = true;
+        }
       }
-      await input.ledger.append({ kind: 'map', route: input.view.routeId, ...map.entry });
-      return { state: 'ok', payload: leadsText(map) };
+      const decisions = { ...(map.entry['decisions'] as object), proseRetry: retried };
+      await input.ledger.append({ kind: 'map', route: input.view.routeId, ...map.entry, decisions });
+      return { state: 'ok', payload: leadsText(map, tuning.tuning.leads) };
     } catch (error) {
       return failed(error);
     }

@@ -1,5 +1,5 @@
 import { applyRules, discoverRules, revertRule } from '#modules/policy/authoring/rules';
-import { ledgerRouteContext } from '#harness/engine/context';
+import { COMMAND_SPECS } from '#skills/rules/commands';
 import { runCommandTail } from '#harness/engine/command-tail';
 import { AmbicodeError } from '#util/errors';
 import { routeTools, taskOf } from '../route/route.ts';
@@ -23,9 +23,11 @@ export async function runRulesDiscover(runtime: Runtime, args: ParsedArgs): Prom
 export async function runRulesApply(runtime: Runtime, args: ParsedArgs): Promise<RulesOutput> {
   const task = taskOf('rules apply', args);
   const tools = await routeTools(runtime, task);
-  const session = tools.binding.state === 'bound' ? tools.binding.session : null;
-  const applied = await applyRules({ runtime, session, context: ledgerRouteContext({ runtime, routes: tools.routes }) }, { task, project: args.value('project') });
-  const next = await runCommandTail({ engine: tools.engine }, { task, cause: 'rules apply', session: tools.binding });
+  const { applied, binding } = await tools.engine.command(COMMAND_SPECS.rulesApply, { task }, async ({ session, context, binding }) => ({
+    binding,
+    applied: await applyRules({ runtime, session, context }, { task, project: args.value('project') }),
+  }));
+  const next = await runCommandTail({ engine: tools.engine }, { task, cause: 'rules apply', session: binding });
   return { command: 'rules apply', task, ...applied, ...(next === null ? {} : { next: next.text }), text: `${applied.text}${next === null ? '' : `\n${next.text}`}` };
 }
 

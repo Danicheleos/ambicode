@@ -6,7 +6,7 @@ import { declarationCensus, harvest } from './harvest.ts';
 import { formatIndexStatus, indexAdapterFor } from '../code-index/adapter.ts';
 import { indexDepsOf } from '../code-index/codeindex.ts';
 import { isTooBroad } from '../text/locate.ts';
-import { profileOf } from './profile.ts';
+import { declarationPatternsOf, profileOf } from './profile.ts';
 import type { Runtime } from '#types/composition';
 import type { IndexAdapter, IndexStatus, RefsResult } from '#types/modules/search';
 
@@ -86,7 +86,7 @@ export async function find(runtime: Runtime, name: string, options: { project: P
   }
   const { census, limitations } = await declarationCensus(git, runtime.fs, options.project, [name]);
   const row = census.get(name)!;
-  const declared = (await harvest(runtime.fs, repositoryRoot, row.files, profileOf(options.project).exportOnly)).filter((declaration) => declaration.name === name);
+  const declared = (await harvest(runtime.fs, repositoryRoot, row.files, profileOf(options.project).exportOnly, declarationPatternsOf(options.project))).filter((declaration) => declaration.name === name);
   const declarations = (options.kind === null ? declared : declared.filter((declaration) => declaration.kind === options.kind)).map(({ name: found, kind, path, line }) => ({ name: found, kind, path, line }));
   return { name, via: 'harvest', declarations, collides: row.declarations === null ? null : row.declarations >= 2, index: answer.status, limitations: [...guard.limitations, ...limitations] };
 }

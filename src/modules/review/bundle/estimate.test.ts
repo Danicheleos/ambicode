@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readdir, mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createRuntime } from '#composition/root';
-import { parseArgs } from '#cli/args';
+import { parseArgs } from '#util/args';
 import { runReviewEstimate, REVIEW_OPTIONS } from '#cli/commands/review/review';
 import { CHECK_CONFIG, COMMAND_PACK } from '#testing/fixtures/check-fixture';
 import { TempRepo } from '#testing/fixtures/temp-repo';

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, writeFile } from 'node:fs/promises';
+import { appendFile, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { routeFixture } from '#testing/fixtures/route-fixture';
 import { CLI_LIMIT, HOOK_LIMIT } from './delivery.ts';
@@ -308,6 +308,42 @@ describe('E13 recovery paths', () => {
       assert.equal(await codeOf(missing.start()), 'config-missing');
     } finally {
       await missing.fx.dispose();
+    }
+  });
+});
+
+describe('A3 exits on a dirty completion and budgets after a reopen', () => {
+  it('a completion with unverified items writes exit complete with the count, once', async () => {
+    const t = await make(WRITER);
+    try {
+      await t.start();
+      await t.next();
+      await t.next();
+      await t.next();
+      const done = await t.next();
+      assert.equal(done.position, 'complete');
+      const exits = await t.fx.kinds('t1', 'exit');
+      assert.equal(exits.length, 1);
+      assert.deepEqual([exits[0]!['reason'], exits[0]!['complete'], exits[0]!['unverified']], ['done', true, 1]);
+    } finally {
+      await t.fx.dispose();
+    }
+  });
+
+  it('model deliveries before a reopen do not count against the budget', async () => {
+    const t = await make(BUDGETED);
+    try {
+      const started = await t.start();
+      await t.next();
+      const routeId = started.routeId;
+      let n = 0;
+      const line = (fields: object): string => `${JSON.stringify({ id: `zzzzzzzz-${(n += 1)}`, at: new Date().toISOString(), ...fields })}\n`;
+      await appendFile(path.join(t.fx.repo.root, '.ambicode', 'task', 't1', 'ledger.jsonl'), line({ kind: 'exit', route: routeId, reason: 'done', complete: true, unverified: 0 }) + line({ kind: 'revise', route: routeId, from: 'one', via: 'reopen', cycle: 0, reason: 'more' }));
+      const again = await t.next();
+      assert.equal(again.position, 'two');
+      assert.doesNotMatch(again.text, /budget is spent/);
+    } finally {
+      await t.fx.dispose();
     }
   });
 });

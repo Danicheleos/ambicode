@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { parseArgs } from '#cli/args';
+import { parseArgs } from '#util/args';
 import { runPolicyCheck, POLICY_CHECK_OPTIONS } from '#cli/commands/policy/policy-check';
 import { createRuntime } from '#composition/root';
 import { openWorkspace } from '#modules/config/workspace';

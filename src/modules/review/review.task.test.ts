@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createRuntime } from '#composition/root';
-import { parseArgs } from '#cli/args';
+import { parseArgs } from '#util/args';
 import { runReview, REVIEW_OPTIONS } from '#cli/commands/review/review';
 import { runRouteStart } from '#cli/commands/route/route';
 import { CHECK_CONFIG, COMMAND_PACK, CHECK_TASK } from '#testing/fixtures/check-fixture';

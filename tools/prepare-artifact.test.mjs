@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtemp, rm, stat, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -111,45 +111,34 @@ async function makeFixtureRepo() {
   return repo;
 }
 
-function runPrepare(repo, activity) {
-  return execFileSync('node', [BUNDLE, 'prepare', '--activity', activity, '--json'], {
-    cwd: repo,
-    encoding: 'utf8',
-  });
-}
+const run = (repo, args) => execFileSync('node', [BUNDLE, ...args], { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 
-describe('built-artifact regression: ambicode prepare --json (P2.4 correction A2)', () => {
+describe('built-artifact regression: staged prompts and the deprecated prepare', () => {
   it('requires the bundle to have been built (npm run build) before this test runs', async () => {
     assert.ok((await assertBundleBuilt(BUNDLE)) > 0, `${BUNDLE} is empty`);
   });
 
-  it('delivers applicable prompt text and never a stage this activity does not receive', async () => {
+  it('delivers the prompt text of a stage and never a stage the activity does not receive', async () => {
     const repo = await makeFixtureRepo();
     try {
-      const taskStdout = runPrepare(repo, 'task');
-      const taskOutput = JSON.parse(taskStdout);
-      assert.ok(taskStdout.includes(BEFORE_WORK_MARKER), 'task prepare must include before-work text');
-      assert.ok(taskStdout.includes(BEFORE_CHECKS_MARKER), 'task prepare must include before-checks text');
-      assert.ok(taskStdout.includes(BEFORE_REPORT_MARKER), 'task prepare must include before-report text');
-      assert.ok(!taskStdout.includes(BEFORE_REVIEW_MARKER), 'task prepare must never include before-review text');
-      assert.equal(taskOutput.activity, 'task');
-
-      const planStdout = runPrepare(repo, 'plan');
-      assert.ok(planStdout.includes(BEFORE_WORK_MARKER), 'plan prepare must include before-work text');
-      assert.ok(planStdout.includes(BEFORE_REPORT_MARKER), 'plan prepare must include before-report text');
-      assert.ok(!planStdout.includes(BEFORE_CHECKS_MARKER), 'plan prepare must NOT include before-checks text (filtered stage)');
-      assert.ok(!planStdout.includes(BEFORE_REVIEW_MARKER), 'plan prepare must never include before-review text');
+      const work = run(repo, ['policy', '--activity', 'task', '--stage', 'before-work', '--show']);
+      assert.ok(work.includes(BEFORE_WORK_MARKER), 'before-work must carry its prompt');
+      assert.ok(!work.includes(BEFORE_REVIEW_MARKER) && !work.includes(BEFORE_REPORT_MARKER), 'before-work carries no other stage');
+      const report = run(repo, ['policy', '--activity', 'plan', '--stage', 'before-report', '--show']);
+      assert.ok(report.includes(BEFORE_REPORT_MARKER), 'before-report must carry its prompt');
+      assert.ok(!report.includes(BEFORE_REVIEW_MARKER), 'plan never receives before-review');
     } finally {
       await rm(repo, { recursive: true, force: true });
     }
   });
 
-  it('reports a measured byte count equal to the real stdout it printed', async () => {
+  it('prepare --activity starts the route of that activity and prints the deprecation notice', async () => {
     const repo = await makeFixtureRepo();
     try {
-      const stdout = runPrepare(repo, 'task');
-      const parsed = JSON.parse(stdout);
-      assert.equal(Buffer.byteLength(stdout, 'utf8'), parsed.contextBudget.measuredBytes);
+      const result = spawnSync('node', [BUNDLE, 'prepare', '--activity', 'investigate', '--term', 'cart'], { cwd: repo, encoding: 'utf8' });
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stderr, /prepare-deprecated: use route start <skill>/);
+      assert.match(result.stdout, /^\[ambicode\] investigate · task /m);
     } finally {
       await rm(repo, { recursive: true, force: true });
     }

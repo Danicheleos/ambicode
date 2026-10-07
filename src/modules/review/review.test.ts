@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { describe, it } from 'node:test';
-import { parseArgs } from '#cli/args';
+import { parseArgs } from '#util/args';
 import { initConfig } from '#testing/fixtures/init-config';
 import { REJECTED_OUTPUT_FILE, runReview, REVIEW_OPTIONS } from '#cli/commands/review/review';
 import { runBundle, BUNDLE_OPTIONS } from '#cli/commands/review/bundle';

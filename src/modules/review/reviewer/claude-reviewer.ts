@@ -243,6 +243,7 @@ export class ClaudeReviewer implements Reviewer {
       maxOutputBytes: this.maxOutputBytes,
       // Large and may hold option-like text; stdin keeps it out of the argument vector.
       stdin: request.prompt,
+      purpose: 'reviewer',
       tools: REVIEWER_TOOLS,
       jsonSchema: REVIEWER_JSON_SCHEMA,
     });

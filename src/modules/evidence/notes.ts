@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { ownerOf } from '#harness/session/ownership';
+import { ownerOf } from '#modules/evidence/ownership';
 import { AmbicodeError } from '#util/errors';
 import { localTimestamp, UNIQUE_FILE_LIMIT, writeUniqueFile } from '#util/files';
 import { contentHash, hash12 } from '#util/hash';

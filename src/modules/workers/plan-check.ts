@@ -5,7 +5,7 @@ import { find } from '#modules/search/declarations/refs';
 import { loadConfigWithNotices } from '#modules/config/load';
 import { splitAcs } from '#modules/requirements/envelope/acs';
 import { envelopeSources } from '#modules/requirements/envelope/envelope';
-import { buildChain, latestBound } from '#harness/engine/fold';
+import { buildChain, latestBound } from '#modules/evidence/ledger-chain';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { saveNote } from '#modules/evidence/notes';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';

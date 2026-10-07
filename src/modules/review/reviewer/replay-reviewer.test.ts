@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { parseArgs } from '#cli/args';
+import { parseArgs } from '#util/args';
 import { initConfig } from '#testing/fixtures/init-config';
 import { runReview, renderReview, REVIEW_OPTIONS } from '#cli/commands/review/review';
 import { createRuntime } from '#composition/root';

@@ -1,6 +1,7 @@
 import path from 'node:path';
-import { ledgerRouteContext } from '#harness/engine/context';
-import { runWorker } from '#modules/workers/worker-run';
+import { COMMAND_SPECS } from '#skills/plan/commands';
+import { approvedWorkers, runWorker } from '#modules/workers/worker-run';
+import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { AmbicodeError } from '#util/errors';
 import { routeTools, taskOf } from '../route/route.ts';
 import type { Runtime } from '#types/composition';
@@ -15,9 +16,12 @@ export async function runWorkerCommand(runtime: Runtime, args: ParsedArgs): Prom
   const [id, ...extra] = args.positionals;
   if (id === undefined || extra.length > 0) throw new AmbicodeError('bad-argument', '"worker run" takes exactly one worker id.', { field: 'id' });
   const task = taskOf('worker run', args);
+  const approved = await approvedWorkers(runtime, (await resolveTaskDir(runtime, task)).repositoryRoot);
+  if (!approved.includes(id)) throw new AmbicodeError('worker-not-approved', `Worker "${id}" is not in workers.approved.`, { details: [`Approved: ${approved.join(', ') || 'none'}. Add the id to workers.approved in the config to allow it.`] });
   const tools = await routeTools(runtime, task);
-  const session = tools.binding.state === 'bound' ? tools.binding.session : null;
-  const ran = await runWorker({ runtime, session, context: ledgerRouteContext({ runtime, routes: tools.routes }), runner: runtime.runner, definitions: path.join(runtime.pluginRoot, 'workers') }, { id, task });
+  const ran = await tools.engine.command(COMMAND_SPECS.worker, { task }, ({ session, context }) =>
+    runWorker({ runtime, session, context, runner: runtime.runner, definitions: path.join(runtime.pluginRoot, 'workers') }, { id, task }),
+  );
   return { command: 'worker run', task, worker: id, artifact: ran.artifact, entry: ran.entry.id };
 }
 

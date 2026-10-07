@@ -24,11 +24,12 @@ export const ruleCarriedFor = (activity: Activity, category: RuleCategory): bool
 /** Task's code-style rules go before work when there are at most this many, else before the checks (07-G4). */
 const CODE_STYLE_BEFORE_WORK = 8;
 
+/** No rule category is presentation, so the report stage carries pack prompts only. */
 function stageRules(activity: Activity, stage: PromptStage, rules: readonly ResolvedRule[]): readonly ResolvedRule[] {
   const style = rules.filter((rule) => rule.category === 'code-style');
   const late = activity === 'task' && style.length > CODE_STYLE_BEFORE_WORK;
-  if (stage === 'before-checks') return late ? style : [];
-  return late && stage === 'before-work' ? rules.filter((rule) => rule.category !== 'code-style') : rules;
+  if (stage === 'before-work') return late ? rules.filter((rule) => rule.category !== 'code-style') : rules;
+  return stage === 'before-checks' && late ? style : [];
 }
 
 const render = (rule: ResolvedRule): string => `${rule.qualifiedId} (${rule.authority}): ${rule.instruction}`;

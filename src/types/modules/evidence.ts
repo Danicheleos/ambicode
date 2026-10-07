@@ -1,13 +1,13 @@
 import type { TypedEntry } from '#platform/ledger/kinds';
 import type { Runtime } from '../composition.ts';
-import type { RouteContextPort } from '../harness.ts';
+import type { CommandContext } from '../harness.ts';
 
 export const MAX_NOTE_BYTES = 262_144;
 
 export interface NoteDeps {
   runtime: Runtime;
   session: string | null;
-  context: RouteContextPort | null;
+  context: CommandContext | null;
   /** Present when the caller already holds the task's ledger lock; nothing here locks again. */
   ledger?: LockedLedger;
 }
@@ -24,7 +24,7 @@ export interface NoteRow {
 
 export const KINDS = ['route', 'step', 'gate', 'acceptance', 'declined', 'default-taken', 'preanswer', 'revise',
   'limit', 'exit', 'requirement', 'envelope', 'map', 'search', 'policy', 'baseline', 'check', 'format', 'review',
-  'worker', 'note'] as const;
+  'worker', 'note', 'session', 'command', 'turn', 'hook'] as const;
 
 export interface ArtifactRef { kind: string; value: string; id: string; path: string; contentHash: string }
 
@@ -78,3 +78,10 @@ export type SaveKind = Exclude<NoteKind, 'plan'>;
 export const SAVE_KINDS: readonly SaveKind[] = ['investigation', 'plan-draft', 'notes'];
 
 export const LEDGER_FILE = 'ledger.jsonl';
+
+/** Entries of the route a session resolved plus the routes it resumes, in file order and from any session (03-F1). */
+export interface Chain {
+  head: LedgerEntry;
+  ids: ReadonlySet<string>;
+  entries: LedgerEntry[];
+}

@@ -1,6 +1,6 @@
 import { WORKER_ENV_ALLOWLIST, STRUCTURED_OUTPUT_ATTEMPTS } from '#types/modules/workers';
 import { outcomeFailure, type OutcomeFailure } from '#platform/ports/process';
-import type { EnvironmentPolicy, ProcessOutcome, ProcessRunner } from '#types/platform/ports';
+import type { CommandType, EnvironmentPolicy, ProcessOutcome, ProcessRunner } from '#types/platform/ports';
 
 export interface WorkerProcessRequest {
   argv: readonly string[];
@@ -13,6 +13,7 @@ export interface WorkerProcessRequest {
   jsonSchema?: object;
   maxBudgetUsd?: number;
   maxTurns?: number;
+  purpose?: CommandType;
 }
 
 type WorkerProcessResult =
@@ -44,6 +45,7 @@ export async function runWorkerProcess(
     timeoutMs: request.timeoutMs,
     maxOutputBytes: request.maxOutputBytes,
     env: request.env ?? defaultWorkerEnvironment(),
+    ...(request.purpose === undefined ? {} : { purpose: request.purpose }),
     ...(request.stdin === undefined ? {} : { stdin: request.stdin }),
   });
   const reason = outcomeFailure(outcome);

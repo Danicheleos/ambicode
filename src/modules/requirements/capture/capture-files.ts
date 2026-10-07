@@ -1,10 +1,13 @@
 import path from 'node:path';
+import { contentHash } from '#util/hash';
 import { CapturedHits, CapturedRequirement } from '#types/modules/requirements';
 import type { TaskDir } from '#types/modules/evidence';
 import type { FileSystem } from '#types/platform/ports';
 
-const primary = (dir: TaskDir, key: string): string => path.join(dir.requirements, `${key}.json`);
-const versioned = (dir: TaskDir, key: string, rawHash: string): string => path.join(dir.requirements, `${key}.${rawHash.replace(/^sha256:/, '').slice(0, 12)}.json`);
+/** A key that is a URL is not a file name: unsafe characters are replaced and a hash of the key keeps distinct keys apart. */
+const fileKey = (key: string): string => (/^[\w.-]+$/.test(key) ? key : `${key.replace(/[^\w.-]+/g, '_').slice(0, 80)}.${contentHash(key).replace(/^sha256:/, '').slice(0, 10)}`);
+const primary = (dir: TaskDir, key: string): string => path.join(dir.requirements, `${fileKey(key)}.json`);
+const versioned = (dir: TaskDir, key: string, rawHash: string): string => path.join(dir.requirements, `${fileKey(key)}.${rawHash.replace(/^sha256:/, '').slice(0, 12)}.json`);
 
 async function readParsed(fs: FileSystem, file: string): Promise<CapturedRequirement | null> {
   try {

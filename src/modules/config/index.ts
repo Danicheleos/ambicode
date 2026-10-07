@@ -28,16 +28,12 @@ export { projectForRequest } from './workspace.ts';
 export { toRepositoryRelative } from './workspace.ts';
 
 // init/: the init proposal, its application, `--set` parsing and doctor.
-/** applyInit(deps, {task, sets, refreshProfile?}) — runs the apply checks, then writes the config; nothing is written before the last check passes. */
+/** applyInit(deps, {task, refreshProfile?}) — runs the apply checks, then writes the config; nothing is written before the last check passes. */
 export { applyInit } from './init/apply.ts';
 /** backupOf(fs, repositoryRoot, raw) — the newest `.bak-` copy of the config with exactly these bytes, or null. */
 export { backupOf } from './init/apply.ts';
-/** valuesLine(canonical) — the `values:` line of an apply command for a canonical `--set` string. */
-export { valuesLine } from './init/apply.ts';
 /** runDoctor(runtime, repositoryRoot, config, options?) — runs each command slot and returns one table row per slot. */
 export { runDoctor } from './init/doctor.ts';
-/** adjustTokens(text) — splits an Adjust answer on whitespace, except inside JSON arrays or double-quoted strings. */
-export { adjustTokens } from './init/init-sets.ts';
 /** canonicalSets(pairs) — sorted `key=<JSON>` pairs joined by one space; '' for none. */
 export { canonicalSets } from './init/init-sets.ts';
 /** parseSet(raw) — parses one `key=value` `--set`; commands are `null` or a JSON array of strings. */

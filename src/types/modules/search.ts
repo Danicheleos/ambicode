@@ -1,6 +1,8 @@
 import type { ProjectConfig, SearchProfile, AmbicodeConfig } from './config.ts';
 import type { Ecosystem } from '../primitives.ts';
 import { z } from 'zod';
+import { DECLARATION_PATTERNS } from './ecosystems.ts';
+import { TEST_PATH_PATTERNS } from '#util/path-classes';
 import type { Git } from '#platform/git/git';
 import type { Runtime } from '../composition.ts';
 
@@ -63,13 +65,9 @@ export interface LocateShortlist {
   limitations: string[];
 }
 
-/** AMBICODE never starts a language server; the plugin to install is setup guidance only. */
 export interface NavigationGuidance {
   strategy: 'shortlist-then-known-paths-then-lsp-then-targeted-search';
   ecosystem: Ecosystem;
-  plugin: string;
-  serverCommand: string;
-  setupCommands: string[];
   statusSource: 'current-session';
   evidenceRequirement: string;
   readGuidance: string;
@@ -91,6 +89,12 @@ export const PREPARE_SHORTLIST_LIMIT = 15;
 
 /** The reviewer reads these on top of the change; eight keeps a wide change inside the input limit. */
 export const MAX_DEPENDENTS = 8;
+
+/** A profile keeps the ones its sources use. Each captures the name in group 1. */
+export const DECLARATION_CANDIDATES: readonly RegExp[] = DECLARATION_PATTERNS;
+
+/** The test-file shapes search knows; a profile keeps the ones that match tracked files. */
+export const TEST_CANDIDATES: readonly RegExp[] = TEST_PATH_PATTERNS;
 
 /** Used when a project has no profile: today's source extensions, nothing else assumed. */
 export const GENERIC_PROFILE: Omit<SearchProfile, 'stamp'> = {
@@ -157,3 +161,38 @@ export interface Declaration {
   /** Files, among those harvested, that declare this name. */
   declarations: number;
 }
+
+/** The ranking constants the map applies; `search.tuning` in the config overrides any of them. */
+export interface SearchTuning {
+  topFiles: number;
+  maxTerms: number;
+  proseRetryTerms: number;
+  pass2Names: number;
+  pass2Outside: number;
+  spansPerCandidate: number;
+  sequenceDirMin: number;
+  sequenceShare: number;
+  layerMin: number;
+  layeredShare: number;
+  nameMaxFiles: number;
+  leads: number;
+  featureLeads: number;
+  featurePaths: number;
+}
+
+export const SEARCH_TUNING_DEFAULTS: Readonly<SearchTuning> = {
+  topFiles: 8,
+  maxTerms: 12,
+  proseRetryTerms: 8,
+  pass2Names: 6,
+  pass2Outside: 0.5,
+  spansPerCandidate: 3,
+  sequenceDirMin: 5,
+  sequenceShare: 0.8,
+  layerMin: 3,
+  layeredShare: 0.6,
+  nameMaxFiles: 60,
+  leads: 8,
+  featureLeads: 4,
+  featurePaths: 12,
+};

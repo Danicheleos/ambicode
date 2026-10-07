@@ -52,7 +52,7 @@ describe('04-P review policy', () => {
     const investigate = await twoServers('investigate', { headless: true });
     try {
       await investigate.next();
-      assert.deepEqual(await investigate.exits(), [], 'no blocked exit: the route went on');
+      assert.deepEqual(await investigate.exits(), ['done'], 'no blocked exit: the route went on to the end');
       assert.equal((await investigate.fx.kinds(investigate.task, 'envelope')).at(-1)!['builtFrom'], 'args');
       assert.deepEqual((await investigate.fx.kinds(investigate.task, 'default-taken')).filter((entry) => entry['gate'] === AMBIGUOUS).map((entry) => entry['answer']), ['continue without']);
     } finally {
@@ -74,7 +74,7 @@ describe('04-P review policy', () => {
     const review = await run('review');
     assert.deepEqual([review.exits, review.envelope, review.taken], [['blocked'], undefined, ['stop']]);
     const investigate = await run('investigate');
-    assert.deepEqual([investigate.exits, investigate.envelope?.['builtFrom'], investigate.taken], [[], 'args', ['continue without']]);
+    assert.deepEqual([investigate.exits, investigate.envelope?.['builtFrom'], investigate.taken], [['done'], 'args', ['continue without']]);
   });
 
   it('04-P1: server-disconnected resolves to stop for a review and to continue without for an investigate', async () => {

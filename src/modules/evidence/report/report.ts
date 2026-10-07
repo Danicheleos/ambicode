@@ -1,7 +1,8 @@
 import { contentHash } from '#util/hash';
 import { navigationLine } from './navigation-line.ts';
-import { isBoundAnswer } from '#harness/engine/fold';
+import { isBoundAnswer } from '#modules/evidence/ledger-chain';
 import type { LedgerEntry } from '#types/modules/evidence';
+import { sinceReopen } from '#platform/ledger/reopen';
 
 const clip = (value: unknown, length = 80): string => {
   const text = String(value ?? '');
@@ -73,6 +74,7 @@ export function buildReport(
     decisions.push(`${clip(entry.gate)} ${how}${historical(entry)}`);
     if (entry.kind === 'declined') notVerified.push(`${clip(entry.gate)}: declined "${clip(entry.answer)}"${entry.reason === undefined ? '' : ` (${clip(entry.reason)})`}${historical(entry)}`);
     if (entry.kind === 'default-taken') notVerified.push(`${clip(entry.gate)}: default taken, "${clip(entry.answer)}" (${clip(entry.via)})${historical(entry)}`);
+    if (entry.kind !== 'preanswer' && entry.gate === 'review-again' && entry.answer === 'skip') notVerified.push(`fix not re-reviewed${historical(entry)}`);
     if (entry.kind !== 'preanswer' && entry.gate === 'review-offer' && String(entry.answer).startsWith('skip') && isBoundAnswer(entry)) notVerified.push(`independent review skipped — verification incomplete${historical(entry)}`);
   }
   for (const entry of of('format')) if (entry.outcome !== 'formatted') notVerified.push(`not formatted: ${clip(entry.key)} (${clip(entry.outcome)})${historical(entry)}`);
@@ -81,7 +83,7 @@ export function buildReport(
   for (const entry of of('revise')) revisions.set(String(entry.from), [...(revisions.get(String(entry.from)) ?? []), entry]);
 
   for (const entry of of('limit')) {
-    if (entry.which === 'missing-produces' && entry.step === 'red') notVerified.push(`no-red: no failing-first test recorded${historical(entry)}`);
+    if (entry.which === 'no-red') notVerified.push(`no-red: no failing-first test recorded${historical(entry)}`);
     else notVerified.push(`${clip(entry.which)} limit (${entry.count})${typeof entry.step === 'string' ? ` at ${entry.step}` : ''}${historical(entry)}`);
   }
   for (const entry of of('envelope')) for (const missing of list(entry.missingAsked)) notVerified.push(`Requirement not captured: ${clip(missing)}${historical(entry)}`);
@@ -110,7 +112,7 @@ export function buildReport(
 /** The report's first line: how the route ended, or `complete` with what was not verified (03-E12). */
 function statusOf(entries: readonly LedgerEntry[], unverified: number, complete: boolean): string | null {
   if (!entries.some((entry) => entry.kind === 'route')) return null;
-  const ended = entries.findLast((entry) => entry.kind === 'exit');
+  const ended = sinceReopen(entries).findLast((entry) => entry.kind === 'exit');
   const done = complete || ended?.complete === true;
   if (ended !== undefined && !done) {
     const detail = typeof ended.detail === 'string' ? ended.detail : '';

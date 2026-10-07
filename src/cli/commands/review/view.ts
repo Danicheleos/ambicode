@@ -146,7 +146,7 @@ export async function runView(
 
   let browserOpened = false;
   let browserDetail = 'The browser was not launched.';
-  if (dependencies.openBrowser !== false && !args.flag('no-open') && url !== '') {
+  if (dependencies.openBrowser !== false && args.flag('open') && url !== '') {
     const opened = await openInBrowser(
       runtime.runner,
       dependencies.platform ?? process.platform,

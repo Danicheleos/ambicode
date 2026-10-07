@@ -30,11 +30,12 @@ steps:
   - id: red
     actor: model
     instruction: file:routes/task/red.md
-    payload: [brief, envelope, baseline, map, callers, "policy:before-work", "policy:before-checks"]
+    payload: [brief, envelope, baseline, map, callers, "policy:before-work"]
     produces: ["check{red}"]
   - id: green
     actor: model
     instruction: file:routes/task/green.md
+    payload: ["policy:before-checks"]
     produces: ["check{green}", format]
   - id: review-offer
     actor: human
@@ -55,7 +56,7 @@ steps:
     actor: model
     when: revised                                 # entered only by a revise aimed at fix: review findings or an approved key
     instruction: file:routes/task/fix.md
-    produces: ["check{green}", review]
+    produces: ["check{green}"]
     repeat: 2
   - id: report-step
     actor: code
@@ -64,4 +65,5 @@ steps:
   - id: write
     actor: model
     instruction: file:routes/task/write.md
+    final: true
     payload: [report, "policy:before-report"]

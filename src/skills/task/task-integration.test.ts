@@ -12,7 +12,7 @@ import { materialize } from '../../../fixtures/materialize.mjs';
 import { runCheckOnly } from '#modules/checks/run/check-command';
 import { runFormat } from '#modules/checks/run/format';
 import { runHook } from '#hook/events/run-hook';
-import { ledgerRouteContext } from '#harness/engine/context';
+import { commandContext } from '#harness/engine/context';
 import { runCommandTail } from '#harness/engine/command-tail';
 import { skillHandlers } from '#skills/handlers';
 import { assembleEngine } from '#testing/fixtures/route-fixture';
@@ -54,7 +54,7 @@ async function offByOne() {
   const scratchpad = await assembled.runtime.fs.temporaryDirectory('ambicode-scratch-');
   const runner = new SplitRunner(assembled.runtime.runner);
   const runtime: Runtime = { ...assembled.runtime, runner };
-  const deps: CheckDeps = { runtime, session: SESSION_A, routes: assembled.routes, context: ledgerRouteContext({ runtime, routes: assembled.routes }), warm: async () => undefined };
+  const deps: CheckDeps = { runtime, session: SESSION_A, context: commandContext({ runtime, routes: assembled.routes }), warm: async () => undefined };
   const tail = (cause: 'check' | 'format', produced: string[]) =>
     runCommandTail({ engine }, { task: TASK, cause, session: { state: 'bound', session: SESSION_A } as never, produced, scratchpadDir: scratchpad });
   const check = async (phase: 'red' | 'green') => {

@@ -13,14 +13,17 @@ import { AmbicodeError } from '#util/errors';
 import { contentHash } from '#util/hash';
 import { endRoute, markStepDelivered } from '../session/active-route.ts';
 import { exitRoute, recordDefaultFlag, recordFlagAnswer, recordHookAnswer, reviseTo } from '../gates/answers.ts';
-import { checkOwner, ledgerRouteContext, ledgerUnreadable } from './context.ts';
+import { checkOwner, commandContext, ledgerUnreadable, readEntries } from './context.ts';
 import { canonicalArgs } from '../definition/flags.ts';
-import { buildChain, exitOf, foldRoute, latestRouteOf, liveHeads } from './fold.ts';
+import { buildChain, exitOf, foldRoute, latestRouteOf, liveHeads, openPrint, windowOf } from './fold.ts';
+import { dismissedGate, stopHook } from './stop.ts';
+import { mergeArgs, reopenFrom, reopenHead, resolveReopen, sessionEnded } from './reopen.ts';
 import { harnessOf } from '../session/harness.ts';
 import { raiseGate } from '../gates/gates.ts';
-import { createExecutor, EXPLICIT, quiet } from './execute.ts';
+import { createExecutor, EXPLICIT, isClosing, quiet } from './execute.ts';
 import { routeStatus } from './status.ts';
-import { ownerOf, OWNING_SKILLS } from '../session/ownership.ts';
+import { runCommand } from './command.ts';
+import { ownerOf, OWNING_SKILLS } from '#modules/evidence/ownership';
 import { append, chainOf, latestPrint, viewFor } from './run-context.ts';
 import type { Runtime } from '#types/composition';
 import type { LedgerEntry, LockedLedger, TaskDir } from '#types/modules/evidence';
@@ -37,7 +40,7 @@ export const insideEngine = (): boolean => inside.getStore() === true;
 
 export function createEngine(deps: EngineDeps): Engine {
   const { runtime, routes, handlers, pointer, startIndex = startIndexBuild } = deps;
-  const context = ledgerRouteContext({ runtime, routes });
+  const context = commandContext({ runtime, routes });
   const now = (): Date => runtime.clock.now();
   const cli = `node "${runtime.pluginRoot}/scripts/ambicode.mjs"`;
 
@@ -93,9 +96,7 @@ export function createEngine(deps: EngineDeps): Engine {
     if (part.position === 'complete' || run.exited !== null || exitOf(chainOf(run)) !== null) {
       await endRoute(pointer, run.runtime.fs, run.stateKey, run.scratchpadDir, { task: run.task, skill: run.def.skill, routeId: run.head.id });
     } else {
-      const answering = run.def.steps.find((step) => step.id === part.position)?.answer === 'note';
-      const toolTurns = answering ? run.def.budget.toolTurns : undefined;
-      await pointer.write(run.stateKey, run.scratchpadDir, { task: run.task, skill: run.def.skill, owner: run.session, ...(toolTurns === undefined ? {} : { toolTurns }) });
+      await pointer.write(run.stateKey, run.scratchpadDir, { task: run.task, skill: run.def.skill, owner: run.session, headless: run.head['mode'] === 'headless' });
       await markStepDelivered(run.runtime.fs, run.runtime.ids, { session: run.stateKey, scratchpad: run.scratchpadDir, routeId: run.head.id, position: part.position });
     }
   }
@@ -161,11 +162,15 @@ export function createEngine(deps: EngineDeps): Engine {
 
     const planFile = input.fromDraft ?? input.plan;
     const planTask = planFile === undefined ? undefined : /(?:^|[\\/])\.ambicode[\\/]task[\\/]([^\\/]+)[\\/][^\\/]+$/.exec(planFile)?.[1];
-    const slug = input.task ?? planTask ?? (input.skill === 'init' ? `init-${now().toISOString().slice(0, 10)}` : (mintTaskSlug([...input.requirements, input.text].join(' ')) ?? `task-${contentHash(`${input.cwd}${now().toISOString()}`).slice(7, 15)}`));
-    const dir = await resolveTaskDir(rt, slug);
+    let slug = input.task ?? planTask ?? (input.skill === 'init' ? `init-${now().toISOString().slice(0, 10)}` : (mintTaskSlug([...input.requirements, input.text].join(' ')) ?? `task-${contentHash(`${input.cwd}${now().toISOString()}`).slice(7, 15)}`));
+    const derived = await resolveTaskDir(rt, slug);
+    const reopen = await resolveReopen(rt, { skill: def.skill, session: input.session, repositoryRoot: derived.repositoryRoot, ...(input.task === undefined ? {} : { task: input.task }), slug, adopt: input.adopt === true, fresh: input.fresh === true }, (task) => readEntries(rt, task));
+    const derivedSlug = slug;
+    if (reopen !== null) slug = reopen.task;
+    const dir = reopen === null ? derived : await resolveTaskDir(rt, slug);
     await excludeWorkingDirs(rt, dir.repositoryRoot);
     const config = input.skill === 'init' ? null : (await loadConfigWithNotices(rt.fs, dir.repositoryRoot)).config;
-    const args = canonicalArgs({
+    const inputArgs = canonicalArgs({
       text: input.text,
       requirements: input.requirements,
       project: input.project ?? null,
@@ -183,6 +188,7 @@ export function createEngine(deps: EngineDeps): Engine {
       const owning = OWNING_SKILLS.has(def.skill);
       const owner = owning ? ownerOf(entries, slug) : null;
       if (owner?.state === 'unknown') throw unreadable(slug, owner.reason);
+      let reopened = reopen === null ? null : reopenHead(entries, def.skill, reopen.rule, input.session);
       const heads = liveHeads(entries).filter((head) => head['skill'] === def.skill);
       const mine = heads.filter((head) => head['session'] === input.session).at(-1);
       const others = heads.filter((head) => head['session'] !== input.session);
@@ -197,8 +203,24 @@ export function createEngine(deps: EngineDeps): Engine {
           details: ['Adopt it (--adopt), restart it (--fresh) or continue under another task: --task <slug>-2.'],
         });
       }
-      if (input.fresh === true) {
-        toSupersede.push(...heads);
+      if (reopen !== null && reopened === null && slug !== derivedSlug) {
+        throw new AmbicodeError('route-conflict', `The route on task ${slug} changed while this start was deciding to reopen it.`, { details: ['Type the skill again.'] });
+      }
+      let args = inputArgs;
+      if (reopened !== null) {
+        const old = reopened['args'] as RouteArgs;
+        const merged = mergeArgs(old, { text: input.text, requirements: input.requirements, project: input.project ?? null, plan: planFile ?? null, fromDraft: input.fromDraft ?? null, answers, headless, ...(input.target === undefined ? {} : { target: input.target }) });
+        const reopenArgs = canonicalArgs({ ...merged, hasRequirement: hasRequirement({ text: merged.text, requirements: merged.requirements, headless }, { mcpServer: config?.requirements.mcpServer ?? null }) });
+        // A finished route is reopened only by more context; the same words again start a new route.
+        if (exitOf(buildChain(entries, reopened))?.['complete'] === true && reopenArgs.hash === old.hash) reopened = null;
+        else args = reopenArgs;
+      }
+      if (reopened !== null) {
+        resumes = reopened;
+        adopts = reopened['session'] !== input.session;
+      } else if (input.fresh === true) {
+        // Another live session's route is never superseded; the plan owner being taken over is the route this start resumes.
+        toSupersede.push(...heads.filter((head) => head['session'] === input.session || sessionEnded(entries, head) || (busy && head.id === owner.routeId)));
       } else if (input.adopt === true && (busy || others.length > 0) && mine === undefined) {
         resumes = busy ? heads.find((head) => head.id === owner.routeId) : others.at(-1);
         adopts = true;
@@ -223,6 +245,15 @@ export function createEngine(deps: EngineDeps): Engine {
         const part = await execute(reuse);
         return { message: messageOf(reuse, part), run: reuse, part };
       }
+      const wasComplete = reopened !== null && exitOf(buildChain(entries, reopened))?.['complete'] === true;
+      if (reopened !== null) {
+        const chain = buildChain(entries, reopened);
+        const changed = args.hash !== (reopened['args'] as RouteArgs).hash;
+        entries.push(await ledger.append({
+          kind: 'revise', route: reopened.id, from: reopenFrom(def, entries, reopened, changed), via: 'reopen',
+          cycle: chain.entries.filter((entry) => entry.kind === 'revise' && entry['via'] === 'gate').length, reason: 'the skill was typed again', source: reopen!.rule,
+        }));
+      }
       head = await ledger.append({
         kind: 'route',
         skill: def.skill,
@@ -236,6 +267,7 @@ export function createEngine(deps: EngineDeps): Engine {
         epoch: 1,
         ...(resumes === undefined ? {} : { resumes: resumes.id }),
         ...(adopts ? { adopts: true } : {}),
+        ...(wasComplete && reopened !== null ? { reopens: reopened.id } : {}),
       });
       entries.push(head);
       // Detached and best effort: a failure shows later as map's `index:` line, never here (05-B6).
@@ -243,10 +275,13 @@ export function createEngine(deps: EngineDeps): Engine {
       if (config !== null && project !== undefined) await startIndex(indexDepsOf(rt, new Git({ runner: rt.runner, repositoryRoot: dir.repositoryRoot }), dir.repositoryRoot, config), project).catch(() => undefined);
       const active = run(head, false);
       active.written.push(head.id);
-      if (resumes !== undefined && !adopts) {
+      if (reopened !== null) {
+        active.notes.push(`Reopened route ${reopened.id}, which had ended; \`${cli} route start ${def.skill} --fresh\` starts over.`);
+      } else if (resumes !== undefined && !adopts) {
         const step = foldRoute(def, buildChain(entries, head)).position;
         active.notes.push(`Resumed route ${resumes.id} at step ${step?.id ?? 'complete'}; \`${cli} route start ${def.skill} --fresh\` restarts.`);
       }
+      if (headless) active.notes.push(trusted ? 'Mode: headless (set by the user).' : 'Mode: headless (set by the model); the report lists it under Not verified.');
       for (const answer of answers) {
         const gate = def.steps.find((step) => step.gate?.id === answer.gate)?.gate ?? routes.gate(answer.gate)!;
         if (!trusted && gate.acting.includes(answer.option)) {
@@ -278,7 +313,11 @@ export function createEngine(deps: EngineDeps): Engine {
       const view = { task: input.task, routeId: head.id, chainIds: [...chain.ids], skill: def.skill, session: input.session, mode: head['mode'] === 'headless' ? ('headless' as const) : ('interactive' as const), channel: head['channel'] as StartChannel, trusted: head['trusted'] === true, position: '' };
       checkOwner(entries, view);
       const ended = exitOf(chain);
-      if (ended !== null) {
+      const late = ended?.['complete'] === true && input.cause === 'gate-hook' && (input.answers ?? []).some((answer) => openPrint(chain.entries, answer.gate, answer.instance));
+      if (late) {
+        const last = def.steps.at(-1)!.id;
+        entries.push(await ledger.append({ kind: 'revise', route: head.id, from: last, via: 'reopen', cycle: chain.entries.filter((entry) => entry.kind === 'revise' && entry['via'] === 'gate').length, reason: 'a gate was answered after the route completed', source: 'gate-hook' }));
+      } else if (ended !== null) {
         throw new AmbicodeError('route-not-open', `The route on task ${input.task} ended (${quiet(ended['reason'])}).`, { details: [`Start one: route start ${def.skill} --task ${input.task}`] });
       }
       const run = newRun({ runtime, def, task: input.task, dir, ledger, entries, head, session: input.session, stateKey: harnessOf(head) ?? input.session, cause: input.cause, channel: input.cause === 'gate-hook' ? 'hook' : 'cli', ...scratchOf(head, input.scratchpadDir) });
@@ -329,6 +368,26 @@ export function createEngine(deps: EngineDeps): Engine {
     });
   }
 
+  /** Stop after the final message: a delivered final model step has no command to end it, so its turn ending completes the route. */
+  async function closeFinal(task: string, routeId: string, scratchpadDir?: string): Promise<boolean> {
+    const dir = await resolveTaskDir(runtime, task);
+    return withLedgerLock(runtime.fs, dir.root, now, routeId, async (ledger) => {
+      const entries = await readStrict(ledger, task);
+      const head = liveHeads(entries).find((entry) => entry.id === routeId);
+      const def = head === undefined ? null : routes.route(String(head['skill']));
+      if (head === undefined || def === null) return false;
+      const fold = foldRoute(def, buildChain(entries, head));
+      const step = fold.position;
+      if (step === null || !isClosing(fold, step) || !windowOf(fold, step).some((entry) => entry.kind === 'step' && entry['step'] === step.id && entry['status'] === 'delivered')) return false;
+      const session = String(head['session']);
+      const run = newRun({ runtime, def, task, dir, ledger, entries, head, session, stateKey: harnessOf(head) ?? session, cause: 'stop', channel: 'hook', ...scratchOf(head, scratchpadDir), deliverOnly: true });
+      await append(run, { kind: 'step', step: step.id, actor: 'model', status: 'completed', cause: 'stop' });
+      await execute(run);
+      await endRoute(pointer, runtime.fs, run.stateKey, run.scratchpadDir, { task, skill: def.skill, routeId: head.id });
+      return true;
+    });
+  }
+
   // ---------------------------------------------------------------- stop
 
   async function stop(task: string, session: string, reason: Exclude<Exit, 'done' | 'superseded'>, detail?: string, scratchpadDir?: string): Promise<void> {
@@ -348,11 +407,16 @@ export function createEngine(deps: EngineDeps): Engine {
     await endRoute(pointer, runtime.fs, run.stateKey, run.scratchpadDir, { task, skill: run.def.skill, routeId: run.head.id });
   }
 
+  const stopPorts = { runtime, routes, pointer, advance: (input: { task: string; session: string; scratchpadDir?: string }) => advance({ ...input, cause: 'note save' }), closeFinal };
+
   return {
     start: (input) => inside.run(true, () => start(input)),
     advance: (input) => inside.run(true, () => advance(input)),
     deliver: (task, session, scratchpadDir) => inside.run(true, () => deliver(task, session, scratchpadDir)),
     status: (task, session) => routeStatus({ runtime, routes }, task, session),
     stop: (task, session, reason, detail, scratchpadDir) => inside.run(true, () => stop(task, session, reason, detail, scratchpadDir)),
+    stopHook: (input, options) => inside.run(true, () => stopHook(stopPorts, input, options)),
+    dismissedGate: (input) => inside.run(true, () => dismissedGate(stopPorts, input)),
+    command: (spec, request, body) => runCommand({ runtime, routes }, spec, request, body),
   };
 }

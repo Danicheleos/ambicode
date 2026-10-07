@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { routeFixture, type RouteFixture } from '#testing/fixtures/route-fixture';
 import { openRepository } from '#platform/git/open';
-import { buildProfile, readCatalog } from './profile.ts';
+import { buildProfile, readCatalog, declarationPatternsOf, testPatternsOf } from './profile.ts';
 
 async function repo(files: Record<string, string>): Promise<RouteFixture> {
   const fx = await routeFixture({ routes: {} });
@@ -12,6 +12,29 @@ async function repo(files: Record<string, string>): Promise<RouteFixture> {
 }
 const many = (count: number, make: (index: number) => [string, string]): Record<string, string> => Object.fromEntries(Array.from({ length: count }, (_, index) => make(index)));
 const spaced = (count: number): string => JSON.stringify(Object.fromEntries(Array.from({ length: count }, (_, index) => [`key${index}`, `Save item ${index}`])));
+
+describe('measured candidates', () => {
+  it('keeps the declaration and test candidates the repository uses', async () => {
+    const fx = await repo({ ...many(6, (i) => [`pkg/m${i}.py`, `def a${i}():\n    pass\n\ndef b${i}():\n    pass\n\ndef c${i}():\n    pass\n`]), ...many(2, (i) => [`pkg/test_m${i}.py`, 'x = 1\n']) });
+    try {
+      const profile = await buildProfile(fx.runtime, { root: '.' });
+      assert.ok(profile.declarations!.some((source) => source.includes('def')));
+      assert.ok(!profile.declarations!.some((source) => source.includes('fn')));
+      assert.equal(profile.tests!.length > 0, true);
+      assert.equal(testPatternsOf({ profile }).length, profile.tests!.length);
+      assert.equal(declarationPatternsOf({ profile }).length, profile.declarations!.length);
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('falls back to the catalog when nothing was measured', () => {
+    assert.ok(declarationPatternsOf({}).length > 1);
+    assert.ok(testPatternsOf({}).length > 1);
+    const empty = { stamp: { commit: '', files: 0 }, sources: [], companions: [], catalogs: [], featureKinds: [], exportOnly: false, declarations: [], tests: [] };
+    assert.ok(declarationPatternsOf({ profile: empty }).length > 1);
+  });
+});
 
 describe('03c profile', () => {
   it('03c-P2/03c-P6/03c-P7: sources are extensions that declare; export lines decide exportOnly; the stamp is HEAD and the file count', async () => {

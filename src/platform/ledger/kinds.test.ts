@@ -51,12 +51,19 @@ const TABLE: Record<Kind, { valid: object; invalid: object }> = {
   review: { valid: { reviewId: 'local_2026', status: 'complete', reviewerRan: true, findings: 2, omissions: 0 }, invalid: { status: 'complete' } },
   worker: { valid: { worker: 'plan-checker', outcome: 'ran', ms: 5, artifact: 'workers/x.json', costUsd: 0.1 }, invalid: { outcome: 'ok', ms: 5, artifact: 'x' } },
   note: { valid: { note: 'plan', path: 'plan_x.md', contentHash: 'sha256:x', promotedFrom: 'a1b2c3d4-3' }, invalid: { note: 'draft', path: 'plan_x.md', contentHash: 'sha256:x' } },
+  session: { valid: { route: 'a1b2c3d4-1', harnessSession: 'h1', event: 'end', reason: 'clear' }, invalid: { route: 'a1b2c3d4-1', harnessSession: 'h1', event: 'start', reason: 'x' } },
+  command: { valid: { argv: ['npm', 'test'], type: 'check', exit: 0, ms: 5, outBytes: 10 }, invalid: { argv: ['npm'], type: 'other', exit: 0, ms: 5, outBytes: 10 } },
+  hook: { valid: { name: 'stop', ms: 12 }, invalid: { name: 'stop', ms: -1 } },
+  turn: {
+    valid: { from: 'a1b2c3d4-1', to: 'a1b2c3d4-2', tools: { Bash: 2 }, commands: [{ text: 'git status', kind: 'git' }], context: { input: 1, cacheRead: 2, cacheCreate: 3, output: 4, peak: 6 } },
+    invalid: { from: 'a1b2c3d4-1', to: 'a1b2c3d4-2', tools: { Bash: -1 }, commands: [], context: { input: 1, cacheRead: 2, cacheCreate: 3, output: 4, peak: 6 } },
+  },
 };
 const common = { id: 'a1b2c3d4-9', at: '2026-10-05T10:00:00.000Z' };
 
-describe('the 21 ledger kinds', () => {
+describe('the 25 ledger kinds', () => {
   it('02-K1: the table covers every kind', () => {
-    assert.equal(KINDS.length, 21);
+    assert.equal(KINDS.length, 25);
     assert.deepEqual(Object.keys(TABLE).sort(), [...KINDS].sort());
   });
 
@@ -94,5 +101,33 @@ describe('the 21 ledger kinds', () => {
     const parsed = parseEntry({ ...common, kind: 'acceptance', ...ANSWER, via: 'flag', authority: 'honoured', trustedByEveryone: true });
     assert.equal(parsed.ok && parsed.entry.authority, 'honoured');
     assert.equal(parsed.ok && parsed.entry.via, 'flag');
+  });
+
+  it('03: the added fields are accepted and malformed ones rejected', () => {
+    const ok = (kind: string, body: object) => parseEntry({ ...common, kind, ...body }).ok;
+    const route = { skill: 'plan', args: 'x', mode: 'interactive', channel: 'hook', trusted: true, session: 'a1b2c3d4', epoch: 1 };
+    assert.equal(ok('route', { ...route, reopens: 'a1b2c3d4-1', rebind: { from: 'h1', to: 'h2' }, adopts: true }), true);
+    assert.equal(ok('route', { ...route, rebind: true }), false);
+    assert.equal(ok('route', { ...route, reopens: 3 }), false);
+    assert.equal(ok('exit', { route: 'r', reason: 'dismissed', complete: true, unverified: 2, source: 'stop' }), true);
+    assert.equal(ok('exit', { route: 'r', reason: 'budget', budget: { modelSteps: 4, wallMs: 10 } }), true);
+    assert.equal(ok('exit', { route: 'r', reason: 'budget', budget: { modelSteps: 'x' } }), false);
+    assert.equal(ok('exit', { route: 'r', reason: 'done', unverified: -1 }), false);
+    assert.equal(ok('exit', { route: 'r', reason: 'done', complete: 'yes' }), false);
+    assert.equal(ok('revise', { ...TABLE.revise.valid, via: 'reopen', source: 'cli' }), true);
+    assert.equal(ok('limit', { ...TABLE.limit.valid, source: 'guard' }), true);
+    assert.equal(ok('limit', { ...TABLE.limit.valid, source: 1 }), false);
+    const step = { ...TABLE.step.valid, revise: { a: 1 }, exit: 'done', ms: 12, budget: { modelSteps: 1 }, payloadBytes: 40, payloadTokens: 10 };
+    assert.equal(ok('step', step), true);
+    assert.equal(ok('step', { ...step, payloadBytes: -1 }), false);
+    assert.equal(ok('step', { ...step, exit: 0 }), false);
+    assert.equal(ok('step', { ...step, budget: { modelSteps: 'x' } }), false);
+    assert.equal(ok('turn', { ...TABLE.turn.valid, commands: [{ text: 'x'.repeat(201), kind: 'other' }] }), false);
+  });
+
+  it('03: ledgers written before the new fields and kinds still parse', () => {
+    assert.equal(parseEntry({ id: 'L1', at: 't', kind: 'exit', route: 'r', reason: 'done' }).ok, true);
+    assert.equal(parseEntry({ id: 'L2', at: 't', kind: 'step', route: 'r', step: 's', actor: 'code', status: 'completed', cause: 'c' }).ok, true);
+    assert.equal(parseEntry({ id: 'L3', at: 't', kind: 'limit', route: 'r', which: 'repeat', count: 1 }).ok, true);
   });
 });

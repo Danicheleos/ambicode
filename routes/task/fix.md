@@ -3,4 +3,4 @@ Fix the review findings listed below (none listed: an approved check now lets th
 - A finding outside the brief is not fixed here: it goes under Remaining.
 - Never weaken a test.
 - Run `{cli} check --task {task} <projectId>/<checkId> --only <spec> --phase green` again.
-Then run `{cli} review --task {task}` again; its result decides the next step.
+Then run `{cli} route next --task {task}`. Another review runs only if the user accepts it.

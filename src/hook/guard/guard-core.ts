@@ -1,7 +1,7 @@
 // Imports only import-free modules: this file is bundled into a standalone entry whose startup time is the point
 // (see guard.ts). Files are read by the injected `GuardState`, never from here.
 import { ownerOfHarness } from '#harness/session/harness';
-import { ownerOf } from '#harness/session/ownership';
+import { ownerOf } from '#modules/evidence/ownership';
 import { basename, type Directories, parseCommand, type Segment } from '../shell/command-parser.ts';
 import type { GuardInput, GuardState } from '../types/guard.ts';
 
@@ -318,11 +318,58 @@ function fileDecision(input: GuardInput, state: GuardState | undefined, pluginRo
   return {};
 }
 
+const TASK_COMMANDS = new Set(['route next', 'route status', 'route stop', 'report', 'note save', 'note promote', 'note list']);
+const PLAIN_COMMAND = /^[^|;&<>\n`$()\\'"]*$/;
+const SLUG = /^[\w.-]+$/;
+
+/** Platform contract: a PreToolUse hook answering `permissionDecision: 'allow'` with `updatedInput` runs the changed input. */
+export const PLATFORM = { updatedInput: true };
+
+/** The command with `--task <active task>` appended when it is one plain ambicode.mjs route command that names no task. */
+function withTask(command: string, task: string): string | null {
+  const match = /^[ \t]*node[ \t]+("[\w/.~ -]*ambicode\.mjs"|'[\w/.~ -]*ambicode\.mjs'|[\w/.~-]*ambicode\.mjs)[ \t]+(.*)$/.exec(command);
+  if (match === null || !SLUG.test(task) || !PLAIN_COMMAND.test(match[2]!)) return null;
+  const rest = match[2]!.trim().split(/\s+/);
+  const name = rest.slice(0, rest[0] === 'route' || rest[0] === 'note' ? 2 : 1).join(' ');
+  if (!TASK_COMMANDS.has(name) || rest.some((word) => word === '--task' || word.startsWith('--task='))) return null;
+  return `${command.trim()} --task ${task}`;
+}
+
+function permissionOf(decision: Decision): string | null {
+  const output = decision['hookSpecificOutput'] as { permissionDecision?: string } | undefined;
+  return output?.permissionDecision ?? null;
+}
+
+/** In a headless route nobody can answer an ask: it becomes a deny that sends the model to stop the route. */
+function headlessDeny(decision: Decision, pluginRoot: string, task: string): Decision {
+  const reason = (decision['hookSpecificOutput'] as { permissionDecisionReason?: string }).permissionDecisionReason ?? '';
+  return decide(
+    'deny',
+    `${reason} This route is headless and no one can approve it, so do not run it. Run ` +
+      `\`node "${pluginRoot}/scripts/ambicode.mjs" route stop --task ${task} --reason blocked --detail "permission-denied: <what you needed>"\` and finish with the stop.`,
+  );
+}
+
 /**
  * `pluginRoot` is the hook's `CLAUDE_PLUGIN_ROOT`, so the command in the message runs as written. `platform` picks
  * how `sed -i` reads its suffix, and the environment whether `CDPATH` is set: the guard runs where the command runs.
  */
 export function guardDecision(input: GuardInput, pluginRoot = '${CLAUDE_PLUGIN_ROOT}', state?: GuardState, platform: string = process.platform): Decision {
+  const decision = decideTool(input, pluginRoot, state, platform);
+  const scratchpad = typeof input.scratchpad_dir === 'string' && input.scratchpad_dir !== '' ? input.scratchpad_dir : null;
+  const route = scratchpad === null || state === undefined ? null : state.activeRoute(scratchpad);
+  if (permissionOf(decision) === 'ask' && route?.headless === true) return headlessDeny(decision, pluginRoot, route.task);
+  const command = input.tool_input?.command;
+  if (PLATFORM.updatedInput && route !== null && input.hook_event_name === 'PreToolUse' && Object.keys(decision).length === 0 && input.tool_name === 'Bash' && typeof command === 'string') {
+    const updated = withTask(command, route.task);
+    if (updated !== null) {
+      return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', updatedInput: { ...input.tool_input, command: updated } } };
+    }
+  }
+  return decision;
+}
+
+function decideTool(input: GuardInput, pluginRoot: string, state: GuardState | undefined, platform: string): Decision {
   if (input.hook_event_name !== 'PreToolUse') return {};
   const tool = input.tool_name ?? '';
   if (FILE_TOOLS.has(tool)) return fileDecision(input, state, pluginRoot);

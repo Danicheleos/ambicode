@@ -2,6 +2,7 @@ import { CapturedRequirement, type CapturedHits, type CaptureDeps } from '#types
 import type { HookInput } from '#types/hook';
 import { contentHash } from '#util/hash';
 import { capturesFrom, serverOf } from './binding.ts';
+import { keyOfSource } from './template.ts';
 import { asRecorded, readCapture, readList, searchName, writeCapture } from './capture-files.ts';
 import type { LedgerEntry } from '#types/modules/evidence';
 import { isObject } from '#util/guards';
@@ -144,14 +145,68 @@ async function listedChildren(deps: CaptureDeps, entries: readonly LedgerEntry[]
   return listed;
 }
 
+/** Matched only on a short result: a page that discusses authentication is not a server error. */
+const DISCONNECTED_MAX = 300;
+const DISCONNECTED = /\b(?:not connected|disconnected|not authenticated|needs? (?:to be )?authenticat\w*|requires? authentication|no (?:such )?mcp server|server (?:is )?(?:not found|unavailable))\b/i;
+
+/** The page a WebFetch returned, as the text the tool reported. */
+function fetchedText(response: unknown): string {
+  if (typeof response === 'string') return response;
+  if (isObject(response)) return str(response['result']) || str(response['content']) || str(response['text']);
+  return '';
+}
+
+/** `content` names `url` itself, not a longer address that starts with it. */
+function mentions(content: string, url: string): boolean {
+  for (let at = content.indexOf(url); at !== -1; at = content.indexOf(url, at + 1)) {
+    if (!/[\w/-]/.test(content.charAt(at + url.length))) return true;
+  }
+  return false;
+}
+
+function latestFrom(entries: readonly LedgerEntry[], server: string): LedgerEntry | undefined {
+  return entries.filter((entry) => entry.kind === 'requirement' && serverOf(String(entry['via'])) === server).at(-1);
+}
+
+/** A fetched URL is recorded when it was asked for, or when a captured source mentions it. */
+async function captureFetch(input: HookInput, deps: CaptureDeps): Promise<LedgerEntry | null> {
+  const address = str(input.tool_input?.['url']);
+  const content = fetchedText(input.tool_response).trim().slice(0, MAX_CONTENT);
+  if (address === '' || content === '') return null;
+  const key = keyOfSource(address);
+  const entries = await chainEntries(deps);
+  const asked = deps.asked.includes(key);
+  const mentionedBy = asked ? null : [...(await known(deps, entries)).values()].find((other) => mentions(other.content, address) || mentions(other.content, key));
+  if (!asked && mentionedBy === undefined) return null;
+  const rawHash = contentHash(JSON.stringify(input.tool_response ?? null));
+  if (entries.some((entry) => entry.kind === 'requirement' && entry['key'] === key && entry['rawHash'] === rawHash)) return null;
+  const relation = asked ? 'asked' : 'mention';
+  const derivedFrom = mentionedBy?.key ?? null;
+  const document: CapturedRequirement = {
+    key, url: address, title: content.split('\n')[0]!.slice(0, 120), type: 'web', relation, derivedFrom, retrievedVia: 'WebFetch', retrievedAt: deps.runtime.clock.now().toISOString(),
+    sourceVersion: null, updatedAt: null, content, links: [], parent: null, rawHash,
+  };
+  const text = `${JSON.stringify(document, null, 2)}\n`;
+  await writeCapture(deps.runtime.fs, deps.dir, key, rawHash, text);
+  return deps.ledger.append({ kind: 'requirement', route: deps.view.routeId, key, via: 'WebFetch', rawHash, bytes: Buffer.byteLength(text), relation, capture: 'full', derivedFrom });
+}
+
 /**
  * Records what an MCP read tool returned for the active route: nothing else, no map, no step, no advance (03-Q4).
  * A payload it does not recognise, or from a server the binding ignores, writes nothing.
  */
 export async function captureRequirement(input: HookInput, deps: CaptureDeps): Promise<LedgerEntry | null> {
   if (input.tool_name === undefined) return null;
+  if (input.tool_name === 'WebFetch') return captureFetch(input, deps);
   const server = serverOf(input.tool_name);
   if (server === null || !capturesFrom(deps.mcpServer, server)) return null;
+  const reported = textOf(input.tool_response);
+  if (reported.length <= DISCONNECTED_MAX && DISCONNECTED.test(reported) && extractDocument(input.tool_response) === null && extractHits(input.tool_response).length === 0) {
+    const rawHash = contentHash(JSON.stringify(input.tool_response ?? null));
+    const entries = await chainEntries(deps);
+    if (latestFrom(entries, server)?.['capture'] === 'disconnected') return null;
+    return deps.ledger.append({ kind: 'requirement', route: deps.view.routeId, key: 'DISCONNECTED', via: input.tool_name, rawHash, bytes: 0, relation: 'disconnected', capture: 'disconnected', derivedFrom: null });
+  }
   const tool = input.tool_name.slice(`mcp__${server}__`.length).toLowerCase();
   const toolClass = TOOL_CLASSES.find((name) => tool.startsWith(name));
   if (toolClass === undefined) return null;

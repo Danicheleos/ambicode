@@ -1,6 +1,6 @@
 import { parseArgs as nodeParseArgs } from 'node:util';
 import { AmbicodeError, messageOf } from '#util/errors';
-import type { OptionSpec, ParsedArgs } from './types/cli.ts';
+import type { OptionSpec, ParsedArgs } from '#types/cli';
 
 type NodeOption = { type: 'boolean' | 'string'; multiple?: boolean };
 

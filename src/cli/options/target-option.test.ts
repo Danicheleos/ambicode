@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { main } from '../main.ts';
-import { parseArgs } from '../args.ts';
+import { parseArgs } from '#util/args';
 import { validateTargetArgs } from './target-option.ts';
 import { isAmbicodeError } from '#util/errors';
 import { BUNDLE_OPTIONS } from '../commands/review/bundle.ts';

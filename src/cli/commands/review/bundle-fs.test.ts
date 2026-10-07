@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import path from 'node:path';
 import { createRuntime } from '#composition/root';
 import { nodeFileSystem } from '#platform/ports/filesystem';
-import { parseArgs } from '../../args.ts';
+import { parseArgs } from '#util/args';
 import { runBundle, BUNDLE_OPTIONS } from './bundle.ts';
 import { initConfig } from '#testing/fixtures/init-config';
 import { runReview, REVIEW_OPTIONS } from './review.ts';

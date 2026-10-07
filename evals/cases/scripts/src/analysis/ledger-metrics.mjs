@@ -109,7 +109,8 @@ function redGreenOf(entries) {
   return out;
 }
 
-const LEDGER_MEASURES = ['routes', 'mapLayers', 'mapPass2', 'routeSteps', 'revises', 'gates', 'preanswers', 'stopBlocked', 'checkRedGreen', 'envelopeBuiltFrom', 'permissionDenied'];
+const LEDGER_MEASURES = ['routes', 'mapLayers', 'mapPass2', 'routeSteps', 'revises', 'gates', 'preanswers', 'stopBlocked', 'checkRedGreen', 'envelopeBuiltFrom', 'permissionDenied',
+  'stepMs', 'gateLatencyMs', 'budgetUsage', 'mapDecisions', 'mapTuning', 'mapRetry', 'initRuns', 'rulesRuns', 'commands', 'contextPeak', 'contextByStep'];
 
 /**
  * The v6 route measures of one run, from the task ledgers its sandbox left: `[{entries, unreadable}]`, one per
@@ -119,7 +120,7 @@ const LEDGER_MEASURES = ['routes', 'mapLayers', 'mapPass2', 'routeSteps', 'revis
  * written gives null for the measure read from it (a route alone proves nothing about steps, revises, gates,
  * preanswers or exits), while a kind written with no match gives a real 0. Unknown kinds are skipped.
  */
-export function ledgerMetrics(ledgers, trace = null) {
+export function ledgerMetrics(ledgers, trace = null, metrics = null) {
   if (!ledgers) return null;
   const unreadable = ledgers.reduce((n, l) => n + (l.unreadable ?? 0), 0);
   const empty = ledgers.filter((l) => !l.entries.length && !l.unreadable).length;
@@ -174,7 +175,55 @@ export function ledgerMetrics(ledgers, trace = null) {
     envelopeBuiltFrom: envelope ? (envelope.builtFrom ?? null) : null,
     // Exits only: the refusal that preceded one is not a second permission-denied exit.
     permissionDenied: exited(isPermissionDenied),
+    ...instrumentation(of, metrics),
     ...unmeasured,
+  };
+}
+
+const sumBy = (rows, key, value) => {
+  const out = {};
+  for (const row of rows) out[row[key]] = (out[row[key]] ?? 0) + value(row);
+  return out;
+};
+
+/**
+ * The timing, size and command measures of the instrumentation kinds. A kind never written gives null, not a 0.
+ * `metrics` are the rows of `.ambicode/metrics.jsonl` (init and rules runs, and commands run with no task).
+ */
+function instrumentation(of, metrics) {
+  const rows = Array.isArray(metrics) ? metrics : null;
+  const timed = of('step').filter((e) => typeof e.ms === 'number');
+  const sized = of('step').filter((e) => typeof e.payloadTokens === 'number');
+  const prints = of('gate');
+  const latencies = ['acceptance', 'declined', 'default-taken'].flatMap(of).flatMap((answer) => {
+    const print = answer.unbound || answer.instance == null ? null : prints.find((g) => g.id === answer.instance);
+    const ms = print ? Date.parse(answer.at) - Date.parse(print.at) : NaN;
+    return Number.isFinite(ms) && ms >= 0 ? [ms] : [];
+  });
+  const budgeted = [...of('step').filter((e) => e.budget && typeof e.budget === 'object'), ...of('exit').filter((e) => e.budget && typeof e.budget === 'object')];
+  const maps = of('map');
+  const decided = maps.filter((e) => e.decisions);
+  const commands = [...of('command'), ...(rows ?? []).filter((r) => r?.kind === 'command')];
+  const turns = of('turn');
+  const runsOf = (kind) => (rows ? rows.filter((r) => r?.kind === kind).length : null);
+  return {
+    stepMs: timed.length ? sumBy(timed, 'step', (e) => e.ms) : null,
+    gateLatencyMs: latencies.length ? latencies : null,
+    budgetUsage: budgeted.length ? budgeted.at(-1).budget : null,
+    mapDecisions: decided.length ? decided.at(-1).decisions : null,
+    mapTuning: maps.some((e) => e.tuning) ? tally(maps.filter((e) => e.tuning).map((e) => e.tuning.hash)) : null,
+    mapRetry: decided.length ? { maps: decided.length, proseRetry: decided.filter((e) => e.decisions.proseRetry === true).length } : null,
+    initRuns: runsOf('init'),
+    rulesRuns: runsOf('rules'),
+    commands: commands.length
+      ? {
+          count: commands.length,
+          ms: commands.reduce((n, e) => n + (typeof e.ms === 'number' ? e.ms : 0), 0),
+          failures: tally(commands.filter((e) => e.exit !== 0).map((e) => e.type)),
+        }
+      : null,
+    contextPeak: turns.length ? Math.max(...turns.map((e) => e.context?.peak ?? 0)) : null,
+    contextByStep: sized.length ? sumBy(sized, 'step', (e) => e.payloadTokens) : null,
   };
 }
 

@@ -113,6 +113,8 @@ gate:
 | `object` | `kind` or `kind{value}` | The record the question is about; its path and hash are printed. An earlier step must `produce` it. |
 | `policy` | `{ <skill>: stop }` | For that skill the gate gets a `stop` option and `stop` becomes default and release. Used when one route must never continue past it (review). |
 
+In a headless route the guard turns a permission ask into a deny; the model then runs `route stop --reason blocked --detail "permission-denied: <what>"` and the route ends `blocked`.
+
 Special answers: `stop` and `pause` end the route. The exit is `human` for the `scope` and `project-ambiguous` gates, `budget` for the budget gate and `blocked` for every other gate. Name the option `pause` when the user can supply what is missing later in the chat; a paused route cannot be resumed, the user starts a new one.
 
 Gates are asked with AskUserQuestion; the printed line `[ambicode gate <id> <instance>]` must stay verbatim in the question so the hook can bind the answer.

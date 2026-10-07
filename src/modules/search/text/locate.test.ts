@@ -3,9 +3,10 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
-import { parseArgs } from '#cli/args';
+import { parseArgs } from '#util/args';
 import { initConfig } from '#testing/fixtures/init-config';
 import { runLocate, LOCATE_OPTIONS } from '#cli/commands/search/locate';
+import { evidenceSource } from '#cli/options/target-option';
 import { createRuntime } from '#composition/root';
 import { ProjectConfig } from '#types/modules/config';
 import { PREPARE_SHORTLIST_LIMIT, type LocateCandidate } from '#types/modules/search';
@@ -358,6 +359,26 @@ describe('R4 terms from requirement text', () => {
     } finally {
       await rm(path.dirname(root), { recursive: true, force: true });
     }
+  });
+
+  it('refuses an empty or missing piped envelope instead of normalizing half of one', async () => {
+    const root = await materialize('ts-feature-boundary');
+    try {
+      await initConfig(await createRuntime({ cwd: root }));
+      for (const value of ['', null]) {
+        const runtime = await createRuntime({ cwd: root, stdin: { read: async () => value } });
+        await assert.rejects(runLocate(runtime, parseArgs('locate', ['--evidence', '-'], LOCATE_OPTIONS)), (error: unknown) => (error as { code?: string }).code === 'requirements-unreadable');
+      }
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it('resolves --evidence - to standard input and a path to that path', async () => {
+    const runtime = await createRuntime({ cwd: REPO_ROOT });
+    assert.deepEqual(evidenceSource(runtime, '-'), { kind: 'stdin' });
+    assert.equal(evidenceSource(runtime, null), null);
+    assert.equal(evidenceSource(runtime, 'evidence.json')?.kind, 'file');
   });
 });
 

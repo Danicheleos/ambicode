@@ -104,8 +104,6 @@ export function renderConfig(output: ConfigOutput): string {
   for (const project of output.projects) {
     lines.push('', `project ${project.id}  [${project.ecosystem}]  root: ${project.root}`);
     lines.push(`  packs: ${project.packs.join(', ') || '(none)'}`);
-    lines.push(`  code intelligence: ${project.navigation.plugin} (server: ${project.navigation.serverCommand})`);
-    lines.push(`    setup: ${project.navigation.setupCommands.join(' ; ')}`);
     lines.push(`  shortlist include: ${project.shortlist.include.join(' ') || '(any)'}`);
     lines.push(`  shortlist exclude: ${project.shortlist.exclude.join(' ') || '(none)'}`);
     lines.push(...profileLines(project.profile));

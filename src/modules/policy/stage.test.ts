@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseArgs } from '#cli/args';
+import { parseArgs } from '#util/args';
 import { initConfig } from '#testing/fixtures/init-config';
 import { renderPolicy, runPolicy, POLICY_OPTIONS } from '#cli/commands/policy/policy';
 import { createRuntime } from '#composition/root';
@@ -52,15 +52,17 @@ describe('03-P policy stage', () => {
     }
   });
 
-  it('03-P1: overflow is cut with "<n> more" and the --show command; --show returns the whole text', async () => {
+  it('11 §2: before-report carries no rule; before-work carries the built-in rules within its cap, cut or whole', async () => {
     const { temp, runtime, project } = await repo();
     try {
-      const cut = await policyStage({ runtime, project, activity: 'task', paths: ['src/a.ts'], stage: 'before-report', show: false });
-      const whole = await policyStage({ runtime, project, activity: 'task', paths: ['src/a.ts'], stage: 'before-report', show: true });
-      assert.ok(whole.bytes > STAGE_LIMITS['before-report'], `the built-in rules must overflow the cap: ${whole.bytes}`);
-      assert.match(cut.text, /\n\d+ more: `policy --activity task --stage before-report --show`$/);
+      const report = await policyStage({ runtime, project, activity: 'task', paths: ['src/a.ts'], stage: 'before-report', show: true });
+      assert.equal(report.entry.rules, 0);
+      const cut = await policyStage({ runtime, project, activity: 'task', paths: ['src/a.ts'], stage: 'before-work', show: false });
+      const whole = await policyStage({ runtime, project, activity: 'task', paths: ['src/a.ts'], stage: 'before-work', show: true });
+      assert.ok(whole.entry.rules > 0 && cut.bytes <= STAGE_LIMITS['before-work']);
       assert.doesNotMatch(whole.text, /\d+ more: `policy/);
-      assert.ok(cut.bytes <= STAGE_LIMITS['before-report'] && cut.bytes < whole.bytes);
+      const checks = await policyStage({ runtime, project, activity: 'task', paths: ['src/a.ts'], stage: 'before-checks', show: true });
+      assert.equal(checks.entry.rules, 0, 'few code-style rules go before work, so none are left for the checks');
     } finally {
       await temp.dispose();
     }

@@ -32,7 +32,7 @@ const EXCLUDED_PATH_GLOBS = [
  * code. A file must say it is a test in its own name, or sit in a directory whose name
  * is a test convention and nothing else. Off by default: a local review sees its tests.
  */
-const TEST_PATH_PATTERNS = [
+export const TEST_PATH_PATTERNS: readonly RegExp[] = [
   /(^|\/)[^/]+\.(spec|test|cy)\.[^/]+$/,
   /(^|\/)[^/]+_(test|spec)\.[^/]+$/,
   /(^|\/)test_[^/]+\.py$/,

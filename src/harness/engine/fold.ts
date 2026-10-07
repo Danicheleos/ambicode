@@ -1,37 +1,15 @@
 import type { GateDef, Qualified, When } from '../definition/routes.ts';
 import type { RouteDef, StepDef } from '#types/harness';
 import type { LedgerEntry } from '#types/modules/evidence';
-import type { Chain } from '../types/engine.ts';
+import type { Chain } from '#types/modules/evidence';
+import { sinceReopen } from '#platform/ledger/reopen';
+import { buildChain, cycleEntries, exitOf, isBoundAnswer, isBoundKind, latestBound, liveHeads, text } from '#modules/evidence/ledger-chain';
 
-const text = (entry: LedgerEntry, field: string): string | null => (typeof entry[field] === 'string' ? (entry[field] as string) : null);
-const isBoundKind = (entry: LedgerEntry): boolean => entry.kind === 'acceptance' || entry.kind === 'declined' || entry.kind === 'default-taken';
-
-export function buildChain(all: readonly LedgerEntry[], head: LedgerEntry): Chain {
-  const routes = new Map(all.filter((entry) => entry.kind === 'route').map((entry) => [entry.id, entry]));
-  const ids = new Set<string>([head.id]);
-  for (let current: LedgerEntry | undefined = head; current !== undefined; ) {
-    const next = text(current, 'resumes');
-    if (next === null || ids.has(next)) break;
-    ids.add(next);
-    current = routes.get(next);
-  }
-  const member = (entry: LedgerEntry): boolean => (entry.kind === 'route' ? ids.has(entry.id) : ids.has(text(entry, 'route') ?? ''));
-  return { head, ids, entries: all.filter(member) };
-}
-
-/** Heads of the chains no exit has closed: routes nothing resumes. */
-export function liveHeads(entries: readonly LedgerEntry[]): LedgerEntry[] {
-  const resumed = new Set(entries.filter((entry) => entry.kind === 'route' && typeof entry['resumes'] === 'string').map((entry) => entry['resumes'] as string));
-  return entries.filter((entry) => entry.kind === 'route' && !resumed.has(entry.id)).filter((head) => exitOf(buildChain(entries, head)) === null);
-}
+export { sinceReopen, buildChain, cycleEntries, exitOf, isBoundAnswer, latestBound, liveHeads };
 
 /** The latest `route` entry written by this session. */
 export function latestRouteOf(all: readonly LedgerEntry[], session: string): LedgerEntry | null {
   return all.findLast((entry) => entry.kind === 'route' && entry.session === session) ?? null;
-}
-
-export function exitOf(chain: Chain): LedgerEntry | null {
-  return chain.entries.findLast((entry) => entry.kind === 'exit') ?? null;
 }
 
 export const isGreen = (entry: LedgerEntry): boolean => {
@@ -50,16 +28,6 @@ export function matches(entry: LedgerEntry, qualified: Qualified): boolean {
     case 'requirement': return entry['capture'] === qualified.value;
     default: return true;
   }
-}
-
-/** A bound answer: not an unbound hook answer and not a decline that was never an answer (03-G5). */
-export function isBoundAnswer(entry: LedgerEntry): boolean {
-  if (!isBoundKind(entry) || entry['unbound'] === true) return false;
-  return !(entry.kind === 'declined' && (entry['reason'] === 'acting-needs-human' || entry['reason'] === 'option-not-offered'));
-}
-
-export function latestBound(window: readonly LedgerEntry[], gate: string): LedgerEntry | null {
-  return window.findLast((entry) => isBoundAnswer(entry) && entry['gate'] === gate) ?? null;
 }
 
 /** Entries after the latest `revise` aimed at or before this step (03-F2). */
@@ -149,11 +117,6 @@ export function foldRoute(def: RouteDef, chain: Chain): Fold {
 
 export const windowOf = (fold: Fold, step: StepDef): LedgerEntry[] => fold.chain.entries.slice(fold.steps[step.index]!.windowStart);
 
-/** Entries after the latest human revise: the current cycle (03-F6). */
-export function cycleEntries(entries: readonly LedgerEntry[]): LedgerEntry[] {
-  return entries.slice(entries.findLastIndex((entry) => entry.kind === 'revise' && entry['via'] === 'gate') + 1);
-}
-
 /** Executions of a step in this cycle: completions of a code step, deliveries of a model step. */
 export function executions(entries: readonly LedgerEntry[], step: StepDef): number {
   const status = step.actor === 'code' ? 'completed' : 'delivered';
@@ -197,4 +160,11 @@ export function currentIn(def: RouteDef, chain: Chain): (entry: LedgerEntry) => 
     const at = where.get(entry.id);
     return at !== undefined && !revises.some((revise) => revise.position > at.position && revise.step <= at.step);
   };
+}
+
+/** The gate's latest print, or the answered instance, that no human answer has bound yet: a late answer may still reopen. */
+export function openPrint(entries: readonly LedgerEntry[], gate: string, instance: string | undefined): boolean {
+  const print = entries.findLast((entry) => entry.kind === 'gate' && entry['gate'] === gate && (instance === undefined || entry.id === instance));
+  if (print === undefined) return false;
+  return !entries.slice(entries.indexOf(print) + 1).some((entry) => (entry.kind === 'acceptance' || entry.kind === 'declined') && entry['gate'] === gate);
 }

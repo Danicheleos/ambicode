@@ -23,23 +23,7 @@ const RANK: Record<string, number> = {
 };
 
 /** Known crossings, removed as they are fixed; an entry that no longer occurs fails too. */
-const ALLOWLIST = new Set<string>([
-  'src/hook/events/prepare-on-skill.ts -> #cli/args',
-  'src/hook/events/prepare-on-skill.ts -> #cli/commands/prepare/prepare',
-  'src/hook/events/prompt-launch.ts -> #cli/args',
-  'src/hook/events/prompt-launch.ts -> #cli/commands/route/route',
-  'src/modules/checks/review-evaluation.ts -> #harness/engine/fold',
-  'src/modules/checks/run/check-command.ts -> #harness/engine/context',
-  'src/modules/checks/run/check-command.ts -> #harness/engine/fold',
-  'src/modules/checks/run/check-command.ts -> #harness/gates/gates',
-  'src/modules/checks/run/format.ts -> #harness/engine/context',
-  'src/modules/evidence/notes.ts -> #harness/session/ownership',
-  'src/modules/evidence/report/report.ts -> #harness/engine/fold',
-  'src/modules/policy/authoring/rules.ts -> #harness/engine/context',
-  'src/modules/requirements/envelope/conflict.ts -> #harness/gates/gates',
-  'src/modules/requirements/envelope/envelope.ts -> #harness/engine/fold',
-  'src/modules/workers/plan-check.ts -> #harness/engine/fold',
-]);
+const ALLOWLIST = new Set<string>([]);
 
 const GUARD_BUNDLE_MAX_BYTES = 70 * 1024;
 

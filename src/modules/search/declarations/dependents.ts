@@ -1,9 +1,8 @@
 import type { ProjectConfig } from '#types/modules/config';
 import type { Git } from '#platform/git/git';
-import { DECLARATION_PATTERNS } from '#types/modules/ecosystems';
 import { isTestPath } from '#util/path-classes';
 import { locate } from '../text/locate.ts';
-import { MAX_DEPENDENTS, COMMON_NAMES, type Dependent } from '#types/modules/search';
+import { MAX_DEPENDENTS, COMMON_NAMES, DECLARATION_CANDIDATES, type Dependent } from '#types/modules/search';
 import type { DiffFile } from '#types/platform/git';
 
 /**
@@ -18,7 +17,7 @@ const MAX_DEPENDENT_TERMS = 12;
  */
 const MAX_MODULE_TERMS = 6;
 
-const DECLARATIONS = DECLARATION_PATTERNS;
+const DECLARATIONS = DECLARATION_CANDIDATES;
 
 function declaredNames(text: string): string[] {
   const names: string[] = [];

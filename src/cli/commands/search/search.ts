@@ -1,11 +1,11 @@
 import path from 'node:path';
 import { openWorkspace, projectForRequest, toRepositoryRelative } from '#modules/config/workspace';
-import { buildMap, resolveLayers, type MapResult } from '#modules/search/text/map';
+import { buildMap, resolveLayers, resolveTuning, type MapResult } from '#modules/search/text/map';
 import { find, refs, renderFind } from '#modules/search/declarations/refs';
 import { relates, renderRelates } from '#modules/search/declarations/relates';
 import { formatIndexStatus, indexAdapterFor } from '#modules/search/code-index/adapter';
 import { indexDepsOf, runIndexBuild } from '#modules/search/code-index/codeindex';
-import { openRouteView } from '#harness/engine/context';
+import { COMMAND_SPECS } from '#skills/investigate/commands';
 import { taskSlugFor } from '#modules/review/bundle/review-name';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
@@ -33,8 +33,7 @@ async function record(runtime: Runtime, args: ParsedArgs, entry: { kind: string;
   if (slug === null) return;
   const dir = await resolveTaskDir(runtime, slug);
   const tools = await routeTools(runtime, slug);
-  const session = tools.binding.state === 'bound' ? tools.binding.session : null;
-  const view = session === null ? null : await openRouteView(runtime, tools.routes, slug, session);
+  const { session, view } = await tools.engine.command(COMMAND_SPECS.search, { task: slug }, async (scope) => scope);
   await withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), session ?? runtime.ids.writerId(), (ledger) =>
     ledger.append({ ...(view === null ? {} : { route: view.routeId }), ...entry }),
   );
@@ -64,7 +63,7 @@ export async function runMap(runtime: Runtime, args: ParsedArgs): Promise<Search
   const workspace = await openWorkspace(runtime);
   const project = projectForRequest(workspace.config, args.value('project'), args.positionals);
   const { layers, source } = resolveLayers(workspace.config.search, mode);
-  const map: MapResult = await buildMap({ runtime, project, mode, layers, layersSource: source, terms, paths: args.positionals, symbols });
+  const map: MapResult = await buildMap({ runtime, project, mode, layers, layersSource: source, terms, paths: args.positionals, symbols, tuning: resolveTuning(workspace.config.search) });
   await record(runtime, args, { kind: 'map', ...map.entry });
   const file = await showFile(runtime, args, 'map', map.text);
   return { command: 'map', text: map.text, bytes: map.bytes, ...(file === undefined ? {} : { file }), data: { layers: map.layers, terms: map.terms, candidates: map.candidates, symbols: map.symbols, collides: map.collisions, limitations: map.limitations, index: map.index, omitted: map.omitted } };

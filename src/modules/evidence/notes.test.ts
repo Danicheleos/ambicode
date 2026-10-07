@@ -3,7 +3,7 @@ import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import { createRuntime } from '#composition/root';
-import { ownerOf } from '#harness/session/ownership';
+import { ownerOf } from '#modules/evidence/ownership';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { systemIds } from '#platform/ports/ids';
 import { TempRepo } from '#testing/fixtures/temp-repo';
@@ -14,7 +14,7 @@ import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { listNotes, promotePlan, saveNote } from './notes.ts';
 import type { Runtime } from '#types/composition';
 import { LEDGER_FILE, type LedgerEntry, type NoteDeps } from '#types/modules/evidence';
-import type { ConsentResult, RouteContextPort, RouteView } from '#types/harness';
+import type { ConsentResult, CommandContext, RouteView } from '#types/harness';
 import type { FileSystem } from '#types/platform/ports';
 
 const NOW = new Date(2026, 9, 2, 14, 35);
@@ -206,7 +206,7 @@ describe('02-N6: note list', () => {
 });
 
 /** Gate answers over a real ledger; the engine is step 03's, so a fake reads the same ledger and answers as 01-contracts §6 says. */
-function fakePort(repo: TempRepo): RouteContextPort {
+function fakePort(repo: TempRepo): CommandContext {
   const read = (): Promise<LedgerEntry[]> => entriesOf(repo);
   const answers = (entries: LedgerEntry[], gate: string): LedgerEntry[] =>
     entries.filter((entry) => ['acceptance', 'declined', 'default-taken'].includes(entry.kind) && entry.gate === gate && entry.unbound !== true);
@@ -216,6 +216,13 @@ function fakePort(repo: TempRepo): RouteContextPort {
       const mine = (await read()).filter((entry) => entry.kind === 'route' && entry.skill === 'plan' && entry.session === session).at(-1);
       if (mine === undefined) return null;
       return { task: TASK, routeId: mine.id, chainIds: [mine.id], skill: 'plan', session, mode: 'interactive', channel: 'hook', trusted: true, position: 'plan-accept' };
+    },
+    open(task, session) {
+      return this.resolve(task, session);
+    },
+    entries: () => read(),
+    raise: async () => {
+      throw new Error('the fake port raises no gate');
     },
     async assertOwner(view) {
       const owner = ownerOf(await read(), TASK);
@@ -353,9 +360,9 @@ describe('note promote: the accepted draft, and only that draft, becomes the pla
       const gate = await scenario.gate(await scenario.draft('# Plan'));
       await scenario.answer(gate, 'Accept', { via: 'flag' });
       await assert.rejects(scenario.promote(), refused('not-accepted'));
-      const wrong: RouteContextPort = { ...fakePort(repo), consent: async () => ({ state: 'honoured', source: { id: 'x', at: 't', kind: 'acceptance', route: 'r', gate: 'plan-accept', instance: null, answer: 'Accept', via: 'hook' }, object: null }) };
+      const wrong: CommandContext = { ...fakePort(repo), consent: async () => ({ state: 'honoured', source: { id: 'x', at: 't', kind: 'acceptance', route: 'r', gate: 'plan-accept', instance: null, answer: 'Accept', via: 'hook' }, object: null }) };
       await assert.rejects(scenario.promote({ context: wrong }), refused('not-accepted'));
-      const unbound: RouteContextPort = { ...wrong, consent: async () => ({ state: 'honoured', source: { id: 'x', at: 't', kind: 'acceptance', gate: 'plan-accept', instance: 'g', answer: 'Accept', via: 'hook', unbound: true }, object: null }) };
+      const unbound: CommandContext = { ...wrong, consent: async () => ({ state: 'honoured', source: { id: 'x', at: 't', kind: 'acceptance', gate: 'plan-accept', instance: 'g', answer: 'Accept', via: 'hook', unbound: true }, object: null }) };
       await assert.rejects(scenario.promote({ context: unbound }), refused('not-accepted'));
     });
   });

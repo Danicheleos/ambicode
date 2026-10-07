@@ -24,7 +24,7 @@ against evidence that already exists, not as open-ended advice.
   ordinary `claude plugin list` and
   `claude plugin details ambicode@ambicode-team` report all six
   skills (`init`, `review`, `investigate`, `plan`, `task`, `rules`) and the
-  hooks of `hooks/hooks.json` (seven events, eleven handler entries:
+  hooks of `hooks/hooks.json` (seven events, fourteen handler entries:
   `PostToolUse`, `PreToolUse`, `SessionStart`, `UserPromptSubmit`, `Stop`,
   `PostCompact`, `SessionEnd`; record the count the CLI prints) before relying
   on it.

@@ -15,7 +15,8 @@ import { touchedSet } from '#modules/checks/workspace/baseline';
 import { estimateReview, renderEstimate } from '#modules/review/bundle/estimate';
 import { routeEvidence } from '#modules/requirements/envelope/envelope';
 import { taskSlugFor } from '#modules/review/bundle/review-name';
-import { ledgerRouteContext, readEntries } from '#harness/engine/context';
+import { readEntries } from '#harness/engine/context';
+import { COMMAND_SPECS } from '#skills/review/commands';
 import { runCommandTail } from '#harness/engine/command-tail';
 import { AmbicodeError } from '#util/errors';
 import { routeTools } from '../route/route.ts';
@@ -68,15 +69,25 @@ async function reviewRouteTarget(runtime: Runtime, deps: CheckDeps, routed: Rout
       details: [`The route reviews ${target.kind === 'working' ? 'uncommitted work' : target.kind === 'branch' ? `the branch against ${target.baseRef ?? 'its baseline'}` : target.url}. Drop the target flags, or start another route.`],
     });
   }
-  if (mode === 'review') {
-    const consent = await deps.context!.consent(routed.view, 'estimate');
-    if (consent.state !== 'honoured' || consent.source.answer !== 'run') {
-      throw new AmbicodeError('review-not-accepted', `The independent review of task ${routed.view.task} was not accepted (${consent.state === 'refused' ? consent.reason : 'not run'}).`, {
-        details: ['Release: answer the estimate question.'],
-      });
-    }
-  }
+  if (mode === 'review') await requireRun(runtime, deps, routed, 'estimate', null);
   return target;
+}
+
+/** One acceptance authorizes one reviewer run: after a run, only an acceptance written later counts (`again` when the route has one). */
+async function requireRun(runtime: Runtime, deps: CheckDeps, routed: Routed, first: string, again: string | null): Promise<void> {
+  const entries = (await readEntries(runtime, routed.view.task)).filter((entry) => routed.view.chainIds.includes(String(entry.kind === 'route' ? entry.id : entry['route'])));
+  const last = entries.findLastIndex((entry) => entry.kind === 'review' && entry['reviewerRan'] !== false);
+  const gate = last === -1 || again === null ? first : again;
+  const consent = await deps.context!.consent(routed.view, gate);
+  if (consent.state === 'honoured' && consent.source.answer === 'run') {
+    if (last === -1 || entries.findIndex((entry) => entry.id === consent.source.id) > last) return;
+    throw new AmbicodeError('review-not-accepted', `The independent review of task ${routed.view.task} already ran on the acceptance given at ${gate}.`, {
+      details: [`Release: ask the user again and record a new answer to the ${gate} question.`],
+    });
+  }
+  throw new AmbicodeError('review-not-accepted', `The independent review of task ${routed.view.task} was not accepted (${consent.state === 'refused' ? consent.reason : 'not run'}).`, {
+    details: [`Release: answer the ${gate} question.`],
+  });
 }
 
 /**
@@ -100,8 +111,8 @@ async function taskScope(runtime: Runtime, options: ResolvedTargetOptions, mode:
   if (options.task === null) return null;
   const task = taskSlugFor({ requirementIds: [], task: options.task }) ?? options.task;
   const tools = await routeTools(runtime, task);
-  const session = tools.binding.state === 'bound' ? tools.binding.session : null;
-  const deps: CheckDeps = { runtime, session, context: ledgerRouteContext({ runtime, routes: tools.routes }), routes: tools.routes, ...(warm === undefined ? {} : { warm }) };
+  const { session, context } = await tools.engine.command(COMMAND_SPECS.review, { task }, async (scope) => scope);
+  const deps: CheckDeps = { runtime, session, context, ...(warm === undefined ? {} : { warm }) };
   const routed = await routedOf(deps, task);
   // A merge request belongs to a task only through a review route's target.
   if (options.target.kind === 'merge-request' && routed?.view.skill !== 'review') return null;
@@ -120,12 +131,7 @@ async function taskScope(runtime: Runtime, options: ResolvedTargetOptions, mode:
         details: [`Release: $A route next --task ${task} (ground records it), then run the review again.`],
       });
     }
-    const offer = await deps.context!.consent(routed.view, 'review-offer');
-    if (offer.state !== 'honoured' || offer.source.answer !== 'run') {
-      throw new AmbicodeError('review-not-accepted', `The independent review of task ${task} was not accepted (${offer.state === 'refused' ? offer.reason : 'not run'}).`, {
-        details: ['Release: answer the review-offer question.'],
-      });
-    }
+    await requireRun(runtime, deps, routed, 'review-offer', 'review-again');
   }
   if (routed !== null) {
     // A typed --approve never approves by itself: only an honoured answer for that key does.

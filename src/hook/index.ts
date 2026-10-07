@@ -13,7 +13,7 @@ export { ACTIVE_ROUTE_FILE, GUARD_LEDGER_FILE, GUARD_STATE_DIR_NAME, LEDGER_LIMI
 export { parseCommand } from './shell/command-parser.ts';
 export type { Directories, ParseOptions, Segment, WriteTarget } from './shell/command-parser.ts';
 
-// events/: the CLI-side hook dispatcher (SessionStart, UserPromptSubmit, PostToolUse, …) and the `prepare` runs it triggers.
+// events/: the CLI-side hook dispatcher (SessionStart, UserPromptSubmit, PostToolUse, …).
 /** defaultHookDeps(runtime) — the production HookDeps (routes, engine, pointer) built over a Runtime. */
 export { defaultHookDeps } from './events/run-hook.ts';
 /** runHook(runtime, rawStdin, injected?) — dispatches one hook event from its stdin JSON and returns the output object; never blocks a finished tool call. */
@@ -28,8 +28,6 @@ export { reinjectRoute } from './events/prompt-launch.ts';
 export { answerGates } from './events/gate-answer.ts';
 /** redBeforeGreen(entries, key) — true when a failing check precedes the key's first green one in the ledger. */
 export { redBeforeGreen } from './events/stop-check.ts';
-/** stopCheck(runtime, input, deps, options?) — evaluates Stop's conditions and returns the single block output they may cause, or null. */
+/** stopCheck(input, deps, options?) — evaluates Stop's conditions and returns the single block output they may cause, or null. */
 export { stopCheck } from './events/stop-check.ts';
 export { ANSWER_CONTEXT, ASK_BINDING, PLATFORM } from '#types/platform/claude';
-/** prepareForSlashCommand(runtime, input) — for a `/ambicode:<skill>` prompt runs `prepare` and returns the PostToolUse output carrying its context. */
-export { prepareForSlashCommand } from './events/prepare-on-skill.ts';

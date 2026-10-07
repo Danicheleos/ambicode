@@ -47,3 +47,21 @@ describe('09-E3: formatter detection is keyed by tool (per 03c)', () => {
     assert.equal(format?.argv?.[0], './.venv/bin/black');
   });
 });
+
+describe('a repository without a manifest', () => {
+  it('becomes one project named generic with no commands', async () => {
+    const repo = await TempRepo.create();
+    try {
+      await repo.write('src/a.go', 'package a\n');
+      const runtime = await createRuntime({ cwd: repo.root });
+      const projects = await detectProjects(runtime.fs, repo.root);
+      assert.equal(projects.length, 1);
+      assert.equal(projects[0]!.id, 'generic');
+      assert.equal(projects[0]!.ecosystem, 'generic');
+      assert.equal(projects[0]!.root, '.');
+      assert.equal(projects[0]!.unit, null);
+    } finally {
+      await repo.dispose();
+    }
+  });
+});

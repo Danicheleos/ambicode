@@ -1,8 +1,10 @@
 import { realpathSync } from 'node:fs';
 import { createRuntime } from '#composition/root';
+import { RecordingProcessRunner } from '#platform/ports/recording-process-runner';
+import { logInvocation, type Invocation } from './command-log.ts';
 import { AmbicodeError, isAmbicodeError } from '#util/errors';
 import { formatJsonOutput } from '#util/json-output';
-import { parseArgs } from './args.ts';
+import { parseArgs } from '#util/args';
 import { bundleCommand } from './commands/review/bundle.ts';
 import { configCommand } from './commands/config/config.ts';
 import { initCommand } from './commands/config/init.ts';
@@ -306,12 +308,12 @@ export const USAGE = `ambicode <command> [options]
 
   view                  Open a saved review in a local page on 127.0.0.1, to
                           read it and, for a merge request review, select
-                          comments to publish. The link is printed and opened
-                          once; the page stops on Ctrl-C or when it idles out.
+                          comments to publish. The link is printed; the page
+                          stops on Ctrl-C or when it idles out.
                             --review <id|path>    The review id from the report, or
                                                   the path of its saved result.json.
-                            --no-open             Print the URL without launching a
-                                                  browser.
+                            --open                Also launch a browser; ask the user
+                                                  first.
 
   version                 Print the helper and git versions.
 
@@ -356,7 +358,9 @@ export async function main(argv: readonly string[]): Promise<number> {
     // reach a process, the filesystem or a provider.
     const args = parseArgs(name, commandArgv, entry.options);
     entry.validate?.(args);
-    const rendered = await dispatch(entry, args);
+    const started = performance.now();
+    const logged: Logged = {};
+    const rendered = await dispatch(entry, args, logged);
     for (const warning of rendered.warnings ?? []) process.stderr.write(`${warning}\n`);
     process.stdout.write(
       args.flag('json') ? formatJsonOutput(rendered.data, rendered.json ?? 'pretty') : `${rendered.text}\n`,
@@ -365,7 +369,9 @@ export async function main(argv: readonly string[]): Promise<number> {
       const reason = await serveUntilStopped(rendered.wait);
       process.stdout.write(`The review page stopped: ${reason}.\n`);
     }
-    return rendered.exitCode ?? 0;
+    const exit = rendered.exitCode ?? 0;
+    await logged.log?.({ name, argv: commandArgv, task: args.value('task'), exit, ms: Math.round(performance.now() - started), out: Buffer.byteLength(rendered.text) });
+    return exit;
   } catch (error) {
     return reportFailure(error);
   }
@@ -415,8 +421,13 @@ const COMMANDS: ReadonlyMap<string, CliCommand> = new Map([
 
 export const SPECS: Record<string, OptionSpec | undefined> = Object.fromEntries([...COMMANDS].map(([name, entry]) => [name, entry.options]));
 
-async function dispatch(command: CliCommand, args: ParsedArgs): Promise<Rendered> {
-  const runtime = await createRuntime();
+interface Logged { log?: (invocation: Invocation) => Promise<void> }
+
+async function dispatch(command: CliCommand, args: ParsedArgs, logged: Logged): Promise<Rendered> {
+  const created = await createRuntime();
+  const recorder = new RecordingProcessRunner(created.runner);
+  const runtime: Runtime = { ...created, runner: recorder };
+  logged.log = (invocation) => logInvocation(runtime, recorder.records, invocation);
   const rendered = await command.run(runtime, args);
   const notices = runtime.notices ?? [];
   return notices.length === 0 ? rendered : { ...rendered, warnings: [...notices, ...(rendered.warnings ?? [])] };

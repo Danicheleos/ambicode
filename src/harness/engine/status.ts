@@ -3,7 +3,7 @@ import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { readEntries } from './context.ts';
 import { entryPaths } from '#modules/requirements/capture/capture-files';
 import { buildChain, exitOf, executions, foldRoute, humanRevisesLeft } from './fold.ts';
-import { ownerOf, OWNING_SKILLS } from '../session/ownership.ts';
+import { ownerOf, OWNING_SKILLS } from '#modules/evidence/ownership';
 import type { Runtime } from '#types/composition';
 import type { LedgerEntry, TaskDir } from '#types/modules/evidence';
 import type { RouteRegistry, Position } from '#types/harness';
@@ -51,6 +51,9 @@ export async function routeStatus({ runtime, routes }: StatusScope, task: string
       sessions: chain.entries.filter((entry) => entry.kind === 'route').map((entry) => ({ session: String(entry['session']), routeId: entry.id, adopts: entry['adopts'] === true })),
       owner: owning ? ownerOf(entries, task) : null,
       position: fold.position?.id ?? 'complete',
+      mode: head['mode'] === 'headless' ? 'headless' : 'interactive',
+      channel: String(head['channel'] ?? ''),
+      decisions: chain.entries.filter((entry) => entry.kind === 'default-taken' || (entry.kind === 'revise' && entry['via'] === 'code')),
       steps: fold.steps.map((state) => ({ id: state.step.id, state: state.state, windowStart: state.windowStart })),
       cycles: chain.entries.filter((entry) => entry.kind === 'revise' && entry['via'] === 'gate').length,
       repeatsLeft: Object.fromEntries(def.steps.filter((step) => step.repeat > 1).map((step) => [step.id, Math.max(0, step.repeat - executions(chain.entries, step))])),

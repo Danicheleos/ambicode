@@ -6,7 +6,7 @@ import { captureRequirement } from '#modules/requirements/capture/capture';
 import { normalizeEnvelope } from '#modules/requirements/envelope/envelope';
 import { jira, mcp, search } from '#testing/fixtures/requirements-session';
 import { runReview, REVIEW_OPTIONS } from '#cli/commands/review/review';
-import { parseArgs } from '#cli/args';
+import { parseArgs } from '#util/args';
 import { createRuntime } from '#composition/root';
 import { instantiateGate } from '#harness/gates/gates';
 import { TempRepo } from '#testing/fixtures/temp-repo';

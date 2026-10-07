@@ -12,7 +12,7 @@ import { CountingIds, FakeClock } from '#testing/fixtures/page-harness';
 import { publicationPositions, reviewResult } from '#testing/fixtures/review-fixture';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { isAmbicodeError } from '#util/errors';
-import { parseArgs } from '../../args.ts';
+import { parseArgs } from '#util/args';
 import { initConfig } from '#testing/fixtures/init-config';
 import { renderView, runView, VIEW_OPTIONS } from './view.ts';
 import type { Runtime } from '#types/composition';
@@ -154,6 +154,26 @@ describe('the reopen command', () => {
       ]);
       assert.ok(output.reviewDirectory.endsWith(path.join('.ambicode', 'reviews', 'r-0001')));
       await output.stop('test finished');
+    } finally {
+      await context.dispose();
+    }
+  });
+
+  it('launches a browser only with --open', async () => {
+    const context = await fixture();
+    try {
+      const launched: string[][] = [];
+      const real = context.runtime.runner;
+      const runner = { ...real, run: async (request: Parameters<typeof real.run>[0]) => (request.argv[0] === 'open' ? (launched.push([...request.argv]), { kind: 'exited', exitCode: 0, stdout: '', stderr: '' }) : real.run(request)) } as unknown as Runtime['runner'];
+      const runtime = { ...context.runtime, runner } as Runtime;
+      const plain = await runView(runtime, parseArgs('view', ['--review', 'r-0001'], VIEW_OPTIONS), { port: 0 });
+      assert.equal(plain.browserOpened, false);
+      assert.deepEqual(launched, []);
+      await plain.stop('test finished');
+      const asked = await runView(runtime, parseArgs('view', ['--review', 'r-0001', '--open'], VIEW_OPTIONS), { port: 0, platform: 'darwin' });
+      assert.equal(launched.length, 1);
+      assert.equal(launched[0]![0], 'open');
+      await asked.stop('test finished');
     } finally {
       await context.dispose();
     }

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { launchRoute } from '#hook/events/prompt-launch';
+import { buildReport } from '#modules/evidence/report/report';
 import { STAGE_LIMITS } from '#modules/policy/stage';
 import { stepHeader } from '#harness/engine/delivery';
 import { MAX_INSTRUCTION_CHARS } from '#harness/definition/routes';
@@ -90,6 +91,22 @@ describe('task route (07-R, 07-V, 07-G)', () => {
     });
   });
 
+  it('B8: the task map is seeded from the iteration brief, never from the "iteration N of slug" request', async () => {
+    const plan = '.ambicode/task/ord-7/plan.md';
+    await withTask(async (t) => {
+      await t.fx.repo.write('src/seeded/reducer.ts', 'export function reduceTotals(): number {\n  return 1;\n}\n');
+      await t.fx.repo.commitAll('seeded file');
+      await t.fx.repo.write(plan, '# Plan\n\n## Iteration 1\nChange `reduceTotals` in src/seeded/reducer.ts:1.\n');
+      await t.start({ plan, text: 'iteration 1 of ord-7' });
+      const map = (await t.kinds('map')).at(-1)!;
+      const terms = (map['terms'] as { pass1: string[] }).pass1;
+      assert.ok(terms.includes('reduceTotals'), terms.join(','));
+      assert.ok(!terms.some((term) => /^iteration$/i.test(term)), terms.join(','));
+      assert.ok((map['candidatePaths'] as string[]).includes('src/seeded/reducer.ts'));
+      assert.match(String((map['tuning'] as { hash: string }).hash), /^[0-9a-f]{12}$/);
+    });
+  });
+
   it('07-R4/07-G1/07-G2: ground records baseline, map and both policy stages in order, lists callers with collides, states the grep fallback, under 9 KiB', async () => {
     await withTask(async (t) => {
       await t.fx.repo.write('src/other.ts', 'export function total(): number {\n  return 1;\n}\n');
@@ -116,17 +133,16 @@ describe('task route (07-R, 07-V, 07-G)', () => {
     });
   });
 
-  it('07-R5/07-R9: three nexts with no red check record limit missing-produces at red, and the report says no-red', async () => {
+  it('07-R5/07-R9: one re-print with no red check writes limit no-red and ends the route for the human', async () => {
     await withTask(async (t) => {
       await t.start();
-      for (let index = 0; index < 3; index += 1) await t.next();
-      assert.deepEqual((await t.kinds('limit')).map((entry) => [entry['which'], entry['step']]), [['missing-produces', 'red']]);
-      await t.edit();
-      await t.check('green', { ran: 1, failed: 0 });
-      await t.format();
-      const write = await t.hook('review-offer', 'skip — verification incomplete');
-      assert.equal(write.position, 'write');
-      assert.match(write.text, /no-red: no failing-first test recorded/);
+      const again = await t.next();
+      assert.equal(again.position, 'red');
+      assert.match(again.text, /Not done yet/);
+      const stopped = await t.next();
+      assert.equal(stopped.position, 'complete');
+      assert.deepEqual((await t.kinds('limit')).map((entry) => [entry['which'], entry['step']]), [['no-red', 'red']]);
+      assert.deepEqual((await t.kinds('exit')).map((entry) => [entry['reason'], entry['detail']]), [['human', 'no-red']]);
     });
   });
 
@@ -163,20 +179,37 @@ describe('task route (07-R, 07-V, 07-G)', () => {
     });
   });
 
-  it('07-V3: the first entry to fix comes from review-run, one more from report-step, and the third is refused with limit repeat', async () => {
+  it('07-V3: a fix round asks review-again; run re-enters review-run once per answer and a skip records the fix as not re-reviewed', async () => {
     await withTask(async (t) => {
       await toOffer(t);
       await t.hook('review-offer', 'run');
       const fix = await t.review([finding({ id: 'F1' })]);
       assert.equal(fix.position, 'fix');
       assert.match(fix.text, /F1 src\/orders\.ts:2/);
-      await t.check('green', { ran: 1, failed: 0 });
+      const ask = await t.check('green', { ran: 1, failed: 0 });
+      assert.equal(ask.position, 'report-step');
+      assert.equal((await prints(t, 'review-again')).length, 1);
+      const again = await t.hook('review-again', 'run');
+      assert.equal(again.position, 'review-run');
       assert.equal((await t.review([finding({ id: 'F2' })])).position, 'fix');
       await t.check('green', { ran: 1, failed: 0 });
-      assert.equal((await t.review([finding({ id: 'F3' })])).position, 'write');
-      assert.deepEqual((await t.kinds('revise')).map((entry) => entry['reason']), ['review-run: review-findings', 'report-step: review-findings']);
-      assert.ok((await t.kinds('limit')).some((entry) => entry['which'] === 'repeat' && entry['step'] === 'fix'));
-      assert.equal(await delivered(t, 'fix'), 2);
+      assert.equal((await prints(t, 'review-again')).length, 2);
+      assert.equal((await t.hook('review-again', 'skip')).position, 'write');
+      assert.deepEqual((await t.kinds('revise')).map((entry) => entry['reason']), ['review-run: review-findings', 'review-again: run', 'review-run: review-findings']);
+      assert.match(buildReport(await t.ledger()).text, /fix not re-reviewed/);
+    });
+  });
+
+  it('07-V3: the review-again default is skip and runs no reviewer and no revise', async () => {
+    await withTask(async (t) => {
+      await toOffer(t);
+      await t.hook('review-offer', 'run');
+      await t.review([finding({ id: 'F1' })]);
+      await t.check('green', { ran: 1, failed: 0 });
+      for (let turn = 0; turn < 4; turn += 1) await t.next();
+      assert.deepEqual((await t.kinds('default-taken')).map((entry) => [entry['gate'], entry['answer']]), [['review-again', 'skip']]);
+      assert.deepEqual((await t.kinds('revise')).map((entry) => entry['reason']), ['review-run: review-findings']);
+      assert.equal((await t.kinds('review')).length, 1);
     });
   });
 
@@ -204,17 +237,16 @@ describe('task route (07-R, 07-V, 07-G)', () => {
     });
   });
 
-  it('07-V1: a fix-round review waiting on a key is raised at report-step and approved back into fix', async () => {
+  it('07-V1: a waiting key in the review that follows a fix round is raised and approved back into fix', async () => {
     await withTask(async (t) => {
       await toOffer(t);
       await t.hook('review-offer', 'run');
       await t.review([finding({ id: 'F1' })]);
       await t.check('green', { ran: 1, failed: 0 });
-      assert.equal((await t.review([], { waiting: ['app/e2e'] })).position, 'report-step');
-      assert.deepEqual((await prints(t, 'check-only-unauthorized')).map((entry) => [entry['raisedBy'], entry['openAt']]), [['fix', 'report-step']]);
+      assert.equal((await t.hook('review-again', 'run')).position, 'review-run');
+      await t.review([], { waiting: ['app/e2e'], reviewerRan: false });
+      assert.deepEqual((await prints(t, 'check-only-unauthorized')).map((entry) => entry['raisedBy']), ['fix']);
       assert.equal((await t.hook('check-only-unauthorized', 'approve')).position, 'fix');
-      await t.check('green', { ran: 1, failed: 0 });
-      assert.equal((await t.review([])).position, 'write');
     });
   });
 
@@ -278,9 +310,32 @@ describe('task route (07-R, 07-V, 07-G)', () => {
       await t.hook('review-offer', 'run');
       await t.review([finding({ id: 'F1' })]);
       await t.check('green', { ran: 1, failed: 0 });
-      assert.equal((await t.review([])).position, 'write');
+      assert.equal((await t.hook('review-again', 'skip')).position, 'write');
       const asked = (await prints(t)).length;
       assert.ok(asked >= 1 && asked <= 3, `${asked}`);
+    });
+  });
+
+  it('B7: a task without a requirement needs no route next: the write step ends with the final message and Stop after the final message closes the route', async () => {
+    await withTask(async (t) => {
+      await toOffer(t);
+      const write = await t.hook('review-offer', 'skip — verification incomplete');
+      assert.equal(write.position, 'write');
+      assert.doesNotMatch(write.text, /route next/);
+      assert.notEqual(await t.fx.engine.deliver(CHECK_TASK, SESSION_A, t.fx.scratchpad), null, 'a resume or another prompt does not close it');
+      assert.equal((await t.kinds('exit')).length, 0);
+      await t.fx.engine.stopHook({ hook_event_name: 'Stop', session_id: SESSION_A, cwd: t.fx.repo.root, scratchpad_dir: t.fx.scratchpad });
+      assert.equal((await t.kinds('exit')).at(-1)?.['reason'], 'done');
+    });
+  });
+
+  it('B9: before-work reaches red, before-checks reaches green, before-report reaches write', async () => {
+    await withTask(async (t) => {
+      const def = t.fx.routes.route('task')!;
+      const payloadOf = (id: string): readonly string[] => def.steps.find((step) => step.id === id)!.payload;
+      assert.ok(payloadOf('red').includes('policy:before-work') && !payloadOf('red').includes('policy:before-checks'));
+      assert.deepEqual(payloadOf('green'), ['policy:before-checks']);
+      assert.ok(payloadOf('write').includes('policy:before-report'));
     });
   });
 

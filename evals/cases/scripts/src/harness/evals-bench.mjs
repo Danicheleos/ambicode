@@ -15,6 +15,7 @@ import { LEDGER_DIRECTORY, tally } from '../analysis/ledger-metrics.mjs';
 import { atomicWrite, FRONT_MATTER, GENERATION_MARKER, NAKED_COPY, outstandingSwap, PROMPT, promptBody, restorePrompts, swapInPluginPrompts, WITH_PROMPT } from './prompt-transport.mjs';
 import { FORCED_REMOVED, harnessArgv, parseRunOptions, PATH_OPTIONS, resultLayout, runSpec } from './run-options.mjs';
 import { trackSweep } from './sweep-events.mjs';
+import { dryRunArgs, DEFAULT_RECORDINGS, replaySummary, reviewCaseNames, tuningSummaryOf } from '../analysis/model-free-runners.mjs';
 import { harvestTraces, harvestedOfResult, removeSandboxes, sandboxIdsOfResult } from '../analysis/trace-analysis.mjs';
 
 // Existing consumers can still import the approved APIs from the CLI.
@@ -453,8 +454,25 @@ export async function main(argv, options = {}) {
     console.log(JSON.stringify(score(results, { benchmarks, tracesDir }).arms, null, 2));
     return 0;
   }
+  if (command === 'tuning-summary') {
+    const [dir] = rest;
+    if (!dir) throw new Error('usage: evals-bench.mjs tuning-summary <traces-dir>');
+    console.log(JSON.stringify(tuningSummaryOf(path.resolve(dir)), null, 2));
+    return 0;
+  }
+  if (command === 'task-suite') return runSweep(dryRunArgs(['--set', 'task'], rest), { benchmarks, ...options });
+  if (command === 'live-review') {
+    const [mode, ...more] = rest;
+    if (mode === 'dry-run') return runSweep(dryRunArgs(['--set', 'curated', '--tag', 'review'], more), { benchmarks, ...options });
+    if (mode === 'replay') {
+      const file = path.resolve(more[0] ?? DEFAULT_RECORDINGS);
+      console.log(JSON.stringify(replaySummary(JSON.parse(readFileSync(file, 'utf8')), reviewCaseNames()), null, 2));
+      return 0;
+    }
+    throw new Error('usage: evals-bench.mjs live-review dry-run [run options] | live-review replay [<recordings.json>]');
+  }
   throw new Error(
-    'usage: evals-bench.mjs generate | select [--localize <n>] [--review <n>] [--regenerate] | run [--set curated|task|full --project <project>] [--plugin <dir>] [--prompt naked|with] [--dry-run] --model <m> --max-cost-usd <usd> [--walk] [options] | restore-prompts [--plugin <dir>] | score <eval-results.json> [--traces <dir>] [--baseline <file>] | walk <eval-results.json> [--traces <dir>]',
+    'usage: evals-bench.mjs generate | select [--localize <n>] [--review <n>] [--regenerate] | run [--set curated|task|full --project <project>] [--plugin <dir>] [--prompt naked|with] [--dry-run] --model <m> --max-cost-usd <usd> [--walk] [options] | restore-prompts [--plugin <dir>] | score <eval-results.json> [--traces <dir>] [--baseline <file>] | walk <eval-results.json> [--traces <dir>] | tuning-summary <traces-dir> | task-suite [run options] | live-review dry-run [run options] | live-review replay [<recordings.json>]',
   );
 }
 

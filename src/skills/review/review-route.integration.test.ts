@@ -9,7 +9,7 @@ import { parse, stringify } from 'yaml';
 import { fixtureByName } from '../../../fixtures/definitions.mjs';
 // @ts-expect-error untyped fixture modules
 import { materialize } from '../../../fixtures/materialize.mjs';
-import { parseArgs } from '#cli/args';
+import { parseArgs } from '#util/args';
 import { runReview, REVIEW_OPTIONS, type ReviewDependencies } from '#cli/commands/review/review';
 import { routeTools, runRouteStart } from '#cli/commands/route/route';
 import { createRuntime } from '#composition/root';

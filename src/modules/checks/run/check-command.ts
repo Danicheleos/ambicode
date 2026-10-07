@@ -4,9 +4,7 @@ import { resolvePolicyFor } from '#modules/policy/resolve-for';
 import type { ProjectConfig } from '#types/modules/config';
 import type { ResolvedPolicy } from '#types/modules/policy';
 import { indexDepsOf, refreshIndex } from '#modules/search/code-index/codeindex';
-import { openRouteView, readEntries } from '#harness/engine/context';
-import { cycleEntries, liveHeads } from '#harness/engine/fold';
-import { raiseGate } from '#harness/gates/gates';
+import { cycleEntries, liveHeads } from '#modules/evidence/ledger-chain';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { AmbicodeError } from '#util/errors';
@@ -30,14 +28,14 @@ const unauthorized = (key: string, reason: string): AmbicodeError =>
 export async function routedOf(deps: CheckDeps, task: string): Promise<Routed | null> {
   const dir = await resolveTaskDir(deps.runtime, task);
   if (deps.session === null) {
-    if (liveHeads(await readEntries(deps.runtime, task)).length > 0) {
+    if (liveHeads(await deps.context!.entries(task)).length > 0) {
       throw new AmbicodeError('session-unbound', `Task ${task}: this call has no route owner, so the CLI cannot tell whose route it speaks for.`, {
         details: ['Pass --task <slug> of a task with exactly one live route.'],
       });
     }
     return null;
   }
-  const view = await openRouteView(deps.runtime, deps.routes, task, deps.session);
+  const view = await deps.context!.open(task, deps.session);
   return view === null ? null : { view, dir };
 }
 
@@ -71,7 +69,7 @@ export async function consentForKey(
   const consent = await deps.context!.consent(view, GATE, { key: input.key });
   if (consent.state === 'honoured') return 'honoured';
   const source = consent.source;
-  const prints = (await readEntries(deps.runtime, view.task)).filter((entry) => entry.kind === 'gate' && entry['gate'] === GATE && view.chainIds.includes(String(entry['route'])));
+  const prints = (await deps.context!.entries(view.task)).filter((entry) => entry.kind === 'gate' && entry['gate'] === GATE && view.chainIds.includes(String(entry['route'])));
   const forKey = prints.filter((entry) => keyOf(entry).includes(input.key));
   const boundDecline = source !== null && (source.kind === 'declined' || source.kind === 'default-taken') && source['reason'] !== 'acting-needs-human'
     && (forKey.some((print) => print.id === source['instance']) || source['key'] === input.key);
@@ -89,7 +87,7 @@ export async function consentForKey(
     if (input.approve.includes(input.key)) {
       await ledger.append({ kind: 'declined', route: view.routeId, gate: GATE, instance, answer: 'approve', via: 'flag', reason: 'acting-needs-human', key: input.key });
     }
-    if (input.raise !== false) await raiseGate(ledger, view, { gate: GATE, values: { key: [input.key], files: [...input.files] }, raisedBy: input.raisedBy ?? stepOf(view) }, deps.routes);
+    if (input.raise !== false) await deps.context!.raise(ledger, view, { gate: GATE, values: { key: [input.key], files: [...input.files] }, raisedBy: input.raisedBy ?? stepOf(view) });
     return 'waiting' as const;
   });
 }

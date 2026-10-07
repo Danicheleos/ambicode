@@ -1,9 +1,9 @@
-import { onRaisedAnswer } from '#harness/gates/gates';
 import { contentHash } from '#util/hash';
 import type { LedgerEntry, LockedLedger } from '#types/modules/evidence';
 import type { HandlerResult, RouteView } from '#types/harness';
 
-const GATE = 'requirements-conflicting';
+export const CONFLICT_GATE = 'requirements-conflicting';
+const GATE = CONFLICT_GATE;
 
 async function chainOf(ledger: LockedLedger, view: RouteView): Promise<LedgerEntry[]> {
   const read = await ledger.read();
@@ -43,5 +43,3 @@ export async function recordGoverning(input: { view: RouteView; ledger: LockedLe
   const merged = { ...fields, conflicts: [...(Array.isArray(envelope['conflicts']) ? (envelope['conflicts'] as object[]) : []), { summary: values.summary?.[0] ?? '', sources: values.sources ?? [], governing: answer, acceptance: input.acceptance.id }] };
   return input.ledger.append({ kind: 'envelope', route: input.view.routeId, ...merged, hash: contentHash(JSON.stringify(merged)) } as never);
 }
-
-onRaisedAnswer(GATE, async (input) => void (await recordGoverning(input)));

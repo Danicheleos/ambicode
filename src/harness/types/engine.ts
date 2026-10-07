@@ -2,8 +2,8 @@ import type { Runtime } from '#types/composition';
 import type { LedgerEntry, TaskDir, LockedLedger } from '#types/modules/evidence';
 import type { RouteRegistry, RouteDef } from '#types/harness';
 
-/** Binds an answer to what it consents to: a check key, or the exact values an `init --apply --set` writes. */
-export interface ConsentBinding { key?: string; set?: readonly string[] }
+/** Binds an answer to what it consents to: a check key, or the values and the draft hash its print showed. */
+export interface ConsentBinding { key?: string; set?: readonly string[]; draft?: string }
 
 export type DeliveryChannel = 'cli' | 'hook';
 
@@ -20,12 +20,7 @@ export interface Composed {
 }
 
 
-/** Entries of the route a session resolved plus the routes it resumes, in file order and from any session (03-F1). */
-export interface Chain {
-  head: LedgerEntry;
-  ids: ReadonlySet<string>;
-  entries: LedgerEntry[];
-}
+export type { Chain } from '#types/modules/evidence';
 
 /** Everything one advance works on. The ledger lock is held for the whole run (03-O6). */
 export interface Run {

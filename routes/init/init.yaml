@@ -16,7 +16,7 @@ steps:
       default: "Cancel"
       release: "Cancel"
       onAnswer: { "Adjust": "revise init-apply", "*": "revise init-apply" }
-      maxRevises: 3
+      maxRevises: 20
   - id: apply
     actor: model
     when: gate.init-apply.is(Apply as proposed)

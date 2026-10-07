@@ -355,10 +355,10 @@ current transcript.
 ## Hooks
 
 The plugin ships one hook manifest, `hooks/hooks.json`, registering seven
-events with eleven handler entries: `PostToolUse` (matchers `mcp__.*` and
-`AskUserQuestion`), `PreToolUse` (four entries, all routed to
+events with fourteen handler entries: `PostToolUse` (matchers `mcp__.*`, `WebFetch` and
+`AskUserQuestion`), `PreToolUse` (six entries, all routed to
 `${CLAUDE_PLUGIN_ROOT}/scripts/guard.mjs`: `Bash` with the `if` rows `git *`,
-`glab mr*` and `*.ambicode/task*`, and `Write|Edit|MultiEdit|NotebookEdit`),
+`glab mr*`, `*.ambicode/task*`, `*ambicode.mjs*` and `rm *`, and `Write|Edit|MultiEdit|NotebookEdit`),
 `SessionStart` (matcher `startup|resume|clear|fork`), `UserPromptSubmit`,
 `Stop`, `PostCompact` and `SessionEnd`. Every entry except `PreToolUse` runs in
 exec form through command `node` with arguments
@@ -397,6 +397,17 @@ model as a "Stop hook feedback" user message, and `additionalContext` as a syste
 keeps its bounded reason plus `stop-check.md`; the list does not also go to `additionalContext`,
 which would only repeat it. Record: `plan/migration-v6-reports/step-07/probe-p17.md`.
 
+Two hook contracts are relied on without being observed (probes postponed on 2026-10-07):
+
+- **PreToolUse `updatedInput` with `allow`** (`PLATFORM.updatedInput` in `src/hook/guard/guard-core.ts`, on
+  by default). When a route is active, the guard rewrites an `ambicode` Bash call to add `--task` and answers
+  `allow`. This replaces "no opinion" with an explicit allow, so it skips the user's own permission rules for
+  that call. If the host ignores `updatedInput`, the call runs without `--task`. Probe: `.tmp/probes/setup.sh`.
+- **The shape of a dismissed AskUserQuestion** (`isRejection` in `src/platform/claude/transcript.ts`). This
+  assumes an `is_error` tool_result whose text starts with "The user doesn't want to proceed with this tool
+  use." If the shape differs, a dismissed gate is never detected, and the route keeps waiting instead of
+  pausing with `exit{human, dismissed}`. Probe: `.tmp/probes/dismissal.mjs`.
+
 Which of them may *carry* the contract is not a free choice. Claude Code's
 hook-output schema has a `hookSpecificOutput` variant for only some events,
 and `PostCompact` is not among them (verified against 2.1.278: the accepted
@@ -415,8 +426,8 @@ hook process itself does start on every user message (~190ms on the reference
 machine). That cost buys the post-compaction redelivery; dropping the
 `UserPromptSubmit` registration removes both, leaving `prepare --with-contract`
 as the manual fallback. `ADDITIONAL_CONTEXT_EVENTS` in `src/types/hook.ts`
-holds the accepted names so the type system refuses the mistake. `SessionEnd` removes the
-hook's own dedup-marker directory. All of this is
+holds the accepted names so the type system refuses the mistake. `SessionEnd` records `session{end}` on the
+session's route in the ledger and removes the hook's own dedup-marker directory. All of this is
 covered by `src/hook/events/run-hook.test.ts` (unit level, fake ports) and
 `tools/hook-artifact.test.mjs` (built-artifact level: real bundled
 `scripts/ambicode.mjs hook` invoked with piped stdin, no `claude` process
@@ -612,7 +623,7 @@ provider — U20 through U24), the built `scripts/ambicode.mjs` was run as a rea
 process, listening on a real loopback socket, against a real filesystem-based
 review directory:
 
-- `ambicode view --review <id> --no-open` printed a well-formed capability URL,
+- `ambicode view --review <id>` printed a well-formed capability URL,
   correctly explained why the browser was not opened, and correctly enumerated
   and left alone several dozen pre-existing unmarked `ambicode-snapshot-*`
   temporary directories from earlier runs (no valid ownership marker, so none

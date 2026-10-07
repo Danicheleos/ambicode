@@ -703,8 +703,7 @@ describe('the built guard entry', () => {
     };
     visit(built);
     // node:module is tools/build.mjs's shared banner (a require shim for `yaml`), present before this step.
-    // node:crypto and node:os give the session state directory when PostToolUse carries no scratchpad (03b-B2).
-    assert.deepEqual([...specifiers].sort(), ['node:crypto', 'node:fs', 'node:module', 'node:os']);
+    assert.deepEqual([...specifiers].sort(), ['node:fs', 'node:module']);
     assert.ok(seen.size <= 2, `the guard loads ${seen.size} files`);
   });
 });
@@ -1215,5 +1214,39 @@ describe('decisions agree with what the shell does', { skip: process.platform ==
     const { shell, guard } = scene();
     assert.deepEqual(shell(command, undefined, true, 'zsh', { X: 'set' }).gitRan, ['push']);
     assert.equal(guard(command), 'ask');
+  });
+});
+
+describe('an active route shapes the decision', () => {
+  const route = (headless: boolean) => ({ activeRoute: () => ({ task: 'T-1', skill: 'task', ...(headless ? { headless: true } : {}) }), ledger: () => null });
+  const run = (command: string, headless: boolean) =>
+    guardDecision({ hook_event_name: 'PreToolUse', tool_name: 'Bash', scratchpad_dir: '/s', tool_input: { command } }, '/p', route(headless), 'linux') as Output & {
+      hookSpecificOutput?: { updatedInput?: { command: string } };
+    };
+
+  it('turns an ask into a deny that names the stop in a headless route only', () => {
+    assert.equal(decisionOf(run('git push', false)), 'ask');
+    const out = run('git push', true);
+    assert.equal(decisionOf(out), 'deny');
+    assert.match(out.hookSpecificOutput!.permissionDecisionReason, /route stop --task T-1 --reason blocked --detail "permission-denied: /);
+  });
+
+  it('adds --task to an ambicode route command that lacks it', () => {
+    const out = run('node "/p/scripts/ambicode.mjs" route next', false);
+    assert.equal(decisionOf(out), 'allow');
+    assert.equal(out.hookSpecificOutput?.updatedInput?.command, 'node "/p/scripts/ambicode.mjs" route next --task T-1');
+  });
+
+  it('leaves other ambicode commands alone', () => {
+    for (const command of ['node /p/scripts/ambicode.mjs route next --task X', 'node /p/scripts/ambicode.mjs route next | cat', 'node /p/scripts/ambicode.mjs route start --task X', 'node /p/scripts/ambicode.mjs doctor']) {
+      assert.deepEqual(run(command, false), {}, command);
+    }
+    assert.deepEqual(bash('node /p/scripts/ambicode.mjs route next'), {});
+  });
+
+  it('never rewrites or allows a command that hides shell syntax in the script path or splits a line', () => {
+    for (const command of ['node "$(id)ambicode.mjs" route next', 'node a`id`/ambicode.mjs route next', 'node a&&id&&b/ambicode.mjs route next', 'node a;id;b/ambicode.mjs route next', 'node x/ambicode.mjs\nroute next', 'node /p/ambicode.mjs route next; rm -rf ~']) {
+      assert.notEqual(decisionOf(run(command, false)), 'allow', command);
+    }
   });
 });

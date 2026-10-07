@@ -8,7 +8,7 @@ import { createRuntime } from '#composition/root';
 import { contentHash } from '#util/hash';
 import { CONFIG } from '#testing/fixtures/route-fixture';
 import { TempRepo } from '#testing/fixtures/temp-repo';
-import { parseArgs } from '../../args.ts';
+import { parseArgs } from '#util/args';
 import { runNoteSave, NOTE_SAVE_OPTIONS } from './note.ts';
 
 const MAIN = path.join(import.meta.dirname, '..', '..', 'main.ts');

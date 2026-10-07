@@ -1,25 +1,20 @@
 import { CapturedRequirement, RequirementEvidence, EXPANSION_FETCH, type EnvelopeSource, type EnvelopeInput } from '#types/modules/requirements';
-import { latestBound } from '#harness/engine/fold';
+import { latestBound } from '#modules/evidence/ledger-chain';
 import { contentHash } from '#util/hash';
 import { bindServer, capturedServers, observedTools, serverOf } from '../capture/binding.ts';
 import { asRecorded, readCapture } from '../capture/capture-files.ts';
 import { expansionFor } from '../capture/expansion.ts';
-import { classifySource, jiraFields, toolName } from '../capture/template.ts';
+import { jiraFields, keyOfSource, toolName } from '../capture/template.ts';
 import type { LedgerEntry, LockedLedger } from '#types/modules/evidence';
 import type { RouteView, RouteArgs } from '#types/harness';
 
 type EnvelopeResult =
   | { state: 'ok'; sources: EnvelopeSource[]; builtFrom: 'captures' | 'args'; asked: string[]; missingAsked: string[]; notices: string[]; entry: LedgerEntry }
   | { state: 'failed'; code: 'requirements-not-captured' | 'requirements-missing' | typeof EXPANSION_FETCH; message: string; recoverable: true }
-  | { state: 'raise'; gate: 'requirements-not-captured-twice' | 'requirements-server-ambiguous' | 'requirements-expansion-capped'; values: Readonly<Record<string, readonly string[]>> };
+  | { state: 'raise'; gate: 'requirements-not-captured-twice' | 'requirements-server-disconnected' | 'requirements-server-ambiguous' | 'requirements-expansion-capped'; values: Readonly<Record<string, readonly string[]>> };
 
 const URL_IN_TEXT = /https?:\/\/[^\s)>\]"']+/g;
 const CONTINUE_GATES = ['requirements-not-captured-twice', 'requirements-server-disconnected'];
-
-function keyOfSource(source: string): string {
-  const classified = classifySource(source);
-  return classified.kind === 'jira' ? classified.key : classified.kind === 'confluence' ? `page-${classified.id}` : classified.url;
-}
 
 /** The keys the route asked for: its `--requirement` values, the URLs in its text, and a bare first-word key (03-Q5). */
 export function askedKeys(args: Pick<RouteArgs, 'requirements' | 'text'>): string[] {
@@ -33,9 +28,9 @@ async function chainOf(ledger: LockedLedger, view: RouteView): Promise<LedgerEnt
   return read.state === 'ok' ? read.entries.filter((entry) => view.chainIds.includes(entry.kind === 'route' ? entry.id : String(entry['route'] ?? ''))) : [];
 }
 
-async function captures(input: EnvelopeInput, entries: readonly LedgerEntry[], server: string): Promise<Map<string, CapturedRequirement>> {
+async function captures(input: EnvelopeInput, entries: readonly LedgerEntry[], server: string | null): Promise<Map<string, CapturedRequirement>> {
   const found = new Map<string, CapturedRequirement>();
-  for (const entry of entries.filter((candidate) => candidate.kind === 'requirement' && candidate['capture'] === 'full' && serverOf(String(candidate['via'])) === server)) {
+  for (const entry of entries.filter((candidate) => candidate.kind === 'requirement' && candidate['capture'] === 'full' && (candidate['via'] === 'WebFetch' || (server !== null && serverOf(String(candidate['via'])) === server)))) {
     try {
       const parsed = await readCapture(input.runtime.fs, input.dir, String(entry['key']), String(entry['rawHash']));
       if (parsed !== null && parsed.content.trim() !== '') found.set(parsed.key, asRecorded(parsed, entry));
@@ -128,8 +123,9 @@ export async function normalizeEnvelope(input: EnvelopeInput): Promise<EnvelopeR
     } else return { state: 'raise', gate: AMBIGUOUS, values: { servers: binding.servers } };
   }
 
-  const complete = server === null ? new Map<string, CapturedRequirement>() : await captures(input, entries, server);
-  const scoped = entries.filter((entry) => entry.kind !== 'requirement' || server === null || serverOf(String(entry['via'])) === server);
+  const complete = await captures(input, entries, server);
+  for (const [key, captured] of complete) if (captured.relation === 'mention') complete.delete(key);
+  const scoped = entries.filter((entry) => entry.kind !== 'requirement' || server === null || entry['via'] === 'WebFetch' || serverOf(String(entry['via'])) === server);
   if (server !== null) {
     const expansion = await expansionFor({ runtime: input.runtime, dir: input.dir, entries: scoped, asked, complete: new Set(complete.keys()) });
     notices.push(...expansion.notices);
@@ -175,6 +171,8 @@ export async function normalizeEnvelope(input: EnvelopeInput): Promise<EnvelopeR
 
   const continued = withoutServer || CONTINUE_GATES.some((gate) => latestBound(entries, gate)?.['answer'] === 'continue without');
   if (continued) return fromArgs(missingAsked);
+  const lastServed = entries.filter((entry) => entry.kind === 'requirement' && entry['via'] !== 'WebFetch').at(-1);
+  if (lastServed?.['capture'] === 'disconnected') return { state: 'raise', gate: 'requirements-server-disconnected', values: {} };
   const failures = entries.filter((entry) => entry.kind === 'step' && entry['status'] === 'failed' && entry['code'] === 'requirements-not-captured').length;
   if (failures >= 1) return { state: 'raise', gate: 'requirements-not-captured-twice', values: {} };
   return {

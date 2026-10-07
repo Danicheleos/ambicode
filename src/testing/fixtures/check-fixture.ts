@@ -1,4 +1,4 @@
-import { ledgerRouteContext } from '#harness/engine/context';
+import { commandContext } from '#harness/engine/context';
 import { runCheckOnly } from '#modules/checks/run/check-command';
 import { CONFIG, routeFixture } from './route-fixture.ts';
 import type { CheckDeps, CheckOnlyInput } from '#types/modules/checks';
@@ -72,7 +72,7 @@ export async function checkFixture(options: { routes?: Record<string, string>; c
   const runtime: Runtime = { ...fx.runtime, runner };
   const warmed: string[] = [];
   const deps = (session: string | null = SESSION_A): CheckDeps => ({
-    runtime, session, routes: fx.routes, context: ledgerRouteContext({ runtime, routes: fx.routes }),
+    runtime, session, context: commandContext({ runtime, routes: fx.routes }),
     warm: async (_workspace, project) => { warmed.push(project.id); },
   });
   const start = (channel: StartChannel = 'hook', headless = false, extra: object = {}) =>

@@ -3,7 +3,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import { contentHash } from '#util/hash';
-import { ledgerRouteContext } from '#harness/engine/context';
+import { commandContext } from '#harness/engine/context';
 import { runHook } from '#hook/events/run-hook';
 import { routeFixture, type RouteFixture } from '#testing/fixtures/route-fixture';
 import { applyInit } from '#modules/config/init/apply';
@@ -19,7 +19,7 @@ async function fixture(config: string | null = null): Promise<RouteFixture & {
   start(extra?: object): ReturnType<RouteFixture['engine']['start']>;
   hook(task: string, option: string, gate?: string): ReturnType<RouteFixture['engine']['advance']>;
   print(task: string, gate?: string): Promise<Record<string, unknown>>;
-  apply(task: string, sets?: readonly string[], session?: string | null): Promise<Awaited<ReturnType<typeof applyInit>> & { next: string }>;
+  apply(task: string, session?: string | null): Promise<Awaited<ReturnType<typeof applyInit>> & { next: string }>;
   exists(relative: string): Promise<boolean>;
 }> {
   const fx = await routeFixture({
@@ -34,8 +34,8 @@ async function fixture(config: string | null = null): Promise<RouteFixture & {
     start: (extra = {}) => fx.engine.start({ skill: 'init', text: '', requirements: [], cwd: fx.repo.root, session: A, channel: 'hook', scratchpadDir: fx.scratchpad, ...extra }),
     hook: async (task, option, gate = 'init-apply') => fx.engine.advance({ task, session: A, cause: 'gate-hook', answers: [{ gate, option, instance: (await print(task, gate)).id as string }], scratchpadDir: fx.scratchpad }),
     print,
-    apply: async (task, sets = [], session = A) => {
-      const result = await applyInit({ runtime: fx.runtime, session, context: ledgerRouteContext({ runtime: fx.runtime, routes: fx.routes }), doctor: { startIndex: async () => ({ state: 'building' }) as never } }, { task, sets });
+    apply: async (task, session = A) => {
+      const result = await applyInit({ runtime: fx.runtime, session, context: commandContext({ runtime: fx.runtime, routes: fx.routes }), doctor: { startIndex: async () => ({ state: 'building' }) as never } }, { task });
       const next = await fx.engine.advance({ task, session: A, cause: 'init --apply', scratchpadDir: fx.scratchpad });
       return { ...result, next: next.text };
     },
@@ -55,8 +55,9 @@ describe('09-R1/09-G1: the init route', () => {
       assert.ok(await t.exists(`.ambicode/task/${started.task}/steps/proposal.json`));
       const print = await t.print(started.task);
       assert.deepEqual(print['options'], ['Apply as proposed', 'Adjust', 'Cancel']);
-      assert.match(String(print['question']), /^Values: as proposed$/m);
+      assert.match(String(print['question']), /^Draft: \.ambicode\/config\.draft\.yaml sha256:[0-9a-f]{32} /m);
       assert.match(String(print['question']), /init --apply --task init-\d{4}-\d{2}-\d{2}$/m);
+      assert.ok(await t.exists('.ambicode/config.draft.yaml'), 'the draft is saved before the question');
 
       const closed = await t.hook(started.task, 'Cancel');
       assert.equal(closed.position, 'complete');
@@ -99,25 +100,78 @@ describe('09-R1/09-G1: the init route', () => {
     }
   });
 
-  it('09-G2/09-G4: Adjust free text re-prints with the values; stale typed values differ; the adjusted values apply', async () => {
+  it('separate choices bind: MCP server, runner and search.index each set their own slot and the draft shows them', async () => {
+    const t = await fixture();
+    try {
+      await t.repo.write('package.json', '{"name":"app"}\n');
+      await t.repo.write('node_modules/.bin/eslint', '#!/bin/sh\n');
+      const { task } = await t.start();
+      const first = String((await t.print(task))['question']);
+      assert.match(first, /^ {2}MCP server:$/m);
+      assert.match(first, /^ {2}Runner:$/m);
+      assert.match(first, /^ {2}Search index:$/m);
+      assert.doesNotMatch(first, /Values:|key=value/);
+      await t.hook(task, 'Index: codeindex');
+      await t.hook(task, 'MCP server: jira');
+      await t.hook(task, 'Runner: app lint skip');
+      const print = await t.print(task);
+      assert.deepEqual(print['options'], ['Apply as adjusted', 'Adjust', 'Cancel']);
+      assert.deepEqual((print['values'] as { set: string[] }).set, ['projects.app.commands.lint=null', 'requirements.mcpServer="jira"', 'search.index="codeindex"']);
+      assert.match(String(print['question']), /^Chosen so far: projects\.app\.commands\.lint=null requirements\.mcpServer="jira" search\.index="codeindex"$/m);
+      const typed = await t.hook(task, 'search.index=none');
+      assert.equal(typed.position, 'init-apply');
+      assert.match(String((await t.print(task))['question']), /^not understood: search\.index=none$/m);
+      await t.hook(task, 'Apply as adjusted');
+      await t.apply(task);
+      const config = await loadConfigWithNotices(t.runtime.fs, t.repo.root);
+      assert.equal(config.config.search.index, 'codeindex');
+      assert.equal(config.config.requirements.mcpServer, 'jira');
+      assert.equal(config.config.projects[0]!.commands['lint'], null);
+      assert.equal(await t.exists('.ambicode/config.draft.yaml'), false);
+    } finally {
+      await t.dispose();
+    }
+  });
+
+  it('apply writes exactly the approved draft hash and refuses a draft edited after the answer', async () => {
     const t = await fixture();
     try {
       const { task } = await t.start();
-      await t.hook(task, 'search.index=codeindex bogus');
-      const print = await t.print(task);
-      assert.deepEqual(print['options'], ['Apply as adjusted', 'Adjust', 'Cancel']);
-      assert.match(String(print['question']), /^Values: search\.index="codeindex"$/m);
-      assert.match(String(print['question']), /^You wrote: "search\.index=codeindex bogus"$/m);
-      assert.match(String(print['question']), /^not understood: bogus$/m);
-      assert.match(String(print['question']), /--set 'search\.index="codeindex"'$/m);
-      await t.hook(task, 'Apply as adjusted');
-
-      await assert.rejects(t.apply(task), code('init-unconfirmed', 'values-differ'));
+      const draftPath = path.join(t.repo.root, '.ambicode/config.draft.yaml');
+      const draft = await t.runtime.fs.readText(draftPath);
+      const shown = (await t.print(task))['values'] as { draft: string };
+      assert.equal(contentHash(draft), shown.draft);
+      await t.hook(task, 'Apply as proposed');
+      await t.runtime.fs.writeText(draftPath, `${draft}# sneaked in\n`);
+      await assert.rejects(t.apply(task), code('init-unconfirmed', 'draft-differs'));
       assert.equal(await t.exists('.ambicode/config.yaml'), false);
-      await t.apply(task, ['search.index=codeindex']);
-      const config = await loadConfigWithNotices(t.runtime.fs, t.repo.root);
-      assert.equal(config.config.search.index, 'codeindex');
-      assert.ok(config.config.search.layers?.prompt?.includes('index.find'));
+      await t.runtime.fs.writeText(draftPath, draft);
+      await t.apply(task);
+      assert.equal(await t.runtime.fs.readText(path.join(t.repo.root, '.ambicode/config.yaml')), draft);
+    } finally {
+      await t.dispose();
+    }
+  });
+
+  it('changed re-detection writes nothing, shows the diff and asks again', async () => {
+    const t = await fixture();
+    try {
+      const { task } = await t.start();
+      const before = await t.runtime.fs.readText(path.join(t.repo.root, '.ambicode/config.draft.yaml'));
+      await t.hook(task, 'Apply as proposed');
+      await t.repo.write('package.json', '{"name":"later"}\n');
+      await t.repo.write('node_modules/.bin/eslint', '#!/bin/sh\n');
+      await assert.rejects(t.apply(task), (error: { code?: string; details?: string[] }) => error.code === 'init-unconfirmed' && error.details?.some((line) => /^[-+] /m.test(line)) === true);
+      assert.equal(await t.exists('.ambicode/config.yaml'), false);
+      assert.notEqual(await t.runtime.fs.readText(path.join(t.repo.root, '.ambicode/config.draft.yaml')), before);
+      const again = await t.engine.advance({ task, session: A, cause: 'route-next', answers: [{ gate: 'init-apply', option: 'Adjust' }], scratchpadDir: t.scratchpad });
+      assert.equal(again.position, 'init-apply');
+      const question = String((await t.print(task))['question']);
+      assert.match(question, /Detection changed since you were asked/);
+      assert.match(question, /^[-+] /m);
+      await t.hook(task, 'Apply as proposed');
+      await t.apply(task);
+      assert.ok(await t.exists('.ambicode/config.yaml'));
     } finally {
       await t.dispose();
     }
@@ -186,7 +240,7 @@ describe('09-R1/09-G1: the init route', () => {
   it('09-G4.1/09-G4.2: no session is session-unbound; no init route is no-init-route', async () => {
     const t = await fixture();
     try {
-      await assert.rejects(t.apply('init-2026-10-05', [], null), code('session-unbound'));
+      await assert.rejects(t.apply('init-2026-10-05', null), code('session-unbound'));
       await assert.rejects(t.apply('init-2026-10-05'), code('init-unconfirmed', 'no-init-route'));
     } finally {
       await t.dispose();

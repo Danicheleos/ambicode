@@ -12,14 +12,6 @@ export { hookStateBaseDir } from './hook-state.ts';
 export { readStopCursor } from './hook-state.ts';
 /** writeStopCursor(fs, baseDir, routeId, count) — records the ledger entry count this Stop saw for a route. */
 export { writeStopCursor } from './hook-state.ts';
-/** markSessionEnded(fs, sessionId) — marks a session as ended; the mark outlives cleanupSessionState. */
-export { markSessionEnded } from './hook-state.ts';
-/** clearSessionEnded(fs, sessionId) — removes a session's ended mark. */
-export { clearSessionEnded } from './hook-state.ts';
-/** sessionEnded(fs, sessionId) — whether the session carries an ended mark. */
-export { sessionEnded } from './hook-state.ts';
-/** anySessionEnded(fs) — whether any session carries an ended mark; one directory read. */
-export { anySessionEnded } from './hook-state.ts';
 /** resetEpoch(fs, ids, baseDir) — starts a new epoch, invalidating all delivery markers. */
 export { resetEpoch } from './hook-state.ts';
 export { HOOK_STATE_DIR_NAME } from '#types/platform/claude';

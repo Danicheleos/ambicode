@@ -1,12 +1,14 @@
 import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
+import { loadConfig } from '#modules/config/load';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { owningRoute } from '#modules/evidence/notes';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { AmbicodeError } from '#util/errors';
 import { localTimestamp, uniqueFileExhausted, writeUniqueFile } from '#util/files';
 import { runWorkerProcess } from './process-runner.ts';
+import type { Runtime } from '#types/composition';
 import type { LedgerEntry, LockedLedger, NoteDeps } from '#types/modules/evidence';
 import type { FileSystem, ProcessRunner } from '#types/platform/ports';
 
@@ -65,6 +67,11 @@ function validate(stdout: string, schema: WorkerDefinition['outputSchema']): { r
   return Buffer.byteLength(text) > MAX_ARTIFACT_BYTES ? { reason: `output is ${Buffer.byteLength(text)} bytes; the limit is ${MAX_ARTIFACT_BYTES}` } : { text };
 }
 
+/** The worker ids the project's config lets run (`workers.approved`). */
+export async function approvedWorkers(runtime: Runtime, repositoryRoot: string): Promise<readonly string[]> {
+  return (await loadConfig(runtime.fs, repositoryRoot).catch(() => null))?.config.workers.approved ?? [];
+}
+
 /** `worker run <id>`: one process through the worker runner; anything but a valid object leaves no artifact (06-W5–W7). */
 export async function runWorker(deps: NoteDeps & { runner: ProcessRunner; definitions: string }, input: { id: string; task: string }): Promise<{ entry: LedgerEntry; artifact: string }> {
   const { runtime, session } = deps;
@@ -80,6 +87,7 @@ export async function runWorker(deps: NoteDeps & { runner: ProcessRunner; defini
     cwd: dir.repositoryRoot,
     timeoutMs: definition.timeoutMs,
     maxOutputBytes: MAX_OUTPUT_BYTES,
+    purpose: 'worker',
     ...(definition.tools === undefined ? {} : { tools: definition.tools }),
     ...(definition.maxBudgetUsd === undefined ? {} : { maxBudgetUsd: definition.maxBudgetUsd }),
     ...(definition.maxTurns === undefined ? {} : { maxTurns: definition.maxTurns }),

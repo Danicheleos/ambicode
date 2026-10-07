@@ -1,11 +1,11 @@
 import path from 'node:path';
-import { DECLARATION_PATTERNS } from '#types/modules/ecosystems';
+import { DECLARATION_CANDIDATES } from '#types/modules/search';
 import { MAX_SNAPSHOT_FILE_BYTES } from '#types/defaults';
 import type { ProjectConfig } from '#types/modules/config';
 import { literalPathspec, type Git } from '#platform/git/git';
 import { matchesAnyGlob } from '#util/glob';
 import { normalizeRelative } from '#util/paths';
-import { profileOf, sourceGlob } from './profile.ts';
+import { declarationPatternsOf, profileOf, sourceGlob } from './profile.ts';
 import type { FileSystem } from '#types/platform/ports';
 import { COMMON_NAMES, type Declaration } from '#types/modules/search';
 
@@ -22,8 +22,8 @@ function kindOf(line: string): string {
  * Every declaration the shared patterns find, all matches on all lines. With `exportOnly` (a profile fact) a line must
  * be an export to count as reachable from another file. A name declared in more than one of the given files collides.
  */
-export async function harvest(fs: FileSystem, root: string, files: readonly string[], exportOnly: boolean): Promise<Declaration[]> {
-  const patterns = DECLARATION_PATTERNS.map((pattern) => new RegExp(pattern.source, `${pattern.flags.replace('g', '')}g`));
+export async function harvest(fs: FileSystem, root: string, files: readonly string[], exportOnly: boolean, sources: readonly RegExp[] = DECLARATION_CANDIDATES): Promise<Declaration[]> {
+  const patterns = sources.map((pattern) => new RegExp(pattern.source, `${pattern.flags.replace('g', '')}g`));
   const found: Omit<Declaration, 'declarations'>[] = [];
   for (const file of files) {
     let text: string;
@@ -63,7 +63,7 @@ export function countDeclarations(
   names: readonly string[],
   options: { exportOnly: boolean; patterns?: readonly RegExp[] },
 ): Map<string, CensusRow> {
-  const sources = options.patterns ?? DECLARATION_PATTERNS;
+  const sources = options.patterns ?? DECLARATION_CANDIDATES;
   const census = new Map<string, CensusRow>(names.map((name) => [name, { declarations: sources.length === 0 ? null : 0, files: [] }]));
   if (sources.length === 0) return census;
   const patterns = sources.map((pattern) => new RegExp(pattern.source, `${pattern.flags.replace('g', '')}g`));
@@ -97,5 +97,5 @@ export async function declarationCensus(git: Git, fs: FileSystem, project: Proje
     if (size !== null && size > MAX_SNAPSHOT_FILE_BYTES) skipped += 1;
     else if (size !== null) texts.set(file, await fs.readText(absolute));
   }
-  return { census: countDeclarations(texts, names, { exportOnly }), limitations: skipped === 0 ? [] : [`${skipped} file(s) over ${MAX_SNAPSHOT_FILE_BYTES} bytes not read for declarations`] };
+  return { census: countDeclarations(texts, names, { exportOnly, patterns: declarationPatternsOf(project) }), limitations: skipped === 0 ? [] : [`${skipped} file(s) over ${MAX_SNAPSHOT_FILE_BYTES} bytes not read for declarations`] };
 }

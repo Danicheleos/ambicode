@@ -11,3 +11,7 @@ export { ledgerSizeWarning } from './ledger.ts';
 export { readLedger } from './ledger.ts';
 /** readLedgerStrict(fs, taskDir) — strict read like the guard's: anything suspicious makes the whole ledger unreadable. */
 export { readLedgerStrict } from './ledger.ts';
+/** redactCommand(text) — masks `*_TOKEN=`, `Authorization:` and URL credentials, and caps the text at 200 characters. */
+export { redactCommand } from './redact.ts';
+/** sinceReopen(chainEntries) — one chain's entries from its latest reopen on. */
+export { sinceReopen } from './reopen.ts';

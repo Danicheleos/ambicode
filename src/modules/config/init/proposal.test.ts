@@ -9,7 +9,7 @@ import { FIXTURES } from '../../../../fixtures/definitions.mjs';
 // @ts-expect-error untyped fixture modules
 import { materialize } from '../../../../fixtures/materialize.mjs';
 import { createRuntime } from '#composition/root';
-import { parseArgs } from '#cli/args';
+import { parseArgs } from '#util/args';
 import { renderInit, runInit, INIT_OPTIONS } from '#cli/commands/config/init';
 import { NodeProcessRunner } from '#platform/ports/node-process-runner';
 import { TempRepo } from '#testing/fixtures/temp-repo';

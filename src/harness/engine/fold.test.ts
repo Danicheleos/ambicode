@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { buildChain, executions, foldRoute, humanRevisesLeft, isGreen, latestBound, latestRouteOf, matches, unconsumedPreanswer, windowOf } from './fold.ts';
+import { buildChain, exitOf, executions, foldRoute, humanRevisesLeft, isGreen, latestBound, latestRouteOf, matches, unconsumedPreanswer, windowOf } from './fold.ts';
 import { parseRegistry } from '../gates/gates.ts';
 import { loadRoute } from '../definition/routes.ts';
 import { REPO_ROOT } from '#testing/paths';
@@ -144,5 +144,17 @@ describe('fold', () => {
     assert.equal(matches(entry('check', { phase: 'green', exit: 1, summary: null }), { kind: 'check', value: 'green' }), true);
     assert.equal(matches(entry('check', { phase: 'red', exit: 0, summary: { ran: 0, failed: 0 } }), { kind: 'check', value: 'red' }), true);
     assert.equal(matches(entry('check', { phase: 'red', exit: 1, summary: { ran: 1, failed: 1 } }), { kind: 'check', value: 'green' }), false);
+  });
+});
+
+describe('exitOf and reopen', () => {
+  it('an exit before the latest reopen no longer ends the chain; one after it does', () => {
+    const exit = (reason: string): LedgerEntry => entry('exit', { route: 'r1', reason, complete: true });
+    const reopen = entry('revise', { route: 'r1', from: 'read', via: 'reopen', cycle: 0, reason: 'more' });
+    const head = route('r1');
+    const closed = [head, exit('done')];
+    assert.equal(exitOf(buildChain(closed, head))?.['reason'], 'done');
+    assert.equal(exitOf(buildChain([...closed, reopen], head)), null);
+    assert.equal(exitOf(buildChain([...closed, reopen, exit('blocked')], head))?.['reason'], 'blocked');
   });
 });

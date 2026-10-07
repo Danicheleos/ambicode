@@ -19,7 +19,7 @@ export const RequirementSource = z.strictObject({
   status: z.enum(['retrieved', 'unavailable', 'forbidden', 'not-found']),
   failureReason: z.string().nullable().default(null),
   retrievedVia: z.string().min(1),
-  relation: z.enum(['asked', 'child', 'parent', 'link']).optional(),
+  relation: z.enum(['asked', 'child', 'parent', 'link', 'mention']).optional(),
   derivedFrom: z.string().nullable().optional(),
 });
 export type RequirementSource = z.infer<typeof RequirementSource>;
@@ -45,7 +45,7 @@ export const CapturedRequirement = z.strictObject({
   url: z.string(),
   title: z.string(),
   type: z.string(),
-  relation: z.enum(['asked', 'child', 'parent', 'link']),
+  relation: z.enum(['asked', 'child', 'parent', 'link', 'mention']),
   derivedFrom: z.string().nullable(),
   retrievedVia: z.string().min(1),
   retrievedAt: z.string().min(1),
@@ -83,7 +83,7 @@ export interface EnvelopeSource {
   title: string;
   content: string;
   url: string;
-  relation: 'asked' | 'child' | 'parent' | 'link' | 'args';
+  relation: 'asked' | 'child' | 'parent' | 'link' | 'mention' | 'args';
   derivedFrom: string | null;
   retrievedAt: string;
   rawHash?: string;
