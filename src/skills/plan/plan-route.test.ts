@@ -85,7 +85,8 @@ describe('06-R1/06-R2 the shipped plan route', () => {
       assert.match(text, /--task \{task\}/, name);
     }
     const write = await readFile(path.join(REPO_ROOT, 'routes', 'plan', 'write.md'), 'utf8');
-    assert.match(write, /plan check --task \{task\} --from steps\/plan-body\.md/);
+    assert.match(write, /plan check --task \{task\}` on standard input/);
+    assert.doesNotMatch(write, /--from|Write the plan/);
     assert.match(await readFile(path.join(REPO_ROOT, 'routes', 'plan', 'design.md'), 'utf8'), /\[ambicode gate decision:<slug>\]/);
   });
 

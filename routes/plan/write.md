@@ -1,4 +1,4 @@
-Write the plan once to `.ambicode/task/{task}/steps/plan-body.md`, then check it.
+Pipe the plan once to `{cli} plan check --task {task}` on standard input, as a quoted heredoc (`<<'EOF'`). It saves the draft and checks anchors and acceptance units by code.
 Shape:
 - An AC → section table: one row per acceptance unit id from the design step (`| AC id | section |`), or the id listed under a `## Not covered` heading with the reason.
 - Ordered, independently reviewable iterations. Each one has:
@@ -10,4 +10,3 @@ Shape:
   - *Leaves out*: what a later iteration owns.
 - Assumptions, open decisions and known limitations.
 Edit nothing else: no source, tests or config.
-Then run `{cli} plan check --task {task} --from steps/plan-body.md`. It saves the draft and checks anchors and acceptance units by code.

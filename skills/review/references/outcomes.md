@@ -190,8 +190,8 @@ one live route; `route start <skill> --task <slug> --fresh` ends the others, or 
 another `--task`. `route-busy`: another session owns the task's live plan route; the
 user chooses `--adopt`, `--fresh` or another `--task`. `route-conflict`: another start
 changed the task's route while this one was reopening it; type the skill again. `plan-draft-missing`:
-no plan draft exists to promote; write `steps/plan-body.md` and let the plan
-route save the draft.
+no plan draft exists to promote; pipe the plan to `plan check --task <slug>` on
+standard input to save the draft.
 
 **Routes.** `route-invalid`: a route, gate registry or step file is malformed; the
 message names the file, the step or gate and the field (build and load): fix that

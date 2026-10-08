@@ -47,6 +47,13 @@ function noteSaveReason(pluginRoot: string): string {
   );
 }
 
+function planBodyReason(pluginRoot: string, slug: string): string {
+  return (
+    `AMBICODE: the plan body is not written with the shell. Pipe the plan to \`node "${pluginRoot}/scripts/ambicode.mjs" plan check ` +
+    `--task ${slug}\` on standard input, as a quoted heredoc: it saves the draft and checks it.`
+  );
+}
+
 const USER_DECIDES = 'The user decides, so this asks. Approve only if the user asked for it in this session.';
 
 function stateChangeReason(operation: string): string {
@@ -256,8 +263,10 @@ function bashDecision(command: string, cwd: string | undefined, pluginRoot: stri
       if (target.opaque || places.includes('unknown')) {
         asks.add(`AMBICODE: cannot tell where this writes: \`${shown(target.path)}\` is resolved only when the shell runs it. ${USER_DECIDES}`);
       } else if (places.every((place) => place === 'task')) {
-        if (analysed) return decide('deny', noteSaveReason(pluginRoot));
-        asks.add(noteSaveReason(pluginRoot));
+        const body = placesOf(target.directories, cwd).map((base) => PLAN_BODY.exec(normalize(target.path, base ?? undefined))?.[2] ?? null);
+        const reason = body.every((slug) => slug !== null && slug === body[0]) ? planBodyReason(pluginRoot, body[0]!) : noteSaveReason(pluginRoot);
+        if (analysed) return decide('deny', reason);
+        asks.add(reason);
       } else if (places.includes('task')) {
         asks.add(`AMBICODE: cannot tell where this writes: \`${shown(target.path)}\` is in the task directory only if an earlier directory change did or did not happen. ${USER_DECIDES}`);
       }
@@ -268,7 +277,7 @@ function bashDecision(command: string, cwd: string | undefined, pluginRoot: stri
 
 function planBodyDecision(input: GuardInput, state: GuardState | undefined, taskDirectory: string, slug: string, pluginRoot: string): Decision {
   const refuse = (why: string): Decision =>
-    decide('deny', `AMBICODE: steps/plan-body.md is written only by the session that owns the task's live plan route; ${why}. ${noteSaveReason(pluginRoot)}`);
+    decide('deny', `AMBICODE: steps/plan-body.md is written only by the session that owns the task's live plan route; ${why}. ${planBodyReason(pluginRoot, slug)}`);
   const session = typeof input.session_id === 'string' && input.session_id !== '' ? input.session_id : null;
   if (session === null) return refuse('the hook named no session');
   if (!isAbsolute(taskDirectory)) return refuse('the hook gave no absolute path for it');

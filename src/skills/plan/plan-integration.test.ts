@@ -120,4 +120,31 @@ describe('06-H1/06-H2 plan route integration on ts-feature-boundary', () => {
       await rm(path.dirname(root), { recursive: true, force: true });
     }
   });
+
+  it('a plan piped to plan check on standard input, with no plan-body.md file, reaches plan-accept', async () => {
+    const root = await materialized();
+    try {
+      const step: Record<string, string> = {};
+      for (const name of ['plan/fetch', 'plan/design', 'plan/write']) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
+      const assembled = await assembleEngine({ root, routes: { plan: await readFile(path.join(REPO_ROOT, 'routes', 'plan', 'plan.yaml'), 'utf8') }, step });
+      const engine = assembled.build(skillHandlers());
+      const scratchpad = await assembled.runtime.fs.temporaryDirectory('ambicode-scratch-');
+      const deps = { engine, routes: assembled.routes, pointer: assembled.pointer };
+      await engine.start({ skill: 'plan', text: 'add a discount to invoice `total` and `amountCents`', requirements: [], task: TASK, cwd: root, session: A, channel: 'hook', scratchpadDir: scratchpad });
+      await answerGates(assembled.runtime, answered(root, scratchpad, 'Apply the discount before or after tax? [ambicode gate decision:discount-order]', 'Before tax', ['Before tax', 'After tax']) as never, deps, PLATFORM);
+      const write = await engine.advance({ task: TASK, session: A, cause: 'route-next', scratchpadDir: scratchpad });
+      assert.equal(write.position, 'plan-write');
+      assert.match(write.text, /plan check --task invoice-discount\b(?! --from)/);
+
+      const piped = { ...assembled.runtime, stdin: { read: async () => body('src/invoices/service.ts:3-6') } };
+      const passing = await runPlanCheckCommand(piped, parseArgs('plan check', ['--task', TASK], PLAN_CHECK_OPTIONS));
+      assert.equal(passing.failed, false);
+      assert.match(passing.next ?? '', /Revise \(3 left\)/);
+      const entries = await readLedger(nodeFileSystem, path.join(root, '.ambicode', 'task', TASK));
+      assert.equal(entries.filter((entry) => entry.kind === 'step' && entry['step'] === 'plan-check' && entry['status'] === 'failed').length, 0);
+      await rm(scratchpad, { recursive: true, force: true });
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
+  });
 });

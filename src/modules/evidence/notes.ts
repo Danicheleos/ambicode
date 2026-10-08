@@ -39,7 +39,7 @@ const notAccepted = (reason: string, why: string): AmbicodeError =>
   new AmbicodeError('plan-not-accepted', `The plan was not promoted: ${why}`, { details: [`reason: ${reason}`] });
 const draftMissing = (task: string): AmbicodeError =>
   new AmbicodeError('plan-draft-missing', `Task ${task} has no plan draft to promote.`, {
-    details: ['Write steps/plan-body.md and let the plan route save the draft, then ask plan-accept again.'],
+    details: [`Pipe the plan to \`plan check --task ${task}\` on standard input to save the draft, then ask plan-accept again.`],
   });
 
 /** The route a `plan-draft` is saved for, or `null` for a routeless save; every other state refuses before anything is written. */

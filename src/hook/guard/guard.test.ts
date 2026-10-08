@@ -466,7 +466,7 @@ describe('plan-body writes: allowed only to the session that owns the live plan 
       const out = write(session, file === undefined ? undefined : path.join(repo, '.ambicode', 'task', file, 'steps', 'plan-body.md'));
       assert.equal(decisionOf(out), 'deny');
       assert.match(out.hookSpecificOutput!.permissionDecisionReason, why);
-      assert.match(out.hookSpecificOutput!.permissionDecisionReason, /note save/);
+      assert.match(out.hookSpecificOutput!.permissionDecisionReason, /plan check --task \S+` on standard input/);
     });
   }
 
@@ -549,6 +549,9 @@ describe('plan-body writes: allowed only to the session that owns the live plan 
       fsGuardState,
     ) as Output;
     assert.equal(decisionOf(out), 'deny');
+    const reason = out.hookSpecificOutput!.permissionDecisionReason;
+    assert.match(reason, /plan check --task T` on standard input/);
+    assert.doesNotMatch(reason, /note save/);
   });
 });
 
