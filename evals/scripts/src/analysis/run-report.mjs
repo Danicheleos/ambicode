@@ -83,7 +83,11 @@ export function callChain(events, startedAt = null) {
 /** Paths a tool call reads or names, relative to the repository, as the answer scorer resolves them. */
 export function toolFiles(tool, truth, root) {
   const text = tool.name === 'Read' ? ` ${tool.input.file_path ?? ''}` : tool.name === 'Bash' ? String(tool.input.command ?? '') : [tool.input.path, tool.input.pattern, tool.input.glob].filter(Boolean).join(' ');
-  return namedFiles(` ${text}`, truth, root).named;
+  const named = namedFiles(` ${text}`, truth, root).named;
+  // The path pattern needs a slash: a root truth file is matched as a whole operand, never as a nested file's tail.
+  const escape = (name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const rooted = truth.filter((t) => !t.includes('/') && !named.includes(t) && new RegExp(`(?:^|[\\s'"\`=(])(?:\\./)?${escape(t)}(?=$|[\\s'"\`;|)&,:])`).test(text));
+  return [...named, ...rooted];
 }
 
 const isRead = (tool) => readsFiles(tool.name, tool.input);
@@ -174,7 +178,9 @@ function caseMeta(evalCase, analysis) {
   return file ? JSON.parse(readFileSync(file, 'utf8')) : null;
 }
 
-const fileTruth = (meta) => (Array.isArray(meta?.truth) && meta.truth.every((t) => typeof t === 'string' && t.includes('/')) ? meta.truth : []);
+// A preset truth spans the whole tree, so a root file (`package.json`) is a path too; a non-path string is not file truth.
+const PATH_SHAPED = /^(?:[\w@.+-]+\/)*[\w@.+-]+\.[A-Za-z0-9]*[A-Za-z][A-Za-z0-9]*$/;
+export const fileTruth = (meta) => (Array.isArray(meta?.truth) && meta.truth.every((t) => typeof t === 'string' && PATH_SHAPED.test(t)) ? meta.truth : []);
 
 /** One row per run of every arm: the harness numbers, the score, and what the trace, session and ledger show. */
 export function analyzeResult(results, { tracesDirs, cases = CASES_ROOT, withChains = true }) {
@@ -333,7 +339,9 @@ const sharesCases = (a, b) => (a.cases ?? []).some((c) => (b.cases ?? []).some((
 export function findComparisons(current, file, candidates, previous = PREVIOUS) {
   const before = candidates.filter((c) => path.resolve(c.file) !== path.resolve(file) && sharesCases(c.results, current) && Date.parse(c.results.startedAt) < Date.parse(current.startedAt));
   const coverage = (c) => (current.cases ?? []).filter((x) => (c.results.cases ?? []).some((y) => y.name === x.name)).length;
-  const runs = before.filter((c) => pluginName(c.results) !== NAKED_PLUGIN);
+  // Another model or another served prompt is another treatment, not an earlier value of this one.
+  const same = (c) => c.results.suite?.modelOverride === current.suite?.modelOverride && c.results.suite?.servedPrompt === current.suite?.servedPrompt;
+  const runs = before.filter((c) => pluginName(c.results) !== NAKED_PLUGIN && same(c));
   const ranked = [...runs.filter((c) => coverage(c) === (current.cases ?? []).length), ...runs.filter((c) => coverage(c) < (current.cases ?? []).length)];
   return { previous: ranked.slice(0, previous) };
 }
@@ -450,12 +458,18 @@ export function findingsOf({ plugin, bare, previous, band, servedPrompt, current
   else if (pContext === null || bContext === null)
     add('caveat', 'context-unmeasured', `first-request context is unmeasured for the ${pContext === null ? 'plugin' : 'bare'} arm (no trace), so the ${THRESHOLDS.extraContext}-token budget is unchecked, not met`);
 
-  const pPrimary = mean(plugin.filter((r) => !r.absent).map(primaryOf));
+  // Only the cases both runs scored, under the same kind: a mixed walk's average is not this suite's previous value.
+  const keyOf = (r) => `${r.case}\t${r.kind}`;
   for (const prev of previous) {
-    const prevPrimary = mean(prev.rows.filter((r) => r.arm === 'with' && !r.absent).map(primaryOf));
+    const prevRows = prev.rows.filter((r) => r.arm === 'with' && !r.absent);
+    const ours = plugin.filter((r) => !r.absent);
+    const shared = new Set(ours.map(keyOf).filter((k) => prevRows.some((r) => keyOf(r) === k)));
+    const pPrimary = mean(ours.filter((r) => shared.has(keyOf(r))).map(primaryOf));
+    const prevPrimary = mean(prevRows.filter((r) => shared.has(keyOf(r))).map(primaryOf));
     if (pPrimary === null || prevPrimary === null || band === null) continue;
-    if (pPrimary - prevPrimary < -band) add('weak', 'regression', `primary ${pPrimary.toFixed(3)} against ${prevPrimary.toFixed(3)} in ${prev.label}: a drop beyond the noise band`);
-    else if (pPrimary - prevPrimary > band) add('strong', 'improvement', `primary ${pPrimary.toFixed(3)} against ${prevPrimary.toFixed(3)} in ${prev.label}: a gain beyond the noise band`);
+    const on = `on ${shared.size} shared case${shared.size === 1 ? '' : 's'}`;
+    if (pPrimary - prevPrimary < -band) add('weak', 'regression', `primary ${pPrimary.toFixed(3)} against ${prevPrimary.toFixed(3)} in ${prev.label} ${on}: a drop beyond the noise band`);
+    else if (pPrimary - prevPrimary > band) add('strong', 'improvement', `primary ${pPrimary.toFixed(3)} against ${prevPrimary.toFixed(3)} in ${prev.label} ${on}: a gain beyond the noise band`);
   }
   const order = { invalid: 0, weak: 1, caveat: 2, strong: 3, info: 4 };
   return out.sort((a, b) => order[a.level] - order[b.level]);
@@ -705,7 +719,7 @@ export function buildReport(target, { baseline = null, lockFile = BASELINE_LOCK_
   // Thrown away; run only for its refusal of a baseline of another model, Claude Code version, case or prompt.
   if (baselineEntry) withBaseline(current, baselineEntry.results, { baselinePath: baselineEntry.file });
   const rows = analyzeResult(current, { tracesDirs: layout.tracesDirs, cases });
-  const baselineRows = baselineEntry ? analyzeResult(baselineEntry.results, { tracesDirs: layoutOf(baselineEntry.file, { outputs, reports }).tracesDirs, cases, withChains: false }) : null;
+  const baselineRows = baselineEntry ? analyzeResult(baselineEntry.results, { tracesDirs: baselineEntry.files.flatMap((f) => layoutOf(f, { outputs, reports }).tracesDirs), cases, withChains: false }) : null;
   const { plugin, bare, bareSource } = armsOf(rows, baselineRows, baselineEntry?.results);
   const prev = found.previous.map((p) => ({ label: layoutOf(p.file, { outputs, reports }).label, file: p.file, rows: analyzeResult(p.results, { tracesDirs: layoutOf(p.file, { outputs, reports }).tracesDirs, cases, withChains: false }) }));
   const band = noiseBand(plugin, bare);

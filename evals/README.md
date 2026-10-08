@@ -141,7 +141,7 @@ deviation** in trace order, which is the first of:
 - `prepare` cut short;
 - a re-run review;
 - a helper error;
-- no skill fired;
+- no route started (neither a typed route in the ledger nor a Skill call);
 - the turn limit.
 
 **Why:** this is the cheapest way (an estimated ~$3) to see *how* a change behaves before paying to measure *how

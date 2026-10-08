@@ -23,7 +23,7 @@ function stepLine(call, n) {
  * Error analysis, not a score: in trace order, the first thing that went wrong is the one to read,
  * since later ones often follow from it (evals-skills error-analysis: "errors cascade").
  */
-function deviations(calls, { kind, arm, root, error, turns, maxTurns }) {
+function deviations(calls, { arm, root, error, turns, maxTurns, routed }) {
   const found = [];
   const seen = new Set();
   const once = (key, text) => {
@@ -43,9 +43,9 @@ function deviations(calls, { kind, arm, root, error, turns, maxTurns }) {
   });
   if (error) found.push(`the run ended in an error: ${error}`);
   if (calls && arm === 'with') {
-    const fired = calls.some((c) => c.block.name === 'Skill' && String(c.block.input?.skill ?? '').startsWith('ambicode:'));
-    if (!fired) found.push('no AMBICODE skill fired');
-    else if (kind === 'localize' && !calls.some((c) => c.helper === 'prepare')) found.push('a skill fired but prepare never ran');
+    // A typed `/ambicode:<skill>` starts its route from the prompt hook with no Skill call, so the ledger counts too.
+    const fired = routed || calls.some((c) => c.block.name === 'Skill' && String(c.block.input?.skill ?? '').startsWith('ambicode:'));
+    if (!fired) found.push('no AMBICODE route started');
   }
   if (typeof maxTurns === 'number' && typeof turns === 'number' && turns >= maxTurns) found.push(`stopped at the ${maxTurns}-turn limit`);
   return found;
@@ -65,7 +65,7 @@ export function walkRuns(results, { cases = CASES_ROOT, tracesDir = null } = {})
       row,
       answer,
       steps: calls ? calls.map((call, i) => stepLine(call, i + 1)) : null,
-      deviations: deviations(calls, { kind: row.kind, arm: row.arm, root: meta.root, error: row.error, turns: row.turns, maxTurns: evalCase.maxTurns }),
+      deviations: deviations(calls, { arm: row.arm, root: meta.root, error: row.error, turns: row.turns, maxTurns: evalCase.maxTurns, routed: (row.ledger?.routes ?? 0) > 0 }),
     };
   });
 }

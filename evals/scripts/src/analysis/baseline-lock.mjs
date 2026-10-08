@@ -82,7 +82,8 @@ export function lockedBaseline({ lockFile = BASELINE_LOCK_FILE } = {}) {
     return { entry, results: { ...results, cases: (results.cases ?? []).filter((c) => entry.cases.includes(c.name)) } };
   });
   const results = { ...loaded[0].results, cases: loaded.flatMap((l) => l.results.cases) };
-  return { file: lock.sources.map((entry) => entry.source).join(' + '), results, lock };
+  // `file` is a label; `files` are the paths, each beside its own traces.
+  return { file: lock.sources.map((entry) => entry.source).join(' + '), files: lock.sources.map((entry) => entry.source), results, lock };
 }
 
 /** A run with no bare arm of its own: not the naked baseline itself, and no case carrying a `without` arm. */
@@ -94,7 +95,7 @@ export const needsBaseline = (results) =>
  * nothing is locked; an incompatible baseline throws through `withBaseline`, never falls back to another run.
  */
 export function resolveBaseline(results, { baselinePath, lockFile = BASELINE_LOCK_FILE, analysis = createAnalysis() } = {}) {
-  if (baselinePath !== undefined && baselinePath !== null) return { file: path.resolve(baselinePath), results: JSON.parse(readFileSync(baselinePath, 'utf8')) };
+  if (baselinePath !== undefined && baselinePath !== null) return { file: path.resolve(baselinePath), files: [path.resolve(baselinePath)], results: JSON.parse(readFileSync(baselinePath, 'utf8')) };
   if (!needsBaseline(results)) return null;
   // The lock pins the core suite's bare means; a run of another preset is compared only against a `--baseline` it names.
   if ((results.cases ?? []).length && results.cases.every((c) => { const preset = analysis.meta(c)?.preset; return preset && preset !== CORE_PRESET; })) return null;

@@ -29,7 +29,7 @@ From the widest to the narrowest. A change in a layer reaches every layer under 
 | L4f | Review | estimate, bundle, reviewer worker (sonnet, 300 s) | `src/modules/review/` | review, task | review `estimate-step`, `estimate`, `review-run`, `readback`, `view`; task `review-run`, `report-step` | yes |
 | L4g | Evidence, workers | notes, navigation line, promotion; plan-check | `src/modules/evidence/`, `src/modules/workers/` | investigate, plan, task | investigate note (`read`); plan `plan-step`, `plan-check`, `promote`; task report | yes |
 | L4h | Config defaults | defaults, init proposal, doctor | `src/modules/config/` | init; defaults of all 6 | init `propose`, `close`; the defaults of every module above | yes |
-| L5 | Route definitions | per skill: budget (`modelSteps`, `wallMinutes`, `toolTurns`), exits, step order, `when`, `repeat`, `revisable`, gate questions and defaults | `routes/*.yaml`, `routes/gates.yaml` | one route per skill; `gates.yaml` all 6 | budget, exits, step order, `when`, gates of that route; `budget-exhausted` everywhere | yes |
+| L5 | Route definitions | per skill: budget (`modelSteps`, `wallMinutes`), exits, step order, `when`, `repeat`, `revisable`, gate questions and defaults | `routes/*.yaml`, `routes/gates.yaml` | one route per skill; `gates.yaml` all 6 | budget, exits, step order, `when`, gates of that route; `budget-exhausted` everywhere | yes |
 | L6 | Step payloads | what a step hands the model: `payload: [envelope, acs, map, policy:…]`, map size limits (leads 1,200 B, feature 400 B) | route `payload:` + the module that renders it | investigate, task, plan, rules, review | investigate `read`; task `red`, `write`; plan `design`; rules `draft`; `fetch` (template) in investigate, task, review, plan | yes |
 | L7a | Step instructions | `routes/<skill>/<step>.md`, ≤ 1,500 chars | `routes/<skill>/` | all 6 | one model step per file. Shared: `plan/fetch.md` = plan and task `fetch`; `init/apply-run.md` = init `apply`, `apply-adjusted`. Others: investigate `fetch`/`read`, review `fetch`/`readback`/`view`, task `red`/`green`/`fix`/`write`, plan `design`/`plan-write`, rules `draft`/`apply` | yes |
 | L7b | Skill bodies | `skills/*/SKILL.md` | `skills/` | one skill each | from the skill open to its first step | yes |
@@ -39,7 +39,7 @@ Routes and their model steps:
 
 | Skill | Budget | Code steps | Model steps | Human gates |
 |---|---|---|---|---|
-| investigate | 6 steps, 12 tool turns | template, ground (normalize, ACs, `search.map(prompt)`, policy before-work) | fetch, read | scope (only if the map is empty) |
+| investigate | 6 model steps | template, ground (normalize, ACs, `search.map(prompt)`, policy before-work) | fetch, read | scope (only if the map is empty) |
 | task | 18 steps, 90 min | template, start, ground (normalize, checks baseline, `search.map(context)`, inventory, policy, index), review-run, report-step | fetch, red, green, fix, write | draft-ok, review-offer |
 | review | 6 steps, 45 min | template, ground, estimate-step, review-run | fetch, readback, view | estimate |
 | plan | 14 steps, 45 min | template, ground (`search.map(context)`), plan-step, plan-check, promote | fetch, design, plan-write | plan-accept |
@@ -52,13 +52,43 @@ Routes and their model steps:
   stage's tool levers are used up.
 - **Language-agnostic.** Every lever reads the measured project profile. No language, framework or ecosystem
   tables. A change counts only if it holds on BE-express, FE-angular and python (where python has data).
-- **Cheapest check first.** Free offline check → `evals:walk` (1 run, about $1–2) → `evals:decide` (3 runs, about
-  $13–20) → `evals:gate` against the baseline → `evals:report`.
+- **Cheapest check first.** Free offline check → paid observation → final gate → `evals:report`. Paid sizes:
+  - engine, steps, budgets, calls, context, overall behaviour: `evals:walk` × 2 runs (8 cases, about $2–2.5 a run);
+  - step checks while tuning one skill: 6 cases × 2 runs;
+  - final gate of a stage or skill: the full set, `evals:decide` (20 cases × 3, about $13–15 on investigate), then
+    `evals:gate` against the locked baseline.
 - **No regressions upstream.** At every `decide`, re-check the thresholds of the stages already passed. A narrow
   change that breaks a wide threshold is reverted.
 - **Noise.** A gain or loss counts only beyond the noise band of the run (`evals:report`; 0.099 recall on run 12).
   One run per case decides nothing.
 - **Build first.** `npm run build` before any paid run; the evals run `scripts/ambicode.mjs`.
+
+### Closing a stage on its floor
+
+A stage's thresholds are targets. When a stage cannot reach them, it closes on its floor and the plan moves on.
+
+The floor holds when all of these hold on the stage skill's `evals:decide`, measured against the locked baseline:
+
+- `evals:gate` passes. Its gaps are listed and do not count as passes.
+- Recall is at least bare (point estimate).
+- Precision is at least bare minus the band.
+- Every stage passed so far still holds, and no stage-0 finding appears.
+
+A stage closes on its floor when the floor holds and one of these is true:
+
+- Two paid iterations in a row did not move the stage's main metric beyond the band.
+- The latest iteration failed the gate. Revert it.
+- The stage has used 3 paid `decide` runs (about $45 on investigate).
+
+To close a stage:
+
+1. Name the reference run: the last run that holds the floor. Revert every change made after it.
+2. Move each unmet threshold to §5 Debt, with its measured value, the layer that owns it, and where it is cheapest to
+   retest.
+3. Start the next stage.
+
+Debt never blocks the next stage. A debt item is retried when a later stage changes its layer, or offline at any time.
+Stage 0 never closes on a floor: a ruler defect that can change a gate verdict blocks every stage.
 
 ## 2. Starting point (run 12, 2026-10-06, 10 localize cases × 3, sonnet)
 
@@ -123,20 +153,36 @@ Measure: `context` (first-call context minus bare), `route-slow`, wall time, cos
 | a session with no typed skill vs bare | cost ≤ 1.05×, recall within the band | 1.041× cost, recall 0.632 vs bare 0.556 (6 cases × 3, run 25_0658); first call +711 tokens |
 | hook failures in traces | 0 | 0 of 54 recorded hook responses (SessionStart only: the traces do not record the other hook events) |
 
-### Stage 2 — Engine: delivery, closure, budgets (L3, L1 Stop)
+### Stage 2 — Engine: delivery, closure, budgets (L3, L1 hooks)
 
-Lever: step delivery, the Stop check, exits, budget accounting, `repeat` and `revise` handling.
+Reopened 2026-10-08. The first close (`eval-replay/evals/stage2-baseline.md`) measured 6 old cases and never ran the
+task walk. The audit `eval-replay/evals/24-25-26-27-next/report.md` found engine and hook defects on the new 20-case
+set. This stage also carries the two stage-1 thresholds that fail on that set.
 
-Measure: `route-open`, `route-exit`, `stop-blocked`, `step-unstable`, `turns`, the route signatures in `chains.md`.
+Lever: step delivery, the Stop check and its export, exits, budget accounting, `repeat` and `revise` handling, the
+root that task-bound CLI calls run in, hook activation.
 
-| Pass when | Threshold | Now |
+Measure: `route-open`, `route-exit`, `stop-blocked`, `step-unstable`, `turns`, `route-slow`, `context`, the route
+signatures in `chains.md`.
+
+| Pass when | Threshold | Now (06_1853; `eval-replay/evals/stage2-baseline-v2.md`) |
 |---|---|---|
-| runs that end with an exit entry | ≥ 29 / 30 (97%) | 36 / 36 written by the Stop hook (run 27_0733); 33 / 36 in the harvested ledgers, 3 copies are short (`ledger-stale`) |
-| `budget` exits on the curated set | 0 | 0 of 36 (33 `done`, 3 stale copies) |
-| Stop blocks that the model did not need | 0 | 0 of 36 |
-| model calls over bare | ≤ +2 per run (`extraCalls`, gate `maxExtraTurns`) | -0.3 (7.6 vs 7.9); fe-vs-6269 +2.8 on its own |
-| distinct route signatures per case | 1 (`step-unstable` absent) | `step-unstable` absent; the 2 signatures per case are the closed ledger and a stale copy |
-| task walk | route closes with `exit:done`; no repeated red/green after a limit entry | open at `write:delivered` |
+| runs that end with an exit entry | ≥ 97% | 60/60 `exit:done`, one route each; 120/120 over 06 and 07 |
+| `budget` exits on the curated set | 0 | 0 |
+| Stop blocks that the model did not need | 0 | 0: one block per iteration, each a citation of an abbreviated path (`…/`, `{a,b}/*`) |
+| model calls over bare | ≤ +2 per run (`extraCalls`, gate `maxExtraTurns`) | −0.14 (7.68 vs 7.82) |
+| model calls, p95 | ≤ bare p95 + 2 | 13.05 vs 12.05 |
+| distinct route signatures per case | 1 step sequence (`step-unstable` absent) | 1; the raw variants differ only by CLI-call entries and a trailing SessionEnd `session` |
+| task walk | route closes with `exit:done`; no repeated red/green after a limit entry | not run |
+| task-bound CLI calls read the task's repository | 0 operand refusals caused by the shell's directory | 41 of 47 refusals in 07, by the audit (13 first calls, e.g. e-iGjP0t) |
+| eval export manifest | records every exported file's presence, hash and copy result, written after them | per-note copy errors are swallowed (no failure seen) |
+| typed-route activation measured | the gate counts typed-hook route starts, not native Skill calls | `route started 60/60 (ledger), Skill tool 0/60` |
+| guard denials of the plugin's own commands | 0 | 8 in 7 runs: the model aliases `node "…/ambicode.mjs" read` to `$R`/`$A` |
+| first-call context over bare (from stage 1) | ≤ 2,500 tokens | +2,824 (06), +2,977 (07); three cases at about +4,100 |
+| route step ready ≤ 5 s (from stage 1) | ≥ 90% of runs | 46/60 (76.7%); BE 30/30, FE 16/30; the map is all but 0.6 s of it |
+
+The route budget is `modelSteps` only (`routes.test.ts` refuses `toolTurns`). It does not bound the tool loop inside a
+step. Cost and model calls are bounded by the gate, not by the route.
 
 ### Stage 3 — Search map: profile, index, locate (L4 search, L6 map payload)
 
@@ -297,3 +343,8 @@ Last, and only for a step whose tool levers are used up. One file per change; ru
 5. `evals:decide` with `--tag <kind>` for the stage's skill, then `evals:gate` and `evals:report`.
 6. Keep the change if the stage threshold moved and no passed stage regressed. Otherwise revert.
 7. Record the result in `../ambicode-evals-assets/outputs/<type>/<date>/iterations.md` with the stage number in the label.
+
+## 5. Debt
+
+Unmet thresholds from stages closed on their floor. None yet. The ideas to try later are in
+`eval-replay/evals/next-moves-2026-10-08.md`.

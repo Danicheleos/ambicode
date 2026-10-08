@@ -43,9 +43,9 @@ describe('evals-bench: the walkthrough', () => {
     const walk = walkRuns(results, { cases: benchmarks, tracesDir: path.join(benchmarks, 'traces') });
     assert.deepEqual(
       walk.map((w) => w.deviations[0] ?? null),
-      ['prepare output cut with head/tail/cut (step 2)', 'no AMBICODE skill fired', 'the run ended in an error: timeout'],
+      ['prepare output cut with head/tail/cut (step 2)', 'no AMBICODE route started', 'the run ended in an error: timeout'],
     );
-    assert.deepEqual(walk[1].deviations, ['no AMBICODE skill fired', 'stopped at the 40-turn limit']);
+    assert.deepEqual(walk[1].deviations, ['no AMBICODE route started', 'stopped at the 40-turn limit']);
     assert.ok(!walk[0].deviations.some((d) => d.startsWith('review re-run')), 'one review call is not a re-run');
     const rerun = [
       event('system', { subtype: 'init', model: 'claude-sonnet-5-5' }),
@@ -61,8 +61,14 @@ describe('evals-bench: the walkthrough', () => {
       'review re-run (step 3)',
       'edit attempted: /s/repo/app/a.ts (step 4)',
       'reached into benchmarks/ (step 5)',
-      'a skill fired but prepare never ran',
     ]);
+    // A typed `/ambicode:<skill>` starts its route from the prompt hook, with no Skill call: the ledger is the activation.
+    const typed = [event('system', { subtype: 'init', model: 'claude-sonnet-5-5' }), toolUse('Bash', { command: 'grep -rn total app' })].join('\n');
+    writeFileSync(path.join(benchmarks, 'traces', 'e-typed.jsonl'), typed);
+    mkdirSync(path.join(benchmarks, 'traces', 'ledgers', 'e-typed', 'l'), { recursive: true });
+    writeFileSync(path.join(benchmarks, 'traces', 'ledgers', 'e-typed', 'l', 'ledger.jsonl'), `${JSON.stringify({ id: 'x-0', kind: 'route', skill: 'investigate' })}\n`);
+    const [routed] = walkRuns({ cases: [{ name: 'side-t-1', arms: { with: [{ graders, tracePath: '/tmp/e-typed/out/trace.jsonl' }] } }] }, { cases: benchmarks, tracesDir: path.join(benchmarks, 'traces') });
+    assert.deepEqual(routed.deviations, []);
     assert.equal(walk[0].steps[0], '1. Skill ambicode:investigate q');
     assert.ok(walk[0].steps.every((line) => line.length <= 120 && !line.includes('\n')));
     assert.equal(walk[2].steps, null, 'an untraced run has no steps, not an empty list');

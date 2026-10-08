@@ -105,6 +105,20 @@ describe('eval-gate', () => {
     assert.match(gaps[0].detail, /scope ×2/);
   });
 
+  it('counts a typed route started by the prompt hook as activation, apart from native Skill tool calls', () => {
+    const routed = () => {
+      const row = run(1);
+      const dir = path.join(tracesDir, 'ledgers', path.basename(path.dirname(path.dirname(row.tracePath))), 'l');
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(path.join(dir, 'ledger.jsonl'), `${JSON.stringify({ id: 'x-0', kind: 'route', skill: 'investigate' })}\n`);
+      return row;
+    };
+    const verdict = gate(results([routed(), routed(), run(1)], [run(1), run(1), run(1)]), { cases: benchmarks, tracesDir });
+    const line = verdict.info.find((l) => l.startsWith('localize/with:'));
+    assert.match(line, /route started 2\/3 \(ledger\), Skill tool 0\/3/);
+    assert.doesNotMatch(line, /skill fired/);
+  });
+
   it('reports the recall of an arm whose review hit replay-miss as unmeasured, not as a loss', () => {
     const missRun = () => {
       const id = `e-${traceId++}`;

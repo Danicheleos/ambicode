@@ -109,7 +109,9 @@ export function gate(given, { cases = CASES_ROOT, tracesDir = null, budget = BUD
     if (traced.length) {
       const count = (pred) => `${traced.filter(pred).length}/${traced.length}`;
       info.push(
-        `${kind}/with: skill fired ${count((r) => r.trace.skills.some((s) => s.startsWith('ambicode:')))}, ` +
+        // A typed `/ambicode:<skill>` starts its route from the prompt hook, with no native Skill call: the ledger is the activation.
+        `${kind}/with: route started ${count((r) => (r.ledger?.routes ?? 0) > 0)} (ledger), ` +
+          `Skill tool ${count((r) => r.trace.skills.some((s) => s.startsWith('ambicode:')))}, ` +
           `prepare ran ${count((r) => r.trace.prepareRuns > 0)}, prepare truncated ${count((r) => r.trace.prepareTruncated > 0)}, ` +
           `review runs ${fmt(mean(traced.map((r) => r.trace.reviewRuns)), 2)} per run`,
       );

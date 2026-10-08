@@ -1,9 +1,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { buildReport, callChain, findComparisons, findingsOf, layoutOf, proposalsOf, readOperands, readRequests, routeChain, toolFiles } from './run-report.mjs';
+import { buildReport, callChain, fileTruth, findComparisons, findingsOf, layoutOf, proposalsOf, readOperands, readRequests, routeChain, toolFiles } from './run-report.mjs';
 
 const jsonl = (events) => `${events.map((event) => JSON.stringify(event)).join('\n')}\n`;
 const usage = (read, write, output) => ({ input_tokens: 2, cache_read_input_tokens: read, cache_creation_input_tokens: write, output_tokens: output });
@@ -43,6 +44,14 @@ describe('run-report: the chain of one run', () => {
     assert.deepEqual(toolFiles({ name: 'Bash', input: { command: 'cd repo && sed -n 1,9p src/b.ts' } }, truth, 'src'), ['src/b.ts']);
   });
 
+  it('keeps a truth list that holds a root file, and finds that root file in a tool call', () => {
+    const truth = ['package.json', 'src/a.ts'];
+    assert.deepEqual(fileTruth({ kind: 'localize', truth }), truth, 'a preset truth spans the whole tree');
+    assert.deepEqual(fileTruth({ kind: 'localize', truth: ['not a path', 'src/a.ts'] }), []);
+    assert.deepEqual(toolFiles({ name: 'Bash', input: { command: 'cd repo && cat package.json src/a.ts' } }, truth, 'src'), ['src/a.ts', 'package.json']);
+    assert.deepEqual(toolFiles({ name: 'Bash', input: { command: 'cat apps/web/package.json' } }, truth, 'src'), ['apps/web/package.json'], 'a nested file of the same name is not the root one');
+  });
+
   it('reads the route from its ledger: signature, offsets, map layers and exit', () => {
     const route = routeChain([{ entries: ledger }]);
     assert.equal(route.signature, 'route > map > read:delivered > exit:done');
@@ -64,6 +73,7 @@ describe('run-report: comparisons and findings', () => {
       { file: '/x/naked-other-model.json', results: result('2026-01-02T12:00:00Z', 'naked', ['a', 'b'], 'other') },
       { file: '/x/naked.json', results: result('2026-01-02T00:00:00Z', 'naked', ['a', 'b']) },
       { file: '/x/unrelated.json', results: result('2026-01-01T00:00:00Z', 'ambicode', ['z']) },
+      { file: '/x/other-model.json', results: result('2026-01-03T12:00:00Z', 'ambicode', ['a', 'b'], 'other') },
     ];
     const found = findComparisons(current, '/x/current.json', candidates, 2);
     assert.equal(found.baseline, undefined, 'the bare reference is the lock, not the newest naked run');
@@ -82,6 +92,17 @@ describe('run-report: comparisons and findings', () => {
   it('maps an iteration under outputs to the same path under reports', () => {
     const layout = layoutOf('/r/evals-assets/outputs/core/2026-01-01/01_0000_x/results/eval.json', { outputs: '/r/evals-assets/outputs', reports: '/r/evals-assets/reports' });
     assert.deepEqual([layout.type, layout.label, layout.reportDir], ['core', '01_0000_x', '/r/evals-assets/reports/core/2026-01-01/01_0000_x']);
+  });
+
+  it('compares with a previous run only on the cases and kinds both ran', () => {
+    const row = (name, kind, recall) => ({ case: name, arm: 'with', run: 0, kind, recall, score: 1, costUsd: 0.1, absent: false });
+    const plugin = [row('a', 'localize', 0.5), row('b', 'localize', 0.5)];
+    const previous = [{ label: 'walk', rows: [row('a', 'localize', 0.5), row('c', 'task', 0.1), row('b', 'plan', 0.1)] }];
+    const findings = findingsOf({ plugin, bare: [], previous, band: 0.1, servedPrompt: 'with', current: { suite: {} }, baselineResults: null });
+    assert.ok(!findings.some((f) => ['improvement', 'regression'].includes(f.code)), JSON.stringify(findings.filter((f) => f.code === 'improvement')));
+    const lower = [{ label: 'older', rows: [row('a', 'localize', 0.2), row('b', 'localize', 0.9)] }];
+    const [found] = findingsOf({ plugin: [row('a', 'localize', 0.5)], bare: [], previous: lower, band: 0.1, servedPrompt: 'with', current: { suite: {} }, baselineResults: null }).filter((f) => f.code === 'improvement');
+    assert.match(found.text, /0\.500 against 0\.200 in older on 1 shared case/);
   });
 
   it('flags a loss beyond the band, a saturated case, an open route and a map the answer ignored; proposals follow', () => {
@@ -124,6 +145,39 @@ describe('run-report: the files it writes', () => {
       assert.equal(json.plugin[0].failedCalls, 1);
       assert.ok(findings.some((f) => f.code === 'failed-calls'));
       assert.ok(existsSync(path.join(reportDir, 'chains.md')));
+    } finally {
+      rmSync(top, { recursive: true, force: true });
+    }
+  });
+
+  it('reads each locked source\'s own traces, so a lock of several sources still measures the bare arm', () => {
+    const top = mkdtempSync(path.join(tmpdir(), 'run-report-'));
+    try {
+      const outputs = path.join(top, 'outputs');
+      const run = (id) => ({ score: 1, passed: true, costUsd: 0.2, turns: 2, durationSeconds: 10, startedAt: '2026-01-01T00:00:00.000Z', error: null, tracePath: `/private/tmp/${id}/out/trace.jsonl`, graders: [] });
+      const iteration = (name, plugin, cases) => {
+        const dir = path.join(outputs, 'core', '2026-01-01', name);
+        mkdirSync(path.join(dir, 'results'), { recursive: true });
+        mkdirSync(path.join(dir, 'traces'), { recursive: true });
+        for (const [, id] of cases) writeFileSync(path.join(dir, 'traces', `${id}.jsonl`), jsonl(trace));
+        const results = { startedAt: '2026-01-01T00:00:00.000Z', claudeVersion: '1', costUsd: 0.4, durationSeconds: 20, suite: { modelOverride: 'claude-test', ablation: 'none', plugins: [{ name: plugin }], servedPrompt: plugin === 'naked' ? 'naked' : 'with' }, cases: cases.map(([name, id]) => ({ name, promptMarkdown: 'find it', arms: { with: [run(id)] } })) };
+        writeFileSync(path.join(dir, 'results', 'eval.json'), JSON.stringify(results));
+        return path.join(dir, 'results', 'eval.json');
+      };
+      const first = iteration('01_0000_naked', 'naked', [['case-a', 'e-bare1']]);
+      const second = iteration('02_0000_naked', 'naked', [['case-b', 'e-bare2']]);
+      const current = iteration('03_0000_plugin', 'ambicode', [['case-a', 'e-plug1'], ['case-b', 'e-plug2']]);
+      const sha = (file) => `sha256:${createHash('sha256').update(readFileSync(file)).digest('hex')}`;
+      const lockFile = path.join(top, 'baseline.lock.json');
+      const means = { recall: null, precision: null, costUsd: 0.2, turns: 2 };
+      writeFileSync(lockFile, JSON.stringify({
+        version: 2, model: 'claude-test', claudeVersion: '1', arm: 'with',
+        sources: [[first, ['case-a']], [second, ['case-b']]].map(([source, cases]) => ({ source, sha256: sha(source), plugin: 'naked', startedAt: '2026-01-01T00:00:00.000Z', skills: [], cases })),
+        cases: { 'case-a': { skill: null, prompt: null, truth: null, ...means }, 'case-b': { skill: null, prompt: null, truth: null, ...means } },
+      }));
+      const { reportDir } = buildReport(current, { lockFile, outputs, reports: path.join(top, 'reports') });
+      const json = JSON.parse(readFileSync(path.join(reportDir, 'report.json'), 'utf8'));
+      assert.deepEqual(json.bare.map((row) => [row.case, row.traced, row.firstContext]), [['case-a', true, 152], ['case-b', true, 152]]);
     } finally {
       rmSync(top, { recursive: true, force: true });
     }
