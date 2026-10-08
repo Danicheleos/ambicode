@@ -16,7 +16,7 @@ import { walkReport } from '../analysis/bench-walk.mjs';
 import { casesLockStatus, lockCases, unlockCases } from './cases-lock.mjs';
 import { LEDGER_DIRECTORY, tally } from '../analysis/ledger-metrics.mjs';
 import { atomicWrite, FRONT_MATTER, GENERATION_MARKER, NAKED_COPY, outstandingSwap, PROMPT, promptBody, restorePrompts, swapInPluginPrompts, WITH_PROMPT } from './prompt-transport.mjs';
-import { FORCED_REMOVED, harnessArgv, parseRunOptions, PATH_OPTIONS, resultLayout, runSpec } from './run-options.mjs';
+import { FORCED_REMOVED, GRANTED_TOOLS, harnessArgv, parseRunOptions, PATH_OPTIONS, resultLayout, runSpec } from './run-options.mjs';
 import { trackSweep } from './sweep-events.mjs';
 import { dryRunArgs, DEFAULT_RECORDINGS, replaySummary, reviewCaseNames, tuningSummaryOf } from '../analysis/model-free-runners.mjs';
 import { EXPORT_DIRECTORY, harvestTraces, harvestedOfResult, removeSandboxes, sandboxIdsOfResult } from '../analysis/trace-analysis.mjs';
@@ -240,7 +240,7 @@ export function formatPlan(plan) {
       lock ? `${lock.state}, held by ${lock.purpose ?? 'unknown'}; a real run would ${lock.state === 'abandoned' ? 'recover it' : 'be refused'}` : 'free'
     }`,
     'hook support: not claimed (probe P37 pending); a dry run cannot show whether a typed command expands',
-    `harness: claude plugin eval ${pluginShown} --eval-dir ${plan.evalDir} --scaffold --allow-tools Bash --no-publish`,
+    `harness: claude plugin eval ${pluginShown} --eval-dir ${plan.evalDir} --scaffold --allow-tools ${GRANTED_TOOLS.join(' ')} --no-publish`,
     `harness options: ${harness.join(' ')}`,
   ].join('\n');
 }

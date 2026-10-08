@@ -116,7 +116,7 @@ describe('evals-bench: run arguments are parsed once', () => {
     await refusedWithoutEffect([...head, '--model', 'm', '--walk=yes'], /--walk takes no value/);
     await refusedWithoutEffect([...head, '--model', 'm', '--debug-file', 'x'], /unknown option --debug-file/);
     await refusedWithoutEffect([...head, '--model', 'm', 'stray'], /unexpected argument stray/);
-    await refusedWithoutEffect([...head, '--model', 'm', '--allow-tools', 'Write'], /fixed to Bash/);
+    await refusedWithoutEffect([...head, '--model', 'm', '--allow-tools', 'Write'], /fixed to Bash Write Edit/);
     await refusedWithoutEffect([...head, '--model', 'm', '--tag', 'walk', '--tag=localize'], /ANY of these tags/);
   });
 
@@ -129,7 +129,7 @@ describe('evals-bench: run arguments are parsed once', () => {
     };
     await runSweep(['--plugin=' + plugin, '--json=' + json, '--model=m', '--max-cost-usd=1', '--tag=localize', '--prompt=with', '--ablation=none', '-j', '4', '--trust-plugin'], { ...quiet, benchmarks, spawnRun });
     assert.deepEqual(forwarded, [
-      'plugin', 'eval', plugin, '--eval-dir', CURATED_EVAL_DIR, '--scaffold', '--allow-tools', 'Bash', '--no-publish', '--keep-temp',
+      'plugin', 'eval', plugin, '--eval-dir', CURATED_EVAL_DIR, '--scaffold', '--allow-tools', 'Bash', 'Write', 'Edit', '--no-publish', '--keep-temp',
       '--model', 'm', '--max-cost-usd', '1', '--ablation', 'none', '--json', jsonOf(forwarded), '--concurrency', '4', '--trust-plugin', '--tag', 'localize',
     ]);
     assert.equal(path.dirname(jsonOf(forwarded)), path.dirname(json), 'the private result sits beside the target, under the same exclusion');

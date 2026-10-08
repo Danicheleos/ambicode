@@ -14,6 +14,8 @@ export const RUN_FLAGS = ['--walk', '--dry-run', '--trust-plugin', '--allow-real
 const WRAPPER_OPTIONS = new Set(['--set', '--project', '--preset', '--plugin', '--prompt', '--walk', '--dry-run']);
 export const PATH_OPTIONS = new Set(['--json', '--report', '--output-dir']);
 const RUN_ALIASES = { '-j': '--concurrency' };
+/** The operator grant for gated tools; each case's `allowed_tools` still picks its own. Bash alone withholds Write and Edit from the cases that list them. */
+export const GRANTED_TOOLS = Object.freeze(['Bash', 'Write', 'Edit']);
 const RUN_FIXED = {
   '--forced': FORCED_REMOVED,
   '--publish-report': '--publish-report is refused: the benchmark set is under NDA',
@@ -21,7 +23,7 @@ const RUN_FIXED = {
   '--scaffold': '--scaffold is always passed',
   '--no-scaffold': '--no-scaffold is refused: every case needs its scaffold',
   '--no-publish': '--no-publish is always passed',
-  '--allow-tools': '--allow-tools is fixed to Bash',
+  '--allow-tools': `--allow-tools is fixed to ${GRANTED_TOOLS.join(' ')}`,
 };
 const REQUIRED = {
   // Four 2026-09-29 runs differed only by model (Opus, then Sonnet) and read as plugin changes.
@@ -167,7 +169,7 @@ export function runSpec(options, { now = new Date(), benchmarks = BENCHMARKS, ou
 /** The `claude` argv of a spec; `json` replaces the result path (a run writes to its private one). */
 export function harnessArgv(spec, { json = spec.json } = {}) {
   const options = spec.harness.flatMap(([name, ...rest]) => (name === '--json' ? [name, json] : [name, ...rest]));
-  return ['plugin', 'eval', spec.plugin, '--eval-dir', spec.evalDir, '--scaffold', '--allow-tools', 'Bash', '--no-publish', '--keep-temp', ...options];
+  return ['plugin', 'eval', spec.plugin, '--eval-dir', spec.evalDir, '--scaffold', '--allow-tools', ...GRANTED_TOOLS, '--no-publish', '--keep-temp', ...options];
 }
 
 /** Compatibility adapter: the argv of raw `run` arguments, validated as `run` validates them. */

@@ -370,7 +370,10 @@ export function createEngine(deps: EngineDeps): Engine {
     });
   }
 
-  /** Stop after the final message: a delivered final model step has no command to end it, so its turn ending completes the route. */
+  /**
+   * Stop after the final message: a delivered final model step has no command to end it, so its turn ending completes
+   * the route. A user-set headless session has no next turn, so a Stop anywhere else ends its route inconclusive.
+   */
   async function closeFinal(task: string, routeId: string, scratchpadDir?: string): Promise<boolean> {
     const dir = await resolveTaskDir(runtime, task);
     return withLedgerLock(runtime.fs, dir.root, now, routeId, async (ledger) => {
@@ -380,11 +383,17 @@ export function createEngine(deps: EngineDeps): Engine {
       if (head === undefined || def === null) return false;
       const fold = foldRoute(def, buildChain(entries, head));
       const step = fold.position;
-      if (step === null || !isClosing(fold, step) || !windowOf(fold, step).some((entry) => entry.kind === 'step' && entry['step'] === step.id && entry['status'] === 'delivered')) return false;
+      const closing = step !== null && isClosing(fold, step) && windowOf(fold, step).some((entry) => entry.kind === 'step' && entry['step'] === step.id && entry['status'] === 'delivered');
+      const headless = head['mode'] === 'headless' && head['trusted'] === true;
+      if (!closing && !headless) return false;
       const session = String(head['session']);
       const run = newRun({ runtime, def, task, dir, ledger, entries, head, session, stateKey: harnessOf(head) ?? session, cause: 'stop', channel: 'hook', ...scratchOf(head, scratchpadDir), deliverOnly: true });
-      await append(run, { kind: 'step', step: step.id, actor: 'model', status: 'completed', cause: 'stop' });
-      await execute(run);
+      if (closing) {
+        await append(run, { kind: 'step', step: step.id, actor: 'model', status: 'completed', cause: 'stop' });
+        await execute(run);
+      } else {
+        await exitRoute(run, 'inconclusive', `the headless session stopped at step ${step?.id ?? 'none'}`);
+      }
       await endRoute(pointer, runtime.fs, run.stateKey, run.scratchpadDir, { task, skill: def.skill, routeId: head.id });
       return true;
     });

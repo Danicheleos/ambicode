@@ -339,6 +339,18 @@ describe('task route (07-R, 07-V, 07-G)', () => {
     });
   });
 
+  it('a headless session that stops mid-route ends it inconclusive at that step; an interactive one leaves it open', async () => {
+    for (const headless of [true, false]) {
+      await withTask(async (t) => {
+        assert.equal((await t.start({ headless })).position, 'red');
+        await t.fx.engine.stopHook({ hook_event_name: 'Stop', session_id: SESSION_A, cwd: t.fx.repo.root, scratchpad_dir: t.fx.scratchpad });
+        const exits = await t.kinds('exit');
+        if (headless) assert.deepEqual([exits.length, exits[0]?.['reason'], exits[0]?.['detail']], [1, 'inconclusive', 'the headless session stopped at step red']);
+        else assert.equal(exits.length, 0);
+      });
+    }
+  });
+
   it('B9: before-work reaches red, before-checks reaches green, before-report reaches write', async () => {
     await withTask(async (t) => {
       const def = t.fx.routes.route('task')!;

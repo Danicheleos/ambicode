@@ -27,7 +27,7 @@ export interface StopPorts {
   pointer: ActiveRoutePointer;
   /** Advances the owner's route as `note save` would; called after the stop lock is released. */
   advance(input: { task: string; session: string; scratchpadDir?: string }): Promise<unknown>;
-  /** Completes a delivered final model step and ends the route; false when the route is not there. */
+  /** Completes a delivered final model step and ends the route, or ends a user-set headless route inconclusive; false when neither applies. */
   closeFinal(task: string, routeId: string, scratchpadDir?: string): Promise<boolean>;
 }
 
