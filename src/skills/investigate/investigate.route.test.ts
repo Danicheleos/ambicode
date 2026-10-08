@@ -10,6 +10,7 @@ import { saveNote } from '#modules/evidence/notes';
 import { assembleEngine, CONFIG, routeFixture } from '#testing/fixtures/route-fixture';
 import { NodeProcessRunner } from '#platform/ports/node-process-runner';
 import { REPO_ROOT } from '#testing/paths';
+import { contentHash, hash12 } from '#util/hash';
 import type { StartInput } from '#types/harness';
 
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';
@@ -48,6 +49,14 @@ describe('investigate route (03-I1, 03-I2)', () => {
         const payload = await loadPayload(fx.runtime.fs, { steps: path.join(dir, 'steps') } as never, (await fx.kinds('cart', 'route'))[0]!.id, key);
         assert.ok(Buffer.byteLength(payload ?? '') <= limit, `03-X1: ${key} payload`);
       }
+      // The map entry names what the model was shown, by path and by the hash of the exact payload.
+      const map = (await fx.kinds('cart', 'map'))[0]!;
+      const delivered = map['delivered'] as { leads: string[]; feature: string[]; bytes: number; hash: string };
+      const payload = (await loadPayload(fx.runtime.fs, { steps: path.join(dir, 'steps') } as never, (await fx.kinds('cart', 'route'))[0]!.id, 'map'))!;
+      assert.ok(delivered.leads.includes('src/cart.ts'), JSON.stringify(delivered));
+      assert.equal(delivered.bytes, Buffer.byteLength(payload));
+      assert.equal(delivered.hash, hash12(contentHash(payload)));
+      assert.equal(map['serialized'], map['candidates']);
     } finally {
       await fx.dispose();
     }

@@ -2,6 +2,8 @@ import path from 'node:path';
 import { openWorkspace, projectForRequest, toRepositoryRelative } from '#modules/config/workspace';
 import { buildMap, resolveLayers, resolveTuning, type MapResult } from '#modules/search/text/map';
 import { find, refs, renderFind } from '#modules/search/declarations/refs';
+import { readMany, READ_BUDGET_BYTES, READ_MAX_BUDGET_BYTES } from '#modules/search/text/read-many';
+import { openRepository } from '#platform/git/open';
 import { relates, renderRelates } from '#modules/search/declarations/relates';
 import { formatIndexStatus, indexAdapterFor } from '#modules/search/code-index/adapter';
 import { indexDepsOf, runIndexBuild } from '#modules/search/code-index/codeindex';
@@ -23,9 +25,11 @@ export const FIND_OPTIONS = { values: ['project', 'task', 'kind'], flags: ['json
 
 export const RELATES_OPTIONS = { values: ['project', 'task'], flags: ['json', 'show'], positionals: true } as const;
 
+export const READ_OPTIONS = { values: ['task', 'budget'], flags: ['json'], positionals: true } as const;
+
 export const INDEX_OPTIONS = { values: ['project'], flags: ['json'] } as const;
 
-interface SearchOutput { command: 'map' | 'refs' | 'find' | 'relates'; text: string; bytes: number; file?: string; data: unknown }
+interface SearchOutput { command: 'map' | 'refs' | 'find' | 'relates' | 'read'; text: string; bytes: number; file?: string; data: unknown }
 
 /** The ledger entry goes to the task's one live route, if any; otherwise it is recorded without one. */
 async function record(runtime: Runtime, args: ParsedArgs, entry: { kind: string; [field: string]: unknown }): Promise<void> {
@@ -105,6 +109,26 @@ export async function runRelates(runtime: Runtime, args: ParsedArgs): Promise<Se
   return { command: 'relates', text, bytes, ...(file === undefined ? {} : { file }), data: result };
 }
 
+export async function runRead(runtime: Runtime, args: ParsedArgs): Promise<SearchOutput> {
+  if (args.positionals.length === 0) throw new AmbicodeError('bad-argument', '"read" needs at least one path.', { field: 'read', details: ['ambicode read src/a.ts src/b.ts:40-90'] });
+  const budget = parseBudget(args.value('budget'));
+  // No config needed: reading is useful before init, and a repository is the only boundary.
+  const { git, repositoryRoot } = await openRepository(runtime);
+  const result = await readMany({ fs: runtime.fs, git, repositoryRoot, cwd: runtime.cwd }, args.positionals, budget);
+  const served = result.files.filter((file) => file.lines !== null);
+  await record(runtime, args, { kind: 'search', command: 'read', names: served.map((file) => `${file.path}:${file.lines!.from}-${file.lines!.to}`), hits: served.length, bytes: result.bytes, truncated: result.truncated });
+  return { command: 'read', text: result.text, bytes: result.bytes, data: { files: result.files, bytes: result.bytes, truncated: result.truncated } };
+}
+
+function parseBudget(value: string | null): number {
+  if (value === null) return READ_BUDGET_BYTES;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > READ_MAX_BUDGET_BYTES) {
+    throw new AmbicodeError('bad-argument', `--budget takes a whole number of bytes from 1 to ${READ_MAX_BUDGET_BYTES}.`, { field: '--budget', details: [`Default: ${READ_BUDGET_BYTES}.`] });
+  }
+  return parsed;
+}
+
 export async function runIndex(runtime: Runtime, args: ParsedArgs, action: 'build' | 'status'): Promise<{ text: string; data: unknown }> {
   const workspace = await openWorkspace(runtime);
   const project = projectForRequest(workspace.config, args.value('project'), []);
@@ -143,6 +167,12 @@ export const relatesCommand: CliCommand = {
   name: 'relates',
   options: RELATES_OPTIONS,
   run: searchCommand(runRelates),
+};
+
+export const readCommand: CliCommand = {
+  name: 'read',
+  options: READ_OPTIONS,
+  run: searchCommand(runRead),
 };
 
 export const indexBuildCommand: CliCommand = {

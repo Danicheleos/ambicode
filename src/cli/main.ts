@@ -19,7 +19,7 @@ import { policyCommand } from './commands/policy/policy.ts';
 import { policyCheckCommand } from './commands/policy/policy-check.ts';
 import { prepareCommand } from './commands/prepare/prepare.ts';
 import { reportCommand } from './commands/route/report.ts';
-import { findCommand, indexBuildCommand, indexStatusCommand, mapCommand, refsCommand, relatesCommand } from './commands/search/search.ts';
+import { findCommand, indexBuildCommand, indexStatusCommand, mapCommand, readCommand, refsCommand, relatesCommand } from './commands/search/search.ts';
 import { requirementsAcsCommand, requirementsNormalizeCommand, requirementsTemplateCommand } from './commands/requirements/requirements.ts';
 import { routeNextCommand, routeStartCommand, routeStatusCommand, routeStopCommand } from './commands/route/route.ts';
 import { reviewCommand } from './commands/review/review.ts';
@@ -161,6 +161,14 @@ export const USAGE = `ambicode <command> [options]
   relates <path>          Imports and importers of a file: from the index, else
                           files naming its basename. At most 4 KiB. Recorded.
                             --task <slug>  --project <id>  --show
+
+  read <path[:start-end]...>
+                          Several files or line spans in one numbered result,
+                          sharing a byte budget; a file cut short names the span
+                          to ask for next. A path is from the current directory,
+                          the repository root, or a unique tracked suffix.
+                          Recorded.
+                            --task <slug>  --budget <bytes>  (default 24000)
 
   index build             Build the code index (search.index) in the foreground.
                             --project <id>
@@ -415,7 +423,7 @@ const COMMANDS: ReadonlyMap<string, CliCommand> = new Map([
   initCommand, doctorCommand, rulesDiscoverCommand, rulesApplyCommand, rulesRevertCommand, configCommand, locateCommand,
   policyCommand, policyCheckCommand, noteSaveCommand, notePromoteCommand, noteListCommand, planCheckCommand, checkCommand,
   formatCommand, workerRunCommand, reportCommand, routeStartCommand, routeNextCommand, routeStatusCommand, routeStopCommand,
-  mapCommand, refsCommand, findCommand, relatesCommand, indexBuildCommand, indexStatusCommand, requirementsTemplateCommand,
+  mapCommand, refsCommand, findCommand, relatesCommand, readCommand, indexBuildCommand, indexStatusCommand, requirementsTemplateCommand,
   requirementsNormalizeCommand, requirementsAcsCommand, prepareCommand, reviewCommand, bundleCommand, viewCommand, versionCommand,
 ].map((entry) => [entry.name, entry]));
 

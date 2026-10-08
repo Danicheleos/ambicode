@@ -325,7 +325,11 @@ them to the earlier measurement (BE-express 0.499, FE-angular 0.123).
 Usage: `[--cases <dir>] [--show <dir>] [--save <file>] [--expect <file>]`
 
 **Measures:** for each core investigate case, how many true files the investigate route's map lists (leads and
-same-feature files), and the map's size in bytes. `--expect` exits 1 when a case loses a true file or a text
+same-feature files), and the map's size in bytes. Beside it, the true files in the ranking's first 20 and in the
+6 KiB serialized map's first 20, so a loss can be placed at ranking or at delivery; the last line gives macro recall
+of the ranking and of what was delivered, and how many cases were delivered no true file. A real run's `map` ledger
+entry carries the same delivered paths with the payload's bytes and hash (`delivered`); `evals:layer-audit` reads
+them when a session was not harvested. `--expect` exits 1 when a case loses a true file or a text
 grows past its cap.
 
 **Why:** catches regressions in what the agent is shown before paying to see what it does with it.

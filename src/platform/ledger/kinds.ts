@@ -58,11 +58,12 @@ const schemas = [
   entry('map', {
     mode: z.enum(['prompt', 'context']), layers: z.array(z.object({ name: text, ms: z.number(), hits: count })), layersSource: z.enum(['config', 'default', 'route']),
     terms: z.object({ pass1: z.array(text), pass2: z.array(text) }), candidates: count, limitations: z.array(text), index: z.union([z.literal('none'), z.object({ tool: text, state: text, fresh: z.boolean(), builtMs: z.number().nullable() })]), bytes: count, collisions: z.array(text).optional(),
-    candidatePaths: z.array(text).optional(), feature: z.object({ root: text, paths: count }).optional(),
+    candidatePaths: z.array(text).optional(), serialized: count.optional(),
+    delivered: z.object({ leads: z.array(text), feature: z.array(text), bytes: count, hash: text }).optional(), feature: z.object({ root: text, paths: count }).optional(),
     tuning: z.object({ hash: text, overrides: z.array(text) }).optional(), profile: z.object({ commit: text, files: count }).nullable().optional(),
     decisions: z.object({ sequenceFiles: count, pass2Downweighted: count, harvestFiles: count, feature: z.enum(['folder', 'named']).nullable(), proseRetry: z.boolean() }).optional(),
   }),
-  entry('search', { command: z.enum(['refs', 'find', 'relates']), names: z.array(text), hits: count, bytes: count }),
+  entry('search', { command: z.enum(['refs', 'find', 'relates', 'read']), names: z.array(text), hits: count, bytes: count, truncated: count.optional() }),
   entry('policy', {
     stage: z.enum(['before-work', 'before-checks', 'before-report', 'drafts', 'apply']), packs: optionalList, rules: count.optional(), omitted: count.optional(), bytes: count.optional(),
     path: text.optional(), contentHash: text.optional(), drafts: optionalList, errors: count.optional(), probes: optionalList,

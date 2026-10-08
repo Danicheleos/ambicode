@@ -7,7 +7,7 @@ import { openRepository } from '#platform/git/open';
 import { routeFixture, type RouteFixture } from '#testing/fixtures/route-fixture';
 import { countDeclarations, declarationCensus, harvest } from './declarations/harvest.ts';
 import { fakeIndex } from '#testing/fakes/fake-index';
-import { buildMap, cleanRequestText, featureOf, sequenceFiles, FEATURE_LIMIT_BYTES, leadsText, LEADS_LIMIT_BYTES, MAP_LIMIT_BYTES, rankTerms, resolveLayers, resolveTuning } from './text/map.ts';
+import { buildMap, cleanRequestText, featureOf, sequenceFiles, FEATURE_LIMIT_BYTES, leadsOf, leadsText, LEADS_LIMIT_BYTES, MAP_LIMIT_BYTES, rankTerms, resolveLayers, resolveTuning } from './text/map.ts';
 import { pathsCitedIn, symbolsCitedIn } from './text/seed.ts';
 import { excludeWorkingDirs } from '#modules/evidence/task/task-dir';
 import { find, refs, renderFind, SEARCH_LIMIT_BYTES } from './declarations/refs.ts';
@@ -16,6 +16,7 @@ import { isPathReason, shortlistRules } from './text/locate.ts';
 import { TEST_EXCLUDES } from '#types/defaults';
 import { sourceGlob } from './declarations/profile.ts';
 import { execFileSync } from 'node:child_process';
+import { contentHash, hash12 } from '#util/hash';
 import { GENERIC_PROFILE, SCORE_FILENAME, SEARCH_TUNING_DEFAULTS } from '#types/modules/search';
 
 async function repo(extra: Record<string, string> = {}): Promise<RouteFixture> {
@@ -255,6 +256,21 @@ describe('03b-M map terms and leads', () => {
     }
   });
 
+  it('03b-M1: the wording that frames an investigation request gives no terms, alone or as a hyphen or slash compound', async () => {
+    const fx = await repo();
+    try {
+      const framing = 'Investigate which files this request would need to touch. Read the relevant code without editing it. Explain each file\u2019s role, distinguish existing files from proposed creations/deletions, and end with `## Files`, one repository-relative path per bullet. Use its pre-change snapshot.';
+      const sources = [{ title: '', content: `${framing}\n\nThe \`CartService\` read-only total is wrong.` }];
+      for (const withProse of [false, true]) {
+        const terms = await rankTerms(sources, { runtime: fx.runtime, root: fx.repo.root, project: project(fx), files: [], withProse });
+        assert.ok(terms.includes('CartService') && terms.includes('read-only'), terms.join(','));
+        for (const word of ['creations/deletions', 'repository-relative', 'pre-change', 'Investigate', 'Read', 'relevant', 'editing', 'Explain']) assert.ok(!terms.includes(word), `${word} in ${terms.join(',')} (prose ${withProse})`);
+      }
+    } finally {
+      await fx.dispose();
+    }
+  });
+
   it('03b-M3/03b-M6: a full first pass still lets harvested names into pass 2, and the entry records the candidate paths', async () => {
     const fx = await repo();
     try {
@@ -274,11 +290,26 @@ describe('03b-M map terms and leads', () => {
     const candidates = Array.from({ length: 30 }, (_, index) => ({ path: `src/features/area-${index}/${'deep/'.repeat(6)}file-${index}.ts`, score: 30 - index, reasons: [`contains "Term${index}" ${'x'.repeat(200)}`, 'second'] }));
     const text = leadsText({ terms: { pass1: ['Term1', 'Term2'], pass2: ['Term1', 'Term2', 'Harvested'] }, candidates, collisions: ['Dup'] });
     const lines = text.split('\n');
-    assert.equal(lines[0], 'Leads from the terms Term1, Term2; then Harvested:');
-    assert.ok(lines.filter((line) => /^\d+\. /.test(line)).length <= 8);
+    assert.equal(lines[0], 'Leads from the terms Term1, Term2 (+1 more):', 'over the budget, the term list gives way before a lead does');
+    assert.equal(lines.filter((line) => /^\d+\. /.test(line)).length, 8);
+    assert.equal(leadsText({ terms: { pass1: ['Term1', 'Term2'], pass2: ['Harvested'] }, candidates: candidates.slice(0, 2), collisions: [] }).split('\n')[0], 'Leads from the terms Term1, Term2; then Harvested:');
     assert.doesNotMatch(text, /second/);
     assert.match(lines.at(-1)!, /Declared more than once: Dup\./);
     assert.ok(Buffer.byteLength(text) <= LEADS_LIMIT_BYTES);
+  });
+
+  it('the leads come from the ranking, not the 6 KiB text; reasons give way before a lead does; the paths and hash match the text', () => {
+    const lead = (index: number) => ({ path: `src/features/area-${index}/${'deep/'.repeat(8)}file-${index}.ts`, score: 30 - index, reasons: [`contains "Term${index}" ${'x'.repeat(80)}`] });
+    const ranked = Array.from({ length: 12 }, (_, index) => lead(index));
+    const leads = leadsOf({ terms: { pass1: ['Term1'], pass2: [] }, candidates: ranked.slice(0, 2), ranked, collisions: [] });
+    assert.deepEqual(leads.leads, ranked.slice(0, 8).map((candidate) => candidate.path), 'all 8 leads, though the serialized map kept 2');
+    const rows = leads.text.split('\n').filter((line) => /^\d+\. /.test(line));
+    assert.match(rows[0]!, / — contains "Term0"/);
+    assert.doesNotMatch(rows.at(-1)!, / — /, 'the last lead lost its reason first');
+    assert.ok(leads.bytes <= LEADS_LIMIT_BYTES && leads.bytes === Buffer.byteLength(leads.text));
+    assert.equal(leads.hash, hash12(contentHash(leads.text)));
+    const feature = { root: 'src/app/cart', paths: ['src/app/cart/a.spec.ts', 'src/app/cart/b.spec.ts'] };
+    assert.deepEqual(leadsOf({ terms: { pass1: [], pass2: [] }, candidates: [], collisions: [], feature }).feature, feature.paths);
   });
 
   it('03b-M8: a ticket id gives the parts some path spells, and abbreviations are not terms', async () => {

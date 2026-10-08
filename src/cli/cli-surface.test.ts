@@ -11,6 +11,7 @@ const TABLE: Record<string, readonly string[]> = {
   refs: ['project', 'show'],
   find: ['kind', 'project'],
   relates: ['project'],
+  read: ['task', 'budget'],
   'index build': ['project'],
   'index status': ['project'],
   locate: [],

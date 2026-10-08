@@ -63,6 +63,30 @@ describe('layer-audit: what each run got from the layers', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it('takes the delivered paths from the map entry when no session was harvested, and flags a step text that disagrees with it', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'layer-audit-'));
+    try {
+      const cases = path.join(dir, 'cases');
+      const traces = path.join(dir, 'traces');
+      mkdirSync(path.join(cases, 'c1'), { recursive: true });
+      writeFileSync(path.join(cases, 'c1', 'truth.json'), JSON.stringify({ root: 'app', truth: ['app/src/a.ts'] }));
+      const runs = ['e-1', 'e-2'].map((id, index) => {
+        mkdirSync(path.join(traces, 'ledgers', id, 'l'), { recursive: true });
+        writeFileSync(path.join(traces, 'ledgers', id, 'l', 'ledger.jsonl'), jsonl([{ id: 'abcdefgh-1', kind: 'map', delivered: { leads: ['src/a.ts'], feature: ['src/a.spec.ts'], bytes: 40, hash: 'h' } }]));
+        if (index === 1) {
+          mkdirSync(path.join(traces, SESSION_DIRECTORY, id), { recursive: true });
+          writeFileSync(path.join(traces, SESSION_DIRECTORY, id, 's.jsonl'), jsonl(session('b', 0)));
+        }
+        return { tracePath: `x/${id}/trace.jsonl`, costUsd: 0.2 };
+      });
+      const { rows, problems } = auditRuns({ results: { cases: [{ name: 'c1', arms: { with: runs } }] }, tracesDirs: [traces], cases });
+      assert.deepEqual([rows[0].leads, rows[0].feature, rows[0].leadsFrom], [['app/src/a.ts'], ['app/src/a.spec.ts'], 'ledger']);
+      assert.deepEqual(problems, ['01 with: 1 run(s) whose step text lists other paths than the map entry\'s delivered receipt']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('stopWrote', () => {

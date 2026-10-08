@@ -59,8 +59,11 @@ export async function mapRecall({ cases = CURATED_CASES, show = null } = {}) {
       const full = (file) => (truth.includes(file) ? file : path.posix.join(root, file));
       const inTruth = (file) => truth.includes(full(file));
       const featureText = leads.split('\n').find((line) => line.startsWith('Same feature ')) ?? '';
+      // Three stages: the ranking (its first 20, as the ledger keeps them), the 6 KiB serialized map, and the leads text the model gets.
+      const ranked = (map.entry.candidatePaths ?? []).filter(inTruth).length;
+      const serialized = map.candidates.slice(0, 20).map((c) => c.path).filter(inTruth).length;
       rows.push({
-        name, truth: truth.length, leads: listed.leads.length, trueLeads: listed.leads.filter(inTruth).length,
+        name, truth: truth.length, ranked, serialized, leads: listed.leads.length, trueLeads: listed.leads.filter(inTruth).length,
         feature: listed.feature.length, trueFeature: listed.feature.filter(inTruth).length, bytes: Buffer.byteLength(leads),
         leadBytes: Buffer.byteLength(leads) - (featureText === '' ? 0 : Buffer.byteLength(featureText) + 1), featureBytes: Buffer.byteLength(featureText),
         truePaths: [...new Set([...listed.leads, ...listed.feature].filter(inTruth).map(full))].sort(),
@@ -88,9 +91,11 @@ export function regressions(rows, expected) {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const option = (name) => { const at = process.argv.indexOf(name); return at < 0 ? null : path.resolve(process.argv[at + 1]); };
   const rows = await mapRecall({ show: option('--show'), ...(option('--cases') === null ? {} : { cases: option('--cases') }) });
-  rows.forEach((r, index) => console.log(`${String(index + 1).padStart(2, '0')} truth ${r.truth} leads ${r.trueLeads}/${r.leads} feature ${r.trueFeature}/${r.feature} bytes ${r.bytes}`));
+  rows.forEach((r, index) => console.log(`${String(index + 1).padStart(2, '0')} truth ${r.truth} ranked20 ${r.ranked} serialized20 ${r.serialized} leads ${r.trueLeads}/${r.leads} feature ${r.trueFeature}/${r.feature} bytes ${r.bytes}`));
   const sum = (key) => rows.reduce((a, r) => a + r[key], 0);
-  console.log(`all: true in map ${sum('trueLeads') + sum('trueFeature')}/${sum('truth')} (leads ${sum('trueLeads')}, feature ${sum('trueFeature')}); listed ${sum('leads') + sum('feature')}`);
+  console.log(`all: true in map ${sum('trueLeads') + sum('trueFeature')}/${sum('truth')} (leads ${sum('trueLeads')}, feature ${sum('trueFeature')}); listed ${sum('leads') + sum('feature')}; ranked top 20 ${sum('ranked')}, serialized top 20 ${sum('serialized')}`);
+  const macro = (pick) => (rows.reduce((a, r) => a + pick(r) / r.truth, 0) / rows.length).toFixed(3);
+  console.log(`macro recall: ranked20 ${macro((r) => r.ranked)} delivered ${macro((r) => r.truePaths.length)}; cases with no true file delivered ${rows.filter((r) => r.truePaths.length === 0).length}/${rows.length}`);
   const save = option('--save');
   if (save !== null) writeFileSync(save, `${JSON.stringify(Object.fromEntries(rows.map(({ name, ...row }) => [name, row])), null, 1)}\n`);
   const expect = option('--expect');

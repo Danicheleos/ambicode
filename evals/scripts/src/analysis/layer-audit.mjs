@@ -149,6 +149,12 @@ export function auditRuns({ results, tracesDirs, cases = CURATED_CASES }) {
           const entries = ledgers.flatMap((ledger) => ledger.entries);
           const map = entries.findLast((item) => item.kind === 'map');
           if (map?.candidatePaths !== undefined) row.candidates = map.candidatePaths.slice(0, TOP);
+          // The map entry's receipt of what was shown stands in for a session that was not harvested, and is checked against one that was.
+          if (map?.delivered !== undefined) {
+            const receipt = { leads: map.delivered.leads.map(full), feature: map.delivered.feature.map(full) };
+            if (row.leads === undefined) Object.assign(row, receipt, { leadsFrom: 'ledger' });
+            else if (JSON.stringify([row.leads, row.feature]) !== JSON.stringify([receipt.leads, receipt.feature])) row.receiptMismatch = true;
+          }
           row.limits = entries.filter((item) => item.kind === 'limit').map((item) => item.which);
         }
         rows.push(row);
@@ -162,6 +168,8 @@ export function auditRuns({ results, tracesDirs, cases = CURATED_CASES }) {
     if (steps.size > 1) problems.push(`${number} ${arm}: ${steps.size} different steps`);
     const candidates = new Set(group.filter((row) => row.candidates !== undefined).map((row) => row.candidates.join('\n')));
     if (candidates.size > 1) problems.push(`${number} ${arm}: ${candidates.size} different map candidate lists`);
+    const mismatched = group.filter((row) => row.receiptMismatch).length;
+    if (mismatched > 0) problems.push(`${number} ${arm}: ${mismatched} run(s) whose step text lists other paths than the map entry's delivered receipt`);
   }
   return { rows, problems };
 }

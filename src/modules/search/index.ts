@@ -33,6 +33,8 @@ export { find } from './declarations/refs.ts';
 export { refs } from './declarations/refs.ts';
 /** renderFind(result) — renders a find result as bounded text. */
 export { renderFind } from './declarations/refs.ts';
+/** readMany(deps, operands, budget?) — several files or spans in one bounded, numbered result; a cut file names the span to ask for next. */
+export { readMany, parseReadOperand, READ_BUDGET_BYTES } from './text/read-many.ts';
 /** relates(deps, project, value, {index?}) — imports and importers of a file from the index, else files naming its basename. */
 export { relates } from './declarations/relates.ts';
 /** renderRelates(result) — renders a relates result as short and full text. */
@@ -48,8 +50,8 @@ export { termsFromRequirements } from './text/locate.ts';
 export type { MapResult } from './text/map.ts';
 /** buildMap({…}) — builds the map of terms, candidates and collisions for a route. */
 export { buildMap } from './text/map.ts';
-/** leadsText(map) — the route's short map form: terms, then top candidates with their first reason. */
-export { leadsText } from './text/map.ts';
+/** leadsOf(map, n) — the route's short map form (terms, top ranked candidates, feature line) with the paths it delivers and its hash; leadsText is its text. */
+export { leadsOf, leadsText } from './text/map.ts';
 /** rankTerms(…) — ranks identifiers first, then quoted UI strings, prose only when identifiers are scarce. */
 export { rankTerms } from './text/map.ts';
 /** resolveLayers(search, mode) — the search layers for a mode from config or defaults. */

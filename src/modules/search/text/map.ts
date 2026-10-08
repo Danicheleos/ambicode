@@ -28,6 +28,8 @@ export interface MapResult {
   layersSource: 'config' | 'default' | 'route';
   terms: { pass1: string[]; pass2: string[] };
   candidates: MapCandidate[];
+  /** Every candidate in rank order; `candidates` is the part the 6 KiB text kept. */
+  ranked: MapCandidate[];
   symbols: Record<string, MapSymbol[]>;
   collisions: string[];
   feature: MapFeature | null;
@@ -65,7 +67,8 @@ const QUOTED = /["“`]([^"”`\n]{3,60})["”`]/g;
 const CANDIDATE_PATHS = 20;
 
 /** Words every question about a repository carries; as search terms they match paths like `repository.ts` or `files/`. */
-const REQUEST_WORDS = new Set(['repo', 'repository', 'file', 'files', 'change', 'changes', 'implement', 'implemented', 'below', 'above', 'touch', 'section', 'answer', 'question', 'anything']);
+const REQUEST_WORDS = new Set(['repo', 'repository', 'file', 'files', 'change', 'changes', 'implement', 'implemented', 'below', 'above', 'touch', 'section', 'answer', 'question', 'anything', 'investigate', 'read', 'relevant', 'editing', 'explain', 'relative', 'creation', 'creations', 'deletion', 'deletions', 'pre', 'distinguish', 'existing', 'proposed', 'bullet', 'cite', 'evidence', 'assumptions']);
+const COMPOUND = /[-/]/;
 
 /** URLs, host names, UUIDs, `__`-prefixed attributes and markup carry no names from the code. */
 export function cleanRequestText(text: string): string {
@@ -81,7 +84,8 @@ export function cleanRequestText(text: string): string {
 /** A heading, a shell command or a bare directory written in quotes is an instruction about the answer, not a name. */
 const isBoilerplate = (value: string): boolean => /^#+\s/.test(value) || /^(?:cd|git|npm|npx|node|ls|cat|grep)\s/.test(value) || /^[\w.-]+\/$/.test(value);
 const ABBREVIATION = /^(?:e\.g|i\.e|etc|vs|cf)\.?$/i;
-const isRequestWord = (term: string): boolean => REQUEST_WORDS.has(term.toLowerCase()) || ABBREVIATION.test(term);
+// `pre-change` and `creations/deletions` frame a request like its single words do, and a compound of them names no code.
+const isRequestWord = (term: string): boolean => REQUEST_WORDS.has(term.toLowerCase()) || ABBREVIATION.test(term) || (COMPOUND.test(term) && term.split(COMPOUND).every((part) => REQUEST_WORDS.has(part.toLowerCase())));
 const TICKET_ID = /^[A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*-\d+$/;
 
 /** `MO-REBA-11` matches no code, but `reba` names its module's directory: keep the parts some path segment spells. */
@@ -331,6 +335,7 @@ export async function buildMap(input: {
     layersSource: input.layersSource,
     terms: { pass1, pass2 },
     candidates: kept,
+    ranked: ordered,
     symbols: symbolRows,
     collisions,
     feature,
@@ -340,7 +345,7 @@ export async function buildMap(input: {
     text,
     bytes,
     tuningHash: resolved.hash,
-    entry: { mode: input.mode, layers, layersSource: input.layersSource, terms: { pass1, pass2 }, candidates: ordered.length, limitations, index: ledgerIndex(indexState), collisions, bytes, ...(feature === null ? {} : { feature: { root: feature.root, paths: feature.paths.length } }), candidatePaths: ordered.slice(0, CANDIDATE_PATHS).map((candidate) => candidate.path), tuning: { hash: resolved.hash, overrides: resolved.overrides }, profile: project.profile?.stamp ?? null, decisions: { sequenceFiles: sequence.size, pass2Downweighted: downweighted, harvestFiles: harvested, feature: feature === null ? null : feature.root === '' ? 'named' : 'folder', proseRetry: false } },
+    entry: { mode: input.mode, layers, layersSource: input.layersSource, terms: { pass1, pass2 }, candidates: ordered.length, limitations, index: ledgerIndex(indexState), collisions, bytes, serialized: kept.length, ...(feature === null ? {} : { feature: { root: feature.root, paths: feature.paths.length } }), candidatePaths: ordered.slice(0, CANDIDATE_PATHS).map((candidate) => candidate.path), tuning: { hash: resolved.hash, overrides: resolved.overrides }, profile: project.profile?.stamp ?? null, decisions: { sequenceFiles: sequence.size, pass2Downweighted: downweighted, harvestFiles: harvested, feature: feature === null ? null : feature.root === '' ? 'named' : 'folder', proseRetry: false } },
   };
 }
 
@@ -360,6 +365,8 @@ export function sequenceFiles(files: readonly string[], tune: SearchTuning = SEA
 export const LEADS_LIMIT_BYTES = 1200;
 export const FEATURE_LIMIT_BYTES = 400;
 const REASON_CHARS = 90;
+/** Two request terms still say what the leads were searched for; past that, a term costs a path its room. */
+const MIN_TERMS_SHOWN = 2;
 const stemOf = (file: string): string => path.posix.basename(file).split('.')[0]!;
 const kindOf = (file: string): string => path.posix.basename(file).split('.').slice(1, -1).join('.');
 
@@ -458,26 +465,49 @@ async function anchor(leads: MapCandidate[], declarations: readonly Declaration[
   for (const lead of leads) if (lead.line === undefined && lines.has(lead.path)) lead.line = lines.get(lead.path)!;
 }
 
-/** The route's short form of a map: the terms, then the top candidates with their first reason, one per line. */
-export function leadsText(map: Pick<MapResult, 'terms' | 'candidates' | 'collisions'> & { feature?: MapFeature | null; tuningHash?: string }, leadCount: number = SEARCH_TUNING_DEFAULTS.leads): string {
+export interface Leads { text: string; leads: string[]; feature: string[]; bytes: number; hash: string }
+
+/**
+ * The route's short form of a map: the terms, then the top ranked candidates with their first reason, one per line.
+ * Taken from the ranking, not the 6 KiB serialized map. Paths keep their room first: over the budget, the term list
+ * shortens, then reasons drop from the last lead up, and only then do leads drop.
+ */
+export function leadsOf(map: Pick<MapResult, 'terms' | 'candidates' | 'collisions'> & { ranked?: readonly MapCandidate[]; feature?: MapFeature | null; tuningHash?: string }, leadCount: number = SEARCH_TUNING_DEFAULTS.leads): Leads {
   const added = map.terms.pass2.filter((term) => !map.terms.pass1.includes(term));
-  const head = `Leads from the terms ${map.terms.pass1.join(', ') || '(none)'}${added.length === 0 ? '' : `; then ${added.join(', ')}`}:`;
-  const rows = map.candidates.slice(0, leadCount).map((candidate, index) => {
-    const reason = candidate.reasons[0] ?? '';
+  const terms = [...map.terms.pass1, ...added];
+  const header = (shown: number): string => {
+    const first = terms.slice(0, Math.min(shown, map.terms.pass1.length));
+    const then = terms.slice(map.terms.pass1.length, Math.max(map.terms.pass1.length, shown));
+    const more = terms.length - shown;
+    return `Leads from the terms ${first.join(', ') || '(none)'}${then.length === 0 ? '' : `; then ${then.join(', ')}`}${more > 0 ? ` (+${more} more)` : ''}:`;
+  };
+  const picked = (map.ranked ?? map.candidates).slice(0, leadCount);
+  const row = (candidate: MapCandidate, index: number, withReason: boolean): string => {
+    const reason = withReason ? (candidate.reasons[0] ?? '') : '';
     return `${index + 1}. ${candidate.path}${candidate.line === undefined ? '' : `:${candidate.line}`}${reason === '' ? '' : ` — ${reason.length > REASON_CHARS ? `${reason.slice(0, REASON_CHARS - 1)}…` : reason}`}`;
-  });
+  };
   const collides = map.collisions.length === 0 ? [] : [`Declared more than once: ${map.collisions.slice(0, 6).join(', ')}.`];
-  const text = (): string => [head, ...rows, ...collides].join('\n');
-  while (Buffer.byteLength(text()) > LEADS_LIMIT_BYTES && rows.length > 0) rows.pop();
-  const feature = map.feature === undefined || map.feature === null ? [] : [featureLine(map.feature)];
-  return [...(map.tuningHash === undefined ? [] : [`tuning: ${map.tuningHash}`]), head, ...rows, ...feature, ...collides].join('\n');
+  let shown = terms.length;
+  let reasons = picked.length;
+  let kept = picked.length;
+  const tuning = map.tuningHash === undefined ? [] : [`tuning: ${map.tuningHash}`];
+  const text = (): string => [...tuning, header(shown), ...picked.slice(0, kept).map((candidate, index) => row(candidate, index, index < reasons)), ...collides].join('\n');
+  const over = (): boolean => Buffer.byteLength(text()) > LEADS_LIMIT_BYTES;
+  while (over() && shown > MIN_TERMS_SHOWN) shown -= 1;
+  while (over() && reasons > 0) reasons -= 1;
+  while (over() && kept > 0) kept -= 1;
+  const feature = map.feature === undefined || map.feature === null ? null : featureLine(map.feature);
+  const out = [...tuning, header(shown), ...picked.slice(0, kept).map((candidate, index) => row(candidate, index, index < reasons)), ...(feature === null ? [] : [feature.line]), ...collides].join('\n');
+  return { text: out, leads: picked.slice(0, kept).map((candidate) => candidate.path), feature: feature?.paths ?? [], bytes: Buffer.byteLength(out), hash: hash12(contentHash(out)) };
 }
 
-function featureLine(feature: MapFeature): string {
+export const leadsText = (...args: Parameters<typeof leadsOf>): string => leadsOf(...args).text;
+
+function featureLine(feature: MapFeature): { line: string; paths: string[] } {
   const relative = feature.root === '' ? feature.paths : feature.paths.map((file) => file.slice(feature.root.length + 1));
   const label = feature.root === '' ? `Same feature "${feature.name ?? ''}"` : `Same feature (${feature.root}/)`;
   const line = (count: number): string => `${label}: ${relative.slice(0, count).join(', ')}${count < relative.length ? ', …' : ''}`;
   let count = relative.length;
   while (count > 1 && Buffer.byteLength(line(count)) > FEATURE_LIMIT_BYTES) count -= 1;
-  return line(count);
+  return { line: line(count), paths: feature.paths.slice(0, count) };
 }

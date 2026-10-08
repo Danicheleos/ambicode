@@ -1,6 +1,6 @@
 import { openRepository } from '#platform/git/open';
 import { projectForRequest } from '#modules/config/workspace';
-import { rankTerms, buildMap, leadsText, resolveLayers, resolveTuning } from '#modules/search/text/map';
+import { rankTerms, buildMap, leadsOf, resolveLayers, resolveTuning } from '#modules/search/text/map';
 import { pathsCitedIn, symbolsCitedIn } from '#modules/search/text/seed';
 import { seedTextOf } from './brief.ts';
 import { loadConfigWithNotices } from '#modules/config/load';
@@ -157,8 +157,9 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
         }
       }
       const decisions = { ...(map.entry['decisions'] as object), proseRetry: retried };
-      await input.ledger.append({ kind: 'map', route: input.view.routeId, ...map.entry, decisions });
-      return { state: 'ok', payload: leadsText(map, tuning.tuning.leads) };
+      const leads = leadsOf(map, tuning.tuning.leads);
+      await input.ledger.append({ kind: 'map', route: input.view.routeId, ...map.entry, decisions, delivered: { leads: leads.leads, feature: leads.feature, bytes: leads.bytes, hash: leads.hash } });
+      return { state: 'ok', payload: leads.text };
     } catch (error) {
       return failed(error);
     }
