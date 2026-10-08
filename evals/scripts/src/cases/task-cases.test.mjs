@@ -109,9 +109,9 @@ describe('task cases', () => {
   });
 
   it('07-T4: TASK_COMMAND is typed before the request', () => {
-    assert.equal(TASK_COMMAND, '/ambicode:task --headless --answer review-offer=run');
-    assert.match(readFileSync(path.join(top, 'out', 'be-task-t1', 'prompt.with.md'), 'utf8'), /\n\/ambicode:task --headless --answer review-offer=run Fix the bug/);
-    assert.match(pluginPrompt('hello\n', TASK_COMMAND), /^\/ambicode:task --headless --answer review-offer=run hello/);
+    assert.ok(TASK_COMMAND.includes('--answer "review-offer=skip — verification incomplete"'), 'the review after a task is extra work an eval declines');
+    assert.ok(readFileSync(path.join(top, 'out', 'be-task-t1', 'prompt.with.md'), 'utf8').includes(`\n${TASK_COMMAND} Fix the bug`));
+    assert.ok(pluginPrompt('hello\n', TASK_COMMAND).startsWith(`${TASK_COMMAND} hello`));
   });
 
   it('07-T4: --set task selects the task cases and eval directory', () => {

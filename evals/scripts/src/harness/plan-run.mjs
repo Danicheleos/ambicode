@@ -13,8 +13,9 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { answerFlags } from './eval-answers.mjs';
 
-export const ACCEPT_ANSWER = '--answer plan-accept=Accept';
+export const ACCEPT_ANSWER = answerFlags('plan').join(' ');
 const VALUE_OPTIONS = ['--benchmarks', '--plugin', '--model', '--out', '--runs', '--epics', '--arms', '--max-cost-usd', '--authorized', '--effort'];
 
 export function parsePlanRunArgs(argv) {

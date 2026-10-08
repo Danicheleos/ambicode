@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { withCasesLock } from './cases-lock.mjs';
+import { evalCommand } from './eval-answers.mjs';
 
 // Per-arm prompt transport. `claude plugin eval` 2.1.289 serves one prompt per case to both arms: its case
 // schema (read from the binary, not from a run) has `execution.prompt` and prompt.md's body, no per-arm key.
@@ -12,13 +13,14 @@ export const NAKED_COPY = 'prompt.naked.md';
 export const SWAP_MARKER = '.prompt-swap.json';
 /** In a cases directory: written before generation removes anything, removed when it has written everything. */
 export const GENERATION_MARKER = '.generation-incomplete';
-export const INVESTIGATE_COMMAND = '/ambicode:investigate --headless';
-export const TASK_COMMAND = '/ambicode:task --headless --answer review-offer=run';
-export const REVIEW_COMMAND = '/ambicode:review --headless --answer estimate=run';
+export const INVESTIGATE_COMMAND = evalCommand('investigate');
+/** Implements a draft plan, and skips the review offered after the change: it is extra work the case did not ask for. */
+export const TASK_COMMAND = evalCommand('task');
+export const REVIEW_COMMAND = evalCommand('review');
 /** plan-accept defaults to Reject, so a headless plan would never promote its draft without this answer. */
-export const PLAN_COMMAND = '/ambicode:plan --headless --answer plan-accept=Accept';
-/** The presets skip the optional review: headless takes review-offer's default, "skip — verification incomplete". */
-export const PRESET_TASK_COMMAND = '/ambicode:task --headless';
+export const PLAN_COMMAND = evalCommand('plan');
+/** Was the review-less variant of TASK_COMMAND; TASK_COMMAND now skips the review too. */
+export const PRESET_TASK_COMMAND = TASK_COMMAND;
 
 export const FRONT_MATTER = /^---\n[\s\S]*?\n---\n?/;
 /** What the harness records as a case's `promptMarkdown`: the body after the front matter, trimmed. */

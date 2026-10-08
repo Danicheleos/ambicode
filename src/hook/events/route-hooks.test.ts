@@ -55,6 +55,11 @@ describe('03-H3 launch', () => {
     assert.deepEqual(splitLaunch('--headless Add "a limit"\nto  cart --task ORD-17'), { args: ['--headless', '--task', 'ORD-17'], text: 'Add "a limit"\nto  cart' });
     assert.deepEqual(splitLaunch('--headless -x keeps "Bar baz" --task'), { args: ['--headless'], text: '-x keeps "Bar baz" --task' });
     assert.deepEqual(splitLaunch('use --fresh mode --answer \'a=b c\''), { args: ['--answer', 'a=b c'], text: 'use --fresh mode' });
+    // The task eval's prompt (evals/scripts/src/harness/eval-answers.mjs): two quoted answers, one with an em dash.
+    assert.deepEqual(splitLaunch('--headless --answer "draft-ok=implement anyway" --answer "review-offer=skip — verification incomplete" Fix the bug'), {
+      args: ['--headless', '--answer', 'draft-ok=implement anyway', '--answer', 'review-offer=skip — verification incomplete'],
+      text: 'Fix the bug',
+    });
     const plan = await planFixture();
     try {
       await prompt(plan, '/ambicode:plan "add a limit" --task ORD-17 --answer plan-accept=Accept');

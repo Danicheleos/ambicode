@@ -8,7 +8,7 @@ import { attachBaseline, bareRates, lockedBaseline, readBaselineLock, resolveBas
 const analysis = {
   tracesDir: null,
   meta: () => ({ kind: 'localize', side: 'BE', truth: ['src/a.ts', 'src/b.ts'], root: 'src' }),
-  trace: () => null,
+  trace: () => ({ model: 'm', calls: [{ block: { name: 'Read' } }, { block: { name: 'Bash' }, bashRead: true }], replayedReviews: 0, peakContext: 1000 }),
   exports: () => ({}),
 };
 const run = (answer, costUsd) => ({ costUsd, turns: 4, graders: [{ name: 'names-a-true-file', passed: true, evidence: answer }] });
@@ -34,10 +34,13 @@ describe('baseline-lock: the pinned bare reference', () => {
 
   it('records the source hash, model, version and per-case bare means', () => {
     const lock = writeBaselineLock(source, { lockFile, analysis });
-    assert.deepEqual([lock.source, lock.model, lock.claudeVersion, lock.arm], [source, 'm', '2.1', 'with']);
-    assert.match(lock.sha256, /^sha256:[0-9a-f]{64}$/);
+    assert.deepEqual([lock.sources[0].source, lock.model, lock.claudeVersion, lock.arm], [source, 'm', '2.1', 'with']);
+    assert.deepEqual(lock.sources[0].cases, ['c1']);
+    assert.deepEqual([lock.cases.c1.skill, lock.sources[0].skills], [null, []], 'a name without a skill suffix records none');
+    assert.match(lock.sources[0].sha256, /^sha256:[0-9a-f]{64}$/);
     const c1 = lock.cases.c1;
     assert.deepEqual([c1.runs, c1.recall, c1.precision, c1.costUsd, c1.turns], [2, 0.75, 1, 2, 4]);
+    assert.deepEqual([c1.toolCalls, c1.peakContext, c1.readCalls, c1.bashReads], [2, 1000, 1, 1], 'trace measures are locked beside recall and cost');
     assert.match(c1.prompt, /^sha256:/);
     assert.deepEqual(readBaselineLock({ lockFile }), lock);
     const rates = bareRates(lock);
@@ -90,6 +93,50 @@ describe('baseline-lock: the pinned bare reference', () => {
     const other = path.join(dir, 'other.json');
     writeFileSync(other, readFileSync(source));
     assert.equal(resolveBaseline(pluginRun, { baselinePath: other, lockFile }).file, other);
+  });
+
+  it('locks each skill on its own: a later lock replaces only the cases it ran and keeps the others', () => {
+    const only = (name, answer) => ({ name, promptMarkdown: `p ${name}`, arms: { with: [run(answer, 1)] } });
+    const file = (name, cases) => { const f = path.join(dir, `${name}.json`); writeFileSync(f, JSON.stringify({ ...naked, cases })); return f; };
+    const first = file('first', [only('c1', 'src/a.ts'), only('c2', 'src/a.ts')]);
+    writeBaselineLock(first, { lockFile, analysis });
+    const second = file('second', [only('c2', 'src/a.ts src/b.ts')]);
+    const lock = writeBaselineLock(second, { lockFile, analysis });
+    assert.deepEqual(lock.sources.map((s) => [s.source, s.cases]), [[first, ['c1']], [second, ['c2']]]);
+    assert.deepEqual([lock.cases.c1.recall, lock.cases.c2.recall], [0.5, 1], 'c2 is the new run; c1 is untouched');
+    const { results, file: joined } = lockedBaseline({ lockFile });
+    assert.deepEqual(results.cases.map((c) => c.name), ['c1', 'c2']);
+    assert.equal(joined, `${first} + ${second}`);
+    writeBaselineLock(file('third', [only('c1', 'src/b.ts')]), { lockFile, analysis });
+    assert.deepEqual(readBaselineLock({ lockFile }).sources.map((s) => s.cases), [['c2'], ['c1']]);
+    writeBaselineLock(file('fourth', [only('c1', 'x'), only('c2', 'x')]), { lockFile, analysis });
+    assert.equal(readBaselineLock({ lockFile }).sources.length, 1, 'a source with no case left is dropped');
+  });
+
+  it('records the skill of each preset case and of each source', () => {
+    const f = path.join(dir, 'skills.json');
+    writeFileSync(f, JSON.stringify({ ...naked, cases: ['be-vs-1-investigate', 'be-vs-2-investigate'].map((name) => ({ ...naked.cases[0], name })) }));
+    const lock = writeBaselineLock(f, { lockFile, analysis });
+    assert.deepEqual([lock.cases['be-vs-1-investigate'].skill, lock.sources[0].skills], ['investigate', ['investigate']]);
+  });
+
+  it('refuses to join a lock made on another Claude Code version, and changes nothing', () => {
+    writeBaselineLock(source, { lockFile, analysis });
+    const other = path.join(dir, 'other-version.json');
+    writeFileSync(other, JSON.stringify({ ...naked, claudeVersion: '2.2' }));
+    assert.throws(() => writeBaselineLock(other, { lockFile, analysis }), /Claude Code version is 2\.2, the lock's is 2\.1/);
+    assert.equal(readBaselineLock({ lockFile }).claudeVersion, '2.1');
+  });
+
+  it('reads a version 1 lock as one source, and extends it', () => {
+    const { sources, ...rest } = writeBaselineLock(source, { lockFile, analysis });
+    const [{ source: at, sha256: hash, plugin, startedAt }] = sources;
+    writeFileSync(lockFile, JSON.stringify({ ...rest, version: 1, source: at, sha256: hash, plugin, startedAt }));
+    assert.deepEqual(readBaselineLock({ lockFile }).sources, sources);
+    assert.equal(lockedBaseline({ lockFile }).file, source);
+    const next = path.join(dir, 'next.json');
+    writeFileSync(next, JSON.stringify({ ...naked, cases: [{ ...naked.cases[0], name: 'c2' }] }));
+    assert.deepEqual(Object.keys(writeBaselineLock(next, { lockFile, analysis }).cases), ['c1', 'c2']);
   });
 
   it('refuses a partial run as the reference', () => {

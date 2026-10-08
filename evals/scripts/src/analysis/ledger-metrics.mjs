@@ -109,7 +109,7 @@ function redGreenOf(entries) {
   return out;
 }
 
-const LEDGER_MEASURES = ['routes', 'mapLayers', 'mapPass2', 'routeSteps', 'revises', 'gates', 'preanswers', 'stopBlocked', 'checkRedGreen', 'envelopeBuiltFrom', 'permissionDenied',
+const LEDGER_MEASURES = ['routes', 'mapLayers', 'mapPass2', 'routeSteps', 'revises', 'gates', 'preanswers', 'headlessDefaults', 'stopBlocked', 'checkRedGreen', 'envelopeBuiltFrom', 'permissionDenied',
   'stepMs', 'gateLatencyMs', 'budgetUsage', 'mapDecisions', 'mapTuning', 'mapRetry', 'initRuns', 'rulesRuns', 'commands', 'contextPeak', 'contextByStep'];
 
 /**
@@ -168,6 +168,8 @@ export function ledgerMetrics(ledgers, trace = null, metrics = null) {
           }
         : null,
     preanswers: from('preanswer', (all) => all.length),
+    // Gates the eval's answers did not cover (eval-answers.mjs): headless took the default, nobody chose it.
+    headlessDefaults: from('default-taken', (all) => tally(all.filter((e) => e.via === 'headless').map((e) => e.gate))),
     stopBlocked: exited((e) => exitReason(e) === 'blocked'),
     checkRedGreen: sum('checks')
       ? { checks: sum('checks'), red: sum('red'), green: sum('green'), malformed: sum('malformed'), unassociated: sum('unassociated'), proven: proofs.some((p) => p.proven) }

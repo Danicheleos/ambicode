@@ -89,6 +89,22 @@ describe('eval-gate', () => {
     assert.deepEqual(verdict.checks.filter((c) => c.status === 'gap').map((c) => c.name), ['localize: cost']);
   });
 
+  it('reports a gate the eval answers did not cover as a gap, naming it and its count', () => {
+    const defaulted = () => {
+      const row = run(1);
+      const dir = path.join(tracesDir, 'ledgers', path.basename(path.dirname(path.dirname(row.tracePath))), 'l');
+      mkdirSync(dir, { recursive: true });
+      const entries = [{ id: 'x-0', kind: 'route', skill: 'investigate' }, { id: 'x-1', kind: 'default-taken', gate: 'scope', instance: null, via: 'headless' }];
+      writeFileSync(path.join(dir, 'ledger.jsonl'), entries.map((e) => JSON.stringify(e)).join('\n') + '\n');
+      return row;
+    };
+    const verdict = gate(results([defaulted(), defaulted(), run(1)], [run(1), run(1), run(1)]), { cases: benchmarks, tracesDir });
+    assert.equal(verdict.pass, true);
+    const gaps = verdict.checks.filter((c) => c.status === 'gap');
+    assert.deepEqual(gaps.map((c) => c.name), ['localize: gate answers']);
+    assert.match(gaps[0].detail, /scope ×2/);
+  });
+
   it('reports the recall of an arm whose review hit replay-miss as unmeasured, not as a loss', () => {
     const missRun = () => {
       const id = `e-${traceId++}`;

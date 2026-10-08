@@ -266,6 +266,7 @@ describe('evals-bench: ledgers and route measures', () => {
     assert.deepEqual(m.revises, { gate: 0, code: 1, model: 1 });
     assert.deepEqual(m.gates, { prints: { declared: 1 }, answers: { prompt: 1, headless: 1 }, bound: 1, unbound: 1 });
     assert.equal(m.preanswers, 1);
+    assert.deepEqual(m.headlessDefaults, { scope: 1 }, 'a gate no eval answer covered');
     assert.equal(m.stopBlocked, 1);
     assert.equal(m.permissionDenied, 1);
     assert.deepEqual(m.checkRedGreen, { checks: 4, red: 1, green: 1, malformed: 2, unassociated: 0, proven: true });
@@ -277,7 +278,7 @@ describe('evals-bench: ledgers and route measures', () => {
   it('gives null, never an empty success, for what was not recorded', () => {
     assert.equal(ledgerMetrics(null), null);
     const bare = ledgerMetrics(one([{ id: 'x-1', kind: 'note', note: 'notes' }]), { mcpHookResponses: 2, mcpHookSpawns: null });
-    for (const key of ['mapLayers', 'mapPass2', 'routeSteps', 'revises', 'gates', 'preanswers', 'stopBlocked', 'checkRedGreen', 'envelopeBuiltFrom', 'permissionDenied']) assert.equal(bare[key], null, key);
+    for (const key of ['mapLayers', 'mapPass2', 'routeSteps', 'revises', 'gates', 'preanswers', 'headlessDefaults', 'stopBlocked', 'checkRedGreen', 'envelopeBuiltFrom', 'permissionDenied']) assert.equal(bare[key], null, key);
     assert.equal(bare.noRouteMcpSpawns, null, 'observed hook responses are not spawns');
     assert.equal(bare.mcpHookResponses, 2);
     assert.equal(ledgerMetrics(one([route, { kind: 'check', key: 'k', phase: 'green', exit: 0, summary: null }])).checkRedGreen.proven, false, 'an exit without a summary is no proof');

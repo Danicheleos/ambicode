@@ -482,8 +482,9 @@ export async function main(argv, options = {}) {
   if (command === 'lock') {
     const [file] = rest;
     if (!file) throw new Error('usage: evals-bench.mjs lock <naked eval.json>');
-    const lock = writeBaselineLock(file);
-    console.log(`locked ${lock.source} (${Object.keys(lock.cases).length} case(s), ${lock.model ?? 'unpinned model'}, Claude Code ${lock.claudeVersion ?? 'unrecorded'}) in ${BASELINE_LOCK_FILE}`);
+    const at = path.resolve(file);
+    const lock = writeBaselineLock(file, { tracesDir: option('--traces') ?? [path.join(path.dirname(at), 'traces'), path.join(path.dirname(path.dirname(at)), 'traces')] });
+    console.log(`locked ${file} (${Object.keys(lock.cases).length} case(s) in the lock, ${lock.model ?? 'unpinned model'}, Claude Code ${lock.claudeVersion ?? 'unrecorded'}) in ${BASELINE_LOCK_FILE}`);
     return 0;
   }
   if (command === 'run') return runSweep(rest.filter((_, i) => !taken.has(i)), { benchmarks, ...options });

@@ -348,7 +348,7 @@ export function bareMeansByCase(baseline, metrics, analysis = createAnalysis()) 
   }
   const meanOf = (values) => (values.length ? values.reduce((a, b) => a + b, 0) / values.length : null);
   return new Map(
-    [...byCase].map(([name, rows]) => [name, { runs: rows.length, ...Object.fromEntries(metrics.map((m) => [m, meanOf(rows.map((r) => r[m]).filter((x) => typeof x === 'number'))])) }]),
+    [...byCase].map(([name, rows]) => [name, { runs: rows.length, ...Object.fromEntries(metrics.map((m) => [m, meanOf(rows.map((r) => r[m] ?? r.trace?.[m]).filter((x) => typeof x === 'number'))])) }]),
   );
 }
 

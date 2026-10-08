@@ -115,6 +115,10 @@ export function gate(given, { cases = CASES_ROOT, tracesDir = null, budget = BUD
       );
     } else info.push(`${kind}/with: untraced, so firing and prepare use are unmeasured`);
     info.push(...builtinLines(kind, withRows, withoutRows));
+    // A question the eval's answers did not cover took its headless default: what the route did then, nobody chose.
+    const defaulted = new Map();
+    for (const r of withRows) for (const [gateId, n] of Object.entries(r.ledger?.headlessDefaults ?? {})) defaulted.set(gateId, (defaulted.get(gateId) ?? 0) + n);
+    if (defaulted.size) gap(`${kind}: gate answers`, `headless defaults taken, not covered by eval-answers.mjs: ${[...defaulted].map(([g, n]) => `${g} ×${n}`).join(', ')}`);
   }
 
   const meanDelta = results.aggregates?.meanDelta;

@@ -89,6 +89,12 @@ per-arm prompts; `--presets <dir>` reads another source.
 
 Eight cases are tagged `walk`: per project and skill, the eligible ticket that touches the fewest files.
 
+The plugin prompts answer every route gate from `harness/eval-answers.mjs`: accept what the route proposes
+(`plan-accept=Accept`, `draft-ok=implement anyway`, `estimate=run`), and decline extras after the requested
+work (`review-offer=skip — verification incomplete`). Gates outside that table (scope, budget) get no answer, so
+a run that reaches one takes its headless default, and `evals:gate` reports it as a `gate answers` gap. After
+changing the table, run `select --regenerate`.
+
 `--localize`, `--review`, `--candidates` and `--baseline` are refused: cases are no longer picked from
 `benchmarks/<project>/assets/`. The earlier 18-case core and its lock are archived in
 `../ambicode-evals-assets/archive/core-2026-10-07/`.
@@ -177,8 +183,13 @@ needed because one run is noisy by ±5–10 percentage points.
 **Why:** the bare model's numbers depend on the model, the Claude Code version and the prompt, not on the
 plugin. Run it once per Claude Code version or case set, then pin it with `npm run evals:bench -- lock <its eval.json>`.
 `score`, `walk`, `gate` and `report` then compare every plugin-only run against the lock without another bare run.
-The lock records the result's hash, model, Claude Code version, and per case the prompt and truth hashes and the bare
-means. A changed or missing source, another model or version, an unknown case, a changed prompt or a changed truth is an
+Locking is per run, not per suite: each `lock` adds the cases of that run to the existing lock and replaces any case it
+runs again, so the investigate, plan, task and review baselines can be locked one skill at a time. One lock holds one
+model, Claude Code version and arm; a run on another is refused. The lock records each source result's hash, the model,
+Claude Code version, and per case the prompt and truth hashes and the bare
+means: recall, precision, cost, turns, tool calls, peak context and file reads (Read calls and Bash reads), the last three from the
+traces beside the result. The run's effort is set by `CLAUDE_CODE_EFFORT_LEVEL` (the harness has no effort flag) and is not recorded in the result.
+A changed or missing source, another model or version, an unknown case, a changed prompt or a changed truth is an
 error naming the mismatch, never a fallback to another run. The harness cannot run a no-plugin arm on its own, so an
 empty plugin stands in for it.
 
