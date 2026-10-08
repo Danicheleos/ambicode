@@ -37,6 +37,18 @@ export async function resolveTaskDir(runtime: Runtime, slug: string): Promise<Ta
   return taskDirFor(repositoryRoot, slug, where);
 }
 
+/**
+ * Where a `--task` command runs: the repository holding that task's ledger when the shell sits
+ * outside it, as it does when the session starts above the configured repository.
+ */
+export async function taskWorkingDirectory(runtime: Runtime, slug: string): Promise<string> {
+  const dir = await resolveTaskDir(runtime, slug).catch(() => null);
+  if (dir === null || !(await runtime.fs.exists(dir.ledger))) return runtime.cwd;
+  const real = (value: string) => runtime.fs.realpath(value).catch(() => value);
+  const relative = path.relative(await real(dir.repositoryRoot), await real(runtime.cwd));
+  return relative.startsWith('..') || path.isAbsolute(relative) ? dir.repositoryRoot : runtime.cwd;
+}
+
 /** The agent's own searches (rg, Grep, git grep) skip AMBICODE's working files; `.git/info/exclude` is never committed. */
 export async function excludeWorkingDirs(runtime: Runtime, repositoryRoot: string): Promise<void> {
   try {

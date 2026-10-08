@@ -5,6 +5,7 @@ import { logInvocation, type Invocation } from './command-log.ts';
 import { AmbicodeError, isAmbicodeError } from '#util/errors';
 import { formatJsonOutput } from '#util/json-output';
 import { parseArgs } from '#util/args';
+import { taskWorkingDirectory } from '#modules/evidence/task/task-dir';
 import { bundleCommand } from './commands/review/bundle.ts';
 import { configCommand } from './commands/config/config.ts';
 import { initCommand } from './commands/config/init.ts';
@@ -432,7 +433,10 @@ export const SPECS: Record<string, OptionSpec | undefined> = Object.fromEntries(
 interface Logged { log?: (invocation: Invocation) => Promise<void> }
 
 async function dispatch(command: CliCommand, args: ParsedArgs, logged: Logged): Promise<Rendered> {
-  const created = await createRuntime();
+  const shell = await createRuntime();
+  const task = args.value('task');
+  const cwd = task === null ? shell.cwd : await taskWorkingDirectory(shell, task);
+  const created = cwd === shell.cwd ? shell : await createRuntime({ cwd });
   const recorder = new RecordingProcessRunner(created.runner);
   const runtime: Runtime = { ...created, runner: recorder };
   logged.log = (invocation) => logInvocation(runtime, recorder.records, invocation);

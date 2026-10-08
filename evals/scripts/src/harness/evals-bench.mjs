@@ -483,8 +483,9 @@ export async function main(argv, options = {}) {
     const [file] = rest;
     if (!file) throw new Error('usage: evals-bench.mjs lock <naked eval.json>');
     const at = path.resolve(file);
-    const lock = writeBaselineLock(file, { tracesDir: option('--traces') ?? [path.join(path.dirname(at), 'traces'), path.join(path.dirname(path.dirname(at)), 'traces')] });
-    console.log(`locked ${file} (${Object.keys(lock.cases).length} case(s) in the lock, ${lock.model ?? 'unpinned model'}, Claude Code ${lock.claudeVersion ?? 'unrecorded'}) in ${BASELINE_LOCK_FILE}`);
+    const lockFile = option('--lock-file');
+    const lock = writeBaselineLock(file, { ...(lockFile ? { lockFile: path.resolve(lockFile) } : {}), tracesDir: option('--traces') ?? [path.join(path.dirname(at), 'traces'), path.join(path.dirname(path.dirname(at)), 'traces')] });
+    console.log(`locked ${file} (${Object.keys(lock.cases).length} case(s) in the lock, ${lock.model ?? 'unpinned model'}, Claude Code ${lock.claudeVersion ?? 'unrecorded'}) in ${lockFile ?? BASELINE_LOCK_FILE}`);
     return 0;
   }
   if (command === 'run') return runSweep(rest.filter((_, i) => !taken.has(i)), { benchmarks, ...options });
@@ -547,7 +548,7 @@ export async function main(argv, options = {}) {
     throw new Error('usage: evals-bench.mjs live-review dry-run [run options] | live-review replay [<recordings.json>]');
   }
   throw new Error(
-    'usage: evals-bench.mjs generate [--regenerate] | select [--presets <dir>] [--regenerate] | lock <naked eval.json> | run [--set curated|task|full --project <project>|preset --preset light|large] [--plugin <dir>] [--prompt naked|with] [--dry-run] --model <m> --max-cost-usd <usd> [--walk] [options] | restore-prompts [--plugin <dir>] [--preset <name>] | score <eval-results.json> [--traces <dir>] [--baseline <file>] | walk <eval-results.json> [--traces <dir>] | judge-task <eval-results.json> --model <m> --max-cost-usd <usd> [--traces <dir>] | tuning-summary <traces-dir> | task-suite [run options] | live-review dry-run [run options] | live-review replay [<recordings.json>]',
+    'usage: evals-bench.mjs generate [--regenerate] | select [--presets <dir>] [--regenerate] | lock <naked eval.json> [--lock-file <file>] | run [--set curated|task|full --project <project>|preset --preset light|large] [--plugin <dir>] [--prompt naked|with] [--dry-run] --model <m> --max-cost-usd <usd> [--walk] [options] | restore-prompts [--plugin <dir>] [--preset <name>] | score <eval-results.json> [--traces <dir>] [--baseline <file>] | walk <eval-results.json> [--traces <dir>] | judge-task <eval-results.json> --model <m> --max-cost-usd <usd> [--traces <dir>] | tuning-summary <traces-dir> | task-suite [run options] | live-review dry-run [run options] | live-review replay [<recordings.json>]',
   );
 }
 

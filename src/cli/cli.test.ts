@@ -1,4 +1,8 @@
 import assert from 'node:assert/strict';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { describe, it } from 'node:test';
 import { parseArgs } from '#util/args';
 import { PREPARE_DEPRECATED, prepareAsRouteStart } from './commands/prepare/prepare.ts';
@@ -264,6 +268,37 @@ describe('05 search commands', () => {
       await assert.rejects(runIndex(runtime, parseArgs('index build', [], INDEX_OPTIONS), 'build'), (error: Error & { code?: string }) => error.code === 'index-unavailable');
     } finally {
       await fx.dispose();
+    }
+  });
+});
+
+describe('a --task command runs in the task\'s repository', () => {
+  const MAIN = path.join(import.meta.dirname, 'main.ts');
+  const git = (cwd: string, ...argv: string[]) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...argv], { cwd });
+
+  it('reads the task repository\'s files from a shell started above it, inside another work tree', async () => {
+    const session = await mkdtemp(path.join(tmpdir(), 'ambicode-task-cwd-'));
+    try {
+      const repo = path.join(session, 'repo');
+      git(session, 'init', '-q');
+      await mkdir(path.join(repo, '.ambicode', 'task', 't'), { recursive: true });
+      git(repo, 'init', '-q');
+      await writeFile(path.join(repo, '.ambicode', 'config.yaml'), 'schemaVersion: 1\n');
+      await writeFile(path.join(repo, '.ambicode', 'task', 't', 'ledger.jsonl'), '');
+      await mkdir(path.join(repo, 'src'));
+      await writeFile(path.join(repo, 'src', 'a.ts'), 'export const a = 1;\n');
+      git(repo, 'add', 'src/a.ts');
+      git(repo, 'commit', '-q', '-m', 'base');
+
+      const run = (cwd: string) => spawnSync(process.execPath, [MAIN, 'read', '--task', 't', 'src/a.ts'], { cwd, encoding: 'utf8' });
+      const above = run(session);
+      assert.equal(above.status, 0, above.stderr);
+      assert.match(above.stdout, /export const a = 1;/);
+      const inside = run(path.join(repo, 'src'));
+      assert.equal(inside.status, 0, inside.stderr);
+      assert.match(inside.stdout, /== src\/a\.ts/);
+    } finally {
+      await rm(session, { recursive: true, force: true });
     }
   });
 });

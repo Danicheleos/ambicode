@@ -156,7 +156,7 @@ Measure: `context` (first-call context minus bare), `route-slow`, wall time, cos
 ### Stage 2 — Engine: delivery, closure, budgets (L3, L1 hooks)
 
 Reopened 2026-10-08. The first close (`eval-replay/evals/stage2-baseline.md`) measured 6 old cases and never ran the
-task walk. The audit `eval-replay/evals/24-25-26-27-next/report.md` found engine and hook defects on the new 20-case
+task walk. The audit `eval-replay/evals/raw/24-25-26-27-next/report.md` found engine and hook defects on the new 20-case
 set. This stage also carries the two stage-1 thresholds that fail on that set.
 
 Lever: step delivery, the Stop check and its export, exits, budget accounting, `repeat` and `revise` handling, the
@@ -347,4 +347,4 @@ Last, and only for a step whose tool levers are used up. One file per change; ru
 ## 5. Debt
 
 Unmet thresholds from stages closed on their floor. None yet. The ideas to try later are in
-`eval-replay/evals/next-moves-2026-10-08.md`.
+`eval-replay/evals/plans/next-moves-2026-10-08.md`.
