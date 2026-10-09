@@ -14,7 +14,22 @@ Updated 2026-10-09. Source of truth for thresholds: [TRAINING-PLAN.md](../../eva
 | Notation + session contract + Route line | tried, then reverted; the Route line and a short contract were kept. Cost 1.178× bare, context +3,171, recall not above 05_0035 | [report](analysis/notation-2026-10-09/report.md), [moves log](plans/next-moves-2026-10-08.md#notation-engine-contract-and-route-line-2026-10-09) |
 | Harness void-run check | 0-turn runs are flagged, not scored | `evals/scripts/src/harness/run-validity.mjs` |
 
-## Current: stage 3 base measured; waiting on the metrics-drift investigation (user)
+## Current: drift, before stage 3
+
+Report: [drift-2026-10-09.md](24-25-26-27-next/drift-2026-10-09.md). Plan: [drift-plan-2026-10-09.md](plans/drift-plan-2026-10-09.md) (not started).
+
+The engine's inputs are identical within each case; the model's choices drift. The biggest losses happen at answer time: evidence the model read but left out, and files it read for evidence but listed as changes. The ruler also has a defect: harness `costUsd` already includes judging (checked on e-c9VoUw), so 26_1600 is about **1.196×** bare agent-only, not 1.1845×.
+
+| Step | Work | Cost |
+|---|---|---|
+| A Ruler | agent cost without judging; a drift gate (recall and F1 ≥ 0.9× the case's best run, agent cost ≤ 1.25× its cheapest, ≥ 80% of cases in band); per-run outcome columns; helper calls counted from reader receipts; re-score 26_1600 and 15/16 | free |
+| B Decide | split lost true files into "read but not named" and "never read"; build the answer receipt only if "read but not named" is ≥ 30% of lost true files | free |
+| B Receipt | when the answer leaves out a family of files the model read, Stop blocks once and asks it to add them or say why not; replayed offline first | free |
+| Check | 6 × 3 plugin-only run on the six (about $4.5, ask first): drift ≥ 5/6, recall ≥ 0.417, agent cost not worse than the re-scored 26_1600 | paid |
+
+Moved to stage 3a: discovery families, and the shortlist default (`shortlistRules` leaves out markup and data).
+
+## Stage 3 base (measured 2026-10-09)
 
 [stage3-baseline.md](stage3-baseline.md): the current values, the loss point per case, gaps, and the stage-3 thresholds, re-based on the current cases (applied to TRAINING-PLAN).
 
@@ -49,7 +64,7 @@ Debt rows and their retests: [§5 Debt](../../evals/TRAINING-PLAN.md#5-debt). Ch
 
 | Stage | Work | Detail |
 |---|---|---|
-| 3 Search map (next, after the drift investigation) | 3a offline: map recall, empty maps 0, map time ≤ 3 s. 3b paid on the six: `map-missed`, `first-call-broad`, recall, plus the stage-2 cost and route-ready debt. Current values above | [stage3-baseline.md](stage3-baseline.md), [Stage 3](../../evals/TRAINING-PLAN.md#stage-3--search-map-profile-index-locate-l4-search-l6-map-payload), [map analysis](analysis/24-25-26-27-analysis.md) |
+| 3 Search map (next, after drift) | 3a offline: map recall, empty maps 0, map time ≤ 3 s. 3b paid on the six: `map-missed`, `first-call-broad`, recall, plus the stage-2 cost and route-ready debt. Current values above | [stage3-baseline.md](stage3-baseline.md), [Stage 3](../../evals/TRAINING-PLAN.md#stage-3--search-map-profile-index-locate-l4-search-l6-map-payload), [map analysis](analysis/24-25-26-27-analysis.md) |
 | 4 Policy stages | `policies/*.yaml` | [Stage 4](../../evals/TRAINING-PLAN.md#stage-4--policy-stages-l4-policy-policiesyaml) |
 | 5 Checks | baseline and test selection | [Stage 5](../../evals/TRAINING-PLAN.md#stage-5--checks-baseline-and-test-selection-l4-checks) |
 | 6 Independent reviewer | review worker | [Stage 6](../../evals/TRAINING-PLAN.md#stage-6--independent-reviewer-l4-review-worker) |
