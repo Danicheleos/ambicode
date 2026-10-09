@@ -7,7 +7,7 @@ import { after, describe, it } from 'node:test';
 import { guardDecision } from './guard-core.ts';
 import { fsGuardState } from './guard-state.ts';
 import { LEDGER_FILE, type LedgerEntry } from '#types/modules/evidence';
-import { ACTIVE_ROUTE_FILE, GUARD_LEDGER_FILE, GUARD_STATE_DIR_NAME, LEDGER_LIMIT, type GuardInput } from '../types/guard.ts';
+import { ACTIVE_ROUTE_FILE, GUARD_LEDGER_FILE, GUARD_STATE_DIR_NAME, LEDGER_LIMIT, type GuardInput, type GuardState } from '../types/guard.ts';
 import { HOOK_STATE_DIR_NAME } from '#types/platform/claude';
 
 type Output = { hookSpecificOutput?: { permissionDecision: string; permissionDecisionReason: string } };
@@ -1263,6 +1263,17 @@ describe('an active route shapes the decision', () => {
     assert.equal(out.hookSpecificOutput?.updatedInput?.command, 'node "/p/scripts/ambicode.mjs" route next --task T-1');
   });
 
+  it('adds --task to read, map, refs, find and relates; keeps an explicit one', () => {
+    for (const name of ['read src/a.ts:1:5', 'map', 'refs Foo', 'find Foo', 'relates src/a.ts']) {
+      const out = run(`node /p/scripts/ambicode.mjs ${name}`, false);
+      assert.equal(decisionOf(out), 'allow', name);
+      assert.equal(out.hookSpecificOutput?.updatedInput?.command, `node /p/scripts/ambicode.mjs ${name} --task T-1`, name);
+    }
+    for (const command of ['node /p/scripts/ambicode.mjs read --task X src/a.ts', 'node /p/scripts/ambicode.mjs map --task=X']) {
+      assert.deepEqual(run(command, false), {}, command);
+    }
+  });
+
   it('leaves other ambicode commands alone', () => {
     for (const command of ['node /p/scripts/ambicode.mjs route next --task X', 'node /p/scripts/ambicode.mjs route next | cat', 'node /p/scripts/ambicode.mjs route start --task X', 'node /p/scripts/ambicode.mjs doctor']) {
       assert.deepEqual(run(command, false), {}, command);
@@ -1274,5 +1285,192 @@ describe('an active route shapes the decision', () => {
     for (const command of ['node "$(id)ambicode.mjs" route next', 'node a`id`/ambicode.mjs route next', 'node a&&id&&b/ambicode.mjs route next', 'node a;id;b/ambicode.mjs route next', 'node x/ambicode.mjs\nroute next', 'node /p/ambicode.mjs route next; rm -rf ~']) {
       assert.notEqual(decisionOf(run(command, false)), 'allow', command);
     }
+  });
+});
+
+describe('an unquoted --include/--exclude glob is quoted, because zsh expands it and aborts the command', () => {
+  type Rewrite = Output & { hookSpecificOutput?: { updatedInput?: { command: string } } };
+  const rewritten = (command: string, extra: Partial<GuardInput> = {}, state?: Parameters<typeof guardDecision>[2]): string | null => {
+    const out = guardDecision({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command }, ...extra }, '/p', state, 'linux') as Rewrite;
+    return decisionOf(out) === 'allow' ? out.hookSpecificOutput!.updatedInput!.command : null;
+  };
+
+  it('quotes one value and says why', () => {
+    const out = bash('grep -rnE "pattern" src --include=*.ts') as Rewrite;
+    assert.equal(decisionOf(out), 'allow');
+    assert.equal(out.hookSpecificOutput?.updatedInput?.command, `grep -rnE "pattern" src --include='*.ts'`);
+    assert.match(out.hookSpecificOutput!.permissionDecisionReason, /zsh expands an unquoted glob/);
+  });
+
+  it('quotes every value in one segment, across a pipeline, and the space-separated and -dir forms', () => {
+    assert.equal(rewritten('grep -r foo . --include=*.ts --exclude=*.test.ts --exclude-dir=node_modules* | head'), `grep -r foo . --include='*.ts' --exclude='*.test.ts' --exclude-dir='node_modules*' | head`);
+    assert.equal(rewritten('grep -r foo . --include *.ts; ls --include=?.md'), `grep -r foo . --include '*.ts'; ls --include='?.md'`);
+  });
+
+  it('leaves quoted values, values without glob characters and braces alone', () => {
+    for (const command of [
+      `grep -r foo . --include='*.ts'`,
+      'grep -r foo . --include="*.ts"',
+      'grep -r foo . --include=\\*.ts',
+      'grep -r foo . --include=ts',
+      'grep -r foo . --include=*.{ts,js}',
+      'grep -r foo . --include=$GLOB',
+      `echo "--include=*.ts"`,
+      `echo '--include=*.ts'`,
+      'echo x--include=*.ts',
+      'grep -r foo . # --include=*.ts',
+    ]) {
+      assert.equal(rewritten(command), null, command);
+    }
+  });
+
+  it('never touches a heredoc body, and still quotes after it', () => {
+    assert.equal(rewritten('cat <<EOF\ngrep --include=*.ts\nEOF'), null);
+    assert.equal(rewritten("cat <<'EOF' > f\n--include=*.ts\nEOF\ngrep -r x . --include=*.ts"), "cat <<'EOF' > f\n--include=*.ts\nEOF\ngrep -r x . --include='*.ts'");
+  });
+
+  it('composes with the $R alias rewrite into one updatedInput', () => {
+    const out = bash('R="node /p/scripts/ambicode.mjs"; $R read --task T && grep -r x . --include=*.ts') as Rewrite;
+    assert.equal(decisionOf(out), 'allow');
+    assert.equal(out.hookSpecificOutput?.updatedInput?.command, `R="node /p/scripts/ambicode.mjs"; node /p/scripts/ambicode.mjs read --task T && grep -r x . --include='*.ts'`);
+    assert.match(out.hookSpecificOutput!.permissionDecisionReason, /\$R.*zsh expands/);
+  });
+
+  it('composes with the --task rewrite', () => {
+    const route = { activeRoute: () => ({ task: 'T-1', skill: 'task' }), ledger: () => null };
+    const command = rewritten('node /p/scripts/ambicode.mjs route next', { scratchpad_dir: '/s' }, route);
+    assert.equal(command, 'node /p/scripts/ambicode.mjs route next --task T-1');
+    assert.equal(rewritten('grep -r x . --include=*.ts', { scratchpad_dir: '/s' }, route), `grep -r x . --include='*.ts'`);
+  });
+
+  it('lets an ask or a deny win over the rewrite', () => {
+    assert.equal(decisionOf(bash('git commit -m x; grep -r x . --include=*.ts')), 'ask');
+    assert.equal(decisionOf(bash('rm -rf / ; grep -r x . --include=*.ts')), 'ask');
+    const headless = { activeRoute: () => ({ task: 'T-1', skill: 'task', headless: true }), ledger: () => null };
+    const out = guardDecision({ hook_event_name: 'PreToolUse', tool_name: 'Bash', scratchpad_dir: '/s', tool_input: { command: 'git push && grep -r x . --include=*.ts' } }, '/p', headless, 'linux') as Rewrite;
+    assert.equal(decisionOf(out), 'deny');
+    assert.equal(out.hookSpecificOutput?.updatedInput, undefined);
+  });
+
+  it('[zsh] the original aborts and the rewritten command runs', (t) => {
+    if (spawnSync('zsh', ['-c', 'true']).status !== 0) return t.skip('no zsh');
+    const original = 'echo start; echo --include=*.nomatch';
+    assert.notEqual(spawnSync('zsh', ['-c', original], { encoding: 'utf8' }).stderr, '');
+    const fixed = rewritten(original)!;
+    const run = spawnSync('zsh', ['-c', fixed], { encoding: 'utf8' });
+    assert.equal(run.stderr, '');
+    assert.equal(run.stdout, 'start\n--include=*.nomatch\n');
+  });
+});
+
+describe('D5: reading source through read while the route waits on a note', () => {
+  const TASK_DIR = '/repo/.ambicode/task/T';
+  const FILES = new Set(['/repo/src/a.ts', '/repo/src/b.ts', '/repo/.ambicode/task/T/steps/read.md', '/elsewhere/c.ts']);
+  const delivered = (answer: boolean, status = 'delivered'): LedgerEntry[] => [
+    { id: 'a-1', at, kind: 'route', skill: 'investigate', session: 'S' },
+    { id: 'a-2', at, kind: 'step', step: 'read', status, ...(answer ? { answer: 'note' } : {}) },
+  ];
+  type Position = 'note' | 'other step' | 'step completed' | 'exited' | 'no route';
+  const entriesAt = (position: Position): LedgerEntry[] =>
+    position === 'note' ? delivered(true) : position === 'other step' ? delivered(false) : position === 'step completed' ? [...delivered(true), { id: 'a-3', at, kind: 'step', step: 'read', status: 'completed' }] : [...delivered(true), { id: 'a-3', at, kind: 'exit', reason: 'done' }];
+  const decide = (tool: string, input: Record<string, unknown>, position: Position, headless: boolean, cwd = '/repo') => {
+    const state: GuardState = {
+      activeRoute: () => (position === 'no route' ? null : { task: 'T', skill: 'investigate', ...(headless ? { headless: true } : {}) }),
+      ledger: (directory) => (directory === TASK_DIR ? entriesAt(position) : null),
+      file: (file) => FILES.has(file),
+    };
+    return guardDecision({ hook_event_name: 'PreToolUse', tool_name: tool, cwd, scratchpad_dir: '/s', tool_input: input }, '/p', state, 'linux') as Output;
+  };
+  const use = (target: string) => `use: node "/p/scripts/ambicode.mjs" read --task T ${target}`;
+  const bashAt = (command: string, position: Position, headless: boolean, cwd?: string) => decide('Bash', { command }, position, headless, cwd);
+
+  const redirected: [string, Record<string, unknown> | string, string][] = [
+    ['Read', { file_path: '/repo/src/a.ts' }, 'src/a.ts'],
+    ['Read offset+limit', { file_path: '/repo/src/a.ts', offset: 10, limit: 20 }, 'src/a.ts:10-29'],
+    ['Read limit only', { file_path: '/repo/src/a.ts', limit: 5 }, 'src/a.ts:1-5'],
+    ['Read offset only', { file_path: '/repo/src/a.ts', offset: 7 }, 'src/a.ts:7'],
+    ['cat', 'cat src/a.ts', 'src/a.ts'],
+    ['cat of a quoted path', `cat 'src/a.ts'`, 'src/a.ts'],
+    ['cat of two files', 'cat src/a.ts src/b.ts', 'src/a.ts src/b.ts'],
+    ['cat absolute', 'cat /repo/src/a.ts', 'src/a.ts'],
+    ['sed -n range', `sed -n '10,40p' src/a.ts`, 'src/a.ts:10-40'],
+    ['sed -n one line', `sed -n 5p src/a.ts`, 'src/a.ts:5-5'],
+    ['sed -n to the end', `sed -n '12,$p' src/a.ts`, 'src/a.ts:12'],
+    ['sed -n without a range', `sed -n '/x/p' src/a.ts`, 'src/a.ts'],
+    ['head -n', 'head -n 30 src/a.ts', 'src/a.ts:1-30'],
+    ['head -N', 'head -20 src/a.ts', 'src/a.ts:1-20'],
+    ['head -nN', 'head -n20 src/a.ts', 'src/a.ts:1-20'],
+    ['head bare', 'head src/a.ts', 'src/a.ts'],
+    ['tail', 'tail -n 30 src/a.ts', 'src/a.ts'],
+    ['cat in a chain', 'cd /repo && cat src/a.ts', 'src/a.ts'],
+  ];
+  for (const [label, input, target] of redirected) {
+    it(`${label}: headless denies and interactive asks, with the read command`, () => {
+      const call = (headless: boolean) => (typeof input === 'string' ? bashAt(input, 'note', headless) : decide('Read', input, 'note', headless));
+      const denied = call(true);
+      assert.equal(decisionOf(denied), 'deny');
+      assert.equal(denied.hookSpecificOutput!.permissionDecisionReason, use(target));
+      const asked = call(false);
+      assert.equal(decisionOf(asked), 'ask');
+      assert.equal(asked.hookSpecificOutput!.permissionDecisionReason, use(target));
+    });
+  }
+
+  const untouched: [string, string, Record<string, unknown> | string][] = [
+    ['grep', 'Bash', 'grep -rn total src'],
+    ['ls', 'Bash', 'ls src'],
+    ['find', 'Bash', 'find src -name "*.ts"'],
+    ['wc', 'Bash', 'wc -l src/a.ts'],
+    ['git grep', 'Bash', 'git grep total'],
+    ['git ls-files', 'Bash', 'git ls-files src'],
+    ['a head filter', 'Bash', 'grep -rn total src | head -20'],
+    ['a tail filter', 'Bash', 'git log --oneline | tail -5'],
+    ['an ambicode read', 'Bash', 'node "/p/scripts/ambicode.mjs" read --task T src/a.ts'],
+    ['an ambicode read of a span', 'Bash', 'node "/p/scripts/ambicode.mjs" read --task T src/a.ts:1-9'],
+    ['a step file', 'Read', { file_path: '/repo/.ambicode/task/T/steps/read.md' }],
+    ['a step file with cat', 'Bash', 'cat .ambicode/task/T/steps/read.md'],
+    ['a path outside the repository', 'Read', { file_path: '/elsewhere/c.ts' }],
+    ['cat outside the repository', 'Bash', 'cat /elsewhere/c.ts'],
+    ['an untracked path', 'Read', { file_path: '/repo/src/missing.ts' }],
+    ['cat of an untracked path', 'Bash', 'cat src/missing.ts'],
+    ['cat of a glob', 'Bash', 'cat src/*.ts'],
+    ['cat of a variable', 'Bash', 'cat $FILE'],
+    ['sed -i', 'Bash', `sed -i 's/a/b/' src/a.ts`],
+    ['cat of stdin', 'Bash', 'echo x | cat'],
+  ];
+  for (const [label, tool, input] of untouched) {
+    it(`${label} is left alone in every mode`, () => {
+      for (const headless of [true, false]) {
+        const out = typeof input === 'string' ? bashAt(input, 'note', headless) : decide(tool, input, 'note', headless);
+        assert.equal(decisionOf(out), undefined, `${label} ${headless ? 'headless' : 'interactive'}: ${JSON.stringify(out)}`);
+      }
+    });
+  }
+
+  for (const position of ['other step', 'step completed', 'exited', 'no route'] as const) {
+    it(`reads are left alone with the route at: ${position}`, () => {
+      for (const headless of [true, false]) {
+        assert.deepEqual(decide('Read', { file_path: '/repo/src/a.ts' }, position, headless), {});
+        assert.deepEqual(bashAt('cat src/a.ts', position, headless), {});
+        assert.deepEqual(bashAt('head -n 5 src/a.ts', position, headless), {});
+      }
+    });
+  }
+
+  it('reads from a subdirectory find the repository above it', () => {
+    assert.equal(bashAt('cat a.ts', 'note', true, '/repo/src').hookSpecificOutput!.permissionDecisionReason, use('src/a.ts'));
+  });
+
+  it('a state that cannot tell whether a file exists leaves reads alone', () => {
+    const state: GuardState = { activeRoute: () => ({ task: 'T', skill: 'investigate' }), ledger: () => delivered(true) };
+    assert.deepEqual(guardDecision({ hook_event_name: 'PreToolUse', tool_name: 'Read', cwd: '/repo', scratchpad_dir: '/s', tool_input: { file_path: '/repo/src/a.ts' } }, '/p', state, 'linux'), {});
+  });
+
+  it('an existing ask or deny still wins, and the glob rewrite still composes on an allowed command', () => {
+    assert.match(bashAt('git push && cat src/a.ts', 'note', true).hookSpecificOutput!.permissionDecisionReason, /route stop --task T/);
+    assert.equal(decisionOf(bashAt('git push && cat src/a.ts', 'note', false)), 'ask');
+    const out = bashAt('grep -rn x src --include=*.ts', 'note', true) as { hookSpecificOutput?: { permissionDecision?: string; updatedInput?: { command: string } } };
+    assert.equal(out.hookSpecificOutput?.permissionDecision, 'allow');
+    assert.equal(out.hookSpecificOutput?.updatedInput?.command, `grep -rn x src --include='*.ts'`);
   });
 });

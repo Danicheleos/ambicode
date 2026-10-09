@@ -10,7 +10,7 @@ import { ACCEPTANCE, driftOf, repetitionMeans } from '../validation/eval-gate.mj
 import { resolveBaseline } from './baseline-lock.mjs';
 import { createAnalysis, namedFiles, PATH_TOKEN, resolvePath, scoreWithAnalysis, withBaseline } from './bench-score.mjs';
 import { callClass, PRICES, readJsonl, readSegments, readsFiles, sessionEvents, sessionFacts, stopWrote, textOf } from './layer-audit.mjs';
-import { ledgersOf } from './ledger-metrics.mjs';
+import { ledgersIn, ledgersOf } from './ledger-metrics.mjs';
 import { mapPaths } from './map-recall.mjs';
 
 const PREVIOUS = 2;
@@ -147,6 +147,41 @@ export function readOperands(tool) {
   );
 }
 
+// zsh aborts an unquoted `--include=*.ts` before grep runs; the chain continues, so the result is not an error.
+const ZSH_GLOB = /no matches found: --(?:include|exclude)=/;
+const REFUSED_OPERAND = /^== .+: (?:not found|ambiguous: .*) ==\s*$/gm;
+const SOURCE_READERS = new Set(['cat', 'head', 'tail']);
+
+/** Whether a Bash command reads source with cat, `sed -n`, head or tail; a grep or a pipe's filter does not count. */
+function bashReadsSource(command) {
+  if (/ambicode\.mjs/.test(command)) return false;
+  const parts = command.split(/(&&|\|\||;|\||\n)/);
+  return parts.some((segment, i) => {
+    if (i % 2 === 1 || parts[i - 1] === '|') return false;
+    const [word, ...args] = segment.trim().split(/\s+/);
+    return SOURCE_READERS.has(word) || (word === 'sed' && args.some((a) => /^-\w*n/.test(a)));
+  });
+}
+
+/**
+ * Per-run mechanics the free choices show up in. `zshGlob` results are counted apart from `failedCalls` (the tool reported
+ * an error); `failedWithZsh` adds the zsh ones that reported none. `readsVia.read` is the engine's receipt count, since
+ * the command text misses `node "$N" read`; null with no ledger, never a 0.
+ */
+export function mechanicsOf(tools, receipts = null) {
+  const bash = tools.filter((t) => t.name === 'Bash');
+  const zsh = tools.filter((t) => t.name === 'Bash' && ZSH_GLOB.test(t.result ?? ''));
+  const failedCalls = tools.filter((t) => t.error).length;
+  return {
+    zshGlob: zsh.length,
+    failedWithZsh: failedCalls + zsh.filter((t) => !t.error).length,
+    hostCapped: tools.filter((t) => /<persisted-output>|Output too large/.test(t.result ?? '')).length,
+    readsVia: { read: receipts === null ? null : receipts.length, nativeRead: tools.filter((t) => t.name === 'Read').length, bash: bash.filter((t) => bashReadsSource(String(t.input?.command ?? ''))).length },
+    operandRefusals: bash.reduce((n, t) => n + (String(t.result ?? '').match(REFUSED_OPERAND)?.length ?? 0), 0),
+    servedBytes: receipts === null ? null : receipts.reduce((n, e) => n + (e.bytes ?? 0), 0),
+  };
+}
+
 /**
  * Reads grouped by the model call that asked for them (the measure for "fetch every needed file in one turn"): calls
  * that read, those naming one path, distinct paths per reading call, and result bytes of reads naming only paths read before.
@@ -223,7 +258,7 @@ const PATH_SHAPED = /^(?:[\w@.+-]+\/)*[\w@.+-]+\.[A-Za-z0-9]*[A-Za-z][A-Za-z0-9]
 export const fileTruth = (meta) => (Array.isArray(meta?.truth) && meta.truth.every((t) => typeof t === 'string' && PATH_SHAPED.test(t)) ? meta.truth : []);
 
 /** One row per run of every arm: the harness numbers, the score, and what the trace, session and ledger show. */
-export function analyzeResult(results, { tracesDirs, cases = CASES_ROOT, withChains = true }) {
+export function analyzeResult(results, { tracesDirs, cases = CASES_ROOT, withChains = true, ledgersDir = null }) {
   const analysis = createAnalysis({ cases, tracesDir: tracesDirs });
   const scored = new Map(scoreWithAnalysis(results, analysis).runs.map((r) => [`${r.case}\t${r.arm}\t${r.run}`, r]));
   const rows = [];
@@ -286,7 +321,7 @@ export function analyzeResult(results, { tracesDirs, cases = CASES_ROOT, withCha
             rereads: [...readCounts.values()].filter((n) => n > 1).length, firstTrueReadCall: firstTrue < 0 ? null : firstTrue + 1,
             firstTool: tools[0] ? { class: tools[0].class, files: tools[0].files } : null,
           });
-          Object.assign(row, readRequests(calls));
+          Object.assign(row, readRequests(calls), mechanicsOf(tools));
           if (withChains) row.calls = calls;
         }
         if (session) {
@@ -298,7 +333,8 @@ export function analyzeResult(results, { tracesDirs, cases = CASES_ROOT, withCha
             row.step = { bytes: Buffer.byteLength(step), text: step, leads: listed.leads.map(full), feature: listed.feature.map(full) };
           }
         }
-        const ledgers = id ? ledgersOf(run, tracesDirs) : null;
+        const ledgers = id ? (ledgersDir ? ledgersIn(path.join(ledgersDir, id)) : ledgersOf(run, tracesDirs)) : null;
+        if (row.traced) Object.assign(row, mechanicsOf(calls.flatMap((c) => c.tools), ledgers ? ledgers.flatMap((l) => l.entries).filter((e) => e.kind === 'search' && e.command === 'read') : null));
         const route = routeChain(ledgers);
         if (route) {
           row.route = route;
@@ -331,7 +367,7 @@ export function analyzeResult(results, { tracesDirs, cases = CASES_ROOT, withCha
 export const METRICS = [
   ['score', 'harness score', 2], ['recall', 'recall', 3], ['precision', 'precision', 3], ['f1', 'F1', 3], ['hit', 'hit', 2],
   ['agentCostUsd', '$ per run (agent)', 3], ['judgeCostUsd', '$ judging', 3], ['costUsd', '$ harness total', 3], ['turns', 'turns', 1], ['modelCalls', 'model calls', 1], ['toolCalls', 'tool calls', 1],
-  ['failedCalls', 'failed tool calls', 2], ['firstContext', 'context, 1st call', 0], ['peakContext', 'context, peak', 0],
+  ['failedCalls', 'failed tool calls', 2], ['zshGlob', 'zsh glob failures', 2], ['failedWithZsh', 'failed incl. zsh', 2], ['hostCapped', 'host-capped results', 2], ['operandRefusals', 'read operand refusals', 2], ['servedBytes', 'read bytes served', 0], ['firstContext', 'context, 1st call', 0], ['peakContext', 'context, peak', 0],
   ['outputTokens', 'output tokens', 0], ['wallS', 'wall s', 1], ['setupS', 'scaffold s', 1], ['firstCallS', 's to 1st call', 1], ['routeReadyS', 's to route step', 1],
   ['filesRead', 'files read', 1], ['trueFilesRead', 'true files read', 1], ['firstTrueReadCall', 'call of 1st true read', 1],
 ];

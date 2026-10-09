@@ -456,24 +456,54 @@ function folderFeature(ordered: readonly MapCandidate[], files: readonly string[
   return paths.length === 0 ? null : { root, paths };
 }
 
+/**
+ * The harvest keeps a declaration's first line only, so its span runs to the line before the next declaration in the file,
+ * kept between 15 and 60 lines. Over this repository's src (2266 declarations, 253 files) the gap to the next declaration is
+ * p25 3, p50 8, p75 15, p90 29, p95 47 lines: 15 keeps a span from shrinking to a signature, 60 clears p95. `read` clamps at the end of the file.
+ */
+export const SPAN_MIN_LINES = 15;
+export const SPAN_MAX_LINES = 60;
+export function spanEnd(declaration: Declaration, declarations: readonly Declaration[]): number {
+  const next = declarations.filter((other) => other.path === declaration.path && other.line > declaration.line).reduce((least, other) => Math.min(least, other.line), Infinity);
+  const length = Math.min(SPAN_MAX_LINES, Math.max(SPAN_MIN_LINES, next - declaration.line));
+  return declaration.line + length - 1;
+}
+
 async function anchor(leads: MapCandidate[], declarations: readonly Declaration[], terms: readonly string[], git: { firstLines(terms: readonly string[], files: readonly string[]): Promise<Map<string, number>> }): Promise<void> {
   const lower = terms.map((term) => term.toLowerCase());
   for (const lead of leads) {
     const named = declarations.find((declaration) => declaration.path === lead.path && lower.some((term) => declaration.name.toLowerCase().includes(term)));
-    if (named !== undefined) lead.line = named.line;
+    if (named !== undefined) {
+      lead.line = named.line;
+      lead.end = spanEnd(named, declarations);
+    }
   }
   const lines = await git.firstLines(terms, leads.filter((lead) => lead.line === undefined).map((lead) => lead.path));
   for (const lead of leads) if (lead.line === undefined && lines.has(lead.path)) lead.line = lines.get(lead.path)!;
 }
 
-export interface Leads { text: string; leads: string[]; feature: string[]; bytes: number; hash: string }
+export interface Leads { text: string; leads: string[]; feature: string[]; operands: string[]; bytes: number; hash: string }
+
+/**
+ * Cap of the operands on the `read:` line, the command prefix not counted: the plugin path and the task slug differ per
+ * environment, and counting them would change which leads are read first. Operands drop whole from the last lead.
+ */
+export const READ_LINE_LIMIT_BYTES = 400;
+const operandOf = (candidate: MapCandidate): string => (candidate.line === undefined ? candidate.path : `${candidate.path}:${candidate.line}${candidate.end === undefined ? '' : `-${candidate.end}`}`);
+
+function readLine(command: string, operands: readonly string[]): { line: string; operands: string[] } | null {
+  const line = (count: number): string => `read: ${command} ${operands.slice(0, count).join(' ')}`;
+  let count = operands.length;
+  while (count > 0 && Buffer.byteLength(operands.slice(0, count).join(' ')) > READ_LINE_LIMIT_BYTES) count -= 1;
+  return count === 0 ? null : { line: line(count), operands: operands.slice(0, count) };
+}
 
 /**
  * The route's short form of a map: the terms, then the top ranked candidates with their first reason, one per line.
  * Taken from the ranking, not the 6 KiB serialized map. Paths keep their room first: over the budget, the term list
  * shortens, then reasons drop from the last lead up, and only then do leads drop.
  */
-export function leadsOf(map: Pick<MapResult, 'terms' | 'candidates' | 'collisions'> & { ranked?: readonly MapCandidate[]; feature?: MapFeature | null; tuningHash?: string }, leadCount: number = SEARCH_TUNING_DEFAULTS.leads): Leads {
+export function leadsOf(map: Pick<MapResult, 'terms' | 'candidates' | 'collisions'> & { ranked?: readonly MapCandidate[]; feature?: MapFeature | null; tuningHash?: string; readCommand?: string }, leadCount: number = SEARCH_TUNING_DEFAULTS.leads): Leads {
   const added = map.terms.pass2.filter((term) => !map.terms.pass1.includes(term));
   const terms = [...map.terms.pass1, ...added];
   const header = (shown: number): string => {
@@ -485,7 +515,7 @@ export function leadsOf(map: Pick<MapResult, 'terms' | 'candidates' | 'collision
   const picked = (map.ranked ?? map.candidates).slice(0, leadCount);
   const row = (candidate: MapCandidate, index: number, withReason: boolean): string => {
     const reason = withReason ? (candidate.reasons[0] ?? '') : '';
-    return `${index + 1}. ${candidate.path}${candidate.line === undefined ? '' : `:${candidate.line}`}${reason === '' ? '' : ` — ${reason.length > REASON_CHARS ? `${reason.slice(0, REASON_CHARS - 1)}…` : reason}`}`;
+    return `${index + 1}. ${operandOf(candidate)}${reason === '' ? '' : ` — ${reason.length > REASON_CHARS ? `${reason.slice(0, REASON_CHARS - 1)}…` : reason}`}`;
   };
   const collides = map.collisions.length === 0 ? [] : [`Declared more than once: ${map.collisions.slice(0, 6).join(', ')}.`];
   let shown = terms.length;
@@ -498,8 +528,16 @@ export function leadsOf(map: Pick<MapResult, 'terms' | 'candidates' | 'collision
   while (over() && reasons > 0) reasons -= 1;
   while (over() && kept > 0) kept -= 1;
   const feature = map.feature === undefined || map.feature === null ? null : featureLine(map.feature);
-  const out = [...tuning, header(shown), ...picked.slice(0, kept).map((candidate, index) => row(candidate, index, index < reasons)), ...(feature === null ? [] : [feature.line]), ...collides].join('\n');
-  return { text: out, leads: picked.slice(0, kept).map((candidate) => candidate.path), feature: feature?.paths ?? [], bytes: Buffer.byteLength(out), hash: hash12(contentHash(out)) };
+  const shownLeads = picked.slice(0, kept);
+  const render = (command: string | undefined): { text: string; operands: string[] } => {
+    const ready = command === undefined ? null : readLine(command, shownLeads.map(operandOf));
+    const text = [...tuning, header(shown), ...shownLeads.map((candidate, index) => row(candidate, index, index < reasons)), ...(ready === null ? [] : [ready.line]), ...(feature === null ? [] : [feature.line]), ...collides].join('\n');
+    return { text, operands: ready?.operands ?? [] };
+  };
+  const out = render(map.readCommand);
+  // The hash names what the map said, not where the plugin is installed or which task asked: the command is hashed as a placeholder.
+  const hashed = map.readCommand === undefined ? out : render('{cli} read --task {task}');
+  return { text: out.text, leads: shownLeads.map((candidate) => candidate.path), feature: feature?.paths ?? [], operands: out.operands, bytes: Buffer.byteLength(out.text), hash: hash12(contentHash(hashed.text)) };
 }
 
 export const leadsText = (...args: Parameters<typeof leadsOf>): string => leadsOf(...args).text;

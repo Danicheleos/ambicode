@@ -20,17 +20,18 @@ const prompt = (plan: PlanFixture, text: string, extra: Record<string, unknown> 
 const context = (output: { hookSpecificOutput?: { additionalContext: string } }): string => output.hookSpecificOutput?.additionalContext ?? '';
 
 describe('03-H1/03-H8 the hook matrix', () => {
-  it('registers seven events and fourteen handler entries, and the docs say so', async () => {
+  it('registers seven events and twenty-three handler entries, and the docs say so', async () => {
     const manifest = JSON.parse(await readFile(path.join(REPO_ROOT, 'hooks', 'hooks.json'), 'utf8')) as { hooks: Record<string, { matcher?: string; hooks: unknown[] }[]> };
     assert.deepEqual(Object.keys(manifest.hooks), [...REGISTERED_HOOK_EVENTS]);
     const entries = Object.values(manifest.hooks).flatMap((groups) => groups.flatMap((group) => group.hooks));
     assert.equal(entries.length, REGISTERED_HOOK_ENTRIES);
-    assert.deepEqual(manifest.hooks['PostToolUse']!.map((group) => group.matcher), ['mcp__.*', 'WebFetch', 'AskUserQuestion']);
+    assert.deepEqual(manifest.hooks['PostToolUse']!.map((group) => group.matcher), ['mcp__.*', 'WebFetch', 'AskUserQuestion', 'Read|Grep|Glob']);
+    assert.deepEqual(manifest.hooks['PreToolUse']!.map((group) => group.matcher), ['Bash', 'Write|Edit|MultiEdit|NotebookEdit', 'Read']);
     assert.ok(manifest.hooks['Stop'] !== undefined);
     for (const doc of ['docs/compatibility.md', 'docs/release-checklist.md']) {
       const text = (await readFile(path.join(REPO_ROOT, doc), 'utf8')).replace(/\s+/g, ' ');
       assert.match(text, /seven events/, doc);
-      assert.match(text, /fourteen handler entries/, doc);
+      assert.match(text, /twenty-three handler entries/, doc);
     }
   });
 });
@@ -272,6 +273,29 @@ describe('03-H6 MCP capture', () => {
       const output = await runHook({ ...plan.fx.runtime, fs }, JSON.stringify({ hook_event_name: 'PostToolUse', session_id: SESSION_A, cwd: plan.fx.repo.root, scratchpad_dir: plan.fx.scratchpad, tool_name: 'mcp__atlassian__getJiraIssue', tool_response: {} }), deps(plan));
       assert.deepEqual(output, {});
       assert.deepEqual(reads.filter((file) => /config\.yaml|ledger\.jsonl/.test(file)), []);
+    } finally {
+      await plan.dispose();
+    }
+  });
+});
+
+describe('D5 tool record', () => {
+  it('appends tool{name, step, path, bytes} for the active route and nothing without one', async () => {
+    const plan = await planFixture();
+    try {
+      await plan.fx.repo.write('src/orders/service.ts', 'export const total = 0;\n');
+      const read = { hook_event_name: 'PostToolUse', tool_name: 'Read', tool_input: { file_path: path.join(plan.fx.repo.root, 'src/orders/service.ts') }, tool_response: { file: { content: 'export const total = 0;\n' } } };
+      assert.deepEqual(await hook(plan, read), {});
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'tool')).length, 0);
+      await prompt(plan, '/ambicode:plan add a limit --task ORD-17');
+      assert.deepEqual(await hook(plan, read), {});
+      await hook(plan, { hook_event_name: 'PostToolUse', tool_name: 'Grep', tool_input: { pattern: 'x', path: 'src' } });
+      await hook(plan, { hook_event_name: 'PostToolUse', tool_name: 'Glob', tool_input: { pattern: '**/*.ts' } });
+      const [first, second, third] = await plan.fx.kinds(PLAN_TASK, 'tool');
+      assert.deepEqual([first!['name'], first!['step'], first!['path'], first!['bytes']], ['Read', 'design', 'src/orders/service.ts', 24]);
+      assert.equal(first!['route'], (await plan.fx.kinds(PLAN_TASK, 'route'))[0]!.id);
+      assert.deepEqual([second!['name'], second!['path'], second!['bytes']], ['Grep', 'src', undefined]);
+      assert.deepEqual([third!['name'], third!['path']], ['Glob', undefined]);
     } finally {
       await plan.dispose();
     }

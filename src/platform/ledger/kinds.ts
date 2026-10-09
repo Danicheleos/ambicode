@@ -36,7 +36,7 @@ const schemas = [
     channel: text.optional(), bytes: count.optional(), file: text.optional(),
     revise: z.union([text, z.looseObject({})]).optional(), exit: text.optional(), ms: z.number().nonnegative().optional(),
     budget: z.record(text, z.number().nonnegative()).optional(),
-    payloadBytes: count.optional(), payloadTokens: count.optional(),
+    payloadBytes: count.optional(), payloadTokens: count.optional(), answer: z.literal('note').optional(),
   }),
   entry('gate', {
     route: text, gate: text, class: z.enum(['declared', 'raised', 'decision']), question: text, print: z.number().int().min(1),
@@ -59,7 +59,7 @@ const schemas = [
     mode: z.enum(['prompt', 'context']), layers: z.array(z.object({ name: text, ms: z.number(), hits: count })), layersSource: z.enum(['config', 'default', 'route']),
     terms: z.object({ pass1: z.array(text), pass2: z.array(text) }), candidates: count, limitations: z.array(text), index: z.union([z.literal('none'), z.object({ tool: text, state: text, fresh: z.boolean(), builtMs: z.number().nullable() })]), bytes: count, collisions: z.array(text).optional(),
     candidatePaths: z.array(text).optional(), serialized: count.optional(),
-    delivered: z.object({ leads: z.array(text), feature: z.array(text), bytes: count, hash: text }).optional(), feature: z.object({ root: text, paths: count }).optional(),
+    delivered: z.object({ leads: z.array(text), feature: z.array(text), operands: z.array(text).optional(), bytes: count, hash: text }).optional(), feature: z.object({ root: text, paths: count }).optional(),
     tuning: z.object({ hash: text, overrides: z.array(text) }).optional(), profile: z.object({ commit: text, files: count }).nullable().optional(),
     decisions: z.object({ sequenceFiles: count, pass2Downweighted: count, harvestFiles: count, feature: z.enum(['folder', 'named']).nullable(), proseRetry: z.boolean() }).optional(),
   }),
@@ -96,6 +96,7 @@ const schemas = [
     argv: z.array(text.max(200)), type: z.enum(['ambicode', 'check', 'format', 'baseline', 'reviewer', 'worker', 'index']), exit: z.number().int().nullable(), ms: z.number().nonnegative(), outBytes: count,
   }),
   entry('hook', { name: text, ms: z.number().nonnegative() }),
+  entry('tool', { name: text, step: text.optional(), path: text.optional(), bytes: count.optional() }),
   entry('turn', {
     from: text, to: text, tools: z.record(text, count),
     commands: z.array(z.object({ text: text.max(200), kind: z.enum(['package-script', 'node-script', 'git', 'ambicode', 'other']) })),

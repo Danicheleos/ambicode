@@ -297,6 +297,9 @@ describe('a --task command runs in the task\'s repository', () => {
       const inside = run(path.join(repo, 'src'));
       assert.equal(inside.status, 0, inside.stderr);
       assert.match(inside.stdout, /== src\/a\.ts/);
+      const prefixed = spawnSync(process.execPath, [MAIN, 'read', '--task', 't', 'repo/src/a.ts:1:1'], { cwd: path.join(repo, 'src'), encoding: 'utf8' });
+      assert.equal(prefixed.status, 0, prefixed.stderr);
+      assert.match(prefixed.stdout, /== src\/a\.ts \(lines 1-1 of 1\)/);
     } finally {
       await rm(session, { recursive: true, force: true });
     }

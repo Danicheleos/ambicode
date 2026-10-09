@@ -10,6 +10,7 @@ import { containsBlock, notCoveredBlock } from '#modules/review/bundle/coverage-
 import { harnessOf } from '../session/harness.ts';
 import { readLedger } from '#platform/ledger/ledger';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
+import { answerShapeProblems, changePathsOf } from '#modules/evidence/answer-shape';
 import { buildReport } from '#modules/evidence/report/report';
 import { navigationLine } from '#modules/evidence/report/navigation-line';
 import { NOTE_LABELS, saveNote } from '#modules/evidence/notes';
@@ -124,8 +125,21 @@ function actingAcceptance(input: Pick<Checked, 'chain' | 'def' | 'routes'>, curr
   });
 }
 
+/**
+ * What this route served: `read` receipts (`path:from-to`) and the files of the host's Read tool. With neither, every
+ * existing file under `## Files` is unread; that is the check working, since a Files entry nobody opened is a guess.
+ */
+function servedPaths(chain: readonly LedgerEntry[]): string[] {
+  const out: string[] = [];
+  for (const entry of chain) {
+    if (entry.kind === 'search' && entry['command'] === 'read' && Array.isArray(entry['names'])) out.push(...(entry['names'] as unknown[]).map(String));
+    else if (entry.kind === 'tool' && entry['name'] === 'Read' && typeof entry['path'] === 'string') out.push(entry['path']);
+  }
+  return out;
+}
+
 /** `report` is the generated block when the answer's copy of it differs; the stop-check file carries it. */
-async function problemsOf(input: Checked, runtime: Runtime): Promise<{ problems: string[]; report: string | null }> {
+async function problemsOf(input: Checked, runtime: Runtime): Promise<{ problems: string[]; report: string | null; shape: string[] }> {
   const problems: string[] = [];
   let generated: string | null = null;
   const { text, root } = input;
@@ -146,7 +160,12 @@ async function problemsOf(input: Checked, runtime: Runtime): Promise<{ problems:
     }
   }
   // An answer step runs no checks and records no acceptance, so only its citations can be wrong.
-  if (input.citationsOnly === true) return { problems, report: null };
+  if (input.citationsOnly === true) {
+    // A Files path that resolves to no repository file is a proposed creation: there is nothing to have read.
+    const created: string[] = [];
+    for (const proposed of changePathsOf(text)) if ((await locateCited(proposed, input, runtime)) === null) created.push(proposed);
+    return { problems, report: null, shape: answerShapeProblems({ answer: text, served: servedPaths(input.chain), created }) };
+  }
   const current = currentIn(input.def, buildChain(input.chain, input.chain.find((entry) => entry.kind === 'route')!));
   if (/(^|\n)Evidence\b/.test(text) || /Not verified/.test(text) || reportWritten(input.def, input.chain)) {
     const report = buildReport(input.chain, { current });
@@ -164,7 +183,7 @@ async function problemsOf(input: Checked, runtime: Runtime): Promise<{ problems:
   if (input.defectBrief) {
     for (const key of new Set(input.chain.filter(isGreen).map((entry) => String(entry['key'])))) if (!redBeforeGreen(input.chain, key)) problems.push(`${key}: no failing run precedes the first green one.`);
   }
-  return { problems, report: generated };
+  return { problems, report: generated, shape: [] };
 }
 
 /** Cell text only: column padding, Markdown pipes, separator rows and code fences do not count. */
@@ -332,22 +351,24 @@ export async function stopHook(ports: StopPorts, input: HookInput, options: { de
       else if ((text !== null || missingBlock !== null) && !blockedBefore) {
         // The task route's ground step records a defect brief.
         const defectBrief = options.defectBrief ?? chain.some((entry) => entry.kind === 'step' && entry['defectBrief'] === true);
-        const { problems, report } = text === null ? { problems: [], report: null } : await problemsOf({ chain, def, routes, root, text, defectBrief, files, citationsOnly: saveAnswer }, runtime);
+        const { problems, report, shape } = text === null ? { problems: [], report: null, shape: [] } : await problemsOf({ chain, def, routes, root, text, defectBrief, files, citationsOnly: saveAnswer }, runtime);
         const doctorProblem = text === null ? null : await doctorReadBackProblem(runtime, dir, text);
         if (doctorProblem !== null) problems.push(doctorProblem);
         if (missingBlock !== null) problems.push(`${NOT_VERBATIM}: copy part 4 of the review report as printed (below in the stop-check file).`);
-        if (problems.length > 0) {
+        // Unread or undecided Files entries block through the same single stop-block as a bad citation; the count recorded is of both.
+        const listed = [...problems, ...shape];
+        if (listed.length > 0) {
           const where = path.relative(root, dir.stopCheck);
           await runtime.fs.mkdirp(dir.root);
-          await runtime.fs.writeText(dir.stopCheck, `# Stop check\n\n${problems.map((item) => `- ${item}`).join('\n')}\n${missingBlock === null ? '' : `\n${missingBlock}\n`}${report === null ? '' : `\n${report}\n`}`);
+          await runtime.fs.writeText(dir.stopCheck, `# Stop check\n\n${listed.map((item) => `- ${item}`).join('\n')}\n${missingBlock === null ? '' : `\n${missingBlock}\n`}${report === null ? '' : `\n${report}\n`}`);
           if (saveAnswer && text !== null) await runtime.fs.writeText(dir.answerBlocked, text);
-          let reason = saveAnswer ? answerBlockReason(problems.length, where, head['mode'] === 'headless') : `The text you are about to finish with has ${problems.length} problem(s). Fix them, or state them; the full list is in ${where}:`;
+          let reason = saveAnswer ? answerBlockReason(problems.length, shape.length, where, head['mode'] === 'headless') : `The text you are about to finish with has ${problems.length} problem(s). Fix them, or state them; the full list is in ${where}:`;
           saveAnswer = false;
-          for (const item of problems) {
+          for (const item of listed) {
             if (Buffer.byteLength(`${reason}\n- ${item}`) > REASON_LIMIT_BYTES) break;
             reason += `\n- ${item}`;
           }
-          await finish({ which: 'stop-block', count: problems.length });
+          await finish({ which: 'stop-block', count: listed.length });
           output = { decision: 'block', reason };
         }
       }
@@ -420,9 +441,12 @@ async function exportFile(runtime: Runtime, from: string, target: string, name: 
 }
 
 /** The final message is what the user gets and what is saved, so a correction must restate the whole answer. */
-function answerBlockReason(count: number, where: string, headless: boolean): string {
-  const rewrite = 'write the whole answer again with the citations fixed; it replaces the previous one and is saved as the note';
-  const head = `Your answer has ${count} citation problem(s); the full list is in ${where}.`;
+function answerBlockReason(citations: number, shape: number, where: string, headless: boolean): string {
+  const fixed = [citations > 0 ? 'the citations fixed' : '', shape > 0 ? 'each Files line decided' : ''].filter((part) => part !== '').join(' and ');
+  const rewrite = `write the whole answer again with ${fixed}; it replaces the previous one and is saved as the note`;
+  const found = [citations > 0 ? `${citations} citation problem(s)` : '', shape > 0 ? `${shape} unread or undecided Files line(s)` : ''].filter((part) => part !== '').join(' and ');
+  const decide = shape > 0 ? ' Decide each line below: keep it under `## Files` after reading it with `read`, mark it as a new file, or name why it is out.' : '';
+  const head = `Your answer has ${found}; the full list is in ${where}.${decide}`;
   if (headless) return `${head} Nobody can be asked in this session: ${rewrite}.`;
   return `${head} Ask the user with AskUserQuestion whether to keep the answer as it is or rewrite it. If they choose rewrite, ${rewrite}. If they keep it, just stop.`;
 }

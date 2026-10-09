@@ -39,6 +39,7 @@ fallback is that every step text already carries `--task <slug>`, so nothing dep
 | `ambicode <cmd>` without `--task` while a route is active | allow + `updatedInput` (if P47 holds) | — |
 | `ambicode check --approve` / `review --approve` typed by the model | allow the command; the **CLI** honours the flag only under 12 §3.4 (an `acceptance` for that key on record — a bound hook answer or a consumed preanswer; never the flag itself, whatever the route's mode or channel, G1, C1, #137) — not a guard decision (#84) | the gate |
 | `rm -rf`, `git clean -fdx` on the repo root | ask | — |
+| native `Read`, or `cat`, `sed -n`, `head`, `tail` on a tracked repository file, while the route's latest `step` entry is `delivered` with `answer: note` (D5; not `.ambicode/**`, not outside the repository, not `grep`/`ls`/`find`/`wc`, not a `\| head` filter) | headless **deny**, interactive **ask**, reason `use: node "<cli>" read --task <task> <path[:a-b]>` | the `read` command |
 
 ### 2. Structural command parsing (M12)
 
@@ -123,4 +124,6 @@ row; config and `.gitignore` deny during init; gate table (both classes) validat
 
 - **Matchers (B11).** `hooks.json` adds `Bash(*ambicode.mjs*)` and `Bash(rm *)` to the guard's `if:` list, so the root-deletion row is reachable. For a bound route the guard answers `allow` with `updatedInput` adding `--task` (`PLATFORM.updatedInput`; contract not verified live).
 - **Headless (B12).** In a headless route a guard `ask` becomes a deny telling the model to run `route stop --reason blocked --detail "permission-denied: ..."`; the guard stays ledger-free. Bundle cap 70 KiB (measured in bytes by the architecture test).
+- **D2 (zsh glob).** `hooks.json` adds `Bash(*--include=*)`, `Bash(*--exclude=*)` and `Bash(*--exclude-dir=*)`; an unquoted `--include=*.ts`-style glob value (also `--include *.ts`) is single-quoted through `allow` + `updatedInput`, composed with the `$R` and `--task` rewrites; any `ask`/`deny` wins. Found through the parser's glob words, so heredocs, quoted text, comments and brace values are left. Bundle cap raised to measured 72569 B + 512 B.
+- **D5 (reading through `read`).** `hooks.json` adds `Read` to the guard's matchers and `Bash(cat *)`, `Bash(sed *)`, `Bash(head *)`, `Bash(tail *)` to its `if:` list (see the decision table row). The engine records `answer: note` on the delivered `step` entry, so the guard needs no route YAML; the repository is the nearest directory up from the cwd holding the task's ledger. Bundle 75921 B (+3352 B), cap +512. A `PostToolUse` `Read|Grep|Glob` entry appends `tool{name, step, path?, bytes?}` to the active route's ledger (no fold).
 - **B10.** The tool-turns counter is removed.

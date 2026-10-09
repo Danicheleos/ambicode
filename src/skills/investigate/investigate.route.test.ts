@@ -51,11 +51,17 @@ describe('investigate route (03-I1, 03-I2)', () => {
       }
       // The map entry names what the model was shown, by path and by the hash of the exact payload.
       const map = (await fx.kinds('cart', 'map'))[0]!;
-      const delivered = map['delivered'] as { leads: string[]; feature: string[]; bytes: number; hash: string };
+      const delivered = map['delivered'] as { leads: string[]; feature: string[]; operands?: string[]; bytes: number; hash: string };
       const payload = (await loadPayload(fx.runtime.fs, { steps: path.join(dir, 'steps') } as never, (await fx.kinds('cart', 'route'))[0]!.id, 'map'))!;
       assert.ok(delivered.leads.includes('src/cart.ts'), JSON.stringify(delivered));
       assert.equal(delivered.bytes, Buffer.byteLength(payload));
-      assert.equal(delivered.hash, hash12(contentHash(payload)));
+      const cli = `node "${fx.runtime.pluginRoot}/scripts/ambicode.mjs"`;
+      const ready = payload.split('\n').find((line) => line.startsWith('read: '));
+      assert.ok(ready !== undefined && ready.startsWith(`read: ${cli} read --task cart `), payload);
+      assert.deepEqual(delivered.operands, ready.slice(`read: ${cli} read --task cart `.length).split(' '));
+      assert.ok(delivered.operands![0]!.startsWith('src/cart.ts:1-'), JSON.stringify(delivered.operands));
+      assert.ok(first.text.includes(ready), 'the model is handed the line with the real cli path and task');
+      assert.equal(delivered.hash, hash12(contentHash(payload.replace(`${cli} read --task cart`, '{cli} read --task {task}'))));
       assert.equal(map['serialized'], map['candidates']);
     } finally {
       await fx.dispose();

@@ -13,8 +13,10 @@ sandbox, week-one situations).
 | `UserPromptSubmit` | all | `$A hook` | re-inject the contract after compaction; `^/ambicode:(\w+)` → `route start`; mid-route after an epoch change → re-inject the current step | 89 ms (+ start work) | 1–3 |
 | `PostToolUse` | `mcp__.*` (#52) | `$A hook` | spawns on **every** `mcp__*` call in every session; exits at once without a route (#90); with a route: binding rule, bound server → capture the payload, append `requirement {rawHash}`; nothing else | 89 ms | 0–11 bound + 1 per other MCP call |
 | `PostToolUse` | `AskUserQuestion` | `$A hook` | find `[ambicode gate <id> <instance>]` in the question; bind to that `gate` entry (C2) and append the answer `{via: hook, instance, object}` (or `unbound`); `onAnswer` revises; **return the next step as `additionalContext`** (P48; fallback: the gate text says "then `route next`") | 89 ms + the step build | 0–4 |
+| `PostToolUse` | `Read\|Grep\|Glob` | `$A hook` | with a route: append `tool{name, step, path?, bytes?}` (one append, no fold); no route: exit at once | 89 ms | 0–n |
 | `PreToolUse` | `Bash` with `if: Bash(git *)`, `Bash(glab mr*)`, `Bash(*.ambicode/task*)`, `Bash(*ambicode.mjs*)` | `guard.mjs` | ask / deny / `updatedInput --task` (P47, unverified; nothing depends on it) | 34 ms | 2–10 |
 | `PreToolUse` | `Write\|Edit\|MultiEdit\|NotebookEdit` | `guard.mjs` | deny under `.ambicode/task/` (plan-body exception); deny `config.yaml` and `.gitignore` during init | 34 ms | 0–10 |
+| `PreToolUse` | `Read`; `Bash` `if: Bash(cat *)`, `Bash(sed *)`, `Bash(head *)`, `Bash(tail *)` | `guard.mjs` | at an `answer: note` step: tracked repository file → headless deny / interactive ask with the `read` command (D5) | 34 ms | 0–n |
 | `Stop` | all | `$A hook` | report-shaped stops only; block once | 89 ms + a transcript tail | 1–3 |
 | `PostCompact` | all | `$A hook` | reset epoch (cannot carry context, probed 2.1.278) | 89 ms | 0–1 |
 | `SessionEnd` | all | `$A hook` | remove session state | 89 ms | 1 |

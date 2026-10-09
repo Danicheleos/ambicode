@@ -157,8 +157,8 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
         }
       }
       const decisions = { ...(map.entry['decisions'] as object), proseRetry: retried };
-      const leads = leadsOf(map, tuning.tuning.leads);
-      await input.ledger.append({ kind: 'map', route: input.view.routeId, ...map.entry, decisions, delivered: { leads: leads.leads, feature: leads.feature, bytes: leads.bytes, hash: leads.hash } });
+      const leads = leadsOf({ ...map, readCommand: `node "${input.runtime.pluginRoot}/scripts/ambicode.mjs" read --task ${input.view.task}` }, tuning.tuning.leads);
+      await input.ledger.append({ kind: 'map', route: input.view.routeId, ...map.entry, decisions, delivered: { leads: leads.leads, feature: leads.feature, operands: leads.operands, bytes: leads.bytes, hash: leads.hash } });
       return { state: 'ok', payload: leads.text };
     } catch (error) {
       return failed(error);

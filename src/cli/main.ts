@@ -169,7 +169,13 @@ export const USAGE = `ambicode <command> [options]
                           to ask for next. A path is from the current directory,
                           the repository root, or a unique tracked suffix.
                           Recorded.
+                          A whole file over 500 lines, or the larger files of a
+                          batch that would not fit, return a declaration outline
+                          (name a-b); --full serves the bodies. Spans already
+                          served in this route are not served again; --again
+                          re-reads them.
                             --task <slug>  --budget <bytes>  (default 24000)
+                            --full  --again
 
   index build             Build the code index (search.index) in the foreground.
                             --project <id>

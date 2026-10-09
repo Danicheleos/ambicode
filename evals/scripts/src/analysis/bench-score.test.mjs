@@ -1,6 +1,6 @@
 // Regression assertions moved intact from the approved harness suite.
 import { describe, it, before, after } from 'node:test';
-import { agentCostOf, namedFiles, outcomeOf, scoreAnswer, score, withBaseline } from './bench-score.mjs';
+import { agentCostOf, changeLines, fileSection, namedFiles, outcomeOf, scoreAnswer, score, withBaseline } from './bench-score.mjs';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
@@ -623,4 +623,15 @@ describe('preset scoring', () => {
     const [r] = scoreOf('c-review', [run('e-rev', { graders: graders([true, false, true]) })]);
     assert.deepEqual([r.recall, r.defectRecall, r.opinionRecall, r.unclassifiedRecall, r.defectThreads, r.opinionThreads], [2 / 3, 1, 0.5, null, 1, 2]);
   });
+});
+
+describe('bench-score: change-lines fixtures shared with the engine Stop check', () => {
+  const fixtures = JSON.parse(readFileSync(new URL('../../../common/fixtures/change-lines.json', import.meta.url), 'utf8'));
+  for (const f of fixtures.changeLines) it(`changeLines: ${f.name}`, () => assert.deepEqual(changeLines(f.text), { change: f.change, excluded: f.excluded }));
+  for (const f of fixtures.filesSection) {
+    it(`fileSection: ${f.name}`, () => {
+      const r = fileSection(f.text);
+      assert.equal(r.sectioned ? r.text : null, f.section);
+    });
+  }
 });

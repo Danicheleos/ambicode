@@ -2,7 +2,7 @@ import path from 'node:path';
 import { openWorkspace, projectForRequest, toRepositoryRelative } from '#modules/config/workspace';
 import { buildMap, resolveLayers, resolveTuning, type MapResult } from '#modules/search/text/map';
 import { find, refs, renderFind } from '#modules/search/declarations/refs';
-import { readMany, READ_BUDGET_BYTES, READ_MAX_BUDGET_BYTES } from '#modules/search/text/read-many';
+import { readMany, READ_BUDGET_BYTES, READ_MAX_BUDGET_BYTES, READ_ROUTE_SOFT_BYTES, type ServedSpan } from '#modules/search/text/read-many';
 import { openRepository } from '#platform/git/open';
 import { relates, renderRelates } from '#modules/search/declarations/relates';
 import { formatIndexStatus, indexAdapterFor } from '#modules/search/code-index/adapter';
@@ -25,22 +25,44 @@ export const FIND_OPTIONS = { values: ['project', 'task', 'kind'], flags: ['json
 
 export const RELATES_OPTIONS = { values: ['project', 'task'], flags: ['json', 'show'], positionals: true } as const;
 
-export const READ_OPTIONS = { values: ['task', 'budget'], flags: ['json'], positionals: true } as const;
+export const READ_OPTIONS = { values: ['task', 'budget'], flags: ['json', 'full', 'again'], positionals: true } as const;
 
 export const INDEX_OPTIONS = { values: ['project'], flags: ['json'] } as const;
 
 interface SearchOutput { command: 'map' | 'refs' | 'find' | 'relates' | 'read'; text: string; bytes: number; file?: string; data: unknown }
 
 /** The ledger entry goes to the task's one live route, if any; otherwise it is recorded without one. */
-async function record(runtime: Runtime, args: ParsedArgs, entry: { kind: string; [field: string]: unknown }): Promise<void> {
+async function record(runtime: Runtime, args: ParsedArgs, ...entries: { kind: string; [field: string]: unknown }[]): Promise<void> {
   const slug = taskSlugFor({ requirementIds: [], task: args.value('task') });
   if (slug === null) return;
   const dir = await resolveTaskDir(runtime, slug);
   const tools = await routeTools(runtime, slug);
   const { session, view } = await tools.engine.command(COMMAND_SPECS.search, { task: slug }, async (scope) => scope);
-  await withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), session ?? runtime.ids.writerId(), (ledger) =>
-    ledger.append({ ...(view === null ? {} : { route: view.routeId }), ...entry }),
-  );
+  await withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), session ?? runtime.ids.writerId(), async (ledger) => {
+    for (const entry of entries) await ledger.append({ ...(view === null ? {} : { route: view.routeId }), ...entry });
+  });
+}
+
+/** What this route chain's earlier `read` receipts served; null without a live route, where nothing is deduped or counted. */
+async function readHistory(runtime: Runtime, args: ParsedArgs): Promise<{ served: ServedSpan[]; bytes: number; limited: boolean } | null> {
+  const slug = taskSlugFor({ requirementIds: [], task: args.value('task') });
+  if (slug === null) return null;
+  const tools = await routeTools(runtime, slug);
+  const { view, context } = await tools.engine.command(COMMAND_SPECS.search, { task: slug }, async (scope) => scope);
+  if (view === null) return null;
+  const chain = new Set([view.routeId, ...view.chainIds]);
+  const own = (await context.entries(slug)).filter((entry) => typeof entry['route'] === 'string' && chain.has(entry['route']));
+  const served: ServedSpan[] = [];
+  let bytes = 0;
+  for (const entry of own) {
+    if (entry.kind !== 'search' || entry['command'] !== 'read') continue;
+    bytes += Number(entry['bytes']) || 0;
+    for (const name of Array.isArray(entry['names']) ? entry['names'] : []) {
+      const match = /^(.+):(\d+)-(\d+)$/.exec(String(name));
+      if (match !== null) served.push({ path: match[1]!, from: Number(match[2]), to: Number(match[3]), receipt: entry.id });
+    }
+  }
+  return { served, bytes, limited: own.some((entry) => entry.kind === 'limit' && entry['which'] === 'read-bytes') };
 }
 
 async function showFile(runtime: Runtime, args: ParsedArgs, name: string, full: string): Promise<string | undefined> {
@@ -114,10 +136,18 @@ export async function runRead(runtime: Runtime, args: ParsedArgs): Promise<Searc
   const budget = parseBudget(args.value('budget'));
   // No config needed: reading is useful before init, and a repository is the only boundary.
   const { git, repositoryRoot } = await openRepository(runtime);
-  const result = await readMany({ fs: runtime.fs, git, repositoryRoot, cwd: runtime.cwd }, args.positionals, budget);
+  const history = await readHistory(runtime, args);
+  const result = await readMany({ fs: runtime.fs, git, repositoryRoot, cwd: runtime.cwd }, args.positionals, { budget, full: args.flag('full'), again: args.flag('again'), served: history?.served ?? [] });
   const served = result.files.filter((file) => file.lines !== null);
-  await record(runtime, args, { kind: 'search', command: 'read', names: served.map((file) => `${file.path}:${file.lines!.from}-${file.lines!.to}`), hits: served.length, bytes: result.bytes, truncated: result.truncated });
-  return { command: 'read', text: result.text, bytes: result.bytes, data: { files: result.files, bytes: result.bytes, truncated: result.truncated } };
+  const servedTotal = (history?.bytes ?? 0) + result.bytes;
+  const over = history !== null && servedTotal > READ_ROUTE_SOFT_BYTES;
+  const first = over && !history.limited;
+  const notice = over ? `\n[this route has read ${servedTotal} bytes, past the soft cap of ${READ_ROUTE_SOFT_BYTES}; served anyway${first ? ' and recorded as a read-bytes limit' : ''}: name spans, not whole files]` : '';
+  await record(runtime, args,
+    { kind: 'search', command: 'read', names: served.map((file) => `${file.path}:${file.lines!.from}-${file.lines!.to}`), hits: served.length, bytes: result.bytes, truncated: result.truncated, ...(history === null ? {} : { servedTotal }) },
+    ...(first ? [{ kind: 'limit', which: 'read-bytes', count: 1, bytes: servedTotal, cap: READ_ROUTE_SOFT_BYTES }] : []),
+  );
+  return { command: 'read', text: result.text + notice, bytes: result.bytes, data: { files: result.files, bytes: result.bytes, truncated: result.truncated, ...(history === null ? {} : { servedTotal }) } };
 }
 
 function parseBudget(value: string | null): number {

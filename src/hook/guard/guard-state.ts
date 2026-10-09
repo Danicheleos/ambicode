@@ -1,5 +1,5 @@
 // node:fs only: the guard bundle may read bounded state and ledger files and nothing else (see guard.ts).
-import { closeSync, constants, fstatSync, openSync, readSync } from 'node:fs';
+import { closeSync, constants, fstatSync, openSync, readSync, statSync } from 'node:fs';
 import type { LedgerEntry } from '#types/modules/evidence';
 import { GUARD_STATE_DIR_NAME, ACTIVE_ROUTE_FILE, GUARD_LEDGER_FILE, LEDGER_LIMIT, type ActiveRoute, type GuardState } from '../types/guard.ts';
 
@@ -75,5 +75,12 @@ export const fsGuardState: GuardState = {
   ledger(taskDirectory: string): LedgerEntry[] | null {
     const text = bounded(`${taskDirectory}/${GUARD_LEDGER_FILE}`, LEDGER_LIMIT);
     return text === null ? null : entries(text);
+  },
+  file(path: string): boolean {
+    try {
+      return statSync(path).isFile();
+    } catch {
+      return false;
+    }
   },
 };

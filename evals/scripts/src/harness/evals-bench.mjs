@@ -14,6 +14,8 @@ import { claudeJudge, JUDGE_FILE, judgeTaskRuns, writeJudgeFile } from '../analy
 import { attachBaseline, writeBaselineLock } from '../analysis/baseline-lock.mjs';
 import { writeReferenceLock } from '../analysis/reference-lock.mjs';
 import { walkReport } from '../analysis/bench-walk.mjs';
+import { driftTable, renderDrift } from '../analysis/drift-table.mjs';
+import { analyzeResult } from '../analysis/run-report.mjs';
 import { casesLockStatus, lockCases, unlockCases } from './cases-lock.mjs';
 import { LEDGER_DIRECTORY, tally } from '../analysis/ledger-metrics.mjs';
 import { atomicWrite, FRONT_MATTER, GENERATION_MARKER, NAKED_COPY, outstandingSwap, PROMPT, promptBody, restorePrompts, swapInPluginPrompts, WITH_PROMPT } from './prompt-transport.mjs';
@@ -531,6 +533,18 @@ export async function main(argv, options = {}) {
     console.log(JSON.stringify(score(results, { tracesDir, judgeFile: path.join(resultLayout(file).reportsDir, JUDGE_FILE) }).arms, null, 2));
     return 0;
   }
+  if (command === 'drift') {
+    const [file] = rest.filter((_, i) => !taken.has(i));
+    if (!file || !statSync(file, { throwIfNoEntry: false })) throw new Error('usage: evals-bench.mjs drift <eval-results.json> [--traces <dir>] [--ledgers <dir>] [--json <file>]');
+    const tracesDir = path.resolve(option('--traces') ?? resultLayout(file).tracesDir);
+    const ledgersAt = option('--ledgers');
+    const rows = analyzeResult(JSON.parse(readFileSync(file, 'utf8')), { tracesDirs: [tracesDir], withChains: false, ledgersDir: ledgersAt ? path.resolve(ledgersAt) : path.join(tracesDir, LEDGER_DIRECTORY) });
+    const table = driftTable(rows.filter((r) => !r.absent));
+    const jsonAt = option('--json');
+    if (jsonAt) writeFileSync(path.resolve(jsonAt), `${JSON.stringify(table, null, 2)}\n`);
+    process.stdout.write(renderDrift(table, path.basename(path.dirname(path.dirname(path.resolve(file))))));
+    return 0;
+  }
   if (command === 'judge-task') {
     const tracesAt = option('--traces');
     const model = option('--model');
@@ -565,7 +579,7 @@ export async function main(argv, options = {}) {
     throw new Error('usage: evals-bench.mjs live-review dry-run [run options] | live-review replay [<recordings.json>]');
   }
   throw new Error(
-    'usage: evals-bench.mjs generate [--regenerate] | select [--presets <dir>] [--regenerate] | lock <naked eval.json> [--lock-file <file>] | run [--set curated|task|full --project <project>|preset --preset light|large] [--plugin <dir>] [--prompt naked|with] [--dry-run] --model <m> --max-cost-usd <usd> [--walk] [options] | restore-prompts [--plugin <dir>] [--preset <name>] | score <eval-results.json> [--traces <dir>] [--baseline <file>] | walk <eval-results.json> [--traces <dir>] | judge-task <eval-results.json> --model <m> --max-cost-usd <usd> [--traces <dir>] | tuning-summary <traces-dir> | task-suite [run options] | live-review dry-run [run options] | live-review replay [<recordings.json>]',
+    'usage: evals-bench.mjs generate [--regenerate] | select [--presets <dir>] [--regenerate] | lock <naked eval.json> [--lock-file <file>] | run [--set curated|task|full --project <project>|preset --preset light|large] [--plugin <dir>] [--prompt naked|with] [--dry-run] --model <m> --max-cost-usd <usd> [--walk] [options] | restore-prompts [--plugin <dir>] [--preset <name>] | score <eval-results.json> [--traces <dir>] [--baseline <file>] | walk <eval-results.json> [--traces <dir>] | drift <eval-results.json> [--traces <dir>] [--ledgers <dir>] [--json <file>] | judge-task <eval-results.json> --model <m> --max-cost-usd <usd> [--traces <dir>] | tuning-summary <traces-dir> | task-suite [run options] | live-review dry-run [run options] | live-review replay [<recordings.json>]',
   );
 }
 

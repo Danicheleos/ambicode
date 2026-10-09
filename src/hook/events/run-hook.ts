@@ -166,7 +166,44 @@ async function captureForRoute(runtime: Runtime, input: HookInput, deps: HookDep
   });
 }
 
+/** Bytes the host returned for a read, when its response says; the shapes are the host's, so anything else is unmeasured. */
+function responseBytes(response: unknown): number | undefined {
+  const content = typeof response === 'string' ? response : ((response as { file?: { content?: unknown }; content?: unknown } | null)?.file?.content ?? (response as { content?: unknown } | null)?.content);
+  return typeof content === 'string' ? Buffer.byteLength(content) : undefined;
+}
+
+/** One append to the active route's ledger: which step the model was on when it read with the host's tool. No fold. */
+async function recordTool(runtime: Runtime, input: HookInput, deps: HookDeps): Promise<void> {
+  const active = await deps.pointer.read(input.session_id, input.scratchpad_dir);
+  if (active === null) return;
+  const found = await findSessionRepository(runtime, input.cwd ?? runtime.cwd);
+  if (typeof found === 'string') return;
+  const root = found.repositoryRoot;
+  const target = input.tool_name === 'Read' ? input.tool_input?.file_path : (input.tool_input as { path?: unknown } | undefined)?.path;
+  // Realpath-aware like the edit reminder: a lexical relative path leaves the repository when it is reached through a symlinked prefix.
+  const absolute = typeof target === 'string' ? path.resolve(input.cwd ?? root, target) : '';
+  const relative = absolute === '' ? '' : path.relative(root, await runtime.fs.realpath(absolute).catch(() => absolute));
+  const bytes = input.tool_name === 'Read' ? responseBytes(input.tool_response) : undefined;
+  await withLedgerLock(runtime.fs, taskDirFor(root, active.task).root, () => runtime.clock.now(), input.session_id, async (ledger) => {
+    const read = await ledger.read();
+    if (read.state !== 'ok') return;
+    let step: string | undefined;
+    for (const entry of read.entries.toReversed()) {
+      if (entry.kind === 'exit') return;
+      if (entry.kind === 'step' && step === undefined) step = String(entry['step']);
+      if (entry.kind === 'route') {
+        await ledger.append({ kind: 'tool', route: entry.id, name: input.tool_name, ...(step === undefined ? {} : { step }), ...(relative === '' || relative.startsWith('..') ? {} : { path: relative }), ...(bytes === undefined ? {} : { bytes }) });
+        return;
+      }
+    }
+  });
+}
+
 async function handlePostToolUse(runtime: Runtime, input: HookInput, deps: HookDeps): Promise<unknown> {
+  if (input.tool_name === 'Read' || input.tool_name === 'Grep' || input.tool_name === 'Glob') {
+    await recordTool(runtime, input, deps);
+    return EMPTY_HOOK_OUTPUT;
+  }
   if (input.tool_name === 'AskUserQuestion') {
     const context = await answerGates(runtime, input, await deps.load());
     return context === null ? EMPTY_HOOK_OUTPUT : { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: context } };

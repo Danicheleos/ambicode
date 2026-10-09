@@ -258,11 +258,9 @@ function listLedgers(directory) {
 /** The sandbox id (`e-…`) a run's trace path names; it keys the run's harvested ledgers and patch. */
 export const sandboxIdOf = (run) => /[/\\](e-[^/\\]+)[/\\]/.exec(run.tracePath ?? '')?.[1] ?? null;
 
-/** The run's harvested ledgers, each with its own entries in line order and its unreadable-line count; null when none. */
-export function ledgersOf(run, tracesDir) {
-  const id = sandboxIdOf(run);
-  const directory = tracesDir && id ? [].concat(tracesDir).map((dir) => path.join(dir, LEDGER_DIRECTORY, id)).find((dir) => existsSync(dir)) : null;
-  if (!directory) return null;
+/** The ledgers under one directory, each with its own entries in line order and its unreadable-line count; null when it is absent. */
+export function ledgersIn(directory) {
+  if (!directory || !existsSync(directory)) return null;
   return listLedgers(directory).map((file) => {
     const ledger = { file: path.relative(directory, file), entries: [], unreadable: 0 };
     for (const line of readFileSync(file, 'utf8').split('\n')) {
@@ -277,4 +275,10 @@ export function ledgersOf(run, tracesDir) {
     }
     return ledger;
   });
+}
+
+/** The run's harvested ledgers, each with its own entries in line order and its unreadable-line count; null when none. */
+export function ledgersOf(run, tracesDir) {
+  const id = sandboxIdOf(run);
+  return ledgersIn(tracesDir && id ? [].concat(tracesDir).map((dir) => path.join(dir, LEDGER_DIRECTORY, id)).find((dir) => existsSync(dir)) : null);
 }

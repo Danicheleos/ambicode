@@ -22,6 +22,8 @@ export interface Segment {
   opaque: boolean[];
   writeTargets: WriteTarget[];
   raw: string;
+  /** Unquoted glob values of `--include=`-style options (and `--include GLOB`), where the shell would expand them. */
+  globs?: { at: number; text: string }[];
   /** Stands for the whole command when part of it was not analysed: the other segments may be incomplete or wrong. */
   unparsed?: true;
 }
@@ -1345,7 +1347,12 @@ class Parser {
     const name = argv[0] === undefined ? '' : basename(argv[0].text);
     const child = start.chdir.length === 0 ? directories : [...directories, ...start.chdir];
     for (const word of argvTargets(name, argv.slice(1), this.context.options)) writeTargets.push(targetOf(word, child, this.context.shell));
-    this.context.segments.push({ argv: argv.map((word) => word.text), opaque: argv.map((word) => word.opaque), writeTargets, raw });
+    const globs = words.flatMap((word, index) => {
+      const option = OPTION_GLOB.exec(word.text);
+      const value = option === null ? (OPTION_NAME.test(words[index - 1]?.text ?? '') ? { at: word.start, text: word.text } : null) : { at: word.start + option[0].length, text: word.text.slice(option[0].length) };
+      return word.glob && value !== null && !/[{$`'"\\]/.test(value.text) && /[*?[]/.test(value.text) ? [value] : [];
+    });
+    this.context.segments.push({ argv: argv.map((word) => word.text), opaque: argv.map((word) => word.opaque), writeTargets, raw, ...(globs.length > 0 ? { globs } : {}) });
     if (name === 'find') {
       for (const command of execsOf(argv.slice(1))) this.invoke(command.words, [], command.here ? child : [...child, null], raw);
     }
@@ -1385,6 +1392,9 @@ const signature = (segment: Segment): string =>
  * Where bash 3.2 reads it otherwise, that reading must run and write nothing the other does not. When any of it
  * was not analysed, the last segment is `unparsed` and the others may be incomplete or wrong.
  */
+const OPTION_NAME = /^--(?:include|exclude)(?:-dir)?$/;
+const OPTION_GLOB = /^--(?:include|exclude)(?:-dir)?=/;
+
 export function parseCommand(command: string, options: ParseOptions = {}): Segment[] {
   const modern = read(command, options, false);
   let complete = modern.complete;

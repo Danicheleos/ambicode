@@ -35,6 +35,7 @@ Before any paid run, run `npm run build`. The evals run the bundle (`scripts/amb
 | Does the plugin still behave on real tickets? | `evals:walk` | ~$3 (estimate) |
 | Is the plugin better than the bare model? | `evals:decide`, then `evals:gate` against `evals:baseline` | ~$80 (estimate) |
 | What happened in a run, and where should I focus? | `evals:report` | free |
+| How much do repetitions of one case differ, and why? | `evals:bench -- drift` | free |
 | Did Claude Code change under us? | `evals:baseline` | ~$80 (estimate) |
 | How does it do on every ticket? | `evals:full` | up to $45 |
 | How does each skill do on smaller or larger tickets? | `evals:presets`, then `run --set preset --preset light\|large` | set by `--max-cost-usd` |
@@ -311,6 +312,20 @@ where to look first; `chains.md` shows what happened.
 this for other runs.
 
 **Why:** error analysis starts from the traces, not from the scores.
+
+### `evals:bench -- drift <results/eval.json> [--traces <dir>] [--ledgers <dir>] [--json <file>]`
+
+**Does:** for every case and arm with at least two repetitions, prints each metric (recall, precision, F1, agent cost,
+model calls, tool calls, turns, read bytes served, peak context, wall seconds) per repetition with min, max, spread and
+an in-band flag against the absolute band (quality at least 0.9x the best repetition, resources at most 1.1x the
+smallest), then per repetition the mechanics behind the spread: reads by route (engine `read` receipts / native `Read`
+calls / Bash `cat`, `sed -n`, `head`, `tail`), zsh `--include=` glob failures (`no matches found`, which the tool does
+not report as an error), host-capped (`<persisted-output>`) results and `read` operand refusals (`not found`,
+`ambiguous`). Traces default to the result's `traces/` and ledgers to `traces/ledgers/`. Cost: free, offline.
+
+**Why:** the plugin must be stable on its own, so the spread between repetitions of one case is the number to watch,
+and the mechanics columns say which free choice moved it. The eval gate's thresholds are unchanged and its status is
+shown beside the table.
 
 ## Free, offline checks
 

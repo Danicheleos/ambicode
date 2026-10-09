@@ -355,10 +355,11 @@ current transcript.
 ## Hooks
 
 The plugin ships one hook manifest, `hooks/hooks.json`, registering seven
-events with fourteen handler entries: `PostToolUse` (matchers `mcp__.*`, `WebFetch` and
-`AskUserQuestion`), `PreToolUse` (six entries, all routed to
+events with twenty-three handler entries: `PostToolUse` (matchers `mcp__.*`, `WebFetch`,
+`AskUserQuestion` and `Read|Grep|Glob`), `PreToolUse` (all routed to
 `${CLAUDE_PLUGIN_ROOT}/scripts/guard.mjs`: `Bash` with the `if` rows `git *`,
-`glab mr*`, `*.ambicode/task*`, `*ambicode.mjs*` and `rm *`, and `Write|Edit|MultiEdit|NotebookEdit`),
+`glab mr*`, `*.ambicode/task*`, `*ambicode.mjs*`, `rm *`, `*--include=*`, `*--exclude=*`,
+`*--exclude-dir=*`, `cat *`, `sed *`, `head *` and `tail *`, then `Write|Edit|MultiEdit|NotebookEdit`, then `Read`),
 `SessionStart` (matcher `startup|resume|clear|fork`), `UserPromptSubmit`,
 `Stop`, `PostCompact` and `SessionEnd`. Every entry except `PreToolUse` runs in
 exec form through command `node` with arguments

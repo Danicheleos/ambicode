@@ -3,7 +3,8 @@
 import { ownerOfHarness } from '#harness/session/harness';
 import { ownerOf } from '#modules/evidence/ownership';
 import { basename, type Directories, parseCommand, type Segment } from '../shell/command-parser.ts';
-import type { GuardInput, GuardState } from '../types/guard.ts';
+import type { LedgerEntry } from '#types/modules/evidence';
+import type { ActiveRoute, GuardInput, GuardState } from '../types/guard.ts';
 
 type Decision = Record<string, unknown>;
 
@@ -343,7 +344,7 @@ function fileDecision(input: GuardInput, state: GuardState | undefined, pluginRo
   return {};
 }
 
-const TASK_COMMANDS = new Set(['route next', 'route status', 'route stop', 'report', 'note save', 'note promote', 'note list']);
+const TASK_COMMANDS = new Set(['route next', 'route status', 'route stop', 'report', 'note save', 'note promote', 'note list', 'read', 'map', 'refs', 'find', 'relates']);
 const PLAIN_COMMAND = /^[^|;&<>\n`$()\\'"]*$/;
 const SLUG = /^[\w.-]+$/;
 
@@ -379,6 +380,82 @@ function inlineCliVariable(input: GuardInput): { name: string; input: GuardInput
   return null;
 }
 
+// 21 of 24 measured eval attempts typed `grep -rnE … --include=*.ts`; zsh expands the unquoted glob, aborts with
+// `no matches found`, the `;` chain goes on, and the model retries.
+/** The command with each unquoted glob value of an `--include=`-style option in single quotes; null when none needs it. */
+function quoteGlobOptions(command: string): string | null {
+  let out = command;
+  const spans = parseCommand(command).flatMap((segment) => segment.globs ?? []);
+  // A span read from a backtick body is offset by the body, so it must still match the text it names.
+  for (const { at, text } of [...new Map(spans.map((span) => [span.at, span])).values()].sort((a, b) => b.at - a.at)) {
+    if (command.slice(at, at + text.length) === text) out = `${out.slice(0, at)}'${text}'${out.slice(at + text.length)}`;
+  }
+  return out === command ? null : out;
+}
+
+const GLOB_REASON = 'AMBICODE: quoted `--include=*.ts` (zsh expands an unquoted glob and aborts the command).';
+
+const NOT_SOURCE = /(?:^|\/)(?:\.ambicode|\.git|node_modules)(?:\/|$)/;
+
+const spanOf = (from: number, to?: number): string => (to === undefined ? `:${from}` : `:${from}-${to}`);
+
+/**
+ * `cat`, `sed -n`, `head` and `tail` files and the lines a `read` span names for them, '' when the file's length or
+ * the command decides. A count after `-n` or `-c` is taken for a file and dropped by the existence test.
+ */
+function shellRead(name: string, args: string[]): { span: string; files: string[] } {
+  const words = args.filter((word) => !word.startsWith('-'));
+  if (name === 'sed') {
+    const range = /^(\d+)(?:,(\d+|\$))?p$/.exec(words[0] ?? '');
+    if (range === null && !args.some((word) => /^-[A-Za-z]*n/.test(word))) return { span: '', files: [] };
+    const to = range?.[2] ?? range?.[1];
+    return { span: range === null ? '' : spanOf(Number(range[1]), to === '$' ? undefined : Number(to)), files: words.slice(1) };
+  }
+  const lines = name === 'head' ? /(?:^|\s)-(?:n\s*)?(\d+)(?:\s|$)/.exec(args.join(' ')) : null;
+  return { span: lines === null ? '' : spanOf(1, Number(lines[1])), files: words };
+}
+
+/**
+ * Reading source with the host's `Read`, `cat`, `sed -n`, `head` or `tail` while the route waits on a note: 11 of 24
+ * measured attempts did, with no byte cap and no receipt. The step's `answer` is recorded on the delivered `step` entry,
+ * so no route YAML is loaded here. Headless denies, interactive asks.
+ */
+function readDecision(input: GuardInput, state: GuardState | undefined, route: ActiveRoute | null, pluginRoot: string): Decision {
+  const { tool_name: tool, cwd, tool_input: args } = input;
+  if (route === null || state?.file === undefined || typeof cwd !== 'string' || cwd === '') return {};
+  const raw: { word: string; span: string }[] = [];
+  if (tool === 'Read' && typeof args?.file_path === 'string') {
+    const from = typeof args.offset === 'number' && args.offset > 1 ? args.offset : 1;
+    raw.push({ word: args.file_path, span: typeof args.limit === 'number' && args.limit > 0 ? spanOf(from, from + args.limit - 1) : from > 1 ? spanOf(from) : '' });
+  } else if (tool === 'Bash' && typeof args?.command === 'string' && /\b(?:cat|sed|head|tail)\b/.test(args.command)) {
+    for (const segment of parseCommand(args.command)) {
+      const name = commandName(segment);
+      if (segment.unparsed || !/^(?:cat|sed|head|tail)$/.test(name)) continue;
+      const { span, files } = shellRead(name, segment.argv.slice(1).filter((_, at) => segment.opaque[at + 1] !== true));
+      for (const word of files) raw.push({ word, span });
+    }
+  }
+  if (raw.length === 0) return {};
+  // The repository is the nearest directory up from the cwd that holds this task's ledger.
+  let root = normalize(cwd);
+  let entries = state.ledger(`${root}/.ambicode/task/${route.task}`);
+  while (entries === null && root.includes('/') && root !== '/') {
+    root = root.slice(0, root.lastIndexOf('/')) || '/';
+    entries = state.ledger(`${root === '/' ? '' : root}/.ambicode/task/${route.task}`);
+  }
+  const position = entries?.findLast((entry) => entry.kind === 'route' || entry.kind === 'exit' || entry.kind === 'step');
+  if (position?.kind !== 'step' || position['status'] !== 'delivered' || position['answer'] !== 'note') return {};
+  const prefix = root === '/' ? '/' : `${root}/`;
+  const found = raw.flatMap(({ word, span }) => {
+    const path = /[*?[{$~]/.test(word) ? '' : normalize(word, cwd);
+    const relative = path.startsWith(prefix) ? path.slice(prefix.length) : '';
+    return relative !== '' && !NOT_SOURCE.test(relative) && state.file!(path) ? [{ file: relative, span }] : [];
+  });
+  if (found.length === 0) return {};
+  const target = found.map(({ file, span }) => file + (found.length > 1 ? '' : span)).join(' ');
+  return decide(route.headless === true ? 'deny' : 'ask', `use: node "${pluginRoot}/scripts/ambicode.mjs" read --task ${route.task} ${target}`);
+}
+
 function permissionOf(decision: Decision): string | null {
   const output = decision['hookSpecificOutput'] as { permissionDecision?: string } | undefined;
   return output?.permissionDecision ?? null;
@@ -403,18 +480,31 @@ export function guardDecision(input: GuardInput, pluginRoot = '${CLAUDE_PLUGIN_R
   if (inlined !== null) {
     const decision = decideTool(inlined.input, pluginRoot, state, platform);
     if (Object.keys(decision).length > 0) return decision;
-    const reason = `AMBICODE: ran \`$${inlined.name}\` as the plugin's command written out in full.`;
-    return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', permissionDecisionReason: reason, updatedInput: { ...input.tool_input, command: inlined.input.tool_input!.command } } };
+    let reason = `AMBICODE: ran \`$${inlined.name}\` as the plugin's command written out in full.`;
+    let rewritten = inlined.input.tool_input!.command as string;
+    const quoted = quoteGlobOptions(rewritten);
+    if (quoted !== null) {
+      rewritten = quoted;
+      reason += ` ${GLOB_REASON}`;
+    }
+    return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', permissionDecisionReason: reason, updatedInput: { ...input.tool_input, command: rewritten } } };
   }
   const decision = decideTool(input, pluginRoot, state, platform);
   const scratchpad = typeof input.scratchpad_dir === 'string' && input.scratchpad_dir !== '' ? input.scratchpad_dir : null;
   const route = scratchpad === null || state === undefined ? null : state.activeRoute(scratchpad);
   if (permissionOf(decision) === 'ask' && route?.headless === true) return headlessDeny(decision, pluginRoot, route.task);
   const command = input.tool_input?.command;
-  if (PLATFORM.updatedInput && route !== null && input.hook_event_name === 'PreToolUse' && Object.keys(decision).length === 0 && input.tool_name === 'Bash' && typeof command === 'string') {
-    const updated = withTask(command, route.task);
+  if (Object.keys(decision).length === 0) {
+    const read = readDecision(input, state, route, pluginRoot);
+    if (Object.keys(read).length > 0) return read;
+  }
+  if (PLATFORM.updatedInput && input.hook_event_name === 'PreToolUse' && Object.keys(decision).length === 0 && input.tool_name === 'Bash' && typeof command === 'string') {
+    const tasked = route === null ? null : withTask(command, route.task);
+    const quoted = quoteGlobOptions(tasked ?? command);
+    const updated = quoted ?? tasked;
     if (updated !== null) {
-      return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', updatedInput: { ...input.tool_input, command: updated } } };
+      const reason = quoted === null ? {} : { permissionDecisionReason: GLOB_REASON };
+      return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', ...reason, updatedInput: { ...input.tool_input, command: updated } } };
     }
   }
   return decision;

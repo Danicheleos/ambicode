@@ -54,6 +54,7 @@ const TABLE: Record<Kind, { valid: object; invalid: object }> = {
   session: { valid: { route: 'a1b2c3d4-1', harnessSession: 'h1', event: 'end', reason: 'clear' }, invalid: { route: 'a1b2c3d4-1', harnessSession: 'h1', event: 'start', reason: 'x' } },
   command: { valid: { argv: ['npm', 'test'], type: 'check', exit: 0, ms: 5, outBytes: 10 }, invalid: { argv: ['npm'], type: 'other', exit: 0, ms: 5, outBytes: 10 } },
   hook: { valid: { name: 'stop', ms: 12 }, invalid: { name: 'stop', ms: -1 } },
+  tool: { valid: { name: 'Read', step: 'read', path: 'src/a.ts', bytes: 120 }, invalid: { name: 'Read', bytes: -1 } },
   turn: {
     valid: { from: 'a1b2c3d4-1', to: 'a1b2c3d4-2', tools: { Bash: 2 }, commands: [{ text: 'git status', kind: 'git' }], context: { input: 1, cacheRead: 2, cacheCreate: 3, output: 4, peak: 6 } },
     invalid: { from: 'a1b2c3d4-1', to: 'a1b2c3d4-2', tools: { Bash: -1 }, commands: [], context: { input: 1, cacheRead: 2, cacheCreate: 3, output: 4, peak: 6 } },
@@ -61,9 +62,9 @@ const TABLE: Record<Kind, { valid: object; invalid: object }> = {
 };
 const common = { id: 'a1b2c3d4-9', at: '2026-10-05T10:00:00.000Z' };
 
-describe('the 25 ledger kinds', () => {
+describe('the 26 ledger kinds', () => {
   it('02-K1: the table covers every kind', () => {
-    assert.equal(KINDS.length, 25);
+    assert.equal(KINDS.length, 26);
     assert.deepEqual(Object.keys(TABLE).sort(), [...KINDS].sort());
   });
 

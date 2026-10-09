@@ -24,7 +24,7 @@ export interface NoteRow {
 
 export const KINDS = ['route', 'step', 'gate', 'acceptance', 'declined', 'default-taken', 'preanswer', 'revise',
   'limit', 'exit', 'requirement', 'envelope', 'map', 'search', 'policy', 'baseline', 'check', 'format', 'review',
-  'worker', 'note', 'session', 'command', 'turn', 'hook'] as const;
+  'worker', 'note', 'session', 'command', 'turn', 'hook', 'tool'] as const;
 
 export interface ArtifactRef { kind: string; value: string; id: string; path: string; contentHash: string }
 

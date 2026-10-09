@@ -12,6 +12,10 @@
       {
         "matcher": "AskUserQuestion",
         "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs", "hook"] }]
+      },
+      {
+        "matcher": "Read|Grep|Glob",
+        "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs", "hook"] }]
       }
     ],
     "PreToolUse": [
@@ -22,11 +26,22 @@
           { "type": "command", "if": "Bash(glab mr*)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/guard.mjs"] },
           { "type": "command", "if": "Bash(*.ambicode/task*)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/guard.mjs"] },
           { "type": "command", "if": "Bash(*ambicode.mjs*)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/guard.mjs"] },
-          { "type": "command", "if": "Bash(rm *)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/guard.mjs"] }
+          { "type": "command", "if": "Bash(rm *)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/guard.mjs"] },
+          { "type": "command", "if": "Bash(*--include=*)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/guard.mjs"] },
+          { "type": "command", "if": "Bash(*--exclude=*)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/guard.mjs"] },
+          { "type": "command", "if": "Bash(*--exclude-dir=*)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/guard.mjs"] },
+          { "type": "command", "if": "Bash(cat *)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/guard.mjs"] },
+          { "type": "command", "if": "Bash(sed *)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/guard.mjs"] },
+          { "type": "command", "if": "Bash(head *)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/guard.mjs"] },
+          { "type": "command", "if": "Bash(tail *)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/guard.mjs"] }
         ]
       },
       {
         "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/guard.mjs"] }]
+      },
+      {
+        "matcher": "Read",
         "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/guard.mjs"] }]
       }
     ],

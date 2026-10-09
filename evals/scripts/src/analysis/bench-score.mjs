@@ -11,7 +11,7 @@ import { scoreReuse } from './reuse-score.mjs';
 import { infrastructureError } from '../harness/run-validity.mjs';
 import { metricsOfTrace, readTrace } from './trace-analysis.mjs';
 
-function fileSection(message) {
+export function fileSection(message) {
   const lines = message.split('\n');
   let start = -1;
   let level = 0;

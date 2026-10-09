@@ -7,7 +7,7 @@ import { openRepository } from '#platform/git/open';
 import { routeFixture, type RouteFixture } from '#testing/fixtures/route-fixture';
 import { countDeclarations, declarationCensus, harvest } from './declarations/harvest.ts';
 import { fakeIndex } from '#testing/fakes/fake-index';
-import { buildMap, cleanRequestText, featureOf, sequenceFiles, FEATURE_LIMIT_BYTES, leadsOf, leadsText, LEADS_LIMIT_BYTES, MAP_LIMIT_BYTES, rankTerms, resolveLayers, resolveTuning } from './text/map.ts';
+import { buildMap, cleanRequestText, featureOf, sequenceFiles, FEATURE_LIMIT_BYTES, leadsOf, leadsText, LEADS_LIMIT_BYTES, MAP_LIMIT_BYTES, READ_LINE_LIMIT_BYTES, SPAN_MAX_LINES, SPAN_MIN_LINES, spanEnd, rankTerms, resolveLayers, resolveTuning } from './text/map.ts';
 import { pathsCitedIn, symbolsCitedIn } from './text/seed.ts';
 import { excludeWorkingDirs } from '#modules/evidence/task/task-dir';
 import { find, refs, renderFind, SEARCH_LIMIT_BYTES } from './declarations/refs.ts';
@@ -312,6 +312,51 @@ describe('03b-M map terms and leads', () => {
     assert.deepEqual(leadsOf({ terms: { pass1: [], pass2: [] }, candidates: [], collisions: [], feature }).feature, feature.paths);
   });
 
+  it('D3: a lead with an anchored span prints path:a-b, one without prints today\'s path:line or the bare path, and the read line repeats those operands in lead order', () => {
+    const candidates = [
+      { path: 'src/a.ts', score: 3, reasons: ['r'], line: 10, end: 40 },
+      { path: 'src/b.ts', score: 2, reasons: ['r'], line: 7 },
+      { path: 'src/c.ts', score: 1, reasons: ['r'] },
+    ];
+    const input = { terms: { pass1: ['T'], pass2: [] }, candidates, collisions: ['Dup'], readCommand: 'node "/p/ambicode.mjs" read --task t1' };
+    const leads = leadsOf(input);
+    const lines = leads.text.split('\n');
+    assert.deepEqual(lines.filter((line) => /^\d+\. /.test(line)).map((line) => line.split(' ')[1]), ['src/a.ts:10-40', 'src/b.ts:7', 'src/c.ts']);
+    assert.deepEqual(leads.operands, ['src/a.ts:10-40', 'src/b.ts:7', 'src/c.ts']);
+    assert.equal(lines[4], 'read: node "/p/ambicode.mjs" read --task t1 src/a.ts:10-40 src/b.ts:7 src/c.ts');
+    assert.match(lines.at(-1)!, /^Declared more than once/, 'the action follows the leads; the collision note stays last');
+    assert.equal(leadsOf(input).text, leads.text, 'same input, same bytes');
+    assert.equal(leadsOf({ ...input, readCommand: 'node "/elsewhere/x.mjs" read --task t2' }).hash, leads.hash, 'the hash does not carry the install path or the task');
+    assert.equal(leadsOf({ ...input, readCommand: undefined }).operands.length, 0);
+    assert.ok(!leadsOf({ ...input, readCommand: undefined }).text.includes('read:'));
+  });
+
+  it('D3: the read line drops whole trailing operands at its cap, and the leads keep their own byte limit', () => {
+    const candidates = Array.from({ length: 8 }, (_, index) => ({ path: `src/features/area-${index}/deep/deeper/deepest/deepest-still/file-${index}.ts`, score: 9 - index, reasons: ['why'], line: 100 + index, end: 160 + index }));
+    const command = 'node "/p/ambicode.mjs" read --task t1';
+    const leads = leadsOf({ terms: { pass1: ['T'], pass2: [] }, candidates, collisions: [], readCommand: command });
+    const ready = leads.text.split('\n').find((line) => line.startsWith('read: '))!;
+    assert.ok(Buffer.byteLength(leads.operands.join(' ')) <= READ_LINE_LIMIT_BYTES, ready);
+    assert.ok(leads.operands.length > 0 && leads.operands.length < 8, `kept ${leads.operands.length}`);
+    assert.equal(ready, `read: ${command} ${leads.operands.join(' ')}`);
+    assert.deepEqual(leads.operands, candidates.slice(0, leads.operands.length).map((candidate) => `${candidate.path}:${candidate.line}-${candidate.end}`), 'a prefix of the leads, each operand whole');
+    assert.ok(Buffer.byteLength(leads.text.replace(ready, '').replace(/\n\n/, '\n')) <= LEADS_LIMIT_BYTES);
+    const longer = leadsOf({ terms: { pass1: ['T'], pass2: [] }, candidates, collisions: [], readCommand: `node "/${'x'.repeat(300)}/ambicode.mjs" read --task investigate-files-request-need-touch` });
+    assert.deepEqual(longer.operands, leads.operands, 'a long install path or task slug does not change the operand set');
+    const huge = [{ path: `src/${'d/'.repeat(250)}f.ts`, score: 2, reasons: [] }, { path: 'src/b.ts', score: 1, reasons: [] }];
+    assert.equal(leadsOf({ terms: { pass1: ['T'], pass2: [] }, candidates: huge, collisions: [], readCommand: command }).operands.length, 0, 'the first operand alone is over the cap: no line, not a cut one');
+  });
+
+  it('D3: a span runs to the line before the next declaration of the file, between the measured minimum and maximum', () => {
+    const at = (name: string, line: number, file = 'src/a.ts') => ({ name, kind: 'function', path: file, line, declarations: 1 });
+    const all = [at('one', 10), at('two', 40), at('three', 45), at('far', 500), at('other', 12, 'src/b.ts')];
+    assert.equal(spanEnd(all[0]!, all), 10 + 30 - 1);
+    assert.equal(spanEnd(all[1]!, all), 40 + SPAN_MIN_LINES - 1, 'the next declaration is 5 lines on: a span of a signature grows to the minimum');
+    assert.equal(spanEnd(all[3]!, all), 500 + SPAN_MAX_LINES - 1, 'the last declaration has no next one: the maximum');
+    assert.equal(spanEnd(all[2]!, all), 45 + SPAN_MAX_LINES - 1, 'declarations of other files do not bound it');
+    assert.equal(spanEnd(all[4]!, all), 12 + SPAN_MAX_LINES - 1);
+  });
+
   it('03b-M8: a ticket id gives the parts some path spells, and abbreviations are not terms', async () => {
     const fx = await repo();
     try {
@@ -389,7 +434,7 @@ describe('03b-M map terms and leads', () => {
     try {
       const map = await buildMap({ runtime: fx.runtime, project: project(fx), paths: [], symbols: [], mode: 'prompt', layers: ['shortlist', 'harvest', 'shortlist'], layersSource: 'default', terms: ['cart'] });
       const text = leadsText(map);
-      assert.match(text, /^\d+\. src\/cart\/cart\.service\.ts:1 — /m);
+      assert.match(text, /^\d+\. src\/cart\/cart\.service\.ts:1-15 — /m);
       assert.match(text, /^\d+\. src\/cart\/notes\.ts:3 — /m);
       const context = await buildMap({ runtime: fx.runtime, project: project(fx), paths: [], symbols: [], mode: 'context', layers: ['shortlist'], layersSource: 'default', terms: ['cart'] });
       assert.ok(context.candidates.every((candidate) => candidate.line === undefined), 'context maps carry no lines');
@@ -768,8 +813,8 @@ describe('A6 tuning', () => {
       assert.equal(explicit.text, plain.text);
       assert.deepEqual(rest, [
         'Leads from the terms cart; then CartService, applyDiscount, bundleRate, DISCOUNT_RATE:',
-        '1. src/cart/discount.ts:1 — sits under a directory matching "cart"',
-        '2. src/cart/cart.service.ts:1 — sits under a directory matching "cart"',
+        '1. src/cart/discount.ts:1-15 — sits under a directory matching "cart"',
+        '2. src/cart/cart.service.ts:1-15 — sits under a directory matching "cart"',
         '3. src/billing/invoice.ts:1 — contains "cart"',
         'Declared more than once: applyDiscount.',
       ]);

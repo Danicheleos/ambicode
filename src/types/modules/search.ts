@@ -74,7 +74,7 @@ export interface NavigationGuidance {
 }
 
 /** `line`: where the model starts reading, a declaration named like a term or the first line holding one (prompt mode). */
-export interface MapCandidate { path: string; score: number; reasons: string[]; spans?: string[]; line?: number }
+export interface MapCandidate { path: string; score: number; reasons: string[]; spans?: string[]; line?: number; end?: number }
 
 export interface MapSymbol { name: string; kind: string; at: string; declarations: number; collides: boolean }
 

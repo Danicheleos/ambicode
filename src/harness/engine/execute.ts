@@ -281,10 +281,10 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     const header = stepHeader({ skill: run.def.skill, task: run.task, step: step.id, position: step.index + 1, total: run.def.steps.length, now: nowLine, then: closing ? 'write your final message; no route command is needed' : endingCommand(run, step), route: routeLine(fold, step.id) });
     const { part, composed } = await partOf(run, step, header, `${prefix}${sections.join('\n\n')}`);
     if (!delivered) {
-      const entry = await append(run, { kind: 'step', step: step.id, actor: 'model', status: 'delivered', cause: run.cause, channel: run.channel, bytes: part.bytes, ...payloadSize(part.bytes), ...(budget === undefined ? {} : { budget }), ...(part.file === null ? {} : { file: part.file }) });
+      const entry = await append(run, { kind: 'step', step: step.id, actor: 'model', status: 'delivered', cause: run.cause, channel: run.channel, bytes: part.bytes, ...payloadSize(part.bytes), ...(step.answer === null ? {} : { answer: step.answer }), ...(budget === undefined ? {} : { budget }), ...(part.file === null ? {} : { file: part.file }) });
       if (chained !== null) {
         await append(run, { kind: 'step', step: step.id, actor: 'model', status: 'completed', cause: run.cause });
-        await append(run, { kind: 'step', step: chained.id, actor: 'model', status: 'delivered', cause: run.cause, channel: run.channel, bytes: part.bytes, ...payloadSize(part.bytes) });
+        await append(run, { kind: 'step', step: chained.id, actor: 'model', status: 'delivered', cause: run.cause, channel: run.channel, bytes: part.bytes, ...payloadSize(part.bytes), ...(chained.answer === null ? {} : { answer: chained.answer }) });
       }
       await writeStepFile(run.runtime.fs, composed, `ambicode step: ${run.def.skill}/${step.id}, task ${run.task}, ${part.bytes} bytes, ${entry.id}`);
     } else {

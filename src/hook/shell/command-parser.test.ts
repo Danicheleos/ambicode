@@ -680,3 +680,14 @@ describe('the parser module', () => {
     assert.doesNotMatch(source, /^\s*import\s/m);
   });
 });
+
+describe('parseCommand reports unquoted --include/--exclude globs', () => {
+  const globs = (command: string) => parseCommand(command).flatMap((segment) => segment.globs ?? []).map((span) => [span.at, span.text]);
+  it('gives the offset and text of each value, in either form', () => {
+    assert.deepEqual(globs('grep x . --include=*.ts --exclude-dir=a?'), [[19, '*.ts'], [38, 'a?']]);
+    assert.deepEqual(globs('grep x . --include *.ts'), [[19, '*.ts']]);
+  });
+  it('reports nothing for quoted, plain, brace or heredoc text', () => {
+    for (const command of [`grep --include='*.ts' x`, 'grep --include=ts x', 'grep --include=*.{a,b} x', 'cat <<E\n--include=*.ts\nE']) assert.deepEqual(globs(command), [], command);
+  });
+});

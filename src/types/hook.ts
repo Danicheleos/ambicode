@@ -59,9 +59,9 @@ export interface StopHookOutput {
 /** AskUserQuestion's `tool_response` as observed: `answers` maps each question text to the chosen label or free text; `questions` and `annotations` are ignored. */
 export const AskUserQuestionResponse = z.looseObject({ answers: z.record(z.string(), z.string()).optional() });
 
-/** The events `hooks/hooks.json` registers (seven events, fourteen handler entries); a test computes both from the manifest. */
+/** The events `hooks/hooks.json` registers (seven events, twenty-three handler entries); a test computes both from the manifest. */
 export const REGISTERED_HOOK_EVENTS = ['PostToolUse', 'PreToolUse', 'SessionStart', 'UserPromptSubmit', 'Stop', 'PostCompact', 'SessionEnd'] as const;
-export const REGISTERED_HOOK_ENTRIES = 14;
+export const REGISTERED_HOOK_ENTRIES = 23;
 
 export interface RouteHookDeps { engine: Engine; routes: RouteRegistry; pointer: ActiveRoutePointer }
 

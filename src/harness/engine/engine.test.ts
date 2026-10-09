@@ -133,6 +133,20 @@ describe('engine: entry points and the one algorithm', () => {
     }
   });
 
+  it('D5: a delivered step entry carries `answer` exactly when the step declares answer: note', async () => {
+    const answering = INVESTIGATE.replace('    produces: ["note{investigation}"]\n', '    produces: ["note{investigation}"]\n    answer: note\n');
+    assert.notEqual(answering, INVESTIGATE);
+    const { fx, start, next } = await inv({ extraRoutes: { inv: answering } });
+    try {
+      await start();
+      await next();
+      const delivered = (await fx.kinds('cart', 'step')).filter((entry) => entry['status'] === 'delivered' && entry['actor'] === 'model');
+      assert.deepEqual(delivered.map((entry) => [entry['step'], entry['answer']]), [['read', undefined], ['write', 'note']]);
+    } finally {
+      await fx.dispose();
+    }
+  });
+
   it('03-E1/03-E3: a command tail at a model step completes it exactly as route next does; delivery alone completes nothing', async () => {
     const { fx, start, next } = await inv();
     try {
