@@ -40,6 +40,8 @@ export const CURATED_EVAL_DIR = 'evals/common/core';
 export const CURATED_CASES = path.join(ROOT, CURATED_EVAL_DIR, CASES_DIRECTORY);
 /** The pinned naked baseline: every score, gate, report and `select` compares against it. Gitignored with the rest of core/, as its numbers derive from the benchmark. */
 export const BASELINE_LOCK_FILE = path.join(ROOT, CURATED_EVAL_DIR, 'baseline.lock.json');
+/** The plugin's own pinned runs per case, the floors a change must not fall under; gitignored like the baseline lock. */
+export const REFERENCE_LOCK_FILE = path.join(ROOT, CURATED_EVAL_DIR, 'reference.lock.json');
 export const TASK_EVAL_DIR = 'evals/common/task';
 /** The real-ticket presets' source (case.json, prompts, oracles), read only by `preset-cases.mjs`. */
 export const PRESETS = path.join(ASSETS, 'presets');

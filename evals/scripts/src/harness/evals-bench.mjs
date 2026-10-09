@@ -6,12 +6,13 @@ import { appendFileSync, copyFileSync, cpSync, existsSync, linkSync, mkdirSync, 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
-import { BASELINE_LOCK_FILE, BENCHMARKS, CASES_DIRECTORY, CORE_PRESET, CURATED_EVAL_DIR, NAKED_PLUGIN, PRESET_NAMES, presetCasesDir, REPLAY_REPORTS, ROOT } from '../shared/bench-paths.mjs';
+import { BASELINE_LOCK_FILE, BENCHMARKS, CASES_DIRECTORY, CORE_PRESET, CURATED_EVAL_DIR, NAKED_PLUGIN, PRESET_NAMES, presetCasesDir, REFERENCE_LOCK_FILE, REPLAY_REPORTS, ROOT } from '../shared/bench-paths.mjs';
 import { generate, refuseLegacyTwins } from '../cases/bench-cases.mjs';
 import { generatePreset } from '../cases/preset-cases.mjs';
 import { createAnalysis, score } from '../analysis/bench-score.mjs';
 import { claudeJudge, JUDGE_FILE, judgeTaskRuns, writeJudgeFile } from '../analysis/task-judge.mjs';
 import { attachBaseline, writeBaselineLock } from '../analysis/baseline-lock.mjs';
+import { writeReferenceLock } from '../analysis/reference-lock.mjs';
 import { walkReport } from '../analysis/bench-walk.mjs';
 import { casesLockStatus, lockCases, unlockCases } from './cases-lock.mjs';
 import { LEDGER_DIRECTORY, tally } from '../analysis/ledger-metrics.mjs';
@@ -493,6 +494,15 @@ export async function main(argv, options = {}) {
     const lockFile = option('--lock-file');
     const lock = writeBaselineLock(file, { ...(lockFile ? { lockFile: path.resolve(lockFile) } : {}), tracesDir: option('--traces') ?? [path.join(path.dirname(at), 'traces'), path.join(path.dirname(path.dirname(at)), 'traces')] });
     console.log(`locked ${file} (${Object.keys(lock.cases).length} case(s) in the lock, ${lock.model ?? 'unpinned model'}, Claude Code ${lock.claudeVersion ?? 'unrecorded'}) in ${lockFile ?? BASELINE_LOCK_FILE}`);
+    return 0;
+  }
+  if (command === 'reference') {
+    const [file] = rest;
+    if (!file) throw new Error('usage: evals-bench.mjs reference <plugin eval.json> [--cases a,b] [--lock-file <file>]');
+    const lockFile = option('--lock-file');
+    const only = option('--cases');
+    const lock = writeReferenceLock(file, { ...(lockFile ? { lockFile: path.resolve(lockFile) } : {}), ...(only ? { only: only.split(',') } : {}) });
+    console.log(`pinned ${file} as the reference (${Object.keys(lock.cases).length} case(s) in ${lockFile ?? REFERENCE_LOCK_FILE})`);
     return 0;
   }
   if (command === 'run') return runSweep(rest.filter((_, i) => !taken.has(i)), { benchmarks, ...options });

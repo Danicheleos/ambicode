@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
-import { NAKED_EQUIVALENCE, builtinLines, gate, repetitionMeans } from './eval-gate.mjs';
+import { DRIFT, NAKED_EQUIVALENCE, builtinLines, driftOf, gate, repetitionMeans } from './eval-gate.mjs';
 
 const MODEL = 'claude-sonnet-5-5';
 const ANSWER = { 1: '## Files\n- app/a.ts\n- app/b.ts\n', 0.5: '## Files\n- app/a.ts\n' };
@@ -23,10 +23,11 @@ describe('eval-gate', () => {
   after(() => rmSync(benchmarks, { recursive: true, force: true }));
 
   let traceId = 0;
-  const run = (recall, { cost = 0.2, turns = 8, model = MODEL } = {}) => {
+  // `cost` is the agent's; the harness's costUsd carries judging on top, as every recorded run does.
+  const run = (recall, { cost = 0.2, judge = 0.01, turns = 8, model = MODEL } = {}) => {
     const id = `e-${traceId++}`;
     writeFileSync(path.join(tracesDir, `${id}.jsonl`), JSON.stringify({ type: 'system', subtype: 'init', model }));
-    return { graders: [{ name: 'names-a-true-file', passed: true, evidence: ANSWER[recall] }], costUsd: cost, turns, tracePath: `/tmp/${id}/out/trace.jsonl` };
+    return { graders: [{ name: 'names-a-true-file', passed: true, evidence: ANSWER[recall] }], costUsd: cost + judge, judgeCostUsd: judge, turns, tracePath: `/tmp/${id}/out/trace.jsonl` };
   };
   const results = (withRuns, withoutRuns, extra = {}) => ({
     partial: false,
@@ -65,6 +66,59 @@ describe('eval-gate', () => {
     assert.deepEqual(failed(gate(results(three({ turns: 11 }), three()), { cases: benchmarks, tracesDir })), ['localize: turns']);
   });
 
+  it('gates agent cost, judging excluded, and reports a run with no cost to subtract as a gap', () => {
+    const three = (opts) => [run(1, opts), run(1, opts), run(1, opts)];
+    const judged = gate(results(three({ cost: 0.2, judge: 0.2 }), three({ cost: 0.2, judge: 0.01 })), { cases: benchmarks, tracesDir });
+    const cost = judged.checks.find((c) => c.name === 'localize: cost');
+    assert.equal(cost.status, 'pass', 'dearer judging is not the agent\'s cost');
+    assert.match(cost.detail, /^1\.0000× .*harness total 1\.9048×/);
+    const unpriced = three().map(({ judgeCostUsd, ...rest }) => rest);
+    assert.equal(gate(results(unpriced, three()), { cases: benchmarks, tracesDir }).checks.find((c) => c.name === 'localize: cost').status, 'gap');
+  });
+
+  const exited = (row, exit) => {
+    const dir = path.join(tracesDir, 'ledgers', path.basename(path.dirname(path.dirname(row.tracePath))), 'l');
+    mkdirSync(dir, { recursive: true });
+    const entries = [{ id: 'x-0', kind: 'route', skill: 'investigate' }, ...(exit ? [{ id: 'x-1', kind: 'exit', route: 'x-0', ...exit }] : [])];
+    writeFileSync(path.join(dir, 'ledger.jsonl'), entries.map((e) => JSON.stringify(e)).join('\n') + '\n');
+    return row;
+  };
+
+  it('gates drift on completed runs: in band passes, a recall swing or a blocked run fails', () => {
+    const done = (recall, opts) => exited(run(recall, opts), { reason: 'done', complete: true });
+    const three = () => [run(1), run(1), run(1)];
+    const steady = gate(results([done(1), done(1), done(1, { cost: 0.25 })], three()), { cases: benchmarks, tracesDir });
+    assert.equal(steady.checks.find((c) => c.name === 'localize: drift').status, 'pass', '0.25 is 1.25× the cheapest 0.2');
+    const swing = gate(results([done(1), done(0.5), done(1)], three()), { cases: benchmarks, tracesDir });
+    assert.match(swing.checks.find((c) => c.name === 'localize: drift').detail, /0 of 1 cases .*recall 0\.50 < 0\.9× best 1\.00/);
+    const blocked = gate(results([done(1), done(1), exited(run(1), { reason: 'blocked', detail: 'no-check: no command' })], three()), { cases: benchmarks, tracesDir });
+    assert.match(blocked.checks.find((c) => c.name === 'localize: drift').detail, /not completed: blocked\(no-check\)/);
+    const dear = gate(results([done(1), done(1), done(1, { cost: 0.26 })], three()), { cases: benchmarks, tracesDir });
+    assert.equal(dear.checks.find((c) => c.name === 'localize: drift').status, 'fail', '0.26 is 1.3× the cheapest');
+  });
+
+  it('holds each pinned case to its frozen reference mean minus the band, so a steady regression fails', () => {
+    const three = () => [run(1), run(1), run(1)];
+    const floors = new Map([['side-t-1', { recall: { mean: 1, worst: 1 }, f1: { mean: 1, worst: 1 } }]]);
+    const steadyWeak = gate(results([run(0.5), run(0.5), run(0.5)], [run(0.5), run(0.5), run(0.5)]), { cases: benchmarks, tracesDir, floors });
+    const floor = steadyWeak.checks.find((c) => c.name === 'localize: case floors');
+    assert.equal(floor.status, 'fail', 'three equal 0.5 runs hold their own band and the bare comparison, not the reference');
+    assert.match(floor.detail, /below: side-t-1 \(recall 0\.50 < 1\.00 − 0\.00/);
+    assert.equal(gate(results(three(), three()), { cases: benchmarks, tracesDir, floors }).checks.find((c) => c.name === 'localize: case floors').status, 'pass');
+    assert.equal(gate(results(three(), three()), { cases: benchmarks, tracesDir, floors: new Map() }).checks.find((c) => c.name === 'localize: case floors').status, 'gap', 'nothing pinned');
+  });
+
+  it('measures drift per case: band edges, too few runs, no ledger and unverified exits', () => {
+    const row = (recall, cost, outcome = 'completed') => ({ case: 'c', recall, f1: recall, agentCostUsd: cost, outcome, turns: 8, wallS: 30 });
+    assert.equal(driftOf([row(1, 0.2), row(0.9, 0.2), row(1, 0.25)])[0].status, 'in', 'exactly 0.9× best and 1.25× cheapest hold');
+    assert.equal(driftOf([row(1, 0.2), row(0.89, 0.2), row(1, 0.2)])[0].status, 'out');
+    assert.deepEqual(driftOf([row(1, 0.2), row(1, 0.2)])[0].status, 'gap', `fewer than ${DRIFT.minRuns} runs`);
+    assert.equal(driftOf([row(1, 0.2), row(1, 0.2), row(1, 0.2, 'unknown')])[0].status, 'gap', 'no ledger is unmeasured, not stable');
+    assert.match(driftOf([row(1, 0.2), row(1, 0.2), row(1, 0.2, 'unverified')])[0].reasons[0], /not completed: unverified/);
+    assert.deepEqual(driftOf([row(0, 0.2), row(0, 0.2), row(0, 0.2)])[0].reasons, ['no recall witness', 'no f1 witness'], 'a steady zero is not stability');
+    assert.equal(driftOf([row(1, 0.2), row(1, 0.2), row(1, null)])[0].status, 'gap');
+  });
+
   it('fails an arm whose runs mostly produced nothing to score, and a negative meanDelta beyond the noise', () => {
     const absent = { graders: [], costUsd: 0.2, turns: 8 };
     assert.ok(failed(gate(results([run(1), absent, absent], [run(1), run(1), run(1)]), { cases: benchmarks, tracesDir })).includes('localize/with: absent'));
@@ -85,8 +139,8 @@ describe('eval-gate', () => {
     };
     const verdict = gate(results([replayRun(1, 0.05), replayRun(1, 0.05), replayRun(1, 0.05)], [run(1), run(1), run(1)]), { cases: benchmarks, tracesDir });
     assert.equal(verdict.pass, true);
-    assert.equal(verdict.gaps, 1);
-    assert.deepEqual(verdict.checks.filter((c) => c.status === 'gap').map((c) => c.name), ['localize: cost']);
+    assert.equal(verdict.gaps, 3);
+    assert.deepEqual(verdict.checks.filter((c) => c.status === 'gap').map((c) => c.name), ['localize: cost', 'localize: drift', 'localize: case floors'], 'no ledger leaves drift unmeasured, no reference leaves floors unmeasured');
   });
 
   it('reports a gate the eval answers did not cover as a gap, naming it and its count', () => {
@@ -101,8 +155,8 @@ describe('eval-gate', () => {
     const verdict = gate(results([defaulted(), defaulted(), run(1)], [run(1), run(1), run(1)]), { cases: benchmarks, tracesDir });
     assert.equal(verdict.pass, true);
     const gaps = verdict.checks.filter((c) => c.status === 'gap');
-    assert.deepEqual(gaps.map((c) => c.name), ['localize: gate answers']);
-    assert.match(gaps[0].detail, /scope ×2/);
+    assert.deepEqual(gaps.map((c) => c.name), ['localize: drift', 'localize: case floors', 'localize: gate answers']);
+    assert.match(gaps[2].detail, /scope ×2/);
   });
 
   it('counts a typed route started by the prompt hook as activation, apart from native Skill tool calls', () => {
@@ -132,7 +186,7 @@ describe('eval-gate', () => {
     };
     const verdict = gate(results([missRun(), missRun(), missRun()], [run(1), run(1), run(1)]), { cases: benchmarks, tracesDir });
     assert.deepEqual(failed(verdict), [], 'the same loss without a replay-miss fails the recall check');
-    assert.deepEqual(verdict.checks.filter((c) => c.status === 'gap').map((c) => c.name), ['localize: recall']);
+    assert.deepEqual(verdict.checks.filter((c) => c.status === 'gap').map((c) => c.name), ['localize: recall', 'localize: drift', 'localize: case floors']);
   });
 
   it('gates a plugin-only run against a cached no-plugin arm, and says that it did', () => {
@@ -141,7 +195,7 @@ describe('eval-gate', () => {
     delete current.cases[0].arms.without;
     const verdict = gate(current, { cases: benchmarks, tracesDir, baseline, baselinePath: 'b.json' });
     assert.deepEqual(failed(verdict), []);
-    assert.deepEqual(verdict.checks.filter((c) => c.status === 'gap').map((c) => c.name), ['meanDelta'], 'the harness Δ needs both arms in one run');
+    assert.deepEqual(verdict.checks.filter((c) => c.status === 'gap').map((c) => c.name), ['localize: drift', 'localize: case floors', 'meanDelta'], 'the harness Δ needs both arms in one run');
     assert.ok(verdict.info.some((line) => line.includes('b.json') && line.includes('2.0 days')));
     const worse = { ...current, cases: [{ ...current.cases[0], arms: { with: [run(0.5), run(0.5), run(0.5)] } }] };
     assert.deepEqual(failed(gate(worse, { cases: benchmarks, tracesDir, baseline, baselinePath: 'b.json' })), ['localize: recall']);

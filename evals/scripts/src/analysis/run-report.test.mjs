@@ -128,6 +128,22 @@ describe('run-report: comparisons and findings', () => {
     assert.deepEqual(level(2400), []);
   });
 
+  it('raises drift, a trace cost that disagrees, and reader receipts the command text missed', () => {
+    const row = (run, recall, extra = {}) => ({ case: 'a', arm: 'with', run, kind: 'localize', recall, f1: recall, score: 1, costUsd: 0.11, agentCostUsd: 0.1, outcome: 'completed', absent: false, traced: true, toolCounts: {}, ...extra });
+    const plugin = [row(0, 1), row(1, 0.5, { costMismatch: 0.002 }), row(2, 1, { readerReceipts: { calls: 1, spans: 5, bytes: 17071, truncated: 0 } })];
+    const findings = findingsOf({ plugin, bare: [], previous: [], band: 0.1, servedPrompt: 'with', current: { suite: {} }, baselineResults: null });
+    const of = (code) => findings.find((f) => f.code === code);
+    assert.match(of('unstable-case').evidence[0], /^a: recall 0\.50 < 0\.9× best 1\.00/);
+    assert.deepEqual(of('cost-mismatch').evidence, ['a run 1: 0.002000']);
+    assert.deepEqual(of('helper-uncounted').evidence, ['a run 2: 1 receipts, 0 by command text'], 'a `node "$N" read` call is in the ledger, not in the command text');
+  });
+
+  it('compares per-case cost on agent cost, never on the judge-inclusive harness total', () => {
+    const row = (arm, agent, total) => ({ case: 'a', arm, run: 0, kind: 'localize', recall: 0.5, score: 1, costUsd: total, agentCostUsd: agent, absent: false, traced: true });
+    const findings = findingsOf({ plugin: [row('with', 0.1, 0.3)], bare: [row('without', 0.1, 0.11)], previous: [], band: 0.1, servedPrompt: 'with', current: { suite: {} }, baselineResults: null });
+    assert.ok(!findings.some((f) => f.code === 'cost-case'), 'judging tripled the total, not the agent');
+  });
+
   it('names trace-scored runs, blaming a skipped grader only when the run says it was skipped', () => {
     const row = (name, extra = {}) => ({ case: name, arm: 'with', run: 0, kind: 'localize', recall: 0.5, score: 1, costUsd: 0.1, absent: false, traced: true, ...extra });
     const plugin = [row('a', { answerFromTrace: true, skippedPaidGraders: true }), row('b', { answerFromTrace: true }), row('c')];

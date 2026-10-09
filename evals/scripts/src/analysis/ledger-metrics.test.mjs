@@ -127,6 +127,13 @@ describe('ledger-metrics: unknown is not zero', () => {
     assert.equal(only({ kind: 'exit', reason: 'blocked', code: 'permission-denied' }, 'permissionDenied'), 1);
   });
 
+  it('keeps the last exit with its detail code, and the engine reader receipts', () => {
+    const m = one(route, { kind: 'exit', route: 'r-1', reason: 'blocked', detail: 'no-check: project "p" has no check' }, { kind: 'search', command: 'read', names: ['a:1-9'], hits: 5, bytes: 17071, truncated: 1 }, { kind: 'search', command: 'refs', names: ['x'], hits: 2, bytes: 10 });
+    assert.deepEqual(m.exit, { reason: 'blocked', code: 'no-check', complete: null, unverified: null });
+    assert.deepEqual(m.readerReceipts, { calls: 1, spans: 5, bytes: 17071, truncated: 1 });
+    assert.deepEqual([one(route).exit, one(route).readerReceipts], [null, null], 'never written is unknown');
+  });
+
   it('reads a recorded exit that is neither blocked nor permission-denied as zero counts', () => {
     const m = one(route, { kind: 'exit', route: 'r-1', reason: 'done' });
     assert.deepEqual([m.stopBlocked, m.permissionDenied], [0, 0]);

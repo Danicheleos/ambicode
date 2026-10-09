@@ -38,7 +38,7 @@ function classifyCall(block) {
  * names `prepare` itself, so a text match counts a call nobody made.
  */
 function parseTrace(jsonl) {
-  const trace = { model: null, builtinPlugins: null, calls: [], replayedReviews: 0, peakContext: null, postToolUseResponses: 0, mcpHookResponses: 0, finalText: null };
+  const trace = { model: null, builtinPlugins: null, calls: [], replayedReviews: 0, peakContext: null, postToolUseResponses: 0, mcpHookResponses: 0, finalText: null, agentCostUsd: null };
   const byId = new Map();
   for (const line of jsonl.split('\n')) {
     if (!line.trim()) continue;
@@ -66,6 +66,8 @@ function parseTrace(jsonl) {
       }
     // Only a successful terminal result is a finished answer: assistant text beside a pending tool call is a draft.
     if (event.type === 'result' && event.subtype === 'success' && event.is_error !== true && typeof event.result === 'string') trace.finalText = event.result;
+    // Any terminal result carries the session's own spend, the agent cost without the harness's judging.
+    if (event.type === 'result' && typeof event.total_cost_usd === 'number') trace.agentCostUsd = event.total_cost_usd;
     if (event.type !== 'assistant') continue;
     // The context a request carried: its uncached, cache-read and cache-written input together.
     const usage = event.message?.usage;
@@ -88,10 +90,11 @@ export function traceMetrics(jsonl) {
 }
 
 export function metricsOfTrace(trace) {
-  const { model, builtinPlugins = null, calls, replayedReviews, peakContext, postToolUseResponses, mcpHookResponses } = trace;
+  const { model, builtinPlugins = null, calls, replayedReviews, peakContext, postToolUseResponses, mcpHookResponses, agentCostUsd = null } = trace;
   const count = (pred) => calls.filter(pred).length;
   return {
     model,
+    agentCostUsd,
     // Built-in plugins Claude Code loaded on its own; the repository does not control them, so arms can differ.
     builtinPlugins,
     toolCalls: calls.length,

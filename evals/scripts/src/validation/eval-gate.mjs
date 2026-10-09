@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { CASES_ROOT } from '../shared/bench-paths.mjs';
 import { NAKED_EQUIVALENCE, baselineProvenance, score, servedPromptLine, withBaseline } from '../analysis/bench-score.mjs';
 import { resolveBaseline } from '../analysis/baseline-lock.mjs';
+import { referenceFloors } from '../analysis/reference-lock.mjs';
 
 export { NAKED_EQUIVALENCE };
 
@@ -17,6 +18,13 @@ export { NAKED_EQUIVALENCE };
 export const BUDGET = { minRuns: 3, maxCostRatio: 1.1, maxExtraTurns: 2, maxAbsentShare: 0.2 };
 
 /**
+ * Per case over its runs: recall and F1 at least 0.9× the case's best run, agent cost at most 1.25× its cheapest.
+ * The drift audit's 1.1× on every resource failed on one extra call (0/19 cases held API calls); counts are reported,
+ * not gated. 0.8 of cases: 5 of the 6, 16 of the 20 core cases.
+ */
+export const DRIFT = { qualityFloor: 0.9, costCeiling: 1.25, minShare: 0.8, minRuns: 3 };
+
+/**
  * The one acceptance policy: `gate` decides a run, `report` raises per-case findings. report.extraContext is the limit,
  * 3,200 tokens; extraContextSoft, 2,500, is the target. 2,500 failed on every 20-case run (+2,660 on 05_0035, +2,946 on
  * walk 17_1451 after the notation revert): the contract, skill, step header and map left no cut that kept the route.
@@ -24,6 +32,7 @@ export const BUDGET = { minRuns: 3, maxCostRatio: 1.1, maxExtraTurns: 2, maxAbse
 export const ACCEPTANCE = {
   gate: BUDGET,
   report: { costRatio: 1.2, cheapRatio: 0.9, extraCalls: 2, saturated: 0.95, floor: 0.2, spread: 0.5, routeReadyS: 5, extraContext: 3200, extraContextSoft: 2500 },
+  drift: DRIFT,
 };
 
 const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
@@ -42,7 +51,72 @@ export function repetitionMeans(rows, metric) {
   return [...byRun.keys()].sort((a, b) => a - b).map((k) => mean(byRun.get(k)));
 }
 
-export function gate(given, { cases = CASES_ROOT, tracesDir = null, budget = BUDGET, baseline = null, baselinePath = null, baselineArm } = {}) {
+// Costs are differences of recorded floats: 0.26 − 0.01 is 0.25000000000000006, which must still sit on the 1.25× edge.
+const EDGE = 1e-9;
+
+/**
+ * Quality kept per case against the frozen reference: the run's case mean of recall and F1 at least the reference's
+ * mean minus the noise band. The drift band compares a run with itself; this is what catches a steady regression.
+ */
+export function caseFloors(rows, floors, band) {
+  const out = { referenced: [], below: [], unpinned: 0 };
+  const names = [...new Set(rows.map((r) => r.case))];
+  for (const name of names) {
+    const floor = floors?.get(name);
+    if (!floor) {
+      out.unpinned += 1;
+      continue;
+    }
+    out.referenced.push(name);
+    const misses = [];
+    for (const metric of ['recall', 'f1']) {
+      const xs = rows.filter((r) => r.case === name && !r.absent && typeof r[metric] === 'number').map((r) => r[metric]);
+      const now = xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
+      if (floor[metric] && (now === null || now < floor[metric].mean - band - EDGE)) misses.push(`${metric} ${fmt(now, 2)} < ${fmt(floor[metric].mean, 2)} − ${fmt(band, 2)}`);
+    }
+    if (misses.length) out.below.push(`${name} (${misses.join('; ')})`);
+  }
+  return out;
+}
+
+/**
+ * Per case, whether its runs stay in the drift band. A run that did not complete (blocked, open, unverified, absent)
+ * puts its case out of band: it is no quality witness, and its zero spread is not stability. A case with fewer runs,
+ * a run with no complete ledger, or a run with no agent cost, is a gap. Turns, tool calls, peak context and wall time
+ * are max/min ratios, reported only.
+ */
+export function driftOf(rows, policy = DRIFT) {
+  const cases = new Map();
+  for (const r of rows) (cases.get(r.case) ?? cases.set(r.case, []).get(r.case)).push(r);
+  return [...cases].map(([name, runs]) => {
+    const spreadOf = (pick) => {
+      const xs = runs.map(pick).filter((x) => typeof x === 'number');
+      return xs.length === runs.length && Math.min(...xs) > 0 ? Math.max(...xs) / Math.min(...xs) : null;
+    };
+    const counts = { turns: spreadOf((r) => r.turns), toolCalls: spreadOf((r) => r.toolCalls ?? r.trace?.toolCalls), peakContext: spreadOf((r) => r.peakContext ?? r.trace?.peakContext), wallS: spreadOf((r) => r.wallS) };
+    if (runs.length < policy.minRuns) return { case: name, status: 'gap', reasons: [`${runs.length} run(s)`], counts };
+    const unknown = runs.filter((r) => !r.absent && (r.outcome ?? 'unknown') === 'unknown');
+    if (unknown.length) return { case: name, status: 'gap', reasons: [`${unknown.length} run(s) with no complete ledger`], counts };
+    const reasons = [];
+    const unfinished = runs.filter((r) => r.absent || !['completed', 'unrouted'].includes(r.outcome));
+    if (unfinished.length) reasons.push(`not completed: ${unfinished.map((r) => (r.absent ? 'absent' : r.outcome)).join(', ')}`);
+    const quality = {};
+    for (const metric of ['recall', 'f1']) {
+      const xs = runs.map((r) => r[metric]).filter((x) => typeof x === 'number');
+      const best = xs.length ? Math.max(...xs) : null;
+      quality[metric] = { best, worst: xs.length ? Math.min(...xs) : null };
+      if (best === null || best === 0) reasons.push(`no ${metric} witness`);
+      else if (xs.length < runs.length || Math.min(...xs) < policy.qualityFloor * best - EDGE) reasons.push(`${metric} ${fmt(Math.min(...xs), 2)} < ${policy.qualityFloor}× best ${fmt(best, 2)}`);
+    }
+    const costs = runs.map((r) => r.agentCostUsd);
+    if (costs.some((c) => typeof c !== 'number')) return { case: name, status: 'gap', reasons: ['agent cost unmeasured'], quality, counts };
+    const cost = Math.max(...costs) / Math.min(...costs);
+    if (cost > policy.costCeiling + EDGE) reasons.push(`agent cost ${fmt(cost, 2)}× cheapest`);
+    return { case: name, status: reasons.length ? 'out' : 'in', reasons, quality, cost, counts };
+  });
+}
+
+export function gate(given, { cases = CASES_ROOT, tracesDir = null, budget = BUDGET, drifting = DRIFT, floors = null, baseline = null, baselinePath = null, baselineArm } = {}) {
   const results = baseline ? withBaseline(given, baseline, { baselinePath, ...(baselineArm ? { arm: baselineArm } : {}) }) : given;
   const { runs } = score(results, { cases, tracesDir });
   const checks = [];
@@ -93,12 +167,23 @@ export function gate(given, { cases = CASES_ROOT, tracesDir = null, budget = BUD
     else check(`${kind}: recall`, delta >= -band, recallDetail);
 
     const scored = (rows, key) => mean(rows.filter((r) => !r.absent && typeof r[key] === 'number').map((r) => r[key]));
-    const costRatio = scored(withRows, 'costUsd') / scored(withoutRows, 'costUsd');
+    const costRatio = scored(withRows, 'agentCostUsd') / scored(withoutRows, 'agentCostUsd');
     const replayed = withRows.filter((r) => r.trace?.replayedReviews > 0).length;
-    // The harness keeps judging in `judgeCostUsd`, outside `costUsd`: the ratio is the agent's spend alone.
-    const costDetail = `${fmt(costRatio, RATIO_DIGITS)}× the no-plugin arm (agent cost, judging excluded), budget ${budget.maxCostRatio}×`;
+    const unpriced = [...withRows, ...withoutRows].filter((r) => !r.absent && typeof r.agentCostUsd !== 'number').length;
+    const costDetail = `${fmt(costRatio, RATIO_DIGITS)}× the no-plugin arm (agent cost, judging excluded; harness total ${fmt(scored(withRows, 'costUsd') / scored(withoutRows, 'costUsd'), RATIO_DIGITS)}×), budget ${budget.maxCostRatio}×`;
     if (replayed) gap(`${kind}: cost`, `${costDetail}, but ${replayed} run(s) replayed the reviewer, whose cost is not in the arm`);
+    else if (unpriced) gap(`${kind}: cost`, `${costDetail}, but ${unpriced} run(s) have neither a trace cost nor a judge cost to subtract`);
     else check(`${kind}: cost`, costRatio <= budget.maxCostRatio, costDetail);
+    const drift = driftOf(withRows, drifting);
+    const measured = drift.filter((d) => d.status !== 'gap');
+    const held = measured.filter((d) => d.status === 'in');
+    const driftDetail = `${held.length} of ${measured.length} cases within ${drifting.qualityFloor}× best recall and F1 and ${drifting.costCeiling}× cheapest agent cost, need ${drifting.minShare}`;
+    const outside = drift.filter((d) => d.status !== 'in').map((d) => `${d.case} (${d.reasons.join('; ')})`);
+    if (!measured.length) gap(`${kind}: drift`, `no case has ${drifting.minRuns} runs`);
+    else check(`${kind}: drift`, held.length / measured.length >= drifting.minShare, `${driftDetail}${outside.length ? `; outside: ${outside.join(', ')}` : ''}`);
+    const kept = caseFloors(withRows, floors, band);
+    if (!kept.referenced.length) gap(`${kind}: case floors`, floors ? 'no case of this run is pinned in the reference lock' : 'no reference lock (`evals:bench reference <plugin eval.json>`)');
+    else check(`${kind}: case floors`, !kept.below.length, `${kept.referenced.length - kept.below.length} of ${kept.referenced.length} pinned cases keep recall and F1 ≥ their reference mean − band ${fmt(band)}${kept.below.length ? `; below: ${kept.below.join(', ')}` : ''}${kept.unpinned ? `; ${kept.unpinned} case(s) not pinned` : ''}`);
     const extraTurns = scored(withRows, 'turns') - scored(withoutRows, 'turns');
     check(`${kind}: turns`, extraTurns <= budget.maxExtraTurns, `${fmt(extraTurns, 2)} more turns than the no-plugin arm, budget ${budget.maxExtraTurns}`);
 
@@ -167,14 +252,16 @@ function main(argv) {
   }
   const [file] = argv;
   if (!file)
-    throw new Error('usage: eval-gate.mjs <eval-results.json> [--baseline <with-without-results.json> [--baseline-arm without|with]] [--traces <dir>] [--min-runs n] [--max-cost-ratio x] [--max-extra-turns n] [--max-absent-share x]');
+    throw new Error('usage: eval-gate.mjs <eval-results.json> [--baseline <with-without-results.json> [--baseline-arm without|with]] [--reference <reference.lock.json>] [--traces <dir>] [--min-runs n] [--max-cost-ratio x] [--max-extra-turns n] [--max-absent-share x]');
   const results = JSON.parse(readFileSync(file, 'utf8'));
   const resolved = resolveBaseline(results, { baselinePath });
   // Both layouts: traces beside the result, and in the iteration above `results/` (where every 2026-10-07 run wrote
   // them; looking only beside the result failed pinned-model as "no run is traced" on runs 24–27).
   const tracesOf = (at) => [path.join(path.dirname(path.resolve(at)), 'traces'), path.join(path.dirname(path.dirname(path.resolve(at))), 'traces')];
   const tracesDir = tracesAt ?? [...tracesOf(file), ...(resolved ? tracesOf(resolved.file) : [])];
-  const verdict = gate(results, { tracesDir, budget, baseline: resolved?.results ?? null, baselinePath: resolved?.file ?? null, baselineArm });
+  const referenceAt = option('--reference');
+  const floors = referenceFloors(referenceAt ? { lockFile: path.resolve(referenceAt) } : {});
+  const verdict = gate(results, { tracesDir, budget, floors, baseline: resolved?.results ?? null, baselinePath: resolved?.file ?? null, baselineArm });
   for (const c of verdict.checks) console.log(`${{ pass: 'pass', fail: 'FAIL', gap: 'GAP ' }[c.status]}  ${c.name}: ${c.detail}`);
   for (const line of verdict.info) console.log(`info  ${line}`);
   const gaps = verdict.gaps ? `, ${verdict.gaps} unmeasured` : '';

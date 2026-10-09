@@ -16,16 +16,28 @@ Updated 2026-10-09. Source of truth for thresholds: [TRAINING-PLAN.md](../../eva
 
 ## Current: drift, before stage 3
 
-Report: [drift-2026-10-09.md](24-25-26-27-next/drift-2026-10-09.md). Plan: [drift-plan-2026-10-09.md](plans/drift-plan-2026-10-09.md) (not started).
+Report: [drift-2026-10-09.md](24-25-26-27-next/drift-2026-10-09.md). Plan: [drift-plan-2026-10-09.md](plans/drift-plan-2026-10-09.md), revised after the plan review. A done 2026-10-09, including the review's two ruler gaps (change-decision scoring, frozen per-case floors); B1 next.
 
-The engine's inputs are identical within each case; the model's choices drift. The biggest losses happen at answer time: evidence the model read but left out, and files it read for evidence but listed as changes. The ruler also has a defect: harness `costUsd` already includes judging (checked on e-c9VoUw), so 26_1600 is about **1.196×** bare agent-only, not 1.1845×.
+The engine's inputs are identical within each case; the model's choices drift. The biggest losses happen at answer time: evidence the model read but left out, and files it read for evidence but listed as changes. The ruler also has a defect: harness `costUsd` already includes judging (checked on e-c9VoUw), so 26_1600 is **1.1956×** bare agent-only, not 1.1845× (05_0035: 1.1446×, not 1.1408×).
 
 | Step | Work | Cost |
 |---|---|---|
-| A Ruler | agent cost without judging; a drift gate (recall and F1 ≥ 0.9× the case's best run, agent cost ≤ 1.25× its cheapest, ≥ 80% of cases in band); per-run outcome columns; helper calls counted from reader receipts; re-score 26_1600 and 15/16 | free |
-| B Decide | split lost true files into "read but not named" and "never read"; build the answer receipt only if "read but not named" is ≥ 30% of lost true files | free |
-| B Receipt | when the answer leaves out a family of files the model read, Stop blocks once and asks it to add them or say why not; replayed offline first | free |
-| Check | 6 × 3 plugin-only run on the six (about $4.5, ask first): drift ≥ 5/6, recall ≥ 0.417, agent cost not worse than the re-scored 26_1600 | paid |
+| A Ruler (**done**) | agent cost without judging; drift gate (consistency); case floors against a frozen plugin reference (quality kept); change-decision scoring of `## Files`; per-run outcomes; reader receipts; re-scored 26_1600, 05_0035, 15, 16 | free |
+| B1 File states | per truth path: future, unknown, discovered, served, proposed, excluded; build B2 only if `served ∧ ¬proposed` is ≥ 25% of missing existing-file truth | free |
+| B2 Receipt | Stop check on the answer's change decisions (not citations), by file family, ≤ 5 families / 600 B, once per route; continuation calls and cost measured; offline replay first, silent on the controls | free |
+| Check | 6 × 3 plugin-only (about $5, ask first): omission fe-vs-6404, fe-vs-6292, fe-vs-438; precision be-vs-6140; controls be-vs-5973, be-vs-5941. Case floors pass, drift above reference, omission recall above reference + band | paid |
+
+Step A, re-scored (same recall and precision as before):
+
+| Run | Agent cost × bare | Harness total × bare | Drift, cases in band |
+|---|---|---|---|
+| 26_1600 (six) | 1.1956 | 1.1845 | **0 / 6** |
+| 05_0035 (20) | 1.1446 | 1.1408 | 6 / 20 |
+| 15_1241 | 1.1170 | 1.1100 | 3 / 14 (+1 case with 1 run) |
+| 16_1304 | 1.2713 | 1.2499 | 0 / 5 |
+| bare 30_2248, same band | — | — | the six: 1 / 6; core: 4 / 20 |
+
+**The bare model holds the band on 1 of the six and 4 of 20 cases**, so the 80% target asks the plugin to be steadier than the model it runs. The ledger's reader receipts match the command-text count on 26_1600 (1.71 per run on the 7 runs with a receipt); 16_1304 has 1 run where the text missed a `node "$N" read` call.
 
 Moved to stage 3a: discovery families, and the shortlist default (`shortlistRules` leaves out markup and data).
 

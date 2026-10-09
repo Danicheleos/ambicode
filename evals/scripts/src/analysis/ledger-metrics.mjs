@@ -29,6 +29,13 @@ export const MCP_SPAWNS_UNMEASURED = 'unmeasured: MCP hook process spawns are no
  * it, so until step 02 writes it a check is readable but proves nothing.
  */
 const exitReason = (e) => String(e.reason ?? '').replace(/^stop:/, '');
+/** The route's last exit: its reason, the detail's code (`no-check: …` gives `no-check`), and whether it was verified. */
+const exitOf = (e) => ({
+  reason: exitReason(e),
+  code: typeof e.detail === 'string' ? (/^([\w-]+):/.exec(e.detail)?.[1] ?? null) : null,
+  complete: typeof e.complete === 'boolean' ? e.complete : null,
+  unverified: typeof e.unverified === 'number' ? e.unverified : null,
+});
 const isPermissionDenied = (e) => e.code === 'permission-denied' || e.detail === 'permission-denied';
 
 /** The documented `only`: absent or empty is the whole suite; otherwise a flat array of strings. */
@@ -110,7 +117,7 @@ function redGreenOf(entries) {
 }
 
 const LEDGER_MEASURES = ['routes', 'mapLayers', 'mapPass2', 'routeSteps', 'revises', 'gates', 'preanswers', 'headlessDefaults', 'stopBlocked', 'checkRedGreen', 'envelopeBuiltFrom', 'permissionDenied',
-  'stepMs', 'gateLatencyMs', 'budgetUsage', 'mapDecisions', 'mapTuning', 'mapRetry', 'initRuns', 'rulesRuns', 'commands', 'contextPeak', 'contextByStep'];
+  'stepMs', 'gateLatencyMs', 'budgetUsage', 'mapDecisions', 'mapTuning', 'mapRetry', 'initRuns', 'rulesRuns', 'commands', 'contextPeak', 'contextByStep', 'exit', 'readerReceipts'];
 
 /**
  * The v6 route measures of one run, from the task ledgers its sandbox left: `[{entries, unreadable}]`, one per
@@ -177,6 +184,12 @@ export function ledgerMetrics(ledgers, trace = null, metrics = null) {
     envelopeBuiltFrom: envelope ? (envelope.builtFrom ?? null) : null,
     // Exits only: the refusal that preceded one is not a second permission-denied exit.
     permissionDenied: exited(isPermissionDenied),
+    exit: from('exit', (exits) => exitOf(exits.at(-1))),
+    // The engine's own record of `read` calls: the trace's command-text count misses `node "$N" read` (FE6406 R3).
+    readerReceipts: from('search', (all) => {
+      const reads = all.filter((e) => e.command === 'read');
+      return { calls: reads.length, spans: reads.reduce((n, e) => n + (e.hits ?? 0), 0), bytes: reads.reduce((n, e) => n + (e.bytes ?? 0), 0), truncated: reads.reduce((n, e) => n + (e.truncated ?? 0), 0) };
+    }),
     ...instrumentation(of, metrics),
     ...unmeasured,
   };

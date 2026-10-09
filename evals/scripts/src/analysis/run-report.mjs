@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BASELINE_LOCK_FILE, CASES_DIRECTORY, CASES_ROOT, NAKED_PLUGIN, OUTPUTS, REPORTS, ROOT, TASK_EVAL_DIR } from '../shared/bench-paths.mjs';
 import { infrastructureError } from '../harness/run-validity.mjs';
-import { ACCEPTANCE, repetitionMeans } from '../validation/eval-gate.mjs';
+import { ACCEPTANCE, driftOf, repetitionMeans } from '../validation/eval-gate.mjs';
 import { resolveBaseline } from './baseline-lock.mjs';
 import { createAnalysis, namedFiles, scoreWithAnalysis, withBaseline } from './bench-score.mjs';
 import { callClass, PRICES, readJsonl, readSegments, readsFiles, sessionEvents, sessionFacts, stopWrote, textOf } from './layer-audit.mjs';
@@ -201,6 +201,8 @@ export function analyzeResult(results, { tracesDirs, cases = CASES_ROOT, withCha
           infra: infrastructureError(run), error: run.error ?? null, absent: Boolean(infrastructureError(run) || score.absent),
           answerFromTrace: Boolean(score.answerFromTrace), skippedPaidGraders: Boolean(run.skippedPaidGraders),
           passed: run.passed ?? null, score: run.score ?? null, costUsd: run.costUsd ?? null, judgeCostUsd: run.judgeCostUsd ?? null,
+          agentCostUsd: score.agentCostUsd ?? null, costMismatch: score.costMismatch ?? null, outcome: score.outcome ?? null,
+          readerReceipts: score.ledger?.readerReceipts ?? null,
           turns: run.turns ?? null, wallS: run.durationSeconds ?? null, startedAt: run.startedAt ?? null,
           recall: score.recall ?? null, precision: score.precision ?? null, f1: score.f1 ?? null, hit: score.hit ?? null,
           named: score.named ?? null, raised: score.raised ?? null, threads: score.threads ?? null,
@@ -278,7 +280,7 @@ export function analyzeResult(results, { tracesDirs, cases = CASES_ROOT, withCha
 
 export const METRICS = [
   ['score', 'harness score', 2], ['recall', 'recall', 3], ['precision', 'precision', 3], ['f1', 'F1', 3], ['hit', 'hit', 2],
-  ['costUsd', '$ per run', 3], ['turns', 'turns', 1], ['modelCalls', 'model calls', 1], ['toolCalls', 'tool calls', 1],
+  ['agentCostUsd', '$ per run (agent)', 3], ['judgeCostUsd', '$ judging', 3], ['costUsd', '$ harness total', 3], ['turns', 'turns', 1], ['modelCalls', 'model calls', 1], ['toolCalls', 'tool calls', 1],
   ['failedCalls', 'failed tool calls', 2], ['firstContext', 'context, 1st call', 0], ['peakContext', 'context, peak', 0],
   ['outputTokens', 'output tokens', 0], ['wallS', 'wall s', 1], ['setupS', 'scaffold s', 1], ['firstCallS', 's to 1st call', 1], ['routeReadyS', 's to route step', 1],
   ['filesRead', 'files read', 1], ['trueFilesRead', 'true files read', 1], ['firstTrueReadCall', 'call of 1st true read', 1],
@@ -415,11 +417,11 @@ export function findingsOf({ plugin, bare, previous, band, servedPrompt, current
     if (pp !== null && bp !== null && pp >= THRESHOLDS.saturated && bp >= THRESHOLDS.saturated) add('info', 'saturated', `${name}: both arms ≥ ${THRESHOLDS.saturated}, the case carries no signal`);
     if (pp !== null && bp !== null && pp <= THRESHOLDS.floor && bp <= THRESHOLDS.floor) add('info', 'floor', `${name}: both arms ≤ ${THRESHOLDS.floor}, the case carries no signal`);
     if (p.spread !== null && p.spread >= THRESHOLDS.spread) add('weak', 'unstable', `${name}: plugin runs range ${p.spread.toFixed(2)} apart on the primary metric`);
-    const r = ratio(p.costUsd, b?.costUsd ?? null);
+    const r = ratio(p.agentCostUsd, b?.agentCostUsd ?? null);
     if (r !== null) {
-      excess += (p.costUsd - b.costUsd) * rows.length;
-      excessByCase.push([name, (p.costUsd - b.costUsd) * rows.length]);
-      if (r > THRESHOLDS.costRatio) add('weak', 'cost-case', `${name}: ${r.toFixed(2)}× the bare cost ($${p.costUsd.toFixed(3)} vs $${b.costUsd.toFixed(3)} per run)`);
+      excess += (p.agentCostUsd - b.agentCostUsd) * rows.length;
+      excessByCase.push([name, (p.agentCostUsd - b.agentCostUsd) * rows.length]);
+      if (r > THRESHOLDS.costRatio) add('weak', 'cost-case', `${name}: ${r.toFixed(2)}× the bare agent cost ($${p.agentCostUsd.toFixed(3)} vs $${b.agentCostUsd.toFixed(3)} per run)`);
       if (r < THRESHOLDS.cheapRatio) add('strong', 'cheap-case', `${name}: ${r.toFixed(2)}× the bare cost`);
     }
     if (p.modelCalls !== null && b?.modelCalls != null) {
@@ -429,6 +431,13 @@ export function findingsOf({ plugin, bare, previous, band, servedPrompt, current
     const steps = new Set(rows.filter((x) => x.step).map((x) => x.step.text.replace(/task [^\s·]+/g, 'task <slug>').replace(/\.ambicode\/task\/[^/\s]+/g, '.ambicode/task/<slug>')));
     if (steps.size > 1) add('weak', 'step-unstable', `${name}: the route delivered ${steps.size} different steps across runs`);
   }
+  const drift = driftOf(plugin, ACCEPTANCE.drift);
+  const outOfBand = drift.filter((d) => d.status === 'out');
+  if (outOfBand.length) add('weak', 'unstable-case', `${outOfBand.length} of ${drift.filter((d) => d.status !== 'gap').length} cases drift outside the band (${ACCEPTANCE.drift.qualityFloor}× best recall and F1, ${ACCEPTANCE.drift.costCeiling}× cheapest agent cost)`, outOfBand.map((d) => `${d.case}: ${d.reasons.join('; ')}`));
+  const mismatched = plugin.filter((r) => typeof r.costMismatch === 'number');
+  if (mismatched.length) add('caveat', 'cost-mismatch', `${mismatched.length} run(s) where the trace's cost differs from the harness cost minus judging; the trace's is used`, mismatched.map((r) => `${r.case} run ${r.run}: ${r.costMismatch.toFixed(6)}`));
+  const uncounted = plugin.filter((r) => r.readerReceipts && r.readerReceipts.calls > (r.toolCounts?.['ambicode read'] ?? 0));
+  if (uncounted.length) add('caveat', 'helper-uncounted', `${uncounted.length} run(s) have more engine read receipts than command-text \`ambicode read\` calls; tool classes undercount the reader`, uncounted.map((r) => `${r.case} run ${r.run}: ${r.readerReceipts.calls} receipts, ${r.toolCounts?.['ambicode read'] ?? 0} by command text`));
   const top = excessByCase.sort((a, b) => b[1] - a[1])[0];
   if (top && excess > 0 && top[1] >= excess) add('info', 'cost-driver', `${top[0]} accounts for all of the +$${excess.toFixed(3)} excess over bare; without it the plugin arm is not dearer`);
 
@@ -492,6 +501,7 @@ const PROPOSALS = {
   saturated: 'Replace saturated cases in the curated set: both arms already solve them, so they cost money and carry no signal.',
   floor: 'Replace or re-check floor cases: neither arm solves them, so a change cannot show; check the truth is reachable from the ticket.',
   'cost-case': 'Open the dear cases\' chains: look for re-reads, broad listings and long tool results that inflate the context every later call re-reads.',
+  'unstable-case': 'Cases whose runs disagree: read the drift audit\'s first divergence per pair (eval-replay/evals/analysis/drift-2026-10-09) and fix one mechanism at a time.',
   'cost-driver': 'One case decides the cost ratio: fix or study that case before judging the rest.',
   turns: 'Compare the call chains of the cases with the largest call difference: fewer calls with equal quality is the cheapest win.',
   'step-unstable': 'Make the route step deterministic for one input (ordering, timestamps, slugs), so runs of a case are comparable.',
@@ -543,12 +553,13 @@ export function renderReport({ label, file, current, plugin, bare, bareSource, b
   const out = [];
   const kinds = [...new Set(plugin.map((r) => r.kind))];
   const totalCost = plugin.reduce((a, r) => a + (r.costUsd ?? 0), 0);
+  const drift = new Map(driftOf(plugin, ACCEPTANCE.drift).map((d) => [d.case, d]));
   out.push(`# Eval report: ${label}`, '');
   out.push(`Source: \`${path.relative(ROOT, file)}\`. Started ${current.startedAt}, Claude Code ${current.claudeVersion}, model ${current.suite?.modelOverride ?? 'unpinned'}, plugin ${pluginName(current) ?? '?'}, served prompt ${current.suite?.servedPrompt ?? 'unrecorded'}, ablation ${current.suite?.ablation ?? '?'}.`);
   out.push(`${new Set(plugin.map((r) => r.case)).size} cases, ${plugin.length} plugin runs, $${totalCost.toFixed(2)} (harness total $${cell(current.costUsd)}), ${cell((current.durationSeconds ?? 0) / 60, 1)} min, ${current.partial ? '**partial**' : 'complete'}.`);
   out.push(`Bare: ${bareSource ? `${bareSource}${baselineFile ? ` (\`${path.relative(ROOT, baselineFile)}\`)` : ''}, ${bare.length} runs` : 'none found: no comparison with the bare model'}. Previous: ${previous.length ? previous.map((p) => `\`${p.label}\``).join(', ') : 'none'}.`);
   out.push(`Noise band (widest repetition range of the primary metric): ${band === null ? 'none (one repetition)' : band.toFixed(3)}. Prices: list, per token (input ${PRICES.input}, cache write ${PRICES.cacheWrite}, cache read ${PRICES.cacheRead}, output ${PRICES.output}).`);
-  out.push(`Policy (\`ACCEPTANCE\` in eval-gate.mjs): gate ${JSON.stringify(ACCEPTANCE.gate)}; findings ${JSON.stringify(ACCEPTANCE.report)}.`, '');
+  out.push(`Policy (\`ACCEPTANCE\` in eval-gate.mjs): gate ${JSON.stringify(ACCEPTANCE.gate)}; findings ${JSON.stringify(ACCEPTANCE.report)}; drift ${JSON.stringify(ACCEPTANCE.drift)}. Cost ratios are agent cost: the harness total includes judging.`, '');
 
   out.push('## 1. This run against bare and the previous iterations', '');
   for (const kind of kinds) {
@@ -583,13 +594,13 @@ export function renderReport({ label, file, current, plugin, bare, bareSource, b
     return [
       name, rows[0].kind, `${p.runs}`,
       cell(prim(rows)), cell(prim(bareByCase.get(name))), ...prevByCase.map((m) => cell(prim(m.get(name)))),
-      cell(p.costUsd, 3), cell(b?.costUsd, 3), cell(ratio(p.costUsd, b?.costUsd ?? null)),
+      cell(p.agentCostUsd, 3), cell(b?.agentCostUsd, 3), cell(ratio(p.agentCostUsd, b?.agentCostUsd ?? null)),
       `${cell(p.modelCalls, 1)}/${cell(b?.modelCalls, 1)}`, `${cell(p.peakContext, 0)}/${cell(b?.peakContext, 0)}`,
-      cell(p.spread),
+      cell(p.spread), drift.get(name)?.status ?? '-', rows.map((r) => r.outcome ?? '-').join(' '),
       rows.map((r) => `[${r.run}](chains.md#${anchor(r)})`).join(' '),
     ];
   });
-  out.push(table(['case', 'kind', 'runs', 'primary', 'bare', ...previous.map((p) => p.label), '$ run', '$ bare', 'ratio', 'calls p/b', 'peak ctx p/b', 'spread', 'chains'], caseRows), '');
+  out.push(table(['case', 'kind', 'runs', 'primary', 'bare', ...previous.map((p) => p.label), '$ agent', '$ bare agent', 'ratio', 'calls p/b', 'peak ctx p/b', 'spread', 'drift', 'outcomes', 'chains'], caseRows), '');
 
   const routed = plugin.filter((r) => r.route);
   out.push('## 5. Route', '');
@@ -631,6 +642,7 @@ export function renderReport({ label, file, current, plugin, bare, bareSource, b
   };
   if (classes.length)
     out.push(table(['tool class', 'calls/run plugin', 'calls/run bare', 'result KB/run plugin', 'result KB/run bare'], classes.map((c) => [c, cell(perRun(plugin, (r) => r.toolCounts[c] ?? 0), 2), cell(perRun(bare, (r) => r.toolCounts[c] ?? 0), 2), cell(perRun(plugin, (r) => r.resultKb[c] ?? 0), 1), cell(perRun(bare, (r) => r.resultKb[c] ?? 0), 1)])), '');
+  const received = plugin.filter((r) => r.readerReceipts);
   out.push(table(['', 'plugin', 'bare'], [
     ['files read / run', cell(perRun(plugin, (r) => r.filesRead), 1), cell(perRun(bare, (r) => r.filesRead), 1)],
     ['true files read / run', cell(perRun(plugin, (r) => r.trueFilesRead), 1), cell(perRun(bare, (r) => r.trueFilesRead), 1)],
@@ -640,6 +652,9 @@ export function renderReport({ label, file, current, plugin, bare, bareSource, b
     ['paths per reading call (pooled)', cell(pooled(plugin), 2), cell(pooled(bare), 2)],
     ['re-read result KB / run', cell(perRun(plugin, (r) => r.rereadBytes / 1024), 1), cell(perRun(bare, (r) => r.rereadBytes / 1024), 1)],
     ['call of the first true-file read', cell(perRun(plugin, (r) => r.firstTrueReadCall), 1), cell(perRun(bare, (r) => r.firstTrueReadCall), 1)],
+    [`reader calls / run, ${received.length} runs with a receipt (ledger)`, cell(perRun(received, (r) => r.readerReceipts.calls), 2), '-'],
+    ['  the same runs, `ambicode read` by command text', cell(perRun(received, (r) => r.toolCounts['ambicode read'] ?? 0), 2), '-'],
+    ['  the same runs, reader KB served (ledger)', cell(perRun(received, (r) => r.readerReceipts.bytes / 1024), 1), '-'],
     ['calls issuing > 1 tool / run', cell(perRun(plugin, (r) => r.parallelCalls), 2), cell(perRun(bare, (r) => r.parallelCalls), 2)],
     ['failed tool calls / run', cell(perRun(plugin, (r) => r.failedCalls), 2), cell(perRun(bare, (r) => r.failedCalls), 2)],
   ]), '');
@@ -661,7 +676,8 @@ export function renderReport({ label, file, current, plugin, bare, bareSource, b
   const price = (rows, key) => mean(rows.filter((r) => r.price).map((r) => r.price[key]));
   out.push(table(['$ per run', 'plugin', 'bare'], [
     ...['input', 'cacheWrite', 'cacheRead', 'output'].map((k) => [k, cell(price(plugin, k), 4), cell(price(bare, k), 4)]),
-    ['harness cost', cell(mean(plugin.map((r) => r.costUsd)), 4), cell(mean(bare.map((r) => r.costUsd)), 4)],
+    ['agent (trace)', cell(mean(plugin.map((r) => r.agentCostUsd)), 4), cell(mean(bare.map((r) => r.agentCostUsd)), 4)],
+    ['harness cost (agent + judge)', cell(mean(plugin.map((r) => r.costUsd)), 4), cell(mean(bare.map((r) => r.costUsd)), 4)],
     ['judge', cell(mean(plugin.map((r) => r.judgeCostUsd)), 4), cell(mean(bare.map((r) => r.judgeCostUsd)), 4)],
   ]), '');
   out.push(`Arm totals: plugin $${totalCost.toFixed(3)}${bare.length ? `, bare $${bare.reduce((a, r) => a + (r.costUsd ?? 0), 0).toFixed(3)} over ${bare.length} runs` : ''}.`, '');
@@ -674,7 +690,7 @@ export function renderChains(rows, { full = false } = {}) {
   const out = ['# Run chains', ''];
   for (const r of rows) {
     out.push(`## <a id="${anchor(r)}"></a>${r.case} · ${r.arm} · run ${r.run} · ${r.id ?? 'no trace id'}`, '');
-    out.push(`primary ${cell(primaryOf(r))} · score ${cell(r.score)} · $${cell(r.costUsd, 3)} · ${cell(r.wallS, 0)} s · ${r.modelCalls ?? '-'} model calls · ${r.toolCalls ?? '-'} tool calls · peak ctx ${r.peakContext ?? '-'}${r.infra ? ` · **INVALID: ${r.infra}**` : r.error ? ` · error: ${r.error}` : ''}`, '');
+    out.push(`primary ${cell(primaryOf(r))} · score ${cell(r.score)} · $${cell(r.agentCostUsd, 3)} agent · ${r.outcome ?? '-'} · ${cell(r.wallS, 0)} s · ${r.modelCalls ?? '-'} model calls · ${r.toolCalls ?? '-'} tool calls · peak ctx ${r.peakContext ?? '-'}${r.infra ? ` · **INVALID: ${r.infra}**` : r.error ? ` · error: ${r.error}` : ''}`, '');
     if (r.route) {
       out.push(`Route \`${r.route.skill ?? '?'}\`: \`${r.route.signature}\``, '');
       out.push(table(['+ms', 'entry', 'actor', 'bytes', 'detail'], r.route.steps.map((s) => {

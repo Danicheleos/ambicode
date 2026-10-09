@@ -15,6 +15,7 @@ describe('evals-bench: measures taken from the trace', () => {
   it('counts the agent\'s own calls, never the skill text that names the helper', () => {
     assert.deepEqual(traceMetrics(TRACE), {
       model: 'claude-sonnet-5-5',
+      agentCostUsd: null,
       builtinPlugins: null,
       toolCalls: 9,
       skills: ['ambicode:investigate'],
@@ -30,6 +31,12 @@ describe('evals-bench: measures taken from the trace', () => {
       mcpHookResponses: null,
       mcpHookSpawns: null,
     });
+  });
+
+  it('takes the agent cost from the last terminal result, an error result included', () => {
+    const result = (extra) => JSON.stringify({ type: 'result', ...extra });
+    assert.equal(traceMetrics([result({ subtype: 'success', total_cost_usd: 0.1 }), result({ subtype: 'error_max_turns', is_error: true, total_cost_usd: 0.3044404 })].join('\n')).agentCostUsd, 0.3044404);
+    assert.equal(traceMetrics(result({ subtype: 'success' })).agentCostUsd, null, 'no cost field is unknown, not free');
   });
 
   it('attaches them to the scored runs, and leaves an untraced run out of the counts', () => {

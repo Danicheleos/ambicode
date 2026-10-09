@@ -27,6 +27,39 @@ function fileSection(message) {
   return { text: lines.slice(start + 1, end < 0 ? undefined : end).join('\n'), sectioned: true };
 }
 
+// A group the answer says it does not change. BE6140 e-OXdoVc lists ReportHelper and the router under "Files that need
+// no change:" inside `## Files`, and scoring them as changes cost it precision 1.00 → 0.43.
+const EXCLUDED_GROUP = /\b(?:no changes?|not (?:be )?(?:changed|modified|edited)|unchanged|needs? no|for reference|reference only|evidence only|context only|read[- ]only|out of scope|excluded|left out|rejected|do(?:es)? not need)\b|^[#*\s]*evidence[*:\s]*$/i;
+const EXCLUDED_ITEM = /\b(?:needs? no changes?|no changes? (?:is )?(?:needed|required)|not (?:be )?(?:changed|modified)|unchanged|(?:listed )?(?:only )?for reference|reference only|does not need (?:to )?change)\b/i;
+// "Likely unchanged. Touch it only if…" (30_2248 be-vs-4606) and "Files to check, probably unchanged" keep the file in
+// play: only a decided exclusion leaves the change set.
+const HEDGED = /\b(?:probably|likely|possibly|maybe|perhaps|may|might|to check|unless|only if)\b/i;
+const BULLET = /^( *)(?:[-*+]|\d+[.)])\s+/;
+const decided = (pattern, line) => pattern.test(line) && !HEDGED.test(line);
+
+/**
+ * The Files section split into the lines the answer proposes to change and those it decides not to: a heading or
+ * lead-in line that says so excludes its group, a bullet or table row that says so excludes itself, and nested lines
+ * follow their bullet. A hedged exclusion stays a change.
+ */
+export function changeLines(text) {
+  const change = [];
+  const excluded = [];
+  let group = false;
+  let item = false;
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    const bullet = BULLET.exec(line);
+    if (line.startsWith('|')) item = group || decided(EXCLUDED_ITEM, line);
+    else if (!bullet && !/^\s/.test(line)) {
+      group = decided(EXCLUDED_GROUP, line);
+      item = group;
+    } else if (bullet && bullet[1].length <= 1) item = group || decided(EXCLUDED_ITEM, line);
+    (item ? excluded : change).push(line);
+  }
+  return { change: change.join('\n'), excluded: excluded.join('\n') };
+}
+
 /**
  * `./`, `repo/` and absolute prefixes are dropped. A path missing the code root (`controllers/x.ts` for
  * `src/controllers/x.ts`) or more leading directories matches when exactly one true path ends that way.
@@ -36,28 +69,33 @@ const BARE_BULLET = new RegExp(`^\\s*[-*]\\s+(?:\\*\\*)?(?:\`(${BARE_NAME})\`|($
 
 export function namedFiles(message, truth, root, { bareBullets = false } = {}) {
   const { text, sectioned } = fileSection(message);
-  const named = new Set();
-  const paths = [...text.matchAll(/(?:^|[\s`'"(\[*|])(\/?(?:[\w@.+-]+\/)+[\w@.+-]+\.[A-Za-z0-9]+)/g)].map((m) => m[1]);
-  // A preset's truth spans the whole tree, so `package.json` at the root is a true file; the path pattern needs a
-  // slash, so a bullet naming a root file is read on its own. Only a backticked name, or one the bullet ends at or
-  // sets off with a dash, colon or bracket: `- Node.js runtime` and `- e.g. the service` name no file.
-  if (bareBullets && sectioned) paths.push(...[...text.matchAll(BARE_BULLET)].map((m) => m[1] ?? m[2]));
-  for (const path of paths) {
-    let p = path.replace(/^(?:.*\/)?repo\//, '').replace(/^\.\//, '');
-    if (!truth.includes(p) && !p.startsWith(`${root}/`)) {
-      const candidates = truth.filter((t) => t === `${root}/${p}`);
-      const ending = truth.filter((t) => t.endsWith(`/${p}`));
-      if (candidates.length === 1) p = candidates[0];
-      else if (ending.length === 1) p = ending[0];
-    }
-    named.add(p);
-  }
-  return { named: [...named], sectioned };
+  const parts = sectioned ? changeLines(text) : { change: text, excluded: '' };
+  const pathsOf = (part) => {
+    const paths = [...part.matchAll(/(?:^|[\s`'"(\[*|])(\/?(?:[\w@.+-]+\/)+[\w@.+-]+\.[A-Za-z0-9]+)/g)].map((m) => m[1]);
+    // A preset's truth spans the whole tree, so `package.json` at the root is a true file; the path pattern needs a
+    // slash, so a bullet naming a root file is read on its own. Only a backticked name, or one the bullet ends at or
+    // sets off with a dash, colon or bracket: `- Node.js runtime` and `- e.g. the service` name no file.
+    if (bareBullets && sectioned) paths.push(...[...part.matchAll(BARE_BULLET)].map((m) => m[1] ?? m[2]));
+    return new Set(paths.map((found) => {
+      let p = found.replace(/^(?:.*\/)?repo\//, '').replace(/^\.\//, '');
+      if (!truth.includes(p) && !p.startsWith(`${root}/`)) {
+        const candidates = truth.filter((t) => t === `${root}/${p}`);
+        const ending = truth.filter((t) => t.endsWith(`/${p}`));
+        if (candidates.length === 1) p = candidates[0];
+        else if (ending.length === 1) p = ending[0];
+      }
+      return p;
+    }));
+  };
+  const named = pathsOf(parts.change);
+  // A path the answer both proposes and excludes elsewhere stays a change: the proposal is the decision.
+  const excluded = [...pathsOf(parts.excluded)].filter((p) => !named.has(p));
+  return { named: [...named], excluded, sectioned };
 }
 
 export function scoreAnswer(message, truth, root) {
-  const { named, sectioned } = namedFiles(message, truth, root);
-  return { ...fileMatch(named, truth), sectioned };
+  const { named, excluded, sectioned } = namedFiles(message, truth, root);
+  return { ...fileMatch(named, truth), sectioned, excluded: excluded.length, excludedTrue: excluded.filter((p) => truth.includes(p)).length };
 }
 
 /** Precision, recall, F1 and hit of `named` paths against `truth`. */
@@ -82,8 +120,8 @@ export function splitRecall(named, meta) {
 
 /** A preset answer's file match, with root files read from bullets and the existing/created/deleted split. */
 function presetAnswer(text, meta) {
-  const { named, sectioned } = namedFiles(text, meta.truth, meta.root, { bareBullets: true });
-  return { ...fileMatch(named, meta.truth), sectioned, ...splitRecall(named, meta) };
+  const { named, excluded, sectioned } = namedFiles(text, meta.truth, meta.root, { bareBullets: true });
+  return { ...fileMatch(named, meta.truth), sectioned, excluded: excluded.length, excludedTrue: excluded.filter((p) => meta.truth.includes(p)).length, ...splitRecall(named, meta) };
 }
 
 /** Per review label (`defect`, `opinion`, `unclassified`), the raised share of that label's threads; null when the case has none. */
@@ -201,6 +239,32 @@ export function withBaseline(results, baseline, { baselinePath, arm = bareArmOf(
   return { ...results, cases, baseline: { file: baselinePath, arm, startedAt: baseline.startedAt ?? null, plugin, claudeVersion: baseline.claudeVersion ?? null } };
 }
 
+/**
+ * The agent's spend without the harness's judging. Harness `costUsd` is the trace's terminal `total_cost_usd` plus
+ * `judgeCostUsd` (130 of 130 runs in 26_1600, 30_2248, 15_1241, 18_1533 and 02_1738, within 1e-6), so judging was in
+ * every cost gate before this. The trace wins when both exist; a disagreement is reported, never averaged.
+ */
+export function agentCostOf(run, trace) {
+  const harness = typeof run.costUsd === 'number' && typeof run.judgeCostUsd === 'number' ? run.costUsd - run.judgeCostUsd : null;
+  const traced = typeof trace?.agentCostUsd === 'number' ? trace.agentCostUsd : null;
+  const mismatch = harness !== null && traced !== null && Math.abs(harness - traced) > 1e-6 ? traced - harness : null;
+  return { agentCostUsd: traced ?? harness, ...(mismatch === null ? {} : { costMismatch: mismatch }) };
+}
+
+/**
+ * How a run ended, so a blocked or unverified run is never a quality witness: `completed`, `unverified` (the route
+ * exited done with checks unverified or incomplete, as an eval Accept of a failed plan check does), the exit's reason
+ * with its code (`blocked(no-check)`), `open` (a route with no exit), `unrouted`, or `unknown` with no complete ledger.
+ */
+export function outcomeOf(ledger) {
+  if (!ledger?.complete) return 'unknown';
+  if (!ledger.routes) return 'unrouted';
+  const exit = ledger.exit;
+  if (!exit) return 'open';
+  if (exit.reason !== 'done') return exit.code ? `${exit.reason}(${exit.code})` : exit.reason;
+  return exit.complete === false || (exit.unverified ?? 0) > 0 ? 'unverified' : 'completed';
+}
+
 export function score(results, options = {}) {
   return scoreWithAnalysis(results, createAnalysis(options));
 }
@@ -217,7 +281,10 @@ export function scoreWithAnalysis(results, analysis) {
         const parsed = analysis.trace(run);
         const trace = parsed ? metricsOfTrace(parsed) : null;
         const ledger = ledgerMetrics(ledgersOf(run, analysis.tracesDir), trace);
-        const base = { case: evalCase.name, kind, side: meta.side, arm, run: index, error: run.error ?? null, costUsd: run.costUsd ?? null, turns: run.turns ?? null, graders, trace, ledger };
+        const base = {
+          case: evalCase.name, kind, side: meta.side, arm, run: index, error: run.error ?? null, costUsd: run.costUsd ?? null, ...agentCostOf(run, trace),
+          turns: run.turns ?? null, wallS: run.durationSeconds ?? null, outcome: outcomeOf(ledger), graders, trace, ledger,
+        };
         if (infrastructureError(run)) {
           runs.push({ ...base, absent: true });
           return;
@@ -277,7 +344,7 @@ export function scoreWithAnalysis(results, analysis) {
   const summarize = (rows) => {
     const scored = rows.filter((r) => !r.absent);
     const out = { runs: rows.length, scored: scored.length, absent: rows.length - scored.length, answerFromTrace: scored.filter((r) => r.answerFromTrace).length };
-    for (const m of ['precision', 'recall', 'f1', 'hit', 'named', 'dupes', 'created', 'raised', 'threads', ...SPLIT_METRICS, 'costUsd', 'turns']) {
+    for (const m of ['precision', 'recall', 'f1', 'hit', 'named', 'dupes', 'created', 'raised', 'threads', ...SPLIT_METRICS, 'costUsd', 'agentCostUsd', 'turns']) {
       const values = scored.map((r) => r[m]).filter((x) => x !== null && x !== undefined);
       if (values.length) out[m] = mean(values);
       if (values.length && SPLIT_METRICS.includes(m)) out[`${m}N`] = values.length;

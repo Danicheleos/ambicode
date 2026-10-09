@@ -1,6 +1,6 @@
 // Regression assertions moved intact from the approved harness suite.
 import { describe, it, before, after } from 'node:test';
-import { namedFiles, scoreAnswer, score, withBaseline } from './bench-score.mjs';
+import { agentCostOf, namedFiles, outcomeOf, scoreAnswer, score, withBaseline } from './bench-score.mjs';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
@@ -65,6 +65,49 @@ describe('evals-bench: scoring an answer', () => {
   it('scores an answer that names nothing as zero precision, not as undefined', () => {
     const s = scoreAnswer('## Files\nNone found.', truth, 'app');
     assert.deepEqual([s.named, s.precision, s.recall, s.f1, s.hit], [0, 0, 0, 0, 0]);
+  });
+});
+
+describe('bench-score: change decisions in the Files section', () => {
+  const truth = ['src/a.ts', 'src/b.ts', 'src/c.ts'];
+  it('scores only the files the answer proposes to change, and counts the ones it decided to leave', () => {
+    const answer = ['## Files', 'Existing files to modify:', '- `src/a.ts`', '  - Role: calls `src/x.ts` once.', 'Files that need no change:', '- `src/b.ts` and `src/y.ts`. Listed only for reference.', '- `src/z.ts`: the routes already exist.'].join('\n');
+    const { named, excluded } = namedFiles(answer, truth, '');
+    assert.deepEqual(named.sort(), ['src/a.ts', 'src/x.ts'], 'a nested line follows its change bullet');
+    assert.deepEqual(excluded.sort(), ['src/b.ts', 'src/y.ts', 'src/z.ts']);
+    assert.deepEqual([scoreAnswer(answer, truth, '').excluded, scoreAnswer(answer, truth, '').excludedTrue], [3, 1]);
+  });
+
+  it('keeps a hedged exclusion, a table row and an evidence lead-in in the change set; excludes a decided row', () => {
+    const answer = ['## Files', '| File | Change |', '|---|---|', '| `src/a.ts` | Likely unchanged. Touch it only if the projection changes. |', '| `src/b.ts` | Unchanged: it only reads the field. |', 'Files to edit, with evidence:', '- `src/c.ts`'].join('\n');
+    const { named, excluded } = namedFiles(answer, truth, '');
+    assert.deepEqual(named.sort(), ['src/a.ts', 'src/c.ts']);
+    assert.deepEqual(excluded, ['src/b.ts']);
+  });
+
+  it('lets a file proposed anywhere stay a change, and leaves an answer with no Files heading whole', () => {
+    assert.deepEqual(namedFiles('## Files\n- `src/a.ts`\nReference only:\n- `src/a.ts`', truth, '').named, ['src/a.ts']);
+    assert.deepEqual(namedFiles('Change `src/a.ts`; `src/b.ts` needs no change.', truth, '').named.sort(), ['src/a.ts', 'src/b.ts']);
+  });
+});
+
+describe('bench-score: agent cost and outcome', () => {
+  it('takes the trace cost, else the harness cost minus judging, and reports a disagreement', () => {
+    assert.deepEqual(agentCostOf({ costUsd: 0.3219064, judgeCostUsd: 0.017466 }, { agentCostUsd: 0.3044404 }).agentCostUsd, 0.3044404);
+    assert.ok(Math.abs(agentCostOf({ costUsd: 0.3219064, judgeCostUsd: 0.017466 }, null).agentCostUsd - 0.3044404) < 1e-9);
+    assert.equal(agentCostOf({ costUsd: 0.3 }, null).agentCostUsd, null, 'no judge cost to subtract is unknown, not the total');
+    assert.ok(Math.abs(agentCostOf({ costUsd: 0.3, judgeCostUsd: 0.01 }, { agentCostUsd: 0.2 }).costMismatch + 0.09) < 1e-9);
+  });
+
+  it('tells a completed run from a blocked, unverified, open or unmeasured one', () => {
+    const ledger = (exit, routes = 1) => ({ complete: true, routes, exit });
+    assert.equal(outcomeOf(ledger({ reason: 'done', complete: true, unverified: 0 })), 'completed');
+    assert.equal(outcomeOf(ledger({ reason: 'done', complete: false })), 'unverified');
+    assert.equal(outcomeOf(ledger({ reason: 'blocked', code: 'no-check' })), 'blocked(no-check)');
+    assert.equal(outcomeOf(ledger(null)), 'open');
+    assert.equal(outcomeOf(ledger(null, 0)), 'unrouted');
+    assert.equal(outcomeOf({ complete: false }), 'unknown');
+    assert.equal(outcomeOf(null), 'unknown');
   });
 });
 

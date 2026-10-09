@@ -183,6 +183,8 @@ needed because one run is noisy by ±5–10 percentage points.
 **Why:** the bare model's numbers depend on the model, the Claude Code version and the prompt, not on the
 plugin. Run it once per Claude Code version or case set, then pin it with `npm run evals:bench -- lock <its eval.json>`.
 `score`, `walk`, `gate` and `report` then compare every plugin-only run against the lock without another bare run.
+The plugin's own reference is pinned the same way, `npm run evals:bench -- reference <plugin eval.json> [--cases a,b]`,
+into `reference.lock.json`: it pins the source files, and `gate` rescores them for the `case floors` check.
 Locking is per run, not per suite: each `lock` adds the cases of that run to the existing lock and replaces any case it
 runs again, so the investigate, plan, task and review baselines can be locked one skill at a time. One lock holds one
 model, Claude Code version and arm; a run on another is refused. The lock records each source result's hash, the model,
@@ -214,7 +216,9 @@ Each of these takes `<iteration>/results/eval.json`, reads the traces beside it,
 
 **Measures:**
 
-- **Localize:** precision, recall, F1 and hit, parsed from the final answer's `## Files` section.
+- **Localize:** precision, recall, F1 and hit, parsed from the final answer's `## Files` section. Only the files it
+  proposes to change count: a group or bullet that says it needs no change, is for reference or is left out is counted
+  as `excluded` instead; a hedged one ("likely unchanged") stays a change.
 - **Review:** thread recall.
 - **Runs:** cost, turns, absent runs, and ledger metrics such as `check` and `prepare` use.
 
@@ -247,8 +251,10 @@ as the failure it is.
 | runs per case | each case has at least 3 runs |
 | absent runs | at most 20% of an arm's runs are absent |
 | recall | the plugin is no worse than the no-plugin arm beyond the noise band |
-| cost | at most 1.1× the no-plugin arm, agent cost only (the harness keeps judging in `judgeCostUsd`) |
+| cost | at most 1.1× the no-plugin arm, agent cost only: the trace's `total_cost_usd`, else harness `costUsd` minus `judgeCostUsd` (the harness total includes judging) |
 | turns | at most 2 more turns than the no-plugin arm |
+| case floors | every case pinned with `evals:bench reference` keeps mean recall and F1 ≥ its reference mean − the noise band; no reference is a GAP |
+| drift | at least 80% of cases keep recall and F1 ≥ 0.9× their best run and agent cost ≤ 1.25× their cheapest; a blocked, open or unverified run puts its case out |
 | meanDelta | the harness's meanDelta is within the noise band |
 
 Replayed reviewers and missing numbers are reported as **GAP**, never as pass.
@@ -266,7 +272,7 @@ Usage: `-- <iteration dir | result.json> [--baseline <result.json>] [--previous 
   - every metric of this run beside the bare model and the 2 previous iterations, with the delta against bare;
   - strong and weak places, each with its evidence;
   - proposals;
-  - per-case table;
+  - per-case table, with agent cost, the drift verdict and each run's outcome (`completed`, `blocked(<code>)`, `unverified`, `open`);
   - route sequences and step timings;
   - context;
   - tools and files;

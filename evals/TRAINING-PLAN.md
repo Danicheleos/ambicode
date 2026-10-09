@@ -189,12 +189,31 @@ signatures in `chains.md`.
 The route budget is `modelSteps` only (`routes.test.ts` refuses `toolTurns`). It does not bound the tool loop inside a
 step. Cost and model calls are bounded by the gate, not by the route.
 
+### Drift gate (added 2026-10-09, before stage 3)
+
+Source: `eval-replay/evals/24-25-26-27-next/drift-2026-10-09.md`. Policy `ACCEPTANCE.drift` in `eval-gate.mjs`, a gate
+check per kind and the `unstable-case` report finding.
+
+| Pass when | Threshold | Plugin now | Bare (30_2248) |
+|---|---|---|---|
+| cases in band: recall and F1 ≥ 0.9× the case's best run, agent cost ≤ 1.25× its cheapest | ≥ 80% of cases | 26_1600: 0 / 6; 05_0035: 6 / 20 | the six: 1 / 6; core: 4 / 20 |
+| a blocked, open or unverified run | puts its case out of band | — | — |
+| case floors: each pinned case's mean recall and F1 ≥ its frozen reference mean − band (`evals:bench reference`) | every pinned case | 26_1600: 6 / 6 | — |
+| turns, tool calls, peak context, wall time (max/min per case) | reported only | — | — |
+
+The bare model itself holds the band on 1 of the six and 4 of 20, so 80% asks the plugin to be steadier than the model
+it runs. Drift is consistency; case floors are quality kept, so three steady weak runs pass drift and fail floors.
+Cost ratios everywhere are agent cost: harness `costUsd` includes judging. Localize scoring counts only the files an
+answer proposes to change (4 of 316 saved answers moved, none bare).
+
 ### Stage 3 — Search map: profile, index, locate (L4 search, L6 map payload)
 
 The map is the main tool lever: investigate, task and plan read it. Tune offline first; it is free.
 
 Lever: profile and index facts, map layers (`[shortlist, harvest, shortlist]` for prompts, `[grep, harvest]` for
-context), dependents, leads and feature limits.
+context), dependents, leads and feature limits. From the drift audit: the default shortlist (`shortlistRules` in
+`locate.ts`) keeps source extensions only, so markup, styles and data files are filtered out (the audit records 439/263 matched files
+filtered in FE6404, 513/262 in FE6292); and a family inventory (owner, consumers, key files) for an established owner.
 
 Re-based 2026-10-09 on the current cases; the first thresholds were set on the old 18-case core. Starting values and
 the loss point per case: `eval-replay/evals/stage3-baseline.md`.
@@ -365,6 +384,6 @@ Unmet thresholds from stages closed on their floor. The ideas to try later are i
 
 | From | Threshold | Measured | Owning layer | Cheapest retest |
 |---|---|---|---|---|
-| stage 2 | cost ≤ 1.1× bare (gate) | 1.1845× on 26_1600 (6 cases); 1.141× on 05_0035 (20 cases). fe-vs-6141 1.33×, be-vs-5973 1.24×; fe-vs-6141 and fe-vs-3571 got an empty map in 6 of 6 runs | L4b search map: an empty map sends the model to broad search | stage 3b paid run on the same 6 cases |
+| stage 2 | cost ≤ 1.1× bare (gate), agent cost | 1.1956× on 26_1600 (6 cases); 1.1446× on 05_0035 (20 cases). Re-scored 2026-10-09 without judging: the harness total, 1.1845× and 1.1408×, includes it. fe-vs-6141 1.33×, be-vs-5973 1.24×; fe-vs-6141 and fe-vs-3571 got an empty map in 6 of 6 runs | L4b search map: an empty map sends the model to broad search | stage 3b paid run on the same 6 cases |
 | stage 2 | route step ready ≤ 5 s in ≥ 90% of runs | 12/18 (67%) on 26_1600: the FE cases wait for a map of about 4.5 s; 54/58 on 15_1241 + 16_1304 | L4b map time (stage 3a: map ≤ 3 s) | `evals:map-recall` timing, offline |
 | stage 2 | task walk: route closes; no repeated red/green after a limit | untested: every task case ends `blocked (no-check)` at ground because its sandbox config has no check command | eval side: the task cases need a runnable check | one task case with a configured check, walk ×2 |
