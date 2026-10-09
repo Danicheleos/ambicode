@@ -38,7 +38,7 @@ function classifyCall(block) {
  * names `prepare` itself, so a text match counts a call nobody made.
  */
 function parseTrace(jsonl) {
-  const trace = { model: null, builtinPlugins: null, calls: [], replayedReviews: 0, peakContext: null, postToolUseResponses: 0, mcpHookResponses: 0 };
+  const trace = { model: null, builtinPlugins: null, calls: [], replayedReviews: 0, peakContext: null, postToolUseResponses: 0, mcpHookResponses: 0, finalText: null };
   const byId = new Map();
   for (const line of jsonl.split('\n')) {
     if (!line.trim()) continue;
@@ -64,6 +64,8 @@ function parseTrace(jsonl) {
         const call = byId.get(block.tool_use_id);
         if (call?.helper) call.failure = HELPER_FAILURE.map((pattern) => pattern.exec(text)?.[1]).find(Boolean) ?? null;
       }
+    // Only a successful terminal result is a finished answer: assistant text beside a pending tool call is a draft.
+    if (event.type === 'result' && event.subtype === 'success' && event.is_error !== true && typeof event.result === 'string') trace.finalText = event.result;
     if (event.type !== 'assistant') continue;
     // The context a request carried: its uncached, cache-read and cache-written input together.
     const usage = event.message?.usage;

@@ -66,6 +66,16 @@ export const TASK_HANDLERS: Readonly<Record<string, Handler>> = {
     return { state: 'ok', payload: `Baseline: HEAD ${baseline.head?.slice(0, 12) ?? 'none (unborn branch)'}.${dirty}` };
   },
 
+  /** e-cLRPPf: with every check null, red cannot be recorded and the model edited production code before the route ended no-red. */
+  'checks.preflight': async (input) => {
+    const project = await projectOf(input, await configOf(input));
+    if (isResult(project)) return project;
+    const runnable = Object.values(project.checks).some((check) => check !== null && project.commands[check.command] != null);
+    if (runnable) return { state: 'ok', payload: null };
+    const detail = `no-check: project "${project.id}" has no check with a configured command, so no failing test can be recorded`;
+    return { state: 'ok', payload: `${detail}. Configure one in .ambicode/config.yaml, then start the task again.`, exit: 'blocked', exitDetail: detail };
+  },
+
   /** Callers of the brief's code-shaped names (07-G1, 07-G2); also records whether the brief is a defect (07-S2, D19). */
   'task.inventory': async (input) => {
     const chain = await chainEntries(input);

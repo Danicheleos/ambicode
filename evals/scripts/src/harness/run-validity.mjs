@@ -6,7 +6,13 @@ import { fileURLToPath } from 'node:url';
 // A run that hit its own turn or time limit is the arm's outcome. Any other error (session limit, lost
 // login, interrupt, scaffold failure) says nothing about the arm: 84 of 156 runs on 2026-10-02 died so.
 const ARM_OUTCOME_ERROR = /maximum number of turns|timed? ?out|timeout/i;
-export const infrastructureError = (run) => (run.error && !ARM_OUTCOME_ERROR.test(String(run.error)) ? String(run.error) : null);
+// 07_1105, 10_1109 and 11_1119 (a skill body whose "!`cmd`" failed at load): 60 runs with no error and 0 turns were scored
+// and reported "complete". A run that made no model call says nothing about the arm either.
+export const NO_TURN = 'no model turn: the run ended before its first model call';
+export const infrastructureError = (run) => {
+  if (run.error && !ARM_OUTCOME_ERROR.test(String(run.error))) return String(run.error);
+  return run.error ? null : run.turns === 0 ? NO_TURN : null;
+};
 
 export function invalidRuns(results) {
   const out = [];

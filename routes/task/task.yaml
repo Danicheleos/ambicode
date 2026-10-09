@@ -25,7 +25,7 @@ steps:
       release: stop
   - id: ground
     actor: code
-    run: [requirements.normalize, checks.baseline, "search.map(context)", task.inventory, "policy.stage(before-work)", "policy.stage(before-checks)", task.index]
+    run: [requirements.normalize, checks.preflight, checks.baseline, "search.map(context)", task.inventory, "policy.stage(before-work)", "policy.stage(before-checks)", task.index]
     produces: [baseline, map, policy]
   - id: red
     actor: model

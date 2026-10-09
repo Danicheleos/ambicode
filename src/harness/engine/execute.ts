@@ -37,6 +37,14 @@ function chainedAfter(run: Run, fold: Fold, step: StepDef): StepDef | null {
 
 export const quiet = (value: unknown): string => String(value ?? '');
 
+/** The header's Route line; a pending step with a condition may still be skipped. */
+export function routeLine(fold: Fold, current: string): string {
+  return fold.steps
+    .filter((state) => state.state !== 'skipped' || state.step.id === current)
+    .map(({ step, state }) => (step.id === current ? `${step.id} (now)` : state === 'done' ? `${step.id} (done)` : step.when !== null ? `${step.id} (if needed)` : step.id))
+    .join(' · ');
+}
+
 export interface EngineScope { runtime: Runtime; routes: RouteRegistry; handlers: HandlerRegistry; context: CommandContext; cli: string }
 
 /** The advance loop: fold, run what is reachable, record, and compose what the caller prints. */
@@ -48,18 +56,24 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
 
   const answerLine = (step: StepDef): string => `answer the user; your answer is saved as the ${step.produces.find((produced) => produced.kind === 'note')?.value ?? ''} note when you stop`;
 
+  // e-cLRPPf: a missing check{red} was told to produce it with `route next`, the call that ends the route no-red.
+  function checkCommand(run: Run, step: StepDef): string | null {
+    const check = step.produces.find((produced) => produced.kind === 'check' && produced.value !== null);
+    return check === undefined || step.produces.some((produced) => produced.kind === 'format') ? null : commandFor(`check --task ${run.task} <projectId>/<checkId> --only <spec> --phase ${check.value}`);
+  }
+
   function producerHint(run: Run, step: StepDef): string {
     if (step.answer === 'note') return answerLine(step);
     const note = step.produces.find((produced) => produced.kind === 'note');
     if (note?.value) return commandFor(`note save --task ${run.task} --kind ${note.value}`);
-    return commandFor(`route next --task ${run.task}`);
+    return checkCommand(run, step) ?? commandFor(`route next --task ${run.task}`);
   }
 
   function endingCommand(run: Run, step: StepDef): string {
     if (step.answer === 'note') return answerLine(step);
     const note = step.produces.find((produced) => produced.kind === 'note');
     if (step.actor === 'model' && note?.value) return `${commandFor(`note save --task ${run.task} --kind ${note.value}`)} (note on standard input)`;
-    return commandFor(`route next --task ${run.task}`);
+    return checkCommand(run, step) ?? commandFor(`route next --task ${run.task}`);
   }
 
   function messageOf(run: Run, part: Part): StepMessage {
@@ -89,7 +103,10 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     // A route that ends on a code step (init, rules) closes with that step's text.
     const last = run.def.steps.at(-1);
     const closing = last?.actor === 'code' && ended === null ? (await Promise.all(last.run.map((call) => loadPayload(run.runtime.fs, run.dir, chainKey([...chain.ids]), payloadKey(call))))).filter((text) => text !== null && text.trim() !== '').join('\n\n') : '';
-    return (await partOf(run, null, header, closing !== '' ? closing : status.startsWith('ended') ? 'The route has ended.' : 'The route is complete. Nothing further is required of you.')).part;
+    // be-vs-6140-task: after `ended: human (no-red)` the model went on editing; the end says what is left to do.
+    const after = 'Make no more edits or route calls; write your final message';
+    const body = status.startsWith('ended') ? `The route has ended. ${after}, saying why it ended.` : `The route is complete. ${after}.`;
+    return (await partOf(run, null, header, closing !== '' ? closing : body)).part;
   }
 
 
@@ -113,7 +130,7 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     const left = Object.keys(gate.onAnswer).length === 0 ? null : humanRevisesLeft(chainOf(run).entries, gate);
     const text = gatePrintText({ task: run.task, gate, entry: print, object: (print['object'] as never) ?? null, revisesLeft: left, retry: outcome.retry, runner: cli });
     const position = (declared ?? step).id;
-    const header = stepHeader({ skill: run.def.skill, task: run.task, step: position, position: (declared ?? step).index + 1, total: run.def.steps.length, now: `Put this question to the user: ${gate.question}`, then: gateThen(run.task, cli) });
+    const header = stepHeader({ skill: run.def.skill, task: run.task, step: position, position: (declared ?? step).index + 1, total: run.def.steps.length, now: `Put this question to the user: ${gate.question}`, then: gateThen(run.task, cli), route: routeLine(foldRoute(run.def, chainOf(run)), position) });
     const { part } = await partOf(run, declared ?? step, header, text);
     if (!run.deliverOnly && !chainOf(run).entries.some((entry) => entry.kind === 'step' && entry['source'] === `print:${print.id}`)) {
       await append(run, { kind: 'step', step: gate.id, actor: 'human', status: 'delivered', cause: run.cause, channel: run.channel, source: `print:${print.id}`, ...payloadSize(part.bytes) });
@@ -131,7 +148,7 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
       }));
       if (commands.every((command) => command !== undefined)) {
         const lines = commands.map((command) => `\`${commandFor(command)}\``);
-        const header = stepHeader({ skill: run.def.skill, task: run.task, step: step.id, position: step.index + 1, total: run.def.steps.length, now: `Run ${lines.join(', then ')}`, then: 'its output brings the next step' });
+        const header = stepHeader({ skill: run.def.skill, task: run.task, step: step.id, position: step.index + 1, total: run.def.steps.length, now: `Run ${lines.join(', then ')}`, then: 'its output brings the next step', route: routeLine(fold, step.id) });
         return (await partOf(run, step, header, '')).part;
       }
       const names = missing.map((need) => `${need.kind}${need.value === null ? '' : `{${need.value}}`}`);
@@ -227,7 +244,8 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
         return null;
       }
       await append(run, { kind: 'step', step: step.id, actor: 'model', status: 'repeated', cause: run.cause });
-      prefix = `Not done yet: ${missing.join(', ')} is not on record. Produce it with: ${producerHint(run, step)}.${again === 2 ? ` Or stop: ${commandFor(`route stop --task ${run.task} --reason blocked`)}.` : ''}\n\n`;
+      const redEnds = step.produces.some((produced) => produced.kind === 'check' && produced.value === 'red') && again === 1;
+      prefix = `Not done yet: ${missing.join(', ')} is not on record. Produce it with: ${producerHint(run, step)}.${redEnds ? ` If no failing test is possible, \`${commandFor(`route next --task ${run.task}`)}\` again ends the route as no-red.` : ''}${again === 2 ? ` Or stop: ${commandFor(`route stop --task ${run.task} --reason blocked`)}.` : ''}\n\n`;
     }
     let budget: Record<string, number> | undefined;
     if (!delivered) {
@@ -260,7 +278,7 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     }
     if (chained !== null) sections.push(fill(chained.instruction!));
     const closing = isClosing(fold, last);
-    const header = stepHeader({ skill: run.def.skill, task: run.task, step: step.id, position: step.index + 1, total: run.def.steps.length, now: nowLine, then: closing ? 'write your final message; no route command is needed' : endingCommand(run, step) });
+    const header = stepHeader({ skill: run.def.skill, task: run.task, step: step.id, position: step.index + 1, total: run.def.steps.length, now: nowLine, then: closing ? 'write your final message; no route command is needed' : endingCommand(run, step), route: routeLine(fold, step.id) });
     const { part, composed } = await partOf(run, step, header, `${prefix}${sections.join('\n\n')}`);
     if (!delivered) {
       const entry = await append(run, { kind: 'step', step: step.id, actor: 'model', status: 'delivered', cause: run.cause, channel: run.channel, bytes: part.bytes, ...payloadSize(part.bytes), ...(budget === undefined ? {} : { budget }), ...(part.file === null ? {} : { file: part.file }) });
@@ -336,7 +354,7 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
       }
       if (step.actor === 'code') {
         if (run.deliverOnly) {
-          const header = stepHeader({ skill: run.def.skill, task: run.task, step: step.id, position: step.index + 1, total: run.def.steps.length, now: `Step ${step.id} has not run yet.`, then: `${cli} route next --task ${run.task}` });
+          const header = stepHeader({ skill: run.def.skill, task: run.task, step: step.id, position: step.index + 1, total: run.def.steps.length, now: `Step ${step.id} has not run yet.`, then: `${cli} route next --task ${run.task}`, route: routeLine(fold, step.id) });
           return (await partOf(run, step, header, '')).part;
         }
         const part = await runCode(run, step, fold);

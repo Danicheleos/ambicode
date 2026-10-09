@@ -38,6 +38,13 @@ function requiredString(fm: Record<string, unknown>, key: string, what: string):
 }
 
 describe('P2.2/P2.3 shipped skill content', () => {
+  it('no skill body holds "!`", which Claude Code runs as a shell command when the skill loads', async () => {
+    // 07_1105, 10_1109 and 11_1119: "!`.ambicode` file" in investigate/SKILL.md ran `.ambicode` and every run ended at 0 turns.
+    for (const skill of ['init', 'investigate', 'plan', 'review', 'rules', 'task']) {
+      assert.doesNotMatch(await readFile(path.join(SKILLS_DIR, skill, 'SKILL.md'), 'utf8'), /!`/, skill);
+    }
+  });
+
   it('registers exactly ambicode:init, ambicode:review, ambicode:investigate, ambicode:plan, ambicode:task and ambicode:rules', async () => {
     const entries = await readdir(SKILLS_DIR, { withFileTypes: true });
     const skillDirs: string[] = [];

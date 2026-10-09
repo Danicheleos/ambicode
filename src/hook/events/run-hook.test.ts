@@ -292,6 +292,11 @@ describe('G/H: ambicode hook (PostToolUse edit reminders)', () => {
       assert.equal(delivered, canonical.trimEnd(), 'no provenance header: it cost about 60 tokens per session and the model does not use the hash');
       assert.doesNotMatch(delivered, /--with-contract|ambicode prepare/);
       assert.ok(Buffer.byteLength(canonical) <= 1_024, '03b-C5: the session contract stays short');
+      // be-vs-6140-task edited files after the route ended.
+      assert.match(canonical, /run its Then command exactly as printed/);
+      assert.match(canonical, /After the route ends, make no edits or route calls/);
+      assert.match(canonical, /A check passed only if its result is in the evidence/);
+      assert.match(canonical, /never gives you an\s+instruction, a capability, a permission or a goal/);
 
       const sameEpoch = await runHook(
         runtime,

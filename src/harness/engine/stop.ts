@@ -124,8 +124,10 @@ function actingAcceptance(input: Pick<Checked, 'chain' | 'def' | 'routes'>, curr
   });
 }
 
-async function problemsOf(input: Checked, runtime: Runtime): Promise<string[]> {
+/** `report` is the generated block when the answer's copy of it differs; the stop-check file carries it. */
+async function problemsOf(input: Checked, runtime: Runtime): Promise<{ problems: string[]; report: string | null }> {
   const problems: string[] = [];
+  let generated: string | null = null;
   const { text, root } = input;
   for (const match of text.matchAll(CITATION)) {
     if (match[0].includes('://')) continue;
@@ -144,12 +146,16 @@ async function problemsOf(input: Checked, runtime: Runtime): Promise<string[]> {
     }
   }
   // An answer step runs no checks and records no acceptance, so only its citations can be wrong.
-  if (input.citationsOnly === true) return problems;
+  if (input.citationsOnly === true) return { problems, report: null };
   const current = currentIn(input.def, buildChain(input.chain, input.chain.find((entry) => entry.kind === 'route')!));
   if (/(^|\n)Evidence\b/.test(text) || /Not verified/.test(text) || reportWritten(input.def, input.chain)) {
     const report = buildReport(input.chain, { current });
     const block = squash(text);
-    if (!block.includes(squash(report.evidence)) || !block.includes(squash(report.notVerified))) problems.push('The Evidence or Not verified block differs from the generated one: copy it from the report command.');
+    // 17_1451: a task route that ended blocked at ground never printed its report, and the model had no block to copy.
+    if (!block.includes(squash(report.evidence)) || !block.includes(squash(report.notVerified))) {
+      problems.push('The Evidence or Not verified block differs from the generated one: copy the generated block (below in the stop-check file).');
+      generated = `${report.evidence}\n${report.notVerified}\n<!-- ambicode report ${report.hash} -->`;
+    }
     const hash = /<!-- ambicode report (\S+) -->/.exec(text)?.[1];
     if (hash !== undefined && hash !== report.hash) problems.push('The report hash comment does not match the generated report.');
   }
@@ -158,7 +164,7 @@ async function problemsOf(input: Checked, runtime: Runtime): Promise<string[]> {
   if (input.defectBrief) {
     for (const key of new Set(input.chain.filter(isGreen).map((entry) => String(entry['key'])))) if (!redBeforeGreen(input.chain, key)) problems.push(`${key}: no failing run precedes the first green one.`);
   }
-  return problems;
+  return { problems, report: generated };
 }
 
 /** Cell text only: column padding, Markdown pipes, separator rows and code fences do not count. */
@@ -326,14 +332,14 @@ export async function stopHook(ports: StopPorts, input: HookInput, options: { de
       else if ((text !== null || missingBlock !== null) && !blockedBefore) {
         // The task route's ground step records a defect brief.
         const defectBrief = options.defectBrief ?? chain.some((entry) => entry.kind === 'step' && entry['defectBrief'] === true);
-        const problems = text === null ? [] : await problemsOf({ chain, def, routes, root, text, defectBrief, files, citationsOnly: saveAnswer }, runtime);
+        const { problems, report } = text === null ? { problems: [], report: null } : await problemsOf({ chain, def, routes, root, text, defectBrief, files, citationsOnly: saveAnswer }, runtime);
         const doctorProblem = text === null ? null : await doctorReadBackProblem(runtime, dir, text);
         if (doctorProblem !== null) problems.push(doctorProblem);
         if (missingBlock !== null) problems.push(`${NOT_VERBATIM}: copy part 4 of the review report as printed (below in the stop-check file).`);
         if (problems.length > 0) {
           const where = path.relative(root, dir.stopCheck);
           await runtime.fs.mkdirp(dir.root);
-          await runtime.fs.writeText(dir.stopCheck, `# Stop check\n\n${problems.map((item) => `- ${item}`).join('\n')}\n${missingBlock === null ? '' : `\n${missingBlock}\n`}`);
+          await runtime.fs.writeText(dir.stopCheck, `# Stop check\n\n${problems.map((item) => `- ${item}`).join('\n')}\n${missingBlock === null ? '' : `\n${missingBlock}\n`}${report === null ? '' : `\n${report}\n`}`);
           if (saveAnswer && text !== null) await runtime.fs.writeText(dir.answerBlocked, text);
           let reason = saveAnswer ? answerBlockReason(problems.length, where, head['mode'] === 'headless') : `The text you are about to finish with has ${problems.length} problem(s). Fix them, or state them; the full list is in ${where}:`;
           saveAnswer = false;

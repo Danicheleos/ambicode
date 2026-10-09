@@ -199,12 +199,13 @@ export function analyzeResult(results, { tracesDirs, cases = CASES_ROOT, withCha
         const row = {
           case: evalCase.name, kind: meta?.kind ?? 'unknown', side: meta?.side ?? null, arm, run: index, id,
           infra: infrastructureError(run), error: run.error ?? null, absent: Boolean(infrastructureError(run) || score.absent),
+          answerFromTrace: Boolean(score.answerFromTrace), skippedPaidGraders: Boolean(run.skippedPaidGraders),
           passed: run.passed ?? null, score: run.score ?? null, costUsd: run.costUsd ?? null, judgeCostUsd: run.judgeCostUsd ?? null,
           turns: run.turns ?? null, wallS: run.durationSeconds ?? null, startedAt: run.startedAt ?? null,
           recall: score.recall ?? null, precision: score.precision ?? null, f1: score.f1 ?? null, hit: score.hit ?? null,
           named: score.named ?? null, raised: score.raised ?? null, threads: score.threads ?? null,
           graders: (run.graders ?? []).map((g) => ({ name: g.name, passed: g.passed, explanation: g.explanation ?? null })),
-          truth, answer: (run.graders ?? []).find((g) => typeof g.evidence === 'string')?.evidence ?? null,
+          truth, answer: score.answer ?? (run.graders ?? []).find((g) => typeof g.evidence === 'string')?.evidence ?? null,
         };
         row.namedFiles = row.answer !== null && truth.length ? namedFiles(row.answer, truth, root).named : null;
         const session = id ? sessionEvents(id, tracesDirs) : null;
@@ -382,6 +383,11 @@ export function findingsOf({ plugin, bare, previous, band, servedPrompt, current
   if (invalid.length) add('invalid', 'infra', `${invalid.length} plugin run(s) died outside the arm; their scores mean nothing`, invalid.map((r) => `${r.case} run ${r.run}: ${r.infra}`));
   const untraced = plugin.filter((r) => !r.traced).length;
   if (untraced) add('caveat', 'untraced', `${untraced} of ${plugin.length} plugin runs have no harvested trace: trace-based numbers cover the rest`);
+  const fromTrace = plugin.filter((r) => r.answerFromTrace);
+  const skipped = fromTrace.filter((r) => r.skippedPaidGraders);
+  if (skipped.length) add('caveat', 'grader-skipped', `${skipped.length} plugin run(s) had their paid grader skipped; their files were scored from the trace's final result`, skipped.map((r) => `${r.case} run ${r.run}`));
+  const unexplained = fromTrace.filter((r) => !r.skippedPaidGraders);
+  if (unexplained.length) add('caveat', 'answer-from-trace', `${unexplained.length} plugin run(s) had no grader evidence; their files were scored from the trace's final result`, unexplained.map((r) => `${r.case} run ${r.run}`));
   const pinned = current.suite?.modelOverride ?? null;
   const models = [...new Set(plugin.map((r) => r.model).filter(Boolean))];
   if (pinned && models.some((m) => m !== pinned)) add('invalid', 'model', `runs used ${models.join(', ')}, the pinned model is ${pinned}`);
@@ -454,7 +460,9 @@ export function findingsOf({ plugin, bare, previous, band, servedPrompt, current
   const pContext = mean(plugin.map((r) => r.firstContext));
   const bContext = mean(bare.map((r) => r.firstContext));
   if (pContext !== null && bContext !== null && pContext - bContext > THRESHOLDS.extraContext)
-    add('info', 'context', `the plugin's first request carries ${Math.round(pContext - bContext)} more tokens than bare; every later call pays them as cache reads`);
+    add('weak', 'context', `the plugin's first request carries ${Math.round(pContext - bContext)} more tokens than bare, over the ${THRESHOLDS.extraContext}-token limit; every later call pays them as cache reads`);
+  else if (pContext !== null && bContext !== null && pContext - bContext > THRESHOLDS.extraContextSoft)
+    add('info', 'context-soft', `the plugin's first request carries ${Math.round(pContext - bContext)} more tokens than bare: within the ${THRESHOLDS.extraContext}-token limit, over the ${THRESHOLDS.extraContextSoft}-token target`);
   else if (pContext === null || bContext === null)
     add('caveat', 'context-unmeasured', `first-request context is unmeasured for the ${pContext === null ? 'plugin' : 'bare'} arm (no trace), so the ${THRESHOLDS.extraContext}-token budget is unchecked, not met`);
 

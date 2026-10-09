@@ -34,6 +34,7 @@ export * from '../analysis/ledger-metrics.mjs';
 export * from './prompt-transport.mjs';
 export * from './run-options.mjs';
 export { infrastructureError } from './run-validity.mjs';
+import { invalidRuns } from './run-validity.mjs';
 export { harvestTraces, harvestedOfResult, removeSandboxes, sandboxIdsOfResult, traceMetrics } from '../analysis/trace-analysis.mjs';
 
 /** In the result's iteration `reports/`, else beside the result: either way gitignored, as it quotes the benchmark's answers. */
@@ -404,6 +405,12 @@ export async function runSweep(rest, { benchmarks = BENCHMARKS, now = new Date()
     const recorded = recordServedPrompts(written, plan);
     atomicWrite(reserved, `${JSON.stringify(recorded, null, 2)}\n`);
     written = recorded;
+    // The harness calls such a sweep complete; its scores are not the arm's.
+    const invalid = invalidRuns(recorded);
+    if (invalid.length > 0) {
+      warn(`${invalid.length} of the run(s) died outside the arm and are not scored: ${[...new Set(invalid.map((r) => r.error))].join('; ')}`);
+      status ||= 1;
+    }
   } catch (error) {
     // Left as the harness wrote it: a gate then refuses the case's prompt instead of trusting an unverified one.
     warn(`served prompt not recorded: ${error.message}`);

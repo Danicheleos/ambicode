@@ -79,6 +79,7 @@ export const HANDLER_NAMES = [
   'task.index',
   'task.report',
   'checks.baseline',
+  'checks.preflight',
   'review.evaluate',
   'review.estimate',
 ] as const;

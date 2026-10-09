@@ -10,8 +10,11 @@ const PREVIEW_CHARS = 300;
 /** The first route of a chain: it stays the same when a later route resumes it. */
 export const chainKey = (ids: readonly string[]): string => ids.at(-1) ?? '';
 
-/** Three lines every step message starts with: where we are, what to do now, the command that ends the step. */
-export function stepHeader(input: { skill: string; task: string; step: string; position: number; total: number; now: string; then: string }): string {
+/**
+ * The lines every step message starts with: where we are, what to do now, the command that ends the step, and the
+ * route around the step (skipped steps are left out).
+ */
+export function stepHeader(input: { skill: string; task: string; step: string; position: number; total: number; now: string; then: string; route?: string }): string {
   const now = input.now.replace(/\s+/g, ' ').trim();
   // A command in backticks is never cut: a cut one cannot be run.
   const clipped = now.length <= 160 || now.includes('`') ? now : `${now.slice(0, 157)}…`;
@@ -19,6 +22,7 @@ export function stepHeader(input: { skill: string; task: string; step: string; p
     `[ambicode] ${input.skill} · task ${input.task} · step ${input.step} (${input.position}/${input.total})`,
     `Now: ${clipped}`,
     `Then: ${input.then}`,
+    ...(input.route === undefined ? [] : [`Route: ${input.route}`]),
   ].join('\n');
 }
 

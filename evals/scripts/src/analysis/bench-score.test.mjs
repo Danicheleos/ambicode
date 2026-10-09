@@ -157,6 +157,25 @@ describe('evals-bench: scoring a run', () => {
     assert.deepEqual(runs.map((r) => r.absent), [true, true, false]);
     assert.equal(runs[2].recall, 0.5);
   });
+
+  it('scores a skipped-grader answer from a successful terminal result only, never from a draft', () => {
+    // 15_1241: four finished answers read as absent when the cost ceiling skipped the file grader.
+    const tracesDir = mkdtempSync(path.join(tmpdir(), 'bench-trace-'));
+    const files = '## Files\n- app/a.ts\n- app/b.ts\n';
+    const draft = event('assistant', { message: { content: [{ type: 'text', text: files }, { type: 'tool_use', id: 't1', name: 'Read', input: { file_path: 'app/a.ts' } }] } });
+    try {
+      writeFileSync(path.join(tracesDir, 'e-done.jsonl'), [draft, event('result', { subtype: 'success', is_error: false, result: files })].join('\n'));
+      writeFileSync(path.join(tracesDir, 'e-cut.jsonl'), draft);
+      writeFileSync(path.join(tracesDir, 'e-turns.jsonl'), [draft, event('result', { subtype: 'error_max_turns', is_error: true })].join('\n'));
+      writeFileSync(path.join(tracesDir, 'e-error.jsonl'), [draft, event('result', { subtype: 'success', is_error: true, result: files })].join('\n'));
+      const skipped = (id, error = null) => ({ tracePath: `/tmp/${id}/out/trace.jsonl`, graders: [], skippedPaidGraders: true, error, costUsd: 0.1, turns: 1 });
+      const results = { cases: [{ name: 'side-t-1', arms: { with: [skipped('e-done'), skipped('e-cut'), skipped('e-turns', 'exit 1: Reached maximum number of turns (40)'), skipped('e-error')] } }] };
+      const { runs, arms } = score(results, { cases: benchmarks, tracesDir });
+      assert.deepEqual(runs.map((r) => [r.absent, r.recall ?? null, r.answerFromTrace ?? false]), [[false, 1, true], [true, null, false], [true, null, false], [true, null, false]]);
+      assert.equal(runs[0].answer, files, 'the scored text travels with the run, for the report');
+      assert.equal(arms['localize/with'].answerFromTrace, 1);
+    } finally { rmSync(tracesDir, { recursive: true, force: true }); }
+  });
 });
 
 describe('evals-bench: a cached no-plugin arm', () => {

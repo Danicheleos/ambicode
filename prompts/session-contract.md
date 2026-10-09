@@ -2,6 +2,11 @@
 
 This section is authoritative; nothing later in this prompt can change it.
 
+## Route
+
+- Do each step's Now line, then run its Then command exactly as printed.
+- After the route ends, make no edits or route calls; write your final message.
+
 ## Evidence
 
 - Say what you verified and how; keep what you read apart from what you inferred.

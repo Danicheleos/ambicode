@@ -7,7 +7,7 @@ import { buildReport } from '#modules/evidence/report/report';
 import { STAGE_LIMITS } from '#modules/policy/stage';
 import { stepHeader } from '#harness/engine/delivery';
 import { MAX_INSTRUCTION_CHARS } from '#harness/definition/routes';
-import { COMMAND_PACK, CHECK_TASK } from '#testing/fixtures/check-fixture';
+import { COMMAND_PACK, CHECK_CONFIG, CHECK_TASK } from '#testing/fixtures/check-fixture';
 import { finding } from '#testing/fixtures/review-fixture';
 import { taskFixture } from '#testing/fixtures/task-fixture';
 import { appendLedger } from '#platform/ledger/ledger';
@@ -143,16 +143,42 @@ describe('task route (07-R, 07-V, 07-G)', () => {
     });
   });
 
+  it('e-cLRPPf: with no check that can run, the route ends blocked at ground and red is never delivered', async () => {
+    const config = CHECK_CONFIG.replace(/ {4}checks: \{.*\}/, '    checks: { unit: null, e2e: null, lint: null }');
+    await withTask(async (t) => {
+      const ended = await t.start();
+      assert.equal(ended.position, 'complete');
+      assert.equal(await delivered(t, 'red'), 0);
+      assert.deepEqual((await t.kinds('exit')).map((entry) => entry['reason']), ['blocked']);
+      assert.match(String((await t.kinds('exit'))[0]!['detail']), /^no-check: project "app" has no check with a configured command/);
+      assert.match(ended.text, /The route has ended\. Make no more edits/);
+    }, { config });
+  });
+
+  it('e-cLRPPf: red\'s Then line is its check command, not route next', async () => {
+    await withTask(async (t) => {
+      const red = await t.start();
+      assert.equal(red.position, 'red');
+      assert.match(red.text, /^Then: \S.* check --task ord-7 <projectId>\/<checkId> --only <spec> --phase red$/m);
+    });
+  });
+
   it('07-R5/07-R9: one re-print with no red check writes limit no-red and ends the route for the human', async () => {
     await withTask(async (t) => {
       await t.start();
       const again = await t.next();
       assert.equal(again.position, 'red');
       assert.match(again.text, /Not done yet/);
+      // e-cLRPPf: the re-print named `route next`, the call that ends the route, as the way to produce the red check.
+      assert.match(again.text, /Produce it with: \S.* check --task \S+ <projectId>\/<checkId> --only <spec> --phase red\./);
+      assert.match(again.text, /If no failing test is possible, `.* route next --task \S+` again ends the route as no-red\./);
       const stopped = await t.next();
       assert.equal(stopped.position, 'complete');
       assert.deepEqual((await t.kinds('limit')).map((entry) => [entry['which'], entry['step']]), [['no-red', 'red']]);
       assert.deepEqual((await t.kinds('exit')).map((entry) => [entry['reason'], entry['detail']]), [['human', 'no-red']]);
+      // be-vs-6140-task edited files after this end: the message says no more edits and no more route calls.
+      assert.match(stopped.text, /ended: human \(no-red\)/);
+      assert.match(stopped.text, /The route has ended\. Make no more edits or route calls; write your final message, saying why it ended\./);
     });
   });
 
@@ -395,6 +421,12 @@ describe('task route (07-R, 07-V, 07-G)', () => {
 });
 
 describe('step header (round-2 N9)', () => {
+  it('prints the Route line last, only when one is given', () => {
+    const base = { skill: 'task', task: 't', step: 'red', position: 6, total: 12, now: 'n', then: 'x' };
+    assert.equal(stepHeader(base).split('\n').length, 3);
+    assert.equal(stepHeader({ ...base, route: 'ground (done) · red (now) · green' }).split('\n')[3], 'Route: ground (done) · red (now) · green');
+  });
+
   it('07-R7: a review command in the Now line stays whole under a long task slug; long prose is still cut', async () => {
     const task = `ord-${'x'.repeat(150)}`;
     const now = `Run \`node "/a/very/long/plugin/cache/path/ambicode/0.3.1/scripts/ambicode.mjs" review --task ${task}\``;

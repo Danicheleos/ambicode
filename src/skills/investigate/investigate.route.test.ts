@@ -62,6 +62,15 @@ describe('investigate route (03-I1, 03-I2)', () => {
     }
   });
 
+  it('the header carries the route: done and current steps named, skipped ones left out', async () => {
+    const { fx, start } = await investigation();
+    try {
+      assert.match((await start()).text, /^Route: ground \(done\) · read \(now\)$/m);
+    } finally {
+      await fx.dispose();
+    }
+  });
+
   it('03b-C1/03b-C2/03b-C3/03b-C4: the read step carries no request echo, no empty policy pointer and its first line once', async () => {
     const { fx, start } = await investigation();
     try {

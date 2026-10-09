@@ -163,7 +163,13 @@ describe('03-K3 checks', () => {
       await toWrite(drift);
       await drift.say(`${heading}Evidence\n  Requirements: ORD-99 (asked)\nNot verified\n  none recorded\n`);
       const blocked = await drift.stop();
-      assert.match(blocked.reason ?? '', /differs from the generated one/);
+      assert.match(blocked.reason ?? '', /differs from the generated one: copy the generated block \(below in the stop-check file\)/);
+      // 17_1451: the stop-check file named the problem but not the block, and a route that ended early never printed it.
+      const file = await readFile(path.join(drift.fx.repo.root, '.ambicode', 'task', TASK, 'stop-check.md'), 'utf8');
+      const block = /\nEvidence\n[\s\S]*<!-- ambicode report \S+ -->/.exec(file)?.[0].trim();
+      assert.ok(block !== undefined, file);
+      await drift.say(`${heading}${block}`);
+      assert.deepEqual(await drift.stop(), {}, 'the block the file carries is the one that passes');
     } finally {
       await drift.dispose();
     }

@@ -252,15 +252,21 @@ export function scoreWithAnalysis(results, analysis) {
           runs.push({ ...base, absent: false, ...fileMatch(named, meta.truth), ...splitRecall(named, meta), ...overlap, ...judged });
           return;
         }
-        const evidence = (run.graders ?? []).find((g) => g.name === EVIDENCE_GRADER)?.evidence;
+        const graded = (run.graders ?? []).find((g) => g.name === EVIDENCE_GRADER)?.evidence;
+        // A skipped paid grader leaves the answer unread, not unwritten: the trace's final message is the same text.
+        const evidence = typeof graded === 'string' ? graded : (parsed?.finalText ?? undefined);
+        // 15_1241: four finished answers read as absent when the cost ceiling skipped the file grader.
+        if (typeof evidence === 'string' && typeof graded !== 'string') base.answerFromTrace = true;
         if (meta.kind === 'plan') {
           // The route arm's plan is its promoted note; the naked arm has no note, so its final message is the plan.
           const note = analysis.plan(run);
           const text = note?.text ?? evidence;
+          if (typeof text === 'string') base.answer = text;
           if (typeof text !== 'string') runs.push({ ...base, absent: true });
           else runs.push({ ...base, absent: false, ...presetAnswer(text, meta), scoredText: note?.kind ?? 'message' });
           return;
         }
+        if (typeof evidence === 'string') base.answer = evidence;
         if (typeof evidence !== 'string') runs.push({ ...base, absent: true });
         else if (meta.kind === 'reuse') runs.push({ ...base, absent: false, ...scoreReuse(evidence, meta.truth, analysis.exports(meta.side)) });
         else if (meta.preset) runs.push({ ...base, absent: false, ...presetAnswer(evidence, meta) });
@@ -270,7 +276,7 @@ export function scoreWithAnalysis(results, analysis) {
   const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
   const summarize = (rows) => {
     const scored = rows.filter((r) => !r.absent);
-    const out = { runs: rows.length, scored: scored.length, absent: rows.length - scored.length };
+    const out = { runs: rows.length, scored: scored.length, absent: rows.length - scored.length, answerFromTrace: scored.filter((r) => r.answerFromTrace).length };
     for (const m of ['precision', 'recall', 'f1', 'hit', 'named', 'dupes', 'created', 'raised', 'threads', ...SPLIT_METRICS, 'costUsd', 'turns']) {
       const values = scored.map((r) => r[m]).filter((x) => x !== null && x !== undefined);
       if (values.length) out[m] = mean(values);

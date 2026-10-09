@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { buildReport, callChain, fileTruth, findComparisons, findingsOf, layoutOf, proposalsOf, readOperands, readRequests, routeChain, toolFiles } from './run-report.mjs';
+import { analyzeResult, buildReport, callChain, fileTruth, findComparisons, findingsOf, layoutOf, proposalsOf, readOperands, readRequests, routeChain, toolFiles } from './run-report.mjs';
 
 const jsonl = (events) => `${events.map((event) => JSON.stringify(event)).join('\n')}\n`;
 const usage = (read, write, output) => ({ input_tokens: 2, cache_read_input_tokens: read, cache_creation_input_tokens: write, output_tokens: output });
@@ -117,6 +117,39 @@ describe('run-report: comparisons and findings', () => {
     for (const code of ['quality-loss', 'saturated', 'route-open', 'map-missed']) assert.ok(codes.includes(code), code);
     assert.equal(findings[0].level, 'weak');
     assert.ok(proposalsOf(findings).some((p) => p.code === 'map-missed' && p.count === 1));
+  });
+
+  it('raises first-call context over 3,200 tokens as weak, over the 2,500 target as info, and under it not at all', () => {
+    const row = (arm, firstContext) => ({ case: 'a', arm, run: 0, kind: 'localize', recall: 0.5, score: 1, costUsd: 0.1, absent: false, traced: true, firstContext });
+    const level = (extra) => findingsOf({ plugin: [row('with', 16000 + extra)], bare: [row('without', 16000)], previous: [], band: 0.1, servedPrompt: 'with', current: { suite: {} }, baselineResults: null })
+      .filter((f) => f.code.startsWith('context')).map((f) => [f.code, f.level]);
+    assert.deepEqual(level(3300), [['context', 'weak']]);
+    assert.deepEqual(level(2946), [['context-soft', 'info']]);
+    assert.deepEqual(level(2400), []);
+  });
+
+  it('names trace-scored runs, blaming a skipped grader only when the run says it was skipped', () => {
+    const row = (name, extra = {}) => ({ case: name, arm: 'with', run: 0, kind: 'localize', recall: 0.5, score: 1, costUsd: 0.1, absent: false, traced: true, ...extra });
+    const plugin = [row('a', { answerFromTrace: true, skippedPaidGraders: true }), row('b', { answerFromTrace: true }), row('c')];
+    const findings = findingsOf({ plugin, bare: [], previous: [], band: 0.1, servedPrompt: 'with', current: { suite: {} }, baselineResults: null });
+    assert.deepEqual(findings.filter((f) => ['grader-skipped', 'answer-from-trace'].includes(f.code)).map((f) => [f.code, f.evidence]), [['grader-skipped', ['a run 0']], ['answer-from-trace', ['b run 0']]]);
+  });
+
+  it('gives a trace-scored run the answer and named files the scorer used', () => {
+    const top = mkdtempSync(path.join(tmpdir(), 'run-report-'));
+    try {
+      const caseDir = path.join(top, 'benchmarks', 'SIDE', 'full', 'side-t-1');
+      mkdirSync(caseDir, { recursive: true });
+      writeFileSync(path.join(caseDir, 'truth.json'), JSON.stringify({ side: 'SIDE', ticket: 'T-1', root: 'app', truth: ['app/a.ts', 'app/b.ts'] }));
+      const traces = path.join(top, 'traces');
+      mkdirSync(traces);
+      writeFileSync(path.join(traces, 'e-skip.jsonl'), jsonl([...trace.slice(0, -1), { ...trace.at(-1), subtype: 'success', is_error: false, result: '## Files\n- app/a.ts\n' }]));
+      const results = { cases: [{ name: 'side-t-1', arms: { with: [{ tracePath: '/private/tmp/e-skip/out/trace.jsonl', graders: [], skippedPaidGraders: true, costUsd: 0.1, turns: 2 }] } }] };
+      const [row] = analyzeResult(results, { tracesDirs: [traces], cases: path.join(top, 'benchmarks'), withChains: false });
+      assert.deepEqual([row.absent, row.recall, row.answer, row.namedFiles, row.answerFromTrace, row.skippedPaidGraders], [false, 0.5, '## Files\n- app/a.ts\n', ['app/a.ts'], true, true]);
+    } finally {
+      rmSync(top, { recursive: true, force: true });
+    }
   });
 });
 
