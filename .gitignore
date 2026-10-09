@@ -9,6 +9,15 @@
 tmp/
 .nyc_output/
 *.log
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.ambicode/*
+archive
 
 __pycache__/
 .pytest_cache/
@@ -16,9 +25,17 @@ __pycache__/
 .venv/
 *.py[cod]
 
-/evals/outputs
-/eval-replay/
 /benchmarks
+
+
+eval-replay/reports
+eval-replay/2026-*
+eval-replay/core.json
+eval-replay/evals/**/*.*
+!eval-replay/evals/**/*.md
+
+
+/evals/outputs
 /evals/reports
 /eval-results.json
 /evals/python/
@@ -28,22 +45,7 @@ __pycache__/
 /research/
 /review/
 
-.DS_Store
-Thumbs.db
-.idea/
-.vscode/
-*.swp
-*.swo
-*~
-.ambicode
-archive
-
 gym/planing/abstract
 gym/planing/new-architecture/implementation-reports
 
-.ambicode/*
-.ambicode/index/
-.ambicode/metrics.jsonl
-.ambicode/reviews/
-.ambicode/task/
-.ambicode/notes/
+
