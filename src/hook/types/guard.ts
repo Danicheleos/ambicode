@@ -18,7 +18,8 @@ export interface ActiveRoute {
 
 /** Bounded reads of session state and a task ledger; `null` when absent, too large or unreadable. */
 export interface GuardState {
-  activeRoute(scratchpadDir: string): ActiveRoute | null;
+  /** The pointer in the scratchpad, else in the temporary-directory fallback the hook state uses when the host gives no scratchpad. */
+  activeRoute(scratchpadDir: string | null, sessionId: string | null): ActiveRoute | null;
   ledger(taskDirectory: string): LedgerEntry[] | null;
   /** A regular file exists at this absolute path; absent in a state that cannot tell, which leaves reads alone. */
   file?(path: string): boolean;

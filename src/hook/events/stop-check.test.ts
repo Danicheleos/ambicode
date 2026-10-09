@@ -469,6 +469,51 @@ describe('03b-N: the answer is the note', () => {
     }
   });
 
+  it('D6 R1: a served companion covers a Files path; a non-companion in the same directory still blocks', async () => {
+    const s = await answering({ headless: true });
+    try {
+      await s.fx.repo.write('src/cart/add-item.spec.ts', 'x\n');
+      await s.fx.repo.write('src/cart/other.ts', 'x\n');
+      await s.fx.repo.commitAll('companions');
+      await s.say('See src/cart/add-item.ts:2.\n\n## Files\n- src/cart/add-item.ts\n- src/cart/add-item.spec.ts\n- src/cart/other.ts');
+      const blocked = await s.stop();
+      assert.equal(blocked.decision, 'block');
+      assert.match(blocked.reason!, /- not read: src\/cart\/other\.ts/);
+      assert.doesNotMatch(blocked.reason!, /add-item\.spec/);
+    } finally {
+      await s.fx.dispose();
+    }
+  });
+
+  it('D6 R1: an entry marked "inferred from" a served path passes; one whose basis was not served blocks as "basis not read"', async () => {
+    const s = await answering({ headless: true });
+    try {
+      await s.fx.repo.write('src/cart/remove-item.ts', 'x\n');
+      await s.fx.repo.write('src/b/index.ts', 'x\n');
+      await s.fx.repo.commitAll('inference');
+      await s.say('See src/cart/add-item.ts:2.\n\n## Files\n- src/cart/add-item.ts\n- src/cart/remove-item.ts \u2014 inferred from src/cart/add-item.ts\n- src/a/index.ts \u2014 inferred from src/b/index.ts');
+      const blocked = await s.stop();
+      assert.equal(blocked.decision, 'block');
+      assert.match(blocked.reason!, /- basis not read: src\/a\/index\.ts \u2190 src\/b\/index\.ts/);
+      assert.doesNotMatch(blocked.reason!, /remove-item/);
+    } finally {
+      await s.fx.dispose();
+    }
+  });
+
+  it('D6 R1: an inference stated in the prose clears the bare Files bullet when its basis was served', async () => {
+    const s = await answering({ headless: true });
+    try {
+      await s.fx.repo.write('src/cart/remove-item.ts', 'x\n');
+      await s.fx.repo.commitAll('prose inference');
+      await s.say('See src/cart/add-item.ts:2. `src/cart/remove-item.ts` is inferred from `src/cart/add-item.ts`.\n\n## Files\n- src/cart/add-item.ts\n- src/cart/remove-item.ts');
+      assert.deepEqual(await s.stop(), {});
+      assert.equal((await s.notes()).length, 1);
+    } finally {
+      await s.fx.dispose();
+    }
+  });
+
   it('D6 R1: a path the host Read tool served counts as read; a Grep entry does not', async () => {
     const s = await answering({ served: [{ kind: 'tool', name: 'Read', path: 'src/cart/add-item.ts' }, { kind: 'tool', name: 'Grep', path: 'src/b/index.ts' }] });
     try {

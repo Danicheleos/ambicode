@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { commandContext } from '#harness/engine/context';
 import { loadPayload } from '#harness/engine/delivery';
+import { ANSWER_FILES_NOTE } from '#harness/engine/execute';
 import { skillHandlers } from '#skills/handlers';
 import { saveNote } from '#modules/evidence/notes';
 import { assembleEngine, CONFIG, routeFixture } from '#testing/fixtures/route-fixture';
@@ -94,12 +95,28 @@ describe('investigate route (03-I1, 03-I2)', () => {
     }
   });
 
+  it('D6: the answer step states the Files rules once, within 300 B, and its delivered entry counts them', async () => {
+    const { fx, start, rows } = await investigation();
+    try {
+      const first = await start();
+      assert.equal(first.text.split(ANSWER_FILES_NOTE).length - 1, 1);
+      assert.match(ANSWER_FILES_NOTE, /same change as <a path this route read>/);
+      assert.ok(Buffer.byteLength(ANSWER_FILES_NOTE) <= 300, `${Buffer.byteLength(ANSWER_FILES_NOTE)} B`);
+      const delivered = (await fx.kinds('cart', 'step')).find((entry) => entry['step'] === 'read' && entry['status'] === 'delivered');
+      assert.ok(Number(delivered?.['payloadBytes']) >= Buffer.byteLength(ANSWER_FILES_NOTE));
+      assert.ok((await rows()).includes('read:delivered'));
+    } finally {
+      await fx.dispose();
+    }
+  });
+
   it('03-I1: a nothing-matched map raises the scope gate, and a free-text answer revises ground with that term', async () => {
     const { fx, start, next, rows } = await investigation();
     try {
       const first = await start({ text: 'zzqqxx wwvvuu' });
       assert.equal(first.position, 'scope');
       assert.match(first.text, /Nothing matched the request/);
+      assert.ok(!first.text.includes(ANSWER_FILES_NOTE), 'a gate delivery carries no answer note');
       const second = await next({ answers: [{ gate: 'scope', option: 'addToCart' }] });
       assert.equal(second.position, 'read');
       assert.match(second.text, /src\/cart\.ts/);

@@ -47,5 +47,4 @@ eval-replay/evals/**/*.*
 
 gym/planing/abstract
 gym/planing/new-architecture/implementation-reports
-
-
+gym/planing/new-architecture/cutting-down

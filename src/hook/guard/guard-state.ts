@@ -1,4 +1,6 @@
 // node:fs only: the guard bundle may read bounded state and ledger files and nothing else (see guard.ts).
+import { createHash } from 'node:crypto';
+import { tmpdir } from 'node:os';
 import { closeSync, constants, fstatSync, openSync, readSync, statSync } from 'node:fs';
 import type { LedgerEntry } from '#types/modules/evidence';
 import { GUARD_STATE_DIR_NAME, ACTIVE_ROUTE_FILE, GUARD_LEDGER_FILE, LEDGER_LIMIT, type ActiveRoute, type GuardState } from '../types/guard.ts';
@@ -71,7 +73,13 @@ function pointerAt(file: string): ActiveRoute | null {
 }
 
 export const fsGuardState: GuardState = {
-  activeRoute: (scratchpadDir: string) => pointerAt(`${scratchpadDir}/${GUARD_STATE_DIR_NAME}/${ACTIVE_ROUTE_FILE}`),
+  activeRoute(scratchpadDir: string | null, sessionId: string | null) {
+    const scratch = scratchpadDir === null ? null : pointerAt(`${scratchpadDir}/${GUARD_STATE_DIR_NAME}/${ACTIVE_ROUTE_FILE}`);
+    if (scratch !== null || sessionId === null) return scratch;
+    // hook-state.ts hookStateBaseDir: 'sha256:' + 32 hex of the session id, stripped to [a-z0-9]; the pointer is keyed by the host's session_id.
+    const key = `sha256${createHash('sha256').update(sessionId).digest('hex').slice(0, 32)}`;
+    return pointerAt(`${tmpdir()}/${GUARD_STATE_DIR_NAME}/${key}/${ACTIVE_ROUTE_FILE}`);
+  },
   ledger(taskDirectory: string): LedgerEntry[] | null {
     const text = bounded(`${taskDirectory}/${GUARD_LEDGER_FILE}`, LEDGER_LIMIT);
     return text === null ? null : entries(text);

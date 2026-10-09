@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -729,7 +730,8 @@ describe('the built guard entry', () => {
     };
     visit(built);
     // node:module is tools/build.mjs's shared banner (a require shim for `yaml`), present before this step.
-    assert.deepEqual([...specifiers].sort(), ['node:fs', 'node:module']);
+    // node:crypto and node:os: the pointer's temporary-directory fallback is keyed like hook-state.ts's, by a hash of the session id.
+    assert.deepEqual([...specifiers].sort(), ['node:crypto', 'node:fs', 'node:module', 'node:os']);
     assert.ok(seen.size <= 2, `the guard loads ${seen.size} files`);
   });
 });
@@ -1472,5 +1474,52 @@ describe('D5: reading source through read while the route waits on a note', () =
     const out = bashAt('grep -rn x src --include=*.ts', 'note', true) as { hookSpecificOutput?: { permissionDecision?: string; updatedInput?: { command: string } } };
     assert.equal(out.hookSpecificOutput?.permissionDecision, 'allow');
     assert.equal(out.hookSpecificOutput?.updatedInput?.command, `grep -rn x src --include='*.ts'`);
+  });
+
+  describe('a repository below the cwd (the eval sandbox: cwd /x/home/cwd, repository at repo/)', () => {
+    const state = (headless: boolean): GuardState => ({
+      activeRoute: () => ({ task: 'T', skill: 'investigate', ...(headless ? { headless: true } : {}) }),
+      ledger: (directory) => (directory === '/x/home/cwd/repo/.ambicode/task/T' ? delivered(true) : null),
+      file: (file) => file === '/x/home/cwd/repo/src/a.ts',
+    });
+    const at = (tool: string, input: Record<string, unknown>, headless = true) =>
+      guardDecision({ hook_event_name: 'PreToolUse', tool_name: tool, cwd: '/x/home/cwd', scratchpad_dir: '/s', tool_input: input }, '/p', state(headless), 'linux') as Output;
+    const cases: [string, string, Record<string, unknown>, string][] = [
+      ['Read of an absolute path', 'Read', { file_path: '/x/home/cwd/repo/src/a.ts' }, 'src/a.ts'],
+      ['cat of repo/src/a.ts', 'Bash', { command: 'cat repo/src/a.ts' }, 'src/a.ts'],
+      ['cd repo && sed -n', 'Bash', { command: `cd repo && sed -n '1,40p' src/a.ts` }, 'src/a.ts:1-40'],
+      ['cd <absolute repo> && head', 'Bash', { command: 'cd /x/home/cwd/repo && head -n 9 src/a.ts' }, 'src/a.ts:1-9'],
+    ];
+    for (const [label, tool, input, target] of cases) {
+      it(`${label}: headless denies, interactive asks`, () => {
+        assert.equal(decisionOf(at(tool, input)), 'deny');
+        assert.equal(at(tool, input).hookSpecificOutput!.permissionDecisionReason, use(target));
+        assert.equal(decisionOf(at(tool, input, false)), 'ask');
+      });
+    }
+  });
+});
+
+describe('D5: a route recorded under the temporary-directory fallback (the hook got no scratchpad_dir)', () => {
+  it('finds the pointer by session id: Read is denied and a headless ask becomes a deny', () => {
+    const session = `guard-test-${process.pid}-${Date.now()}`;
+    const key = `sha256${createHash('sha256').update(session).digest('hex').slice(0, 32)}`;
+    const stateDir = path.join(tmpdir(), HOOK_STATE_DIR_NAME, key);
+    const repo = mkdtempSync(path.join(tmpdir(), 'ambicode-guard-d5-'));
+    roots.push(repo, stateDir);
+    mkdirSync(path.join(repo, '.ambicode', 'task', 'T'), { recursive: true });
+    mkdirSync(path.join(repo, 'src'), { recursive: true });
+    writeFileSync(path.join(repo, 'src', 'a.ts'), 'export {};\n');
+    const ledger = [{ id: 'a-1', at: '2026-10-05T10:00:00.000Z', kind: 'route', skill: 'investigate', session: 'S' }, { id: 'a-2', at: '2026-10-05T10:00:00.000Z', kind: 'step', step: 'read', status: 'delivered', answer: 'note' }];
+    writeFileSync(path.join(repo, '.ambicode', 'task', 'T', LEDGER_FILE), ledger.map((entry) => `${JSON.stringify(entry)}\n`).join(''));
+    mkdirSync(stateDir, { recursive: true });
+    writeFileSync(path.join(stateDir, ACTIVE_ROUTE_FILE), JSON.stringify({ task: 'T', skill: 'investigate', headless: true }));
+    const call = (tool: string, toolInput: Record<string, unknown>) =>
+      guardDecision({ hook_event_name: 'PreToolUse', session_id: session, cwd: repo, tool_name: tool, tool_input: toolInput }, '/p', fsGuardState, 'linux') as Output;
+    const read = call('Read', { file_path: path.join(repo, 'src', 'a.ts') });
+    assert.equal(decisionOf(read), 'deny');
+    assert.equal(read.hookSpecificOutput!.permissionDecisionReason, 'use: node "/p/scripts/ambicode.mjs" read --task T src/a.ts');
+    assert.match(call('Bash', { command: 'git push' }).hookSpecificOutput!.permissionDecisionReason, /route stop --task T/);
+    assert.deepEqual(guardDecision({ hook_event_name: 'PreToolUse', cwd: repo, tool_name: 'Read', tool_input: { file_path: path.join(repo, 'src', 'a.ts') } }, '/p', fsGuardState, 'linux'), {});
   });
 });

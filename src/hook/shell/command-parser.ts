@@ -21,6 +21,8 @@ export interface Segment {
   argv: string[];
   opaque: boolean[];
   writeTargets: WriteTarget[];
+  /** The directory changes this command runs after, from the hook's cwd. */
+  directories?: Directories;
   raw: string;
   /** Unquoted glob values of `--include=`-style options (and `--include GLOB`), where the shell would expand them. */
   globs?: { at: number; text: string }[];
@@ -1352,7 +1354,7 @@ class Parser {
       const value = option === null ? (OPTION_NAME.test(words[index - 1]?.text ?? '') ? { at: word.start, text: word.text } : null) : { at: word.start + option[0].length, text: word.text.slice(option[0].length) };
       return word.glob && value !== null && !/[{$`'"\\]/.test(value.text) && /[*?[]/.test(value.text) ? [value] : [];
     });
-    this.context.segments.push({ argv: argv.map((word) => word.text), opaque: argv.map((word) => word.opaque), writeTargets, raw, ...(globs.length > 0 ? { globs } : {}) });
+    this.context.segments.push({ argv: argv.map((word) => word.text), opaque: argv.map((word) => word.opaque), writeTargets, directories: child, raw, ...(globs.length > 0 ? { globs } : {}) });
     if (name === 'find') {
       for (const command of execsOf(argv.slice(1))) this.invoke(command.words, [], command.here ? child : [...child, null], raw);
     }

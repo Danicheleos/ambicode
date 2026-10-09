@@ -16,6 +16,9 @@ import type { Composed, Part, Run } from '../types/engine.ts';
 /** Causes from a command the model ran, as opposed to a hook or a resume. */
 export const EXPLICIT: ReadonlySet<string> = new Set(['route-next', 'requirements normalize', 'check', 'format', 'review', 'plan check', 'policy check --drafts', 'rules apply', 'init --apply', 'note save', 'note promote']);
 
+/** Campaign 1: 12 of 15 runs were blocked once at Stop by these rules; saying them in the first pass saves the turn. */
+export const ANSWER_FILES_NOTE = 'Files: under ## Files list paths this route read with `read` (a served file covers its same-stem companions), paths marked new, or paths marked on their line "same change as <a path this route read>". An entry is a decision: no "only if"/"possibly". The Stop check blocks once on anything else.';
+
 const MAX_TURNS = 200;
 const DEFAULT_WALL_MINUTES = 45;
 
@@ -81,7 +84,8 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
   }
 
   async function partOf(run: Run, step: StepDef | null, header: string, body: string): Promise<{ part: Part; composed: Composed }> {
-    const notes = run.notes.length === 0 ? '' : `${run.notes.join('\n')}\n\n`;
+    const lines = step?.actor === 'model' && step.answer === 'note' ? [...run.notes, ANSWER_FILES_NOTE] : run.notes;
+    const notes = lines.length === 0 ? '' : `${lines.join('\n')}\n\n`;
     const composed = compose({ header, body: `${notes}${body}`.trimEnd(), channel: run.channel, dir: run.dir, step: step?.id ?? 'complete', chain: chainKey([...chainOf(run).ids]) });
     return { part: { text: composed.text, file: composed.file, bytes: composed.bytes, position: step?.id ?? 'complete', full: composed.full }, composed };
   }

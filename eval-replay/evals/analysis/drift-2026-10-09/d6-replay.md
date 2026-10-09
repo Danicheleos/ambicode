@@ -18,30 +18,30 @@ Base trees reachable offline for 7 of 7 cases; paths absent from the base tree (
 | e-Dh1UDY | be-vs-5721 | notation | 1 | 0 | yes | 4: AuthController.ts[T], Auth.ts[T], AuthController.spec.ts[T], Auth.spec.ts[x] (no receipts) | 1: Auth.spec.ts[x] | 5 / 181 |
 | e-2Bfk7S | be-vs-5721 | notation | 2 | 0 | yes | 4: AuthController.ts[T], Auth.ts[T], verify-access-token.middleware.ts[x], AuthController.spec.ts[T] (no receipts) | 0 | 4 / 181 |
 | e-18w1Kb | be-vs-5721 | notation | 3 | 0 | yes | 3: AuthController.ts[T], Auth.ts[T], AuthController.spec.ts[T] (no receipts) | 0 | 3 / 118 |
-| e-6H3vCd | be-vs-5941 | notation | 1 | 4 | yes | 2: OrganizationController.spec.ts[T], Organization.ts[T] | 0 | 2 / 93 |
+| e-6H3vCd | be-vs-5941 | notation | 1 | 4 | yes | 1: Organization.ts[T] | 0 | 1 / 36 |
 | e-8PHfAE | be-vs-5941 | notation | 2 | 1 | yes | 4: OrganizationController.ts[T], OrganizationValidators.ts[T], OrganizationController.spec.ts[T], Organization.ts[T] | 2: OrganizationValidators.ts[T], Organization.ts[T] | 6 / 294 |
 | e-qip2np | be-vs-5941 | notation | 3 | 0 | yes | 6: Organization.ts[T], OrganizationController.ts[T], OrganizationValidators.ts[T], OrganizationController.spec.ts[T], OrginizationApi.spec.ts[x], Organization.ts[T] (no receipts) | 0 | 6 / 276 |
 | e-ZOoSSU | be-vs-5973 | notation | 1 | 0 | yes | 22: UnitOfMeasure.ts[T], Scoring.ts[T], ReportValidators.ts[T], ReportHelper.ts[x], niosh.validators.ts[T], niosh-manual-override.dto.ts[T], niosh.controller.spec.ts[T], lm-lift-data.dto.ts[T], lm-lift.validators.ts[T], lm-lift.mocks.ts[T], lm-lower-data.dto.ts[T], lm-lower.validators.ts[T], lm-lower.mocks.ts[T], lm-carry-data.dto.ts[T], lm-carry.validators.ts[T], lm-carry.mocks.ts[T], lm-push-pull-data.dto.ts[T], lm-push-pull.validators.ts[T], lm-push-pull.mocks.ts[T], lm-push-pull.controller.spec.ts[T], vlm-data.dto.ts[T], vlm-data.schema.ts[T] (no receipts) | 0 | 8 / 447 |
 | e-MG0sNP | be-vs-5973 | notation | 2 | 0 | yes | 25: UnitOfMeasure.ts[T], Scoring.ts[T], ReportValidators.ts[T], ReportHelper.ts[x], ReportHelper.spec.ts[x], vlm-data.schema.ts[T], vlm-data.dto.ts[T], niosh.controller.ts[T], niosh.controller.spec.ts[T], niosh-manual-override.dto.ts[T], niosh.validators.ts[T], lm-lift-data.dto.ts[T], lm-lift.validators.ts[T], lm-lift.mocks.ts[T], lm-lower-data.dto.ts[T], lm-lower.validators.ts[T], lm-lower.mocks.ts[T], lm-carry-data.dto.ts[T], lm-carry.validators.ts[T], lm-carry.mocks.ts[T], lm-carry.controller.spec.ts[T], lm-push-pull-data.dto.ts[T], lm-push-pull.validators.ts[T], lm-push-pull.mocks.ts[T], lm-push-pull.controller.spec.ts[T] (no receipts) | 0 | 8 / 364 |
-| e-Jnm86M | be-vs-5973 | notation | 3 | 3 | yes | 13: ReportHelper.spec.ts[x], niosh.controller.spec.ts[T], lm-push-pull.controller.spec.ts[T], lm-push-pull.mocks.ts[T], lm-carry-data.dto.ts[T], lm-carry.validators.ts[T], lm-carry.mocks.ts[T], lm-lift-data.dto.ts[T], lm-lift.validators.ts[T], lm-lift.mocks.ts[T], lm-lower-data.dto.ts[T], lm-lower.validators.ts[T], lm-lower.mocks.ts[T] | 0 | 8 / 558 |
-| e-eOhY9L | be-vs-6140 | 17 | 1 | 3 | yes | 3: niosh.controller.spec.ts[T], niosh-backup.service.ts[x], ReportHelper.spec.ts[x] | 5: niosh.controller.ts[T], niosh.controller.spec.ts[T], niosh-backup.service.ts[x], ReportHelper.ts[x], ReportHelper.spec.ts[x] | 8 / 463 |
-| e-E8D4oE | be-vs-6140 | 17 | 2 | 3 | yes | 1: ReportHelper.spec.ts[x] | 0 | 1 / 40 |
-| e-k3BQtd | be-vs-6140 | 17 | 3 | 4 | yes | 2: niosh-backup.service.ts[x], ReportHelper.spec.ts[x] | 0 | 2 / 114 |
-| e-VhEGk1 | be-vs-6140 | notation | 1 | 1 | yes | 2: niosh.controller.ts[T], niosh.controller.spec.ts[T] | 0 | 2 / 126 |
-| e-BK5z69 | be-vs-6140 | notation | 2 | 2 | yes | 3: niosh.controller.spec.ts[T], ReportHelper.ts[x], ReportHelper.spec.ts[x] | 2: ReportHelper.ts[x], ReportHelper.spec.ts[x] | 5 / 221 |
+| e-Jnm86M | be-vs-5973 | notation | 3 | 3 | yes | 10: lm-push-pull.mocks.ts[T], lm-carry-data.dto.ts[T], lm-carry.validators.ts[T], lm-carry.mocks.ts[T], lm-lift-data.dto.ts[T], lm-lift.validators.ts[T], lm-lift.mocks.ts[T], lm-lower-data.dto.ts[T], lm-lower.validators.ts[T], lm-lower.mocks.ts[T] | 0 | 8 / 589 |
+| e-eOhY9L | be-vs-6140 | 17 | 1 | 3 | yes | 1: niosh-backup.service.ts[x] | 5: niosh.controller.ts[T], niosh.controller.spec.ts[T], niosh-backup.service.ts[x], ReportHelper.ts[x], ReportHelper.spec.ts[x] | 6 / 356 |
+| e-E8D4oE | be-vs-6140 | 17 | 2 | 3 | no | 0 | 0 | 0 / 0 |
+| e-k3BQtd | be-vs-6140 | 17 | 3 | 4 | yes | 1: niosh-backup.service.ts[x] | 0 | 1 / 73 |
+| e-VhEGk1 | be-vs-6140 | notation | 1 | 1 | no | 0 | 0 | 0 / 0 |
+| e-BK5z69 | be-vs-6140 | notation | 2 | 2 | yes | 2: ReportHelper.ts[x], ReportHelper.spec.ts[x] | 2: ReportHelper.ts[x], ReportHelper.spec.ts[x] | 4 / 155 |
 | e-OXdoVc | be-vs-6140 | notation | 3 | 3 | yes | 1: niosh-backup.service.ts[x] | 1: niosh-backup.service.ts[x] | 2 / 148 |
 | e-IdspwN | fe-vs-6406 | notation | 1 | 0 | yes | 5: registered-users.component.html[T], registered-users.component.scss[T], location-select.component.html[T], location-select.component.ts[T], location-select.component.spec.ts[T] (no receipts) | 0 | 5 / 404 |
 | e-4YUrcy | fe-vs-6406 | notation | 2 | 0 | yes | 2: registered-users.component.html[T], registered-users.component.scss[T] (no receipts) | 0 | 2 / 163 |
-| e-WU4jXY | fe-vs-6406 | notation | 3 | 1 | yes | 1: registered-users.component.scss[T] | 0 | 1 / 81 |
+| e-WU4jXY | fe-vs-6406 | notation | 3 | 1 | no | 0 | 0 | 0 / 0 |
 
 ## Decision rule
 
 | attempt | expected | rule | got |
 |---|---|---|---|
 | e-BK5z69 | fire | undecided | FIRES (2) |
-| e-eOhY9L | fire | notRead | FIRES (3) |
-| e-k3BQtd | fire | notRead | FIRES (2) |
-| e-VhEGk1 | silent | notRead | FIRES (fail, 2) |
+| e-eOhY9L | fire | notRead | FIRES (1) |
+| e-k3BQtd | fire | notRead | FIRES (1) |
+| e-VhEGk1 | silent | notRead | SILENT |
 | e-E8D4oE | silent | undecided | SILENT |
 | e-ZOoSSU | silent | all | FIRES (fail, 8) |
 | e-MG0sNP | silent | all | FIRES (fail, 8) |
@@ -53,11 +53,40 @@ Decision rule (R3 removed) FAILS. The user approved building R1 + R2 anyway (202
 
 | set | n | fired (any) | R1 | R2 | mean lines per fire | mean B per fire |
 |---|---|---|---|---|---|---|
-| all 24 | 24 | 24 | 24 | 6 | 4.5 | 227.2 |
-| with receipts | 10 | 10 | 10 | 4 | 3.7 | 213.8 |
+| all 24 | 24 | 21 | 21 | 6 | 4.7 | 236.5 |
+| with receipts | 10 | 7 | 7 | 4 | 4.0 | 235.9 |
 | without receipts | 14 | 14 | 14 | 2 | 5.1 | 236.8 |
 
 Without receipts R1 fires on every change path (nothing was served through `read`); those rows are not evidence for or against R1. After D5 every run has receipts.
+
+## Companion rule (same directory + same stem counts as served)
+
+| id | case | R1 exact | R1 with companions | dropped by the rule |
+|---|---|---|---|---|
+| e-eLKH9I | be-vs-4606 | 4 | 4 | - |
+| e-6sy6RK | be-vs-4606 | 3 | 3 | - |
+| e-29oKNu | be-vs-4606 | 4 | 4 | - |
+| e-3cz7VB | be-vs-5075 | 5 | 5 | - |
+| e-CgDeOh | be-vs-5075 | 6 | 6 | - |
+| e-FK0pMy | be-vs-5075 | 7 | 7 | - |
+| e-Dh1UDY | be-vs-5721 | 4 | 4 | - |
+| e-2Bfk7S | be-vs-5721 | 4 | 4 | - |
+| e-18w1Kb | be-vs-5721 | 3 | 3 | - |
+| e-6H3vCd | be-vs-5941 | 2 | 1 | OrganizationController.spec.ts[T] |
+| e-8PHfAE | be-vs-5941 | 4 | 4 | - |
+| e-qip2np | be-vs-5941 | 6 | 6 | - |
+| e-ZOoSSU | be-vs-5973 | 22 | 22 | - |
+| e-MG0sNP | be-vs-5973 | 25 | 25 | - |
+| e-Jnm86M | be-vs-5973 | 13 | 10 | ReportHelper.spec.ts[x], niosh.controller.spec.ts[T], lm-push-pull.controller.spec.ts[T] |
+| e-eOhY9L | be-vs-6140 | 3 | 1 | niosh.controller.spec.ts[T], ReportHelper.spec.ts[x] |
+| e-E8D4oE | be-vs-6140 | 1 | 0 | ReportHelper.spec.ts[x] |
+| e-k3BQtd | be-vs-6140 | 2 | 1 | ReportHelper.spec.ts[x] |
+| e-VhEGk1 | be-vs-6140 | 2 | 0 | niosh.controller.ts[T], niosh.controller.spec.ts[T] |
+| e-BK5z69 | be-vs-6140 | 3 | 2 | niosh.controller.spec.ts[T] |
+| e-OXdoVc | be-vs-6140 | 1 | 1 | - |
+| e-IdspwN | fe-vs-6406 | 5 | 5 | - |
+| e-4YUrcy | fe-vs-6406 | 2 | 2 | - |
+| e-WU4jXY | fe-vs-6406 | 1 | 0 | registered-users.component.scss[T] |
 
 ## Variant: R1 with every path that appeared in any tool output counted as served
 
@@ -71,27 +100,27 @@ Upper bound on what D5 would change: after D5 every file is read through `read`,
 | e-3cz7VB | be-vs-5075 | 5 | 1 | ge-adv.mocks.ts[x] |
 | e-CgDeOh | be-vs-5075 | 6 | 2 | Median.ts[x], AnalyticsValidators.ts[x] |
 | e-FK0pMy | be-vs-5075 | 7 | 3 | Median.ts[x], Scoring.ts[x], Organization.ts[x] |
-| e-Dh1UDY | be-vs-5721 | 4 | 1 | Auth.spec.ts[x] |
+| e-Dh1UDY | be-vs-5721 | 4 | 0 | - |
 | e-2Bfk7S | be-vs-5721 | 4 | 1 | verify-access-token.middleware.ts[x] |
 | e-18w1Kb | be-vs-5721 | 3 | 0 | - |
-| e-6H3vCd | be-vs-5941 | 2 | 0 | - |
+| e-6H3vCd | be-vs-5941 | 1 | 0 | - |
 | e-8PHfAE | be-vs-5941 | 4 | 0 | - |
 | e-qip2np | be-vs-5941 | 6 | 1 | OrginizationApi.spec.ts[x] |
 | e-ZOoSSU | be-vs-5973 | 22 | 1 | ReportHelper.ts[x] |
 | e-MG0sNP | be-vs-5973 | 25 | 2 | ReportHelper.ts[x], ReportHelper.spec.ts[x] |
-| e-Jnm86M | be-vs-5973 | 13 | 1 | ReportHelper.spec.ts[x] |
-| e-eOhY9L | be-vs-6140 | 3 | 2 | niosh-backup.service.ts[x], ReportHelper.spec.ts[x] |
-| e-E8D4oE | be-vs-6140 | 1 | 1 | ReportHelper.spec.ts[x] |
-| e-k3BQtd | be-vs-6140 | 2 | 2 | niosh-backup.service.ts[x], ReportHelper.spec.ts[x] |
-| e-VhEGk1 | be-vs-6140 | 2 | 0 | - |
-| e-BK5z69 | be-vs-6140 | 3 | 2 | ReportHelper.ts[x], ReportHelper.spec.ts[x] |
+| e-Jnm86M | be-vs-5973 | 10 | 0 | - |
+| e-eOhY9L | be-vs-6140 | 1 | 1 | niosh-backup.service.ts[x] |
+| e-E8D4oE | be-vs-6140 | 0 | 0 | - |
+| e-k3BQtd | be-vs-6140 | 1 | 1 | niosh-backup.service.ts[x] |
+| e-VhEGk1 | be-vs-6140 | 0 | 0 | - |
+| e-BK5z69 | be-vs-6140 | 2 | 2 | ReportHelper.ts[x], ReportHelper.spec.ts[x] |
 | e-OXdoVc | be-vs-6140 | 1 | 1 | niosh-backup.service.ts[x] |
 | e-IdspwN | fe-vs-6406 | 5 | 0 | - |
 | e-4YUrcy | fe-vs-6406 | 2 | 0 | - |
-| e-WU4jXY | fe-vs-6406 | 1 | 0 | - |
+| e-WU4jXY | fe-vs-6406 | 0 | 0 | - |
 
-R1 (any output) fires on 14 / 24. Flagged paths that are truth: 0 of 21.
-R1 flagged paths over the 10 attempts with receipts: 32, of which truth 23.
+R1 (any output) fires on 11 / 24. Flagged paths that are truth: 0 of 16.
+R1 flagged paths over the 10 attempts with receipts: 20, of which truth 15.
 
 ## Bare answers (30_2248, 60)
 

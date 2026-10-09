@@ -292,14 +292,21 @@ function bashDecision(command: string, cwd: string | undefined, pluginRoot: stri
   return asks.size === 0 ? {} : decide('ask', [...asks].join(' '));
 }
 
+const nonEmpty = (value: unknown): string | null => (typeof value === 'string' && value !== '' ? value : null);
+
+function routeOf(input: GuardInput, state: GuardState | undefined): ActiveRoute | null {
+  const scratchpad = nonEmpty(input.scratchpad_dir);
+  const session = nonEmpty(input.session_id);
+  return state === undefined || (scratchpad === null && session === null) ? null : state.activeRoute(scratchpad, session);
+}
+
 function planBodyDecision(input: GuardInput, state: GuardState | undefined, taskDirectory: string, slug: string, pluginRoot: string): Decision {
   const refuse = (why: string): Decision =>
     decide('deny', `AMBICODE: steps/plan-body.md is written only by the session that owns the task's live plan route; ${why}. ${planBodyReason(pluginRoot, slug)}`);
-  const session = typeof input.session_id === 'string' && input.session_id !== '' ? input.session_id : null;
+  const session = nonEmpty(input.session_id);
   if (session === null) return refuse('the hook named no session');
   if (!isAbsolute(taskDirectory)) return refuse('the hook gave no absolute path for it');
-  const scratchpad = typeof input.scratchpad_dir === 'string' && input.scratchpad_dir !== '' ? input.scratchpad_dir : null;
-  const route = scratchpad === null || state === undefined ? null : state.activeRoute(scratchpad);
+  const route = routeOf(input, state);
   if (route === null) return refuse('no active route is on record for this session');
   if (route.skill !== 'plan' || route.task !== slug) return refuse(`this session's active route is ${route.skill} on ${route.task}, not plan on ${slug}`);
   const entries = state!.ledger(taskDirectory);
@@ -323,7 +330,7 @@ function planBodyDecision(input: GuardInput, state: GuardState | undefined, task
 function fileDecision(input: GuardInput, state: GuardState | undefined, pluginRoot: string): Decision {
   const file = input.tool_input?.file_path ?? input.tool_input?.notebook_path;
   if (typeof file !== 'string' || file === '') return {};
-  const cwd = typeof input.cwd === 'string' && input.cwd !== '' ? input.cwd : undefined;
+  const cwd = nonEmpty(input.cwd) ?? undefined;
   const target = normalize(file, cwd);
   if (TASK_DIR.test(target)) {
     const body = PLAN_BODY.exec(target);
@@ -332,8 +339,8 @@ function fileDecision(input: GuardInput, state: GuardState | undefined, pluginRo
     }
     return decide('deny', noteSaveReason(pluginRoot));
   }
-  if (INIT_FILES.test(target) && typeof input.scratchpad_dir === 'string' && input.scratchpad_dir !== '') {
-    if (state?.activeRoute(input.scratchpad_dir)?.skill === 'init') {
+  if (INIT_FILES.test(target)) {
+    if (routeOf(input, state)?.skill === 'init') {
       return decide(
         'deny',
         'AMBICODE: an init route is active, and init writes .ambicode/config.yaml and its .gitignore lines itself when ' +
@@ -423,34 +430,43 @@ function shellRead(name: string, args: string[]): { span: string; files: string[
 function readDecision(input: GuardInput, state: GuardState | undefined, route: ActiveRoute | null, pluginRoot: string): Decision {
   const { tool_name: tool, cwd, tool_input: args } = input;
   if (route === null || state?.file === undefined || typeof cwd !== 'string' || cwd === '') return {};
-  const raw: { word: string; span: string }[] = [];
+  const raw: { word: string; span: string; bases: (string | null | undefined)[] }[] = [];
   if (tool === 'Read' && typeof args?.file_path === 'string') {
     const from = typeof args.offset === 'number' && args.offset > 1 ? args.offset : 1;
-    raw.push({ word: args.file_path, span: typeof args.limit === 'number' && args.limit > 0 ? spanOf(from, from + args.limit - 1) : from > 1 ? spanOf(from) : '' });
+    raw.push({ word: args.file_path, span: typeof args.limit === 'number' && args.limit > 0 ? spanOf(from, from + args.limit - 1) : from > 1 ? spanOf(from) : '', bases: [cwd] });
   } else if (tool === 'Bash' && typeof args?.command === 'string' && /\b(?:cat|sed|head|tail)\b/.test(args.command)) {
     for (const segment of parseCommand(args.command)) {
       const name = commandName(segment);
       if (segment.unparsed || !/^(?:cat|sed|head|tail)$/.test(name)) continue;
       const { span, files } = shellRead(name, segment.argv.slice(1).filter((_, at) => segment.opaque[at + 1] !== true));
-      for (const word of files) raw.push({ word, span });
+      for (const word of files) raw.push({ word, span, bases: placesOf(segment.directories ?? [], cwd) });
     }
   }
-  if (raw.length === 0) return {};
-  // The repository is the nearest directory up from the cwd that holds this task's ledger.
-  let root = normalize(cwd);
-  let entries = state.ledger(`${root}/.ambicode/task/${route.task}`);
-  while (entries === null && root.includes('/') && root !== '/') {
-    root = root.slice(0, root.lastIndexOf('/')) || '/';
-    entries = state.ledger(`${root === '/' ? '' : root}/.ambicode/task/${route.task}`);
+  // The repository is the nearest directory up from the file that holds this task's ledger: it may sit below the cwd.
+  const ledgers = new Map<string, LedgerEntry[] | null>();
+  const found: { file: string; span: string }[] = [];
+  for (const { word, span, bases } of raw) {
+    if (/[*?[{$~]/.test(word)) continue;
+    for (const base of bases) {
+      if (typeof base !== 'string') continue;
+      const path = normalize(word, base);
+      if (!isAbsolute(path)) continue;
+      let root = path;
+      let entries: LedgerEntry[] | null = null;
+      while (entries === null && root.includes('/') && root !== '/') {
+        root = root.slice(0, root.lastIndexOf('/')) || '/';
+        if (!ledgers.has(root)) ledgers.set(root, state.ledger(`${root === '/' ? '' : root}/.ambicode/task/${route.task}`));
+        entries = ledgers.get(root)!;
+      }
+      const position = entries?.findLast((entry) => entry.kind === 'route' || entry.kind === 'exit' || entry.kind === 'step');
+      if (position?.kind !== 'step' || position['status'] !== 'delivered' || position['answer'] !== 'note') continue;
+      const relative = path.slice(root === '/' ? 1 : root.length + 1);
+      if (!NOT_SOURCE.test(relative) && state.file!(path)) {
+        found.push({ file: relative, span });
+        break;
+      }
+    }
   }
-  const position = entries?.findLast((entry) => entry.kind === 'route' || entry.kind === 'exit' || entry.kind === 'step');
-  if (position?.kind !== 'step' || position['status'] !== 'delivered' || position['answer'] !== 'note') return {};
-  const prefix = root === '/' ? '/' : `${root}/`;
-  const found = raw.flatMap(({ word, span }) => {
-    const path = /[*?[{$~]/.test(word) ? '' : normalize(word, cwd);
-    const relative = path.startsWith(prefix) ? path.slice(prefix.length) : '';
-    return relative !== '' && !NOT_SOURCE.test(relative) && state.file!(path) ? [{ file: relative, span }] : [];
-  });
   if (found.length === 0) return {};
   const target = found.map(({ file, span }) => file + (found.length > 1 ? '' : span)).join(' ');
   return decide(route.headless === true ? 'deny' : 'ask', `use: node "${pluginRoot}/scripts/ambicode.mjs" read --task ${route.task} ${target}`);
@@ -490,8 +506,7 @@ export function guardDecision(input: GuardInput, pluginRoot = '${CLAUDE_PLUGIN_R
     return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', permissionDecisionReason: reason, updatedInput: { ...input.tool_input, command: rewritten } } };
   }
   const decision = decideTool(input, pluginRoot, state, platform);
-  const scratchpad = typeof input.scratchpad_dir === 'string' && input.scratchpad_dir !== '' ? input.scratchpad_dir : null;
-  const route = scratchpad === null || state === undefined ? null : state.activeRoute(scratchpad);
+  const route = routeOf(input, state);
   if (permissionOf(decision) === 'ask' && route?.headless === true) return headlessDeny(decision, pluginRoot, route.task);
   const command = input.tool_input?.command;
   if (Object.keys(decision).length === 0) {
@@ -517,6 +532,6 @@ function decideTool(input: GuardInput, pluginRoot: string, state: GuardState | u
   const command = input.tool_input?.command;
   if (tool !== 'Bash' || typeof command !== 'string') return {};
   const bsdSed = platform === 'darwin' || platform.endsWith('bsd');
-  const cwd = typeof input.cwd === 'string' && input.cwd !== '' ? input.cwd : undefined;
+  const cwd = nonEmpty(input.cwd) ?? undefined;
   return bashDecision(command, cwd, pluginRoot, bsdSed, (process.env.CDPATH ?? '') !== '');
 }
