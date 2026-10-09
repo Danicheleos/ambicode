@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { DiffHunk } from '#types/platform/git';
-import { excerptOf } from './excerpt.ts';
+import { excerptOf } from './snapshot.ts';
 
 const hunk = (newStart: number, newLines: number): DiffHunk => ({ oldStart: newStart, oldLines: newLines, newStart, newLines, lines: [] });
 const file = (count: number) => `${Array.from({ length: count }, (_, i) => `line ${i + 1}`).join('\n')}\n`;

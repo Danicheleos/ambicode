@@ -3,7 +3,7 @@ import { combineDiff, splitPatchSections } from '#platform/git/diff';
 import { Git } from '#platform/git/git';
 import { AmbicodeError } from '#util/errors';
 import { contentHash } from '#util/hash';
-import { captureWorkingTree, revisionContent } from './content.ts';
+import { captureWorkingTree, revisionContent } from './snapshot.ts';
 import { taskDirFor } from '#modules/evidence/task/task-dir';
 import { MR_DIFF_JSON, MR_DIFF_PATCH } from './mr-capture.ts';
 import type { Workspace } from '#types/composition';

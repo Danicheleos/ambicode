@@ -145,11 +145,6 @@ export function unconsumedPreanswer(entries: readonly LedgerEntry[], gate: strin
   return entries.find((entry) => entry.kind === 'preanswer' && entry['gate'] === gate && !consumed.has(entry.id)) ?? null;
 }
 
-export function modelDeliveries(def: RouteDef, entries: readonly LedgerEntry[]): number {
-  const models = new Set(def.steps.filter((step) => step.actor === 'model').map((step) => step.id));
-  return entries.filter((entry) => entry.kind === 'step' && entry['status'] === 'delivered' && models.has(String(entry['step']))).length;
-}
-
 /**
  * Whether an entry still stands (D10): it is in the chain and no later `revise` targets a step at or before the
  * step it is attributed to, the step of the latest `step` entry before it.

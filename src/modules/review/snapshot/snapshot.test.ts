@@ -5,9 +5,8 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { DEFAULTS } from '#types/defaults';
 import { TempRepo } from '#testing/fixtures/temp-repo';
-import { enforceReviewInputLimits, measureInput, partitionChange } from './limits.ts';
 import { pathExclusionReason } from '#util/path-classes';
-import { buildSnapshot, planSnapshot } from './snapshot.ts';
+import { enforceReviewInputLimits, measureInput, partitionChange, planSnapshot, writeSnapshot } from './snapshot.ts';
 import { resolveBranchTarget, resolveWorkingTarget } from './target.ts';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 
@@ -25,14 +24,11 @@ test('U09 a snapshot holds the reviewed bytes even after the working file change
   // The developer keeps typing, or a watcher writes, after the target was resolved.
   await repo.write('src/app.ts', 'export const value = 2; // changed after resolution\n');
 
-  const snapshot = await buildSnapshot({
-    clock: systemClock,
-    fs: nodeFileSystem,
+  const snapshot = await writeSnapshot(nodeFileSystem, await planSnapshot({
     files: resolution.files,
-    patch: resolution.patch,
     content: resolution.content,
     includeSiblingContext: false,
-  });
+  }), resolution.patch);
   t.after(() => snapshot.dispose());
 
   const mirrored = await readFile(path.join(snapshot.filesDirectory, 'src/app.ts'), 'utf8');
@@ -64,14 +60,11 @@ test('U09 a branch snapshot reads committed content, not the dirty checkout', as
     repositoryRoot: repo.root,
     baseRef: 'main',
   });
-  const snapshot = await buildSnapshot({
-    clock: systemClock,
-    fs: nodeFileSystem,
+  const snapshot = await writeSnapshot(nodeFileSystem, await planSnapshot({
     files: resolution.files,
-    patch: resolution.patch,
     content: resolution.content,
     includeSiblingContext: false,
-  });
+  }), resolution.patch);
   t.after(() => snapshot.dispose());
 
   const mirrored = await readFile(path.join(snapshot.filesDirectory, 'src/app.ts'), 'utf8');
@@ -88,13 +81,10 @@ test('U09 a snapshot never contains the working .git directory', async (t) => {
   await repo.write('src/app.ts', 'two\n');
 
   const resolution = await resolveWorkingTarget({ fs: nodeFileSystem, git: repo.git, repositoryRoot: repo.root });
-  const snapshot = await buildSnapshot({
-    clock: systemClock,
-    fs: nodeFileSystem,
+  const snapshot = await writeSnapshot(nodeFileSystem, await planSnapshot({
     files: resolution.files,
-    patch: resolution.patch,
     content: resolution.content,
-  });
+  }), resolution.patch);
   t.after(() => snapshot.dispose());
 
   assert.ok(!snapshot.directory.startsWith(repo.root), 'the snapshot lives outside the checkout');
@@ -120,7 +110,6 @@ test('U09 input above a configured limit blocks the review with measured counts'
     patchBytes: 100,
     snapshotBytes: 0,
     requirementBytes: 0,
-    promptBytes: 0,
     contextBytes: 100,
   });
   assert.doesNotThrow(() => enforceReviewInputLimits(measured, DEFAULTS.review));
@@ -158,14 +147,11 @@ test('U09 excluded content leaves the patch, not just the mirrored tree', async 
   assert.ok(reviewable.excluded.some((entry) => entry.path === '.env'));
   assert.ok(reviewable.excluded.some((entry) => entry.path.includes('node_modules')));
 
-  const snapshot = await buildSnapshot({
-    clock: systemClock,
-    fs: nodeFileSystem,
+  const snapshot = await writeSnapshot(nodeFileSystem, await planSnapshot({
     files: reviewable.files,
-    patch: reviewable.patch,
     content: resolution.content,
     includeSiblingContext: false,
-  });
+  }), reviewable.patch);
   t.after(() => snapshot.dispose());
 
   const written = await readFile(path.join(snapshot.directory, 'changed.diff'), 'utf8');

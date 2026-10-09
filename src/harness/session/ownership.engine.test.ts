@@ -21,7 +21,7 @@ const startAs = (plan: PlanFixture, session: string, input: object = {}) => plan
 const INV = `skill: inv
 version: 3
 budget: { modelSteps: 4 }
-exits: [done, blocked, human, inconclusive, superseded, budget]
+exits: [done, blocked, human, inconclusive, superseded]
 revisable: []
 steps:
   - id: read

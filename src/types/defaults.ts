@@ -64,13 +64,6 @@ export const MAX_EXCERPT_SOURCE_BYTES = 8 * 1024 * 1024;
 export const UNLIMITED_CONTEXT_BUDGET_BYTES = 524_288;
 export const MAX_SNAPSHOT_TOTAL_BYTES = 4 * 1024 * 1024;
 
-export const MAX_REVIEWED_DISCUSSIONS = 50;
-export const MAX_DISCUSSION_CONTEXT_BYTES = 32_768;
-export const MAX_DISCUSSION_NOTE_BYTES = 2_048;
-
-/** Room reserved for the check and omission sections, which are written after the snapshot is planned. */
-export const PROMPT_EVIDENCE_RESERVE_BYTES = 16_384;
-
 export const CONFIG_FILE = '.ambicode/config.yaml';
 export const REVIEWS_DIR = '.ambicode/reviews';
 

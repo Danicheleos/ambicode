@@ -34,8 +34,7 @@ a Confluence page through the bound MCP server — and then, with you:
    Each rule carries `source.quote`, a verbatim passage, and `source.location`,
    the file or page it came from; nothing in `drafts/` is in force;
 3. validates the drafts with `ambicode policy check --drafts` and loops until
-   clean. The check confirms every quote is in its source, warns when a rule
-   duplicates a built-in (`pack-duplicates-builtin`), and reports a glob that
+   clean. The check confirms every quote is in its source and reports a glob that
    matches nothing. A rule whose quote cannot be found is not migrated;
 4. shows you a table with one row per rule, applied or not migrated and why, and
    asks: Apply all, Apply with changes, or Discard drafts;

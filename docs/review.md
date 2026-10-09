@@ -190,10 +190,6 @@ storage before anything starts; whatever a command writes there is reported as a
 limitation and then destroyed with the container. It never reaches your files
 and never becomes the reviewed revision.
 
-Selection for a merge request uses only globs — lint `include` and the `mapping`
-selector. A `related` or `command` selector decides what to run by executing
-project code, so it is skipped with that reason instead.
-
 ## GitHub
 
 ```

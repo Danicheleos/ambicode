@@ -7,7 +7,7 @@ import { CLI_LIMIT, HOOK_LIMIT } from './delivery.ts';
 import type { Handler } from '#types/harness';
 
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';
-const HEAD = (skill: string, budget = 8, extra = '') => `skill: ${skill}\nversion: 3\nbudget: { modelSteps: ${budget}${extra} }\nexits: [done, blocked, human, inconclusive, superseded, budget]\nrevisable: []\nsteps:\n`;
+const HEAD = (skill: string) => `skill: ${skill}\nversion: 3\nexits: [done, blocked, human, inconclusive, superseded]\nrevisable: []\nsteps:\n`;
 
 interface Box { failCode: string | null; ran: number; crashAfterOutputs: boolean; payload: string }
 const newBox = (): Box => ({ failCode: null, ran: 0, crashAfterOutputs: false, payload: 'x' });
@@ -86,79 +86,6 @@ describe('F9 missing produces', () => {
       assert.equal(fourth.position, 'finish');
     } finally {
       await t.fx.dispose();
-    }
-  });
-});
-
-const BUDGETED = `${HEAD('r', 2)}  - id: one
-    actor: model
-    instruction: "One."
-  - id: two
-    actor: model
-    instruction: "Two."
-  - id: three
-    actor: model
-    instruction: "Three."
-  - id: four
-    actor: model
-    instruction: "Four."
-  - id: five
-    actor: model
-    instruction: "Five."
-`;
-
-describe('F10 model-step budget', () => {
-  it('03-F10: the delivery over budget raises budget-exhausted; stop exits budget; continue extends by one budget', async () => {
-    const t = await make(BUDGETED);
-    try {
-      await t.start();
-      await t.next();
-      const gate = await t.next();
-      assert.equal(gate.position, 'three');
-      assert.match(gate.text, /budget is spent/);
-      const printed = (await t.fx.kinds('t1', 'gate')).at(-1)!;
-      const resumed = await t.fx.engine.advance({ task: 't1', session: A, cause: 'gate-hook', answers: [{ gate: 'budget-exhausted', option: 'continue', instance: printed.id }] });
-      assert.equal(resumed.position, 'three');
-      assert.equal((await t.fx.kinds('t1', 'exit')).length, 0);
-      await t.next();
-      const second = await t.next();
-      assert.match(second.text, /budget is spent/);
-      const again = (await t.fx.kinds('t1', 'gate')).at(-1)!;
-      await t.fx.engine.advance({ task: 't1', session: A, cause: 'gate-hook', answers: [{ gate: 'budget-exhausted', option: 'stop', instance: again.id }] });
-      assert.equal((await t.fx.kinds('t1', 'exit')).at(-1)!['reason'], 'budget');
-    } finally {
-      await t.fx.dispose();
-    }
-  });
-});
-
-const WALL = `${HEAD('r', 8, ', wallMinutes: 5')}  - id: one
-    actor: model
-    instruction: "One."
-  - id: two
-    actor: model
-    instruction: "Two."
-`;
-
-describe('F11 wall clock', () => {
-  it('03-F11: a headless route past wallMinutes exits budget; an interactive one never does', async () => {
-    const headless = await make(WALL);
-    try {
-      await headless.start({ headless: true });
-      headless.fx.advanceClock(6 * 60_000);
-      const ended = await headless.next();
-      assert.equal((await headless.fx.kinds('t1', 'exit')).at(-1)!['reason'], 'budget');
-      assert.match(ended.text, /ended: budget/);
-    } finally {
-      await headless.fx.dispose();
-    }
-    const interactive = await make(WALL);
-    try {
-      await interactive.start();
-      interactive.fx.advanceClock(600 * 60_000);
-      assert.equal((await interactive.next()).position, 'two');
-    } finally {
-      await interactive.fx.dispose();
     }
   });
 });

@@ -1,50 +1,16 @@
-import path from 'node:path';
-import { REVIEWS_DIR, REVIEWS_LEAF, TASKS_DIR } from '#types/defaults';
-import { ReviewResult, type ReviewEstimate, type AssembleOptions } from '#types/modules/review';
+import { type ReviewEstimate, type AssembleOptions } from '#types/modules/review';
 import { tokenize } from '#util/text';
 import { AmbicodeError } from '#util/errors';
 import { adapterFor } from '#modules/checks/selection/adapters';
 import { authorizeCommand, checkApprovalKey } from '#modules/checks/selection/authorize';
-import { selectionRunsCommand, selectLintFiles, selectTestFiles } from '#modules/checks/selection/select';
+import { selectLintFiles, selectTestFiles } from '#modules/checks/selection/select';
 import { assembleBundle, groupByProject } from './bundle.ts';
 import type { Runtime } from '#types/composition';
 import type { DiffFile } from '#types/platform/git';
-import type { FileSystem, ProcessRunner } from '#types/platform/ports';
 
 export const MAX_ESTIMATE_BYTES = 2_048;
 
-const HISTORY_REVIEWS = 5;
 const SUGGESTED_EXCLUDES = 3;
-
-const median = (values: readonly number[]): number => {
-  const sorted = [...values].sort((a, b) => a - b);
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 1 ? sorted[middle]! : (sorted[middle - 1]! + sorted[middle]!) / 2;
-};
-
-/** The 5 newest results whose reviewer ran and was timed, under routeless and task reviews; fewer is no history (08-E4, D6). */
-export async function reviewHistory(fs: FileSystem, repositoryRoot: string): Promise<ReviewEstimate['history']> {
-  const directories = async (at: string): Promise<string[]> => (await fs.readdir(at).catch(() => [])).filter((entry) => entry.isDirectory()).map((entry) => path.join(at, entry.name));
-  const reviews = [
-    ...(await directories(path.join(repositoryRoot, REVIEWS_DIR))),
-    ...(await Promise.all((await directories(path.join(repositoryRoot, TASKS_DIR))).map((task) => directories(path.join(task, REVIEWS_LEAF))))).flat(),
-  ];
-  const timed: ReviewResult[] = [];
-  for (const directory of reviews) {
-    const text = await fs.readText(path.join(directory, 'result.json')).catch(() => null);
-    let parsed: ReturnType<typeof ReviewResult.safeParse> | null = null;
-    try {
-      parsed = text === null ? null : ReviewResult.safeParse(JSON.parse(text));
-    } catch {
-      parsed = null;
-    }
-    if (parsed?.success === true && parsed.data.reviewer?.status === 'ok' && parsed.data.reviewer.durationMs !== null) timed.push(parsed.data);
-  }
-  const newest = timed.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, HISTORY_REVIEWS);
-  if (newest.length < HISTORY_REVIEWS) return null;
-  const costs = newest.flatMap((result) => (result.reviewer?.usage?.costUsd ?? null) === null ? [] : [result.reviewer!.usage!.costUsd!]);
-  return { reviews: HISTORY_REVIEWS, medianDurationMs: median(newest.map((result) => result.reviewer!.durationMs!)), medianCostUsd: costs.length === 0 ? null : median(costs) };
-}
 
 /** `--exclude` lines a limit refusal can be passed with (08-E3). */
 export function refusalSuggestions(refusal: AmbicodeError, files: readonly DiffFile[]): string[] {
@@ -70,8 +36,6 @@ export function parseNarrow(text: string): { onlyPaths: string[]; excludePaths: 
   return narrowed;
 }
 
-const NOTHING_RUNS: ProcessRunner = { run: async () => { throw new Error('The review estimate runs no project command.'); } };
-
 /** The review measured without writing a snapshot, running a check or a selector, or appending to a ledger (07-E1 … 07-E3). */
 export async function estimateReview(runtime: Runtime, options: AssembleOptions): Promise<ReviewEstimate> {
   const dry = await assembleBundle({ ...options, runtime, dryRun: true });
@@ -93,14 +57,9 @@ export async function estimateReview(runtime: Runtime, options: AssembleOptions)
         continue;
       }
       const lint = adapterFor(check.adapter).role === 'lint';
-      // A runner-listed selection is known only by running project code, which an estimate never does.
-      if (!lint && selectionRunsCommand(check)) {
-        checks.push({ key, decision: 'unknown', reason: `selected at review time${authorization.kind === 'needs-approval' ? `; needs approval if a test is selected (${authorization.reason})` : ''}` });
-        continue;
-      }
       const select = {
-        fs: runtime.fs, project, check, changed: changedOf.get(project.id) ?? [], repositoryRoot: dry.workspace.repositoryRoot, runner: NOTHING_RUNS, enumerationRevision: null,
-        maxSelectedTestFiles: dry.workspace.config.checks.maxSelectedTestFiles, timeoutMs: 0, commandArgv: command.argv, authorize: () => authorization,
+        fs: runtime.fs, project, check, changed: changedOf.get(project.id) ?? [], repositoryRoot: dry.workspace.repositoryRoot,
+        maxSelectedTestFiles: dry.workspace.config.checks.maxSelectedTestFiles,
       };
       const selection = lint ? selectLintFiles(select) : await selectTestFiles(select);
       if (selection.files.length === 0) {
@@ -116,7 +75,6 @@ export async function estimateReview(runtime: Runtime, options: AssembleOptions)
     checks,
     waitingKeys: checks.filter((check) => check.decision === 'waiting').map((check) => check.key),
     snapshotBytes: dry.plan?.totalBytes ?? null,
-    history: await reviewHistory(runtime.fs, dry.workspace.repositoryRoot),
     refusal: dry.refusal === null ? null : { code: dry.refusal.code as 'input-too-large', message: dry.refusal.message, suggestions: refusalSuggestions(dry.refusal, dry.files) },
   };
 }
@@ -135,10 +93,8 @@ export function renderEstimate(estimate: ReviewEstimate): string {
     `Review estimate: ${estimate.target} · ${estimate.files} file(s) · ${estimate.changedLines} changed line(s) · snapshot ${estimate.snapshotBytes === null ? 'not planned' : `${estimate.snapshotBytes} bytes`}`,
   ];
   const waiting = estimate.waitingKeys.length <= 8 ? estimate.waitingKeys.join(', ') : `${estimate.waitingKeys.slice(0, 8).join(', ')}, ${more(estimate.waitingKeys.length - 8)}`;
-  const history = estimate.history;
   const tail = [
     `waiting: ${estimate.waitingKeys.length === 0 ? 'none' : waiting}`.slice(0, 300),
-    history === null ? 'history: no history' : `history: median ${Math.round(history.medianDurationMs / 1000)}s${history.medianCostUsd === null ? '' : `, $${history.medianCostUsd.toFixed(2)}`} over the last ${history.reviews} reviews`,
   ];
   const lines = estimate.checks.map((check) => `  ${check.key} ${check.decision}${check.reason === null ? '' : ` — ${check.reason}`}`.slice(0, 160));
   const size = (shown: number): number => Buffer.byteLength([...head, 'checks:', ...lines.slice(0, shown), `  ${more(lines.length - shown)}`, ...tail].join('\n'));

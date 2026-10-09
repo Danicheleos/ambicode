@@ -15,7 +15,7 @@ export const PLAN_TASK = 'ORD-17';
 export const PLAN = `skill: plan
 version: 3
 budget: { modelSteps: 14 }
-exits: [done, blocked, human, inconclusive, superseded, budget]
+exits: [done, blocked, human, inconclusive, superseded]
 revisable: [design]
 steps:
   - id: design

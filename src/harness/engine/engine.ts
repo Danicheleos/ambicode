@@ -338,7 +338,7 @@ export function createEngine(deps: EngineDeps): Engine {
     const head = await withLedgerLock(runtime.fs, dir.root, now, session, async (ledger) => {
       const entries = await readStrict(ledger, task);
       const route = latestRouteOf(entries, session);
-      if (route === null || exitOf(buildChain(entries, route)) !== null) throw new AmbicodeError('route-not-found', `Task ${task} has no open route of this session to stop.`);
+      if (route === null || exitOf(buildChain(entries, route)) !== null) throw new AmbicodeError('route-not-open', `Task ${task} has no open route of this session to stop.`);
       await ledger.append({ kind: 'exit', route: route.id, reason, ...(detail === undefined ? {} : { detail }) });
       return route;
     });

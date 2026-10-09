@@ -6,7 +6,7 @@ import { initConfig } from '#testing/fixtures/init-config';
 import { runReview, REVIEW_OPTIONS } from '#cli/commands/review/review';
 import { createRuntime } from '#composition/root';
 import { nodeFileSystem } from '#platform/ports/filesystem';
-import { byteLength } from '../snapshot/limits.ts';
+import { byteLength } from '../snapshot/snapshot.ts';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { isAmbicodeError } from '#util/errors';
 import type { Runtime } from '#types/composition';
@@ -55,7 +55,6 @@ async function evidence(repo: TempRepo, content: string): Promise<string> {
           title: 'Sum the amounts',
           retrievedAt: '2026-09-20T09:00:00.000Z',
           sourceVersion: '3',
-          updatedAt: '2026-09-19T12:00:00.000Z',
           content,
           citations: [],
           status: 'retrieved',

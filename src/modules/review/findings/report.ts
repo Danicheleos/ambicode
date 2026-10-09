@@ -12,16 +12,6 @@ interface ReportOptions {
   pendingApprovals: readonly PendingApproval[];
 }
 
-function describeInputSplit(inputs: ReviewResult['inputs']): string {
-  if (inputs.promptBytes === 0) {
-    return `${inputs.patchBytes} patch + ${inputs.requirementBytes} requirements + ${inputs.snapshotBytes} mirrored`;
-  }
-  return (
-    `${inputs.promptBytes} prompt, of which ${inputs.patchBytes} patch and ` +
-    `${inputs.requirementBytes} requirements, + ${inputs.snapshotBytes} mirrored`
-  );
-}
-
 export function renderReport(options: ReportOptions): string {
   const { result } = options;
   return [
@@ -44,29 +34,13 @@ function whatWasReviewed(options: ReportOptions): string[] {
     `   target      ${result.target.kind} (${result.target.snapshotId})`,
     `   measured    ${result.inputs.changedFiles} file(s), ${result.inputs.changedLines} line(s), ` +
       `${result.inputs.contextBytes} model-input byte(s) ` +
-      `(${describeInputSplit(result.inputs)}), limit ${result.inputs.limits.maxContextBytes ?? 'none'}`,
+      `(${result.inputs.patchBytes} patch + ${result.inputs.requirementBytes} requirements + ${result.inputs.snapshotBytes} mirrored), limit ${result.inputs.limits.maxContextBytes ?? 'none'}`,
     `   snapshot    ${options.snapshotDirectory}`,
     `   result      ${options.resultPath}`,
   ];
 
   if (result.reviewer !== null) {
-    lines.push(
-      `   reviewer    ${result.reviewer.status} — model ${result.reviewer.model}, ` +
-        `tools ${result.reviewer.tools.join(',') || '(none)'}, ` +
-        `timeout ${result.reviewer.timeoutSeconds}s` +
-        (result.reviewer.durationMs === null ? '' : `, took ${Math.round(result.reviewer.durationMs / 1000)}s`),
-    );
-    const usage = result.reviewer.usage;
-    if (usage !== null) {
-      const unknown = 'unknown';
-      lines.push(
-        `               ${usage.turns ?? unknown} turn(s), ` +
-          `model time ${usage.apiDurationMs === null ? unknown : `${Math.round(usage.apiDurationMs / 1000)}s`}, ` +
-          `${usage.outputTokens ?? unknown} output token(s), ` +
-          `cost ${usage.costUsd === null ? unknown : `$${usage.costUsd.toFixed(2)}`}` +
-          (usage.thinkingTokens === null ? '' : `, ${usage.thinkingTokens} of them reasoning`),
-      );
-    }
+    lines.push(`   reviewer    ${result.reviewer.status}`);
     if (result.reviewer.detail !== null) lines.push(`               ${result.reviewer.detail}`);
     if (result.reviewer.rejectedOutputRef !== null) {
       lines.push(`               the refused answer, unvalidated: ${result.reviewer.rejectedOutputRef}`);

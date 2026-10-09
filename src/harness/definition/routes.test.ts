@@ -50,17 +50,12 @@ test('03-R1: a valid route loads and normalizes its steps, gate and defaults', a
   const directory = await root(t, { 'routes/demo/demo.yaml': `${BASE.head}${BASE.code}${BASE.model}${BASE.gate}` });
   const { routes } = await validateRouteFiles(directory, { handlers: HANDLERS });
   const route = routes[0]!;
-  assert.deepEqual([route.skill, route.version, route.budget.modelSteps], ['demo', 3, 6]);
-  assert.equal('toolTurns' in route.budget, false);
+  assert.deepEqual([route.skill, route.version], ['demo', 3]);
   assert.deepEqual(route.steps.map((step) => [step.id, step.index, step.actor, step.repeat]), [['ground', 0, 'code', 2], ['read', 1, 'model', 1], ['ask', 2, 'human', 1]]);
   assert.deepEqual(route.steps[0]!.run, [{ name: 'code.one', params: [] }]);
   const gate = route.steps[2]!.gate!;
   assert.deepEqual([gate.id, gate.class, gate.maxRevises, gate.acting], ['ask', 'declared', 3, []]);
   assert.deepEqual(gate.onAnswer['Maybe'], { target: 'ground', args: {} });
-});
-
-test('a route budget refuses a tool-turn count', async (t) => {
-  await refuses(t, `${BASE.head.replace('{ modelSteps: 6 }', '{ modelSteps: 6, toolTurns: 12 }')}${BASE.model}`, /toolTurns/);
 });
 
 test('03-R1: one rejection per schema rule, each naming the file and the field', async (t) => {
@@ -69,7 +64,6 @@ test('03-R1: one rejection per schema rule, each naming the file and the field',
     ['missing step id', `${BASE.head}  - actor: code\n    run: code.one\n`, /steps\.0\.id/],
     ['unknown actor', `${BASE.head}  - id: x\n    actor: robot\n`, /steps\.0\.actor/],
     ['version 2', BASE.head.replace('version: 3', 'version: 2') + BASE.model, /version/],
-    ['no modelSteps', BASE.head.replace('{ modelSteps: 6 }', '{ wallMinutes: 5 }') + BASE.model, /budget\.modelSteps/],
     ['exit outside the set', BASE.head.replace('[done, blocked, human]', '[done, vanished]') + BASE.model, /exits/],
     ['a yaml parse error names its line', `${BASE.head}  - id: x\n    actor: code\n    run: [a, b: c\n`, /demo\.yaml: (line \d+|yaml)/],
     ['an unquoted brace in a flow sequence', `${BASE.head}  - id: x\n    actor: code\n    run: code.one\n    produces: [policy{before-report}]\n`, /demo\.yaml/],
@@ -160,7 +154,7 @@ test('03-R7: the registry holds every v6/32 §4 gate with a question, default an
   const { registry } = await validateRouteFiles(REPO_ROOT, { handlers: HANDLER_NAMES });
   const ids = registry.map((gate) => gate.id).sort();
   assert.deepEqual(ids, [
-    'budget-exhausted', 'check-only-unauthorized', 'config-unparsable', 'decision:*', 'project-ambiguous', 'requirements-conflicting',
+    'check-only-unauthorized', 'config-unparsable', 'decision:*', 'project-ambiguous', 'requirements-conflicting',
     'requirements-expansion-capped', 'requirements-not-captured-twice', 'requirements-server-ambiguous', 'requirements-server-disconnected', 'review-again', 'review-checks', 'scope-expanding',
   ]);
   for (const gate of registry) {

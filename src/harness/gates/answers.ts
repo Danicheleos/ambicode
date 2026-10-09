@@ -13,8 +13,8 @@ export async function exitRoute(run: Run, reason: Exit | string, detail?: string
   run.exited = reason;
 }
 
-/** An option named `stop` records an exit: the budget gate exits `budget`, a project question `human`, the rest `blocked` (D12). */
-export const stopReason = (gate: string): string => (gate === 'draft-ok' ? 'draft-stop' : gate === 'budget-exhausted' ? 'budget' : gate === 'project-ambiguous' || gate === 'scope' ? 'human' : 'blocked');
+/** An option named `stop` records an exit: a project question `human`, the rest `blocked` (D12). */
+export const stopReason = (gate: string): string => (gate === 'draft-ok' ? 'draft-stop' : gate === 'project-ambiguous' || gate === 'scope' ? 'human' : 'blocked');
 
 /** The window a gate's answers are read in: its own step's, or for a raised gate the step that raised it. */
 function gateWindow(run: Run, gateId: string): LedgerEntry[] {

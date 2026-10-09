@@ -10,7 +10,6 @@ import type { Dependent } from './search.ts';
 
 export const REVIEW_SCHEMA_VERSION = 1;
 
-
 export const ReviewTarget = z.strictObject({
   kind: TargetKind,
   repositoryRoot: z.string().min(1),
@@ -22,10 +21,7 @@ export const ReviewTarget = z.strictObject({
 });
 export type ReviewTarget = z.infer<typeof ReviewTarget>;
 
-export const SelectedFile = z.strictObject({
-  path: z.string().min(1),
-  reason: z.string().min(1),
-});
+const count = z.number().int().nonnegative();
 
 export const CheckResult = z.strictObject({
   checkId: z.string().min(1),
@@ -33,11 +29,10 @@ export const CheckResult = z.strictObject({
   commandId: z.string().min(1),
   adapter: z.string().min(1),
   status: CheckStatus,
-  selected: z.array(SelectedFile).default([]),
+  selected: z.array(z.strictObject({ path: z.string().min(1), reason: z.string().min(1) })).default([]),
   selectionComplete: z.boolean(),
   argv: z.array(z.string()).default([]),
-  cwd: z.string().nullable().default(null),
-  durationMs: z.number().int().nonnegative().nullable().default(null),
+  durationMs: count.nullable().default(null),
   exitCode: z.number().int().nullable().default(null),
   outputRef: z.string().nullable().default(null),
   limitations: z.array(z.string()).default([]),
@@ -71,33 +66,18 @@ export const Finding = z.strictObject({
 export type Finding = z.infer<typeof Finding>;
 
 export const ReviewerOutput = z.strictObject({
-  findings: z
-    .array(
-      z.strictObject({
-        risk: Risk,
-        confidence: Confidence,
-        category: z.string().min(1),
-        location: FindingLocation,
-        supportingLocations: z.array(FindingLocation).default([]),
-        explanation: z.string().min(1),
-        suggestedComment: z.string().min(1),
-        ruleRefs: z.array(z.string()).default([]),
-        requirementRefs: z.array(z.string()).default([]),
-      }),
-    )
-    .default([]),
+  findings: z.array(Finding.omit({ id: true, evidence: true })).default([]),
   coverageNotes: z.array(z.string()).default([]),
 });
 export type ReviewerOutput = z.infer<typeof ReviewerOutput>;
 
 export const ReviewInputs = z.strictObject({
-  changedFiles: z.number().int().nonnegative(),
-  changedLines: z.number().int().nonnegative(),
-  patchBytes: z.number().int().nonnegative(),
-  snapshotBytes: z.number().int().nonnegative(),
-  requirementBytes: z.number().int().nonnegative().default(0),
-  promptBytes: z.number().int().nonnegative().default(0),
-  contextBytes: z.number().int().nonnegative(),
+  changedFiles: count,
+  changedLines: count,
+  patchBytes: count,
+  snapshotBytes: count,
+  requirementBytes: count.default(0),
+  contextBytes: count,
   limits: z.strictObject({
     maxChangedFiles: z.number().int().positive().nullable(),
     maxChangedLines: z.number().int().positive().nullable(),
@@ -106,49 +86,26 @@ export const ReviewInputs = z.strictObject({
   }),
 });
 export type ReviewInputs = z.infer<typeof ReviewInputs>;
+export type MeasuredInput = Omit<ReviewInputs, 'limits'>;
 
-/** Each field is null when the envelope did not carry it, never zero. */
-export const ReviewerUsage = z.strictObject({
-  turns: z.number().int().nonnegative().nullable(),
-  apiDurationMs: z.number().int().nonnegative().nullable(),
-  outputTokens: z.number().int().nonnegative().nullable(),
-  costUsd: z.number().nonnegative().nullable(),
-  thinkingTokens: z.number().int().nonnegative().nullable().default(null),
-});
-export type ReviewerUsage = z.infer<typeof ReviewerUsage>;
-
+/** `review record` stored the subagent's answer: `ok`, or `failed` with the refused text kept at `rejectedOutputRef`. */
 export const ReviewerRun = z.strictObject({
-  status: z.enum(['ok', 'not-run', 'failed']),
-  model: z.string().min(1),
-  timeoutSeconds: z.number().int().positive(),
-  tools: z.array(z.string()).default([]),
-  isolation: z.array(z.string()).default([]),
+  status: z.enum(['ok', 'failed']),
   rejections: z.array(z.string()).default([]),
   detail: z.string().nullable().default(null),
-  durationMs: z.number().int().nonnegative().nullable().default(null),
-  usage: ReviewerUsage.nullable().default(null),
   rejectedOutputRef: z.string().nullable().default(null),
-  /** When `review record` stored the subagent's answer. */
   at: z.string().nullable().default(null),
 });
 export type ReviewerRun = z.infer<typeof ReviewerRun>;
 
-/** `quality-review` is the persisted spelling of `source-free`, mapped in `src/review/bundle.ts`. */
+/** `quality-review` is the persisted spelling of `source-free`, mapped in the bundle. */
 export const ReviewRequirementMode = z.enum(['quality-review', 'requirement-based']);
-export type ReviewRequirementMode = z.infer<typeof ReviewRequirementMode>;
-
-export const SelectionRecord = z.strictObject({
-  submittedAt: z.string().min(1),
-  rows: z.array(z.strictObject({ findingId: z.string().min(1), offered: z.boolean(), selected: z.boolean(), edited: z.boolean(), posted: z.boolean() })),
-});
-export type SelectionRecord = z.infer<typeof SelectionRecord>;
 
 export const ReviewResult = z.strictObject({
   schemaVersion: z.literal(REVIEW_SCHEMA_VERSION),
   reviewId: z.string().min(1),
   createdAt: z.string().min(1),
   pluginVersion: z.string().min(1),
-  reviewModel: z.string().min(1),
   target: ReviewTarget,
   requirements: z.array(RequirementSource).default([]),
   requirementMode: ReviewRequirementMode,
@@ -156,12 +113,9 @@ export const ReviewResult = z.strictObject({
   provenance: z.array(ProvenanceEntry).default([]),
   inputs: ReviewInputs,
   reviewer: ReviewerRun.nullable().default(null),
-  /** Repository-relative path of the reviewer's `brief.md`; null on a result written before the subagent reviewer. */
+  /** Repository-relative path of the reviewer's `brief.md`. */
   brief: z.string().nullable().default(null),
-  policySummary: z.strictObject({
-    packs: z.array(z.string()).default([]),
-    ruleIds: z.array(z.string()).default([]),
-  }),
+  policySummary: z.strictObject({ packs: z.array(z.string()).default([]), ruleIds: z.array(z.string()).default([]) }),
   checks: z.array(CheckResult).default([]),
   changedFiles: z
     .array(
@@ -169,8 +123,8 @@ export const ReviewResult = z.strictObject({
         oldPath: z.string().nullable(),
         newPath: z.string().nullable(),
         changeKind: z.enum(['added', 'modified', 'deleted', 'renamed', 'copied', 'type-changed']),
-        addedLines: z.number().int().nonnegative(),
-        removedLines: z.number().int().nonnegative(),
+        addedLines: count,
+        removedLines: count,
         included: z.boolean(),
         exclusionReason: z.string().nullable().default(null),
       }),
@@ -180,16 +134,10 @@ export const ReviewResult = z.strictObject({
   omissions: z.array(z.string()).default([]),
   status: ReviewStatus,
   statusReason: z.string().nullable().default(null),
-  /** One element per page submit; absent until the first, so earlier results re-serialize unchanged. */
-  selection: z.array(SelectionRecord).optional(),
 });
 export type ReviewResult = z.infer<typeof ReviewResult>;
 
-/**
- * Both `bundle` and `review` assemble it here, so neither re-derives policy or
- * snapshot decisions. The full model input is measured against
- * `review.maxContextBytes` before any caller can reach a reviewer.
- */
+/** What `assembleBundle` measured and decided: policy, snapshot and checks, so no caller re-derives them. */
 export interface ReviewBundle {
   workspace: Workspace;
   reviewId: string;
@@ -220,32 +168,13 @@ export interface ReviewEstimate {
   target: string;
   files: number;
   changedLines: number;
-  checks: { key: string; decision: 'run' | 'waiting' | 'skip' | 'forbid' | 'unknown'; reason: string | null }[];
+  checks: { key: string; decision: 'run' | 'waiting' | 'skip' | 'forbid'; reason: string | null }[];
   waitingKeys: string[];
   snapshotBytes: number | null;
-  history: { reviews: 5; medianDurationMs: number; medianCostUsd: number | null } | null;
   refusal: { code: 'input-too-large' | 'snapshot-too-large'; message: string; suggestions: string[] } | null;
 }
 
-export interface MeasuredInput {
-  changedFiles: number;
-  changedLines: number;
-  patchBytes: number;
-  snapshotBytes: number;
-  requirementBytes: number;
-  /** Bytes of the composed canonical prompt; zero before it has been composed. */
-  promptBytes: number;
-  /**
-   * Once the prompt exists: the prompt plus the mirrored tree, since the patch and
-   * requirements are inside the prompt. Before then, the sum of the known parts (a lower bound).
-   */
-  contextBytes: number;
-}
-
-/**
- * Exactly what the reviewer may read, mirrored under `files/` outside the checkout and
- * without `.git`. Every byte comes from the pinned `ContentSource`, never the checkout.
- */
+/** Exactly what the reviewer may read, mirrored under `files/` outside the checkout and without `.git`. */
 export interface Snapshot {
   directory: string;
   filesDirectory: string;
@@ -261,10 +190,7 @@ export interface SnapshotEntry {
   bytes: number;
 }
 
-/**
- * Everything the snapshot would contain, so the whole input can be measured
- * against the limits before any of it exists on disk.
- */
+/** Everything the snapshot would contain, so the whole input can be measured against the limits before any of it exists on disk. */
 export interface SnapshotPlan {
   entries: SnapshotEntry[];
   changedPaths: string[];

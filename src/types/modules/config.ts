@@ -23,11 +23,6 @@ export type CommandSpec = z.infer<typeof CommandSpec>;
 /** `null` is an intentionally unavailable command, not a missing field. */
 export const CommandEntry = CommandSpec.nullable();
 
-export const RelatedSelector = z.strictObject({
-  kind: z.literal('related'),
-  maxFiles: z.number().int().positive().optional(),
-});
-
 export const MappingSelector = z.strictObject({
   kind: z.literal('mapping'),
   maxFiles: z.number().int().positive().optional(),
@@ -41,18 +36,7 @@ export const MappingSelector = z.strictObject({
     .min(1),
 });
 
-export const CommandSelector = z.strictObject({
-  kind: z.literal('command'),
-  maxFiles: z.number().int().positive().optional(),
-  /** An existing command-catalog ID; selection is not a bypass around policy. */
-  command: z.string().min(1),
-});
-
-export const Selector = z.discriminatedUnion('kind', [
-  RelatedSelector,
-  MappingSelector,
-  CommandSelector,
-]);
+export const Selector = MappingSelector;
 export type Selector = z.infer<typeof Selector>;
 
 export const CheckSpec = z.strictObject({

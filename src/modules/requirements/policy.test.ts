@@ -14,7 +14,7 @@ const TWO_URLS = ['https://x.atlassian.net/browse/ORD-17', 'https://x.atlassian.
 const DISCONNECTED_ROUTE = `skill: review
 version: 3
 budget: { modelSteps: 6 }
-exits: [done, blocked, human, inconclusive, superseded, budget]
+exits: [done, blocked, human, inconclusive, superseded]
 revisable: []
 steps:
   - id: connect

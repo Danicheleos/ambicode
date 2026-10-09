@@ -81,8 +81,7 @@ export async function runReviewRecord(runtime: Runtime, args: ParsedArgs): Promi
   const config = workspace.config.review;
 
   const run = {
-    status: 'ok' as 'ok' | 'failed', model: config.model, timeoutSeconds: config.timeoutSeconds, tools: ['Read', 'Grep', 'Glob'], isolation: ['plugin subagent'],
-    rejections: [] as string[], detail: null as string | null, durationMs: null, usage: null, rejectedOutputRef: null as string | null, at: runtime.clock.now().toISOString(),
+    status: 'ok' as 'ok' | 'failed', rejections: [] as string[], detail: null as string | null, rejectedOutputRef: null as string | null, at: runtime.clock.now().toISOString(),
   };
   let ok = true;
   let dropped: string | null = null;
@@ -147,7 +146,7 @@ export function renderRecord(output: RecordOutput): string {
 
 export const reviewRecordCommand: CliCommand = {
   name: 'review record',
-  summary: "Record the reviewer subagent's JSON answer from standard input (--task).",
+  summary: "Record the reviewer's JSON answer from stdin (--task).",
   options: REVIEW_RECORD_OPTIONS,
   run: async (runtime, args) => {
     const output = await runReviewRecord(runtime, args);

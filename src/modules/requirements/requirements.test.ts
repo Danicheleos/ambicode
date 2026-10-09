@@ -19,7 +19,7 @@ const A = 'aaaaaaaa-1111-4111-8111-111111111111';
 const ROUTE = `skill: investigate
 version: 3
 budget: { modelSteps: 6 }
-exits: [done, blocked, human, inconclusive, superseded, budget]
+exits: [done, blocked, human, inconclusive, superseded]
 revisable: []
 steps:
   - id: read

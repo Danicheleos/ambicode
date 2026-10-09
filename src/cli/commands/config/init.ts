@@ -70,7 +70,7 @@ export function renderInit(output: InitOutput): string {
 
 export const initCommand: CliCommand = {
   name: 'init',
-  summary: 'Point at /ambicode:init; --apply writes the accepted config, inside the init route only.',
+  summary: 'Point at /ambicode:init; --apply writes the accepted config.',
   options: INIT_OPTIONS,
   run: async (runtime, args) => {
     const output = await runInit(runtime, args);

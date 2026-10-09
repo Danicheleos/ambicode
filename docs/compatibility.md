@@ -167,40 +167,7 @@ policy can still impose behaviour that neither shows.
 
 ## Check runners
 
-| Runner | Version | Affected-test enumeration | How established |
-|---|---|---|---|
-| jest | 30.5.2 | `--listTests --findRelatedTests <files>` | observed |
-| vitest | 5.0.1 | `list --filesOnly --changed <revision>` only | observed |
-| eslint | 9.39.5 | not applicable (lint is file-scoped) | observed |
-| ruff | — | not applicable (lint is file-scoped) | unverified; not installed here |
-| generic | any | not applicable (lint is file-scoped); for a tool whose exit code is the verdict, e.g. `prettier --check`, stylelint, biome, `tsc` | no runner-specific behaviour, so nothing to establish |
-| pytest | 9.0.1 | none; selection comes from a configured mapping | observed |
-| playwright | — | none; selection comes from a configured mapping | unverified; not installed here |
-
-### jest
-
-Enumerating from an explicit file list works as documented. Two behaviours were
-measured because they decide how deletions are reported:
-
-- `--listTests --findRelatedTests <deleted path>` exits **0 and prints nothing**.
-- The same command given the **destination of a rename** also exits 0 and prints
-  nothing, so a test that imported the old name is invisible to it.
-
-A vanished path is therefore indistinguishable from "nothing is affected".
-`selectByRunner` marks any change carrying a vanished pre-image as an incomplete
-selection rather than accepting that silence.
-
-### vitest
-
-On 5.0.1, `vitest list --related` is rejected and `vitest related` has no listing
-mode, so the only enumeration available is revision-based. Two consequences are
-recorded on every vitest result:
-
-- it reads the repository **working tree**, not the pinned snapshot, so its
-  answer can differ from what the review is about;
-- a dynamic import with a computed specifier is not followed.
-
-If either matters for a project, configure a `mapping` selector instead.
+Affected tests come from a configured `mapping` selector; no runner is asked to list them. Lint is file-scoped.
 
 ## Review input limits
 
@@ -315,10 +282,6 @@ container.
 Skip reasons, each producing skipped check results and no local execution:
 `image: null`; an image not pinned by digest; the container runtime not
 startable; `docker image inspect` timing out; the image absent locally.
-
-Selection for a merge request uses only pure-glob selectors (lint `include`,
-`mapping`). A `related` or `command` selector is skipped with that reason,
-because deciding what to run would execute project code.
 
 **Unverified against a live runtime.** The Docker CLI is present (28.0.4) but
 its daemon was not running here, so no container has been created, copied into

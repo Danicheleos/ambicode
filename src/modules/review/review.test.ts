@@ -60,7 +60,6 @@ function retrieved(url: string, id: string, content: string) {
     title: `Requirement ${id}`,
     retrievedAt: '2026-09-20T09:00:00.000Z',
     sourceVersion: '3',
-    updatedAt: '2026-09-19T12:00:00.000Z',
     content,
     citations: [],
     status: 'retrieved' as const,

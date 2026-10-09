@@ -20,7 +20,7 @@ Routes are checked by `npm run build`, `npm run verify` and the package build. A
 ```yaml
 skill: investigate        # required, equals the file name
 version: 3                # required, always 3
-budget: { modelSteps: 6 } # required
+budget: { modelSteps: 6 } # optional, documentation only: nothing enforces it
 exits: [done, blocked, human, inconclusive, superseded, budget]
 revisable: [ground]       # optional, default []
 steps: [ ... ]            # required, at least one
@@ -30,9 +30,8 @@ steps: [ ... ]            # required, at least one
 |---|---|---|
 | `skill` | string | The skill the route belongs to; `/ambicode:<skill>` starts it. |
 | `version` | `3` | Schema version of the route language. |
-| `budget.modelSteps` | integer > 0 | Most model steps the route may deliver. The next one raises the `budget-exhausted` gate; "continue" grants another allotment. Size it to the model steps plus a few repeats. |
-| `budget.wallMinutes` | integer > 0, optional | Wall-clock limit in minutes. |
-| `exits` | any of `done`, `blocked`, `human`, `inconclusive`, `superseded`, `budget` | The ways the route may end. `done` normal; `blocked` stuck or stopped; `human` waiting for the user; `inconclusive` finished without an answer; `superseded` replaced by another route; `budget` out of model steps. |
+| `budget` | any, optional | The size the route was designed for. Ignored: no step count or clock limit is enforced. |
+| `exits` | any of `done`, `blocked`, `human`, `inconclusive`, `superseded`, `budget` | The ways the route may end. `done` normal; `blocked` stuck or stopped; `human` waiting for the user; `inconclusive` finished without an answer; `superseded` replaced by another route; `budget` is still accepted in the list but nothing ends a route with it any more. |
 | `revisable` | list of step ids | Steps the model may ask to run again with `route next --revise <step>`. A listed code or model step needs `repeat` of at least 2. Use it for a step whose result may need redoing with new input. |
 
 ## A step
@@ -121,7 +120,7 @@ gate:
 
 In a headless route the guard turns a permission ask into a deny; the model then finishes with a final message that says `permission-denied: <what>`.
 
-Special answers: `stop` and `pause` end the route. The exit is `human` for the `scope` and `project-ambiguous` gates, `budget` for the budget gate and `blocked` for every other gate. Name the option `pause` when the user can supply what is missing later in the chat; a paused route cannot be resumed, the user starts a new one.
+Special answers: `stop` and `pause` end the route. The exit is `human` for the `scope` and `project-ambiguous` gates and `blocked` for every other gate. Name the option `pause` when the user can supply what is missing later in the chat; a paused route cannot be resumed, the user starts a new one.
 
 Gates are asked with AskUserQuestion; the printed line `[ambicode gate <id> <instance>]` must stay verbatim in the question so the hook can bind the answer.
 

@@ -155,7 +155,6 @@ export async function runChecks(options: RunChecksOptions): Promise<RunChecksOut
         selected: selection.files,
         selectionComplete: selection.complete,
         argv,
-        cwd: commandCwd,
       });
       continue;
     }
@@ -185,7 +184,6 @@ export async function runChecks(options: RunChecksOptions): Promise<RunChecksOut
       selected: selection.files,
       selectionComplete: selection.complete,
       argv,
-      cwd: commandCwd,
       durationMs,
       mutations,
     };
@@ -272,7 +270,6 @@ function skipped(
     selected: [],
     selectionComplete: false,
     argv: [],
-    cwd: null,
     durationMs: null,
     exitCode: null,
     outputRef: null,

@@ -6,7 +6,9 @@ import { normalizeRelative } from '#util/paths';
 import { isSearchable } from '#util/path-classes';
 import { DECLARATION_PATTERNS } from '#types/modules/ecosystems';
 import { MAX_DEPENDENTS, COMMON_NAMES, type Dependent } from '#types/modules/search';
+import { declarationsOf } from '#modules/search/harvest';
 import type { DiffFile } from '#types/platform/git';
+import type { FileSystem } from '#types/platform/ports';
 
 /**
  * Twelve terms at most; a removal outranks an addition because a caller of something
@@ -116,4 +118,20 @@ export async function findDependents(options: {
   }
   const ranked = [...found.values()].sort((a, b) => b.reasons.length - a.reasons.length || a.path.localeCompare(b.path));
   return { terms, dependents: ranked.slice(0, MAX_DEPENDENTS), limitations };
+}
+
+/** A dependent found by a name another file also declares may import a different one (08-D3); flagged, never resolved. */
+export async function flagCollisions(git: Git, fs: FileSystem, projects: readonly ProjectConfig[], dependents: Dependent[]): Promise<Dependent[]> {
+  const termsOf = (entry: Dependent): string[] => entry.reasons.flatMap((reason) => /^contains "([^"]+)"/.exec(reason)?.[1] ?? []);
+  const terms = [...new Set(dependents.flatMap(termsOf))];
+  if (terms.length === 0) return dependents;
+  const colliding = new Set<string>();
+  for (const project of projects) {
+    const root = normalizeRelative(project.root);
+    for (const declaration of await declarationsOf(git, fs, terms, root === '' ? null : literalPathspec(root))) if (declaration.declarations >= 2) colliding.add(declaration.name);
+  }
+  return dependents.map((entry) => {
+    const flagged = termsOf(entry).filter((term) => colliding.has(term)).map((term) => `verify import: ${term} is declared in more than one file`);
+    return flagged.length === 0 ? entry : { ...entry, reasons: [...entry.reasons, ...flagged] };
+  });
 }

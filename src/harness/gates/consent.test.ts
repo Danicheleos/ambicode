@@ -75,7 +75,7 @@ describe('S13 instance binding', () => {
       await plan.toGate();
       const print = await printOf(plan);
       await plan.hook('plan-accept', 'Accept', 'aaaaaaaa-99');
-      const last = await plan.hook('budget-exhausted', 'Accept', print.id);
+      const last = await plan.hook('review-again', 'Accept', print.id);
       const unbound = (await plan.fx.kinds(PLAN_TASK, 'declined')).filter((entry) => entry['unbound'] === true);
       assert.deepEqual(unbound.map((entry) => entry['reason']), ['unknown-instance', 'wrong-gate']);
       assert.equal((await notes(plan, 'plan')).length, 0);

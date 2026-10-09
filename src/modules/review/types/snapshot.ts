@@ -16,11 +16,6 @@ export interface ContentSource {
   readonly digest: string;
   read(relativePath: string): Promise<FileContent | null>;
   list(directoryName: string): Promise<string[]>;
-  /**
-   * Lets a remote source fetch these together. Never authoritative: `read` still
-   * answers every path, so a source that ignores this behaves identically.
-   */
-  prime?(relativePaths: readonly string[]): Promise<void>;
 }
 
 export type { ExclusionReason, OperatorPatterns } from '#types/util';

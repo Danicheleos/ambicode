@@ -10,7 +10,7 @@ import { TempRepo } from '#testing/fixtures/temp-repo';
 import { taskFixture } from '#testing/fixtures/task-fixture';
 import { reviewResult } from '#testing/fixtures/review-fixture';
 import { AmbicodeError } from '#util/errors';
-import { MAX_ESTIMATE_BYTES, parseNarrow, refusalSuggestions, renderEstimate, reviewHistory } from './estimate.ts';
+import { MAX_ESTIMATE_BYTES, parseNarrow, refusalSuggestions, renderEstimate } from './estimate.ts';
 import { narrowingInForce, reviewCommand } from '#skills/review/handlers';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import type { Runtime } from '#types/composition';
@@ -112,25 +112,6 @@ describe('review estimate (07-E)', () => {
     });
   });
 
-  it('07-E2: a related-selector test check is unknown ("selected at review time") and runs nothing', async () => {
-    const config = CHECK_CONFIG.replace('unit: { command: unit, adapter: jest }', 'unit: { command: unit, adapter: jest, selector: { kind: related } }');
-    await withRepo(async (repo) => {
-      const estimate = await estimateOf(repo);
-      const unit = estimate.checks.find((check) => check.key === 'app/unit');
-      assert.equal(unit?.decision, 'unknown');
-      assert.match(unit?.reason ?? '', /^selected at review time/);
-    }, { config });
-  });
-
-  it('07-E2: a related check whose command needs approval says so in the unknown reason', async () => {
-    const config = CHECK_CONFIG.replace('e2e: { command: e2e, adapter: playwright }', 'e2e: { command: e2e, adapter: playwright, selector: { kind: related } }');
-    await withRepo(async (repo) => {
-      const e2e = (await estimateOf(repo)).checks.find((check) => check.key === 'app/e2e');
-      assert.equal(e2e?.decision, 'unknown');
-      assert.match(e2e?.reason ?? '', /needs approval if a test is selected/);
-    }, { config });
-  });
-
   it('07-E2: a mapping selector with no matching change is computed statically and skips with a reason', async () => {
     const mapping = 'unit: { command: unit, adapter: jest, selector: { kind: mapping, mappings: [{ source: ["lib/**/*.ts"], tests: ["lib/**/*.spec.ts"] }] } }';
     const config = CHECK_CONFIG.replace('unit: { command: unit, adapter: jest }', mapping);
@@ -157,34 +138,25 @@ describe('review estimate (07-E)', () => {
     });
   });
 
-  it('07-E3: renderEstimate prints "history: no history" and history is null in this step', async () => {
-    await withRepo(async (repo) => {
-      const estimate = await estimateOf(repo);
-      assert.equal(estimate.history, null);
-      assert.match(renderEstimate(estimate), /^history: no history$/m);
-    });
-  });
-
   it('07-E3: with 50 checks the output stays within 2,048 bytes and ends the list with … N more (08-E5)', () => {
     const checks: ReviewEstimate['checks'] = Array.from({ length: 50 }, (_, i) => ({ key: `project-${i}/check-${i}`, decision: 'skip', reason: 'no changed file is in scope '.repeat(8) }));
-    const estimate: ReviewEstimate = { target: 'working tree', files: 3, changedLines: 40, checks, waitingKeys: [], snapshotBytes: 1000, history: null, refusal: null };
+    const estimate: ReviewEstimate = { target: 'working tree', files: 3, changedLines: 40, checks, waitingKeys: [], snapshotBytes: 1000, refusal: null };
     const text = renderEstimate(estimate);
     assert.ok(Buffer.byteLength(text) <= MAX_ESTIMATE_BYTES);
     assert.equal(MAX_ESTIMATE_BYTES, 2048);
     const shown = text.split('\n').filter((line) => line.startsWith('  project-')).length;
     assert.match(text, new RegExp(`… ${50 - shown} more`));
     assert.ok(shown < 50 && shown > 0);
-    assert.match(text, /history: no history/);
   });
 
   it('07-E3: a short estimate lists every check and no (+N more)', () => {
-    const estimate: ReviewEstimate = { target: 'working tree', files: 1, changedLines: 2, checks: [{ key: 'app/unit', decision: 'run', reason: null }], waitingKeys: [], snapshotBytes: 10, history: null, refusal: null };
+    const estimate: ReviewEstimate = { target: 'working tree', files: 1, changedLines: 2, checks: [{ key: 'app/unit', decision: 'run', reason: null }], waitingKeys: [], snapshotBytes: 10, refusal: null };
     const text = renderEstimate(estimate);
     assert.match(text, /app\/unit run/);
     assert.doesNotMatch(text, /more/);
   });
 
-  it('07-E4: the review-offer question carries the rendered estimate with history: no history', async () => {
+  it('07-E4: the review-offer question carries the rendered estimate', async () => {
     const t = await taskFixture();
     try {
       await t.start();
@@ -195,7 +167,6 @@ describe('review estimate (07-E)', () => {
       const print = (await t.kinds('gate')).findLast((entry) => entry['gate'] === 'review-offer');
       const question = String((print?.['question'] ?? (print?.['values'] as { question?: unknown } | undefined)?.question) ?? '');
       assert.match(question, /Review estimate:/);
-      assert.match(question, /history: no history/);
     } finally {
       await t.fx.dispose();
     }
@@ -269,65 +240,9 @@ describe('review estimate (08-E)', () => {
     assert.deepEqual(refusalSuggestions(new AmbicodeError('input-too-large', 'big'), four).filter((line) => line.startsWith('--only')), []);
   });
 
-  describe('history', () => {
-    const write = async (root: string, where: string, index: number, patch: { createdAt?: string; status?: 'ok' | 'failed'; durationMs?: number | null; costUsd?: number | null }) => {
-      const base = reviewResult();
-      const result = {
-        ...base,
-        createdAt: patch.createdAt ?? `2026-09-${String(10 + index).padStart(2, '0')}T10:00:00.000Z`,
-        reviewer: { ...base.reviewer!, status: patch.status ?? 'ok', durationMs: patch.durationMs === undefined ? (index + 1) * 1000 : patch.durationMs, usage: patch.costUsd === undefined ? null : { turns: null, apiDurationMs: null, outputTokens: null, thinkingTokens: null, costUsd: patch.costUsd } },
-      };
-      const dir = path.join(root, where, `r-${index}`);
-      await mkdir(dir, { recursive: true });
-      await writeFile(path.join(dir, 'result.json'), JSON.stringify(result));
-    };
-    const withDir = async (body: (root: string) => Promise<void>) => {
-      const repo = await TempRepo.create();
-      try { await body(repo.root); } finally { await repo.dispose(); }
-    };
-
-    for (const count of [0, 4]) {
-      it(`08-E4: ${count} results is no history`, async () => {
-        await withDir(async (root) => {
-          for (let i = 0; i < count; i += 1) await write(root, '.ambicode/reviews', i, {});
-          assert.equal(await reviewHistory(nodeFileSystem, root), null);
-        });
-      });
-    }
-
-    it('08-E4: 5 results give the median duration and a null cost when none carry one', async () => {
-      await withDir(async (root) => {
-        for (let i = 0; i < 5; i += 1) await write(root, '.ambicode/reviews', i, {});
-        assert.deepEqual(await reviewHistory(nodeFileSystem, root), { reviews: 5, medianDurationMs: 3000, medianCostUsd: null });
-      });
-    });
-
-    it('08-E4: 7 results use the 5 newest; task reviews count; unparseable, failed and untimed are skipped', async () => {
-      await withDir(async (root) => {
-        for (let i = 0; i < 4; i += 1) await write(root, '.ambicode/reviews', i, { durationMs: 100_000 * (i + 1), costUsd: i === 0 ? null : 10 * i });
-        for (let i = 4; i < 7; i += 1) await write(root, '.ambicode/task/t1/reviews', i, { durationMs: i * 1000, costUsd: 1 });
-        await write(root, '.ambicode/reviews', 20, { createdAt: '2026-12-01T00:00:00.000Z', status: 'failed' });
-        await write(root, '.ambicode/reviews', 21, { createdAt: '2026-12-02T00:00:00.000Z', durationMs: null });
-        await mkdir(path.join(root, '.ambicode/reviews/junk'), { recursive: true });
-        await writeFile(path.join(root, '.ambicode/reviews/junk/result.json'), '{not json');
-        // newest five: indexes 6,5,4,3,2 -> durations 6000,5000,4000,400000,300000; costs 1,1,1,30,20
-        assert.deepEqual(await reviewHistory(nodeFileSystem, root), { reviews: 5, medianDurationMs: 6000, medianCostUsd: 1 });
-      });
-    });
-
-    it('08-E4: costs ignore nulls and average the middle pair for an even count', async () => {
-      await withDir(async (root) => {
-        for (let i = 0; i < 5; i += 1) await write(root, '.ambicode/reviews', i, { costUsd: i < 2 ? null : i });
-        assert.equal((await reviewHistory(nodeFileSystem, root))?.medianCostUsd, 3);
-        await write(root, '.ambicode/reviews', 5, { costUsd: 10 });
-        assert.equal((await reviewHistory(nodeFileSystem, root))?.medianCostUsd, 3.5);
-      });
-    });
-  });
-
   it('08-E5: 200 files x 30 checks renders within 2,048 bytes with "… N more"', () => {
     const checks: ReviewEstimate['checks'] = Array.from({ length: 30 }, (_, i) => ({ key: `p${i}/check`, decision: 'waiting', reason: 'needs approval from the team policy' }));
-    const estimate: ReviewEstimate = { target: 'working tree', files: 200, changedLines: 4000, checks, waitingKeys: checks.map((check) => check.key), snapshotBytes: 400_000, history: { reviews: 5, medianDurationMs: 90_000, medianCostUsd: 0.5 }, refusal: null };
+    const estimate: ReviewEstimate = { target: 'working tree', files: 200, changedLines: 4000, checks, waitingKeys: checks.map((check) => check.key), snapshotBytes: 400_000, refusal: null };
     const text = renderEstimate(estimate);
     assert.ok(Buffer.byteLength(text) <= 2048);
     assert.match(text, /… \d+ more/);
@@ -338,7 +253,7 @@ describe('review estimate (08-E)', () => {
     await withRepo(async (repo) => {
       const out = await runReviewEstimate(await createRuntime({ cwd: repo.root }), ESTIMATE);
       assert.deepEqual(Object.keys(out).sort(), ['command', 'estimate', 'text']);
-      assert.deepEqual(Object.keys(out.estimate).sort(), ['changedLines', 'checks', 'files', 'history', 'refusal', 'snapshotBytes', 'target', 'waitingKeys']);
+      assert.deepEqual(Object.keys(out.estimate).sort(), ['changedLines', 'checks', 'files', 'refusal', 'snapshotBytes', 'target', 'waitingKeys']);
       assert.equal(out.text, renderEstimate(out.estimate));
     });
   });

@@ -26,7 +26,7 @@ const project: ProjectConfig = {
   commands: { lint: { argv: ['eslint', '{files}'] }, unit: { argv: ['jest', '{files}'] }, pick: { argv: ['pick'] } },
   checks: {
     lint: { command: 'lint', adapter: 'eslint', include: ['**/*.ts'] },
-    unit: { command: 'unit', adapter: 'jest', include: ['**/*.spec.ts'], selector: { kind: 'command', command: 'pick' } },
+    unit: { command: 'unit', adapter: 'jest', include: ['**/*.spec.ts'], selector: { kind: 'mapping', mappings: [{ source: ['src/**/*.ts'], tests: ['**/*.spec.ts'] }] } },
   },
 } as ProjectConfig;
 

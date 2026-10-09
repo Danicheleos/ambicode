@@ -3,7 +3,7 @@ import { buildReport } from '#modules/evidence/report/report';
 import { AmbicodeError } from '#util/errors';
 import { exitRoute, reviseTo, serviceGate } from '../gates/answers.ts';
 import { chainKey, compose, loadPayload, savePayload, stepHeader, writeStepFile } from './delivery.ts';
-import { currentIn, exitOf, latestBound, executions, foldRoute, humanRevisesLeft, modelDeliveries, windowOf, matches } from './fold.ts';
+import { currentIn, exitOf, latestBound, executions, foldRoute, humanRevisesLeft, windowOf, matches } from './fold.ts';
 import { gatePrintText, gateThen, needCommandFor, raiseGate, raisedAnswerHandler } from '../gates/gates.ts';
 import { payloadKey } from './handlers.ts';
 import { append, chainOf, gateFor, viewFor } from './run-context.ts';
@@ -15,7 +15,6 @@ import type { Composed, Part, Run } from '../types/engine.ts';
 export const EXPLICIT: ReadonlySet<string> = new Set(['route-next', 'requirements normalize', 'check', 'format', 'review', 'plan check', 'policy check --drafts', 'rules apply', 'init --apply', 'init propose', 'note save', 'note promote']);
 
 const MAX_TURNS = 200;
-const DEFAULT_WALL_MINUTES = 45;
 
 type Fold = ReturnType<typeof foldRoute>;
 
@@ -108,12 +107,6 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     return (await partOf(run, null, header, closing !== '' ? closing : body)).part;
   }
 
-
-  function wallExceeded(run: Run): boolean {
-    if (run.head['mode'] !== 'headless') return false;
-    const first = chainOf(run).entries[0]!;
-    return now().getTime() - Date.parse(first.at) > (run.def.budget.wallMinutes ?? DEFAULT_WALL_MINUTES) * 60_000;
-  }
 
   function openRaisedGate(run: Run, step: StepDef): GateDef | null {
     const entries = chainOf(run).entries;
@@ -243,15 +236,6 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
       const redEnds = step.produces.some((produced) => produced.kind === 'check' && produced.value === 'red') && again === 1;
       prefix = `Not done yet: ${missing.join(', ')} is not on record. Produce it with: ${producerHint(run, step)}.${redEnds ? ` If no failing test is possible, \`${commandFor(`route next --task ${run.task}`)}\` again ends the route as no-red.` : ''}\n\n`;
     }
-    if (!delivered) {
-      const current = chain.entries;
-      const spent = modelDeliveries(run.def, current);
-      const continues = current.filter((entry) => entry.kind === 'acceptance' && entry['gate'] === 'budget-exhausted' && entry['answer'] === 'continue').length;
-      if (spent + 1 > run.def.budget.modelSteps * (1 + continues)) {
-        await raiseGate(run.ledger, viewFor(run, step.id), { gate: 'budget-exhausted', values: {}, raisedBy: step.id }, routes);
-        return null;
-      }
-    }
     const chained = chainedAfter(run, fold, step);
     const last = chained ?? step;
     const fill = (text: string): string => text.replaceAll('{cli}', cli).replaceAll('{task}', run.task);
@@ -322,10 +306,6 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
       if (!run.deliverOnly) await writeSkips(run, fold);
       const step = fold.position;
       if (step === null) return finish(run);
-      if (wallExceeded(run)) {
-        await exitRoute(run, 'budget', 'wallMinutes');
-        return finish(run);
-      }
       const open = openRaisedGate(run, step);
       if (open !== null) {
         const outcome = await serviceGate(run, open, step.id);

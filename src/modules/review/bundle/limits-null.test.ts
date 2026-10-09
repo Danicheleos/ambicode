@@ -4,7 +4,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { DEFAULTS } from '#types/defaults';
 import { parseHunks } from '#platform/git/diff';
-import { enforceReviewInputLimits } from '../snapshot/limits.ts';
+import { enforceReviewInputLimits } from '../snapshot/snapshot.ts';
 import { reviewRouteFixture } from '#testing/fixtures/review-route-fixture';
 import { validateFindings } from '../findings/validate.ts';
 import type { DiffFile } from '#types/platform/git';

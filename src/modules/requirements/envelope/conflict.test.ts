@@ -121,7 +121,7 @@ describe('04-K conflicts', () => {
 
   it('04-K1: an invalid --sources at a model step without produces completes nothing', async () => {
     const route = [
-      'skill: review', 'version: 3', 'budget: { modelSteps: 6 }', 'exits: [done, blocked, human, inconclusive, superseded, budget]', 'revisable: []', 'steps:',
+      'skill: review', 'version: 3', 'budget: { modelSteps: 6 }', 'exits: [done, blocked, human, inconclusive, superseded]', 'revisable: []', 'steps:',
       '  - id: fetch', '    actor: model', '    instruction: "Fetch."', '  - id: ground', '    actor: code', '    run: [requirements.normalize]', '    produces: [envelope]',
       '  - id: design', '    actor: model', '    instruction: "Consider."', '  - id: accept', '    actor: human', '    gate:', '      question: "Continue?"', '      options: ["stop"]', '      default: "stop"', '      release: "stop"', '',
     ].join('\n');

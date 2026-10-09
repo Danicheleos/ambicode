@@ -10,7 +10,7 @@ export const CHECK_TASK = 'ord-7';
 export const DEMO = `skill: demo
 version: 3
 budget: { modelSteps: 10 }
-exits: [done, blocked, human, inconclusive, superseded, budget]
+exits: [done, blocked, human, inconclusive, superseded]
 steps:
   - id: red
     actor: model

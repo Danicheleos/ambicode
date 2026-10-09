@@ -47,7 +47,6 @@ describe('task route (07-R, 07-V, 07-G)', () => {
       assert.deepEqual(def.steps.map((step) => step.id), ['template', 'fetch', 'start', 'draft-ok', 'ground', 'red', 'green', 'review-offer', 'review-cmd', 'review-agent', 'review-run', 'fix', 'report-step', 'write']);
       assert.deepEqual(def.steps.find((step) => step.id === 'draft-ok')?.gate?.options, ['implement anyway', 'stop']);
       assert.ok(t.fx.routes.gate('check-only-unauthorized') !== null && t.fx.routes.gate('scope-expanding') !== null);
-      assert.equal(def.budget.modelSteps, 18);
     });
   });
 

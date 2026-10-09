@@ -116,10 +116,9 @@ answer to the rules table. `reason`: `no-rules-route`, a consent refusal, or
 `object-changed` (a draft changed after the answer). Nothing went live. Release:
 answer the `rules-table` question in `/ambicode:rules`; headless runs never apply.
 
-**`pack-quote-missing` / `pack-duplicates-builtin`.** A draft rule's
-`source.quote` was not found at its `source.location` (an error: fix the quote
-or drop the rule; after three tries it is listed as not migrated), or a draft
-rule repeats a built-in rule (a warning naming it: drop the draft rule).
+**`pack-quote-missing`.** A draft rule's `source.quote` was not found at its
+`source.location` (an error: fix the quote or drop the rule; after three tries
+it is listed as not migrated).
 
 **`path-missing` / `path-escape`.** A path the configuration or a pack declares
 does not exist, or resolves outside the repository. The message names which.

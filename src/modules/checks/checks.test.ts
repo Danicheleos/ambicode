@@ -108,12 +108,7 @@ test('U10 lint selects only matching changed files that still exist', () => {
       { newPath: 'services/api/src/b.ts' },
     ]),
     repositoryRoot: '/repo',
-    runner: new FakeProcessRunner(),
-    enumerationRevision: null,
     maxSelectedTestFiles: 20,
-    timeoutMs: 1000,
-    commandArgv: ['eslint'],
-    authorize: () => ({ kind: 'allowed' }),
   });
 
   assert.deepEqual(selection.files.map((file) => file.path), ['src/a.ts']);
@@ -128,12 +123,7 @@ test('U10 many deleted files are one limitation with a count, not one line each'
     check: { command: 'lint', adapter: 'eslint', include: ['**/*.ts'] },
     changed: changed(paths),
     repositoryRoot: '/repo',
-    runner: new FakeProcessRunner(),
-    enumerationRevision: null,
     maxSelectedTestFiles: 20,
-    timeoutMs: 1000,
-    commandArgv: ['eslint'],
-    authorize: () => ({ kind: 'allowed' }),
   });
   assert.equal(selection.limitations.length, 1);
   assert.match(selection.limitations[0]!, /^5 files were deleted, so they were not checked: src\/a\.ts, src\/b\.ts, src\/c\.ts and 2 more\.$/);
@@ -638,24 +628,3 @@ test('U15 two projects with a check of the same name keep separate evidence file
   assert.match(await readFile(path.join(directory, 'checks', 'api', 'lint.txt'), 'utf8'), /api output/);
 });
 
-test('a related or command selector is a gap that waits for authorization, and runs nothing', async (t) => {
-  const directory = await sandbox(t);
-  const runner = new FakeProcessRunner();
-  const { results, pendingApprovals } = await runChecks(
-    baseOptions({
-      reviewDirectory: directory,
-      runner,
-      project: {
-        id: 'web', root: '.', ecosystem: 'typescript', packs: [], policyFiles: [],
-        commands: { unit: { argv: ['jest', '{files}'] } },
-        checks: { unit: { command: 'unit', adapter: 'jest', selector: { kind: 'related' } } },
-      },
-      changed: changed([{ newPath: 'src/a.ts' }]),
-    }),
-  );
-  assert.equal(results[0]?.status, 'skipped');
-  assert.equal(results[0]?.selectionComplete, false);
-  assert.ok(results[0]?.limitations.some((line) => line.includes('no longer supported')));
-  assert.deepEqual(runner.argvs(), []);
-  assert.equal(pendingApprovals.length, 0, 'nothing was selected, so there is no run to authorize');
-});

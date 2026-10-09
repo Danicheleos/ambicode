@@ -454,7 +454,7 @@ describe('init owns .ambicode/config.yaml and .gitignore while its route is acti
       for (const tool of ['Write', 'Edit']) {
         const out = edit(file, { task: 'init-2026-10-05', skill: 'init' }, tool);
         assert.equal(decisionOf(out), 'deny');
-        assert.match(out.hookSpecificOutput!.permissionDecisionReason, /init --apply --set/);
+        assert.match(out.hookSpecificOutput!.permissionDecisionReason, /init --apply/);
       }
     });
     it(`leaves ${file} alone outside init`, () => {

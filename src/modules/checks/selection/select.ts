@@ -3,8 +3,8 @@ import type { CheckSpec, ProjectConfig } from '#types/modules/config';
 import { matchesAnyGlob } from '#util/glob';
 import { normalizeRelative, toProjectRelative } from '#util/paths';
 import type { ChangedPath } from '#types/modules/checks';
-import type { FileSystem, ProcessRunner } from '#types/platform/ports';
-import type { CommandAuthorization, Selection, SelectedFile } from '../types/selection.ts';
+import type { FileSystem } from '#types/platform/ports';
+import type { Selection, SelectedFile } from '../types/selection.ts';
 
 interface SelectOptions {
   fs: FileSystem;
@@ -13,12 +13,6 @@ interface SelectOptions {
   changed: readonly ChangedPath[];
   repositoryRoot: string;
   maxSelectedTestFiles: number;
-  /** Accepted so callers outside checks/ keep compiling; selection no longer runs anything. */
-  runner?: ProcessRunner;
-  enumerationRevision?: string | null;
-  timeoutMs?: number;
-  commandArgv?: readonly string[] | null;
-  authorize?: (commandId: string) => CommandAuthorization;
 }
 
 /** A deleted file is dropped from the argument vector but its deletion stays in the review evidence. */
@@ -65,14 +59,6 @@ export async function selectTestFiles(options: SelectOptions): Promise<Selection
     };
   }
 
-  if (selector.kind !== 'mapping') {
-    return {
-      files: [],
-      complete: false,
-      limitations: [`The "${selector.kind}" selector is no longer supported, so convert this check to a "mapping" selector.`],
-      approval: null,
-    };
-  }
   const base = await selectByMapping(options, selector);
 
   return applyLimits(base, {
@@ -174,11 +160,6 @@ async function selectByMapping(
   }
 
   return { files: dedupe(files), complete, limitations, approval: null };
-}
-
-/** Selection never starts a process any more, so no caller needs to bracket it with a workspace observation. */
-export function selectionRunsCommand(_check: CheckSpec): false {
-  return false;
 }
 
 export function expandFiles(argv: readonly string[], files: readonly string[]): string[] {

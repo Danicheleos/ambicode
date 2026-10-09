@@ -5,6 +5,7 @@ import { SPECS, USAGE } from './main.ts';
 const TABLE: Record<string, readonly string[]> = {
   'route start': ['task', 'headless', 'project', 'answer', 'fresh', 'adopt'],
   'route next': ['task', 'answer', 'default', 'revise', 'conflict', 'sources', 'project', 'show'],
+  'route stop': ['task', 'reason', 'detail'],
   map: ['task', 'project', 'mode', 'term', 'symbol'],
   refs: ['project', 'declarations'],
   'requirements template': ['requirement', 'task'],

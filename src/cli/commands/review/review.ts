@@ -27,15 +27,8 @@ export const REVIEW_OPTIONS: OptionSpec = { ...TARGET_OPTIONS, flags: [...TARGET
 
 /** What `--task` adds to a review (07-B3 … 07-B5, 07-K5): the baseline scope, consent-checked approvals and the ledger fields. */
 interface TaskScope {
-  task: string;
-  tools: RouteTools;
-  deps: CheckDeps;
-  routed: Routed | null;
-  preexisting: string[];
-  omissions: string[];
-  approvals: Set<string>;
-  declines: Set<string>;
-  target: TargetSelection;
+  task: string; tools: RouteTools; deps: CheckDeps; routed: Routed | null; preexisting: string[]; omissions: string[];
+  approvals: Set<string>; declines: Set<string>; target: TargetSelection;
   /** The route's requirement envelope as evidence when the command names none (requirement-based review on a route). */
   requirements: { requirementUrls: string[]; evidence: EvidenceSource } | null;
   ledger: Record<string, unknown>;
@@ -167,31 +160,15 @@ export async function runReviewEstimate(runtime: Runtime, args: ParsedArgs): Pro
 }
 
 interface ReviewOutput {
-  command: 'review';
-  reviewId: string;
-  reviewDirectory: string;
-  snapshotDirectory: string;
-  resultPath: string;
-  reportPath: string;
-  result: ReviewResult;
-  pendingApprovals: PendingApproval[];
-  /**
-   * True when a check is waiting for a human; the finding list is then absent
-   * rather than empty.
-   */
+  command: 'review'; reviewId: string; reviewDirectory: string; snapshotDirectory: string; resultPath: string; reportPath: string;
+  result: ReviewResult; pendingApprovals: PendingApproval[];
+  /** True when a check is waiting for a human; the finding list is then absent rather than empty. */
   awaitingAuthorization: boolean;
   /** The task route's next step, printed by the command tail under `--task`. */
   next?: string;
 }
 
-/**
- * A check waiting for a human stops the run before the reviewer subagent is
- * offered the evidence: reviewing now would pay for the same review twice.
- */
-export async function runReview(
-  runtime: Runtime,
-  args: ParsedArgs,
-): Promise<ReviewOutput> {
+export async function runReview(runtime: Runtime, args: ParsedArgs): Promise<ReviewOutput> {
   const resolved = resolveTargetOptions('review', runtime, args);
   const scope = await taskScope(runtime, resolved, 'review');
   // Outside a route no human answer can be recorded, so a typed --approve approves nothing (01-contracts §5).
@@ -201,9 +178,7 @@ export async function runReview(
   if (scope !== null) bundle.result.omissions = [...bundle.result.omissions, ...scope.omissions];
   if (ignored.length > 0) bundle.result.omissions = [...bundle.result.omissions, `A typed --approve approves nothing outside a route (${ignored.join(', ')}): start the review route (\`route start review\`) to answer waiting checks.`];
   const ledger = scope?.ledger ?? {};
-  const output = bundle.pendingApprovals.length > 0
-    ? await stopForAuthorization(runtime, bundle, ledger)
-    : await recordPendingReviewer(runtime, bundle, ledger);
+  const output = await writeOutput(runtime, bundle, ledger);
   if (scope === null) return output;
   const entry = output.entryId;
   delete output.entryId;
@@ -211,75 +186,34 @@ export async function runReview(
   return next === null ? output : { ...output, next: next.text };
 }
 
-async function recordPendingReviewer(runtime: Runtime, bundle: ReviewBundle, ledger: Record<string, unknown>): Promise<ReviewOutput & { entryId?: string }> {
-  bundle.result.status = 'partial';
-  bundle.result.statusReason = 'reviewer pending: run the ambicode:reviewer subagent, then `review record`';
-  const entry = await writeBundleArtifacts(runtime, bundle, ledger);
-  const reportPath = path.join(bundle.reviewDirectory, 'report.txt');
-  const report = renderReport({
-    result: bundle.result,
-    snapshotDirectory: bundle.snapshot.directory,
-    resultPath: bundle.resultPath,
-    pendingApprovals: bundle.pendingApprovals,
-  });
-  await runtime.fs.writeText(reportPath, `${report}\n`);
-  return {
-    command: 'review',
-    reviewId: bundle.reviewId,
-    reviewDirectory: bundle.reviewDirectory,
-    snapshotDirectory: bundle.snapshot.directory,
-    resultPath: bundle.resultPath,
-    reportPath,
-    result: bundle.result,
-    pendingApprovals: bundle.pendingApprovals,
-    awaitingAuthorization: false,
-    ...(entry === null ? {} : { entryId: entry.id }),
-  };
-}
-
-async function stopForAuthorization(runtime: Runtime, bundle: ReviewBundle, ledger: Record<string, unknown>): Promise<ReviewOutput & { entryId?: string }> {
+/** Writes the bundle and its report. A check waiting for a human stops the run before the reviewer is offered the evidence: reviewing now would pay for the same review twice. */
+async function writeOutput(runtime: Runtime, bundle: ReviewBundle, ledger: Record<string, unknown>): Promise<ReviewOutput & { entryId?: string }> {
   const keys = bundle.pendingApprovals.map((approval) => approval.approvalKey);
+  const awaitingAuthorization = keys.length > 0;
   bundle.result.status = 'partial';
-  bundle.result.statusReason =
-    `No reviewer was invoked: ${keys.length} check(s) are waiting for authorization (${keys.join(', ')}). ` +
-    'Check evidence is part of what the reviewer is given, so the review runs once, after the answer.';
-  bundle.result.omissions = [
-    ...bundle.result.omissions,
-    'No model review was run: the evidence is still waiting on a human. An empty finding list here does not mean the change is clean.',
-    `Waiting checks: ${keys.join(', ')}. --decline <key> reviews without one; approving one needs a human answer on the review route (\`route start review\`).`,
-  ];
-
+  if (!awaitingAuthorization) bundle.result.statusReason = 'reviewer pending: run the ambicode:reviewer subagent, then `review record`';
+  else {
+    bundle.result.statusReason =
+      `No reviewer was invoked: ${keys.length} check(s) are waiting for authorization (${keys.join(', ')}). ` +
+      'Check evidence is part of what the reviewer is given, so the review runs once, after the answer.';
+    bundle.result.omissions = [
+      ...bundle.result.omissions,
+      'No model review was run: the evidence is still waiting on a human. An empty finding list here does not mean the change is clean.',
+      `Waiting checks: ${keys.join(', ')}. --decline <key> reviews without one; approving one needs a human answer on the review route (\`route start review\`).`,
+    ];
+  }
   const entry = await writeBundleArtifacts(runtime, bundle, ledger);
   const reportPath = path.join(bundle.reviewDirectory, 'report.txt');
-  const report = renderReport({
-    result: bundle.result,
-    snapshotDirectory: bundle.snapshot.directory,
-    resultPath: bundle.resultPath,
-    pendingApprovals: bundle.pendingApprovals,
-  });
-  await runtime.fs.writeText(reportPath, `${report}\n`);
-
+  await runtime.fs.writeText(reportPath, `${renderReport({ result: bundle.result, snapshotDirectory: bundle.snapshot.directory, resultPath: bundle.resultPath, pendingApprovals: bundle.pendingApprovals })}\n`);
   return {
     ...(entry === null ? {} : { entryId: entry.id }),
-    command: 'review',
-    reviewId: bundle.reviewId,
-    reviewDirectory: bundle.reviewDirectory,
-    snapshotDirectory: bundle.snapshot.directory,
-    resultPath: bundle.resultPath,
-    reportPath,
-    result: bundle.result,
-    pendingApprovals: bundle.pendingApprovals,
-    awaitingAuthorization: true,
+    command: 'review', reviewId: bundle.reviewId, reviewDirectory: bundle.reviewDirectory, snapshotDirectory: bundle.snapshot.directory,
+    resultPath: bundle.resultPath, reportPath, result: bundle.result, pendingApprovals: bundle.pendingApprovals, awaitingAuthorization,
   };
 }
 
 export function renderReview(output: ReviewOutput): string {
-  const report = renderReport({
-    result: output.result,
-    snapshotDirectory: output.snapshotDirectory,
-    resultPath: output.resultPath,
-    pendingApprovals: output.pendingApprovals,
-  });
+  const report = renderReport({ result: output.result, snapshotDirectory: output.snapshotDirectory, resultPath: output.resultPath, pendingApprovals: output.pendingApprovals });
   return output.next === undefined ? report : `${report}\n\n${output.next}`;
 }
 

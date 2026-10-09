@@ -112,7 +112,6 @@ export interface StepDef {
 export interface RouteDef {
   skill: string;
   version: 3;
-  budget: { modelSteps: number; wallMinutes?: number };
   exits: readonly Exit[];
   revisable: readonly string[];
   steps: readonly StepDef[];

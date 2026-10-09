@@ -26,7 +26,7 @@ export interface FixtureOptions {
   kind?: ReviewResult['target']['kind'];
   findings?: Finding[];
   status?: ReviewResult['status'];
-  reviewerStatus?: 'ok' | 'failed' | 'not-run';
+  reviewerStatus?: 'ok' | 'failed';
 }
 
 export function reviewResult(options: FixtureOptions = {}): ReviewResult {
@@ -38,7 +38,6 @@ export function reviewResult(options: FixtureOptions = {}): ReviewResult {
     reviewId: REVIEW_ID,
     createdAt: '2026-09-20T10:00:00.000Z',
     pluginVersion: '0.3.1',
-    reviewModel: 'sonnet',
     target: {
       kind,
       repositoryRoot: '/work/app',
@@ -55,7 +54,6 @@ export function reviewResult(options: FixtureOptions = {}): ReviewResult {
         title: `Reject negative amounts ${HOSTILE}`,
         retrievedAt: '2026-09-20T09:00:00.000Z',
         sourceVersion: '3',
-        updatedAt: null,
         content: 'The orders service must reject negative amounts.',
         citations: [],
         status: 'retrieved',
@@ -72,7 +70,6 @@ export function reviewResult(options: FixtureOptions = {}): ReviewResult {
       patchBytes: 120,
       snapshotBytes: 240,
       requirementBytes: 48,
-      promptBytes: 900,
       contextBytes: 1_140,
       limits: {
         maxChangedFiles: 50,
@@ -84,14 +81,8 @@ export function reviewResult(options: FixtureOptions = {}): ReviewResult {
     brief: null,
     reviewer: {
       status: reviewerStatus,
-      model: 'sonnet',
-      timeoutSeconds: 300,
-      tools: ['Read', 'Grep', 'Glob'],
-      isolation: ['--safe-mode', '--restricted'],
       rejections: [],
       detail: reviewerStatus === 'ok' ? null : `The reviewer failed: ${HOSTILE}`,
-      durationMs: 42_000,
-      usage: null,
       rejectedOutputRef: null,
       at: null,
     },
@@ -106,7 +97,6 @@ export function reviewResult(options: FixtureOptions = {}): ReviewResult {
         selected: [{ path: 'src/orders.ts', reason: 'changed' }],
         selectionComplete: true,
         argv: ['eslint', '--', 'src/orders.ts'],
-        cwd: '/ambicode/work',
         durationMs: 120,
         exitCode: 1,
         outputRef: 'checks/web/lint.txt',

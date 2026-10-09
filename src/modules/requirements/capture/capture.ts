@@ -62,7 +62,7 @@ function issueKeys(fields: unknown): string[] {
   return links.flatMap((link) => (isObject(link) ? [link['inwardIssue'], link['outwardIssue']] : [])).flatMap((issue) => (isObject(issue) && typeof issue['key'] === 'string' ? [issue['key']] : []));
 }
 
-interface Extracted { key: string; title: string; type: string; parent: string | null; links: string[]; content: string; url: string; sourceVersion: string | null; updatedAt: string | null }
+interface Extracted { key: string; title: string; type: string; parent: string | null; links: string[]; content: string; url: string; sourceVersion: string | null }
 
 function extractDocument(response: unknown): Extracted | null {
   for (const node of roots(response)) {
@@ -72,12 +72,12 @@ function extractDocument(response: unknown): Extracted | null {
       const parent = isObject(fields['parent']) ? str(fields['parent']['key']) : '';
       const { summary, description, ...rest } = fields;
       const body = textOf({ summary, description, ...Object.fromEntries(Object.entries(rest).filter(([name]) => name !== 'issuelinks' && name !== 'parent')) });
-      return { key: node['key'], title: textOf(summary).trim(), type, parent: parent === '' ? null : parent, links: issueKeys(fields), content: body.trim().slice(0, MAX_CONTENT), url: '', sourceVersion: null, updatedAt: str(fields['updated']) || null };
+      return { key: node['key'], title: textOf(summary).trim(), type, parent: parent === '' ? null : parent, links: issueKeys(fields), content: body.trim().slice(0, MAX_CONTENT), url: '', sourceVersion: null };
     }
     if (typeof node['id'] === 'string' && typeof node['title'] === 'string' && node['body'] !== undefined) {
       const version = isObject(node['version']) ? node['version']['number'] : undefined;
       const webui = isObject(node['_links']) ? str(node['_links']['webui']) : '';
-      return { key: `page-${node['id']}`, title: node['title'], type: 'page', parent: null, links: [], content: textOf(node['body']).replace(/<[^>]*>/g, ' ').replace(/[ \t]+/g, ' ').trim().slice(0, MAX_CONTENT), url: webui, sourceVersion: version === undefined ? null : String(version), updatedAt: null };
+      return { key: `page-${node['id']}`, title: node['title'], type: 'page', parent: null, links: [], content: textOf(node['body']).replace(/<[^>]*>/g, ' ').replace(/[ \t]+/g, ' ').trim().slice(0, MAX_CONTENT), url: webui, sourceVersion: version === undefined ? null : String(version) };
     }
   }
   return null;
@@ -184,7 +184,7 @@ async function captureFetch(input: HookInput, deps: CaptureDeps): Promise<Ledger
   const derivedFrom = mentionedBy?.key ?? null;
   const document: CapturedRequirement = {
     key, url: address, title: content.split('\n')[0]!.slice(0, 120), type: 'web', relation, derivedFrom, retrievedVia: 'WebFetch', retrievedAt: deps.runtime.clock.now().toISOString(),
-    sourceVersion: null, updatedAt: null, content, links: [], parent: null, rawHash,
+    sourceVersion: null, content, links: [], parent: null, rawHash,
   };
   const text = `${JSON.stringify(document, null, 2)}\n`;
   await writeCapture(deps.runtime.fs, deps.dir, key, rawHash, text);
@@ -240,7 +240,7 @@ export async function captureRequirement(input: HookInput, deps: CaptureDeps): P
   const { relation, derivedFrom } = relationOf(document, deps.asked, await known(deps, entries), await listedChildren(deps, entries));
   const captured: CapturedRequirement = {
     key: document.key, url: document.url, title: document.title, type: document.type, relation, derivedFrom, retrievedVia: input.tool_name, retrievedAt: now,
-    sourceVersion: document.sourceVersion, updatedAt: document.updatedAt, content: document.content, links: document.links, parent: document.parent, rawHash,
+    sourceVersion: document.sourceVersion, content: document.content, links: document.links, parent: document.parent, rawHash,
   };
   const bytes = await write(document.key, captured);
   return deps.ledger.append({ kind: 'requirement', route: deps.view.routeId, key: document.key, via: input.tool_name, rawHash, bytes, relation, capture: 'full', derivedFrom });

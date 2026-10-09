@@ -48,7 +48,8 @@ const RawStep = z.strictObject({
 const RawRoute = z.strictObject({
   skill: z.string().min(1),
   version: z.literal(3),
-  budget: z.strictObject({ modelSteps: z.number().int().positive(), wallMinutes: z.number().int().positive().optional() }),
+  /** Documentation only: nothing enforces it. */
+  budget: z.unknown().optional(),
   exits: z.array(z.enum(EXITS)),
   revisable: z.array(z.string()).default([]),
   steps: z.array(RawStep).min(1),
@@ -89,7 +90,6 @@ export async function loadRoute(file: string, text: string, context: LoaderConte
   const route: RouteDef = {
     skill: raw.skill,
     version: 3,
-    budget: Object.fromEntries(Object.entries(raw.budget).filter(([, value]) => value !== undefined)) as RouteDef['budget'],
     exits: raw.exits,
     revisable: raw.revisable,
     steps,

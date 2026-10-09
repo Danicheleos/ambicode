@@ -177,11 +177,6 @@ function validateCrossFieldRules(config: AmbicodeConfig): void {
           `projects.${project.id}.checks.${checkId}.command: "${check.command}" is not declared in projects.${project.id}.commands`,
         );
       }
-      if (check.selector?.kind === 'command' && !Object.hasOwn(project.commands, check.selector.command)) {
-        details.push(
-          `projects.${project.id}.checks.${checkId}.selector.command: "${check.selector.command}" is not declared in projects.${project.id}.commands`,
-        );
-      }
     }
 
     for (const [commandId, command] of Object.entries(project.commands)) {

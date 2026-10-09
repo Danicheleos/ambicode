@@ -44,8 +44,7 @@ write it. A glob that matches nothing is reported and the pack is skipped.
 
 - Do not migrate everything. A choice that is one team's structure rather than a
   defect is asked about first, with its cost.
-- Skip a rule the enabled built-in packs already cover; the check warns with
-  `pack-duplicates-builtin`.
+- Skip a rule the enabled built-in packs already cover.
 - One instruction per rule; three phrasings of one idea are one rule.
 - Drop a rule tied to one framework or API version; it rots as the dependency moves.
 - Never invent a rule the sources do not state. A vague source is quoted back

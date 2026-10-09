@@ -11,7 +11,7 @@ const A = 'aaaaaaaa-1111-4111-8111-111111111111';
 const ROUTE = `skill: tbl
 version: 3
 budget: { modelSteps: 6 }
-exits: [done, blocked, human, inconclusive, superseded, budget]
+exits: [done, blocked, human, inconclusive, superseded]
 revisable: []
 steps:
   - id: ask
@@ -40,7 +40,6 @@ const VALUES: Record<string, Record<string, string[]>> = {
   'scope-expanding': { finding: ['extra file'] },
   'project-ambiguous': { projects: ['app', 'lib'] },
   'config-unparsable': {},
-  'budget-exhausted': {},
   'decision:db-choice': {},
 };
 

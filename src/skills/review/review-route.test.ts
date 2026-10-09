@@ -47,8 +47,8 @@ const spied = (): { calls: { n: number }; handlers: Record<string, Handler> } =>
 
 describe('review route: shape and start (08-R1, 08-R2, 08-R3)', () => {
   it('08-R1: routes/review/review.yaml has the contract steps, the estimate gate, loads with the registry and is packaged with its step files', async () => {
-    const route = YAML.parse(await readFile(path.join(REPO_ROOT, 'routes', 'review', 'review.yaml'), 'utf8')) as { skill: string; version: number; budget: Record<string, number>; steps: { id: string; actor: string; when?: string; needs?: string[]; repeat?: number; gate?: Record<string, unknown> }[] };
-    assert.deepEqual([route.skill, route.version, route.budget], ['review', 3, { modelSteps: 6, wallMinutes: 45 }]);
+    const route = YAML.parse(await readFile(path.join(REPO_ROOT, 'routes', 'review', 'review.yaml'), 'utf8')) as { skill: string; version: number; steps: { id: string; actor: string; when?: string; needs?: string[]; repeat?: number; gate?: Record<string, unknown> }[] };
+    assert.deepEqual([route.skill, route.version], ['review', 3]);
     assert.deepEqual(route.steps.map((step) => [step.id, step.actor]), [['template', 'code'], ['fetch', 'model'], ['ground', 'code'], ['mr-template', 'code'], ['mr-fetch', 'model'], ['estimate-step', 'code'], ['estimate', 'human'], ['review-run', 'code'], ['review-agent', 'model'], ['readback', 'model'], ['publish-list', 'code'], ['publish', 'human'], ['publish-run', 'model']]);
     const gate = route.steps.find((step) => step.id === 'estimate')!.gate!;
     assert.deepEqual([gate['options'], gate['acting'], gate['default'], gate['release'], gate['maxRevises']], [['run', 'narrow', 'skip'], ['run'], 'skip', 'skip', 3]);

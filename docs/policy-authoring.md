@@ -18,8 +18,7 @@ matches in the repository as it stands, and exits nonzero on an error.
 For drafts that `/ambicode:rules` writes, run `ambicode policy check --drafts`.
 It checks every file in `.ambicode/policies/drafts/` and requires each rule to
 carry `source.quote` (at least 20 characters, verbatim from the source) and
-`source.location`. A quote that is not found is `pack-quote-missing`; a rule
-close to a built-in is the warning `pack-duplicates-builtin`.
+`source.location`. A quote that is not found is `pack-quote-missing`.
 
 ## `authority`: what the reviewer is allowed to conclude
 

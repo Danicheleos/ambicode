@@ -39,5 +39,3 @@ A rule in `.ambicode/policies/drafts/` carries a `source` block:
   page URL. A URL is checked against the content captured for the task; a page
   that was not captured fails with `source not captured`.
 
-A rule too close to a built-in instruction gets the warning
-`pack-duplicates-builtin` naming that rule; drop it unless it adds something.

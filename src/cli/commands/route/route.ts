@@ -107,7 +107,7 @@ export const renderMessage = (output: RouteOutput): string => (output.extra === 
 
 export const routeStartCommand: CliCommand = {
   name: 'route start',
-  summary: "Start a skill's route and print its first step: route start <skill> [request].",
+  summary: "Start a skill's route: route start <skill> [request].",
   options: ROUTE_START_OPTIONS,
   run: async (runtime, args) => {
     const output = await runRouteStart(runtime, args);
@@ -130,7 +130,7 @@ const STOP_REASONS: readonly Exit[] = ['blocked', 'human', 'inconclusive'];
 
 export const routeStopCommand: CliCommand = {
   name: 'route stop',
-  summary: 'End the current route without finishing it: route stop --task <slug> --reason blocked|human|inconclusive [--detail …].',
+  summary: 'End the route unfinished (--task, --reason, --detail).',
   options: ROUTE_STOP_OPTIONS,
   run: async (runtime, args) => {
     const task = taskOf('route stop', args);

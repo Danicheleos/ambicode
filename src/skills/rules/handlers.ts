@@ -44,16 +44,15 @@ function checkText(check: DraftsCheck): string {
   ].join('\n');
 }
 
-/** The rules-table guidance: one row per rule, applied or not migrated with the reason, duplicates named (09-T2). */
+/** The rules-table guidance: one row per rule, applied or not migrated with the reason (09-T2). */
 function disposition(check: DraftsCheck, root: string): string {
   const rows = check.rules.map((rule) => {
-    const [pack, name] = rule.split('/') as [string, string];
+    const [pack] = rule.split('/') as [string];
     const file = check.files.find((candidate) => candidate.packId === pack);
     const blocked = file === undefined ? undefined : blockingProblem(check, root, file.path);
     const failed = check.notMigrated.find((entry) => entry.rule === rule);
-    const twin = check.diagnostics.find((diagnostic) => diagnostic.code === 'pack-duplicates-builtin' && diagnostic.message.includes(`rule "${name}"`) && diagnostic.where === path.join(root, file?.path ?? ''));
     const status = blocked !== undefined ? `not migrated: pack skipped (${blocked.code})` : failed !== undefined ? `not migrated: ${failed.reason}` : 'applied';
-    return `- ${rule}: ${status}${twin === undefined ? '' : `; duplicates ${/built-in (\S+)/.exec(twin.message)?.[1] ?? 'a built-in rule'}`}`;
+    return `- ${rule}: ${status}`;
   });
   const unusable = check.files.filter((file) => file.packId === null).map((file) => `- ${file.path}: not migrated: unusable pack`);
   return ['Disposition if you choose Apply all:', ...rows, ...unusable, 'Apply with changes: say what to change and the drafts are revised. Discard drafts applies nothing and deletes nothing.'].join('\n');

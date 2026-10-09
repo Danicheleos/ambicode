@@ -103,8 +103,6 @@ export async function checkPlan(input: { body: string; repositoryRoot: string; a
   };
 }
 
-export const LAST_ROUND = 'last automatic round: list anything you cannot fix under `## Known limitations`';
-
 /** The acceptance unit ids of the route's latest envelope (step 04's `acs`); none without a captured requirement. */
 async function acIdsOf(runtime: Runtime, dir: TaskDir, entries: readonly LedgerEntry[], head: LedgerEntry | undefined): Promise<string[]> {
   if (head === undefined) return [];

@@ -21,7 +21,7 @@ const TASK = 'ORD-17';
 const INV = `skill: inv
 version: 3
 budget: { modelSteps: 6 }
-exits: [done, blocked, human, inconclusive, superseded, budget]
+exits: [done, blocked, human, inconclusive, superseded]
 revisable: []
 steps:
   - id: read
@@ -296,7 +296,7 @@ describe('03-K4 redBeforeGreen', () => {
 const ANSWER = `skill: inv
 version: 3
 budget: { modelSteps: 6 }
-exits: [done, blocked, human, inconclusive, superseded, budget]
+exits: [done, blocked, human, inconclusive, superseded]
 revisable: []
 steps:
   - id: read
