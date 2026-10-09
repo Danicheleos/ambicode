@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { analyzeResult, buildReport, callChain, fileTruth, findComparisons, findingsOf, layoutOf, proposalsOf, readOperands, readRequests, routeChain, toolFiles } from './run-report.mjs';
+import { analyzeResult, buildReport, callChain, fileStates, fileTruth, findComparisons, findingsOf, layoutOf, missingByExposure, proposalsOf, readOperands, readRequests, routeChain, toolFiles } from './run-report.mjs';
 
 const jsonl = (events) => `${events.map((event) => JSON.stringify(event)).join('\n')}\n`;
 const usage = (read, write, output) => ({ input_tokens: 2, cache_read_input_tokens: read, cache_creation_input_tokens: write, output_tokens: output });
@@ -50,6 +50,31 @@ describe('run-report: the chain of one run', () => {
     assert.deepEqual(fileTruth({ kind: 'localize', truth: ['not a path', 'src/a.ts'] }), []);
     assert.deepEqual(toolFiles({ name: 'Bash', input: { command: 'cd repo && cat package.json src/a.ts' } }, truth, 'src'), ['src/a.ts', 'package.json']);
     assert.deepEqual(toolFiles({ name: 'Bash', input: { command: 'cat apps/web/package.json' } }, truth, 'src'), ['apps/web/package.json'], 'a nested file of the same name is not the root one');
+  });
+
+  it('gives every truth file the furthest state the run reached, and the answer decision beside it', () => {
+    const truth = ['app/read.ts', 'app/cat.ts', 'app/receipt.ts', 'app/grep-hit.ts', 'app/lead.ts', 'app/failed.ts', 'app/never.ts', 'app/new.ts', 'app/out.ts'];
+    const { calls } = callChain([
+      assistant('m1', '2026-01-01T00:00:01.000Z', [
+        { type: 'tool_use', id: 'a', name: 'Read', input: { file_path: '/tmp/e-x/home/cwd/repo/app/read.ts' } },
+        { type: 'tool_use', id: 'b', name: 'Bash', input: { command: 'cd repo && cat app/cat.ts' } },
+        { type: 'tool_use', id: 'c', name: 'Bash', input: { command: 'cd repo/app && grep -rln upload .' } },
+        { type: 'tool_use', id: 'd', name: 'Read', input: { file_path: '/tmp/e-x/home/cwd/repo/app/failed.ts' } },
+        { type: 'tool_use', id: 'e', name: 'Read', input: { file_path: '/tmp/e-x/home/cwd/repo/app/out.ts' } },
+      ]),
+      toolResult('a', '2026-01-01T00:00:02.000Z', '1\texport const a = 1;'),
+      toolResult('b', '2026-01-01T00:00:02.000Z', 'export const b = 2;'),
+      toolResult('c', '2026-01-01T00:00:02.000Z', './grep-hit.ts\n./elsewhere.ts'),
+      toolResult('d', '2026-01-01T00:00:02.000Z', 'File does not exist.', true),
+      toolResult('e', '2026-01-01T00:00:02.000Z', 'export const out = 0;'),
+    ]);
+    const states = fileStates({ truth, created: ['app/new.ts'], root: 'app', calls, receipts: ['app/receipt.ts:4-9'], leads: ['app/lead.ts'], named: ['app/read.ts', 'app/new.ts'], excluded: ['app/out.ts'] });
+    assert.deepEqual(Object.fromEntries(states.map((s) => [s.file, `${s.exposure}/${s.decision}`])), {
+      'app/read.ts': 'served/proposed', 'app/cat.ts': 'served/none', 'app/receipt.ts': 'served/none', 'app/grep-hit.ts': 'discovered/none',
+      'app/lead.ts': 'discovered/none', 'app/failed.ts': 'discovered/none', 'app/never.ts': 'unseen/none', 'app/new.ts': 'future/proposed', 'app/out.ts': 'served/excluded',
+    });
+    assert.deepEqual(missingByExposure(states), { existing: 8, missing: 7, future: 1, futureMissing: 0, unknown: 0, unseen: 1, discovered: 3, served: 3, servedExcluded: 1, discoveredExcluded: 0 });
+    assert.deepEqual(fileStates({ truth: ['app/a.ts'], root: 'app' }).map((s) => s.exposure), ['unknown'], 'no trace is unknown, not unseen');
   });
 
   it('reads the route from its ledger: signature, offsets, map layers and exit', () => {

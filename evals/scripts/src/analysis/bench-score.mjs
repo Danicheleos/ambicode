@@ -67,25 +67,30 @@ export function changeLines(text) {
 const BARE_NAME = '[\\w@.+-]+\\.[A-Za-z0-9]*[A-Za-z][A-Za-z0-9]*';
 const BARE_BULLET = new RegExp(`^\\s*[-*]\\s+(?:\\*\\*)?(?:\`(${BARE_NAME})\`|(${BARE_NAME})(?=\\*\\*|\\s*$|\\s+[—–-]\\s|[:,(]|\\s+\\())`, 'gm');
 
+/** A path as the scorer reads it: sandbox prefix dropped, then root-joined or tail-matched to one truth file. */
+export function resolvePath(found, truth, root) {
+  let p = found.replace(/^(?:.*\/)?repo\//, '').replace(/^\.\//, '');
+  if (!truth.includes(p) && !p.startsWith(`${root}/`)) {
+    const candidates = truth.filter((t) => t === `${root}/${p}`);
+    const ending = truth.filter((t) => t.endsWith(`/${p}`));
+    if (candidates.length === 1) p = candidates[0];
+    else if (ending.length === 1) p = ending[0];
+  }
+  return p;
+}
+
+export const PATH_TOKEN = /(?:^|[\s`'"(\[*|])(\/?(?:[\w@.+-]+\/)+[\w@.+-]+\.[A-Za-z0-9]+)/g;
+
 export function namedFiles(message, truth, root, { bareBullets = false } = {}) {
   const { text, sectioned } = fileSection(message);
   const parts = sectioned ? changeLines(text) : { change: text, excluded: '' };
   const pathsOf = (part) => {
-    const paths = [...part.matchAll(/(?:^|[\s`'"(\[*|])(\/?(?:[\w@.+-]+\/)+[\w@.+-]+\.[A-Za-z0-9]+)/g)].map((m) => m[1]);
+    const paths = [...part.matchAll(PATH_TOKEN)].map((m) => m[1]);
     // A preset's truth spans the whole tree, so `package.json` at the root is a true file; the path pattern needs a
     // slash, so a bullet naming a root file is read on its own. Only a backticked name, or one the bullet ends at or
     // sets off with a dash, colon or bracket: `- Node.js runtime` and `- e.g. the service` name no file.
     if (bareBullets && sectioned) paths.push(...[...part.matchAll(BARE_BULLET)].map((m) => m[1] ?? m[2]));
-    return new Set(paths.map((found) => {
-      let p = found.replace(/^(?:.*\/)?repo\//, '').replace(/^\.\//, '');
-      if (!truth.includes(p) && !p.startsWith(`${root}/`)) {
-        const candidates = truth.filter((t) => t === `${root}/${p}`);
-        const ending = truth.filter((t) => t.endsWith(`/${p}`));
-        if (candidates.length === 1) p = candidates[0];
-        else if (ending.length === 1) p = ending[0];
-      }
-      return p;
-    }));
+    return new Set(paths.map((found) => resolvePath(found, truth, root)));
   };
   const named = pathsOf(parts.change);
   // A path the answer both proposes and excludes elsewhere stays a change: the proposal is the decision.

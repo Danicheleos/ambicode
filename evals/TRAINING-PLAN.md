@@ -201,16 +201,32 @@ check per kind and the `unstable-case` report finding.
 | case floors: each pinned case's mean recall and F1 ≥ its frozen reference mean − band (`evals:bench reference`) | every pinned case | 26_1600: 6 / 6 | — |
 | turns, tool calls, peak context, wall time (max/min per case) | reported only | — | — |
 
-The bare model itself holds the band on 1 of the six and 4 of 20, so 80% asks the plugin to be steadier than the model
-it runs. Drift is consistency; case floors are quality kept, so three steady weak runs pass drift and fail floors.
+The threshold is absolute (decided 2026-10-09): the plugin's harness, routes, guards and hooks exist to control the
+model, so its result must not jump even where the bare model does (bare holds 1 of the six, 4 of 20). Drift is
+consistency; case floors are quality kept, so three steady weak runs pass drift and fail floors.
+
+Answer-side levers were measured and dropped (`eval-replay/evals/plans/drift-plan-2026-10-09.md`, Phase B): only 3.2%
+of missing existing truth was served and left out, and a directory-level Stop receipt fired on 15 of 18 control runs
+with 1 true file in 5 shown. 58% of missing truth never appears in the run and 2.8% is in the map; plugin runs agree
+with each other less than bare runs do (proposed-set Jaccard 0.648 vs 0.677). Drift is therefore fixed on the input
+side, in stage 3a, and this gate is part of stage 3's acceptance.
 Cost ratios everywhere are agent cost: harness `costUsd` includes judging. Localize scoring counts only the files an
 answer proposes to change (4 of 316 saved answers moved, none bare).
 
 ### Stage 3 — Search map: profile, index, locate (L4 search, L6 map payload)
 
-The map is the main tool lever: investigate, task and plan read it. Tune offline first; it is free.
+The map is the main tool lever: investigate, task and plan read it. Tune offline first; it is free. Stage 3 also
+carries the drift fix: the result is steady only if what the model works from is.
 
-Lever: profile and index facts, map layers (`[shortlist, harvest, shortlist]` for prompts, `[grep, harvest]` for
+Lever, first: the **candidate inventory**. Before the model reads, the engine lists the candidate files for the
+requirement, grouped into families (one directory, or one basename stem: a locale set, a component's parts), the same
+list for the same input on every run. At Stop the investigate answer must decide each listed family in one line:
+propose it with the requirement it serves, or exclude it with the reason. The check reuses the scorer's change-decision
+contract (`changeLines`), ported to `src/` with shared fixtures. It is built only after the inventory's offline
+coverage passes below: an answer check over a list without the truth only adds noise (the drift replay showed 1 true
+file in 5).
+
+Other levers: profile and index facts, map layers (`[shortlist, harvest, shortlist]` for prompts, `[grep, harvest]` for
 context), dependents, leads and feature limits. From the drift audit: the default shortlist (`shortlistRules` in
 `locate.ts`) keeps source extensions only, so markup, styles and data files are filtered out (the audit records 439/263 matched files
 filtered in FE6404, 513/262 in FE6292); and a family inventory (owner, consumers, key files) for an established owner.
@@ -232,6 +248,10 @@ Step 3a, offline (`evals:map-recall`, `evals:shortlist-recall`, `evals:layer-aud
 | empty maps | 0 | 7 / 20 core cases; 0 / 5 python |
 | leads size | ≤ 1,200 B; feature ≤ 400 B (unchanged) | max 1,200 / 200 B core; 916 / 396 B python |
 | map time, per case, FE included | ≤ 3 s | live: FE 3.9–4.7 s, BE 0.64–0.92 s; no offline timer yet |
+| inventory coverage, core: missing existing truth of the drift cohort whose family the inventory lists | set from the first offline measurement, before any lever change; reported per case | map today: 2.8% of the files, 9.1% by directory |
+| inventory noise: non-truth families listed per case | reported with coverage; the bound is set with it | — |
+| inventory size | ≤ 600 B, ≤ 8 families (inside the leads budget) | — |
+| inventory check replay on saved runs (controls be-vs-5973, be-vs-5941) | fires on ≤ half of the control runs | the drift receipt: 15 / 18 |
 
 Step 3b, paid (`evals:walk`, then `evals:decide` on localize), on the six cases of stage 2's reference run `26_1600`
 (6 × 3 = 18 runs):
@@ -242,7 +262,10 @@ Step 3b, paid (`evals:walk`, then `evals:decide` on localize), on the six cases 
 | `first-call-broad` runs | ≤ 4 / 18 (was 6 / 30) | 18 / 18 |
 | `outside-map` true files read | falls vs 26_1600 | 244 in 18 runs |
 | recall | ≥ 0.417 (0.503 − band 0.086) | 0.503 (bare 0.436) |
-| stage-2 debt: cost, route ready | ≤ 1.1× bare; ≥ 90% of runs ≤ 5 s | 1.1845×; 12 / 18 |
+| stage-2 debt: cost, route ready | ≤ 1.1× bare; ≥ 90% of runs ≤ 5 s | 1.1956× (agent cost); 12 / 18 |
+| drift gate | ≥ 80% of cases in band (5 / 6) | 0 / 6 |
+| case floors | every case ≥ its pinned reference − band | 6 / 6 (it is the reference) |
+| answer check continuation | calls, bytes and agent cost after a Stop block reported per run | — |
 
 ### Stage 4 — Policy stages (L4 policy, `policies/*.yaml`)
 

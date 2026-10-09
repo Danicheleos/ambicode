@@ -74,7 +74,48 @@ States combine: a file can be `served` and then `excluded`. Report per run and p
 
 Code: a `fileStates(row, calls, receipts)` in `run-report.mjs` beside `toolFiles`, reusing `readOperands`, `callChain` results and the ledger `search` names. Tests: one fixture per state, including a grep hit that is `discovered` but not `served`.
 
-### B2. Answer receipt (only if B1 passes)
+**Result (2026-10-09).** `fileStates` and `missingByExposure` in `run-report.mjs`; report section 7 shows the pooled split. Cohort: plugin 05_0035, 15_1241, 16_1304, 26_1600 (136 runs) and bare 30_2248 (60 runs), all traced. Raw: `raw/drift/b1-file-states.{txt,json}`.
+
+| Missing existing truth | plugin | bare |
+|---|---|---|
+| missing / existing | 1583 / 2857 | 765 / 1173 |
+| `served`, not proposed | 51 (3.2%) | 12 (1.6%) |
+| of those `excluded` | 0 | 0 |
+| `discovered` only | 621 (39.2%) | 408 (53.3%) |
+| `unseen` | 911 (57.5%) | 345 (45.1%) |
+| `unknown` | 0 | 0 |
+| created, not proposed | 188 / 311 | 91 / 153 |
+
+On the omission cases, served and not proposed: fe-vs-6404 4 / 96, fe-vs-6292 2 / 157, fe-vs-438 0 / 26. FE6404's locale files are `discovered` (a `grep -l` listing), never served.
+
+- **Decision: B2 is not built.** 3.2% is far under 25%; a receipt over served files can recover at most that.
+- `discovered` is an upper bound: one listing marks every path in it. Even so, the loss is read depth (39%) and discovery (58%), which is stage 3a.
+- `unseen` is split from `unknown` here: `unknown` is kept for a run with no trace (none in the cohort).
+- Cross-check with the review: 15/16 missing truth incl. created = 605 + 87 = 692, the review's number.
+
+**Family reach (2026-10-09, after the user kept the drift target absolute).** Counted by directory instead of by file (raw: `raw/drift/b1-family-reach.txt`):
+
+| Missing existing truth (plugin, 1583) | files |
+|---|---|
+| in a directory where the run opened a file | 322 (20.3%) |
+| in a directory where the run opened or listed a file | 952 (60.1%) |
+| the file itself in the engine's map | 45 (2.8%) |
+
+Run-to-run agreement of the proposed sets (mean pairwise Jaccard per case): plugin 0.648, bare 0.677. Existing recall per run 0.594; hit by every run 0.525; by any run 0.681.
+
+**B2 offline replay (2026-10-09).** A truth-free receipt over 136 plugin and 60 bare runs: the engine's inputs only (base tree from the case's commit, tool calls and results, reader receipts, the answer's change decisions). Bounds: ≤ 5 directories, ≤ 600 B. A directory the Files section names is resolved. Raw: `raw/drift/b2-replay.{txt,json}`, script in the session scratchpad.
+
+| Variant (plugin) | fires | controls (≤ 9 / 18) | missing truth in shown dirs | undecided files shown: true / non-truth |
+|---|---|---|---|---|
+| dir holds a proposed file | 126 / 136 | 15 / 18 | 291 (18.4%) | 245 / 1265 |
+| dir holds an opened file | 136 / 136 | 18 / 18 | 244 (15.4%) | 214 / 1762 |
+| proposed file's basename-stem siblings | 87 / 136 | 5 / 18 | 108 (6.8%) | 63 / 215 |
+| stem, plus ≥ 2 same-extension siblings | 117 / 136 | 14 / 18 | 286 (18.1%) | 244 / 1192 |
+
+- **Decision: B2 is not built.** Every variant that reaches the omission cases fires on the controls; the one that stays quiet reaches 6.8% of the loss and shows 3.4 non-truth files per true one.
+- The receipt can only act on what the run saw. 58% of the loss is files never seen, and seen siblings are 1 true in 5. An answer-side check cannot make the result stable; the input the model works from has to be.
+
+### B2. Answer receipt — not built (B1 file rule and the family replay both fail)
 Engine-side, language-agnostic, at the investigate answer's Stop check (`src/harness/engine/stop.ts`, the `citationsOnly` answer path).
 - **Input is change decisions, not citations.** Parse the answer's `## Files` with the same `changeLines` contract, ported to `src/` with one shared fixture set, so scorer and engine cannot disagree. A citation elsewhere in the answer does not count as coverage. FE6404's weak run cites upload-complete evidence and still leaves the component out.
 - **Families, not just bodies.** Group served and discovered paths by directory and by shared basename stem (`*.component.{ts,html,scss}`, `en.json` with its locale siblings). A family counts as unresolved when it holds ≥ 2 served or discovered files, and none of them is proposed or excluded with a reason line.
@@ -97,7 +138,10 @@ Engine-side, language-agnostic, at the investigate answer's Stop check (`src/har
   - The shared `changeLines` fixtures run in both suites.
 - `routes/investigate/read.md` gets no new wording.
 
-## Paid (ask before each; only after B1 passes and B2's replay is recorded)
+## Next: the input side, in stage 3a (2026-10-09)
+The drift fix moves into stage 3a (`evals/TRAINING-PLAN.md`, Stage 3): a candidate inventory the engine builds the same way on every run, then a Stop check that the answer decides each listed family. Order: measure the inventory's coverage and noise offline, then replay the check on saved runs, then the paid 3b run with the drift gate and case floors in its acceptance. The paid run below is superseded by 3b.
+
+## Paid (superseded by stage 3b; kept for the record)
 Cases (review P2-6), 6 × 3 plugin-only, about $5:
 
 | Role | Cases |

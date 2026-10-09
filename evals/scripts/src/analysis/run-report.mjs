@@ -8,7 +8,7 @@ import { BASELINE_LOCK_FILE, CASES_DIRECTORY, CASES_ROOT, NAKED_PLUGIN, OUTPUTS,
 import { infrastructureError } from '../harness/run-validity.mjs';
 import { ACCEPTANCE, driftOf, repetitionMeans } from '../validation/eval-gate.mjs';
 import { resolveBaseline } from './baseline-lock.mjs';
-import { createAnalysis, namedFiles, scoreWithAnalysis, withBaseline } from './bench-score.mjs';
+import { createAnalysis, namedFiles, PATH_TOKEN, resolvePath, scoreWithAnalysis, withBaseline } from './bench-score.mjs';
 import { callClass, PRICES, readJsonl, readSegments, readsFiles, sessionEvents, sessionFacts, stopWrote, textOf } from './layer-audit.mjs';
 import { ledgersOf } from './ledger-metrics.mjs';
 import { mapPaths } from './map-recall.mjs';
@@ -83,11 +83,51 @@ export function callChain(events, startedAt = null) {
 /** Paths a tool call reads or names, relative to the repository, as the answer scorer resolves them. */
 export function toolFiles(tool, truth, root) {
   const text = tool.name === 'Read' ? ` ${tool.input.file_path ?? ''}` : tool.name === 'Bash' ? String(tool.input.command ?? '') : [tool.input.path, tool.input.pattern, tool.input.glob].filter(Boolean).join(' ');
-  const named = namedFiles(` ${text}`, truth, root).named;
+  return filesIn(text, truth, root);
+}
+
+/** Paths in any text, resolved as the scorer resolves the answer's; a root truth file counts as a whole operand only. */
+function filesIn(text, truth, root) {
+  const named = [...new Set([...` ${text}`.matchAll(PATH_TOKEN)].map((m) => resolvePath(m[1], truth, root)))];
   // The path pattern needs a slash: a root truth file is matched as a whole operand, never as a nested file's tail.
   const escape = (name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const rooted = truth.filter((t) => !t.includes('/') && !named.includes(t) && new RegExp(`(?:^|[\\s'"\`=(])(?:\\./)?${escape(t)}(?=$|[\\s'"\`;|)&,:])`).test(text));
   return [...named, ...rooted];
+}
+
+/**
+ * Where each truth file got to in one run, for the answer lever's decision: `future` (created by the change, absent at
+ * base), `unknown` (no trace), `unseen`, `discovered` (named in a tool's input or output, or a map lead), `served`
+ * (a successful Read, a read segment's operand, or a reader receipt), each with the answer's decision: proposed,
+ * excluded or neither. A cat of several files counts each operand served; the output is not split per file.
+ */
+export function fileStates({ truth, created = [], root = '', calls = null, receipts = [], leads = [], named = [], excluded = [] }) {
+  const future = new Set(created);
+  const discovered = new Set(leads.filter((f) => truth.includes(f)));
+  const served = new Set();
+  for (const name of receipts) served.add(resolvePath(name.replace(/:\d+(?:-\d+)?$/, ''), truth, root));
+  for (const tool of (calls ?? []).flatMap((c) => c.tools)) {
+    for (const f of filesIn(`${toolFiles(tool, truth, root).join(' ')} ${tool.result ?? ''}`, truth, root)) discovered.add(f);
+    if (tool.error || !tool.resultBytes || !isRead(tool)) continue;
+    for (const operand of readOperands(tool)) for (const f of filesIn(operand, truth, root)) served.add(f);
+  }
+  return truth.map((file) => {
+    const exposure = future.has(file) ? 'future' : served.has(file) ? 'served' : discovered.has(file) ? 'discovered' : calls === null && !receipts.length ? 'unknown' : 'unseen';
+    const decision = named.includes(file) ? 'proposed' : excluded.includes(file) ? 'excluded' : 'none';
+    return { file, exposure, decision };
+  });
+}
+
+/** Missing existing truth by how far it got: the answer lever can reach `served` files only. */
+export function missingByExposure(states) {
+  const missing = states.filter((s) => s.exposure !== 'future' && s.decision !== 'proposed');
+  const count = (exposure, decision = null) => missing.filter((s) => s.exposure === exposure && (decision === null || s.decision === decision)).length;
+  return {
+    existing: states.filter((s) => s.exposure !== 'future').length, missing: missing.length,
+    future: states.filter((s) => s.exposure === 'future').length, futureMissing: states.filter((s) => s.exposure === 'future' && s.decision !== 'proposed').length,
+    unknown: count('unknown'), unseen: count('unseen'), discovered: count('discovered'), served: count('served'),
+    servedExcluded: count('served', 'excluded'), discoveredExcluded: count('discovered', 'excluded'),
+  };
 }
 
 const isRead = (tool) => readsFiles(tool.name, tool.input);
@@ -209,14 +249,18 @@ export function analyzeResult(results, { tracesDirs, cases = CASES_ROOT, withCha
           graders: (run.graders ?? []).map((g) => ({ name: g.name, passed: g.passed, explanation: g.explanation ?? null })),
           truth, answer: score.answer ?? (run.graders ?? []).find((g) => typeof g.evidence === 'string')?.evidence ?? null,
         };
-        row.namedFiles = row.answer !== null && truth.length ? namedFiles(row.answer, truth, root).named : null;
+        const decided = row.answer !== null && truth.length ? namedFiles(row.answer, truth, root) : null;
+        row.namedFiles = decided?.named ?? null;
         const session = id ? sessionEvents(id, tracesDirs) : null;
         const sessionStart = session ? sessionStartOf(session) : null;
         const start = sessionStart ?? run.startedAt ?? null;
         row.setupS = sessionStart && run.startedAt ? elapsedMs(run.startedAt, sessionStart) / 1000 : null;
         const traceFile = id && tracesDirs.map((dir) => path.join(dir, `${id}.jsonl`)).find(existsSync);
+        let calls = null;
         if (traceFile) {
-          const { calls, result } = callChain(readJsonl(traceFile), start);
+          const chain = callChain(readJsonl(traceFile), start);
+          calls = chain.calls;
+          const result = chain.result;
           const tools = calls.flatMap((c) => c.tools);
           const reads = [];
           tools.forEach((tool) => {
@@ -265,6 +309,12 @@ export function analyzeResult(results, { tracesDirs, cases = CASES_ROOT, withCha
           if (!route.exit && wrote !== null && wrote > harvested) route.stale = { wrote, harvested };
           row.routeReadyS = start && route.deliveredAt ? elapsedMs(start, route.deliveredAt) / 1000 : null;
           row.mapMs = route.mapLayers.reduce((a, l) => a + (l.ms ?? 0), 0) || null;
+        }
+        if (truth.length && decided) {
+          const receipts = (ledgers ?? []).flatMap((l) => l.entries).filter((e) => e.kind === 'search' && e.command === 'read').flatMap((e) => e.names ?? []);
+          const leads = row.step ? [...row.step.leads, ...row.step.feature] : [];
+          row.fileStates = fileStates({ truth, created: meta?.created ?? [], root, calls, receipts, leads, named: decided.named, excluded: decided.excluded });
+          row.missing = missingByExposure(row.fileStates);
         }
         if (row.step && row.namedFiles) {
           const map = new Set([...row.step.leads, ...row.step.feature]);
@@ -658,6 +708,15 @@ export function renderReport({ label, file, current, plugin, bare, bareSource, b
     ['calls issuing > 1 tool / run', cell(perRun(plugin, (r) => r.parallelCalls), 2), cell(perRun(bare, (r) => r.parallelCalls), 2)],
     ['failed tool calls / run', cell(perRun(plugin, (r) => r.failedCalls), 2), cell(perRun(bare, (r) => r.failedCalls), 2)],
   ]), '');
+  const exposed = (rows) => {
+    const sum = (key) => rows.filter((r) => r.missing && !r.absent).reduce((n, r) => n + r.missing[key], 0);
+    const missing = sum('missing');
+    const of = (key) => `${sum(key)}${missing ? ` (${((100 * sum(key)) / missing).toFixed(0)}%)` : ''}`;
+    return [`${missing}`, of('served'), `${sum('servedExcluded')}`, of('discovered'), of('unseen'), of('unknown'), `${sum('futureMissing')}/${sum('future')}`];
+  };
+  if (plugin.some((r) => r.missing))
+    out.push('Missing existing truth, pooled over runs, by the furthest the run got with each file (`fileStates`). The answer lever reaches `served` only; created files are apart.', '',
+      table(['arm', 'missing', 'served', '  of those excluded', 'discovered only', 'unseen', 'unknown', 'created missing'], [['plugin', ...exposed(plugin)], ['bare', ...exposed(bare)]]), '');
   const firsts = plugin.filter((r) => r.firstTool).reduce((m, r) => m.set(r.firstTool.class, (m.get(r.firstTool.class) ?? 0) + 1), new Map());
   if (firsts.size) out.push(`First tool call of the plugin arm: ${[...firsts].map(([c, n]) => `${c} ×${n}`).join(', ')}.`, '');
 
