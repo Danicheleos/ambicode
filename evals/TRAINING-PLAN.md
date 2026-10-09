@@ -107,7 +107,7 @@ Stage 0 never closes on a floor: a ruler defect that can change a gate verdict b
 | `map-empty` cases | 2 | — |
 | `first-call-broad` runs | 15 / 30 | — |
 | offline map recall (core) | 40% (21 of 53 truth files) | — |
-| offline map recall (python) | 26% (9 of 34) | — |
+| offline map recall (python) | 26% (9 of 34); 50% (17 of 34) on 2026-10-09 after the cases were repointed | — |
 
 Task walk (fe-task-vs-5164): $0.51, 22 calls, the route stayed open at `write:delivered`, red/green repeated with
 limit entries.
@@ -155,6 +155,11 @@ Measure: `context` (first-call context minus bare), `route-slow`, wall time, cos
 
 ### Stage 2 — Engine: delivery, closure, budgets (L3, L1 hooks)
 
+**Closed 2026-10-09 by the user's decision, with cost as debt** (an exception to the floor rule: the gate failed on
+cost in every iteration, 1.14× to 1.26×). Reference run: `26_1600_six-ambicode-with-prompt-sonnet-5-5` (6 cases × 3,
+chosen by signal over noise). Gate: 8 of 9 checks pass. Recall 0.503 vs bare 0.436 (band 0.086), model calls p95 +1,
+context +2,897, cost **1.1845×**. Unmet rows are in §5 Debt.
+
 Reopened 2026-10-08. The first close (`eval-replay/evals/stage2-baseline.md`) measured 6 old cases and never ran the
 task walk. The audit `eval-replay/evals/raw/24-25-26-27-next/report.md` found engine and hook defects on the new 20-case
 set. This stage also carries the two stage-1 thresholds that fail on that set.
@@ -191,25 +196,34 @@ The map is the main tool lever: investigate, task and plan read it. Tune offline
 Lever: profile and index facts, map layers (`[shortlist, harvest, shortlist]` for prompts, `[grep, harvest]` for
 context), dependents, leads and feature limits.
 
+Re-based 2026-10-09 on the current cases; the first thresholds were set on the old 18-case core. Starting values and
+the loss point per case: `eval-replay/evals/stage3-baseline.md`.
+
+Map recall here is capped macro delivered recall: per case, true files the map lists (leads and same-feature) divided by
+min(truth files, files listed), averaged over cases. A map of about 8 leads cannot cover a 69-file truth list, so plain
+recall cannot reach a fixed share on this set; 10 of the 20 core cases have more than 20 truth files.
+
 Step 3a, offline (`evals:map-recall`, `evals:shortlist-recall`, `evals:layer-audit`):
 
 | Pass when | Threshold | Now |
 |---|---|---|
-| map recall, curated core | ≥ 60% | 40% |
-| map recall, python | ≥ 40% | 26% |
-| any project or case set that drops | none drops by more than 1 truth file | — |
-| empty maps | 0 | 2 cases |
-| leads size | ≤ 1,200 B; feature ≤ 400 B (unchanged) | — |
-| map time | ≤ 3 s | ≈ 4.3 s |
+| map recall, core (20 cases) | ≥ 0.435 (1.5× the start, as 40% → 60% was) | 0.290 (35 of 442 truth files) |
+| map recall, python (5 cases, `evals/python/full`) | ≥ 40% | 0.542 (17 of 34); holds, so it guards against a drop |
+| any project or case set that drops | none drops by more than 1 truth file | reference: `eval-replay/evals/raw/stage3/` |
+| empty maps | 0 | 7 / 20 core cases; 0 / 5 python |
+| leads size | ≤ 1,200 B; feature ≤ 400 B (unchanged) | max 1,200 / 200 B core; 916 / 396 B python |
+| map time, per case, FE included | ≤ 3 s | live: FE 3.9–4.7 s, BE 0.64–0.92 s; no offline timer yet |
 
-Step 3b, paid (`evals:walk`, then `evals:decide` on localize):
+Step 3b, paid (`evals:walk`, then `evals:decide` on localize), on the six cases of stage 2's reference run `26_1600`
+(6 × 3 = 18 runs):
 
-| Pass when | Threshold | Now |
+| Pass when | Threshold | Now (26_1600) |
 |---|---|---|
-| `map-missed` runs | ≤ 3 / 30 | 7 / 30 |
-| `first-call-broad` runs | ≤ 6 / 30 | 15 / 30 |
-| `outside-map` true files read | falls vs run 12 | — |
-| recall | ≥ run 12 − band | 0.731 |
+| `map-missed` runs | ≤ 2 / 18 (was 3 / 30) | 5 / 18 |
+| `first-call-broad` runs | ≤ 4 / 18 (was 6 / 30) | 18 / 18 |
+| `outside-map` true files read | falls vs 26_1600 | 244 in 18 runs |
+| recall | ≥ 0.417 (0.503 − band 0.086) | 0.503 (bare 0.436) |
+| stage-2 debt: cost, route ready | ≤ 1.1× bare; ≥ 90% of runs ≤ 5 s | 1.1845×; 12 / 18 |
 
 ### Stage 4 — Policy stages (L4 policy, `policies/*.yaml`)
 
@@ -346,5 +360,11 @@ Last, and only for a step whose tool levers are used up. One file per change; ru
 
 ## 5. Debt
 
-Unmet thresholds from stages closed on their floor. None yet. The ideas to try later are in
+Unmet thresholds from stages closed on their floor. The ideas to try later are in
 `eval-replay/evals/plans/next-moves-2026-10-08.md`.
+
+| From | Threshold | Measured | Owning layer | Cheapest retest |
+|---|---|---|---|---|
+| stage 2 | cost ≤ 1.1× bare (gate) | 1.1845× on 26_1600 (6 cases); 1.141× on 05_0035 (20 cases). fe-vs-6141 1.33×, be-vs-5973 1.24×; fe-vs-6141 and fe-vs-3571 got an empty map in 6 of 6 runs | L4b search map: an empty map sends the model to broad search | stage 3b paid run on the same 6 cases |
+| stage 2 | route step ready ≤ 5 s in ≥ 90% of runs | 12/18 (67%) on 26_1600: the FE cases wait for a map of about 4.5 s; 54/58 on 15_1241 + 16_1304 | L4b map time (stage 3a: map ≤ 3 s) | `evals:map-recall` timing, offline |
+| stage 2 | task walk: route closes; no repeated red/green after a limit | untested: every task case ends `blocked (no-check)` at ground because its sandbox config has no check command | eval side: the task cases need a runnable check | one task case with a configured check, walk ×2 |
