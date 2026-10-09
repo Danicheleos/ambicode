@@ -160,6 +160,26 @@ describe('base-scaffold', () => {
     assert.match(git(repo, 'status', '--porcelain', '--untracked-files=all'), /\?\? \.ambicode\/index\/i\.db/, 'an unignored index directory withholds index build consent');
   });
 
+  it('the user\'s git config does not change the base commit: global and default excludes are not applied', () => {
+    const script = caseWith('c14', {});
+    const home = path.join(top, 'home-14');
+    put(path.join(home, 'excludes'), 'a.txt\n');
+    put(path.join(home, '.gitconfig'), `[core]\n\texcludesFile = ${path.join(home, 'excludes').split(path.sep).join('/')}\n`);
+    put(path.join(home, '.config/git/ignore'), 'x.test.ts\n');
+    const env = { ...process.env, HOME: home, USERPROFILE: home };
+    delete env.XDG_CONFIG_HOME;
+    delete env.GIT_CONFIG_GLOBAL;
+    const work = path.join(top, 'work-14');
+    mkdirSync(work, { recursive: true });
+    const result = spawnSync('sh', [script], { cwd: work, encoding: 'utf8', env });
+    assert.equal(result.status, 0, result.stderr);
+    const files = git(path.join(work, 'repo'), 'ls-files').split('\n');
+    assert.ok(files.includes('src/a.txt') && files.includes('src/tests/x.test.ts'), files.join(', '));
+    const plain = path.join(top, 'work-14b');
+    assert.equal(run(script, plain).status, 0);
+    assert.equal(git(path.join(work, 'repo'), 'rev-parse', 'HEAD'), git(path.join(plain, 'repo'), 'rev-parse', 'HEAD'));
+  });
+
   it('05-S2: SIDE resolves from the script location; sideRelFrom fits any case directory under any root; a moved copy is regenerated', () => {
     const script = caseWith('c7', {});
     const deeper = path.join(top, 'cases', 'nested', 'c7');

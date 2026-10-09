@@ -109,17 +109,25 @@ describe('the git-write guard decides on the command structure', () => {
     assert.match(reason, /`git commit`/);
   });
 
-  it('refuses the plugin\'s own command run through a variable and says to write it out; other expanded names still ask', () => {
+  it('runs the plugin\'s own command held in a variable as written out in full, and says so; the rest still stops', () => {
     const cli = '/x/ambicode/scripts/ambicode.mjs';
-    for (const command of [
-      `cd repo; R='node ${cli} read --task t'; $R src/a.ts src/b.ts 2>&1 | head -300`,
-      `A="node ${cli}"; \${A} read --task t src/a.ts`,
-      `R=node\\ ${cli}; $R read --task t src/a.ts`,
-    ]) {
+    const rewritten = (command: string): string => {
       const out = bash(command);
-      assert.equal(decisionOf(out), 'deny', command);
-      assert.match(out.hookSpecificOutput!.permissionDecisionReason, /write the plugin's command out in full .*not through `\$[AR]`/, command);
-    }
+      assert.equal(decisionOf(out), 'allow', command);
+      assert.match(out.hookSpecificOutput!.permissionDecisionReason, /ran `\$[ARX]` as the plugin's command written out in full/, command);
+      return (out.hookSpecificOutput as unknown as { updatedInput: { command: string } }).updatedInput.command;
+    };
+    // The four shapes seen in 05_0035 and 06_1010.
+    assert.equal(rewritten(`A="node ${cli} read --task N"; $A src/a.ts src/u.ts:130:260; ls src/`), `A="node ${cli} read --task N"; node ${cli} read --task N src/a.ts src/u.ts:130:260; ls src/`);
+    assert.equal(rewritten(`A="${cli}"; node "$A" read --task O src/a.ts`), `A="${cli}"; node ${cli} read --task O src/a.ts`);
+    assert.equal(rewritten(`R='node ${cli} read --task t'; $R src/a.ts 2>&1 | head -300`), `R='node ${cli} read --task t'; node ${cli} read --task t src/a.ts 2>&1 | head -300`);
+    assert.equal(rewritten(`A="node ${cli}"; \${A} read --task t src/a.ts`), `A="node ${cli}"; node ${cli} read --task t src/a.ts`);
+    // The rewritten command is judged like any other: a git push after it still asks.
+    assert.equal(decisionOf(bash(`R="node ${cli}"; $R read --task t a.ts; git push`)), 'ask');
+    // A value the rewrite does not read stays refused with the old message.
+    const out = bash(`R=node\\ ${cli}; $R read --task t src/a.ts`);
+    assert.equal(decisionOf(out), 'deny');
+    assert.match(out.hookSpecificOutput!.permissionDecisionReason, /write the plugin's command out in full .*not through `\$R`/);
     assert.equal(decisionOf(bash(`R='node ${cli} read'; $X src/a.ts`)), 'ask');
     assert.equal(decisionOf(bash('G=git; $G push')), 'ask');
   });

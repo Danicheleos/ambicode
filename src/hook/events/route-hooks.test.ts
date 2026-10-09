@@ -342,6 +342,26 @@ describe('03-H7 SessionEnd', () => {
 });
 
 describe('the eval export at Stop', () => {
+  it('a draft promoted into the plan is exported as promoted, not missing, and the export stays complete', async () => {
+    const plan = await planFixture();
+    const exported = await plan.fx.runtime.fs.temporaryDirectory('ambicode-export-');
+    process.env[EVAL_EXPORT_VARIABLE] = exported;
+    try {
+      await plan.toGate({ headless: true, answers: [{ gate: 'plan-accept', option: 'Accept' }] });
+      const promoted = (await plan.fx.kinds(PLAN_TASK, 'note')).find((entry) => entry['note'] === 'plan')!;
+      await hook(plan, { hook_event_name: 'Stop' });
+      const source = JSON.parse(await readFile(path.join(exported, SESSION_A, PLAN_TASK, 'source.json'), 'utf8')) as { complete: boolean; files: { to: string; copied: boolean; error?: string; promotedTo?: string }[] };
+      assert.equal(source.complete, true, JSON.stringify(source.files));
+      const draft = source.files.find((file) => file.to.startsWith(path.join('notes', 'plan-draft_')))!;
+      assert.deepEqual([draft.copied, draft.error, draft.promotedTo], [false, 'promoted', promoted['path']]);
+      assert.ok(source.files.some((file) => file.to === path.join('notes', path.basename(String(promoted['path']))) && file.copied));
+    } finally {
+      delete process.env[EVAL_EXPORT_VARIABLE];
+      await plan.fx.runtime.fs.remove(exported);
+      await plan.dispose();
+    }
+  });
+
   it('a route that ended on a CLI step before Stop is still exported', async () => {
     const plan = await planFixture();
     const exported = await plan.fx.runtime.fs.temporaryDirectory('ambicode-export-');

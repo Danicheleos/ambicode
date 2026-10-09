@@ -232,6 +232,11 @@ changed). Ask the user `plan-accept` again for the current draft; do not
 rewrite or re-check the plan. `plan-already-promoted` is not an error: the plan
 exists and its path is printed.
 
+**`plan-route-ended`.** `plan check` ran after the plan route ended, so nothing
+was saved or checked. A plan was accepted as it is, or the route ended without
+one. Do not revise: name the check failures in your answer. Only the user can ask
+for a new draft, by starting `/ambicode:plan` again.
+
 **`worker-output-invalid`.** A worker run by `worker run` gave no usable output:
 the process failed, or its output was not one JSON object matching the worker's
 schema within 64 KiB; the `reason` detail says which. No artifact was written.

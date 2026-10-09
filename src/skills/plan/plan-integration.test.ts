@@ -147,4 +147,28 @@ describe('06-H1/06-H2 plan route integration on ts-feature-boundary', () => {
       await rm(path.dirname(root), { recursive: true, force: true });
     }
   });
+
+  it('after a headless route accepted its draft, another plan check is refused and nothing is saved', async () => {
+    const root = await materialized();
+    try {
+      const step: Record<string, string> = {};
+      for (const name of ['plan/fetch', 'plan/design', 'plan/write']) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
+      const assembled = await assembleEngine({ root, routes: { plan: await readFile(path.join(REPO_ROOT, 'routes', 'plan', 'plan.yaml'), 'utf8') }, step });
+      const engine = assembled.build(skillHandlers());
+      await engine.start({ skill: 'plan', text: 'add a discount to invoice `total` and `amountCents`', requirements: [], task: TASK, cwd: root, session: A, channel: 'hook', headless: true, answers: [{ gate: 'plan-accept', option: 'Accept' }] });
+      const write = await engine.advance({ task: TASK, session: A, cause: 'route-next' });
+      assert.equal(write.position, 'plan-write');
+      const check = (anchor: string) => runPlanCheckCommand({ ...assembled.runtime, stdin: { read: async () => body(anchor) } }, parseArgs('plan check', ['--task', TASK], PLAN_CHECK_OPTIONS));
+      const first = await check('src/invoices/missing.ts:3-6');
+      assert.equal(first.failed, true);
+      assert.match(first.next ?? '', /accepted as it is/);
+      const before = await readLedger(nodeFileSystem, path.join(root, '.ambicode', 'task', TASK));
+      assert.equal(before.filter((entry) => entry.kind === 'note' && entry['note'] === 'plan').length, 1);
+      await assert.rejects(check('src/invoices/service.ts:3-6'), (error: Error & { code?: string }) => error.code === 'plan-route-ended' && /ended/.test(error.message));
+      const after = await readLedger(nodeFileSystem, path.join(root, '.ambicode', 'task', TASK));
+      assert.equal(after.length, before.length, 'a refused check saves no draft and runs no worker');
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
+  });
 });

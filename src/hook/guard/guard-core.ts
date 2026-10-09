@@ -360,6 +360,25 @@ function withTask(command: string, task: string): string | null {
   return `${command.trim()} --task ${task}`;
 }
 
+// 16 of 60 investigate runs (05_0035) typed `R="node …ambicode.mjs"; $R read …`; a wording fix left 4 of 20 (06_1010).
+const CLI_VARIABLE = /(?:^|[\s;&|(])([A-Za-z_]\w*)=(?:"([\w@%+=:,./ -]*ambicode\.mjs[\w@%+=:,./ -]*)"|'([\w@%+=:,./ -]*ambicode\.mjs[\w@%+=:,./ -]*)'|([\w@%+=:,./-]*ambicode\.mjs))(?=[\s;&|)]|$)/g;
+
+/** The command with a variable holding the plugin's CLI replaced by its text where it names the command; null when there is none. */
+function inlineCliVariable(input: GuardInput): { name: string; input: GuardInput } | null {
+  const command = input.tool_input?.command;
+  if (input.hook_event_name !== 'PreToolUse' || input.tool_name !== 'Bash' || typeof command !== 'string') return null;
+  for (const match of command.matchAll(CLI_VARIABLE)) {
+    const name = match[1]!;
+    const value = match[2] ?? match[3] ?? match[4]!;
+    // A value without spaces is one word, so the quoted use `"$R"` means the same text.
+    const quote = value.includes(' ') ? '' : '"?';
+    const use = new RegExp(`(^|[\\s;&|(])${quote}\\$(?:${name}|\\{${name}\\})${quote}(?![\\w}])`, 'g');
+    const updated: string = command.replace(use, (_all, before: string) => `${before}${value}`);
+    if (updated !== command) return { name, input: { ...input, tool_input: { ...input.tool_input, command: updated } } };
+  }
+  return null;
+}
+
 function permissionOf(decision: Decision): string | null {
   const output = decision['hookSpecificOutput'] as { permissionDecision?: string } | undefined;
   return output?.permissionDecision ?? null;
@@ -380,6 +399,13 @@ function headlessDeny(decision: Decision, pluginRoot: string, task: string): Dec
  * how `sed -i` reads its suffix, and the environment whether `CDPATH` is set: the guard runs where the command runs.
  */
 export function guardDecision(input: GuardInput, pluginRoot = '${CLAUDE_PLUGIN_ROOT}', state?: GuardState, platform: string = process.platform): Decision {
+  const inlined = PLATFORM.updatedInput ? inlineCliVariable(input) : null;
+  if (inlined !== null) {
+    const decision = decideTool(inlined.input, pluginRoot, state, platform);
+    if (Object.keys(decision).length > 0) return decision;
+    const reason = `AMBICODE: ran \`$${inlined.name}\` as the plugin's command written out in full.`;
+    return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', permissionDecisionReason: reason, updatedInput: { ...input.tool_input, command: inlined.input.tool_input!.command } } };
+  }
   const decision = decideTool(input, pluginRoot, state, platform);
   const scratchpad = typeof input.scratchpad_dir === 'string' && input.scratchpad_dir !== '' ? input.scratchpad_dir : null;
   const route = scratchpad === null || state === undefined ? null : state.activeRoute(scratchpad);

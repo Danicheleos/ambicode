@@ -2,10 +2,12 @@ import { COMMAND_SPECS } from '#skills/plan/commands';
 import { runCommandTail } from '#harness/engine/command-tail';
 import { AmbicodeError } from '#util/errors';
 import { runPlanCheck } from '#modules/workers/plan-check';
+import { buildChain, exitOf } from '#modules/evidence/ledger-chain';
 import { routeTools, taskOf } from '../route/route.ts';
 import type { Runtime } from '#types/composition';
 import { MAX_NOTE_BYTES } from '#types/modules/evidence';
 import type { PlanCheckResult } from '#types/modules/workers';
+import type { LedgerEntry } from '#types/modules/evidence';
 import type { ParsedArgs, CliCommand } from '../../types/cli.ts';
 
 export const PLAN_CHECK_OPTIONS = { values: ['task', 'from'], flags: ['json'] } as const;
@@ -25,6 +27,26 @@ interface PlanCheckOutput extends PlanCheckResult {
 
 const INLINE_CHARS = 7_900;
 
+/** The task's latest plan route when it has ended, with the plan it promoted, if any. */
+function endedPlanRoute(entries: readonly LedgerEntry[]): { exit: LedgerEntry; plan: LedgerEntry | null } | null {
+  const head = entries.findLast((entry) => entry.kind === 'route' && entry['skill'] === 'plan');
+  const chain = head === undefined ? null : buildChain(entries, head);
+  const exit = chain === null ? null : exitOf(chain);
+  if (chain === null || exit === null) return null;
+  return { exit, plan: chain.entries.findLast((entry) => entry.kind === 'note' && entry['note'] === 'plan') ?? null };
+}
+
+/**
+ * Once the plan route has ended, a new draft is a revision only the user can ask for (walk 02_0000: after a headless
+ * Accept, both plan sessions fixed anchors and re-ran the check outside the route).
+ */
+function refuseAfterRoute(task: string, ended: { exit: LedgerEntry; plan: LedgerEntry | null }): never {
+  const what = ended.plan === null ? `exit: ${String(ended.exit['reason'])}` : `the accepted plan is ${String(ended.plan['path'])}`;
+  throw new AmbicodeError('plan-route-ended', `Task ${task}: the plan route has ended (${what}); nothing was saved or checked.`, {
+    details: ['Do not revise the plan: name the check failures in your answer. Only the user can ask for a new draft, by starting /ambicode:plan again.'],
+  });
+}
+
 /** Saves the plan body as a draft, checks it by code and, inside a route, advances it once (06-P1–P4). Exit 0 for a failing check too. */
 export async function runPlanCheckCommand(runtime: Runtime, args: ParsedArgs): Promise<PlanCheckOutput> {
   const task = taskOf('plan check', args);
@@ -34,12 +56,15 @@ export async function runPlanCheckCommand(runtime: Runtime, args: ParsedArgs): P
     throw new AmbicodeError('bad-argument', `"plan check" reads the plan from --from steps/plan-body.md or from standard input, up to ${MAX_NOTE_BYTES} bytes; it got neither.`, { field: 'from' });
   }
   const tools = await routeTools(runtime, task);
-  const { checked, binding } = await tools.engine.command(COMMAND_SPECS.planCheck, { task }, async ({ session, context, binding }) => ({
-    binding,
-    checked: await runPlanCheck({ runtime, session, context }, { task, body, from }),
-  }));
-  const next = await runCommandTail({ engine: tools.engine }, { task, cause: 'plan check', session: binding, produced: [checked.draft.id, checked.worker.id] });
+  const { checked, binding, context } = await tools.engine.command(COMMAND_SPECS.planCheck, { task }, async ({ session, context, binding, view }) => {
+    const ended = view === null ? endedPlanRoute(await context.entries(task)) : null;
+    if (ended !== null) refuseAfterRoute(task, ended);
+    return { binding, context, checked: await runPlanCheck({ runtime, session, context }, { task, body, from }) };
+  });
+  const tail = await runCommandTail({ engine: tools.engine }, { task, cause: 'plan check', session: binding, produced: [checked.draft.id, checked.worker.id] });
   const summary = checked.worker['summary'] as { failed: boolean };
+  const accepted = tail?.position === 'complete' && summary.failed ? endedPlanRoute(await context.entries(task))?.plan ?? null : null;
+  const next = tail === null || accepted === null ? tail : { ...tail, text: `${tail.text}\nThis draft was accepted as it is, check failures included: do not revise it. Name the failures in your answer.` };
   return fitted({ command: 'plan check', task, draft: String(checked.draft['path']), artifact: checked.artifact, failed: summary.failed, ...checked.result, duplicatesTotal: checked.result.duplicates.length, ...(next === null ? {} : { next: next.text }) });
 }
 
