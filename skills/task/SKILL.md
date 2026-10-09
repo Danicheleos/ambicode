@@ -32,8 +32,8 @@ Your final message has two prose parts — **Done** (what changed and why, with 
 (findings not fixed, gaps, decisions still needed) — then the generated Evidence and Not verified sections,
 exactly as the report step prints them. Never say tests pass unless Evidence shows a green check with a test count.
 
-If no step message appeared, start the route yourself:
+If no step message appeared, start the route yourself with the arguments unchanged (they begin `$0`):
 
 ```sh
-node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" route start task "$ARGUMENTS"
+node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" route start task "<request>" [--requirement <url>]... [--plan <file>] [--from-draft <file>]
 ```

@@ -70,6 +70,14 @@ const commandName = (segment: Segment): string => basename(segment.argv[0] ?? ''
 const unknownName = (segment: Segment): boolean => segment.opaque[0] === true && /[$`]/.test(commandName(segment));
 const UNKNOWN_GIT = 'git ?';
 
+/** `R='node …/ambicode.mjs read'; $R a.ts`: the variable an expanded command name reads, when this command assigns it our CLI. */
+function aliasedCli(segment: Segment, command: string): string | null {
+  const name = /^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$/.exec(segment.argv[0] ?? '')?.[1];
+  if (name === undefined) return null;
+  const assigned = new RegExp(`(?:^|[\\s;&|(])${name}=(?:'[^']*|"[^"]*|(?:\\\\.|\\S)*?)ambicode\\.mjs`).test(command);
+  return assigned ? name : null;
+}
+
 /** The state-changing operation a git command runs; `UNKNOWN_GIT` when only the shell or an alias says which. */
 function gitOperation(segment: Segment): string | null {
   const { argv, opaque } = segment;
@@ -243,6 +251,14 @@ function bashDecision(command: string, cwd: string | undefined, pluginRoot: stri
       continue;
     }
     const name = commandName(segment);
+    const alias = unknownName(segment) ? aliasedCli(segment, command) : null;
+    if (alias !== null) {
+      return decide(
+        'deny',
+        `AMBICODE: write the plugin's command out in full on every call, \`node "${pluginRoot}/scripts/ambicode.mjs" …\`, not through \`$${alias}\`. ` +
+          'zsh does not split a variable into words, so the shell would look for a command named after the whole string, and the guard cannot check it.',
+      );
+    }
     if (unknownName(segment)) asks.add(`AMBICODE: cannot tell what this runs: \`${shown(segment.argv[0]!)}\` names a command only when the shell expands it. ${USER_DECIDES}`);
     if (name === 'git') {
       const operation = gitOperation(segment);

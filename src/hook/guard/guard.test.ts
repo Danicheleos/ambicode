@@ -109,6 +109,21 @@ describe('the git-write guard decides on the command structure', () => {
     assert.match(reason, /`git commit`/);
   });
 
+  it('refuses the plugin\'s own command run through a variable and says to write it out; other expanded names still ask', () => {
+    const cli = '/x/ambicode/scripts/ambicode.mjs';
+    for (const command of [
+      `cd repo; R='node ${cli} read --task t'; $R src/a.ts src/b.ts 2>&1 | head -300`,
+      `A="node ${cli}"; \${A} read --task t src/a.ts`,
+      `R=node\\ ${cli}; $R read --task t src/a.ts`,
+    ]) {
+      const out = bash(command);
+      assert.equal(decisionOf(out), 'deny', command);
+      assert.match(out.hookSpecificOutput!.permissionDecisionReason, /write the plugin's command out in full .*not through `\$[AR]`/, command);
+    }
+    assert.equal(decisionOf(bash(`R='node ${cli} read'; $X src/a.ts`)), 'ask');
+    assert.equal(decisionOf(bash('G=git; $G push')), 'ask');
+  });
+
   it('ignores other tools, other events and malformed input', () => {
     assert.deepEqual(guardDecision({ hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { command: 'git push' } }), {});
     assert.deepEqual(guardDecision({ hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'git push' } }), {});

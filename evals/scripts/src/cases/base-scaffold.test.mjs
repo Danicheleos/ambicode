@@ -145,6 +145,21 @@ describe('base-scaffold', () => {
     assert.notEqual(run(script, path.join(top, 'work-12')).status, 0);
   });
 
+  it('the plugin\'s own state stays out of git status without a commit, so a review case keeps one snapshot id', () => {
+    const script = caseWith('c13', { wholeTree: true, applyPatch: 'review/change.patch' });
+    put(path.join(path.dirname(script), 'review/change.patch'), 'diff --git a/src/a.txt b/src/a.txt\n--- a/src/a.txt\n+++ b/src/a.txt\n@@ -1 +1 @@\n-base\n+reviewed\n');
+    const work = path.join(top, 'work-13');
+    assert.equal(run(script, work).status, 0);
+    const repo = path.join(work, 'repo');
+    put(path.join(repo, '.ambicode/task/t/ledger.jsonl'), '{}\n');
+    put(path.join(repo, '.ambicode/reviews/r.json'), '{}\n');
+    put(path.join(repo, '.ambicode/metrics.jsonl'), '{}\n');
+    assert.equal(git(repo, 'status', '--porcelain', '--untracked-files=all'), 'M src/a.txt');
+    assert.equal(git(repo, 'ls-files', '.gitignore'), '', 'the base commit is unchanged');
+    put(path.join(repo, '.ambicode/index/i.db'), 'x');
+    assert.match(git(repo, 'status', '--porcelain', '--untracked-files=all'), /\?\? \.ambicode\/index\/i\.db/, 'an unignored index directory withholds index build consent');
+  });
+
   it('05-S2: SIDE resolves from the script location; sideRelFrom fits any case directory under any root; a moved copy is regenerated', () => {
     const script = caseWith('c7', {});
     const deeper = path.join(top, 'cases', 'nested', 'c7');

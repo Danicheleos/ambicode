@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { RouteFixture } from '#testing/fixtures/route-fixture';
-import { checkFixture, CHECK_TASK } from '#testing/fixtures/check-fixture';
+import { checkFixture, CHECK_CONFIG, CHECK_TASK } from '#testing/fixtures/check-fixture';
 import { AmbicodeError } from '#util/errors';
 import { SESSION_A } from '#testing/fixtures/ids';
 
@@ -17,6 +17,19 @@ describe('check --only (07-C, 07-K)', () => {
       await assert.rejects(check({ phase: 'blue' as never }), code('bad-argument'));
       await assert.rejects(check({ key: 'app/nope' }), code('bad-argument'));
       await assert.rejects(check({ key: 'web/unit' }), code('unknown-project'));
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('a check configured as null is named as having no command, not listed as configured', async () => {
+    const { fx, check } = await checkFixture({ config: CHECK_CONFIG.replace('unit: { command: unit, adapter: jest }', 'unit: null') });
+    try {
+      await assert.rejects(check({ key: 'app/unit' }), (error: unknown) => {
+        assert.ok(error instanceof AmbicodeError && error.code === 'bad-argument');
+        assert.equal(error.message, 'Project "app" check "unit" is configured without a command, so it cannot run; runnable: e2e, lint.');
+        return true;
+      });
     } finally {
       await fx.dispose();
     }

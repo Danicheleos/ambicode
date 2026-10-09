@@ -42,7 +42,7 @@ steps:
       question: "Accept this plan?"
       object: "note{plan-draft}"                  # the latest draft in plan-check's window; the answer carries its hash
       options: [Accept, Revise, Reject]
-      acting: [Accept]                            # 01-contracts §5: Accept is an acting option
+      acting: [Accept, Revise]                    # 01-contracts §5; a revision too needs the user's own answer
       default: Reject                             # non-acting: the draft stays a draft
       release: Reject
       onAnswer: { Revise: revise design }         # a human cycle: resets design/plan-write repeats

@@ -144,7 +144,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
     const investigate = (await readFile(path.join(SKILLS_DIR, 'investigate', 'SKILL.md'), 'utf8')).replace(/\s+/g, ' ');
     assert.match(investigate, /edits nothing/i);
     assert.match(investigate, /saved as the investigation note/);
-    assert.match(investigate, /route start investigate "\$ARGUMENTS"/);
+    assert.match(investigate, /route start investigate "<request>"/);
     assert.doesNotMatch(investigate, /route next|note save/);
     assert.ok(Buffer.byteLength(investigate) <= 900);
   });
@@ -170,10 +170,19 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.doesNotMatch(await readFile(path.join(SKILLS_DIR, 'task', 'SKILL.md'), 'utf8'), /note save/);
   });
 
-  it('plan declares an argument hint and makes the request available through $ARGUMENTS', async () => {
+  it('plan declares an argument hint', async () => {
     const raw = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
     requiredString(frontmatter(raw, 'plan/SKILL.md'), 'argument-hint', 'plan/SKILL.md');
-    assert.ok(raw.includes('$ARGUMENTS'), 'plan/SKILL.md must reference $ARGUMENTS explicitly');
+  });
+
+  it('a typed skill carries its arguments once: the body fills only `$0`, never `$ARGUMENTS`', async () => {
+    // Claude Code appends the whole arguments to a body that fills no placeholder, and `$ARGUMENTS` repeats them:
+    // a 6 KB ticket cost 2,214 more first-call tokens than with `$0` (be-vs-4606 probe, 2026-10-09).
+    for (const skill of ['investigate', 'plan', 'task']) {
+      const raw = await readFile(path.join(SKILLS_DIR, skill, 'SKILL.md'), 'utf8');
+      assert.doesNotMatch(raw, /\$ARGUMENTS/, skill);
+      assert.equal(raw.match(/\$\d/g)?.join(' '), '$0', skill);
+    }
   });
 
   it('plan\'s public interface takes a repeatable --requirement, never a plural --requirements', async () => {
@@ -234,9 +243,10 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.match(plan, /never\s+instructions?\s+or\s+authorization/i);
   });
 
-  it('06-S4: plan passes $ARGUMENTS to the route unchanged, so the whole primary request reaches it', async () => {
+  it('06-S4: plan passes the arguments to the route unchanged, so the whole primary request reaches it', async () => {
     const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
-    assert.ok(plan.includes('node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" route start plan "$ARGUMENTS"'));
+    assert.match(plan.replace(/\s+/g, ' '), /start it with the arguments unchanged/);
+    assert.ok(plan.includes('node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" route start plan "<request>" [--requirement <url>]...'));
   });
 
   it('the canonical shared operating contract states the three-way authority distinction, and never conflates "observed" with "team" (doc 04 P2.4 correction A5)', async () => {
@@ -283,7 +293,6 @@ describe('P2.3 task skill', () => {
     assert.equal(fm['disable-model-invocation'], true);
     assert.equal(requiredString(fm, 'allowed-tools', 'task/SKILL.md'), 'Read, Grep, Glob, Edit(**), Write(**), Bash(node *ambicode.mjs*), Bash(git status*), Bash(git diff*)');
     requiredString(fm, 'argument-hint', 'task/SKILL.md');
-    assert.ok(raw.includes('$ARGUMENTS'), 'task/SKILL.md must reference $ARGUMENTS explicitly');
   });
 
   it('07-M1 takes a repeatable --requirement, never a plural --requirements', async () => {
@@ -315,7 +324,7 @@ describe('P2.3 task skill', () => {
 
   it('07-M1 has the fallback start line and no LSP or prepare', async () => {
     const content = await task();
-    assert.ok(content.includes('node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" route start task "$ARGUMENTS"'));
+    assert.ok(content.includes('node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" route start task "<request>" [--requirement <url>]... [--plan <file>] [--from-draft <file>]'));
     assert.doesNotMatch(content, /\bLSP\b|findReferences|\bprepare\b/);
   });
 });

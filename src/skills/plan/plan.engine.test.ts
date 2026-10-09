@@ -94,17 +94,17 @@ describe('S4 write/check repair loop', () => {
 });
 
 describe('S5 model revise vs human Revise', () => {
-  it('Revise through the hook is a human cycle and resets the covered counters; an untrusted flag Revise is via model', async () => {
+  it('Revise through the hook is a human cycle and resets the covered counters; a flag Revise is declined, never a revise', async () => {
     const plan = await planFixture();
     try {
       await plan.toGate();
       const print = await lastPrint(plan);
       await plan.next({ answers: [{ gate: 'plan-accept', option: 'Revise' }] });
-      const flagRevise = (await plan.fx.kinds(PLAN_TASK, 'revise')).at(-1)!;
-      assert.equal(flagRevise['via'], 'model');
-      assert.equal(flagRevise['from'], 'design');
-      assert.equal((await plan.fx.kinds(PLAN_TASK, 'step')).at(-1)!['step'], 'design');
-      void print;
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'revise')).length, 0);
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'declined')).at(-1)!['reason'], 'acting-needs-human');
+      await plan.hook('plan-accept', 'Revise', print.id);
+      const human = (await plan.fx.kinds(PLAN_TASK, 'revise')).at(-1)!;
+      assert.deepEqual([human['via'], human['from']], ['gate', 'design']);
     } finally {
       await plan.dispose();
     }

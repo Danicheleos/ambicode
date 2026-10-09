@@ -10,7 +10,7 @@ import { normalizeRelative } from '#util/paths';
 import { pathExclusionReason } from '#util/path-classes';
 import { harvest } from '../declarations/harvest.ts';
 import { declarationPatternsOf, profileOf, readCatalog, testPatternsOf } from '../declarations/profile.ts';
-import { isPathReason, locate, termsFromRequirements } from './locate.ts';
+import { cachedSearch, isPathReason, locate, termsFromRequirements } from './locate.ts';
 import { formatIndexStatus, indexAdapterFor, ledgerIndex } from '../code-index/adapter.ts';
 import { indexDepsOf } from '../code-index/codeindex.ts';
 import { breadthGuard } from '../declarations/refs.ts';
@@ -196,7 +196,8 @@ export async function buildMap(input: {
   const pass1 = [...input.terms].slice(0, tune.maxTerms);
   let pass2: string[] = [];
   let shortlists = 0;
-  const listed = input.mode === 'prompt' ? await git.listFiles(pathspec) : [];
+  const search = cachedSearch(git);
+  const listed = input.mode === 'prompt' ? await search.listFiles(pathspec) : [];
   const sequence = sequenceFiles(listed, tune);
   let downweighted = 0;
   let harvested = 0;
@@ -259,7 +260,7 @@ export async function buildMap(input: {
       const used = second ? [...new Set([...pass1.slice(0, tune.maxTerms - tune.pass2Names), ...names(declarations).slice(0, tune.pass2Names), ...pass1.slice(tune.maxTerms - tune.pass2Names)])].slice(0, tune.maxTerms) : pass1;
       if (second) pass2 = used;
       await timed(layer, async () => {
-        const found = await locate({ git, project, terms: used, limit: 20 });
+        const found = await locate({ git: search, project, terms: used, limit: 20 });
         if (!second) placedDirs = [...new Set(found.candidates.filter((candidate) => candidate.reasons.some(isPathReason)).map((candidate) => path.posix.dirname(candidate.path)))];
         const outside = (file: string): boolean => placedDirs.length > 0 && !candidates.has(file) && !placedDirs.some((dir) => file.startsWith(`${dir}/`));
         merge(

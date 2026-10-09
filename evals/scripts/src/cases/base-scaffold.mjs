@@ -4,8 +4,11 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { PROJECT_CODE_DIRECTORY, projectCodeDir } from '../shared/bench-paths.mjs';
+import { GITIGNORE_ENTRIES, INDEX_DIR } from '../../../../src/types/defaults.ts';
 
 const FIXED_DATE = '2026-01-01T00:00:00Z';
+/** The index directory stays unignored: ignoring it is the consent `index build` checks, and evals do not build one. */
+const EXCLUDED = GITIGNORE_ENTRIES.filter((entry) => entry !== `${INDEX_DIR}/`);
 
 const quote = (text) => `'${String(text).replace(/'/g, `'\\''`)}'`;
 
@@ -56,6 +59,9 @@ export function baseScaffoldScript({ sideRel, base, root, withhold = [], setup =
     lines.push(`(cd "$PWD/repo" && ${setup.argv.map(quote).join(' ')}) || {`, '  code=$?', '  echo "scaffold: dependency setup failed (exit $code)" >&2', '  exit 3', '}');
   lines.push(
     'git -C "$PWD/repo" init -q',
+    // What `init --apply` ignores, kept out of the commit: an unignored route ledger entered the review snapshot,
+    // so walk 10_2314's review cases could never replay a recording.
+    `printf '%s\\n' ${EXCLUDED.map(quote).join(' ')} >> "$PWD/repo/.git/info/exclude"`,
     'git -C "$PWD/repo" add -A',
     `GIT_AUTHOR_NAME="AMBICODE Benchmark" GIT_AUTHOR_EMAIL=benchmark@example.invalid GIT_AUTHOR_DATE=${FIXED_DATE} \\`,
     `  GIT_COMMITTER_NAME="AMBICODE Benchmark" GIT_COMMITTER_EMAIL=benchmark@example.invalid GIT_COMMITTER_DATE=${FIXED_DATE} \\`,

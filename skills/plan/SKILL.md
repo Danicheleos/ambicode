@@ -8,13 +8,13 @@ allowed-tools: Read, Grep, Glob, Bash(node *ambicode.mjs*), Write(.ambicode/task
 
 # Plan a change
 
-`$ARGUMENTS` is `<request-or-jira/confluence-url> [--requirement <url>]...`;
+The arguments are `<request-or-jira/confluence-url> [--requirement <url>]...`;
 `--requirement <url>` repeats, and there is no plural flag. The plan route
 runs the steps and prints each one; follow what it prints. If no step was
-printed, start it with the arguments unchanged:
+printed, start it with the arguments unchanged (they begin `$0`):
 
 ```sh
-node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" route start plan "$ARGUMENTS"
+node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" route start plan "<request>" [--requirement <url>]...
 ```
 
 ## Judgments the route leaves to you

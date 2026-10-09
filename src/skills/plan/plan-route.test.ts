@@ -18,8 +18,8 @@ import { runPlanCheck } from '#modules/workers/plan-check';
 import { REPO_ROOT } from '#testing/paths';
 import { SESSION_A, SESSION_B } from '#testing/fixtures/ids';
 
-/** SHA-256 of the step-06 Contract YAML with amend-06-review-r1 P2 (`fetch` gets `payload: [template]`, `plan-write` gets `payload: [policy:before-report]`). */
-const CONTRACT_SHA256 = '9dbc06996ab1a851eb6bfbe3250f4b0c075885ae08a1c42b388c56e917e86e6b';
+/** SHA-256 of the step-06 Contract YAML with amend-06-review-r1 P2 (`fetch` gets `payload: [template]`, `plan-write` gets `payload: [policy:before-report]`) and Revise acting. */
+const CONTRACT_SHA256 = 'cf4580d5fb6105e7e8bdd49f6f78f793f4ba39880aeba7f537544ea75907b50c';
 const GOOD = '# Plan\n\n- *Changes*: `src/orders/limit.ts:1` `orderLimit`\n';
 const BAD = '# Plan\n\n- *Changes*: `src/orders/limit.ts:40` `orderLimit`\n';
 const PLATFORM = { askBinding: 'supported', answerContext: 'supported' } as const;
@@ -66,13 +66,13 @@ describe('06-R1/06-R2 the shipped plan route', () => {
     }
   });
 
-  it('06-R1: routes/plan/plan.yaml is the Contract YAML, parses cleanly, builds, is packaged and marks Accept acting', async () => {
+  it('06-R1: routes/plan/plan.yaml is the Contract YAML, parses cleanly, builds, is packaged and marks Accept and Revise acting', async () => {
     const text = await readFile(path.join(REPO_ROOT, 'routes', 'plan', 'plan.yaml'), 'utf8');
     assert.equal(createHash('sha256').update(text).digest('hex'), CONTRACT_SHA256);
     assert.deepEqual(YAML.parseDocument(text).errors, []);
     const route = YAML.parse(text) as { steps: { id: string; gate?: { acting?: string[] } }[] };
     assert.deepEqual(route.steps.map((step) => step.id), ['template', 'fetch', 'ground', 'design', 'plan-step', 'plan-write', 'plan-check', 'plan-accept', 'promote']);
-    assert.deepEqual(route.steps.find((step) => step.id === 'plan-accept')?.gate?.acting, ['Accept']);
+    assert.deepEqual(route.steps.find((step) => step.id === 'plan-accept')?.gate?.acting, ['Accept', 'Revise']);
     assert.match(await readFile(path.join(REPO_ROOT, 'tools', 'package-candidate.mjs'), 'utf8'), /from: 'routes', extensions: \['\.yaml', '\.md'\]/);
     const plan = await shipped();
     await plan.dispose();
@@ -215,7 +215,7 @@ describe('06-R4/06-R5/06-R6 the plan-accept gate', () => {
     }
   });
 
-  it('S5 06-R5: a model revise uses design\'s repeat; a human Revise resets the counters; an untrusted flag Revise is via model', async () => {
+  it('S5 06-R5: a model revise uses design\'s repeat; a human Revise resets the counters; a flag Revise is declined', async () => {
     const plan = await shipped();
     try {
       await plan.start();
@@ -235,8 +235,10 @@ describe('06-R4/06-R5/06-R6 the plan-accept gate', () => {
       await plan.next();
       await plan.body('# Plan\n\n1. Again.\n');
       await plan.next();
+      const revises = (await plan.fx.kinds(PLAN_TASK, 'revise')).length;
       await plan.next({ answers: [{ gate: 'plan-accept', option: 'Revise' }] });
-      assert.equal((await plan.fx.kinds(PLAN_TASK, 'revise')).at(-1)!['via'], 'model');
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'revise')).length, revises, 'only the user sends the plan back');
+      assert.deepEqual([(await plan.fx.kinds(PLAN_TASK, 'declined')).at(-1)!['answer'], (await plan.fx.kinds(PLAN_TASK, 'declined')).at(-1)!['reason']], ['Revise', 'acting-needs-human']);
     } finally {
       await plan.dispose();
     }
@@ -291,6 +293,35 @@ describe('06-R8/06-R9/06-H4 acting authority', () => {
       const declined = (await plan.fx.kinds(PLAN_TASK, 'declined')).at(-1)!;
       assert.deepEqual([declined['reason'], declined['via']], ['option-not-offered', 'prompt']);
       assert.equal((await lastPrint(plan))['gate'], 'plan-accept');
+    } finally {
+      await plan.dispose();
+    }
+  });
+
+  it('a user-set headless run accepts its first draft even when the check failed, and offers no Revise', async () => {
+    const plan = await shipped();
+    try {
+      await toWrite(plan, { headless: true, answers: [{ gate: 'plan-accept', option: 'Accept' }] });
+      await planCheck(plan, BAD);
+      const print = (await plan.fx.kinds(PLAN_TASK, 'gate')).findLast((entry) => entry['gate'] === 'plan-accept')!;
+      assert.deepEqual(print['options'], ['Accept', 'Reject']);
+      assert.match(String(print['question']), /Plan check FAILED: .* Headless: this draft is accepted or rejected as it is, never revised\./);
+      assert.equal((await notes(plan, 'plan')).length, 1, 'the failed draft is promoted');
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'revise')).length, 0);
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'exit')).at(-1)!['reason'], 'done');
+    } finally {
+      await plan.dispose();
+    }
+  });
+
+  it('a user-set headless run without an Accept preanswer ends with the draft', async () => {
+    const plan = await shipped();
+    try {
+      await toWrite(plan, { headless: true });
+      await planCheck(plan, GOOD);
+      const taken = (await plan.fx.kinds(PLAN_TASK, 'default-taken')).at(-1)!;
+      assert.deepEqual([taken['answer'], taken['via']], ['Reject', 'headless']);
+      assert.equal((await notes(plan, 'plan')).length, 0);
     } finally {
       await plan.dispose();
     }

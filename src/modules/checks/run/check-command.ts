@@ -138,7 +138,9 @@ export async function runCheckOnly(deps: CheckDeps, input: CheckOnlyInput): Prom
   const project = projectById(workspace.config, projectId);
   const check = project.checks[checkId];
   if (check === undefined || check === null) {
-    throw badArgument(`Project "${projectId}" has no check "${checkId}"; configured: ${Object.keys(project.checks).join(', ') || 'none'}.`, 'key');
+    const runnable = Object.keys(project.checks).filter((id) => project.checks[id] !== null).sort().join(', ') || 'none';
+    if (check === null) throw badArgument(`Project "${projectId}" check "${checkId}" is configured without a command, so it cannot run; runnable: ${runnable}.`, 'key');
+    throw badArgument(`Project "${projectId}" has no check "${checkId}"; configured: ${runnable}.`, 'key');
   }
 
   const routed = await routedOf(deps, input.task);

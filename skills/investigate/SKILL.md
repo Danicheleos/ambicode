@@ -13,8 +13,8 @@ final answer, with its `path:line` citations, is saved as the investigation note
 An investigation edits nothing: no source, no config, no `.ambicode` file. A change made while looking would make
 the answer describe code nobody else has.
 
-If no step message appeared, start the route yourself:
+No step? Start the route with the request (it begins `$0`):
 
 ```sh
-node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" route start investigate "$ARGUMENTS"
+node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" route start investigate "<request>"
 ```

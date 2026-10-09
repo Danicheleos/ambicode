@@ -3,7 +3,7 @@ import path from 'node:path';
 import { findSessionRepository } from '#platform/git/session-repository';
 import { openRepository } from '#platform/git/open';
 import type { HookInput, StopHookOutput } from '#types/hook';
-import { resolveActiveRoute } from '../session/active-route.ts';
+import { endedRouteInLedger, resolveActiveRoute } from '../session/active-route.ts';
 import { buildChain, currentIn, foldRoute, isBoundAnswer, isGreen, openPrint, sinceReopen, windowOf } from './fold.ts';
 import { ReviewResult } from '#types/modules/review';
 import { containsBlock, notCoveredBlock } from '#modules/review/bundle/coverage-block';
@@ -17,6 +17,7 @@ import { taskDirFor } from '#modules/evidence/task/task-dir';
 import { hookStateBaseDir, readStopCursor, writeStopCursor } from '#platform/claude/hook-state';
 import { rejectedGateMarker, turnSummary } from '#platform/claude/transcript';
 import { MARKER } from '#types/harness';
+import { contentHash } from '#util/hash';
 import type { Runtime } from '#types/composition';
 import type { LedgerEntry, LockedLedger } from '#types/modules/evidence';
 import type { ActiveRoutePointer, RouteDef, RouteRegistry } from '#types/harness';
@@ -211,7 +212,7 @@ async function locate(ports: StopPorts, input: HookInput): Promise<Located | nul
   const [session, scratchpad] = [input.session_id, input.scratchpad_dir];
   const root = found.repositoryRoot;
   const active = await resolveActiveRoute(runtime.fs, pointer, { repositoryRoot: root, session, scratchpad, scan: false });
-  const ended = active === null ? await pointer.readEnded(session, scratchpad) : null;
+  const ended = active === null ? ((await pointer.readEnded(session, scratchpad)) ?? (await endedRouteInLedger(runtime.fs, { repositoryRoot: root, session }))) : null;
   return { root, session, scratchpad, base: hookStateBaseDir(runtime.fs, session, scratchpad), active, ended: ended === null ? null : { task: ended.task, skill: ended.skill, routeId: ended.routeId } };
 }
 
@@ -380,12 +381,28 @@ async function exportForEval(runtime: Runtime, input: { root: string; session: s
   try {
     const target = path.join(root, input.session, input.task);
     await runtime.fs.mkdirp(path.join(target, 'notes'));
-    await runtime.fs.copyFile(input.ledger, path.join(target, 'ledger.jsonl'));
     const notes = [...new Set(input.entries.filter((entry) => entry.kind === 'note' && typeof entry['path'] === 'string').map((entry) => String(entry['path'])))];
-    for (const note of notes) await runtime.fs.copyFile(path.join(input.root, note), path.join(target, 'notes', path.basename(note))).catch(() => undefined);
-    await runtime.fs.writeText(path.join(target, 'source.json'), `${JSON.stringify({ ledger: input.ledger, entries: input.entries.length, notes })}\n`);
+    const files = [await exportFile(runtime, input.ledger, target, 'ledger.jsonl')];
+    for (const note of notes) files.push(await exportFile(runtime, path.join(input.root, note), target, path.join('notes', path.basename(note))));
+    const complete = files.every((file) => file.copied);
+    if (!complete) process.stderr.write(`ambicode stop: export incomplete, ${files.filter((file) => !file.copied).map((file) => file.to).join(', ')}\n`);
+    await runtime.fs.writeText(path.join(target, 'source.json'), `${JSON.stringify({ ledger: input.ledger, entries: input.entries.length, notes, complete, files })}\n`);
   } catch (error) {
     process.stderr.write(`ambicode stop: export failed, ${(error as Error).message}\n`);
+  }
+}
+
+/** One exported file: `copied` holds only when the copy's hash equals the source's. */
+async function exportFile(runtime: Runtime, from: string, target: string, name: string): Promise<{ from: string; to: string; present: boolean; bytes: number | null; hash: string | null; copied: boolean; error?: string }> {
+  const bytes = await runtime.fs.readBytes(from).catch(() => null);
+  if (bytes === null) return { from, to: name, present: false, bytes: null, hash: null, copied: false, error: 'missing' };
+  const hash = contentHash(bytes);
+  try {
+    await runtime.fs.copyFile(from, path.join(target, name));
+    const copy = contentHash(await runtime.fs.readBytes(path.join(target, name)));
+    return { from, to: name, present: true, bytes: bytes.length, hash, copied: copy === hash, ...(copy === hash ? {} : { error: `copy hash ${copy}` }) };
+  } catch (error) {
+    return { from, to: name, present: true, bytes: bytes.length, hash, copied: false, error: (error as Error).message };
   }
 }
 

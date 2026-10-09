@@ -14,7 +14,7 @@ import { Git } from '#platform/git/git';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { NodeProcessRunner } from '#platform/ports/node-process-runner';
-import { locate, pathHit, shortlistRules, termsFromRequirements } from './locate.ts';
+import { cachedSearch, locate, pathHit, shortlistRules, termsFromRequirements, type LocateGit } from './locate.ts';
 import { matchesGlob } from '#util/glob';
 import { REPO_ROOT } from '#testing/paths';
 import type { FileSystem } from '#types/platform/ports';
@@ -301,6 +301,75 @@ describe('R4 boundary shortlist', () => {
 
     assert.ok(shortlist.candidates.length > 0);
     assert.ok(elapsed < 3_000, `the shortlist took ${elapsed}ms on this repository`);
+  });
+});
+
+describe('R4 shortlist greps', () => {
+  /** Counts each grep, holds it for a varied time so later ones can finish first, and tracks how many run at once. */
+  function slowed(git: Git): { git: LocateGit; greps: string[]; peak: () => number } {
+    const greps: string[] = [];
+    let running = 0;
+    let peak = 0;
+    return {
+      greps,
+      peak: () => peak,
+      git: {
+        listFiles: (pathspec) => git.listFiles(pathspec),
+        grepFiles: async (term, pathspec) => {
+          greps.push(term);
+          peak = Math.max(peak, ++running);
+          try {
+            await new Promise((resolve) => setTimeout(resolve, (greps.length * 7) % 20));
+            return await git.grepFiles(term, pathspec);
+          } finally {
+            running -= 1;
+          }
+        },
+        commitsTouching: (paths, limit) => git.commitsTouching(paths, limit),
+        commitFileLists: (commits) => git.commitFileLists(commits),
+      },
+    };
+  }
+  const TERMS = ['invoice', 'export', 'monthly', 'glossary', 'model', 'service', 'routes'];
+
+  it('run four at a time, finish in any order, and give the answer of one at a time', async () => {
+    const root = await materialize('ts-feature-boundary');
+    try {
+      const git = gitFor(root);
+      let queue: Promise<unknown> = Promise.resolve();
+      const oneAtATime: LocateGit = {
+        listFiles: (pathspec) => git.listFiles(pathspec),
+        grepFiles: (term, pathspec) => {
+          const next = queue.then(() => git.grepFiles(term, pathspec));
+          queue = next.catch(() => undefined);
+          return next;
+        },
+        commitsTouching: (paths, limit) => git.commitsTouching(paths, limit),
+        commitFileLists: (commits) => git.commitFileLists(commits),
+      };
+      const expected = await locate({ git: oneAtATime, project: wholeRepositoryProject(), terms: TERMS, limit: 20 });
+      const probe = slowed(gitFor(root));
+      const actual = await locate({ git: probe.git, project: wholeRepositoryProject(), terms: TERMS, limit: 20 });
+      assert.deepEqual(actual, expected);
+      assert.equal(probe.peak(), 4);
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it('a cached search greps each spelling once across both passes of one map', async () => {
+    const root = await materialize('ts-feature-boundary');
+    try {
+      const probe = slowed(gitFor(root));
+      const search = cachedSearch(probe.git);
+      const first = await locate({ git: search, project: wholeRepositoryProject(), terms: TERMS.slice(0, 5), limit: 20 });
+      await locate({ git: search, project: wholeRepositoryProject(), terms: TERMS.slice(2), limit: 20 });
+      assert.deepEqual([...probe.greps].sort(), [...new Set(probe.greps)].sort(), 'no spelling is grepped twice');
+      assert.deepEqual(new Set(probe.greps), new Set(TERMS));
+      assert.deepEqual(await locate({ git: search, project: wholeRepositoryProject(), terms: TERMS.slice(0, 5), limit: 20 }), first);
+    } finally {
+      await rm(path.dirname(root), { recursive: true, force: true });
+    }
   });
 });
 

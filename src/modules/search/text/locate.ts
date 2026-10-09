@@ -22,6 +22,9 @@ const MIN_TERM_LENGTH = 3;
 
 const MAX_CONTENT_MATCHES_PER_TERM = 200;
 
+/** git grep already spreads one search over the cores: on the FE bench repository 29 greps took 2.26 s one at a time, 1.45 s four at a time, and no less at 8 or 64. */
+const GREP_CONCURRENCY = 4;
+
 const MAX_COCHANGE_COMMITS = 200;
 
 /** Fewer than this and co-change is coincidence, not habit. */
@@ -56,8 +59,11 @@ function contentScore(hits: number): number {
   return hits <= 0 ? 0 : SCORE_CONTENT * (2 - 2 ** (1 - hits));
 }
 
+/** The git reads a shortlist makes. */
+export type LocateGit = Pick<Git, 'listFiles' | 'grepFiles' | 'commitsTouching' | 'commitFileLists'>;
+
 interface LocateRequest {
-  git: Git;
+  git: LocateGit;
   project: ProjectConfig;
   terms: readonly string[];
   limit: number;
@@ -94,10 +100,11 @@ export async function locate(request: LocateRequest): Promise<LocateShortlist> {
 
   const fileSet = new Set(files);
   const ranked = new Map<string, Ranked>();
+  const grep = prefetched(terms.flatMap((term) => spellingsOf(term).map((spelling) => spelling.needle)), (needle) => request.git.grepFiles(needle, pathspec));
 
   for (const term of terms) {
     const matchedPaths = pathMatches(term, files, limitations);
-    const matchedContents = await contentMatches(request, term, pathspec, fileSet, limitations);
+    const matchedContents = await contentMatches(grep, term, fileSet, limitations);
 
     const touched = new Set([
       ...matchedPaths.map((match) => match.path),
@@ -315,24 +322,14 @@ function broadDirectories(matches: { path: string; kind: 'directory' | 'filename
 
 /** A file holding both the term and its compact form is one mention, not two. */
 async function contentMatches(
-  request: LocateRequest,
+  grep: (needle: string) => Promise<string[]>,
   term: string,
-  pathspec: string | null,
   fileSet: ReadonlySet<string>,
   limitations: string[],
 ): Promise<{ path: string; reason: string }[]> {
-  const compact = compactForm(term);
-  const spellings = [{ needle: term, reason: `contains "${term}"` }];
-  if (compact !== term.toLowerCase() && compact.length >= MIN_TERM_LENGTH) {
-    spellings.push({
-      needle: compact,
-      reason: `contains "${compact}", a compact spelling of "${term}"`,
-    });
-  }
-
   const matches = new Map<string, { path: string; reason: string }>();
-  for (const spelling of spellings) {
-    let found = (await request.git.grepFiles(spelling.needle, pathspec)).filter((path) =>
+  for (const spelling of spellingsOf(term)) {
+    let found = (await grep(spelling.needle)).filter((path) =>
       fileSet.has(path),
     );
     if (found.length > MAX_CONTENT_MATCHES_PER_TERM) {
@@ -347,6 +344,56 @@ async function contentMatches(
     }
   }
   return [...matches.values()];
+}
+
+function spellingsOf(term: string): { needle: string; reason: string }[] {
+  const compact = compactForm(term);
+  const spellings = [{ needle: term, reason: `contains "${term}"` }];
+  if (compact !== term.toLowerCase() && compact.length >= MIN_TERM_LENGTH) {
+    spellings.push({ needle: compact, reason: `contains "${compact}", a compact spelling of "${term}"` });
+  }
+  return spellings;
+}
+
+/** Starts every key's search up front, `GREP_CONCURRENCY` at a time; a key asked for before its turn starts at once. */
+function prefetched(keys: readonly string[], run: (key: string) => Promise<string[]>): (key: string) => Promise<string[]> {
+  const queue = [...new Set(keys)];
+  const started = new Map<string, Promise<string[]>>();
+  const start = (key: string): Promise<string[]> => {
+    const running = run(key);
+    started.set(key, running);
+    return running;
+  };
+  const next = (): void => {
+    const key = queue.shift();
+    if (key !== undefined) start(key).then(next, next);
+  };
+  for (let slot = 0; slot < GREP_CONCURRENCY; slot++) next();
+  return (key) => {
+    const running = started.get(key);
+    if (running !== undefined) return running;
+    const waiting = queue.indexOf(key);
+    if (waiting >= 0) queue.splice(waiting, 1);
+    return start(key);
+  };
+}
+
+/** One request's git reads, each made once: the second shortlist pass repeats most of the first one's terms. */
+export function cachedSearch(git: LocateGit): LocateGit {
+  const made = new Map<string, Promise<string[]>>();
+  const once = (key: string, read: () => Promise<string[]>): Promise<string[]> => {
+    const known = made.get(key);
+    if (known !== undefined) return known;
+    const reading = read();
+    made.set(key, reading);
+    return reading;
+  };
+  return {
+    listFiles: (pathspec) => once(`ls\0${pathspec}`, () => git.listFiles(pathspec)),
+    grepFiles: (term, pathspec) => once(`grep\0${term}\0${pathspec}`, () => git.grepFiles(term, pathspec)),
+    commitsTouching: (paths, limit) => git.commitsTouching(paths, limit),
+    commitFileLists: (commits) => git.commitFileLists(commits),
+  };
 }
 
 /**

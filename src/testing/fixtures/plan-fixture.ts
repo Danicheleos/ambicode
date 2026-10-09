@@ -43,7 +43,7 @@ steps:
       options: [Accept, Revise, Reject]
       default: Reject
       release: Reject
-      acting: [Accept]
+      acting: [Accept, Revise]
       onAnswer: { Revise: revise design }
       maxRevises: 3
   - id: promote

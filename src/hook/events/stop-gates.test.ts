@@ -6,6 +6,7 @@ import { skillHandlers } from '#skills/handlers';
 import { isRejection, rejectedGateMarker } from '#platform/claude/transcript';
 import { routeFixture } from '#testing/fixtures/route-fixture';
 import { EVAL_EXPORT_VARIABLE } from '#harness/engine/stop';
+import { contentHash } from '#util/hash';
 import { runHook } from './run-hook.ts';
 import type { HookDeps } from '#types/hook';
 import type { StartInput } from '#types/harness';
@@ -121,6 +122,35 @@ describe('a dismissed gate question', () => {
       }
       assert.ok(errors.some((line) => line.startsWith('ambicode stop: export failed, ')), errors.join(''));
     } finally {
+      await t.fx.runtime.fs.remove(exported);
+      await t.fx.dispose();
+    }
+  });
+
+  it('the eval export lists each file with its hash and copy result, and a missing note makes it incomplete', async () => {
+    const t = await paused();
+    const exported = await t.fx.runtime.fs.temporaryDirectory('ambicode-export-');
+    const errors: string[] = [];
+    const write = process.stderr.write;
+    process.env[EVAL_EXPORT_VARIABLE] = exported;
+    process.stderr.write = ((chunk: string) => errors.push(String(chunk)) > 0) as typeof process.stderr.write;
+    try {
+      await writeFile(t.transcript, lines({ type: 'user', message: { role: 'user', content: 'go' } }));
+      const ledgerFile = path.join(t.fx.repo.root, '.ambicode', 'task', 'cart', 'ledger.jsonl');
+      const last = JSON.parse((await readFile(ledgerFile, 'utf8')).trimEnd().split('\n').at(-1)!) as Record<string, unknown>;
+      await appendFile(ledgerFile, `${JSON.stringify({ id: 'aaaaaaaa-90', at: last['at'], route: last['route'], kind: 'note', note: 'investigation', path: '.ambicode/task/cart/steps/gone.md', contentHash: 'sha256:0' })}\n`);
+      await t.hook('Stop');
+      const source = JSON.parse(await readFile(path.join(exported, A, 'cart', 'source.json'), 'utf8')) as { complete: boolean; files: { to: string; present: boolean; bytes: number | null; hash: string | null; copied: boolean; error?: string }[] };
+      const ledger = await readFile(ledgerFile);
+      assert.deepEqual(source.files.map((f) => [f.to, f.present, f.bytes, f.hash, f.copied, f.error]), [
+        ['ledger.jsonl', true, ledger.length, contentHash(ledger), true, undefined],
+        [path.join('notes', 'gone.md'), false, null, null, false, 'missing'],
+      ]);
+      assert.equal(source.complete, false);
+      assert.ok(errors.some((line) => line.startsWith(`ambicode stop: export incomplete, ${path.join('notes', 'gone.md')}`)), errors.join(''));
+    } finally {
+      process.stderr.write = write;
+      delete process.env[EVAL_EXPORT_VARIABLE];
       await t.fx.runtime.fs.remove(exported);
       await t.fx.dispose();
     }

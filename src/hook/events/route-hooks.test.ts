@@ -11,6 +11,7 @@ import { runHook } from './run-hook.ts';
 import { REPO_ROOT } from '#testing/paths';
 import type { FileSystem } from '#types/platform/ports';
 import { SESSION_A, SESSION_B } from '#testing/fixtures/ids';
+import { EVAL_EXPORT_VARIABLE } from '#harness/engine/stop';
 
 const deps = (plan: PlanFixture): HookDeps => ({ pointer: plan.fx.pointer, load: async () => ({ engine: plan.fx.engine, routes: plan.fx.routes, pointer: plan.fx.pointer }) });
 const hook = (plan: PlanFixture, event: Record<string, unknown>, session = SESSION_A) =>
@@ -335,6 +336,52 @@ describe('03-H7 SessionEnd', () => {
       assert.equal(await plan.fx.pointer.readEnded(SESSION_A, plan.fx.scratchpad), null);
       assert.equal(await plan.fx.pointer.read(SESSION_A, plan.fx.scratchpad), null);
     } finally {
+      await plan.dispose();
+    }
+  });
+});
+
+describe('the eval export at Stop', () => {
+  it('a route that ended on a CLI step before Stop is still exported', async () => {
+    const plan = await planFixture();
+    const exported = await plan.fx.runtime.fs.temporaryDirectory('ambicode-export-');
+    process.env[EVAL_EXPORT_VARIABLE] = exported;
+    try {
+      await plan.toGate({ headless: true });
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'exit')).at(-1)?.['reason'], 'done');
+      await hook(plan, { hook_event_name: 'Stop' });
+      const source = JSON.parse(await readFile(path.join(exported, SESSION_A, PLAN_TASK, 'source.json'), 'utf8')) as { complete: boolean };
+      assert.equal(source.complete, true);
+    } finally {
+      delete process.env[EVAL_EXPORT_VARIABLE];
+      await plan.fx.runtime.fs.remove(exported);
+      await plan.dispose();
+    }
+  });
+
+  it('a route that ended on a CLI step whose state files the Stop hook cannot see is found in the ledger, once', async () => {
+    const plan = await planFixture();
+    const exported = await plan.fx.runtime.fs.temporaryDirectory('ambicode-export-');
+    const elsewhere = await plan.fx.runtime.fs.temporaryDirectory('ambicode-hook-state-');
+    const errors: string[] = [];
+    const write = process.stderr.write;
+    process.env[EVAL_EXPORT_VARIABLE] = exported;
+    process.stderr.write = ((chunk: string) => errors.push(String(chunk)) > 0) as typeof process.stderr.write;
+    try {
+      await plan.toGate({ headless: true });
+      const stop = () => runHook(plan.fx.runtime, JSON.stringify({ hook_event_name: 'Stop', session_id: SESSION_A, cwd: plan.fx.repo.root, scratchpad_dir: elsewhere }), deps(plan));
+      await stop();
+      const source = JSON.parse(await readFile(path.join(exported, SESSION_A, PLAN_TASK, 'source.json'), 'utf8')) as { complete: boolean };
+      assert.equal(source.complete, true);
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'hook')).filter((entry) => entry['name'] === 'stop').length, 1);
+      await stop();
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'hook')).filter((entry) => entry['name'] === 'stop').length, 1, 'a later Stop leaves the ended route alone');
+      assert.ok(errors.some((line) => line.startsWith('ambicode stop: skipped, no route pointer')), errors.join(''));
+    } finally {
+      process.stderr.write = write;
+      delete process.env[EVAL_EXPORT_VARIABLE];
+      await plan.fx.runtime.fs.remove(exported);
+      await plan.fx.runtime.fs.remove(elsewhere);
       await plan.dispose();
     }
   });
