@@ -23,13 +23,10 @@ function config(): AmbicodeConfig {
     baseline: 'origin/main',
     review: { ...DEFAULTS.review },
     checks: { ...DEFAULTS.checks },
-    page: { ...DEFAULTS.page },
     requirements: { mcpServer: null, acceptanceField: null },
-    search: { index: 'none' },
-    workers: { approved: [] },
+    search: {},
     guard: { askOutsideMap: false },
     projects: [],
-    remoteChecks: { image: null },
     authoring: { ...DEFAULTS.authoring },
   };
 }
@@ -403,81 +400,6 @@ test('U12 a proposed command is authorized per run, not once for the project', a
   assert.deepEqual(runner.argvs(), []);
 });
 
-test('U11 the jest adapter enumerates affected tests from the changed files', async (t) => {
-  const directory = await sandbox(t);
-  const runner = new FakeProcessRunner();
-  runner.stubArgv(['./node_modules/.bin/jest', '--listTests'], {
-    stdout: `${path.join(directory, 'tests/math.test.js')}\n`,
-  });
-
-  const { results } = await runChecks(
-    baseOptions({
-      reviewDirectory: directory,
-      runner,
-      project: {
-        id: 'web', root: '.', ecosystem: 'typescript', packs: [], policyFiles: [],
-        commands: { unit: { argv: ['./node_modules/.bin/jest', '--runTestsByPath', '{files}'] } },
-        checks: { unit: { command: 'unit', adapter: 'jest', selector: { kind: 'related' } } },
-      },
-      changed: changed([{ newPath: 'src/math.js' }]),
-    }),
-  );
-
-  assert.deepEqual(runner.argvs(), [
-    ['./node_modules/.bin/jest', '--listTests', '--findRelatedTests', 'src/math.js'],
-    ['./node_modules/.bin/jest', '--runTestsByPath', 'tests/math.test.js'],
-  ]);
-  assert.equal(results[0]?.status, 'passed');
-  assert.equal(results[0]?.selectionComplete, true);
-});
-
-test('U11 the vitest adapter enumerates from the reviewed revision and records the limitation', async (t) => {
-  const directory = await sandbox(t);
-  const runner = new FakeProcessRunner();
-  runner.stubArgv(['./node_modules/.bin/vitest', 'list'], { stdout: 'tests/math.test.js\n' });
-
-  const { results } = await runChecks(
-    baseOptions({
-      reviewDirectory: directory,
-      runner,
-      enumerationRevision: 'abc1234',
-      project: {
-        id: 'web', root: '.', ecosystem: 'typescript', packs: [], policyFiles: [],
-        commands: { unit: { argv: ['./node_modules/.bin/vitest', 'run', '{files}'] } },
-        checks: { unit: { command: 'unit', adapter: 'vitest', selector: { kind: 'related' } } },
-      },
-      changed: changed([{ newPath: 'src/math.js' }]),
-    }),
-  );
-
-  assert.deepEqual(runner.argvs()[0], [
-    './node_modules/.bin/vitest', 'list', '--filesOnly', '--changed', 'abc1234',
-  ]);
-  assert.ok(results[0]?.limitations.some((line) => line.includes('not from the pinned snapshot')));
-});
-
-test('U12 a wrapped runner cannot be enumerated and therefore waits for authorization', async (t) => {
-  const directory = await sandbox(t);
-  const runner = new FakeProcessRunner();
-  const { results, pendingApprovals } = await runChecks(
-    baseOptions({
-      reviewDirectory: directory,
-      runner,
-      project: {
-        id: 'web', root: '.', ecosystem: 'typescript', packs: [], policyFiles: [],
-        commands: { unit: { argv: ['npm', 'run', 'test', '--', '{files}'] } },
-        checks: { unit: { command: 'unit', adapter: 'jest', selector: { kind: 'related' } } },
-      },
-      changed: changed([{ newPath: 'src/math.js' }]),
-    }),
-  );
-
-  assert.equal(results[0]?.status, 'skipped');
-  assert.equal(pendingApprovals.length, 0, 'with nothing selected there is no bounded run to authorize');
-  assert.ok(results[0]?.limitations.some((line) => line.includes('does not invoke jest directly')));
-  assert.deepEqual(runner.argvs(), []);
-});
-
 test('U15 passed, failed, timed-out, skipped and error stay distinct', async (t) => {
   const directory = await sandbox(t);
 
@@ -530,7 +452,6 @@ test('U15 a check killed after its runner finished reporting keeps the result it
 
   const run = async (stdout: string) => {
     const runner = new FakeProcessRunner()
-      .stubArgv(['vitest', 'list'], { stdout: 'src/a.spec.ts\nsrc/b.spec.ts\n' })
       .stubArgv(['vitest', 'run'], { kind: 'timed-out', stdout });
     const { results } = await runChecks(
       baseOptions({
@@ -539,7 +460,7 @@ test('U15 a check killed after its runner finished reporting keeps the result it
         project: {
           id: 'web', root: '.', ecosystem: 'typescript', packs: [], policyFiles: [],
           commands: { unit: { argv: ['vitest', 'run', '{files}'] } },
-          checks: { unit: { command: 'unit', adapter: 'vitest', selector: { kind: 'related' } } },
+          checks: { unit: { command: 'unit', adapter: 'vitest', selector: { kind: 'mapping', mappings: [{ source: ['lib/**'], tests: ['src/**/*.spec.ts'] }] } } },
         },
         changed: changed([{ newPath: 'src/a.spec.ts' }]),
       }),
@@ -588,223 +509,6 @@ test('U01/U15 a null command and a null check are distinct skipped outcomes', as
   assert.equal(e2e?.status, 'skipped');
   assert.ok(e2e?.limitations[0]?.includes('intentionally unavailable'));
   assert.deepEqual(runner.argvs(), []);
-});
-
-function selectorProject(): ProjectConfig {
-  return {
-    id: 'web',
-    root: '.',
-    ecosystem: 'typescript',
-    packs: [],
-    policyFiles: [],
-    commands: {
-      unit: { argv: ['jest', '--', '{files}'] },
-      'select-tests': { argv: ['./scripts/affected.sh', '{files}'] },
-    },
-    checks: {
-      unit: {
-        command: 'unit',
-        adapter: 'jest',
-        selector: { kind: 'command', command: 'select-tests' },
-      },
-    },
-  };
-}
-
-test('U14 a forbidden selector command never runs, and neither does the check it feeds', async (t) => {
-  const directory = await sandbox(t);
-  const runner = new FakeProcessRunner().stub(() => true, { stdout: '["tests/a.test.ts"]' });
-
-  const { results, pendingApprovals } = await runChecks(
-    baseOptions({
-      reviewDirectory: directory,
-      runner,
-      project: selectorProject(),
-      policy: policy([
-        ['unit', 'run'],
-        ['select-tests', 'forbid', 'selection scripts are not approved for this repository'],
-      ]),
-      changed: changed([{ newPath: 'src/a.ts' }]),
-    }),
-  );
-
-  assert.deepEqual(runner.argvs(), [], 'neither the selector nor the check reaches the process runner');
-  assert.equal(results[0]?.status, 'skipped');
-  assert.equal(results[0]?.selectionComplete, false);
-  assert.deepEqual(pendingApprovals, [], 'a forbidden command is not offered for approval');
-  assert.ok(results[0]?.limitations.some((line) => line.includes('select-tests')));
-  assert.ok(
-    results[0]?.limitations.some((line) => line.includes('selection scripts are not approved')),
-    'the refusal names the reason the pack gave',
-  );
-});
-
-test('U14 a selector command no pack declares is refused, not silently run', async (t) => {
-  const directory = await sandbox(t);
-  const runner = new FakeProcessRunner().stub(() => true, { stdout: '["tests/a.test.ts"]' });
-
-  const { results } = await runChecks(
-    baseOptions({
-      reviewDirectory: directory,
-      runner,
-      project: selectorProject(),
-      policy: policy([['unit', 'run']]),
-      changed: changed([{ newPath: 'src/a.ts' }]),
-    }),
-  );
-
-  assert.deepEqual(runner.argvs(), []);
-  assert.equal(results[0]?.status, 'skipped');
-  assert.ok(results[0]?.limitations.some((line) => line.includes('not declared by any enabled pack')));
-});
-
-test('U14 a proposed selector needs its own approval, separate from the check', async (t) => {
-  const directory = await sandbox(t);
-  const options = baseOptions({
-    reviewDirectory: directory,
-    runner: new FakeProcessRunner(),
-    project: selectorProject(),
-    policy: policy([['unit', 'run'], ['select-tests', 'propose']]),
-    changed: changed([{ newPath: 'src/a.ts' }]),
-  });
-
-  const unattended = await runChecks({ ...options, runner: new FakeProcessRunner() });
-  assert.equal(unattended.pendingApprovals.length, 1);
-  assert.equal(unattended.pendingApprovals[0]?.approvalKey, 'web/unit:selector');
-  assert.deepEqual(unattended.pendingApprovals[0]?.proposedArgv, ['./scripts/affected.sh', 'src/a.ts']);
-
-  const checkApproved = new FakeProcessRunner();
-  const wrongKey = await runChecks({ ...options, runner: checkApproved, approvals: new Set(['web/unit']) });
-  assert.deepEqual(checkApproved.argvs(), []);
-  assert.equal(wrongKey.results[0]?.status, 'skipped');
-
-  const selectorApproved = new FakeProcessRunner().stub(
-    (argv) => argv[0] === './scripts/affected.sh',
-    { stdout: '["tests/a.test.ts"]' },
-  );
-  const granted = await runChecks({
-    ...options,
-    runner: selectorApproved,
-    approvals: new Set(['web/unit:selector']),
-  });
-  assert.equal(granted.results[0]?.status, 'passed');
-  assert.deepEqual(selectorApproved.argvs(), [
-    ['./scripts/affected.sh', 'src/a.ts'],
-    ['jest', '--', 'tests/a.test.ts'],
-  ]);
-});
-
-test('U14 a declined selector releases the wait: the check is a chosen gap, not a pending approval', async (t) => {
-  const directory = await sandbox(t);
-  const runner = new FakeProcessRunner();
-
-  const { results, pendingApprovals } = await runChecks(
-    baseOptions({
-      reviewDirectory: directory,
-      runner,
-      project: selectorProject(),
-      policy: policy([['unit', 'run'], ['select-tests', 'propose']]),
-      changed: changed([{ newPath: 'src/a.ts' }]),
-      declines: new Set(['web/unit:selector']),
-    }),
-  );
-
-  assert.deepEqual(pendingApprovals, [], 'an answered question is not asked again');
-  assert.deepEqual(runner.argvs(), []);
-  assert.equal(results[0]?.status, 'skipped');
-  assert.equal(results[0]?.selectionComplete, false);
-  assert.ok(results[0]?.limitations.some((line) => line.includes('declined')));
-  assert.ok(results[0]?.limitations.some((line) => line.includes('gap in verification')));
-});
-
-function jestProject(): ProjectConfig {
-  return {
-    id: 'web',
-    root: '.',
-    ecosystem: 'typescript',
-    packs: [],
-    policyFiles: [],
-    commands: { unit: { argv: ['./node_modules/.bin/jest', '--runTestsByPath', '{files}'] } },
-    checks: { unit: { command: 'unit', adapter: 'jest', selector: { kind: 'related' } } },
-  };
-}
-
-test('U13 a deleted source is an unknown impact, not a proven empty selection', async (t) => {
-  const directory = await sandbox(t);
-  const runner = new FakeProcessRunner();
-
-  const { results, pendingApprovals } = await runChecks(
-    baseOptions({
-      reviewDirectory: directory,
-      runner,
-      project: jestProject(),
-      changed: changed([{ oldPath: 'src/math.js', changeKind: 'deleted' }]),
-    }),
-  );
-
-  assert.deepEqual(runner.argvs(), []);
-  assert.equal(results[0]?.status, 'skipped');
-  assert.equal(results[0]?.selectionComplete, false, 'a deletion never proves zero impact');
-  assert.ok(
-    !results[0]?.limitations.some((line) => line.includes('No file in this change is in scope')),
-    'the gap is not reported as an in-scope check with nothing to do',
-  );
-  assert.ok(results[0]?.limitations.some((line) => line.includes('src/math.js')));
-  assert.ok(results[0]?.limitations.some((line) => line.includes('gap in verification')));
-  assert.deepEqual(pendingApprovals, [], 'an empty selection is never widened into a suite run');
-});
-
-test('U13 a rename asks about the surviving path and still reports the old name as uncertain', async (t) => {
-  const directory = await sandbox(t);
-  const runner = new FakeProcessRunner();
-  runner.stubArgv(['./node_modules/.bin/jest', '--listTests'], { stdout: 'tests/math.test.js\n' });
-
-  const options = baseOptions({
-    reviewDirectory: directory,
-    runner,
-    project: jestProject(),
-    changed: changed([
-      { oldPath: 'src/math.js', newPath: 'src/maths.js', changeKind: 'renamed' },
-      { newPath: 'src/other.js', oldPath: 'src/other.js' },
-    ]),
-  });
-
-  const { results, pendingApprovals } = await runChecks(options);
-
-  assert.deepEqual(
-    runner.argvs(),
-    [['./node_modules/.bin/jest', '--listTests', '--findRelatedTests', 'src/maths.js', 'src/other.js']],
-    'only surviving paths are put to the runner, and the check itself waits',
-  );
-  assert.equal(results[0]?.selectionComplete, false);
-  assert.ok(results[0]?.limitations.some((line) => line.includes('src/math.js')));
-  assert.equal(pendingApprovals.length, 1, 'an uncertain selection is authorized per run');
-
-  const approved = new FakeProcessRunner().stubArgv(['./node_modules/.bin/jest', '--listTests'], {
-    stdout: 'tests/math.test.js\n',
-  });
-  const granted = await runChecks({ ...options, runner: approved, approvals: new Set(['web/unit']) });
-  assert.equal(granted.results[0]?.status, 'passed');
-  assert.equal(granted.results[0]?.selectionComplete, false, 'authorizing the run does not make it complete');
-});
-
-test('U13 an ordinary modification is still a complete selection', async (t) => {
-  const directory = await sandbox(t);
-  const runner = new FakeProcessRunner().stubArgv(['./node_modules/.bin/jest', '--listTests'], {
-    stdout: 'tests/math.test.js\n',
-  });
-
-  const { results } = await runChecks(
-    baseOptions({
-      reviewDirectory: directory,
-      runner,
-      project: jestProject(),
-      changed: changed([{ newPath: 'src/math.js', oldPath: 'src/math.js' }]),
-    }),
-  );
-
-  assert.equal(results[0]?.status, 'passed');
-  assert.equal(results[0]?.selectionComplete, true);
 });
 
 test('U15 a command that rewrites a reviewed file is reported, not reverted', async (t) => {
@@ -870,116 +574,6 @@ test('U15 a command that changes nothing reports no mutations', async (t) => {
   );
 });
 
-test('U14 a rename reaches the selector script under both of its names', async (t) => {
-  const directory = await sandbox(t);
-  const runner = new FakeProcessRunner().stub(
-    (argv) => argv[0] === './scripts/affected.sh',
-    { stdout: '["tests/a.test.ts"]' },
-  );
-
-  const options = baseOptions({
-    reviewDirectory: directory,
-    runner,
-    project: selectorProject(),
-    policy: policy([['unit', 'run'], ['select-tests', 'run']]),
-    changed: changed([
-      { oldPath: 'src/old-name.ts', newPath: 'src/new-name.ts', changeKind: 'renamed' },
-      { oldPath: 'src/gone.ts', changeKind: 'deleted' },
-      { oldPath: 'src/same.ts', newPath: 'src/same.ts' },
-    ]),
-  });
-
-  const { results, pendingApprovals } = await runChecks(options);
-
-  assert.deepEqual(runner.argvs()[0], [
-    './scripts/affected.sh',
-    'src/new-name.ts',
-    'src/old-name.ts',
-    'src/gone.ts',
-    'src/same.ts',
-  ]);
-  assert.equal(results[0]?.status, 'passed');
-  assert.deepEqual(pendingApprovals, []);
-
-  const proposed = await runChecks({
-    ...options,
-    runner: new FakeProcessRunner(),
-    policy: policy([['unit', 'run'], ['select-tests', 'propose']]),
-  });
-  assert.deepEqual(proposed.pendingApprovals[0]?.proposedArgv, runner.argvs()[0]);
-});
-
-test('U15 a selector script that rewrites a reviewed file is reported too', async (t) => {
-  const directory = await sandbox(t);
-  await mkdir(path.join(directory, 'src'), { recursive: true });
-  const watched = path.join(directory, 'src', 'a.ts');
-  await writeFile(watched, 'const x=1\n', 'utf8');
-
-  const mutatingSelector: ProcessRunner = {
-    async run(request) {
-      if (request.argv[0] === './scripts/affected.sh') {
-        await writeFile(watched, 'const x = 1; // rewritten by the selector\n', 'utf8');
-        return { kind: 'exited', exitCode: 0, stdout: '["tests/a.test.ts"]', stderr: '', truncated: false, durationMs: 1, failure: null };
-      }
-      return { kind: 'exited', exitCode: 0, stdout: '', stderr: '', truncated: false, durationMs: 1, failure: null };
-    },
-  };
-
-  const { results } = await runChecks(
-    baseOptions({
-      reviewDirectory: directory,
-      runner: mutatingSelector,
-      watchedPaths: ['src/a.ts'],
-      project: selectorProject(),
-      policy: policy([['unit', 'run'], ['select-tests', 'run']]),
-      changed: changed([{ newPath: 'src/a.ts', oldPath: 'src/a.ts' }]),
-    }),
-  );
-
-  assert.equal(results[0]?.status, 'passed');
-  assert.ok(
-    results[0]?.mutations.some((line) => line.includes('src/a.ts was rewritten while the selector for check "unit" ran')),
-    'the mutation names the selector, not the check command that ran afterwards',
-  );
-  assert.ok(results[0]?.mutations.some((line) => line.includes('does not undo it')));
-  assert.equal(
-    results[0]?.mutations.filter((line) => line.includes('does not undo it')).length,
-    1,
-    'the disclaimer is stated once per result, not once per process',
-  );
-  assert.ok(results[0]?.limitations.some((line) => line.includes('no longer exactly what was reviewed')));
-  assert.equal(await readFile(watched, 'utf8'), 'const x = 1; // rewritten by the selector\n');
-});
-
-test('U15 a selector that mutates and then selects nothing still reports the mutation', async (t) => {
-  const directory = await sandbox(t);
-  await mkdir(path.join(directory, 'src'), { recursive: true });
-  const watched = path.join(directory, 'src', 'a.ts');
-  await writeFile(watched, 'const x=1\n', 'utf8');
-
-  const mutatingSelector: ProcessRunner = {
-    async run() {
-      await writeFile(watched, 'const x = 1;\n', 'utf8');
-      return { kind: 'exited', exitCode: 0, stdout: '[]', stderr: '', truncated: false, durationMs: 1, failure: null };
-    },
-  };
-
-  const { results } = await runChecks(
-    baseOptions({
-      reviewDirectory: directory,
-      runner: mutatingSelector,
-      watchedPaths: ['src/a.ts'],
-      project: selectorProject(),
-      policy: policy([['unit', 'run'], ['select-tests', 'run']]),
-      changed: changed([{ newPath: 'src/a.ts', oldPath: 'src/a.ts' }]),
-    }),
-  );
-
-  assert.equal(results[0]?.status, 'skipped');
-  assert.ok(results[0]?.mutations.some((line) => line.includes('src/a.ts was rewritten')));
-  assert.ok(results[0]?.limitations.some((line) => line.includes('no longer exactly what was reviewed')));
-});
-
 test('U12 one project\'s approval does not authorize another project\'s check of the same name', async (t) => {
   const directory = await sandbox(t);
   await mkdir(path.join(directory, 'apps', 'web'), { recursive: true });
@@ -1042,4 +636,26 @@ test('U15 two projects with a check of the same name keep separate evidence file
   assert.deepEqual(outputs, ['checks/web/lint.txt', 'checks/api/lint.txt']);
   assert.match(await readFile(path.join(directory, 'checks', 'web', 'lint.txt'), 'utf8'), /web output/);
   assert.match(await readFile(path.join(directory, 'checks', 'api', 'lint.txt'), 'utf8'), /api output/);
+});
+
+test('a related or command selector is a gap that waits for authorization, and runs nothing', async (t) => {
+  const directory = await sandbox(t);
+  const runner = new FakeProcessRunner();
+  const { results, pendingApprovals } = await runChecks(
+    baseOptions({
+      reviewDirectory: directory,
+      runner,
+      project: {
+        id: 'web', root: '.', ecosystem: 'typescript', packs: [], policyFiles: [],
+        commands: { unit: { argv: ['jest', '{files}'] } },
+        checks: { unit: { command: 'unit', adapter: 'jest', selector: { kind: 'related' } } },
+      },
+      changed: changed([{ newPath: 'src/a.ts' }]),
+    }),
+  );
+  assert.equal(results[0]?.status, 'skipped');
+  assert.equal(results[0]?.selectionComplete, false);
+  assert.ok(results[0]?.limitations.some((line) => line.includes('no longer supported')));
+  assert.deepEqual(runner.argvs(), []);
+  assert.equal(pendingApprovals.length, 0, 'nothing was selected, so there is no run to authorize');
 });

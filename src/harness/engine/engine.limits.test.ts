@@ -48,12 +48,12 @@ const FAILING = `${HEAD('r')}  - id: work
 `;
 
 describe('F8 failure counters', () => {
-  it('03-F8: the same error twice writes a same-error limit and names route stop; three in a row write identical-next', async () => {
+  it('03-F8: the same error twice writes a same-error limit; three in a row write identical-next', async () => {
     const t = await make(FAILING);
     try {
       t.box.failCode = 'x-failed';
       assert.equal(await codeOf(t.start()), 'x-failed');
-      await assert.rejects(t.next(), (error: Error & { details?: string[] }) => /route stop/.test((error.details ?? []).join('\n')));
+      await codeOf(t.next());
       await codeOf(t.next());
       assert.deepEqual(await t.limits(), [['same-error', 'work'], ['same-error', 'work'], ['identical-next', 'work']]);
       assert.equal(t.box.ran, 3);
@@ -80,7 +80,7 @@ describe('F9 missing produces', () => {
       const second = await t.next();
       assert.match(second.text, /Not done yet: note\{investigation\}/);
       const third = await t.next();
-      assert.match(third.text, /Or stop: .*route stop/);
+      assert.match(third.text, /Not done yet: note\{investigation\}/);
       const fourth = await t.next();
       assert.deepEqual(await t.limits(), [['missing-produces', 'write']]);
       assert.equal(fourth.position, 'finish');
@@ -260,23 +260,6 @@ describe('E9 onError', () => {
   });
 });
 
-describe('E10 status', () => {
-  it('03-E10: status is read-only and lists orphan files the ledger does not name', async () => {
-    const t = await make(BIG);
-    try {
-      await t.start();
-      await writeFile(path.join(t.fx.repo.root, '.ambicode', 'task', 't1', 'stray.md'), 'x');
-      const before = await t.fx.ledger('t1');
-      const [position] = await t.fx.engine.status('t1', A);
-      assert.equal(position!.position, 'read');
-      assert.deepEqual(position!.orphans, ['stray.md']);
-      assert.deepEqual(await t.fx.ledger('t1'), before);
-    } finally {
-      await t.fx.dispose();
-    }
-  });
-});
-
 describe('E11/E12 done versus complete', () => {
   it('03-E11: a route with nothing unverified exits done and complete; a stop exit is not complete', async () => {
     const t = await make(`${HEAD('r')}  - id: one\n    actor: model\n    instruction: "One."\n`);
@@ -312,7 +295,7 @@ describe('E13 recovery paths', () => {
   });
 });
 
-describe('A3 exits on a dirty completion and budgets after a reopen', () => {
+describe('A3 exits on a dirty completion', () => {
   it('a completion with unverified items writes exit complete with the count, once', async () => {
     const t = await make(WRITER);
     try {
@@ -330,20 +313,4 @@ describe('A3 exits on a dirty completion and budgets after a reopen', () => {
     }
   });
 
-  it('model deliveries before a reopen do not count against the budget', async () => {
-    const t = await make(BUDGETED);
-    try {
-      const started = await t.start();
-      await t.next();
-      const routeId = started.routeId;
-      let n = 0;
-      const line = (fields: object): string => `${JSON.stringify({ id: `zzzzzzzz-${(n += 1)}`, at: new Date().toISOString(), ...fields })}\n`;
-      await appendFile(path.join(t.fx.repo.root, '.ambicode', 'task', 't1', 'ledger.jsonl'), line({ kind: 'exit', route: routeId, reason: 'done', complete: true, unverified: 0 }) + line({ kind: 'revise', route: routeId, from: 'one', via: 'reopen', cycle: 0, reason: 'more' }));
-      const again = await t.next();
-      assert.equal(again.position, 'two');
-      assert.doesNotMatch(again.text, /budget is spent/);
-    } finally {
-      await t.fx.dispose();
-    }
-  });
 });

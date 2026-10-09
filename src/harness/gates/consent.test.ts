@@ -52,27 +52,6 @@ describe('S2 trusted preanswer', () => {
   });
 });
 
-describe('S12 late bound answer', () => {
-  it('supersedes a never-asked default and applies onAnswer; the answered instance is used', async () => {
-    const plan = await planFixture();
-    try {
-      await plan.toGate();
-      const first = await printOf(plan);
-      await plan.next();
-      await plan.next();
-      const defaulted = await plan.next();
-      assert.equal((await plan.fx.kinds(PLAN_TASK, 'default-taken')).at(-1)!['via'], 'never-asked');
-      assert.ok(defaulted.position);
-      const message = await plan.hook('plan-accept', 'Revise', first.id);
-      const acceptance = (await plan.fx.kinds(PLAN_TASK, 'acceptance')).at(-1)!;
-      assert.equal(acceptance['instance'], first.id);
-      assert.equal(message.position, 'design');
-    } finally {
-      await plan.dispose();
-    }
-  });
-});
-
 describe('S13 instance binding', () => {
   it('answering an old instance after a new draft refuses promote and reprints for the new draft', async () => {
     const plan = await planFixture();

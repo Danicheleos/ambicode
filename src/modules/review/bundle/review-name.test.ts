@@ -13,47 +13,19 @@ function target(overrides: Partial<ReviewTarget> = {}): ReviewTarget {
     headSha: null,
     baseSha: null,
     baseRef: null,
-    remote: null,
     notes: [],
     ...overrides,
   } as ReviewTarget;
 }
 
-function mergeRequest(iid: number, provider: 'gitlab' | 'github' = 'gitlab'): ReviewTarget {
-  return target({
-    kind: 'merge-request',
-    remote: {
-      provider,
-      host: 'gitlab.com',
-      projectId: '1',
-      projectPath: 'acme/web/storefront',
-      sourceProjectId: '1',
-      sourceProjectPath: 'acme/web/storefront',
-      mergeRequestIid: iid,
-      webUrl: 'https://gitlab.com/x/-/merge_requests/2716',
-      versionId: 2041974100,
-    },
-  } as Partial<ReviewTarget>);
+function branch(): ReviewTarget {
+  return target({ kind: 'branch', baseRef: 'main' });
 }
 
 describe('review directory names', () => {
-  it('names a merge request review by its number, ticket and date', () => {
-    const name = reviewNameBase({
-      target: mergeRequest(2716),
-      requirementIds: ['ORD-17'],
-      now: NOW,
-    });
-    assert.equal(name, 'MR_2716_ORD-17_2026-09-22T14-35');
-  });
-
-  it('uses the host\'s own word for the change', () => {
-    assert.match(reviewNameBase({ target: mergeRequest(42, 'github'), requirementIds: [], now: NOW }), /^PR_42_/);
-    assert.match(reviewNameBase({ target: mergeRequest(42, 'gitlab'), requirementIds: [], now: NOW }), /^MR_42_/);
-  });
-
-  it('omits the ticket when none was supplied rather than leaving a gap', () => {
-    const name = reviewNameBase({ target: mergeRequest(2716), requirementIds: [], now: NOW });
-    assert.equal(name, 'MR_2716_2026-09-22T14-35');
+  it('names a branch review by its base, ticket and date', () => {
+    const name = reviewNameBase({ target: branch(), requirementIds: ['ORD-17'], now: NOW });
+    assert.equal(name, 'branch_main_ORD-17_2026-09-22T14-35');
   });
 
   it('names branch and working-tree reviews too', () => {
@@ -76,28 +48,28 @@ describe('review directory names', () => {
     assert.ok(name.length <= 80, `${name.length}`);
   });
 
-  it('separates two reviews of the same merge request by the time of day', () => {
-    const morning = reviewNameBase({ target: mergeRequest(2716), requirementIds: [], now: new Date('2026-09-22T09:04:00') });
-    const afternoon = reviewNameBase({ target: mergeRequest(2716), requirementIds: [], now: NOW });
-    assert.equal(morning, 'MR_2716_2026-09-22T09-04');
+  it('separates two reviews of the same branch by the time of day', () => {
+    const morning = reviewNameBase({ target: branch(), requirementIds: [], now: new Date('2026-09-22T09:04:00') });
+    const afternoon = reviewNameBase({ target: branch(), requirementIds: [], now: NOW });
+    assert.equal(morning, 'branch_main_2026-09-22T09-04');
     assert.notEqual(morning, afternoon);
     assert.ok(morning < afternoon);
   });
 
   it('still refuses to reuse a directory if two land in the same minute', async () => {
-    const taken = new Set(['MR_2716_2026-09-22T14-35']);
-    const input = { target: mergeRequest(2716), requirementIds: [], now: NOW };
+    const taken = new Set(['branch_main_2026-09-22T14-35']);
+    const input = { target: branch(), requirementIds: [], now: NOW };
     const second = await uniqueReviewName(input, async (name) => taken.has(name), 'fallback-id');
-    assert.equal(second, 'MR_2716_2026-09-22T14-35_2');
+    assert.equal(second, 'branch_main_2026-09-22T14-35_2');
 
     taken.add(second);
     const third = await uniqueReviewName(input, async (name) => taken.has(name), 'fallback-id');
-    assert.equal(third, 'MR_2716_2026-09-22T14-35_3');
+    assert.equal(third, 'branch_main_2026-09-22T14-35_3');
   });
 
   it('falls back to the unique id rather than looping or reusing a directory', async () => {
     const name = await uniqueReviewName(
-      { target: mergeRequest(2716), requirementIds: [], now: NOW },
+      { target: branch(), requirementIds: [], now: NOW },
       async () => true,
       'a1b2c3d4',
       3,

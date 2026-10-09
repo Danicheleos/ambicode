@@ -1,15 +1,14 @@
 import path from 'node:path';
 import { Document, isMap, isSeq, parseDocument, Scalar, visit, type YAMLMap, type YAMLSeq } from 'yaml';
-import type { AmbicodeConfig, SearchProfile, SetPair } from '#types/modules/config';
+import type { AmbicodeConfig, SetPair } from '#types/modules/config';
 import { normalizeRelative } from '#util/paths';
-import { CONFIG_FILE, DEFAULTS, SEARCH_LAYER_DEFAULTS, TEST_EXCLUDES } from '#types/defaults';
-import { sourceGlob } from '#modules/search/declarations/profile';
-import { suggestedPacks } from './detect.ts';
-import { projectOfKey } from './init-sets.ts';
+import type { Ecosystem } from '#types/primitives';
+import { CONFIG_FILE, DEFAULTS, TEST_EXCLUDES } from '#types/defaults';
+import { configSlot, projectOfKey } from './init-sets.ts';
 import { parseConfig } from '../load.ts';
-import { GENERIC_PROFILE } from '#types/modules/search';
 import type { FileSystem } from '#types/platform/ports';
-import type { DetectedProject, PlanInitOptions } from '../types/init.ts';
+import type { PlanInitOptions } from '../types/init.ts';
+import type { ProposalInput } from '#types/modules/config';
 
 interface PreservedFlowSeq { node: YAMLSeq; originalText: string; snapshot: string }
 
@@ -109,65 +108,72 @@ function ruleSourceNotice(sources: readonly string[]): string {
 const MCP_BINDING_NOTICE =
   'requirements.mcpServer is null: no Jira/Confluence MCP server is bound. Requirement-based review needs one named here. If more than one compatible server is connected, choose which of them this repository uses and write its name.';
 
-/** `search.layers` as written: the defaults, plus the index layers when an index is configured (09-P4). */
-function layersFor(index: string): { prompt: string[]; context: string[] } {
-  const extra = index !== 'none';
-  return { prompt: [...SEARCH_LAYER_DEFAULTS.prompt, ...(extra ? ['index.find'] : [])], context: [...SEARCH_LAYER_DEFAULTS.context, ...(extra ? ['index.relates'] : [])] };
-}
-
 const REMOVED_FIELDS = [['requirements', 'lsp'], ['task', 'lspPlugins'], ['search', 'exactMaxFiles']] as const;
+const ECOSYSTEMS: readonly string[] = ['typescript', 'python'];
+/** Only these adapters know how to read a runner's output; any other tool runs as `generic`. */
+const ADAPTERS: readonly string[] = ['eslint', 'ruff', 'jest', 'vitest', 'pytest', 'playwright'];
+
+/** The config schema holds three ecosystems; the model's free text outside the first two is `generic`. */
+const ecosystemOf = (text: string): Ecosystem => (ECOSYSTEMS.includes(text.toLowerCase()) ? (text.toLowerCase() as Ecosystem) : 'generic');
+
+type ProposedProject = ProposalInput['projects'][number];
+const commandOf = (project: ProposedProject, slot: string): readonly string[] | null =>
+  (project.commands as Record<string, readonly string[] | null | undefined>)[slot === 'unit' ? 'test' : slot] ?? null;
 
 const overrideOf = (options: PlanInitOptions, key: string): SetPair | undefined => options.overrides?.find((pair) => pair.key === key);
 
-function createFresh(options: PlanInitOptions): InitPlan {
-  const changes: string[] = [];
-  const notices: string[] = [options.baselineNotice, MCP_BINDING_NOTICE];
+/** Lint needs no selector; a test command gets a check only when its runner's output can be parsed (jest, vitest). */
+function checkFor(slot: string, argv: readonly string[], project: ProposedProject): Record<string, unknown> | null {
+  const adapter = ADAPTERS.find((name) => argv.some((token) => token.split(/[\\/]/).at(-1)?.replace(/\.(cmd|exe)$/, '') === name)) ?? 'generic';
+  if (slot === 'lint') return { command: 'lint', adapter, ...(project.shortlist.length === 0 ? {} : { include: project.shortlist }) };
+  // `related` and `command` selectors were cut (Phase 6a); a mapping from any source to the conventional test names is the generic start, edited per project.
+  if (slot === 'unit' && (adapter === 'jest' || adapter === 'vitest')) return { command: 'unit', adapter, selector: { kind: 'mapping', maxFiles: DEFAULTS.checks.maxSelectedTestFiles, mappings: [{ source: ['**/*'], tests: ['**/*.{test,spec}.*'] }] } };
+  return null;
+}
 
-  const projects = options.detected.map((detected) => {
-    notices.push(...detected.notices.map((notice) => `${detected.id}: ${notice}`));
-    return projectNode(detected, changes, notices, options.profiles?.get(normalizeRelative(detected.root)));
-  });
-
-  if (projects.length === 0) {
-    projects.push({
-      id: 'app',
-      root: '.',
-      ecosystem: 'typescript',
-      packs: suggestedPacks('typescript'),
-      policyFiles: [],
-      shortlist: shortlistDefaults(options.profiles?.get('')),
-      ...profileEntry(options.profiles?.get('')),
-      commands: { lint: null, unit: null, e2e: null, format: null },
-      checks: { lint: null, unit: null, e2e: null },
-    });
-    notices.push(
-      'No package.json or pyproject.toml was found, so one project covering the repository root was written with every command null.',
-    );
+function projectNode(project: ProposedProject): Record<string, unknown> {
+  const commands: Record<string, unknown> = {};
+  const checks: Record<string, unknown> = {};
+  for (const slot of ['lint', 'unit', 'typecheck', 'e2e', 'format']) {
+    const argv = commandOf(project, slot);
+    commands[slot] = argv === null ? null : { argv: [...argv] };
+    if (slot === 'lint' || slot === 'unit') checks[slot] = argv === null ? null : checkFor(slot, argv, project);
   }
+  return {
+    id: project.id,
+    root: project.root,
+    ecosystem: ecosystemOf(project.ecosystem),
+    packs: [...project.packs],
+    policyFiles: [],
+    shortlist: { include: [...project.shortlist], exclude: [...TEST_EXCLUDES] },
+    commands,
+    checks,
+  };
+}
 
-  const index = String(overrideOf(options, 'search.index')?.value ?? 'none');
+function createFresh(options: PlanInitOptions): InitPlan {
+  const { input } = options;
+  const notices = [options.baselineNotice];
+  const mcpServer = input.requirements.mcpServer;
+  if (mcpServer === null && overrideOf(options, 'requirements.mcpServer') === undefined) notices.push(MCP_BINDING_NOTICE);
+  const changes = input.projects.map((project) => `Configured project "${project.id}" (${project.ecosystem}) at "${project.root}".`);
   const document = new Document({
     schemaVersion: DEFAULTS.schemaVersion,
     baseline: options.baseline,
     review: { ...DEFAULTS.review },
     checks: { ...DEFAULTS.checks },
-    page: { ...DEFAULTS.page },
-    requirements: { mcpServer: null, acceptanceField: DEFAULTS.requirements.acceptanceField },
-    search: { index, layers: layersFor(index) },
-    workers: { approved: [] },
+    requirements: { mcpServer, acceptanceField: DEFAULTS.requirements.acceptanceField },
     guard: { askOutsideMap: false },
-    projects,
-    remoteChecks: { image: null },
+    projects: input.projects.map(projectNode),
     authoring: { ...DEFAULTS.authoring },
   });
   document.commentBefore = HEADER_COMMENT;
-  applyOverrides(document, options, changes, false);
-
+  applyOverrides(document, options, changes);
   const yaml = document.toString({ lineWidth: 100 });
   return { yaml, created: true, changes, notices, ruleSources: [], config: parseConfig(yaml) };
 }
 
-/** Schema 1/2 → 3 through the document API: removed fields deleted and named, missing v3 slots added (09-C3). */
+/** Schema 1/2 to 3 through the document API: removed fields deleted and named, missing v3 slots added. */
 function migrate(document: Document, changes: string[], notices: string[]): void {
   const declared = document.get('schemaVersion');
   if (declared !== DEFAULTS.schemaVersion) {
@@ -185,8 +191,6 @@ function migrate(document: Document, changes: string[], notices: string[]): void
   const added: [readonly string[], unknown][] = [
     [['review', 'onInvalid'], DEFAULTS.review.onInvalid],
     [['requirements', 'acceptanceField'], DEFAULTS.requirements.acceptanceField],
-    [['search', 'index'], 'none'],
-    [['workers', 'approved'], []],
     [['guard', 'askOutsideMap'], false],
   ];
   for (const [where, value] of added) {
@@ -194,40 +198,18 @@ function migrate(document: Document, changes: string[], notices: string[]): void
     document.setIn(where, document.createNode(value));
     changes.push(`Added "${where.join('.')}: ${JSON.stringify(value)}".`);
   }
-  const layers = layersFor(String(document.getIn(['search', 'index']) ?? 'none'));
-  for (const mode of ['prompt', 'context'] as const) {
-    if (document.hasIn(['search', 'layers', mode])) continue;
-    document.setIn(['search', 'layers', mode], document.createNode(layers[mode]));
-    changes.push(`Added "search.layers.${mode}: [${layers[mode].join(', ')}]".`);
-  }
 }
 
-/** Accepted values override their slots; an index change adds or removes the two index layers only (09-P4, D17). */
-function applyOverrides(document: Document, options: PlanInitOptions, changes: string[], existing: boolean): void {
+/** Accepted values override their slots, set or not. */
+function applyOverrides(document: Document, options: PlanInitOptions, changes: string[]): void {
   for (const pair of options.overrides ?? []) {
     const project = projectOfKey(pair.key);
     if (project !== null) {
       const node = ((document.get('projects') as YAMLSeq | undefined)?.items as YAMLMap[] | undefined)?.find((item) => item.get('id') === project);
       if (node === undefined) continue;
-      const slot = pair.key.split('.').at(-1)!;
-      node.setIn(['commands', slot], pair.value === null ? null : document.createNode({ argv: pair.value }));
-    } else {
-      const where = pair.key.split('.');
-      const before = document.getIn(where);
-      document.setIn(where, pair.value);
-      if (pair.key === 'search.index' && existing && before !== pair.value) syncIndexLayers(document, String(pair.value));
-    }
+      node.setIn(['commands', pair.key.split('.').at(-1)!], pair.value === null ? null : document.createNode({ argv: pair.value }));
+    } else document.setIn(pair.key.split('.'), pair.value);
     changes.push(`Set "${pair.key}" to ${JSON.stringify(pair.value)} (accepted).`);
-  }
-}
-
-function syncIndexLayers(document: Document, index: string): void {
-  for (const [mode, layer] of [['prompt', 'index.find'], ['context', 'index.relates']] as const) {
-    const node = document.getIn(['search', 'layers', mode]);
-    if (!isSeq(node)) continue;
-    const at = node.items.findIndex((item) => (typeof item === 'object' && item !== null && 'value' in item ? item.value : item) === layer);
-    if (index === 'none' && at !== -1) node.delete(at);
-    if (index !== 'none' && at === -1) node.add(layer);
   }
 }
 
@@ -238,222 +220,68 @@ function updateExisting(existingRaw: string, options: PlanInitOptions): InitPlan
   const changes: string[] = [];
   const notices: string[] = [];
 
-  const requirementsNode = document.get('requirements') as YAMLMap | undefined;
-  if (requirementsNode === undefined || requirementsNode.get('mcpServer') == null) {
-    notices.push(MCP_BINDING_NOTICE);
-  }
-
   if (document.get('authoring') === undefined) {
     document.set('authoring', document.createNode({ ...DEFAULTS.authoring }));
     changes.push(`Added "authoring.editReminders: ${DEFAULTS.authoring.editReminders}" (the documented default).`);
   }
-
   migrate(document, changes, notices);
 
-  if (document.getIn(['page', 'port']) === undefined) {
-    document.setIn(['page', 'port'], DEFAULTS.page.port);
-    changes.push(`Added "page.port: ${DEFAULTS.page.port}" (the documented default).`);
-  }
+  const proposed = options.input.requirements.mcpServer;
+  const bound = document.getIn(['requirements', 'mcpServer']);
+  if (bound == null && proposed !== null) {
+    document.setIn(['requirements', 'mcpServer'], proposed);
+    changes.push(`Set "requirements.mcpServer" to "${proposed}".`);
+  } else if (bound == null) notices.push(MCP_BINDING_NOTICE);
 
   const projectsNode = document.get('projects') as YAMLSeq | undefined;
   const existingRoots = new Map<string, YAMLMap>();
-  if (projectsNode !== undefined && Array.isArray(projectsNode.items)) {
-    for (const item of projectsNode.items as YAMLMap[]) {
-      const root = item.get('root');
-      if (typeof root === 'string') existingRoots.set(normalizeRelative(root), item);
-    }
+  for (const item of (projectsNode?.items ?? []) as YAMLMap[]) {
+    const root = item.get('root');
+    if (typeof root === 'string') existingRoots.set(normalizeRelative(root), item);
   }
-
-  for (const detected of options.detected) {
-    const root = normalizeRelative(detected.root);
-    const existing = existingRoots.get(root);
+  for (const project of options.input.projects) {
+    const existing = existingRoots.get(normalizeRelative(project.root));
     if (existing === undefined) {
-      projectsNode?.add(document.createNode(projectNode(detected, changes, notices, options.profiles?.get(root))));
-      changes.push(`Added project "${detected.id}" for root "${detected.root}".`);
+      projectsNode?.add(document.createNode(projectNode(project)));
+      changes.push(`Added project "${project.id}" for root "${project.root}".`);
       continue;
     }
-    addMissingCommands(document, existing, detected, changes, notices);
-    addMissingFrameworkPacks(document, existing, detected, changes);
-    if (existing.get('shortlist') === undefined) {
-      existing.set('shortlist', document.createNode(shortlistDefaults(options.profiles?.get(root))));
-      changes.push(`Added "shortlist" for project "${detected.id}": the files prepare may list, source only. Edit it to widen or narrow.`);
-    }
+    addMissing(document, existing, project, changes);
   }
-  for (const [root, existing] of existingRoots) {
-    const profile = options.profiles?.get(root);
-    if (profile === undefined || (existing.get('profile') !== undefined && options.refreshProfile !== true)) continue;
-    const replaced = existing.get('profile') !== undefined;
-    existing.set('profile', document.createNode(profile));
-    changes.push(`${replaced ? 'Replaced' : 'Added'} the search profile for root "${root || '.'}" (measured at ${profile.stamp.commit.slice(0, 12) || 'no commit'}).`);
-  }
-
-  applyOverrides(document, options, changes, true);
+  applyOverrides(document, options, changes);
 
   if (changes.length === 0) {
-    notices.push('Everything detected is already described in the configuration; nothing was changed.');
+    notices.push('The proposal is already described in the configuration; nothing was changed.');
     return { yaml: null, created: false, changes, notices, ruleSources: [], config: parseConfig(existingRaw) };
   }
-
   const yaml = stringifyPreserving(document, preservedFlowSeqs, existingRaw);
   return { yaml, created: false, changes, notices, ruleSources: [], config: parseConfig(yaml) };
 }
 
-/** Treated like a missing command slot, so a pack the user deliberately removed does come back. */
-function addMissingFrameworkPacks(
-  document: Document,
-  projectNodeMap: YAMLMap,
-  detected: DetectedProject,
-  changes: string[],
-): void {
-  const packs = projectNodeMap.get('packs');
+/** A value the user set, including an explicit null, stays exactly as it is; only absent slots, packs and shortlist are filled. */
+function addMissing(document: Document, existing: YAMLMap, project: ProposedProject, changes: string[]): void {
+  const wanted = projectNode(project);
+  const commands = (existing.get('commands') ?? existing.set('commands', document.createNode({})) ?? existing.get('commands')) as YAMLMap;
+  const checks = (existing.get('checks') ?? existing.set('checks', document.createNode({})) ?? existing.get('checks')) as YAMLMap;
+  for (const [slot, value] of Object.entries(wanted['commands'] as Record<string, unknown>)) {
+    if (commands.has(slot)) continue;
+    commands.set(slot, document.createNode(value));
+    changes.push(`Added ${value === null ? 'a null' : 'a'} "${slot}" command to project "${project.id}".`);
+    const check = (wanted['checks'] as Record<string, unknown>)[slot];
+    if (check !== undefined && !checks.has(slot)) checks.set(slot, document.createNode(check));
+  }
+  const packs = existing.get('packs');
   const enabled = new Set<unknown>(isSeq(packs) ? packs.toJSON() : []);
-  const missing = detected.frameworkPacks.filter((reference) => !enabled.has(reference));
-  if (missing.length === 0) return;
-  if (isSeq(packs)) {
-    for (const reference of missing) packs.add(reference);
-  } else {
-    projectNodeMap.set('packs', document.createNode([...missing]));
+  const missing = project.packs.filter((pack) => !enabled.has(pack));
+  if (missing.length > 0) {
+    if (isSeq(packs)) for (const pack of missing) packs.add(pack);
+    else existing.set('packs', document.createNode(missing));
+    changes.push(`Enabled ${missing.join(', ')} for project "${project.id}".`);
   }
-  changes.push(`Enabled ${missing.join(', ')} for project "${detected.id}": its dependencies call for them.`);
-}
-
-/** A value the user set, including an explicit null, is left exactly as it is. */
-function addMissingCommands(
-  document: Document,
-  projectNodeMap: YAMLMap,
-  detected: DetectedProject,
-  changes: string[],
-  notices: string[],
-): void {
-  let commands = projectNodeMap.get('commands') as YAMLMap | undefined;
-  if (commands === undefined) {
-    commands = document.createNode({}) as YAMLMap;
-    projectNodeMap.set('commands', commands);
+  if (existing.get('shortlist') === undefined) {
+    existing.set('shortlist', document.createNode(wanted['shortlist']));
+    changes.push(`Added "shortlist" for project "${project.id}".`);
   }
-  let checks = projectNodeMap.get('checks') as YAMLMap | undefined;
-  if (checks === undefined) {
-    checks = document.createNode({}) as YAMLMap;
-    projectNodeMap.set('checks', checks);
-  }
-  if (!commands.has('format')) {
-    commands.set('format', detected.format?.argv == null ? document.createNode(null) : document.createNode({ argv: detected.format.argv }));
-    changes.push(detected.format?.argv == null ? `Added a null "format" command slot to project "${detected.id}".` : `Added a "format" command to project "${detected.id}" (${detected.format.notice}).`);
-  }
-
-  for (const slot of ['lint', 'unit', 'e2e'] as const) {
-    const candidate = detected[slot];
-    if (commands.has(slot)) {
-      const current = commands.get(slot);
-      if (candidate?.argv != null && current === null) {
-        notices.push(
-          `${detected.id}: "${slot}" is null but ${candidate.notice}. Set its argv yourself if you want it enabled; init does not overwrite your value.`,
-        );
-      }
-      continue;
-    }
-    commands.set(slot, candidate?.argv == null ? document.createNode(null) : document.createNode({ argv: candidate.argv }));
-    changes.push(
-      candidate?.argv == null
-        ? `Added a null "${slot}" command slot to project "${detected.id}".`
-        : `Added a "${slot}" command to project "${detected.id}" (${candidate.notice}).`,
-    );
-    if (!checks.has(slot)) {
-      const check = candidate?.argv == null ? null : checkFor(slot, detected);
-      checks.set(slot, check === null ? document.createNode(null) : document.createNode(check));
-      if (candidate?.argv != null && check === null) notices.push(mappingNotice(slot, detected));
-    }
-  }
-}
-
-function projectNode(
-  detected: DetectedProject,
-  changes: string[],
-  notices: string[],
-  profile?: SearchProfile,
-): Record<string, unknown> {
-  const commands: Record<string, unknown> = {};
-  const checks: Record<string, unknown> = {};
-
-  for (const slot of ['lint', 'unit', 'e2e'] as const) {
-    const candidate = detected[slot];
-    if (candidate?.argv == null) {
-      commands[slot] = null;
-      checks[slot] = null;
-      notices.push(
-        candidate === null || candidate === undefined
-          ? `${detected.id}: no ${slot} tool was detected, so the slot is null.`
-          : `${detected.id}: ${slot} left null — ${candidate.notice}.`,
-      );
-      continue;
-    }
-    commands[slot] = { argv: candidate.argv };
-    const check = checkFor(slot, detected);
-    checks[slot] = check;
-    changes.push(`Configured "${slot}" for project "${detected.id}" (${candidate.notice}).`);
-    if (check === null) notices.push(mappingNotice(slot, detected));
-  }
-
-  commands['format'] = detected.format?.argv == null ? null : { argv: detected.format.argv };
-  if (detected.format?.argv != null) changes.push(`Configured "format" for project "${detected.id}" (${detected.format.notice}).`);
-  else if (detected.format !== null) notices.push(`${detected.id}: format left null — ${detected.format.notice}.`);
-
-  return {
-    id: detected.id,
-    root: detected.root,
-    ecosystem: detected.ecosystem,
-    packs: [...suggestedPacks(detected.ecosystem), ...detected.frameworkPacks],
-    policyFiles: [],
-    shortlist: shortlistDefaults(profile),
-    ...profileEntry(profile),
-    commands,
-    checks,
-  };
-}
-
-const profileEntry = (profile: SearchProfile | undefined): { profile?: SearchProfile } => (profile === undefined ? {} : { profile });
-
-function shortlistDefaults(profile: SearchProfile | undefined): { include: string[]; exclude: string[] } {
-  return { include: [sourceGlob(profile === undefined || profile.sources.length === 0 ? GENERIC_PROFILE.sources : profile.sources)], exclude: [...TEST_EXCLUDES] };
-}
-
-function checkFor(slot: 'lint' | 'unit' | 'e2e', detected: DetectedProject): Record<string, unknown> | null {
-  const candidate = detected[slot];
-  const adapter = candidate?.adapter ?? 'eslint';
-
-  if (slot === 'lint') {
-    return {
-      command: 'lint',
-      adapter,
-      include: detected.ecosystem === 'python' ? ['**/*.py'] : ['**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx'],
-    };
-  }
-
-  // Only Jest and Vitest can say which tests a change affects; an empty mapping
-  // would select nothing, so the check is left null and init explains what to add.
-  if (adapter !== 'jest' && adapter !== 'vitest') return null;
-
-  return {
-    command: slot,
-    adapter,
-    selector: { kind: 'related', maxFiles: DEFAULTS.checks.maxSelectedTestFiles },
-  };
-}
-
-function mappingNotice(slot: 'lint' | 'unit' | 'e2e', detected: DetectedProject): string {
-  const adapter = detected[slot]?.adapter ?? 'this runner';
-  return [
-    `${detected.id}: the "${slot}" command is configured, but ${adapter} cannot report which tests a change affects.`,
-    `The check is left null until you add a mapping, for example:`,
-    `  checks:`,
-    `    ${slot}:`,
-    `      command: ${slot}`,
-    `      adapter: ${detected[slot]?.adapter ?? 'pytest'}`,
-    `      selector:`,
-    `        kind: mapping`,
-    `        mappings:`,
-    `          - source: ["src/orders/**/*.py"]`,
-    `            tests: ["tests/orders/test_*.py"]`,
-  ].join('\n');
 }
 
 const HEADER_COMMENT = ` AMBICODE configuration. This file is yours to edit; init --apply adds missing
@@ -461,7 +289,4 @@ const HEADER_COMMENT = ` AMBICODE configuration. This file is yours to edit; ini
 
  A null command is intentionally unavailable: its check is skipped with a
  notice rather than replaced by a guess. Commands are an executable plus
- arguments, never a shell string, and "{files}" must be an argument of its own.
-
- Run \`ambicode config\` to see the effective values, including the limits that
- are not written here.`;
+ arguments, never a shell string, and "{files}" must be an argument of its own.`;

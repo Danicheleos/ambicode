@@ -42,8 +42,7 @@ a Confluence page through the bound MCP server — and then, with you:
 5. on Apply all only, `ambicode rules apply` moves each draft to
    `.ambicode/policies/<id>.yaml` and adds it to the project's `policyFiles`,
    preserving the rest of `.ambicode/config.yaml`, then probes a covered and an
-   uncovered path. `ambicode rules revert <pack-id>` moves one pack back to
-   `drafts/` and removes it from `policyFiles`.
+   uncovered path.
 
 `ambicode rules discover [<path-or-url>...]` lists the candidate sources
 without reading them into rules.

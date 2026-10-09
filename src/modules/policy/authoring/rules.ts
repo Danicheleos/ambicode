@@ -156,7 +156,7 @@ export async function applyRules(deps: ApplyDeps, input: { task: string; project
     plan.push({ id: file.packId, draft: file.path, live: `${LIVE_DIR}/${path.posix.basename(file.path)}`, text: document.toString({ lineWidth: 0 }), rules: left });
   }
   for (const pack of plan) {
-    if (await runtime.fs.exists(path.join(root, pack.live))) throw badArgument(`${pack.live} already exists; a live pack is never overwritten. Rename the draft or run "rules revert" first.`, 'rules apply');
+    if (await runtime.fs.exists(path.join(root, pack.live))) throw badArgument(`${pack.live} already exists; a live pack is never overwritten. Rename the draft or remove the live pack first.`, 'rules apply');
   }
 
   return withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), session, async (ledger) => {
@@ -190,28 +190,4 @@ export async function applyRules(deps: ApplyDeps, input: { task: string; project
     await runtime.fs.writeText(path.join(dir.steps, 'rules-apply.md'), text);
     return { packs: applied, skipped, notMigrated: check.notMigrated, probes, text, hash };
   });
-}
-
-/** Unwires one pack that `rules apply` wired and moves it back to the drafts (09-T6). */
-export async function revertRule(runtime: Runtime, packId: string, project: string | null): Promise<{ from: string; to: string }> {
-  const workspace = await openWorkspace(runtime);
-  const projects = project === null ? workspace.config.projects : [projectFor(workspace, project)];
-  const wired: { project: ProjectConfig; file: string }[] = [];
-  for (const candidate of projects) {
-    for (const file of candidate.policyFiles) {
-      const raw = await runtime.fs.readText(path.join(workspace.repositoryRoot, file)).catch(() => '');
-      if ((parseYaml(raw) as { id?: unknown } | null)?.id === packId) wired.push({ project: candidate, file });
-    }
-  }
-  if (wired.length !== 1) throw badArgument(wired.length === 0 ? `Pack "${packId}" is not wired in ${project === null ? 'any project' : `project ${project}`}.` : `Pack "${packId}" is wired in several projects; pass --project <id>.`, 'rules revert');
-  const { project: owner, file } = wired[0]!;
-  if (path.posix.dirname(normalizeRelative(file)) !== LIVE_DIR) throw badArgument(`${file} is not under ${LIVE_DIR}/; "rules revert" only undoes "rules apply".`, 'rules revert');
-  const sharing = workspace.config.projects.filter((other) => other.id !== owner.id && other.policyFiles.some((wiredFile) => normalizeRelative(wiredFile) === normalizeRelative(file)));
-  if (sharing.length > 0) throw badArgument(`${file} is also wired in project ${sharing.map((other) => other.id).join(', ')}; reverting it would leave ${sharing.length === 1 ? 'that project' : 'those projects'} wired to a missing file.`, 'rules revert');
-  const to = `${DRAFTS_DIR}/${path.posix.basename(file)}`;
-  if (await runtime.fs.exists(path.join(workspace.repositoryRoot, to))) throw badArgument(`${to} already exists; move or remove that draft first.`, 'rules revert');
-  await editPolicyFiles(runtime, workspace.configPath, owner.id, { remove: file });
-  await runtime.fs.mkdirp(path.join(workspace.repositoryRoot, DRAFTS_DIR));
-  await runtime.fs.rename(path.join(workspace.repositoryRoot, file), path.join(workspace.repositoryRoot, to));
-  return { from: file, to };
 }

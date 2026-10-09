@@ -4,10 +4,9 @@ import { parseSet } from './init-sets.ts';
 /** The options the init gate declares; any other answer is one of the printed choices. */
 export const INIT_ANSWERS: readonly string[] = ['Apply as proposed', 'Apply as adjusted', 'Adjust', 'Cancel'];
 
-const SLOTS = ['lint', 'unit', 'e2e', 'format'] as const;
+const SLOTS = ['lint', 'unit', 'typecheck', 'e2e', 'format'] as const;
 const MCP = /^MCP server: (.+)$/;
-const RUNNER = /^Runner: (\S+) (lint|unit|e2e|format) (keep|skip)$/;
-const INDEX = /^Index: (none|codeindex)$/;
+const RUNNER = /^Runner: (\S+) (lint|unit|typecheck|e2e|format) (keep|skip)$/;
 
 /** One printed choice as the config slot it sets; `keep` puts the detected value back. */
 export function choiceOf(answer: string): { key: string; value: SetPair['value'] | 'keep' } | null {
@@ -16,8 +15,7 @@ export function choiceOf(answer: string): { key: string; value: SetPair['value']
   if (server !== undefined) return { key: 'requirements.mcpServer', value: server.trim() === 'none' ? null : server.trim() };
   const runner = RUNNER.exec(text);
   if (runner !== null) return { key: `projects.${runner[1]}.commands.${runner[2]}`, value: runner[3] === 'keep' ? 'keep' : null };
-  const index = INDEX.exec(text)?.[1];
-  return index === undefined ? null : { key: 'search.index', value: index };
+  return null;
 }
 
 /** The overrides the answers of one gate put in force, later choices winning; an answer that is no printed choice is returned as not understood. */
@@ -43,11 +41,10 @@ export function choiceGroups(proposal: InitProposal | null, pairs: readonly SetP
   const groups = [
     { title: 'MCP server', choices: ['MCP server: none', 'MCP server: <name of the Jira or Confluence server you can see>'] },
     { title: 'Runner', choices: [] as string[] },
-    { title: 'Search index', choices: ['Index: codeindex', 'Index: none'] },
   ];
-  for (const project of proposal?.projects ?? []) {
+  for (const project of proposal?.input.projects ?? []) {
     for (const slot of SLOTS) {
-      const detected = slot === 'format' ? project.format : project.commands[slot];
+      const detected = (project.commands as Record<string, readonly string[] | null | undefined>)[slot === 'unit' ? 'test' : slot];
       const key = `projects.${project.id}.commands.${slot}`;
       if (inForce.has(key)) groups[1]!.choices.push(`Runner: ${project.id} ${slot} keep`);
       else if (detected !== null && detected !== undefined) groups[1]!.choices.push(`Runner: ${project.id} ${slot} skip`);

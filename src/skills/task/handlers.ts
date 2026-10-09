@@ -1,7 +1,5 @@
 import path from 'node:path';
-import { openRepository } from '#platform/git/open';
-import { indexDepsOf, startIndexBuild } from '#modules/search/code-index/codeindex';
-import { refs } from '#modules/search/declarations/refs';
+import { refs } from '#modules/search/refs';
 import { touchedSet, captureBaseline } from '#modules/checks/workspace/baseline';
 import { evaluateReview } from '#modules/checks/review-evaluation';
 import { ReviewResult } from '#types/modules/review';
@@ -10,6 +8,7 @@ import { buildChain, currentIn } from '#harness/engine/fold';
 import { onGatePrint, onNeedCommand, onRaisedAnswer, raiseGate } from '#harness/gates/gates';
 import { chainEntries, configOf, isResult, projectOf } from '../common.ts';
 import { briefOf } from '../brief.ts';
+import { agentPayload } from '../review/agent-payload.ts';
 import { CODE_SHAPED } from '#modules/search/text/seed';
 import { isAmbicodeError } from '#util/errors';
 import { buildReport } from '#modules/evidence/report/report';
@@ -90,22 +89,11 @@ export const TASK_HANDLERS: Readonly<Record<string, Handler>> = {
     const lines = ['Callers (whole-word search; a `collides` caller → verify its import before editing):'];
     if (names.length === 0) lines.push('  no code-shaped name in the brief');
     else {
-      const found = await refs(input.runtime, names, { project, show: false });
+      const found = await refs(input.runtime, names, { project });
       for (const row of found.names) lines.push(`  ${row.name} — ${row.hits} refs${row.collides === true ? ', collides' : ''}`);
       for (const limitation of found.limitations) lines.push(`  ${limitation}`);
     }
-    if (config.search.index === 'none') lines.push('index: none — grep fallback');
     return { state: 'ok', payload: lines.join('\n'), record: defectBrief ? { defectBrief } : {} };
-  },
-
-  'task.index': async (input) => {
-    const config = await configOf(input);
-    if (config.search.index === 'none') return { state: 'ok', payload: null };
-    const project = await projectOf(input, config);
-    if (isResult(project)) return project;
-    const { git } = await openRepository(input.runtime);
-    void startIndexBuild(indexDepsOf(input.runtime, git, input.dir.repositoryRoot, config), project).catch(() => undefined);
-    return { state: 'ok', payload: null };
   },
 
   /** 07-V1 on the latest review; the route's onFail turns `review-findings` into the revise to fix. */
@@ -125,6 +113,16 @@ export const TASK_HANDLERS: Readonly<Record<string, Handler>> = {
       case 'proceed':
         return { state: 'ok', payload: null };
     }
+  },
+
+  /** After `review --task`: unanswered waiting keys raise their gate before the reviewer is offered the evidence; else the paths for the subagent. */
+  'review.await': async (input): Promise<HandlerResult> => {
+    const chain = await chainEntries(input);
+    const review = chain.findLast((entry): entry is ReviewEntry => entry.kind === 'review');
+    if (review === undefined) return { state: 'ok', payload: null };
+    const evaluation = evaluateReview(input.view, review, null, [], chain);
+    if (evaluation.next === 'waiting') return { state: 'raise', gate: KEY_GATE, values: keyValues(evaluation.keys[0]!), raisedBy: 'review-cmd' };
+    return { state: 'ok', payload: await agentPayload(input, review) };
   },
 
   'task.report': async (input) => {
@@ -151,7 +149,12 @@ onRaisedAnswer(KEY_GATE, async ({ view, ledger, acceptance, routes }) => {
   if (evaluation.next === 'waiting') await raiseGate(ledger, view, { gate: KEY_GATE, values: keyValues(evaluation.keys[0]!), raisedBy: String(print['raisedBy']) }, routes);
 });
 
-onNeedCommand('task', 'review', async ({ task }) => `review --task ${task}`);
+// A pending review already has its snapshot: the missing piece is the reviewer's answer, not another review.
+onNeedCommand('task', 'review', async ({ task, chain }) => {
+  // A revise resets the step windows, so only a review written since the last one counts.
+  const since = chain.slice(chain.findLastIndex((entry) => entry.kind === 'revise') + 1);
+  return since.findLast((entry) => entry.kind === 'review')?.['stage'] === 'pending' ? `review record --task ${task}` : `review --task ${task}`;
+});
 
 onGatePrint('review-offer', async ({ runtime, task, chain }) => {
   try {

@@ -19,15 +19,12 @@ describe('09-G3: the settable keys', () => {
     refused(() => parseSet('requirements.acceptanceField=customfield_'));
   });
 
-  it('09-G3: search.index takes none or codeindex, refuses a bad value and null', () => {
-    assert.deepEqual(parseSet('search.index=none'), { key: 'search.index', value: 'none' });
-    assert.deepEqual(parseSet('search.index=codeindex'), { key: 'search.index', value: 'codeindex' });
-    refused(() => parseSet('search.index=lsp'));
-    refused(() => parseSet('search.index=null'));
+  it('09-G3: search.index is no longer settable', () => {
+    refused(() => parseSet('search.index=none'));
   });
 
   it('09-G3: a command slot takes null or a JSON array of strings', () => {
-    for (const slot of ['lint', 'unit', 'e2e', 'format']) {
+    for (const slot of ['lint', 'unit', 'typecheck', 'e2e', 'format']) {
       const key = `projects.app.commands.${slot}`;
       assert.deepEqual(parseSet(`${key}=null`), { key, value: null });
       assert.deepEqual(parseSet(`${key}=["./bin/x","--","{files}"]`), { key, value: ['./bin/x', '--', '{files}'] });
@@ -61,29 +58,29 @@ describe('09-G3: refusals', () => {
   });
 
   it('09-G3: a repeated key is refused', () => {
-    refused(() => parseSets(['search.index=none', 'search.index=codeindex']));
+    refused(() => parseSets(['requirements.mcpServer=a', 'requirements.mcpServer=b']));
   });
 });
 
 describe('09-G3: canonical form', () => {
   it('09-G3: canonicalSets sorts by key and joins key=<JSON> with one space', () => {
-    const pairs = parseSets(['search.index=codeindex', 'projects.app.commands.lint=["./l","--","{files}"]', 'requirements.mcpServer=jira', 'projects.app.commands.unit=null']);
+    const pairs = parseSets(['requirements.mcpServer=jira', 'projects.app.commands.lint=["./l","--","{files}"]', 'projects.app.commands.unit=null']);
     assert.equal(
       canonicalSets(pairs),
-      'projects.app.commands.lint=["./l","--","{files}"] projects.app.commands.unit=null requirements.mcpServer="jira" search.index="codeindex"',
+      'projects.app.commands.lint=["./l","--","{files}"] projects.app.commands.unit=null requirements.mcpServer="jira"',
     );
   });
 
   it('09-G3: canonicalSets of no pairs is the empty string and does not reorder its input', () => {
     assert.equal(canonicalSets([]), '');
-    const pairs = parseSets(['search.index=none', 'requirements.mcpServer=a']);
+    const pairs = parseSets(['requirements.mcpServer=b', 'projects.app.commands.lint=null']);
     canonicalSets(pairs);
-    assert.deepEqual(pairs.map((pair) => pair.key), ['search.index', 'requirements.mcpServer']);
+    assert.deepEqual(pairs.map((pair) => pair.key), ['requirements.mcpServer', 'projects.app.commands.lint']);
   });
 
   it('09-G3: setStrings are sorted key=<JSON> strings', () => {
-    const pairs = parseSets(['search.index=codeindex', 'projects.app.commands.lint=null']);
-    assert.deepEqual(setStrings(pairs), ['projects.app.commands.lint=null', 'search.index="codeindex"']);
+    const pairs = parseSets(['requirements.mcpServer=jira', 'projects.app.commands.lint=null']);
+    assert.deepEqual(setStrings(pairs), ['projects.app.commands.lint=null', 'requirements.mcpServer="jira"']);
     assert.deepEqual(setStrings([]), []);
   });
 });

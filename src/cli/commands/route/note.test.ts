@@ -174,16 +174,9 @@ describe('the note and report commands', () => {
     });
   });
 
-  it('02-N6/02-R7: note list --json and report --json print their shapes', async () => {
+  it('02-R7: report --json prints its shape', async () => {
     await inRepo(async (repo) => {
       cli(repo, ['note', 'save', '--task', 'ORD-17', '--kind', 'investigation'], '# Findings');
-      const list = JSON.parse(cli(repo, ['note', 'list', '--task', 'ORD-17', '--json']).stdout);
-      assert.deepEqual(Object.keys(list), ['command', 'task', 'notes']);
-      assert.deepEqual(Object.keys(list.notes[0]), ['id', 'note', 'path', 'at', 'heading', 'iteration', 'link']);
-      assert.equal(list.notes[0].heading, 'Findings');
-      const text = cli(repo, ['note', 'list', '--task', 'ORD-17']).stdout;
-      assert.match(text, /investigation {2}\.ambicode\/task\/ORD-17\/investigation_.*Findings/);
-
       const report = JSON.parse(cli(repo, ['report', '--task', 'ORD-17', '--json']).stdout);
       assert.deepEqual(Object.keys(report), ['evidence', 'notVerified', 'hash']);
       assert.match(cli(repo, ['report', '--task', 'ORD-17']).stdout, new RegExp(`<!-- ambicode report ${report.hash} -->\n$`));

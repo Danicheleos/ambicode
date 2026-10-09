@@ -8,10 +8,10 @@ export type { ActiveRoute, GuardInput, GuardState } from './types/guard.ts';
 export { fsGuardState } from './guard/guard-state.ts';
 export { ACTIVE_ROUTE_FILE, GUARD_LEDGER_FILE, GUARD_STATE_DIR_NAME, LEDGER_LIMIT } from './types/guard.ts';
 
-// shell/: structural parsing of a Bash command into segments, write targets and directory scopes.
-/** parseCommand(command, options?) — parses a Bash command into Segments (writes, directory scopes); the last is `unparsed` when not analysed. */
+// shell/: structural parsing of a Bash command into segments and write targets.
+/** parseCommand(command) — parses a Bash command into Segments (argv, opaque words, write targets); one is `unparsed` when a quote was not closed. */
 export { parseCommand } from './shell/command-parser.ts';
-export type { Directories, ParseOptions, Segment, WriteTarget } from './shell/command-parser.ts';
+export type { Segment, WriteTarget } from './shell/command-parser.ts';
 
 // events/: the CLI-side hook dispatcher (SessionStart, UserPromptSubmit, PostToolUse, …).
 /** defaultHookDeps(runtime) — the production HookDeps (routes, engine, pointer) built over a Runtime. */

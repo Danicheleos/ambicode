@@ -1,4 +1,4 @@
-// Review: bundle assembly, findings, the local page, publication and reviewers.
+// Review: bundle assembly and findings.
 
 // bundle/: assembling the review bundle, estimates and naming.
 /** assembleBundle(options) — builds the review bundle (or a dry-run plan when `dryRun: true`). */
@@ -23,42 +23,11 @@ export { taskSlugFor } from './bundle/review-name.ts';
 export { renderReport } from './findings/report.ts';
 /** validateFindings(options) — validates raw findings; returns valid, partial or invalid with rejections. */
 export { validateFindings } from './findings/validate.ts';
+/** applyStatus(input, reviewerOk, dropped) — sets a result's status from the reviewer outcome and the gaps around it. */
+export { applyStatus } from './findings/status.ts';
 
-// page/: the local review page server and its process housekeeping.
-/** sweepOwnedTemporaries(options) — removes this tool's stale temporary files and reports what was swept. */
-export { sweepOwnedTemporaries } from './page/cleanup.ts';
-/** openInBrowser(…) — opens a URL in the platform's browser. */
-export { openInBrowser } from './page/open-browser.ts';
-/** reopenCommand(reviewId) — the one spelling of the command that reopens a review page. */
-export { reopenCommand } from './page/reopen.ts';
-/** createPageServer(options) — starts the review page HTTP server and returns its handle. */
-export { createPageServer } from './page/server.ts';
-/** SessionStore — in-memory page session store with a TTL. */
-export { SessionStore } from './page/session.ts';
-/** bindPort(…) — binds the page port, taking over from a previous page's control file. */
-export { bindPort } from './page/takeover.ts';
-/** removeControlFile(fs, port, token) — removes the control file only while it is still this page's. */
-export { removeControlFile } from './page/takeover.ts';
-/** writeControlFile(fs, entry) — writes the `ambicode-view-<port>.json` control file for takeover. */
-export { writeControlFile } from './page/takeover.ts';
 
-// publication/: validating and publishing review results.
-/** validateReviewAggregate(aggregate) — throws when a review aggregate is inconsistent. */
-export { validateReviewAggregate } from './publication/aggregate.ts';
-/** derivePositions(options) — derives the publication positions of findings. */
-export { derivePositions } from './publication/positions.ts';
-/** positionDigest(…) — digest of derived positions, for detecting change. */
-export { positionDigest } from './publication/positions.ts';
-/** reconcileUncertainOutcomes(…) — resolves publication outcomes left uncertain by an earlier attempt. */
-export { reconcileUncertainOutcomes } from './publication/publish.ts';
-/** ReviewStore — the on-disk store of a review's publication record and positions. */
-export { ReviewStore } from './publication/store.ts';
 
-// reviewer/: reviewer implementations.
-/** ClaudeReviewer — a reviewer backed by a live Claude run. */
-export { ClaudeReviewer } from './reviewer/claude-reviewer.ts';
-/** ReplayReviewer — a reviewer that replays a recorded result for a snapshot. */
-export { ReplayReviewer } from './reviewer/replay-reviewer.ts';
 
 // snapshot/: size measures (path classes are #util/path-classes, the binary check #platform/ports/binary).
 /** byteLength(value) — UTF-8 byte length of a string. */

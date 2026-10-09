@@ -79,10 +79,11 @@ test('03-R1: one rejection per schema rule, each naming the file and the field',
 
 test('03-R2: when accepts the fixed vocabulary and gate predicates of this route only', async (t) => {
   const withWhen = (when: string): string => `${BASE.head}${BASE.code}${BASE.gate}  - id: after\n    actor: code\n    run: code.two\n    when: "${when}"\n`;
-  for (const when of ['args.hasRequirement', '!args.hasRequirement', 'map.empty', 'plan.isDraft', 'headless', 'interactive', 'index.present', 'revised', 'gate.ask.answered', 'gate.ask.is(Yes)']) {
+  for (const when of ['args.hasRequirement', '!args.hasRequirement', 'map.empty', 'plan.isDraft', 'headless', 'interactive', 'revised', 'gate.ask.answered', 'gate.ask.is(Yes)']) {
     const directory = await root(t, { 'routes/demo/demo.yaml': withWhen(when) });
     await validateRouteFiles(directory, { handlers: HANDLERS });
   }
+  await refuses(t, withWhen('index.present'), /not in the when vocabulary/);
   await refuses(t, withWhen('args.other'), /after\.when: "args\.other" is not in the when vocabulary/);
   await refuses(t, withWhen('gate.nope.answered'), /"nope" is not a gate of this route/);
   await refuses(t, withWhen('gate.ask.is(Never)'), /"Never" is not an option of gate ask/);

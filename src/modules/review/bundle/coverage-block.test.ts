@@ -7,14 +7,13 @@ import { renderReport } from '../findings/report.ts';
 const HEADING = '4. OMISSIONS, UNCERTAINTY AND UNAVAILABLE COVERAGE';
 
 describe('notCoveredBlock (08-C1)', () => {
-  it('08-C1: equals part 4 of the full report for a result with gaps, omissions and rejections', () => {
-    const base = reviewResult({ coverageComplete: false });
+  it('08-C1: equals part 4 of the full report for a result with omissions and rejections', () => {
+    const base = reviewResult();
     const result = { ...base, omissions: ['om one', 'om two'], reviewer: { ...base.reviewer!, rejections: ['finding 1 (a.ts:9 new): rejected'] } };
     const report = renderReport({ result, snapshotDirectory: '/snap', resultPath: '/res', pendingApprovals: [] });
     const block = notCoveredBlock(result);
     assert.equal(block, report.slice(report.indexOf(HEADING)));
     assert.ok(block.startsWith(HEADING));
-    assert.match(block, /coverage    1 file\(s\) delivered of 4 declared/);
     assert.match(block, /- om two/);
     assert.match(block, /- finding 1 \(a\.ts:9 new\): rejected/);
   });

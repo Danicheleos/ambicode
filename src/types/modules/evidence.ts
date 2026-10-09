@@ -12,19 +12,9 @@ export interface NoteDeps {
   ledger?: LockedLedger;
 }
 
-export interface NoteRow {
-  id: string;
-  note: string;
-  path: string;
-  at: string;
-  heading: string;
-  iteration: number | null;
-  link: string | null;
-}
-
 export const KINDS = ['route', 'step', 'gate', 'acceptance', 'declined', 'default-taken', 'preanswer', 'revise',
   'limit', 'exit', 'requirement', 'envelope', 'map', 'search', 'policy', 'baseline', 'check', 'format', 'review',
-  'worker', 'note', 'session', 'command', 'turn', 'hook', 'tool'] as const;
+  'worker', 'note', 'capture'] as const;
 
 export interface ArtifactRef { kind: string; value: string; id: string; path: string; contentHash: string }
 

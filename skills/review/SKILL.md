@@ -2,15 +2,15 @@
 name: review
 description: "Run AMBICODE's pinned, checked, independent review of one change (uncommitted work, --branch, or --mr <url>), optionally against --requirement tickets. Typed only: a natural-language \"review my change\" goes to Claude Code's built-in review, and AMBICODE's review runs only when /ambicode:review is typed."
 disable-model-invocation: true
-allowed-tools: Read, Grep, Glob, Bash(node *ambicode.mjs*)
+allowed-tools: Read, Grep, Glob, Agent, Bash(node *ambicode.mjs*)
 ---
 
 # Review one change
 
 A route runs the pipeline and hands you one step at a time. Do what each step says. The pipeline
 pins the target, mirrors it into a snapshot, runs the checks the change affects, and gives the
-bundle to a separate reviewer process that can only read that snapshot. The user sees an estimate
-first and decides whether the reviewer runs. Nothing is published except by the user on the page.
+bundle to the `ambicode:reviewer` subagent, which can only read the snapshot. The user sees an
+estimate first and decides whether the reviewer runs. The route publishes nothing.
 
 Report rules, with why:
 

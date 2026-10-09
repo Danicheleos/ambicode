@@ -5,18 +5,12 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createRuntime } from '#composition/root';
 import { openWorkspace } from '#modules/config/workspace';
-import { Ecosystem } from '#types/primitives';
-import { TEST_EXCLUDES } from '#types/defaults';
-import { sourceGlob } from '#modules/search/declarations/profile';
 import { DECLARATION_PATTERNS } from '#types/modules/ecosystems';
-import { detectProjects } from './init/detect.ts';
-import { planInit } from './init/init.ts';
 import { loadConfig, loadConfigWithNotices, parseConfig, parseConfigWithNotices, validateArgv } from './load.ts';
 import { loadPacksForProject } from '#modules/policy/packs/load';
 import { mostSpecificRoot, normalizeRelative, toProjectRelative } from '#util/paths';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { REPO_ROOT } from '#testing/paths';
-import { GENERIC_PROFILE } from '#types/modules/search';
 
 async function sandbox(t: { after(fn: () => unknown): void }): Promise<string> {
   const directory = await mkdtemp(path.join(tmpdir(), 'ambicode-config-'));
@@ -29,9 +23,7 @@ const MINIMAL = [
   'baseline: origin/main',
   'review: { model: sonnet, timeoutSeconds: 300, maxFindings: 7, maxChangedFiles: 50, maxChangedLines: 2000, maxContextBytes: 524288 }',
   'checks: { timeoutSeconds: 120, maxSelectedTestFiles: 20 }',
-  'page: { idleTimeoutSeconds: 1800, port: 45831 }',
   'requirements: { mcpServer: null, lsp: [] }',
-  'remoteChecks: { image: null }',
 ].join('\n');
 
 /** A current (schema 3) file: re-init has nothing to migrate in it. */
@@ -40,15 +32,11 @@ const CURRENT = [
   'baseline: origin/main',
   'review: { model: sonnet, timeoutSeconds: 300, maxFindings: 7, maxChangedFiles: 50, maxChangedLines: 2000, maxContextBytes: 524288, onInvalid: void }',
   'checks: { timeoutSeconds: 120, maxSelectedTestFiles: 20 }',
-  'page: { idleTimeoutSeconds: 1800, port: 45831 }',
   'requirements: { mcpServer: null, acceptanceField: null }',
-  'remoteChecks: { image: null }',
   'search: { index: none, layers: { prompt: [shortlist, harvest, shortlist], context: [grep, harvest] } }',
-  'workers: { approved: [] }',
   'guard: { askOutsideMap: false }',
 ].join('\n');
 
-const BEFORE_PORT = MINIMAL.replace(', port: 45831 }', ' }');
 
 function withProjects(body: string): string {
   return `${MINIMAL}\nprojects:\n${body}`;
@@ -181,424 +169,17 @@ test('U14 placeholder misuse and shell syntax are rejected at the boundary', () 
   assert.ok(validateArgv('argv', ['eslint . && rm -rf /'])[0]?.includes('not a shell expression'));
 });
 
-test('U01 init writes null commands with notices, and a second run preserves user edits', async (t) => {
-  const directory = await sandbox(t);
-  await writeFile(
-    path.join(directory, 'package.json'),
-    JSON.stringify({ name: 'fixture', devDependencies: { eslint: '^9.0.0' } }),
-    'utf8',
-  );
-
-  const detected = await detectProjects(nodeFileSystem, directory);
-  const first = await planInit({
-    fs: nodeFileSystem,
-    repositoryRoot: directory,
-    detected,
-    baseline: '',
-    baselineNotice: 'no baseline',
-  });
-
-  assert.equal(first.created, true);
-  assert.ok(first.yaml !== null);
-  assert.ok(first.notices.some((notice) => notice.includes('declared in package.json but not installed')));
-  assert.equal(first.config.projects[0]?.commands['lint'], null);
-  assert.equal(first.config.baseline, '');
-
-  await mkdir(path.join(directory, '.ambicode'), { recursive: true });
-  const edited = first.yaml.replace(
-    'lint: null',
-    'lint:\n        argv: ["./node_modules/.bin/eslint", "--", "{files}"]',
-  );
-  await writeFile(path.join(directory, '.ambicode', 'config.yaml'), edited, 'utf8');
-
-  const second = await planInit({
-    fs: nodeFileSystem,
-    repositoryRoot: directory,
-    detected,
-    baseline: '',
-    baselineNotice: 'no baseline',
-  });
-
-  assert.equal(second.yaml, null, 'nothing changed, so nothing is rewritten');
-  assert.deepEqual(second.config.projects[0]?.commands['lint'], {
-    argv: ['./node_modules/.bin/eslint', '--', '{files}'],
-  });
+test('a config that still has page or remoteChecks loads, drops them and notices each once', () => {
+  const raw = `${withProjects('  - { id: web, root: ".", ecosystem: typescript }')}\npage: { idleTimeoutSeconds: 1800, port: 45831 }\nremoteChecks: { image: null }\n`;
+  const { config, notices } = parseConfigWithNotices(raw);
+  assert.deepEqual(notices.filter((notice) => notice.startsWith('config: ')), ['config: "page" is no longer used; remove it from .ambicode/config.yaml', 'config: "remoteChecks" is no longer used; remove it from .ambicode/config.yaml']);
+  assert.equal(Object.hasOwn(config, 'page'), false);
 });
 
-test('U01 re-init adds a newly detected project without touching the existing one', async (t) => {
-  const directory = await sandbox(t);
-  await mkdir(path.join(directory, 'apps', 'web'), { recursive: true });
-  await writeFile(path.join(directory, 'apps', 'web', 'package.json'), '{"name":"web"}', 'utf8');
-
-  const first = await planInit({
-    fs: nodeFileSystem,
-    repositoryRoot: directory,
-    detected: await detectProjects(nodeFileSystem, directory),
-    baseline: 'origin/main',
-    baselineNotice: 'baseline from origin/HEAD',
-  });
-  await mkdir(path.join(directory, '.ambicode'), { recursive: true });
-  const annotated = `# my own note\n${first.yaml ?? ''}`;
-  await writeFile(path.join(directory, '.ambicode', 'config.yaml'), annotated, 'utf8');
-
-  await mkdir(path.join(directory, 'services', 'api'), { recursive: true });
-  await writeFile(path.join(directory, 'services', 'api', 'pyproject.toml'), '[project]\nname="api"\n', 'utf8');
-
-  const second = await planInit({
-    fs: nodeFileSystem,
-    repositoryRoot: directory,
-    detected: await detectProjects(nodeFileSystem, directory),
-    baseline: 'origin/main',
-    baselineNotice: 'baseline from origin/HEAD',
-  });
-
-  assert.ok(second.yaml !== null);
-  assert.ok(second.yaml.includes('# my own note'), "the user's comment survives");
-  assert.deepEqual(
-    second.config.projects.map((project) => project.id).sort(),
-    ['apps-web', 'services-api'],
-  );
-  assert.ok(second.changes.some((change) => change.includes('Added project "services-api"')));
-});
-
-test('U01 a python project without a mapping leaves the unit check null with an example', async (t) => {
-  const directory = await sandbox(t);
-  await mkdir(path.join(directory, '.venv', 'bin'), { recursive: true });
-  await writeFile(path.join(directory, 'pyproject.toml'), '[project]\nname="api"\n', 'utf8');
-  for (const binary of ['python', 'pytest', 'ruff']) {
-    await writeFile(path.join(directory, '.venv', 'bin', binary), '', 'utf8');
-  }
-
-  const plan = await planInit({
-    fs: nodeFileSystem,
-    repositoryRoot: directory,
-    detected: await detectProjects(nodeFileSystem, directory),
-    baseline: '',
-    baselineNotice: 'no baseline',
-  });
-
-  const project = plan.config.projects[0];
-  assert.deepEqual(project?.commands['unit'], { argv: ['./.venv/bin/python', '-m', 'pytest', '--', '{files}'] });
-  assert.equal(project?.checks['unit'], null, 'no mapping means no bounded selection, so no check');
-  assert.ok(project?.checks['lint'] !== null, 'lint needs no selector');
-  assert.ok(plan.notices.some((notice) => notice.includes('selector:') && notice.includes('kind: mapping')));
-});
-
-test('U01 detects Python tools in a Windows virtual environment', async (t) => {
-  const directory = await sandbox(t);
-  await mkdir(path.join(directory, '.venv', 'Scripts'), { recursive: true });
-  await writeFile(path.join(directory, 'pyproject.toml'), '[project]\nname="api"\n', 'utf8');
-  for (const binary of ['python.exe', 'pytest.exe', 'ruff.exe']) {
-    await writeFile(path.join(directory, '.venv', 'Scripts', binary), '', 'utf8');
-  }
-
-  const [project] = await detectProjects(nodeFileSystem, directory);
-  assert.deepEqual(project?.lint?.argv, ['./.venv/Scripts/ruff.exe', 'check', '--', '{files}']);
-  assert.deepEqual(project?.unit?.argv, ['./.venv/Scripts/python.exe', '-m', 'pytest', '--', '{files}']);
-});
-
-test('U01 the generated configuration always parses', async (t) => {
-  const directory = await sandbox(t);
-  await writeFile(path.join(directory, 'package.json'), '{"name":"x"}', 'utf8');
-  const plan = await planInit({
-    fs: nodeFileSystem,
-    repositoryRoot: directory,
-    detected: await detectProjects(nodeFileSystem, directory),
-    baseline: 'origin/main',
-    baselineNotice: 'x',
-  });
-  assert.ok(plan.yaml !== null);
-  assert.doesNotThrow(() => parseConfig(plan.yaml as string));
-});
-
-async function initWithDependencies(
-  t: { after(fn: () => unknown): void },
-  dependencies: Record<string, string>,
-): Promise<{ directory: string; plan: Awaited<ReturnType<typeof planInit>> }> {
-  const directory = await sandbox(t);
-  await writeFile(path.join(directory, 'package.json'), JSON.stringify({ name: 'x', dependencies }), 'utf8');
-  const plan = await planInit({
-    fs: nodeFileSystem,
-    repositoryRoot: directory,
-    detected: await detectProjects(nodeFileSystem, directory),
-    baseline: 'origin/main',
-    baselineNotice: 'x',
-  });
-  return { directory, plan };
-}
-
-const ANGULAR_PACKS = [
-  'builtin/angular-architecture',
-  'builtin/angular-components',
-  'builtin/angular-http',
-  'builtin/angular-state',
-  'builtin/angular-style',
-];
-const EXPRESS_PACKS = [
-  'builtin/express-errors',
-  'builtin/express-http',
-  'builtin/express-persistence',
-  'builtin/express-style',
-];
-
-test('init enables the Angular packs for a project that declares @angular/core, and every one loads', async (t) => {
-  const { plan } = await initWithDependencies(t, { '@angular/core': '^21.0.0' });
-  const project = plan.config.projects[0];
-  assert.ok(project !== undefined);
-  assert.deepEqual(project.packs, ['builtin/common-quality', 'builtin/common-checks', ...ANGULAR_PACKS]);
-  assert.ok(plan.notices.some((notice) => notice.includes('declares @angular/core')));
-
-  const loaded = await loadPacksForProject({
-    fs: nodeFileSystem,
-    project,
-    builtinDirectory: path.join(REPO_ROOT, 'policies'),
-    repositoryRoot: '.',
-  });
-  assert.deepEqual(loaded.diagnostics, []);
-  assert.equal(loaded.packs.length, project.packs.length);
-});
-
-test('init enables the Express packs for a project that declares express', async (t) => {
-  const { plan } = await initWithDependencies(t, { express: '^4.19.2' });
-  assert.deepEqual(plan.config.projects[0]?.packs, ['builtin/common-quality', 'builtin/common-checks', ...EXPRESS_PACKS]);
-});
-
-test('an Angular SSR app declaring express gets the Angular packs only', async (t) => {
-  const { plan } = await initWithDependencies(t, { '@angular/core': '^21.0.0', '@angular/ssr': '^21.0.0', express: '^4.21.0' });
-  const packs = plan.config.projects[0]?.packs ?? [];
-  assert.ok(ANGULAR_PACKS.every((pack) => packs.includes(pack)));
-  assert.ok(!packs.some((pack) => pack.startsWith('builtin/express-')));
-});
-
-test('a TypeScript project with no known framework keeps only the common packs', async (t) => {
-  const { plan } = await initWithDependencies(t, { lodash: '^4.0.0' });
-  assert.deepEqual(plan.config.projects[0]?.packs, ['builtin/common-quality', 'builtin/common-checks']);
-});
-
-test('re-init enables the framework packs an existing project lacks, keeping the packs it has', async (t) => {
-  const directory = await sandbox(t);
-  await writeFile(
-    path.join(directory, 'package.json'),
-    JSON.stringify({ name: 'x', dependencies: { '@angular/core': '^21.0.0' } }),
-    'utf8',
-  );
-  await mkdir(path.join(directory, '.ambicode'), { recursive: true });
-  const existing = withProjects(
-    [
-      '  - id: app',
-      '    root: .',
-      '    ecosystem: typescript',
-      '    packs: [builtin/common-quality, builtin/angular-style]',
-      '    commands: { lint: null, unit: null, e2e: null }',
-      '    checks: { lint: null, unit: null, e2e: null }',
-      'authoring: { editReminders: true }',
-    ].join('\n'),
-  );
-  await writeFile(path.join(directory, '.ambicode', 'config.yaml'), existing, 'utf8');
-
-  const plan = await planInit({
-    fs: nodeFileSystem,
-    repositoryRoot: directory,
-    detected: await detectProjects(nodeFileSystem, directory),
-    baseline: 'origin/main',
-    baselineNotice: 'x',
-  });
-
-  assert.deepEqual(plan.config.projects[0]?.packs, [
-    'builtin/common-quality',
-    'builtin/angular-style',
-    'builtin/angular-architecture',
-    'builtin/angular-components',
-    'builtin/angular-http',
-    'builtin/angular-state',
-  ]);
-  const change = plan.changes.find((value) => value.startsWith('Enabled builtin/angular-architecture'));
-  assert.ok(change !== undefined, plan.changes.join('\n'));
-  assert.ok(!change.includes('builtin/angular-style'), 'a pack already enabled is not re-added');
-  assert.ok(
-    !plan.config.projects[0]?.packs.includes('builtin/common-checks'),
-    'a removed common pack stays the user\'s choice',
-  );
-  assert.ok(!plan.notices.some((notice) => notice.includes('not enabled')), plan.notices.join('\n'));
-  // Whitespace collapsed because yaml wraps a long flow list.
-  assert.ok(plan.yaml !== null);
-  assert.match(
-    plan.yaml.replace(/\s+/g, ' '),
-    /packs: \[ ?builtin\/common-quality, builtin\/angular-style, builtin\/angular-architecture/,
-  );
-});
-
-test('re-init leaves a project that already has every framework pack untouched', async (t) => {
-  const directory = await sandbox(t);
-  await writeFile(
-    path.join(directory, 'package.json'),
-    JSON.stringify({ name: 'x', dependencies: { '@angular/core': '^21.0.0' } }),
-    'utf8',
-  );
-  await mkdir(path.join(directory, '.ambicode'), { recursive: true });
-  await writeFile(
-    path.join(directory, '.ambicode', 'config.yaml'),
-    `${CURRENT}\nprojects:\n${
-      [
-        '  - id: app',
-        '    root: .',
-        '    ecosystem: typescript',
-        `    packs: [builtin/common-quality, builtin/common-checks, ${ANGULAR_PACKS.join(', ')}]`,
-        '    shortlist: { include: ["**/*.ts"], exclude: [] }',
-        '    commands: { lint: null, unit: null, e2e: null, format: null }',
-        '    checks: { lint: null, unit: null, e2e: null }',
-        'authoring: { editReminders: true }',
-      ].join('\n')}`,
-    'utf8',
-  );
-
-  const plan = await planInit({
-    fs: nodeFileSystem,
-    repositoryRoot: directory,
-    detected: await detectProjects(nodeFileSystem, directory),
-    baseline: 'origin/main',
-    baselineNotice: 'x',
-  });
-  assert.equal(plan.yaml, null, plan.changes.join('\n'));
-  assert.deepEqual(plan.changes, []);
-});
-
-test('P2.4 correction F: fresh init writes the documented authoring.editReminders default, visibly', async (t) => {
-  const directory = await sandbox(t);
-  await writeFile(path.join(directory, 'package.json'), '{"name":"x"}', 'utf8');
-  const plan = await planInit({
-    fs: nodeFileSystem,
-    repositoryRoot: directory,
-    detected: await detectProjects(nodeFileSystem, directory),
-    baseline: 'origin/main',
-    baselineNotice: 'x',
-  });
-  assert.ok(plan.yaml !== null);
-  assert.match(plan.yaml, /authoring:\s*\n?\s*editReminders:\s*true/);
-  assert.equal(plan.config.authoring.editReminders, true);
-});
-
-test('P2.4 correction F: re-init adds the missing authoring section to a pre-existing schema-version-1 config, without touching anything else', async (t) => {
-  const directory = await sandbox(t);
-  await mkdir(path.join(directory, '.ambicode'), { recursive: true });
-  await writeFile(
-    path.join(directory, '.ambicode', 'config.yaml'),
-    withProjects(
-      '  - id: app\n    root: .\n    ecosystem: typescript\n    packs: []\n    policyFiles: []\n    commands: {}\n    checks: {}\n',
-    ),
-    'utf8',
-  );
-
-  const plan = await planInit({
-    fs: nodeFileSystem,
-    repositoryRoot: directory,
-    detected: [],
-    baseline: '',
-    baselineNotice: 'x',
-  });
-
-  assert.ok(plan.yaml !== null, 'a missing authoring section is itself a change to write');
-  assert.ok(plan.changes.some((change) => change.includes('authoring.editReminders')));
-  assert.equal(plan.config.authoring.editReminders, true);
-});
-
-test('fresh init writes the review page port, visibly', async (t) => {
-  const directory = await sandbox(t);
-  const plan = await planInit({
-    fs: nodeFileSystem,
-    repositoryRoot: directory,
-    detected: [],
-    baseline: '',
-    baselineNotice: 'x',
-  });
-  assert.match(plan.yaml ?? '', /page:\s*\n\s*idleTimeoutSeconds: 1800\s*\n\s*port: 45831/);
-  assert.equal(plan.config.page.port, 45831);
-});
-
-test('re-init adds page.port to an existing config, and never overwrites one already set', async (t) => {
-  const directory = await sandbox(t);
-  await mkdir(path.join(directory, '.ambicode'), { recursive: true });
-  const project =
-    '  - id: app\n    root: .\n    ecosystem: typescript\n    packs: []\n    policyFiles: []\n    commands: {}\n    checks: {}\n';
-  const configPath = path.join(directory, '.ambicode', 'config.yaml');
-  const options = { fs: nodeFileSystem, repositoryRoot: directory, detected: [], baseline: '', baselineNotice: 'x' };
-
-  assert.match(BEFORE_PORT, /page: \{ idleTimeoutSeconds: 1800 \}/);
-  await writeFile(configPath, `${BEFORE_PORT}\nprojects:\n${project}`, 'utf8');
-  const added = await planInit(options);
-  assert.ok(added.changes.includes('Added "page.port: 45831" (the documented default).'), added.changes.join('\n'));
-  assert.match(added.yaml ?? '', /page: \{ idleTimeoutSeconds: 1800, port: 45831 \}/);
-
-  await writeFile(configPath, withProjects(project).replace('port: 45831', 'port: 0'), 'utf8');
-  const kept = await planInit(options);
-  assert.ok(!kept.changes.some((change) => change.includes('page.port')));
-  assert.equal(kept.config.page.port, 0);
-});
-
-test('fresh init writes the shortlist the project type calls for, visibly', async (t) => {
-  const directory = await sandbox(t);
-  await writeFile(path.join(directory, 'package.json'), JSON.stringify({ name: 'x' }), 'utf8');
-  const plan = await planInit({
-    fs: nodeFileSystem,
-    repositoryRoot: directory,
-    detected: await detectProjects(nodeFileSystem, directory),
-    baseline: '',
-    baselineNotice: 'x',
-  });
-  assert.match(plan.yaml ?? '', /shortlist:\s*\n\s*include:/);
-  assert.deepEqual(plan.config.projects[0]?.shortlist, {
-    include: [sourceGlob(GENERIC_PROFILE.sources)],
-    exclude: [...TEST_EXCLUDES],
-  });
-});
-
-test('re-init adds the shortlist to a project without one, and never rewrites one already set', async (t) => {
-  const directory = await sandbox(t);
-  await writeFile(path.join(directory, 'package.json'), JSON.stringify({ name: 'x' }), 'utf8');
-  await mkdir(path.join(directory, '.ambicode'), { recursive: true });
-  const configPath = path.join(directory, '.ambicode', 'config.yaml');
-  const project = (extra: string) =>
-    `${CURRENT}\nprojects:\n` +
-      `  - id: app\n    root: .\n    ecosystem: typescript\n    packs: []\n${extra}    commands: { lint: null, unit: null, e2e: null, format: null }\n    checks: { lint: null, unit: null, e2e: null }\nauthoring: { editReminders: true }`;
-  const options = async () => ({
-    fs: nodeFileSystem,
-    repositoryRoot: directory,
-    detected: await detectProjects(nodeFileSystem, directory),
-    baseline: '',
-    baselineNotice: 'x',
-  });
-
-  await writeFile(configPath, project(''), 'utf8');
-  const added = await planInit(await options());
-  assert.ok(added.changes.some((change) => change.startsWith('Added "shortlist" for project "app"')), added.changes.join('\n'));
-  assert.deepEqual(added.config.projects[0]?.shortlist?.include, [sourceGlob(GENERIC_PROFILE.sources)]);
-
-  await writeFile(configPath, project('    shortlist: { include: ["**/*.html"], exclude: [] }\n'), 'utf8');
-  const kept = await planInit(await options());
-  assert.ok(!kept.changes.some((change) => change.includes('shortlist')));
-  assert.deepEqual(kept.config.projects[0]?.shortlist?.include, ['**/*.html']);
-});
-
-test('P2.4 correction F: re-init never overwrites an explicit authoring.editReminders: false', async (t) => {
-  const directory = await sandbox(t);
-  await mkdir(path.join(directory, '.ambicode'), { recursive: true });
-  await writeFile(
-    path.join(directory, '.ambicode', 'config.yaml'),
-    `${CURRENT}\nauthoring:\n  editReminders: false\nprojects:\n` +
-      '  - id: app\n    root: .\n    ecosystem: typescript\n    packs: []\n    policyFiles: []\n    commands: {}\n    checks: {}\n',
-    'utf8',
-  );
-
-  const plan = await planInit({
-    fs: nodeFileSystem,
-    repositoryRoot: directory,
-    detected: [],
-    baseline: '',
-    baselineNotice: 'x',
-  });
-
-  assert.equal(plan.yaml, null, 'the user-set value must not trigger a rewrite');
-  assert.equal(plan.config.authoring.editReminders, false);
+test('a config that still has workers loads, drops it and notices once', () => {
+  const { config, notices } = parseConfigWithNotices(`${withProjects('  - { id: web, root: ".", ecosystem: typescript }')}\nworkers: { approved: [plan-check] }\n`);
+  assert.deepEqual(notices.filter((notice) => notice.startsWith('config: ')), ['config: "workers" is no longer used; remove it from .ambicode/config.yaml']);
+  assert.equal(Object.hasOwn(config, 'workers'), false);
 });
 
 test('path normalization keeps repository-relative form', () => {
@@ -620,24 +201,19 @@ test('03-C1: schema versions 1, 2 and 3 load; 4 refuses with config-schema-too-n
 
 test('03-C2: v3 fields default in memory and parse when present', () => {
   const plain = parseConfig(atVersion(3));
-  assert.equal(plain.search.index, 'none');
   assert.equal(plain.search.layers, undefined);
-  assert.deepEqual(plain.workers.approved, []);
   assert.equal(plain.guard.askOutsideMap, false);
   assert.equal(plain.review.onInvalid, 'void');
 
   const explicit = parseConfig(
-    atVersion(3, '\nsearch: { index: codeindex, layers: { prompt: [shortlist], context: [grep] } }\nworkers: { approved: [plan-check] }\nguard: { askOutsideMap: true }\n').replace(
+    atVersion(3, '\nsearch: { layers: { prompt: [shortlist], context: [grep] } }\nguard: { askOutsideMap: true }\n').replace(
       'maxContextBytes: 524288 }',
       'maxContextBytes: 524288, onInvalid: drop }',
     ),
   );
-  assert.equal(explicit.search.index, 'codeindex');
   assert.deepEqual(explicit.search.layers, { prompt: ['shortlist'], context: ['grep'] });
-  assert.deepEqual(explicit.workers.approved, ['plan-check']);
   assert.equal(explicit.guard.askOutsideMap, true);
   assert.equal(explicit.review.onInvalid, 'drop');
-  assert.throws(() => parseConfig(atVersion(3, '\nsearch: { index: other }\n')));
 });
 
 test('03-C2: projects[].commands.format is a valid key, null or a command', () => {
@@ -651,9 +227,8 @@ test('03-C3: removed fields are accepted in any version, dropped, and noticed on
   const { config, notices } = parseConfigWithNotices(raw);
   assert.deepEqual(notices, ['config-field-removed: requirements.lsp', 'config-field-removed: task.lspPlugins', 'config-field-removed: search.exactMaxFiles']);
   assert.equal(Object.hasOwn(config.requirements, 'lsp'), false);
-  assert.equal(config.search.index, 'none');
+  assert.equal(Object.hasOwn(config.search, 'index'), false);
   assert.equal(config.review.model, 'sonnet');
-  assert.equal(config.page.port, 45831);
 });
 
 test('03-C4: v1 and v2 files add config-schema-old; v3 adds nothing', () => {
@@ -694,7 +269,7 @@ test('03c-S1: search keeps one declaration list and reads no ecosystem', async (
 });
 
 test('03-C6: no ecosystem or language name in routes, step texts or the route engine', async () => {
-  const names = new RegExp(`\\b(${[...Ecosystem.options, 'typescript', 'python', 'javascript', 'java', 'go', 'rust'].join('|')})\\b`, 'i');
+  const names = new RegExp(`\\b(${['generic', 'typescript', 'python', 'javascript', 'java', 'go', 'rust'].join('|')})\\b`, 'i');
   const root = REPO_ROOT;
   const files: string[] = [];
   const walk = async (directory: string): Promise<void> => {

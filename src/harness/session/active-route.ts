@@ -100,12 +100,12 @@ export async function resolveActiveRoute(
 }
 
 /**
- * The session's latest route when it exited and no Stop has run since: a CLI call in the Claude sandbox has another
+ * The session's latest route when it exited, with the entry count of its chain so the caller can tell whether a Stop has seen the exit: a CLI call in the Claude sandbox has another
  * TMPDIR than the hooks, so its `ended-route` file is not where Stop looks (walk 10_2314, both plan sessions).
  */
-export async function endedRouteInLedger(fs: FileSystem, input: { repositoryRoot: string; session: string }): Promise<{ task: string; skill: string; routeId: string } | null> {
+export async function endedRouteInLedger(fs: FileSystem, input: { repositoryRoot: string; session: string }): Promise<{ task: string; skill: string; routeId: string; entries: number } | null> {
   const tasksRoot = path.join(input.repositoryRoot, TASKS_DIR);
-  let found: { task: string; skill: string; routeId: string; at: string } | null = null;
+  let found: { task: string; skill: string; routeId: string; at: string; entries: number } | null = null;
   for (const entry of await fs.readdir(tasksRoot).catch(() => [])) {
     if (!entry.isDirectory()) continue;
     const entries = await readLedger(fs, path.join(tasksRoot, entry.name)).catch(() => []);
@@ -114,10 +114,10 @@ export async function endedRouteInLedger(fs: FileSystem, input: { repositoryRoot
     if (head === null) continue;
     const chain = buildChain(entries, head).entries;
     const exit = chain.findLastIndex((item) => item.kind === 'exit');
-    if (exit < 0 || chain.slice(exit).some((item) => item.kind === 'hook' && item['name'] === 'stop')) continue;
-    if (found === null || chain[exit]!.at > found.at) found = { task: entry.name, skill: String(head['skill']), routeId: head.id, at: chain[exit]!.at };
+    if (exit < 0) continue;
+    if (found === null || chain[exit]!.at > found.at) found = { task: entry.name, skill: String(head['skill']), routeId: head.id, at: chain[exit]!.at, entries: chain.length };
   }
-  return found === null ? null : { task: found.task, skill: found.skill, routeId: found.routeId };
+  return found === null ? null : { task: found.task, skill: found.skill, routeId: found.routeId, entries: found.entries };
 }
 
 /** A step was delivered to this session in this epoch: the next prompt need not re-inject it (03-H4). */

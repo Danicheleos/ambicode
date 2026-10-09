@@ -63,8 +63,6 @@ export { toProjectRelative } from './paths.ts';
 // plugin-root.ts: where the shipped plugin files live, from `src/` or from `scripts/`.
 /** builtinPoliciesDirectory(pluginRoot) — the directory of the shipped policy packs. */
 export { builtinPoliciesDirectory } from './plugin-root.ts';
-/** pageTemplatesDirectory(pluginRoot) — the directory of the review page's templates and stylesheet. */
-export { pageTemplatesDirectory } from './plugin-root.ts';
 /** promptsDirectory(pluginRoot) — the directory of the shipped prompts. */
 export { promptsDirectory } from './plugin-root.ts';
 /** resolvePluginRoot(fs, env) — finds the plugin root from the environment or the running file's location. */

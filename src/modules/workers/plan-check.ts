@@ -1,7 +1,10 @@
 import { readFile } from 'node:fs/promises';
 import path, { isAbsolute, resolve, sep } from 'node:path';
 import { projectForRequest } from '#modules/config/workspace';
-import { find } from '#modules/search/declarations/refs';
+import { declarationsOf } from '#modules/search/harvest';
+import { openRepository } from '#platform/git/open';
+import { literalPathspec } from '#platform/git/git';
+import { normalizeRelative } from '#util/paths';
 import { loadConfigWithNotices } from '#modules/config/load';
 import { splitAcs } from '#modules/requirements/envelope/acs';
 import { envelopeSources } from '#modules/requirements/envelope/envelope';
@@ -112,14 +115,16 @@ async function acIdsOf(runtime: Runtime, dir: TaskDir, entries: readonly LedgerE
   return sources.every((source) => source.relation === 'args') ? [] : splitAcs(sources).map((unit) => unit.id);
 }
 
-/** Step 05's `find` on the project ground used: the args' project, else the bound `project-ambiguous` answer. */
+/** Where a name is declared (the harvest), on the project ground used: the args' project, else the bound `project-ambiguous` answer. */
 async function finderOf(runtime: Runtime, dir: TaskDir, entries: readonly LedgerEntry[], head: LedgerEntry | undefined): Promise<{ find: Find; skipped: string | null }> {
   try {
     const { config } = await loadConfigWithNotices(runtime.fs, dir.repositoryRoot);
     const answered = head === undefined ? null : latestBound(buildChain(entries, head).entries, 'project-ambiguous');
     const requested = ((head?.['args'] ?? {}) as Partial<RouteArgs>).project ?? (answered !== null && answered['answer'] !== 'stop' ? String(answered['answer']) : null);
     const project = projectForRequest(config, requested, []);
-    return { find: async (name) => (await find(runtime, name, { project, kind: null })).declarations.map((row) => ({ path: row.path, line: row.line ?? 0 })), skipped: null };
+    const root = normalizeRelative(project.root);
+    const { git } = await openRepository(runtime);
+    return { find: async (name) => (await declarationsOf(git, runtime.fs, [name], root === '' ? null : literalPathspec(root))).map((row) => ({ path: row.path, line: row.line })), skipped: null };
   } catch (error) {
     if (error instanceof AmbicodeError) return { find: async () => [], skipped: `${error.code}: ${error.message}` };
     throw error;

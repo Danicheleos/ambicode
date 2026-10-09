@@ -1,3 +1,4 @@
+import { stopRoute } from '#testing/fixtures/route-fixture';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
@@ -83,7 +84,7 @@ describe('S11 plan ownership', () => {
     const plan = await planFixture();
     try {
       await startAs(plan, SESSION_A);
-      await plan.fx.engine.stop(PLAN_TASK, SESSION_A, 'blocked', 'test', plan.fx.scratchpad);
+      await stopRoute(plan.fx, PLAN_TASK, SESSION_A, 'blocked', 'test');
       assert.equal(await code(startAs(plan, SESSION_B)), 'ok');
     } finally {
       await plan.dispose();

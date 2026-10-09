@@ -68,7 +68,6 @@ export async function runFormat(deps: CheckDeps, input: { task: string; paths: s
       timeoutMs: (command.timeoutSeconds ?? workspace.config.checks.timeoutSeconds) * 1000,
       maxOutputBytes: MAX_COMMAND_OUTPUT_BYTES,
       env: { kind: 'inherited' },
-      purpose: 'format',
     });
     const after = await hashes();
     const changed = files.filter((file) => before.get(file) !== after.get(file));

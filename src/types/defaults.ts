@@ -15,18 +15,6 @@ export const DEFAULTS = {
     timeoutSeconds: 120,
     maxSelectedTestFiles: 20,
   },
-  page: {
-    idleTimeoutSeconds: 1800,
-    /**
-     * Fixed, so a new `ambicode view` replaces the previous page and an old tab can
-     * learn it was disconnected. Below the ephemeral range (49152+) and away from
-     * dev-server defaults (3000, 4200, 5173, 8080).
-     */
-    port: 45831,
-  },
-  remoteChecks: {
-    image: null,
-  },
   authoring: {
     editReminders: true,
   },
@@ -55,8 +43,6 @@ export const SEARCH_LAYER_DEFAULTS = {
   context: ['grep', 'harvest'],
 } as const;
 
-/** Used when `search.indexDriftFiles` is absent: an index stays fresh while at most this many project files differ from its commit. */
-export const INDEX_DRIFT_FILES = 20;
 
 export const MAX_COMMAND_OUTPUT_BYTES = 262_144;
 
@@ -99,4 +85,4 @@ export const INDEX_DIR = '.ambicode/index';
 export const IGNORE_ENTRIES = ['.ambicode/reviews/', LEGACY_NOTES_DIR, '.ambicode/task/'];
 
 /** Written to `.gitignore` by `init --apply` only: an ignored index directory is the consent `index build` checks. */
-export const GITIGNORE_ENTRIES = [`${INDEX_DIR}/`, '.ambicode/metrics.jsonl', '.ambicode/reviews/', '.ambicode/task/', LEGACY_NOTES_DIR];
+export const GITIGNORE_ENTRIES = [`${INDEX_DIR}/`, '.ambicode/reviews/', '.ambicode/task/', LEGACY_NOTES_DIR];

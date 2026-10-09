@@ -1,16 +1,17 @@
-import { openRepository } from '#platform/git/open';
-import { applyInit } from '#modules/config/init/apply';
-import { parseSets } from '#modules/config/init/init-sets';
-import { buildProposal } from '#modules/config/init/proposal';
-import type { SearchProfile, DoctorTable, InitProposal } from '#types/modules/config';
+import path from 'node:path';
+import { PROPOSAL_INPUT_FILE, applyInit } from '#modules/config/init/apply';
+import type { DoctorTable } from '#types/modules/config';
 import { runCommandTail } from '#harness/engine/command-tail';
+import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { COMMAND_SPECS } from '#skills/init/commands';
 import { AmbicodeError } from '#util/errors';
 import { routeTools } from '../route/route.ts';
 import type { Runtime } from '#types/composition';
 import type { ParsedArgs, CliCommand } from '../../types/cli.ts';
 
-export const INIT_OPTIONS = { values: ['task'], repeated: ['set'], flags: ['json', 'dry-run', 'apply', 'refresh-profile'] } as const;
+export const INIT_OPTIONS = { values: ['task'], flags: ['json', 'apply'] } as const;
+export const INIT_PROPOSE_OPTIONS = { values: ['task'], flags: ['json'] } as const;
+const MAX_PROPOSAL_YAML_BYTES = 32_768;
 
 interface InitApplyOutput {
   command: 'init';
@@ -24,20 +25,12 @@ interface InitApplyOutput {
   next?: string;
 }
 
-type InitOutput = InitProposal | InitApplyOutput;
+interface InitHint { command: 'init'; mode: 'hint' }
+type InitOutput = InitApplyOutput | InitHint;
 
-/**
- * Without `--apply` a dry run: it proposes and writes nothing (D1). `--apply` writes only after the
- * human's answer to the init question in the live init route (09-G4).
- */
+/** Without `--apply` init only points at the skill: the proposal is the model's judgment, made inside the init route. `--apply` writes only after the human's answer to the init question. */
 export async function runInit(runtime: Runtime, args: ParsedArgs): Promise<InitOutput> {
-  const sets = args.all('set');
-  if (!args.flag('apply')) {
-    const { repositoryRoot } = await openRepository(runtime);
-    const task = args.value('task');
-    return buildProposal(runtime, repositoryRoot, parseSets(sets), { refreshProfile: args.flag('refresh-profile'), ...(task === null ? {} : { task }) });
-  }
-  if (sets.length > 0) throw new AmbicodeError('bad-argument', '"init --apply" takes no --set: it writes the draft you approved.', { field: 'set' });
+  if (!args.flag('apply')) return { command: 'init', mode: 'hint' };
   const task = args.value('task');
   if (task === null) throw new AmbicodeError('bad-argument', '"init --apply" needs --task <slug>: the init task the question was asked in.', { field: 'task' });
   const tools = await routeTools(runtime, task);
@@ -49,11 +42,23 @@ export async function runInit(runtime: Runtime, args: ParsedArgs): Promise<InitO
   return { command: 'init', mode: 'apply', ...result, ...(next === null ? {} : { next: next.text }) };
 }
 
-export function renderInit(output: InitOutput): string {
-  return output.mode === 'apply' ? renderApply(output) : renderProposal(output);
+/** Stores the model's proposal YAML in the task and advances the route; `init.propose` validates it there, so a bad field returns to `detect`. */
+export async function runInitPropose(runtime: Runtime, args: ParsedArgs): Promise<{ command: 'init propose'; task: string; bytes: number; next?: string }> {
+  const task = args.value('task');
+  if (task === null) throw new AmbicodeError('bad-argument', '"init propose" needs --task <slug>: the init task the proposal belongs to.', { field: 'task' });
+  const text = (await runtime.stdin.read(MAX_PROPOSAL_YAML_BYTES)) ?? '';
+  if (text.trim() === '') throw new AmbicodeError('bad-argument', '"init propose" reads the proposal YAML from standard input.', { field: 'stdin' });
+  const tools = await routeTools(runtime, task);
+  const { binding } = await tools.engine.command(COMMAND_SPECS.initPropose, { task }, async ({ binding }) => ({ binding }));
+  const dir = await resolveTaskDir(runtime, task);
+  await runtime.fs.mkdirp(dir.steps);
+  await runtime.fs.writeText(path.join(dir.steps, PROPOSAL_INPUT_FILE), text);
+  const next = await runCommandTail({ engine: tools.engine }, { task, cause: 'init propose', session: binding });
+  return { command: 'init propose', task, bytes: Buffer.byteLength(text), ...(next === null ? {} : { next: next.text }) };
 }
 
-function renderApply(output: InitApplyOutput): string {
+export function renderInit(output: InitOutput): string {
+  if (output.mode === 'hint') return 'Run /ambicode:init: the route scans the repository, proposes the configuration and asks you before anything is written.';
   const lines = [`${output.created ? 'Created' : 'Updated'} ${output.configPath}`];
   if (output.gitignoreAdded.length > 0) lines.push(`Added to .gitignore: ${output.gitignoreAdded.join(', ')}`);
   if (output.changes.length > 0) lines.push('', 'Changes:', ...output.changes.map((change) => `  - ${change}`));
@@ -63,47 +68,22 @@ function renderApply(output: InitApplyOutput): string {
   return lines.join('\n');
 }
 
-function renderProposal(output: InitProposal): string {
-  const lines = [`Proposal for ${output.configPath} (${output.configState}; dry run: nothing was written)`];
-  for (const project of output.projects) {
-    lines.push('', `${project.id}  [${project.ecosystem}]  root: ${project.root}`);
-    for (const [slot, argv] of Object.entries({ ...project.commands, format: project.format })) lines.push(`  ${slot.padEnd(7)} ${argv === null ? '(none)' : argv.join(' ')}`);
-    lines.push(`  packs   ${project.packs.join(', ') || '(none)'}`);
-    lines.push(...profileLines(project.profile));
-  }
-  lines.push('', `index: ${output.index.proposed} (tool: ${output.index.tool ?? 'not found'}; decision 5-I: ${output.index.decision5I})`);
-  lines.push(`search layers: prompt ${output.searchLayers.prompt.join(', ')}; context ${output.searchLayers.context.join(', ')}`);
-  if (output.gitignore.missing.length > 0) lines.push(`.gitignore lines to add: ${output.gitignore.missing.join(', ')}`);
-  if (output.removedFields.length > 0) lines.push(`removed fields: ${output.removedFields.join(', ')}`);
-  if (output.ruleSources.length > 0) {
-    lines.push('', 'Rule sources to migrate (none was read):', ...output.ruleSources.map((source) => `  - ${source}`));
-    lines.push('  Run /ambicode:rules to turn the rules these state into scoped YAML packs.');
-  }
-  if (output.changes.length > 0) lines.push('', 'Changes:', ...output.changes.map((change) => `  - ${change}`));
-  if (output.notices.length > 0) lines.push('', 'Notices:', ...output.notices.map((notice) => `  - ${notice.split('\n').join('\n    ')}`));
-  if (output.noticesOmitted > 0) lines.push(`  (${output.noticesOmitted} more notices omitted)`);
-  lines.push('', 'Apply it through /ambicode:init: the init question records your answer; then the route runs:', `  ${output.applyLine}`);
-  return lines.join('\n');
-}
-
-/** The search profile, one line per field (03c-P7). */
-export function profileLines(profile: SearchProfile | null): string[] {
-  if (profile === null) return ['  search profile:    none (run `ambicode init --refresh-profile`)'];
-  return [
-    `  search profile:    measured at ${profile.stamp.commit.slice(0, 12) || '(no commit)'}, ${profile.stamp.files} files`,
-    `    sources       ${profile.sources.join(', ') || '(none)'}`,
-    `    companions    ${profile.companions.map(([from, to]) => `${from} → ${to}`).join(', ') || '(none)'}`,
-    `    catalogs      ${profile.catalogs.join(', ') || '(none)'}`,
-    `    featureKinds  ${profile.featureKinds.join(', ') || '(none)'}`,
-    `    exportOnly    ${String(profile.exportOnly)}`,
-  ];
-}
-
 export const initCommand: CliCommand = {
   name: 'init',
+  summary: 'Point at /ambicode:init; --apply writes the accepted config, inside the init route only.',
   options: INIT_OPTIONS,
   run: async (runtime, args) => {
     const output = await runInit(runtime, args);
     return { text: renderInit(output), data: output };
+  },
+};
+
+export const initProposeCommand: CliCommand = {
+  name: 'init propose',
+  summary: 'Hand the init route the proposal YAML on standard input (--task).',
+  options: INIT_PROPOSE_OPTIONS,
+  run: async (runtime, args) => {
+    const output = await runInitPropose(runtime, args);
+    return { text: output.next ?? `Proposal stored (${output.bytes} bytes); no live init route advanced.`, data: output };
   },
 };

@@ -10,7 +10,7 @@ import type { LedgerEntry } from '#types/modules/evidence';
 import type { AdvanceInput, StartInput, StepMessage } from '#types/harness';
 import { SESSION_A } from './ids.ts';
 
-const STEPS = ['plan/fetch', 'task/red', 'task/green', 'task/fix', 'task/write'];
+const STEPS = ['plan/fetch', 'task/red', 'task/green', 'task/fix', 'task/write', 'review/agent'];
 
 export const ORDERS = 'export function total(amounts: number[]): number {\n  return amounts.reduce((a, b) => a + b);\n}\n';
 
@@ -53,9 +53,11 @@ export async function taskFixture(options: { config?: string; pack?: string } = 
     reviews += 1;
     const reviewId = `r-${reviews}`;
     const result = path.join('.ambicode', 'task', CHECK_TASK, 'reviews', reviewId, 'result.json');
-    await fx.repo.write(result, JSON.stringify({ ...reviewResult({ kind: 'working', findings }), reviewId }));
-    const entry = await append({ kind: 'review', reviewId, result, status: 'partial', reviewerRan: extra.reviewerRan ?? true, findings: findings.length, waiting: extra.waiting ?? [] });
-    return next({ cause: 'review', produced: [entry.id] });
+    await fx.repo.write(result, JSON.stringify({ ...reviewResult({ kind: 'working', findings }), reviewId, brief: path.join('.ambicode', 'task', CHECK_TASK, 'reviews', reviewId, 'brief.md') }));
+    await fx.repo.write(path.join('.ambicode', 'task', CHECK_TASK, 'reviews', reviewId, 'snapshot-path.txt'), '/tmp/snapshot-x\n');
+    const ran = extra.reviewerRan ?? true;
+    const entry = await append({ kind: 'review', reviewId, result, status: 'partial', stage: ran ? 'recorded' : 'pending', reviewerRan: ran, findings: findings.length, waiting: extra.waiting ?? [] });
+    return next({ cause: ran ? 'review record' : 'review', produced: [entry.id] });
   };
   /** Edits the committed source, so `src/orders.ts` is in the touched set. */
   const edit = (): Promise<void> => fx.repo.write('src/orders.ts', ORDERS.replace('a + b)', 'a + b, 0)'));

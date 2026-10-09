@@ -57,7 +57,6 @@ write it. A glob that matches nothing is reported and the pack is skipped.
 ## What this never does
 
 - Edit `.ambicode/config.yaml` or move a draft yourself. `rules apply` does it
-  after the user's answer; `rules revert <pack-id>` undoes one pack, only when
-  the human asks for it.
+  after the user's answer.
 - Add a Markdown rule loader. Markdown is an input here, never a runtime format.
 - Change the pack schema, the resolver, or precedence.

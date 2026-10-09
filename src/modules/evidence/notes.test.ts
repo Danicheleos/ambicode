@@ -11,7 +11,7 @@ import { AmbicodeError } from '#util/errors';
 import { contentHash } from '#util/hash';
 import { appendLedger, readLedger } from '#platform/ledger/ledger';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
-import { listNotes, promotePlan, saveNote } from './notes.ts';
+import { promotePlan, saveNote } from './notes.ts';
 import type { Runtime } from '#types/composition';
 import { LEDGER_FILE, type LedgerEntry, type NoteDeps } from '#types/modules/evidence';
 import type { ConsentResult, CommandContext, RouteView } from '#types/harness';
@@ -173,34 +173,6 @@ describe('02-N4: a plan-draft is saved only by the owner of the live plan route'
       await assert.rejects(save(deps, 'plan-draft', 'x'), (error: AmbicodeError) => error.message.includes(B));
       await save({ ...deps, session: 'cccccccc' }, 'investigation', 'x');
       await save({ ...deps, session: null }, 'notes', 'x');
-    });
-  });
-});
-
-describe('02-N6: note list', () => {
-  it('lists every note entry in ledger order, legacy and new, with heading, iteration and promotion links', async () => {
-    await inRepo(async (repo) => {
-      const dir = taskDir(repo);
-      await mkdir(dir, { recursive: true });
-      await writeFile(path.join(dir, 'investigation_old.md'), '**investigation note** — x\n\n# Old findings\ntext\n');
-      await writeFile(path.join(dir, 'plan_2026-10-02T14-35.md'), '# The plan\n');
-      const rel = (name: string): string => `.ambicode/task/${TASK}/${name}`;
-      await seed(repo, [
-        { id: 'L1', at: 't1', kind: 'note', note: 'investigation', path: rel('investigation_old.md'), contentHash: 'h' },
-        { id: 'L2', at: 't2', kind: 'review', reviewId: 'r', status: 'complete' },
-        { id: `${A}-1`, at: 't3', kind: 'note', note: 'plan-draft', path: rel('plan-draft_2026-10-02T14-35.md'), contentHash: 'h' },
-        { id: `${A}-2`, at: 't4', kind: 'note', note: 'plan', path: rel('plan_2026-10-02T14-35.md'), contentHash: 'h', promotedFrom: `${A}-1` },
-        { id: `${A}-3`, at: 't5', kind: 'note', note: 'notes', path: rel('notes.md'), contentHash: 'h', iteration: 2 },
-      ]);
-      const rows = await listNotes(await runtimeFor(repo), TASK);
-      assert.deepEqual(rows.map((row) => [row.id, row.note, row.heading, row.iteration, row.link]), [
-        ['L1', 'investigation', 'Old findings', null, null],
-        [`${A}-1`, 'plan-draft', '—', null, 'promoted → plan_2026-10-02T14-35.md'],
-        [`${A}-2`, 'plan', 'The plan', null, 'from plan-draft_2026-10-02T14-35.md'],
-        [`${A}-3`, 'notes', '—', 2, null],
-      ]);
-      assert.deepEqual(rows.map((row) => row.at), ['t1', 't3', 't4', 't5']);
-      assert.equal(rows[0]?.path, rel('investigation_old.md'));
     });
   });
 });

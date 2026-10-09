@@ -1,12 +1,9 @@
 import path from 'node:path';
 import { checkApprovalKey, authorizeCommand } from '#modules/checks/selection/authorize';
-import { indexAdapterFor } from '#modules/search/code-index/adapter';
-import { indexDepsOf, startIndexBuild } from '#modules/search/code-index/codeindex';
 import type { AmbicodeConfig, ProjectConfig, DoctorRow, DoctorTable, DoctorOptions } from '#types/modules/config';
-import { Git } from '#platform/git/git';
 import { loadPacksForProject } from '#modules/policy/packs/load';
 import { resolvePolicy } from '#modules/policy/packs/resolve';
-import { AmbicodeError, messageOf } from '#util/errors';
+import { AmbicodeError } from '#util/errors';
 import { contentHash } from '#util/hash';
 import { builtinPoliciesDirectory } from '#util/plugin-root';
 import type { Runtime } from '#types/composition';
@@ -68,12 +65,12 @@ async function rowsFor(runtime: Runtime, repositoryRoot: string, project: Projec
   return rows;
 }
 
-function render(rows: readonly DoctorRow[], index: string | null): string {
+function render(rows: readonly DoctorRow[]): string {
   const header = ['project', 'slot', 'command', 'result', 'detail'];
   const cells = rows.map((row) => [row.project, row.slot, row.probe === null ? row.argv0 || '-' : row.probe.join(' '), row.result, row.detail]);
   const widths = header.map((title, column) => Math.max(title.length, ...cells.map((cell) => cell[column]!.length)));
   const line = (cell: readonly string[]): string => cell.map((value, column) => (column === cell.length - 1 ? value : value.padEnd(widths[column]!))).join('  ').trimEnd();
-  return [line(header), ...cells.map(line), ...(index === null ? [] : [`index: ${index}`])].join('\n');
+  return [line(header), ...cells.map(line)].join('\n');
 }
 
 /** One row per command slot; a failing command is reported, never nulled (09-D1…D4). */
@@ -82,18 +79,7 @@ export async function runDoctor(runtime: Runtime, repositoryRoot: string, config
   if (projects.length === 0) throw new AmbicodeError('unknown-project', `No project "${options.project}" is configured.`, { field: '--project' });
   const rows: DoctorRow[] = [];
   for (const project of projects) rows.push(...(await rowsFor(runtime, repositoryRoot, project)));
-  let index: string | null = null;
-  if (config.search.index !== 'none') {
-    const deps = indexDepsOf(runtime, new Git({ runner: runtime.runner, repositoryRoot }), repositoryRoot, config);
-    const start = options.buildIndex === true ? (options.startIndex ?? startIndexBuild) : (_: typeof deps, project: ProjectConfig) => indexAdapterFor(deps, project).status(project);
-    const states: string[] = [];
-    for (const project of projects) {
-      const status = await start(deps, project).catch((error: unknown) => ({ state: 'error', reason: messageOf(error) }));
-      states.push(`${projects.length === 1 ? '' : `${project.id} `}${config.search.index} ${status.state}${'reason' in status && status.reason ? ` (${status.reason})` : ''}`);
-    }
-    index = states.join('; ');
-  }
-  const table = render(rows, index);
+  const table = render(rows);
   const hash = contentHash(table);
-  return { rows, index, text: `${table}\n<!-- ambicode doctor ${hash} -->\n`, hash };
+  return { rows, text: `${table}\n<!-- ambicode doctor ${hash} -->\n`, hash };
 }

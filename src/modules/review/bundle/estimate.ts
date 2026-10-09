@@ -76,7 +76,7 @@ const NOTHING_RUNS: ProcessRunner = { run: async () => { throw new Error('The re
 export async function estimateReview(runtime: Runtime, options: AssembleOptions): Promise<ReviewEstimate> {
   const dry = await assembleBundle({ ...options, runtime, dryRun: true });
   const changedOf = new Map(groupByProject(dry.workspace, dry.files).map((entry) => [entry.project.id, entry.changed]));
-  const target = dry.target.kind === 'merge-request' ? (dry.target.remote?.webUrl ?? 'merge request') : dry.target.kind === 'branch' ? `branch ${dry.target.baseRef ?? dry.target.baseSha?.slice(0, 12) ?? "base"}..HEAD` : 'working tree';
+  const target = dry.target.kind === 'branch' ? `branch ${dry.target.baseRef ?? dry.target.baseSha?.slice(0, 12) ?? "base"}..HEAD` : 'working tree';
   const checks: ReviewEstimate['checks'] = [];
   for (const { project, policy } of dry.policies) {
     for (const checkId of Object.keys(project.checks).sort()) {

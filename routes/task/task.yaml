@@ -25,7 +25,7 @@ steps:
       release: stop
   - id: ground
     actor: code
-    run: [requirements.normalize, checks.preflight, checks.baseline, "search.map(context)", task.inventory, "policy.stage(before-work)", "policy.stage(before-checks)", task.index]
+    run: [requirements.normalize, checks.preflight, checks.baseline, "search.map(context)", task.inventory, "policy.stage(before-work)", "policy.stage(before-checks)"]
     produces: [baseline, map, policy]
   - id: red
     actor: model
@@ -45,10 +45,23 @@ steps:
       default: "skip — verification incomplete"
       release: "skip — verification incomplete"
       acting: [run]
-  - id: review-run
+  - id: review-cmd
     actor: code
     when: gate.review-offer.is(run)
     needs: [review]                               # unmet: the step prints the review command
+    run: review.await                             # waiting checks raise their gate before the reviewer sees the evidence
+    repeat: 2
+  - id: review-agent
+    actor: model
+    when: gate.review-offer.is(run)
+    instruction: file:routes/review/agent.md
+    payload: [review.await]
+    produces: ["review{recorded}"]
+    repeat: 2
+  - id: review-run
+    actor: code
+    when: gate.review-offer.is(run)
+    needs: ["review{recorded}"]                   # unmet: the step prints the command that is missing
     run: review.evaluate
     repeat: 2
     onFail: revise fix                            # review-findings: the first entry to fix

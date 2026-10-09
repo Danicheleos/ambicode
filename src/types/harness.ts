@@ -20,9 +20,9 @@ export type OnError =
   | { kind: 'stop'; reason: Exit };
 
 export type When =
-  | { predicate: 'args.hasRequirement' | '!args.hasRequirement' | 'map.empty' | 'plan.isDraft' | 'headless' | 'interactive' | 'index.present' | 'revised' }
+  | { predicate: 'args.hasRequirement' | '!args.hasRequirement' | 'args.hasMergeRequest' | 'map.empty' | 'plan.isDraft' | 'headless' | 'interactive' | 'revised' }
   | { predicate: 'gate.answered'; gate: string }
-  | { predicate: 'gate.is'; gate: string; option: string };
+  | { predicate: 'gate.is' | 'gate.isnt'; gate: string; option: string };
 
 export interface GateDef {
   id: string;
@@ -68,6 +68,7 @@ export const HANDLER_NAMES = [
   'evidence.notes.save',
   'evidence.notes.promote',
   'workers.planCheck',
+  'init.scan',
   'init.propose',
   'init.close',
   'rules.discover',
@@ -76,12 +77,14 @@ export const HANDLER_NAMES = [
   'rules.close',
   'task.start',
   'task.inventory',
-  'task.index',
   'task.report',
   'checks.baseline',
   'checks.preflight',
   'review.evaluate',
+  'review.await',
   'review.estimate',
+  'review.mrTemplate',
+  'review.publishList',
 ] as const;
 
 export interface StepDef {
@@ -125,8 +128,8 @@ export interface RouteRegistry {
 export type StartChannel = 'hook' | 'cli' | 'harness';
 
 export type CommandName =
-  | 'requirements normalize' | 'check' | 'format' | 'review' | 'plan check' | 'policy check --drafts' | 'rules apply' | 'init --apply'
-  | 'note save' | 'note promote';
+  | 'requirements normalize' | 'check' | 'format' | 'review' | 'plan check' | 'policy check --drafts' | 'rules apply' | 'init --apply' | 'init propose'
+  | 'note save' | 'note promote' | 'review record';
 
 export type Cause = 'route-next' | 'gate-hook' | CommandName;
 
@@ -229,37 +232,17 @@ export interface StepMessage {
   ledgerIds: readonly string[];
 }
 
-export interface Position {
-  routeId: string;
-  skill: string;
-  chainIds: readonly string[];
-  sessions: readonly { session: string; routeId: string; adopts: boolean }[];
-  owner: PlanOwnership | null;
-  position: string | 'complete';
-  mode: 'interactive' | 'headless';
-  channel: string;
-  /** Every default taken and every revise the route made by itself, in order. */
-  decisions: readonly LedgerEntry[];
-  steps: readonly { id: string; state: 'done' | 'pending' | 'skipped'; windowStart: number }[];
-  cycles: number;
-  repeatsLeft: Readonly<Record<string, number>>;
-  revisesLeft: Readonly<Record<string, number>>;
-  limits: readonly LedgerEntry[];
-  maps: readonly { id: string; layers: readonly unknown[] }[];
-  orphans: readonly string[];
-}
-
 export interface Engine {
   start(input: StartInput): Promise<StepMessage>;
   advance(input: AdvanceInput): Promise<StepMessage>;
   /** Fold and deliver the session's open route again, writing and running nothing (03-E2). */
   deliver(task: string, session: string, scratchpadDir?: string): Promise<StepMessage | null>;
-  status(task: string, session: string | null): Promise<Position[]>;
-  stop(task: string, session: string, reason: 'blocked' | 'human' | 'inconclusive' | 'budget', detail?: string, scratchpadDir?: string): Promise<void>;
-  /** Stop: the checks on the final message under one ledger lock, the single block they may cause, and the pause on a dismissed gate question. */
+  /** Stop: the checks on the final message under one ledger lock and the single block they may cause. */
   stopHook(input: HookInput, options?: { defectBrief?: boolean }): Promise<StopHookOutput | null>;
-  /** UserPromptSubmit: pause the open route when its gate question was dismissed; whether it did. */
-  dismissedGate(input: HookInput): Promise<boolean>;
+  /** Ends the session's open route with an `exit` entry and clears its pointer. */
+  stop(task: string, session: string, reason: Exit, detail?: string, scratchpadDir?: string): Promise<void>;
+  /** Whether the task has a route no exit has closed. */
+  live(task: string): Promise<boolean>;
   /** Runs a guarded command's body with the route the call speaks for resolved and its context supplied. */
   command<T>(spec: GuardedCommand, request: { task: string }, body: (scope: CommandScope) => Promise<T>): Promise<T>;
 }

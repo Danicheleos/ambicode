@@ -2,8 +2,6 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import { createRuntime } from '#composition/root';
-import { openWorkspace, projectById } from '#modules/config/workspace';
-import { resolvePolicyFor } from '#modules/policy/resolve-for';
 import type { Diagnostic } from '#types/modules/policy';
 import { loadPacksForProject } from '#modules/policy/packs/load';
 import { nodeFileSystem } from '#platform/ports/filesystem';
@@ -12,7 +10,9 @@ import { builtinPoliciesDirectory } from '#util/plugin-root';
 import { isAmbicodeError } from '#util/errors';
 import { parseArgs } from '#util/args';
 import { buildProposal } from '#modules/config/init/proposal';
-import { runPolicy, POLICY_OPTIONS } from './policy.ts';
+import { FIXTURE_PROPOSAL } from '#testing/fixtures/init-config';
+import { openWorkspace, projectById, toRepositoryRelative } from '#modules/config/workspace';
+import { resolvePolicyFor } from '#modules/policy/resolve-for';
 import { renderPolicyCheck, runPolicyCheck, POLICY_CHECK_OPTIONS, type PolicyCheckOutput } from './policy-check.ts';
 import { REPO_ROOT } from '#testing/paths';
 import type { Runtime } from '#types/composition';
@@ -21,9 +21,7 @@ import type { FileSystem } from '#types/platform/ports';
 const CONFIG_TAIL = [
   'review: { model: sonnet, timeoutSeconds: 300, maxFindings: 7, maxChangedFiles: 50, maxChangedLines: 2000, maxContextBytes: 524288 }',
   'checks: { timeoutSeconds: 120, maxSelectedTestFiles: 20 }',
-  'page: { idleTimeoutSeconds: 1800 }',
   'requirements: { mcpServer: null }',
-  'remoteChecks: { image: null }',
 ].join('\n');
 
 function configYaml(projects: readonly string[]): string {
@@ -432,21 +430,14 @@ describe('R3 ambicode policy check', () => {
       await repo.dispose();
     }
   });
-
-  it('keeps a path literally named "check" reachable through the operand terminator', async () => {
-    const repo = await repoWithLayout();
-    try {
-      await repo.write('check/a.ts', 'export const a = 1;\n');
-      await repo.commitAll('a directory named check');
-      const runtime = await createRuntime({ cwd: repo.root });
-
-      const output = await runPolicy(runtime, parseArgs('policy', ['--', 'check'], POLICY_OPTIONS));
-      assert.deepEqual(output.paths, ['check']);
-    } finally {
-      await repo.dispose();
-    }
-  });
 });
+
+/** What the removed `policy` command printed: the resolver's answer for one project and path. */
+async function policyFor(runtime: Awaited<ReturnType<typeof createRuntime>>, projectId: string, file: string) {
+  const workspace = await openWorkspace(runtime);
+  const paths = [await toRepositoryRelative(workspace, file)];
+  return { policy: await resolvePolicyFor({ workspace, project: projectById(workspace.config, projectId), activity: 'review', paths }) };
+}
 
 describe('R3 migrated packs resolve as scoped project policy', () => {
   it('applies a component pack to a component path and not to a service path', async () => {
@@ -494,10 +485,7 @@ describe('R3 migrated packs resolve as scoped project policy', () => {
       const globs = checked.files.map((file) => file.appliesTo.map((glob) => glob.glob).join(','));
       assert.deepEqual(globs, ['**/*', 'src/**/*.component.ts']);
 
-      const onComponent = await runPolicy(
-        runtime,
-        parseArgs('policy', ['--project', 'web', 'src/orders/order-list.component.ts'], POLICY_OPTIONS),
-      );
+      const onComponent = await policyFor(runtime, 'web', 'src/orders/order-list.component.ts');
       assert.deepEqual(
         onComponent.policy.rules.map((rule) => rule.qualifiedId).sort(),
         ['team-components/no-transport-in-components', 'team-global/no-console'],
@@ -507,10 +495,7 @@ describe('R3 migrated packs resolve as scoped project policy', () => {
         /CLAUDE\.md/,
       );
 
-      const onService = await runPolicy(
-        runtime,
-        parseArgs('policy', ['--project', 'web', 'src/orders/orders.service.ts'], POLICY_OPTIONS),
-      );
+      const onService = await policyFor(runtime, 'web', 'src/orders/orders.service.ts');
       assert.deepEqual(onService.policy.rules.map((rule) => rule.qualifiedId), ['team-global/no-console']);
     } finally {
       await repo.dispose();
@@ -566,9 +551,7 @@ describe('R3 no runtime path reads a Markdown rule source', () => {
       .filter((relative) => !relative.endsWith('.test.ts'))
       .sort();
 
-    // The reviewer names CLAUDE.md only to make its sandbox refuse one, which
-    // is asserted below rather than exempted silently.
-    const allowed = new Set(['src/modules/config/init/init.ts', 'src/modules/review/reviewer/claude-reviewer.ts']);
+    const allowed = new Set(['src/modules/config/init/init.ts']);
     const offenders: string[] = [];
     for (const relative of sources) {
       if (allowed.has(relative)) continue;
@@ -582,9 +565,6 @@ describe('R3 no runtime path reads a Markdown rule source', () => {
       [],
       'a rule source belongs to the setup-time /ambicode:rules skill; the runtime resolves policy from YAML packs only',
     );
-
-    const reviewer = await readFile(path.join(repositoryRoot, 'src', 'modules', 'review', 'reviewer', 'claude-reviewer.ts'), 'utf8');
-    assert.match(reviewer, /No CLAUDE\.md[^\n]*\n\s*'--safe-mode'/, 'the reviewer must run with CLAUDE.md loading off');
 
     const init = await readFile(path.join(repositoryRoot, 'src', 'modules', 'config', 'init', 'init.ts'), 'utf8');
     const detector = /export async function detectRuleSources[\s\S]*?\n}/.exec(init)?.[0] ?? '';
@@ -631,7 +611,7 @@ describe('R3 init names rule sources without reading them', () => {
       };
       const runtime = await createRuntime({ cwd: repo.root, fs });
 
-      const output = await buildProposal(runtime, repo.root, []);
+      const output = await buildProposal(runtime, repo.root, FIXTURE_PROPOSAL, []);
 
       assert.deepEqual(output.ruleSources, ['CLAUDE.md', 'CONTRIBUTING.md', 'docs', '.cursor/rules']);
       const notice = output.notices.find((candidate) => candidate.includes('/ambicode:rules'));

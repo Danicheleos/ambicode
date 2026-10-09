@@ -26,11 +26,6 @@ const toRun = async (t: Fixture, start: Parameters<Fixture['start']>[0] = {}): P
 };
 const gates = async (t: Fixture) => (await t.kinds('gate')).filter((entry) => entry['gate'] === GATE);
 
-function countingReviewer() {
-  const seen = { invoked: 0 };
-  const deps = { reviewer: { async invoke() { seen.invoked += 1; return { kind: 'ok', output: { findings: [], coverageNotes: [] }, rawLength: 2, argv: ['claude'] } as never; } } as never, warm: async () => {} };
-  return { seen, deps };
-}
 
 describe('review route: waiting checks are one explicit question (08-W1 … 08-W4)', () => {
   it('08-W1: waiting checks raise one review-checks question by review-run naming every key; with, without and no review are offered, without by default', async () => {
@@ -107,11 +102,9 @@ describe('review route: waiting checks are one explicit question (08-W1 … 08-W
     it(`08-W4/S14: a model-typed review --approve on a ${channel} start is declined acting-needs-human, the check stays waiting and no reviewer runs`, async () => {
       await withReview(async (t) => {
         await toRun(t, { channel });
-        const { seen, deps } = countingReviewer();
-        const run = (...extra: string[]) => runReview(t.runtime, parseArgs('review', ['--task', CHECK_TASK, ...extra], REVIEW_OPTIONS), deps);
+        const run = (...extra: string[]) => runReview(t.runtime, parseArgs('review', ['--task', CHECK_TASK, ...extra], REVIEW_OPTIONS));
         await run();
         await run('--approve', 'app/lint');
-        assert.equal(seen.invoked, 0);
         assert.equal(t.runner.calls.length, 0, 'the proposed check never ran');
         assert.deepEqual((await t.kinds('declined')).map((entry) => [entry['gate'], entry['via'], entry['reason'], entry['key']]), [[GATE, 'flag', 'acting-needs-human', 'app/lint']]);
         assert.deepEqual((await t.kinds('review')).map((entry) => entry['waiting']), [['app/lint'], ['app/lint']]);
@@ -122,27 +115,24 @@ describe('review route: waiting checks are one explicit question (08-W1 … 08-W
   it('08-W4/S14: headless takes without at once: the review runs once without the check, and a typed --approve is recorded as declined and never runs it', async () => {
     await withReview(async (t) => {
       assert.equal((await t.start({ headless: true, answers: [{ gate: 'estimate', option: 'run' }] })).position, 'review-run');
-      const { seen, deps } = countingReviewer();
-      const run = (...extra: string[]) => runReview(t.runtime, parseArgs('review', ['--task', CHECK_TASK, ...extra], REVIEW_OPTIONS), deps);
+      const run = (...extra: string[]) => runReview(t.runtime, parseArgs('review', ['--task', CHECK_TASK, ...extra], REVIEW_OPTIONS));
       await run();
       assert.deepEqual((await t.kinds('default-taken')).map((entry) => [entry['gate'], entry['answer'], entry['via']]), [[GATE, 'without', 'headless']]);
       await run('--approve', 'app/lint');
-      assert.equal(seen.invoked, 1, 'the second run reviews without the declined check');
+      assert.deepEqual((await t.kinds('review')).map((entry) => entry['waiting']), [['app/lint'], []], 'the second run reviews without the declined check');
       assert.equal(t.runner.calls.length, 0, 'the proposed check never ran');
       assert.deepEqual((await t.kinds('declined')).map((entry) => [entry['gate'], entry['via'], entry['reason'], entry['key']]), [[GATE, 'flag', 'acting-needs-human', 'app/lint']]);
     }, { pack: PROPOSED });
   });
 
-  it('08-W4: an honoured with runs the check and the reviewer once', async () => {
+  it('08-W4: an honoured with runs the check once', async () => {
     await withReview(async (t) => {
       await toRun(t);
-      const { seen, deps } = countingReviewer();
-      const run = () => runReview(t.runtime, parseArgs('review', ['--task', CHECK_TASK], REVIEW_OPTIONS), deps);
+      const run = () => runReview(t.runtime, parseArgs('review', ['--task', CHECK_TASK], REVIEW_OPTIONS));
       await run();
-      assert.equal(seen.invoked, 0);
       await t.hook(GATE, 'with');
       await run();
-      assert.equal(seen.invoked, 1);
+      assert.deepEqual((await t.kinds('review')).map((entry) => entry['waiting']), [['app/lint'], []]);
       assert.ok(t.runner.calls.length > 0, 'the approved check ran');
     }, { pack: PROPOSED });
   });

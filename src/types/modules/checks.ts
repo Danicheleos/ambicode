@@ -19,10 +19,7 @@ export type CheckOnlyOutcome =
   | { outcome: 'waiting'; gate: typeof GATE; key: string }
   | { outcome: 'declined'; key: string };
 
-export interface CheckDeps extends NoteDeps {
-  /** The detached warm rebuild (07-G3); never awaited. */
-  warm?: (workspace: Workspace, project: ProjectConfig) => Promise<unknown>;
-}
+export type CheckDeps = NoteDeps;
 
 /** The routed command's place: the task's open route for this session, or null when the slug has none. */
 export interface Routed { view: RouteView; dir: TaskDir }

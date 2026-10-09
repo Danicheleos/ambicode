@@ -630,7 +630,7 @@ describe('evals-bench: a run owns only the result it wrote', () => {
 });
 
 describe('evals-bench: review cases under the plugin prompt (08-P3)', () => {
-  const CONFIG = ['schemaVersion: 3', 'baseline: ""', 'review: { model: sonnet, timeoutSeconds: 300, maxFindings: 7, maxChangedFiles: 50, maxChangedLines: 2000, maxContextBytes: 524288 }', 'checks: { timeoutSeconds: 120, maxSelectedTestFiles: 20 }', 'page: { idleTimeoutSeconds: 1800, port: 45831 }', 'requirements: { mcpServer: null }', 'remoteChecks: { image: null }', 'projects:', '  - { id: app, root: ".", ecosystem: typescript }', ''].join('\n');
+  const CONFIG = ['schemaVersion: 3', 'baseline: ""', 'review: { model: sonnet, timeoutSeconds: 300, maxFindings: 7, maxChangedFiles: 50, maxChangedLines: 2000, maxContextBytes: 524288 }', 'checks: { timeoutSeconds: 120, maxSelectedTestFiles: 20 }', 'requirements: { mcpServer: null }', 'projects:', '  - { id: app, root: ".", ecosystem: typescript }', ''].join('\n');
   let root;
   let benchmarks;
   let plugin;

@@ -1,3 +1,4 @@
+import { stopRoute } from '#testing/fixtures/route-fixture';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { jira, mcp, search, session } from '#testing/fixtures/requirements-session';
@@ -113,14 +114,14 @@ describe('04-S review scenarios on the synthetic review route', () => {
   }
   const ASKED = ['ORD-17', 'ORD-18'];
 
-  it('S7/04-E7: a review with one of two sources captured is refused requirements-missing: no exit, no later step, and stop is offered on the second refusal', async () => {
+  it('S7/04-E7: a review with one of two sources captured is refused requirements-missing: no exit, no later step, on every refusal', async () => {
     const s = await review();
     try {
       await s.capture(GET, mcp(jira('ORD-17')), { asked: ASKED });
       await assert.rejects(s.next(), (error: Error & { code?: string }) => error.code === 'requirements-missing' && /ORD-18/.test(error.message) && !/ORD-17,/.test(error.message));
       assert.deepEqual(await s.exits(), []);
       assert.equal((await s.fx.kinds(s.task, 'envelope')).length, 0);
-      await assert.rejects(s.next(), (error: Error & { code?: string; details: string[] }) => error.code === 'requirements-missing' && error.details.some((detail) => /route stop --task ORD-17 --reason blocked/.test(detail)));
+      await assert.rejects(s.next(), (error: Error & { code?: string }) => error.code === 'requirements-missing');
       assert.deepEqual(await s.exits(), [], 'the refusal is not an exit');
       const positions = (await s.fx.kinds(s.task, 'step')).filter((entry) => entry['status'] === 'completed').map((entry) => entry['step']);
       assert.equal(positions.includes('ground'), false);
@@ -141,7 +142,7 @@ describe('04-S review scenarios on the synthetic review route', () => {
       const envelope = (await s.fx.kinds(s.task, 'envelope')).at(-1)!;
       assert.deepEqual([envelope['builtFrom'], envelope['missingAsked']], ['captures', []]);
       assert.deepEqual(await s.exits(), []);
-      await s.fx.engine.stop(s.task, 'aaaaaaaa-1111-4111-8111-111111111111', 'blocked', 'user stopped', s.fx.scratchpad);
+      await stopRoute(s.fx, s.task, 'aaaaaaaa-1111-4111-8111-111111111111', 'blocked', 'user stopped');
       assert.deepEqual(await s.exits(), ['blocked']);
     } finally {
       await s.fx.dispose();

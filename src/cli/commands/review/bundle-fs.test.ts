@@ -4,11 +4,29 @@ import path from 'node:path';
 import { createRuntime } from '#composition/root';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { parseArgs } from '#util/args';
-import { runBundle, BUNDLE_OPTIONS } from './bundle.ts';
+import { assembleBundle, writeBundleArtifacts } from '#modules/review/bundle/bundle';
+import { resolveTargetOptions } from '../../options/target-option.ts';
+import { TARGET_OPTIONS as BUNDLE_OPTIONS } from '../../types/options.ts';
+import type { Runtime } from '#types/composition';
+import type { ParsedArgs } from '#types/cli';
 import { initConfig } from '#testing/fixtures/init-config';
 import { runReview, REVIEW_OPTIONS } from './review.ts';
 import { TempRepo } from '#testing/fixtures/temp-repo';
-import type { FileSystem, Reviewer, ReviewerInvocation } from '#types/platform/ports';
+import type { FileSystem } from '#types/platform/ports';
+
+/** The evidence stage on its own, as the removed `bundle` command ran it: no model, no approvals. */
+async function runBundle(runtime: Runtime, args: ParsedArgs) {
+  const bundle = await assembleBundle({ runtime, ...resolveTargetOptions('bundle', runtime, args), approvals: new Set() });
+  await writeBundleArtifacts(runtime, bundle);
+  return {
+    reviewDirectory: bundle.reviewDirectory,
+    snapshotDirectory: bundle.snapshot.directory,
+    resultPath: bundle.resultPath,
+    measured: bundle.measured,
+    result: bundle.result,
+    pendingApprovals: bundle.pendingApprovals,
+  };
+}
 
 function recording(inner: FileSystem): { fs: FileSystem; writes: string[]; dirs: string[] } {
   const writes: string[] = [];
@@ -34,15 +52,6 @@ function recording(inner: FileSystem): { fs: FileSystem; writes: string[]; dirs:
     },
   };
 }
-
-const emptyReviewer: Reviewer = {
-  invoke: async (): Promise<ReviewerInvocation> => ({
-    kind: 'ok',
-    output: { findings: [], coverageNotes: [] },
-    rawLength: 2,
-    argv: ['claude', '--print'],
-  }),
-};
 
 describe('U28 bundle writes only through the filesystem port', () => {
   it('creates the review directory, result and snapshot marker through the injected port', async () => {
@@ -74,7 +83,7 @@ describe('U28 bundle writes only through the filesystem port', () => {
     }
   });
 
-  it('writes the review result, prompt and report through the injected port', async () => {
+  it('writes the review result and report through the injected port', async () => {
     const repo = await TempRepo.create();
     try {
       await repo.write('package.json', '{"name":"app","version":"1.0.0"}\n');
@@ -87,15 +96,11 @@ describe('U28 bundle writes only through the filesystem port', () => {
 
       const recorder = recording(nodeFileSystem);
       const runtime = await createRuntime({ cwd: repo.root, fs: recorder.fs });
-      const output = await runReview(runtime, parseArgs('review', [], REVIEW_OPTIONS), {
-        reviewer: emptyReviewer,
-      });
+      const output = await runReview(runtime, parseArgs('review', [], REVIEW_OPTIONS));
 
       for (const artifact of [
         output.resultPath,
         output.reportPath,
-        path.join(output.reviewDirectory, 'reviewer-system-prompt.md'),
-        path.join(output.reviewDirectory, 'reviewer-user-prompt.md'),
         path.join(output.reviewDirectory, 'snapshot-path.txt'),
       ]) {
         assert.ok(recorder.writes.includes(artifact), `${artifact} was not written through the port`);

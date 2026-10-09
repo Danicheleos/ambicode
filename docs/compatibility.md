@@ -245,7 +245,7 @@ Two further consequences follow, both deliberate:
 - A requirement larger than the limit refuses the review before the snapshot is
   planned and before any process runs. Requirements are never trimmed.
 
-`ambicode bundle` and `ambicode review` report the split (`N model-input
+`ambicode review` reports the split (`N model-input
 byte(s) (P prompt, of which … patch and … requirements, + M mirrored)`) so a
 refusal can be acted on without guessing which part was large.
 
@@ -355,11 +355,10 @@ current transcript.
 ## Hooks
 
 The plugin ships one hook manifest, `hooks/hooks.json`, registering seven
-events with twenty-three handler entries: `PostToolUse` (matchers `mcp__.*`, `WebFetch`,
-`AskUserQuestion` and `Read|Grep|Glob`), `PreToolUse` (all routed to
+events with fourteen handler entries: `PostToolUse` (matchers `mcp__.*`, `WebFetch`
+and `AskUserQuestion`), `PreToolUse` (all routed to
 `${CLAUDE_PLUGIN_ROOT}/scripts/guard.mjs`: `Bash` with the `if` rows `git *`,
-`glab mr*`, `*.ambicode/task*`, `*ambicode.mjs*`, `rm *`, `*--include=*`, `*--exclude=*`,
-`*--exclude-dir=*`, `cat *`, `sed *`, `head *` and `tail *`, then `Write|Edit|MultiEdit|NotebookEdit`, then `Read`),
+`glab mr*`, `*.ambicode/task*`, `*ambicode.mjs*` and `rm *`, then `Write|Edit|MultiEdit|NotebookEdit`),
 `SessionStart` (matcher `startup|resume|clear|fork`), `UserPromptSubmit`,
 `Stop`, `PostCompact` and `SessionEnd`. Every entry except `PreToolUse` runs in
 exec form through command `node` with arguments
@@ -398,12 +397,8 @@ model as a "Stop hook feedback" user message, and `additionalContext` as a syste
 keeps its bounded reason plus `stop-check.md`; the list does not also go to `additionalContext`,
 which would only repeat it. Record: `plan/migration-v6-reports/step-07/probe-p17.md`.
 
-Two hook contracts are relied on without being observed (probes postponed on 2026-10-07):
+One hook contract is relied on without being observed (probe postponed on 2026-10-07; the guard no longer rewrites input with `updatedInput`):
 
-- **PreToolUse `updatedInput` with `allow`** (`PLATFORM.updatedInput` in `src/hook/guard/guard-core.ts`, on
-  by default). When a route is active, the guard rewrites an `ambicode` Bash call to add `--task` and answers
-  `allow`. This replaces "no opinion" with an explicit allow, so it skips the user's own permission rules for
-  that call. If the host ignores `updatedInput`, the call runs without `--task`. Probe: `.tmp/probes/setup.sh`.
 - **The shape of a dismissed AskUserQuestion** (`isRejection` in `src/platform/claude/transcript.ts`). This
   assumes an `is_error` tool_result whose text starts with "The user doesn't want to proceed with this tool
   use." If the shape differs, a dismissed gate is never detected, and the route keeps waiting instead of
@@ -425,9 +420,9 @@ has not had it yet — which is what puts the contract back after a compaction.
 The marker dedup means it is sent once per epoch, not once per prompt, but the
 hook process itself does start on every user message (~190ms on the reference
 machine). That cost buys the post-compaction redelivery; dropping the
-`UserPromptSubmit` registration removes both, leaving `prepare --with-contract`
+`UserPromptSubmit` registration removes both, leaving only the contract the skills print
 as the manual fallback. `ADDITIONAL_CONTEXT_EVENTS` in `src/types/hook.ts`
-holds the accepted names so the type system refuses the mistake. `SessionEnd` records `session{end}` on the
+holds the accepted names so the type system refuses the mistake. `SessionEnd` cleans the session state on the
 session's route in the ledger and removes the hook's own dedup-marker directory. All of this is
 covered by `src/hook/events/run-hook.test.ts` (unit level, fake ports) and
 `tools/hook-artifact.test.mjs` (built-artifact level: real bundled
@@ -500,15 +495,15 @@ AMBICODE reuses the official `typescript-lsp@claude-plugins-official` and
 `pyright-lsp@claude-plugins-official` plugins. It does not bundle a language
 server or build another index. One registry in
 `src/modules/search/text/navigation.ts` maps the existing ecosystem enum to the
-plugin, server command and setup commands. `init`, `config`, and `prepare`
+plugin, server command and setup commands. `init` and `map`
 surface that guidance. Authoring skills record actual LSP symbol operations or
 a specific targeted-search fallback reason because the helper cannot inspect
 the active conversation's tool inventory; a session with no LSP tools at all
 says exactly that, in one line, and owes no further justification.
 
-The step before LSP is `ambicode locate`: a ranked shortlist of candidate
-files for a request, from path shape, `git grep` contents and co-change over a
-bounded commit window. It runs no language server, starts no process other
+The step before LSP is `ambicode map`: a ranked list of candidate files for a
+request, from path shape and `git grep` contents, plus the exported names
+declared in the top files. It runs no language server, starts no process other
 than `git` through the existing adapter, and stores nothing between calls, so
 it adds no compatibility surface of its own. LSP is still how a caller goes
 from a candidate file to its definitions, references and callers.

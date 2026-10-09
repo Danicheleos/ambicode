@@ -150,7 +150,7 @@ reviewed and the checkout was not modified.
 **`unmerged-index`.** There is a conflict in progress, so there is no single
 working state to review. Resolve it first.
 
-**`preparation-too-large`.** `prepare` measured its payload over
+**`preparation-too-large`.** The review measured its payload over
 `review.maxContextBytes`, and the details measure each component. Drop or
 narrow a requirement, or narrow the paths. Raising the limit is the user's
 decision, not a retry.
@@ -207,14 +207,6 @@ step the route does not list as revisable; the message lists them.
 `search-layers-not-for-model`: `map --layers` is not a model option; edit
 `search.layers` in `.ambicode/config.yaml`. `search-layer-unknown`: `search.layers`
 names a layer that does not exist; fix it, the message lists the known names.
-`index-not-ignored`: `index build` refuses while `.ambicode/index/` is not
-ignored; add it to `.gitignore` (`init --apply` writes it on acceptance).
-`index-unavailable`: `codeindex` is not installed or executable, or init measured
-no file it indexes in the project; install it in the project or on PATH, or set
-`search.index: none`. `index-build-failed`: the index build exited nonzero or
-timed out; run `index build` again. The previous index (if any) stays in use,
-fresh while at most `search.indexDriftFiles` (20) project files differ from it. Queries
-never raise these: `map`, `find` and `relates` fall back and print their `index:` line.
 `requirements-not-captured`: a requirement named at the start has no captured
 payload yet; fetch it with the call the message names, then `route next`.
 `requirements-missing`: some requested sources are not captured; fetch them and run
@@ -237,17 +229,7 @@ was saved or checked. A plan was accepted as it is, or the route ended without
 one. Do not revise: name the check failures in your answer. Only the user can ask
 for a new draft, by starting `/ambicode:plan` again.
 
-**`worker-output-invalid`.** A worker run by `worker run` gave no usable output:
-the process failed, or its output was not one JSON object matching the worker's
-schema within 64 KiB; the `reason` detail says which. No artifact was written.
-Release: continue inline — do this work in the session; the worker's output was
-not used.
-
-**`worker-not-approved`.** `worker run` named a worker that is not listed in
-`workers.approved` in `.ambicode/config.yaml`. Nothing ran. Release: continue
-inline, or ask the user to add the id to the list.
-
-**`artifact-collision`.** `worker run` or `plan check` found nine artifacts of
+**`artifact-collision`.** `plan check` found nine artifacts of
 the same name already written this minute, so it wrote none. Wait for the next
 minute and run it again.
 
@@ -263,3 +245,14 @@ pack's `commandPolicy`, not something to work around.
 Hooks: AMBICODE registers seven hook events with eleven handler entries. The `Stop`
 hook blocks a finishing message at most once per route, naming what to fix and the
 full list in `stop-check.md` of the task directory; a second failing stop is allowed.
+
+**`review-recorded`.** `review record` found the reviewer's answer already
+recorded for that review. Run `review --task <slug>` for a new review; a second
+answer never overwrites the first.
+
+**`review-waiting`.** `review record` ran on a review that stopped on checks
+waiting for a human, so no reviewer was due. Answer the waiting checks, then run
+the review again.
+
+**`review-unreadable`.** The review's `result.json` is missing or not a review
+result. Run `review --task <slug>` again; do not hand-edit the file.

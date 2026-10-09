@@ -9,11 +9,15 @@ import { lineDiff } from './init-choices.ts';
 import { parseSets, setStrings } from './init-sets.ts';
 import { loadConfigWithNotices } from '../load.ts';
 import { DRAFT_FILE, buildProposal, configFileState, configUnparsable, planDraft, writeConfig } from './proposal.ts';
+import type { InitProposal } from '#types/modules/config';
 import { APPLY_OPTIONS, type ApplyDeps, type DoctorTable } from '#types/modules/config';
 import type { FileSystem } from '#types/platform/ports';
 
 export { writeConfig } from './proposal.ts';
 export const PREVIOUS_DRAFT = 'draft-previous.yaml';
+export const PROPOSAL_FILE = 'proposal.json';
+/** The model's YAML exactly as `init propose` received it; `init.propose` validates it, so a bad field returns to `detect`. */
+export const PROPOSAL_INPUT_FILE = 'proposal.yaml';
 
 function initUnconfirmed(reason: string, detail?: string): AmbicodeError {
   return new AmbicodeError('init-unconfirmed', `init --apply needs the user's own answer to the init question (reason: ${reason}). Nothing was written.`, {
@@ -68,10 +72,12 @@ export async function applyInit(deps: ApplyDeps, input: { task: string }): Promi
   const approved = await runtime.fs.readText(path.join(repositoryRoot, DRAFT_FILE)).catch(() => '');
   if (contentHash(approved) !== shown.draft) throw initUnconfirmed('draft-differs', `${DRAFT_FILE} is not the draft the answer was given to. Nothing was written.`);
 
-  const proposal = await buildProposal(runtime, repositoryRoot, pairs, { task: input.task, regenerate: !file.parses });
-  const fresh = (await planDraft(runtime.fs, proposal, pairs)).yaml;
+  const dir = await resolveTaskDir(runtime, input.task);
+  const stored = await runtime.fs.readText(path.join(dir.steps, PROPOSAL_FILE)).catch(() => null);
+  if (stored === null) throw initUnconfirmed('not-accepted', `${PROPOSAL_FILE} is missing from the task: the proposal was never stored.`);
+  const proposal = await buildProposal(runtime, repositoryRoot, (JSON.parse(stored) as InitProposal).input, pairs, { task: input.task, regenerate: !file.parses });
+  const fresh = (await planDraft(runtime.fs, repositoryRoot, proposal, pairs)).yaml;
   if (contentHash(fresh) !== shown.draft) {
-    const dir = await resolveTaskDir(runtime, input.task);
     await runtime.fs.mkdirp(dir.steps);
     await runtime.fs.writeText(path.join(dir.steps, PREVIOUS_DRAFT), approved);
     await runtime.fs.writeText(path.join(repositoryRoot, DRAFT_FILE), fresh);
@@ -82,8 +88,7 @@ export async function applyInit(deps: ApplyDeps, input: { task: string }): Promi
   const written = await writeConfig(runtime.fs, repositoryRoot, proposal, pairs, fresh);
   await runtime.fs.remove(path.join(repositoryRoot, DRAFT_FILE));
   const loaded = await loadConfigWithNotices(runtime.fs, repositoryRoot);
-  const doctor = await runDoctor(runtime, repositoryRoot, loaded.config, { ...deps.doctor, buildIndex: true });
-  const dir = await resolveTaskDir(runtime, input.task);
+  const doctor = await runDoctor(runtime, repositoryRoot, loaded.config, deps.doctor);
   await runtime.fs.mkdirp(dir.steps);
   await runtime.fs.writeText(path.join(dir.steps, 'doctor.md'), doctor.text);
   return { configPath: proposal.configPath, ...written, notices: [...proposal.notices, ...loaded.notices], doctor };

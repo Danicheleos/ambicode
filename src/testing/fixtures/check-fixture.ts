@@ -70,15 +70,13 @@ export async function checkFixture(options: { routes?: Record<string, string>; c
   await fx.repo.commitAll('pack');
   const runner = new SplitRunner(fx.runtime.runner);
   const runtime: Runtime = { ...fx.runtime, runner };
-  const warmed: string[] = [];
   const deps = (session: string | null = SESSION_A): CheckDeps => ({
     runtime, session, context: commandContext({ runtime, routes: fx.routes }),
-    warm: async (_workspace, project) => { warmed.push(project.id); },
   });
   const start = (channel: StartChannel = 'hook', headless = false, extra: object = {}) =>
     fx.engine.start({ skill: 'demo', text: 'fix the total', requirements: [], task: CHECK_TASK, cwd: fx.repo.root, session: SESSION_A, channel, headless, scratchpadDir: fx.scratchpad, ...extra });
   const check = (input: Partial<CheckOnlyInput> = {}, session: string | null = SESSION_A) =>
     runCheckOnly(deps(session), { task: CHECK_TASK, key: 'app/unit', only: ['src/a.spec.ts'], phase: 'red', approve: [], decline: [], ...input });
-  return { fx, runner, runtime, deps, start, check, warmed };
+  return { fx, runner, runtime, deps, start, check };
 }
 

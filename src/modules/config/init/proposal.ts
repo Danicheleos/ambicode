@@ -1,36 +1,17 @@
 import path from 'node:path';
-import { parseDocument } from 'yaml';
+import { parse, parseDocument } from 'yaml';
 import { openRepository } from '#platform/git/open';
-import { codeindexCommand, findCodeindex } from '#modules/search/code-index/codeindex';
-import { buildProfile } from '#modules/search/declarations/profile';
-import type { SearchProfile, SetPair, SetValue, InitProposal } from '#types/modules/config';
+import { ProposalInput, type SetPair, type InitProposal } from '#types/modules/config';
 import { AmbicodeError } from '#util/errors';
 import { contentHash } from '#util/hash';
-import { normalizeRelative } from '#util/paths';
 import { CONFIG_FILE, GITIGNORE_ENTRIES } from '#types/defaults';
-import { detectBaseline, detectProjects, scanCodeindex } from './detect.ts';
 import { planInit } from './init.ts';
-import { canonicalSets, projectOfKey } from './init-sets.ts';
+import { canonicalSets } from './init-sets.ts';
+import { builtinPackIds, isRunnable } from './scan.ts';
 import { parseConfigWithNotices } from '../load.ts';
 import type { Runtime } from '#types/composition';
 import type { FileSystem } from '#types/platform/ports';
 import type { PlanInitOptions } from '../types/init.ts';
-
-export const MAX_PROPOSAL_BYTES = 6144;
-
-interface ProposalOptions {
-  task?: string;
-  refreshProfile?: boolean;
-  /** The unparsable file was backed up under an honoured `config-unparsable` answer: regenerate from detection. */
-  regenerate?: boolean;
-  /** The 5-I outcome the dispatch recorded; until it is decided the proposed index is `none` (09-P3). */
-  decision5I?: string;
-}
-
-/** Detection results a proposal was built from, so the writer plans the same document; never serialized. */
-const PLANNED = new WeakMap<InitProposal, Omit<PlanInitOptions, 'fs' | 'overrides'>>();
-
-const initTaskFor = (runtime: Runtime): string => `init-${runtime.clock.now().toISOString().slice(0, 10)}`;
 
 export const DRAFT_FILE = '.ambicode/config.draft.yaml';
 
@@ -38,11 +19,19 @@ export function applyLineFor(runtime: Runtime, task: string): string {
   return `node "${runtime.pluginRoot}/scripts/ambicode.mjs" init --apply --task ${task}`;
 }
 
-/** The config text the proposal would write with these overrides ('' when nothing changes), planned from the proposal's own detection. */
-export async function planDraft(fs: FileSystem, proposal: InitProposal, overrides: readonly SetPair[]): Promise<{ yaml: string; created: boolean; changes: string[] }> {
-  const planned = PLANNED.get(proposal);
-  if (planned === undefined) throw new AmbicodeError('internal', 'planDraft needs a proposal built by buildProposal in this process.');
-  const plan = await planInit({ ...planned, fs, overrides });
+const planOptions = (repositoryRoot: string, proposal: InitProposal, overrides: readonly SetPair[], fs: FileSystem): PlanInitOptions => ({
+  fs,
+  repositoryRoot,
+  input: proposal.input,
+  baseline: proposal.baseline,
+  baselineNotice: proposal.baselineNotice,
+  overrides,
+  ...(proposal.configState === 'unparsable-backed-up' ? { regenerate: true } : {}),
+});
+
+/** The config text the proposal would write with these overrides ('' when nothing changes). */
+export async function planDraft(fs: FileSystem, repositoryRoot: string, proposal: InitProposal, overrides: readonly SetPair[]): Promise<{ yaml: string; created: boolean; changes: string[] }> {
+  const plan = await planInit(planOptions(repositoryRoot, proposal, overrides, fs));
   return { yaml: plan.yaml ?? '', created: plan.created, changes: plan.changes };
 }
 
@@ -66,80 +55,72 @@ export const configUnparsable = (): AmbicodeError =>
     details: ['In /ambicode:init, answer the config-unparsable question: back it up and regenerate, or stop and fix the file.'],
   });
 
-/** The dry run (09-P1…P5): reads, detects and plans; writes nothing. */
-export async function buildProposal(runtime: Runtime, repositoryRoot: string, overrides: readonly SetPair[], options: ProposalOptions = {}): Promise<InitProposal> {
-  const { fs } = runtime;
+const invalid = (field: string, message: string): AmbicodeError =>
+  new AmbicodeError('init-proposal-invalid', `${field}: ${message}`, { field, details: ['Fix that field in the YAML and run `init propose` again.'] });
+
+/** The model's YAML (a ```yaml fence around it is tolerated) read through the proposal schema; the first bad field is named. */
+export function parseProposal(text: string): ProposalInput {
+  const body = /```ya?ml\s*\n([\s\S]*?)```/.exec(text)?.[1] ?? text;
+  let raw: unknown;
+  try {
+    raw = parse(body);
+  } catch (error) {
+    throw invalid('yaml', error instanceof Error ? error.message.split('\n')[0]! : 'not valid YAML');
+  }
+  const result = ProposalInput.safeParse(raw);
+  if (result.success) return result.data;
+  const issue = result.error.issues[0]!;
+  throw invalid(issue.path.join('.') || 'proposal', issue.message);
+}
+
+/** What the schema cannot see: pack ids, roots on disk, commands that start. Each problem names its field. */
+export async function validateProposal(runtime: Runtime, repositoryRoot: string, input: ProposalInput): Promise<void> {
+  const packs = new Set(await builtinPackIds(runtime));
+  const ids = new Set<string>();
+  for (const [at, project] of input.projects.entries()) {
+    const field = `projects.${at}`;
+    if (ids.has(project.id)) throw invalid(`${field}.id`, `"${project.id}" is used twice`);
+    ids.add(project.id);
+    if (!(await runtime.fs.exists(path.join(repositoryRoot, project.root)))) throw invalid(`${field}.root`, `"${project.root}" does not exist in the repository`);
+    for (const pack of project.packs) if (!packs.has(pack)) throw invalid(`${field}.packs`, `unknown pack "${pack}"; the built-in ids are: ${[...packs].join(', ')}`);
+    for (const [slot, argv] of Object.entries(project.commands)) {
+      if (argv != null && !(await isRunnable(runtime, repositoryRoot, project.root, argv[0]!))) throw invalid(`${field}.commands.${slot}`, `"${argv[0]}" is not on PATH or in node_modules/.bin; use null if the tool is not installed`);
+    }
+  }
+}
+
+/** The proposal the gate is asked about: the model's validated input plus what the repository says about the file, baseline and ignore lines. */
+export async function buildProposal(runtime: Runtime, repositoryRoot: string, input: ProposalInput, overrides: readonly SetPair[], options: { task?: string; regenerate?: boolean } = {}): Promise<InitProposal> {
   const { git } = await openRepository({ ...runtime, cwd: repositoryRoot });
-  const file = await configFileState(fs, repositoryRoot);
+  const file = await configFileState(runtime.fs, repositoryRoot);
   if (!file.parses && options.regenerate !== true) throw configUnparsable();
-  const current = file.raw === null || !file.parses ? null : parseConfigWithNotices(file.raw);
+  if (file.raw !== null && file.parses) parseConfigWithNotices(file.raw);
   const declared = file.raw === null || !file.parses ? null : (parseDocument(file.raw).get('schemaVersion') as unknown);
-
-  const detected = await detectProjects(fs, repositoryRoot);
-  const baseline = await detectBaseline(repositoryRoot, () => git.originHead());
-  const binary = await findCodeindex(runtime, repositoryRoot);
-  const profiles = new Map<string, SearchProfile>();
-  for (const root of detected.length === 0 ? [''] : detected.map((project) => normalizeRelative(project.root))) {
-    const profile = await buildProfile({ ...runtime, cwd: repositoryRoot }, { root: root === '' ? '.' : root });
-    const scanned = binary === null ? null : await scanCodeindex(runtime, codeindexCommand(binary), path.join(repositoryRoot, root === '' ? '.' : root));
-    profiles.set(root, scanned === null ? profile : { ...profile, index: { tool: 'codeindex', ...scanned } });
-  }
-  const planned: Omit<PlanInitOptions, 'fs' | 'overrides'> = {
-    repositoryRoot,
-    detected,
-    baseline: baseline.baseline,
-    baselineNotice: baseline.notice,
-    profiles,
-    ...(options.refreshProfile === true ? { refreshProfile: true } : {}),
-    ...(options.regenerate === true ? { regenerate: true } : {}),
-  };
-  const plan = await planInit({ ...planned, fs, overrides });
-  const ids = plan.config.projects.map((project) => project.id);
-  const stray = overrides.map((pair) => projectOfKey(pair.key)).find((id) => id !== null && !ids.includes(id));
-  if (stray !== undefined && stray !== null) {
-    throw new AmbicodeError('bad-argument', `--set names no project "${stray}".`, { field: '--set', details: [`Projects: ${ids.join(', ')}.`] });
-  }
-
-  const config = plan.config;
-  const index = config.search.index;
-  const tool = binary === null ? null : 'codeindex';
-  const task = options.task ?? initTaskFor(runtime);
-  const removedFields = (current?.notices ?? []).filter((notice) => notice.startsWith('config-field-removed: ')).map((notice) => notice.slice('config-field-removed: '.length));
+  const originHead = await git.originHead();
   const proposal: InitProposal = {
     command: 'init',
     mode: 'dry-run',
     configPath: path.join(repositoryRoot, CONFIG_FILE),
     configState: file.raw === null ? 'missing' : !file.parses ? 'unparsable-backed-up' : declared === 3 ? 'current' : 'legacy',
-    projects: config.projects.map((project) => ({
-      id: project.id,
-      root: project.root,
-      ecosystem: project.ecosystem,
-      commands: Object.fromEntries(Object.entries(project.commands).filter(([slot]) => slot !== 'format').map(([slot, command]) => [slot, command?.argv ?? null])),
-      format: project.commands['format']?.argv ?? null,
-      packs: project.packs,
-      profile: project.profile ?? null,
-    })),
-    ruleSources: plan.ruleSources,
-    gitignore: await gitignoreState(fs, repositoryRoot),
-    index: { proposed: index, tool, decision5I: options.decision5I ?? 'pending' },
-    searchLayers: { prompt: [...(config.search.layers?.prompt ?? [])], context: [...(config.search.layers?.context ?? [])] },
-    acceptanceField: { current: config.requirements.acceptanceField, candidates: config.requirements.acceptanceField === null ? [] : [config.requirements.acceptanceField] },
-    removedFields,
-    changes: plan.changes,
-    notices: plan.notices,
-    noticesOmitted: 0,
+    input,
+    baseline: originHead ?? '',
+    baselineNotice: originHead === null ? 'No local refs/remotes/origin/HEAD was found, so no baseline was recorded. Branch review needs --base until you set one.' : `baseline taken from refs/remotes/origin/HEAD (${originHead})`,
+    ruleSources: [],
+    gitignore: await gitignoreState(runtime.fs, repositoryRoot),
+    changes: [],
+    notices: [],
     values: canonicalSets(overrides),
-    applyLine: applyLineFor(runtime, task),
+    applyLine: applyLineFor(runtime, options.task ?? `init-${runtime.clock.now().toISOString().slice(0, 10)}`),
   };
-  while (Buffer.byteLength(JSON.stringify(proposal)) > MAX_PROPOSAL_BYTES && proposal.notices.length > 0) {
-    proposal.notices.pop();
-    proposal.noticesOmitted += 1;
-  }
-  PLANNED.set(proposal, planned);
-  return proposal;
+  const plan = await planInit(planOptions(repositoryRoot, proposal, overrides, runtime.fs));
+  const ids = plan.config.projects.map((project) => project.id);
+  const stray = overrides.map((pair) => /^projects\.([^.]+)\./.exec(pair.key)?.[1]).find((id) => id !== undefined && !ids.includes(id));
+  if (stray !== undefined) throw new AmbicodeError('bad-argument', `--set names no project "${stray}".`, { field: '--set', details: [`Projects: ${ids.join(', ')}.`] });
+  const { changes, notices, ruleSources } = plan;
+  return { ...proposal, changes, notices, ruleSources };
 }
 
-/** Pure writer: no consent check. Only `applyInit` after its checks, fixtures and test setup call it (D15). */
+/** Pure writer: no consent check. Only `applyInit` after its checks, fixtures and test setup call it. */
 export async function writeConfig(
   fs: FileSystem,
   repositoryRoot: string,
@@ -147,9 +128,7 @@ export async function writeConfig(
   overrides: readonly SetPair[],
   approvedYaml?: string,
 ): Promise<{ created: boolean; changes: string[]; gitignoreAdded: string[] }> {
-  const planned = PLANNED.get(proposal);
-  if (planned === undefined) throw new AmbicodeError('internal', 'writeConfig needs a proposal built by buildProposal in this process.');
-  const plan = await planInit({ ...planned, fs, overrides });
+  const plan = await planInit(planOptions(repositoryRoot, proposal, overrides, fs));
   const yaml = plan.yaml === null ? null : (approvedYaml ?? plan.yaml);
   if (yaml !== null) {
     await fs.mkdirp(path.join(repositoryRoot, path.dirname(CONFIG_FILE)));
@@ -164,11 +143,11 @@ export async function writeConfig(
   return { created: plan.created, changes: plan.changes, gitignoreAdded: ignore.missing };
 }
 
-export type { SetPair, SetValue };
+export type { SetPair };
 
 /** Plans the draft for these overrides and saves it as the draft file; the hash is what an answer is pinned to. */
 export async function saveDraft(fs: FileSystem, repositoryRoot: string, proposal: InitProposal, overrides: readonly SetPair[]): Promise<{ yaml: string; hash: string }> {
-  const { yaml } = await planDraft(fs, proposal, overrides);
+  const { yaml } = await planDraft(fs, repositoryRoot, proposal, overrides);
   const file = path.join(repositoryRoot, DRAFT_FILE);
   if (yaml === '') await fs.remove(file).catch(() => undefined);
   else {

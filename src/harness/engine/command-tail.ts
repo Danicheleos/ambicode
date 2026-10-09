@@ -19,7 +19,7 @@ export async function runCommandTail(
 ): Promise<StepMessage | null> {
   if (insideEngine()) throw new Error(`The ${input.cause} tail ran inside the route engine; a handler must not call a command tail.`);
   if (input.session.state === 'unbound') {
-    if ((await deps.engine.status(input.task, null)).length === 0) return null;
+    if (!(await deps.engine.live(input.task))) return null;
     const unbound = sessionUnbound(input.session, input.task);
     (deps.warn ?? ((line) => void process.stderr.write(`${line}\n`)))(`${unbound.message} (${input.cause}: the command's own write stands) ${unbound.details.join(' ')}`);
     return null;

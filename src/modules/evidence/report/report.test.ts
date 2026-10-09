@@ -36,7 +36,7 @@ describe('02-R1: the report skeleton', () => {
       entry('revise', { route: 'r', from: 'plan-write', via: 'code', cycle: 2, reason: 'none left' }),
     ]);
     assert.match(report.evidence, /Requirements: 1 source\(s\) from captures \(ORD-17\) via atlassian; ORD-17 \(asked\)/);
-    assert.match(report.evidence, /Map: layers shortlist→harvest, 1 colliding names, index none/);
+    assert.match(report.evidence, /Map: layers shortlist→harvest, 1 colliding names/);
     assert.match(report.evidence, /Baseline: a1b2c3d4e5f6, dirty: README\.md/);
     assert.match(report.evidence, /Checks: web\/unit --only a\.spec\.ts: red exit 1 \(1 ran, 1 failed\) → green exit 0 \(3 ran, 0 failed\)/);
     assert.match(report.evidence, /Review: local_1 complete, 2 findings/);

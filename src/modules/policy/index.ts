@@ -13,8 +13,6 @@ export { checkDrafts } from './authoring/drafts.ts';
 export { applyRules } from './authoring/rules.ts';
 /** discoverRules(runtime, args, options?) — finds candidate rules from the given sources. */
 export { discoverRules } from './authoring/rules.ts';
-/** revertRule(runtime, packId, project) — unwires a pack that `rules apply` wired and moves it back to the drafts. */
-export { revertRule } from './authoring/rules.ts';
 
 // packs/: loading, validating and resolving packs, and where their content came from.
 /** loadPacksForProject(options) — loads exactly the packs the project enabled, never one just because its file exists. */

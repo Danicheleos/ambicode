@@ -153,7 +153,6 @@ describe('base-scaffold', () => {
     const repo = path.join(work, 'repo');
     put(path.join(repo, '.ambicode/task/t/ledger.jsonl'), '{}\n');
     put(path.join(repo, '.ambicode/reviews/r.json'), '{}\n');
-    put(path.join(repo, '.ambicode/metrics.jsonl'), '{}\n');
     assert.equal(git(repo, 'status', '--porcelain', '--untracked-files=all'), 'M src/a.txt');
     assert.equal(git(repo, 'ls-files', '.gitignore'), '', 'the base commit is unchanged');
     put(path.join(repo, '.ambicode/index/i.db'), 'x');

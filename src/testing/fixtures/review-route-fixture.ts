@@ -11,7 +11,7 @@ import type { LedgerEntry } from '#types/modules/evidence';
 import type { AdvanceInput, StartInput, StepMessage, Handler } from '#types/harness';
 import { SESSION_A } from './ids.ts';
 
-const STEPS = ['review/fetch', 'review/readback', 'review/view'];
+const STEPS = ['review/fetch', 'review/mr-fetch', 'review/readback', 'review/agent', 'review/publish'];
 
 export const PROPOSED = COMMAND_PACK.replace('{ command: lint, action: forbid, reason: "never here" }', '{ command: lint, action: propose, reason: "ask" }');
 
@@ -41,13 +41,16 @@ export async function reviewRouteFixture(options: { config?: string; pack?: stri
   const append = async (fields: Record<string, unknown> & { kind: string }): Promise<LedgerEntry> =>
     (await appendLedger(fx.runtime.fs, dir, fx.runtime.clock.now(), 'test-writer', { route: await routeId(), session: SESSION_A, ...fields })).entry;
   /** What `review --task` leaves: the result file and the `review` entry, then the tail. */
-  const synthetic = async (findings: Finding[], extra: { waiting?: string[] } = {}): Promise<StepMessage> => {
+  const synthetic = async (findings: Finding[], extra: { waiting?: string[]; stage?: 'pending' | 'recorded' } = {}): Promise<StepMessage> => {
+    const stage = extra.stage ?? 'recorded';
     reviews += 1;
     const reviewId = `r-${reviews}`;
     const result = path.join('.ambicode', 'task', CHECK_TASK, 'reviews', reviewId, 'result.json');
-    await fx.repo.write(result, JSON.stringify({ ...reviewResult({ kind: 'working', findings }), reviewId }));
-    const entry = await append({ kind: 'review', reviewId, result, status: 'partial', reviewerRan: true, findings: findings.length, waiting: extra.waiting ?? [] });
-    return next({ cause: 'review', produced: [entry.id] });
+    const snapshot = path.join(fx.repo.root, '.ambicode', 'task', CHECK_TASK, 'reviews', reviewId, 'snapshot-path.txt');
+    await fx.repo.write(path.relative(fx.repo.root, snapshot), '/tmp/snapshot-x\n');
+    await fx.repo.write(result, JSON.stringify({ ...reviewResult({ kind: 'working', findings }), reviewId, brief: path.join('.ambicode', 'task', CHECK_TASK, 'reviews', reviewId, 'brief.md') }));
+    const entry = await append({ kind: 'review', reviewId, result, status: 'partial', stage, reviewerRan: stage === 'recorded', findings: findings.length, waiting: extra.waiting ?? [] });
+    return next({ cause: stage === 'recorded' ? 'review record' : 'review', produced: [entry.id] });
   };
   return { ...base, dir, start, next, hook, append, synthetic, ledger: () => fx.ledger(CHECK_TASK), kinds: (kind: string) => fx.kinds(CHECK_TASK, kind) };
 }

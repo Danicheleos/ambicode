@@ -6,9 +6,9 @@ import { MAX_COMMAND_OUTPUT_BYTES } from '#types/defaults';
 import type { Git } from '#platform/git/git';
 import { normalizeRelative } from '#util/paths';
 import { adapterFor } from '../selection/adapters.ts';
-import { authorizeCommand, checkApprovalKey, selectorApprovalKey } from '../selection/authorize.ts';
+import { authorizeCommand, checkApprovalKey } from '../selection/authorize.ts';
 import { watchWorkspace } from '../workspace/mutations.ts';
-import { expandFiles, selectionRunsCommand, selectLintFiles, selectorCommandPlan, selectTestFiles } from '../selection/select.ts';
+import { expandFiles, selectLintFiles, selectTestFiles } from '../selection/select.ts';
 import type { ChangedPath, PendingApproval } from '#types/modules/checks';
 import type { Clock, FileSystem, ProcessRunner } from '#types/platform/ports';
 import type { Selection } from '../types/selection.ts';
@@ -65,25 +65,16 @@ export async function runChecks(options: RunChecksOptions): Promise<RunChecksOut
   for (const checkId of checkIds) {
     const check = options.project.checks[checkId];
     const approvalKey = checkApprovalKey(options.project.id, checkId);
-    const selectorKey = selectorApprovalKey(options.project.id, checkId);
 
     if (check === null || check === undefined) {
-      results.push(
-        skipped(checkId, options.project.id, '(none)', 'unconfigured', [
-          'This check is set to null in the configuration, so it is intentionally unavailable.',
-        ]),
-      );
+      results.push(skipped(checkId, options.project.id, '(none)', 'unconfigured', ['This check is set to null in the configuration, so it is intentionally unavailable.']));
       continue;
     }
 
     const adapter = adapterFor(check.adapter);
     const command = options.project.commands[check.command];
     if (command === undefined) {
-      results.push(
-        skipped(checkId, options.project.id, check.command, check.adapter, [
-          `The check references command "${check.command}", which the project does not declare.`,
-        ]),
-      );
+      results.push(skipped(checkId, options.project.id, check.command, check.adapter, [`The check references command "${check.command}", which the project does not declare.`]));
       continue;
     }
 
@@ -94,70 +85,13 @@ export async function runChecks(options: RunChecksOptions): Promise<RunChecksOut
       approvals: options.approvals,
     });
     if (authorization.kind === 'refused') {
-      results.push(
-        skipped(checkId, options.project.id, check.command, check.adapter, [authorization.reason]),
-      );
+      results.push(skipped(checkId, options.project.id, check.command, check.adapter, [authorization.reason]));
       continue;
     }
 
     if (command === null) {
-      results.push(
-        skipped(checkId, options.project.id, check.command, check.adapter, [
-          `Command "${check.command}" is configured as null, so this check has nothing to run. Set its argv to enable it.`,
-        ]),
-      );
+      results.push(skipped(checkId, options.project.id, check.command, check.adapter, [`Command "${check.command}" is configured as null, so this check has nothing to run. Set its argv to enable it.`]));
       continue;
-    }
-
-    // A command selector runs project code, so it is authorized in its own right before selection begins.
-    if (check.selector?.kind === 'command' && options.only === undefined) {
-      const selectorCommandId = check.selector.command;
-      const selectorAuthorization = authorizeCommand({
-        policy: options.policy,
-        commandId: selectorCommandId,
-        approvalKey: selectorKey,
-        approvals: options.approvals,
-      });
-
-      if (selectorAuthorization.kind !== 'allowed') {
-        const plan = selectorCommandPlan({
-          project: options.project,
-          repositoryRoot: options.repositoryRoot,
-          changed: options.changed,
-          commandId: selectorCommandId,
-        });
-
-        const declined = selectorAuthorization.kind === 'needs-approval' && options.declines.has(selectorKey);
-        if (declined) {
-          results.push(
-            skipped(checkId, options.project.id, check.command, check.adapter, [
-              `The selector command "${selectorCommandId}" was not run: ${selectorAuthorization.reason}. A human was asked and declined it.`,
-              'Nothing could be selected, so the check was skipped. This is a gap in verification that somebody chose, not a passing check.',
-            ]),
-          );
-          continue;
-        }
-
-        if (selectorAuthorization.kind === 'needs-approval') {
-          pendingApprovals.push({
-            checkId,
-            approvalKey: selectorKey,
-            projectId: options.project.id,
-            reason: `${selectorAuthorization.reason}, and it selects the files for check "${checkId}"`,
-            scope: `selector for check "${checkId}"`,
-            proposedArgv: plan?.argv ?? [],
-            cwd: plan?.cwd ?? commandCwdFor(absoluteRoot, null),
-          });
-        }
-
-        results.push(
-          skipped(checkId, options.project.id, check.command, check.adapter, [
-            `The selector command "${selectorCommandId}" was not run: ${selectorAuthorization.reason}.`,
-            'Nothing could be selected, so the check was skipped. This is a gap in verification, not a passing check.',
-          ]),
-        );
-        continue;
-      }
     }
 
     const selectOptions = {
@@ -166,22 +100,8 @@ export async function runChecks(options: RunChecksOptions): Promise<RunChecksOut
       check,
       changed: options.changed,
       repositoryRoot: options.repositoryRoot,
-      runner: options.runner,
-      enumerationRevision: options.enumerationRevision,
       maxSelectedTestFiles: options.config.checks.maxSelectedTestFiles,
-      timeoutMs: (command.timeoutSeconds ?? options.config.checks.timeoutSeconds) * 1000,
-      commandArgv: command.argv,
-      authorize: (commandId: string) =>
-        authorizeCommand({
-          policy: options.policy,
-          commandId,
-          approvalKey: selectorKey,
-          approvals: options.approvals,
-        }),
     };
-
-    const selectionExecutes = options.only === undefined && adapter.role !== 'lint' && selectionRunsCommand(check);
-    if (selectionExecutes) await watch.baseline();
 
     const selection: Selection =
       options.only !== undefined
@@ -190,26 +110,19 @@ export async function runChecks(options: RunChecksOptions): Promise<RunChecksOut
           ? selectLintFiles(selectOptions)
           : await selectTestFiles(selectOptions);
 
-    const selectionMutations = selectionExecutes
-      ? await watch.observe(`the selector for check "${checkId}"`)
-      : [];
-
     const commandCwd = commandCwdFor(absoluteRoot, command.cwd ?? null);
     const argv = expandFiles(command.argv, selection.files.map((file) => file.path));
 
     if (selection.files.length === 0) {
-      // An empty selection never becomes a whole-suite command. A selector that moved the tree
-      // before returning nothing is still reported.
+      // An empty selection never becomes a whole-suite command.
       results.push({
         ...skipped(checkId, options.project.id, check.command, check.adapter, [
           selection.complete
             ? 'No file in this change is in scope for this check, so it was not run.'
             : 'No test file could be selected, and the selector could not establish the affected set. This is a gap in verification, not a passing check.',
           ...selection.limitations,
-          ...mutationLimitation(selectionMutations),
         ]),
         selectionComplete: selection.complete,
-        mutations: reportMutations(selectionMutations),
       });
       continue;
     }
@@ -220,42 +133,29 @@ export async function runChecks(options: RunChecksOptions): Promise<RunChecksOut
         selection.approval?.reason ??
         (authorization.kind === 'needs-approval' ? authorization.reason : 'this run needs authorization');
 
-      if (options.declines.has(approvalKey)) {
-        results.push({
-          ...skipped(checkId, options.project.id, check.command, check.adapter, [
-            `Not run: ${reason}. A human was asked and declined this run, so it is a gap in verification that somebody chose.`,
-            ...selection.limitations,
-            ...mutationLimitation(selectionMutations),
-          ]),
-          selected: selection.files,
-          selectionComplete: selection.complete,
-          argv,
+      const declined = options.declines.has(approvalKey);
+      if (!declined) {
+        pendingApprovals.push({
+          checkId,
+          approvalKey,
+          projectId: options.project.id,
+          reason,
+          scope: selection.approval?.scope ?? `${selection.files.length} file(s)`,
+          proposedArgv: argv,
           cwd: commandCwd,
-          mutations: reportMutations(selectionMutations),
         });
-        continue;
       }
-
-      pendingApprovals.push({
-        checkId,
-        approvalKey,
-        projectId: options.project.id,
-        reason,
-        scope: selection.approval?.scope ?? `${selection.files.length} file(s)`,
-        proposedArgv: argv,
-        cwd: commandCwd,
-      });
       results.push({
         ...skipped(checkId, options.project.id, check.command, check.adapter, [
-          `Not run: ${reason}. AMBICODE waits for a human to authorize this specific run.`,
+          declined
+            ? `Not run: ${reason}. A human was asked and declined this run, so it is a gap in verification that somebody chose.`
+            : `Not run: ${reason}. AMBICODE waits for a human to authorize this specific run.`,
           ...selection.limitations,
-          ...mutationLimitation(selectionMutations),
         ]),
         selected: selection.files,
         selectionComplete: selection.complete,
         argv,
         cwd: commandCwd,
-        mutations: reportMutations(selectionMutations),
       });
       continue;
     }
@@ -269,54 +169,43 @@ export async function runChecks(options: RunChecksOptions): Promise<RunChecksOut
       timeoutMs: (command.timeoutSeconds ?? options.config.checks.timeoutSeconds) * 1000,
       maxOutputBytes: MAX_COMMAND_OUTPUT_BYTES,
       env: { kind: 'inherited' },
-      purpose: 'check',
     });
     const durationMs = Math.round(options.clock.elapsed() - started);
 
     const commandMutations = await watch.observe(`the "${check.command}" command`);
-    const mutations = reportMutations(selectionMutations, commandMutations);
+    const mutations = reportMutations(commandMutations);
 
-    // Deduplicated because the selector seeds the adapter's notes too. Both sources stay: a
-    // check that never reached selection still needs them.
     const limitations = [...new Set([...selection.limitations, ...(adapter.limitations ?? [])])];
     if (options.revisionNote !== null) limitations.push(options.revisionNote);
-    limitations.push(...mutationLimitation(selectionMutations, commandMutations));
+    limitations.push(...mutationLimitation(commandMutations));
     if (outcome.truncated) limitations.push('The captured output was truncated at the configured limit.');
+
+    const ran: CheckResult = {
+      ...skipped(checkId, options.project.id, check.command, check.adapter, limitations),
+      selected: selection.files,
+      selectionComplete: selection.complete,
+      argv,
+      cwd: commandCwd,
+      durationMs,
+      mutations,
+    };
 
     if (outcome.kind === 'spawn-failed') {
       const missingBinary = /ENOENT/.test(outcome.failure ?? '');
       results.push({
-        checkId,
-        projectId: options.project.id,
-        commandId: check.command,
-        adapter: check.adapter,
+        ...ran,
         status: missingBinary ? 'skipped' : 'error',
-        selected: selection.files,
-        selectionComplete: selection.complete,
-        argv,
-        cwd: commandCwd,
-        durationMs,
-        exitCode: null,
-        outputRef: null,
         limitations: [
           missingBinary
             ? `The configured executable "${argv[0] ?? ''}" was not found, so this check did not run.`
             : `The check could not be started: ${outcome.failure ?? 'unknown failure'}.`,
           ...limitations,
         ],
-        mutations,
       });
       continue;
     }
 
-    const outputRef = await captureOutput(
-      options.fs,
-      options.reviewDirectory,
-      options.project.id,
-      checkId,
-      outcome.stdout,
-      outcome.stderr,
-    );
+    const outputRef = await captureOutput(options.fs, options.reviewDirectory, options.project.id, checkId, outcome.stdout, outcome.stderr);
 
     // A kill is not automatically an absent result: a complete summary the runner already printed
     // is kept as the verdict. The overrun is still reported and `exitCode` stays null.
@@ -331,21 +220,10 @@ export async function runChecks(options: RunChecksOptions): Promise<RunChecksOut
     }
 
     results.push({
-      checkId,
-      projectId: options.project.id,
-      commandId: check.command,
-      adapter: check.adapter,
-      status:
-        recovered ?? (outcome.kind === 'timed-out' ? 'timed-out' : outcome.exitCode === 0 ? 'passed' : 'failed'),
-      selected: selection.files,
-      selectionComplete: selection.complete,
-      argv,
-      cwd: commandCwd,
-      durationMs,
+      ...ran,
+      status: recovered ?? (outcome.kind === 'timed-out' ? 'timed-out' : outcome.exitCode === 0 ? 'passed' : 'failed'),
       exitCode: outcome.exitCode,
       outputRef,
-      limitations,
-      mutations,
     });
   }
 

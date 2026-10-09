@@ -139,7 +139,6 @@ export const RULES_HANDLERS: Readonly<Record<string, Handler>> = {
       return { state: 'ok', payload: `No pack was applied. The drafts stay in ${DRAFTS_DIR}/ and nothing was deleted; run /ambicode:rules again to apply them.` };
     }
     const table = await input.runtime.fs.readText(path.join(input.dir.steps, 'rules-apply.md')).catch(() => '');
-    const runner = `node "${input.runtime.pluginRoot}/scripts/ambicode.mjs"`;
-    return { state: 'ok', payload: `${table}\nShow this table to the user as it is. Undo one pack only if the user asks: ${runner} rules revert <pack-id>` };
+    return { state: 'ok', payload: `${table}\nShow this table to the user as it is.` };
   },
 };

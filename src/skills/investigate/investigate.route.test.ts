@@ -5,10 +5,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { commandContext } from '#harness/engine/context';
 import { loadPayload } from '#harness/engine/delivery';
-import { ANSWER_FILES_NOTE } from '#harness/engine/execute';
 import { skillHandlers } from '#skills/handlers';
 import { saveNote } from '#modules/evidence/notes';
-import { assembleEngine, CONFIG, routeFixture } from '#testing/fixtures/route-fixture';
+import { assembleEngine, CONFIG, routeFixture , stopRoute } from '#testing/fixtures/route-fixture';
 import { NodeProcessRunner } from '#platform/ports/node-process-runner';
 import { REPO_ROOT } from '#testing/paths';
 import { contentHash, hash12 } from '#util/hash';
@@ -52,18 +51,10 @@ describe('investigate route (03-I1, 03-I2)', () => {
       }
       // The map entry names what the model was shown, by path and by the hash of the exact payload.
       const map = (await fx.kinds('cart', 'map'))[0]!;
-      const delivered = map['delivered'] as { leads: string[]; feature: string[]; operands?: string[]; bytes: number; hash: string };
-      const payload = (await loadPayload(fx.runtime.fs, { steps: path.join(dir, 'steps') } as never, (await fx.kinds('cart', 'route'))[0]!.id, 'map'))!;
-      assert.ok(delivered.leads.includes('src/cart.ts'), JSON.stringify(delivered));
-      assert.equal(delivered.bytes, Buffer.byteLength(payload));
-      const cli = `node "${fx.runtime.pluginRoot}/scripts/ambicode.mjs"`;
-      const ready = payload.split('\n').find((line) => line.startsWith('read: '));
-      assert.ok(ready !== undefined && ready.startsWith(`read: ${cli} read --task cart `), payload);
-      assert.deepEqual(delivered.operands, ready.slice(`read: ${cli} read --task cart `.length).split(' '));
-      assert.ok(delivered.operands![0]!.startsWith('src/cart.ts:1-'), JSON.stringify(delivered.operands));
-      assert.ok(first.text.includes(ready), 'the model is handed the line with the real cli path and task');
-      assert.equal(delivered.hash, hash12(contentHash(payload.replace(`${cli} read --task cart`, '{cli} read --task {task}'))));
-      assert.equal(map['serialized'], map['candidates']);
+            const payload = (await loadPayload(fx.runtime.fs, { steps: path.join(dir, 'steps') } as never, (await fx.kinds('cart', 'route'))[0]!.id, 'map'))!;
+      assert.ok(payload.includes('src/cart.ts'), payload);
+      assert.equal(map['bytes'], Buffer.byteLength(payload));
+      assert.ok(first.text.includes(payload.split("\n")[0]!), "the model is handed the map payload");
     } finally {
       await fx.dispose();
     }
@@ -95,28 +86,12 @@ describe('investigate route (03-I1, 03-I2)', () => {
     }
   });
 
-  it('D6: the answer step states the Files rules once, within 300 B, and its delivered entry counts them', async () => {
-    const { fx, start, rows } = await investigation();
-    try {
-      const first = await start();
-      assert.equal(first.text.split(ANSWER_FILES_NOTE).length - 1, 1);
-      assert.match(ANSWER_FILES_NOTE, /same change as <a path this route read>/);
-      assert.ok(Buffer.byteLength(ANSWER_FILES_NOTE) <= 300, `${Buffer.byteLength(ANSWER_FILES_NOTE)} B`);
-      const delivered = (await fx.kinds('cart', 'step')).find((entry) => entry['step'] === 'read' && entry['status'] === 'delivered');
-      assert.ok(Number(delivered?.['payloadBytes']) >= Buffer.byteLength(ANSWER_FILES_NOTE));
-      assert.ok((await rows()).includes('read:delivered'));
-    } finally {
-      await fx.dispose();
-    }
-  });
-
   it('03-I1: a nothing-matched map raises the scope gate, and a free-text answer revises ground with that term', async () => {
     const { fx, start, next, rows } = await investigation();
     try {
       const first = await start({ text: 'zzqqxx wwvvuu' });
       assert.equal(first.position, 'scope');
       assert.match(first.text, /Nothing matched the request/);
-      assert.ok(!first.text.includes(ANSWER_FILES_NOTE), 'a gate delivery carries no answer note');
       const second = await next({ answers: [{ gate: 'scope', option: 'addToCart' }] });
       assert.equal(second.position, 'read');
       assert.match(second.text, /src\/cart\.ts/);
@@ -184,42 +159,6 @@ describe('reopen: typing the skill again continues a finished route', () => {
   const bare = (t: Fixture, input: Partial<StartInput> = {}) =>
     t.fx.engine.start({ skill: 'investigate', text: 'how does addToCart work', requirements: [], cwd: t.fx.repo.root, session: A, channel: 'hook', scratchpadDir: t.fx.scratchpad, ...input });
 
-  it('with more context the map reruns, the args merge and the finished chain is reopened', async () => {
-    const t = await investigation();
-    try {
-      const first = await t.start();
-      await finish(t, first);
-      assert.equal(await maps(t), 1);
-      const again = await t.start({ text: 'and where checkout calls it' });
-      assert.equal(again.position, 'read');
-      assert.equal(await maps(t), 2);
-      const revise = (await t.fx.kinds('cart', 'revise')).at(-1)!;
-      assert.equal(revise['via'], 'reopen');
-      assert.equal(revise['route'], first.routeId);
-      const routes = await t.fx.kinds('cart', 'route');
-      assert.equal(routes.length, 2);
-      assert.equal(routes[1]!['resumes'], first.routeId);
-      assert.equal(routes[1]!['reopens'], first.routeId);
-      assert.equal((routes[1]!['args'] as { text: string }).text, 'how does addToCart work and where checkout calls it');
-    } finally {
-      await t.fx.dispose();
-    }
-  });
-
-  it('a pause at the scope question is continued by typing the skill again with the missing context', async () => {
-    const t = await investigation();
-    try {
-      await t.start({ text: 'zzqqxx wwvvuu' });
-      await t.next({ answers: [{ gate: 'scope', option: 'pause' }] });
-      const again = await t.start({ text: 'addToCart in src/cart.ts' });
-      assert.equal(again.position, 'read');
-      assert.equal((await t.fx.kinds('cart', 'revise')).at(-1)?.['via'], 'reopen');
-      assert.equal((await t.fx.kinds('cart', 'route')).at(-1)?.['reopens'], undefined);
-    } finally {
-      await t.fx.dispose();
-    }
-  });
-
   it('the scope question tells how to come back with more context', async () => {
     const t = await investigation();
     try {
@@ -257,35 +196,11 @@ describe('reopen: typing the skill again continues a finished route', () => {
     }
   });
 
-  it('order: by slug another session continues a finished route only after its session ended or with --adopt, else it starts a new one', async () => {
-    for (const how of ['none', 'session-end', 'adopt'] as const) {
-      const t = await investigation();
-      try {
-        const first = await bare(t, { text: 'addToCart work again now soon' });
-        await finish(t, first);
-        if (how === 'session-end') {
-          const file = path.join(t.fx.repo.root, '.ambicode', 'task', first.task, 'ledger.jsonl');
-          await writeFile(file, `${await readFile(file, 'utf8')}${JSON.stringify({ id: 'aaaaaaaa-900', at: '2026-10-05T09:00:00.000Z', kind: 'session', route: first.routeId, harnessSession: A, event: 'end', reason: 'exit' })}\n`);
-        }
-        await bare(t, { session: B, harnessSession: B, text: 'addToCart work again now soon plus context', ...(how === 'adopt' ? { adopt: true } : {}) });
-        const revises = (await t.fx.kinds(first.task, 'revise')).filter((entry) => entry['via'] === 'reopen');
-        assert.equal(revises.length, how === 'none' ? 0 : 1, how);
-        if (how !== 'none') assert.equal(revises[0]!['source'], how);
-        if (how === 'none') continue;
-        assert.equal((await t.fx.kinds(first.task, 'route')).at(-1)?.['session'], B);
-        assert.equal((await t.fx.kinds(first.task, 'route')).at(-1)?.['resumes'], first.routeId);
-      } finally {
-        await t.fx.dispose();
-      }
-    }
-  });
-
-  it('--fresh starts a new route and does not reopen', async () => {
+  it('--fresh starts a new route', async () => {
     const t = await investigation();
     try {
       await finish(t, await t.start());
       await t.start({ fresh: true });
-      assert.equal((await t.fx.kinds('cart', 'revise')).filter((entry) => entry['via'] === 'reopen').length, 0);
       assert.equal((await t.fx.kinds('cart', 'route')).at(-1)?.['resumes'], undefined);
     } finally {
       await t.fx.dispose();
@@ -293,22 +208,18 @@ describe('reopen: typing the skill again continues a finished route', () => {
   });
 });
 
-describe('--fresh supersedes only its own session\'s routes and those of ended sessions', () => {
-  const setup = async (ended: boolean) => {
+describe('--fresh supersedes only its own session\'s routes', () => {
+  const setup = async () => {
     const t = await investigation();
     const mine = await t.start({ text: 'first question' });
     const theirs = await t.start({ session: B, harnessSession: B, text: 'second question entirely' });
-    if (ended) {
-      const file = path.join(t.fx.repo.root, '.ambicode', 'task', 'cart', 'ledger.jsonl');
-      await writeFile(file, `${await readFile(file, 'utf8')}${JSON.stringify({ id: 'aaaaaaaa-901', at: '2026-10-05T09:00:00.000Z', kind: 'session', route: theirs.routeId, harnessSession: B, event: 'end', reason: 'exit' })}\n`);
-    }
     await t.start({ text: 'third question', fresh: true });
     const exits = (await t.fx.kinds('cart', 'exit')).map((entry) => `${entry['route']}:${entry['reason']}`);
     return { t, mine, theirs, exits };
   };
 
   it('another live session\'s route stays live', async () => {
-    const { t, mine, exits } = await setup(false);
+    const { t, mine, exits } = await setup();
     try {
       assert.deepEqual(exits, [`${mine.routeId}:superseded`]);
     } finally {
@@ -316,14 +227,6 @@ describe('--fresh supersedes only its own session\'s routes and those of ended s
     }
   });
 
-  it('a route whose session ended is superseded', async () => {
-    const { t, mine, theirs, exits } = await setup(true);
-    try {
-      assert.deepEqual(exits, [`${mine.routeId}:superseded`, `${theirs.routeId}:superseded`]);
-    } finally {
-      await t.fx.dispose();
-    }
-  });
 });
 
 async function materialized(): Promise<string> {
@@ -396,7 +299,7 @@ describe('investigate route: tasks and chains on one repository', () => {
       await start({ task: 'first' });
       await start({ task: 'second' });
       assert.equal((await fx.pointer.read(A, fx.scratchpad))?.task, 'second');
-      await fx.engine.stop('second', A, 'blocked', undefined, fx.scratchpad);
+      await stopRoute(fx, 'second', A, 'blocked');
       await start({ task: 'third' });
       assert.equal((await fx.pointer.read(A, fx.scratchpad))?.task, 'third');
     } finally {

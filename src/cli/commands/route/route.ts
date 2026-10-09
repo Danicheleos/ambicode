@@ -3,7 +3,6 @@ import { chainKey, loadPayload } from '#harness/engine/delivery';
 import { readEntries } from '#harness/engine/context';
 import { buildChain, latestRouteOf } from '#harness/engine/fold';
 import { parseAnswerFlag } from '#harness/definition/flags';
-import { metricsIgnoreWarning } from '#skills/review/handlers';
 import { cliHarnessPort, sessionUnbound, taskSessionSource } from '#harness/session/session';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { taskSlugFor } from '#modules/review/bundle/review-name';
@@ -11,17 +10,14 @@ import { AmbicodeError } from '#util/errors';
 import { contentHash } from '#util/hash';
 import { startTarget } from '#composition/start';
 import type { Runtime } from '#types/composition';
-import type { Position, StepMessage, ReviewTargetArgs, SessionBinding } from '#types/harness';
+import { EXITS } from '#types/harness';
+import type { Exit, StepMessage, ReviewTargetArgs, SessionBinding } from '#types/harness';
 import type { ParsedArgs, RouteTools, CliCommand } from '../../types/cli.ts';
 import { ROUTE_START_OPTIONS } from '#types/cli';
 
 export { startTarget };
 
 export const ROUTE_NEXT_OPTIONS = { values: ['task', 'default', 'revise', 'conflict', 'sources', 'project', 'show'], repeated: ['answer'], flags: ['json'] } as const;
-
-export const ROUTE_STATUS_OPTIONS = { values: ['task'], flags: ['json'] } as const;
-
-export const ROUTE_STOP_OPTIONS = { values: ['task', 'reason', 'detail'], flags: ['json'] } as const;
 
 /** The engine over the shipped routes; `binding` is the owner of the named task's one live route, unbound when there is none to name. */
 export async function routeTools(runtime: Runtime, task: string | null): Promise<RouteTools> {
@@ -72,8 +68,7 @@ export async function runRouteStart(runtime: Runtime, args: ParsedArgs): Promise
     session,
     channel,
   });
-  const warning = await metricsIgnoreWarning(runtime, skill);
-  return { command: 'route start', ...message, ...(warning === null ? {} : { text: `${message.text}\n${warning}` }) };
+  return { command: 'route start', ...message };
 }
 
 export async function runRouteNext(runtime: Runtime, args: ParsedArgs): Promise<RouteOutput> {
@@ -108,52 +103,11 @@ async function shownPayload(runtime: Runtime, task: string, session: string, key
   return head === null ? null : loadPayload(runtime.fs, await resolveTaskDir(runtime, task), chainKey([...buildChain(entries, head).ids]), key);
 }
 
-interface RouteStatusOutput { command: 'route status'; task: string; routes: Position[] }
-
-export async function runRouteStatus(runtime: Runtime, args: ParsedArgs): Promise<RouteStatusOutput> {
-  const task = taskOf('route status', args);
-  const { engine } = await routeTools(runtime, null);
-  return { command: 'route status', task, routes: await engine.status(task, null) };
-}
-
-interface RouteStopOutput { command: 'route stop'; task: string; reason: string }
-
-export async function runRouteStop(runtime: Runtime, args: ParsedArgs): Promise<RouteStopOutput> {
-  const task = taskOf('route stop', args);
-  const reason = args.value('reason');
-  if (reason === null || !['blocked', 'human', 'inconclusive', 'budget'].includes(reason)) {
-    throw new AmbicodeError('bad-argument', '"route stop" needs --reason blocked|human|inconclusive|budget.', { field: 'reason' });
-  }
-  const { engine, binding } = await routeTools(runtime, task);
-  const detail = args.value('detail');
-  await engine.stop(task, ownerFor(binding, task), reason as 'blocked', detail ?? undefined);
-  return { command: 'route stop', task, reason };
-}
-
 export const renderMessage = (output: RouteOutput): string => (output.extra === undefined ? output.text : `${output.text}\n\n${output.extra}`);
-
-export function renderRouteStatus(output: RouteStatusOutput): string {
-  if (output.routes.length === 0) return `No route is open on task ${output.task}.`;
-  return output.routes
-    .map((route) => {
-      const lines = [
-        `Route ${route.routeId} (${route.skill}) at ${route.position}; sessions: ${route.sessions.map((entry) => `${entry.session}${entry.adopts ? ' (adopted)' : ''}`).join(', ')}`,
-        `  mode: ${route.mode}; channel: ${route.channel}`,
-        ...route.decisions.map((entry) => (entry.kind === 'default-taken' ? `  default taken: ${entry['gate']} = ${entry['answer']}` : `  automatic revise: ${entry['from']} (${entry['reason']})`)),
-        ...(route.owner === null || route.owner.state !== 'owned' ? [] : [`  owner: ${route.owner.session}`]),
-        ...route.steps.map((step) => `  ${step.state.padEnd(8)} ${step.id}`),
-        `  cycles ${route.cycles}; repeats left ${JSON.stringify(route.repeatsLeft)}; revises left ${JSON.stringify(route.revisesLeft)}`,
-        ...route.limits.map((limit) => `  limit: ${limit['which']}${typeof limit['step'] === 'string' ? ` at ${limit['step']}` : ''}`),
-        ...route.maps.map((map) => `  map ${map.id}: ${map.layers.map((layer) => (layer as { name?: string }).name).join(' → ')}`),
-        ...(route.orphans.length === 0 ? [] : [`  files no entry names: ${route.orphans.join(', ')}`]),
-      ];
-      return lines.join('\n');
-    })
-    .join('\n');
-}
 
 export const routeStartCommand: CliCommand = {
   name: 'route start',
+  summary: "Start a skill's route and print its first step: route start <skill> [request].",
   options: ROUTE_START_OPTIONS,
   run: async (runtime, args) => {
     const output = await runRouteStart(runtime, args);
@@ -163,6 +117,7 @@ export const routeStartCommand: CliCommand = {
 
 export const routeNextCommand: CliCommand = {
   name: 'route next',
+  summary: 'End the current step and print the next one (--task).',
   options: ROUTE_NEXT_OPTIONS,
   run: async (runtime, args) => {
     const output = await runRouteNext(runtime, args);
@@ -170,20 +125,20 @@ export const routeNextCommand: CliCommand = {
   },
 };
 
-export const routeStatusCommand: CliCommand = {
-  name: 'route status',
-  options: ROUTE_STATUS_OPTIONS,
-  run: async (runtime, args) => {
-    const output = await runRouteStatus(runtime, args);
-    return { text: renderRouteStatus(output), data: output };
-  },
-};
+export const ROUTE_STOP_OPTIONS = { values: ['task', 'reason', 'detail'], flags: ['json'] } as const;
+const STOP_REASONS: readonly Exit[] = ['blocked', 'human', 'inconclusive'];
 
 export const routeStopCommand: CliCommand = {
   name: 'route stop',
+  summary: 'End the current route without finishing it: route stop --task <slug> --reason blocked|human|inconclusive [--detail …].',
   options: ROUTE_STOP_OPTIONS,
   run: async (runtime, args) => {
-    const output = await runRouteStop(runtime, args);
-    return { text: `Route on task ${output.task} stopped: ${output.reason}.`, data: output };
+    const task = taskOf('route stop', args);
+    const reason = EXITS.find((exit) => exit === args.value('reason'));
+    if (reason === undefined || !STOP_REASONS.includes(reason)) throw new AmbicodeError('bad-argument', `--reason is one of ${STOP_REASONS.join(', ')}.`, { field: 'reason' });
+    const { engine, binding } = await routeTools(runtime, task);
+    const detail = args.value('detail') ?? undefined;
+    await engine.stop(task, ownerFor(binding, task), reason, detail);
+    return { text: `Route on ${task} stopped: ${reason}.`, data: { command: 'route stop', task, reason, ...(detail === undefined ? {} : { detail }) } };
   },
 };

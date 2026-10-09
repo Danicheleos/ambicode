@@ -1,52 +1,33 @@
 # Reviewing a merge request
 
 ```sh
-node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" review --mr https://gitlab.example.com/group/sub/project/-/merge_requests/42
+node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" route start review --mr https://gitlab.example.com/group/sub/project/-/merge_requests/42
 ```
 
-Pass the URL the user gave you, in full. AMBICODE takes the host, the project
-path and the merge request number from it, and asks that host through `glab`.
-Do not shorten it to a number, and do not assume the merge request belongs to
-the repository the user happens to be standing in — it often does not.
+Pass the URL the user gave you, in full. AMBICODE has no GitLab client: the
+merge request comes through the GitLab MCP server you already have.
 
-- **Your checkout is not touched.** No fetch, no checkout, no stash, no index
-  write. A dirty working tree is irrelevant; the review is about the merge
-  request, not about what is on disk.
-- **The revision is pinned.** The result names the diff version and its base,
-  start and head SHAs. If the merge request is pushed to afterwards, the result
-  still describes the revision that was reviewed. Say so if the user asks
-  whether it is current.
+- **Fetched through MCP.** The route prints two calls: `get_merge_request` and
+  the diff tool of your server, with the project and number taken from the URL.
+  Make both, every page of the diff, and keep the results whole.
+- **What the capture keeps.** When the diff response arrives, a hook writes the
+  diff to `reviews/mr-diff.patch` beside `mr-diff.json` (url, head sha, tool,
+  hash) and one `capture` ledger entry. Nothing else is recorded. Without a
+  capture, `review` refuses with `mr-diff-missing`: make the diff call, then
+  `route next`.
+- **File content.** It is read from git only when the merge request's head sha
+  exists in this checkout. Otherwise part 4 says the reviewer saw the diff only.
+  Your checkout is never fetched, switched or modified.
+- **Nothing executed.** Merge request code does not run here; checks are
+  skipped, and the change's test files leave the review (`--with-tests` keeps
+  them). Gaps, not passes.
 
-Report these when they appear:
+## Publishing
 
-- **Omissions from GitLab.** A file GitLab marked too large or collapsed is
-  listed in part 4 and its change was *not* reviewed. Never summarize a capped
-  diff as if the whole change was seen.
-- **Fork merge requests.** New file content comes from the source project. If
-  that fork is not readable, the affected files are omissions.
-- **Existing discussions.** The reviewer is shown prior threads as untrusted
-  evidence, so it repeats fewer points. A resolved thread is not proof the
-  defect is gone; if the user asks whether an old comment was addressed, that
-  is a question for the diff, not for the thread.
-- **Nothing executed, and the tests went unread.** Merge request code never
-  runs in the user's checkout: without a digest-pinned image every executable
-  check is skipped with its reason, and for the same reason the change's test
-  files leave the review — `--with-tests` keeps them. Gaps, not passes.
-
-## Publishing selected comments
-
-`ambicode review`'s output always includes the exact command to open the
-review for publication:
-
-```sh
-node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" view --review <review-id>
-```
-
-After a merge request review that produced findings, **run it yourself, in the
-background, without asking** — it starts a local page on `127.0.0.1`, opens the
-user's browser at it, and then keeps serving, so a foreground run would block
-until the page times out. Report the printed URL whole, as a markdown link,
-not a code span; the bare address carries no session. It works in any browser
-until the page idles out; after that run the command again. There is no
-slash skill for it. A local or branch review has nothing to publish,
-so do not start a page for one.
+After the read-back the route lists the findings as `n. path:line — comment` and
+asks "Post which findings as merge-request comments?" with `all`, `none`, or a
+number list as free text. `none` is the default and ends the route. Posting is
+**your action after the user's answer**: one discussion per selected finding
+through your GitLab MCP server, body the suggested comment, position the new
+path and line. Post nothing else. AMBICODE records the answer; it does not post
+and does not verify that you did.

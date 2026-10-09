@@ -2,8 +2,7 @@
 // (see guard.ts). Files are read by the injected `GuardState`, never from here.
 import { ownerOfHarness } from '#harness/session/harness';
 import { ownerOf } from '#modules/evidence/ownership';
-import { basename, type Directories, parseCommand, type Segment } from '../shell/command-parser.ts';
-import type { LedgerEntry } from '#types/modules/evidence';
+import { basename, parseCommand, type Segment } from '../shell/command-parser.ts';
 import type { ActiveRoute, GuardInput, GuardState } from '../types/guard.ts';
 
 type Decision = Record<string, unknown>;
@@ -24,7 +23,9 @@ function isAbsolute(file: string): boolean {
 /** A word quoted in a reason, cut so a pathological command cannot make the reason megabytes long. */
 const shown = (word: string): string => (word.length > 120 ? `${word.slice(0, 120)}…` : word);
 
-/** Lexical: `.` and `..` resolved, `\` read as `/`, relative paths joined to `base` when one is known. */
+
+/** Lexical: `.` and `..` resolved, `\` read as `/`, a relative path joined to `base` when one is known. */
+
 function normalize(file: string, base?: string): string {
   let text = file.replace(/\\/g, '/');
   if (base !== undefined && !isAbsolute(text)) text = `${base.replace(/\\/g, '/')}/${text}`;
@@ -71,14 +72,6 @@ const commandName = (segment: Segment): string => basename(segment.argv[0] ?? ''
 const unknownName = (segment: Segment): boolean => segment.opaque[0] === true && /[$`]/.test(commandName(segment));
 const UNKNOWN_GIT = 'git ?';
 
-/** `R='node …/ambicode.mjs read'; $R a.ts`: the variable an expanded command name reads, when this command assigns it our CLI. */
-function aliasedCli(segment: Segment, command: string): string | null {
-  const name = /^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$/.exec(segment.argv[0] ?? '')?.[1];
-  if (name === undefined) return null;
-  const assigned = new RegExp(`(?:^|[\\s;&|(])${name}=(?:'[^']*|"[^"]*|(?:\\\\.|\\S)*?)ambicode\\.mjs`).test(command);
-  return assigned ? name : null;
-}
-
 /** The state-changing operation a git command runs; `UNKNOWN_GIT` when only the shell or an alias says which. */
 function gitOperation(segment: Segment): string | null {
   const { argv, opaque } = segment;
@@ -107,99 +100,6 @@ function gitOperation(segment: Segment): string | null {
   return null;
 }
 
-// More distinct directories than any real command leaves open is one the shell alone can place.
-const MAX_PLACES = 16;
-
-/**
- * Every directory a path may be resolved in: `cwd` moved by each change, where a change that may not happen
- * (`maybe`) is taken both ways. `null`: only the shell knows; `undefined`: the hook gave no cwd.
- */
-function placesOf(directories: Directories, cwd: string | undefined): (string | null | undefined)[] {
-  let places: (string | null | undefined)[] = [cwd];
-  for (const move of directories) {
-    if (move === null) {
-      places = [null];
-      continue;
-    }
-    const to = typeof move === 'string' ? move : move.maybe;
-    const moved = places.map((base) => (isAbsolute(to) ? normalize(to) : base === null ? null : normalize(to, base)));
-    places = [...new Set(typeof move === 'string' ? moved : [...places, ...moved])];
-    if (places.length > MAX_PLACES) places = [null];
-  }
-  return places;
-}
-
-// More brace alternatives than any real command writes to are taken to reach anywhere.
-const MAX_EXPANSIONS = 64;
-
-/** The words a brace pattern expands to, `{a..z}` sequences kept as `*`; `null` past `MAX_EXPANSIONS`. */
-function braces(text: string): string[] | null {
-  const open = text.indexOf('{');
-  if (open === -1) return [text];
-  let depth = 0;
-  const commas: number[] = [];
-  let close = -1;
-  for (let at = open; at < text.length && close === -1; at++) {
-    if (text[at] === '{') depth++;
-    else if (text[at] === '}' && --depth === 0) close = at;
-    else if (text[at] === ',' && depth === 1) commas.push(at);
-  }
-  if (close === -1) return [text];
-  const body = text.slice(open + 1, close);
-  const alternatives =
-    commas.length > 0 ? [open, ...commas].map((from, index) => text.slice(from + 1, [...commas, close][index])) : body.includes('..') ? ['*'] : null;
-  const rest = braces(text.slice(close + 1));
-  if (rest === null) return null;
-  const heads = alternatives === null ? [`${text.slice(0, close + 1)}`] : alternatives.flatMap((alternative) => braces(text.slice(0, open) + alternative) ?? ['*']);
-  if (heads.length * rest.length > MAX_EXPANSIONS) return null;
-  return heads.flatMap((head) => rest.map((tail) => head + tail));
-}
-
-/** Whether a glob component can match `name`, a dot at its start included (`dotglob`, `GLOB_DOTS`). */
-function globMatches(glob: string, name: string): boolean {
-  let source = '';
-  for (let at = 0; at < glob.length; at++) {
-    const c = glob[at]!;
-    if (c === '*') source += '.*';
-    else if (c === '?') source += '.';
-    else if (c === '[') {
-      const close = glob.indexOf(']', at + 2);
-      if (close === -1) source += '\\[';
-      else {
-        source += `[${glob.slice(at + 1, close).replace(/^[!^]/, '^').replace(/[\\\]]/g, '\\$&')}]`;
-        at = close;
-      }
-    } else source += c.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
-  }
-  try {
-    return new RegExp(`^${source}$`).test(name);
-  } catch {
-    return true;
-  }
-}
-
-/**
- * Where a glob or brace pattern resolved from `base` writes. Every brace alternative is written (zsh), so one in
- * the task directory is `task`; a glob that can match a path there is `unknown`, as only the shell knows the matches.
- */
-function patternPlace(pattern: string, base: string | undefined): 'task' | 'outside' | 'unknown' {
-  const words = braces(pattern);
-  if (words === null) return 'unknown';
-  let place: 'outside' | 'unknown' = 'outside';
-  for (const word of words) {
-    const path = normalize(word, base);
-    if (!/[*?[]/.test(word)) {
-      if (TASK_DIR.test(path)) return 'task';
-      continue;
-    }
-    const parts = path.split('/');
-    if (parts.some((part) => part.includes('**')) || parts.some((part, at) => at + 1 < parts.length && globMatches(part, '.ambicode') && globMatches(parts[at + 1]!, 'task'))) {
-      place = 'unknown';
-    }
-  }
-  return place;
-}
-
 function recursive(segment: Segment): boolean {
   for (const [at, word] of segment.argv.entries()) {
     if (at === 0 || segment.opaque[at]) continue;
@@ -213,53 +113,42 @@ function contains(directory: string, inner: string): boolean {
   return inner === directory || inner.startsWith(directory.endsWith('/') ? directory : `${directory}/`);
 }
 
-/**
- * `rm -r` on the directory the command runs in or the session's own, an ancestor of either, `/` or home, in any
- * directory it may run in. `undefined` base: unknown cwd.
- */
+/** `rm -r` of the directory the command runs in, an ancestor of it, `/`, home or `*`. `cwd` is undefined when the hook gave none. */
 function removesRoot(segment: Segment, cwd: string | undefined): string | null {
   if (!recursive(segment)) return null;
   for (const target of segment.writeTargets) {
     if (target.opaque) continue;
-    if (['/', '~', '~/', '*', './*'].includes(target.path)) return target.path;
-    for (const base of placesOf(target.directories, cwd)) {
-      if (typeof base !== 'string') {
-        if (base === undefined && /^\.\.?(?:\/|$)/.test(normalize(target.path))) return target.path;
-        if (base === null && cwd !== undefined && isAbsolute(target.path) && contains(normalize(target.path), normalize(cwd))) return target.path;
-        continue;
-      }
-      const resolved = normalize(target.path, base);
-      if (contains(resolved, normalize(base)) || (cwd !== undefined && contains(resolved, normalize(cwd)))) return target.path;
-      if (!isAbsolute(base) && /^\.\.?(?:\/|$)/.test(resolved)) return target.path;
-    }
+    const here = normalize(target.path);
+    if (['/', '~', '~/', '*', './*'].includes(target.path) || /^\.\.?(?:\/|$)/.test(here)) return target.path;
+    if (cwd !== undefined && contains(normalize(target.path, cwd), normalize(cwd))) return target.path;
   }
   return null;
 }
 
+// Expansions are not parsed, so a command nested in one is matched by its text.
+const NESTED = /\$\(|`|<\(/;
+const DANGEROUS = /\bgit\s+(?:\S+\s+)*?(?:commit|push|stash|reset|checkout|clean|rebase|merge|branch)\b|\bglab\s+mr\b|\.ambicode\/task|\brm\s+-\w*[rR]/;
+const NESTED_REASON = 'AMBICODE: cannot read a command inside $(...) or backticks; approve only if you asked for it.';
+
+const DIRECTORY_CHANGE = new Set(['cd', 'pushd', 'popd']);
+
 /**
  * Per segment: git/glab state changes and `rm -r` of the root ask; a literal write target under the task directory
- * denies; a target only the shell can resolve asks, never denies (G14), and so does a command not wholly analysed.
- * Heredoc bodies were never tokenised, so a `note save` body is not inspected (M12). Each target is resolved in the
- * directory its own scope runs in.
+ * denies; a target only the shell can resolve asks, never denies (G14). Directories are not tracked, so a relative
+ * target after a `cd` in the same command is not provably outside the task directory and asks. Heredoc bodies are
+ * never tokenised, so a `note save` body is not inspected (M12).
  */
-function bashDecision(command: string, cwd: string | undefined, pluginRoot: string, bsdSed: boolean, cdpath: boolean): Decision {
+function bashDecision(command: string, cwd: string | undefined, pluginRoot: string): Decision {
   const asks = new Set<string>();
-  const segments = parseCommand(command, { bsdSed, cdpath });
-  const analysed = !segments.some((segment) => segment.unparsed);
+  const segments = parseCommand(command);
+  let moved = false;
   for (const segment of segments) {
     if (segment.unparsed) {
-      asks.add(`AMBICODE: cannot tell what this runs: part of the command is read differently by bash and zsh, or is beyond what the guard parses. ${USER_DECIDES}`);
+      if (/\.ambicode\/task|git/.test(segment.raw)) asks.add(`AMBICODE: cannot tell what this runs: part of the command is not closed or is beyond what the guard parses. ${USER_DECIDES}`);
       continue;
     }
+    if (segment.argv.some((word, at) => segment.opaque[at] && NESTED.test(word) && DANGEROUS.test(word))) asks.add(NESTED_REASON);
     const name = commandName(segment);
-    const alias = unknownName(segment) ? aliasedCli(segment, command) : null;
-    if (alias !== null) {
-      return decide(
-        'deny',
-        `AMBICODE: write the plugin's command out in full on every call, \`node "${pluginRoot}/scripts/ambicode.mjs" …\`, not through \`$${alias}\`. ` +
-          'zsh does not split a variable into words, so the shell would look for a command named after the whole string, and the guard cannot check it.',
-      );
-    }
     if (unknownName(segment)) asks.add(`AMBICODE: cannot tell what this runs: \`${shown(segment.argv[0]!)}\` names a command only when the shell expands it. ${USER_DECIDES}`);
     if (name === 'git') {
       const operation = gitOperation(segment);
@@ -272,25 +161,23 @@ function bashDecision(command: string, cwd: string | undefined, pluginRoot: stri
       if (root !== null) asks.add(`AMBICODE: \`rm -r ${root}\` deletes the working directory or everything above it. ${USER_DECIDES}`);
     }
     for (const target of segment.writeTargets) {
-      const places = placesOf(target.directories, cwd).map((base) => {
-        if (base === null && !isAbsolute(target.path)) return 'unknown';
-        if (target.pattern) return patternPlace(target.path, base ?? undefined);
-        return TASK_DIR.test(normalize(target.path, base ?? undefined)) ? 'task' : 'outside';
-      });
-      if (target.opaque || places.includes('unknown')) {
+      const path = normalize(target.path, cwd);
+      if (target.opaque) {
         asks.add(`AMBICODE: cannot tell where this writes: \`${shown(target.path)}\` is resolved only when the shell runs it. ${USER_DECIDES}`);
-      } else if (places.every((place) => place === 'task')) {
-        const body = placesOf(target.directories, cwd).map((base) => PLAN_BODY.exec(normalize(target.path, base ?? undefined))?.[2] ?? null);
-        const reason = body.every((slug) => slug !== null && slug === body[0]) ? planBodyReason(pluginRoot, body[0]!) : noteSaveReason(pluginRoot);
-        if (analysed) return decide('deny', reason);
+      } else if (TASK_DIR.test(path)) {
+        const slug = PLAN_BODY.exec(path)?.[2];
+        const reason = slug === undefined ? noteSaveReason(pluginRoot) : planBodyReason(pluginRoot, slug);
+        if (!segments.some((other) => other.unparsed)) return decide('deny', reason);
         asks.add(reason);
-      } else if (places.includes('task')) {
-        asks.add(`AMBICODE: cannot tell where this writes: \`${shown(target.path)}\` is in the task directory only if an earlier directory change did or did not happen. ${USER_DECIDES}`);
+      } else if (moved && !isAbsolute(target.path)) {
+        asks.add(`AMBICODE: cannot tell where this writes: \`${shown(target.path)}\` is relative to a directory an earlier \`cd\` changed. ${USER_DECIDES}`);
       }
     }
+    if (DIRECTORY_CHANGE.has(name)) moved = true;
   }
   return asks.size === 0 ? {} : decide('ask', [...asks].join(' '));
 }
+
 
 const nonEmpty = (value: unknown): string | null => (typeof value === 'string' && value !== '' ? value : null);
 
@@ -344,132 +231,11 @@ function fileDecision(input: GuardInput, state: GuardState | undefined, pluginRo
       return decide(
         'deny',
         'AMBICODE: an init route is active, and init writes .ambicode/config.yaml and its .gitignore lines itself when ' +
-          'the user accepts the proposal (`init --apply --set …`). Answer the init gate instead of editing the file.',
+          'the user accepts the proposal (`init --apply`). Answer the init gate instead of editing the file.',
       );
     }
   }
   return {};
-}
-
-const TASK_COMMANDS = new Set(['route next', 'route status', 'route stop', 'report', 'note save', 'note promote', 'note list', 'read', 'map', 'refs', 'find', 'relates']);
-const PLAIN_COMMAND = /^[^|;&<>\n`$()\\'"]*$/;
-const SLUG = /^[\w.-]+$/;
-
-/** Platform contract: a PreToolUse hook answering `permissionDecision: 'allow'` with `updatedInput` runs the changed input. */
-export const PLATFORM = { updatedInput: true };
-
-/** The command with `--task <active task>` appended when it is one plain ambicode.mjs route command that names no task. */
-function withTask(command: string, task: string): string | null {
-  const match = /^[ \t]*node[ \t]+("[\w/.~ -]*ambicode\.mjs"|'[\w/.~ -]*ambicode\.mjs'|[\w/.~-]*ambicode\.mjs)[ \t]+(.*)$/.exec(command);
-  if (match === null || !SLUG.test(task) || !PLAIN_COMMAND.test(match[2]!)) return null;
-  const rest = match[2]!.trim().split(/\s+/);
-  const name = rest.slice(0, rest[0] === 'route' || rest[0] === 'note' ? 2 : 1).join(' ');
-  if (!TASK_COMMANDS.has(name) || rest.some((word) => word === '--task' || word.startsWith('--task='))) return null;
-  return `${command.trim()} --task ${task}`;
-}
-
-// 16 of 60 investigate runs (05_0035) typed `R="node …ambicode.mjs"; $R read …`; a wording fix left 4 of 20 (06_1010).
-const CLI_VARIABLE = /(?:^|[\s;&|(])([A-Za-z_]\w*)=(?:"([\w@%+=:,./ -]*ambicode\.mjs[\w@%+=:,./ -]*)"|'([\w@%+=:,./ -]*ambicode\.mjs[\w@%+=:,./ -]*)'|([\w@%+=:,./-]*ambicode\.mjs))(?=[\s;&|)]|$)/g;
-
-/** The command with a variable holding the plugin's CLI replaced by its text where it names the command; null when there is none. */
-function inlineCliVariable(input: GuardInput): { name: string; input: GuardInput } | null {
-  const command = input.tool_input?.command;
-  if (input.hook_event_name !== 'PreToolUse' || input.tool_name !== 'Bash' || typeof command !== 'string') return null;
-  for (const match of command.matchAll(CLI_VARIABLE)) {
-    const name = match[1]!;
-    const value = match[2] ?? match[3] ?? match[4]!;
-    // A value without spaces is one word, so the quoted use `"$R"` means the same text.
-    const quote = value.includes(' ') ? '' : '"?';
-    const use = new RegExp(`(^|[\\s;&|(])${quote}\\$(?:${name}|\\{${name}\\})${quote}(?![\\w}])`, 'g');
-    const updated: string = command.replace(use, (_all, before: string) => `${before}${value}`);
-    if (updated !== command) return { name, input: { ...input, tool_input: { ...input.tool_input, command: updated } } };
-  }
-  return null;
-}
-
-// 21 of 24 measured eval attempts typed `grep -rnE … --include=*.ts`; zsh expands the unquoted glob, aborts with
-// `no matches found`, the `;` chain goes on, and the model retries.
-/** The command with each unquoted glob value of an `--include=`-style option in single quotes; null when none needs it. */
-function quoteGlobOptions(command: string): string | null {
-  let out = command;
-  const spans = parseCommand(command).flatMap((segment) => segment.globs ?? []);
-  // A span read from a backtick body is offset by the body, so it must still match the text it names.
-  for (const { at, text } of [...new Map(spans.map((span) => [span.at, span])).values()].sort((a, b) => b.at - a.at)) {
-    if (command.slice(at, at + text.length) === text) out = `${out.slice(0, at)}'${text}'${out.slice(at + text.length)}`;
-  }
-  return out === command ? null : out;
-}
-
-const GLOB_REASON = 'AMBICODE: quoted `--include=*.ts` (zsh expands an unquoted glob and aborts the command).';
-
-const NOT_SOURCE = /(?:^|\/)(?:\.ambicode|\.git|node_modules)(?:\/|$)/;
-
-const spanOf = (from: number, to?: number): string => (to === undefined ? `:${from}` : `:${from}-${to}`);
-
-/**
- * `cat`, `sed -n`, `head` and `tail` files and the lines a `read` span names for them, '' when the file's length or
- * the command decides. A count after `-n` or `-c` is taken for a file and dropped by the existence test.
- */
-function shellRead(name: string, args: string[]): { span: string; files: string[] } {
-  const words = args.filter((word) => !word.startsWith('-'));
-  if (name === 'sed') {
-    const range = /^(\d+)(?:,(\d+|\$))?p$/.exec(words[0] ?? '');
-    if (range === null && !args.some((word) => /^-[A-Za-z]*n/.test(word))) return { span: '', files: [] };
-    const to = range?.[2] ?? range?.[1];
-    return { span: range === null ? '' : spanOf(Number(range[1]), to === '$' ? undefined : Number(to)), files: words.slice(1) };
-  }
-  const lines = name === 'head' ? /(?:^|\s)-(?:n\s*)?(\d+)(?:\s|$)/.exec(args.join(' ')) : null;
-  return { span: lines === null ? '' : spanOf(1, Number(lines[1])), files: words };
-}
-
-/**
- * Reading source with the host's `Read`, `cat`, `sed -n`, `head` or `tail` while the route waits on a note: 11 of 24
- * measured attempts did, with no byte cap and no receipt. The step's `answer` is recorded on the delivered `step` entry,
- * so no route YAML is loaded here. Headless denies, interactive asks.
- */
-function readDecision(input: GuardInput, state: GuardState | undefined, route: ActiveRoute | null, pluginRoot: string): Decision {
-  const { tool_name: tool, cwd, tool_input: args } = input;
-  if (route === null || state?.file === undefined || typeof cwd !== 'string' || cwd === '') return {};
-  const raw: { word: string; span: string; bases: (string | null | undefined)[] }[] = [];
-  if (tool === 'Read' && typeof args?.file_path === 'string') {
-    const from = typeof args.offset === 'number' && args.offset > 1 ? args.offset : 1;
-    raw.push({ word: args.file_path, span: typeof args.limit === 'number' && args.limit > 0 ? spanOf(from, from + args.limit - 1) : from > 1 ? spanOf(from) : '', bases: [cwd] });
-  } else if (tool === 'Bash' && typeof args?.command === 'string' && /\b(?:cat|sed|head|tail)\b/.test(args.command)) {
-    for (const segment of parseCommand(args.command)) {
-      const name = commandName(segment);
-      if (segment.unparsed || !/^(?:cat|sed|head|tail)$/.test(name)) continue;
-      const { span, files } = shellRead(name, segment.argv.slice(1).filter((_, at) => segment.opaque[at + 1] !== true));
-      for (const word of files) raw.push({ word, span, bases: placesOf(segment.directories ?? [], cwd) });
-    }
-  }
-  // The repository is the nearest directory up from the file that holds this task's ledger: it may sit below the cwd.
-  const ledgers = new Map<string, LedgerEntry[] | null>();
-  const found: { file: string; span: string }[] = [];
-  for (const { word, span, bases } of raw) {
-    if (/[*?[{$~]/.test(word)) continue;
-    for (const base of bases) {
-      if (typeof base !== 'string') continue;
-      const path = normalize(word, base);
-      if (!isAbsolute(path)) continue;
-      let root = path;
-      let entries: LedgerEntry[] | null = null;
-      while (entries === null && root.includes('/') && root !== '/') {
-        root = root.slice(0, root.lastIndexOf('/')) || '/';
-        if (!ledgers.has(root)) ledgers.set(root, state.ledger(`${root === '/' ? '' : root}/.ambicode/task/${route.task}`));
-        entries = ledgers.get(root)!;
-      }
-      const position = entries?.findLast((entry) => entry.kind === 'route' || entry.kind === 'exit' || entry.kind === 'step');
-      if (position?.kind !== 'step' || position['status'] !== 'delivered' || position['answer'] !== 'note') continue;
-      const relative = path.slice(root === '/' ? 1 : root.length + 1);
-      if (!NOT_SOURCE.test(relative) && state.file!(path)) {
-        found.push({ file: relative, span });
-        break;
-      }
-    }
-  }
-  if (found.length === 0) return {};
-  const target = found.map(({ file, span }) => file + (found.length > 1 ? '' : span)).join(' ');
-  return decide(route.headless === true ? 'deny' : 'ask', `use: node "${pluginRoot}/scripts/ambicode.mjs" read --task ${route.task} ${target}`);
 }
 
 function permissionOf(decision: Decision): string | null {
@@ -477,61 +243,25 @@ function permissionOf(decision: Decision): string | null {
   return output?.permissionDecision ?? null;
 }
 
-/** In a headless route nobody can answer an ask: it becomes a deny that sends the model to stop the route. */
-function headlessDeny(decision: Decision, pluginRoot: string, task: string): Decision {
+/** In a headless route nobody can answer an ask: it becomes a deny that sends the model to finish with the reason. */
+function headlessDeny(decision: Decision): Decision {
   const reason = (decision['hookSpecificOutput'] as { permissionDecisionReason?: string }).permissionDecisionReason ?? '';
   return decide(
     'deny',
-    `${reason} This route is headless and no one can approve it, so do not run it. Run ` +
-      `\`node "${pluginRoot}/scripts/ambicode.mjs" route stop --task ${task} --reason blocked --detail "permission-denied: <what you needed>"\` and finish with the stop.`,
+    `${reason} This route is headless and no one can approve it, so do not run it. ` +
+      'Run `route stop --task <slug> --reason blocked --detail "permission-denied: <what you needed>"`, then ' +
+      'finish with a final message that says "permission-denied: <what you needed>".',
   );
 }
 
-/**
- * `pluginRoot` is the hook's `CLAUDE_PLUGIN_ROOT`, so the command in the message runs as written. `platform` picks
- * how `sed -i` reads its suffix, and the environment whether `CDPATH` is set: the guard runs where the command runs.
- */
-export function guardDecision(input: GuardInput, pluginRoot = '${CLAUDE_PLUGIN_ROOT}', state?: GuardState, platform: string = process.platform): Decision {
-  const inlined = PLATFORM.updatedInput ? inlineCliVariable(input) : null;
-  if (inlined !== null) {
-    const decision = decideTool(inlined.input, pluginRoot, state, platform);
-    if (Object.keys(decision).length > 0) return decision;
-    let reason = `AMBICODE: ran \`$${inlined.name}\` as the plugin's command written out in full.`;
-    let rewritten = inlined.input.tool_input!.command as string;
-    const quoted = quoteGlobOptions(rewritten);
-    if (quoted !== null) {
-      rewritten = quoted;
-      reason += ` ${GLOB_REASON}`;
-    }
-    return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', permissionDecisionReason: reason, updatedInput: { ...input.tool_input, command: rewritten } } };
-  }
-  const decision = decideTool(input, pluginRoot, state, platform);
-  const route = routeOf(input, state);
-  if (permissionOf(decision) === 'ask' && route?.headless === true) return headlessDeny(decision, pluginRoot, route.task);
-  const command = input.tool_input?.command;
-  if (Object.keys(decision).length === 0) {
-    const read = readDecision(input, state, route, pluginRoot);
-    if (Object.keys(read).length > 0) return read;
-  }
-  if (PLATFORM.updatedInput && input.hook_event_name === 'PreToolUse' && Object.keys(decision).length === 0 && input.tool_name === 'Bash' && typeof command === 'string') {
-    const tasked = route === null ? null : withTask(command, route.task);
-    const quoted = quoteGlobOptions(tasked ?? command);
-    const updated = quoted ?? tasked;
-    if (updated !== null) {
-      const reason = quoted === null ? {} : { permissionDecisionReason: GLOB_REASON };
-      return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', ...reason, updatedInput: { ...input.tool_input, command: updated } } };
-    }
-  }
-  return decision;
-}
-
-function decideTool(input: GuardInput, pluginRoot: string, state: GuardState | undefined, platform: string): Decision {
+/** `pluginRoot` is the hook's `CLAUDE_PLUGIN_ROOT`, so the command in a message runs as written. */
+export function guardDecision(input: GuardInput, pluginRoot = '${CLAUDE_PLUGIN_ROOT}', state?: GuardState): Decision {
   if (input.hook_event_name !== 'PreToolUse') return {};
   const tool = input.tool_name ?? '';
-  if (FILE_TOOLS.has(tool)) return fileDecision(input, state, pluginRoot);
   const command = input.tool_input?.command;
-  if (tool !== 'Bash' || typeof command !== 'string') return {};
-  const bsdSed = platform === 'darwin' || platform.endsWith('bsd');
-  const cwd = nonEmpty(input.cwd) ?? undefined;
-  return bashDecision(command, cwd, pluginRoot, bsdSed, (process.env.CDPATH ?? '') !== '');
+  let decision: Decision = {};
+  if (FILE_TOOLS.has(tool)) decision = fileDecision(input, state, pluginRoot);
+  else if (tool === 'Bash' && typeof command === 'string') decision = bashDecision(command, nonEmpty(input.cwd) ?? undefined, pluginRoot);
+  const route = routeOf(input, state);
+  return permissionOf(decision) === 'ask' && route?.headless === true ? headlessDeny(decision) : decision;
 }

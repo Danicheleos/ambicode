@@ -1,6 +1,5 @@
 import path from 'node:path';
 import { MAX_SNAPSHOT_FILE_BYTES, MAX_SNAPSHOT_TOTAL_BYTES } from '#types/defaults';
-import { markOwned } from '../page/cleanup.ts';
 import { AmbicodeError } from '#util/errors';
 import { uniqueDirectories } from './content.ts';
 import { excerptOf } from './excerpt.ts';
@@ -334,7 +333,6 @@ export async function writeSnapshot(
 
   // Marks the directory as AMBICODE's own, so a later sweep can delete it
   // without deleting a temporary directory that belongs to something else.
-  await markOwned(fs, directory, 'snapshot', clock, process.pid);
   await fs.writeText(path.join(directory, 'changed.diff'), patch);
   await fs.writeText(path.join(directory, 'CHANGED-FILES.txt'), `${plan.changedPaths.join('\n')}\n`);
 

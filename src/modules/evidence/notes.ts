@@ -7,7 +7,7 @@ import { ledgerSizeWarning, readLedger } from '#platform/ledger/ledger';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { resolveFrom, resolveTaskDir } from './task/task-dir.ts';
 import type { Runtime } from '#types/composition';
-import { MAX_NOTE_BYTES, NOTE_KINDS, SAVE_KINDS, type LedgerEntry, type LockedLedger, type TaskDir, type NoteDeps, type NoteRow, type NoteKind, type SaveKind } from '#types/modules/evidence';
+import { MAX_NOTE_BYTES, NOTE_KINDS, SAVE_KINDS, type LedgerEntry, type LockedLedger, type TaskDir, type NoteDeps, type NoteKind, type SaveKind } from '#types/modules/evidence';
 
 /** The label line the note writer stamps on a note: not the author's words. */
 export const NOTE_LABELS: readonly string[] = Object.values(NOTE_KINDS).map((kind) => kind.label);
@@ -179,26 +179,4 @@ export async function promotePlan(
     return { outcome, path: shown(dir, relative), promotedFrom: draft.id };
   };
   return deps.ledger !== undefined ? work(deps.ledger) : withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), session, work);
-}
-
-export async function listNotes(runtime: Runtime, task: string): Promise<NoteRow[]> {
-  const dir = await resolveTaskDir(runtime, task);
-  const notes = (await readLedger(runtime.fs, dir.root)).filter((entry): entry is PlanNote => entry.kind === 'note' && typeof entry.path === 'string');
-  const rows: NoteRow[] = [];
-  for (const entry of notes) {
-    const file = await runtime.fs.readText(path.join(dir.repositoryRoot, entry.path)).catch(() => null);
-    const promotedFrom = typeof entry.promotedFrom === 'string' ? entry.promotedFrom : null;
-    const plan = entry.note === 'plan-draft' ? notes.find((other) => other.promotedFrom === entry.id) : undefined;
-    const draft = promotedFrom === null ? undefined : notes.find((other) => other.id === promotedFrom);
-    rows.push({
-      id: entry.id,
-      note: entry.note,
-      path: shown(dir, entry.path),
-      at: entry.at,
-      heading: file === null ? '—' : (/^#+\s+(.+)$/m.exec(file)?.[1]?.trim() ?? '—'),
-      iteration: typeof entry.iteration === 'number' ? entry.iteration : null,
-      link: plan !== undefined ? `promoted → ${path.basename(plan.path)}` : draft !== undefined ? `from ${path.basename(draft.path)}` : null,
-    });
-  }
-  return rows;
 }

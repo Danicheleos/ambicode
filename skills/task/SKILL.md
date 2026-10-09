@@ -3,7 +3,7 @@ name: task
 description: "Make one bounded code change with the record to prove it — a test that fails first, the smallest fix, formatted and checked, an independent review offered, and a report built from the ledger; it never commits, pushes, or publishes. Use when the user asks to implement, add, fix, or build something, hands over a Jira/Confluence URL to implement, or says to go ahead with or resume a plan."
 argument-hint: <request-or-jira/confluence-url> [--requirement <url>]... [--plan <file>] [--from-draft <file>]
 disable-model-invocation: true
-allowed-tools: Read, Grep, Glob, Edit(**), Write(**), Bash(node *ambicode.mjs*), Bash(git status*), Bash(git diff*)
+allowed-tools: Read, Grep, Glob, Agent, Edit(**), Write(**), Bash(node *ambicode.mjs*), Bash(git status*), Bash(git diff*)
 ---
 
 # Implement a change

@@ -1,12 +1,21 @@
 skill: init
 version: 3
-budget: { modelSteps: 2 }
+budget: { modelSteps: 6 }
 exits: [done, blocked, human, inconclusive, superseded, budget]
 steps:
+  - id: scan
+    actor: code
+    run: [init.scan]
+    onError: "stop:blocked"
+  - id: detect
+    actor: model
+    instruction: "file:routes/init/detect.md"
+    payload: [init.scan, init.propose]
+    repeat: 3
   - id: propose
     actor: code
     run: [init.propose]
-    onError: "stop:blocked"
+    onFail: revise detect
   - id: init-apply
     actor: human
     gate:

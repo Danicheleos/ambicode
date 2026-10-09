@@ -54,7 +54,7 @@ async function offByOne() {
   const scratchpad = await assembled.runtime.fs.temporaryDirectory('ambicode-scratch-');
   const runner = new SplitRunner(assembled.runtime.runner);
   const runtime: Runtime = { ...assembled.runtime, runner };
-  const deps: CheckDeps = { runtime, session: SESSION_A, context: commandContext({ runtime, routes: assembled.routes }), warm: async () => undefined };
+  const deps: CheckDeps = { runtime, session: SESSION_A, context: commandContext({ runtime, routes: assembled.routes }) };
   const tail = (cause: 'check' | 'format', produced: string[]) =>
     runCommandTail({ engine }, { task: TASK, cause, session: { state: 'bound', session: SESSION_A } as never, produced, scratchpadDir: scratchpad });
   const check = async (phase: 'red' | 'green') => {

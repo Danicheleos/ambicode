@@ -19,37 +19,16 @@ import type { Runtime, Workspace } from '#types/composition';
 import type { FileSystem } from '#types/platform/ports';
 import type { ParsedArgs, CliCommand } from '../../types/cli.ts';
 
-export const POLICY_CHECK_OPTIONS = {
-  values: ['project', 'task'],
-  flags: ['json', 'drafts'],
-  positionals: true,
-} as const;
+export const POLICY_CHECK_OPTIONS = { values: ['project', 'task'], flags: ['json', 'drafts'], positionals: true } as const;
 
 const EXAMPLES_PER_GLOB = 3;
-
-/**
- * Paths one glob is measured against before the report gives up on an exact count: a
- * setup-time command may walk a whole repository, not hang on one.
- */
+/** A setup-time command may walk a whole repository; past this a glob count is reported as a floor. */
 const MAX_GLOB_ENTRIES = 20_000;
 
-interface GlobMatch {
-  glob: string;
-  matched: number;
-  examples: string[];
-  /** True when enumeration hit `MAX_GLOB_ENTRIES` and `matched` is a floor. */
-  truncated: boolean;
-}
+/** `truncated`: enumeration hit `MAX_GLOB_ENTRIES`, so `matched` is a floor. */
+interface GlobMatch { glob: string; matched: number; examples: string[]; truncated: boolean }
 
-interface CheckedPackFile {
-  path: string;
-  packId: string | null;
-  authority: string | null;
-  appliesTo: GlobMatch[];
-  rules: number;
-  prompts: number;
-  commandDecisions: number;
-}
+interface CheckedPackFile { path: string; packId: string | null; authority: string | null; appliesTo: GlobMatch[]; rules: number; prompts: number; commandDecisions: number }
 
 export interface PolicyCheckOutput {
   command: 'policy-check';
@@ -68,9 +47,7 @@ export interface PolicyCheckOutput {
  * recorded once and the route's tail runs.
  */
 async function runDraftsCheck(runtime: Runtime, args: ParsedArgs): Promise<PolicyCheckOutput> {
-  if (args.positionals.length > 0) {
-    throw new AmbicodeError('bad-argument', '"policy check --drafts" checks the whole drafts directory and takes no files.', { field: 'policy check', details: [`Drafts live in ${DRAFTS_DIR}/.`] });
-  }
+  if (args.positionals.length > 0) throw new AmbicodeError('bad-argument', '"policy check --drafts" checks the whole drafts directory and takes no files.', { field: 'policy check', details: [`Drafts live in ${DRAFTS_DIR}/.`] });
   const workspace = await openWorkspace(runtime);
   const task = args.value('task');
   const dir = task === null ? null : await resolveTaskDir(runtime, task);
@@ -109,27 +86,16 @@ export async function runPolicyCheck(runtime: Runtime, args: ParsedArgs): Promis
   if (args.value('task') !== null) throw new AmbicodeError('bad-argument', '--task goes with --drafts.', { field: 'task' });
   const workspace = await openWorkspace(runtime);
   if (args.positionals.length === 0) {
-    throw new AmbicodeError('bad-argument', '"policy check" needs at least one candidate policy file.', {
-      field: 'policy check',
-      details: ['Usage: ambicode policy check .ambicode/policies/<id>.yaml [more...]'],
-    });
+    throw new AmbicodeError('bad-argument', '"policy check" needs at least one candidate policy file.', { field: 'policy check', details: ['Usage: ambicode policy check .ambicode/policies/<id>.yaml [more...]'] });
   }
 
   const project = resolveProject(workspace.config, args.value('project'));
   const diagnostics: Diagnostic[] = [];
   if (project === null) {
-    diagnostics.push({
-      severity: 'notice',
-      code: 'project-not-determined',
-      message: `This repository configures ${workspace.config.projects.length} projects and no --project was given, so the pack's scope was not measured against a project layout and its command references were not checked. Pass --project <id>.`,
-      where: workspace.configPath,
-    });
+    diagnostics.push({ severity: 'notice', code: 'project-not-determined', message: `This repository configures ${workspace.config.projects.length} projects and no --project was given, so the pack's scope was not measured against a project layout and its command references were not checked. Pass --project <id>.`, where: workspace.configPath });
   }
 
-  const constraints: PackConstraints =
-    project === null
-      ? { commands: null, projectId: null }
-      : { commands: project.commands, projectId: project.id };
+  const constraints: PackConstraints = project === null ? { commands: null, projectId: null } : { commands: project.commands, projectId: project.id };
 
   const files: CheckedPackFile[] = [];
   const candidates: PackWithPrompts[] = [];
@@ -139,24 +105,15 @@ export async function runPolicyCheck(runtime: Runtime, args: ParsedArgs): Promis
     const filePath = path.join(workspace.repositoryRoot, relativePath);
     const raw = await readPackText(runtime.fs, filePath);
     if (raw === null) {
-      diagnostics.push({
-        severity: 'error',
-        code: 'pack-missing',
-        message: `Candidate policy file "${relativePath}" was not found.`,
-        where: filePath,
-      });
-      files.push(unreadable(relativePath));
+      diagnostics.push({ severity: 'error', code: 'pack-missing', message: `Candidate policy file "${relativePath}" was not found.`, where: filePath });
+      files.push({ path: relativePath, packId: null, authority: null, appliesTo: [], rules: 0, prompts: 0, commandDecisions: 0 });
       continue;
     }
 
-    const validated = await validatePack(
-      runtime.fs,
-      { raw, filePath, reference: relativePath, origin: 'project' },
-      constraints,
-    );
+    const validated = await validatePack(runtime.fs, { raw, filePath, reference: relativePath, origin: 'project' }, constraints);
     diagnostics.push(...validated.diagnostics);
     if (validated.pack === null) {
-      files.push(unreadable(relativePath));
+      files.push({ path: relativePath, packId: null, authority: null, appliesTo: [], rules: 0, prompts: 0, commandDecisions: 0 });
       continue;
     }
 
@@ -164,42 +121,18 @@ export async function runPolicyCheck(runtime: Runtime, args: ParsedArgs): Promis
     const globs = await describeGlobs(runtime.fs, workspace, project, pack.appliesTo);
     for (const glob of globs) {
       if (glob.matched > 0 || project === null) continue;
-      diagnostics.push({
-        severity: 'warning',
-        code: 'pack-glob-matches-nothing',
-        message: `${relativePath}: appliesTo glob "${glob.glob}" matches no file under project "${project.id}" (root "${project.root}") today. A rule scoped to a path that does not exist never applies; derive the glob from the repository's actual layout.`,
-        where: filePath,
-      });
+      diagnostics.push({ severity: 'warning', code: 'pack-glob-matches-nothing', message: `${relativePath}: appliesTo glob "${glob.glob}" matches no file under project "${project.id}" (root "${project.root}") today. A rule scoped to a path that does not exist never applies; derive the glob from the repository's actual layout.`, where: filePath });
     }
 
     candidates.push(validated.pack);
-    files.push({
-      path: relativePath,
-      packId: pack.id,
-      authority: pack.authority,
-      appliesTo: globs,
-      rules: pack.rules.length,
-      prompts: pack.prompts.length,
-      commandDecisions: pack.commandPolicy.length,
-    });
+    files.push({ path: relativePath, packId: pack.id, authority: pack.authority, appliesTo: globs, rules: pack.rules.length, prompts: pack.prompts.length, commandDecisions: pack.commandPolicy.length });
   }
 
   if (project !== null && candidates.length > 0) {
     diagnostics.push(...(await crossPackDiagnostics(workspace, project, candidates)));
   }
 
-  const ok = !diagnostics.some((diagnostic) => diagnostic.severity === 'error');
-  return {
-    command: 'policy-check',
-    projectId: project?.id ?? null,
-    files,
-    diagnostics,
-    ok,
-  };
-}
-
-function unreadable(relativePath: string): CheckedPackFile {
-  return { path: relativePath, packId: null, authority: null, appliesTo: [], rules: 0, prompts: 0, commandDecisions: 0 };
+  return { command: 'policy-check', projectId: project?.id ?? null, files, diagnostics, ok: !diagnostics.some((diagnostic) => diagnostic.severity === 'error') };
 }
 
 /**
@@ -220,12 +153,7 @@ async function crossPackDiagnostics(
   project: ProjectConfig,
   candidates: readonly PackWithPrompts[],
 ): Promise<Diagnostic[]> {
-  const enabled = await loadPacksForProject({
-    fs: workspace.runtime.fs,
-    project,
-    builtinDirectory: builtinPoliciesDirectory(workspace.runtime.pluginRoot),
-    repositoryRoot: workspace.repositoryRoot,
-  });
+  const enabled = await loadPacksForProject({ fs: workspace.runtime.fs, project, builtinDirectory: builtinPoliciesDirectory(workspace.runtime.pluginRoot), repositoryRoot: workspace.repositoryRoot });
 
   // A candidate that is already listed in `policyFiles` — a re-check after
   // wiring it in — must not be reported as a duplicate of itself.
@@ -233,80 +161,35 @@ async function crossPackDiagnostics(
   const others = enabled.packs.filter((loaded) => !candidatePaths.has(loaded.filePath));
   const set = validatePackSet([...others, ...candidates]);
 
-  const diagnostics = set.diagnostics.filter(
-    (diagnostic) => diagnostic.where !== undefined && candidatePaths.has(diagnostic.where),
-  );
+  const diagnostics = set.diagnostics.filter((diagnostic) => diagnostic.where !== undefined && candidatePaths.has(diagnostic.where));
 
   if (enabled.diagnostics.some((diagnostic) => diagnostic.severity === 'error')) {
-    diagnostics.push({
-      severity: 'notice',
-      code: 'enabled-packs-have-errors',
-      message: `Project "${project.id}" already has errors in the packs it enables, reported separately by "ambicode policy --project ${project.id}". They are not attributed to the candidate files checked here.`,
-      where: workspace.configPath,
-    });
+    diagnostics.push({ severity: 'notice', code: 'enabled-packs-have-errors', message: `Project "${project.id}" already has errors in the packs it enables, reported separately by "ambicode policy --project ${project.id}". They are not attributed to the candidate files checked here.`, where: workspace.configPath });
   }
   return diagnostics;
 }
 
-async function describeGlobs(
-  fs: FileSystem,
-  workspace: Workspace,
-  project: ProjectConfig | null,
-  globs: readonly string[],
-): Promise<GlobMatch[]> {
-  if (project === null) {
-    return globs.map((glob) => ({ glob, matched: 0, examples: [], truncated: false }));
-  }
+async function describeGlobs(fs: FileSystem, workspace: Workspace, project: ProjectConfig | null, globs: readonly string[]): Promise<GlobMatch[]> {
+  if (project === null) return globs.map((glob) => ({ glob, matched: 0, examples: [], truncated: false }));
   const projectRoot = path.join(workspace.repositoryRoot, normalizeRelative(project.root));
   const described: GlobMatch[] = [];
-
   for (const glob of globs) {
-    let entries: string[];
-    try {
-      entries = await fs.glob(glob, projectRoot);
-    } catch {
-      described.push({ glob, matched: 0, examples: [], truncated: false });
-      continue;
-    }
-
+    const entries = await fs.glob(glob, projectRoot).catch(() => []);
     const truncated = entries.length > MAX_GLOB_ENTRIES;
-    const examined = truncated ? entries.slice(0, MAX_GLOB_ENTRIES) : entries;
     const matched: string[] = [];
-
-    for (const entry of examined) {
+    for (const entry of truncated ? entries.slice(0, MAX_GLOB_ENTRIES) : entries) {
       const relative = normalizeRelative(entry);
-      if (relative === '') continue;
-      if (pathExclusionReason(relative) !== null) continue;
-      if (!matchesGlob(relative, glob)) continue;
-      if (!(await isFile(fs, path.join(projectRoot, relative)))) continue;
-      matched.push(relative);
+      if (relative === '' || pathExclusionReason(relative) !== null || !matchesGlob(relative, glob)) continue;
+      if ((await fs.lstat(path.join(projectRoot, relative)).catch(() => null))?.isFile()) matched.push(relative);
     }
-
     matched.sort();
-    described.push({
-      glob,
-      matched: matched.length,
-      examples: matched.slice(0, EXAMPLES_PER_GLOB),
-      truncated,
-    });
+    described.push({ glob, matched: matched.length, examples: matched.slice(0, EXAMPLES_PER_GLOB), truncated });
   }
   return described;
 }
 
-async function isFile(fs: FileSystem, absolutePath: string): Promise<boolean> {
-  try {
-    return (await fs.lstat(absolutePath)).isFile();
-  } catch {
-    return false;
-  }
-}
-
 export function renderPolicyCheck(output: PolicyCheckOutput): string {
-  const lines = [
-    `project: ${output.projectId ?? '(not determined)'}`,
-    `files:   ${output.files.length}`,
-    '',
-  ];
+  const lines = [`project: ${output.projectId ?? '(not determined)'}`, `files:   ${output.files.length}`, ''];
 
   for (const file of output.files) {
     lines.push(`${file.path}`);
@@ -341,17 +224,14 @@ export function renderPolicyCheck(output: PolicyCheckOutput): string {
     if (output.drafts.notMigrated.length > 0) lines.push('');
   }
 
-  lines.push(
-    output.ok
-      ? 'No errors. These files can be added to the project\'s policyFiles.'
-      : 'Errors above. Fix them before adding these files to the project\'s policyFiles.',
-  );
+  lines.push(output.ok ? 'No errors. These files can be added to the project\'s policyFiles.' : 'Errors above. Fix them before adding these files to the project\'s policyFiles.');
   if (output.next !== undefined) lines.push('', output.next);
   return lines.join('\n');
 }
 
 export const policyCheckCommand: CliCommand = {
   name: 'policy check',
+  summary: 'Validate candidate policy pack files; nonzero exit on an error.',
   options: POLICY_CHECK_OPTIONS,
   run: async (runtime, args) => {
     const output = await runPolicyCheck(runtime, args);

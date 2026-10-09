@@ -4,26 +4,7 @@ import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { combineDiff, addressableLines, lineAt, parseHunks, splitPatchSections } from './diff.ts';
-import { parseRawZ, parseRemoteProject } from './git.ts';
-
-test('a remote URL reduces to host and project path in all three spellings, and never to its credentials', () => {
-  const expected = { host: 'gitlab.com', path: 'example-group/front/example-frontend' };
-  for (const url of [
-    'https://gitlab.com/example-group/front/example-frontend.git',
-    'https://gitlab.com/example-group/front/example-frontend/',
-    'https://oauth2:glpat-SECRET@GitLab.com/example-group/front/example-frontend.git',
-    'ssh://git@gitlab.com:2222/example-group/front/example-frontend.git',
-    'git@gitlab.com:example-group/front/example-frontend.git',
-    'gitlab.com:example-group/front/example-frontend',
-  ]) {
-    const parsed = parseRemoteProject(url);
-    assert.deepEqual(parsed, expected, url);
-    assert.ok(!JSON.stringify(parsed).includes('SECRET'), url);
-  }
-  for (const local of ['/srv/git/app.git', 'C:\\repos\\app', 'file:///srv/git/app.git', '../app', '']) {
-    assert.equal(parseRemoteProject(local), null, local);
-  }
-});
+import { parseRawZ } from './git.ts';
 
 test('U08 diff parsing handles adversarial paths and every change kind', async (t) => {
   const repo = await TempRepo.create();

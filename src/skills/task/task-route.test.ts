@@ -44,7 +44,7 @@ describe('task route (07-R, 07-V, 07-G)', () => {
   it('07-R1: the shipped route declares its steps in order, the draft-ok gate, the raised registry gates and 18 model steps', async () => {
     await withTask(async (t) => {
       const def = t.fx.routes.route('task')!;
-      assert.deepEqual(def.steps.map((step) => step.id), ['template', 'fetch', 'start', 'draft-ok', 'ground', 'red', 'green', 'review-offer', 'review-run', 'fix', 'report-step', 'write']);
+      assert.deepEqual(def.steps.map((step) => step.id), ['template', 'fetch', 'start', 'draft-ok', 'ground', 'red', 'green', 'review-offer', 'review-cmd', 'review-agent', 'review-run', 'fix', 'report-step', 'write']);
       assert.deepEqual(def.steps.find((step) => step.id === 'draft-ok')?.gate?.options, ['implement anyway', 'stop']);
       assert.ok(t.fx.routes.gate('check-only-unauthorized') !== null && t.fx.routes.gate('scope-expanding') !== null);
       assert.equal(def.budget.modelSteps, 18);
@@ -112,12 +112,11 @@ describe('task route (07-R, 07-V, 07-G)', () => {
       const terms = (map['terms'] as { pass1: string[] }).pass1;
       assert.ok(terms.includes('reduceTotals'), terms.join(','));
       assert.ok(!terms.some((term) => /^iteration$/i.test(term)), terms.join(','));
-      assert.ok((map['candidatePaths'] as string[]).includes('src/seeded/reducer.ts'));
-      assert.match(String((map['tuning'] as { hash: string }).hash), /^[0-9a-f]{12}$/);
+      assert.ok(Number(map['candidates']) > 0, JSON.stringify(map));
     });
   });
 
-  it('07-R4/07-G1/07-G2: ground records baseline, map and both policy stages in order, lists callers with collides, states the grep fallback, under 9 KiB', async () => {
+  it('07-R4/07-G1/07-G2: ground records baseline, map and both policy stages in order, lists callers with collides, under 9 KiB', async () => {
     await withTask(async (t) => {
       await t.fx.repo.write('src/other.ts', 'export function total(): number {\n  return 1;\n}\n');
       await t.fx.repo.commitAll('a second total');
@@ -128,7 +127,6 @@ describe('task route (07-R, 07-V, 07-G)', () => {
       const callers = section(red.text, 'callers');
       assert.match(callers, /a `collides` caller → verify its import before editing/);
       assert.match(callers, /^ {2}total — \d+ refs, collides$/m);
-      assert.match(callers, /^index: none — grep fallback$/m);
       assert.ok(Buffer.byteLength(red.text) <= 9 * 1024, `${Buffer.byteLength(red.text)} bytes`);
     });
   });
@@ -182,13 +180,13 @@ describe('task route (07-R, 07-V, 07-G)', () => {
     });
   });
 
-  it('07-R7/07-V4: headless, the offer defaults to skip; review-run and fix are skipped, no review runs, and the report says so', async () => {
+  it('07-R7/07-V4: headless, the offer defaults to skip; review-cmd, review-agent, review-run and fix are skipped, no review runs, and the report says so', async () => {
     await withTask(async (t) => {
       const write = await toOffer(t, { headless: true });
       assert.equal(write.position, 'write');
       assert.equal((await t.kinds('default-taken')).find((entry) => entry['gate'] === 'review-offer')?.['answer'], 'skip — verification incomplete');
       const skipped = (await t.kinds('step')).filter((entry) => entry['status'] === 'skipped').map((entry) => entry['step']);
-      assert.ok(skipped.includes('review-run') && skipped.includes('fix'));
+      assert.ok(['review-cmd', 'review-agent', 'review-run', 'fix'].every((step) => skipped.includes(step)), skipped.join(' '));
       assert.equal((await t.kinds('review')).length, 0);
       assert.match(write.text, /independent review skipped — verification incomplete/);
     });
@@ -205,17 +203,17 @@ describe('task route (07-R, 07-V, 07-G)', () => {
     });
   });
 
-  it('07-R7: a trusted preanswer run is honoured at the gate, and review-run delivers the review command', async () => {
+  it('07-R7: a trusted preanswer run is honoured at the gate, and review-cmd delivers the review command', async () => {
     await withTask(async (t) => {
       const run = await toOffer(t, { answers: [{ gate: 'review-offer', option: 'run' }] });
-      assert.equal(run.position, 'review-run');
+      assert.equal(run.position, 'review-cmd');
       assert.match(run.text, /Now: Run `[^`]*review --task ord-7`/);
       const preanswer = (await t.kinds('preanswer'))[0];
       assert.deepEqual((await t.kinds('acceptance')).map((entry) => [entry['gate'], entry['answer'], entry['via'], entry['preanswer']]), [['review-offer', 'run', 'prompt', preanswer?.id]]);
     });
   });
 
-  it('07-V3: a fix round asks review-again; run re-enters review-run once per answer and a skip records the fix as not re-reviewed', async () => {
+  it('07-V3: a fix round asks review-again; run re-enters review-cmd once per answer and a skip records the fix as not re-reviewed', async () => {
     await withTask(async (t) => {
       await toOffer(t);
       await t.hook('review-offer', 'run');
@@ -226,13 +224,30 @@ describe('task route (07-R, 07-V, 07-G)', () => {
       assert.equal(ask.position, 'report-step');
       assert.equal((await prints(t, 'review-again')).length, 1);
       const again = await t.hook('review-again', 'run');
-      assert.equal(again.position, 'review-run');
+      assert.equal(again.position, 'review-cmd');
       assert.equal((await t.review([finding({ id: 'F2' })])).position, 'fix');
       await t.check('green', { ran: 1, failed: 0 });
       assert.equal((await prints(t, 'review-again')).length, 2);
       assert.equal((await t.hook('review-again', 'skip')).position, 'write');
       assert.deepEqual((await t.kinds('revise')).map((entry) => entry['reason']), ['review-run: review-findings', 'review-again: run', 'review-run: review-findings']);
       assert.match(buildReport(await t.ledger()).text, /fix not re-reviewed/);
+    });
+  });
+
+  it('07-V5: review --task leaves the reviewer pending: review-agent gets the snapshot and brief paths, review record reaches review-run and its findings revise fix', async () => {
+    await withTask(async (t) => {
+      await toOffer(t);
+      await t.hook('review-offer', 'run');
+      const agent = await t.review([finding({ id: 'F1' })], { reviewerRan: false });
+      assert.equal(agent.position, 'review-agent');
+      assert.match(agent.text, /ambicode:reviewer/);
+      assert.match(agent.text, /snapshot: \/tmp\/snapshot-x\nbrief: .*brief\.md/);
+      assert.match(agent.text, /review record --task ord-7/);
+      assert.equal(await delivered(t, 'fix'), 0, 'a pending review has no findings to fix');
+      const fix = await t.review([finding({ id: 'F1' })]);
+      assert.equal(fix.position, 'fix');
+      assert.match(fix.text, /F1 src\/orders\.ts:2/);
+      assert.deepEqual((await t.kinds('review')).map((entry) => entry['stage']), ['pending', 'recorded']);
     });
   });
 
@@ -249,12 +264,12 @@ describe('task route (07-R, 07-V, 07-G)', () => {
     });
   });
 
-  it('07-V1/07-V3: an approved waiting key re-enters review-run, the review reruns, and a clean rerun goes on without fix', async () => {
+  it('07-V1/07-V3: an approved waiting key re-enters review-cmd, the review reruns, and a clean rerun goes on without fix', async () => {
     await withTask(async (t) => {
       await toOffer(t);
       await t.hook('review-offer', 'run');
-      assert.equal((await t.review([], { waiting: ['app/e2e'] })).position, 'review-run');
-      assert.deepEqual((await prints(t, 'check-only-unauthorized')).map((entry) => [entry['raisedBy'], entry['values']]), [['review-run', { key: ['app/e2e'], files: ['the change under review'] }]]);
+      assert.equal((await t.review([], { waiting: ['app/e2e'], reviewerRan: false })).position, 'review-cmd');
+      assert.deepEqual((await prints(t, 'check-only-unauthorized')).map((entry) => [entry['raisedBy'], entry['values']]), [['review-cmd', { key: ['app/e2e'], files: ['the change under review'] }]]);
       assert.match((await t.hook('check-only-unauthorized', 'approve')).text, /review --task ord-7/);
       assert.equal((await t.review([])).position, 'write');
       assert.equal(await delivered(t, 'fix'), 0);
@@ -273,16 +288,16 @@ describe('task route (07-R, 07-V, 07-G)', () => {
     });
   });
 
-  it('07-V1: a waiting key in the review that follows a fix round is raised and approved back into fix', async () => {
+  it('07-V1: a waiting key in the review that follows a fix round is raised at review-cmd and approved back into it', async () => {
     await withTask(async (t) => {
       await toOffer(t);
       await t.hook('review-offer', 'run');
       await t.review([finding({ id: 'F1' })]);
       await t.check('green', { ran: 1, failed: 0 });
-      assert.equal((await t.hook('review-again', 'run')).position, 'review-run');
+      assert.equal((await t.hook('review-again', 'run')).position, 'review-cmd');
       await t.review([], { waiting: ['app/e2e'], reviewerRan: false });
-      assert.deepEqual((await prints(t, 'check-only-unauthorized')).map((entry) => entry['raisedBy']), ['fix']);
-      assert.equal((await t.hook('check-only-unauthorized', 'approve')).position, 'fix');
+      assert.deepEqual((await prints(t, 'check-only-unauthorized')).map((entry) => entry['raisedBy']), ['review-cmd']);
+      assert.equal((await t.hook('check-only-unauthorized', 'approve')).position, 'review-cmd');
     });
   });
 

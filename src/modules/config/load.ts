@@ -25,6 +25,15 @@ const REMOVED_FIELDS: readonly (readonly [string, string])[] = [
   ['search', 'exactMaxFiles'],
 ];
 
+/** `search` keys of the removed code index and ranking constants; accepted and dropped with the section-style notice. */
+const REMOVED_SEARCH_KEYS: readonly string[] = ['tuning', 'index', 'indexDriftFiles'];
+
+/** Layers that no longer exist; a configured list keeps the legal names, and the notice names what was dropped. */
+const REMOVED_LAYERS: readonly string[] = ['index', 'index.find', 'index.relates', 'history'];
+
+/** Whole top-level sections accepted and dropped, so a config written before the removal still loads. */
+const REMOVED_SECTIONS: readonly string[] = ['page', 'remoteChecks', 'workers'];
+
 export async function loadConfig(fs: FileSystem, repositoryRoot: string): Promise<LoadedConfig> {
   const loaded = await loadConfigWithNotices(fs, repositoryRoot);
   return { config: loaded.config, filePath: loaded.filePath, raw: loaded.raw };
@@ -100,6 +109,33 @@ export function parseConfigWithNotices(raw: string): ConfigWithNotices {
 
 function dropRemovedFields(document: Record<string, unknown>): string[] {
   const notices: string[] = [];
+  for (const section of REMOVED_SECTIONS) {
+    if (!Object.hasOwn(document, section)) continue;
+    delete document[section];
+    notices.push(`config: "${section}" is no longer used; remove it from ${CONFIG_FILE}`);
+  }
+  const search = document['search'];
+  if (search !== null && typeof search === 'object' && !Array.isArray(search)) {
+    const block = search as Record<string, unknown>;
+    for (const key of REMOVED_SEARCH_KEYS) {
+      if (!Object.hasOwn(block, key)) continue;
+      delete block[key];
+      notices.push(`config: "search.${key}" is no longer used; remove it from ${CONFIG_FILE}`);
+    }
+    const layers = block['layers'];
+    if (layers !== null && typeof layers === 'object' && !Array.isArray(layers)) {
+      for (const mode of ['prompt', 'context']) {
+        const list = (layers as Record<string, unknown>)[mode];
+        if (!Array.isArray(list)) continue;
+        const dropped = list.filter((name) => typeof name === 'string' && REMOVED_LAYERS.includes(name));
+        if (dropped.length === 0) continue;
+        const kept = list.filter((name) => !dropped.includes(name));
+        if (kept.length === 0) delete (layers as Record<string, unknown>)[mode];
+        else (layers as Record<string, unknown>)[mode] = kept;
+        notices.push(`config: "search.layers.${mode}" names ${dropped.join(', ')}, which no longer exist; remove them from ${CONFIG_FILE}`);
+      }
+    }
+  }
   for (const [section, field] of REMOVED_FIELDS) {
     const value = document[section];
     if (value === null || typeof value !== 'object' || Array.isArray(value)) continue;

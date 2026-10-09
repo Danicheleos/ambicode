@@ -1,8 +1,4 @@
-import { COMPLETE_COVERAGE, type RemoteTarget } from '#types/platform/provider';
-import { PUBLICATION_SCHEMA_VERSION, type PublicationPositions } from '#types/modules/publication';
 import { REVIEW_SCHEMA_VERSION, type Finding, type ReviewResult } from '#types/modules/review';
-import { positionDigest } from '#modules/review/publication/positions';
-import { FAKE_TARGET } from '../fakes/fake-provider.ts';
 
 /** Hostile text is in every untrusted field on purpose: the renderer's job is to show it, not run it. */
 
@@ -28,16 +24,13 @@ export function finding(overrides: Partial<Finding> & { id: string }): Finding {
 
 export interface FixtureOptions {
   kind?: ReviewResult['target']['kind'];
-  remote?: RemoteTarget | null;
   findings?: Finding[];
   status?: ReviewResult['status'];
   reviewerStatus?: 'ok' | 'failed' | 'not-run';
-  coverageComplete?: boolean;
 }
 
 export function reviewResult(options: FixtureOptions = {}): ReviewResult {
   const kind = options.kind ?? 'merge-request';
-  const remote = options.remote === undefined ? (kind === 'merge-request' ? FAKE_TARGET : null) : options.remote;
   const reviewerStatus = options.reviewerStatus ?? 'ok';
 
   return {
@@ -50,10 +43,9 @@ export function reviewResult(options: FixtureOptions = {}): ReviewResult {
       kind,
       repositoryRoot: '/work/app',
       snapshotId: 'mr-42-v5-cccccccccccc',
-      headSha: remote?.headSha ?? null,
-      baseSha: remote?.baseSha ?? null,
+      headSha: 'cccccccccccccccccccccccccccccccccccccccc',
+      baseSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
       baseRef: null,
-      remote,
       notes: [`A note carrying hostile text: ${HOSTILE}`],
     },
     requirements: [
@@ -89,6 +81,7 @@ export function reviewResult(options: FixtureOptions = {}): ReviewResult {
         maxFindings: 7,
       },
     },
+    brief: null,
     reviewer: {
       status: reviewerStatus,
       model: 'sonnet',
@@ -100,6 +93,7 @@ export function reviewResult(options: FixtureOptions = {}): ReviewResult {
       durationMs: 42_000,
       usage: null,
       rejectedOutputRef: null,
+      at: null,
     },
     policySummary: { packs: [], ruleIds: [] },
     checks: [
@@ -120,23 +114,6 @@ export function reviewResult(options: FixtureOptions = {}): ReviewResult {
         mutations: ['modified src/orders.ts (inside the disposable container workspace)'],
       },
     ],
-    coverage:
-      options.coverageComplete === false
-        ? {
-            complete: false,
-            declaredFileCount: 4,
-            deliveredFileCount: 1,
-            versionState: 'overflow',
-            gaps: [
-              {
-                kind: 'omitted-files',
-                path: null,
-                detail: `GitLab declares 4 changed file(s) but delivered 1. ${HOSTILE}`,
-              },
-            ],
-          }
-        : COMPLETE_COVERAGE,
-    discussions: [],
     changedFiles: [],
     findings: options.findings ?? [
       finding({ id: 'f-aaaa' }),
@@ -157,47 +134,5 @@ export function reviewResult(options: FixtureOptions = {}): ReviewResult {
     omissions: [`An omission carrying hostile text: ${HOSTILE}`],
     status: options.status ?? 'partial',
     statusReason: 'The review ran, with gaps.',
-  };
-}
-
-export function publicationPositions(
-  result: ReviewResult,
-  target: RemoteTarget = FAKE_TARGET,
-): PublicationPositions {
-  const placed = result.findings.filter((entry) => entry.id !== 'f-cccc');
-  return {
-    schemaVersion: PUBLICATION_SCHEMA_VERSION,
-    reviewId: result.reviewId,
-    derivedAt: '2026-09-20T10:00:05.000Z',
-    target,
-    positions: placed.map((entry) => {
-      const position = {
-        baseSha: target.baseSha,
-        startSha: target.startSha,
-        headSha: target.headSha,
-        oldPath: 'src/orders.ts',
-        newPath: 'src/orders.ts',
-        oldLine: null,
-        newLine: entry.location.line,
-      };
-      return {
-        findingId: entry.id,
-        provider: target.provider,
-        host: target.host,
-        projectId: target.projectId,
-        projectPath: target.projectPath,
-        mergeRequestIid: target.mergeRequestIid,
-        webUrl: target.webUrl,
-        versionId: target.versionId,
-        position,
-        digest: positionDigest(result.reviewId, entry.id, target, position),
-      };
-    }),
-    unplaceable: [
-      {
-        findingId: 'f-cccc',
-        reason: 'No exact position could be derived for this finding, so it cannot be published.',
-      },
-    ],
   };
 }

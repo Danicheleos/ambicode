@@ -1,12 +1,15 @@
 import path from 'node:path';
-import { combineDiff } from '#platform/git/diff';
+import { combineDiff, splitPatchSections } from '#platform/git/diff';
 import { Git } from '#platform/git/git';
 import { AmbicodeError } from '#util/errors';
 import { contentHash } from '#util/hash';
 import { captureWorkingTree, revisionContent } from './content.ts';
-import type { DiffFile } from '#types/platform/git';
+import { taskDirFor } from '#modules/evidence/task/task-dir';
+import { MR_DIFF_JSON, MR_DIFF_PATCH } from './mr-capture.ts';
+import type { Workspace } from '#types/composition';
+import type { DiffFile, RawChange } from '#types/platform/git';
 import type { FileSystem } from '#types/platform/ports';
-import type { TargetResolution } from '../types/snapshot.ts';
+import type { ContentSource, TargetResolution } from '../types/snapshot.ts';
 
 interface WorkingTargetOptions {
   fs: FileSystem;
@@ -92,7 +95,6 @@ export async function resolveWorkingTarget(options: WorkingTargetOptions): Promi
         headSha,
         baseSha: headSha,
         baseRef: 'HEAD',
-        remote: null,
         notes,
       },
       files,
@@ -170,13 +172,58 @@ export async function resolveBranchTarget(options: BranchTargetOptions): Promise
       headSha,
       baseSha: mergeBase,
       baseRef,
-      remote: null,
       notes,
     },
     files,
     patch,
     content,
     preImageRevision: mergeBase,
+  };
+}
+
+interface CapturedTargetOptions { workspace: Workspace; task: string | null; url: string }
+
+/** Paths and kind of one patch section, from its `---`/`+++` headers: the `diff --git` line is ambiguous for paths with spaces. */
+function changeOf(section: string): RawChange {
+  const header = (marker: string): string | null => {
+    const value = section.split('\n').find((line) => line.startsWith(marker))?.slice(4).split('\t')[0] ?? '/dev/null';
+    return value === '/dev/null' ? null : value.replace(/^[ab]\//, '');
+  };
+  const [oldPath, newPath] = [header('--- '), header('+++ ')];
+  const changeKind = oldPath === null ? 'added' : newPath === null ? 'deleted' : oldPath === newPath ? 'modified' : 'renamed';
+  return { oldPath, newPath, changeKind, oldMode: '100644', newMode: '100644' };
+}
+
+/**
+ * Merge-request target from the diff the hook captured off the model's GitLab MCP call. File bytes come from git only when the
+ * captured head sha exists locally; otherwise the reviewer sees the diff alone and the notes say so.
+ */
+export async function resolveCapturedTarget(options: CapturedTargetOptions): Promise<TargetResolution> {
+  const { workspace, task, url } = options;
+  const { runtime, git, repositoryRoot } = workspace;
+  const missing = (): AmbicodeError => new AmbicodeError('mr-diff-missing', `No merge-request diff is captured for ${url}.`, {
+    details: ['Call the diff tool of your GitLab MCP server for this merge request, then run `route next`; the capture hook records its response.'],
+  });
+  if (task === null) throw missing();
+  const dir = taskDirFor(repositoryRoot, task).reviews;
+  const patch = await runtime.fs.readText(path.join(dir, MR_DIFF_PATCH)).catch(() => null);
+  if (patch === null) throw missing();
+  const meta = JSON.parse(await runtime.fs.readText(path.join(dir, MR_DIFF_JSON)).catch(() => '{}')) as { sha?: string };
+  const sections = splitPatchSections(patch);
+  const files = combineDiff(sections.map(changeOf), patch);
+
+  const headSha = meta.sha === undefined ? null : await git.revParse(meta.sha);
+  const notes = ['Diff captured from the GitLab MCP server; nothing was fetched or checked out.'];
+  const content: ContentSource = headSha === null
+    ? { pinning: 'File content not available locally; the reviewer sees the diff only.', digest: contentHash(patch), read: async () => null, list: async () => [] }
+    : revisionContent(git, headSha);
+  notes.push(content.pinning);
+  return {
+    target: { kind: 'merge-request', repositoryRoot, snapshotId: `mr-${contentHash(`${url}\n${patch}`).slice(7, 23)}`, headSha, baseSha: null, baseRef: null, notes },
+    files,
+    patch,
+    content,
+    preImageRevision: headSha ?? '',
   };
 }
 

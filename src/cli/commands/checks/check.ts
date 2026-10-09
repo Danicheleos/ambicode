@@ -46,6 +46,7 @@ export function renderCheck(output: CheckOutput): string {
 
 export const checkCommand: CliCommand = {
   name: 'check',
+  summary: 'Run a configured check <projectId>/<checkId> and record it (--only, --phase).',
   options: CHECK_OPTIONS,
   run: async (runtime, args) => {
     const output = await runCheckCommand(runtime, args);

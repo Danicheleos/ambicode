@@ -1,11 +1,11 @@
 import { taskSlugFor } from '#modules/review/bundle/review-name';
 import { COMMAND_SPECS } from '#skills/plan/commands';
 import { runCommandTail } from '#harness/engine/command-tail';
-import { listNotes, promotePlan, saveNote } from '#modules/evidence/notes';
+import { promotePlan, saveNote } from '#modules/evidence/notes';
 import { AmbicodeError } from '#util/errors';
 import { routeTools } from './route.ts';
 import type { Runtime } from '#types/composition';
-import { MAX_NOTE_BYTES, SAVE_KINDS, type NoteRow, type SaveKind } from '#types/modules/evidence';
+import { MAX_NOTE_BYTES, SAVE_KINDS, type SaveKind } from '#types/modules/evidence';
 import type { ParsedArgs, CliCommand } from '../../types/cli.ts';
 
 export const NOTE_SAVE_OPTIONS = {
@@ -14,8 +14,6 @@ export const NOTE_SAVE_OPTIONS = {
 } as const;
 
 export const NOTE_PROMOTE_OPTIONS = { values: ['task'], flags: ['json'] } as const;
-
-export const NOTE_LIST_OPTIONS = { values: ['task'], flags: ['json'] } as const;
 
 function taskOf(command: string, args: ParsedArgs): string {
   const task = taskSlugFor({ requirementIds: [], task: args.value('task') });
@@ -88,26 +86,9 @@ export function renderNotePromote(output: NotePromoteOutput): string {
   return `${verb} ${output.path}${output.next === undefined ? '' : `\n\n${output.next}`}`;
 }
 
-interface NoteListOutput {
-  command: 'note list';
-  task: string;
-  notes: NoteRow[];
-}
-
-export async function runNoteList(runtime: Runtime, args: ParsedArgs): Promise<NoteListOutput> {
-  const task = taskOf('note list', args);
-  return { command: 'note list', task, notes: await listNotes(runtime, task) };
-}
-
-export function renderNoteList(output: NoteListOutput): string {
-  if (output.notes.length === 0) return `No notes are recorded for task ${output.task}.`;
-  return output.notes
-    .map((row) => [row.id, row.note, row.path, row.at, row.heading, row.iteration === null ? null : `iteration ${row.iteration}`, row.link].filter((part) => part !== null).join('  '))
-    .join('\n');
-}
-
 export const noteSaveCommand: CliCommand = {
   name: 'note save',
+  summary: "Save a skill's note from standard input (--kind investigation|plan-draft|notes).",
   options: NOTE_SAVE_OPTIONS,
   run: async (runtime, args) => {
     const output = await runNoteSave(runtime, args);
@@ -117,18 +98,10 @@ export const noteSaveCommand: CliCommand = {
 
 export const notePromoteCommand: CliCommand = {
   name: 'note promote',
+  summary: 'Turn the accepted plan draft into the plan (--task).',
   options: NOTE_PROMOTE_OPTIONS,
   run: async (runtime, args) => {
     const output = await runNotePromote(runtime, args);
     return { text: renderNotePromote(output), data: output };
-  },
-};
-
-export const noteListCommand: CliCommand = {
-  name: 'note list',
-  options: NOTE_LIST_OPTIONS,
-  run: async (runtime, args) => {
-    const output = await runNoteList(runtime, args);
-    return { text: renderNoteList(output), data: output };
   },
 };

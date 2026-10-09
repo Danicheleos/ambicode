@@ -4,7 +4,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { CombinedCapture, NodeProcessRunner, decodeCompleteUtf8, windowsCommandExists } from './node-process-runner.ts';
-import { describeOutcome, outcomeFailure } from './process.ts';
 import type { ProcessOutcome } from '#types/platform/ports';
 
 const runner = new NodeProcessRunner();
@@ -278,7 +277,7 @@ describe('U29 a timeout kills the whole process tree', () => {
   });
 
   describe('a command that exits and leaves a grandchild holding the pipes', () => {
-    async function launcher(request: { output?: 'capture' | 'ignore'; timeoutMs: number }): Promise<{
+    async function launcher(request: { timeoutMs: number }): Promise<{
       outcome: ProcessOutcome;
       elapsed: number;
     }> {
@@ -307,44 +306,5 @@ describe('U29 a timeout kills the whole process tree', () => {
       const { outcome } = await launcher({ timeoutMs: 1_000 });
       assert.equal(outcome.kind, 'timed-out');
     });
-
-    it('ends when the command exits once output is ignored', { timeout: 30_000 }, async () => {
-      const { outcome, elapsed } = await launcher({ output: 'ignore', timeoutMs: 5_000 });
-      assert.equal(outcome.kind, 'exited');
-      assert.equal(outcome.exitCode, 0);
-      assert.ok(elapsed < 2_000, `waited ${Math.round(elapsed)}ms for a launcher that exits at once`);
-      assert.equal(outcome.stdout, '');
-      assert.equal(outcome.stderr, '');
-    });
-  });
-});
-
-describe('05-B7 detached output', () => {
-  it('05-B7: a long-running child resolves at once with kind detached, and a missing binary is spawn-failed', { timeout: 30_000 }, async () => {
-    const started = performance.now();
-    const outcome = await runner.run({ argv: [process.execPath, '-e', 'setTimeout(()=>{},5000)'], cwd: os.tmpdir(), timeoutMs: 0, maxOutputBytes: 0, env: { kind: 'inherited' }, output: 'detached' });
-    assert.ok(performance.now() - started < 1_000);
-    assert.deepEqual([outcome.kind, outcome.exitCode, outcome.stdout, outcome.stderr, outcome.truncated, outcome.failure], ['detached', null, '', '', false, null]);
-    const missing = await runner.run({ argv: ['ambicode-no-such-binary-05'], cwd: os.tmpdir(), timeoutMs: 0, maxOutputBytes: 0, env: { kind: 'inherited' }, output: 'detached' });
-    assert.equal(missing.kind, 'spawn-failed');
-  });
-});
-
-describe('outcomeFailure and describeOutcome', () => {
-  const outcome = (fields: Partial<ProcessOutcome>): ProcessOutcome => ({ kind: 'exited', exitCode: 0, stdout: '', stderr: '', truncated: false, durationMs: 0, failure: null, ...fields });
-
-  it('ranks spawn-failed, timed-out, truncated, nonzero-exit and passes a detached start', () => {
-    assert.equal(outcomeFailure(outcome({ kind: 'spawn-failed', exitCode: null, truncated: true })), 'spawn-failed');
-    assert.equal(outcomeFailure(outcome({ kind: 'timed-out', exitCode: null, truncated: true })), 'timed-out');
-    assert.equal(outcomeFailure(outcome({ exitCode: 1, truncated: true })), 'truncated');
-    assert.equal(outcomeFailure(outcome({ exitCode: 1 })), 'nonzero-exit');
-    assert.equal(outcomeFailure(outcome({ kind: 'detached', exitCode: null })), null);
-    assert.equal(outcomeFailure(outcome({})), null);
-  });
-
-  it('describes each failure as the tail of a "<program> …" message', () => {
-    assert.equal(describeOutcome(outcome({ kind: 'spawn-failed', exitCode: null, failure: 'ENOENT' })), 'could not be started (ENOENT)');
-    assert.equal(describeOutcome(outcome({ kind: 'timed-out', exitCode: null })), 'timed out');
-    assert.equal(describeOutcome(outcome({ exitCode: 3 })), 'exited with 3');
   });
 });

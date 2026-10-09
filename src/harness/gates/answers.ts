@@ -1,5 +1,5 @@
 import { AmbicodeError } from '#util/errors';
-import { askedCount, executions, foldRoute, humanRevisesLeft, modelDeliveries, printsOf, sinceReopen, unconsumedPreanswer, windowOf } from '../engine/fold.ts';
+import { askedCount, executions, foldRoute, humanRevisesLeft, printsOf, unconsumedPreanswer, windowOf } from '../engine/fold.ts';
 import { raisedAnswerHandler, offersOption, shapePrint, stripRecommended } from './gates.ts';
 import { append, chainOf, gateFor, latestPrint, objectOf, viewFor } from '../engine/run-context.ts';
 import type { ArtifactRef, LedgerEntry } from '#types/modules/evidence';
@@ -8,16 +8,8 @@ import type { Run } from '../types/engine.ts';
 
 type RevisePath = 'gate' | 'code' | 'model';
 
-/** What the route had spent when it ended, counted from the latest reopen. */
-function budgetUsed(run: Run): Record<string, number> {
-  const current = sinceReopen(chainOf(run).entries);
-  const started = Date.parse(current[0]?.at ?? '');
-  const wallMs = Number.isNaN(started) ? 0 : Math.max(0, run.runtime.clock.now().getTime() - started);
-  return { modelSteps: modelDeliveries(run.def, current), wallMs };
-}
-
 export async function exitRoute(run: Run, reason: Exit | string, detail?: string, extra: object = {}): Promise<void> {
-  await append(run, { kind: 'exit', reason, ...(detail === undefined ? {} : { detail }), budget: budgetUsed(run), ...extra });
+  await append(run, { kind: 'exit', reason, ...(detail === undefined ? {} : { detail }), ...extra });
   run.exited = reason;
 }
 
@@ -38,14 +30,14 @@ export async function reviseTo(
   run: Run,
   revise: Revise,
   via: RevisePath,
-  info: { reason: string; gate?: string; raisedBy?: string; answer?: string; maxRevises?: number; source?: string },
+  info: { reason: string; gate?: string; raisedBy?: string; answer?: string; maxRevises?: number },
 ): Promise<boolean> {
   const exempt = revise.target === RAISED_BY;
   const target = exempt ? info.raisedBy : revise.target;
   const step = run.def.steps.find((candidate) => candidate.id === target);
   if (step === undefined) throw new AmbicodeError('internal', `Revise target "${revise.target}" is not a step of route ${run.def.skill}.`);
   const chain = chainOf(run);
-  const mark = { ...(info.source === undefined ? {} : { source: info.source }), ...(info.gate === undefined ? {} : { gate: info.gate }) };
+  const mark = info.gate === undefined ? {} : { gate: info.gate };
   if (via !== 'gate' && !exempt && step.actor !== 'human') {
     const done = executions(chain.entries, step);
     if (done + 1 > step.repeat) {

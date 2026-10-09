@@ -15,7 +15,7 @@ import { openRouteView } from '#harness/engine/context';
 import { skillHandlers } from '#skills/handlers';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
-import { CONFIG, routeFixture, type RouteFixture } from '#testing/fixtures/route-fixture';
+import { CONFIG, routeFixture, type RouteFixture , stopRoute } from '#testing/fixtures/route-fixture';
 import { REPO_ROOT } from '#testing/paths';
 import type { RouteArgs } from '#types/harness';
 import type { CaptureDeps, EnvelopeInput } from '#types/modules/requirements';
@@ -29,7 +29,7 @@ const ASKED = ['ORD-17', 'ORD-18'];
 const TASK = 'ORD-17';
 const SHIPPED = await readFile(path.join(REPO_ROOT, 'routes', 'review', 'review.yaml'), 'utf8');
 const STEPS: Record<string, string> = {};
-for (const name of ['review/fetch', 'review/readback', 'review/view']) STEPS[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
+for (const name of ['review/fetch', 'review/readback', 'review/agent']) STEPS[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
 
 async function shipped(options: { requirements?: string[]; headless?: boolean; server?: string | null } = {}) {
   const server = options.server === undefined ? 'atlassian' : options.server;
@@ -91,7 +91,7 @@ describe('review route, missing sources (08-Q)', () => {
       const envelope = (await s.fx.kinds(s.task, 'envelope')).at(-1)!;
       assert.deepEqual([envelope['builtFrom'], envelope['missingAsked']], ['captures', []]);
       assert.deepEqual(await s.exits(), []);
-      await s.fx.engine.stop(s.task, 'aaaaaaaa-1111-4111-8111-111111111111', 'blocked', 'user stopped', s.fx.scratchpad);
+      await stopRoute(s.fx, s.task, 'aaaaaaaa-1111-4111-8111-111111111111', 'blocked', 'user stopped');
       assert.deepEqual(await s.exits(), ['blocked']);
     } finally {
       await s.fx.dispose();
@@ -200,7 +200,7 @@ describe('review route, stop policy by registry (08-Q1)', () => {
 });
 
 describe('standalone review --requirement (08-Q3)', () => {
-  it('08-Q3: an unretrieved requirement is refused with no reviewer and no review directory, never a quality review', async () => {
+  it('08-Q3: an unretrieved requirement is refused with no review directory, never a quality review', async () => {
     const repo = await TempRepo.create();
     try {
       await repo.write('package.json', '{"name":"app"}\n');
@@ -209,13 +209,10 @@ describe('standalone review --requirement (08-Q3)', () => {
       await initConfig(await createRuntime({ cwd: repo.root }));
       await repo.write('src/a.ts', 'export const a = 2;\n');
       const runtime = await createRuntime({ cwd: repo.root });
-      let invoked = 0;
-      const reviewer = { async invoke() { invoked += 1; return { kind: 'ok', output: { findings: [], coverageNotes: [] }, rawLength: 2, argv: ['claude'] } as never; } };
       await assert.rejects(
-        runReview(runtime, parseArgs('review', ['--requirement', TWO_URLS[0]!], REVIEW_OPTIONS), { reviewer: reviewer as never }),
+        runReview(runtime, parseArgs('review', ['--requirement', TWO_URLS[0]!], REVIEW_OPTIONS)),
         (error: Error & { code?: string }) => /^requirements-/.test(error.code ?? ''),
       );
-      assert.equal(invoked, 0);
       assert.equal(await runtime.fs.exists(path.join(repo.root, '.ambicode', 'reviews')), false);
     } finally {
       await repo.dispose();
@@ -234,12 +231,9 @@ describe('the route envelope is the review evidence (08-PLAN-2)', () => {
       const print = (await s.fx.kinds(s.task, 'gate')).findLast((entry) => entry['gate'] === 'estimate')!;
       const run = await s.next({ cause: 'gate-hook', answers: [{ gate: 'estimate', option: 'run', instance: print.id }] });
       assert.doesNotMatch(run.text, /--evidence/);
-      let prompt = '';
-      const reviewer = { async invoke(request: { prompt: string }) { prompt = request.prompt; return { kind: 'ok', output: { findings: [], coverageNotes: [] }, rawLength: 2, argv: ['claude'] } as never; } };
-      const output = await runReview(s.fx.runtime, parseArgs('review', ['--task', s.task], REVIEW_OPTIONS), { reviewer: reviewer as never, warm: async () => {} });
+      const output = await runReview(s.fx.runtime, parseArgs('review', ['--task', s.task], REVIEW_OPTIONS));
       assert.equal(output.result.requirementMode, 'requirement-based');
       assert.deepEqual(output.result.requirements.map((source) => source.id), ['ORD-17', 'ORD-18']);
-      assert.match(prompt, /ORD-18/);
     } finally {
       await s.fx.dispose();
     }
@@ -250,8 +244,7 @@ describe('the route envelope is the review evidence (08-PLAN-2)', () => {
     try {
       const print = (await s.fx.kinds(s.task, 'gate')).findLast((entry) => entry['gate'] === 'estimate')!;
       await s.next({ cause: 'gate-hook', answers: [{ gate: 'estimate', option: 'run', instance: print.id }] });
-      const reviewer = { async invoke() { return { kind: 'ok', output: { findings: [], coverageNotes: [] }, rawLength: 2, argv: ['claude'] } as never; } };
-      const output = await runReview(s.fx.runtime, parseArgs('review', ['--task', s.task], REVIEW_OPTIONS), { reviewer: reviewer as never, warm: async () => {} });
+      const output = await runReview(s.fx.runtime, parseArgs('review', ['--task', s.task], REVIEW_OPTIONS));
       assert.equal(output.result.requirementMode, 'quality-review');
     } finally {
       await s.fx.dispose();

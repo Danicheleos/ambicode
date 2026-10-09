@@ -7,14 +7,16 @@ const PROJECT_ID = '[a-z0-9]+(?:-[a-z0-9]+)*';
 const SETTABLE_KEYS: readonly RegExp[] = [
   /^requirements\.mcpServer$/,
   /^requirements\.acceptanceField$/,
-  /^search\.index$/,
-  new RegExp(`^projects\\.(${PROJECT_ID})\\.commands\\.(lint|unit|e2e|format)$`),
+  new RegExp(`^projects\\.(${PROJECT_ID})\\.commands\\.(lint|unit|typecheck|e2e|format)$`),
 ];
+
+/** The model's slot name in a proposal as the config slot checks and policy refer to. */
+export const configSlot = (slot: string): string => (slot === 'test' ? 'unit' : slot);
 
 const bad = (raw: string, why: string): AmbicodeError =>
   new AmbicodeError('bad-argument', `--set ${raw}: ${why}.`, {
     field: '--set',
-    details: ['Settable: requirements.mcpServer, requirements.acceptanceField, search.index, projects.<id>.commands.<lint|unit|e2e|format>.'],
+    details: ['Settable: requirements.mcpServer, requirements.acceptanceField, projects.<id>.commands.<lint|unit|typecheck|e2e|format>.'],
   });
 
 function json(raw: string, text: string): unknown {
@@ -33,7 +35,6 @@ export function parseSet(raw: string): SetPair {
   const text = raw.slice(at + 1).trim();
   if (!SETTABLE_KEYS.some((pattern) => pattern.test(key))) throw bad(raw, `"${key}" is not a settable key`);
   if (text === 'null') {
-    if (key === 'search.index') throw bad(raw, 'search.index is none or codeindex');
     return { key, value: null };
   }
   if (key.startsWith('projects.')) {
@@ -43,13 +44,12 @@ export function parseSet(raw: string): SetPair {
   }
   const value = text.startsWith('"') ? json(raw, text) : text;
   if (typeof value !== 'string' || value === '') throw bad(raw, 'the value is a non-empty string');
-  if (key === 'search.index' && value !== 'none' && value !== 'codeindex') throw bad(raw, 'search.index is none or codeindex');
   if (key === 'requirements.acceptanceField' && !/^customfield_\d+$/.test(value)) throw bad(raw, 'the acceptance field is a Jira id such as customfield_10010');
   return { key, value };
 }
 
 /** The project id a `projects.<id>.…` key names, or null. */
-export const projectOfKey = (key: string): string | null => SETTABLE_KEYS[3]!.exec(key)?.[1] ?? null;
+export const projectOfKey = (key: string): string | null => SETTABLE_KEYS[2]!.exec(key)?.[1] ?? null;
 
 /** Parses every `--set`; a repeated key or an unknown project id is a bad argument. */
 export function parseSets(raws: readonly string[], projects: readonly string[] | null = null): SetPair[] {

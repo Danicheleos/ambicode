@@ -2,13 +2,9 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { parseArgs } from '#util/args';
-import { runConfig, renderConfig } from '#cli/commands/config/config';
-import { runReview, REVIEW_OPTIONS } from '#cli/commands/review/review';
 import { DEFAULTS } from '#types/defaults';
 import { parseHunks } from '#platform/git/diff';
 import { enforceReviewInputLimits } from '../snapshot/limits.ts';
-import { CHECK_TASK } from '#testing/fixtures/check-fixture';
 import { reviewRouteFixture } from '#testing/fixtures/review-route-fixture';
 import { validateFindings } from '../findings/validate.ts';
 import type { DiffFile } from '#types/platform/git';
@@ -34,23 +30,5 @@ describe('null review limits mean no limit (08-LIM)', () => {
       reviewId: 'r1', maxFindings: null, knownRuleIds: new Set(), knownRequirementIds: new Set(),
     });
     assert.equal(result.kind, 'ok');
-  });
-
-  it('08-LIM4: config prints no limit, and the reviewer prompt asks for no finding count', async () => {
-    const t = await reviewRouteFixture();
-    try {
-      const configPath = path.join(t.runtime.cwd, '.ambicode', 'config.yaml');
-      await writeFile(configPath, (await readFile(configPath, 'utf8')).replace(/maxFindings: 7, maxChangedFiles: 50, maxChangedLines: 2000, maxContextBytes: 524288/, 'maxFindings: null, maxChangedFiles: null, maxChangedLines: null, maxContextBytes: null'));
-      assert.match(renderConfig(await runConfig(t.runtime)), /maxFindings {9}no limit\n {2}maxChangedFiles {5}no limit\n {2}maxChangedLines {5}no limit\n {2}maxContextBytes {5}no limit/);
-      await t.start();
-      await t.hook('estimate', 'run');
-      let prompt = '';
-      const reviewer = { async invoke(request: { prompt: string }) { prompt = request.prompt; return { kind: 'ok', output: { findings: [], coverageNotes: [] }, rawLength: 2, argv: ['claude'] } as never; } };
-      await runReview(t.runtime, parseArgs('review', ['--task', CHECK_TASK], REVIEW_OPTIONS), { reviewer: reviewer as never, warm: async () => {} });
-      assert.match(prompt, /Return the findings that most deserve a human's time\./);
-      assert.doesNotMatch(prompt, /at most \d+ findings/);
-    } finally {
-      await t.fx.dispose();
-    }
   });
 });

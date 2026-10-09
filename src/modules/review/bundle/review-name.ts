@@ -44,9 +44,7 @@ export function reviewNameBase(input: ReviewNameInput): string {
   const { target, requirementIds, now } = input;
   const parts: string[] = [];
 
-  if (target.kind === 'merge-request' && target.remote !== null) {
-    parts.push(target.remote.provider === 'github' ? 'PR' : 'MR', String(target.remote.mergeRequestIid));
-  } else if (target.kind === 'branch') {
+  if (target.kind === 'branch') {
     parts.push('branch');
     const branch = target.baseRef === null ? '' : sanitize(target.baseRef, 32);
     if (branch !== '') parts.push(branch);

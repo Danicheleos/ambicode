@@ -23,6 +23,9 @@ steps:
   - id: review-run
     actor: model
     instruction: "Review."
+  - id: review-cmd
+    actor: model
+    instruction: "Review again."
 `;
 
 const VALUES: Record<string, Record<string, string[]>> = {

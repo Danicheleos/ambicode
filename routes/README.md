@@ -73,20 +73,26 @@ Unknown fields are rejected. Step ids are unique inside a route.
 | `policy.stage(<stage>)` | `policy:<stage>` | Rules for the stage: `before-work`, `before-checks`, `before-report`. |
 | `evidence.navigationLine` | `navigation` | The line saying which navigation calls were recorded. |
 | `evidence.notes.save(<kind>)`, `evidence.notes.promote` | none | Save a note / promote a plan draft. |
+| `review.evaluate` | `review.evaluate` | Judges the latest review: waiting checks, out-of-scope findings, findings to fix. On the review route it also prints the snapshot and `brief.md` paths the reviewer subagent is given. |
+| `review.mrTemplate` | `review.mrTemplate` | `--mr` review: the MCP calls the model makes to fetch the merge request and its diff. |
+| `review.publishList` | `review.publishList` | `--mr` review: the recorded findings as a numbered list; none ends the route. |
+| `review.await` | `review.await` | Task route, after `review --task`: raises waiting checks, else prints the same two paths. |
 
-Qualifiers for `needs`/`produces`: `note{investigation|plan-draft|plan|notes}`, `policy{before-work|before-checks|before-report}`, `check{green}`, `requirement{full|list}`. Other kinds take no qualifier: `envelope`, `map`, `search`, `gate`, `acceptance`, ... (any ledger kind).
+Qualifiers for `needs`/`produces`: `note{investigation|plan-draft|plan|notes}`, `policy{before-work|before-checks|before-report}`, `check{green}`, `requirement{full|list}`, `review{pending|recorded}`. Other kinds take no qualifier: `envelope`, `map`, `search`, `gate`, `acceptance`, ... (any ledger kind).
+
+Evidence-writing commands write their ledger entry and then advance the route at their tail: `check`, `format`, `review` (writes `review{pending}`), `review record` (writes `review{recorded}` from the `ambicode:reviewer` subagent's JSON on stdin), `note save`, `note promote`, `plan check`, `requirements normalize`.
 
 ### Conditions (`when`)
 
 | Condition | True when |
 |---|---|
 | `args.hasRequirement` / `!args.hasRequirement` | The request names a requirement (URL, `--requirement`, or a bare key with an MCP server configured) / does not. |
+| `args.hasMergeRequest` | The review route was started with `--mr <url>`. |
 | `map.empty` | The search map found nothing. |
 | `plan.isDraft` | The plan is still a draft. |
 | `headless` / `interactive` | The route was started headless / with a user present. |
-| `index.present` | A code index is configured. |
 | `gate.<id>.answered` | The gate has a bound answer. |
-| `gate.<id>.is(<option>)` | The gate's answer is that option. |
+| `gate.<id>.is(<option>)` / `gate.<id>.isnt(<option>)` | The gate's answer is that option / is any other answer, free text included. |
 
 ## Gates
 
@@ -113,7 +119,7 @@ gate:
 | `object` | `kind` or `kind{value}` | The record the question is about; its path and hash are printed. An earlier step must `produce` it. |
 | `policy` | `{ <skill>: stop }` | For that skill the gate gets a `stop` option and `stop` becomes default and release. Used when one route must never continue past it (review). |
 
-In a headless route the guard turns a permission ask into a deny; the model then runs `route stop --reason blocked --detail "permission-denied: <what>"` and the route ends `blocked`.
+In a headless route the guard turns a permission ask into a deny; the model then finishes with a final message that says `permission-denied: <what>`.
 
 Special answers: `stop` and `pause` end the route. The exit is `human` for the `scope` and `project-ambiguous` gates, `budget` for the budget gate and `blocked` for every other gate. Name the option `pause` when the user can supply what is missing later in the chat; a paused route cannot be resumed, the user starts a new one.
 

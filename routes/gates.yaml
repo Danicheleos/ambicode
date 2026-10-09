@@ -46,7 +46,7 @@ review-again:
   default: skip
   release: skip
   acting: [run]
-  onAnswer: { run: "revise review-run" }
+  onAnswer: { run: "revise review-cmd" }
   maxRevises: 2
 scope-expanding:
   question: "This finding is outside the brief: {finding}. Treat as out of scope?"

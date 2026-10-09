@@ -1,32 +1,28 @@
 import path from 'node:path';
 import { runChecks } from '#modules/checks/run/run';
-import { runRemoteChecks } from '#modules/checks/run/remote';
-import { MAX_REVIEWED_DISCUSSIONS, REVIEWS_DIR, UNLIMITED_CONTEXT_BUDGET_BYTES } from '#types/defaults';
+import { REVIEWS_DIR, UNLIMITED_CONTEXT_BUDGET_BYTES } from '#types/defaults';
 import { appendLedger } from '#platform/ledger/ledger';
 import { taskDirFor } from '#modules/evidence/task/task-dir';
+import { writeBrief } from './brief.ts';
 import { taskSlugFor, uniqueReviewName } from './review-name.ts';
 import { openWorkspace, projectForPath } from '#modules/config/workspace';
 import { resolvePolicyFor } from '#modules/policy/resolve-for';
 import type { ProjectConfig } from '#types/modules/config';
 import type { ResolvedPolicy } from '#types/modules/policy';
-import { COMPLETE_COVERAGE } from '#types/platform/provider';
 import { REVIEW_SCHEMA_VERSION, type CheckResult, type ReviewResult, type Snapshot, type SnapshotPlan, type ReviewBundle, type AssembleOptions } from '#types/modules/review';
 import { configProvenance, policyProvenance } from '#modules/policy/packs/provenance';
 import { canonicalUrl, normalizeRequirements, loadRequirementEvidence } from '#modules/requirements/envelope/normalize';
 import { describeExclusion, isExcludedFromReview } from '#util/path-classes';
 import { byteLength, enforceReviewInputLimits, measureInput, partitionChange } from '../snapshot/limits.ts';
-import { resolveMergeRequestTarget } from '../snapshot/remote-target.ts';
 import { planSnapshot, writeSnapshot } from '../snapshot/snapshot.ts';
-import { resolveBranchTarget, resolveWorkingTarget } from '../snapshot/target.ts';
-import { AmbicodeError, messageOf } from '#util/errors';
+import { resolveBranchTarget, resolveCapturedTarget, resolveWorkingTarget } from '../snapshot/target.ts';
+import { AmbicodeError } from '#util/errors';
+import { literalPathspec } from '#platform/git/git';
 import { normalizeRelative } from '#util/paths';
-import { findDependents } from '#modules/search/declarations/dependents';
-import { declarationCensus } from '#modules/search/declarations/harvest';
-import { indexAdapterFor } from '#modules/search/code-index/adapter';
-import { indexDepsOf } from '#modules/search/code-index/codeindex';
-import { composeReviewerPrompt, estimatePromptOverheadBytes } from '../reviewer/prompt.ts';
+import { findDependents } from './dependents.ts';
+import { declarationsOf } from '#modules/search/harvest';
 import type { ChangedPath, PendingApproval } from '#types/modules/checks';
-import { MAX_DEPENDENTS, type Dependent } from '#types/modules/search';
+import type { Dependent } from '#types/modules/search';
 import type { Runtime, Workspace } from '#types/composition';
 import type { LedgerEntry } from '#types/modules/evidence';
 import type { DiffFile } from '#types/platform/git';
@@ -36,7 +32,7 @@ import type { TargetResolution } from '../types/snapshot.ts';
 /** What a dry run measured; a limit refusal is returned, not thrown. */
 interface DryRunPlan {
   workspace: Workspace;
-  target: TargetResolution['target'] | Awaited<ReturnType<typeof resolveMergeRequestTarget>>['target'];
+  target: TargetResolution['target'];
   files: DiffFile[];
   policies: { project: ProjectConfig; policy: ResolvedPolicy }[];
   plan: SnapshotPlan | null;
@@ -114,12 +110,9 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
   // The working tree is read once, so what relies on the change is chosen before that read.
   const named = (options.contextPaths ?? []).map((entry) => ({ path: normalizeRelative(entry), reasons: ['named with --context'] }));
   let lookedUp: Dependent[] | null = null;
-  const indexNotes: string[] = [];
   const lookUp = async (files: readonly DiffFile[]): Promise<Dependent[]> => {
     const projects = groupByProject(workspace, files);
-    const indexed = await indexedDependents(workspace, projects);
-    if (indexed.kind === 'unavailable') indexNotes.push(`index unavailable: ${indexed.reason}; dependents by name search`);
-    const found = indexed.kind === 'ok' ? indexed.dependents : (await findDependents({ git: workspace.git, projects: projects.map(({ project }) => project), files })).dependents;
+    const found = (await findDependents({ git: workspace.git, projects: projects.map(({ project }) => project), files })).dependents;
     lookedUp = await flagCollisions(workspace, projects.map(({ project }) => project), [...named, ...found.filter((entry) => !named.some((other) => other.path === entry.path))]);
     return lookedUp;
   };
@@ -128,9 +121,6 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
   const preexisting = new Set(options.preexisting ?? []);
   if (preexisting.size > 0) resolved.files = resolved.files.filter((file) => !preexisting.has(file.newPath ?? '') && !preexisting.has(file.oldPath ?? ''));
   const resolution = resolved;
-  const discussions = 'discussions' in resolution ? resolution.discussions : [];
-  const remoteOmissions = 'omissions' in resolution ? resolution.omissions : [];
-  const coverage = 'coverage' in resolution ? resolution.coverage : COMPLETE_COVERAGE;
 
   // Vendored, build-output and credential-shaped files leave the review here: not
   // mirrored, not in the patch, not counted against limits.
@@ -167,14 +157,6 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
 
   const policies = await resolveProjectPolicies(workspace, reviewable.files);
 
-  const overheadBytes = await estimatePromptOverheadBytes(runtime.fs, runtime.pluginRoot, {
-    patch: reviewable.patch,
-    requirements: requirements.sources,
-    policies,
-    discussions,
-    files: reviewable.files,
-  });
-
   const local = resolution.target.kind !== 'merge-request';
   const wanted: Dependent[] = !local ? [] : lookedUp ?? (await lookUp(resolution.files));
 
@@ -185,7 +167,7 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
       content: resolution.content,
       includeSiblingContext: local,
       operator: patterns,
-      contextBudgetBytes: Math.max(0, (limits.maxContextBytes ?? UNLIMITED_CONTEXT_BUDGET_BYTES) - overheadBytes),
+      contextBudgetBytes: Math.max(0, (limits.maxContextBytes ?? UNLIMITED_CONTEXT_BUDGET_BYTES)),
       dependentPaths: wanted.map((entry) => entry.path),
     });
   } catch (error) {
@@ -272,10 +254,9 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
       },
     },
     reviewer: null,
+    brief: null,
     policySummary: summarizePolicy(policies),
     checks,
-    coverage,
-    discussions,
     changedFiles: resolution.files.map((file) => {
       const target = file.newPath;
       const reason = isExcludedFromReview(file.oldPath, file.newPath, patterns);
@@ -291,7 +272,6 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
     }),
     findings: [],
     omissions: [
-      ...remoteOmissions,
       ...(preexisting.size === 0 ? [] : [preexistingOmission([...preexisting].sort())]),
       ...(onlyPaths.length === 0
         ? []
@@ -310,7 +290,6 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
         : []),
       ...reviewable.excluded.map((entry) => `${entry.path}: ${entry.reason}.`),
       ...snapshot.omissions,
-      ...indexNotes,
       ...checkNotes,
       ...requirements.notices,
       ...policyDiagnosticOmissions(policies),
@@ -339,37 +318,16 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
     policies,
     requirements,
     pendingApprovals,
-    prompt: { system: '', user: '', provenance: [] },
     result,
   };
-
-  bundle.prompt = await composeReviewerPrompt(runtime.fs, runtime.pluginRoot, bundle);
-  bundle.result.provenance = [...bundle.result.provenance, ...bundle.prompt.provenance].sort((a, b) =>
-    `${a.kind}${a.reference}`.localeCompare(`${b.kind}${b.reference}`),
-  );
-
-  bundle.measured = measureInput(reviewable.files, reviewable.patch, {
-    snapshotBytes: plan.totalBytes,
-    requirementBytes,
-    promptBytes: byteLength(bundle.prompt.system) + byteLength(bundle.prompt.user),
-  });
-  bundle.result.inputs = { ...bundle.measured, limits: bundle.result.inputs.limits };
-  enforceReviewInputLimits(bundle.measured, limits, reviewable.files);
 
   return bundle;
 }
 
 /** `ledger` adds fields to the `review` entry (route, session, baseline, preexisting); the entry is returned. */
 export async function writeBundleArtifacts(runtime: Runtime, bundle: ReviewBundle, ledger: Readonly<Record<string, unknown>> = {}): Promise<LedgerEntry | null> {
+  bundle.result.brief = path.relative(bundle.workspace.repositoryRoot, await writeBrief(runtime, bundle));
   await runtime.fs.writeText(bundle.resultPath, `${JSON.stringify(bundle.result, null, 2)}\n`);
-  await runtime.fs.writeText(
-    path.join(bundle.reviewDirectory, 'reviewer-system-prompt.md'),
-    bundle.prompt.system,
-  );
-  await runtime.fs.writeText(
-    path.join(bundle.reviewDirectory, 'reviewer-user-prompt.md'),
-    bundle.prompt.user,
-  );
   await runtime.fs.writeText(
     path.join(bundle.reviewDirectory, 'snapshot-path.txt'),
     `${bundle.snapshot.directory}\n`,
@@ -383,6 +341,7 @@ export async function writeBundleArtifacts(runtime: Runtime, bundle: ReviewBundl
       result: path.relative(bundle.workspace.repositoryRoot, bundle.resultPath),
       status: result.status,
       statusReason: result.statusReason,
+      stage: result.reviewer === null ? 'pending' : 'recorded',
       reviewerRan: result.reviewer !== null,
       findings: result.findings.length,
       omissions: result.omissions.length,
@@ -397,18 +356,10 @@ async function resolveTarget(
   workspace: Workspace,
   options: AssembleOptions,
   dependentPaths: (files: readonly DiffFile[]) => Promise<readonly string[]>,
-): Promise<TargetResolution | Awaited<ReturnType<typeof resolveMergeRequestTarget>>> {
+): Promise<TargetResolution> {
   const target = options.target;
   if (target.kind === 'merge-request') {
-    return await resolveMergeRequestTarget({
-      provider: workspace.runtime.providers.forUrl(target.url),
-      url: target.url,
-      repositoryRoot: workspace.repositoryRoot,
-      checkoutOriginUrl: await workspace.git.remoteUrl('origin'),
-      // Each unchanged neighbour costs a remote request for code the change does not touch.
-      includeSiblingContext: false,
-      maxDiscussions: MAX_REVIEWED_DISCUSSIONS,
-    });
+    return await resolveCapturedTarget({ workspace, task: options.task, url: target.url });
   }
   if (target.kind === 'branch') {
     return await resolveBranchTarget({
@@ -448,34 +399,6 @@ async function resolveProjectPolicies(
   return policies;
 }
 
-/** With an index configured and fresh, the changed files' importers (08-D2); `none` keeps the name search unchanged (08-D1). */
-async function indexedDependents(workspace: Workspace, projects: readonly { project: ProjectConfig; changed: ChangedPath[] }[]): Promise<{ kind: 'none' } | { kind: 'unavailable'; reason: string } | { kind: 'ok'; dependents: Dependent[] }> {
-  if (workspace.config.search.index === 'none') return { kind: 'none' };
-  const deps = indexDepsOf(workspace.runtime, workspace.git, workspace.repositoryRoot, workspace.config);
-  const changed = new Set(projects.flatMap(({ changed: paths }) => paths.flatMap((entry) => [entry.newPath, entry.oldPath]).filter((entry): entry is string => entry !== null)));
-  const found = new Map<string, Dependent>();
-  try {
-    for (const { project, changed: paths } of projects) {
-      const adapter = indexAdapterFor(deps, project);
-      const status = await adapter.status(project);
-      if (!status.fresh) return { kind: 'unavailable', reason: status.reason ?? `index ${status.state}` };
-      for (const file of paths.map((entry) => entry.newPath ?? entry.oldPath).filter((entry): entry is string => entry !== null)) {
-        const answer = await adapter.relates(file);
-        if (!answer.ok) return { kind: 'unavailable', reason: answer.status.reason ?? `index ${answer.status.state}` };
-        for (const importer of answer.value.importers) {
-          if (changed.has(importer)) continue;
-          const entry = found.get(importer) ?? { path: importer, reasons: [] };
-          entry.reasons.push(`imports ${file} (index)`);
-          found.set(importer, entry);
-        }
-      }
-    }
-  } catch (error) {
-    return { kind: 'unavailable', reason: messageOf(error) };
-  }
-  return { kind: 'ok', dependents: [...found.values()].slice(0, MAX_DEPENDENTS) };
-}
-
 /** A dependent found by a name another file also declares may import a different one (08-D3); flagged, never resolved. */
 async function flagCollisions(workspace: Workspace, projects: readonly ProjectConfig[], dependents: Dependent[]): Promise<Dependent[]> {
   const termsOf = (entry: Dependent): string[] => entry.reasons.flatMap((reason) => /^contains "([^"]+)"/.exec(reason)?.[1] ?? []);
@@ -483,8 +406,9 @@ async function flagCollisions(workspace: Workspace, projects: readonly ProjectCo
   if (terms.length === 0) return dependents;
   const colliding = new Set<string>();
   for (const project of projects) {
-    const { census } = await declarationCensus(workspace.git, workspace.runtime.fs, project, terms);
-    for (const [term, row] of census) if ((row.declarations ?? 0) >= 2) colliding.add(term);
+    const root = normalizeRelative(project.root);
+    const declared = await declarationsOf(workspace.git, workspace.runtime.fs, terms, root === '' ? null : literalPathspec(root));
+    for (const declaration of declared) if (declaration.declarations >= 2) colliding.add(declaration.name);
   }
   return dependents.map((entry) => {
     const flagged = termsOf(entry).filter((term) => colliding.has(term)).map((term) => `verify import: ${term} is declared in more than one file`);
@@ -531,26 +455,6 @@ async function runProjectChecks(options: ProjectChecksOptions): Promise<{
   const { workspace, resolution } = options;
   const grouped = groupByProject(workspace, options.reviewableFiles);
   const policyOf = new Map(options.policies.map((entry) => [entry.project.id, entry.policy]));
-
-  // Merge request code is somebody else's: it runs only in the configured isolated
-  // environment, never in the checkout, with no fallback.
-  if (resolution.target.kind === 'merge-request') {
-    const outcome = await runRemoteChecks({
-      fs: options.runtime.fs,
-      config: workspace.config,
-      runner: options.runtime.runner,
-      clock: options.runtime.clock,
-      projects: grouped.map((entry) => ({
-        project: entry.project,
-        policy: policyOf.get(entry.project.id) as ResolvedPolicy,
-        changed: entry.changed,
-      })),
-      snapshotFilesDirectory: options.snapshot.filesDirectory,
-      reviewDirectory: options.reviewDirectory,
-      approvals: options.approvals,
-    });
-    return { checks: outcome.results, pendingApprovals: [], notes: outcome.notes };
-  }
 
   // Both names of every change are watched: a check that resurrects a deleted or
   // renamed file has changed the tree as surely as one that rewrites a survivor.

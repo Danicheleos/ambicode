@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parseArgs } from '#util/args';
-import { runRouteNext, runRouteStop, ROUTE_NEXT_OPTIONS, ROUTE_STOP_OPTIONS } from '#cli/commands/route/route';
-import { routeFixture } from '#testing/fixtures/route-fixture';
+import { runRouteNext, ROUTE_NEXT_OPTIONS } from '#cli/commands/route/route';
+import { routeFixture , stopRoute } from '#testing/fixtures/route-fixture';
 import { PLAN_TASK, planFixture } from '#testing/fixtures/plan-fixture';
 import { resolveActiveRoute } from './active-route.ts';
 import {
@@ -24,7 +24,7 @@ describe('03-S2/5.1: the CLI finds the owner from the task', () => {
       await plan.start({ session: 'owner-one', harnessSession: SESSION_A });
       assert.deepEqual(await source.resolve(plan.fx.runtime), { state: 'bound', session: 'owner-one', via: 'task' });
       assert.deepEqual(await taskSessionSource('another-task').resolve(plan.fx.runtime), { state: 'unbound', reason: 'missing' });
-      await plan.fx.engine.stop(PLAN_TASK, 'owner-one', 'blocked', 'x', plan.fx.scratchpad);
+      await stopRoute(plan.fx, PLAN_TASK, 'owner-one', 'blocked', 'x');
       assert.deepEqual(await source.resolve(plan.fx.runtime), { state: 'unbound', reason: 'missing' });
     } finally {
       await plan.dispose();
@@ -39,9 +39,7 @@ describe('03-S2/5.1: the CLI finds the owner from the task', () => {
     const fx = await routeFixture({ routes: {} });
     try {
       const next = parseArgs('route next', ['--task', 'T'], ROUTE_NEXT_OPTIONS);
-      const stop = parseArgs('route stop', ['--task', 'T', '--reason', 'blocked'], ROUTE_STOP_OPTIONS);
       assert.equal(await codeOf(runRouteNext(fx.runtime, next)), 'route-not-open');
-      assert.equal(await codeOf(runRouteStop(fx.runtime, stop)), 'route-not-open');
     } finally {
       await fx.dispose();
     }
@@ -117,7 +115,7 @@ describe('03-S7: the pointer is a cache', () => {
     try {
       await plan.start();
       assert.deepEqual(await plan.fx.pointer.read(SESSION_A, plan.fx.scratchpad), { task: PLAN_TASK, skill: 'plan', owner: SESSION_A });
-      await plan.fx.engine.stop(PLAN_TASK, SESSION_A, 'blocked', 'x', plan.fx.scratchpad);
+      await stopRoute(plan.fx, PLAN_TASK, SESSION_A, 'blocked', 'x');
       assert.equal(await plan.fx.pointer.read(SESSION_A, plan.fx.scratchpad), null);
       const ended = await plan.fx.pointer.readEnded(SESSION_A, plan.fx.scratchpad);
       assert.equal(ended?.task, PLAN_TASK);
@@ -137,7 +135,7 @@ describe('03-S7: the pointer is a cache', () => {
       const found = await resolveActiveRoute(plan.fx.runtime.fs, plan.fx.pointer, { ...scope, session: SESSION_A });
       assert.equal(found?.task, PLAN_TASK);
       assert.equal(await resolveActiveRoute(plan.fx.runtime.fs, plan.fx.pointer, { ...scope, session: SESSION_B }), null);
-      await plan.fx.engine.stop(PLAN_TASK, SESSION_A, 'blocked', 'x', plan.fx.scratchpad);
+      await stopRoute(plan.fx, PLAN_TASK, SESSION_A, 'blocked', 'x');
       assert.equal(await resolveActiveRoute(plan.fx.runtime.fs, plan.fx.pointer, { ...scope, session: SESSION_A }), null);
     } finally {
       await plan.dispose();

@@ -166,10 +166,10 @@ function validateRoute(file: string, route: RouteDef, registry: readonly GateDef
 
   for (const step of route.steps) {
     const where = `step ${step.id}`;
-    if (step.when?.predicate === 'gate.answered' || step.when?.predicate === 'gate.is') {
+    if (step.when?.predicate === 'gate.answered' || step.when?.predicate === 'gate.is' || step.when?.predicate === 'gate.isnt') {
       const gate = gates.get(step.when.gate);
       if (gate === undefined) throw invalid(file, `${where}.when`, `"${step.when.gate}" is not a gate of this route`);
-      if (step.when.predicate === 'gate.is' && !gate.options.includes(step.when.option)) {
+      if (step.when.predicate !== 'gate.answered' && !gate.options.includes(step.when.option)) {
         throw invalid(file, `${where}.when`, `"${step.when.option}" is not an option of gate ${gate.id}`);
       }
     }

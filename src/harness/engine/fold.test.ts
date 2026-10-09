@@ -147,14 +147,11 @@ describe('fold', () => {
   });
 });
 
-describe('exitOf and reopen', () => {
-  it('an exit before the latest reopen no longer ends the chain; one after it does', () => {
+describe('exitOf', () => {
+  it('the latest exit ends the chain', () => {
     const exit = (reason: string): LedgerEntry => entry('exit', { route: 'r1', reason, complete: true });
-    const reopen = entry('revise', { route: 'r1', from: 'read', via: 'reopen', cycle: 0, reason: 'more' });
     const head = route('r1');
-    const closed = [head, exit('done')];
-    assert.equal(exitOf(buildChain(closed, head))?.['reason'], 'done');
-    assert.equal(exitOf(buildChain([...closed, reopen], head)), null);
-    assert.equal(exitOf(buildChain([...closed, reopen, exit('blocked')], head))?.['reason'], 'blocked');
+    assert.equal(exitOf(buildChain([head], head)), null);
+    assert.equal(exitOf(buildChain([head, exit('done'), exit('blocked')], head))?.['reason'], 'blocked');
   });
 });

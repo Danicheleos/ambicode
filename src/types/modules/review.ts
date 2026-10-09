@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { COMPLETE_COVERAGE, RemoteDiscussion, RemoteTarget, ReviewCoverage } from '../platform/provider.ts';
 import { CheckStatus, Confidence, ReviewStatus, Risk, TargetKind } from '../primitives.ts';
 import { ProvenanceEntry, RequirementConflict, RequirementSource, type NormalizedRequirements, type EvidenceSource } from './requirements.ts';
 import type { PendingApproval } from './checks.ts';
@@ -19,7 +18,6 @@ export const ReviewTarget = z.strictObject({
   headSha: z.string().min(1).nullable(),
   baseSha: z.string().min(1).nullable(),
   baseRef: z.string().nullable(),
-  remote: RemoteTarget.nullable(),
   notes: z.array(z.string()).default([]),
 });
 export type ReviewTarget = z.infer<typeof ReviewTarget>;
@@ -130,11 +128,8 @@ export const ReviewerRun = z.strictObject({
   durationMs: z.number().int().nonnegative().nullable().default(null),
   usage: ReviewerUsage.nullable().default(null),
   rejectedOutputRef: z.string().nullable().default(null),
-  /**
-   * Present only for an answer replayed from a recording (`EVAL_AMBICODE_REVIEWER_REPLAY`),
-   * so a replay never reads as a review; absent otherwise, keeping ordinary results byte-identical.
-   */
-  source: z.literal('replay').optional(),
+  /** When `review record` stored the subagent's answer. */
+  at: z.string().nullable().default(null),
 });
 export type ReviewerRun = z.infer<typeof ReviewerRun>;
 
@@ -161,14 +156,13 @@ export const ReviewResult = z.strictObject({
   provenance: z.array(ProvenanceEntry).default([]),
   inputs: ReviewInputs,
   reviewer: ReviewerRun.nullable().default(null),
+  /** Repository-relative path of the reviewer's `brief.md`; null on a result written before the subagent reviewer. */
+  brief: z.string().nullable().default(null),
   policySummary: z.strictObject({
     packs: z.array(z.string()).default([]),
     ruleIds: z.array(z.string()).default([]),
   }),
   checks: z.array(CheckResult).default([]),
-  coverage: ReviewCoverage.default(COMPLETE_COVERAGE),
-  /** Pre-existing threads: evidence for deduplication, never proof that a defect was fixed. */
-  discussions: z.array(RemoteDiscussion).default([]),
   changedFiles: z
     .array(
       z.strictObject({
@@ -213,7 +207,6 @@ export interface ReviewBundle {
   policies: { project: ProjectConfig; policy: ResolvedPolicy }[];
   requirements: NormalizedRequirements;
   pendingApprovals: PendingApproval[];
-  prompt: ComposedPrompt;
   /** Findings are empty and status is `partial` until a reviewer has run. */
   result: ReviewResult;
 }
@@ -233,28 +226,6 @@ export interface ReviewEstimate {
   history: { reviews: 5; medianDurationMs: number; medianCostUsd: number | null } | null;
   refusal: { code: 'input-too-large' | 'snapshot-too-large'; message: string; suggestions: string[] } | null;
 }
-
-export interface SweepReport {
-  removed: string[];
-  skipped: string[];
-  failures: string[];
-}
-
-export const SESSION_COOKIE = 'ambicode_session';
-
-export const REVIEWER_TOOLS = ['Read', 'Grep', 'Glob'] as const;
-
-export interface ComposedPrompt {
-  /**
-   * Appended to the reviewer's system prompt: only the shared operating contract and
-   * the reviewer role, never change data, requirements, discussion or diff content.
-   */
-  system: string;
-  user: string;
-  provenance: ProvenanceEntry[];
-}
-
-export const REVIEWER_REPLAY_VARIABLE = 'EVAL_AMBICODE_REVIEWER_REPLAY';
 
 export interface MeasuredInput {
   changedFiles: number;

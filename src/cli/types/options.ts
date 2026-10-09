@@ -33,12 +33,3 @@ export interface ResolvedTargetOptions {
   /** `--with-tests`: merge-request review leaves test code out by default, since no check can run it there. */
   withTests: boolean;
 }
-
-/**
- * Kept out of `commands/view.ts`: the dispatcher parses every command's
- * arguments up front, and importing that would load Fastify on every hook.
- */
-export const VIEW_OPTIONS = {
-  values: ['review'],
-  flags: ['json', 'open'],
-} as const;

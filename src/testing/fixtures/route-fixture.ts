@@ -1,7 +1,10 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createRuntime } from '#composition/root';
-import { fsActiveRoutePointer } from '#harness/session/active-route';
+import { endRoute, fsActiveRoutePointer } from '#harness/session/active-route';
+import { harnessOf } from '#harness/session/harness';
+import { latestRouteOf } from '#harness/engine/fold';
+import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { createEngine } from '#harness/engine/engine';
 import { handlerRegistry } from '#harness/engine/handlers';
 import { loadRoute, routeRegistry } from '#harness/definition/routes';
@@ -20,9 +23,7 @@ export const CONFIG = [
   'baseline: origin/main',
   'review: { model: sonnet, timeoutSeconds: 300, maxFindings: 7, maxChangedFiles: 50, maxChangedLines: 2000, maxContextBytes: 524288 }',
   'checks: { timeoutSeconds: 120, maxSelectedTestFiles: 20 }',
-  'page: { idleTimeoutSeconds: 1800, port: 45831 }',
   'requirements: { mcpServer: null }',
-  'remoteChecks: { image: null }',
   'projects:',
   '  - { id: app, root: ".", ecosystem: typescript }',
 ].join('\n');
@@ -39,6 +40,19 @@ export interface RouteFixture {
   advanceClock(ms: number): void;
   rebuild(handlers: Record<string, Handler>): Engine;
   dispose(): Promise<void>;
+}
+
+/** Ends the session's open route as the removed `route stop` did: an `exit` entry, then the pointer cleared. */
+export async function stopRoute(fx: Pick<RouteFixture, 'runtime' | 'pointer' | 'scratchpad'>, task: string, session: string, reason: string, detail?: string, scratchpad: string = fx.scratchpad): Promise<void> {
+  const root = path.join(fx.runtime.cwd, '.ambicode', 'task', task);
+  const head = await withLedgerLock(fx.runtime.fs, root, () => fx.runtime.clock.now(), session, async (ledger) => {
+    const read = await ledger.read();
+    const route = read.state === 'ok' ? latestRouteOf(read.entries, session) : null;
+    if (route === null) throw new Error(`no route of ${session} on ${task}`);
+    await ledger.append({ kind: 'exit', route: route.id, reason, ...(detail === undefined ? {} : { detail }) });
+    return route;
+  });
+  await endRoute(fx.pointer, fx.runtime.fs, harnessOf(head) ?? session, scratchpad, { task, skill: String(head['skill']), routeId: head.id });
 }
 
 export interface Assembled { runtime: Runtime; routes: RouteRegistry; pointer: ActiveRoutePointer; build(handlers: Record<string, Handler>): Engine }

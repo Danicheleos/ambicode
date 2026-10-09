@@ -1,11 +1,10 @@
 import { createHash } from 'node:crypto';
 import { execFileSync, execSync } from 'node:child_process';
-import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { zipSync } from 'fflate';
-import { vendorCodeindex } from './vendor-codeindex.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = path.join(ROOT, 'dist');
@@ -17,7 +16,6 @@ const DIRECTORY_ALLOWLIST = [
   { from: 'skills', extensions: ['.md'] },
   { from: 'prompts', extensions: ['.md'] },
   { from: 'policies', extensions: ['.yaml', '.md'] },
-  { from: 'scripts/templates', extensions: ['.eta', '.css'] },
   { from: 'scripts/chunks', extensions: ['.mjs'] },
   { from: 'routes', extensions: ['.yaml', '.md'], exclude: ['README.md'] },
 ];
@@ -92,7 +90,6 @@ async function buildCandidate(candidateDir) {
   for (const dir of DIRECTORY_ALLOWLIST) {
     await copyAllowedTree(path.join(ROOT, dir.from), path.join(candidateDir, dir.from), dir.extensions, dir.exclude);
   }
-  await cp(await vendorCodeindex(), path.join(candidateDir, 'vendor', 'codeindex'), { recursive: true });
   await normalizeTimestamps(candidateDir);
 }
 

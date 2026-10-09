@@ -21,7 +21,7 @@
     "#util/*": "./src/util/*.ts"
   },
   "scripts": {
-    "build": "node tools/build.mjs && node tools/vendor-codeindex.mjs",
+    "build": "node tools/build.mjs",
     "typecheck": "tsc --noEmit",
     "test:unit": "node --test --test-reporter=spec \"src/**/*.test.ts\" \"tools/*.test.mjs\" \"fixtures/*.test.mjs\" \"evals/scripts/src/**/*.test.mjs\"",
     "validate:plugin": "node tools/package-candidate.mjs --validate-plugin",
@@ -61,13 +61,8 @@
     "verify": "npm run build && npm run typecheck && npm run test:unit && npm run validate:plugin"
   },
   "devDependencies": {
-    "@fastify/formbody": "^8.0.2",
-    "@fastify/view": "^11.1.1",
-    "@maxgfr/codeindex": "2.31.4",
     "@types/node": "^24.0.0",
     "esbuild": "^0.28.2",
-    "eta": "^3.5.0",
-    "fastify": "^5.12.5",
     "fflate": "^0.8.3",
     "typescript": "^5.9.3",
     "yaml": "^2.9.1",

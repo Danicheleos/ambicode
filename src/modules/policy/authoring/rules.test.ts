@@ -4,7 +4,7 @@ import path from 'node:path';
 import { describe, it } from 'node:test';
 import { parseDocument, type YAMLMap, type YAMLSeq } from 'yaml';
 import { parseArgs } from '#util/args';
-import { runRulesDiscover, runRulesRevert, RULES_DISCOVER_OPTIONS, RULES_REVERT_OPTIONS } from '#cli/commands/policy/rules';
+import { runRulesDiscover, RULES_DISCOVER_OPTIONS } from '#cli/commands/policy/rules';
 import { createRuntime } from '#composition/root';
 import { initConfig } from '#testing/fixtures/init-config';
 import { TempRepo } from '#testing/fixtures/temp-repo';
@@ -57,48 +57,6 @@ describe('08-I1: rules discover --project', () => {
       assert.deepEqual((await discover('--project', 'web')).candidates, ['web/CLAUDE.md']);
       assert.deepEqual((await discover()).candidates, ['CONTRIBUTING.md', 'docs']);
       await assert.rejects(discover('--project', 'nope'), { code: 'bad-argument', field: '--project' });
-    } finally {
-      await r.dispose();
-    }
-  });
-});
-
-describe('09-T7: rules revert refusals', () => {
-  const revert = (runtime: Awaited<ReturnType<typeof repo>>['runtime'], ...args: string[]) =>
-    runRulesRevert(runtime, parseArgs('rules revert', args, RULES_REVERT_OPTIONS));
-
-  it('09-T7: no pack id, an unwired pack and a built-in are bad-argument', async () => {
-    const { r, runtime } = await repo();
-    try {
-      await assert.rejects(revert(runtime), { code: 'bad-argument' });
-      await assert.rejects(revert(runtime, 'a', 'b'), { code: 'bad-argument' });
-      await assert.rejects(revert(runtime, 'not-wired'), { code: 'bad-argument' });
-      await assert.rejects(revert(runtime, 'common-quality'), { code: 'bad-argument' });
-    } finally {
-      await r.dispose();
-    }
-  });
-});
-
-describe('09-T6: rules revert of a shared file', () => {
-  it('09-T6 (amend-09 P3): a pack file wired in another project too is refused and nothing moves', async () => {
-    const { r, runtime } = await repo();
-    try {
-      const live = '.ambicode/policies/team.yaml';
-      await r.write(live, ['schemaVersion: 1', 'id: team', 'authority: team', 'appliesTo: ["src/**"]', 'activities: [review]', 'source: { location: CONTRIBUTING.md }', 'rules: []', ''].join('\n'));
-      const configPath = path.join(r.root, '.ambicode', 'config.yaml');
-      const document = parseDocument(await readFile(configPath, 'utf8'));
-      const app = document.getIn(['projects', 0]) as YAMLMap;
-      app.set('policyFiles', [live]);
-      const web = app.clone() as YAMLMap;
-      web.set('id', 'web');
-      web.set('root', 'web');
-      (document.get('projects') as YAMLSeq).add(web);
-      await runtime.fs.writeText(configPath, document.toString());
-      const before = await readFile(configPath, 'utf8');
-      await assert.rejects(runRulesRevert(runtime, parseArgs('rules revert', ['team', '--project', 'app'], RULES_REVERT_OPTIONS)), (error: { code?: string; message?: string }) => error.code === 'bad-argument' && /also wired in project web/.test(error.message ?? ''));
-      assert.equal(await readFile(configPath, 'utf8'), before);
-      assert.equal(await runtime.fs.exists(path.join(r.root, live)), true);
     } finally {
       await r.dispose();
     }

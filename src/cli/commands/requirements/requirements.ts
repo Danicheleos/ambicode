@@ -69,6 +69,7 @@ export const renderRequirements = (output: RequirementsOutput): string => (outpu
 
 export const requirementsTemplateCommand: CliCommand = {
   name: 'requirements template',
+  summary: 'The calls that retrieve the asked requirement sources (--task, --requirement).',
   options: REQUIREMENTS_TEMPLATE_OPTIONS,
   run: async (runtime, args) => {
     const output = await runRequirementsTemplate(runtime, args);
@@ -78,6 +79,7 @@ export const requirementsTemplateCommand: CliCommand = {
 
 export const requirementsNormalizeCommand: CliCommand = {
   name: 'requirements normalize',
+  summary: "Build the task's requirement envelope from what the session captured (--task).",
   options: REQUIREMENTS_NORMALIZE_OPTIONS,
   run: async (runtime, args) => {
     const output = await runRequirementsNormalize(runtime, args);
@@ -87,6 +89,7 @@ export const requirementsNormalizeCommand: CliCommand = {
 
 export const requirementsAcsCommand: CliCommand = {
   name: 'requirements acs',
+  summary: "The acceptance units of the task's requirement envelope, read-only (--task).",
   options: REQUIREMENTS_ACS_OPTIONS,
   run: async (runtime, args) => {
     const output = await runRequirementsAcs(runtime, args);

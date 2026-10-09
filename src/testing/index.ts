@@ -8,23 +8,8 @@ export { REPO_ROOT, SRC_ROOT } from './paths.ts';
 export { SESSION_A, SESSION_B } from './fixtures/ids.ts';
 
 // fakes/: in-memory stand-ins for ports.
-export type { FakeIndexOptions } from './fakes/fake-index.ts';
-/** fakeIndex(options?) — an IndexAdapter answering from tables when fresh or stale and refusing otherwise; records `calls`. */
-export { fakeIndex } from './fakes/fake-index.ts';
 export type { StubbedCall } from './fakes/fake-process-runner.ts';
 export { FakeProcessRunner } from './fakes/fake-process-runner.ts';
-export { FAKE_TARGET, FakeProvider } from './fakes/fake-provider.ts';
-/** currentRevision(overrides?) — a RemoteRevision at the fake target's current head. */
-export { currentRevision } from './fakes/fake-provider.ts';
-/** staleRevision() — a RemoteRevision that differs from the current one, to exercise staleness. */
-export { staleRevision } from './fakes/fake-provider.ts';
-/** note(overrides) — a RemoteNote; id and discussionId are required. */
-export { note } from './fakes/fake-provider.ts';
-/** thread(id, notes) — an unresolved RemoteDiscussion holding the notes. */
-export { thread } from './fakes/fake-provider.ts';
-export type { ReviewerIo } from './fakes/reviewer-io.ts';
-/** reviewerIo() — an in-memory ReviewerIo file system that remembers what was written. */
-export { reviewerIo } from './fakes/reviewer-io.ts';
 
 // fixtures/: repositories, routes, pages and results that tests build on.
 export { CHECK_CONFIG, COMMAND_PACK, DEMO, SplitRunner, CHECK_TASK } from './fixtures/check-fixture.ts';
@@ -37,20 +22,6 @@ export type { Hooked } from './fixtures/owner-fixture.ts';
 export { hookRunner } from './fixtures/owner-fixture.ts';
 /** investigation() — the shipped investigate route over a small repository with a hook runner in front of the same engine. */
 export { investigation } from './fixtures/owner-fixture.ts';
-export { AUTHORITY, CountingIds, FakeClock, ORIGIN, SESSION_COOKIE, templatesDirectory } from './fixtures/page-harness.ts';
-export type { Harness, HarnessOptions, OpenedPage } from './fixtures/page-harness.ts';
-/** startHarness(options?) — starts a review page server over a temporary store and returns the Harness. */
-export { startHarness } from './fixtures/page-harness.ts';
-/** reopenHarness(harness) — a second Harness over the same store, reading whatever the first left on disk. */
-export { reopenHarness } from './fixtures/page-harness.ts';
-/** openPage(harness) — bootstraps a session on the page server and returns the rendered HTML with its cookies. */
-export { openPage } from './fixtures/page-harness.ts';
-/** hiddenField(html, name, fallback?) — the value of a hidden form field in rendered HTML. */
-export { hiddenField } from './fixtures/page-harness.ts';
-/** cookieJar(initial?) — a minimal cookie jar for page requests. */
-export { cookieJar } from './fixtures/page-harness.ts';
-/** form(fields) — url-encodes form fields into a request body. */
-export { form } from './fixtures/page-harness.ts';
 export { PLAN, PLAN_TASK } from './fixtures/plan-fixture.ts';
 export type { PlanFixture, PlanState } from './fixtures/plan-fixture.ts';
 /** planHandlers(state) — scripted handlers for the plan-shaped route, counting checks and steps in `state`. */
@@ -67,8 +38,6 @@ export type { FixtureOptions } from './fixtures/review-fixture.ts';
 export { finding } from './fixtures/review-fixture.ts';
 /** reviewResult(options?) — a ReviewResult with hostile text in every untrusted field. */
 export { reviewResult } from './fixtures/review-fixture.ts';
-/** publicationPositions(result, target?) — the positions the result's findings would be published at on the target. */
-export { publicationPositions } from './fixtures/review-fixture.ts';
 export { PROPOSED } from './fixtures/review-route-fixture.ts';
 /** reviewRouteFixture(options?) — the shipped review route with real handlers on an uncommitted change to `src/orders.ts`. */
 export { reviewRouteFixture } from './fixtures/review-route-fixture.ts';

@@ -1,8 +1,7 @@
 import path from 'node:path';
-import { parse as parseYaml } from 'yaml';
 import { projectById } from '#modules/config/workspace';
 import type { ProjectConfig } from '#types/modules/config';
-import { PolicyPack, DRAFTS_DIR, type Diagnostic, type PackWithPrompts, type DraftsCheck } from '#types/modules/policy';
+import { DRAFTS_DIR, type Diagnostic, type PackWithPrompts, type DraftsCheck } from '#types/modules/policy';
 import { pathExclusionReason } from '#util/path-classes';
 import { matchesGlob } from '#util/glob';
 import { contentHash } from '#util/hash';
@@ -12,8 +11,6 @@ import { readPackText, validatePack, validatePackSet } from '../packs/validate.t
 import type { Runtime, Workspace } from '#types/composition';
 import type { TaskDir } from '#types/modules/evidence';
 
-/** Highest similarity between two built-in rules, measured over all pairs: 0.522 (angular-style and express-style configured-style). */
-export const DUPLICATE_SIMILARITY = 0.55;
 const MIN_QUOTE_CHARS = 20;
 
 /** A pack-level problem that keeps a draft from being applied (09-T5); a rule-level quote failure does not. */
@@ -21,32 +18,6 @@ export const blockingProblem = (check: DraftsCheck, root: string, file: string):
   check.diagnostics.find((diagnostic) => diagnostic.where === path.join(root, file) && ((diagnostic.severity === 'error' && diagnostic.code !== 'pack-quote-missing') || diagnostic.code === 'pack-glob-matches-nothing'));
 
 const collapse = (text: string): string => text.replace(/\s+/g, ' ').trim();
-
-/** 1 − Levenshtein distance / longer length, over lowercased, whitespace-collapsed text. */
-export function similarity(a: string, b: string): number {
-  const [x, y] = [collapse(a).toLowerCase(), collapse(b).toLowerCase()];
-  const longer = Math.max(x.length, y.length);
-  if (longer === 0) return 1;
-  let previous = Array.from({ length: y.length + 1 }, (_, index) => index);
-  for (let row = 1; row <= x.length; row += 1) {
-    const current = [row];
-    for (let column = 1; column <= y.length; column += 1) {
-      current[column] = Math.min(previous[column]! + 1, current[column - 1]! + 1, previous[column - 1]! + (x[row - 1] === y[column - 1] ? 0 : 1));
-    }
-    previous = current;
-  }
-  return 1 - previous[y.length]! / longer;
-}
-
-export async function builtinRules(runtime: Runtime): Promise<{ name: string; instruction: string }[]> {
-  const directory = builtinPoliciesDirectory(runtime.pluginRoot);
-  const rules: { name: string; instruction: string }[] = [];
-  for (const entry of (await runtime.fs.readdir(directory).catch(() => [])).filter((item) => item.name.endsWith('.yaml')).sort((a, b) => a.name.localeCompare(b.name))) {
-    const pack = PolicyPack.safeParse(parseYaml((await readPackText(runtime.fs, path.join(directory, entry.name))) ?? ''));
-    if (pack.success) for (const rule of pack.data.rules) rules.push({ name: `${pack.data.id}/${rule.id}`, instruction: rule.instruction });
-  }
-  return rules;
-}
 
 async function capturedContents(runtime: Runtime, taskDir: TaskDir | null, url: string): Promise<string[]> {
   if (taskDir === null) return [];
@@ -92,7 +63,6 @@ export async function checkDrafts(runtime: Runtime, workspace: Workspace, option
   const root = workspace.repositoryRoot;
   const project: ProjectConfig | null = options.project !== null ? projectById(workspace.config, options.project) : workspace.config.projects.length === 1 ? workspace.config.projects[0]! : null;
   const constraints = project === null ? { commands: null, projectId: null } : { commands: project.commands, projectId: project.id };
-  const builtins = await builtinRules(runtime);
   const diagnostics: Diagnostic[] = [];
   const result: DraftsCheck = { files: [], diagnostics, rulesBySource: {}, notMigrated: [], aggregateHash: '', ok: true, rules: [] };
   const draftPacks = new Map<string, PackWithPrompts>();
@@ -123,10 +93,6 @@ export async function checkDrafts(runtime: Runtime, workspace: Workspace, option
       if (problem !== null) {
         error('pack-quote-missing', `rule "${rule.id}": the quote is not verified (${problem}). Fix the quote or drop the rule.`);
         result.notMigrated.push({ rule: qualified, reason: `pack-quote-missing: ${problem}` });
-      }
-      const twin = builtins.map((builtin) => ({ builtin, score: similarity(rule.instruction, builtin.instruction) })).filter((hit) => hit.score >= DUPLICATE_SIMILARITY).sort((a, b) => b.score - a.score)[0];
-      if (twin !== undefined) {
-        diagnostics.push({ severity: 'warning', code: 'pack-duplicates-builtin', message: `${relative}: rule "${rule.id}" repeats built-in ${twin.builtin.name} (similarity ${twin.score.toFixed(2)}).`, where: filePath });
       }
     }
     if (project !== null) {

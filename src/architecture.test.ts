@@ -25,11 +25,8 @@ const RANK: Record<string, number> = {
 /** Known crossings, removed as they are fixed; an entry that no longer occurs fails too. */
 const ALLOWLIST = new Set<string>([]);
 
-// Raised from 70 KiB. Built 71633 B with D1 and the --include glob call sites stubbed, 74283 B with a second text scanner,
-// 72569 B reusing the parser's glob words (+936 B; the space-separated form is 148 B of that), 76024 B with D5's read
-// redirect first written (+3455 B), 75921 B after dropping the sed -i test and sharing one span formatter (+3352 B,
-// ~1.4 KB of it the sed/head/Read span mapping). Cap = 75921 + 512.
-const GUARD_BUNDLE_MAX_BYTES = 75921 + 512;
+// Phase 4 rewrite (structural parser, no read/glob/--task rows): 76295 B before, 26444 B built with the opaque-word rule. Cap = 26444 + 512.
+const GUARD_BUNDLE_MAX_BYTES = 26444 + 512;
 
 /** Test files (*.test.ts) are deliberately not scanned: they may import across layers. */
 function sources(directory: string): string[] {

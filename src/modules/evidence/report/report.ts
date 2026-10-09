@@ -2,7 +2,6 @@ import { contentHash } from '#util/hash';
 import { navigationLine } from './navigation-line.ts';
 import { isBoundAnswer } from '#modules/evidence/ledger-chain';
 import type { LedgerEntry } from '#types/modules/evidence';
-import { sinceReopen } from '#platform/ledger/reopen';
 
 const clip = (value: unknown, length = 80): string => {
   const text = String(value ?? '');
@@ -34,7 +33,7 @@ export function buildReport(
 
   const maps = of('map').map((entry) => {
     const layers = list(entry.layers).map((layer) => clip((layer as { name?: unknown } | null)?.name)).join('→');
-    return `${layers === '' ? 'map' : `layers ${layers}`}, ${list(entry.collisions).length} colliding names, index ${clip(typeof entry.index === 'object' && entry.index !== null ? `${String((entry.index as { tool?: unknown }).tool)} ${String((entry.index as { state?: unknown }).state)}` : (entry.index ?? 'none'))}${historical(entry)}`;
+    return `${layers === '' ? 'map' : `layers ${layers}`}, ${list(entry.collisions).length} colliding names${historical(entry)}`;
   });
 
   const baselines = of('baseline').map((entry) => `${clip(entry.head ?? 'unknown', 12)}, dirty: ${list(entry.dirty).map((item) => (typeof item === 'string' ? item : clip((item as { path?: unknown } | null)?.path))).join(', ') || 'none'}${historical(entry)}`);
@@ -113,7 +112,7 @@ export function buildReport(
 /** The report's first line: how the route ended, or `complete` with what was not verified (03-E12). */
 function statusOf(entries: readonly LedgerEntry[], unverified: number, complete: boolean): string | null {
   if (!entries.some((entry) => entry.kind === 'route')) return null;
-  const ended = sinceReopen(entries).findLast((entry) => entry.kind === 'exit');
+  const ended = entries.findLast((entry) => entry.kind === 'exit');
   const done = complete || ended?.complete === true;
   if (ended !== undefined && !done) {
     const detail = typeof ended.detail === 'string' ? ended.detail : '';

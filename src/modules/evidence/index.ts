@@ -4,8 +4,6 @@
 export { NOTE_LABELS } from './notes.ts';
 export { SAVE_KINDS } from '#types/modules/evidence';
 export type { SaveKind } from '#types/modules/evidence';
-/** listNotes(runtime, task) — the task's saved notes as rows. */
-export { listNotes } from './notes.ts';
 /** owningRoute(ledger, session, task) — the route a `plan-draft` is saved for, or null for a routeless save; other states refuse. */
 export { owningRoute } from './notes.ts';
 /** promotePlan(…) — makes the draft the human accepted, and only that draft, the plan. */

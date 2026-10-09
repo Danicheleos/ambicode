@@ -98,105 +98,11 @@ async function checkPoliciesAndPromptsResolve() {
   });
 }
 
-async function checkViewTemplatesResolve() {
-  await withTempDir('ambicode-smoke-view-', async (cwd) => {
-    execFileSync('git', ['init', '--quiet'], { cwd });
-    execFileSync('git', ['config', 'user.email', 'smoke@example.com'], { cwd });
-    execFileSync('git', ['config', 'user.name', 'Smoke Test'], { cwd });
-    await writeFile(path.join(cwd, 'app.ts'), 'export const x = 1;\n');
-    execFileSync('git', ['add', '-A'], { cwd });
-    execFileSync('git', ['commit', '--quiet', '-m', 'seed'], { cwd });
-    run(['init'], { cwd });
 
-    const reviewId = 'smoke-0001';
-    const reviewDir = path.join(cwd, '.ambicode', 'reviews', reviewId);
-    await import('node:fs/promises').then((fs) => fs.mkdir(reviewDir, { recursive: true }));
-    const result = minimalLocalReviewResult(reviewId);
-    await writeFile(path.join(reviewDir, 'result.json'), `${JSON.stringify(result, null, 2)}\n`);
-
-    const child = spawn(process.execPath, [bundle, 'view', '--review', reviewId, '--no-open'], { cwd });
-    let stdout = '';
-    let stderr = '';
-    const url = await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error(`view did not print a URL in time; stdout so far:\n${stdout}\nstderr:\n${stderr}`)), 15_000);
-      child.stdout.on('data', (chunk) => {
-        stdout += chunk.toString();
-        const match = /http:\/\/127\.0\.0\.1:\d+\/\?c=\S+/.exec(stdout);
-        if (match) {
-          clearTimeout(timeout);
-          resolve(match[0]);
-        }
-      });
-      child.stderr.on('data', (chunk) => {
-        stderr += chunk.toString();
-      });
-      child.on('error', reject);
-      child.on('exit', (code) => {
-        clearTimeout(timeout);
-        reject(new Error(`view exited early with code ${code}; stdout:\n${stdout}\nstderr:\n${stderr}`));
-      });
-    });
-
-    try {
-      const response = await fetch(url, { redirect: 'manual' });
-      if (response.status !== 303) throw new Error(`expected 303 from the bootstrap URL, got ${response.status}`);
-      console.log('OK: `ambicode view` serves a page rendered from the candidate\'s own templates directory.');
-    } finally {
-      child.kill('SIGINT');
-      await new Promise((resolve) => child.on('exit', resolve));
-    }
-  });
-}
-
-function minimalLocalReviewResult(reviewId) {
-  const now = new Date().toISOString();
-  return {
-    schemaVersion: 1,
-    reviewId,
-    createdAt: now,
-    pluginVersion: '0.0.0-smoke',
-    reviewModel: 'smoke',
-    target: {
-      kind: 'working',
-      repositoryRoot: '/smoke',
-      snapshotId: 'smoke-snapshot',
-      headSha: null,
-      baseSha: null,
-      baseRef: null,
-      remote: null,
-      notes: [],
-    },
-    requirements: [],
-    requirementMode: 'quality-review',
-    requirementConflicts: [],
-    provenance: [],
-    inputs: {
-      changedFiles: 0,
-      changedLines: 0,
-      patchBytes: 0,
-      snapshotBytes: 0,
-      requirementBytes: 0,
-      promptBytes: 0,
-      contextBytes: 0,
-      limits: { maxChangedFiles: 50, maxChangedLines: 2000, maxContextBytes: 524288, maxFindings: 7 },
-    },
-    reviewer: null,
-    policySummary: { packs: [], ruleIds: [] },
-    checks: [],
-    coverage: { complete: true, declaredFileCount: null, deliveredFileCount: 0, versionState: null, gaps: [] },
-    discussions: [],
-    changedFiles: [],
-    findings: [],
-    omissions: [],
-    status: 'complete',
-    statusReason: null,
-  };
-}
 
 async function main() {
   await checkVersionOutsideAnyRepo();
   await checkPoliciesAndPromptsResolve();
-  await checkViewTemplatesResolve();
   console.log('\nAll smoke checks passed against the packaged candidate.');
 }
 

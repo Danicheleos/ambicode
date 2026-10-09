@@ -32,11 +32,6 @@ export function builtinPoliciesDirectory(pluginRoot: string): string {
   return path.join(pluginRoot, 'policies');
 }
 
-/** The review page's Eta templates and stylesheet; the build copies them from `src/modules/review/page/templates`. */
-export function pageTemplatesDirectory(pluginRoot: string): string {
-  return path.join(pluginRoot, 'scripts', 'templates');
-}
-
 export function promptsDirectory(pluginRoot: string): string {
   return path.join(pluginRoot, 'prompts');
 }

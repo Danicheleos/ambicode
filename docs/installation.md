@@ -52,13 +52,14 @@ In the target repository, start or restart Claude Code and run:
 /ambicode:init
 ```
 
-`/ambicode:init` proposes the repository-owned `.ambicode/config.yaml` and asks
-one question: *Apply as proposed*, *Adjust* (type `key=value` pairs, such as
-`requirements.mcpServer=<server>`), or *Cancel*. Only an accepted answer writes
+`/ambicode:init` scans the repository, lets the model judge the projects and
+commands from the scan, validates that proposal against the config schema, and
+asks one question: *Apply as proposed*, *Adjust* (pick a printed choice, such as
+`MCP server: <name>`), or *Cancel*. Only an accepted answer writes
 the config and the `.gitignore` lines, then prints a `doctor` table that probes
 every configured command. *Cancel*, or a headless run, writes nothing outside
-`.ambicode/task/init-<date>/`. `ambicode init` on its own is a dry run;
-`ambicode doctor` reprints the table at any time. That configuration file is
+`.ambicode/task/init-<date>/`. `ambicode init` on its own only points at the
+skill. That configuration file is
 the expected repository-visible result of initialization; the installed plugin
 itself remains in Claude's plugin storage.
 
@@ -172,9 +173,9 @@ claude plugin install pyright-lsp@claude-plugins-official --scope user
 pipx install pyright
 ```
 
-Restart or reload Claude after installing. `ambicode config` shows the
-recommendation for every project; `ambicode prepare --json`
-deliberately leaves installation guidance out of its per-call payload and
+Restart or reload Claude after installing. `ambicode init` shows the
+recommendation for every project; `ambicode map`
+leaves installation guidance out of its per-call payload and
 carries only the search strategy, the evidence requirement, and the boundary
 shortlist when the call asked for one. During `investigate`, `plan`, and
 `task`, the skill must report the LSP operations it actually used or a
@@ -182,7 +183,7 @@ specific targeted-search fallback reason — and a session with no LSP tools
 reports that fact in one line, which is the complete fallback evidence.
 Installed state alone is not evidence that the current session used LSP.
 
-Nothing here is required for the shortlist. `ambicode locate <term>...` needs
+Nothing here is required for the shortlist. `ambicode map --term <term>` needs
 only git, and it is what narrows a repository to candidate files before LSP is
 asked anything; LSP then explains a candidate rather than finding it. A
 session with no LSP plugin installed still gets the shortlist.

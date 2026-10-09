@@ -35,8 +35,8 @@ describe('check --only (07-C, 07-K)', () => {
     }
   });
 
-  it('07-C3/07-C4/07-P3 an allowed run appends one check entry with the summary and route, then warms the index (07-G3)', async () => {
-    const { fx, start, check, runner, warmed } = await checkFixture();
+  it('07-C3/07-C4/07-P3 an allowed run appends one check entry with the summary and route', async () => {
+    const { fx, start, check, runner } = await checkFixture();
     try {
       await start();
       const result = await check();
@@ -50,7 +50,6 @@ describe('check --only (07-C, 07-K)', () => {
       assert.equal(typeof entry?.['route'], 'string');
       assert.equal(entry?.['session'], SESSION_A);
       assert.ok(result.outcome === 'ran' && result.proof.proven);
-      assert.deepEqual(warmed, ['app']);
     } finally {
       await fx.dispose();
     }

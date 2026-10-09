@@ -1,4 +1,3 @@
-import { sinceReopen } from '#platform/ledger/reopen';
 import type { ArtifactRef, Chain, LedgerEntry } from '#types/modules/evidence';
 
 export const text = (entry: LedgerEntry, field: string): string | null => (typeof entry[field] === 'string' ? (entry[field] as string) : null);
@@ -23,9 +22,9 @@ export function liveHeads(entries: readonly LedgerEntry[]): LedgerEntry[] {
   return entries.filter((entry) => entry.kind === 'route' && !resumed.has(entry.id)).filter((head) => exitOf(buildChain(entries, head)) === null);
 }
 
-/** The exit that currently ends the chain: exits before the latest reopen no longer count. */
+/** The exit that ends the chain. */
 export function exitOf(chain: Chain): LedgerEntry | null {
-  return sinceReopen(chain.entries).findLast((entry) => entry.kind === 'exit') ?? null;
+  return chain.entries.findLast((entry) => entry.kind === 'exit') ?? null;
 }
 
 /** A bound answer: not an unbound hook answer and not a decline that was never an answer (03-G5). */

@@ -1,5 +1,4 @@
 import type { ReviewResult } from '#types/modules/review';
-import { reopenCommand } from '../page/reopen.ts';
 import type { PendingApproval } from '#types/modules/checks';
 
 /**
@@ -48,15 +47,11 @@ function whatWasReviewed(options: ReportOptions): string[] {
       `(${describeInputSplit(result.inputs)}), limit ${result.inputs.limits.maxContextBytes ?? 'none'}`,
     `   snapshot    ${options.snapshotDirectory}`,
     `   result      ${options.resultPath}`,
-    `   reopen      ${reopenCommand(result.reviewId)}`,
   ];
 
   if (result.reviewer !== null) {
     lines.push(
       `   reviewer    ${result.reviewer.status} — model ${result.reviewer.model}, ` +
-        // On the status line itself: a reader who stops there must not take a
-        // replayed answer for a review made now.
-        (result.reviewer.source === 'replay' ? 'REPLAYED from a recording (no model call), ' : '') +
         `tools ${result.reviewer.tools.join(',') || '(none)'}, ` +
         `timeout ${result.reviewer.timeoutSeconds}s` +
         (result.reviewer.durationMs === null ? '' : `, took ${Math.round(result.reviewer.durationMs / 1000)}s`),
@@ -178,18 +173,6 @@ function verification(options: ReportOptions): string[] {
 function uncovered(options: ReportOptions): string[] {
   const { result } = options;
   const lines = ['4. OMISSIONS, UNCERTAINTY AND UNAVAILABLE COVERAGE'];
-
-  if (!result.coverage.complete) {
-    lines.push(
-      `   coverage    ${result.coverage.deliveredFileCount} file(s) delivered` +
-        (result.coverage.declaredFileCount === null
-          ? ''
-          : ` of ${result.coverage.declaredFileCount} declared`) +
-        (result.coverage.versionState === null ? '' : `, version state ${result.coverage.versionState}`),
-    );
-    for (const gap of result.coverage.gaps) lines.push(`   ! [${gap.kind}] ${gap.detail}`);
-  }
-
   for (const omission of result.omissions) lines.push(`   - ${omission}`);
   if (result.reviewer !== null) {
     for (const rejection of result.reviewer.rejections) lines.push(`   - ${rejection}`);

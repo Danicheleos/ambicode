@@ -18,7 +18,7 @@ const nonEmpty = (value: unknown): value is string => typeof value === 'string' 
 
 /**
  * Who owns the task's live plan route (12 §2.3, H2): the session of the latest `route` entry of the one chain with
- * no `exit` since its latest reopen. An adoption extends the chain with `resumes`; age and idle time never end it. Anything that could hide a
+ * no `exit`. An adoption extends the chain with `resumes`; age and idle time never end it. Anything that could hide a
  * takeover — a route or exit missing a field ownership is read from, a dangling `resumes`, an exit bound to no
  * route, a repeated id, two live chains — is `unknown`, never a guess, so every caller fails closed. Other kinds
  * are skipped. `entries` are one task ledger's, in file order.
@@ -57,9 +57,6 @@ export function ownerOf(entries: readonly LedgerEntry[], slug: string): PlanOwne
       chain.head = entry.id;
       chain.session = entry.session;
       chainOf.set(entry.id, chain);
-    } else if (entry.kind === 'revise' && entry.via === 'reopen') {
-      const chain = nonEmpty(entry.route) ? chainOf.get(entry.route) : undefined;
-      if (chain !== undefined) chain.closed = null;
     } else if (entry.kind === 'exit') {
       // An exit that cannot be matched to a route before it could have ended any of them: not proof of no owner.
       if (!nonEmpty(entry.route) || !routes.has(entry.route)) return unknown(`exit ${entry.id} names no route before it`);

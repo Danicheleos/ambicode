@@ -5,7 +5,7 @@
  * before the uncommitted change is replayed, keeping the config out of the reviewed change.
  */
 import { execFile } from 'node:child_process';
-import { mkdir, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import { access, mkdir, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { parse as parseYaml } from 'yaml';
@@ -77,6 +77,22 @@ async function install(fixture, destination) {
   }
 }
 
+/** Stands in for the model's judgment: one root project; a wired slot gets the installed tool that serves it, found by looking for the binary. */
+async function proposalFor(destination, wires) {
+  const tools = {
+    lint: [['node_modules/.bin/eslint', '--', '{files}'], ['.venv/bin/ruff', 'check', '--', '{files}']],
+    test: [['node_modules/.bin/jest', '--findRelatedTests', '{files}'], ['.venv/bin/python', '-m', 'pytest', '--', '{files}']],
+  };
+  const commands = {};
+  for (const slot of wires) {
+    const wanted = tools[slot === 'unit' ? 'test' : slot] ?? [];
+    for (const argv of wanted) {
+      if (await access(path.join(destination, argv[0])).then(() => true, () => false)) commands[slot === 'unit' ? 'test' : slot] = [`./${argv[0]}`, ...argv.slice(1)];
+    }
+  }
+  return { projects: [{ id: 'app', root: '.', ecosystem: await access(path.join(destination, 'pyproject.toml')).then(() => 'python', () => 'typescript'), shortlist: [], commands, packs: ['builtin/common-quality', 'builtin/common-checks'] }], requirements: { mcpServer: null } };
+}
+
 /** `wires` holds only after an install, so it is empty without one. */
 async function commitAmbicodeInit(fixture, destination, wires) {
   const { createRuntime } = await import('../src/composition/root.ts');
@@ -84,7 +100,7 @@ async function commitAmbicodeInit(fixture, destination, wires) {
   const { buildProposal, writeConfig } = await import('../src/modules/config/init/proposal.ts');
   const runtime = await createRuntime({ cwd: destination });
   const { repositoryRoot } = await openRepository(runtime);
-  const proposal = await buildProposal(runtime, repositoryRoot, []);
+  const proposal = await buildProposal(runtime, repositoryRoot, await proposalFor(destination, wires), []);
   await writeConfig(runtime.fs, repositoryRoot, proposal, []);
   if (wires.length > 0) {
     const config = parseYaml(await readFile(path.join(destination, '.ambicode', 'config.yaml'), 'utf8'));

@@ -1,22 +1,24 @@
+import path from 'node:path';
 import { openRepository } from '#platform/git/open';
 import { chainKey, loadPayload } from '#harness/engine/delivery';
 import { isBoundAnswer } from '#harness/engine/fold';
 import { onGatePrint, onNeedCommand } from '#harness/gates/gates';
 import { chainEntries } from '../common.ts';
+import { agentPayload } from './agent-payload.ts';
 import { TASK_HANDLERS } from '../task/handlers.ts';
 import { isAmbicodeError } from '#util/errors';
+import { parseMergeRequestUrl } from '#modules/review/snapshot/mr-url';
 import { estimateReview, parseNarrow, renderEstimate } from '#modules/review/bundle/estimate';
 import { routeEvidence } from '#modules/requirements/envelope/envelope';
 import type { ReviewEntry } from '#types/modules/checks';
 import type { Runtime } from '#types/composition';
 import type { LedgerEntry } from '#types/modules/evidence';
 import type { ReviewTargetArgs, RouteArgs, Handler, HandlerInput, HandlerResult } from '#types/harness';
-import { CHECKS_GATE, type TargetSelection } from '#types/modules/review';
+import { CHECKS_GATE, type Finding, type TargetSelection } from '#types/modules/review';
 const ANSWERS = new Set(['acceptance', 'declined', 'default-taken']);
 const AGAIN_GATE = 'review-again';
 const ESTIMATE_STEP = 'estimate-step';
 const NARROW_HINT = 'give the --only/--exclude tokens as your answer';
-const METRICS = '.ambicode/metrics.jsonl';
 
 export const selectionOf = (target: ReviewTargetArgs | undefined): TargetSelection =>
   target === undefined ? { kind: 'working' } : target.mr !== null ? { kind: 'merge-request', url: target.mr } : { kind: 'branch', baseRef: target.base };
@@ -60,7 +62,7 @@ const evaluate: Handler = async (input): Promise<HandlerResult> => {
   if (review === undefined) return { state: 'ok', payload: null };
   const waiting = Array.isArray(review['waiting']) ? (review['waiting'] as string[]) : [];
   const answered = chain.slice(chain.indexOf(review) + 1).some((entry) => ANSWERS.has(entry.kind) && entry['gate'] === CHECKS_GATE && isBoundAnswer(entry));
-  if (waiting.length === 0 || answered) return { state: 'ok', payload: null };
+  if (waiting.length === 0 || answered) return { state: 'ok', payload: await agentPayload(input, review) };
   return { state: 'raise', gate: CHECKS_GATE, values: { key: waiting }, raisedBy: 'review-run' };
 };
 
@@ -108,21 +110,29 @@ const estimate: Handler = async (input) => {
   }
 };
 
-export const REVIEW_HANDLERS: Readonly<Record<string, Handler>> = { 'review.estimate': estimate, 'review.evaluate': evaluate };
+const mrTemplate: Handler = async (input) => {
+  const { project, iid } = parseMergeRequestUrl(input.args.target?.mr ?? '');
+  return { state: 'ok', payload: [`Call your GitLab MCP server for project "${project}", merge request ${iid}:`, '1. get_merge_request', '2. get_merge_request_diffs, or the diff tool of your GitLab MCP server (every page of it)', 'The hook records the diff from the second response.'].join('\n') };
+};
 
-/** One warning line when `.ambicode/metrics.jsonl` is not git-ignored (08-R7, D11); the route starts either way. */
-export async function metricsIgnoreWarning(runtime: Runtime, skill: string): Promise<string | null> {
-  if (skill !== 'review') return null;
-  try {
-    const { git } = await openRepository(runtime);
-    return (await git.isIgnored(METRICS)) ? null : `warning: ${METRICS} is not ignored by git; run \`ambicode init --apply\` to add it to .gitignore.`;
-  } catch {
-    return null;
-  }
-}
+/** The recorded findings as the numbered list the user picks from; no findings ends the route, since there is nothing to ask. */
+const publishList: Handler = async (input) => {
+  const review = (await chainEntries(input)).findLast((entry) => entry.kind === 'review' && entry['stage'] === 'recorded');
+  const text = typeof review?.['result'] === 'string' ? await input.runtime.fs.readText(path.join(input.dir.repositoryRoot, review['result'])).catch(() => null) : null;
+  const findings = text === null ? [] : ((JSON.parse(text) as { findings?: Finding[] }).findings ?? []);
+  if (findings.length === 0) return { state: 'ok', payload: 'no findings to publish', exit: 'done', exitDetail: 'no findings to publish' };
+  return { state: 'ok', payload: findings.map((finding, at) => `${at + 1}. ${finding.location.newPath ?? finding.location.oldPath}:${finding.location.line} — ${finding.suggestedComment} (${finding.risk}/${finding.confidence})`).join('\n') };
+};
+
+export const REVIEW_HANDLERS: Readonly<Record<string, Handler>> = { 'review.estimate': estimate, 'review.evaluate': evaluate, 'review.mrTemplate': mrTemplate, 'review.publishList': publishList };
 
 onGatePrint('estimate', async ({ runtime, dir, chain }) => {
   const text = await loadPayload(runtime.fs, dir, chainKey(chain.filter((entry) => entry.kind === 'route').map((entry) => entry.id).reverse()), 'review.estimate');
+  return text === null || text === '' ? null : { line: text };
+});
+
+onGatePrint('publish', async ({ runtime, dir, chain }) => {
+  const text = await loadPayload(runtime.fs, dir, chainKey(chain.filter((entry) => entry.kind === 'route').map((entry) => entry.id).reverse()), 'review.publishList');
   return text === null || text === '' ? null : { line: text };
 });
 

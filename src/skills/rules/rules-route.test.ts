@@ -6,7 +6,7 @@ import { describe, it } from 'node:test';
 import { parseArgs } from '#util/args';
 import { runPolicyCheck, POLICY_CHECK_OPTIONS } from '#cli/commands/policy/policy-check';
 import { routeTools } from '#cli/commands/route/route';
-import { runRulesApply, runRulesRevert, RULES_APPLY_OPTIONS, RULES_REVERT_OPTIONS } from '#cli/commands/policy/rules';
+import { runRulesApply, RULES_APPLY_OPTIONS } from '#cli/commands/policy/rules';
 import { createRuntime } from '#composition/root';
 import { NodeProcessRunner } from '#platform/ports/node-process-runner';
 import { nodeFileSystem } from '#platform/ports/filesystem';
@@ -64,10 +64,9 @@ async function world(options: { text?: string; headless?: boolean } = {}) {
     },
     check: (extra: readonly string[] = ['--task', TASK]) => runPolicyCheck(runtime, parseArgs('policy check', ['--drafts', ...extra], POLICY_CHECK_OPTIONS)),
     apply: () => runRulesApply(runtime, parseArgs('rules apply', ['--task', TASK], RULES_APPLY_OPTIONS)),
-    revert: (id: string) => runRulesRevert(runtime, parseArgs('rules revert', [id], RULES_REVERT_OPTIONS)),
     config: () => readFile(path.join(root, '.ambicode', 'config.yaml'), 'utf8'),
     exists: (relative: string) => runtime.fs.exists(path.join(root, relative)),
-    position: async () => (await engine.status(TASK, SESSION))[0]?.position,
+    position: async () => (await engine.deliver(TASK, SESSION))?.position ?? 'complete',
     dispose: async () => {
       await rm(path.dirname(root), { recursive: true, force: true });
       await runtime.fs.remove(scratchpadDir);
@@ -155,7 +154,7 @@ describe('09-T1: the rules route', () => {
 });
 
 describe('09-T5: the walk-through on ts-feature-boundary', () => {
-  it('09-T1: 09-T5: 09-T6: discover, a bad quote fails the check, the fix passes, Apply all wires the pack, revert moves it back', async () => {
+  it('09-T1: 09-T5: 09-T6: discover, a bad quote fails the check, the fix passes, Apply all wires the pack', async () => {
     const w = await world();
     try {
       await atDraft(w);
@@ -202,12 +201,6 @@ describe('09-T5: the walk-through on ts-feature-boundary', () => {
       const entries = await w.ledger();
       assert.equal(entries.filter((entry) => entry.kind === 'policy' && entry['stage'] === 'drafts').length, 2, 'one entry per check, none from the handler');
       assert.equal(entries.filter((entry) => entry.kind === 'policy' && entry['stage'] === 'apply').length, 1);
-
-      const reverted = await w.revert('team-services');
-      assert.equal(reverted.to, `${policies}/drafts/team-services.yaml`);
-      assert.equal(await w.exists(`${policies}/drafts/team-services.yaml`), true);
-      assert.equal(await w.exists(`${policies}/team-services.yaml`), false);
-      assert.doesNotMatch(await w.config(), /team-services/);
     } finally {
       await w.dispose();
     }

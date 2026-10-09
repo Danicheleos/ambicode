@@ -19,8 +19,6 @@ export { PLAN_HANDLERS } from './plan/handlers.ts';
 // review/: the `review` route's code steps and its start-time helpers.
 /** REVIEW_HANDLERS — the `review` route's code-step table. */
 export { REVIEW_HANDLERS } from './review/handlers.ts';
-/** metricsIgnoreWarning(runtime, skill) — a warning line when `.ambicode/metrics.jsonl` is not git-ignored; null for other skills or when ignored. */
-export { metricsIgnoreWarning } from './review/handlers.ts';
 /** selectionOf(target) — maps a ReviewTarget (or none) to a TargetSelection: working tree, merge request or branch. */
 export { selectionOf } from './review/handlers.ts';
 

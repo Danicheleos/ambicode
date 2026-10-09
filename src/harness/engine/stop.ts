@@ -4,20 +4,17 @@ import { findSessionRepository } from '#platform/git/session-repository';
 import { openRepository } from '#platform/git/open';
 import type { HookInput, StopHookOutput } from '#types/hook';
 import { endedRouteInLedger, resolveActiveRoute } from '../session/active-route.ts';
-import { buildChain, currentIn, foldRoute, isBoundAnswer, isGreen, openPrint, sinceReopen, windowOf } from './fold.ts';
+import { buildChain, currentIn, foldRoute, isBoundAnswer, isGreen, windowOf } from './fold.ts';
 import { ReviewResult } from '#types/modules/review';
 import { containsBlock, notCoveredBlock } from '#modules/review/bundle/coverage-block';
 import { harnessOf } from '../session/harness.ts';
 import { readLedger } from '#platform/ledger/ledger';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
-import { answerShapeProblems, changePathsOf } from '#modules/evidence/answer-shape';
 import { buildReport } from '#modules/evidence/report/report';
 import { navigationLine } from '#modules/evidence/report/navigation-line';
 import { NOTE_LABELS, saveNote } from '#modules/evidence/notes';
 import { taskDirFor } from '#modules/evidence/task/task-dir';
 import { hookStateBaseDir, readStopCursor, writeStopCursor } from '#platform/claude/hook-state';
-import { rejectedGateMarker, turnSummary } from '#platform/claude/transcript';
-import { MARKER } from '#types/harness';
 import { contentHash } from '#util/hash';
 import type { Runtime } from '#types/composition';
 import type { LedgerEntry, LockedLedger } from '#types/modules/evidence';
@@ -125,21 +122,8 @@ function actingAcceptance(input: Pick<Checked, 'chain' | 'def' | 'routes'>, curr
   });
 }
 
-/**
- * What this route served: `read` receipts (`path:from-to`) and the files of the host's Read tool. With neither, every
- * existing file under `## Files` is unread; that is the check working, since a Files entry nobody opened is a guess.
- */
-function servedPaths(chain: readonly LedgerEntry[]): string[] {
-  const out: string[] = [];
-  for (const entry of chain) {
-    if (entry.kind === 'search' && entry['command'] === 'read' && Array.isArray(entry['names'])) out.push(...(entry['names'] as unknown[]).map(String));
-    else if (entry.kind === 'tool' && entry['name'] === 'Read' && typeof entry['path'] === 'string') out.push(entry['path']);
-  }
-  return out;
-}
-
 /** `report` is the generated block when the answer's copy of it differs; the stop-check file carries it. */
-async function problemsOf(input: Checked, runtime: Runtime): Promise<{ problems: string[]; report: string | null; shape: string[] }> {
+async function problemsOf(input: Checked, runtime: Runtime): Promise<{ problems: string[]; report: string | null }> {
   const problems: string[] = [];
   let generated: string | null = null;
   const { text, root } = input;
@@ -161,10 +145,7 @@ async function problemsOf(input: Checked, runtime: Runtime): Promise<{ problems:
   }
   // An answer step runs no checks and records no acceptance, so only its citations can be wrong.
   if (input.citationsOnly === true) {
-    // A Files path that resolves to no repository file is a proposed creation: there is nothing to have read.
-    const created: string[] = [];
-    for (const proposed of changePathsOf(text)) if ((await locateCited(proposed, input, runtime)) === null) created.push(proposed);
-    return { problems, report: null, shape: answerShapeProblems({ answer: text, served: servedPaths(input.chain), created }) };
+    return { problems, report: null };
   }
   const current = currentIn(input.def, buildChain(input.chain, input.chain.find((entry) => entry.kind === 'route')!));
   if (/(^|\n)Evidence\b/.test(text) || /Not verified/.test(text) || reportWritten(input.def, input.chain)) {
@@ -183,7 +164,7 @@ async function problemsOf(input: Checked, runtime: Runtime): Promise<{ problems:
   if (input.defectBrief) {
     for (const key of new Set(input.chain.filter(isGreen).map((entry) => String(entry['key'])))) if (!redBeforeGreen(input.chain, key)) problems.push(`${key}: no failing run precedes the first green one.`);
   }
-  return { problems, report: generated, shape: [] };
+  return { problems, report: generated };
 }
 
 /** Cell text only: column padding, Markdown pipes, separator rows and code fences do not count. */
@@ -237,21 +218,14 @@ async function locate(ports: StopPorts, input: HookInput): Promise<Located | nul
   const [session, scratchpad] = [input.session_id, input.scratchpad_dir];
   const root = found.repositoryRoot;
   const active = await resolveActiveRoute(runtime.fs, pointer, { repositoryRoot: root, session, scratchpad, scan: false });
-  const ended = active === null ? ((await pointer.readEnded(session, scratchpad)) ?? (await endedRouteInLedger(runtime.fs, { repositoryRoot: root, session }))) : null;
-  return { root, session, scratchpad, base: hookStateBaseDir(runtime.fs, session, scratchpad), active, ended: ended === null ? null : { task: ended.task, skill: ended.skill, routeId: ended.routeId } };
-}
-
-/** The route pauses when the user dismissed the question of its still-unanswered gate print. */
-async function pauseOnDismissal(ledger: LockedLedger, chain: readonly LedgerEntry[], head: LedgerEntry, transcript: string | undefined, source: string): Promise<boolean> {
-  if (transcript === undefined || sinceReopen(chain).some((entry) => entry.kind === 'exit')) return false;
-  const rejected = await rejectedGateMarker(transcript);
-  const parsed = rejected === null ? null : MARKER.exec(rejected.marker);
-  if (parsed === null || !openPrint(chain, parsed[1]!, parsed[2])) return false;
-  // Without an instance in the marker, only a dismissal after the latest print counts: an older one belongs to an earlier print.
-  const print = chain.findLast((entry) => entry.kind === 'gate' && entry['gate'] === parsed[1]);
-  if (parsed[2] === undefined && (rejected!.at === null || print === undefined || Date.parse(rejected!.at) < Date.parse(print.at))) return false;
-  await ledger.append({ kind: 'exit', route: head.id, reason: 'dismissed', detail: `${parsed[1]}: the question was dismissed`, source });
-  return true;
+  const base = hookStateBaseDir(runtime.fs, session, scratchpad);
+  let ended = active === null ? await pointer.readEnded(session, scratchpad) : null;
+  if (active === null && ended === null) {
+    // The ledger has no record of a Stop; the cursor does: a Stop that saw the whole chain has handled its exit.
+    const exited = await endedRouteInLedger(runtime.fs, { repositoryRoot: root, session });
+    if (exited !== null && (await readStopCursor(runtime.fs, base, exited.routeId)) < exited.entries) ended = exited;
+  }
+  return { root, session, scratchpad, base, active, ended: ended === null ? null : { task: ended.task, skill: ended.skill, routeId: ended.routeId } };
 }
 
 const entriesOf = async (ledger: LockedLedger): Promise<LedgerEntry[]> => {
@@ -259,22 +233,7 @@ const entriesOf = async (ledger: LockedLedger): Promise<LedgerEntry[]> => {
   return read.state === 'ok' ? read.entries : [];
 };
 
-/** UserPromptSubmit: a dismissal recorded before the user's next prompt pauses the route, so the prompt may reopen it. */
-export async function dismissedGate(ports: StopPorts, input: HookInput): Promise<boolean> {
-  const where = await locate(ports, input);
-  if (where?.active == null) return false;
-  const { runtime } = ports;
-  const dir = taskDirFor(where.root, where.active.task);
-  const paused = await withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), where.session, async (ledger) => {
-    const entries = await entriesOf(ledger);
-    const head = entries.find((entry) => entry.kind === 'route' && entry.id === where.active!.routeId);
-    return head !== undefined && (await pauseOnDismissal(ledger, buildChain(entries, head).entries, head, input.transcript_path, 'prompt'));
-  });
-  if (paused) await ports.pointer.clear(where.session, where.scratchpad);
-  return paused;
-}
-
-interface Verdict { output: StopHookOutput | null; paused: boolean; save: { text: string; kind: RouteDef['steps'][number]; chain: readonly LedgerEntry[] } | null; head: LedgerEntry }
+interface Verdict { output: StopHookOutput | null; save: { text: string; kind: RouteDef['steps'][number]; chain: readonly LedgerEntry[] } | null; head: LedgerEntry }
 
 /** Stop's three conditions, the checks they run, and the single block they may cause, all decided under one ledger lock. */
 /** A Stop that did nothing is not the same as a Stop that was never reached: the reason is left on stderr, where the session record keeps it. */
@@ -285,7 +244,6 @@ function skipped(reason: string): null {
 
 export async function stopHook(ports: StopPorts, input: HookInput, options: { defectBrief?: boolean } = {}): Promise<StopHookOutput | null> {
   const { runtime, pointer, routes } = ports;
-  const startedAt = runtime.clock.elapsed();
   const where = await locate(ports, input);
   if (where === null) return skipped(`no session repository from ${input.cwd ?? runtime.cwd}`);
   const { root, session, scratchpad, base, active } = where;
@@ -300,7 +258,6 @@ export async function stopHook(ports: StopPorts, input: HookInput, options: { de
       const def = routes.route(target.skill);
       if (head === undefined || def === null) return skipped(`route ${target.routeId} of ${target.skill} is not in the ledger or the route set`);
       const chain = buildChain(entries, head).entries;
-      if (active !== null && (await pauseOnDismissal(ledger, chain, head, input.transcript_path, 'stop'))) return { output: null, paused: true, save: null, head };
       const seen = await readStopCursor(runtime.fs, base, target.routeId);
       const fresh = chain.slice(seen);
       const lastModel = [...def.steps].reverse().find((step) => step.actor === 'model');
@@ -351,38 +308,28 @@ export async function stopHook(ports: StopPorts, input: HookInput, options: { de
       else if ((text !== null || missingBlock !== null) && !blockedBefore) {
         // The task route's ground step records a defect brief.
         const defectBrief = options.defectBrief ?? chain.some((entry) => entry.kind === 'step' && entry['defectBrief'] === true);
-        const { problems, report, shape } = text === null ? { problems: [], report: null, shape: [] } : await problemsOf({ chain, def, routes, root, text, defectBrief, files, citationsOnly: saveAnswer }, runtime);
+        const { problems, report } = text === null ? { problems: [], report: null } : await problemsOf({ chain, def, routes, root, text, defectBrief, files, citationsOnly: saveAnswer }, runtime);
         const doctorProblem = text === null ? null : await doctorReadBackProblem(runtime, dir, text);
         if (doctorProblem !== null) problems.push(doctorProblem);
         if (missingBlock !== null) problems.push(`${NOT_VERBATIM}: copy part 4 of the review report as printed (below in the stop-check file).`);
-        // Unread or undecided Files entries block through the same single stop-block as a bad citation; the count recorded is of both.
-        const listed = [...problems, ...shape];
-        if (listed.length > 0) {
+        if (problems.length > 0) {
           const where = path.relative(root, dir.stopCheck);
           await runtime.fs.mkdirp(dir.root);
-          await runtime.fs.writeText(dir.stopCheck, `# Stop check\n\n${listed.map((item) => `- ${item}`).join('\n')}\n${missingBlock === null ? '' : `\n${missingBlock}\n`}${report === null ? '' : `\n${report}\n`}`);
+          await runtime.fs.writeText(dir.stopCheck, `# Stop check\n\n${problems.map((item) => `- ${item}`).join('\n')}\n${missingBlock === null ? '' : `\n${missingBlock}\n`}${report === null ? '' : `\n${report}\n`}`);
           if (saveAnswer && text !== null) await runtime.fs.writeText(dir.answerBlocked, text);
-          let reason = saveAnswer ? answerBlockReason(problems.length, shape.length, where, head['mode'] === 'headless') : `The text you are about to finish with has ${problems.length} problem(s). Fix them, or state them; the full list is in ${where}:`;
+          let reason = saveAnswer ? answerBlockReason(problems.length, where, head['mode'] === 'headless') : `The text you are about to finish with has ${problems.length} problem(s). Fix them, or state them; the full list is in ${where}:`;
           saveAnswer = false;
-          for (const item of listed) {
+          for (const item of problems) {
             if (Buffer.byteLength(`${reason}\n- ${item}`) > REASON_LIMIT_BYTES) break;
             reason += `\n- ${item}`;
           }
-          await finish({ which: 'stop-block', count: listed.length });
+          await finish({ which: 'stop-block', count: problems.length });
           output = { decision: 'block', reason };
         }
       }
-      const previous = chain.findLast((entry) => entry.kind === 'turn' && typeof entry['lastMessage'] === 'string');
-      const turn = input.transcript_path === undefined ? null : await turnSummary(input.transcript_path, previous === undefined ? null : String(previous['lastMessage']));
-      if (turn !== null) await ledger.append({ kind: 'turn', route: head.id, from: chain[seen]?.id ?? head.id, to: chain.at(-1)?.id ?? head.id, ...turn });
-      await ledger.append({ kind: 'hook', route: head.id, name: 'stop', ms: Math.max(0, Math.round(runtime.clock.elapsed() - startedAt)) });
-      return { output, paused: false, save: saveAnswer && text !== null && answering !== null && answering !== undefined ? { text, kind: answering, chain } : null, head };
+      return { output, save: saveAnswer && text !== null && answering !== null && answering !== undefined ? { text, kind: answering, chain } : null, head };
     });
     if (verdict === null) return null;
-    if (verdict.paused) {
-      await pointer.clear(session, scratchpad);
-      return null;
-    }
     if (verdict.save !== null) await saveAsNote(ports, { root, task: target.task, head: verdict.head, scratchpad, ...verdict.save });
     else if (active !== null && verdict.output === null) await ports.closeFinal(target.task, target.routeId, scratchpad);
     const after = await readLedger(runtime.fs, dir.root);
@@ -441,12 +388,9 @@ async function exportFile(runtime: Runtime, from: string, target: string, name: 
 }
 
 /** The final message is what the user gets and what is saved, so a correction must restate the whole answer. */
-function answerBlockReason(citations: number, shape: number, where: string, headless: boolean): string {
-  const fixed = [citations > 0 ? 'the citations fixed' : '', shape > 0 ? 'each Files line decided' : ''].filter((part) => part !== '').join(' and ');
-  const rewrite = `write the whole answer again with ${fixed}; it replaces the previous one and is saved as the note`;
-  const found = [citations > 0 ? `${citations} citation problem(s)` : '', shape > 0 ? `${shape} unread or undecided Files line(s)` : ''].filter((part) => part !== '').join(' and ');
-  const decide = shape > 0 ? ' Decide each line below: keep it under `## Files` after reading it with `read`, mark it as a new file, or name why it is out.' : '';
-  const head = `Your answer has ${found}; the full list is in ${where}.${decide}`;
+function answerBlockReason(citations: number, where: string, headless: boolean): string {
+  const rewrite = 'write the whole answer again with the citations fixed; it replaces the previous one and is saved as the note';
+  const head = `Your answer has ${citations} citation problem(s); the full list is in ${where}.`;
   if (headless) return `${head} Nobody can be asked in this session: ${rewrite}.`;
   return `${head} Ask the user with AskUserQuestion whether to keep the answer as it is or rewrite it. If they choose rewrite, ${rewrite}. If they keep it, just stop.`;
 }

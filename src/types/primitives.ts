@@ -60,7 +60,7 @@ export const COMMAND_ACTION_PRECEDENCE: Record<z.infer<typeof CommandAction>, nu
   run: 1,
 };
 
-export const Ecosystem = z.enum(['typescript', 'python', 'generic']);
+export const Ecosystem = z.string().min(1);
 export type Ecosystem = z.infer<typeof Ecosystem>;
 
 export const AdapterId = z.enum(['eslint', 'ruff', 'generic', 'jest', 'vitest', 'pytest', 'playwright']);

@@ -5,83 +5,72 @@ import { SPECS, USAGE } from './main.ts';
 const TABLE: Record<string, readonly string[]> = {
   'route start': ['task', 'headless', 'project', 'answer', 'fresh', 'adopt'],
   'route next': ['task', 'answer', 'default', 'revise', 'conflict', 'sources', 'project', 'show'],
-  'route status': ['task'],
-  'route stop': ['task', 'reason', 'detail'],
-  map: ['task', 'project', 'mode', 'term', 'symbol', 'show'],
-  refs: ['project', 'show'],
-  find: ['kind', 'project'],
-  relates: ['project'],
-  read: ['task', 'budget'],
-  'index build': ['project'],
-  'index status': ['project'],
-  locate: [],
+  map: ['task', 'project', 'mode', 'term', 'symbol'],
+  refs: ['project', 'declarations'],
   'requirements template': ['requirement', 'task'],
   'requirements normalize': ['task'],
   'requirements acs': ['task'],
-  policy: ['project', 'activity', 'rule', 'stage', 'show'],
   'policy check': ['project', 'drafts'],
   'rules discover': ['project'],
   'rules apply': ['project'],
-  'rules revert': ['project'],
-  prepare: [],
   check: ['task', 'only', 'phase', 'approve', 'decline'],
   format: ['task'],
   review: ['task', 'estimate'],
-  bundle: [],
-  view: [],
+  'review record': ['task', 'review'],
   'note save': ['task', 'kind', 'from', 'iteration'],
   'note promote': ['task'],
-  'note list': ['task'],
   report: ['task'],
   'plan check': ['task', 'from'],
-  'worker run': ['task'],
-  init: ['dry-run', 'apply', 'set'],
-  doctor: ['project'],
-  config: [],
+  init: ['apply', 'task'],
+  'init propose': ['task'],
   version: [],
 };
 
 const GAPS: Record<string, string> = {};
 
-const SUBCOMMANDS = ['route', 'index', 'requirements', 'rules', 'note', 'policy', 'plan', 'worker'];
+const SUBCOMMANDS = ['route', 'requirements', 'rules', 'note', 'policy', 'plan'];
 
 const declared = (command: string): string[] => {
   const spec = SPECS[command];
   return spec === undefined ? [] : [...(spec.values ?? []), ...(spec.repeated ?? []), ...(spec.flags ?? [])];
 };
 
-/** The help text's block for a command: its header line up to the next command header. */
-function block(command: string): string | null {
-  const lines = USAGE.split('\n');
-  const start = lines.findIndex((line) => line === `  ${command}` || line.startsWith(`  ${command} `));
-  if (start < 0) return null;
-  const end = lines.findIndex((line, index) => index > start && /^ {2}[a-z]/.test(line));
-  return lines.slice(start, end < 0 ? undefined : end).join('\n');
-}
+/** The generated usage line for a command: its name, padded, then its summary. */
+const line = (command: string): string | undefined => USAGE.split('\n').find((candidate) => candidate.startsWith('  ') && candidate.slice(2, 25).trimEnd() === command);
 
 describe('CLI surface (08-I1)', () => {
   for (const [command, flags] of Object.entries(TABLE)) {
-    const name = `08-I1: ${command} is a command with --json, ${flags.length === 0 ? 'its unchanged options' : flags.map((flag) => `--${flag}`).join(' ')}, all in SPECS and USAGE`;
+    const name = `08-I1: ${command} is a command with --json, ${flags.length === 0 ? 'its unchanged options' : flags.map((flag) => `--${flag}`).join(' ')}, all in SPECS, and the command is in USAGE`;
     it(name, GAPS[command] === undefined ? {} : { todo: GAPS[command] }, () => {
       assert.ok(SPECS[command] !== undefined, `${command} has no spec`);
-      const text = block(command);
-      assert.ok(text !== null, `${command} is not in USAGE`);
-      for (const flag of ['json', ...flags]) {
-        assert.ok(declared(command).includes(flag), `${command} does not accept --${flag}`);
-        if (flag !== 'json') assert.ok(new RegExp(`(?:^|[\\s|\\[])--${flag}(?![a-z-])`).test(text), `${command} does not document --${flag}`);
-      }
+      assert.ok(line(command) !== undefined, `${command} is not in USAGE`);
+      for (const flag of ['json', ...flags]) assert.ok(declared(command).includes(flag), `${command} does not accept --${flag}`);
     });
   }
 
-  it('08-I1: the named commands exist: worker run, doctor, note list, note promote', () => {
-    for (const command of ['worker run', 'doctor', 'note list', 'note promote']) {
+  it('08-I1: the named commands exist: init propose, note promote', () => {
+    for (const command of ['init propose', 'note promote']) {
       assert.ok(SPECS[command] !== undefined, command);
-      assert.ok(block(command) !== null, command);
+      assert.ok(line(command) !== undefined, command);
     }
   });
 
-  it('08-I1: init takes --set repeatably, check takes --only repeatably and --phase, review takes --estimate as a flag', () => {
-    assert.ok(SPECS['init']?.repeated?.includes('set'));
+  it('C5: the removed commands are not registered or listed', () => {
+    for (const command of ['route status', 'rules revert', 'note list', 'worker run', 'prepare', 'config', 'bundle', 'policy']) {
+      assert.equal(SPECS[command], undefined, command);
+      assert.equal(line(command), undefined, command);
+    }
+  });
+
+  it('C5: USAGE is generated, one line per command, under 2 KiB', () => {
+    const commands = Object.keys(SPECS);
+    assert.equal(USAGE.split('\n').filter((candidate) => candidate.startsWith('  ')).length, commands.length);
+    assert.ok(Buffer.byteLength(USAGE) < 2048, `${Buffer.byteLength(USAGE)} B`);
+  });
+
+  it('08-I1: init is gone as a dry run and doctor as a command; check takes --only repeatably and --phase, review takes --estimate as a flag', () => {
+    assert.equal(SPECS['init']?.flags?.includes('dry-run'), false);
+    assert.equal(SPECS['doctor'], undefined);
     assert.ok(SPECS['check']?.repeated?.includes('only'));
     assert.ok(SPECS['check']?.values?.includes('phase'));
     assert.ok(SPECS['review']?.flags?.includes('estimate'));

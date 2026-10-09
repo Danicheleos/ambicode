@@ -7,6 +7,7 @@ export const QUALIFIERS: Readonly<Record<string, readonly string[]>> = {
   policy: ['before-work', 'before-checks', 'before-report', 'drafts', 'apply'],
   check: ['red', 'green'],
   requirement: ['full', 'list'],
+  review: ['pending', 'recorded'],
 };
 
 export function invalid(file: string, where: string, message: string): AmbicodeError {
@@ -60,15 +61,15 @@ export function parseOnError(file: string, where: string, text: string): OnError
   throw invalid(file, where, `"${text}" is not retry-with <hint>, ask <gate> or stop:<reason>`);
 }
 
-const SIMPLE_WHEN = ['args.hasRequirement', '!args.hasRequirement', 'map.empty', 'plan.isDraft', 'headless', 'interactive', 'index.present', 'revised'];
+const SIMPLE_WHEN = ['args.hasRequirement', '!args.hasRequirement', 'args.hasMergeRequest', 'map.empty', 'plan.isDraft', 'headless', 'interactive', 'revised'];
 
 export function parseWhen(file: string, where: string, text: string): When {
   const trimmed = text.trim();
   if (SIMPLE_WHEN.includes(trimmed)) return { predicate: trimmed as never };
   const answered = /^gate\.([\w:-]+)\.answered$/.exec(trimmed);
   if (answered !== null) return { predicate: 'gate.answered', gate: answered[1]! };
-  const is = /^gate\.([\w:-]+)\.is\((.+)\)$/.exec(trimmed);
-  if (is !== null) return { predicate: 'gate.is', gate: is[1]!, option: is[2]!.trim() };
+  const is = /^gate\.([\w:-]+)\.(is|isnt)\((.+)\)$/.exec(trimmed);
+  if (is !== null) return { predicate: is[2] === 'is' ? 'gate.is' : 'gate.isnt', gate: is[1]!, option: is[3]!.trim() };
   throw invalid(file, where, `"${text}" is not in the when vocabulary`);
 }
 

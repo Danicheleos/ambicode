@@ -4,7 +4,6 @@ import { findSessionRepository } from '#platform/git/session-repository';
 import type { HookInput, RouteHookDeps } from '#types/hook';
 import { resolveActiveRoute } from '#harness/session/active-route';
 import { parseAnswerFlag } from '#harness/definition/flags';
-import { metricsIgnoreWarning } from '#skills/review/handlers';
 import { isAmbicodeError } from '#util/errors';
 import { currentEpoch, deliverOnce, hookStateBaseDir } from '#platform/claude/hook-state';
 import { ROUTE_START_OPTIONS } from '#types/cli';
@@ -77,8 +76,7 @@ export async function launchRoute(runtime: Runtime, input: HookInput, deps: Rout
       channel: 'hook',
       ...(input.scratchpad_dir === undefined ? {} : { scratchpadDir: input.scratchpad_dir }),
     });
-    const warning = await metricsIgnoreWarning({ ...runtime, cwd: found.repositoryRoot }, skill);
-    return warning === null ? message.text : `${message.text}\n${warning}`;
+    return message.text;
   } catch (error) {
     if (!isAmbicodeError(error)) throw error;
     return `AMBICODE could not start the ${skill} route: ${error.code}: ${error.message}${error.details.length === 0 ? '' : `\n${error.details.join('\n')}`}`;
@@ -92,11 +90,9 @@ export async function reinjectRoute(runtime: Runtime, input: HookInput, deps: Ro
   if (typeof found === 'string') return null;
   const active = await resolveActiveRoute(runtime.fs, deps.pointer, { repositoryRoot: found.repositoryRoot, session: input.session_id, scratchpad: input.scratchpad_dir });
   if (active === null) return null;
-  const [position] = await deps.engine.status(active.task, active.owner);
-  if (position === undefined) return null;
-  const base = hookStateBaseDir(runtime.fs, input.session_id, input.scratchpad_dir);
-  const fresh = await deliverOnce(runtime.fs, base, { epoch: await currentEpoch(runtime.fs, runtime.ids, base), agentKey: 'main', kind: 'route-step', subject: active.routeId, contentHash: position.position });
-  if (!fresh) return null;
   const message = await deps.engine.deliver(active.task, active.owner, input.scratchpad_dir);
-  return message === null ? null : message.text;
+  if (message === null) return null;
+  const base = hookStateBaseDir(runtime.fs, input.session_id, input.scratchpad_dir);
+  const fresh = await deliverOnce(runtime.fs, base, { epoch: await currentEpoch(runtime.fs, runtime.ids, base), agentKey: 'main', kind: 'route-step', subject: active.routeId, contentHash: message.position });
+  return fresh ? message.text : null;
 }

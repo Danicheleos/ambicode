@@ -8,7 +8,6 @@ import { createRuntime } from '#composition/root';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { runHook } from './run-hook.ts';
-import { PREPARE_OPTIONS } from '#types/cli';
 
 async function fixtureWithPack(options: { editReminders?: boolean } = {}): Promise<{ repo: TempRepo; dispose(): Promise<void> }> {
   const repo = await TempRepo.create();

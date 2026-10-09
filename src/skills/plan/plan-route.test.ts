@@ -182,7 +182,7 @@ describe('06-R4/06-R5/06-R6 the plan-accept gate', () => {
       const promoted = await notes(plan, 'plan');
       assert.equal(promoted.length, 1);
       assert.ok(typeof promoted[0]!['promotedFrom'] === 'string');
-      assert.equal((await plan.fx.engine.status(PLAN_TASK, SESSION_A))[0]?.position, 'complete');
+      assert.equal(await plan.fx.engine.live(PLAN_TASK), false);
       assert.equal((await plan.promote()).outcome, 'plan-already-promoted');
       assert.equal((await notes(plan, 'plan')).length, 1);
     } finally {
@@ -327,24 +327,6 @@ describe('06-R8/06-R9/06-H4 acting authority', () => {
     }
   });
 
-  it('S12 06-R6: a late bound answer after default-taken never-asked supersedes it and uses the answered instance\'s object', async () => {
-    const plan = await shipped();
-    try {
-      await plan.toGate();
-      const print = await lastPrint(plan);
-      await plan.next();
-      await plan.next();
-      await plan.next();
-      assert.equal((await plan.fx.kinds(PLAN_TASK, 'default-taken')).at(-1)!['via'], 'never-asked');
-      await plan.hook('plan-accept', 'Accept', print.id);
-      const acceptance = (await plan.fx.kinds(PLAN_TASK, 'acceptance')).at(-1)!;
-      assert.equal(acceptance['instance'], print.id);
-      assert.deepEqual(acceptance['object'], print['object']);
-      assert.equal((await notes(plan, 'plan')).length, 1);
-    } finally {
-      await plan.dispose();
-    }
-  });
 });
 
 describe('06-H3 without hook support', () => {
@@ -415,8 +397,6 @@ describe('06-P9/D1 interruption', () => {
       assert.equal((await notes(plan, 'plan')).length, 1);
       await writeFile(path.join(taskDir(plan), 'plan-draft_2026-10-05T10-00-9.md'), '# stray\n');
       await appendLedger(nodeFileSystem, taskDir(plan), new Date(), 'aaaaaaaa', { kind: 'route', skill: 'plan', args: { text: 'again', requirements: [] }, mode: 'interactive', channel: 'hook', trusted: true, session: SESSION_A, epoch: 1 });
-      const [status] = await plan.fx.engine.status(PLAN_TASK, SESSION_A);
-      assert.ok(status!.orphans.includes('plan-draft_2026-10-05T10-00-9.md'));
     } finally {
       await plan.dispose();
     }

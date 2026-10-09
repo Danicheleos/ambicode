@@ -1,3 +1,4 @@
+import { stopRoute } from '#testing/fixtures/route-fixture';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildChain } from '#harness/engine/fold';
@@ -10,7 +11,7 @@ describe('07-R1 guard: a denied headless guard ask in the task route', () => {
     try {
       const red = await t.start({ headless: true });
       assert.equal(red.position, 'red');
-      await t.fx.engine.stop('ord-7', 'aaaaaaaa-1111-4111-8111-111111111111', 'blocked', 'permission-denied: npx jest src/a.spec.ts', t.fx.scratchpad);
+      await stopRoute(t.fx, 'ord-7', 'aaaaaaaa-1111-4111-8111-111111111111', 'blocked', 'permission-denied: npx jest src/a.spec.ts');
       const [exit] = await t.kinds('exit');
       assert.equal(exit?.['reason'], 'blocked');
       assert.equal(exit?.['detail'], 'permission-denied: npx jest src/a.spec.ts');
@@ -28,7 +29,7 @@ describe('07-R1 guard: a denied headless guard ask in the task route', () => {
     const t = await taskFixture();
     try {
       await t.start({ headless: true });
-      await t.fx.engine.stop('ord-7', 'aaaaaaaa-1111-4111-8111-111111111111', 'blocked', 'permission-denied: npx jest', t.fx.scratchpad);
+      await stopRoute(t.fx, 'ord-7', 'aaaaaaaa-1111-4111-8111-111111111111', 'blocked', 'permission-denied: npx jest');
       const before = (await t.ledger()).length;
       await assert.rejects(t.next());
       assert.equal((await t.ledger()).length, before);

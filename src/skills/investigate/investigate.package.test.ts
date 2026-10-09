@@ -32,10 +32,10 @@ describe('investigate evals, packaging and navigation guidance', () => {
     assert.match(await text('tools/package-candidate.mjs'), /from: 'routes', extensions: \['\.yaml', '\.md'\]/);
   });
 
-  it('03-M7: navigation guidance is short, names find, and carries no reading order', async () => {
+  it('03-M7: navigation guidance is short, names refs, and carries no reading order', async () => {
     const guidance = navigationFor('typescript');
     assert.ok(guidance.evidenceRequirement.length < 100 && guidance.readGuidance.length < 100);
-    assert.match(guidance.evidenceRequirement, /find/);
+    assert.match(guidance.evidenceRequirement, /refs/);
     assert.match(guidance.readGuidance, /hypothesis/);
     assert.equal('readingOrder' in guidance, false);
   });

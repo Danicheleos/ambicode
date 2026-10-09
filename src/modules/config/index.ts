@@ -46,7 +46,7 @@ export { projectOfKey } from './init/init-sets.ts';
 export { detectRuleSources } from './init/init.ts';
 /** applyLineFor(runtime, task, overrides) — the apply command line that reproduces a proposal with these overrides. */
 export { applyLineFor } from './init/proposal.ts';
-/** buildProposal(runtime, repositoryRoot, overrides, options?) — the dry run: reads, detects and plans; writes nothing. */
+/** buildProposal(runtime, repositoryRoot, input, overrides, options?) — plans the model's validated proposal against the repository; writes nothing. */
 export { buildProposal } from './init/proposal.ts';
 /** configFileState(fs, repositoryRoot) — whether the config file exists and parses as YAML; schema problems are left to the loader. */
 export { configFileState } from './init/proposal.ts';

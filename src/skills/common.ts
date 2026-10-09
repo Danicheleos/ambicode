@@ -1,6 +1,6 @@
 import { openRepository } from '#platform/git/open';
 import { projectForRequest } from '#modules/config/workspace';
-import { rankTerms, buildMap, leadsOf, resolveLayers, resolveTuning } from '#modules/search/text/map';
+import { buildMap, resolveLayers } from '#modules/search/map';
 import { pathsCitedIn, symbolsCitedIn } from '#modules/search/text/seed';
 import { seedTextOf } from './brief.ts';
 import { loadConfigWithNotices } from '#modules/config/load';
@@ -127,7 +127,6 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
     if (isResult(project)) return project;
     const mode = input.params[0] === 'context' ? 'context' : 'prompt';
     const stated = input.revise?.args['term'] ?? [];
-    let terms = [...stated];
     const chain = await chainEntries(input);
     const { git } = await openRepository(input.runtime);
     const envelope = chain.findLast((entry) => entry.kind === 'envelope');
@@ -135,31 +134,14 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
     const seedText = mode === 'context' ? await seedTextOf(input, chain) : null;
     const units = splitAcs(envelopeSourcesOf.filter((source) => source.relation !== 'args'));
     const seedable = seedText === null ? null : [seedText, ...units.map((unit) => unit.quote)].join('\n');
-    const files = seedable !== null || stated.length === 0 ? await git.listFiles(null) : [];
-    const tuning = resolveTuning(config.search);
-    const rank = async (withProse: boolean): Promise<string[]> => {
-      const sources = seedText === null ? envelopeSourcesOf : [...envelopeSourcesOf.filter((source) => source.relation !== 'args'), { title: '', content: seedText }];
-      return rankTerms(sources.length === 0 ? [{ title: '', content: input.args.text }] : sources, { runtime: input.runtime, root: input.dir.repositoryRoot, project, files, withProse, tuning: tuning.tuning });
-    };
-    if (terms.length === 0) terms = await rank(false);
+    const files = seedable === null ? [] : await git.listFiles(null);
+    const sources = seedText === null ? envelopeSourcesOf : [...envelopeSourcesOf.filter((source) => source.relation !== 'args'), { title: '', content: seedText }];
+    const request = (sources.length === 0 ? [{ title: '', content: input.args.text }] : sources).map((source) => `${source.title}\n${source.content}`).join('\n');
     const { layers, source } = resolveLayers(config.search, mode);
-    const paths = seedable === null ? [] : pathsCitedIn(seedable, files);
-    const symbols = seedable === null ? [] : symbolsCitedIn(seedable);
     try {
-      const build = (given: readonly string[]) => buildMap({ runtime: input.runtime, project, mode, layers, layersSource: source, terms: given, paths, symbols, tuning });
-      let map = await build(terms);
-      let retried = false;
-      if (map.candidates.length === 0 && stated.length === 0) {
-        const wider = await rank(true);
-        if (wider.join('\n') !== terms.join('\n')) {
-          map = await build(wider);
-          retried = true;
-        }
-      }
-      const decisions = { ...(map.entry['decisions'] as object), proseRetry: retried };
-      const leads = leadsOf({ ...map, readCommand: `node "${input.runtime.pluginRoot}/scripts/ambicode.mjs" read --task ${input.view.task}` }, tuning.tuning.leads);
-      await input.ledger.append({ kind: 'map', route: input.view.routeId, ...map.entry, decisions, delivered: { leads: leads.leads, feature: leads.feature, operands: leads.operands, bytes: leads.bytes, hash: leads.hash } });
-      return { state: 'ok', payload: leads.text };
+      const map = await buildMap(input.runtime, { project, mode, layers, layersSource: source, terms: stated, request, paths: seedable === null ? [] : pathsCitedIn(seedable, files), symbols: seedable === null ? [] : symbolsCitedIn(seedable) });
+      await input.ledger.append({ kind: 'map', route: input.view.routeId, ...map.entry });
+      return { state: 'ok', payload: map.text };
     } catch (error) {
       return failed(error);
     }

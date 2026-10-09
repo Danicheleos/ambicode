@@ -1,8 +1,6 @@
 import assert from 'node:assert/strict';
 import { readdir } from 'node:fs/promises';
 import { describe, it } from 'node:test';
-import { parseArgs } from '#util/args';
-import { runDoctorCommand, DOCTOR_OPTIONS } from '#cli/commands/config/doctor';
 import { createRuntime } from '#composition/root';
 import { NodeProcessRunner } from '#platform/ports/node-process-runner';
 import { initConfig } from '#testing/fixtures/init-config';
@@ -52,7 +50,7 @@ describe('09-D1: one row per command slot', () => {
     const { repo, runtime, config } = await setup({}, []);
     try {
       const table = await runDoctor(runtime, repo.root, config);
-      assert.deepEqual(table.rows.map((row) => row.slot), ['lint', 'unit', 'e2e', 'format']);
+      assert.deepEqual(table.rows.map((row) => row.slot), ['lint', 'unit', 'typecheck', 'e2e', 'format']);
       assert.ok(table.rows.every((row) => row.project === 'app' && row.result === 'null'));
     } finally {
       await repo.dispose();
@@ -63,7 +61,7 @@ describe('09-D1: one row per command slot', () => {
     const { repo, runtime, config } = await setup({}, []);
     try {
       await assert.rejects(runDoctor(runtime, repo.root, config, { project: 'nope' }), (error: unknown) => error instanceof AmbicodeError && error.code === 'unknown-project');
-      assert.equal((await runDoctor(runtime, repo.root, config, { project: 'app' })).rows.length, 4);
+      assert.equal((await runDoctor(runtime, repo.root, config, { project: 'app' })).rows.length, 5);
     } finally {
       await repo.dispose();
     }
@@ -166,68 +164,6 @@ describe('09-D5: the probe form', () => {
   });
 });
 
-describe('09-D3: the index build', () => {
-  it('09-D3: with search.index codeindex, startIndex is called once per project and its status is in the table', async () => {
-    const { repo, runtime, config } = await setup({}, [{ key: 'search.index', value: 'codeindex' }]);
-    try {
-      const calls: string[] = [];
-      const table = await runDoctor(runtime, repo.root, config, {
-        buildIndex: true,
-        startIndex: (_deps, project) => {
-          calls.push(project.id);
-          return Promise.resolve({ state: 'building' } as never);
-        },
-      });
-      assert.deepEqual(calls, ['app']);
-      assert.equal(table.index, 'codeindex building');
-      assert.match(table.text, /^index: codeindex building$/m);
-    } finally {
-      await repo.dispose();
-    }
-  });
-
-  it('09-D3: a rejected build is reported as error with its message, not thrown', async () => {
-    const { repo, runtime, config } = await setup({}, [{ key: 'search.index', value: 'codeindex' }]);
-    try {
-      const table = await runDoctor(runtime, repo.root, config, { buildIndex: true, startIndex: () => Promise.reject(new Error('not ignored')) });
-      assert.equal(table.index, 'codeindex error (not ignored)');
-    } finally {
-      await repo.dispose();
-    }
-  });
-
-  it('09-D3: with search.index none the build is not started and index is null', async () => {
-    const { repo, runtime, config } = await setup({}, []);
-    try {
-      let called = 0;
-      const table = await runDoctor(runtime, repo.root, config, { buildIndex: true, startIndex: () => { called += 1; return Promise.resolve({ state: 'building' } as never); } });
-      assert.equal(called, 0);
-      assert.equal(table.index, null);
-    } finally {
-      await repo.dispose();
-    }
-  });
-});
-
-describe('09-D5: standalone doctor', () => {
-  it('09-D5 (amend-09 P6): standalone doctor reports the index state, starts no build and writes nothing', async () => {
-    const { repo, runtime, config } = await setup({}, [{ key: 'search.index', value: 'codeindex' }]);
-    try {
-      await repo.commitAll('config');
-      let started = 0;
-      const table = await runDoctor(runtime, repo.root, config, { startIndex: () => { started += 1; return Promise.resolve({ state: 'building' } as never); } });
-      assert.equal(started, 0);
-      assert.doesNotMatch(table.index ?? '', /building/);
-      const output = await runDoctorCommand(runtime, parseArgs('doctor', [], DOCTOR_OPTIONS));
-      assert.match(output.index ?? '', /^codeindex (absent|error|stale|fresh)/);
-      assert.equal(await runtime.fs.exists(`${repo.root}/.ambicode/index`), false);
-      assert.equal(await repo.run(['git', 'status', '--porcelain', '--untracked-files=all']), '');
-    } finally {
-      await repo.dispose();
-    }
-  });
-});
-
 describe('09-D4: stable text', () => {
   it('09-D4: the same inputs give the same bytes and hash, and the text ends with the hash marker', async () => {
     const { repo, runtime, config } = await setup({ './bin/lint': outcome({ stdout: 'v1\n' }) }, [lint()], { 'bin/lint': '#!/bin/sh\n' });
@@ -255,14 +191,13 @@ describe('09-D4: stable text', () => {
   });
 });
 
-describe('09-D5: standalone doctor writes nothing', () => {
-  it('09-D5: runDoctorCommand leaves the working tree and git status unchanged', async () => {
-    const { repo, runtime } = await setup({ './bin/lint': outcome({ stdout: 'v1\n' }) }, [lint()], { 'bin/lint': '#!/bin/sh\n' });
+describe('09-D5: doctor writes nothing', () => {
+  it('09-D5: runDoctor leaves the working tree and git status unchanged', async () => {
+    const { repo, runtime, config } = await setup({ './bin/lint': outcome({ stdout: 'v1\n' }) }, [lint()], { 'bin/lint': '#!/bin/sh\n' });
     try {
       const listing = async (): Promise<string[]> => (await readdir(repo.root, { recursive: true })).filter((entry) => !entry.startsWith('.git/') && entry !== '.git').sort();
       const before = { files: await listing(), status: await repo.run(['git', 'status', '--porcelain', '--ignored']) };
-      const output = await runDoctorCommand(runtime, parseArgs('doctor', [], DOCTOR_OPTIONS));
-      assert.equal(output.command, 'doctor');
+      const output = await runDoctor(runtime, repo.root, config);
       assert.equal(output.rows.find((row) => row.slot === 'lint')!.result, 'ok');
       assert.deepEqual({ files: await listing(), status: await repo.run(['git', 'status', '--porcelain', '--ignored']) }, before);
     } finally {

@@ -298,7 +298,7 @@ describe('P2.3 task skill', () => {
     assert.ok(Buffer.byteLength(raw) <= 2560, `${Buffer.byteLength(raw)} bytes`);
     const fm = frontmatter(raw, 'task/SKILL.md');
     assert.equal(fm['disable-model-invocation'], true);
-    assert.equal(requiredString(fm, 'allowed-tools', 'task/SKILL.md'), 'Read, Grep, Glob, Edit(**), Write(**), Bash(node *ambicode.mjs*), Bash(git status*), Bash(git diff*)');
+    assert.equal(requiredString(fm, 'allowed-tools', 'task/SKILL.md'), 'Read, Grep, Glob, Agent, Edit(**), Write(**), Bash(node *ambicode.mjs*), Bash(git status*), Bash(git diff*)');
     requiredString(fm, 'argument-hint', 'task/SKILL.md');
   });
 
@@ -401,7 +401,7 @@ describe('07-M2 task outcomes', () => {
 });
 
 describe('F7 rules confirmation gate', () => {
-  it('09-T2/09-T6: the rules table is answered before any pack goes live, and the skill states how to undo one', async () => {
+  it('09-T2/09-T6: the rules table is answered before any pack goes live, ', async () => {
     const route = YAML.parse(await readFile(path.join(repositoryRoot, 'routes', 'rules', 'rules.yaml'), 'utf8')) as { steps: { id: string; when?: string; gate?: { acting?: string[]; default?: string } }[] };
     const ids = route.steps.map((step) => step.id);
     const table = route.steps.find((step) => step.id === 'rules-table');
@@ -410,7 +410,7 @@ describe('F7 rules confirmation gate', () => {
     assert.ok(ids.indexOf('rules-table') < ids.indexOf('apply'), 'a gate after the change it guards cannot stop it');
     assert.equal(route.steps.find((step) => step.id === 'apply')?.when, 'gate.rules-table.is(Apply all)');
     const content = await readFile(path.join(SKILLS_DIR, 'rules', 'SKILL.md'), 'utf8');
-    assert.match(content, /rules revert <pack-id>` undoes one pack/);
+    assert.doesNotMatch(content, /rules revert/);
   });
 });
 

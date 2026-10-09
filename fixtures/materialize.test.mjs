@@ -7,7 +7,7 @@ import { describe, it } from 'node:test';
 import { materialize } from './materialize.mjs';
 import { fixtureByName } from './definitions.mjs';
 
-const IGNORE_LINES = ['.ambicode/index/', '.ambicode/metrics.jsonl', '.ambicode/reviews/', '.ambicode/task/', '.ambicode/notes/'];
+const IGNORE_LINES = ['.ambicode/index/', '.ambicode/reviews/', '.ambicode/task/', '.ambicode/notes/'];
 
 describe('fixtures materialize', () => {
   for (const name of ['ts-staged-unstaged', 'ts-branch-divergence']) {

@@ -7,7 +7,7 @@ import { openWorkspace } from '#modules/config/workspace';
 import { initConfig } from '#testing/fixtures/init-config';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { taskDirFor } from '#modules/evidence/task/task-dir';
-import { builtinRules, checkDrafts, DUPLICATE_SIMILARITY, similarity } from './drafts.ts';
+import { checkDrafts } from './drafts.ts';
 import { DRAFTS_DIR } from '#types/modules/policy';
 
 const QUOTE = 'Services must never call the transport layer directly.';
@@ -102,34 +102,6 @@ describe('09-Q3: quotes are verified', () => {
     } finally {
       await d.repo.dispose();
     }
-  });
-});
-
-describe('09-Q4: near-duplicates of built-in rules', () => {
-  it('09-Q4: a draft copying a built-in instruction gets pack-duplicates-builtin naming it', async () => {
-    const [builtin] = await builtinRules(await createRuntime({ cwd: process.cwd() }));
-    const d = await drafted({ 'a.yaml': pack([rule('copy', builtin!.instruction, QUOTE)]) });
-    try {
-      const check = await d.check();
-      const duplicate = check.diagnostics.find((diagnostic) => diagnostic.code === 'pack-duplicates-builtin');
-      assert.equal(duplicate?.severity, 'warning');
-      assert.ok(duplicate?.message.includes(builtin!.name), duplicate?.message);
-      assert.equal(check.ok, true, 'a duplicate warns, it does not block');
-    } finally {
-      await d.repo.dispose();
-    }
-  });
-
-  it('09-Q4: no pair of built-in rules reaches DUPLICATE_SIMILARITY, which is the smallest 0.05 multiple above the maximum', async () => {
-    const rules = await builtinRules(await createRuntime({ cwd: process.cwd() }));
-    let max = 0;
-    for (let first = 0; first < rules.length; first += 1) {
-      for (let second = first + 1; second < rules.length; second += 1) max = Math.max(max, similarity(rules[first]!.instruction, rules[second]!.instruction));
-    }
-    console.log(`09-Q4: ${rules.length} built-in rules, measured maximum similarity ${max.toFixed(3)}, DUPLICATE_SIMILARITY ${DUPLICATE_SIMILARITY}`);
-    assert.ok(max < DUPLICATE_SIMILARITY);
-    assert.ok(DUPLICATE_SIMILARITY - 0.05 <= max + 1e-9, 'not the smallest multiple above the maximum');
-    assert.equal(Math.abs(Math.round(DUPLICATE_SIMILARITY / 0.05) * 0.05 - DUPLICATE_SIMILARITY) < 1e-9, true);
   });
 });
 

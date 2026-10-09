@@ -3,7 +3,6 @@ import { openWorkspace, projectById } from '#modules/config/workspace';
 import { resolvePolicyFor } from '#modules/policy/resolve-for';
 import type { ProjectConfig } from '#types/modules/config';
 import type { ResolvedPolicy } from '#types/modules/policy';
-import { indexDepsOf, refreshIndex } from '#modules/search/code-index/codeindex';
 import { cycleEntries, liveHeads } from '#modules/evidence/ledger-chain';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
@@ -111,11 +110,6 @@ export async function authorizeKey(
   return consent === 'honoured' ? 'allowed' : consent;
 }
 
-export function warmIndex(deps: CheckDeps, workspace: Workspace, project: ProjectConfig): void {
-  const warm = deps.warm ?? ((space, target) => refreshIndex(indexDepsOf(deps.runtime, space.git, space.repositoryRoot, space.config), target));
-  void Promise.resolve().then(() => warm(workspace, project)).catch(() => undefined);
-}
-
 async function limitReached(deps: CheckDeps, routed: Routed, phase: string): Promise<boolean> {
   const { view } = routed;
   const window = cycleEntries(await deps.context!.window(view, stepOf(view)));
@@ -182,6 +176,5 @@ export async function runCheckOnly(deps: CheckDeps, input: CheckOnlyInput): Prom
     ...(result.mutations.length === 0 ? {} : { mutations: result.mutations }), ...(deps.session === null ? {} : { session: deps.session }),
   })) as CheckEntry;
   if (!proof.proven) await unproven(proof.which, proof.cause);
-  warmIndex(deps, workspace, project);
   return { outcome: 'ran', entry, proof };
 }

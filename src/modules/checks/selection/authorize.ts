@@ -33,8 +33,3 @@ export function authorizeCommand(options: AuthorizeOptions): CommandAuthorizatio
 export function checkApprovalKey(projectId: string, checkId: string): string {
   return `${projectId}/${checkId}`;
 }
-
-/** Approving a test run is not approving the script that decides what to run. */
-export function selectorApprovalKey(projectId: string, checkId: string): string {
-  return `${checkApprovalKey(projectId, checkId)}:selector`;
-}

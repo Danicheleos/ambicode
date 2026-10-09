@@ -32,7 +32,7 @@ function stageRules(activity: Activity, stage: PromptStage, rules: readonly Reso
   return stage === 'before-checks' && late ? style : [];
 }
 
-const render = (rule: ResolvedRule): string => `${rule.qualifiedId} (${rule.authority}): ${rule.instruction}`;
+export const renderRule = (rule: ResolvedRule): string => `${rule.qualifiedId} (${rule.authority}): ${rule.instruction}`;
 
 /** The projection of `resolvePolicy` one stage of a route delivers: that stage's prompts, then the rules the activity carries (03-P1 … 03-P3). */
 export async function policyStage(input: {
@@ -60,7 +60,7 @@ export async function policyStage(input: {
   const carried = stageRules(input.activity, input.stage, policy.rules.filter((rule) => ruleCarriedFor(input.activity, rule.category)));
   const omitted = policy.rules.filter((rule) => !ruleCarriedFor(input.activity, rule.category)).length;
   const show = `policy --activity ${input.activity} --stage ${input.stage} --show`;
-  if (carried.length > 0) lines.push('Rules:', ...carried.map(render));
+  if (carried.length > 0) lines.push('Rules:', ...carried.map(renderRule));
   if (omitted > 0) lines.push(`rulesOmitted: ${omitted} (read them: ${show})`);
 
   const limit = STAGE_LIMITS[input.stage];

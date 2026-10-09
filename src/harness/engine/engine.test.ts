@@ -2,11 +2,10 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { routeFixture } from '#testing/fixtures/route-fixture';
+import { routeFixture , stopRoute } from '#testing/fixtures/route-fixture';
 import { handlerRegistry } from './handlers.ts';
 import { createEngine } from './engine.ts';
 import type { Handler, HandlerRegistry, StartInput } from '#types/harness';
-import type { IndexStatus } from '#types/modules/search';
 
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';
 const HEAD = (skill: string, extra = '') => `skill: ${skill}\nversion: 3\nbudget: { modelSteps: 6 }\nexits: [done, blocked, human, inconclusive, superseded, budget]\nrevisable: [${extra}]\nsteps:\n`;
@@ -109,25 +108,6 @@ describe('engine: entry points and the one algorithm', () => {
       assert.equal(counts.report, 1);
       assert.equal(counts.ground, 1);
       assert.deepEqual(stepRows(await fx.ledger('cart')).slice(5), ['read:completed', 'report-step:completed', 'write:delivered']);
-    } finally {
-      await fx.dispose();
-    }
-  });
-
-  it('step entries carry timing, budget use and the printed size; the exit carries the budget spent', async () => {
-    const { fx, start, next } = await inv();
-    try {
-      const first = await start();
-      await next();
-      await fx.engine.stop('cart', A, 'blocked', undefined, fx.scratchpad);
-      const steps = await fx.kinds('cart', 'step');
-      const ground = steps.find((entry) => entry['step'] === 'ground' && entry['status'] === 'completed');
-      const read = steps.find((entry) => entry['step'] === 'read' && entry['status'] === 'delivered');
-      assert.equal(typeof ground?.['ms'], 'number');
-      assert.deepEqual([read?.['payloadBytes'], read?.['payloadTokens']], [first.bytes, Math.ceil(first.bytes / 4)]);
-      assert.equal((read?.['budget'] as { modelSteps: number }).modelSteps, 1);
-      const exit = (await fx.kinds('cart', 'exit')).at(-1);
-      assert.equal(typeof (exit?.['budget'] as { modelSteps: number } | undefined)?.modelSteps, 'number');
     } finally {
       await fx.dispose();
     }
@@ -267,61 +247,6 @@ describe('engine: templates, scope revises and re-entry (S9)', () => {
   });
 });
 
-describe('05-B6 index build at route start', () => {
-  const status = (state: IndexStatus['state']): IndexStatus => ({ tool: 'codeindex', state, fresh: false, builtMs: null, reason: state === 'error' ? 'boom' : null, drift: null });
-
-  async function withIndex(startIndex: () => Promise<IndexStatus>) {
-    const handlers = investigateHandlers({ candidates: 3 }, newCounts());
-    const fx = await routeFixture({ routes: { inv: INVESTIGATE }, handlers });
-    const calls: { project: string; routeAlreadyWritten: boolean; task: string }[] = [];
-    let task = '';
-    const engine = createEngine({
-      runtime: fx.runtime,
-      routes: fx.routes,
-      handlers: handlerRegistry(handlers) as HandlerRegistry,
-      pointer: fx.pointer,
-      startIndex: async (_deps, project) => {
-        calls.push({ project: project.id, routeAlreadyWritten: (await fx.kinds(task, 'route')).length === 1, task });
-        return startIndex();
-      },
-    });
-    const start = (channel: 'hook' | 'cli', name: string) => {
-      task = name;
-      return engine.start({ skill: 'inv', text: 'how does the cart work', requirements: [], task: name, cwd: fx.repo.root, session: A, channel, scratchpadDir: fx.scratchpad });
-    };
-    return { fx, engine, calls, start };
-  }
-
-  it('05-B6: start calls startIndexBuild once per start channel, after the route entry; advance does not', async () => {
-    const { fx, engine, calls, start } = await withIndex(async () => status('building'));
-    try {
-      for (const channel of ['hook', 'cli'] as const) {
-        const message = await start(channel, `cart-${channel}`);
-        assert.equal(message.position, 'read');
-        assert.deepEqual(calls.filter((call) => call.task === `cart-${channel}`), [{ project: 'app', routeAlreadyWritten: true, task: `cart-${channel}` }]);
-      }
-      assert.equal(calls.length, 2);
-      await engine.advance({ task: 'cart-cli', session: A, cause: 'route-next', scratchpadDir: fx.scratchpad });
-      assert.equal(calls.length, 2);
-    } finally {
-      await fx.dispose();
-    }
-  });
-
-  it('05-B6: a start whose build status is error, or whose build rejects, still completes', async () => {
-    const rows: [string, () => Promise<IndexStatus>][] = [['error status', async () => status('error')], ['rejection', async () => Promise.reject(new Error('spawn exploded'))]];
-    for (const [title, startIndex] of rows) {
-      const { fx, calls, start } = await withIndex(startIndex);
-      try {
-        assert.equal((await start('hook', 'cart')).position, 'read', title);
-        assert.equal(calls.length, 1);
-      } finally {
-        await fx.dispose();
-      }
-    }
-  });
-});
-
 const WORKER_ROUTE = `${HEAD('wk')}  - id: scout
     actor: worker
     gate:
@@ -335,22 +260,6 @@ const WORKER_ROUTE = `${HEAD('wk')}  - id: scout
 `;
 
 describe('engine: headless visibility and worker steps (B18, B15)', () => {
-  it('B18: a model-set headless start says so, a user-set one says that, and route status shows mode, channel and the defaults taken', async () => {
-    for (const [channel, said] of [['cli', /headless \(set by the model\)/], ['hook', /headless \(set by the user\)/]] as const) {
-      const { fx, start } = await inv({ candidates: 0 });
-      try {
-        const first = await start({ headless: true, channel, task: `cart-${channel}` });
-        assert.match(first.text, said);
-        const [position] = await fx.engine.status(`cart-${channel}`, null);
-        assert.equal(position?.mode, 'headless');
-        assert.equal(position?.channel, channel);
-        assert.deepEqual(position?.decisions.map((entry) => [entry.kind, entry['gate']]), [['default-taken', 'scope']]);
-      } finally {
-        await fx.dispose();
-      }
-    }
-  });
-
   it('B15: a worker step prints a run/inline/skip gate and does not throw; the default skips it and records the skip', async () => {
     const fx = await routeFixture({ routes: { wk: WORKER_ROUTE } });
     try {
@@ -366,14 +275,14 @@ describe('engine: headless visibility and worker steps (B18, B15)', () => {
     }
   });
 
-  it('B15: a run answer for a worker that is not in workers.approved is not run and records inline', async () => {
+  it('B15: a run answer is not run, since workers are not available, and records inline', async () => {
     const fx = await routeFixture({ routes: { wk: WORKER_ROUTE } });
     try {
       await fx.engine.start({ skill: 'wk', text: 'go', requirements: [], task: 'w1', cwd: fx.repo.root, session: A, channel: 'hook', scratchpadDir: fx.scratchpad });
       const print = (await fx.kinds('w1', 'gate')).at(-1)!;
       const after = await fx.engine.advance({ task: 'w1', session: A, cause: 'gate-hook', scratchpadDir: fx.scratchpad, answers: [{ gate: 'scout', option: 'run', instance: print.id }] });
       assert.equal(after.position, 'write');
-      assert.deepEqual((await fx.kinds('w1', 'worker')).map((entry) => [entry['outcome'], entry['reason']]), [['inline', 'not in workers.approved']]);
+      assert.deepEqual((await fx.kinds('w1', 'worker')).map((entry) => [entry['outcome'], entry['reason']]), [['inline', 'worker runs are not available']]);
     } finally {
       await fx.dispose();
     }

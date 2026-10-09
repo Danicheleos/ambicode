@@ -2,8 +2,8 @@ import type { Ecosystem } from '#types/primitives';
 import type { NavigationGuidance } from '#types/modules/search';
 
 // Sent on every call; the full reading guidance is a route step's text.
-const EVIDENCE_REQUIREMENT = 'Only CLI calls (map, refs, find, read) are recorded. Run find before adding a helper.';
-const READ_GUIDANCE = 'The map is a hypothesis. Read all files in one `read` call. Verify imports for colliding names.';
+const EVIDENCE_REQUIREMENT = 'Only CLI calls (map, refs) are recorded. Run refs --declarations <name> before adding a helper.';
+const READ_GUIDANCE = 'The map is a hypothesis. Read the leads yourself. Verify imports for colliding names.';
 
 export function navigationFor(ecosystem: Ecosystem): NavigationGuidance {
   return {

@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 import { parseArgs } from '#util/args';
-import { runReview, REVIEW_OPTIONS, type ReviewDependencies } from '#cli/commands/review/review';
+import { runReview, REVIEW_OPTIONS } from '#cli/commands/review/review';
 import { startTarget } from '#cli/commands/route/route';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { skillHandlers } from '#skills/handlers';
@@ -13,7 +13,7 @@ import { buildReport } from '#modules/evidence/report/report';
 import { CHECK_TASK } from '#testing/fixtures/check-fixture';
 import { taskFixture } from '#testing/fixtures/task-fixture';
 import { reviewRouteFixture } from '#testing/fixtures/review-route-fixture';
-import { metricsIgnoreWarning, reviewCommand } from './handlers.ts';
+import { reviewCommand } from './handlers.ts';
 import { SESSION_A } from '#testing/fixtures/ids';
 import { REPO_ROOT } from '#testing/paths';
 import { ROUTE_START_OPTIONS } from '#types/cli';
@@ -49,7 +49,7 @@ describe('review route: shape and start (08-R1, 08-R2, 08-R3)', () => {
   it('08-R1: routes/review/review.yaml has the contract steps, the estimate gate, loads with the registry and is packaged with its step files', async () => {
     const route = YAML.parse(await readFile(path.join(REPO_ROOT, 'routes', 'review', 'review.yaml'), 'utf8')) as { skill: string; version: number; budget: Record<string, number>; steps: { id: string; actor: string; when?: string; needs?: string[]; repeat?: number; gate?: Record<string, unknown> }[] };
     assert.deepEqual([route.skill, route.version, route.budget], ['review', 3, { modelSteps: 6, wallMinutes: 45 }]);
-    assert.deepEqual(route.steps.map((step) => [step.id, step.actor]), [['template', 'code'], ['fetch', 'model'], ['ground', 'code'], ['estimate-step', 'code'], ['estimate', 'human'], ['review-run', 'code'], ['readback', 'model'], ['view', 'model']]);
+    assert.deepEqual(route.steps.map((step) => [step.id, step.actor]), [['template', 'code'], ['fetch', 'model'], ['ground', 'code'], ['mr-template', 'code'], ['mr-fetch', 'model'], ['estimate-step', 'code'], ['estimate', 'human'], ['review-run', 'code'], ['review-agent', 'model'], ['readback', 'model'], ['publish-list', 'code'], ['publish', 'human'], ['publish-run', 'model']]);
     const gate = route.steps.find((step) => step.id === 'estimate')!.gate!;
     assert.deepEqual([gate['options'], gate['acting'], gate['default'], gate['release'], gate['maxRevises']], [['run', 'narrow', 'skip'], ['run'], 'skip', 'skip', 3]);
     const run = route.steps.find((step) => step.id === 'review-run')!;
@@ -57,7 +57,9 @@ describe('review route: shape and start (08-R1, 08-R2, 08-R3)', () => {
     assert.deepEqual([run.when, run.needs, run.repeat], ['gate.estimate.is(run)', ['review'], undefined]);
     assert.ok((await loadRouteRegistry(REPO_ROOT, nodeFileSystem)).route('review') !== null);
     assert.match(await readFile(path.join(REPO_ROOT, 'tools', 'package-candidate.mjs'), 'utf8'), /from: 'routes', extensions: \['\.yaml', '\.md'\]/);
-    for (const name of ['review/fetch', 'review/readback', 'review/view']) assert.ok((await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8')).length > 0, name);
+    const agent = route.steps.find((step) => step.id === 'review-agent') as unknown as { when: string; produces: string[]; instruction: string };
+    assert.deepEqual([agent.when, agent.produces, agent.instruction], ['gate.estimate.is(run)', ['review{recorded}'], 'file:routes/review/agent.md']);
+    for (const name of ['review/fetch', 'review/readback', 'review/agent']) assert.ok((await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8')).length > 0, name);
   });
 
   it('08-R2: one-target refusals happen before any route entry is written', async () => {
@@ -108,7 +110,7 @@ describe('review route: shape and start (08-R1, 08-R2, 08-R3)', () => {
       const first = await t.start();
       assert.equal(first.position, 'estimate');
       assert.equal((await prints(t, 'estimate')).length, 1);
-      assert.deepEqual(await steps(t, 'skipped'), ['template', 'fetch', 'ground']);
+      assert.deepEqual(await steps(t, 'skipped'), ['template', 'fetch', 'ground', 'mr-template', 'mr-fetch']);
     });
     const normalize: Handler = async ({ ledger, view }) => {
       await ledger.append({ kind: 'envelope', route: view.routeId, sources: [], builtFrom: 'args', asked: [], missingAsked: [], hash: 'stub' });
@@ -127,12 +129,12 @@ describe('review route: shape and start (08-R1, 08-R2, 08-R3)', () => {
 });
 
 describe('review route: the estimate gate (08-R4, 08-R5, S12, S14)', () => {
-  it('08-R4: answer skip completes the route without review-run, readback or view and reports the skip under Not verified', async () => {
+  it('08-R4: answer skip completes the route without review-run, review-agent or readback and reports the skip under Not verified', async () => {
     await withReview(async (t) => {
       await t.start();
       assert.equal((await t.hook('estimate', 'skip')).position, 'complete');
       const skipped = await steps(t, 'skipped');
-      for (const step of ['review-run', 'readback', 'view']) assert.ok(skipped.includes(step), step);
+      for (const step of ['review-run', 'review-agent', 'readback']) assert.ok(skipped.includes(step), step);
       assert.equal((await t.kinds('review')).length, 0);
       assert.equal((await t.kinds('exit')).at(-1)?.['reason'], 'done');
     });
@@ -202,24 +204,29 @@ describe('review route: the estimate gate (08-R4, 08-R5, S12, S14)', () => {
       const run = await t.hook('estimate', 'run');
       assert.equal(run.position, 'review-run');
       assert.equal((await t.next()).position, 'review-run');
-      assert.equal(spy.calls.n, 0);
       assert.equal((await t.synthetic([])).position, 'readback');
       assert.ok(spy.calls.n > 0);
       assert.equal((await prints(t, 'estimate')).length, 1, 'nothing is asked again');
     }, { handlers: spy.handlers });
   });
 
-  it('B7: a review run needs no route next: the estimate answer and one review reach readback and view in one message, and Stop after the final message closes the route', async () => {
+  it('B7: a review run needs no route next: the estimate answer and one review reach the reviewer step, and `review record` reaches readback, each in one message, and Stop after the final message closes the route', async () => {
     await withReview(async (t) => {
       await t.start();
       await t.hook('estimate', 'run');
-      const readback = await t.synthetic([]);
-      assert.equal(readback.position, 'readback');
+      const agent = await t.synthetic([], { stage: 'pending' });
+      assert.equal(agent.position, 'review-agent');
+      assert.match(agent.text, /ambicode:reviewer/);
+      assert.match(agent.text, /snapshot: \/tmp\/snapshot-x/);
+      assert.match(agent.text, /brief: .*brief\.md/);
+      assert.match(agent.text, /review record --task ord-7/);
+      assert.doesNotMatch(agent.text, /route next/);
+      const readback = await t.synthetic([], { stage: 'recorded' });
       assert.match(readback.text, /Review read-back/);
-      assert.match(readback.text, /Review page/);
+      assert.doesNotMatch(readback.text, /Review page/);
       assert.doesNotMatch(readback.text, /route next/);
       const steps = (await t.kinds('step')).map((entry) => `${entry['step']}:${entry['status']}`);
-      assert.ok(steps.includes('readback:completed') && steps.includes('view:delivered'), steps.join(' '));
+      assert.ok(steps.includes('review-agent:delivered') && steps.includes('readback:delivered'), steps.join(' '));
       assert.notEqual(await t.fx.engine.deliver(CHECK_TASK, SESSION_A, t.fx.scratchpad), null, 'a resume or another prompt does not close it');
       assert.equal((await t.kinds('exit')).length, 0);
       await t.fx.engine.stopHook({ hook_event_name: 'Stop', session_id: SESSION_A, cwd: t.fx.repo.root, scratchpad_dir: t.fx.scratchpad });
@@ -249,7 +256,8 @@ describe('review route: the estimate gate (08-R4, 08-R5, S12, S14)', () => {
       assert.match((await t.hook('estimate', 'run')).text, /review --task ord-7 --branch --base 'main'`/);
     });
     await withReview(async (t) => {
-      await t.start({ target: { branch: false, base: null, mr: MR } });
+      assert.equal((await t.start({ target: { branch: false, base: null, mr: MR } })).position, 'mr-fetch');
+      await t.next();
       assert.match((await t.hook('estimate', 'run')).text, new RegExp(`review --task ord-7 --mr '${MR.replaceAll('/', '\\/')}'`));
     }, { handlers: STUB_ESTIMATE });
   });
@@ -260,18 +268,6 @@ describe('review route: the estimate gate (08-R4, 08-R5, S12, S14)', () => {
     assert.equal(reviewCommand('ord-7', { ...args, target: { branch: true, base: null, mr: null } }, []), 'review --task ord-7 --branch');
   });
 
-  it('S12: a late bound answer after a never-asked default supersedes it and uses the answered instance', async () => {
-    await withReview(async (t) => {
-      await t.start();
-      const print = (await prints(t, 'estimate'))[0]!;
-      for (let turn = 0; turn < 3; turn += 1) await t.next();
-      assert.equal((await t.kinds('default-taken')).at(-1)?.['via'], 'never-asked');
-      const late = await t.next({ cause: 'gate-hook', answers: [{ gate: 'estimate', option: 'run', instance: print.id }] });
-      assert.equal((await t.kinds('acceptance')).at(-1)?.['instance'], print.id);
-      assert.equal(late.position, 'review-run');
-      assert.match(late.text, /review --task ord-7/);
-    });
-  });
 });
 
 describe('review route: step texts, ceilings and the ignore warning (08-R6, 08-B1, 08-R7)', () => {
@@ -279,7 +275,7 @@ describe('review route: step texts, ceilings and the ignore warning (08-R6, 08-B
 
   it('08-R6/08-B1: each review step text is at most 1,500 characters after inclusion', async () => {
     assert.equal(MAX_INSTRUCTION_CHARS, 1500);
-    for (const name of ['review/fetch', 'review/readback', 'review/view']) assert.ok((await read(name)).length <= 1500, name);
+    for (const name of ['review/fetch', 'review/mr-fetch', 'review/readback', 'review/agent', 'review/publish']) assert.ok((await read(name)).length <= 1500, name);
   });
 
   it('08-R6: readback points an --mr review to references/merge-request.md, which ships beside the review skill', async () => {
@@ -295,13 +291,13 @@ describe('review route: step texts, ceilings and the ignore warning (08-R6, 08-B
     assert.doesNotMatch(text, /route next/);
   });
 
-  it('08-R6: view runs view --review in the background for an --mr target or at least one finding, and publication stays human', async () => {
-    const text = await read('review/view');
-    assert.match(text, /merge request \(`--mr`\) or the review has at least one finding/);
-    assert.match(text, /view --review <reviewId>/);
-    assert.match(text, /background/);
-    assert.match(text, /Publishing is the user's/);
-    assert.doesNotMatch(text, /route next/);
+  it('08-R6: the agent step names the subagent, hands it the two payload paths and records its JSON unedited with review record', async () => {
+    const text = await read('review/agent');
+    assert.match(text, /`ambicode:reviewer` subagent/);
+    assert.match(text, /Review the change in <snapshot dir>\. Read <brief path> first\. Answer with the JSON block only\./);
+    assert.match(text, /review record --task ord-7 <<'EOF'/);
+    assert.match(text, /Do not edit, filter/);
+    assert.doesNotMatch(text, /route next|view --review/);
   });
 
   it('08-B1: the route start output is at most 3,072 bytes and the printed estimate at most 2,048', async () => {
@@ -314,34 +310,17 @@ describe('review route: step texts, ceilings and the ignore warning (08-R6, 08-B
     });
   });
 
-  it('08-R7: the ignore warning names init --apply when metrics.jsonl is not git-ignored, and is absent when it is', async () => {
-    await withReview(async (t) => {
-      const warning = await metricsIgnoreWarning(t.fx.runtime, 'review');
-      assert.match(warning ?? '', /^warning: \.ambicode\/metrics\.jsonl is not ignored by git; run `ambicode init --apply`/);
-      assert.equal(await metricsIgnoreWarning(t.fx.runtime, 'task'), null);
-      await t.fx.repo.write('.gitignore', '.ambicode/metrics.jsonl\n');
-      assert.equal(await metricsIgnoreWarning(t.fx.runtime, 'review'), null);
-      await t.fx.repo.write('.gitignore', '.ambicode/\n');
-      assert.equal(await metricsIgnoreWarning(t.fx.runtime, 'review'), null);
-    });
-  });
 });
 
 describe('review --task under the review route (08-R8)', () => {
-  const reviewer = (): { calls: { n: number }; deps: ReviewDependencies } => {
-    const calls = { n: 0 };
-    return { calls, deps: { reviewer: { async invoke() { calls.n += 1; return { kind: 'ok', output: { findings: [], coverageNotes: [] }, rawLength: 2, argv: ['claude'] } as never; } } as never, warm: async () => {} } };
-  };
-  const review = (t: Fixture, deps: ReviewDependencies, ...extra: string[]) => runReview(t.runtime, parseArgs('review', ['--task', CHECK_TASK, ...extra], REVIEW_OPTIONS), deps);
+  const review = (t: Fixture, ...extra: string[]) => runReview(t.runtime, parseArgs('review', ['--task', CHECK_TASK, ...extra], REVIEW_OPTIONS));
 
   it('08-R8: without an honoured run the command refuses review-not-accepted and writes no review; no baseline-missing is raised', async () => {
     await withReview(async (t) => {
       await t.start();
-      const spy = reviewer();
-      assert.equal(await code(review(t, spy.deps)), 'review-not-accepted');
+      assert.equal(await code(review(t)), 'review-not-accepted');
       await t.next({ answers: [{ gate: 'estimate', option: 'run' }] });
-      assert.equal(await code(review(t, spy.deps)), 'review-not-accepted', 'a model-typed run is no consent');
-      assert.equal(spy.calls.n, 0);
+      assert.equal(await code(review(t)), 'review-not-accepted', 'a model-typed run is no consent');
       assert.equal((await t.kinds('review')).length, 0);
     });
   });
@@ -350,23 +329,11 @@ describe('review --task under the review route (08-R8)', () => {
     await withReview(async (t) => {
       await t.start();
       await t.hook('estimate', 'run');
-      const out = await review(t, reviewer().deps);
+      const out = await review(t);
       assert.equal(out.result.target.kind, 'working');
       assert.doesNotMatch(out.result.omissions.join('\n'), /baseline|pre-existing/);
       assert.ok(out.result.changedFiles.some((file) => file.newPath === 'src/orders.ts'));
-      assert.match(out.next ?? '', /step readback/);
-      assert.equal((await t.kinds('review')).length, 1);
-    });
-  });
-
-  it('08-R8: one acceptance is one reviewer run; a second run without a new acceptance is refused', async () => {
-    await withReview(async (t) => {
-      await t.start();
-      await t.hook('estimate', 'run');
-      const spy = reviewer();
-      await review(t, spy.deps);
-      assert.equal(await code(review(t, spy.deps)), 'review-not-accepted');
-      assert.equal(spy.calls.n, 1);
+      assert.match(out.next ?? '', /step review-agent/);
       assert.equal((await t.kinds('review')).length, 1);
     });
   });
@@ -375,14 +342,14 @@ describe('review --task under the review route (08-R8)', () => {
     await withReview(async (t) => {
       await t.start();
       await t.hook('estimate', 'run');
-      assert.equal(await code(review(t, reviewer().deps, '--branch', '--base', 'main')), 'conflicting-target');
-      assert.equal(await code(review(t, reviewer().deps, '--mr', MR)), 'conflicting-target');
+      assert.equal(await code(review(t, '--branch', '--base', 'main')), 'conflicting-target');
+      assert.equal(await code(review(t, '--mr', MR)), 'conflicting-target');
       assert.equal((await t.kinds('review')).length, 0);
     });
     await withReview(async (t) => {
       await t.start({ target: { branch: true, base: 'main', mr: null } });
       await t.hook('estimate', 'run');
-      assert.equal(await code(review(t, reviewer().deps, '--mr', MR)), 'conflicting-target');
+      assert.equal(await code(review(t, '--mr', MR)), 'conflicting-target');
     });
   });
 
@@ -393,7 +360,7 @@ describe('review --task under the review route (08-R8)', () => {
       await t.fx.repo.commitAll('feature');
       await t.start({ target: { branch: true, base: 'main', mr: null } });
       await t.hook('estimate', 'run');
-      const out = await review(t, reviewer().deps);
+      const out = await review(t);
       assert.equal(out.result.target.kind, 'branch');
       assert.deepEqual(out.result.changedFiles.map((file) => file.newPath), ['src/feature.ts']);
     }, { dirty: false });

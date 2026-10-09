@@ -20,9 +20,7 @@ ambicode review --mr https://gitlab.example.com/group/sub/project/-/merge_reques
 
 One target per run. `--branch` and `--mr` are mutually exclusive, and `--base`
 is valid only with `--branch` — a merge request carries its own base, start and
-head SHAs, and AMBICODE will not substitute a local ref for them. `ambicode
-bundle` takes exactly the same target options.
-
+head SHAs, and AMBICODE will not substitute a local ref for them. 
 Arguments are parsed and checked before anything happens: a conflicting target
 exits nonzero without creating a directory, running git, or reaching GitLab.
 
@@ -56,7 +54,7 @@ content, citations, status, failureReason, retrievedVia) and `conflicts`; `inves
 `task` follow the same procedure.
 
 **No skill writes an evidence file.** A workflow that hands the same evidence
-to two commands — `prepare` and then `review`, or `review` again after fixing
+to two commands — `review`, or `review` again after fixing
 a finding — pipes it again, so there is nothing to keep alive across
 consumers and nothing to remember to delete. Nothing is lost either way:
 every retrieved source's content, citations, and provenance are carried into
@@ -84,7 +82,7 @@ requirements:
   mcpServer: atlassian
 ```
 
-`ambicode config` prints the current binding. While it is `null`, retrieval is
+`config.yaml` holds the current binding (`requirements.mcpServer`). While it is `null`, retrieval is
 unpinned and the review records that in its omissions. If more than one
 compatible server is connected, `/ambicode:init` asks which one this repository
 should use rather than choosing. Evidence produced by a different server than
@@ -297,9 +295,6 @@ model call is made.
 
 ## Evidence without a model
 
-```sh
-ambicode bundle          # same options as review
-```
 
 The same target, snapshot, requirements and check evidence, with no model
 invoked. Its empty `findings` list means nothing ran, and the omissions say so.
@@ -363,7 +358,7 @@ paid for again afterwards. Measured on a real task: 187s of reviewer time
 with the unit check skipped over a selection limit, then 233s more for the
 identical review once the human had approved it — 233s whose only new
 information was one check result. Stopping first makes that run cost what
-`bundle` costs.
+`review --estimate` costs.
 
 A failed or skipped check is different and does **not** stop anything: it is
 settled evidence, it narrows what the review verified, and the review runs.
@@ -423,7 +418,7 @@ that file is read the per-file way, where bytes are classified before they are
 decoded. So the batch is an optimization that cannot change an answer, only
 the number of requests it took.
 
-Measured end to end on MR 2677, `bundle --mr` with one `--exclude`:
+Measured end to end on MR 2677, `review --mr` with one `--exclude`:
 
 ```
 before   160 requests   68.5s   141 files mirrored   648 KB snapshot
@@ -444,7 +439,7 @@ claims it happened.
 
 ## Publishing selected comments
 
-`ambicode review` and `ambicode bundle` never publish anything by themselves.
+`ambicode review` never publishes anything by themselves.
 For a merge request review, the exact remote position of every finding that has
 one is derived while the pinned diff is still available and saved beside the
 result, in `.ambicode/reviews/<id>/publication-positions.json`. That position —

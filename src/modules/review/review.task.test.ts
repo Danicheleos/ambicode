@@ -15,7 +15,6 @@ import { ROUTE_START_OPTIONS } from '#types/cli';
 
 type Fixture = Awaited<ReturnType<typeof taskFixture>>;
 
-const reviewer = { async invoke() { return { kind: 'ok', output: { findings: [], coverageNotes: [] }, rawLength: 2, argv: ['claude'] } as never; } };
 const LINT_RUNS = COMMAND_PACK.replace('{ command: lint, action: forbid, reason: "never here" }', '{ command: lint, action: run, reason: "lint" }');
 const LINT_PROPOSED = COMMAND_PACK.replace('{ command: lint, action: forbid, reason: "never here" }', '{ command: lint, action: propose, reason: "ask" }');
 const args = (...extra: string[]) => parseArgs('review', ['--task', CHECK_TASK, ...extra], REVIEW_OPTIONS);
@@ -40,7 +39,7 @@ async function toRun(t: Fixture, before: () => Promise<void> = async () => {}, a
   if (answer !== null) await t.hook('review-offer', answer);
 }
 
-const review = (t: Fixture, ...extra: string[]) => runReview(t.runtime, args(...extra), { reviewer: reviewer as never, warm: async () => {} });
+const review = (t: Fixture, ...extra: string[]) => runReview(t.runtime, args(...extra));
 const lint = (out: Awaited<ReturnType<typeof review>>) => out.result.checks.find((check) => check.commandId === 'lint');
 const code = async (p: Promise<unknown>): Promise<string | null> => p.then(() => null, (error: { code?: string }) => error.code ?? 'other');
 
@@ -108,7 +107,7 @@ describe('review --task (07-B, 07-K5)', () => {
       const runtime = await createRuntime({ cwd: repo.root });
       await runRouteStart(runtime, parseArgs('route start', ['investigate', '--task', CHECK_TASK, 'how does a work'], ROUTE_START_OPTIONS));
       await repo.write('src/a.ts', 'export const a = 2;\n');
-      const out = await runReview(runtime, args(), { reviewer: reviewer as never, warm: async () => {} });
+      const out = await runReview(runtime, args());
       assert.doesNotMatch(out.result.omissions.join('\n'), /baseline|pre-existing/);
       assert.ok(out.result.changedFiles.some((file) => file.newPath === 'src/a.ts'));
       const entries = await readLedger(nodeFileSystem, path.join(repo.root, '.ambicode', 'task', CHECK_TASK));
@@ -130,7 +129,7 @@ describe('review --task (07-B, 07-K5)', () => {
   it('07-B3: without --task the review is unchanged and carries no baseline omission', async () => {
     await withTask(async (t) => {
       await t.fx.repo.write('src/orders.ts', 'export const changed = 1;\n');
-      const out = await runReview(t.runtime, parseArgs('review', [], REVIEW_OPTIONS), { reviewer: reviewer as never });
+      const out = await runReview(t.runtime, parseArgs('review', [], REVIEW_OPTIONS));
       assert.doesNotMatch(out.result.omissions.join('\n'), /baseline|pre-existing/);
       assert.equal(out.next, undefined);
     });
@@ -182,7 +181,7 @@ describe('review --task (07-B, 07-K5)', () => {
       const runtime = await createRuntime({ cwd: repo.root });
       await runRouteStart(runtime, parseArgs('route start', ['investigate', '--task', CHECK_TASK, 'how does a work'], ROUTE_START_OPTIONS));
       await repo.write('src/a.ts', 'export const a = 2;\n');
-      const out = await runReview(runtime, args('--approve', 'app/lint'), { reviewer: reviewer as never, warm: async () => {} });
+      const out = await runReview(runtime, args('--approve', 'app/lint'));
       const entries = await readLedger(nodeFileSystem, path.join(repo.root, '.ambicode', 'task', CHECK_TASK));
       const declined = entries.filter((entry) => entry.kind === 'declined' && entry['key'] === 'app/lint');
       assert.deepEqual(declined.map((entry) => entry['reason']), ['acting-needs-human']);

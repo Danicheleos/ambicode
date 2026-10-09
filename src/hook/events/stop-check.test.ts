@@ -6,7 +6,7 @@ import { buildChain, currentIn } from '#harness/engine/fold';
 import { commandContext } from '#harness/engine/context';
 import { buildReport } from '#modules/evidence/report/report';
 import { saveNote } from '#modules/evidence/notes';
-import { routeFixture, type RouteFixture } from '#testing/fixtures/route-fixture';
+import { routeFixture, type RouteFixture , stopRoute } from '#testing/fixtures/route-fixture';
 import { taskFixture } from '#testing/fixtures/task-fixture';
 import { reviewRouteFixture } from '#testing/fixtures/review-route-fixture';
 import { ReviewResult } from '#types/modules/review';
@@ -132,7 +132,7 @@ describe('03-K1 conditions', () => {
     const s = await stopper();
     try {
       await toWrite(s);
-      await s.fx.engine.stop(TASK, A, 'blocked', 'permission-denied: git push', s.fx.scratchpad);
+      await stopRoute(s.fx, TASK, A, 'blocked', 'permission-denied: git push');
       await s.say('I could not finish. See src/nowhere.ts:4.');
       const blocked = await s.stop();
       assert.equal(blocked.decision, 'block');
@@ -218,7 +218,7 @@ describe('03-K3 checks', () => {
     const accept = (route: string, answer: string, n: number) => ({ id: `zzzzzzzz-91${n}`, at: '2026-10-05T10:00:00.000Z', kind: 'acceptance', route, gate: 'check-only-unauthorized', instance: 'x', answer, via: 'hook' });
     assert.equal(await attempt((route) => [accept(route, 'approve', 1)]), undefined);
     assert.equal(await attempt((route) => [accept(route, 'decline', 1)]), 'block');
-    assert.equal(await attempt((route) => [accept(route, 'approve', 1), { id: 'zzzzzzzz-929', at: '2026-10-05T10:00:01.000Z', kind: 'revise', route, from: 'read', via: 'reopen', cycle: 0, reason: 'more' }]), 'block');
+    assert.equal(await attempt((route) => [accept(route, 'approve', 1), { id: 'zzzzzzzz-929', at: '2026-10-05T10:00:01.000Z', kind: 'revise', route, from: 'read', via: 'gate', cycle: 0, reason: 'more' }]), 'block');
   });
 
   it('the generated sections are checked once the report was written, even with neither heading in the text', async () => {
@@ -308,18 +308,13 @@ steps:
 const CLAUDE = 'cccccccc-3333-4333-8333-333333333333';
 
 /** The route is owned by A and was started for the Claude session CLAUDE, as a hook start records it. */
-async function answering(options: { headless?: boolean; served?: Record<string, unknown>[] } = {}) {
+async function answering(options: { headless?: boolean } = {}) {
   const fx = await routeFixture({ routes: { inv: ANSWER } });
   await fx.repo.write('src/cart/add-item.ts', 'one\ntwo\nthree\n');
   await fx.repo.write('src/a/index.ts', 'x\n');
   await fx.repo.write('src/b/index.ts', 'y\n');
   await fx.repo.commitAll('files');
   await fx.engine.start({ skill: 'inv', text: 'where are items added', requirements: [], task: TASK, cwd: fx.repo.root, session: A, harnessSession: CLAUDE, channel: 'hook', scratchpadDir: fx.scratchpad, ...(options.headless === undefined ? {} : { headless: options.headless }) });
-  // The Files check needs receipts: by default the route served add-item.ts through `read`, as a D5 run does.
-  const route = (await fx.kinds(TASK, 'route'))[0]!.id;
-  const ledgerFile = path.join(fx.repo.root, '.ambicode', 'task', TASK, 'ledger.jsonl');
-  const served = options.served ?? [{ kind: 'search', command: 'read', names: ['src/cart/add-item.ts:1-3'], hits: 1, bytes: 14, truncated: 0 }];
-  await writeFile(ledgerFile, (await readFile(ledgerFile, 'utf8')) + served.map((entry, i) => `${JSON.stringify({ id: `zzzzzzzz-8${i}`, at: '2026-10-05T10:00:00.000Z', route, ...entry })}\n`).join(''));
   const transcript = path.join(fx.scratchpad, 'transcript.jsonl');
   const deps: HookDeps = { pointer: fx.pointer, load: async () => ({ engine: fx.engine, routes: fx.routes, pointer: fx.pointer }) };
   return {
@@ -421,160 +416,6 @@ describe('03b-N: the answer is the note', () => {
       await s.say('The Files list is the same.');
       assert.deepEqual(await s.stop(), {});
       assert.deepEqual(await s.notes(), []);
-    } finally {
-      await s.fx.dispose();
-    }
-  });
-
-  it('D6 R1: an existing Files entry no `read` receipt or Read tool entry served blocks once; a creation line is exempt', async () => {
-    const s = await answering({ headless: true });
-    try {
-      await s.say('Items are added in src/cart/add-item.ts:2.\n\n## Files\n- src/cart/add-item.ts\n- src/b/index.ts\n- src/cart/new-thing.ts (new file)');
-      const blocked = await s.stop();
-      assert.equal(blocked.decision, 'block');
-      assert.match(blocked.reason!, /1 unread or undecided Files line/);
-      assert.match(blocked.reason!, /- not read: src\/b\/index\.ts/);
-      assert.doesNotMatch(blocked.reason!, /add-item\.ts\n|new-thing/);
-      assert.match(blocked.reason!, /after reading it with `read`, mark it as a new file, or name why it is out/);
-      assert.ok(Buffer.byteLength(blocked.reason!) <= REASON_LIMIT_BYTES);
-      assert.deepEqual((await s.fx.kinds(TASK, 'limit')).map((e) => [e['which'], e['count']]), [['stop-block', 1]]);
-      assert.deepEqual(await s.notes(), []);
-      await s.say('src/b/index.ts is out: it only re-exports.\n\n## Files\n- src/cart/add-item.ts\n- src/b/index.ts');
-      assert.deepEqual(await s.stop(), {}, 'blocks once; the second stop saves the answer');
-      assert.equal((await s.notes()).length, 1);
-    } finally {
-      await s.fx.dispose();
-    }
-  });
-
-  it('D6 R1: a Files path absent from the repository is a creation without any "new" wording; the same path present and unread fires', async () => {
-    const s = await answering({ headless: true });
-    try {
-      await s.say('See src/cart/add-item.ts:2.\n\n## Files\n- src/cart/add-item.ts\n- src/cart/brand-new.ts: holds the helper');
-      assert.deepEqual(await s.stop(), {}, 'brand-new.ts does not exist: no R1 line');
-      assert.equal((await s.notes()).length, 1);
-    } finally {
-      await s.fx.dispose();
-    }
-    const present = await answering({ headless: true });
-    try {
-      await present.fx.repo.write('src/cart/brand-new.ts', 'x\n');
-      await present.fx.repo.commitAll('exists');
-      await present.say('See src/cart/add-item.ts:2.\n\n## Files\n- src/cart/add-item.ts\n- src/cart/brand-new.ts: holds the helper');
-      const blocked = await present.stop();
-      assert.equal(blocked.decision, 'block');
-      assert.match(blocked.reason!, /- not read: src\/cart\/brand-new\.ts/);
-    } finally {
-      await present.fx.dispose();
-    }
-  });
-
-  it('D6 R1: a served companion covers a Files path; a non-companion in the same directory still blocks', async () => {
-    const s = await answering({ headless: true });
-    try {
-      await s.fx.repo.write('src/cart/add-item.spec.ts', 'x\n');
-      await s.fx.repo.write('src/cart/other.ts', 'x\n');
-      await s.fx.repo.commitAll('companions');
-      await s.say('See src/cart/add-item.ts:2.\n\n## Files\n- src/cart/add-item.ts\n- src/cart/add-item.spec.ts\n- src/cart/other.ts');
-      const blocked = await s.stop();
-      assert.equal(blocked.decision, 'block');
-      assert.match(blocked.reason!, /- not read: src\/cart\/other\.ts/);
-      assert.doesNotMatch(blocked.reason!, /add-item\.spec/);
-    } finally {
-      await s.fx.dispose();
-    }
-  });
-
-  it('D6 R1: an entry marked "inferred from" a served path passes; one whose basis was not served blocks as "basis not read"', async () => {
-    const s = await answering({ headless: true });
-    try {
-      await s.fx.repo.write('src/cart/remove-item.ts', 'x\n');
-      await s.fx.repo.write('src/b/index.ts', 'x\n');
-      await s.fx.repo.commitAll('inference');
-      await s.say('See src/cart/add-item.ts:2.\n\n## Files\n- src/cart/add-item.ts\n- src/cart/remove-item.ts \u2014 inferred from src/cart/add-item.ts\n- src/a/index.ts \u2014 inferred from src/b/index.ts');
-      const blocked = await s.stop();
-      assert.equal(blocked.decision, 'block');
-      assert.match(blocked.reason!, /- basis not read: src\/a\/index\.ts \u2190 src\/b\/index\.ts/);
-      assert.doesNotMatch(blocked.reason!, /remove-item/);
-    } finally {
-      await s.fx.dispose();
-    }
-  });
-
-  it('D6 R1: an inference stated in the prose clears the bare Files bullet when its basis was served', async () => {
-    const s = await answering({ headless: true });
-    try {
-      await s.fx.repo.write('src/cart/remove-item.ts', 'x\n');
-      await s.fx.repo.commitAll('prose inference');
-      await s.say('See src/cart/add-item.ts:2. `src/cart/remove-item.ts` is inferred from `src/cart/add-item.ts`.\n\n## Files\n- src/cart/add-item.ts\n- src/cart/remove-item.ts');
-      assert.deepEqual(await s.stop(), {});
-      assert.equal((await s.notes()).length, 1);
-    } finally {
-      await s.fx.dispose();
-    }
-  });
-
-  it('D6 R1: a path the host Read tool served counts as read; a Grep entry does not', async () => {
-    const s = await answering({ served: [{ kind: 'tool', name: 'Read', path: 'src/cart/add-item.ts' }, { kind: 'tool', name: 'Grep', path: 'src/b/index.ts' }] });
-    try {
-      await s.say('See src/cart/add-item.ts:2.\n\n## Files\n- src/cart/add-item.ts\n- src/b/index.ts');
-      const blocked = await s.stop();
-      assert.equal(blocked.decision, 'block');
-      assert.match(blocked.reason!, /- not read: src\/b\/index\.ts/);
-      assert.doesNotMatch(blocked.reason!, /not read: src\/cart/);
-    } finally {
-      await s.fx.dispose();
-    }
-  });
-
-  it('D6 R1: with no receipts at all every existing Files entry is unread (documented: the check does not excuse a route that never read)', async () => {
-    const s = await answering({ served: [] });
-    try {
-      await s.say('See src/cart/add-item.ts:2.\n\n## Files\n- src/cart/add-item.ts');
-      const blocked = await s.stop();
-      assert.equal(blocked.decision, 'block');
-      assert.match(blocked.reason!, /- not read: src\/cart\/add-item\.ts/);
-    } finally {
-      await s.fx.dispose();
-    }
-  });
-
-  it('D6 R2: a hedged change line is undecided; a citation elsewhere in the answer is not a decision', async () => {
-    const s = await answering({ headless: true });
-    try {
-      await s.say('Items: src/cart/add-item.ts:2. Also src/b/index.ts may be touched.\n\n## Files\n- src/cart/add-item.ts: only if the signature changes');
-      const blocked = await s.stop();
-      assert.equal(blocked.decision, 'block');
-      assert.match(blocked.reason!, /- undecided: src\/cart\/add-item\.ts/);
-      assert.doesNotMatch(blocked.reason!, /b\/index/);
-    } finally {
-      await s.fx.dispose();
-    }
-  });
-
-  it('D6: a citation problem and Files problems share the one block and its count', async () => {
-    const s = await answering({ headless: true });
-    try {
-      await s.say('It is in src/cart/add-item.ts:9.\n\n## Files\n- src/cart/add-item.ts\n- src/a/index.ts');
-      const blocked = await s.stop();
-      assert.match(blocked.reason!, /1 citation problem\(s\) and 1 unread or undecided Files line\(s\)/);
-      assert.deepEqual((await s.fx.kinds(TASK, 'limit')).map((e) => e['count']), [2]);
-    } finally {
-      await s.fx.dispose();
-    }
-  });
-
-  it('D6: the block lists at most 8 lines and stays within the reason limit', async () => {
-    const s = await answering({ headless: true });
-    try {
-      const files = Array.from({ length: 30 }, (_, i) => `- src/pkg/some-longer-directory-name/file-${i}.ts`);
-      for (let i = 0; i < 30; i++) await s.fx.repo.write(`src/pkg/some-longer-directory-name/file-${i}.ts`, 'x\n');
-      await s.fx.repo.commitAll('many');
-      await s.say(`See src/cart/add-item.ts:2.\n\n## Files\n${files.join('\n')}`);
-      const blocked = await s.stop();
-      assert.equal(blocked.decision, 'block');
-      assert.ok(Buffer.byteLength(blocked.reason!) <= REASON_LIMIT_BYTES);
-      assert.equal(blocked.reason!.split('\n').filter((line) => line.startsWith('- ')).length, 8);
     } finally {
       await s.fx.dispose();
     }

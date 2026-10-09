@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { REGISTERED_HOOK_ENTRIES, REGISTERED_HOOK_EVENTS, type HookDeps } from '#types/hook';
 import { PLAN_TASK, planFixture, type PlanFixture } from '#testing/fixtures/plan-fixture';
-import { CONFIG } from '#testing/fixtures/route-fixture';
+import { CONFIG , stopRoute } from '#testing/fixtures/route-fixture';
 import { answerGates } from './gate-answer.ts';
 import { splitLaunch } from './prompt-launch.ts';
 import { runHook } from './run-hook.ts';
@@ -20,18 +20,18 @@ const prompt = (plan: PlanFixture, text: string, extra: Record<string, unknown> 
 const context = (output: { hookSpecificOutput?: { additionalContext: string } }): string => output.hookSpecificOutput?.additionalContext ?? '';
 
 describe('03-H1/03-H8 the hook matrix', () => {
-  it('registers seven events and twenty-three handler entries, and the docs say so', async () => {
+  it('registers seven events and fourteen handler entries, and the docs say so', async () => {
     const manifest = JSON.parse(await readFile(path.join(REPO_ROOT, 'hooks', 'hooks.json'), 'utf8')) as { hooks: Record<string, { matcher?: string; hooks: unknown[] }[]> };
     assert.deepEqual(Object.keys(manifest.hooks), [...REGISTERED_HOOK_EVENTS]);
     const entries = Object.values(manifest.hooks).flatMap((groups) => groups.flatMap((group) => group.hooks));
     assert.equal(entries.length, REGISTERED_HOOK_ENTRIES);
-    assert.deepEqual(manifest.hooks['PostToolUse']!.map((group) => group.matcher), ['mcp__.*', 'WebFetch', 'AskUserQuestion', 'Read|Grep|Glob']);
-    assert.deepEqual(manifest.hooks['PreToolUse']!.map((group) => group.matcher), ['Bash', 'Write|Edit|MultiEdit|NotebookEdit', 'Read']);
+    assert.deepEqual(manifest.hooks['PostToolUse']!.map((group) => group.matcher), ['mcp__.*', 'WebFetch', 'AskUserQuestion']);
+    assert.deepEqual(manifest.hooks['PreToolUse']!.map((group) => group.matcher), ['Bash', 'Write|Edit|MultiEdit|NotebookEdit']);
     assert.ok(manifest.hooks['Stop'] !== undefined);
     for (const doc of ['docs/compatibility.md', 'docs/release-checklist.md']) {
       const text = (await readFile(path.join(REPO_ROOT, doc), 'utf8')).replace(/\s+/g, ' ');
       assert.match(text, /seven events/, doc);
-      assert.match(text, /twenty-three handler entries/, doc);
+      assert.match(text, /fourteen handler entries/, doc);
     }
   });
 });
@@ -280,22 +280,17 @@ describe('03-H6 MCP capture', () => {
 });
 
 describe('D5 tool record', () => {
-  it('appends tool{name, step, path, bytes} for the active route and nothing without one', async () => {
+  it('writes no ledger entry for Read, Grep or Glob, with or without an active route', async () => {
     const plan = await planFixture();
     try {
       await plan.fx.repo.write('src/orders/service.ts', 'export const total = 0;\n');
       const read = { hook_event_name: 'PostToolUse', tool_name: 'Read', tool_input: { file_path: path.join(plan.fx.repo.root, 'src/orders/service.ts') }, tool_response: { file: { content: 'export const total = 0;\n' } } };
-      assert.deepEqual(await hook(plan, read), {});
-      assert.equal((await plan.fx.kinds(PLAN_TASK, 'tool')).length, 0);
       await prompt(plan, '/ambicode:plan add a limit --task ORD-17');
+      const before = await plan.fx.ledger(PLAN_TASK);
       assert.deepEqual(await hook(plan, read), {});
       await hook(plan, { hook_event_name: 'PostToolUse', tool_name: 'Grep', tool_input: { pattern: 'x', path: 'src' } });
       await hook(plan, { hook_event_name: 'PostToolUse', tool_name: 'Glob', tool_input: { pattern: '**/*.ts' } });
-      const [first, second, third] = await plan.fx.kinds(PLAN_TASK, 'tool');
-      assert.deepEqual([first!['name'], first!['step'], first!['path'], first!['bytes']], ['Read', 'design', 'src/orders/service.ts', 24]);
-      assert.equal(first!['route'], (await plan.fx.kinds(PLAN_TASK, 'route'))[0]!.id);
-      assert.deepEqual([second!['name'], second!['path'], second!['bytes']], ['Grep', 'src', undefined]);
-      assert.deepEqual([third!['name'], third!['path']], ['Glob', undefined]);
+      assert.deepEqual(await plan.fx.ledger(PLAN_TASK), before);
     } finally {
       await plan.dispose();
     }
@@ -354,7 +349,7 @@ describe('03-H7 SessionEnd', () => {
     const plan = await planFixture();
     try {
       await plan.start();
-      await plan.fx.engine.stop(PLAN_TASK, SESSION_A, 'blocked', 'x', plan.fx.scratchpad);
+      await stopRoute(plan.fx, PLAN_TASK, SESSION_A, 'blocked', 'x');
       assert.ok((await plan.fx.pointer.readEnded(SESSION_A, plan.fx.scratchpad)) !== null);
       await hook(plan, { hook_event_name: 'SessionEnd' });
       assert.equal(await plan.fx.pointer.readEnded(SESSION_A, plan.fx.scratchpad), null);
@@ -417,9 +412,11 @@ describe('the eval export at Stop', () => {
       await stop();
       const source = JSON.parse(await readFile(path.join(exported, SESSION_A, PLAN_TASK, 'source.json'), 'utf8')) as { complete: boolean };
       assert.equal(source.complete, true);
-      assert.equal((await plan.fx.kinds(PLAN_TASK, 'hook')).filter((entry) => entry['name'] === 'stop').length, 1);
+      const before = await readFile(path.join(exported, SESSION_A, PLAN_TASK, 'source.json'), 'utf8');
+      const entries = (await plan.fx.ledger(PLAN_TASK)).length;
       await stop();
-      assert.equal((await plan.fx.kinds(PLAN_TASK, 'hook')).filter((entry) => entry['name'] === 'stop').length, 1, 'a later Stop leaves the ended route alone');
+      assert.equal((await plan.fx.ledger(PLAN_TASK)).length, entries, 'a later Stop leaves the ended route alone');
+      assert.equal(await readFile(path.join(exported, SESSION_A, PLAN_TASK, 'source.json'), 'utf8'), before);
       assert.ok(errors.some((line) => line.startsWith('ambicode stop: skipped, no route pointer')), errors.join(''));
     } finally {
       process.stderr.write = write;

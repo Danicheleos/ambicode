@@ -2,11 +2,12 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { createRuntime } from '#composition/root';
 import { buildProposal, writeConfig } from '#modules/config/init/proposal';
+import { FIXTURE_PROPOSAL } from '#testing/fixtures/init-config';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 
 async function apply(root: string) {
   const runtime = await createRuntime({ cwd: root });
-  const proposal = await buildProposal(runtime, root, []);
+  const proposal = await buildProposal(runtime, root, FIXTURE_PROPOSAL, []);
   return { proposal, written: await writeConfig(runtime.fs, root, proposal, []), runtime };
 }
 
@@ -19,7 +20,7 @@ describe('09-G5: the ignore lines are written with the config, on acceptance', (
       const { proposal, written, runtime } = await apply(repo.root);
       assert.deepEqual(proposal.gitignore.present, []);
       const ignore = await runtime.fs.readText(`${repo.root}/.gitignore`);
-      for (const line of ['.ambicode/index/', '.ambicode/metrics.jsonl', '.ambicode/reviews/', '.ambicode/task/', '.ambicode/notes/']) {
+      for (const line of ['.ambicode/index/', '.ambicode/reviews/', '.ambicode/task/', '.ambicode/notes/']) {
         assert.match(ignore, new RegExp(`^${line.replaceAll('.', '\\.')}$`, 'm'));
       }
       assert.deepEqual(written.gitignoreAdded, proposal.gitignore.missing);
@@ -48,7 +49,7 @@ describe('09-G5: the ignore lines are written with the config, on acceptance', (
     const repo = await TempRepo.create();
     try {
       await repo.write('src/app.ts', 'export const a = 1;\n');
-      const all = '/.ambicode/index/\n/.ambicode/metrics.jsonl\n/.ambicode/reviews/\n/.ambicode/notes/\n/.ambicode/task/\n';
+      const all = '/.ambicode/index/\n/.ambicode/reviews/\n/.ambicode/notes/\n/.ambicode/task/\n';
       await repo.write('.gitignore', all);
       await repo.commitAll('initial');
       const { proposal, written, runtime } = await apply(repo.root);

@@ -94,6 +94,7 @@ export function renderPlanCheck(output: PlanCheckOutput): string {
 
 export const planCheckCommand: CliCommand = {
   name: 'plan check',
+  summary: 'Check the plan draft by code: anchors, acceptance units, names (--task).',
   options: PLAN_CHECK_OPTIONS,
   run: async (runtime, args) => {
     const output = await runPlanCheckCommand(runtime, args);

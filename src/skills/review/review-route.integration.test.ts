@@ -10,7 +10,8 @@ import { fixtureByName } from '../../../fixtures/definitions.mjs';
 // @ts-expect-error untyped fixture modules
 import { materialize } from '../../../fixtures/materialize.mjs';
 import { parseArgs } from '#util/args';
-import { runReview, REVIEW_OPTIONS, type ReviewDependencies } from '#cli/commands/review/review';
+import { runReview, REVIEW_OPTIONS } from '#cli/commands/review/review';
+import { runReviewRecord, REVIEW_RECORD_OPTIONS } from '#cli/commands/review/record';
 import { routeTools, runRouteStart } from '#cli/commands/route/route';
 import { createRuntime } from '#composition/root';
 import { ReviewResult } from '#types/modules/review';
@@ -28,7 +29,7 @@ import type { HookDeps } from '#types/hook';
 const TASK = 'src-regression';
 const LINT_PROPOSED = COMMAND_PACK.replace('{ command: lint, action: forbid, reason: "never here" }', '{ command: lint, action: propose, reason: "lint" }');
 
-/** The replay recordings hold no snapshot of this change (P19), so a fake reviewer is injected through ReviewDependencies. `ts-source-regression` with an eslint check wired by hand under a propose policy; the runner's output is scripted. */
+/** `ts-source-regression` with an eslint check wired by hand under a propose policy; the runner's output is scripted. */
 async function regression() {
   const scratch = await mkdtemp(path.join(tmpdir(), 'ambicode-review-int-'));
   const root = path.join(scratch, 'repo');
@@ -55,17 +56,11 @@ async function regression() {
   const dir = path.join(root, '.ambicode', 'task', TASK);
   const ledger = (): Promise<LedgerEntry[]> => readLedger(nodeFileSystem, dir);
   const owner = async (): Promise<string> => String((await ledger()).find((entry) => entry.kind === 'route')!['session']);
-  const calls = { reviewer: 0 };
-  const fake: ReviewDependencies = {
-    warm: async () => {},
-    reviewer: { async invoke() { calls.reviewer += 1; return { kind: 'ok', output: { findings: [], coverageNotes: ['fake reviewer: no model call'] }, rawLength: 2, argv: ['claude'] } as never; } } as never,
-  };
   return {
-    root, runtime, runner, calls, ledger,
+    root, runtime, runner, ledger,
     start: (...argv: string[]) => runRouteStart(runtime, parseArgs('route start', ['review', '--task', TASK, ...argv, 'review my change'], ROUTE_START_OPTIONS)),
-    review: (deps: ReviewDependencies, ...extra: string[]) => runReview(runtime, parseArgs('review', ['--task', TASK, ...extra], REVIEW_OPTIONS), deps),
-    fake,
-    real: { warm: async () => {} } as ReviewDependencies,
+    review: (...extra: string[]) => runReview(runtime, parseArgs('review', ['--task', TASK, ...extra], REVIEW_OPTIONS)),
+    record: (stdin: string) => runReviewRecord({ ...runtime, stdin: { read: async () => stdin } }, parseArgs('review record', ['--task', TASK], REVIEW_RECORD_OPTIONS)),
     /** The user's answer to the latest print of `gate`, as the AskUserQuestion hook records it. */
     answer: async (gate: string, option: string) => {
       const print = (await ledger()).findLast((entry) => entry.kind === 'gate' && entry['gate'] === gate);
@@ -102,10 +97,9 @@ describe('review route on ts-source-regression (08-I3)', () => {
       assert.equal(run.position, 'review-run');
       assert.match(run.text, /review --task src-regression`/);
 
-      const waiting = await t.review(t.real);
+      const waiting = await t.review();
       assert.deepEqual((await t.ledger()).filter((entry) => entry.kind === 'review').map((entry) => entry['waiting']), [['app/lint']]);
       assert.match(waiting.next ?? '', /Checks waiting: app\/lint\. The reviewer has not run yet\./);
-      assert.equal(t.calls.reviewer, 0, 'no reviewer ran while the check waited');
       assert.equal(t.runner.calls.length, 0, 'the proposed check did not run');
 
       const rerun = await t.answer('review-checks', 'with');
@@ -113,17 +107,22 @@ describe('review route on ts-source-regression (08-I3)', () => {
       assert.match(rerun.text, /review --task src-regression`/);
       assert.deepEqual((await t.ledger()).filter((entry) => entry.kind === 'revise').map((entry) => [entry['from'], entry['reason']]), [['review-run', 'review-checks: with']]);
 
-      const done = await t.review(t.fake);
-      assert.match(done.next ?? '', /step readback/);
+      const done = await t.review();
+      assert.match(done.next ?? '', /step review-agent/);
+      assert.match(done.next ?? '', /brief: .*brief\.md/);
       assert.equal(t.runner.calls.length, 1, 'the approved check ran once');
+
+      const recorded = await t.record('```json\n{"findings":[],"coverageNotes":["read src/index.ts"]}\n```');
+      assert.match(recorded.next ?? '', /step readback/);
+      assert.equal(recorded.result.reviewer?.status, 'ok');
       const entries = (await t.ledger()).filter((entry) => entry.kind === 'review');
-      assert.deepEqual(entries.map((entry) => entry['waiting']), [['app/lint'], []]);
-      assert.deepEqual([done.result.reviewer?.status, t.calls.reviewer], ['ok', 1]);
+      assert.deepEqual(entries.map((entry) => entry['waiting']), [['app/lint'], [], []]);
+      assert.deepEqual(entries.map((entry) => entry['stage']), ['pending', 'pending', 'recorded']);
 
       const result = ReviewResult.parse(JSON.parse(await readFile(path.join(t.root, String(entries.at(-1)!['result'])), 'utf8')));
       const block = notCoveredBlock(result);
       assert.match(block, /^4\. OMISSIONS, UNCERTAINTY AND UNAVAILABLE COVERAGE/);
-      assert.deepEqual(await t.stop(`# Review\n\nFindings: ${done.result.findings.length}.\n\n${block}\n`), {});
+      assert.deepEqual(await t.stop(`# Review\n\nFindings: ${recorded.result.findings.length}.\n\n${block}\n`), {});
       const blocked = await t.stop('# Review\n\nThe change breaks add; see the findings above.');
       assert.equal(blocked?.decision, 'block');
       assert.match(blocked?.reason ?? '', /the "not covered" block is not reproduced verbatim/);

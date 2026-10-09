@@ -3,7 +3,6 @@ import { DEFAULTS } from '../defaults.ts';
 import { AdapterId, Ecosystem } from '../primitives.ts';
 import type { Runtime } from '../composition.ts';
 import type { CommandContext } from '../harness.ts';
-import type { IndexDeps, IndexStatus } from './search.ts';
 
 const RelativePath = z
   .string()
@@ -137,56 +136,22 @@ export const ChecksConfig = z.strictObject({
   maxSelectedTestFiles: z.number().int().positive(),
 });
 
-export const PageConfig = z.strictObject({
-  idleTimeoutSeconds: z.number().int().positive(),
-  /** 0 lets the OS pick, one page per run. */
-  port: z.number().int().min(0).max(65535).default(DEFAULTS.page.port),
-});
-
-export const RemoteChecksConfig = z.strictObject({
-  image: z.string().min(1).nullable(),
-});
-
 export const AuthoringConfig = z.strictObject({
   editReminders: z.boolean().default(true),
 });
 export type AuthoringConfig = z.infer<typeof AuthoringConfig>;
 
-const count = z.number().int().positive();
-const share = z.number().gt(0).lte(1);
-/** Any ranking constant of the map; absent ones keep `SEARCH_TUNING_DEFAULTS`. */
-export const SearchTuningOverrides = z.strictObject({
-  topFiles: count.optional(),
-  maxTerms: count.optional(),
-  proseRetryTerms: count.optional(),
-  pass2Names: count.optional(),
-  pass2Outside: share.optional(),
-  spansPerCandidate: count.optional(),
-  sequenceDirMin: count.optional(),
-  sequenceShare: share.optional(),
-  layerMin: count.optional(),
-  layeredShare: share.optional(),
-  nameMaxFiles: count.optional(),
-  leads: count.optional(),
-  featureLeads: count.optional(),
-  featurePaths: count.optional(),
-});
-
 /** Absent lists mean the defaults in `config/defaults.ts`; the map prints which one it used. */
 export const SearchConfig = z.strictObject({
-  index: z.enum(['none', 'codeindex']).default('none'),
-  indexDriftFiles: z.number().int().nonnegative().optional(),
   layers: z
     .strictObject({
       prompt: z.array(z.string().min(1)).optional(),
       context: z.array(z.string().min(1)).optional(),
     })
     .optional(),
-  tuning: SearchTuningOverrides.optional(),
 });
 export type SearchConfig = z.infer<typeof SearchConfig>;
 
-export const WorkersConfig = z.strictObject({ approved: z.array(z.string().min(1)).default([]) });
 export const GuardConfig = z.strictObject({ askOutsideMap: z.boolean().default(false) });
 
 export const AmbicodeConfig = z.strictObject({
@@ -195,16 +160,13 @@ export const AmbicodeConfig = z.strictObject({
   baseline: z.string(),
   review: ReviewConfig,
   checks: ChecksConfig,
-  page: PageConfig,
   requirements: z.strictObject({
     mcpServer: z.string().min(1).nullable(),
     acceptanceField: z.string().regex(/^customfield_\d+$/).nullable().default(DEFAULTS.requirements.acceptanceField),
   }),
-  search: SearchConfig.default({ index: 'none' }),
-  workers: WorkersConfig.default({ approved: [] }),
+  search: SearchConfig.default({}),
   guard: GuardConfig.default({ askOutsideMap: false }),
   projects: z.array(ProjectConfig).min(1),
-  remoteChecks: RemoteChecksConfig,
   authoring: AuthoringConfig.default({ editReminders: true }),
 });
 export type AmbicodeConfig = z.infer<typeof AmbicodeConfig>;
@@ -223,35 +185,40 @@ export interface DoctorRow {
   detail: string;
 }
 
-export interface DoctorTable { rows: DoctorRow[]; index: string | null; text: string; hash: string }
+export interface DoctorTable { rows: DoctorRow[]; text: string; hash: string }
 
 export type SetValue = string | null | readonly string[];
 
 export interface SetPair { key: string; value: SetValue }
+
+/** What the model writes in the init proposal: judgment about the repository, checked against the config schema afterwards. */
+const Argv = z.array(z.string().min(1)).min(1).nullable();
+export const ProposalProject = z.strictObject({
+  id: z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, { error: 'must be kebab-case' }),
+  root: z.string().min(1),
+  ecosystem: z.string().min(1),
+  shortlist: z.array(Glob).default([]),
+  commands: z.strictObject({ test: Argv.optional(), lint: Argv.optional(), typecheck: Argv.optional(), format: Argv.optional(), e2e: Argv.optional() }).default({}),
+  packs: z.array(z.string().min(1)).default([]),
+});
+export const ProposalInput = z.strictObject({
+  projects: z.array(ProposalProject).min(1),
+  requirements: z.strictObject({ mcpServer: z.string().min(1).nullable() }).default({ mcpServer: null }),
+});
+export type ProposalInput = z.infer<typeof ProposalInput>;
 
 export interface InitProposal {
   command: 'init';
   mode: 'dry-run';
   configPath: string;
   configState: 'missing' | 'current' | 'legacy' | 'unparsable-backed-up';
-  projects: {
-    id: string;
-    root: string;
-    ecosystem: string;
-    commands: Record<string, readonly string[] | null>;
-    format: readonly string[] | null;
-    packs: string[];
-    profile: SearchProfile | null;
-  }[];
+  input: ProposalInput;
+  baseline: string;
+  baselineNotice: string;
   ruleSources: string[];
   gitignore: { missing: string[]; present: string[] };
-  index: { proposed: 'none' | 'codeindex'; tool: string | null; decision5I: string };
-  searchLayers: { prompt: string[]; context: string[] };
-  acceptanceField: { current: string | null; candidates: string[] };
-  removedFields: string[];
   changes: string[];
   notices: string[];
-  noticesOmitted: number;
   values: string;
   applyLine: string;
 }
@@ -260,8 +227,4 @@ export interface ApplyDeps { runtime: Runtime; session: string | null; context: 
 
 export interface DoctorOptions {
   project?: string;
-  /** Inside `init --apply` only: start step 05's detached build. Otherwise the index state is read, nothing written. */
-  buildIndex?: boolean;
-  /** Step 05's detached build; injected by tests. */
-  startIndex?: (deps: IndexDeps, project: ProjectConfig) => Promise<IndexStatus>;
 }

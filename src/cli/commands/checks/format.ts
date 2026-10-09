@@ -33,6 +33,7 @@ export function renderFormat(output: FormatOutput): string {
 
 export const formatCommand: CliCommand = {
   name: 'format',
+  summary: "Run each project's format command on the files this task touched.",
   options: FORMAT_OPTIONS,
   run: async (runtime, args) => {
     const output = await runFormatCommand(runtime, args);
