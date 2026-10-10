@@ -14,8 +14,8 @@ steps:
       acting: [run]
       default: skip
       onAnswer: { narrow: revise estimate-step --narrow $answer, "*": revise estimate-step --narrow $answer }
-  - { id: review-cmd, actor: code, when: gate.estimate.is(run), run: review.command }
-  - { id: review-run, actor: model, when: gate.estimate.is(run), instruction: file:routes/review/run.md, payload: [review.command], produces: [review] }
+  - { id: review-cmd, actor: code, when: gate.estimate.is(run), run: [review.command, context.list] }
+  - { id: review-run, actor: model, when: gate.estimate.is(run), instruction: file:routes/review/run.md, payload: [review.command, context.list], produces: [review] }
   - { id: brief, actor: code, when: gate.estimate.is(run), run: ["policy.stage(before-work)", script(brief)] }
   - { id: review-agent, actor: model, when: gate.estimate.is(run), instruction: file:routes/review/agent.md, payload: ["script:brief"], produces: ["review{recorded}"] }
   - { id: readback, actor: model, when: gate.estimate.is(run), instruction: file:routes/review/readback.md, final: true }

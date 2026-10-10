@@ -52,16 +52,29 @@ In the target repository, start or restart Claude Code and run:
 /ambicode:init
 ```
 
-`/ambicode:init` scans the repository, lets the model judge the projects and
-commands from the scan, validates that proposal against the config schema, and
-asks one question: *Apply*, *Adjust* (pick a printed choice, such as
-`MCP server: <name>`), or *Cancel*. Only an accepted answer writes
-the config and the `.gitignore` lines, then has the model run each configured
-command with `--version` and report which do not run. *Cancel*, or a headless run, writes nothing outside
-`.ambicode/task/init-<date>/`. `ambicode init` on its own only points at the
-skill. That configuration file is
-the expected repository-visible result of initialization; the installed plugin
-itself remains in Claude's plugin storage.
+`/ambicode:init` is run by the user once per repository, from the git root:
+
+1. A scaffold script creates `.ambicode/` (`tasks/`, `reviews/`, `context/`),
+   writes `.ambicode/config.yaml` from the template, and adds `.ambicode/` to
+   `.gitignore`. The whole folder is gitignored: config, run ledgers and the
+   learning context stay local.
+2. The `ambicode:scout` agent maps the repository in the background and writes
+   the learning context (overview, navigation, conventions, one file per
+   module) through `ambicode context write`, within `context.maxTotalTokens`
+   and `context.maxFileTokens`.
+3. Meanwhile the skill reads the manifests to fill in each project's
+   ecosystem, commands and checks, then picks the `policies/*.yaml` packs
+   whose `appliesTo` matches into `packs` and merges the free-text `rules` (the
+   scout's conventions, and unless `--auto` a web search and one confirmation
+   question; at most 10 per project).
+4. It writes `.ambicode/config.yaml` once and runs
+   `ambicode config validate`; errors get one corrective write.
+
+Run it again to refresh: the scaffold leaves an existing config untouched, and
+the skill asks whether to refresh or abort (`--auto` refreshes). Edit
+`.ambicode/config.yaml` directly at any time and re-run `config validate`.
+`ambicode context list` shows the context files, their first line and size.
+The installed plugin itself remains in Claude's plugin storage.
 
 ## Windows PowerShell
 

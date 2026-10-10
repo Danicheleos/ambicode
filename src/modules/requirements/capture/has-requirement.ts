@@ -1,6 +1,11 @@
 const URL_PATTERN = /https?:\/\/\S+/i;
 const BARE_KEY = /^[A-Z][A-Z0-9]+-\d+$/;
 
+const REQUIREMENT_SERVER = /jira|confluence|atlassian/i;
+
+/** The first declared MCP server that serves tickets or pages; none means a bare key is not a requirement. */
+export const requirementsServer = (mcps: readonly string[]): string | null => mcps.find((name) => REQUIREMENT_SERVER.test(name)) ?? null;
+
 /**
  * Interactive: a URL in the text, any `--requirement`, or a bare key as the first word while a server is bound.
  * Headless: only an explicit `--requirement`. A key inside prose is never one (03-Q1).

@@ -7,6 +7,7 @@ import { loadConfig } from '#modules/config/load';
 import { readLedgerStrict } from '#platform/ledger/ledger';
 import path from 'node:path';
 import type { AmbicodeConfig, ProjectConfig } from '#types/modules/config';
+import { listContext, renderListing } from '#modules/context/context';
 import { Activity } from '#types/primitives';
 import { policyStage } from '#modules/policy/stage';
 import { envelopeSources, normalizeEnvelope } from '#modules/requirements/envelope/envelope';
@@ -86,6 +87,8 @@ function renderSources(sources: readonly EnvelopeSource[]): string {
 }
 
 export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
+  'context.list': async (input) => ({ state: 'ok', payload: `${renderListing(await listContext(input.runtime.fs, input.dir.repositoryRoot), (await configOf(input)).context)}\nRead only the one file you need.` }),
+
   'requirements.normalize': async (input) => {
     const result = await normalizeEnvelope({ runtime: input.runtime, dir: input.dir, ledger: input.ledger, view: input.view, args: input.args });
     if (result.state === 'failed') return { state: 'failed', code: result.code, message: result.message, recoverable: result.recoverable };
@@ -111,7 +114,7 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
     const files = seedable === null ? [] : await git.listFiles(null);
     const sources = seedText === null ? envelopeSourcesOf : [...envelopeSourcesOf, { title: '', content: seedText }];
     const request = (sources.length === 0 ? [{ title: '', content: input.args.text }] : sources).map((source) => `${source.title}\n${source.content}`).join('\n');
-    const { layers, source } = resolveLayers(config.search, mode);
+    const { layers, source } = resolveLayers(mode);
     try {
       const map = await buildMap(input.runtime, { project, mode, layers, layersSource: source, terms: stated, request, paths: seedable === null ? [] : pathsCitedIn(seedable, files), symbols: seedable === null ? [] : symbolsCitedIn(seedable) });
       await input.ledger.append({ kind: 'map', route: input.view.routeId, ...map.entry });

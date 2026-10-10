@@ -37,6 +37,8 @@ export async function policyStage(input: {
   const carried = input.stage === 'before-work' ? policy.rules : [];
   const show = `policy --activity ${input.activity} --stage ${input.stage} --show`;
   if (carried.length > 0) lines.push('Rules:', ...carried.map(renderRule));
+  const own = input.stage === 'before-work' ? input.project.rules : [];
+  if (own.length > 0) lines.push(carried.length > 0 ? 'Project rules:' : 'Rules:', ...own.map((entry) => `- ${entry.rule}`));
 
   const limit = STAGE_LIMITS[input.stage];
   let kept = lines;
@@ -47,5 +49,5 @@ export async function policyStage(input: {
     text = `${kept.join('\n')}\n${rest(lines.length - kept.length)}`;
   }
   const bytes = Buffer.byteLength(text);
-  return { stage: input.stage, text, bytes, entry: { stage: input.stage, packs: policy.packs.map((pack) => pack.reference), rules: carried.length, bytes } };
+  return { stage: input.stage, text, bytes, entry: { stage: input.stage, packs: policy.packs.map((pack) => pack.reference), rules: carried.length + own.length, bytes } };
 }

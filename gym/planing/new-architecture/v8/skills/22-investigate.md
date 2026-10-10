@@ -38,7 +38,7 @@ fallback line "if no step message appeared, run `$A route start investigate "$AR
 | 6 | model | writes the answer; `$A note save --task <slug> --kind investigation` | `note` (produces → route complete) | — |
 | 7 | hook | Stop (c): the note's `path:line` citations exist | `limit` on failure, once | — |
 
-Diagnostics (reproduce, print a value) are proposals run only through `$A check --only` after the
+Diagnostics (reproduce, print a value) are proposals run only through `$A check --name` after the
 raised gate `check-only-unauthorized` ⏸ *Run it* (default: *don't run — inconclusive*).
 
 ## Ceremony budget (12 §3.1 rule: a code step after a model step costs one command)
@@ -49,7 +49,7 @@ raised gate `check-only-unauthorized` ⏸ *Run it* (default: *don't run — inco
 | with requirement | 2 (after fetch; after reading) | 1 | 0 | **3** | 0 |
 | + > 10 children (expansion gate) | +1 (the early stop) | | +1 | +2 | |
 | + `scope` gate | +0 (the hook tail re-runs ground, P48) | | +1 | +1 | |
-| + a diagnostic under `propose` | | | +1 (`check-only-unauthorized`) | +1 | `check --only` ×1 |
+| + a diagnostic under `propose` | | | +1 (`check-only-unauthorized`) | +1 | `check --name` ×1 |
 
 +1 when step 3 goes to a file. Ceremony and work are defined in 12 §3.1. Turns are **reported**,
 not gated (D10).

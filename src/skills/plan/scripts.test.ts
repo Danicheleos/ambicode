@@ -8,7 +8,7 @@ import { NodeProcessRunner } from '#platform/ports/node-process-runner';
 import { REPO_ROOT } from '#testing/paths';
 
 async function check(root: string, body: string) {
-  const steps = path.join(root, '.ambicode/task/t/steps');
+  const steps = path.join(root, '.ambicode/tasks/t/steps');
   await mkdir(steps, { recursive: true });
   await writeFile(path.join(steps, 'plan-body.md'), body);
   const outcome = await new NodeProcessRunner().run({
@@ -17,7 +17,7 @@ async function check(root: string, body: string) {
     timeoutMs: 30_000,
     maxOutputBytes: 65_536,
     env: { kind: 'inherited' },
-    stdin: JSON.stringify({ task: 't', skill: 'plan', repositoryRoot: root, taskDir: path.join(root, '.ambicode/task/t'), steps, args: {}, params: [], revise: null, raisedBy: null, headless: false }),
+    stdin: JSON.stringify({ task: 't', skill: 'plan', repositoryRoot: root, taskDir: path.join(root, '.ambicode/tasks/t'), steps, args: {}, params: [], revise: null, raisedBy: null, headless: false }),
   });
   assert.equal(outcome.exitCode, 0, outcome.stderr);
   return JSON.parse(outcome.stdout) as { entries: { summary: { failed: boolean; anchorsBad: number; anchors?: string[] } }[]; failed?: { code: string; revise: { args: Record<string, string[]> } } };

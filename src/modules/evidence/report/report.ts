@@ -42,11 +42,11 @@ export function buildReport(
   for (const entry of of('check')) keys.set(String(entry.key), [...(keys.get(String(entry.key)) ?? []), entry]);
   const notVerified: string[] = [];
   const checks = [...keys].map(([key, runs]) => {
-    const only = (runs.at(-1)?.only as unknown[] | undefined) ?? [];
+    const files = (runs.at(-1)?.files as unknown[] | undefined) ?? [];
     const steps = runs.map((run) => `${clip(run.phase)} exit ${run.exit}${historical(run)}`);
     const last = runs.at(-1)!;
     if (last.exit !== 0) notVerified.push(`${key}: last run exited ${last.exit}${historical(last)}`);
-    return `${key}${only.length > 0 ? ` --only ${only.join(' ')}` : ''}: ${steps.join(' → ')}`;
+    return `${key}${files.length > 0 ? ` --file ${files.join(' ')}` : ''}: ${steps.join(' → ')}`;
   });
 
   const reviews = of('review').map((entry) => {

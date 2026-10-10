@@ -16,7 +16,7 @@ describe('task scripts (C7)', () => {
       await writeFile(path.join(root, 'src', 'a.ts'), 'export function computeTotal() {}\ncomputeTotal();\n');
       await writeFile(path.join(root, 'src', 'b.ts'), 'import { computeTotal } from "./a";\ncomputeTotalOther();\n');
       git('add', '.');
-      const taskDir = path.join(root, '.ambicode', 'task', 't');
+      const taskDir = path.join(root, '.ambicode', 'tasks', 't');
       await mkdir(taskDir, { recursive: true });
       const out = spawnSync(process.execPath, [path.join(REPO_ROOT, 'skills', 'task', 'scripts', 'inventory.mjs')], {
         input: JSON.stringify({ repositoryRoot: root, taskDir, args: { text: 'Defect: `computeTotal` drops the last line' } }), encoding: 'utf8',

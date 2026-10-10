@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { REVIEWS_DIR } from '#types/defaults';
 import { appendLedger, readLedger } from '#platform/ledger/ledger';
-import { taskDirFor } from '#modules/evidence/task/task-dir';
+import { resolveTaskDir, taskDirFor } from '#modules/evidence/task/task-dir';
 import { reviewName, taskSlugFor } from './review-name.ts';
 import { openWorkspace, projectForPath } from '#modules/config/workspace';
 import { resolvePolicyFor } from '#modules/policy/resolve-for';
@@ -66,7 +66,7 @@ export function groupByProject(workspace: Workspace, files: readonly DiffFile[])
 async function resolveTarget(workspace: Workspace, options: AssembleOptions): Promise<TargetResolution> {
   const { target } = options;
   if (target.kind === 'merge-request') return resolveCapturedTarget({ workspace, task: options.task, url: target.url });
-  if (target.kind === 'branch') return resolveBranchTarget({ git: workspace.git, repositoryRoot: workspace.repositoryRoot, baseRef: target.baseRef ?? workspace.config.baseline });
+  if (target.kind === 'branch') return resolveBranchTarget({ git: workspace.git, repositoryRoot: workspace.repositoryRoot, baseRef: target.baseRef ?? workspace.config.baseline ?? '' });
   return resolveWorkingTarget({ fs: workspace.runtime.fs, git: workspace.git, repositoryRoot: workspace.repositoryRoot });
 }
 
@@ -75,7 +75,7 @@ async function recordedChecks(runtime: Runtime, taskDirectory: string | null): P
   if (taskDirectory === null) return [];
   return (await readLedger(runtime.fs, taskDirectory)).flatMap((entry) =>
     entry.kind === 'check' && typeof entry['key'] === 'string' && typeof entry['exit'] === 'number' && (entry['phase'] === 'red' || entry['phase'] === 'green')
-      ? [{ key: entry['key'], phase: entry['phase'], exit: entry['exit'], argv: Array.isArray(entry['argv']) ? (entry['argv'] as string[]) : [], only: Array.isArray(entry['only']) ? (entry['only'] as string[]) : [] }]
+      ? [{ key: entry['key'], phase: entry['phase'], exit: entry['exit'], files: Array.isArray(entry['files']) ? (entry['files'] as string[]) : [] }]
       : [],
   );
 }
@@ -85,7 +85,7 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
 export async function assembleBundle(options: AssembleOptions): Promise<ReviewBundle | DryRunPlan> {
   const { runtime } = options;
   const workspace = await openWorkspace(runtime);
-  const limits = workspace.config.review;
+  const limits = workspace.config.skills.review;
   const requirements = [...options.requirements];
   const requirementBytes = requirements.reduce((total, source) => total + byteLength(source.content), 0);
 
@@ -119,11 +119,10 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
   if (options.dryRun === true) return dry(null);
 
   const taskSlug = taskSlugFor({ requirementIds: resolution.target.kind === 'merge-request' ? [] : requirements.map((source) => source.id), task: options.task });
-  const reviewsRoot = taskSlug === null ? path.join(workspace.repositoryRoot, REVIEWS_DIR) : taskDirFor(workspace.repositoryRoot, taskSlug).reviews;
   const reviewId = reviewName(runtime.clock.now(), runtime.ids.reviewId());
-  const reviewDirectory = path.join(reviewsRoot, reviewId);
+  const reviewDirectory = taskSlug === null ? path.join(workspace.repositoryRoot, REVIEWS_DIR, reviewId) : taskDirFor(workspace.repositoryRoot, taskSlug, '.', 'review').root;
   await runtime.fs.mkdirp(reviewDirectory);
-  const taskDirectory = taskSlug === null ? null : taskDirFor(workspace.repositoryRoot, taskSlug).root;
+  const taskDirectory = taskSlug === null ? null : (await resolveTaskDir(runtime, taskSlug)).root;
 
   const sourceFree = requirements.length === 0;
   const narrowed = (what: string, globs: readonly string[], rest: string): string[] => (globs.length === 0 ? [] : [`This review was narrowed on request: ${what} matching ${quoteAll(globs)} ${rest}`]);

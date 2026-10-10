@@ -14,9 +14,9 @@ requirement envelope; `--approve/--decline`.
 
 ## Outputs
 
-Artifacts under `reviews/<id>/` (`result.json`, `snapshot-path.txt`, the snapshot's `changed.diff`
-and mirrored `files/`, `brief.md`, `report.txt`, `findings.json`, `rejected-output.txt` on an invalid
-answer); `check --only`, `format`, `review --estimate` outputs; ledger `baseline`, `check {phase}`,
+Artifacts under `.ambicode/reviews/<slug>/` (`result.json`, `snapshot-path.txt`, the run's `changed.diff`,
+`files.txt` (no mirrored `files/`, D2), `brief.md`, `report.txt`, `findings.json`, `rejected-output.txt` on an invalid
+answer); `check --name`, `format`, `review --estimate` outputs; ledger `baseline`, `check {phase}`,
 `format`, `review {stage: pending|recorded}`, `capture {what: mr-diff}`. Every one of these
 commands ends by advancing the route (12 §3.1).
 
@@ -47,21 +47,21 @@ report.
 - Error codes, status rules and omissions: as in v6. The reviewer prompt contract is
   `agents/reviewer.md`.
 
-### 2. `check --only`
+### 2. `check --name --file`
 
 ```
-$A check --task <slug> <projectId>/<checkId> --only <file>… --phase red|green
+$A check --task <slug> --name <check> [--file <path>…] [--project <id>] --phase red|green
 ```
 
-Runs the configured check with a forced file selection, authorized through `authorizeCommand`
-under the check's key (`propose` asks through the raised gate `check-only-unauthorized`, `forbid`
+Runs `projects[].checks.<name>.all` (no `--file`) or `.file` with `{file}` substituted per `--file`, as a shell string with the project root as cwd and `skills.task.checkTimeoutSeconds` as the limit; a missing form is a gap, not a pass. Authorized through `authorizeCommand`
+under the check's name (`propose` asks through the raised gate `check-only-unauthorized`, `forbid`
 refuses). **`--approve <key>` is honoured only with an `acceptance {gate: check-only-unauthorized,
 key}` on record under 12 §3.4's rule** (a hook answer bound to a printed instance, or a consumed
 preanswer from a trusted start; never the flag itself, G1, C1); a model-typed `--approve` without
 one — in any mode, on any channel — records `declined {via: flag, reason: acting-needs-human}` and
 the gate re-prints — the same rule as `review --approve` and `review-offer` (#84). An approval
 re-enters the step whose command waited (`onAnswer: {approve: revise $raisedBy}`, #77). Ledger
-`check {key, argv, only, exit, phase, tail, ms}`. **No runner output is parsed (C8)**: the task
+`check {name, command, files, exit, phase, tail, ms}`. **No runner output is parsed (C8)**: the task
 route's proof is the exit code — **red** is `exit != 0`, **green** is `exit 0`; the other
 combination is printed "not as expected" with its cause and stays a gap, never a proof.
 
@@ -116,7 +116,7 @@ interface Review { assemble(target, opts): Promise<ReviewBundle>; estimate(targe
 | Code | Cause | Release |
 |---|---|---|
 | `check-only-unauthorized` | `propose`/`forbid` | raised gate (default decline); approve → `revise $raisedBy`; `--approve` only per 12 §3.4 |
-| `format-unconfigured` | no `format` command | "not formatted" in Not verified; `init` writes the slot |
+| `format-unconfigured` | no `format` command | "not formatted" in Not verified; the model fills the slot at init when it finds a formatter |
 | `baseline-missing` | `review --task` before `checks.baseline` | the route runs it first |
 | `snapshot-too-large`, `input-too-large` | a file or the change over the limits | unchanged refusal; caught by the estimate first |
 | `mr-diff-missing` | `--mr` with no captured diff | fetch the diff through the GitLab MCP server, then `route next` |
@@ -126,14 +126,14 @@ interface Review { assemble(target, opts): Promise<ReviewBundle>; estimate(targe
 ## What changes from v0.5.0
 
 `bundle.ts` (`--task` scoping, `--estimate`, no dependents search), `modules/checks/run`
-(`--only`, `format`, route advance at the tail), `review record` (the subagent's answer replaces the
+(`--file`, `format`, route advance at the tail), `review record` (the subagent's answer replaces the
 `claude --print` child), `agents/reviewer.md`. Removed: the process runner for the reviewer, the
 GitLab provider, publication, the page and its metrics, Docker remote checks, runner-output adapters.
 
 ## Open problems
 
 - P19 Replay-miss blocks measuring review (33 §0).
-- P41 No runner summary is parsed, so a check that runs no tests (a wrong `--only` path) still reads
+- P41 No runner summary is parsed, so a check that runs no tests (a wrong `--file` path) still reads
   green by exit code, and a syntax error in a new spec reads red. Open; accepted with C8.
 
 ## v7 changes

@@ -16,10 +16,14 @@ function project(overrides: Partial<ProjectConfig> = {}): ProjectConfig {
   return {
     id: 'web',
     root: 'apps/web',
-    ecosystem: 'typescript',
+    paths: [],
+    ecosystem: { languages: ['typescript'], frameworks: [], packageManager: null },
+    include: [],
+    exclude: [],
+    rules: [],
     packs: [],
     policyFiles: [],
-    commands: { lint: null, unit: null, e2e: null },
+    commands: { lint: 'lint', unit: 'unit', e2e: 'e2e' },
     checks: {},
     ...overrides,
   };
@@ -87,7 +91,7 @@ test('U26 every built-in pack loads and its referenced prompt files exist', asyn
     fs: nodeFileSystem,
     project: project({
       packs: ids.map((id) => `builtin/${id}`),
-      commands: { lint: null, unit: null, e2e: null },
+      commands: { lint: 'lint', unit: 'unit', e2e: 'e2e' },
     }),
     builtinDirectory: BUILTIN_DIRECTORY,
     repositoryRoot: '/nowhere',
@@ -210,7 +214,7 @@ test('U04 command precedence is forbid over propose over run, and silence is not
   const config = project({
     packs: ['builtin/common-checks'],
     policyFiles: ['.ambicode/policies/orders.yaml'],
-    commands: { lint: null, unit: null, e2e: null },
+    commands: { lint: 'lint', unit: 'unit', e2e: 'e2e' },
   });
   const { packs } = await loadPacksForProject({
     fs: nodeFileSystem,

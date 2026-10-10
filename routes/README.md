@@ -2,7 +2,7 @@
 
 A route is the ordered list of steps ambicode walks for one skill. Code steps run inside the CLI, model steps hand
 the model a short instruction, human steps ask the user through a gate. Everything that happens is appended to the
-task's ledger (`.ambicode/task/<task>/ledger.jsonl`), and the route's position is folded from that ledger.
+task's ledger (`.ambicode/tasks/<task>/ledger.jsonl`), and the route's position is folded from that ledger.
 
 This directory is developer documentation plus the route files; this README is not shipped in the plugin.
 
@@ -62,7 +62,8 @@ Unknown fields are rejected. Step ids are unique inside a route.
 |---|---|---|
 | `requirements.normalize` | `envelope` | Builds the requirement envelope from captures (or from the request text) and records it. |
 | `search.map(prompt)` | `map` | Builds the search map for the request. The parameter picks the layer set (`prompt` or `context`). |
-| `policy.stage(<stage>)` | `policy:<stage>` | Rules for the stage: `before-work`, `before-checks`, `before-report`. |
+| `policy.stage(<stage>)` | `policy:<stage>` | The project's `rules` as one bullet block under a byte cap (`before-work`); `before-checks` and `before-report` carry nothing. |
+| `context.list` | `context.list` | The files under `.ambicode/context/` (path, first H1, size) or "no context: run /ambicode:init"; the step reads only the one it needs. |
 | `evidence.navigationLine` | `navigation` | The line saying which navigation calls were recorded. |
 | `evidence.notes.save(<kind>)`, `evidence.notes.promote` | none | Save a note / promote a plan draft. |
 | `script(<name>)` | `script:<name>` | Runs `skills/<skill>/scripts/<name>.mjs`; see Scripts. |

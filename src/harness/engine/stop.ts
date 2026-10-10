@@ -1,3 +1,4 @@
+import { dirKindFor } from '#types/defaults';
 import path from 'node:path';
 import { findSessionRepository } from '#platform/git/session-repository';
 import type { HookInput, StopHookOutput } from '#types/hook';
@@ -78,7 +79,7 @@ export async function stopHook(ports: StopPorts, input: HookInput, options: { de
   // A Stop sees an exit once: the ledger names the exited route, one marker says it was looked at.
   if (active === null && !(await deliverOnce(runtime.fs, hookStateBaseDir(runtime.fs, session, scratchpad), 'stop-seen', target.routeId))) return null;
 
-  const dir = taskDirFor(root, target.task);
+  const dir = taskDirFor(root, target.task, '.', dirKindFor(target.skill));
   const message = input.last_assistant_message ?? null;
   const verdict = await withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), session, async (ledger): Promise<{ output: StopHookOutput | null; entries: number } | null> => {
     const read = await ledger.read();

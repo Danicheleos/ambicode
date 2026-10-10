@@ -32,7 +32,7 @@ async function regression() {
   const configPath = path.join(root, '.ambicode', 'config.yaml');
   const config = parse(await readFile(configPath, 'utf8'));
   await writeFile(configPath, stringify(config));
-  execFileSync('git', ['add', '.ambicode'], { cwd: root });
+  execFileSync('git', ['add', '-f', '.ambicode'], { cwd: root });
   execFileSync('git', ['-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'wire config', '--allow-empty'], { cwd: root });
 
   const base = await createRuntime({ cwd: root });
@@ -40,7 +40,7 @@ async function regression() {
   runner.out = { exitCode: 0, stdout: '' };
   const runtime: Runtime = { ...base, runner };
   const tools = await routeTools(runtime, null);
-  const dir = path.join(root, '.ambicode', 'task', TASK);
+  const dir = path.join(root, '.ambicode', 'reviews', TASK);
   const ledger = (): Promise<LedgerEntry[]> => readLedger(nodeFileSystem, dir);
   const owner = async (): Promise<string> => String((await ledger()).find((entry) => entry.kind === 'route')!['session']);
   return {

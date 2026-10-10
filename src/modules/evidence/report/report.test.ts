@@ -7,7 +7,7 @@ import type { LedgerEntry } from '#types/modules/evidence';
 
 let counter = 0;
 const entry = (kind: string, fields: object = {}): LedgerEntry => ({ id: `a1b2c3d4-${(counter += 1)}`, at: '2026-10-05T10:00:00.000Z', kind, ...fields });
-const check = (fields: object): LedgerEntry => entry('check', { key: 'web/unit', argv: ['npm', 'test'], only: [], exit: 0, phase: 'green', ms: 10, ...fields });
+const check = (fields: object): LedgerEntry => entry('check', { key: 'web/unit', files: [], exit: 0, phase: 'green', ms: 10, ...fields });
 const route = (fields: object = {}): LedgerEntry => entry('route', { skill: 'task', args: 'x', mode: 'interactive', channel: 'hook', trusted: true, session: 'a1b2c3d4', epoch: 1, ...fields });
 
 describe('02-R1: the report skeleton', () => {
@@ -28,8 +28,8 @@ describe('02-R1: the report skeleton', () => {
       entry('envelope', { sources: [{ key: 'ORD-17' }], builtFrom: 'captures', asked: ['ORD-17'], missingAsked: [], server: 'atlassian', hash: 'h' }),
       entry('map', { layers: [{ name: 'shortlist' }, { name: 'harvest' }], collisions: ['validate'], index: 'none' }),
       entry('baseline', { head: 'a1b2c3d4e5f6', dirty: ['README.md'] }),
-      check({ phase: 'red', exit: 1, only: ['a.spec.ts'] }),
-      check({ only: ['a.spec.ts'] }),
+      check({ phase: 'red', exit: 1, files: ['a.spec.ts'] }),
+      check({ files: ['a.spec.ts'] }),
       entry('review', { reviewId: 'local_1', status: 'complete', reviewerRan: true, findings: 2, omissions: 0 }),
       entry('acceptance', { route: 'r', gate: 'plan-accept', instance: 'i', answer: 'Accept', via: 'hook' }),
       entry('revise', { route: 'r', from: 'plan-write', via: 'code', cycle: 1, reason: '2 bad anchors' }),
@@ -38,7 +38,7 @@ describe('02-R1: the report skeleton', () => {
     assert.match(report.evidence, /Requirements: 1 source\(s\) from captures \(ORD-17\) via atlassian; ORD-17 \(asked\)/);
     assert.match(report.evidence, /Map: layers shortlist→harvest, 1 colliding names/);
     assert.match(report.evidence, /Baseline: a1b2c3d4e5f6, dirty: README\.md/);
-    assert.match(report.evidence, /Checks: web\/unit --only a\.spec\.ts: red exit 1 → green exit 0/);
+    assert.match(report.evidence, /Checks: web\/unit --file a\.spec\.ts: red exit 1 → green exit 0/);
     assert.match(report.evidence, /Review: local_1 complete, 2 findings/);
     assert.match(report.evidence, /Decisions: plan-accept "Accept" \(via hook\)/);
     assert.match(report.evidence, /Revisions: plan-write ×2 \(last: none left\)/);

@@ -21,7 +21,7 @@ async function investigate() {
 describe('investigate diagnostics (07-I1)', () => {
   it('07-I1: the shipped read step names the red-phase check command and says decline means do not run, inconclusive', async () => {
     const text = await readFile(path.join(REPO_ROOT, 'routes', 'investigate', 'read.md'), 'utf8');
-    assert.match(text, /check --task \{task\} <projectId>\/<checkId> --only <spec> --phase red/);
+    assert.match(text, /check --task \{task\} --name <check> --file <spec> --phase red/);
     assert.match(text, /don't run — inconclusive/);
   });
 
@@ -29,7 +29,7 @@ describe('investigate diagnostics (07-I1)', () => {
     const { fx, check, runner, message } = await investigate();
     try {
       assert.equal(message.position, 'read');
-      assert.deepEqual(await check({ key: 'app/unit' }), { outcome: 'waiting', gate: 'check-only-unauthorized', key: 'app/unit' });
+      assert.deepEqual(await check({ name: 'unit' }), { outcome: 'waiting', gate: 'check-only-unauthorized', key: 'app/unit' });
       const [print] = await fx.kinds(CHECK_TASK, 'gate');
       assert.equal(print?.['raisedBy'], 'read');
       assert.deepEqual(print?.['values'], { key: ['app/unit'], files: ['src/a.spec.ts'] });
@@ -43,13 +43,13 @@ describe('investigate diagnostics (07-I1)', () => {
   it('07-I1: a bound hook approval revises read through $raisedBy, then the exact authorized check runs', async () => {
     const { fx, check, runner } = await investigate();
     try {
-      await check({ key: 'app/unit' });
+      await check({ name: 'unit' });
       const [print] = await fx.kinds(CHECK_TASK, 'gate');
       const after = await fx.engine.advance({ task: CHECK_TASK, session: SESSION_A, cause: 'gate-hook', answers: [{ gate: 'check-only-unauthorized', option: 'approve', instance: print!.id }], scratchpadDir: fx.scratchpad });
       assert.equal(after.position, 'read');
       assert.deepEqual((await fx.kinds(CHECK_TASK, 'revise')).map((entry) => entry['from']), ['read']);
-      assert.equal((await check({ key: 'app/unit' })).outcome, 'ran');
-      assert.deepEqual(runner.calls, [['jest', 'src/a.spec.ts']]);
+      assert.equal((await check({ name: 'unit' })).outcome, 'ran');
+      assert.deepEqual(runner.calls, [["jest 'src/a.spec.ts'"]]);
       assert.equal((await fx.kinds(CHECK_TASK, 'check')).length, 1);
     } finally {
       await fx.dispose();
@@ -59,10 +59,10 @@ describe('investigate diagnostics (07-I1)', () => {
   it('07-I1: a bound approval covers its key only; another propose key still waits', async () => {
     const { fx, check, runner } = await investigate();
     try {
-      await check({ key: 'app/unit' });
+      await check({ name: 'unit' });
       const [print] = await fx.kinds(CHECK_TASK, 'gate');
       await fx.engine.advance({ task: CHECK_TASK, session: SESSION_A, cause: 'gate-hook', answers: [{ gate: 'check-only-unauthorized', option: 'approve', instance: print!.id }], scratchpadDir: fx.scratchpad });
-      assert.equal((await check({ key: 'app/e2e' })).outcome, 'waiting');
+      assert.equal((await check({ name: 'e2e' })).outcome, 'waiting');
       assert.deepEqual(runner.calls, []);
     } finally {
       await fx.dispose();
@@ -72,8 +72,8 @@ describe('investigate diagnostics (07-I1)', () => {
   it('07-I1: a model-typed --approve is declined with acting-needs-human and nothing runs', async () => {
     const { fx, check, runner } = await investigate();
     try {
-      await check({ key: 'app/unit' });
-      assert.equal((await check({ key: 'app/unit', approve: ['app/unit'] })).outcome, 'waiting');
+      await check({ name: 'unit' });
+      assert.equal((await check({ name: 'unit', approve: ['app/unit'] })).outcome, 'waiting');
       const [declined] = await fx.kinds(CHECK_TASK, 'declined');
       assert.deepEqual([declined?.['gate'], declined?.['reason'], declined?.['via'], declined?.['answer']], ['check-only-unauthorized', 'acting-needs-human', 'flag', 'approve']);
       assert.deepEqual(runner.calls, []);

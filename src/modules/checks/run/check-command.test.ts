@@ -1,56 +1,67 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { RouteFixture } from '#testing/fixtures/route-fixture';
-import { checkFixture, CHECK_CONFIG, CHECK_TASK } from '#testing/fixtures/check-fixture';
+import { checkFixture, CHECK_TASK } from '#testing/fixtures/check-fixture';
 import { AmbicodeError } from '#util/errors';
 import { SESSION_A } from '#testing/fixtures/ids';
 
 const code = (expected: string) => (error: unknown) => error instanceof AmbicodeError && error.code === expected;
 const kinds = async (fx: RouteFixture, kind: string) => fx.kinds(CHECK_TASK, kind);
 
-describe('check --only (07-C, 07-K)', () => {
-  it('07-C1 malformed keys, a missing --only and an unknown check refuse bad-argument; an unknown project is unknown-project', async () => {
+describe('check --name (07-C)', () => {
+  it('07-C1 a missing --phase value, an unknown check and an unknown project refuse', async () => {
     const { fx, check } = await checkFixture();
     try {
-      await assert.rejects(check({ key: 'app' }), code('bad-argument'));
-      await assert.rejects(check({ only: [] }), code('bad-argument'));
       await assert.rejects(check({ phase: 'blue' as never }), code('bad-argument'));
-      await assert.rejects(check({ key: 'app/nope' }), code('bad-argument'));
-      await assert.rejects(check({ key: 'web/unit' }), code('unknown-project'));
+      await assert.rejects(check({ name: 'nope' }), code('bad-argument'));
+      await assert.rejects(check({ project: 'web' }), code('unknown-project'));
     } finally {
       await fx.dispose();
     }
   });
 
-  it('a check configured as null is named as having no command, not listed as configured', async () => {
-    const { fx, check } = await checkFixture({ config: CHECK_CONFIG.replace('unit: { command: unit }', 'unit: null') });
+  it('a check with no `file` form refuses --file, and one with no `all` form refuses a whole run, naming what runs', async () => {
+    const { fx, check } = await checkFixture();
     try {
-      await assert.rejects(check({ key: 'app/unit' }), (error: unknown) => {
+      await assert.rejects(check({ name: 'e2e', files: [] }), (error: unknown) => {
         assert.ok(error instanceof AmbicodeError && error.code === 'bad-argument');
-        assert.equal(error.message, 'Project "app" check "unit" is configured without a command, so it cannot run; runnable: e2e, lint.');
+        assert.match(error.message, /check "e2e" has no `all` command/);
         return true;
       });
+      await assert.rejects(check({ name: 'format', files: [] }), (error: unknown) => error instanceof AmbicodeError && /has no `all` command/.test(error.message));
+      await assert.rejects(check({ name: 'typecheck' }), (error: unknown) => error instanceof AmbicodeError && /has no `file` command/.test(error.message));
     } finally {
       await fx.dispose();
     }
   });
 
-  it('07-C3/07-C4/07-P3 an allowed run appends one check entry with the exit code, output tail and route', async () => {
+  it('07-C3/07-C4/07-P3 a run appends one check entry with the exit code, output tail, files and route', async () => {
     const { fx, start, check, runner } = await checkFixture();
     try {
       await start();
       const result = await check();
       assert.equal(result.outcome, 'ran');
-      assert.deepEqual(runner.calls, [['jest', 'src/a.spec.ts']]);
+      assert.deepEqual(runner.calls, [["jest 'src/a.spec.ts'"]]);
       const [entry] = await kinds(fx, 'check');
       assert.equal(entry?.['phase'], 'red');
-      assert.equal(entry?.['summary'], null);
       assert.equal(typeof entry?.['tail'], 'string');
-      assert.deepEqual(entry?.['only'], ['src/a.spec.ts']);
+      assert.deepEqual(entry?.['files'], ['src/a.spec.ts']);
       assert.equal(entry?.['key'], 'app/unit');
       assert.equal(typeof entry?.['route'], 'string');
       assert.equal(entry?.['session'], SESSION_A);
       assert.ok(result.outcome === 'ran' && result.proof.proven);
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('without --file the `all` command runs', async () => {
+    const { fx, start, check, runner } = await checkFixture();
+    try {
+      await start();
+      await check({ files: [] });
+      assert.deepEqual(runner.calls, [['jest']]);
+      assert.deepEqual((await kinds(fx, 'check'))[0]?.['files'], []);
     } finally {
       await fx.dispose();
     }
@@ -121,7 +132,7 @@ describe('check --only (07-C, 07-K)', () => {
     const { fx, start, check, runner } = await checkFixture();
     try {
       await start();
-      await assert.rejects(check({ key: 'app/lint' }), code('check-only-unauthorized'));
+      await assert.rejects(check({ name: 'lint' }), code('check-only-unauthorized'));
       assert.deepEqual(runner.calls, []);
       assert.deepEqual((await kinds(fx, 'limit')).map((entry) => [entry['which'], entry['key']]), [['check-forbidden', 'app/lint']]);
       assert.equal((await kinds(fx, 'gate')).length, 0);
@@ -134,7 +145,7 @@ describe('check --only (07-C, 07-K)', () => {
     const { fx, start, check, runner } = await checkFixture();
     try {
       await start();
-      assert.deepEqual(await check({ key: 'app/e2e' }), { outcome: 'waiting', gate: 'check-only-unauthorized', key: 'app/e2e' });
+      assert.deepEqual(await check({ name: 'e2e' }), { outcome: 'waiting', gate: 'check-only-unauthorized', key: 'app/e2e' });
       const [gate] = await kinds(fx, 'gate');
       assert.deepEqual(gate?.['values'], { key: ['app/e2e'], files: ['src/a.spec.ts'] });
       assert.equal(gate?.['raisedBy'], 'red');
@@ -151,8 +162,8 @@ describe('check --only (07-C, 07-K)', () => {
         const { fx, start, check, runner } = await checkFixture();
         try {
           await start(channel, headless);
-          await check({ key: 'app/e2e' });
-          assert.equal((await check({ key: 'app/e2e', approve: ['app/e2e'] })).outcome, 'waiting');
+          await check({ name: 'e2e' });
+          assert.equal((await check({ name: 'e2e', approve: ['app/e2e'] })).outcome, 'waiting');
           const [declined] = await kinds(fx, 'declined');
           assert.equal(declined?.['reason'], 'acting-needs-human');
           assert.equal(declined?.['via'], 'flag');
@@ -171,12 +182,12 @@ describe('check --only (07-C, 07-K)', () => {
     const { fx, start, check, runner } = await checkFixture();
     try {
       await start();
-      await check({ key: 'app/e2e' });
+      await check({ name: 'e2e' });
       const [print] = await kinds(fx, 'gate');
       await fx.engine.advance({ task: CHECK_TASK, session: SESSION_A, cause: 'gate-hook', answers: [{ gate: 'check-only-unauthorized', option: 'approve', instance: print!.id }], scratchpadDir: fx.scratchpad });
       runner.out = { exitCode: 1, stdout: '  1 failed\n  3 passed\n' };
-      assert.equal((await check({ key: 'app/e2e' })).outcome, 'ran');
-      assert.equal((await check({ key: 'app/e2e' })).outcome, 'ran');
+      assert.equal((await check({ name: 'e2e' })).outcome, 'ran');
+      assert.equal((await check({ name: 'e2e' })).outcome, 'ran');
       assert.equal((await kinds(fx, 'gate')).length, 1);
       assert.equal(runner.calls.length, 2);
     } finally {
@@ -188,10 +199,10 @@ describe('check --only (07-C, 07-K)', () => {
     const { fx, start, check, runner } = await checkFixture();
     try {
       await start('hook', true, { answers: [{ gate: 'check-only-unauthorized', option: 'approve' }] });
-      assert.equal((await check({ key: 'app/e2e' })).outcome, 'waiting');
+      assert.equal((await check({ name: 'e2e' })).outcome, 'waiting');
       await fx.engine.advance({ task: CHECK_TASK, session: SESSION_A, cause: 'check', scratchpadDir: fx.scratchpad });
       assert.equal((await kinds(fx, 'acceptance')).at(-1)?.['via'], 'prompt');
-      assert.equal((await check({ key: 'app/e2e' })).outcome, 'ran');
+      assert.equal((await check({ name: 'e2e' })).outcome, 'ran');
       assert.equal(runner.calls.length, 1);
     } finally {
       await fx.dispose();
@@ -202,9 +213,9 @@ describe('check --only (07-C, 07-K)', () => {
     const { fx, start, check, runner } = await checkFixture();
     try {
       await start();
-      await check({ key: 'app/e2e' });
-      assert.deepEqual(await check({ key: 'app/e2e', decline: ['app/e2e'] }), { outcome: 'declined', key: 'app/e2e' });
-      assert.deepEqual(await check({ key: 'app/e2e' }), { outcome: 'declined', key: 'app/e2e' });
+      await check({ name: 'e2e' });
+      assert.deepEqual(await check({ name: 'e2e', decline: ['app/e2e'] }), { outcome: 'declined', key: 'app/e2e' });
+      assert.deepEqual(await check({ name: 'e2e' }), { outcome: 'declined', key: 'app/e2e' });
       assert.equal((await kinds(fx, 'declined')).length, 1);
       assert.deepEqual(runner.calls, []);
     } finally {
@@ -215,7 +226,7 @@ describe('check --only (07-C, 07-K)', () => {
   it('07-K5 standalone propose refuses and writes nothing; session null with an open route refuses session-unbound', async () => {
     const { fx, start, check } = await checkFixture();
     try {
-      await assert.rejects(check({ key: 'app/e2e' }), code('check-only-unauthorized'));
+      await assert.rejects(check({ name: 'e2e' }), code('check-only-unauthorized'));
       assert.deepEqual(await fx.ledger(CHECK_TASK), []);
       await start();
       await assert.rejects(check({}, null), code('session-unbound'));

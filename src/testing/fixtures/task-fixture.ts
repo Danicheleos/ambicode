@@ -23,7 +23,7 @@ export async function taskFixture(options: { config?: string; pack?: string } = 
   const { fx } = base;
   await fx.repo.write('src/orders.ts', ORDERS);
   await fx.repo.commitAll('orders');
-  const dir = path.join(fx.repo.root, '.ambicode', 'task', CHECK_TASK);
+  const dir = path.join(fx.repo.root, '.ambicode', 'tasks', CHECK_TASK);
   let reviews = 0;
 
   const start = (input: Partial<StartInput> = {}): Promise<StepMessage> =>
@@ -41,7 +41,7 @@ export async function taskFixture(options: { config?: string; pack?: string } = 
 
   /** What `check --only` leaves for the tail, then the tail itself. */
   const check = async (phase: 'red' | 'green', _summary: { ran: number; failed: number } | null, exit = phase === 'red' ? 1 : 0): Promise<StepMessage> => {
-    const entry = await append({ kind: 'check', key: 'app/unit', argv: ['jest', 'src/a.spec.ts'], only: ['src/a.spec.ts'], exit, phase, ms: 3 });
+    const entry = await append({ kind: 'check', key: 'app/unit', files: ['src/a.spec.ts'], exit, phase, ms: 3 });
     return next({ cause: 'check', produced: [entry.id] });
   };
   const format = async (outcome: 'formatted' | 'unconfigured' = 'formatted'): Promise<StepMessage> => {
@@ -52,9 +52,9 @@ export async function taskFixture(options: { config?: string; pack?: string } = 
   const review = async (findings: Finding[], extra: { reviewerRan?: boolean } = {}): Promise<StepMessage> => {
     reviews += 1;
     const reviewId = `r-${reviews}`;
-    const result = path.join('.ambicode', 'task', CHECK_TASK, 'reviews', reviewId, 'result.json');
-    await fx.repo.write(result, JSON.stringify({ ...reviewResult({ kind: 'working', findings }), reviewId, brief: path.join('.ambicode', 'task', CHECK_TASK, 'reviews', reviewId, 'brief.md') }));
-    await fx.repo.write(path.join('.ambicode', 'task', CHECK_TASK, 'reviews', reviewId, 'changed.diff'), 'diff --git a/src/orders.ts b/src/orders.ts\n--- a/src/orders.ts\n+++ b/src/orders.ts\n@@ -1 +1 @@\n-a\n+b\n');
+    const result = path.join('.ambicode', 'reviews', CHECK_TASK, 'result.json');
+    await fx.repo.write(result, JSON.stringify({ ...reviewResult({ kind: 'working', findings }), reviewId, brief: path.join('.ambicode', 'reviews', CHECK_TASK, 'brief.md') }));
+    await fx.repo.write(path.join('.ambicode', 'reviews', CHECK_TASK, 'changed.diff'), 'diff --git a/src/orders.ts b/src/orders.ts\n--- a/src/orders.ts\n+++ b/src/orders.ts\n@@ -1 +1 @@\n-a\n+b\n');
     const ran = extra.reviewerRan ?? true;
     const entry = await append({ kind: 'review', reviewId, result, status: 'partial', stage: ran ? 'recorded' : 'pending', reviewerRan: ran, findings: findings.length });
     return next({ cause: ran ? 'review record' : 'review', produced: [entry.id] });

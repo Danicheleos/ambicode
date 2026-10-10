@@ -7,7 +7,7 @@ import { describe, it } from 'node:test';
 import { materialize } from './materialize.mjs';
 import { fixtureByName } from './definitions.mjs';
 
-const IGNORE_LINES = ['.ambicode/index/', '.ambicode/reviews/', '.ambicode/task/', '.ambicode/notes/'];
+const IGNORE_LINES = ['.ambicode/'];
 
 describe('fixtures materialize', () => {
   for (const name of ['ts-staged-unstaged', 'ts-branch-divergence']) {
@@ -21,7 +21,7 @@ describe('fixtures materialize', () => {
         const committed = show('--name-only', '--format=', commit);
         assert.match(committed, /^\.ambicode\/config\.yaml$/m);
         assert.match(committed, /^\.gitignore$/m);
-        assert.match(show(`${commit}:.ambicode/config.yaml`), /schemaVersion: 3/);
+        assert.match(show(`${commit}:.ambicode/config.yaml`), /schemaVersion: 4/);
         const ignored = show(`${commit}:.gitignore`).split('\n');
         for (const line of IGNORE_LINES) assert.ok(ignored.includes(line), line);
       } finally {

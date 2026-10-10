@@ -26,7 +26,7 @@ export async function loadPacksForProject(options: LoadPacksOptions): Promise<Lo
   const { fs, project, builtinDirectory, repositoryRoot } = options;
   const diagnostics: Diagnostic[] = [];
   const loaded: PackWithPrompts[] = [];
-  const constraints = { commands: project.commands, projectId: project.id };
+  const constraints = { commands: { ...project.commands, ...project.checks }, projectId: project.id };
 
   for (const reference of project.packs) {
     const id = reference.slice('builtin/'.length);

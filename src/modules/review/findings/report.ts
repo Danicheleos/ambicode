@@ -84,7 +84,7 @@ function verification(result: ReviewResult): string[] {
     lines.push('   No check recorded for this task. Nothing was verified by execution: that is a gap, not a pass.');
   }
   for (const check of result.checks) {
-    lines.push(`   ${check.key} ${check.phase}: exit ${check.exit}${check.argv.length === 0 ? '' : `  ran: ${check.argv.join(' ')}`}`);
+    lines.push(`   ${check.key} ${check.phase}: exit ${check.exit}${check.files.length === 0 ? '' : `  on: ${check.files.join(' ')}`}`);
   }
   return lines;
 }

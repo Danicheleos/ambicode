@@ -29,7 +29,7 @@ export const textOf = (content) =>
   typeof content === 'string' ? content : Array.isArray(content) ? content.map((block) => (typeof block === 'string' ? block : block?.text ?? '')).join('\n') : JSON.stringify(content ?? '');
 const hash = (text) => createHash('sha256').update(text).digest('hex').slice(0, 12);
 // The task slug is minted per run; the rest of a step is the layer under test.
-const withoutSlug = (text) => text.replace(/task [^\s·]+/g, 'task <slug>').replace(/\.ambicode\/task\/[^/\s]+/g, '.ambicode/task/<slug>');
+const withoutSlug = (text) => text.replace(/task [^\s·]+/g, 'task <slug>').replace(/\.ambicode\/tasks\/[^/\s]+/g, '.ambicode/tasks/<slug>');
 
 export function callClass(name, input) {
   if (name !== 'Bash') return name;
@@ -79,7 +79,7 @@ export function traceFacts(events) {
       const text = results.get(tool.id) ?? '';
       const kind = callClass(tool.name, tool.input);
       bytes[kind] = (bytes[kind] ?? 0) + Buffer.byteLength(text);
-      if (/\.ambicode\/task\//.test(text)) selfHit = true;
+      if (/\.ambicode\/tasks\//.test(text)) selfHit = true;
     }
   const tokens = usage === null ? null : { input: usage.input_tokens ?? 0, cacheWrite: usage.cache_creation_input_tokens ?? 0, cacheRead: usage.cache_read_input_tokens ?? 0, output: usage.output_tokens ?? 0 };
   return { toolTurns: [...turns.values()].filter((tools) => tools.length > 0).length, bytes, tokens, selfHit };

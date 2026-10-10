@@ -17,13 +17,13 @@ steps:
       default: stop                               # non-acting: --from-draft records it as a preanswer
   - id: ground
     actor: code
-    run: [requirements.normalize, checks.preflight, checks.baseline, "search.map(context)", script(inventory), "policy.stage(before-work)", "policy.stage(before-checks)"]
+    run: [requirements.normalize, checks.preflight, checks.baseline, "search.map(context)", script(inventory), "policy.stage(before-work)", "policy.stage(before-checks)", context.list]
     produces: [baseline, map, policy]
     repeat: 2
   - id: red
     actor: model
     instruction: file:routes/task/red.md
-    payload: [brief, envelope, baseline, map, "policy:before-work"]
+    payload: [brief, envelope, baseline, map, "policy:before-work", context.list]
     produces: ["check{red}"]
   - id: green
     actor: model

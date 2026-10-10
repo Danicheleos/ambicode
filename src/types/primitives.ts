@@ -60,9 +60,6 @@ export const COMMAND_ACTION_PRECEDENCE: Record<z.infer<typeof CommandAction>, nu
   run: 1,
 };
 
-export const Ecosystem = z.string().min(1);
-export type Ecosystem = z.infer<typeof Ecosystem>;
-
 export const TargetKind = z.enum(['working', 'branch', 'merge-request']);
 export type TargetKind = z.infer<typeof TargetKind>;
 

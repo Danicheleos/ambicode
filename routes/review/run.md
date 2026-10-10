@@ -1,2 +1,2 @@
 Run the review command from the payload below, unchanged. It pins the change, writes `changed.diff` and `files.txt` into the review directory, lists the checks recorded for this task, and prints the report.
-Tests are yours to choose. Before the command, run the ones that cover the change and record each with `{cli} check --task {task} <projectId>/<checkId> --only <files> --phase green`. A review with no recorded check reports that as a gap, not a pass.
+Tests are yours to choose. Before the command, run the ones that cover the change and record each with `{cli} check --task {task} --name <check> --file <file> (repeat --file per file) --phase green`. A review with no recorded check reports that as a gap, not a pass.

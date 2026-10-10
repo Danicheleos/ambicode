@@ -111,7 +111,7 @@ describe('03-K3 checks', () => {
       const blocked = await drift.stop();
       assert.match(blocked.reason ?? '', /differs from the generated one: copy the generated block \(below in the stop-check file\)/);
       // 17_1451: the stop-check file named the problem but not the block, and a route that ended early never printed it.
-      const file = await readFile(path.join(drift.fx.repo.root, '.ambicode', 'task', TASK, 'stop-check.md'), 'utf8');
+      const file = await readFile(path.join(drift.fx.repo.root, '.ambicode', 'tasks', TASK, 'stop-check.md'), 'utf8');
       const block = /\nEvidence\n[\s\S]*<!-- ambicode report \S+ -->/.exec(file)?.[0].trim();
       assert.ok(block !== undefined, file);
       await drift.say(`${heading}${block}`);
@@ -150,7 +150,7 @@ describe('03-K4 redBeforeGreen', () => {
 
 describe('07-S task stop inputs', () => {
   const heading = '## Confirmed facts\n';
-  const LEDGER = (s: Stopper): string => path.join(s.fx.repo.root, '.ambicode', 'task', TASK, 'ledger.jsonl');
+  const LEDGER = (s: Stopper): string => path.join(s.fx.repo.root, '.ambicode', 'tasks', TASK, 'ledger.jsonl');
   let serial = 0;
   const append = async (s: Stopper, entries: Record<string, unknown>[]): Promise<void> => {
     const route = (await s.fx.kinds(TASK, 'route'))[0]!.id;
@@ -158,7 +158,7 @@ describe('07-S task stop inputs', () => {
     await writeFile(LEDGER(s), (await readFile(LEDGER(s), 'utf8')) + lines.join(''));
   };
   const BRIEF = { kind: 'step', step: 'ground', actor: 'code', status: 'completed', cause: 'route-next', defectBrief: true };
-  const run = (phase: string, exit: number, _summary: { ran: number; failed: number } | null, key = 'app/unit'): Record<string, unknown> => ({ kind: 'check', key, argv: ['jest'], only: ['a.spec.ts'], exit, phase, ms: 3 });
+  const run = (phase: string, exit: number, _summary: { ran: number; failed: number } | null, key = 'app/unit'): Record<string, unknown> => ({ kind: 'check', key, files: ['a.spec.ts'], exit, phase, ms: 3 });
   async function withStop(body: (s: Stopper) => Promise<void>): Promise<void> {
     const s = await stopper();
     try {
@@ -244,7 +244,7 @@ describe('07-S task stop inputs', () => {
       const blocked = await s.stop();
       assert.equal(blocked.decision, 'block');
       assert.ok(Buffer.byteLength(blocked.reason!) <= REASON_LIMIT_BYTES, `${Buffer.byteLength(blocked.reason!)} bytes`);
-      const full = await readFile(path.join(s.fx.repo.root, '.ambicode', 'task', TASK, 'stop-check.md'), 'utf8');
+      const full = await readFile(path.join(s.fx.repo.root, '.ambicode', 'tasks', TASK, 'stop-check.md'), 'utf8');
       assert.equal(full.split('\n').filter((line) => line.startsWith('- ')).length, 60);
       assert.match(blocked.reason!, /stop-check\.md/);
     });

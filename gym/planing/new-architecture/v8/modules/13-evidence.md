@@ -14,10 +14,10 @@ promote` → `note`). Reads from the Route fold, `report` and the Stop hook.
 
 ## Outputs
 
-- `.ambicode/task/<slug>/ledger.jsonl`, append-only, CLI-written, agent-unwritable.
+- `.ambicode/tasks/<slug>/ledger.jsonl`, append-only, CLI-written, agent-unwritable.
 - Notes: `investigation_<ts>.md`, `plan_<ts>.md`, `plan-draft_<ts>.md`, `notes.md`.
 - `steps/<id>.md` (payloads over the window; `steps/plan-body.md`, the one model-writable file).
-- `requirements/<key>.json` (captured payloads, 14 §3). `reviews/<id>/…`.
+- `requirements/<key>.json` (captured payloads, 14 §3). A review run lives in `.ambicode/reviews/<slug>/` (ledger, `changed.diff`, `files.txt`, findings), not under the task.
 - `$A report --task <slug>`: **Evidence** and **Not verified**, generated.
 - The navigation line, generated from `search` entries, labelled "CLI calls; model reads not recorded".
 
@@ -41,7 +41,7 @@ promote` → `note`). Reads from the Route fold, `report` and the Stop hook.
 | `search` | Search | command (`refs`), names, hits, bytes, truncated? |
 | `policy` | Policy | stage (`before-work\|before-checks\|before-report\|drafts\|apply`), packs, rules, omitted, bytes; `drafts`: path, contentHash, drafts, errors |
 | `baseline` | Checks | head, dirty[] |
-| `check` | Checks | key, argv, only[], exit, phase, tail?, ms, mutations? |
+| `check` | Checks | name, command, files[], exit, phase, tail?, ms, mutations? |
 | `format` | Checks | key, files, exit, via (`model`), outcome (`formatted\|unconfigured\|failed\|refused`) |
 | `review` | Review | reviewId, status?, statusReason?, reviewerRan?, stage (`pending\|recorded`), findings?, omissions?, preexisting?, baseline? |
 | `worker` | plan-check script | worker, outcome (`ran\|inline\|skipped`), ms, artifact, summary {failed, anchorsBad}? |
@@ -105,7 +105,7 @@ Evidence
   Map: layers shortlist→harvest→shortlist (0.9 s); pass 1 (3 terms, 15 candidates), pass 2 (5 names, 9 candidates); 1 colliding name; index none
   Navigation (CLI calls): refs x1 (3 names), find x2 — model reads not recorded
   Baseline: a1b2c3d, dirty: README.md
-  Checks: web/unit --only validate.spec.ts  red exit 1 (1 ran, 1 failed) → green exit 0 (1 ran, 0 failed)
+  Checks: web/test --file validate.spec.ts  red exit 1 (1 ran, 1 failed) → green exit 0 (1 ran, 0 failed)
   Review: local_2026-10-03T11-02 complete, 2 findings
   Decisions: plan-accept "Accept" (via hook, 11:04); review-offer "run" (answered in the prompt, before the artifact existed)
   Revisions: plan-write ×2 (plan check: 2 bad anchors → 0)

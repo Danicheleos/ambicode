@@ -1,6 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULTS } from '#types/defaults';
+import { CONFIG } from '#testing/fixtures/route-fixture';
+import { parseConfig } from '#modules/config/load';
+
+// Limits left null in config: nothing refuses or voids.
+const NO_LIMITS = parseConfig(CONFIG.replace('maxFindings: 7, maxChangedFiles: 50, maxChangedLines: 2000, maxContextBytes: 524288', 'maxFindings: null, maxChangedFiles: null, maxChangedLines: null, maxContextBytes: null')).skills.review;
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { pathExclusionReason } from '#util/path-classes';
 import { enforceReviewInputLimits, measureInput, partitionChange } from './change.ts';
@@ -27,10 +31,10 @@ test('input above a configured limit blocks the review with measured counts', ()
     requirementBytes: 0,
     contextBytes: 100,
   });
-  assert.doesNotThrow(() => enforceReviewInputLimits(measured, DEFAULTS.review));
+  assert.doesNotThrow(() => enforceReviewInputLimits(measured, NO_LIMITS));
 
   try {
-    enforceReviewInputLimits(measured, { ...DEFAULTS.review, maxChangedLines: 100, maxChangedFiles: 2 });
+    enforceReviewInputLimits(measured, { ...NO_LIMITS, maxChangedLines: 100, maxChangedFiles: 2 });
     assert.fail('expected a refusal');
   } catch (error) {
     const typed = error as Error & { code: string; details: string[] };
@@ -85,7 +89,7 @@ test('a path the operator excludes leaves the review instead of blocking it', as
 
   const measured = measureInput(reviewable.files, reviewable.patch);
   assert.equal(measured.changedFiles, 1);
-  assert.doesNotThrow(() => enforceReviewInputLimits(measured, DEFAULTS.review, reviewable.files));
+  assert.doesNotThrow(() => enforceReviewInputLimits(measured, NO_LIMITS, reviewable.files));
 });
 
 test('test files are told apart from product code by unambiguous markers only', () => {

@@ -67,7 +67,7 @@ const lines = [
   '## Changed files', '', ...files.flat(),
   '## Policy rules', '', rules, '',
   '## Requirements', '', ...((result.requirements ?? []).length === 0 ? ['(none supplied: quality review)'] : result.requirements.flatMap((source) => [`### ${source.id}: ${source.title}`, source.content, ''])),
-  '## Check results', '', ...(checks.length === 0 ? ['No check recorded for this task: nothing was verified by execution. That is a gap, not a pass.'] : checks.map((check) => `- ${check.key} ${check.phase}: exit ${check.exit}; ran: ${(check.argv ?? []).join(' ')}${(check.only ?? []).length === 0 ? '' : `; only: ${check.only.join(' ')}`}`)), '',
+  '## Check results', '', ...(checks.length === 0 ? ['No check recorded for this task: nothing was verified by execution. That is a gap, not a pass.'] : checks.map((check) => `- ${check.key} ${check.phase}: exit ${check.exit}${(check.files ?? []).length === 0 ? '' : `; on: ${check.files.join(' ')}`}`)), '',
 ];
 writeFileSync(path.join(reviewDir, 'brief.md'), lines.join('\n'));
 process.stdout.write(JSON.stringify({ payload: `diff: ${path.join(reviewDir, 'changed.diff')}\nbrief: ${path.join(reviewDir, 'brief.md')}` }));

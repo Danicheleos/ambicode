@@ -131,7 +131,7 @@ describe('task cases', () => {
     git(repo, 'commit', '-qm', 'base');
     put(path.join(repo, 'f.txt'), 'two\n');
     put(path.join(repo, 'new.txt'), 'fresh\n');
-    put(path.join(repo, '.ambicode', 'task', 'x', 'ledger.jsonl'), '{}\n');
+    put(path.join(repo, '.ambicode', 'tasks', 'x', 'ledger.jsonl'), '{}\n');
     harvestPatches(path.join(top, 'traces'), { sandboxRoots: [root] });
     const patch = readFileSync(path.join(top, 'traces', 'patches', 'e-1.patch'), 'utf8');
     assert.match(patch, /\+two/);

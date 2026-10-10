@@ -24,7 +24,7 @@ parts, the fallback start line.
 |---|---|---|---|---|
 | 1 | hook/code | `route start`: slug from args or the plan's directory; `note list` → the latest `plan` (or `--plan <file>`); `notes.md` iteration header; template `when args.hasRequirement` (headless: only `--requirement`, D17) | ≤ 4 KB | `plan.isDraft` and no `--from-draft` → declared gate `draft-ok` ⏸ *implement anyway (recorded)* / *stop*; **default: stop** |
 | 2 | code (start tail) | `checks.baseline`; `map --mode context` from the brief's paths/symbols (layers from config); caller inventory: `refs` (grep -w) for every symbol the brief re-signs, collisions flagged from the harvest; `policy stage before-work`; detached `index build` | `baseline`, `map`, `search`, `policy`; ≤ 9 KB (file if larger) | — |
-| 3 | model `red` | one line that pre-existing dirty files stay out of this task's review; the regression test; `$A check --task <slug> <key> --only <spec> --phase red` | `check {red, summary.failed ≥ 1}` | `propose` → raised gate `check-only-unauthorized` ⏸ approve/decline (default decline); no test possible → `limit {no-red}` with the stated observation |
+| 3 | model `red` | one line that pre-existing dirty files stay out of this task's review; the regression test; `$A check --task <slug> --name <check> --file <spec> --phase red` | `check {red, summary.failed ≥ 1}` | `propose` → raised gate `check-only-unauthorized` ⏸ approve/decline (default decline); no test possible → `limit {no-red}` with the stated observation |
 | 4 | model `green` | **green**: the smallest change; a `collides` caller → verify its import before editing; `$A check … --phase green`; then `$A format --task <slug>` (model-run, #48) | `check {green, exit 0, summary.ran ≥ 1}`, `format` | `format-unconfigured` → Not verified |
 | 5 | human ⏸ `review-offer` (tail of `format`) | the `--estimate` text; *run* / *skip — verification incomplete* | `gate`, answer | **default: skip**; evals pass `--answer review-offer=run` at `route start` (#44) — honoured only from a **trusted** start (hook or harness channel; a model-typed `--headless` start declines it, 12 §2.4, G1, P58) |
 | 6 | model → code `review-run` (`repeat: 2`) | on *run* the gate text names `$A review --task <slug> [--requirement …]`; dependents from `relates` (index) or the name search as `--context`. The command's tail **evaluates**: in-scope findings and `fix` under its `repeat` → `revise fix` (this is also how `fix` is entered the first time, since its kinds already exist in its window; the first entry counts as `fix`'s first execution, the second `revise fix` as its second; the third is refused with `limit`, #103); waiting keys → raised gate per key; else → report step | `review`, `revise?` | waiting checks → `check-only-unauthorized` per key ⏸ approve/decline (default decline); approve → `revise review-run` (`$raisedBy`, #77) |
@@ -61,7 +61,7 @@ assertion; cost ≤ 1.2x. No third arm (nothing to isolate without LSP). The use
 
 ## What changes from v0.5.0
 
-`check --only` with summaries, model-run `format`, baseline scoping, caller inventory by code with
+`check --name --file`, model-run `format`, baseline scoping, caller inventory by code with
 collision flags, generated report sections, estimate gate (default skip), re-entry for the fix
 round, `--plan`, `--from-draft`, iteration header. No LSP.
 

@@ -1,3 +1,4 @@
+import { dirKindFor } from '#types/defaults';
 import { createRuntime } from '#composition/root';
 import { EMPTY_HOOK_OUTPUT, HookInput, type AdditionalContextEvent, type AdditionalContextHookOutput, type RouteHookDeps, type HookDeps } from '#types/hook';
 import { askedKeys } from '#modules/requirements/envelope/envelope';
@@ -133,7 +134,7 @@ async function captureForRoute(runtime: Runtime, input: HookInput, deps: HookDep
   const { routes } = await deps.load();
   const view = await openRouteView(routeRuntime, routes, active.task, active.owner);
   if (view === null) return;
-  const dir = taskDirFor(found.repositoryRoot, active.task);
+  const dir = taskDirFor(found.repositoryRoot, active.task, '.', dirKindFor(active.skill));
   await withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), input.session_id, async (ledger) => {
     const read = await ledger.read();
     const head = read.state === 'ok' ? read.entries.find((entry) => entry.id === view.routeId) : undefined;

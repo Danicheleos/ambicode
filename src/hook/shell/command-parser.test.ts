@@ -21,7 +21,7 @@ describe('parseCommand splits segments', () => {
   });
 
   it('never reads a heredoc body as commands, and resumes after its delimiter line', () => {
-    const body = 'const f = () => 1; // .ambicode/task/\ngit push && rm -rf /';
+    const body = 'const f = () => 1; // .ambicode/tasks/\ngit push && rm -rf /';
     assert.deepEqual(argvs(`cat <<'EOF'\n${body}\nEOF\nls`), [['cat'], ['ls']]);
     assert.deepEqual(argvs(`cat <<-EOF\n\t${body}\n\tEOF\nls`), [['cat'], ['ls']]);
     assert.deepEqual(argvs(`cat <<"EOF" && git status\n${body}\nEOF`), [['cat'], ['git', 'status']]);

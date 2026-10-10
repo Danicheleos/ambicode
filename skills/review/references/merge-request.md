@@ -11,7 +11,7 @@ merge request comes through the GitLab MCP server you already have.
   the diff tool of your server, with the project and number taken from the URL.
   Make both, every page of the diff, and keep the results whole.
 - **What the capture keeps.** When the diff response arrives, a hook writes the
-  diff to `reviews/mr-diff.patch` beside `mr-diff.json` (url, head sha, tool,
+  diff to `mr-diff.patch` in the run directory beside `mr-diff.json` (url, head sha, tool,
   hash) and one `capture` ledger entry. Nothing else is recorded. Without a
   capture, `review` refuses with `mr-diff-missing`: make the diff call, then
   `route next`.

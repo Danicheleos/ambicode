@@ -7,7 +7,7 @@ diff, lists the checks recorded for the task, and puts both to an independent
 reviewer subagent that reads the diff and the checkout.
 
 The review runs no checks. The model picks the tests that cover the change and
-records each with `ambicode check --task <slug> --only <files> --phase red|green`.
+records each with `ambicode check --task <slug> --name <check> --file <path> --phase red|green`.
 A review with no recorded check says so as a gap.
 
 ## Choosing a target
@@ -46,7 +46,7 @@ ambicode review \
 repeatable. The result is then labelled `requirement-based`.
 
 On a route (`/ambicode:review`, `investigate`, `plan`, `task`) you only call the MCP tools: the hook stores each response whole under
-`.ambicode/task/<task>/requirements/<key>.json` (url, tool, retrievedAt, rawHash, content up to 256 KB) and `requirements normalize` builds the
+`.ambicode/tasks/<task>/requirements/<key>.json` (url, tool, retrievedAt, rawHash, content up to 256 KB) and `requirements normalize` builds the
 envelope from those files. The JSON envelope below is for a standalone `review --evidence`.
 
 **The helper never retrieves anything.** It has no Atlassian client, no
@@ -62,7 +62,7 @@ content, citations, status, failureReason, retrievedVia) and `conflicts`; `inves
 to two commands — `review`, or `review` again after fixing a finding — pipes it again, so there is nothing to keep alive across
 consumers and nothing to remember to delete. Nothing is lost either way:
 every retrieved source's content, citations, and provenance are carried into
-the saved review result (`.ambicode/reviews/<id>/result.json`).
+the saved review result (`.ambicode/reviews/<slug>/result.json`).
 
 Every `--requirement` URL must have an entry in that envelope, and the
 envelope must hold nothing else. A URL whose entry says `forbidden`, `not-found` or
@@ -82,13 +82,13 @@ envelope's `conflicts` array. Neither claims to find every contradiction.
 
 ```yaml
 requirements:
-  mcpServer: atlassian
+  mcps: [atlassian]
 ```
 
-`config.yaml` holds the current binding (`requirements.mcpServer`). While it is `null`, retrieval is
+`config.yaml` holds the current binding (`requirements.mcps`, server names; the first Jira or Confluence one is the requirements server). While it is empty, retrieval is
 unpinned and the review records that in its omissions. If more than one
-compatible server is connected, `/ambicode:init` asks which one this repository
-should use rather than choosing. Evidence produced by a different server than
+compatible server is connected, you set which one this repository
+should use; AMBICODE does not choose. Evidence produced by a different server than
 the binding names is refused.
 
 
@@ -177,7 +177,7 @@ Four parts, in this order.
    rejected for naming a file or line that is not in the change.
 
 `review` writes `result.json`, `changed.diff`, `files.txt`, `report.txt` and
-`brief.md` to `.ambicode/reviews/<id>/` (gitignored); `review record` adds
+`brief.md` to `.ambicode/reviews/<slug>/` (gitignored); `review record` adds
 `findings.json` and rewrites `result.json` and `report.txt` with the findings.
 
 ### Reading the outcome honestly
@@ -194,7 +194,7 @@ verified, which makes the result `partial` and puts the reason in part 4.
 
 **An unverifiable claim invalidates the result.** If the reviewer named a path
 or a line the pinned change does not contain, cited a rule or requirement this
-review does not hold, or returned more findings than `review.maxFindings`, the
+review does not hold, or returned more findings than `skills.review.maxFindings`, the
 review is an `error`: the finding list is empty and the surviving findings are
 *not* offered as validated output. Nothing is repaired and no second model call
 is made.
@@ -209,39 +209,34 @@ writes nothing.
 
 ## Where a review is saved
 
-Everything about one task lives in one directory:
+A task's notes live in `.ambicode/tasks/<slug>/`; a review run has its own directory under `.ambicode/reviews/<slug>/`:
 
 ```
-.ambicode/task/ORD-17/
+.ambicode/tasks/ORD-17/
   plan_2026-09-22T23-42.md
   investigation_2026-09-22T21-10.md
   notes.md
-  reviews/
-    local_2026-09-22T23-42/
-      result.json
-      report.txt
+.ambicode/reviews/ORD-17/
+  result.json
+  report.txt
 ```
 
 The task is named by the first `--requirement` you pass — a ticket is what
 the work is called in Jira, in the branch and in the merge request, so it is
 the name a person guesses first. With no requirement, `--task <slug>` names
 it, and the authoring skills mint that slug as a short kebab of the request
-plus a timestamp (`raise-upload-limit_2026-09-23T10-15`). With neither, the
-review stays directly under `.ambicode/reviews/`, because there is no task to
-group it with.
-
-The review id is the directory name only — `local_2026-09-22T23-42`, with no
-ticket in it, because the directory above already carries the ticket.
+plus a timestamp (`raise-upload-limit_2026-09-23T10-15`). Both directories use
+the same slug. The whole `.ambicode/` folder is gitignored.
 
 ## Review input limits
 
-`review.maxContextBytes` bounds what the model is handed, measured in encoded
+`skills.review.maxContextBytes` bounds what the model is handed, measured in encoded
 UTF-8 bytes before the reviewer is started: the requirements and the patch.
 
 Exceeding it refuses the review and names each measured component. Nothing is
 trimmed to fit: not the change, not a requirement.
 
-`--exclude <glob>`, repeatable, and `review.excludePaths` are the way through.
+`--exclude <glob>`, repeatable, and `skills.review.excludePaths` are the way through.
 Matching paths join the built-in exclusions: out of the patch and out of every count. `--only <glob>` is its counterpart, for a working
 tree holding more than the work in hand: nothing outside it is reviewed, and a
 file renamed *into* the selection is in it.

@@ -11,7 +11,7 @@ the raw text. When no MCP source is involved (a pasted ticket, the eval sandbox)
 ## Inputs
 
 - URLs or ticket keys in the route's args; `--requirement <url>` repeats.
-- `requirements.mcpServer` (nullable).
+- `requirements.mcps` (names of MCP servers; the first Jira/Confluence one is the requirements server).
 - `PostToolUse` payloads of `mcp__*` tools and of `WebFetch` (matchers `mcp__.*` and `WebFetch`),
   **only while a route is active and asked for requirements** (D2; no route → exit at once).
 - Requirement text in the args (sandbox `<ticket>…</ticket>`, a pasted description).
@@ -19,9 +19,9 @@ the raw text. When no MCP source is involved (a pasted ticket, the eval sandbox)
 ### `args.hasRequirement` (the route predicate, defined)
 
 Interactive: true when the args contain a URL or `--requirement`; a **bare key** (`ORD-17`, as the
-first word of the request) counts only when `requirements.mcpServer` is set. **Headless
+first word of the request) counts only when `requirements.mcps` is non-empty. **Headless
 (`--headless`): true only for an explicit `--requirement <url>`** — the CLI cannot see whether an
-`mcp__*` tool exists, and the eval scaffolds copy benchmark configs that set `mcpServer` (FE) while
+`mcp__*` tool exists, and the eval scaffolds copy benchmark configs that set `mcps` (FE) while
 the sandbox has no MCP (D17, #76). Everything else — including a key-shaped word in prose — is
 false: no fetch step, the envelope is built from the args.
 
@@ -45,7 +45,7 @@ The hook spawns on every `mcp__*` and `WebFetch` call in every session and exits
 route is active (#90, P53). With a route it takes the **asked keys** of the route's args (its
 `--requirement` values, the URLs in its text and a bare first-word key); a call is a requirement
 read when its input names an asked key, else contains a Jira key, else carries a `url` whose last
-path segment is the key. A call with none of these is ignored. `mcpServer` is no longer matched
+path segment is the key. A call with none of these is ignored. `requirements.mcps` is no longer matched
 against the tool's server segment: the asked key decides.
 
 ### 2. Capture
@@ -93,7 +93,7 @@ report in its answer; no gate carries it.
 ```ts
 captureRequirement(hookInput, { asked, ledger, dir, view, runtime }): Promise<LedgerEntry | null>;   // MCP/WebFetch PostToolUse, route active and asked only
 normalizeEnvelope({ runtime, dir, ledger, view, args }): Promise<{ state: 'ok'; sources; builtFrom; asked; missingAsked; notices } | { state: 'failed' | 'raise' }>;
-hasRequirement({ text, requirements, headless }, { mcpServer }): boolean;
+hasRequirement({ text, requirements, headless }, { mcps }): boolean;
 ```
 
 ## Failure modes and exits

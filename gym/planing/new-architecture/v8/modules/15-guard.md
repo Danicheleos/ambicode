@@ -3,7 +3,7 @@
 ## Purpose
 
 Enforce the few rules that must hold regardless of the model (C1): no git writes without a human,
-no agent writes under `.ambicode/task/` except the one plan body file, no report-shaped stop that
+no agent writes under `.ambicode/tasks/` or `.ambicode/reviews/` except the one plan body file, no agent writes `.ambicode/context/` except through `context write`, no report-shaped stop that
 contradicts the ledger. Never deny a legitimate action (M12); never wedge the session (R12).
 
 ## Inputs
@@ -23,19 +23,19 @@ reason, at most once per route.
 ### 1. Decision table
 
 `hooks.json` sends Bash calls to `guard.mjs` only when one of `Bash(git *)`, `Bash(glab mr*)`,
-`Bash(*.ambicode/task*)`, `Bash(*ambicode.mjs*)` or `Bash(rm *)` matches.
+`Bash(*.ambicode/*)`, `Bash(*ambicode.mjs*)` or `Bash(rm *)` matches.
 
 | Tool / command | Decision | Release |
 |---|---|---|
 | `git commit\|push\|reset\|checkout\|clean\|rebase\|merge`, `git stash` except `list`/`show`, `git branch -D` (or `-d -f`), an alias or expansion naming the git operation, `glab mr *` | **ask** | human approves; never deny |
 | read-only git | allow | — |
-| Write/Edit on `.ambicode/task/**` | **deny** | `note save`, named exactly |
-| Write/Edit on `.ambicode/task/<slug>/steps/plan-body.md` while this session owns the task's live plan route (the chain's latest `route` entry is this session's, 12 §2.3, H2) | allow; after another session's `--adopt`/`--fresh` → deny naming `route-taken-over`; no route, another skill's route or another owner → deny | the plan skill's `allowed-tools` grants `Write(.ambicode/task/*/steps/plan-body.md)` (#57) |
-| Bash writing into `.ambicode/task/**` (redirect, `tee`, `sed -i`, `cp/mv/rm` target), a literal target | **deny** | `note save`; the plan body has its own message |
+| Write/Edit on `.ambicode/tasks/**` or `.ambicode/reviews/**` | **deny** | `note save`, named exactly |
+| Write/Edit on `.ambicode/tasks/<slug>/steps/plan-body.md` while this session owns the task's live plan route (the chain's latest `route` entry is this session's, 12 §2.3, H2) | allow; after another session's `--adopt`/`--fresh` → deny naming `route-taken-over`; no route, another skill's route or another owner → deny | the plan skill's `allowed-tools` grants `Write(.ambicode/tasks/*/steps/plan-body.md)` (#57) |
+| Bash writing into `.ambicode/tasks/**` or `reviews/**` (redirect, `tee`, `sed -i`, `cp/mv/rm` target), a literal target | **deny** | `note save`; the plan body has its own message |
 | the same with a target only the shell can resolve (`$VAR`, `$(…)`), or relative after a `cd` in the same command | **ask**, never deny (G14) | — |
-| a command the parser cannot close (unbalanced quote) that mentions git or `.ambicode/task` | **ask** | — |
+| a command the parser cannot close (unbalanced quote) that mentions git or `.ambicode/tasks` | **ask** | — |
 | `rm -r` of the working directory, an ancestor, `/`, home or `*` | **ask** | — |
-| Write/Edit on `.ambicode/config.yaml` or `.gitignore` while an init route is active | deny | answer the init gate; `init --apply` writes both |
+| Write/Edit on `.ambicode/context/**` | **deny** | `context write`, named (it enforces the limits and refuses duplicates) |
 | `ambicode check --approve` / `review --approve` typed by the model | allow the command; the **CLI** honours the flag only under 12 §3.4 (an `acceptance` for that key on record — a bound hook answer or a consumed preanswer; never the flag itself, whatever the route's mode or channel, G1, C1, #137) — not a guard decision (#84) | the gate |
 | any `ask` while the active route is **headless** | **deny** with "run `route stop --reason blocked --detail "permission-denied: …"` and finish with `permission-denied: <what>`" (B12) | — |
 
@@ -50,8 +50,8 @@ reason, at most once per route.
    command nested in `$(…)`, backticks or `<(…)` is matched by its text and asks.
 
 Fixtures (allow): `cd X && node "…/ambicode.mjs" note save --task T --kind plan-draft <<'EOF'\nconst f = () =>
-1; // .ambicode/task/\nEOF`; `grep foo > out.txt`; `echo ".ambicode/task"`. (deny): `echo x >
-.ambicode/task/T/plan.md`; `tee .ambicode/task/T/notes.md`; `sed -i … .ambicode/task/T/notes.md`.
+1; // .ambicode/tasks/\nEOF`; `grep foo > out.txt`; `echo ".ambicode/tasks"`. (deny): `echo x >
+.ambicode/tasks/T/plan.md`; `tee .ambicode/tasks/T/notes.md`; `sed -i … .ambicode/tasks/T/notes.md`.
 Standalone bundle, no imports: **26,152 B** (was 76,295 B), capped by `src/architecture.test.ts` at
 26,152 + 512 B. Shell: POSIX; on Windows Claude Code's Bash tool runs Git Bash, so the same parser
 applies (assumption to verify in the Windows smoke test, P40).

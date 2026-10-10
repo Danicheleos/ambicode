@@ -167,7 +167,7 @@ export async function resolveCapturedTarget(options: CapturedTargetOptions): Pro
     details: ['Call the diff tool of your GitLab MCP server for this merge request, then run `route next`; the capture hook records its response.'],
   });
   if (task === null) throw missing();
-  const dir = taskDirFor(repositoryRoot, task).reviews;
+  const dir = taskDirFor(repositoryRoot, task, '.', 'review').root;
   const patch = await runtime.fs.readText(path.join(dir, MR_DIFF_PATCH)).catch(() => null);
   if (patch === null) throw missing();
   const meta = JSON.parse(await runtime.fs.readText(path.join(dir, MR_DIFF_JSON)).catch(() => '{}')) as { sha?: string };

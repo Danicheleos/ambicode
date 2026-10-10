@@ -29,7 +29,7 @@ describe('eval-answers: the gate answers an eval types', () => {
   it('accepts what a route proposes, and declines the review offered after a task', () => {
     const gates = routeGates('task');
     assert.ok(!gates.get('review-offer').acting.includes('skip — verification incomplete'), 'skip is the non-acting option');
-    for (const [skill, gate] of [['plan', 'plan-accept'], ['init', 'init-apply'], ['rules', 'rules-table'], ['review', 'estimate']]) {
+    for (const [skill, gate] of [['plan', 'plan-accept'], ['rules', 'rules-table'], ['review', 'estimate']]) {
       const option = EVAL_ANSWERS[skill].find(([g]) => g === gate)[1];
       assert.ok(routeGates(skill).get(gate).acting.includes(option), `${skill}: ${gate}=${option} acts`);
     }

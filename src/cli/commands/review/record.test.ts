@@ -37,7 +37,7 @@ async function pending() {
   const location = (at: number) => ({ oldPath: file.oldPath, newPath: file.newPath, side: 'new', line: at });
   const finding = (at: number) => ({ risk: 'high', confidence: 'high', category: 'correctness', location: location(at), explanation: 'drops the last element', suggestedComment: 'check the slice end' });
   const record = (stdin: string, ...extra: string[]) => runReviewRecord({ ...runtime, stdin: { read: async () => stdin } } as Runtime, parseArgs('review record', ['--task', TASK, ...extra], REVIEW_RECORD_OPTIONS));
-  const ledger = () => readLedger(nodeFileSystem, path.join(root, '.ambicode', 'task', TASK));
+  const ledger = () => readLedger(nodeFileSystem, path.join(root, '.ambicode', 'tasks', TASK));
   return { root, reviewed, line, finding, record, ledger };
 }
 

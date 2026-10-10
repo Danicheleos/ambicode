@@ -16,7 +16,7 @@ async function capture(tool: string, response: unknown, mrUrl: string | null = U
   const s = await session();
   try {
     const entry = await s.under((deps) => captureMrDiff({ hook_event_name: 'PostToolUse', session_id: SESSION_A, tool_name: tool, tool_response: response } as never, { runtime: deps.runtime, dir: deps.dir, ledger: deps.ledger, routeId: deps.view.routeId, mrUrl }));
-    const read = (name: string): Promise<string | null> => readFile(path.join(s.dir.reviews, name), 'utf8').catch(() => null);
+    const read = (name: string): Promise<string | null> => readFile(path.join(s.dir.root, name), 'utf8').catch(() => null);
     return { entry, patch: await read(MR_DIFF_PATCH), meta: await read(MR_DIFF_JSON), ledger: await s.fx.kinds(s.task, 'capture') };
   } finally {
     await s.fx.dispose();

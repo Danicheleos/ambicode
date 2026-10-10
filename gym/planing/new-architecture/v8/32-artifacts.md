@@ -5,25 +5,23 @@
 ## 1. Repository layout (`.ambicode/`)
 
 ```
-.ambicode/
-  config.yaml                       written by init --apply only (on acceptance)
+.ambicode/                          wholly gitignored (one `.gitignore` line, written by init's scaffold script)
+  config.yaml                       schemaVersion 4; written by /ambicode:init, edited by hand, checked by `config validate`
   policies/                         live packs
   policies/drafts/                  rules drafts; the only place `rules` may Write
-  index/                            index cache; must be gitignored or `index build` refuses
-  metrics.jsonl                     publication selections (D4); gitignored
-  reviews/<id>/                     MR and routeless reviews (unchanged)
-  task/<slug>/                      one directory per task; gitignored; agent-unwritable except through the CLI
+  tasks/<slug>/                     one directory per run (investigate, plan, task, rules); agent-unwritable except through the CLI
     ledger.jsonl
     requirements/<key>.json         captured MCP payloads (hook-written)
     investigation_<ts>.md  plan-draft_<ts>.md  plan_<ts>.md (promoted)  notes.md
     steps/<stepId>.md               payloads over the inline window
     steps/plan-body.md              the one model-writable file (plan route)
-    workers/<id>-<ts>.json
-    reviews/<reviewId>/…
     stop-check.md                   the Stop hook's list when the event cannot carry it
+  reviews/<slug>/                   one directory per review run: ledger, changed.diff, files.txt, findings
+  context/                          learning context; written only by `context write`
+    overview.md  navigation.md  conventions.md  modules/<name>.md
 ```
 
-`init --apply` gitignores `index/`, `metrics.jsonl`, `reviews/`, `task/` (and the legacy `notes/`).
+Renamed 2026-10-10 (b): `task/` is `tasks/`; review runs left `tasks/<slug>/reviews/` for `reviews/<slug>/`. Gone: `index/`, `metrics.jsonl`, `workers/`.
 
 Plugin-side data: `routes/<skill>/<skill>.yaml` (one per skill), `routes/gates.yaml` (raised gates),
 `routes/<skill>/<step>.md` (step instructions).
@@ -162,20 +160,33 @@ decision:*:                              # model-raised (plan)
   release: "keep open"
 ```
 
-## 5. Config v3 deltas
+## 5. Config v4 (replaces the v3 deltas)
 
 ```yaml
-schemaVersion: 3                        # 1 and 2 load with a notice; init --apply migrates
-search:
-  index: none | codeindex
-  layers:                               # explicit and editable (D9); map refuses unknown names
-    prompt:  [shortlist, harvest, shortlist]
-    context: [grep, harvest]
-workers: { approved: [] }
-guard: { askOutsideMap: false }
-review: { onInvalid: void | drop }      # default void
-projects[].commands.format: null | { argv: [...] }
-# removed: requirements.lsp, task.lspPlugins, search.exactMaxFiles
+schemaVersion: 4                        # strict; any other version is one `config-invalid`
+id: <repo-dir-name>
+baseline: origin/main                   # optional; branch review needs it or --base
+context: { maxTotalTokens: 24000, maxFileTokens: 2500 }     # tokens = chars / 4
+skills:                                 # every skill: model, effort (low|medium|high), timeoutMinutes, plus
+  init:        { ..., scout: { model, effort, timeoutMinutes }, ruleSources: [presets, scout, manual, web] }
+  review:      { ..., maxFindings, maxChangedFiles, maxChangedLines, maxContextBytes: null|n, excludePaths: [] }
+  task:        { ..., checkTimeoutSeconds: 120 }
+  plan: {...}  investigate: {...}  rules: {...}
+requirements: { runtimes: {}, mcps: [], lsps: [], env: [] }  # mcps: first Jira/Confluence server is the requirements server
+projects:
+  - id: <kebab>
+    root: .
+    paths: [src/]
+    ecosystem: { languages: [], frameworks: [], packageManager: null }   # free text
+    include: ["src/**"]                 # replaces `shortlist`
+    exclude: ["**/*.test.*"]
+    rules: [{ source: preset|scout|manual|web, rule: "..." }]            # at most 10
+    packs: []                           # kept: ids of policies/*.yaml
+    policyFiles: []                     # kept
+    commands: { dev: "pnpm dev" }       # shell strings (was argv)
+    checks:
+      test: { all: "pnpm vitest run", file: "pnpm vitest run {file}" }   # file contains {file}; null = a gap
+# removed: search.layers, guard, profile, shortlist, review.*, checks.timeoutSeconds, requirements.mcpServer
 ```
 
 ## 6. Captured requirement (`requirements/<key>.json`)

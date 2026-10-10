@@ -57,7 +57,7 @@ export const TASK_HANDLERS: Readonly<Record<string, Handler>> = {
   'checks.preflight': async (input) => {
     const project = await projectOf(input, await configOf(input));
     if (isResult(project)) return project;
-    const runnable = Object.values(project.checks).some((check) => check !== null && project.commands[check.command] != null);
+    const runnable = Object.values(project.checks).some((check) => check.all !== null || check.file !== null);
     if (runnable) return { state: 'ok', payload: null };
     const detail = `no-check: project "${project.id}" has no check with a configured command, so no failing test can be recorded`;
     return { state: 'ok', payload: `${detail}. Configure one in .ambicode/config.yaml, then start the task again.`, exit: 'blocked', exitDetail: detail };

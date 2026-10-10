@@ -20,7 +20,7 @@
         "hooks": [
           { "type": "command", "if": "Bash(git *)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/guard.mjs"] },
           { "type": "command", "if": "Bash(glab mr*)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/guard.mjs"] },
-          { "type": "command", "if": "Bash(*.ambicode/task*)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/guard.mjs"] },
+          { "type": "command", "if": "Bash(*.ambicode/*)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/guard.mjs"] },
           { "type": "command", "if": "Bash(*ambicode.mjs*)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/guard.mjs"] },
           { "type": "command", "if": "Bash(rm *)", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/guard.mjs"] }
         ]

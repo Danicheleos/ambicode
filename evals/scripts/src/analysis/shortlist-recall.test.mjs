@@ -62,7 +62,7 @@ describe('offline map recall', () => {
       const rows = await shortlistRecall({ repos: fx.repos, cases: fx.cases });
       assert.deepEqual(rows.map((row) => row.side), ['BE-express', 'FE-angular']);
       assert.ok(rows.every((row) => row.recall >= 0.5), JSON.stringify(rows));
-      assert.equal(existsSync(path.join(fx.repos['BE-express'], '.ambicode', 'task')), false, 'no ledger written');
+      assert.equal(existsSync(path.join(fx.repos['BE-express'], '.ambicode', 'tasks')), false, 'no ledger written');
       const text = summarize(rows).join('\n');
       assert.match(text, /^BE-express: n=1 recall@15 \d\.\d{3}$/m);
       for (const secret of ['secret-case', 'confidential', 'invoiceTotals', 'src/', 'settle']) assert.ok(!text.includes(secret), secret);

@@ -16,14 +16,14 @@ route or raised by an error code — have releases and non-acting defaults that 
 record; a human can always ask for another round (D14). A `Stop` hook checks a report-shaped stop
 against the ledger, once. The skill body shrinks to the judgment asked and the first command. No
 LSP anywhere (D8). Nothing in a route or module names a language: ecosystem specifics are in the
-config the model writes from `init`'s scan (R16, D18). This is the plugin's own harness inside Claude Code's loop; whether it
+config the model writes at `/ambicode:init` from the manifests and the scout's report (R16, D18); the scout also writes the learning context under `.ambicode/context/`. This is the plugin's own harness inside Claude Code's loop; whether it
 earns its cost is measured, and the user decides (D10).
 
 ## 2. Layers
 
 ```
 ┌───────────────────────────────────────────────────────────────────────────────┐
-│ L3  Skills (user-invoked)      init  rules  investigate  plan  task  review     │  one route + one slim body each,
+│ L3  Skills (user-invoked)      init  rules  investigate  plan  task  review     │  one route + one slim body each (init: no route),
 │                                + skills/<name>/scripts/*.mjs (run by `script`)  │  plus its own scripts (C7)
 ├───────────────────────────────────────────────────────────────────────────────┤
 │ L2  Harness                    route engine · step delivery · gates (declared,  │  drives the model through hooks
@@ -45,6 +45,8 @@ its state is the ledger. L1 modules are independent and expose a CLI command (th
 an interface (the route's view); every evidence-writing command advances the route at its tail. L0
 holds every platform number and event name.
 
+Plugin-side layout added 2026-10-10 (b): `templates/config.yaml` and `templates/context-format.md` (what init copies and the scout follows), `agents/reviewer.md` and `agents/scout.md` (plugin subagents), `skills/init/scripts/scaffold.mjs`. Repository-side: `.ambicode/` is wholly gitignored: `config.yaml`, `tasks/`, `reviews/`, `context/` (32 §1).
+
 ## 3. Framework or not
 
 **An internal framework, not a product one.** Routes (`routes/<skill>/<skill>.yaml`, `routes/gates.yaml`)
@@ -61,12 +63,12 @@ and 41 names the point of no return.
 | Module | Owns | Absorbs from v0.5.0 | Verdict |
 |---|---|---|---|
 | **Search** [10](modules/10-search.md) | term shortlist, regex harvest with declaration counts, `grep`, **declared layer lists**, `refs` | `locate.ts`, `dependents.ts`, `navigation.ts` | ♻ shortlist kept; 🆕 pass 2, `refs`, layers; ✂ LSP, exact refs, index, tuning |
-| **Policy** [11](modules/11-policy.md) | packs, resolution, staged delivery, command slots, `rules` path | `policy/*`, `policies/*`, `config/*` | ✅ resolver; ♻ staging; 🆕 drafts/quotes/revert |
+| **Policy** [11](modules/11-policy.md) | packs, project `rules`, resolution, staged delivery, command slots, `rules` skill path | `policy/*`, `policies/*`, `config/*` | ✅ resolver; ♻ staging; 🆕 drafts/quotes/revert |
 | **Route** [12](modules/12-route.md) | routes, fold with re-entry, declared and raised gates, releases, limits, DSL | `prepare-on-skill.ts`, `markers.ts` | 🆕 |
 | **Evidence** [13](modules/13-evidence.md) | ledger (22 kinds incl. `preanswer`), notes with draft-first and promote, task dir, `report`, navigation line | `task/*`, `note.ts`, `review-name.ts` | ♻ |
 | **Requirements** [14](modules/14-requirements.md) | raw captured results, envelope from captures or args, binding of asked sources | `modules/requirements/envelope/normalize.ts`, `requirements-mcp.md` | ♻ |
 | **Guard** [15](modules/15-guard.md) | structural parser, decisions, Stop hook, gate table test | `guard-core.ts`, `guard.mjs` | ♻ parser; 🆕 Stop |
-| **Checks + Review** [16](modules/16-checks-review.md) | snapshot, checks, reviewer subagent input and record, validation, report | `snapshot/*`, `checks/*`, `review/*` | ✅ pipeline; 🆕 `check --only`, model-run `format`, `--task`, `--estimate`; ✂ providers, publication, page |
+| **Checks + Review** [16](modules/16-checks-review.md) | snapshot, checks, reviewer subagent input and record, validation, report | `snapshot/*`, `checks/*`, `review/*` | ✅ pipeline; 🆕 `check --name --file`, model-run `format`, `--task`, `--estimate`; ✂ providers, publication, page |
 | **Plan check** [17](modules/17-workers.md) | the plan anchor check, a skill script with re-entry | `claude-reviewer.ts` | 🆕 `skills/plan/scripts/plan-check.mjs` |
 
 ## 5. One run, with its ceremony count
@@ -103,7 +105,7 @@ reports it per route and gates the point of no return on cost and recall (D10).
 | Component | Verdict | Fact |
 |---|---|---|
 | Reviewer (now the `ambicode:reviewer` subagent, Read/Grep/Glob only), snapshot, finding validation, 4-part report | ✅ keep (seams extended, 41 lists which) | M18, C1 |
-| Checks selection, run/propose/forbid, authorization seam | ✅ keep; extend with `--only`, `format` (model-run) | one pipeline owns selection |
+| Checks selection, run/propose/forbid, authorization seam | ✅ keep; extend with `--name`/`--file`, `format` (model-run) | one pipeline owns selection |
 | Policy packs, resolver, `policy check` | ✅ keep | no measured defect |
 | GitLab provider, publication state machine, view page | ✂ the model reads the merge request and posts the selected findings through its GitLab MCP server; the hook captures the diff | C2 (model-obeyed, accepted) |
 | `prepare` as one command | ♻ `route start` + `map` + `requirements normalize` | M16, M17 |

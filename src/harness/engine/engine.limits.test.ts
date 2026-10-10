@@ -207,7 +207,7 @@ describe('E13 recovery paths', () => {
     const t = await make(BIG);
     try {
       await t.start();
-      await writeFile(path.join(t.fx.repo.root, '.ambicode', 'task', 't1', 'ledger.jsonl'), '{"id":"a-1"\nnot json\n');
+      await writeFile(path.join(t.fx.repo.root, '.ambicode', 'tasks', 't1', 'ledger.jsonl'), '{"id":"a-1"\nnot json\n');
       assert.equal(await codeOf(t.next()), 'ledger-unreadable');
       assert.equal(await codeOf(t.start()), 'ledger-unreadable');
     } finally {

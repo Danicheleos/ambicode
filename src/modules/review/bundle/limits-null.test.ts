@@ -2,7 +2,11 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { DEFAULTS } from '#types/defaults';
+import { CONFIG } from '#testing/fixtures/route-fixture';
+import { parseConfig } from '#modules/config/load';
+
+// Limits left null in config: nothing refuses or voids.
+const NO_LIMITS = parseConfig(CONFIG.replace('maxFindings: 7, maxChangedFiles: 50, maxChangedLines: 2000, maxContextBytes: 524288', 'maxFindings: null, maxChangedFiles: null, maxChangedLines: null, maxContextBytes: null')).skills.review;
 import { parseHunks } from '#platform/git/diff';
 import { enforceReviewInputLimits } from '../snapshot/change.ts';
 import { reviewRouteFixture } from '#testing/fixtures/review-route-fixture';
@@ -14,12 +18,12 @@ const file: DiffFile = { oldPath: 'src/a.ts', newPath: 'src/a.ts', changeKind: '
 
 describe('null review limits mean no limit (08-LIM)', () => {
   it('08-LIM1: the defaults set no finding, file, line or context limit', () => {
-    assert.deepEqual([DEFAULTS.review.maxFindings, DEFAULTS.review.maxChangedFiles, DEFAULTS.review.maxChangedLines, DEFAULTS.review.maxContextBytes], [null, null, null, null]);
+    assert.deepEqual([NO_LIMITS.maxFindings, NO_LIMITS.maxChangedFiles, NO_LIMITS.maxChangedLines, NO_LIMITS.maxContextBytes], [null, null, null, null]);
   });
 
   it('08-LIM2: a very large change passes the input limits when they are null', () => {
     const measured = { changedFiles: 10_000, changedLines: 5_000_000, patchBytes: 1e9, requirementBytes: 0, contextBytes: 2e9 };
-    assert.doesNotThrow(() => enforceReviewInputLimits(measured, DEFAULTS.review));
+    assert.doesNotThrow(() => enforceReviewInputLimits(measured, NO_LIMITS));
   });
 
   it('08-LIM3: any number of valid findings is ok when maxFindings is null', () => {

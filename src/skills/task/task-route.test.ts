@@ -70,14 +70,14 @@ describe('task route (07-R, 07-V, 07-G)', () => {
   });
 
   it('07-R2: the brief is the iteration after the latest notes iteration; past the last one the route exits iterations-complete', async () => {
-    const plan = '.ambicode/task/ord-7/plan.md';
+    const plan = '.ambicode/tasks/ord-7/plan.md';
     const note = (t: Fixture, iteration: number) =>
       appendLedger(t.fx.runtime.fs, t.dir, t.fx.runtime.clock.now(), 'test-writer', { kind: 'note', note: 'notes', path: `notes-${iteration}.md`, contentHash: 'sha256:0', iteration });
     await withTask(async (t) => {
       await t.fx.repo.write(plan, '# Plan\n\n## Iteration 1\nAdd the guard.\n\n## Iteration 2\nSeed the reduce.\n');
       await note(t, 1);
       const red = await t.start({ plan });
-      assert.match(red.text, /iteration 2 of 2 · plan: \.ambicode\/task\/ord-7\/plan\.md\n\n## Iteration 2\nSeed the reduce\./);
+      assert.match(red.text, /iteration 2 of 2 · plan: \.ambicode\/tasks\/ord-7\/plan\.md\n\n## Iteration 2\nSeed the reduce\./);
       assert.doesNotMatch(red.text, /Add the guard/);
       const record = (await t.kinds('step')).find((entry) => entry['step'] === 'start');
       assert.deepEqual([record?.['planPath'], record?.['iteration'], record?.['iterations']], [plan, 2, 2]);
@@ -91,7 +91,7 @@ describe('task route (07-R, 07-V, 07-G)', () => {
   });
 
   it('B8: the task map is seeded from the iteration brief, never from the "iteration N of slug" request', async () => {
-    const plan = '.ambicode/task/ord-7/plan.md';
+    const plan = '.ambicode/tasks/ord-7/plan.md';
     await withTask(async (t) => {
       await t.fx.repo.write('src/seeded/reducer.ts', 'export function reduceTotals(): number {\n  return 1;\n}\n');
       await t.fx.repo.commitAll('seeded file');
@@ -129,7 +129,7 @@ describe('task route (07-R, 07-V, 07-G)', () => {
   });
 
   it('e-cLRPPf: with no check that can run, the route ends blocked at ground and red is never delivered', async () => {
-    const config = CHECK_CONFIG.replace(/ {4}checks: \{.*\}/, '    checks: { unit: null, e2e: null, lint: null }');
+    const config = CHECK_CONFIG.replace(/ {4}checks:\n(?: {6}.*\n)+/, '    checks: { unit: { all: null, file: null } }\n');
     await withTask(async (t) => {
       const ended = await t.start();
       assert.equal(ended.position, 'complete');
@@ -144,7 +144,7 @@ describe('task route (07-R, 07-V, 07-G)', () => {
     await withTask(async (t) => {
       const red = await t.start();
       assert.equal(red.position, 'red');
-      assert.match(red.text, /^Then: \S.* check --task ord-7 <projectId>\/<checkId> --only <spec> --phase red$/m);
+      assert.match(red.text, /^Then: \S.* check --task ord-7 --name <check> --file <spec> --phase red$/m);
     });
   });
 
@@ -155,7 +155,7 @@ describe('task route (07-R, 07-V, 07-G)', () => {
       assert.equal(again.position, 'red');
       assert.match(again.text, /Not done yet/);
       // e-cLRPPf: the re-print named `route next`, the call that ends the route, as the way to produce the red check.
-      assert.match(again.text, /Produce it with: \S.* check --task \S+ <projectId>\/<checkId> --only <spec> --phase red\./);
+      assert.match(again.text, /Produce it with: \S.* check --task \S+ --name <check> --file <spec> --phase red\./);
       assert.match(again.text, /a second `route next` with no red check recorded ends the route as no-red\./);
       const stopped = await t.next();
       assert.equal(stopped.position, 'complete');
@@ -272,8 +272,8 @@ describe('task route (07-R, 07-V, 07-G)', () => {
       const [none, plan, draft] = [await args('r-none'), await args('r-plan'), await args('r-draft')];
       assert.deepEqual([plan.plan, plan.fromDraft, draft.plan, draft.fromDraft], ['docs/plan.md', null, 'docs/plan.md', 'docs/plan.md']);
       assert.equal(new Set([none.hash, plan.hash, draft.hash]).size, 3);
-      await t.fx.repo.write('.ambicode/task/ord-9/plan.md', '# Plan\n');
-      await t.fx.engine.start({ skill: 'task', text: 'go', requirements: [], plan: '.ambicode/task/ord-9/plan.md', cwd: t.fx.repo.root, session: SESSION_A, channel: 'cli' });
+      await t.fx.repo.write('.ambicode/tasks/ord-9/plan.md', '# Plan\n');
+      await t.fx.engine.start({ skill: 'task', text: 'go', requirements: [], plan: '.ambicode/tasks/ord-9/plan.md', cwd: t.fx.repo.root, session: SESSION_A, channel: 'cli' });
       assert.equal((await t.fx.kinds('ord-9', 'route')).length, 1, 'the slug comes from the plan\'s task directory');
     });
   });

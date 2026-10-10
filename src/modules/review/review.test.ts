@@ -122,10 +122,10 @@ describe('U16 requirement modes end to end', () => {
 
       assert.equal(output.result.requirementMode, 'requirement-based');
       assert.ok(
-        output.reviewDirectory.includes(path.join('.ambicode', 'task', 'ORD-17', 'reviews')),
+        output.reviewDirectory.includes(path.join('.ambicode', 'reviews', 'ORD-17')),
         output.reviewDirectory,
       );
-      assert.ok(!path.basename(output.reviewDirectory).includes('ORD-17'), output.reviewId);
+      
       assert.deepEqual(
         output.result.requirements.map((source) => source.id),
         ['ORD-17', 'ENG-orders'],
@@ -438,11 +438,11 @@ describe('a review with no reviewer yet', () => {
   it('lists the task\'s recorded checks in result.checks and has none outside a task', async () => {
     const context = await fixture();
     try {
-      const dir = path.join(context.repo.root, '.ambicode', 'task', 'ORD-17');
+      const dir = path.join(context.repo.root, '.ambicode', 'tasks', 'ORD-17');
       await nodeFileSystem.mkdirp(dir);
-      await nodeFileSystem.writeText(path.join(dir, 'ledger.jsonl'), `${JSON.stringify({ id: 'L1', at: '2026-09-20T09:00:00.000Z', kind: 'check', key: 'app/unit', phase: 'green', exit: 0, argv: ['node', '--test'], only: ['src/orders.test.ts'], tail: '', ms: 5 })}\n`);
+      await nodeFileSystem.writeText(path.join(dir, 'ledger.jsonl'), `${JSON.stringify({ id: 'L1', at: '2026-09-20T09:00:00.000Z', kind: 'check', key: 'app/unit', phase: 'green', exit: 0, files: ['src/orders.test.ts'], tail: '', ms: 5 })}\n`);
       const inTask = await review(context.runtime, ['--task', 'ORD-17']);
-      assert.deepEqual(inTask.result.checks, [{ key: 'app/unit', phase: 'green', exit: 0, argv: ['node', '--test'], only: ['src/orders.test.ts'] }]);
+      assert.deepEqual(inTask.result.checks, [{ key: 'app/unit', phase: 'green', exit: 0, files: ['src/orders.test.ts'] }]);
       assert.deepEqual((await review(context.runtime, [])).result.checks, []);
     } finally {
       await context.dispose();
@@ -465,7 +465,7 @@ describe('a review inside a task leaves evidence in the task ledger', () => {
     const context = await fixture();
     try {
       const inTask = await review(context.runtime, ['--task', 'ORD-17']);
-      const ledger = await readLedger(nodeFileSystem, path.join(context.repo.root, '.ambicode', 'task', 'ORD-17'));
+      const ledger = await readLedger(nodeFileSystem, path.join(context.repo.root, '.ambicode', 'tasks', 'ORD-17'));
       assert.equal(ledger.length, 1);
       assert.equal(ledger[0]?.kind, 'review');
       assert.equal(ledger[0]?.reviewId, inTask.reviewId);
@@ -473,7 +473,7 @@ describe('a review inside a task leaves evidence in the task ledger', () => {
       assert.equal(ledger[0]?.reviewerRan, false);
 
       const loose = await review(context.runtime, []);
-      assert.ok(!(await nodeFileSystem.exists(path.join(context.repo.root, '.ambicode', 'task', 'ledger.jsonl'))));
+      assert.ok(!(await nodeFileSystem.exists(path.join(context.repo.root, '.ambicode', 'tasks', 'ledger.jsonl'))));
       assert.ok(!loose.reviewDirectory.includes(`${path.sep}task${path.sep}`));
     } finally {
       await context.dispose();

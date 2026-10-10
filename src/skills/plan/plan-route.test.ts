@@ -15,13 +15,13 @@ import { REPO_ROOT } from '#testing/paths';
 import { SESSION_A, SESSION_B } from '#testing/fixtures/ids';
 
 /** SHA-256 of routes/plan/plan.yaml. */
-const CONTRACT_SHA256 = '7a15ef7994f6417c777ad3182cf2ab9e0dba7568fa85a40e29752b6ba1fa6b63';
+const CONTRACT_SHA256 = '78d70f8c6e809a8c419c4ae9fbcae9755e854d5118190a7e4975fd6f64f2ff0b';
 const GOOD = '# Plan\n\n- *Changes*: `src/orders/limit.ts:1` `orderLimit`\n';
 const BAD = '# Plan\n\n- *Changes*: `src/orders/limit.ts:40` `orderLimit`\n';
 const PLATFORM = { askBinding: 'supported', answerContext: 'supported' } as const;
 
 const shipped = (): Promise<PlanFixture> => planFixture({ shipped: true });
-const taskDir = (plan: PlanFixture): string => path.join(plan.fx.repo.root, '.ambicode', 'task', PLAN_TASK);
+const taskDir = (plan: PlanFixture): string => path.join(plan.fx.repo.root, '.ambicode', 'tasks', PLAN_TASK);
 const notes = async (plan: PlanFixture, kind: string) => (await plan.fx.kinds(PLAN_TASK, 'note')).filter((entry) => entry['note'] === kind);
 const steps = async (plan: PlanFixture, step: string, status: string) => (await plan.fx.kinds(PLAN_TASK, 'step')).filter((entry) => entry['step'] === step && entry['status'] === status);
 const lastPrint = async (plan: PlanFixture) => (await plan.prints()).at(-1)!;
@@ -423,7 +423,7 @@ describe('06-R11 launch', () => {
 
 describe('06-C7 project answers', () => {
   it('06-C7: the project answered in one task is not asked again by another task of the same session', async () => {
-    const config = CONFIG.replace('  - { id: app, root: ".", ecosystem: typescript }', '  - { id: orders, root: "src/orders", ecosystem: typescript }\n  - { id: invoices, root: "src/invoices", ecosystem: typescript }');
+    const config = CONFIG.replace(/  - \{ id: app,.*\}$/, '  - { id: orders, root: "src/orders", paths: [src/orders/], ecosystem: { languages: [typescript], frameworks: [], packageManager: null } }\n  - { id: invoices, root: "src/invoices", paths: [src/invoices/], ecosystem: { languages: [typescript], frameworks: [], packageManager: null } }');
     const plan = await planFixture({ shipped: true, config });
     try {
       await plan.start({ text: 'Add orderLimit' });

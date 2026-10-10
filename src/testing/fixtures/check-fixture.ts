@@ -1,6 +1,6 @@
 import { commandContext } from '#harness/engine/context';
 import { runCheckOnly } from '#modules/checks/run/check-command';
-import { CONFIG, routeFixture } from './route-fixture.ts';
+import { CONFIG_HEAD, routeFixture } from './route-fixture.ts';
 import type { CheckDeps, CheckOnlyInput } from '#types/modules/checks';
 import type { Runtime } from '#types/composition';
 import type { StartChannel } from '#types/harness';
@@ -20,12 +20,19 @@ steps:
     produces: ["check{green}"]
 `;
 
-export const CHECK_CONFIG = `${CONFIG.replace('  - { id: app, root: ".", ecosystem: typescript }', '')}  - id: app
+export const CHECK_CONFIG = `${CONFIG_HEAD}
+  - id: app
     root: "."
-    ecosystem: typescript
+    paths: [src/]
     policyFiles: [.ambicode/policies/cmds.yaml]
-    commands: { unit: { argv: [jest, "{files}"] }, e2e: { argv: [pw, "{files}"] }, lint: { argv: [eslint, "{files}"] }, format: { argv: [fmt] } }
-    checks: { unit: { command: unit }, e2e: { command: e2e }, lint: { command: lint } }
+    ecosystem: { languages: [typescript], frameworks: [], packageManager: null }
+    commands: { dev: "npm run dev" }
+    checks:
+      unit: { all: "jest", file: "jest {file}" }
+      e2e: { all: null, file: "pw {file}" }
+      typecheck: { all: "tsc --noEmit", file: null }
+      lint: { all: "eslint .", file: "eslint {file}" }
+      format: { all: null, file: "fmt {file}" }
 `;
 
 export const COMMAND_PACK = `schemaVersion: 1
@@ -54,7 +61,8 @@ export class SplitRunner implements ProcessRunner {
   }
   async run(request: ProcessRequest): Promise<ProcessOutcome> {
     if (request.argv[0] === 'git' || request.argv[0] === process.execPath) return this.real.run(request);
-    this.calls.push([...request.argv]);
+    // A config check is one shell string; tests read the command, not the shell wrapper around it.
+    this.calls.push(request.argv[0] === 'sh' || request.argv[0] === 'cmd' ? [request.argv.at(-1)!] : [...request.argv]);
     await this.effect?.(request);
     const kind = this.out.kind ?? 'exited';
     return { kind, exitCode: this.out.exitCode ?? (kind === 'exited' ? 0 : null), stdout: this.out.stdout ?? '', stderr: '', truncated: false, durationMs: 3, failure: this.out.failure ?? null };
@@ -65,7 +73,7 @@ export async function checkFixture(options: { routes?: Record<string, string>; c
   const fx = await routeFixture({ routes: options.routes ?? { demo: DEMO }, config: options.config ?? CHECK_CONFIG, ...(options.handlers === undefined ? {} : { handlers: options.handlers }), ...(options.step === undefined ? {} : { step: options.step }) });
   await fx.repo.write('.ambicode/policies/cmds.yaml', options.pack ?? COMMAND_PACK);
   await fx.repo.write('src/a.spec.ts', 'test\n');
-  await fx.repo.commitAll('pack');
+  await fx.repo.commitAll('spec');
   const runner = new SplitRunner(fx.runtime.runner);
   const runtime: Runtime = { ...fx.runtime, runner };
   const deps = (session: string | null = SESSION_A): CheckDeps => ({
@@ -74,7 +82,7 @@ export async function checkFixture(options: { routes?: Record<string, string>; c
   const start = (channel: StartChannel = 'hook', headless = false, extra: object = {}) =>
     fx.engine.start({ skill: 'demo', text: 'fix the total', requirements: [], task: CHECK_TASK, cwd: fx.repo.root, session: SESSION_A, channel, headless, scratchpadDir: fx.scratchpad, ...extra });
   const check = (input: Partial<CheckOnlyInput> = {}, session: string | null = SESSION_A) =>
-    runCheckOnly(deps(session), { task: CHECK_TASK, key: 'app/unit', only: ['src/a.spec.ts'], phase: 'red', approve: [], decline: [], ...input });
+    runCheckOnly(deps(session), { task: CHECK_TASK, name: 'unit', project: null, files: ['src/a.spec.ts'], phase: 'red', approve: [], decline: [], ...input });
   return { fx, runner, runtime, deps, start, check };
 }
 

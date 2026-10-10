@@ -13,7 +13,7 @@ import type { TaskDir } from '#types/modules/evidence';
 import type { FileSystem } from '#types/platform/ports';
 
 /** Causes from a command the model ran, as opposed to a hook or a resume. */
-export const EXPLICIT: ReadonlySet<string> = new Set(['route-next', 'requirements normalize', 'check', 'format', 'review', 'policy check --drafts', 'rules apply', 'init --apply', 'init propose', 'note save', 'note promote']);
+export const EXPLICIT: ReadonlySet<string> = new Set(['route-next', 'requirements normalize', 'check', 'format', 'review', 'rules apply', 'init --apply', 'init propose', 'note save', 'note promote']);
 
 const MAX_TURNS = 200;
 
@@ -44,7 +44,7 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
   // e-cLRPPf: a missing check{red} was told to produce it with `route next`, the call that ends the route no-red; the check command is the way to produce it.
   function checkCommand(run: Run, step: StepDef): string | null {
     const check = step.produces.find((produced) => produced.kind === 'check' && produced.value !== null);
-    return check === undefined || step.produces.some((produced) => produced.kind === 'format') ? null : commandFor(`check --task ${run.task} <projectId>/<checkId> --only <spec> --phase ${check.value}`);
+    return check === undefined || step.produces.some((produced) => produced.kind === 'format') ? null : commandFor(`check --task ${run.task} --name <check> --file <spec> --phase ${check.value}`);
   }
 
   // The reviewer subagent's answer is written by `review record`; `route next` would not record it.

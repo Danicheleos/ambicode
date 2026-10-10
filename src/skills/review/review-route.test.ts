@@ -48,7 +48,7 @@ describe('review route: shape and start (08-R1, 08-R2, 08-R3)', () => {
     assert.deepEqual([gate['options'], gate['acting'], gate['default']], [['run', 'narrow', 'skip'], ['run'], 'skip']);
     const run = route.steps.find((step) => step.id === 'review-run') as unknown as { when: string; produces: string[]; payload: string[]; needs?: unknown };
     // The model runs the review itself; nothing waits on a check answer.
-    assert.deepEqual([run.when, run.produces, run.payload, run.needs], ['gate.estimate.is(run)', ['review'], ['review.command'], undefined]);
+    assert.deepEqual([run.when, run.produces, run.payload, run.needs], ['gate.estimate.is(run)', ['review'], ['review.command', 'context.list'], undefined]);
     assert.ok((await loadRouteRegistry(REPO_ROOT, nodeFileSystem)).route('review') !== null);
     assert.match(await readFile(path.join(REPO_ROOT, 'tools', 'package-candidate.mjs'), 'utf8'), /from: 'routes', extensions: \['\.yaml', '\.md'\]/);
     const agent = route.steps.find((step) => step.id === 'review-agent') as unknown as { when: string; produces: string[]; instruction: string };

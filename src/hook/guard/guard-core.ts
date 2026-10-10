@@ -12,9 +12,9 @@ function decide(permissionDecision: 'ask' | 'deny', reason: string): Decision {
 }
 
 const FILE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
-const TASK_DIR = /(?:^|\/)\.ambicode\/task(?:\/|$)/;
-const PLAN_BODY = /^(.*\/)?\.ambicode\/task\/([^/]+)\/steps\/plan-body\.md$/;
-const INIT_FILES = /(?:^|\/)(?:\.ambicode\/config\.yaml|\.gitignore)$/;
+const RUN_DIR = /(?:^|\/)\.ambicode\/(?:tasks|reviews)(?:\/|$)/;
+const PLAN_BODY = /^(.*\/)?\.ambicode\/tasks\/([^/]+)\/steps\/plan-body\.md$/;
+const CONTEXT_DIR = /(?:^|\/)\.ambicode\/context(?:\/|$)/;
 
 function isAbsolute(file: string): boolean {
   return file.startsWith('/') || file.startsWith('~') || /^[A-Za-z]:\//.test(file);
@@ -43,14 +43,14 @@ function normalize(file: string, base?: string): string {
 
 function noteSaveReason(pluginRoot: string): string {
   return (
-    `AMBICODE: .ambicode/task/ is written only through \`node "${pluginRoot}/scripts/ambicode.mjs" note save ` +
+    `AMBICODE: .ambicode/tasks/ and .ambicode/reviews/ are written only through \`node "${pluginRoot}/scripts/ambicode.mjs" note save ` +
     '--task <slug> --kind investigation|plan-draft|notes` or `note promote --task <slug>`, with the note on standard ' +
     'input. It names the file, stamps the time and adds the label. Run that instead.'
   );
 }
 
 function planBodyReason(slug: string): string {
-  return `AMBICODE: the plan body is not written with the shell. Write it with the Write tool to .ambicode/task/${slug}/steps/plan-body.md, then run route next: the route saves it as the draft and checks it.`;
+  return `AMBICODE: the plan body is not written with the shell. Write it with the Write tool to .ambicode/tasks/${slug}/steps/plan-body.md, then run route next: the route saves it as the draft and checks it.`;
 }
 
 const USER_DECIDES = 'The user decides, so this asks. Approve only if the user asked for it in this session.';
@@ -124,7 +124,7 @@ function removesRoot(segment: Segment, cwd: string | undefined): string | null {
 
 // Expansions are not parsed, so a command nested in one is matched by its text.
 const NESTED = /\$\(|`|<\(/;
-const DANGEROUS = /\bgit\s+(?:\S+\s+)*?(?:commit|push|stash|reset|checkout|clean|rebase|merge|branch)\b|\bglab\s+mr\b|\.ambicode\/task|\brm\s+-\w*[rR]/;
+const DANGEROUS = /\bgit\s+(?:\S+\s+)*?(?:commit|push|stash|reset|checkout|clean|rebase|merge|branch)\b|\bglab\s+mr\b|\.ambicode\/(?:tasks|reviews)|\brm\s+-\w*[rR]/;
 const NESTED_REASON = 'AMBICODE: cannot read a command inside $(...) or backticks; approve only if you asked for it.';
 
 const DIRECTORY_CHANGE = new Set(['cd', 'pushd', 'popd']);
@@ -141,7 +141,7 @@ function bashDecision(command: string, cwd: string | undefined, pluginRoot: stri
   let moved = false;
   for (const segment of segments) {
     if (segment.unparsed) {
-      if (/\.ambicode\/task|git/.test(segment.raw)) asks.add(`AMBICODE: cannot tell what this runs: part of the command is not closed or is beyond what the guard parses. ${USER_DECIDES}`);
+      if (/\.ambicode\/(?:tasks|reviews)|git/.test(segment.raw)) asks.add(`AMBICODE: cannot tell what this runs: part of the command is not closed or is beyond what the guard parses. ${USER_DECIDES}`);
       continue;
     }
     if (segment.argv.some((word, at) => segment.opaque[at] && NESTED.test(word) && DANGEROUS.test(word))) asks.add(NESTED_REASON);
@@ -161,7 +161,7 @@ function bashDecision(command: string, cwd: string | undefined, pluginRoot: stri
       const path = normalize(target.path, cwd);
       if (target.opaque) {
         asks.add(`AMBICODE: cannot tell where this writes: \`${shown(target.path)}\` is resolved only when the shell runs it. ${USER_DECIDES}`);
-      } else if (TASK_DIR.test(path)) {
+      } else if (RUN_DIR.test(path)) {
         const slug = PLAN_BODY.exec(path)?.[2];
         const reason = slug === undefined ? noteSaveReason(pluginRoot) : planBodyReason(slug);
         if (!segments.some((other) => other.unparsed)) return decide('deny', reason);
@@ -208,22 +208,14 @@ function fileDecision(input: GuardInput, state: GuardState | undefined, pluginRo
   if (typeof file !== 'string' || file === '') return {};
   const cwd = nonEmpty(input.cwd) ?? undefined;
   const target = normalize(file, cwd);
-  if (TASK_DIR.test(target)) {
+  if (RUN_DIR.test(target)) {
     const body = PLAN_BODY.exec(target);
-    if (body !== null && !TASK_DIR.test(body[1] ?? '')) {
-      return planBodyDecision(input, state, `${body[1] ?? ''}.ambicode/task/${body[2]!}`, body[2]!, pluginRoot);
+    if (body !== null && !RUN_DIR.test(body[1] ?? '')) {
+      return planBodyDecision(input, state, `${body[1] ?? ''}.ambicode/tasks/${body[2]!}`, body[2]!, pluginRoot);
     }
     return decide('deny', noteSaveReason(pluginRoot));
   }
-  if (INIT_FILES.test(target)) {
-    if (routeOf(input, state)?.skill === 'init') {
-      return decide(
-        'deny',
-        'AMBICODE: an init route is active, and init writes .ambicode/config.yaml and its .gitignore lines itself when ' +
-          'the user accepts the proposal (`init --apply`). Answer the init gate instead of editing the file.',
-      );
-    }
-  }
+  if (CONTEXT_DIR.test(target)) return decide('deny', 'AMBICODE: .ambicode/context/ is written only through `ambicode context write`, which enforces the size limits and refuses duplicates; use `ambicode context write`.');
   return {};
 }
 

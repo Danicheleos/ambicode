@@ -7,3 +7,4 @@ The final message:
 - An empty finding list is not a clean change; a failed reviewer is not a clean review; a missing or failing check is not a pass; one unverifiable location voids the reviewer's whole answer.
 - For an error code, read `references/outcomes.md` beside the review skill's SKILL.md and say what it means and how to release it.
 - For a merge request (`--mr`), read `references/merge-request.md` beside the review skill's SKILL.md.
+Learned how to navigate or write code here? Add it with `{cli} context write` (no duplicates).

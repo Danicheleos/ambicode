@@ -97,12 +97,12 @@ are collected in [40-open-problems.md](40-open-problems.md); deferred items in [
 | [modules/13-evidence.md](modules/13-evidence.md) | 21 ledger kinds incl. `preanswer`, session-scoped ids, draft-first notes and `promote`, generated report sections, navigation line. |
 | [modules/14-requirements.md](modules/14-requirements.md) | `hasRequirement` defined, captured payloads, envelope from captures or args, field lists, binding in the hook, AC list. |
 | [modules/15-guard.md](modules/15-guard.md) | Structural command parser, decision table, Stop hook, the gate table test over both classes. |
-| [modules/16-checks-review.md](modules/16-checks-review.md) | Pipeline kept; `check --only` with runner summaries, model-run `format`, task scoping, estimate, dependents without a language service. |
+| [modules/16-checks-review.md](modules/16-checks-review.md) | Pipeline kept; `check --name --file` (shell strings, no runner summaries), model-run `format`, task scoping, estimate, dependents without a language service. |
 | [modules/17-workers.md](modules/17-workers.md) | Process runner and `plan check` (rounds by re-entry) ship; scout, collector, judge are an appendix. |
 | [skills/20-init.md](skills/20-init.md) … [skills/25-review.md](skills/25-review.md) | One route per skill with honest ceremony tables, gates by class and non-acting defaults. |
 | [30-harness.md](30-harness.md) | Hook matrix, session state, context budget (capture ≠ context), compaction, headless with `--answer`, week-one cases, what the harness never does. |
 | [31-cli.md](31-cli.md) | CLI surface v3; which commands advance the route. |
-| [32-artifacts.md](32-artifacts.md) | `.ambicode/` layout, ledger lines, the route DSL with `revise`, the gate registry, config v3, captured requirements. |
+| [32-artifacts.md](32-artifacts.md) | `.ambicode/` layout, ledger lines, the route DSL with `revise`, the gate registry, config v4, captured requirements. |
 | [33-measurement.md](33-measurement.md) | §0 harness fixes and probes first, no new baseline; decision points (the user decides); the eval sequence; detectable effects; composite defined. |
 | [40-open-problems.md](40-open-problems.md) | The list P1–P60 with closures (P60 closed by C2). |
 | [41-migration.md](41-migration.md) | Order, the point of no return (user-decided), what is touched and what is kept. |

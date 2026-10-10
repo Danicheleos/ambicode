@@ -66,8 +66,8 @@ const schemas = [
   }),
   entry('baseline', { head: text.nullable(), dirty: z.array(z.object({ path: text, hash: text.nullable() })) }),
   entry('check', {
-    key: text, argv: z.array(text), only: z.array(text), exit: z.number().int(), phase: z.enum(['red', 'green']),
-    summary: z.null().optional(), tail: z.string().optional(), ms: z.number(), mutations: z.unknown().optional(),
+    key: text, files: z.array(text), exit: z.number().int(), phase: z.enum(['red', 'green']),
+    tail: z.string().optional(), ms: z.number(), mutations: z.unknown().optional(),
   }),
   entry('format', {
     key: text, files: z.array(text), exit: z.number().int().nullable(), via: z.literal('model'), outcome: z.enum(['formatted', 'unconfigured', 'failed', 'refused']),

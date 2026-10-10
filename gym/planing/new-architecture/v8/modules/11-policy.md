@@ -8,7 +8,7 @@ quotes, staged drafts, confirmation before anything is live, a revert.
 
 ## Inputs
 
-Config (`packs`, `policyFiles`, `commands`, `checks`, unchanged); built-in packs (12, 823 lines) and
+Config (`packs`, `policyFiles`, `commands`, `checks`; and project `rules: [{source, rule}]`, at most 10, added 2026-10-10 b); built-in packs (12, 823 lines) and
 project packs; a request `{project, activity, paths[], stage}` from the route; for `rules`: source
 documents and drafts under `.ambicode/policies/drafts/`.
 
@@ -43,8 +43,10 @@ estimate (G6) measured when built.
 
 ### 3. Command policy additions
 
-`format` slot (run/propose/forbid), filled by `init` when prettier/black/ruff format is found; the
-command is model-run (16 §3). `check --only` is authorized by the same seam under the check's key (16 §2).
+`format` slot (run/propose/forbid), filled by the model at `/ambicode:init` when it finds a formatter; the
+command is model-run (16 §3). `check --name` is authorized by the same seam under the check's name (16 §2).
+
+**Project `rules`.** Free-text rules from config are rendered by `policy.stage(before-work)` after the pack rules, as prompt lines with their source. Packs, `appliesTo`, stages, command policy and the consent gate are unchanged (user, 2026-10-10: keep current policies).
 
 ### 4. `rules` authoring (C5, F7)
 

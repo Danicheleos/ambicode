@@ -1,5 +1,38 @@
 # v7 → v8: the design matched to the cut-down code
 
+## 2026-10-10 (b): init redesign and second audit
+
+Inputs: [../cutting-down/02-audit.md](../cutting-down/02-audit.md) §4b and [../cutting-down/03-init.md](../cutting-down/03-init.md). The sections below this one (C1–C8) are older; where they name `init propose`, `init --apply`, `config.draft.yaml`, `scan.mjs`, `doctor` or `.ambicode/task/`, this entry wins.
+
+Second-audit decisions (user, 2026-10-10):
+
+| # | Decision | Outcome |
+|---|---|---|
+| D1 | Checks are model-run | yes: the model runs the project's commands; `check --name <check> [--file <path>…]` records the run |
+| D2 | No snapshot mirror of the checkout | yes: findings only (diff-only for a merge request) |
+| D3 | Search map | kept as it is; a scout-built map is a later option |
+| D4 | Stop hook | trimmed |
+| D5 | Ledger kinds | kept |
+| D6 | Guard lexer | kept (skipped) |
+
+Init redesign:
+
+- **Landing folder.** The whole `.ambicode/` is gitignored (one line `.ambicode/`; `.git/info/exclude` handling is gone): `config.yaml`, `tasks/<slug>/` (ledger, steps, requirements, notes; was `task/`), `reviews/<slug>/` (a review run; was `tasks/<slug>/reviews/`), `context/`.
+- **`config.yaml` schemaVersion 4**, strict; any older version is one `config-invalid` error. `id`; optional `baseline`; `context {maxTotalTokens, maxFileTokens}`; `skills.<skill> {model, effort, timeoutMinutes}` plus `skills.init.{scout, ruleSources}`, `skills.review.{maxFindings, maxChangedFiles, maxChangedLines, maxContextBytes, excludePaths}` (was `review.*`), `skills.task.checkTimeoutSeconds` (was `checks.timeoutSeconds`); `requirements {runtimes, mcps, lsps, env}` (`mcps` replaces `mcpServer`; the first Jira/Confluence one is the requirements server); `projects[] {id, root, paths, ecosystem {languages, frameworks, packageManager} (free text), include, exclude (replace `shortlist`), rules [{source: preset|scout|manual|web, rule}] (at most 10), packs, policyFiles, commands {name: shell string} (was argv), checks {name: {all, file}} (`file` contains `{file}`; null is an intentional gap)}`. Removed: `search.layers`, `guard`, `profile`, `shortlist`, `Ecosystem` enum, `TEST_EXCLUDES`.
+- **`/ambicode:init`** is a human-only skill with no route: `skills/init/scripts/scaffold.mjs` (git-root check, directories, template `templates/config.yaml`, gitignore line), the `ambicode:scout` subagent (`agents/scout.md`, about 8 tool calls, writes the context through `context write --replace`), the model fills `config.yaml` from manifests and the scout's report in one Write, then `config validate` (the zod schema is the one check). Deleted: `routes/init/*`, `init.propose`/`init.close`, `init --apply`, `config.draft.yaml` and its hash pin, the `init-apply` gate, the `doctor` table, the guard rows for `config.yaml`/`.gitignore`.
+- **Learning context.** `.ambicode/context/{overview,navigation,conventions}.md` and `modules/<name>.md`, bounded by `config.context`. `context list` (path, first H1, size) is in the payload of every route's first model step; `context write` is the only writer (limits, duplicate headings refused, four kinds only; the guard denies Write/Edit under `context/`); every route's closing model step tells the model to add what it learned, changed files only.
+- **Policies unchanged**: `policies/*.yaml`, `appliesTo`, stages, command policy and the check consent gate stay; `packs` and `policyFiles` stay in the schema. Project `rules` are rendered after the pack rules by `policy.stage(before-work)`. `/ambicode:rules` is unchanged.
+- **CLI** (`COMMANDS`): `config validate`, `context list|write`, `check --name --file`, `format`, `map`, `refs`, `requirements normalize`, `policy check`, `rules apply`, `route start|next|stop`, `note save|promote`, `report`, `review`, `review record`, `version`. `init`, `init propose` are gone.
+
+Measured:
+
+```
+src non-test lines          12,524 → 12,305, after init (verify green: 1,373 pass / 0 fail / 1 skipped)
+```
+
+Rewritten for this entry: skills/20-init.md, 02-overview, 30-harness, 31-cli, 32-artifacts, 33-measurement, 41-migration, modules/11, 12, 13, 15, 16. Not rewritten: the `--only` and `<projectId>/<checkId>` wording inside historical "changes" tables of modules/14 and 25-review where it describes what v7 shipped; those carry a pointer to this entry.
+
+
 Date: 2026-10-10. Input: [../cutting-down/00-plan.md](../cutting-down/00-plan.md) and the decision table in [../cutting-down/01-measurements.md](../cutting-down/01-measurements.md) (C1–C8). v7 is frozen in [../v7/](../v7/CHANGELOG.md); the v7 changelog follows below, unchanged. D1–D19 are unchanged. Authoritative surface: `routes/*/*.yaml`, `routes/README.md`, `routes/gates.yaml`, `agents/reviewer.md`, `skills/*/scripts/*.mjs`, `src/cli/main.ts` `COMMANDS`, `src/platform/ledger/kinds.ts`, `hooks/hooks.json`, `src/hook/guard/guard-core.ts`.
 
 Measured end state of the plan:

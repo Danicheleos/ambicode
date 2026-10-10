@@ -24,7 +24,7 @@ const EXCLUDED_PATH_GLOBS = [
   '**/target/**',
   '**/vendor/**',
   '**/.ambicode/reviews/**',
-  '**/.ambicode/task/**',
+  '**/.ambicode/tasks/**',
 ];
 
 /**

@@ -40,6 +40,31 @@ function git(args, cwd) {
   });
 }
 
+const RUN = 'model: sonnet, effort: medium, timeoutMinutes: 15';
+const CONFIG = [
+  'schemaVersion: 4',
+  'id: app',
+  'context: { maxTotalTokens: 24000, maxFileTokens: 2500 }',
+  'skills:',
+  `  init: { ${RUN}, scout: { ${RUN} }, ruleSources: [presets, scout, manual, web] }`,
+  `  review: { ${RUN}, maxFindings: null, maxChangedFiles: null, maxChangedLines: null, maxContextBytes: null, excludePaths: [] }`,
+  `  task: { ${RUN}, checkTimeoutSeconds: 120 }`,
+  `  plan: { ${RUN} }`,
+  `  investigate: { ${RUN} }`,
+  `  rules: { ${RUN} }`,
+  'requirements: { runtimes: {}, mcps: [], lsps: [], env: [] }',
+  'projects:',
+  '  - id: app',
+  '    root: .',
+  '    paths: [src/]',
+  '    ecosystem: { languages: [typescript], frameworks: [], packageManager: null }',
+  '    packs: [PACKS]',
+  '    policyFiles: [POLICY]',
+  '    commands: {}',
+  '    checks: { lint: { all: null, file: null }, unit: { all: null, file: null }, e2e: { all: null, file: null } }',
+  '',
+].join('\n');
+
 async function writePack(repo, instruction) {
   await writeFile(
     path.join(repo, '.ambicode', 'policies', 'reminders.yaml'),
@@ -69,25 +94,7 @@ async function makeFixtureRepo() {
   git(['commit', '-q', '-m', 'initial'], repo);
 
   await mkdir(path.join(repo, '.ambicode', 'policies'), { recursive: true });
-  await writeFile(
-    path.join(repo, '.ambicode', 'config.yaml'),
-    [
-      'schemaVersion: 1',
-      'baseline: ""',
-      'review: { model: sonnet, timeoutSeconds: 300, maxFindings: 7, maxChangedFiles: 50, maxChangedLines: 2000, maxContextBytes: 524288 }',
-      'checks: { timeoutSeconds: 120 }',
-      'requirements: { mcpServer: null }',
-      'projects:',
-      '  - id: app',
-      '    root: .',
-      '    ecosystem: typescript',
-      '    packs: []',
-      '    policyFiles: [".ambicode/policies/reminders.yaml"]',
-      '    commands: { lint: null, unit: null, e2e: null }',
-      '    checks: { lint: null, unit: null, e2e: null }',
-      '',
-    ].join('\n'),
-  );
+  await writeFile(path.join(repo, '.ambicode', 'config.yaml'), CONFIG.replace('PACKS', '').replace('POLICY', '".ambicode/policies/reminders.yaml"'));
   await writePack(repo, 'Keep orders logic in the service layer.');
   return repo;
 }
@@ -165,7 +172,7 @@ describe('built-artifact regression: ambicode hook (P2.4 correction G/H)', () =>
           assert.equal(entry.command, 'node');
           if (event === 'PreToolUse') {
             assert.deepEqual(entry.args, ['${CLAUDE_PLUGIN_ROOT}/scripts/guard.mjs']);
-            if (matcher.matcher === 'Bash') assert.match(entry.if, /^Bash\((git \*|glab mr\*|\*\.ambicode\/task\*|\*ambicode\.mjs\*|rm \*|\*--include=\*|\*--exclude=\*|\*--exclude-dir=\*|cat \*|sed \*|head \*|tail \*)\)$/, 'the guard must not spawn for every Bash call');
+            if (matcher.matcher === 'Bash') assert.match(entry.if, /^Bash\((git \*|glab mr\*|\*\.ambicode\/\*|\*ambicode\.mjs\*|rm \*|\*--include=\*|\*--exclude=\*|\*--exclude-dir=\*|cat \*|sed \*|head \*|tail \*)\)$/, 'the guard must not spawn for every Bash call');
             else assert.ok(['Write|Edit|MultiEdit|NotebookEdit', 'Read'].includes(matcher.matcher), matcher.matcher);
           } else {
             assert.deepEqual(entry.args, ['${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs', 'hook']);

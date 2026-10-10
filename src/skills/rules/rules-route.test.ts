@@ -44,7 +44,7 @@ async function world(options: { text?: string; headless?: boolean } = {}) {
   await initConfig(runtime);
   const scratchpadDir = await runtime.fs.temporaryDirectory('ambicode-scratch-');
   const { engine } = await routeTools(runtime, null);
-  const ledger = (task = TASK): Promise<LedgerEntry[]> => readLedger(nodeFileSystem, path.join(root, '.ambicode', 'task', task));
+  const ledger = (task = TASK): Promise<LedgerEntry[]> => readLedger(nodeFileSystem, path.join(root, '.ambicode', 'tasks', task));
   const kinds = async (kind: string): Promise<LedgerEntry[]> => (await ledger()).filter((entry) => entry.kind === kind);
   const draft = (name: string, text: string): Promise<void> => writeFile(path.join(root, '.ambicode', 'policies', 'drafts', name), text).catch(async () => {
     await runtime.fs.mkdirp(path.join(root, '.ambicode', 'policies', 'drafts'));
@@ -187,7 +187,7 @@ describe('09-T5: the walk-through on ts-feature-boundary', () => {
       assert.ok(wired.includes('.ambicode/policies/team-services.yaml'));
       const strip = (text: string) => { const { projects, ...rest } = YAML.parse(text) as { projects: Record<string, unknown>[] }; return { ...rest, projects: projects.map(({ policyFiles: _ignored, ...project }) => project) }; };
       assert.deepEqual(strip(wired), strip(before), 'everything but policyFiles is kept');
-      const note = await readFile(path.join(w.root, '.ambicode', 'task', TASK, 'steps', 'rules-apply.md'), 'utf8');
+      const note = await readFile(path.join(w.root, '.ambicode', 'tasks', TASK, 'steps', 'rules-apply.md'), 'utf8');
       assert.match(note, /<!-- ambicode rules sha256:[0-9a-f]+ -->/);
 
       const entries = await w.ledger();

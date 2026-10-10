@@ -145,7 +145,7 @@ describe('engine: entry points and the one algorithm', () => {
     const { fx, start } = await inv();
     try {
       const first = await start();
-      const file = path.join(fx.repo.root, '.ambicode', 'task', 'cart', 'ledger.jsonl');
+      const file = path.join(fx.repo.root, '.ambicode', 'tasks', 'cart', 'ledger.jsonl');
       const lines = (await readFile(file, 'utf8')).trim().split('\n');
       assert.equal(JSON.parse(lines.at(-1)!).status, 'delivered');
       await writeFile(file, `${lines.slice(0, -1).join('\n')}\n`);

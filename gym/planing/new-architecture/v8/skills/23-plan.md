@@ -20,7 +20,7 @@ is expected (the naked model expands epics on its own, M11).
 
 `SKILL.md` ≤ 2.5 KB: the judgments (material vs routine; reuse over new; independently reviewable
 iterations), the plan shape, the planning boundary with reasons, the fallback start line.
-`allowed-tools` **gains** `Write(.ambicode/task/*/steps/plan-body.md)` (today: `Read, Grep, Glob,
+`allowed-tools` **gains** `Write(.ambicode/tasks/*/steps/plan-body.md)` (today: `Read, Grep, Glob,
 Bash(node *ambicode.mjs*)`, `skills/plan/SKILL.md:5`; #57); the guard row (15 §1) stays the real boundary.
 
 ## Route `plan`

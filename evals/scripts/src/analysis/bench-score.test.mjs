@@ -359,7 +359,7 @@ describe('evals-bench: ledgers and route measures', () => {
     const sandboxRoot = mkdtempSync(path.join(tmpdir(), 'harvest-ledger-'));
     try {
       for (const [id, line] of [['e-one', '{"kind":"route","id":"a-1"}\n'], ['e-two', '{"kind":"route","id":"b-1"}\n']]) {
-        const task = path.join(sandboxRoot, id, 'home', 'cwd', 'repo', '.ambicode', 'task', 'same-slug');
+        const task = path.join(sandboxRoot, id, 'home', 'cwd', 'repo', '.ambicode', 'tasks', 'same-slug');
         mkdirSync(task, { recursive: true });
         writeFileSync(path.join(task, 'ledger.jsonl'), line);
         mkdirSync(path.join(sandboxRoot, id, 'out'), { recursive: true });
@@ -368,7 +368,7 @@ describe('evals-bench: ledgers and route measures', () => {
       mkdirSync(path.join(sandboxRoot, 'e-none', 'home', 'cwd', 'repo'), { recursive: true });
       const outDir = path.join(sandboxRoot, 'kept');
       assert.equal(harvestTraces(outDir, { sandboxRoots: [sandboxRoot] }), 2, 'the return value still counts traces');
-      const at = (id) => path.join(outDir, LEDGER_DIRECTORY, id, 'home', 'cwd', 'repo', '.ambicode', 'task', 'same-slug', 'ledger.jsonl');
+      const at = (id) => path.join(outDir, LEDGER_DIRECTORY, id, 'home', 'cwd', 'repo', '.ambicode', 'tasks', 'same-slug', 'ledger.jsonl');
       assert.equal(readFileSync(at('e-one'), 'utf8'), '{"kind":"route","id":"a-1"}\n');
       assert.equal(readFileSync(at('e-two'), 'utf8'), '{"kind":"route","id":"b-1"}\n');
       assert.ok(!existsSync(path.join(outDir, LEDGER_DIRECTORY, 'e-none')));
@@ -385,7 +385,7 @@ describe('evals-bench: ledgers and route measures', () => {
       writeFileSync(path.join(benchmarks, 'SIDE', 'full', 'side-t-1', 'truth.json'), JSON.stringify({ side: 'SIDE', ticket: 'T-1', root: 'app', truth: ['app/a.ts'] }));
       const tracesDir = path.join(benchmarks, 'traces');
       for (const [id, tail] of [['e-ok', ''], ['e-dead', ''], ['e-torn', '{"kind":"exit","rea']]) {
-        const dir = path.join(tracesDir, LEDGER_DIRECTORY, id, 'home', 'cwd', 'repo', '.ambicode', 'task', 's');
+        const dir = path.join(tracesDir, LEDGER_DIRECTORY, id, 'home', 'cwd', 'repo', '.ambicode', 'tasks', 's');
         mkdirSync(dir, { recursive: true });
         writeFileSync(path.join(dir, 'ledger.jsonl'), `${V6.map((e) => JSON.stringify(e)).join('\n')}\n${tail}`);
       }
@@ -505,7 +505,7 @@ describe('evals-bench: incomplete ledgers measure nothing', () => {
     const tracesDir = mkdtempSync(path.join(tmpdir(), 'bench-ledger-read-'));
     try {
       const write = (id, text) => {
-        const dir = path.join(tracesDir, LEDGER_DIRECTORY, id, 'home', 'cwd', 'repo', '.ambicode', 'task', 's');
+        const dir = path.join(tracesDir, LEDGER_DIRECTORY, id, 'home', 'cwd', 'repo', '.ambicode', 'tasks', 's');
         mkdirSync(dir, { recursive: true });
         writeFileSync(path.join(dir, 'ledger.jsonl'), text);
         return { tracePath: `/tmp/${id}/out/trace.jsonl` };
@@ -564,7 +564,7 @@ describe('preset scoring', () => {
     mkdirSync(path.join(tracesDir, 'patches'), { recursive: true });
     writeFileSync(path.join(tracesDir, 'patches', 'e-task.patch'), PATCH('src/a.ts', 11, 'computeTotal();') + PATCH('src/other.ts', 1, 'x();'));
     writeFileSync(path.join(tracesDir, 'patches', 'e-empty.patch'), '');
-    const task = path.join(tracesDir, LEDGER_DIRECTORY, 'e-plan', 'home', 'cwd', 'repo', '.ambicode', 'task', 'slug');
+    const task = path.join(tracesDir, LEDGER_DIRECTORY, 'e-plan', 'home', 'cwd', 'repo', '.ambicode', 'tasks', 'slug');
     mkdirSync(task, { recursive: true });
     writeFileSync(path.join(task, 'ledger.jsonl'), '');
     writeFileSync(path.join(task, 'plan-draft_2026-10-07T10-00.md'), '## Files\n- src/other.ts\n');

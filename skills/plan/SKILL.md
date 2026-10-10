@@ -3,7 +3,7 @@ name: plan
 description: "Turn a request into an implementation roadmap a human accepts before /ambicode:task implements it; it never implements. Use when the user asks for a plan, a roadmap, or an implementation approach — for a described change or a Jira/Confluence URL — or wants to think through a feature or change before coding it."
 argument-hint: <request-or-jira/confluence-url> [--requirement <url>]...
 disable-model-invocation: true
-allowed-tools: Read, Grep, Glob, Bash(node *ambicode.mjs*), Write(.ambicode/task/*/steps/plan-body.md)
+allowed-tools: Read, Grep, Glob, Bash(node *ambicode.mjs*), Write(.ambicode/tasks/*/steps/plan-body.md)
 ---
 
 # Plan a change

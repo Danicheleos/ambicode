@@ -1,9 +1,10 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { loadConfig } from '#modules/config/load';
-import { hasRequirement } from '#modules/requirements/capture/has-requirement';
+import { hasRequirement, requirementsServer } from '#modules/requirements/capture/has-requirement';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { mintTaskSlug } from '#modules/evidence/task/slug';
-import { excludeWorkingDirs, resolveTaskDir } from '#modules/evidence/task/task-dir';
+import { resolveTaskDir } from '#modules/evidence/task/task-dir';
+import { dirKindFor } from '#types/defaults';
 import { AmbicodeError, isAmbicodeError } from '#util/errors';
 import { contentHash } from '#util/hash';
 import { markStepDelivered } from '../session/active-route.ts';
@@ -111,8 +112,8 @@ export function createEngine(deps: EngineDeps): Engine {
   }
 
   /** The exit a new start writes over the session's live route on another task, found through the pointer read before it was overwritten. */
-  async function supersedeIn(rt: Runtime, task: string, session: string): Promise<void> {
-    const dir = await resolveTaskDir(rt, task);
+  async function supersedeIn(rt: Runtime, task: string, skill: string, session: string): Promise<void> {
+    const dir = await resolveTaskDir(rt, task, dirKindFor(skill));
     await withLedgerLock(rt.fs, dir.root, now, session, async (ledger) => {
       const read = await ledger.read();
       if (read.state !== 'ok') return;
@@ -138,11 +139,10 @@ export function createEngine(deps: EngineDeps): Engine {
     const headless = input.headless === true;
 
     const planFile = input.fromDraft ?? input.plan;
-    const planTask = planFile === undefined ? undefined : /(?:^|[\\/])\.ambicode[\\/]task[\\/]([^\\/]+)[\\/][^\\/]+$/.exec(planFile)?.[1];
-    const slug = input.task ?? planTask ?? (input.skill === 'init' ? `init-${now().toISOString().slice(0, 10)}` : (mintTaskSlug(input.requirements[0] ?? input.text) ?? `task-${contentHash(`${input.cwd}${now().toISOString()}`).slice(7, 15)}`));
-    const dir = await resolveTaskDir(rt, slug);
-    await excludeWorkingDirs(rt, dir.repositoryRoot);
-    const config = input.skill === 'init' ? null : (await loadConfig(rt.fs, dir.repositoryRoot)).config;
+    const planTask = planFile === undefined ? undefined : /(?:^|[\\/])\.ambicode[\\/]tasks[\\/]([^\\/]+)[\\/][^\\/]+$/.exec(planFile)?.[1];
+    const slug = input.task ?? planTask ?? (mintTaskSlug(input.requirements[0] ?? input.text) ?? `task-${contentHash(`${input.cwd}${now().toISOString()}`).slice(7, 15)}`);
+    const dir = await resolveTaskDir(rt, slug, dirKindFor(input.skill));
+    const config = (await loadConfig(rt.fs, dir.repositoryRoot)).config;
     const inputArgs = canonicalArgs({
       text: input.text,
       requirements: input.requirements,
@@ -152,7 +152,7 @@ export function createEngine(deps: EngineDeps): Engine {
       answers,
       headless,
       ...(input.target === undefined ? {} : { target: input.target }),
-      hasRequirement: hasRequirement({ text: input.text, requirements: input.requirements, headless }, { mcpServer: config?.requirements.mcpServer ?? null }),
+      hasRequirement: hasRequirement({ text: input.text, requirements: input.requirements, headless }, { mcpServer: requirementsServer(config.requirements.mcps) }),
     });
     const delivery: DeliveryChannel = input.channel === 'hook' ? 'hook' : 'cli';
     const stateKey = input.harnessSession ?? input.session;
@@ -203,7 +203,7 @@ export function createEngine(deps: EngineDeps): Engine {
       return { message: messageOf(active, part), run: active, part };
     });
     await closePointer(result.run, result.part);
-    if (previous !== null && previous.task !== slug) await supersedeIn(rt, previous.task, previous.owner ?? input.session).catch((error: unknown) => {
+    if (previous !== null && previous.task !== slug) await supersedeIn(rt, previous.task, previous.skill, previous.owner ?? input.session).catch((error: unknown) => {
       if (!(error instanceof AmbicodeError)) throw error;
     });
     return result.message;

@@ -14,10 +14,10 @@ and is said so. Every "decision point" presents numbers to the user; nothing rol
 | 4 | Requirements v3 complete: template with field lists, expansion, `acs`, binding rule in the hook, `search*` capture (list-only hits are not captures of the listed documents), `asked`/`missingAsked` coverage and `requirements-partial` (G5), conflict gate via `--answer`. | M | 33 §4's AC coverage (tie expected); S7 (33 §8) | — |
 | 5 | Search v3 complete: `refs` (grep -w) with collision flags, `find`, `relates`, `IndexAdapter` with `none` + `codeindex`, detached build with the ignore check, offline recall script, colliding-name impact cases. | M | 33 §3 offline, then decide | codeindex gains < 0.05 over the regex harvest → stays `none`; the user may enable per repo |
 | 6 | Plan route + `plan check` with `onFail` re-entry (bounded by `plan-write`'s `repeat`, G3) + draft-first + `plan-accept` with `object: note{plan-draft}` and the bound `promote` (G2) + decision gates + hand-labelled ACs + the one-process real-run runner + the `Write(plan-body.md)` grant. | M | 33 §4 (composite defined); S3, S4, S5, S11 (`plan` half), S13 (33 §8) | not a win → presented; scout appendix proposed only if traces point at context/cost |
-| 7 | Task route: `check --only` with summaries and the `--approve` rule, model-run `format`, baseline scoping, caller inventory with collisions, `review-run` → `fix` re-entry, Stop hook; probe P17 first. | L (the suite is the largest item) | 33 §5 with the detectable effect stated | inconclusive at 10 × 3 → the user chooses: enlarge (≈ $90–270) or cut task to baseline + guard + review offer |
+| 7 | Task route: `check --name --file` and the `--approve` rule, model-run `format`, baseline scoping, caller inventory with collisions, `review-run` → `fix` re-entry, Stop hook; probe P17 first. | L (the suite is the largest item) | 33 §5 with the detectable effect stated | inconclusive at 10 × 3 → the user chooses: enlarge (≈ $90–270) or cut task to baseline + guard + review offer |
 | 8 | Review route: estimate gate (acting preanswer from a trusted start only, G1), index `relates` dependents, **every** missing-source outcome stops (`policy: {review: stop}` on three gates + the `requirements-missing` refusal of `ground`, G5, #143), `review-run` re-entry on approval, verbatim coverage, selection metrics. | S–M | 33 §6 live tier (conditional on P37(b) or P58 for the plugin arm's `estimate=run`); S7, S8, S14 (33 §8) | finder claim not supported → the user decides the description |
-| 9 | init bootstrap without a config (12 §2.1 exception, G4), `--apply --set` (config + `.gitignore` on acceptance whose `answer` carries the values, explicit `search.layers`, ecosystem adapter detection R16, *Adjust* re-ask), `doctor`, config v4 migration; rules drafts/quotes/apply/revert with `revise draft` (bounded by `draft`'s `repeat`, G3). | M | fixtures; S6 (33 §8) | — |
-| 10 | Experiments behind flags: `review.onInvalid: drop`; appendix workers after P21. Backlog items (50) open only on their entry conditions. | S each | eval | — |
+| 9 | **Replaced 2026-10-10 (b):** init is a skill without a route: `scaffold.mjs`, the `ambicode:scout` subagent, the model-written config (schemaVersion 4), `config validate`, `context list|write`, the learning-context instruction in every route; rules drafts/quotes/apply/revert with `revise draft` (bounded by `draft`'s `repeat`, G3). | M | fixtures; S6 (33 §8) | — |
+| 10 | Experiments behind flags: `skills.review.onInvalid: drop`; appendix workers after P21. Backlog items (50) open only on their entry conditions. | S each | eval | — |
 
 **Total effort, I'd guess**: 8–12 engineer-weeks to step 8, of which the task suite (step 7) is 2–3
 on its own; steps 0–3 are 2–3 weeks and produce the numbers the user decides on.
@@ -37,17 +37,16 @@ hook entry until a pack opts in, the forced-prompt eval twins, `note save --kind
 |---|---|---|
 | `src/modules/review/reviewer/prompt.ts`, `report.ts`, `src/modules/review/snapshot/*`, `src/platform/providers/*`, `src/modules/review/publication/*`, `policies/*.yaml`, `prompts/reviewer-role.md`, `src/modules/review/page/templates/*.eta` **except `review.eta`** (#70) | byte-for-byte | — |
 | `src/modules/review/bundle/bundle.ts` | pipeline unchanged | `--task` baseline scoping (16 §4), `--estimate` dry mode (16 §5), tail advance |
-| `src/modules/review/findings/validate.ts` | rules unchanged | `review.onInvalid: drop` branch, off by default (16 §7) |
+| `src/modules/review/findings/validate.ts` | rules unchanged | `skills.review.onInvalid: drop` branch, off by default (16 §7) |
 | `src/modules/review/reviewer/claude-reviewer.ts` | invocation unchanged | generalized into the process runner (17 §1) |
-| `src/modules/checks/run/run.ts`, `select.ts`, `authorize.ts` | selection and authorization unchanged | `--only` forced selection and runner summary parsing (16 §2); `format` (16 §3); tail advance |
+| `src/modules/checks/run/run.ts`, `select.ts`, `authorize.ts` | selection and authorization unchanged | `--name`/`--file` selection through the shell, no runner summary parsing (16 §2); `format` (16 §3); tail advance |
 | `src/modules/review/page/*`, `src/modules/review/page/templates/review.eta` | page unchanged | `metrics.jsonl` on submit (16 §8) |
 | `src/modules/policy/*` | resolver unchanged | `stage()` projection, `--drafts` checks (11) |
 | `src/modules/search/text/locate.ts`, `dependents.ts` | scoring and name search unchanged | pass 2 by a global regex harvest with declaration counts (10 §1); `grepWords` in `src/platform/git/git.ts` |
-| `skills/plan/SKILL.md` | judgments | `allowed-tools` gains `Write(.ambicode/task/*/steps/plan-body.md)` (#57) |
+| `skills/plan/SKILL.md` | judgments | `allowed-tools` gains `Write(.ambicode/tasks/*/steps/plan-body.md)` (#57) |
 
 ## Compatibility
 
-`.ambicode/config.yaml` v1/v2 loads with a notice until `init --apply` migrates it (`requirements.lsp`
-and `task.lspPlugins` dropped with a notice; `search.layers` written explicitly). v0.5.0 task
+`.ambicode/config.yaml` of any schemaVersion other than 4 is one `config-invalid`; re-run `/ambicode:init` (it offers refresh). The directory `.ambicode/task/` is now `tasks/`; old ledgers are not migrated. v0.5.0 task
 directories (two ledger kinds, `note` and `review`, #110) fold as "no route"; new routes start beside the old notes;
 `note list` shows both. Review artifacts unchanged.

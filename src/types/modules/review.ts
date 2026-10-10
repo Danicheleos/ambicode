@@ -26,8 +26,7 @@ export const RecordedCheck = z.strictObject({
   key: z.string().min(1),
   phase: z.enum(['red', 'green']),
   exit: z.number().int(),
-  argv: z.array(z.string()).default([]),
-  only: z.array(z.string()).default([]),
+  files: z.array(z.string()).default([]),
 });
 export type RecordedCheck = z.infer<typeof RecordedCheck>;
 

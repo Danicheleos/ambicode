@@ -1,6 +1,6 @@
 import { openWorkspace } from '#modules/config/workspace';
 import { SEARCH_LAYER_DEFAULTS } from '#types/defaults';
-import type { ProjectConfig, SearchConfig } from '#types/modules/config';
+import type { ProjectConfig } from '#types/modules/config';
 import { literalPathspec, type Git } from '#platform/git/git';
 import { AmbicodeError } from '#util/errors';
 import { matchesAnyGlob } from '#util/glob';
@@ -46,9 +46,8 @@ export interface MapResult {
   entry: Record<string, unknown>;
 }
 
-export function resolveLayers(search: SearchConfig, mode: 'prompt' | 'context'): { layers: string[]; source: 'config' | 'default' } {
-  const configured = search.layers?.[mode];
-  return configured === undefined ? { layers: [...SEARCH_LAYER_DEFAULTS[mode]], source: 'default' } : { layers: configured, source: 'config' };
+export function resolveLayers(mode: 'prompt' | 'context'): { layers: string[]; source: 'default' } {
+  return { layers: [...SEARCH_LAYER_DEFAULTS[mode]], source: 'default' };
 }
 
 export interface MapInput {
@@ -125,13 +124,15 @@ async function spansOf(git: Git, candidates: MapCandidate[], terms: readonly str
 
 export async function buildMap(runtime: Runtime, input: MapInput): Promise<MapResult> {
   const unknown = input.layers.filter((layer) => !(LAYER_NAMES as readonly string[]).includes(layer));
-  if (unknown.length > 0) throw new AmbicodeError('search-layer-unknown', `Unknown search layer: ${unknown.join(', ')}.`, { details: [`Known layers: ${LAYER_NAMES.join(', ')}. Fix search.layers in .ambicode/config.yaml.`] });
+  if (unknown.length > 0) throw new AmbicodeError('search-layer-unknown', `Unknown search layer: ${unknown.join(', ')}.`, { details: [`Known layers: ${LAYER_NAMES.join(', ')}.`] });
   const { project, mode } = input;
   const { git, repositoryRoot } = await openWorkspace(runtime);
   const root = normalizeRelative(project.root);
   const pathspec = root === '' ? null : literalPathspec(root);
-  const rules = project.shortlist;
-  const files = (await git.listFiles(pathspec)).filter((file) => isSearchable(file) && (rules === undefined || ((rules.include.length === 0 || matchesAnyGlob(toProjectRelative(root, file) ?? file, rules.include)) && !matchesAnyGlob(toProjectRelative(root, file) ?? file, rules.exclude))));
+  const files = (await git.listFiles(pathspec)).filter((file) => {
+    const relative = toProjectRelative(root, file) ?? file;
+    return isSearchable(file) && (project.include.length === 0 || matchesAnyGlob(relative, project.include)) && !matchesAnyGlob(relative, project.exclude);
+  });
   const limitations: string[] = [];
   const layers: MapLayer[] = [];
   const candidates = new Map<string, MapCandidate>();

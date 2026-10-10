@@ -108,7 +108,7 @@ export async function planFixture(options: { extra?: Record<string, string>; han
     fx.engine.start({ skill: 'plan', text: 'add a limit', requirements: [], task: PLAN_TASK, cwd: fx.repo.root, session: SESSION_A, channel: 'hook', scratchpadDir: fx.scratchpad, ...input });
   const next = (input: Partial<AdvanceInput> = {}) => fx.engine.advance({ task: PLAN_TASK, session: SESSION_A, cause: 'route-next', scratchpadDir: fx.scratchpad, ...input });
   const body = async (text: string, task = PLAN_TASK): Promise<void> => {
-    const file = path.join(fx.repo.root, '.ambicode', 'task', task, 'steps', 'plan-body.md');
+    const file = path.join(fx.repo.root, '.ambicode', 'tasks', task, 'steps', 'plan-body.md');
     await mkdir(path.dirname(file), { recursive: true });
     await writeFile(file, text);
   };

@@ -9,7 +9,7 @@ export type CheckEntry = Extract<TypedEntry, { kind: 'check' }>;
 
 export const GATE = 'check-only-unauthorized';
 
-export interface CheckOnlyInput { task: string; key: string; only: string[]; phase: 'red' | 'green'; approve: string[]; decline: string[] }
+export interface CheckOnlyInput { task: string; name: string; project: string | null; files: string[]; phase: 'red' | 'green'; approve: string[]; decline: string[] }
 
 export type CheckOnlyOutcome =
   | { outcome: 'ran'; entry: CheckEntry; proof: ProofVerdict }
@@ -23,16 +23,6 @@ export type CheckDeps = NoteDeps;
 export interface Routed { view: RouteView; dir: TaskDir }
 
 export type FormatEntry = Extract<TypedEntry, { kind: 'format' }>;
-
-export interface PendingApproval {
-  checkId: string;
-  approvalKey: string;
-  projectId: string;
-  reason: string;
-  scope: string;
-  proposedArgv: string[];
-  cwd: string;
-}
 
 export interface BaselineEntryFields {
   head: string | null;

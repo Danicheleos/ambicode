@@ -1,18 +1,19 @@
 import path from 'node:path';
 import { openRepository } from '#platform/git/open';
 import { findSessionRepository } from '#platform/git/session-repository';
-import { IGNORE_ENTRIES, REVIEWS_LEAF, TASKS_DIR } from '#types/defaults';
+import { REVIEWS_DIR, TASKS_DIR, type DirKind } from '#types/defaults';
 import { AmbicodeError } from '#util/errors';
 import type { Runtime } from '#types/composition';
 import { LEDGER_FILE, type TaskDir } from '#types/modules/evidence';
 import type { FileSystem } from '#types/platform/ports';
 
-/** The only place that joins `TASKS_DIR` and a slug. */
-export function taskDirFor(repositoryRoot: string, slug: string, where = '.'): TaskDir {
+/** The only place that joins `TASKS_DIR` or `REVIEWS_DIR` and a slug. */
+export function taskDirFor(repositoryRoot: string, slug: string, where = '.', kind: DirKind = 'task'): TaskDir {
+  const base = kind === 'review' ? REVIEWS_DIR : TASKS_DIR;
   if (slug === '' || slug === '.' || /[\\/]|\.\./.test(slug)) {
-    throw new AmbicodeError('bad-argument', `"${slug}" is not a task slug: it must name one directory under ${TASKS_DIR}.`, { field: 'task' });
+    throw new AmbicodeError('bad-argument', `"${slug}" is not a run slug: it must name one directory under ${base}.`, { field: 'task' });
   }
-  const root = path.join(repositoryRoot, TASKS_DIR, slug);
+  const root = path.join(repositoryRoot, base, slug);
   const steps = path.join(root, 'steps');
   return {
     slug,
@@ -24,17 +25,23 @@ export function taskDirFor(repositoryRoot: string, slug: string, where = '.'): T
     planBody: path.join(steps, 'plan-body.md'),
     requirements: path.join(root, 'requirements'),
     workers: path.join(root, 'workers'),
-    reviews: path.join(root, REVIEWS_LEAF),
     stopCheck: path.join(root, 'stop-check.md'),
     answerBlocked: path.join(root, 'answer-blocked.md'),
   };
 }
 
-/** The hook prepares for the configured repository below the session directory; a task directory must land there too. */
-export async function resolveTaskDir(runtime: Runtime, slug: string): Promise<TaskDir> {
+/**
+ * The hook prepares for the configured repository below the session directory; a task directory must land there too.
+ * Without a `kind` the slug names whichever run directory holds its ledger (a review run, else a task).
+ */
+export async function resolveTaskDir(runtime: Runtime, slug: string, kind?: DirKind): Promise<TaskDir> {
   const found = await findSessionRepository(runtime, runtime.cwd);
   const { repositoryRoot, where } = typeof found === 'string' ? { ...(await openRepository(runtime)), where: '.' } : found;
-  return taskDirFor(repositoryRoot, slug, where);
+  if (kind !== undefined) return taskDirFor(repositoryRoot, slug, where, kind);
+  const task = taskDirFor(repositoryRoot, slug, where);
+  if (await runtime.fs.exists(task.ledger)) return task;
+  const review = taskDirFor(repositoryRoot, slug, where, 'review');
+  return (await runtime.fs.exists(review.ledger)) ? review : task;
 }
 
 /**
@@ -47,22 +54,6 @@ export async function taskWorkingDirectory(runtime: Runtime, slug: string): Prom
   const real = (value: string) => runtime.fs.realpath(value).catch(() => value);
   const relative = path.relative(await real(dir.repositoryRoot), await real(runtime.cwd));
   return relative.startsWith('..') || path.isAbsolute(relative) ? dir.repositoryRoot : runtime.cwd;
-}
-
-/** The agent's own searches (rg, Grep, git grep) skip AMBICODE's working files; `.git/info/exclude` is never committed. */
-export async function excludeWorkingDirs(runtime: Runtime, repositoryRoot: string): Promise<void> {
-  try {
-    const { git } = await openRepository({ ...runtime, cwd: repositoryRoot });
-    const file = path.join(await git.gitCommonDir(), 'info', 'exclude');
-    const current = (await runtime.fs.exists(file)) ? await runtime.fs.readText(file) : '';
-    const lines = new Set(current.split('\n').map((line) => line.trim()));
-    const missing = IGNORE_ENTRIES.filter((entry) => !lines.has(entry));
-    if (missing.length === 0) return;
-    await runtime.fs.mkdirp(path.dirname(file));
-    await runtime.fs.appendText(file, `${current === '' || current.endsWith('\n') ? '' : '\n'}${missing.join('\n')}\n`);
-  } catch {
-    // Searches then see the task files; nothing the route needs depends on it.
-  }
 }
 
 /** `--from` names the task's own plan body and nothing else: not another file, another task or a link to one. */

@@ -4,7 +4,7 @@ import { MAX_EVIDENCE_BYTES, MAX_SNAPSHOT_FILE_BYTES } from '#types/defaults';
 import { openWorkspace } from '#modules/config/workspace';
 import { combineDiff } from '#platform/git/diff';
 import { appendLedger } from '#platform/ledger/ledger';
-import { taskDirFor } from '#modules/evidence/task/task-dir';
+import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { validateFindings } from '#modules/review/findings/validate';
 import { applyStatus } from '#modules/review/findings/status';
 import { renderReport } from '#modules/review/findings/report';
@@ -78,7 +78,7 @@ export async function runReviewRecord(runtime: Runtime, args: ParsedArgs): Promi
   const parsedResult = ReviewResult.safeParse(JSON.parse(await runtime.fs.readText(resultPath)));
   if (!parsedResult.success) throw new AmbicodeError('review-unreadable', `${resultPath} is not a review result.`, { details: [parsedResult.error.issues[0]?.message ?? ''] });
   const result = parsedResult.data;
-  const config = workspace.config.review;
+  const config = workspace.config.skills.review;
 
   const run = {
     status: 'ok' as 'ok' | 'failed', rejections: [] as string[], detail: null as string | null, rejectedOutputRef: null as string | null, at: runtime.clock.now().toISOString(),
@@ -118,7 +118,7 @@ export async function runReviewRecord(runtime: Runtime, args: ParsedArgs): Promi
   await runtime.fs.writeText(resultPath, `${JSON.stringify(result, null, 2)}\n`);
   await runtime.fs.writeText(path.join(reviewDirectory, 'findings.json'), `${JSON.stringify(result.findings, null, 2)}\n`);
   const carried = Object.fromEntries(['route', 'session', 'baseline', 'preexisting'].filter((key) => pending[key] !== undefined).map((key) => [key, pending[key]]));
-  const { entry } = await appendLedger(runtime.fs, taskDirFor(workspace.repositoryRoot, task).root, runtime.clock.now(), runtime.ids.writerId(), {
+  const { entry } = await appendLedger(runtime.fs, (await resolveTaskDir(runtime, task)).root, runtime.clock.now(), runtime.ids.writerId(), {
     ...carried, kind: 'review', reviewId: result.reviewId, result: pending['result'], stage: 'recorded', reviewerRan: true, findings: result.findings.length,
     status: result.status, statusReason: result.statusReason, omissions: result.omissions.length,
   });

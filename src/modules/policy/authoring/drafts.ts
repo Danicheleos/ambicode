@@ -44,7 +44,7 @@ export async function checkDrafts(runtime: Runtime, workspace: Workspace, option
     const relative = `${DRAFTS_DIR}/${name}`;
     const filePath = path.join(root, relative);
     const raw = (await readPackText(runtime.fs, filePath)) ?? '';
-    const validated = await validatePack(runtime.fs, { raw, filePath, reference: relative, origin: 'project' }, project === null ? { commands: null, projectId: null } : { commands: project.commands, projectId: project.id });
+    const validated = await validatePack(runtime.fs, { raw, filePath, reference: relative, origin: 'project' }, project === null ? { commands: null, projectId: null } : { commands: { ...project.commands, ...project.checks }, projectId: project.id });
     diagnostics.push(...validated.diagnostics);
     result.files.push({ path: relative, contentHash: contentHash(raw), packId: validated.pack?.pack.id ?? null });
     if (validated.pack === null) continue;

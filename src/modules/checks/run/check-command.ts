@@ -1,4 +1,4 @@
-import { openWorkspace, projectById } from '#modules/config/workspace';
+import { openWorkspace, projectForRequest } from '#modules/config/workspace';
 import { resolvePolicyFor } from '#modules/policy/resolve-for';
 import type { ProjectConfig } from '#types/modules/config';
 import type { ResolvedPolicy } from '#types/modules/policy';
@@ -8,7 +8,7 @@ import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { AmbicodeError } from '#util/errors';
 import { normalizeRelative } from '#util/paths';
 import { authorizeCommand, checkApprovalKey } from '../selection/authorize.ts';
-import { runOne } from './run.ts';
+import { runOne, shellQuote } from './run.ts';
 import { GATE, type CheckDeps, type Routed, type CheckOnlyInput, type CheckOnlyOutcome, type CheckEntry } from '#types/modules/checks';
 import type { LedgerEntry, LockedLedger, NoteDeps, TaskDir } from '#types/modules/evidence';
 import type { RouteView } from '#types/harness';
@@ -118,22 +118,21 @@ async function limitReached(deps: CheckDeps, routed: Routed, phase: string): Pro
   return true;
 }
 
+/** `{file}` becomes the quoted files, space-joined: one run, one exit, one ledger entry for the whole selection. */
+export const commandFor = (template: string, files: readonly string[]): string => template.replaceAll('{file}', files.map(shellQuote).join(' '));
+
 export async function runCheckOnly(deps: CheckDeps, input: CheckOnlyInput): Promise<CheckOnlyOutcome> {
-  const match = /^([^/\s]+)\/([^/\s]+)$/.exec(input.key);
-  if (match === null) throw badArgument(`"check" takes one key <projectId>/<checkId>; got "${input.key}".`, 'key');
-  if (input.only.length === 0) throw badArgument('"check" needs at least one --only <file>.', 'only');
   if (input.phase !== 'red' && input.phase !== 'green') throw badArgument('"check" needs --phase red|green.', 'phase');
-  const [, projectId, checkId] = match as unknown as [string, string, string];
 
   const workspace = await openWorkspace(deps.runtime);
-  const project = projectById(workspace.config, projectId);
-  const check = project.checks[checkId];
-  if (check === undefined || check === null) {
-    const runnable = Object.keys(project.checks).filter((id) => project.checks[id] !== null).sort().join(', ') || 'none';
-    if (check === null) throw badArgument(`Project "${projectId}" check "${checkId}" is configured without a command, so it cannot run; runnable: ${runnable}.`, 'key');
-    throw badArgument(`Project "${projectId}" has no check "${checkId}"; configured: ${runnable}.`, 'key');
+  const project = projectForRequest(workspace.config, input.project, input.files);
+  const spec = project.checks[input.name];
+  const runnable = Object.keys(project.checks).filter((id) => project.checks[id]!.all !== null || project.checks[id]!.file !== null).sort().join(', ') || 'none';
+  if (spec === undefined) throw badArgument(`Project "${project.id}" has no check "${input.name}"; configured: ${runnable}.`, 'name');
+  const template = input.files.length > 0 ? spec.file : spec.all;
+  if (template === null) {
+    throw badArgument(`Project "${project.id}" check "${input.name}" has no ${input.files.length > 0 ? '`file`' : '`all`'} command, so it cannot run${input.files.length > 0 ? ' on --file' : ' without --file'}.`, input.files.length > 0 ? 'file' : 'name');
   }
-
   const routed = await routedOf(deps, input.task);
   if (routed !== null && (await limitReached(deps, routed, input.phase))) {
     throw new AmbicodeError('check-limit', `${CHECK_LIMIT} ${input.phase} checks already ran in this step; nothing was run.`, {
@@ -141,16 +140,17 @@ export async function runCheckOnly(deps: CheckDeps, input: CheckOnlyInput): Prom
     });
   }
 
-  const key = checkApprovalKey(projectId, checkId);
-  const policy = await resolvePolicyFor({ workspace, project, activity: 'task', paths: input.only });
-  const decision = await authorizeKey(deps, routed, { policy, commandId: check.command, key, files: input.only, approve: input.approve, decline: input.decline });
+  // The pack's commandPolicy names the check by its config name (`unit`, `e2e`), so the check name is the command id.
+  const key = checkApprovalKey(project.id, input.name);
+  const policy = await resolvePolicyFor({ workspace, project, activity: 'task', paths: input.files });
+  const decision = await authorizeKey(deps, routed, { policy, commandId: input.name, key, files: input.files, approve: input.approve, decline: input.decline });
   if (decision === 'waiting') return { outcome: 'waiting', gate: GATE, key };
   if (decision === 'declined') return { outcome: 'declined', key };
 
   const dir = routed?.dir ?? (await resolveTaskDir(deps.runtime, input.task));
   const result = await runOne({
-    runner: deps.runtime.runner, clock: deps.runtime.clock, repositoryRoot: workspace.repositoryRoot, project, policy, commandId: check.command, key,
-    command: project.commands[check.command], files: input.only.map((file) => projectRelative(project, file)), timeoutSeconds: workspace.config.checks.timeoutSeconds,
+    runner: deps.runtime.runner, clock: deps.runtime.clock, repositoryRoot: workspace.repositoryRoot, project, policy, commandId: input.name, key,
+    command: commandFor(template, input.files.map((file) => projectRelative(project, file))), timeoutSeconds: workspace.config.skills.task.checkTimeoutSeconds,
   });
   const step = routed === null ? null : stepOf(routed.view);
   const route = routed === null ? {} : { route: routed.view.routeId };
@@ -163,8 +163,8 @@ export async function runCheckOnly(deps: CheckDeps, input: CheckOnlyInput): Prom
   }
 
   const entry = await withLedger(deps, dir, (ledger) => ledger.append({
-    kind: 'check', ...route, key, argv: result.argv, only: input.only, exit: result.exitCode, phase: input.phase,
-    summary: null, tail: tailOf(result.output), ms: result.ms, ...(deps.session === null ? {} : { session: deps.session }),
+    kind: 'check', ...route, key, files: input.files, exit: result.exitCode, phase: input.phase,
+    tail: tailOf(result.output), ms: result.ms, ...(deps.session === null ? {} : { session: deps.session }),
   })) as CheckEntry;
   // Red is exit != 0 and green is exit 0; the other combination is recorded as a gap, never as proof.
   const cause = input.phase === 'red' ? (result.exitCode === 0 ? 'no-failure' : null) : (result.exitCode === 0 ? null : 'nonzero-exit');

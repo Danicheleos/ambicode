@@ -57,6 +57,24 @@ export const TRACE = [
 
 export const PAD = ' The steps to reproduce and the acceptance criteria follow in detail.'.repeat(5);
 
+const RUN = 'model: sonnet, effort: medium, timeoutMinutes: 15';
+export const BENCH_CONFIG = [
+  'schemaVersion: 4',
+  'id: bench',
+  'context: { maxTotalTokens: 24000, maxFileTokens: 2500 }',
+  'skills:',
+  `  init: { ${RUN}, scout: { ${RUN} }, ruleSources: [presets, scout, manual, web] }`,
+  `  review: { ${RUN}, maxFindings: null, maxChangedFiles: null, maxChangedLines: null, maxContextBytes: null, excludePaths: [] }`,
+  `  task: { ${RUN}, checkTimeoutSeconds: 120 }`,
+  `  plan: { ${RUN} }`,
+  `  investigate: { ${RUN} }`,
+  `  rules: { ${RUN} }`,
+  'requirements: { runtimes: {}, mcps: [], lsps: [], env: [] }',
+  'projects:',
+  '  - { id: app, root: ".", paths: [app/], ecosystem: { languages: [typescript], frameworks: [], packageManager: null } }',
+  '',
+].join('\n');
+
 export function syntheticBenchmarks(root, { localize = 6, review = 5 } = {}) {
   const benchmarks = path.join(root, 'evals-assets', 'benchmarks');
   for (const side of ['AA', 'BB']) {
@@ -65,7 +83,7 @@ export function syntheticBenchmarks(root, { localize = 6, review = 5 } = {}) {
     mkdirSync(path.join(code, 'app', 'mod'), { recursive: true });
     mkdirSync(path.join(base, 'assets'), { recursive: true });
     mkdirSync(path.join(code, '.ambicode'), { recursive: true });
-    writeFileSync(path.join(code, '.ambicode', 'config.yaml'), 'schemaVersion: 1\n');
+    writeFileSync(path.join(code, '.ambicode', 'config.yaml'), BENCH_CONFIG);
     for (let f = 0; f < 3; f++) writeFileSync(path.join(code, 'app', 'mod', `f${f}.ts`), `export const v${f} = ${f};\n`);
     for (let t = 0; t < Math.max(localize, review); t++) {
       const truth = t < localize ? ['app/mod/f0.ts', 'app/mod/f1.ts'] : ['app/mod/f0.ts'];

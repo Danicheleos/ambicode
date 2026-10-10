@@ -48,7 +48,6 @@ export interface TaskDir {
   planBody: string;
   requirements: string;
   workers: string;
-  reviews: string;
   stopCheck: string;
   answerBlocked: string;
 }

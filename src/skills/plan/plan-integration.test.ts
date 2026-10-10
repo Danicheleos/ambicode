@@ -72,7 +72,7 @@ describe('06-H1/06-H2 plan route integration on ts-feature-boundary', () => {
       };
       const check = async (text: string) => {
         work += 1;
-        await writeFile(path.join(root, '.ambicode', 'task', TASK, 'steps', 'plan-body.md'), text);
+        await writeFile(path.join(root, '.ambicode', 'tasks', TASK, 'steps', 'plan-body.md'), text);
         return engine.advance({ task: TASK, session: A, cause: 'route-next', scratchpadDir: scratchpad });
       };
 
@@ -96,7 +96,7 @@ describe('06-H1/06-H2 plan route integration on ts-feature-boundary', () => {
       assert.match(passing.text, /Revise \(3 left\)/);
       for (const output of [failing, passing]) assert.ok(output.bytes <= 4096, `${output.bytes}`);
 
-      const ledger = async () => readLedger(nodeFileSystem, path.join(root, '.ambicode', 'task', TASK));
+      const ledger = async () => readLedger(nodeFileSystem, path.join(root, '.ambicode', 'tasks', TASK));
       const print = (await ledger()).findLast((entry) => entry.kind === 'gate' && entry['gate'] === 'plan-accept')!;
       await hook(`Accept this plan? [ambicode gate plan-accept ${print.id}]`, 'Accept', ['Accept', 'Revise', 'Reject']);
 
@@ -104,7 +104,7 @@ describe('06-H1/06-H2 plan route integration on ts-feature-boundary', () => {
       console.log(entries.map((entry) => `${entry.kind}${entry.kind === 'step' ? ` ${entry['step']}:${entry['status']}` : ''}${typeof entry['gate'] === 'string' ? ` ${entry['gate']}` : ''}${typeof entry['via'] === 'string' ? ` via:${entry['via']}` : ''}`).join('\n'));
       const plan = entries.findLast((entry) => entry.kind === 'note' && entry['note'] === 'plan');
       assert.ok(plan !== undefined && typeof plan['promotedFrom'] === 'string');
-      assert.equal((await readdir(path.join(root, '.ambicode', 'task', TASK))).filter((name) => /^plan_.*\.md$/.test(name)).length, 1);
+      assert.equal((await readdir(path.join(root, '.ambicode', 'tasks', TASK))).filter((name) => /^plan_.*\.md$/.test(name)).length, 1);
       const decision = entries.find((entry) => entry.kind === 'acceptance' && entry['gate'] === 'decision:discount-order');
       assert.equal(decision?.['via'], 'hook');
 

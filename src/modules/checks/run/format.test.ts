@@ -8,17 +8,14 @@ import { REPO_ROOT } from '#testing/paths';
 
 
 async function formatFixture(options: { slot?: string; action?: 'run' | 'propose' } = {}) {
-  return checkFixture({
-    config: CHECK_CONFIG.replace('format: { argv: [fmt] }', options.slot ?? 'format: { argv: [fmt] }'),
-    pack: COMMAND_PACK.replace('{ command: format, action: run', `{ command: format, action: ${options.action ?? 'run'}`),
-  });
+  return checkFixture({ pack: COMMAND_PACK.replace('{ command: format, action: run', `{ command: format, action: ${options.action ?? 'run'}`), config: CHECK_CONFIG.replace('format: { all: null, file: "fmt {file}" }', options.slot ?? 'format: { all: null, file: "fmt {file}" }') });
 }
 
 const format = (env: Awaited<ReturnType<typeof checkFixture>>, paths: string[] = []) => runFormat(env.deps(), { task: 'ord-7', paths });
 
 describe('format (07-F)', () => {
-  it('07-F2 a null slot records unconfigured with exit null', async () => {
-    const env = await formatFixture({ slot: 'format: null' });
+  it('07-F2 a format check with no file form records unconfigured with exit null', async () => {
+    const env = await formatFixture({ slot: 'format: { all: null, file: null }' });
     try {
       await env.start();
       await env.fx.repo.write('src/b.ts', 'x\n');
@@ -30,7 +27,7 @@ describe('format (07-F)', () => {
     }
   });
 
-  it('07-F1/07-F3 the touched files are appended to an argv without {files}; files lists only those whose bytes changed', async () => {
+  it('07-F1/07-F3 the touched files fill {file} in one shell command; files lists only those whose bytes changed', async () => {
     const env = await formatFixture();
     try {
       await env.start();
@@ -39,7 +36,7 @@ describe('format (07-F)', () => {
       env.runner.out = { exitCode: 0 };
       env.runner.effect = async (request) => writeFile(path.join(request.cwd, 'src/b.ts'), 'x;\n');
       const [entry] = await format(env);
-      assert.deepEqual(env.runner.calls, [['fmt', 'src/b.ts', 'src/c.ts']]);
+      assert.deepEqual(env.runner.calls, [["fmt 'src/b.ts' 'src/c.ts'"]]);
       assert.deepEqual([entry?.outcome, entry?.exit, entry?.files], ['formatted', 0, ['src/b.ts']]);
       assert.equal(typeof (await env.fx.kinds('ord-7', 'format'))[0]?.['route'], 'string');
     } finally {
@@ -53,7 +50,7 @@ describe('format (07-F)', () => {
       await env.fx.repo.write('src/b.ts', 'x\n');
       await env.fx.repo.write('lib/c.ts', 'y\n');
       await format(env, ['lib']);
-      assert.deepEqual(env.runner.calls, [['fmt', 'lib/c.ts']]);
+      assert.deepEqual(env.runner.calls, [["fmt 'lib/c.ts'"]]);
     } finally {
       await env.fx.dispose();
     }

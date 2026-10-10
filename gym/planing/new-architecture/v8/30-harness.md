@@ -14,8 +14,8 @@ sandbox, week-one situations).
 | `PostToolUse` | `mcp__.*` (#52) | `$A hook` | spawns on **every** `mcp__*` call in every session; exits at once without a route (#90); with a route: binding rule, bound server → capture the payload, append `requirement {rawHash}`; nothing else | 89 ms | 0–11 bound + 1 per other MCP call |
 | `PostToolUse` | `WebFetch` | `$A hook` | with a route and an MR URL: capture the fetched diff, append `capture{what: mr-diff}`; otherwise exit at once | 89 ms | 0–1 |
 | `PostToolUse` | `AskUserQuestion` | `$A hook` | find `[ambicode gate <id> <instance>]` in the question; bind to that `gate` entry (C2) and append the answer `{via: hook, instance, object}` (or `unbound`); `onAnswer` revises; **return the next step as `additionalContext`** (P48; fallback: the gate text says "then `route next`") | 89 ms + the step build | 0–4 |
-| `PreToolUse` | `Bash` with `if: Bash(git *)`, `Bash(glab mr*)`, `Bash(*.ambicode/task*)`, `Bash(*ambicode.mjs*)`, `Bash(rm *)` | `guard.mjs` | allow / ask / deny by the decision table (15 §1); a headless ask becomes a deny | 34 ms | 2–10 |
-| `PreToolUse` | `Write\|Edit\|MultiEdit\|NotebookEdit` | `guard.mjs` | deny under `.ambicode/task/` (plan-body exception); deny `config.yaml` and `.gitignore` during init | 34 ms | 0–10 |
+| `PreToolUse` | `Bash` with `if: Bash(git *)`, `Bash(glab mr*)`, `Bash(*.ambicode/*)`, `Bash(*ambicode.mjs*)`, `Bash(rm *)` | `guard.mjs` | allow / ask / deny by the decision table (15 §1); a headless ask becomes a deny | 34 ms | 2–10 |
+| `PreToolUse` | `Write\|Edit\|MultiEdit\|NotebookEdit` | `guard.mjs` | deny under `.ambicode/tasks/` and `.ambicode/reviews/` (plan-body exception); deny under `.ambicode/context/` (use `context write`) | 34 ms | 0–10 |
 | `Stop` | all | `$A hook` | `engine.stopHook`: a dismissed gate print, a `final` step (an `answer: note` message is saved as the note), report-shaped stops (15 §3); block once; fails open | 89 ms + a transcript tail | 1–3 |
 | `PostCompact` | all | `$A hook` | reset epoch (cannot carry context, probed 2.1.278) | 89 ms | 0–1 |
 | `SessionEnd` | all | `$A hook` | remove session state only | 89 ms | 1 |
@@ -38,7 +38,7 @@ on the user's prompt; measured in 33 §7. Nothing scales with the model's readin
 
 `<scratchpad_dir>/ambicode-hook-state/` or `<tmpdir>/…/<hash(session)>/`: `epoch`,
 `delivered/<epoch>/<hash>`, and `active-route` → `{task, skill}` (a pointer that duplicates the
-ledger's latest `route` for this session; readers fall back to scanning `.ambicode/task/*`, P31).
+ledger's latest `route` for this session; readers fall back to scanning `.ambicode/tasks/*`, P31).
 
 ## 3. Context budget per skill
 
@@ -133,7 +133,6 @@ Only the main thread runs routes and the Stop hook (`agent_id` absent). The one 
 ## 9. What the harness never does (#48)
 
 Calls the model on its own; writes source files from a hook or a code step (`format` is **model-run**
-and on record); writes outside `.ambicode/` except `.gitignore` lines through `init --apply` on an
-acceptance; hides a step (each `map` prints its layers); keeps a counter
+and on record); writes outside `.ambicode/` (the init scaffold script writes the one `.gitignore` line, outside any route); hides a step (each `map` prints its layers); keeps a counter
 the ledger does not hold; acts on an unanswered gate; decides a rollback (D10: the numbers are
 presented, the user decides).

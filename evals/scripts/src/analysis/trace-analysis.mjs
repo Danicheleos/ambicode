@@ -152,13 +152,13 @@ function sandboxLedgers(sandbox) {
   for (const base of bases) {
     let slugs;
     try {
-      slugs = readdirSync(path.join(base, '.ambicode', 'task'));
+      slugs = readdirSync(path.join(base, '.ambicode', 'tasks'));
     } catch (error) {
       if (error.code === 'ENOENT' || error.code === 'ENOTDIR') continue;
       throw error;
     }
     for (const slug of slugs) {
-      const task = path.join(base, '.ambicode', 'task', slug);
+      const task = path.join(base, '.ambicode', 'tasks', slug);
       found.push(path.relative(sandbox, path.join(task, 'ledger.jsonl')));
       // The notes beside it: a plan run is scored from its promoted plan (`scoredPlan`), not from its last message; an investigation's saved note is kept with it.
       let names = [];

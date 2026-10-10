@@ -13,26 +13,22 @@ import { openWorkspace, projectById, toRepositoryRelative } from '#modules/confi
 import { resolvePolicyFor } from '#modules/policy/resolve-for';
 import { runPolicyCheck, POLICY_CHECK_OPTIONS, type PolicyCheckOutput } from './policy-check.ts';
 import { REPO_ROOT } from '#testing/paths';
+import { CONFIG_HEAD } from '#testing/fixtures/route-fixture';
 import type { Runtime } from '#types/composition';
 
-const CONFIG_TAIL = [
-  'review: { model: sonnet, timeoutSeconds: 300, maxFindings: 7, maxChangedFiles: 50, maxChangedLines: 2000, maxContextBytes: 524288 }',
-  'checks: { timeoutSeconds: 120 }',
-  'requirements: { mcpServer: null }',
-].join('\n');
-
 function configYaml(projects: readonly string[]): string {
-  return ['schemaVersion: 1', 'baseline: ""', CONFIG_TAIL, 'projects:', ...projects, ''].join('\n');
+  return [CONFIG_HEAD, ...projects, ''].join('\n');
 }
 
 const ONE_PROJECT = [
   '  - id: web',
   '    root: .',
-  '    ecosystem: typescript',
+  '    paths: []',
+  '    ecosystem: { languages: [typescript], frameworks: [], packageManager: null }',
   '    packs: []',
   '    policyFiles: []',
-  '    commands: { lint: null }',
-  '    checks: {}',
+  '    commands: {}',
+  '    checks: { lint: { all: null, file: null } }',
 ];
 
 async function repoWithLayout(): Promise<TempRepo> {
@@ -264,11 +260,12 @@ describe('R3 migrated packs resolve as scoped project policy', () => {
         configYaml([
           '  - id: web',
           '    root: .',
-          '    ecosystem: typescript',
+          '    paths: []',
+          '    ecosystem: { languages: [typescript], frameworks: [], packageManager: null }',
           '    packs: []',
           '    policyFiles: [.ambicode/policies/team-global.yaml, .ambicode/policies/team-components.yaml]',
-          '    commands: { lint: null }',
-          '    checks: {}',
+          '    commands: {}',
+          '    checks: { lint: { all: null, file: null } }',
         ]),
       );
       await repo.commitAll('migrated packs');
@@ -309,11 +306,12 @@ describe('R3 migrated packs resolve as scoped project policy', () => {
         configYaml([
           '  - id: web',
           '    root: .',
-          '    ecosystem: typescript',
+          '    paths: []',
+          '    ecosystem: { languages: [typescript], frameworks: [], packageManager: null }',
           '    packs: []',
           '    policyFiles: []',
-          '    commands: { lint: null }',
-          '    checks: {}',
+          '    commands: {}',
+          '    checks: { lint: { all: null, file: null } }',
         ]),
       );
       await repo.commitAll('a CLAUDE.md nobody wired in');

@@ -59,13 +59,13 @@ describe('investigate route (03-I1, 03-I2)', () => {
       const first = await start();
       assert.equal(first.position, 'read');
       assert.deepEqual(await rows(), ['fetch:skipped', 'ground:completed', 'scope:skipped', 'read:delivered']);
-      assert.match(first.text, /Now: Read the code the question is about, then answer it\./);
+      assert.match(first.text, /Now: Read the code the question is about\./);
       assert.match(first.text, /Then: .*note save --task cart --kind investigation/);
       assert.match(first.text, /Save the answer before giving it: `.*note save --task cart --kind investigation`/);
       assert.match(first.text, /## map\n/);
       assert.match(first.text, /src\/cart\.ts/);
       assert.ok(first.bytes <= 8_192, `03-X1: ground-and-read message is ${first.bytes} bytes`);
-      const dir = path.join(fx.repo.root, '.ambicode', 'task', 'cart');
+      const dir = path.join(fx.repo.root, '.ambicode', 'tasks', 'cart');
       for (const [key, limit] of [['map', 6_144], ['policy:before-work', 8_192]] as const) {
         const payload = await loadPayload(fx.runtime.fs, { steps: path.join(dir, 'steps') } as never, (await fx.kinds('cart', 'route'))[0]!.id, key);
         assert.ok(Buffer.byteLength(payload ?? '') <= limit, `03-X1: ${key} payload`);
@@ -95,8 +95,8 @@ describe('investigate route (03-I1, 03-I2)', () => {
     try {
       const first = await start();
       assert.doesNotMatch(first.text, /## envelope|## ARGS|## policy:before-work|rulesOmitted/);
-      assert.equal(first.text.split('Read the code the question is about, then answer it.').length - 1, 1, 'the Now: line is not repeated in the body');
-      const dir = path.join(fx.repo.root, '.ambicode', 'task', 'cart');
+      assert.equal(first.text.split('Read the code the question is about.').length - 1, 1, 'the Now: line is not repeated in the body');
+      const dir = path.join(fx.repo.root, '.ambicode', 'tasks', 'cart');
       const chain = (await fx.kinds('cart', 'route'))[0]!.id;
       for (const key of ['envelope', 'policy:before-work']) {
         assert.equal(await loadPayload(fx.runtime.fs, { steps: path.join(dir, 'steps') } as never, chain, key), '', `${key}: an empty payload is saved, so no earlier one is delivered`);

@@ -43,7 +43,7 @@ export async function session(options: SessionOptions = {}) {
   const fx = await routeFixture({
     routes: { [skill]: route },
     handlers: { ...skillHandlers(), ...options.handlers },
-    config: server === null ? CONFIG : CONFIG.replace('mcpServer: null', `mcpServer: ${server}`),
+    config: server === null ? CONFIG : CONFIG.replace('mcps: []', `mcps: [${server}]`),
     ...(options.shipped === true ? { step } : {}),
   });
   if (options.shipped === true) {

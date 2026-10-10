@@ -68,7 +68,7 @@ export async function runPolicyCheck(runtime: Runtime, args: ParsedArgs): Promis
   const workspace = await openWorkspace(runtime);
   const requested = args.value('project');
   const project = requested !== null ? projectById(workspace.config, requested) : workspace.config.projects.length === 1 ? workspace.config.projects[0]! : null;
-  const constraints = project === null ? { commands: null, projectId: null } : { commands: project.commands, projectId: project.id };
+  const constraints = project === null ? { commands: null, projectId: null } : { commands: { ...project.commands, ...project.checks }, projectId: project.id };
   const diagnostics: Diagnostic[] = [];
   const files: PolicyCheckOutput['files'] = [];
   for (const operand of args.positionals) {

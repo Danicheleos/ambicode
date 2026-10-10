@@ -62,7 +62,7 @@ describe('evals-bench: plan notes', () => {
     const sandboxRoot = realpathSync(mkdtempSync(path.join(tmpdir(), 'harvest-plan-')));
     const outDir = path.join(sandboxRoot, 'kept');
     try {
-      const task = path.join('home', 'cwd', 'repo', '.ambicode', 'task', 'cart');
+      const task = path.join('home', 'cwd', 'repo', '.ambicode', 'tasks', 'cart');
       mkdirSync(path.join(sandboxRoot, 'e-one', task), { recursive: true });
       for (const name of ['ledger.jsonl', 'plan_2026-10-07T10-00.md', 'plan-draft_2026-10-07T09-59.md', 'investigation_2026-10-07T09-58.md', 'notes_2026-10-07T09-57.md'])
         writeFileSync(path.join(sandboxRoot, 'e-one', task, name), name);

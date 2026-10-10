@@ -21,7 +21,7 @@ import { casePrompt, peekGraders, reviewGraderFiles } from './bench-cases.mjs';
  */
 export const PRESET_SKILLS = Object.freeze({
   investigate: { kind: 'localize', command: INVESTIGATE_COMMAND, tools: 'Read, Glob, Grep, Bash, Skill', turns: 40, seconds: 900 },
-  // The plan route writes its body with Write (.ambicode/task/*/steps/plan-body.md); the graders refuse a write into the code.
+  // The plan route writes its body with Write (.ambicode/tasks/*/steps/plan-body.md); the graders refuse a write into the code.
   plan: { kind: 'plan', command: PLAN_COMMAND, tools: 'Read, Glob, Grep, Bash, Write, Skill', turns: 80, seconds: 1800 },
   task: { kind: 'task', command: PRESET_TASK_COMMAND, tools: 'Read, Glob, Grep, Bash, Edit, Write, Skill', turns: 80, seconds: 1800 },
   review: { kind: 'review', command: REVIEW_COMMAND, tools: 'Read, Glob, Grep, Bash, Skill', turns: 80, seconds: 1800 },

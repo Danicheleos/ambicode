@@ -89,9 +89,9 @@ export async function captureMrDiff(input: HookInput, deps: MrCaptureDeps): Prom
   if (patch === null) return null;
   const rawHash = contentHash(JSON.stringify(input.tool_response ?? null));
   const sha = shaOf(input.tool_response);
-  await deps.runtime.fs.mkdirp(deps.dir.reviews);
-  await deps.runtime.fs.writeText(path.join(deps.dir.reviews, MR_DIFF_PATCH), patch);
+  await deps.runtime.fs.mkdirp(deps.dir.root);
+  await deps.runtime.fs.writeText(path.join(deps.dir.root, MR_DIFF_PATCH), patch);
   const bytes = Buffer.byteLength(patch);
-  await deps.runtime.fs.writeText(path.join(deps.dir.reviews, MR_DIFF_JSON), `${JSON.stringify({ url: deps.mrUrl, ...(sha === null ? {} : { sha }), server: match[1], tool: input.tool_name, rawHash, bytes }, null, 2)}\n`);
-  return deps.ledger.append({ kind: 'capture', route: deps.routeId, what: 'mr-diff', path: path.relative(deps.dir.repositoryRoot, path.join(deps.dir.reviews, MR_DIFF_PATCH)), rawHash, bytes, tool: input.tool_name });
+  await deps.runtime.fs.writeText(path.join(deps.dir.root, MR_DIFF_JSON), `${JSON.stringify({ url: deps.mrUrl, ...(sha === null ? {} : { sha }), server: match[1], tool: input.tool_name, rawHash, bytes }, null, 2)}\n`);
+  return deps.ledger.append({ kind: 'capture', route: deps.routeId, what: 'mr-diff', path: path.relative(deps.dir.repositoryRoot, path.join(deps.dir.root, MR_DIFF_PATCH)), rawHash, bytes, tool: input.tool_name });
 }

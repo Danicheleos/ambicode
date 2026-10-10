@@ -106,7 +106,7 @@ describe('review --task (07-B)', () => {
       const out = await runReview(runtime, args());
       assert.doesNotMatch(out.result.omissions.join('\n'), /baseline|pre-existing/);
       assert.ok(out.result.changedFiles.some((file) => file.newPath === 'src/a.ts'));
-      const entries = await readLedger(nodeFileSystem, path.join(repo.root, '.ambicode', 'task', CHECK_TASK));
+      const entries = await readLedger(nodeFileSystem, path.join(repo.root, '.ambicode', 'tasks', CHECK_TASK));
       assert.equal(entries.filter((entry) => entry.kind === 'review').at(-1)?.['preexisting'] === undefined, true);
     } finally {
       await repo.dispose();

@@ -6,12 +6,11 @@ import { parseArgs } from '#util/args';
 import { runMap, runRefs, MAP_OPTIONS, REFS_OPTIONS } from '#cli/commands/search/search';
 import { openRepository } from '#platform/git/open';
 import { routeFixture, type RouteFixture } from '#testing/fixtures/route-fixture';
-import { excludeWorkingDirs } from '#modules/evidence/task/task-dir';
 import { harvest } from './harvest.ts';
 import { buildMap, pathsCitedIn, symbolsCitedIn } from './map.ts';
 import { refs, REFS_LIMIT_BYTES } from './refs.ts';
 
-const project = { id: 'app', root: '.', ecosystem: 'typescript', commands: {}, packs: [], checks: {}, policyFiles: [] } as never;
+const project = { id: 'app', root: '.', paths: [], ecosystem: { languages: ['typescript'], frameworks: [], packageManager: null }, include: [], exclude: [], rules: [], commands: {}, packs: [], checks: {}, policyFiles: [] } as never;
 
 async function repo(extra: Record<string, string> = {}): Promise<RouteFixture> {
   const fx = await routeFixture({ routes: {} });
@@ -106,11 +105,7 @@ describe('map command', () => {
   it('keeps AMBICODE working files out of the agent searches, once, and in a linked worktree writes the shared exclude', async () => {
     const fx = await repo();
     try {
-      await excludeWorkingDirs(fx.runtime, fx.repo.root);
-      await excludeWorkingDirs(fx.runtime, fx.repo.root);
-      const exclude = await readFile(`${fx.repo.root}/.git/info/exclude`, 'utf8');
-      assert.equal(exclude.split('\n').filter((line) => line === '.ambicode/task/').length, 1);
-      await fx.repo.write('.ambicode/task/t/ledger.jsonl', 'applyDiscount\n');
+      await fx.repo.write('.ambicode/tasks/t/ledger.jsonl', 'applyDiscount\n');
       const map = await buildMap(fx.runtime, { project, mode: 'context', layers: ['grep'], symbols: ['applyDiscount'] });
       assert.ok(map.candidates.every((candidate) => !candidate.path.startsWith('.ambicode/')), map.candidates.map((c) => c.path).join(','));
       const linked = `${fx.repo.root}-linked`;

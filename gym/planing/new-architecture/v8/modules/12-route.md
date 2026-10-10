@@ -58,12 +58,10 @@ complementary `when`s; **looping is `revise`** (§4), never a construct inside `
 $A route start <skill> [--task <slug>] [--headless] [--project <id>] [--answer <gate>=<option>]… [--fresh | --adopt] [args…]
 ```
 
-1. Resolve the repository and config. ⛔ `config-missing` → names `/ambicode:init`. **Exception,
-   `skill: init` (G4)**: the start resolves the repository only (⛔ `not-a-repository`); a missing
-   config is the normal input and an unparsable one is handed to init's own `config-unparsable`
-   gate (20 step 1), never to `config-missing`. The ledger lives at `.ambicode/task/init-<date>/`
-   (init's fixed slug, an exception to §2.2, #142; `TASKS_DIR` needs no config); init's route context is the repository and the
-   proposal, not a live config. Every other skill fails closed on `config-missing`. Two projects and
+1. Resolve the repository and config. ⛔ `config-missing` → names `/ambicode:init`; an old or invalid
+   config is one `config-invalid`. `init` has no route (20, 2026-10-10 b), so there is no bootstrap
+   exception: every route fails closed on a missing config. The ledger lives at
+   `.ambicode/tasks/<slug>/` (`TASKS_DIR`; a review route's run directory is `.ambicode/reviews/<slug>/`). Two projects and
    no `--project` or paths → raised gate `project-ambiguous` (registry; non-acting default *stop*,
    release `route next --project <id>`, #80).
 2. Slug: `--task`, else the ticket key, else the kebab of the request, else `task-<hash>`.
@@ -137,13 +135,13 @@ command in every surface is probe P37, 33 §0) and the model itself (the skill b
 Every **evidence-writing command** the model runs ends the same way: fold, run the reachable `code`
 steps, print the next `model` step or the gate. The list, mirrored by 31's ⤵ marks: `route next`,
 `requirements normalize`, `check`, `format`, `review`, `plan check`, `policy check --drafts`,
-`rules apply`, `init --apply`, `note save`, `note promote`. `route next` is needed only when the
+`rules apply`, `note save`, `note promote`. `route next` is needed only when the
 model's step produced no command (after MCP reads; after reading code).
 
 **Ceremony turn** (the count the skill files budget): a model tool call whose only purpose is the
 route — `route next`, `note save`, `note promote`, and an `AskUserQuestion` for a gate.
 **Work command**: a call a naked model would also make in some form — `check`, `format`, `review`,
-`plan check`, `policy check`, `rules apply`, `init --apply`. Both are counted in every skill file;
+`plan check`, `policy check`, `rules apply`. Both are counted in every skill file;
 only ceremony is called "ceremony".
 
 ```
@@ -206,7 +204,7 @@ revises (D14). Then:
   takes its non-acting default and the report's Decisions says "the model asked for *run*; declined,
   no answer from the user". A user who wants an acting answer in `claude -p` gives it in the prompt
   as `--answer <gate>=<option>` (30 §6). A command that executes an answer already honoured — `note
-  promote` after an *Accept*, `init --apply` with the accepted `--set` values, `check --approve`
+  promote` after an *Accept*, `check --approve`
   after an *approve* on record — asks nothing again (§8 Standalone).
 - **An acting answer names its object (G2, R17).** A gate whose acting option consumes an artifact
   declares `object: <kind>{<qualifier>}` (32 §3: `plan-accept` → `note{plan-draft}`). The object is
@@ -241,7 +239,7 @@ revises (D14). Then:
 
 | Class | Declared where | Id | Examples |
 |---|---|---|---|
-| **declared** | a `human` step in the route file | the step id | `plan-accept`, `review-offer`, `estimate`, `scope`, `sources`, `rules-table`, `init-apply`, `draft-ok` |
+| **declared** | a `human` step in the route file | the step id | `plan-accept`, `review-offer`, `estimate`, `scope`, `sources`, `rules-table`, `draft-ok` |
 | **raised by code** | `routes/gates.yaml` (the full list is 32 §4): `code → {question, options, default, release, onAnswer?, policy?: {<skill>: stop}}` | the error code | `requirements-not-captured-twice`, `check-only-unauthorized` (per key; `onAnswer: {approve: revise $raisedBy}`), `review-checks`, `review-again`, `project-ambiguous`, `scope-expanding` (`requirements-server-*` and `requirements-expansion-capped` stay in the registry; no code raises them) |
 | **raised by the model** | `routes/gates.yaml` class `decision:*` | `decision:<slug>`, chosen by the model | plan's material decisions (23 step 4) |
 
@@ -393,7 +391,7 @@ supports (R3).
 **Standalone commands.** Every CLI command runs with or without an active route. Without one: no
 fold, no delivery, the command's ledger write still happens (`note save`, `check`, `review` behave
 as today). With one: the tail advances. **Consent is checked by the consuming command itself, never
-by the route position**: `note promote` (13 §3), `init --apply` (20 step 4), `check --approve` and
+by the route position**: `note promote` (13 §3), `check --approve` and
 `review --approve` (16 §2) each read the ledger for an honoured answer under §3.4 — a bound hook
 answer or a consumed preanswer, never a flag (C1) — for its object when the gate declares one (`note
 promote`), for the accepted `key` or `--set` values otherwise (#145) — and refuse otherwise, so
@@ -465,7 +463,7 @@ command calls `advance({cause: <its name>})` after its own ledger write.
 | An answer arrives for an older print (print A, then print B for a new draft, then *Accept* on A's question) | bound to A's instance with A's object; `note promote` → `plan-not-accepted {object-changed}` (A ≠ the latest draft B); nothing promoted; the gate re-prints for B (C2, 13 §3) |
 | The model runs `route next --answer <gate>=<acting>` in a **trusted headless** route | `declined {via: flag, reason: acting-needs-human}` all the same; the gate takes its non-acting default; the report's Decisions names the declined request (C1) |
 | Ledger unreadable | ⛔ `ledger-unreadable`; release `route start --task <slug>-2` |
-| `/ambicode:init` on a repository with no config | the init route starts (§2.1 exception, G4); every other skill: ⛔ `config-missing` naming init |
+| `/ambicode:init` on a repository with no config | the skill runs the scaffold script and writes the config (no route, 20); every route: ⛔ `config-missing` naming init |
 | A model types `route start … --headless --answer <gate>=<acting>` interactively | `channel: cli` → `trusted: false`; the mode is headless, the acting answer is `declined {acting-needs-human}`; the gate is asked when reached (G1) |
 | *Accept* on draft A, then a new `plan-draft` B is saved | the acceptance carries A's hash and the latest draft is now B: `note promote` → `plan-not-accepted {reason: object-changed}` naming both hashes; **nothing** is promoted until the gate is re-printed for B and answered (13 §3 step 3, #134); A is dead as an object (G2, #133) |
 | A second live `plan` route on one slug from another session, same or different args | ⛔ `route-busy`; release `--adopt` (position kept), `--fresh` (restart) or `--task <slug>-2` (§2.3, G2, H2) |

@@ -71,7 +71,7 @@ export function reviewResult(options: FixtureOptions = {}): ReviewResult {
       at: null,
     },
     ruleIds: [],
-    checks: [{ key: 'web/lint', phase: 'green', exit: 1, argv: ['eslint', '--', 'src/orders.ts'], only: ['src/orders.ts'] }],
+    checks: [{ key: 'web/lint', phase: 'green', exit: 1, files: ['src/orders.ts'] }],
     changedFiles: [],
     findings: options.findings ?? [
       finding({ id: 'f-aaaa' }),

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { initConfig } from '#testing/fixtures/init-config';
 import { createRuntime } from '#composition/root';
 import { openWorkspace, projectForRequest } from '#modules/config/workspace';
+import { CONFIG_HEAD } from '#testing/fixtures/route-fixture';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { policyStage, STAGE_LIMITS } from './stage.ts';
 
@@ -26,6 +27,20 @@ describe('03-P policy stage', () => {
         if (payload.entry.rules > 0) assert.match(payload.text, /^[a-z0-9-]+\/[a-z0-9-]+ \([a-z-]+\): .+/m);
         assert.doesNotMatch(payload.text, /rulesOmitted/);
       }
+    } finally {
+      await temp.dispose();
+    }
+  });
+
+  it('v4: project rules render at before-work only and are counted in the entry', async () => {
+    const { temp, runtime, project } = await repo();
+    try {
+      const withRules = { ...project, rules: [{ source: 'manual' as const, rule: 'Prefer named exports.' }] };
+      const before = await policyStage({ runtime, project: withRules, activity: 'task', paths: ['src/a.ts'], stage: 'before-work', show: true });
+      assert.match(before.text, /^- Prefer named exports\.$/m);
+      assert.ok(before.entry.rules >= 1);
+      const report = await policyStage({ runtime, project: withRules, activity: 'task', paths: ['src/a.ts'], stage: 'before-report', show: true });
+      assert.doesNotMatch(report.text, /Prefer named exports/);
     } finally {
       await temp.dispose();
     }
@@ -70,7 +85,7 @@ async function styleRepo(count: number, filler = ''): Promise<{ temp: TempRepo; 
   await temp.write('src/a.ts', 'export const a = 1;\n');
   const rules = Array.from({ length: count }, (_, index) => [`  - id: style-${index}`, '    category: code-style', `    instruction: ${JSON.stringify(`Style rule ${index}.${filler}`)}`, '    check: { kind: reviewer, explanation: "Judged from the diff." }']).flat();
   await temp.write('.ambicode/policies/team.yaml', ['schemaVersion: 1', 'id: team', 'authority: team', 'appliesTo: ["**/*"]', 'activities: [review, task, plan, investigate]', 'source: { location: "fixture" }', 'rules:', ...rules, '  - id: no-secrets', '    category: security', '    instruction: Never log a token.', '    check: { kind: reviewer, explanation: "Judged from the diff." }', ''].join('\n'));
-  await temp.write('.ambicode/config.yaml', ['schemaVersion: 1', 'baseline: ""', 'review: { model: sonnet, timeoutSeconds: 300, maxFindings: 7, maxChangedFiles: 50, maxChangedLines: 2000, maxContextBytes: 524288 }', 'checks: { timeoutSeconds: 120 }', 'requirements: { mcpServer: null }', 'projects:', '  - id: web', '    root: .', '    ecosystem: typescript', '    packs: []', '    policyFiles: [".ambicode/policies/team.yaml"]', '    commands: {}', '    checks: {}', ''].join('\n'));
+  await temp.write('.ambicode/config.yaml', [CONFIG_HEAD, '  - id: web', '    root: .', '    paths: []', '    ecosystem: { languages: [typescript], frameworks: [], packageManager: null }', '    packs: []', '    policyFiles: [".ambicode/policies/team.yaml"]', '    commands: {}', '    checks: {}', ''].join('\n'));
   await temp.commitAll('rules');
   const runtime = await createRuntime({ cwd: temp.root });
   return { temp, runtime, project: projectForRequest((await openWorkspace(runtime)).config, null, []) };

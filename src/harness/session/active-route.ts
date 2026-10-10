@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { TASKS_DIR } from '#types/defaults';
+import { REVIEWS_DIR, TASKS_DIR, dirKindFor, type DirKind } from '#types/defaults';
 import { deliverOnce, hookStateBaseDir } from '#platform/claude/hook-state';
 import { readLedger } from '#platform/ledger/ledger';
 import { buildChain, exitOf, latestRouteOf } from '../engine/fold.ts';
@@ -9,6 +9,7 @@ import type { ActiveRoutePointer } from '#types/harness';
 import type { FileSystem } from '#types/platform/ports';
 
 const ACTIVE = 'active-route';
+const KIND_DIRS: Record<DirKind, string> = { task: TASKS_DIR, review: REVIEWS_DIR };
 export const POINTER_LIMIT = 4 * 1024;
 
 /** The pointer is a cache of "which route is active"; the ledger stays the authority (03-S7). */
@@ -59,18 +60,19 @@ export async function resolveActiveRoute(
   pointer: ActiveRoutePointer,
   input: { repositoryRoot: string; session: string; scratchpad: string | undefined; scan?: boolean },
 ): Promise<ActiveRoute | null> {
-  const tasksRoot = path.join(input.repositoryRoot, TASKS_DIR);
-  const open = async (task: string): Promise<ActiveRoute | null> => {
-    const found = openRouteOf(await readLedger(fs, path.join(tasksRoot, task)).catch(() => []), input.session);
+  const open = async (task: string, kind: DirKind): Promise<ActiveRoute | null> => {
+    const found = openRouteOf(await readLedger(fs, path.join(input.repositoryRoot, KIND_DIRS[kind], task)).catch(() => []), input.session);
     return found === null ? null : { task, skill: String(found.head['skill']), routeId: found.head.id, owner: found.owner };
   };
   const pointed = await pointer.read(input.session, input.scratchpad);
-  const confirmed = pointed === null ? null : await open(pointed.task);
+  const confirmed = pointed === null ? null : await open(pointed.task, dirKindFor(pointed.skill));
   if (confirmed !== null || input.scan === false) return confirmed;
-  for (const entry of await fs.readdir(tasksRoot).catch(() => [])) {
-    if (!entry.isDirectory()) continue;
-    const found = await open(entry.name);
-    if (found !== null) return found;
+  for (const kind of ['task', 'review'] as const) {
+    for (const entry of await fs.readdir(path.join(input.repositoryRoot, KIND_DIRS[kind])).catch(() => [])) {
+      if (!entry.isDirectory()) continue;
+      const found = await open(entry.name, kind);
+      if (found !== null) return found;
+    }
   }
   return null;
 }
@@ -80,16 +82,18 @@ export async function resolveActiveRoute(
  * ledger is the only record every process shares (walk 10_2314, both plan sessions).
  */
 export async function endedRouteInLedger(fs: FileSystem, input: { repositoryRoot: string; session: string }): Promise<{ task: string; skill: string; routeId: string } | null> {
-  const tasksRoot = path.join(input.repositoryRoot, TASKS_DIR);
   let found: { task: string; skill: string; routeId: string; at: string } | null = null;
-  for (const entry of await fs.readdir(tasksRoot).catch(() => [])) {
-    if (!entry.isDirectory()) continue;
-    const entries = await readLedger(fs, path.join(tasksRoot, entry.name)).catch(() => []);
-    const owner = ownerOfHarness(entries, input.session);
-    const head = owner === null ? null : latestRouteOf(entries, owner);
-    if (head === null) continue;
-    const exit = exitOf(buildChain(entries, head));
-    if (exit !== null && (found === null || exit.at > found.at)) found = { task: entry.name, skill: String(head['skill']), routeId: head.id, at: exit.at };
+  for (const kind of ['task', 'review'] as const) {
+    const root = path.join(input.repositoryRoot, KIND_DIRS[kind]);
+    for (const entry of await fs.readdir(root).catch(() => [])) {
+      if (!entry.isDirectory()) continue;
+      const entries = await readLedger(fs, path.join(root, entry.name)).catch(() => []);
+      const owner = ownerOfHarness(entries, input.session);
+      const head = owner === null ? null : latestRouteOf(entries, owner);
+      if (head === null) continue;
+      const exit = exitOf(buildChain(entries, head));
+      if (exit !== null && (found === null || exit.at > found.at)) found = { task: entry.name, skill: String(head['skill']), routeId: head.id, at: exit.at };
+    }
   }
   return found === null ? null : { task: found.task, skill: found.skill, routeId: found.routeId };
 }

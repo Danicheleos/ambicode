@@ -43,8 +43,7 @@ language-service child (`refs --exact`), the diagnostics probe and the `codeinde
 | `harvest` | the shared declaration patterns over the top 8 candidate files, run globally; in a file with an `export` line only exported declarations count | declared names to feed pass 2; **declaration counts per name** (collisions) | all, once per list |
 | `grep` | `git grep -w -l` per known name, four at a time | files using a known name | context |
 
-Default layer lists (`SEARCH_LAYER_DEFAULTS`; config `search.layers` overrides them and `init`
-writes them explicitly so they are visible):
+Default layer lists (`SEARCH_LAYER_DEFAULTS`; `search.layers` is gone from config (2026-10-10 b); the lists are the route defaults):
 
 ```yaml
 search:

@@ -17,20 +17,21 @@ next step.
 | `requirements normalize` ⤵ | Requirements | `--task` | envelope from captures or from the args (`builtFrom`) | ♻ |
 | `policy check <files…>` | Policy | `--project`, `--task`, `--drafts` | validate policy pack files; nonzero exit on an error | ♻ |
 | `rules apply` ⤵ | Policy | `--task`, `--project` | make the accepted drafts live packs; needs an honoured acceptance | 🆕 |
-| `check <key>` ⤵ | Checks | `--task`, `--only…`, `--phase`, `--approve` (honoured only per 12 §3.4, #84), `--decline` | one check on named files; red is exit ≠ 0, green exit 0 | 🆕 |
+| `check` ⤵ | Checks | `--task`, `--name <check>`, `--phase`, `--file…`, `--project`, `--approve` (honoured only per 12 §3.4, #84), `--decline` | runs `checks.<name>.all`, or the `file` form per `--file`, through the shell in the project root (`skills.task.checkTimeoutSeconds`); red is exit ≠ 0, green exit 0 | ♻ |
 | `format` ⤵ | Checks | `--task`, `[paths…]` | formatter on the task's files; **model-run** | 🆕 |
 | `review` ⤵ | Review | `--task`, `--branch`, `--base`, `--mr`, `--requirement…`, `--evidence`, `--only…`, `--exclude…`, `--context…`, `--with-tests`, `--approve`, `--decline`, `--estimate` | the pipeline up to the reviewer's input; `--estimate` is dry | ♻ |
 | `review record` ⤵ | Review | `--task`, `--review` | validate the `ambicode:reviewer` subagent's JSON from stdin and record it | 🆕 |
 | `note save` ⤵ | Evidence | `--task`, `--kind investigation\|plan-draft\|notes`, `--from`, `--iteration` | a note; no `plan` kind | ♻ |
 | `note promote` ⤵ | Evidence | `--task` | the **accepted** `plan-draft` → `plan`: the latest bound `plan-accept` answer is Accept, honoured (hook or prompt, never a flag, C1), and names this draft's hash; else `plan-not-accepted {reason}`; idempotent (`plan-already-promoted`); `route-taken-over` from a session that lost the route (13 §3, G2, H2) | 🆕 |
 | `report` | Evidence | `--task` | generated Evidence and Not verified sections | 🆕 |
-| `init` | Config | `--task`, `--apply` | without `--apply` points at `/ambicode:init`; `--apply` writes the accepted draft and `.gitignore` lines on acceptance and runs `doctor` at its tail | ♻ |
-| `init propose` ⤵ | Config | `--task` | the model's config YAML on stdin, validated and saved as the draft | 🆕 |
+| `config validate` | Config | `--json` | validate `.ambicode/config.yaml` against the schemaVersion 4 schema; the only check init relies on | 🆕 |
+| `context list` | Context | `--json` | files under `.ambicode/context/`: path, first H1, approximate tokens, and the limits | 🆕 |
+| `context write` | Context | `--replace` | an `=== <path>` bundle on stdin; enforces `config.context` limits, refuses duplicate headings and files outside the four kinds; `--replace` removes the rest | 🆕 |
 | `version`, `hook`, `help` | — | — | `hook` is the stdin/stdout hook entry; not in `COMMANDS` | ✅ |
 
 Removed in v8 (C3, C5, C7, C8): `route status`, `find`, `relates`, `index`, `locate`, `requirements
 template`, `requirements acs`, `policy` (bare), `rules discover|revert`, `prepare`, `bundle`, `view`,
-`note list`, `plan check`, `worker run`, `doctor`, `config`. Plan check, rules discovery and the
+`note list`, `plan check`, `worker run`, `doctor`, `init`, `init propose`, `init --apply`, `config` (bare; `config validate` stays). Plan check, rules discovery and the
 init scan are skill scripts run by the route (`script(<name>)`, 12 §1). The ⤵ list is exactly 12
 §3.1's evidence-writing list (#95).
 

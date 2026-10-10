@@ -61,10 +61,9 @@ export const HANDLER_NAMES = [
   'search.map',
   'policy.stage',
   'evidence.navigationLine',
+  'context.list',
   'evidence.notes.save',
   'evidence.notes.promote',
-  'init.propose',
-  'init.close',
   'task.start',
   'task.report',
   'checks.baseline',
@@ -109,7 +108,7 @@ export interface RouteRegistry {
 export type StartChannel = 'hook' | 'cli';
 
 export type CommandName =
-  | 'requirements normalize' | 'check' | 'format' | 'review' | 'policy check --drafts' | 'rules apply' | 'init --apply' | 'init propose'
+  | 'requirements normalize' | 'check' | 'format' | 'review' | 'policy check --drafts' | 'rules apply'
   | 'note save' | 'note promote' | 'review record';
 
 export type Cause = 'route-next' | 'gate-hook' | CommandName;

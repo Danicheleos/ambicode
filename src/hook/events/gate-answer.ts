@@ -1,3 +1,4 @@
+import { dirKindFor } from '#types/defaults';
 import { findSessionRepository } from '#platform/git/session-repository';
 import { AskUserQuestionResponse, type HookInput, type RouteHookDeps } from '#types/hook';
 import { resolveActiveRoute } from '#harness/session/active-route';
@@ -40,7 +41,7 @@ export async function answerGates(runtime: Runtime, input: HookInput, deps: Rout
   if (typeof found === 'string') return null;
   const active = await resolveActiveRoute(runtime.fs, deps.pointer, { repositoryRoot: found.repositoryRoot, session: input.session_id, scratchpad: input.scratchpad_dir });
   if (active === null) return null;
-  const answers = await gateAnswers(input, await readLedger(runtime.fs, taskDirFor(found.repositoryRoot, active.task).root));
+  const answers = await gateAnswers(input, await readLedger(runtime.fs, taskDirFor(found.repositoryRoot, active.task, '.', dirKindFor(active.skill)).root));
   if (answers.length === 0) return null;
   const message = await deps.engine.advance({ task: active.task, session: active.owner, cause: 'gate-hook', answers, ...(input.scratchpad_dir === undefined ? {} : { scratchpadDir: input.scratchpad_dir }) });
   return platform.answerContext === 'supported' ? message.text : null;

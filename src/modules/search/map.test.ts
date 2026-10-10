@@ -3,9 +3,8 @@ import assert from 'node:assert/strict';
 import { routeFixture, type RouteFixture } from '#testing/fixtures/route-fixture';
 import { rankTerms, buildMap, resolveLayers, MAP_LIMIT_BYTES } from './map.ts';
 
-import { SearchConfig } from '#types/modules/config';
 
-const project = { id: 'app', root: '.', ecosystem: 'typescript', commands: {}, packs: [], checks: {}, policyFiles: [] } as never;
+const project = { id: 'app', root: '.', paths: [], ecosystem: { languages: ['typescript'], frameworks: [], packageManager: null }, include: [], exclude: [], rules: [], commands: {}, packs: [], checks: {}, policyFiles: [] } as never;
 const PROMPT = ['shortlist', 'harvest', 'shortlist'];
 
 async function repo(extra: Record<string, string> = {}): Promise<RouteFixture> {
@@ -97,12 +96,11 @@ describe('map', () => {
     }
   });
 
-  it('refuses an unknown layer, and a configured list keeps its own name for the source', async () => {
+  it('refuses an unknown layer, and the default list names its source', async () => {
     const fx = await repo();
     try {
       await assert.rejects(map(fx, ['shortlist', 'index.find'], ['cart']), (error: Error & { code?: string }) => error.code === 'search-layer-unknown' && /index\.find/.test(error.message));
-      assert.deepEqual(resolveLayers(SearchConfig.parse({}), 'prompt'), { layers: PROMPT, source: 'default' });
-      assert.deepEqual(resolveLayers(SearchConfig.parse({ layers: { context: ['grep'] } }), 'context'), { layers: ['grep'], source: 'config' });
+      assert.deepEqual(resolveLayers('prompt'), { layers: PROMPT, source: 'default' });
     } finally {
       await fx.dispose();
     }

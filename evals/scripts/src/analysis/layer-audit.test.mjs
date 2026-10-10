@@ -11,7 +11,7 @@ const call = (message, ...tools) => ({ type: 'assistant', message: { id: message
 const result = (id, text) => ({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: id, content: [{ type: 'text', text }] }] } });
 const trace = (selfHit) => [
   call('m1', ['t1', 'Bash', { command: 'cd repo && grep -rn cart src' }], ['t2', 'Read', { file_path: 'src/a.ts' }]),
-  result('t1', selfHit ? '.ambicode/task/x/ledger.jsonl:1' : 'src/a.ts:1'),
+  result('t1', selfHit ? '.ambicode/tasks/x/ledger.jsonl:1' : 'src/a.ts:1'),
   result('t2', 'abcd'),
   call('m2', ['t3', 'Bash', { command: 'sed -n 1,9p src/b.ts' }]),
   result('t3', 'xy'),
@@ -36,7 +36,7 @@ describe('layer-audit: what each run got from the layers', () => {
   it('03b-H6: tool turns count a message once; bytes by call class; self-hits; step and notices from the session', () => {
     assert.deepEqual([callClass('Bash', { command: 'cd x && rg y' }), callClass('Bash', { command: 'git ls-files' }), callClass('Grep', {})], ['grep', 'ls', 'Grep']);
     const facts = traceFacts(trace(true));
-    assert.deepEqual([facts.toolTurns, facts.bytes, facts.selfHit, facts.tokens.cacheRead], [2, { grep: 31, Read: 4, cat: 2 }, true, 1000]);
+    assert.deepEqual([facts.toolTurns, facts.bytes, facts.selfHit, facts.tokens.cacheRead], [2, { grep: 32, Read: 4, cat: 2 }, true, 1000]);
     const s = sessionFacts(session('a', 1));
     assert.deepEqual([s.step, s.notices, s.durations], [step('a'), 1, { PreToolUse: [40] }]);
   });

@@ -80,7 +80,7 @@ describe('03-S7: the pointer is a cache', () => {
     const plan = await planFixture();
     try {
       for (let index = 0; index < 50; index += 1) {
-        const dir = path.join(plan.fx.repo.root, '.ambicode', 'task', `bulk-${index}`);
+        const dir = path.join(plan.fx.repo.root, '.ambicode', 'tasks', `bulk-${index}`);
         await plan.fx.runtime.fs.mkdirp(dir);
         await writeFile(path.join(dir, 'ledger.jsonl'), `${JSON.stringify({ id: `x-${index}`, at: '2026-10-05T10:00:00.000Z', kind: 'route', skill: 'investigate', session: SESSION_B })}\n`);
       }

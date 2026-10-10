@@ -16,7 +16,7 @@ describe('review scripts (C7)', () => {
   it('brief lists the new-side and old-side lines each hunk shows, the policy text, the requirements and the check entries of the task', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'ambicode-brief-'));
     try {
-      const taskDir = path.join(root, '.ambicode', 'task', 't');
+      const taskDir = path.join(root, '.ambicode', 'tasks', 't');
       const reviewDir = path.join(root, '.ambicode', 'reviews', 'r1');
       await mkdir(path.join(taskDir, 'steps'), { recursive: true });
       await mkdir(reviewDir, { recursive: true });
@@ -34,11 +34,11 @@ describe('review scripts (C7)', () => {
       assert.match(brief, /### ORD-1: Totals\nSum them\./);
       assert.match(brief, /No check recorded for this task: nothing was verified by execution\. That is a gap, not a pass\./);
 
-      await writeFile(path.join(taskDir, 'ledger.jsonl'), `${ledger({ kind: 'check', key: 'app/unit', phase: 'red', exit: 1, argv: ['jest', 'a.spec.ts'], only: ['a.spec.ts'] }, { kind: 'check', key: 'app/unit', phase: 'green', exit: 0, argv: ['jest', 'a.spec.ts'], only: ['a.spec.ts'] })}\n`);
+      await writeFile(path.join(taskDir, 'ledger.jsonl'), `${ledger({ kind: 'check', key: 'app/unit', phase: 'red', exit: 1, files: ['a.spec.ts'] }, { kind: 'check', key: 'app/unit', phase: 'green', exit: 0, files: ['a.spec.ts'] })}\n`);
       run('brief', { repositoryRoot: root, taskDir, steps: path.join(taskDir, 'steps') });
       const withChecks = await readFile(path.join(reviewDir, 'brief.md'), 'utf8');
-      assert.match(withChecks, /- app\/unit red: exit 1; ran: jest a\.spec\.ts; only: a\.spec\.ts/);
-      assert.match(withChecks, /- app\/unit green: exit 0; ran: jest a\.spec\.ts; only: a\.spec\.ts/);
+      assert.match(withChecks, /- app\/unit red: exit 1; on: a\.spec\.ts/);
+      assert.match(withChecks, /- app\/unit green: exit 0; on: a\.spec\.ts/);
       assert.doesNotMatch(withChecks, /No check recorded/);
     } finally {
       await rm(root, { recursive: true, force: true });

@@ -39,7 +39,7 @@ describe('skills/rules/scripts', () => {
     try {
       await writeFile(path.join(root, 'CONTRIBUTING.md'), '# Contributing\n');
       const { engine, assembled, first } = await started(root);
-      const ledger = async () => (await assembled.runtime.fs.readText(path.join(root, '.ambicode/task', first.task, 'ledger.jsonl'))).split('\n').filter(Boolean).map((line) => JSON.parse(line) as Record<string, unknown>);
+      const ledger = async () => (await assembled.runtime.fs.readText(path.join(root, '.ambicode/tasks', first.task, 'ledger.jsonl'))).split('\n').filter(Boolean).map((line) => JSON.parse(line) as Record<string, unknown>);
       const print = (await ledger()).findLast((entry) => entry['kind'] === 'gate' && entry['gate'] === 'sources')!;
       const next = await engine.advance({ task: first.task, session: SESSION, cause: 'gate-hook', answers: [{ gate: 'sources', option: 'use these sources', instance: print['id'] as string }] });
       assert.equal(next.position, 'draft');

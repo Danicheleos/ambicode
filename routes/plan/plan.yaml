@@ -8,13 +8,13 @@ steps:
     instruction: file:routes/plan/fetch.md
   - id: ground
     actor: code
-    run: [requirements.normalize, "search.map(context)", "policy.stage(before-work)"]
+    run: [requirements.normalize, "search.map(context)", "policy.stage(before-work)", context.list]
     produces: [envelope, map, policy]
     repeat: 2                                     # one automatic re-run; a human scope answer starts a new cycle
   - id: design
     actor: model
     instruction: file:routes/plan/design.md
-    payload: [map, "policy:before-work"]
+    payload: [map, "policy:before-work", context.list]
     repeat: 2
   - id: plan-step
     actor: code

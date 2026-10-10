@@ -1,23 +1,20 @@
 import path from 'node:path';
 import { openRepository } from '#platform/git/open';
+import { CONFIG_HEAD } from './route-fixture.ts';
 import type { Runtime } from '#types/composition';
 
-/** What the model would propose for a bare TypeScript repository: one root project, every command null. */
+/** A bare TypeScript repository: one root project with the common packs and every check unconfigured. */
 export const FIXTURE_CONFIG = [
-  'schemaVersion: 3',
-  'baseline: ""',
-  'review: { model: sonnet, timeoutSeconds: 300, maxFindings: null, maxChangedFiles: null, maxChangedLines: null, maxContextBytes: null }',
-  'checks: { timeoutSeconds: 120 }',
-  'requirements: { mcpServer: null, acceptanceField: null }',
-  'guard: { askOutsideMap: false }',
-  'projects:',
+  CONFIG_HEAD,
   '  - id: app',
   '    root: .',
-  '    ecosystem: typescript',
+  '    paths: [src/]',
+  '    ecosystem: { languages: [typescript], frameworks: [], packageManager: null }',
+  '    include: ["**/*.ts"]',
+  '    exclude: ["**/*.{spec,test,cy,stories}.*", "**/*.d.ts"]',
   '    packs: [builtin/common-quality, builtin/common-checks]',
-  '    shortlist: { include: ["**/*.ts"], exclude: ["**/*.{spec,test,cy,stories}.*", "**/*.d.ts"] }',
-  '    commands: { lint: null, unit: null, typecheck: null, e2e: null, format: null }',
-  '    checks: { lint: null, unit: null }',
+  '    commands: {}',
+  '    checks: { lint: { all: null, file: null }, unit: { all: null, file: null }, typecheck: { all: null, file: null }, e2e: { all: null, file: null } }',
   '',
 ].join('\n');
 

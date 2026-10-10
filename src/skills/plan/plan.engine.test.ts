@@ -6,7 +6,7 @@ import { PLAN_TASK, planFixture } from '#testing/fixtures/plan-fixture';
 
 const lastPrint = async (plan: Awaited<ReturnType<typeof planFixture>>) => (await plan.prints()).at(-1)!;
 const planFiles = async (plan: Awaited<ReturnType<typeof planFixture>>, prefix: string) =>
-  (await readdir(path.join(plan.fx.repo.root, '.ambicode', 'task', PLAN_TASK))).filter((name) => name.startsWith(prefix));
+  (await readdir(path.join(plan.fx.repo.root, '.ambicode', 'tasks', PLAN_TASK))).filter((name) => name.startsWith(prefix));
 
 describe('plan-shaped route: reaching the gate', () => {
   it('prints plan-accept for the draft the check saved, with its identity and the marker', async () => {

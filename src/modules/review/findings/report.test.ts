@@ -9,10 +9,10 @@ function render(checks: ReviewResult['checks']): string {
 }
 
 describe('the verification section lists recorded checks', () => {
-  it('prints key, phase, exit and argv of a recorded check', () => {
+  it('prints key, phase, exit and files of a recorded check', () => {
     const text = render(reviewResult().checks);
     assert.match(text, /web\/lint green: exit 1/);
-    assert.match(text, /ran: eslint -- src\/orders\.ts/);
+    assert.match(text, /on: src\/orders\.ts/);
   });
 
   it('prints "no check recorded" as a gap, not a pass', () => {

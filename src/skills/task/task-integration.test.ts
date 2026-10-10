@@ -38,13 +38,12 @@ async function offByOne() {
   const configPath = path.join(root, '.ambicode', 'config.yaml');
   const config = parse(await readFile(configPath, 'utf8'));
   const app = config.projects[0];
-  app.commands.unit = { argv: ['jest', '{files}'] };
-  app.checks.unit = { command: 'unit' };
+  app.checks.unit = { all: 'jest', file: 'jest {file}' };
   app.policyFiles = ['.ambicode/policies/cmds.yaml'];
   await writeFile(configPath, stringify(config));
   await mkdir(path.join(root, '.ambicode', 'policies'), { recursive: true });
   await writeFile(path.join(root, '.ambicode', 'policies', 'cmds.yaml'), COMMAND_PACK);
-  execFileSync('git', ['add', '.ambicode'], { cwd: root });
+  execFileSync('git', ['add', '-f', '.ambicode'], { cwd: root });
   execFileSync('git', ['-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'wire jest'], { cwd: root });
 
   const step: Record<string, string> = {};
@@ -58,7 +57,7 @@ async function offByOne() {
   const tail = (cause: 'check' | 'format', produced: string[]) =>
     runCommandTail({ engine }, { task: TASK, cause, session: { state: 'bound', session: SESSION_A } as never, produced, scratchpadDir: scratchpad });
   const check = async (phase: 'red' | 'green') => {
-    const result = await runCheckOnly(deps, { task: TASK, key: 'app/unit', only: [SPEC], phase, approve: [], decline: [] });
+    const result = await runCheckOnly(deps, { task: TASK, name: 'unit', project: null, files: [SPEC], phase, approve: [], decline: [] });
     assert.equal(result.outcome, 'ran');
     return tail('check', result.outcome === 'ran' ? [result.entry.id] : []);
   };
@@ -69,7 +68,7 @@ async function offByOne() {
     await writeFile(transcript, `${JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text }] } })}\n`);
     return runHook(runtime, JSON.stringify({ hook_event_name: 'Stop', session_id: SESSION_A, cwd: root, scratchpad_dir: scratchpad, transcript_path: transcript }), hookDeps) as Promise<{ decision?: string; reason?: string } | null>;
   };
-  const ledger = (): Promise<LedgerEntry[]> => readLedger(nodeFileSystem, path.join(root, '.ambicode', 'task', TASK));
+  const ledger = (): Promise<LedgerEntry[]> => readLedger(nodeFileSystem, path.join(root, '.ambicode', 'tasks', TASK));
   return {
     root, engine, runner, check, format, stop,
     start: () => engine.start({ skill: 'task', text: 'Fix the defect: `page` drops the last item of every page.', requirements: [], task: TASK, cwd: root, session: SESSION_A, channel: 'hook', scratchpadDir: scratchpad }),

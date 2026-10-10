@@ -30,7 +30,7 @@ async function record(runtime: Runtime, args: ParsedArgs, entry: { kind: string;
 
 export async function runMap(runtime: Runtime, args: ParsedArgs): Promise<SearchOutput> {
   if (args.value('layers') !== null) {
-    throw new AmbicodeError('search-layers-not-for-model', '--layers is not for the model: the layer list is a configuration choice.', { field: 'layers', details: ['Edit search.layers in .ambicode/config.yaml.'] });
+    throw new AmbicodeError('search-layers-not-for-model', '--layers is not for the model: the layer list is a configuration choice.', { field: 'layers', details: ['The route fixes the layer list.'] });
   }
   const mode = args.value('mode') ?? 'prompt';
   if (mode !== 'prompt' && mode !== 'context') throw new AmbicodeError('bad-argument', '--mode takes prompt or context.', { field: 'mode' });
@@ -41,7 +41,7 @@ export async function runMap(runtime: Runtime, args: ParsedArgs): Promise<Search
   }
   const workspace = await openWorkspace(runtime);
   const project = projectForRequest(workspace.config, args.value('project'), args.positionals);
-  const { layers, source } = resolveLayers(workspace.config.search, mode);
+  const { layers, source } = resolveLayers(mode);
   const map = await buildMap(runtime, { project, mode, layers, layersSource: source, terms, paths: args.positionals, symbols });
   await record(runtime, args, { kind: 'map', ...map.entry });
   return { command: 'map', text: map.text, bytes: map.bytes, data: { layers: map.layers, terms: map.terms, candidates: map.candidates, symbols: map.symbols, collides: map.collisions, limitations: map.limitations, omitted: map.omitted } };

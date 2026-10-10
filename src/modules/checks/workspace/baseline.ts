@@ -1,3 +1,4 @@
+import { AMBICODE_DIR } from '#types/defaults';
 import { openRepository } from '#platform/git/open';
 import { splitNul } from '#platform/git/git';
 import { fingerprintWorkspace } from './mutations.ts';
@@ -18,7 +19,8 @@ async function changedPaths(runtime: Runtime): Promise<{ paths: string[]; head: 
     }
   }
   found.delete('');
-  const paths = [...found].sort();
+  // The run directories are not the user's work, and `.git/info/exclude` no longer hides them; ignored only if init added the .gitignore line.
+  const paths = [...found].filter((file) => file !== AMBICODE_DIR && !file.startsWith(`${AMBICODE_DIR}/`)).sort();
   const { fileHashes } = await fingerprintWorkspace({ fs: runtime.fs, git, repositoryRoot, paths });
   return { paths, head: await git.revParse('HEAD'), hashes: fileHashes };
 }

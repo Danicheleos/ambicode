@@ -7,10 +7,10 @@ import { NodeProcessRunner } from '#platform/ports/node-process-runner';
 import { REPO_ROOT } from '#testing/paths';
 
 async function check(root: string, body: string) {
-  const taskDir = path.join(root, '.ambicode/task/t');
+  const taskDir = path.join(root, '.ambicode/tasks/t');
   await mkdir(path.join(taskDir, 'notes'), { recursive: true });
   await writeFile(path.join(taskDir, 'notes/investigation.md'), body);
-  await writeFile(path.join(taskDir, 'ledger.jsonl'), `${JSON.stringify({ kind: 'note', note: 'investigation', path: '.ambicode/task/t/notes/investigation.md' })}\n`);
+  await writeFile(path.join(taskDir, 'ledger.jsonl'), `${JSON.stringify({ kind: 'note', note: 'investigation', path: '.ambicode/tasks/t/notes/investigation.md' })}\n`);
   const outcome = await new NodeProcessRunner().run({
     argv: [process.execPath, path.join(REPO_ROOT, 'skills/investigate/scripts/check-citations.mjs')],
     cwd: root,

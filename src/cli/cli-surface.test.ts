@@ -11,21 +11,22 @@ const TABLE: Record<string, readonly string[]> = {
   'requirements normalize': ['task'],
   'policy check': ['project', 'drafts'],
   'rules apply': ['project'],
-  check: ['task', 'only', 'phase', 'approve', 'decline'],
+  check: ['task', 'phase', 'name', 'project', 'file', 'approve', 'decline'],
   format: ['task'],
   review: ['task', 'estimate'],
   'review record': ['task', 'review'],
   'note save': ['task', 'kind', 'from', 'iteration'],
   'note promote': ['task'],
   report: ['task'],
-  init: ['apply', 'task'],
-  'init propose': ['task'],
+  'config validate': [],
+  'context list': [],
+  'context write': [],
   version: [],
 };
 
 const GAPS: Record<string, string> = {};
 
-const SUBCOMMANDS = ['route', 'requirements', 'rules', 'note', 'policy'];
+const SUBCOMMANDS = ['route', 'requirements', 'rules', 'note', 'policy', 'context', 'config'];
 
 const declared = (command: string): string[] => {
   const spec = SPECS[command];
@@ -45,8 +46,8 @@ describe('CLI surface (08-I1)', () => {
     });
   }
 
-  it('08-I1: the named commands exist: init propose, note promote', () => {
-    for (const command of ['init propose', 'note promote']) {
+  it('08-I1: the named commands exist: config validate, note promote', () => {
+    for (const command of ['config validate', 'note promote']) {
       assert.ok(SPECS[command] !== undefined, command);
       assert.ok(line(command) !== undefined, command);
     }
@@ -66,9 +67,9 @@ describe('CLI surface (08-I1)', () => {
   });
 
   it('08-I1: init is gone as a dry run and doctor as a command; check takes --only repeatably and --phase, review takes --estimate as a flag', () => {
-    assert.equal(SPECS['init']?.flags?.includes('dry-run'), false);
+    assert.equal(SPECS['init'], undefined);
     assert.equal(SPECS['doctor'], undefined);
-    assert.ok(SPECS['check']?.repeated?.includes('only'));
+    assert.ok(SPECS['check']?.repeated?.includes('file'));
     assert.ok(SPECS['check']?.values?.includes('phase'));
     assert.ok(SPECS['review']?.flags?.includes('estimate'));
   });

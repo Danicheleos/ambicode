@@ -8,7 +8,7 @@ function sanitize(value: string, maxLength: number): string {
   return cleaned.slice(0, maxLength).replace(/[-._]+$/, '');
 }
 
-/** The task directory under `TASKS_DIR`, or `null` when the run has no task identity. */
+/** The run directory slug, or `null` when the run has no task identity. */
 export function taskSlugFor(input: {
   requirementIds: readonly string[];
   task: string | null;

@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createRuntime } from '#composition/root';
@@ -19,15 +20,26 @@ import { KINDS, type LedgerEntry } from '#types/modules/evidence';
 import { HANDLER_NAMES, type ActiveRoutePointer, type Engine, type Handler, type HandlerRegistry, type RouteDef, type RouteRegistry } from '#types/harness';
 
 
-export const CONFIG = [
-  'schemaVersion: 3',
+const RUN = 'model: sonnet, effort: medium, timeoutMinutes: 15';
+
+/** Everything above `projects:`; the review limits are the ones tests assert against. */
+export const CONFIG_HEAD = [
+  'schemaVersion: 4',
+  'id: repo',
   'baseline: origin/main',
-  'review: { model: sonnet, timeoutSeconds: 300, maxFindings: 7, maxChangedFiles: 50, maxChangedLines: 2000, maxContextBytes: 524288 }',
-  'checks: { timeoutSeconds: 120 }',
-  'requirements: { mcpServer: null }',
+  'context: { maxTotalTokens: 24000, maxFileTokens: 2500 }',
+  'skills:',
+  `  init: { ${RUN}, scout: { ${RUN} }, ruleSources: [presets, scout, manual, web] }`,
+  `  review: { ${RUN}, maxFindings: 7, maxChangedFiles: 50, maxChangedLines: 2000, maxContextBytes: 524288, excludePaths: [] }`,
+  `  task: { ${RUN}, checkTimeoutSeconds: 120 }`,
+  `  plan: { ${RUN} }`,
+  `  investigate: { ${RUN} }`,
+  `  rules: { ${RUN} }`,
+  'requirements: { runtimes: {}, mcps: [], lsps: [], env: [] }',
   'projects:',
-  '  - { id: app, root: ".", ecosystem: typescript }',
 ].join('\n');
+
+export const CONFIG = `${CONFIG_HEAD}\n  - { id: app, root: ".", paths: [src/], ecosystem: { languages: [typescript], frameworks: [], packageManager: null } }`;
 
 export interface RouteFixture {
   repo: TempRepo;
@@ -43,9 +55,15 @@ export interface RouteFixture {
   dispose(): Promise<void>;
 }
 
+/** A review run lives under reviews/, every other route under tasks/. */
+export function runDirOf(root: string, task: string): string {
+  const reviews = path.join(root, '.ambicode', 'reviews', task);
+  return existsSync(path.join(reviews, 'ledger.jsonl')) ? reviews : path.join(root, '.ambicode', 'tasks', task);
+}
+
 /** Ends the session's open route as the removed `route stop` did: an `exit` entry, then the pointer cleared. */
 export async function stopRoute(fx: Pick<RouteFixture, 'runtime' | 'pointer' | 'scratchpad'>, task: string, session: string, reason: string, detail?: string, scratchpad: string = fx.scratchpad): Promise<void> {
-  const root = path.join(fx.runtime.cwd, '.ambicode', 'task', task);
+  const root = runDirOf(fx.runtime.cwd, task);
   const head = await withLedgerLock(fx.runtime.fs, root, () => fx.runtime.clock.now(), session, async (ledger) => {
     const read = await ledger.read();
     const route = read.state === 'ok' ? latestRouteOf(read.entries, session) : null;
@@ -93,7 +111,7 @@ export async function routeFixture(options: {
   const assembled = await assembleEngine({ root: repo.root, routes: options.routes, handlers: Object.keys(options.handlers ?? {}), ...(options.step === undefined ? {} : { step: options.step }), ...(options.pluginRoot === undefined ? {} : { pluginRoot: options.pluginRoot }), clock: () => new Date(time) });
   const { runtime, routes, pointer, build } = assembled;
   const scratchpad = await runtime.fs.temporaryDirectory('ambicode-scratch-');
-  const dir = (task: string): string => path.join(repo.root, '.ambicode', 'task', task);
+  const dir = (task: string): string => runDirOf(repo.root, task);
   return {
     repo,
     runtime,

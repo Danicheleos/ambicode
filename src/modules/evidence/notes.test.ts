@@ -36,7 +36,7 @@ async function inRepo(run: (repo: TempRepo) => Promise<void>): Promise<void> {
 const runtimeFor = (repo: TempRepo, fs: FileSystem = nodeFileSystem): Promise<Runtime> =>
   createRuntime({ cwd: repo.root, fs, clock: { now: () => NOW, elapsed: () => 0 }, ids: { ...systemIds, writerId: () => 'feedbeef' } });
 
-const taskDir = (repo: TempRepo, slug = TASK): string => path.join(repo.root, '.ambicode', 'task', slug);
+const taskDir = (repo: TempRepo, slug = TASK): string => path.join(repo.root, '.ambicode', 'tasks', slug);
 
 const route = (id: string, session: string, extra: object = {}): object => ({
   id, at: 't', kind: 'route', skill: 'plan', args: 'x', mode: 'interactive', channel: 'hook', trusted: true, session, epoch: 1, ...extra,
@@ -68,9 +68,9 @@ describe('note save: kinds, bodies and headers', () => {
       const draft = await save(deps, 'plan-draft', '# Plan\n');
       const notes = await save(deps, 'notes', 'work so far');
       assert.deepEqual([investigation.path, draft.path, notes.path], [
-        '.ambicode/task/ORD-17/investigation_2026-10-02T14-35.md',
-        '.ambicode/task/ORD-17/plan-draft_2026-10-02T14-35.md',
-        '.ambicode/task/ORD-17/notes.md',
+        '.ambicode/tasks/ORD-17/investigation_2026-10-02T14-35.md',
+        '.ambicode/tasks/ORD-17/plan-draft_2026-10-02T14-35.md',
+        '.ambicode/tasks/ORD-17/notes.md',
       ]);
       await assert.rejects(save(deps, 'notes', null, { from: 'steps/plan-body.md' }), { code: 'bad-argument', field: 'from' });
       await assert.rejects(save(deps, 'investigation', '  '), { code: 'bad-argument', field: 'stdin' });
@@ -378,7 +378,7 @@ describe('note promote: the accepted draft, and only that draft, becomes the pla
     await inRepo(async (repo) => {
       const scenario = await Scenario.start(repo);
       await writeFile(path.join(taskDir(repo), 'plan_old.md'), '**plan** — accepted\n\n# Old way\n');
-      await appendLedger(nodeFileSystem, taskDir(repo), new Date(), 'legacy00', { kind: 'note', note: 'plan', path: `.ambicode/task/${TASK}/plan_old.md`, contentHash: 'h' });
+      await appendLedger(nodeFileSystem, taskDir(repo), new Date(), 'legacy00', { kind: 'note', note: 'plan', path: `.ambicode/tasks/${TASK}/plan_old.md`, contentHash: 'h' });
       const gate = await scenario.gate(await scenario.draft('# Plan'));
       await scenario.answer(gate, 'Accept');
       assert.equal((await scenario.promote()).outcome, 'promoted');

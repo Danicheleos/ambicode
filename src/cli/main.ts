@@ -4,12 +4,13 @@ import { AmbicodeError, isAmbicodeError } from '#util/errors';
 import { formatJsonOutput } from '#util/json-output';
 import { parseArgs } from '#util/args';
 import { taskWorkingDirectory } from '#modules/evidence/task/task-dir';
-import { initCommand, initProposeCommand } from './commands/config/init.ts';
+import { configValidateCommand } from './commands/config/validate.ts';
+import { contextListCommand, contextWriteCommand } from './commands/context/context.ts';
 import { rulesApplyCommand } from './commands/policy/rules.ts';
 import { checkCommand } from './commands/checks/check.ts';
 import { formatCommand } from './commands/checks/format.ts';
-import { notePromoteCommand, noteSaveCommand } from './commands/route/note.ts';
 import { policyCheckCommand } from './commands/policy/policy-check.ts';
+import { notePromoteCommand, noteSaveCommand } from './commands/route/note.ts';
 import { reportCommand } from './commands/route/report.ts';
 import { mapCommand, refsCommand } from './commands/search/search.ts';
 import { requirementsNormalizeCommand } from './commands/requirements/requirements.ts';
@@ -77,9 +78,9 @@ const versionCommand: CliCommand = {
 };
 
 const COMMANDS: ReadonlyMap<string, CliCommand> = new Map([
-  initCommand, initProposeCommand, rulesApplyCommand, policyCheckCommand, noteSaveCommand, notePromoteCommand,
+  configValidateCommand, rulesApplyCommand, policyCheckCommand, noteSaveCommand, notePromoteCommand,
   checkCommand, formatCommand, reportCommand, routeStartCommand, routeNextCommand, routeStopCommand, mapCommand, refsCommand,
-  requirementsNormalizeCommand, reviewCommand, reviewRecordCommand, versionCommand,
+  requirementsNormalizeCommand, reviewCommand, reviewRecordCommand, versionCommand, contextListCommand, contextWriteCommand,
 ].map((entry) => [entry.name, entry]));
 
 /** Generated from `COMMANDS`, so a command cannot be registered and missing from the usage text, or the reverse. */

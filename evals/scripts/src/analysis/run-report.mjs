@@ -514,7 +514,7 @@ export function findingsOf({ plugin, bare, previous, band, servedPrompt, current
       if (p.modelCalls - b.modelCalls > THRESHOLDS.extraCalls) add('weak', 'turns', `${name}: ${p.modelCalls.toFixed(1)} model calls against bare ${b.modelCalls.toFixed(1)}`);
       else if (b.modelCalls - p.modelCalls > THRESHOLDS.extraCalls) add('strong', 'turns', `${name}: ${p.modelCalls.toFixed(1)} model calls against bare ${b.modelCalls.toFixed(1)}`);
     }
-    const steps = new Set(rows.filter((x) => x.step).map((x) => x.step.text.replace(/task [^\s·]+/g, 'task <slug>').replace(/\.ambicode\/task\/[^/\s]+/g, '.ambicode/task/<slug>')));
+    const steps = new Set(rows.filter((x) => x.step).map((x) => x.step.text.replace(/task [^\s·]+/g, 'task <slug>').replace(/\.ambicode\/tasks\/[^/\s]+/g, '.ambicode/tasks/<slug>')));
     if (steps.size > 1) add('weak', 'step-unstable', `${name}: the route delivered ${steps.size} different steps across runs`);
   }
   const drift = driftOf(plugin, ACCEPTANCE.drift);

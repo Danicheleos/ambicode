@@ -10,12 +10,11 @@ import { MAP_OPTIONS, REFS_OPTIONS } from './commands/search/search.ts';
 import { CONFIG } from '#testing/fixtures/route-fixture';
 import { isAmbicodeError } from '#util/errors';
 import type { OptionSpec } from './types/cli.ts';
-import { INIT_OPTIONS } from './commands/config/init.ts';
 import { POLICY_CHECK_OPTIONS } from './commands/policy/policy-check.ts';
+import { CHECK_OPTIONS } from './commands/checks/check.ts';
 import { REVIEW_OPTIONS } from './commands/review/review.ts';
 
 const SPECS: Record<string, OptionSpec> = {
-  init: INIT_OPTIONS,
   map: MAP_OPTIONS,
   refs: REFS_OPTIONS,
   'policy check': POLICY_CHECK_OPTIONS,
@@ -34,8 +33,7 @@ function failure(command: string, argv: readonly string[], spec: OptionSpec): { 
 
 describe('U27 command line arguments', () => {
   it('accepts every option the usage text documents', () => {
-    assert.equal(parseArgs('init', ['--apply', '--task', 'init-1'], INIT_OPTIONS).flag('apply'), true);
-    assert.equal(parseArgs('init', ['--apply', '--json'], INIT_OPTIONS).flag('json'), true);
+    assert.equal(parseArgs('check', ['--name', 'unit', '--file', 'a.ts', '--file', 'b.ts', '--phase', 'red'], CHECK_OPTIONS).all('file').length, 2);
 
     const review = parseArgs('review', ['--branch', '--base', 'main'], REVIEW_OPTIONS);
     assert.equal(review.flag('branch'), true);
@@ -59,7 +57,7 @@ describe('U27 command line arguments', () => {
   });
 
   it('rejects an operand on a command that takes none', () => {
-    for (const command of ['init', 'review', 'version']) {
+    for (const command of ['review', 'version']) {
       const spec = COMMAND_SPECS[command];
       assert.ok(spec !== undefined);
       const error = failure(command, ['src/app.ts'], spec);
@@ -108,15 +106,15 @@ describe('U27 command line arguments', () => {
   });
 
   it('names the command and its own options when an option is unknown', () => {
-    const error = failure('init', ['--branch'], INIT_OPTIONS);
+    const error = failure('refs', ['--branch'], REFS_OPTIONS);
     assert.equal(error.code, 'bad-argument');
-    assert.match(error.message, /init/);
+    assert.match(error.message, /refs/);
     assert.match(error.message, /--branch/);
   });
 
   it('rejects a missing value and a value given to a flag', () => {
     assert.equal(failure('review', ['--base'], REVIEW_OPTIONS).code, 'bad-argument');
-    assert.equal(failure('init', ['--apply=yes'], INIT_OPTIONS).code, 'bad-argument');
+    assert.equal(failure('refs', ['--declarations=yes'], REFS_OPTIONS).code, 'bad-argument');
   });
 
   it('rejects an unknown option before the command can do anything', async () => {
@@ -129,7 +127,7 @@ describe('U27 command line arguments', () => {
     process.stdout.write = ((chunk: string) => (written.push(String(chunk)), true)) as typeof process.stdout.write;
     process.stderr.write = ((chunk: string) => (written.push(String(chunk)), true)) as typeof process.stderr.write;
     try {
-      assert.equal(await main(['init', '--no-such-option']), 2);
+      assert.equal(await main(['refs', '--no-such-option']), 2);
     } finally {
       process.stdout.write = stdout;
       process.stderr.write = stderr;
@@ -169,10 +167,10 @@ describe('a --task command runs in the task\'s repository', () => {
     try {
       const repo = path.join(session, 'repo');
       git(session, 'init', '-q');
-      await mkdir(path.join(repo, '.ambicode', 'task', 't'), { recursive: true });
+      await mkdir(path.join(repo, '.ambicode', 'tasks', 't'), { recursive: true });
       git(repo, 'init', '-q');
       await writeFile(path.join(repo, '.ambicode', 'config.yaml'), CONFIG);
-      await writeFile(path.join(repo, '.ambicode', 'task', 't', 'ledger.jsonl'), '');
+      await writeFile(path.join(repo, '.ambicode', 'tasks', 't', 'ledger.jsonl'), '');
       await mkdir(path.join(repo, 'src'));
       await writeFile(path.join(repo, 'src', 'a.ts'), 'export const a = 1;\n');
       git(repo, 'add', 'src/a.ts');

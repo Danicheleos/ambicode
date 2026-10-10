@@ -147,7 +147,7 @@ describe('preset-cases', () => {
     const write = readFileSync(path.join(out, 'be-vs-1-plan', 'graders', 'no-code-write.md'), 'utf8');
     const pattern = new RegExp(/input_match: '(.*)'/.exec(write)[1]);
     assert.ok(pattern.test('{"file_path":"/x/repo/src/a.ts"}') && pattern.test('{"file_path":"/x/repo/package.json"}'));
-    assert.ok(!pattern.test('{"file_path":"/x/repo/.ambicode/task/t/steps/plan-body.md"}'), 'the plan body is not a code write');
+    assert.ok(!pattern.test('{"file_path":"/x/repo/.ambicode/tasks/t/steps/plan-body.md"}'), 'the plan body is not a code write');
   });
 
   it('scaffolds the whole base tree; the review applies its patch uncommitted, the task leaves a clean tree its oracle applies to', () => {

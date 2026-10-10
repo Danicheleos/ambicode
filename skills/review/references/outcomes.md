@@ -26,7 +26,7 @@ Second cause: `review --task` in an open task route with no task baseline yet.
 Release: `$A route next --task <slug>` (its ground step records the baseline), then
 run the review again.
 
-**`check-only-unauthorized`.** `check --only` or `format` met a command policy of
+**`check-only-unauthorized`.** `check --file` or `format` met a command policy of
 `forbid`, an undeclared command, or `propose` with no route on the task. Release:
 configure the check's policy, or run it inside `/ambicode:task`. Inside a task route
 a `propose` check asks the user instead; only the user's own answer approves it.
@@ -52,16 +52,11 @@ substitute `HEAD~1`, and neither should you.
 repository has no commit yet. Run from the checkout, or make the first commit.
 
 **`config-missing` / `config-invalid` / `config-schema-too-new`.**
-`.ambicode/config.yaml` is absent, not valid YAML or not a mapping, or written by a
+`.ambicode/config.yaml` is absent, fails the schemaVersion 4 schema (an older
+version included; `config validate` names the field) or was written by a
 newer AMBICODE. Offer `/ambicode:init` for the first; show the user the error
 for the others. For a too-new schema, upgrade the plugin rather than editing
 the file down.
-
-**`init-unconfirmed`.** `init --apply` ran without the user's own answer to the init question.
-`reason` says which: `no-init-route` (no live init route for the task), a consent refusal
-(`no-answer`, `superseded`, `unbound`, `acting-needs-human`, `not-accepted`), or `draft-differs`
-(`.ambicode/task/init-*/` draft is not the one the answer was given to). Nothing was written.
-Release: answer the init question in `/ambicode:init` again; do not edit the config yourself.
 
 **`rules-apply-unconfirmed`.** `rules apply` ran without the user's *Apply all*
 answer to the rules table. `reason`: `no-rules-route`, a consent refusal, or
@@ -96,7 +91,7 @@ the state AMBICODE relies on. Nothing was reviewed. Report the message verbatim
 and stop; retrying will not change it.
 
 **Guard decisions** (reasons from the `PreToolUse` guard, not error codes).
-A write into `.ambicode/task/` is denied and names `note save`; run that. A git
+A write into `.ambicode/tasks/` or `.ambicode/reviews/` is denied and names `note save`; run that. A write into `.ambicode/context/` is denied and names `context write`. A git
 or `glab mr` state change, `rm -r` of the working directory or above, and a
 write whose target only the shell resolves (`$VAR`, `$(…)`) ask: the user
 decides, so do not rephrase the command to avoid the question.
@@ -129,9 +124,8 @@ ones. `route-not-open`: the task has no live route; start one with
 `route start <skill> --task <slug>`. `gate-unknown` / `gate-option-unknown`: the answer names a gate or option
 the route does not have; the message lists the valid ones. `revise-not-allowed`: `--revise` names a
 step the route does not list as revisable; the message lists them.
-`search-layers-not-for-model`: `map --layers` is not a model option; edit
-`search.layers` in `.ambicode/config.yaml`. `search-layer-unknown`: `search.layers`
-names a layer that does not exist; fix it, the message lists the known names.
+`search-layers-not-for-model`: `map --layers` is not a model option;
+the layers are the route's defaults. `search-layer-unknown`: a layer name that does not exist; the message lists the known names.
 `requirements-not-captured`: a requirement named at the start has no captured
 payload yet; fetch it with the call the message names, then `route next`.
 `requirements-missing`: some requested sources are not captured; fetch them and run
@@ -148,18 +142,11 @@ exists and its path is printed.
 **`rules-no-sources`.** `/ambicode:rules` ended because the user chose no rule source (*none — stop*).
 Nothing was drafted; start again and name a source.
 
-**`init-proposal-invalid`.** `init propose` received no YAML, or YAML that is not a valid config proposal;
-the message names the field. Fix it and run `init propose` again.
-
 **`drafts-empty` / `pack-invalid` / `pack-missing`.** `policy check --drafts` found no `*.yaml` draft, or a
 draft that fails the pack schema, or a declared file that does not exist. The diagnostic names the file; fix the draft.
 
 **`artifact-collision`.** Nine files of the same name were already written this minute, so
 none was written. Wait for the next minute and run it again.
-
-**Init owns its files.** While an init route is active, editing
-`.ambicode/config.yaml` or `.gitignore` is denied: `init --apply` writes them when the
-user accepts the proposal. Answer the init gate instead.
 
 **A command was refused.** Policy declares commands as run, propose, or forbid,
 and a command no pack declares is not run either — absence is not permission. The

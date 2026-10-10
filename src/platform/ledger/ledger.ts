@@ -15,7 +15,7 @@ function writerPrefix(writer: string): string {
 }
 
 /**
- * Written only by the CLI: the guard denies the agent a write to `.ambicode/task/**`, which is what makes an
+ * Written only by the CLI: the guard denies the agent a write to `.ambicode/tasks/**`, which is what makes an
  * entry evidence rather than a claim. Append-only. Callers hold the ledger lock (`withLedgerLock`).
  */
 export async function appendLocked(fs: FileSystem, taskDirectory: string, now: Date, writer: string, entry: NewEntry): Promise<LedgerEntry> {

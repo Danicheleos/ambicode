@@ -16,7 +16,7 @@ async function setup(t: { after(fn: () => Promise<void>): void }, meta: object =
   t.after(() => repo.dispose());
   await repo.write('src/a.ts', 'keep\nnew\n');
   await repo.commitAll('head');
-  const reviews = taskDirFor(repo.root, 't').reviews;
+  const reviews = taskDirFor(repo.root, 't', '.', 'review').root;
   await repo.write(path.relative(repo.root, path.join(reviews, MR_DIFF_PATCH)), PATCH);
   await repo.write(path.relative(repo.root, path.join(reviews, MR_DIFF_JSON)), JSON.stringify(meta));
   const workspace = { runtime: { fs: (await import('#platform/ports/filesystem')).nodeFileSystem }, git: repo.git, repositoryRoot: repo.root } as unknown as Workspace;
@@ -35,7 +35,7 @@ test('a captured diff resolves to a merge-request target with addressable lines'
 test('a captured head sha is pinned as the target head', async (t) => {
   const { repo, workspace } = await setup(t);
   const sha = await repo.git.revParse('HEAD');
-  await repo.write(path.relative(repo.root, path.join(taskDirFor(repo.root, 't').reviews, MR_DIFF_JSON)), JSON.stringify({ sha }));
+  await repo.write(path.relative(repo.root, path.join(taskDirFor(repo.root, 't', '.', 'review').root, MR_DIFF_JSON)), JSON.stringify({ sha }));
   const resolved = await resolveCapturedTarget({ workspace, task: 't', url: URL_MR });
   assert.equal(resolved.target.headSha, sha);
 });
