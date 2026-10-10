@@ -128,7 +128,7 @@ makes measurement cheap in that project.
 - `node --test src/path/to/file.test.ts` runs one test file (about 0.2s). Node
   24 runs the `.ts` sources directly; there is no compile step for tests.
 - `npm run test:unit` runs every test: `src/`, `tools/`, `fixtures/` and
-  `evals/scripts/src/`. `npm run typecheck` is `tsc --noEmit`.
+  `evals/scripts/`. `npm run typecheck` is `tsc --noEmit`.
 - `npm run build` validates the route files, then esbuild bundles
   `src/cli/main.ts` into `scripts/ambicode.mjs` (with code-split `chunks/`) and
   `src/hook/guard/guard.ts` into `scripts/guard.mjs`. `scripts/` and
@@ -136,10 +136,10 @@ makes measurement cheap in that project.
 - `validate:plugin` (and so `verify`) shells out to the `claude` CLI.
 - `npm run bump` raises the patch version; the `version` lifecycle runs
   `tools/sync-plugin-version.mjs` to keep `.claude-plugin/plugin.json` in step.
-- The `evals:*` scripts cost money and run the bundle, not `src/`. Build
-  first. `evals/README.md` lists every command with its cost. The cheap ones
-  are `evals:shortlist-recall` and `evals:map-recall`. Benchmark data lives
-  outside the repo in `../ambicode-evals-assets/` (or `$AMBICODE_EVALS_ASSETS`).
+- `npm run evals` costs money and runs the bundle, not `src/`. Build first.
+  It is the synthetic skill-coverage suite under `evals/cases/` (one row per
+  case per run in `evals/history.jsonl`); `evals/README.md` has the cases,
+  the grader families and the cost. `npm run evals:dry` prints the command.
 
 CI (`.github/workflows/verify.yml`) runs `npm run verify` on Linux, macOS and
 native Windows `cmd`, plus an LF line-endings check. Paths, separators and

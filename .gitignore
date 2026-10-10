@@ -35,12 +35,7 @@ eval-replay/evals/**/*.*
 !eval-replay/evals/**/*.md
 
 
-/evals/outputs
-/evals/reports
-/eval-results.json
-/evals/python/
-/evals/FE-angular/
-/evals/BE-express/
+/evals/cases/results/
 
 /research/
 /review/

@@ -1,415 +1,86 @@
-# Evals
+# Evals: skill coverage
 
-| Folder | Holds | In git |
-| --- | --- | --- |
-| `evals/common/` | The shared suites (`core`, `task`, `triggers`, `archived`) | suites under NDA are not; see `evals/.gitignore` |
-| `evals/<project>/` | Per-project suites: `full/` (the generated full set), `impact/`, `reuse/` | no (NDA) |
-| `evals/scripts/` | The harness (`src/`) and one-off local tools (`local/`, gitignored) | `src/` yes |
-| `../ambicode-evals-assets/benchmarks/<project>/` | Static benchmark data, one folder per project: `.git/` (history), `project/` (code snapshot), `assets/` (tickets), `reviews/` (prepared review versions) | no (NDA) |
-| `../ambicode-evals-assets/outputs/<eval type>/<date>/` | Raw run output: one `<NN>_<HHMM>_<label>/` folder per iteration with `results/`, `traces/`, `reports/`, and `iterations.md` with one row per iteration | no |
-| `../ambicode-evals-assets/reports/<eval type>/<date>/<iteration>/` | Analyses written from the raw output | no |
+One synthetic case per behaviour each skill must show, graded from the ledger and the files the run leaves, with
+a history row per case per run. Nothing here is real project data: every case runs on a fixture from
+`fixtures/definitions.mjs`, so the suite is tracked in git and a bare `claude plugin eval .` runs it.
 
-`ambicode-evals-assets/` sits beside the repo, not in it: the harness walks the whole plugin directory for eval folders
-and refuses one over 20,000 entries. `AMBICODE_EVALS_ASSETS` points elsewhere; scaffolds reach it by relative path,
-so regenerate the suites after moving it.
+The previous suites (benchmark tickets, trigger boundary, tuning harness) are under `archive/evals/` and are not
+run any more: real tickets were unstable from run to run and could not be committed.
 
-Eval types: `core` (the average preset, run as `--set curated`), `full`, `task`, `archived`, `triggers`, `search-maps` (offline map scoring).
-An iteration is numbered in start order within its date; its label is the tag or set, the plugin, the prompt arm and the model.
+```
+evals/
+  cases/<skill>-<name>/   case.yaml, prompt.md, scaffold.sh, graders/*.md   (claude plugin eval layout)
+  cases/results/          raw harness output, gitignored
+  scripts/run.mjs         builds the harness argv, runs it, then tracks the result
+  scripts/track.mjs       one history row per case; rewrites history.md
+  scripts/suite.test.mjs  static checks over every case (part of npm run test:unit)
+  history.jsonl           one row per case per run, appended, tracked in git
+  history.md              latest row per case with the delta to its previous row
+```
 
-What each `npm run evals:*` command does, measures and is for: the manual below.
-How to tune the plugin layer by layer, with pass thresholds per stage: [TRAINING-PLAN.md](TRAINING-PLAN.md).
+## Run
 
+```sh
+npm run build                                   # the cases run scripts/ambicode.mjs, not src/
+npm run evals                                   # 13 cases, 1 run each, Sonnet 5.5, $15 cap, 4 in parallel
+npm run evals -- --case 'review-*'              # one skill (a glob on the case name; --case is not repeatable)
+npm run evals -- --tag gate --runs 3            # by tag; more runs per case
+npm run evals -- --ablation with-without        # add the no-plugin arm (skill cases mostly cannot pass without it)
+npm run evals:dry                               # print the harness command and change nothing
+npm run evals:track -- <result.json> --model <m>  # record a result produced by hand
+```
 
-# Eval commands manual
-
-Every `evals:*` script in `package.json`: what it does, what it measures, and why it exists. Folder layout is in
-[README.md](README.md). Case design is in [common/core/README.md](common/core/README.md).
-
-Before any paid run, run `npm run build`. The evals run the bundle (`scripts/ambicode.mjs`), not `src/`.
-
-## Which command to use
-
-| Question | Command | Cost |
-| --- | --- | --- |
-| Did my change to the map lose true files? | `evals:shortlist-recall`, `evals:map-recall` | free |
-| Does the plugin still behave on real tickets? | `evals:walk` | ~$3 (estimate) |
-| Is the plugin better than the bare model? | `evals:decide`, then `evals:gate` against `evals:baseline` | ~$80 (estimate) |
-| What happened in a run, and where should I focus? | `evals:report` | free |
-| How much do repetitions of one case differ, and why? | `evals:bench -- drift` | free |
-| Did Claude Code change under us? | `evals:baseline` | ~$80 (estimate) |
-| How does it do on every ticket? | `evals:full` | up to $45 |
-| How does each skill do on smaller or larger tickets? | `evals:presets`, then `run --set preset --preset light\|large` | set by `--max-cost-usd` |
-| Does the right skill fire on each phrasing? | `evals:triggers` | ~$2.3 |
-| Does the old synthetic suite still pass? | `evals:archived` | up to $10 |
-
-Tiers go cheapest first. Only move up when the cheaper tier says the change is worth paying for.
-
-## Building blocks
-
-The other scripts call these. You rarely call them yourself.
-
-### `evals:bench`
-
-`node evals/scripts/src/harness/evals-bench.mjs`. This is the harness CLI. Its subcommands are `select`,
-`generate`, `run`, `restore-prompts`, `score` and `walk`.
-
-- `run` wraps `claude plugin eval` for the benchmark suites. It always passes `--no-publish`. It also refuses
-  output outside the gitignored folders, because the cases hold NDA tickets and the harness would otherwise
-  publish its report to claude.ai.
-- `run` refuses a sweep without `--model`. On 2026-09-29, a model change was misread as a plugin change.
-- `run` refuses a sweep without `--max-cost-usd`. An uncapped campaign once spent about $221.
-- While a sweep runs, `run` copies every trace into the iteration. The harness deletes its sandboxes when it
-  finishes, so a trace that was not copied is lost.
-- `run` writes to `../ambicode-evals-assets/outputs/<type>/<date>/<NN>_<HHMM>_<label>/` and appends a row to `iterations.md`.
-- `--dry-run` prints the plan and spends nothing.
-- When a run finishes, its `results/plugin-eval/` (`report.html`, `aggregate-result.json`) is also copied to `eval-replay/<date>/<iteration>/` (gitignored); an existing copy is never replaced.
-
-### `evals:run`
-
-This is `evals:bench run --prompt with`. Review cases run the reviewer subagent (`agents/reviewer.md`) live in the session.
-
-### `evals:plugin-eval`
-
-This is `claude plugin eval . --scaffold --no-publish` with no extra environment. It is the plain harness, used by the tracked synthetic suites
-(`archived`, `triggers`). It has no NDA guards, so never point it at `evals/common/core` or at `evals/` as a whole.
+The first full run (2026-10-10, Sonnet 5.5, 1 run per case) is the first row of `history.jsonl`; `history.md` shows
+its cost per case. Two probes before it: `task-fix` $0.14 and 11 turns, `init-auto` $0.18 and 8 turns.
 
 ## Cases
 
-### `evals:select`
-
-**Does:** fills `evals/common/core/cases/` with the core suite: the **average** preset, generated from
-`../ambicode-evals-assets/presets/average/` exactly as `evals:presets` would. That is 76 cases on 20 merged
-tickets: 20 investigate, 20 plan, 20 task and 16 review. It makes no model calls. `--regenerate` rewrites the
-per-arm prompts; `--presets <dir>` reads another source.
-
-**Measures:** nothing. `manifest.json` lists the cases per skill and the hash of each source ticket.
-
-Eight cases are tagged `walk`: per project and skill, the eligible ticket that touches the fewest files.
-
-The plugin prompts answer every route gate from `harness/eval-answers.mjs`: accept what the route proposes
-(`plan-accept=Accept`, `draft-ok=implement anyway`, `estimate=run`), and decline extras after the requested
-work (`review-offer=skip — verification incomplete`). Gates outside that table (scope, budget) get no answer, so
-a run that reaches one takes its headless default, and `evals:gate` reports it as a `gate answers` gap. After
-changing the table, run `select --regenerate`.
-
-`--localize`, `--review`, `--candidates` and `--baseline` are refused: cases are no longer picked from
-`benchmarks/<project>/assets/`. The earlier 18-case core and its lock are archived in
-`../ambicode-evals-assets/archive/core-2026-10-07/`.
-
-**Why:** one set of real tickets measures every skill on its own metric, and every core run calls `select` first, so the
-cases always match the generator.
-
-### `evals:generate`
-
-**Does:** writes every ticket of each project into `evals/<project>/full/` (the full set). It makes no
-model calls.
-
-**Why:** gives `evals:full` its cases, and gives a source to curate from.
-
-### `evals:presets`
-
-**Does:** writes the light and large preset sets into `evals/common/presets/<preset>/`, and average into the core
-suite (`evals/common/core/cases/`), from
-`../ambicode-evals-assets/presets/`: one case per ticket and eligible skill (investigate, plan, task, review).
-It makes no model calls. `--preset <name>` writes one set.
-
-**Why:** gives each skill its own case on real merged tickets, scored by that skill's metric. Run them with
-`npm run evals:bench -- run --set preset --preset light|large …`; average runs as the core suite. [common/presets/README.md](common/presets/README.md)
-has the layout, the metrics and the bare-model arm.
-
-`generate` needs `../ambicode-evals-assets/benchmarks/<project>/{assets,reviews}` and `project/.ambicode/config.yaml`
-on disk. `select` and `evals:presets` need `../ambicode-evals-assets/presets/` and each project's `.git`.
-
-## Paid runs on the benchmark
-
-All of these use the plugin arm with `--ablation none`. The bare-model side comes from `evals:baseline`.
-
-### `evals:walk` (also `npm run evals`)
-
-**Does:** runs `select`, then the 8 `walk`-tagged cases: one per skill per project where the skill is eligible
-(investigate, plan and task on both; review on both). It uses 1 run, Sonnet 5.5, `-j 4` and a $5 cap, and writes
-`reports/walk.md` in the iteration.
-
-**Measures:** per run, the cost, turns, skills fired, `prepare` use and score. It also records the **first
-deviation** in trace order, which is the first of:
-
-- a peek into `../ambicode-evals-assets/benchmarks/`;
-- an edit to the code;
-- `prepare` cut short;
-- a re-run review;
-- a helper error;
-- no route started (neither a typed route in the ledger nor a Skill call);
-- the turn limit.
-
-**Why:** this is the cheapest way (an estimated ~$3) to see *how* a change behaves before paying to measure *how
-much* it helps. Read the first deviations and note what you saw, not why.
-
-### `evals:walk:haiku`
-
-The same as `evals:walk`, on Haiku 4.5.
-
-**Why:** checks that a change still works on the weaker model. Weaker models skip steps the stronger model
-takes: Sonnet ran `prepare` in 3 of 50 runs where Opus ran it in 26 of 29.
-
-### `evals:decide`
-
-**Does:** runs `select`, then all 76 core cases. It uses 3 runs, Sonnet 5.5 and a $90 cap.
-`--tag localize|plan|task|review` narrows it to one skill.
-
-**Measures:**
-
-- **Investigate (localize):** precision, recall, F1 and hit of the `## Files` list against the merged change's files.
-- **Plan:** the same file metrics, read from the plan note, else from the final message.
-- **Task:** the run's patch against the merged one: file P/R/F1, hunk and identifier recall.
-- **Review:** recall of the human reviewers' inline threads, one LLM judge per thread, also per label. Precision is
-  not measured: a concern no human raised cannot be graded.
-- **All:** cost and turns.
-
-[common/presets/README.md](common/presets/README.md) defines each metric.
-
-**Why:** this is the decision run. Feed its result to `evals:gate` with the baseline. Three runs per case are
-needed because one run is noisy by ±5–10 percentage points.
-
-### `evals:baseline`
-
-**Does:** runs `select`. Then `arms/naked-arm.mjs` builds `.tmp/naked`, a plugin with no components, and the
-76 cases run against it. It uses 3 runs, Sonnet 5.5 and a $90 cap.
-
-**Measures:** the bare model on the same cases and graders, with recall, cost and turns as in `decide`.
-
-**Why:** the bare model's numbers depend on the model, the Claude Code version and the prompt, not on the
-plugin. Run it once per Claude Code version or case set, then pin it with `npm run evals:bench -- lock <its eval.json>`.
-`score`, `walk`, `gate` and `report` then compare every plugin-only run against the lock without another bare run.
-The plugin's own reference is pinned the same way, `npm run evals:bench -- reference <plugin eval.json> [--cases a,b]`,
-into `reference.lock.json`: it pins the source files, and `gate` rescores them for the `case floors` check.
-Locking is per run, not per suite: each `lock` adds the cases of that run to the existing lock and replaces any case it
-runs again, so the investigate, plan, task and review baselines can be locked one skill at a time. One lock holds one
-model, Claude Code version and arm; a run on another is refused. The lock records each source result's hash, the model,
-Claude Code version, and per case the prompt and truth hashes and the bare
-means: recall, precision, cost, turns, tool calls, peak context and file reads (Read calls and Bash reads), the last three from the
-traces beside the result. The run's effort is set by `CLAUDE_CODE_EFFORT_LEVEL` (the harness has no effort flag) and is not recorded in the result.
-A changed or missing source, another model or version, an unknown case, a changed prompt or a changed truth is an
-error naming the mismatch, never a fallback to another run. The harness cannot run a no-plugin arm on its own, so an
-empty plugin stands in for it.
-
-### `evals:full`
-
-**Does:** runs `generate`, then `run --set full --project BE-express` and `--project FE-angular`. It uses 1 run,
-Sonnet 5.5 and a $22.5 cap per project.
-
-**Measures:** the same graders as `decide`, over every ticket of each project, investigate and review only.
-
-**Why:** a broad check that the core cases are not misleading. Inside the sandbox, `--eval-dir` is the
-project folder, so the agent cannot read the tickets or the truth.
-
-## Reading a result
-
-Each of these takes `<iteration>/results/eval.json`, reads the traces beside it, and makes no model calls, except `judge-task`.
-
-### `evals:score`
-
-**Does:** prints per-case and per-arm scores. A run with no no-plugin arm takes it from the locked baseline;
-`--baseline <file>` names another one.
-
-**Measures:**
-
-- **Localize:** precision, recall, F1 and hit, parsed from the final answer's `## Files` section. Only the files it
-  proposes to change count: a group or bullet that says it needs no change, is for reference or is left out is counted
-  as `excluded` instead; a hedged one ("likely unchanged") stays a change.
-- **Review:** thread recall.
-- **Runs:** cost, turns, absent runs, and ledger metrics such as `check` and `prepare` use.
-
-**Why:** the harness reports grader pass rates only. This turns them into the numbers decisions are made on.
-
-Preset runs are scored per skill: plan from the harvested plan note, task from the harvested patch (files, hunk
-and identifier recall), and review recall per thread label.
-
-### `evals:bench -- judge-task`
-
-**Does:** `judge-task <eval.json> --model <m> --max-cost-usd <usd>` asks one `claude -p` call per harvested
-preset task run whether its patch implements the merged change. It writes `reports/task-judge.json` and never
-replaces an earlier one. `score` then adds `judgeScore` and reports the judge's cost apart from the agent's.
-
-**Why:** hunk and identifier overlap score a valid alternative implementation as a miss. This is the only paid
-command in this section; runs past the cap are recorded as skipped.
-
-### `evals:gate`
-
-**Does:** turns a with/without result, or a `decide` result against the locked baseline (or `--baseline`), into a pass or
-fail verdict. Thresholds live in `ACCEPTANCE` in `eval-gate.mjs`; ratios print to 4 digits, so a 1.1008× cost reads
-as the failure it is.
-
-**Checks:**
-
-| Check | Passes when |
-| --- | --- |
-| complete | the run is not partial |
-| pinned model | every traced run used the `--model` that was given |
-| runs per case | each case has at least 3 runs |
-| absent runs | at most 20% of an arm's runs are absent |
-| recall | the plugin is no worse than the no-plugin arm beyond the noise band |
-| cost | at most 1.1× the no-plugin arm, agent cost only: the trace's `total_cost_usd`, else harness `costUsd` minus `judgeCostUsd` (the harness total includes judging) |
-| turns | at most 2 more turns than the no-plugin arm |
-| case floors | every case pinned with `evals:bench reference` keeps mean recall and F1 ≥ its reference mean − the noise band; no reference is a GAP |
-| drift | at least 80% of cases keep recall and F1 ≥ 0.9× their best run and agent cost ≤ 1.25× their cheapest; a blocked, open or unverified run puts its case out |
-| meanDelta | the harness's meanDelta is within the noise band |
-
-Missing numbers are reported as **GAP**, never as pass.
-
-**Why:** `claude plugin eval` reports `meanDelta` but never fails on it. The gate makes "better, and not more
-expensive" a rule instead of a judgment call.
-
-### `evals:report`
-
-Usage: `-- <iteration dir | result.json> [--baseline <result.json>] [--previous <n>] [--out <dir>] [--full]`
-
-**Does:** writes the standard analysis of one run into `../ambicode-evals-assets/reports/<type>/<date>/<iteration>/`:
-
-- `report.md`:
-  - every metric of this run beside the bare model and the 2 previous iterations, with the delta against bare;
-  - strong and weak places, each with its evidence;
-  - proposals;
-  - per-case table, with agent cost, the drift verdict and each run's outcome (`completed`, `blocked(<code>)`, `unverified`, `open`);
-  - route sequences and step timings;
-  - context;
-  - tools and files;
-  - time;
-  - price by token kind.
-- `chains.md`: every run step by step. It has the route's ledger entries with their offsets, the map leads (true files
-  marked), the context the session injected, and each model call with its context, tokens, price, text and tool calls.
-  Each tool call shows its input, result size, duration, errors and the files it touched.
-- `report.json`: the same numbers without the transcripts.
-
-**Comparisons:**
-
-- **Bare:** the run's own without arm if it has one. Otherwise the locked baseline, or `--baseline`. Never the newest
-  naked run found on disk.
-- **Previous:** the newest earlier plugin runs. Runs that cover every case come first.
-
-**Measures:**
-
-- **Quality:** recall, precision, F1 and hit, or the harness score where a kind has no recall.
-- **Cost, turns and time:** cost, model and tool calls, failed calls, wall time, scaffold time, time to the first call
-  and time to the route step.
-- **Context and tokens:** first and peak context, output tokens.
-- **Files:** files and true files read, and the call of the first true-file read.
-- **Reads:** model calls that read, those naming one path, paths per reading call, and the result bytes of reads
-  naming only paths read before. A read is a Read call or a reading segment (`cat`, `sed`, `head`, …, `ambicode read`)
-  of a Bash command, mixed ones included; its paths are the operands as written.
-- **Map:** the map's true files, which of them the answer used or dropped, and true files the model found outside the
-  map.
-
-**Why:** one fixed report per iteration, so iterations can be compared without hand-built tables. The findings say
-where to look first; `chains.md` shows what happened.
-
-### `evals:walk-report`
-
-**Does:** writes the walkthrough (`reports/walk.md`) for any result. `evals:walk` does this itself, so use
-this for other runs.
-
-**Why:** error analysis starts from the traces, not from the scores.
-
-### `evals:bench -- drift <results/eval.json> [--traces <dir>] [--ledgers <dir>] [--json <file>]`
-
-**Does:** for every case and arm with at least two repetitions, prints each metric (recall, precision, F1, agent cost,
-model calls, tool calls, turns, read bytes served, peak context, wall seconds) per repetition with min, max, spread and
-an in-band flag against the absolute band (quality at least 0.9x the best repetition, resources at most 1.1x the
-smallest), then per repetition the mechanics behind the spread: reads by route (engine `read` receipts / native `Read`
-calls / Bash `cat`, `sed -n`, `head`, `tail`), zsh `--include=` glob failures (`no matches found`, which the tool does
-not report as an error), host-capped (`<persisted-output>`) results and `read` operand refusals (`not found`,
-`ambiguous`). Traces default to the result's `traces/` and ledgers to `traces/ledgers/`. Cost: free, offline.
-
-**Why:** the plugin must be stable on its own, so the spread between repetitions of one case is the number to watch,
-and the mechanics columns say which free choice moved it. The eval gate's thresholds are unchanged and its status is
-shown beside the table.
-
-## Free, offline checks
-
-These read the benchmark code directly, make no model calls, and print counts only (no ticket text).
-
-### `evals:shortlist-recall`
-
-Usage: `-- <BE-express repo> <FE-angular repo> [limit]`
-
-**Measures:** for each localize ticket, recall at N (default 15) of the map's candidates, built from the
-ticket's terms with the layers `shortlist, harvest, shortlist`.
-
-**Why:** a change to the map or its search terms can be judged for free, before any walk.
-
-### `evals:map-recall`
-
-Usage: `[--cases <dir>] [--show <dir>] [--save <file>] [--expect <file>]`
-
-**Measures:** for each core investigate case, how many true files the map's 6 KiB text lists, and its size in bytes. Beside it, the candidates the ranking found
-and the true files in the listed first 20; the last line gives macro recall and how many cases were
-listed no true file. `--expect` exits 1 when a case loses a true file or the map grows past 6,144 bytes.
-
-**Why:** catches regressions in what the agent is shown before paying to see what it does with it.
-
-### `evals:layer-audit`
-
-Usage: `-- <result.json> [--traces <dir>] [--json <file>]`
-
-**Measures:** per case and arm:
-
-- what each route layer handed the model (step bytes, true files in the map);
-- what the model did with it (recall and precision, files named from the map, true files it missed);
-- tool turns and bytes by call class (grep, cat, ls);
-- cost split by token kind.
-
-It exits 1 when a layer that should be identical across runs, such as the delivered step or the top map
-candidates, differs between them.
-
-**Why:** shows whether a miss came from the plugin's input or from the model's use of it, and that the input
-was stable.
-
-## Synthetic suites
-
-These suites are tracked in git and need no NDA data.
-
-### `evals:preflight`
-
-**Does:** runs two archived cases once each, with a $1.5 cap.
-
-**Measures:** that the plugin fired, the helper ran, the review completed and a unit check executed.
-
-**Why:** a broken build or sandbox should cost about $0.5, not a whole sweep. `evals:archived` runs it first and
-stops if it fails.
-
-### `evals:archived`
-
-**Does:** runs the preflight, reserves an `../ambicode-evals-assets/outputs/archived/<date>/…typescript-sonnet-5-5` iteration, then runs
-the 13 synthetic TypeScript cases. It uses `--ablation with-without`, 3 runs, Sonnet 5.5 and a $10 cap.
-
-**Measures:** graded findings for six review categories, plus investigate, plan and task cases. It compares a
-with-plugin arm against a without-plugin arm in one run.
-
-**Why:** this is the original regression suite. It is cheap to reason about, and it still covers the review
-categories that real tickets rarely hit.
-
-### `evals:triggers`
-
-**Does:** reserves an `../ambicode-evals-assets/outputs/triggers/<date>/…sonnet-5-5` iteration, then runs the 28 trigger cases. It uses
-1 run, no ablation and a $4 cap. It then runs `harness/run-validity.mjs` on the result.
-
-**Measures:** which skill (if any) fires on each phrasing, graded structurally from tool calls with no LLM
-judges. Skills that moved to routes must fire on no phrasing. `url-bare` is diagnostic: read its grader
-table, not its score.
-
-**Why:** a description edit can steal or lose triggers silently. The validity step fails the script when runs
-died of infrastructure problems (session limit, lost login). Otherwise every `max: 0` grader would pass on a
-run that did nothing.
-
-### `evals:reviewer`
-
-**Does:** the review helpers for the archived review cases. The reviewer is the plugin subagent
-(`agents/reviewer.md`), which only runs inside a live Claude Code session, so `evals:reviewer` itself exits with
-an error saying so. Offline, `replayFindings` in `validation/evals-reviewer.mjs` scaffolds a case, runs
-`review --task <slug>`, and feeds the case's `findings.json` (`{ findings, coverageNotes }`) to
-`review record --task <slug>` on stdin. It also holds the blind adjudication sheet builder.
-
-## Related
-
-- `fixtures` (`node fixtures/materialize.mjs`) builds the synthetic repositories the archived and trigger
-  scaffolds use.
-- Unit tests for every script, with no model calls: `node --test 'evals/scripts/src/**/*.test.mjs'`.
+| Case | Fixture | Shows |
+| --- | --- | --- |
+| investigate-how | ts-feature-boundary | note saved, citations valid, the answer names the service and the route, decoys excluded |
+| investigate-files | ts-feature-boundary | the file list is the invoice boundary, not the keyword decoys |
+| investigate-nomatch | ts-feature-boundary | the scope gate is raised on an empty map and nothing is invented |
+| plan-accept | ts-feature-boundary | draft written with six fields and valid anchors, promoted on Accept, no code touched |
+| plan-draft | ts-feature-boundary | without an answer the plan stays a draft and is not called accepted |
+| task-fix | eval-page-bug | red check before green, format, reviewer subagent, review recorded, report sections, fix and test correct |
+| task-review-skipped | eval-page-bug | the review offer defaults to skip and the report says so |
+| review-defect | ts-off-by-one | reviewer subagent, a finding with its location, part 4 fenced |
+| review-clean | py-clean-docstring | no false defect, verification gap still stated |
+| review-regression | ts-source-regression | a check is recorded, the broken unchanged test is found |
+| review-skipped | ts-off-by-one | the estimate gate defaults to skip, no reviewer, no finding |
+| rules-migrate | eval-rules-contributing | drafts checked and applied, quotes verbatim, the vague line and the embedded `rm -rf` instruction ignored |
+| init-auto | ts-feature-boundary (installed, no config) | scaffold, scout subagent, context files, checks wired, config validated |
+
+Every route case fixes its task with `--task <slug>` so graders can name `repo/.ambicode/tasks/<slug>/ledger.jsonl`
+(reviews: `repo/.ambicode/reviews/<slug>/`): the harness resolves no globs in file paths. Gate answers are typed in
+the prompt (`--headless --answer <gate>=<option>`), which the UserPromptSubmit hook records as trusted preanswers;
+a case without an answer measures the default.
+
+## Graders
+
+Structural graders read the ledger or a produced file (`type: regex` with `target: {source: file, path}`), the
+trace (`tool_used`) or created files (`file_exists`); they are free. One or two `llm` graders per case judge
+what no regex can (the answer is right, the fix is right, the gap is stated); they are judged by Haiku, three votes.
+
+| Grader family | Reads | Means |
+| --- | --- | --- |
+| route-done | ledger `exit … reason done` | the route reached its end |
+| note-saved, citations-valid | ledger `note`, `worker check-citations … failed:false` | the answer was saved and every `path:line` exists |
+| red-before-green | ledger `check` entries | a failing check was recorded before a passing one |
+| review-recorded, finding-recorded | ledger `review … stage recorded`, `findings:N` | the reviewer's answer went through `review record` |
+| reviewer-invoked, scout-invoked | trace `Agent` tool with `ambicode:<agent>` | the subagent ran, the model did not stand in for it |
+| *-defaulted, *-gate-raised | ledger `default-taken`, `gate` | the gate behaved without an answer |
+| no-edit, no-git-mutation, instruction-not-obeyed | trace `Edit`/`Write`/`Bash` with `max: 0` | the skill stayed inside its boundary |
+
+A case score is the weighted share of its graders that passed; the harness's own threshold is 1.0, so the exit
+code is 1 unless every case is perfect. Read `history.md` rather than the exit code.
+
+## Adding a case
+
+1. A fixture: reuse one or add an `eval-*` entry to `fixtures/definitions.mjs` (committed state, passing tests).
+2. `evals/cases/<skill>-<name>/` with `case.yaml`, `scaffold.sh` (copy a sibling's), `prompt.md` starting with
+   `/ambicode:<skill> --task <slug> …`, and graders. Ledger entry shapes are in `src/platform/ledger/kinds.ts`.
+3. `node --test evals/scripts/suite.test.mjs`, then `npm run evals -- --case <name>`.
+
+Keep a case to one behaviour and under 15 graders. A grader that cannot fail measures nothing; a grader that
+always fails is a finding about the plugin and belongs in a ticket, not in the suite forever.
