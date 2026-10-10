@@ -1,4 +1,0 @@
-schema_version: "1.1"
-name: url-implement
-context:
-  scaffold_script: scaffold.sh
