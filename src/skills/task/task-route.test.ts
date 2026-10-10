@@ -5,7 +5,7 @@ import path from 'node:path';
 import { launchRoute } from '#hook/events/prompt-launch';
 import { buildReport } from '#modules/evidence/report/report';
 import { STAGE_LIMITS } from '#modules/policy/stage';
-import { stepHeader } from '#harness/engine/delivery';
+import { stepHeader } from '#harness/engine/execute';
 import { MAX_INSTRUCTION_CHARS } from '#harness/definition/routes';
 import { COMMAND_PACK, CHECK_CONFIG, CHECK_TASK } from '#testing/fixtures/check-fixture';
 import { finding } from '#testing/fixtures/review-fixture';
@@ -44,7 +44,7 @@ describe('task route (07-R, 07-V, 07-G)', () => {
   it('07-R1: the shipped route declares its steps in order, the draft-ok gate, the raised registry gates and 18 model steps', async () => {
     await withTask(async (t) => {
       const def = t.fx.routes.route('task')!;
-      assert.deepEqual(def.steps.map((step) => step.id), ['template', 'fetch', 'start', 'draft-ok', 'ground', 'red', 'green', 'review-offer', 'review-cmd', 'review-agent', 'review-run', 'fix', 'report-step', 'write']);
+      assert.deepEqual(def.steps.map((step) => step.id), ['fetch', 'start', 'draft-ok', 'ground', 'red', 'green', 'review-offer', 'review-cmd', 'brief', 'review-agent', 'review-run', 'fix', 'report-step', 'write']);
       assert.deepEqual(def.steps.find((step) => step.id === 'draft-ok')?.gate?.options, ['implement anyway', 'stop']);
       assert.ok(t.fx.routes.gate('check-only-unauthorized') !== null && t.fx.routes.gate('scope-expanding') !== null);
     });
@@ -115,7 +115,7 @@ describe('task route (07-R, 07-V, 07-G)', () => {
     });
   });
 
-  it('07-R4/07-G1/07-G2: ground records baseline, map and both policy stages in order, lists callers with collides, under 9 KiB', async () => {
+  it('07-R4/07-G1/07-G2: ground records baseline, map and both policy stages in order, lists callers, under 9 KiB', async () => {
     await withTask(async (t) => {
       await t.fx.repo.write('src/other.ts', 'export function total(): number {\n  return 1;\n}\n');
       await t.fx.repo.commitAll('a second total');
@@ -123,9 +123,9 @@ describe('task route (07-R, 07-V, 07-G)', () => {
       const order = (await t.ledger()).map((entry) => (entry.kind === 'policy' ? `policy:${entry['stage']}` : entry.kind === 'step' ? `step:${entry['step']}` : entry.kind));
       const at = (name: string): number => order.indexOf(name);
       assert.ok(at('baseline') < at('map') && at('map') < at('policy:before-work') && at('policy:before-work') < at('policy:before-checks') && at('policy:before-checks') < at('step:ground'), order.join(' '));
-      const callers = section(red.text, 'callers');
-      assert.match(callers, /a `collides` caller → verify its import before editing/);
-      assert.match(callers, /^ {2}total — \d+ refs, collides$/m);
+      const callers = section(red.text, 'script:inventory');
+      assert.match(callers, /git grep -w -n/);
+      assert.match(callers, /^ {2}total — \d+ refs$/m);
       assert.ok(Buffer.byteLength(red.text) <= 9 * 1024, `${Buffer.byteLength(red.text)} bytes`);
     });
   });
@@ -185,7 +185,7 @@ describe('task route (07-R, 07-V, 07-G)', () => {
       assert.equal(write.position, 'write');
       assert.equal((await t.kinds('default-taken')).find((entry) => entry['gate'] === 'review-offer')?.['answer'], 'skip — verification incomplete');
       const skipped = (await t.kinds('step')).filter((entry) => entry['status'] === 'skipped').map((entry) => entry['step']);
-      assert.ok(['review-cmd', 'review-agent', 'review-run', 'fix'].every((step) => skipped.includes(step)), skipped.join(' '));
+      assert.ok(['review-cmd', 'brief', 'review-agent', 'review-run', 'fix'].every((step) => skipped.includes(step)), skipped.join(' '));
       assert.equal((await t.kinds('review')).length, 0);
       assert.match(write.text, /independent review skipped — verification incomplete/);
     });

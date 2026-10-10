@@ -9,7 +9,7 @@ import { REPO_ROOT } from '#testing/paths';
 import { KINDS, type LedgerEntry } from '#types/modules/evidence';
 import type { RouteDef } from '#types/harness';
 
-const HEAD = 'skill: demo\nversion: 3\nbudget: { modelSteps: 6 }\nexits: [done, blocked]\nrevisable: [ground]\nsteps:\n';
+const HEAD = 'skill: demo\nversion: 3\nexits: [done, blocked]\nrevisable: [ground]\nsteps:\n';
 const YAML = `${HEAD}  - id: template
     actor: code
     when: args.hasRequirement
@@ -134,8 +134,6 @@ describe('fold', () => {
     assert.equal(matches(entry('note', { note: 'plan-draft' }), { kind: 'note', value: 'plan' }), false);
     assert.equal(matches(entry('policy', { stage: 'before-work' }), { kind: 'policy', value: 'before-report' }), false);
     assert.equal(isGreen(entry('check', { exit: 0, summary: { ran: 3, failed: 0 } })), true);
-    assert.equal(isGreen(entry('check', { exit: 0, summary: { ran: 0, failed: 0 } })), false);
-    assert.equal(isGreen(entry('check', { exit: 0, summary: null })), false);
     assert.equal(matches(entry('check', { exit: 1, summary: { ran: 1, failed: 1 } }), { kind: 'check', value: 'green' }), false);
     assert.equal(matches(entry('requirement', { capture: 'list' }), { kind: 'requirement', value: 'full' }), false);
   });

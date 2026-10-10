@@ -1,26 +1,16 @@
-// How often the file shortlist `prepare` hands the agent contains the files a real ticket's change touched.
+// How often the map's candidate list contains the files a real ticket's change touched.
 // Offline and free: no model runs. Reads the full sets and prints numbers only: no case name, ticket text, term or path.
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRuntime } from '../../../../src/composition/root.ts';
 import { openWorkspace, projectForRequest } from '../../../../src/modules/config/workspace.ts';
-import { locate, termsFromRequirements } from '../../../../src/modules/search/text/locate.ts';
-import { PREPARE_SHORTLIST_LIMIT } from '../../../../src/types/modules/search.ts';
-import { buildMap } from '../../../../src/modules/search/text/map.ts';
-import { indexAdapterFor } from '../../../../src/modules/search/code-index/adapter.ts';
-import { indexDepsOf } from '../../../../src/modules/search/code-index/codeindex.ts';
-
-
+import { buildMap, termsFromRequirements } from '../../../../src/modules/search/map.ts';
 import { CASES_ROOT, FULL_CASES_DIRECTORY, projectCasesDir } from '../shared/bench-paths.mjs';
 
 const MAP_LAYERS = ['shortlist', 'harvest', 'shortlist'];
-/** M6 as measured before this script scored (b) and (c); (a) must reproduce it for the comparison to mean anything. */
-export const M6 = { 'BE-express': 0.499, 'FE-angular': 0.123 };
-const SIDES = Object.keys(M6);
-const THRESHOLD = 0.05;
-/** Absorbs float error in a difference of means (0.173 − 0.123 = 0.04999999999999999); far below any real gain step. */
-const EPSILON = 1e-9;
+export const DEFAULT_LIMIT = 15;
+const SIDES = ['BE-express', 'FE-angular'];
 
 /** The ticket text between the prompt's <ticket> tags, which is what a requirement fetch would return. */
 export function ticketOf(promptMarkdown) {
@@ -28,29 +18,13 @@ export function ticketOf(promptMarkdown) {
   return match === null ? null : match[1];
 }
 
-/** The codeindex adapter for one side, its index under `<indexDir>/<side>`, the binary's directory first on PATH. */
-async function codeindexFor(side, dir, workspace, project, { bin, indexDir }) {
-  const runtime = await createRuntime({ cwd: dir, env: { ...process.env, PATH: `${path.dirname(bin)}${path.delimiter}${process.env.PATH ?? ''}` } });
-  const config = { ...workspace.config, search: { ...workspace.config.search, index: 'codeindex' } };
-  return indexAdapterFor({ ...indexDepsOf(runtime, workspace.git, workspace.repositoryRoot, config), indexDir: path.join(indexDir, side) }, project);
-}
-
-/**
- * Per localize case, recall@limit of (a) `locate` as `prepare` ran it, (b) the map's layers with no index and (c) the same
- * plus `index.find` over codeindex, all from the same terms (05-O2). `adapterFor` replaces the codeindex adapter in tests.
- */
-export async function shortlistRecall({ repos, cases: casesRoot = CASES_ROOT, unfiltered = false, limit = PREPARE_SHORTLIST_LIMIT, termsOf = (ticket) => termsFromRequirements([{ title: '', content: ticket }]), codeindex = null, adapterFor = null }) {
+/** Per localize case, recall@limit of the map's candidates built from the ticket's terms; no model, no ledger. */
+export async function shortlistRecall({ repos, cases: casesRoot = CASES_ROOT, limit = DEFAULT_LIMIT, termsOf = (ticket) => termsFromRequirements([{ title: '', content: ticket }]) }) {
   const sides = {};
   for (const [side, dir] of Object.entries(repos)) {
     const runtime = await createRuntime({ cwd: dir });
     const workspace = await openWorkspace(runtime);
-    const project = projectForRequest(workspace.config, null, []);
-    let index = null;
-    if (adapterFor !== null) index = await adapterFor(side, { runtime, workspace, project });
-    else if (codeindex !== null) index = await codeindexFor(side, dir, workspace, project, codeindex);
-    // Built once per side, in the foreground, before anything is scored.
-    if (index !== null) await index.build(project, { detached: false });
-    sides[side] = { runtime, workspace, project, index };
+    sides[side] = { runtime, project: projectForRequest(workspace.config, null, []) };
   }
   const rows = [];
   // Each project's full set: `evals/<project>/full/`.
@@ -67,64 +41,38 @@ export async function shortlistRecall({ repos, cases: casesRoot = CASES_ROOT, un
     if (entry === undefined || ticket === null) continue;
     const reachable = truth.filter((file) => !missingFromSnapshot.includes(file));
     if (reachable.length === 0) continue;
-    const { runtime, workspace, project, index } = entry;
-    const terms = termsOf(ticket);
-    const recall = (paths) => reachable.filter((file) => paths.includes(file)).length / reachable.length;
-    // `unfiltered` reproduces the shortlist before the project's include/exclude lists applied.
-    const found = await locate({ git: workspace.git, project: unfiltered ? { ...project, shortlist: { include: [], exclude: [] } } : project, terms, limit });
-    const paths = found.candidates.map((c) => c.path);
-    const map = async (layers, adapter) => (await buildMap({ runtime, project, mode: 'prompt', layers, layersSource: 'route', terms, paths: [], symbols: [], ...(adapter === undefined ? {} : { index: adapter }) })).candidates.slice(0, limit).map((c) => c.path);
-    const b = recall(await map(MAP_LAYERS, indexAdapterFor(indexDepsOf(runtime, workspace.git, workspace.repositoryRoot, { ...workspace.config, search: { ...workspace.config.search, index: 'none' } }), project)));
-    const c = index === null ? null : recall(await map([...MAP_LAYERS, 'index.find'], index));
-    rows.push({ side, truth: reachable.length, a: recall(paths), b, c });
+    const map = await buildMap(entry.runtime, { project: entry.project, mode: 'prompt', layers: MAP_LAYERS, layersSource: 'route', terms: termsOf(ticket) });
+    const paths = map.candidates.slice(0, limit).map((c) => c.path);
+    rows.push({ side, truth: reachable.length, recall: reachable.filter((file) => paths.includes(file)).length / reachable.length });
   }
   return rows;
 }
 
 const mean = (xs) => xs.reduce((a, b) => a + b, 0) / (xs.length || 1);
-const fixed = (x) => (x === null ? 'n/a' : x.toFixed(3));
 
-/** Per side: n, recall of each arm, (c) − (b); then the M6 check and the 5-I line (05-O3…O5). */
-export function summarize(rows, { limit = PREPARE_SHORTLIST_LIMIT } = {}) {
-  const lines = [];
-  const stats = {};
-  for (const side of SIDES) {
+/** Per side: n and mean recall. Numbers only, no case name, ticket text, term or path. */
+export function summarize(rows, { limit = DEFAULT_LIMIT } = {}) {
+  return SIDES.map((side) => {
     const group = rows.filter((row) => row.side === side);
-    const a = mean(group.map((row) => row.a));
-    const b = mean(group.map((row) => row.b));
-    const c = group.length > 0 && group.every((row) => row.c !== null) ? mean(group.map((row) => row.c)) : null;
-    stats[side] = { a, b, c, delta: c === null ? null : c - b };
-    lines.push(`${side}: n=${group.length} recall@${limit} (a) ${fixed(a)} (b) ${fixed(b)} (c) ${fixed(c)} (c)-(b) ${fixed(stats[side].delta)}`);
-  }
-  const reproduces = SIDES.every((side) => stats[side].a.toFixed(3) === M6[side].toFixed(3));
-  lines.push(`(a) reproduces M6: ${reproduces ? 'yes' : 'no'} (expected ${SIDES.map((side) => `${side} ${M6[side].toFixed(3)}`).join(', ')})`);
-  lines.push(`5-I: ${decision(stats, reproduces)}`);
-  return lines;
-}
-
-function decision(stats, reproduces) {
-  if (!reproduces) return 'pending ((a) did not reproduce M6)';
-  if (SIDES.some((side) => stats[side].delta === null)) return 'pending ((c) was not run)';
-  return SIDES.some((side) => stats[side].delta >= THRESHOLD - EPSILON) ? 'report' : 'none';
+    return `${side}: n=${group.length} recall@${limit} ${mean(group.map((row) => row.recall)).toFixed(3)}`;
+  });
 }
 
 export function parseArgv(argv) {
   const positionals = [];
-  const options = { unfiltered: false, cases: CASES_ROOT, codeindex: null, indexDir: null };
+  let cases = CASES_ROOT;
   for (let i = 0; i < argv.length; i += 1) {
-    const value = argv[i + 1];
-    if (argv[i] === '--unfiltered') options.unfiltered = true;
-    else if (argv[i] === '--cases' || argv[i] === '--index-dir' || argv[i] === '--codeindex') {
-      if (value === undefined) throw new Error(`${argv[i]} needs a value`);
-      if (argv[i] !== '--codeindex' && !path.isAbsolute(value)) throw new Error(`${argv[i]} takes an absolute path, not ${value}`);
-      options[argv[i] === '--cases' ? 'cases' : argv[i] === '--index-dir' ? 'indexDir' : 'codeindex'] = value;
+    if (argv[i] === '--cases') {
+      const value = argv[i + 1];
+      if (value === undefined) throw new Error('--cases needs a value');
+      if (!path.isAbsolute(value)) throw new Error(`--cases takes an absolute path, not ${value}`);
+      cases = value;
       i += 1;
     } else positionals.push(argv[i]);
   }
   const [be, fe, limitAt] = positionals;
-  if (!be || !fe) throw new Error('usage: shortlist-recall.mjs <BE-express repo> <FE-angular repo> [limit] [--unfiltered] [--cases <absolute dir>] [--codeindex <bin> --index-dir <absolute dir>]');
-  if ((options.codeindex === null) !== (options.indexDir === null)) throw new Error('--codeindex and --index-dir go together');
-  return { repos: { 'BE-express': be, 'FE-angular': fe }, ...(limitAt === undefined ? {} : { limit: Number(limitAt) }), unfiltered: options.unfiltered, cases: options.cases, codeindex: options.codeindex === null ? null : { bin: path.resolve(options.codeindex), indexDir: options.indexDir } };
+  if (!be || !fe) throw new Error('usage: shortlist-recall.mjs <BE-express repo> <FE-angular repo> [limit] [--cases <absolute dir>]');
+  return { repos: { 'BE-express': be, 'FE-angular': fe }, ...(limitAt === undefined ? {} : { limit: Number(limitAt) }), cases };
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

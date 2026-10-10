@@ -31,7 +31,7 @@ const schemas = [
     session: text, harnessSession: text.optional(), scratchpad: text.optional(), epoch: z.number().int().min(1), resumes: text.optional(), adopts: z.boolean().optional(),
   }).refine((value) => value.trusted === (value.channel !== 'cli'), { path: ['trusted'], message: 'must equal channel !== cli' }),
   entry('step', {
-    route: text, step: text, actor: z.enum(['code', 'model', 'human', 'worker']), status: z.enum(['delivered', 'completed', 'skipped', 'failed', 'repeated']), cause: text,
+    route: text, step: text, actor: z.enum(['code', 'model', 'human']), status: z.enum(['delivered', 'completed', 'skipped', 'failed', 'repeated']), cause: text,
     channel: text.optional(), bytes: count.optional(), file: text.optional(),
     revise: z.union([text, z.looseObject({})]).optional(), exit: text.optional(), answer: z.literal('note').optional(),
   }),
@@ -59,15 +59,15 @@ const schemas = [
   entry('search', { command: z.enum(['refs']), names: z.array(text), hits: count, bytes: count, truncated: count.optional() }),
   entry('policy', {
     stage: z.enum(['before-work', 'before-checks', 'before-report', 'drafts', 'apply']), packs: optionalList, rules: count.optional(), omitted: count.optional(), bytes: count.optional(),
-    path: text.optional(), contentHash: text.optional(), drafts: optionalList, errors: count.optional(), probes: optionalList,
+    path: text.optional(), contentHash: text.optional(), drafts: optionalList, errors: count.optional(),
   }).superRefine((value, context) => {
-    const required = { drafts: ['path', 'contentHash', 'drafts', 'errors'], apply: ['packs', 'probes'] }[value.stage as string] ?? ['packs', 'rules', 'omitted', 'bytes'];
+    const required = { drafts: ['path', 'contentHash', 'drafts', 'errors'], apply: ['packs'] }[value.stage as string] ?? ['packs', 'rules', 'omitted', 'bytes'];
     for (const field of required) if ((value as Record<string, unknown>)[field] === undefined) context.addIssue({ code: 'custom', path: [field], message: `required for stage ${value.stage}` });
   }),
   entry('baseline', { head: text.nullable(), dirty: z.array(z.object({ path: text, hash: text.nullable() })) }),
   entry('check', {
     key: text, argv: z.array(text), only: z.array(text), exit: z.number().int(), phase: z.enum(['red', 'green']),
-    summary: z.object({ ran: count, failed: count }).nullable(), ms: z.number(), mutations: z.unknown().optional(),
+    summary: z.null().optional(), tail: z.string().optional(), ms: z.number(), mutations: z.unknown().optional(),
   }),
   entry('format', {
     key: text, files: z.array(text), exit: z.number().int().nullable(), via: z.literal('model'), outcome: z.enum(['formatted', 'unconfigured', 'failed', 'refused']),
@@ -78,7 +78,7 @@ const schemas = [
   }),
   entry('worker', {
     worker: text, outcome: z.enum(['ran', 'inline', 'skipped']), ms: z.number(), artifact: text.nullable(), costUsd: z.number().optional(), reason: text.optional(),
-    summary: z.object({ failed: z.boolean(), anchorsBad: count, acsUnmapped: count, duplicates: count }).optional(),
+    summary: z.object({ failed: z.boolean(), anchorsBad: count }).optional(),
   }),
   entry('capture', { what: z.literal('mr-diff'), path: text, rawHash: text, bytes: count, tool: text }),
   entry('note', {

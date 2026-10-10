@@ -1,17 +1,14 @@
 import path from 'node:path';
-import { openRepository } from '#platform/git/open';
-import { chainKey, loadPayload } from '#harness/engine/delivery';
+import { chainKey, loadPayload } from '#harness/engine/execute';
 import { isBoundAnswer } from '#harness/engine/fold';
 import { onGatePrint, onNeedCommand } from '#harness/gates/gates';
 import { chainEntries } from '../common.ts';
 import { agentPayload } from './agent-payload.ts';
 import { TASK_HANDLERS } from '../task/handlers.ts';
 import { isAmbicodeError } from '#util/errors';
-import { parseMergeRequestUrl } from '#modules/review/snapshot/mr-url';
 import { estimateReview, parseNarrow, renderEstimate } from '#modules/review/bundle/estimate';
 import { routeEvidence } from '#modules/requirements/envelope/envelope';
 import type { ReviewEntry } from '#types/modules/checks';
-import type { Runtime } from '#types/composition';
 import type { LedgerEntry } from '#types/modules/evidence';
 import type { ReviewTargetArgs, RouteArgs, Handler, HandlerInput, HandlerResult } from '#types/harness';
 import { CHECKS_GATE, type Finding, type TargetSelection } from '#types/modules/review';
@@ -93,7 +90,7 @@ const estimate: Handler = async (input) => {
   const narrowed = narrowing === null ? { onlyPaths: [], excludePaths: [] } : parseNarrow(narrowing);
   try {
     const envelope = chain.findLast((entry) => entry.kind === 'envelope');
-    const found = envelope === undefined ? null : await routeEvidence({ runtime: input.runtime, dir: input.dir, args: input.args }, envelope, null);
+    const found = envelope === undefined ? null : await routeEvidence({ runtime: input.runtime, dir: input.dir, args: input.args }, envelope);
     const requirements = found === null ? { requirementUrls: [], evidence: null } : { requirementUrls: found.urls, evidence: { kind: 'inline' as const, evidence: found.evidence } };
     const estimated = await estimateReview(input.runtime, {
       runtime: input.runtime, target: selectionOf(input.args.target), ...requirements, approvals: new Set(), declines: new Set(), task: input.view.task, ...narrowed,
@@ -110,11 +107,6 @@ const estimate: Handler = async (input) => {
   }
 };
 
-const mrTemplate: Handler = async (input) => {
-  const { project, iid } = parseMergeRequestUrl(input.args.target?.mr ?? '');
-  return { state: 'ok', payload: [`Call your GitLab MCP server for project "${project}", merge request ${iid}:`, '1. get_merge_request', '2. get_merge_request_diffs, or the diff tool of your GitLab MCP server (every page of it)', 'The hook records the diff from the second response.'].join('\n') };
-};
-
 /** The recorded findings as the numbered list the user picks from; no findings ends the route, since there is nothing to ask. */
 const publishList: Handler = async (input) => {
   const review = (await chainEntries(input)).findLast((entry) => entry.kind === 'review' && entry['stage'] === 'recorded');
@@ -124,7 +116,7 @@ const publishList: Handler = async (input) => {
   return { state: 'ok', payload: findings.map((finding, at) => `${at + 1}. ${finding.location.newPath ?? finding.location.oldPath}:${finding.location.line} — ${finding.suggestedComment} (${finding.risk}/${finding.confidence})`).join('\n') };
 };
 
-export const REVIEW_HANDLERS: Readonly<Record<string, Handler>> = { 'review.estimate': estimate, 'review.evaluate': evaluate, 'review.mrTemplate': mrTemplate, 'review.publishList': publishList };
+export const REVIEW_HANDLERS: Readonly<Record<string, Handler>> = { 'review.estimate': estimate, 'review.evaluate': evaluate, 'review.publishList': publishList };
 
 onGatePrint('estimate', async ({ runtime, dir, chain }) => {
   const text = await loadPayload(runtime.fs, dir, chainKey(chain.filter((entry) => entry.kind === 'route').map((entry) => entry.id).reverse()), 'review.estimate');

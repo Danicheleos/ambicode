@@ -38,9 +38,9 @@ async function fixtureWithPack(options: { editReminders?: boolean } = {}): Promi
   );
   const configPath = path.join(repo.root, '.ambicode', 'config.yaml');
   let config = await nodeFileSystem.readText(configPath);
-  config = config.replace('policyFiles: []', 'policyFiles: [".ambicode/policies/reminders.yaml"]');
+  config = config.replace(/^(\s+packs: .*)$/m, '$1\n    policyFiles: [".ambicode/policies/reminders.yaml"]');
   if (options.editReminders === false) {
-    config = config.replace(/authoring:\s*\n\s*editReminders:\s*true/, 'authoring:\n  editReminders: false');
+    config += 'authoring:\n  editReminders: false\n';
   }
   await nodeFileSystem.writeText(configPath, config);
 

@@ -4,9 +4,6 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { LEDGER_DIRECTORY } from './ledger-metrics.mjs';
 
-// Printed by `ambicode review` when EVAL_AMBICODE_REVIEWER_REPLAY stood in for the reviewer: that
-// reviewer's cost and time are then absent from the arm, which reads cheaper than the product is.
-const REPLAY_MARK = 'REPLAYED from a recording';
 const READ_COMMANDS = new Set(['cat', 'sed', 'head', 'tail', 'grep', 'rg', 'find', 'ls', 'awk', 'wc', 'nl', 'less', 'tree']);
 const firstWords = (command) =>
   command
@@ -38,7 +35,7 @@ function classifyCall(block) {
  * names `prepare` itself, so a text match counts a call nobody made.
  */
 function parseTrace(jsonl) {
-  const trace = { model: null, builtinPlugins: null, calls: [], replayedReviews: 0, peakContext: null, postToolUseResponses: 0, mcpHookResponses: 0, finalText: null, agentCostUsd: null };
+  const trace = { model: null, builtinPlugins: null, calls: [], peakContext: null, postToolUseResponses: 0, mcpHookResponses: 0, finalText: null, agentCostUsd: null };
   const byId = new Map();
   for (const line of jsonl.split('\n')) {
     if (!line.trim()) continue;
@@ -60,7 +57,6 @@ function parseTrace(jsonl) {
       for (const block of Array.isArray(event.message?.content) ? event.message.content : []) {
         if (block.type !== 'tool_result') continue;
         const text = typeof block.content === 'string' ? block.content : JSON.stringify(block.content ?? '');
-        if (text.includes(REPLAY_MARK)) trace.replayedReviews += 1;
         const call = byId.get(block.tool_use_id);
         if (call?.helper) call.failure = HELPER_FAILURE.map((pattern) => pattern.exec(text)?.[1]).find(Boolean) ?? null;
       }
@@ -90,7 +86,7 @@ export function traceMetrics(jsonl) {
 }
 
 export function metricsOfTrace(trace) {
-  const { model, builtinPlugins = null, calls, replayedReviews, peakContext, postToolUseResponses, mcpHookResponses, agentCostUsd = null } = trace;
+  const { model, builtinPlugins = null, calls, peakContext, postToolUseResponses, mcpHookResponses, agentCostUsd = null } = trace;
   const count = (pred) => calls.filter(pred).length;
   return {
     model,
@@ -102,8 +98,6 @@ export function metricsOfTrace(trace) {
     prepareRuns: count((c) => c.helper === 'prepare'),
     prepareTruncated: count((c) => c.truncated),
     reviewRuns: count((c) => c.helper === 'review'),
-    replayedReviews,
-    replayMisses: count((c) => c.failure === 'replay-miss'),
     bashReads: count((c) => c.bashRead),
     readCalls: count((c) => c.block.name === 'Read'),
     grepCalls: count((c) => c.block.name === 'Grep' || c.block.name === 'Glob'),

@@ -34,6 +34,9 @@ say that instead of guessing at the outcome.
 - **Duplication.** Something the codebase already has, where you can point at the existing one.
 - **Unjustified complexity.** Machinery the change does not need, argued from what it costs a reader.
 - **Dead surface.** Code the change leaves unreachable.
+- **Dependents.** For each name the change removes, renames or re-types, `Grep` the snapshot with the
+  whole word. A caller left on the old name or signature is a finding. A name declared in more than
+  one file needs its import checked at each hit.
 - **Policy.** The rules in the brief, honouring their authority labels: `team` is an approved
   project requirement; `observed` is evidence of existing practice, not itself a requirement;
   `inherited` is baseline guidance. Report an `observed` or `inherited` rule as a violation only

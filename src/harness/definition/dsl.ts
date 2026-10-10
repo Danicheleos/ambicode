@@ -54,20 +54,14 @@ export function parseOnError(file: string, where: string, text: string): OnError
     if (!(EXITS as readonly string[]).includes(stop[1]!)) throw invalid(file, where, `"${stop[1]}" is not an exit reason`);
     return { kind: 'stop', reason: stop[1] as Exit };
   }
-  const retry = /^retry-with\s+(.+)$/.exec(trimmed);
-  if (retry !== null) return { kind: 'retry-with', hint: retry[1]! };
-  const ask = /^ask\s+(\S+)$/.exec(trimmed);
-  if (ask !== null) return { kind: 'ask', gate: ask[1]! };
-  throw invalid(file, where, `"${text}" is not retry-with <hint>, ask <gate> or stop:<reason>`);
+  throw invalid(file, where, `"${text}" is not stop:<reason>`);
 }
 
-const SIMPLE_WHEN = ['args.hasRequirement', '!args.hasRequirement', 'args.hasMergeRequest', 'map.empty', 'plan.isDraft', 'headless', 'interactive', 'revised'];
+const SIMPLE_WHEN = ['args.hasRequirement', 'args.hasMergeRequest', 'map.empty', 'plan.isDraft', 'revised'];
 
 export function parseWhen(file: string, where: string, text: string): When {
   const trimmed = text.trim();
   if (SIMPLE_WHEN.includes(trimmed)) return { predicate: trimmed as never };
-  const answered = /^gate\.([\w:-]+)\.answered$/.exec(trimmed);
-  if (answered !== null) return { predicate: 'gate.answered', gate: answered[1]! };
   const is = /^gate\.([\w:-]+)\.(is|isnt)\((.+)\)$/.exec(trimmed);
   if (is !== null) return { predicate: is[2] === 'is' ? 'gate.is' : 'gate.isnt', gate: is[1]!, option: is[3]!.trim() };
   throw invalid(file, where, `"${text}" is not in the when vocabulary`);

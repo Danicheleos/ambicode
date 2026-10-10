@@ -1,9 +1,11 @@
-Judge the repository from the scan below and write the proposal.
-- Reply with it as YAML inside one ```yaml block: `projects` is a list; each has id (kebab-case), root (repo-relative, "." for the top), ecosystem (free text), shortlist (globs of source files, tests excluded), commands {test, lint, typecheck, format}, each an argv list or null, and packs (ids from the scan). `requirements.mcpServer` is the Jira or Confluence MCP server you can see, or null.
-- A command is an executable plus arguments, never a shell string; `{files}` stands alone as an argument where the tool takes files. Take it from the package scripts and the tools in the scan. Use null for what you cannot find; invent nothing.
-- One project per root with its own manifest.
+Write the whole `.ambicode/config.yaml` from the scan below.
+- If the scan says a config is present, read it first and keep every value the user set; add only what is missing. If a `change` section is listed, apply exactly that change to your last proposal.
+- Shape (schemaVersion 3, nothing else is accepted): `baseline` is the scan's baseline; `review: {model: sonnet, timeoutSeconds: 300, maxFindings: null, maxChangedFiles: null, maxChangedLines: null, maxContextBytes: null}`; `checks: {timeoutSeconds: 120, maxSelectedTestFiles: 20}`; `requirements: {mcpServer: <Jira/Confluence MCP server, or null>}`; `projects`: one per manifest root.
+- A project has `id` (kebab-case), `root` (repo-relative, "." for the top), `ecosystem` (free text), `packs` (ids from the scan), `shortlist: {include: [source globs], exclude: [test globs]}`, `commands` and `checks`.
+- `commands` maps a slot (lint, unit, typecheck, e2e, format) to `{argv: [...]}` or null. A command is an executable plus arguments, not a shell string; `{files}` stands alone as an argument for tools that take files. Take it from the scan; null when absent, invent nothing.
+- `checks` maps lint and unit to `{command: <slot>, adapter: <tool name>}` or null. The adapter names the tool the command runs.
 - Then run it with the same YAML on standard input:
 {cli} init propose --task {task} <<'EOF'
 <the YAML>
 EOF
-If a section below reports a bad field, fix that field and run it again.
+If a section below reports a bad field, fix it and run again.

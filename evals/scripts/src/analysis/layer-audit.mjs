@@ -13,7 +13,6 @@ import { SESSION_DIRECTORY } from './trace-analysis.mjs';
 
 // Per token; the gate's own cost is the harness's `costUsd`, this only splits it.
 export const PRICES = { input: 2e-6, cacheWrite: 4e-6, cacheRead: 2e-7, output: 1e-5 };
-const TOP = 8;
 const GREP = new Set(['grep', 'rg', 'egrep']);
 const CAT = new Set(['cat', 'sed', 'head', 'tail', 'nl', 'awk']);
 const LIST = new Set(['ls', 'find', 'tree', 'wc']);
@@ -141,20 +140,12 @@ export function auditRuns({ results, tracesDirs, cases = CURATED_CASES }) {
           Object.assign(row, { notices: facts.notices, durations: facts.durations });
           if (facts.step !== null) {
             const listed = mapPaths(facts.step);
-            Object.assign(row, { stepBytes: Buffer.byteLength(facts.step), stepHash: hash(withoutSlug(facts.step)), leads: listed.leads.map(full), feature: listed.feature.map(full) });
+            Object.assign(row, { stepBytes: Buffer.byteLength(facts.step), stepHash: hash(withoutSlug(facts.step)), leads: listed.leads.map(full) });
           }
         }
         const ledgers = ledgersOf(run, tracesDirs);
         if (ledgers !== null) {
           const entries = ledgers.flatMap((ledger) => ledger.entries);
-          const map = entries.findLast((item) => item.kind === 'map');
-          if (map?.candidatePaths !== undefined) row.candidates = map.candidatePaths.slice(0, TOP);
-          // The map entry's receipt of what was shown stands in for a session that was not harvested, and is checked against one that was.
-          if (map?.delivered !== undefined) {
-            const receipt = { leads: map.delivered.leads.map(full), feature: map.delivered.feature.map(full) };
-            if (row.leads === undefined) Object.assign(row, receipt, { leadsFrom: 'ledger' });
-            else if (JSON.stringify([row.leads, row.feature]) !== JSON.stringify([receipt.leads, receipt.feature])) row.receiptMismatch = true;
-          }
           row.limits = entries.filter((item) => item.kind === 'limit').map((item) => item.which);
         }
         rows.push(row);
@@ -166,10 +157,6 @@ export function auditRuns({ results, tracesDirs, cases = CURATED_CASES }) {
     const [number, arm] = key.split('\t');
     const steps = new Set(group.filter((row) => row.stepHash !== undefined).map((row) => row.stepHash));
     if (steps.size > 1) problems.push(`${number} ${arm}: ${steps.size} different steps`);
-    const candidates = new Set(group.filter((row) => row.candidates !== undefined).map((row) => row.candidates.join('\n')));
-    if (candidates.size > 1) problems.push(`${number} ${arm}: ${candidates.size} different map candidate lists`);
-    const mismatched = group.filter((row) => row.receiptMismatch).length;
-    if (mismatched > 0) problems.push(`${number} ${arm}: ${mismatched} run(s) whose step text lists other paths than the map entry's delivered receipt`);
   }
   return { rows, problems };
 }
@@ -180,7 +167,7 @@ export function summarize(rows, truthOf) {
   for (const key of [...new Set(rows.map((row) => `${row.case}\t${row.arm}`))]) {
     const group = rows.filter((row) => `${row.case}\t${row.arm}` === key);
     const truth = truthOf(group[0].name);
-    const map = new Set([...(group[0].leads ?? []), ...(group[0].feature ?? [])]);
+    const map = new Set(group[0].leads ?? []);
     const scored = group.filter((row) => row.named !== undefined);
     const per = (pick) => mean(scored.map(pick));
     const kb = {};
@@ -191,7 +178,6 @@ export function summarize(rows, truthOf) {
       case: group[0].case, arm: group[0].arm, runs: group.length,
       stepBytes: [...new Set(group.filter((row) => row.stepBytes !== undefined).map((row) => row.stepBytes))],
       leads: group[0].leads?.length ?? null, leadsTrue: (group[0].leads ?? []).filter((file) => truth.includes(file)).length,
-      feature: group[0].feature?.length ?? null, featureTrue: (group[0].feature ?? []).filter((file) => truth.includes(file)).length,
       recall: per((row) => row.named.filter((file) => truth.includes(file)).length / truth.length),
       precision: per((row) => (row.named.length === 0 ? 0 : row.named.filter((file) => truth.includes(file)).length / row.named.length)),
       named: per((row) => row.named.length),
@@ -227,7 +213,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   for (const s of summary) {
     const kb = Object.entries(s.kb).sort((a, b) => b[1] - a[1]).map(([kind, value]) => `${kind} ${value.toFixed(1)}`).join(' ');
     console.log(
-      `${s.case} ${s.arm} ×${s.runs} step ${s.stepBytes.join('/') || '-'}B map ${s.leadsTrue}/${s.leads ?? '-'}+${s.featureTrue}/${s.feature ?? '-'}` +
+      `${s.case} ${s.arm} ×${s.runs} step ${s.stepBytes.join('/') || '-'}B map ${s.leadsTrue}/${s.leads ?? '-'}` +
         ` | R ${fixed(s.recall)} P ${fixed(s.precision)} named ${fixed(s.named, 1)} fromMap ${fixed(s.fromMap, 1)} outside ${fixed(s.trueOutsideMap, 1)} missed ${fixed(s.mapTrueMissed, 1)}` +
         ` | turns ${fixed(s.toolTurns, 1)} (max ${s.maxToolTurns}) KB ${kb}` +
         ` | $ ${fixed(s.costUsd, 3)} cw ${fixed(s.usd.cacheWrite, 3)} cr ${fixed(s.usd.cacheRead, 3)} out ${fixed(s.usd.output, 3)}` +
@@ -240,7 +226,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const total = (pick) => of.reduce((a, s) => a + pick(s), 0);
     console.log(
       `all ${arm}: R ${fixed(avg((s) => s.recall), 3)} P ${fixed(avg((s) => s.precision), 3)} $ ${fixed(avg((s) => s.costUsd), 3)} turns ${fixed(avg((s) => s.toolTurns), 1)}` +
-        ` map true ${total((s) => s.leadsTrue + s.featureTrue)} notices ${total((s) => s.notices)} self-hit runs ${total((s) => s.selfHitRuns)}`,
+        ` map true ${total((s) => s.leadsTrue)} notices ${total((s) => s.notices)} self-hit runs ${total((s) => s.selfHitRuns)}`,
     );
   }
   for (const line of problems) console.log(`layer differs ${line}`);

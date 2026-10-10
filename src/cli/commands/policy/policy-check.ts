@@ -11,7 +11,7 @@ import { matchesGlob } from '#util/glob';
 import { normalizeRelative } from '#util/paths';
 import { builtinPoliciesDirectory } from '#util/plugin-root';
 import { COMMAND_SPECS } from '#skills/rules/commands';
-import { runCommandTail } from '#harness/engine/command-tail';
+import { runCommandTail } from '#harness/engine/engine';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { routeTools } from '../route/route.ts';
@@ -43,15 +43,15 @@ export interface PolicyCheckOutput {
 }
 
 /**
- * Validates every draft under `DRAFTS_DIR` (09-Q2); with `--task` naming the caller's live rules route the result is
- * recorded once and the route's tail runs.
+ * Validates every draft under `DRAFTS_DIR` (09-Q2); with `--task` naming the caller's live rules route a result
+ * without errors is recorded once and the route's tail runs.
  */
 async function runDraftsCheck(runtime: Runtime, args: ParsedArgs): Promise<PolicyCheckOutput> {
   if (args.positionals.length > 0) throw new AmbicodeError('bad-argument', '"policy check --drafts" checks the whole drafts directory and takes no files.', { field: 'policy check', details: [`Drafts live in ${DRAFTS_DIR}/.`] });
   const workspace = await openWorkspace(runtime);
   const task = args.value('task');
   const dir = task === null ? null : await resolveTaskDir(runtime, task);
-  const check = await checkDrafts(runtime, workspace, { project: args.value('project'), taskDir: dir });
+  const check = await checkDrafts(runtime, workspace, { project: args.value('project') });
   const output: PolicyCheckOutput = {
     command: 'policy-check',
     projectId: args.value('project') ?? (workspace.config.projects.length === 1 ? workspace.config.projects[0]!.id : null),
@@ -60,7 +60,8 @@ async function runDraftsCheck(runtime: Runtime, args: ParsedArgs): Promise<Polic
     ok: check.ok,
     drafts: { rulesBySource: check.rulesBySource, rules: check.rules.length, notMigrated: check.notMigrated, aggregateHash: check.aggregateHash },
   };
-  if (task === null || dir === null) return output;
+  // Only a clean check is evidence: the route's draft step stays open until the drafts pass, so the model fixes what this lists.
+  if (task === null || dir === null || !check.ok) return output;
 
   const tools = await routeTools(runtime, task);
   const { view, context } = await tools.engine.command(COMMAND_SPECS.policyCheckDrafts, { task }, async (scope) => scope);

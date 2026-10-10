@@ -3,7 +3,7 @@ import { ownerOf } from '#modules/evidence/ownership';
 import { AmbicodeError } from '#util/errors';
 import { localTimestamp, UNIQUE_FILE_LIMIT, writeUniqueFile } from '#util/files';
 import { contentHash, hash12 } from '#util/hash';
-import { ledgerSizeWarning, readLedger } from '#platform/ledger/ledger';
+import { ledgerSizeWarning } from '#platform/ledger/ledger';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { resolveFrom, resolveTaskDir } from './task/task-dir.ts';
 import type { Runtime } from '#types/composition';
@@ -39,7 +39,7 @@ const notAccepted = (reason: string, why: string): AmbicodeError =>
   new AmbicodeError('plan-not-accepted', `The plan was not promoted: ${why}`, { details: [`reason: ${reason}`] });
 const draftMissing = (task: string): AmbicodeError =>
   new AmbicodeError('plan-draft-missing', `Task ${task} has no plan draft to promote.`, {
-    details: [`Pipe the plan to \`plan check --task ${task}\` on standard input to save the draft, then ask plan-accept again.`],
+    details: [`Write the plan to steps/plan-body.md and run route next to save the draft, then ask plan-accept again.`],
   });
 
 /** The route a `plan-draft` is saved for, or `null` for a routeless save; every other state refuses before anything is written. */

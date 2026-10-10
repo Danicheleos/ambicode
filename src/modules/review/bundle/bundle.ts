@@ -3,7 +3,6 @@ import { runChecks } from '#modules/checks/run/run';
 import { REVIEWS_DIR, UNLIMITED_CONTEXT_BUDGET_BYTES } from '#types/defaults';
 import { appendLedger } from '#platform/ledger/ledger';
 import { taskDirFor } from '#modules/evidence/task/task-dir';
-import { writeBrief } from './brief.ts';
 import { taskSlugFor, uniqueReviewName } from './review-name.ts';
 import { openWorkspace, projectForPath } from '#modules/config/workspace';
 import { resolvePolicyFor } from '#modules/policy/resolve-for';
@@ -15,7 +14,6 @@ import { byteLength, enforceReviewInputLimits, measureInput, partitionChange, pl
 import { resolveBranchTarget, resolveCapturedTarget, resolveWorkingTarget } from '../snapshot/target.ts';
 import { AmbicodeError } from '#util/errors';
 import { normalizeRelative } from '#util/paths';
-import { findDependents, flagCollisions } from './dependents.ts';
 import type { ProjectConfig } from '#types/modules/config';
 import type { ResolvedPolicy } from '#types/modules/policy';
 import type { ChangedPath, PendingApproval } from '#types/modules/checks';
@@ -89,7 +87,6 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
   const requirements = normalizeRequirements({
     urls: options.requirementUrls,
     evidence: options.evidence === null ? null : await loadRequirementEvidence(runtime, options.evidence),
-    configuredServer: workspace.config.requirements.mcpServer,
     declared: options.evidence?.kind === 'inline' ? 'captured' : 'urls',
   });
   const requirementBytes = requirements.sources.reduce((total, source) => total + byteLength(source.content), 0);
@@ -97,13 +94,7 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
   // The working tree is read once, so what relies on the change is chosen before that read.
   // A merge request's code is not the checkout, so a name search there would describe the wrong tree.
   const named = (options.contextPaths ?? []).map((entry) => ({ path: normalizeRelative(entry), reasons: ['named with --context'] }));
-  let lookedUp: Dependent[] | null = null;
-  const lookUp = async (files: readonly DiffFile[]): Promise<Dependent[]> => {
-    const projects = groupByProject(workspace, files).map(({ project }) => project);
-    const found = (await findDependents({ git: workspace.git, projects, files })).dependents;
-    lookedUp = await flagCollisions(workspace.git, runtime.fs, projects, [...named, ...found.filter((entry) => !named.some((other) => other.path === entry.path))]);
-    return lookedUp;
-  };
+  const lookUp = async (_files: readonly DiffFile[]): Promise<Dependent[]> => named;
   const resolution = await resolveTarget(workspace, options, async (files) => (await lookUp(files)).map((entry) => entry.path));
   const preexisting = new Set(options.preexisting ?? []);
   if (preexisting.size > 0) resolution.files = resolution.files.filter((file) => !preexisting.has(file.newPath ?? '') && !preexisting.has(file.oldPath ?? ''));
@@ -130,7 +121,7 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
   let wanted: Dependent[] = [];
   try {
     enforceReviewInputLimits(measureInput(reviewable.files, reviewable.patch, { requirementBytes }), limits, reviewable.files);
-    wanted = !local ? [] : lookedUp ?? (await lookUp(resolution.files));
+    wanted = !local ? [] : await lookUp(resolution.files);
     plan = await planSnapshot({
       files: reviewable.files,
       content: resolution.content,
@@ -188,7 +179,6 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
     target: resolution.target,
     requirements: requirements.sources,
     requirementMode: sourceFree ? 'quality-review' : 'requirement-based',
-    requirementConflicts: requirements.conflicts,
     provenance: [...(await configProvenance(runtime.fs, workspace)), ...policyProvenance(policies), ...requirements.provenance],
     inputs: { ...measured, limits: { maxChangedFiles: limits.maxChangedFiles, maxChangedLines: limits.maxChangedLines, maxContextBytes: limits.maxContextBytes, maxFindings: limits.maxFindings } },
     reviewer: null,
@@ -230,7 +220,7 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
 /** `ledger` adds fields to the `review` entry (route, session, baseline, preexisting); the entry is returned. */
 export async function writeBundleArtifacts(runtime: Runtime, bundle: ReviewBundle, ledger: Readonly<Record<string, unknown>> = {}): Promise<LedgerEntry | null> {
   const { result } = bundle;
-  result.brief = path.relative(bundle.workspace.repositoryRoot, await writeBrief(runtime, bundle));
+  result.brief = path.relative(bundle.workspace.repositoryRoot, path.join(bundle.reviewDirectory, 'brief.md'));
   await runtime.fs.writeText(bundle.resultPath, `${JSON.stringify(result, null, 2)}\n`);
   await runtime.fs.writeText(path.join(bundle.reviewDirectory, 'snapshot-path.txt'), `${bundle.snapshot.directory}\n`);
   if (bundle.taskDirectory === null) return null;

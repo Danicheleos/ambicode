@@ -8,7 +8,7 @@ import { execFile } from 'node:child_process';
 import { access, mkdir, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { parse as parseYaml } from 'yaml';
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { FIXTURES, fixtureByName } from './definitions.mjs';
 
 const run = promisify(execFile);
@@ -78,30 +78,40 @@ async function install(fixture, destination) {
 }
 
 /** Stands in for the model's judgment: one root project; a wired slot gets the installed tool that serves it, found by looking for the binary. */
-async function proposalFor(destination, wires) {
+async function configFor(destination, wires) {
   const tools = {
-    lint: [['node_modules/.bin/eslint', '--', '{files}'], ['.venv/bin/ruff', 'check', '--', '{files}']],
-    test: [['node_modules/.bin/jest', '--findRelatedTests', '{files}'], ['.venv/bin/python', '-m', 'pytest', '--', '{files}']],
+    lint: [['node_modules/.bin/eslint', 'eslint', '--', '{files}'], ['.venv/bin/ruff', 'ruff', 'check', '--', '{files}']],
+    unit: [['node_modules/.bin/jest', 'jest', '--findRelatedTests', '{files}'], ['.venv/bin/python', 'pytest', '-m', 'pytest', '--', '{files}']],
   };
-  const commands = {};
+  const commands = { lint: null, unit: null, typecheck: null, e2e: null, format: null };
+  const checks = { lint: null, unit: null };
   for (const slot of wires) {
-    const wanted = tools[slot === 'unit' ? 'test' : slot] ?? [];
-    for (const argv of wanted) {
-      if (await access(path.join(destination, argv[0])).then(() => true, () => false)) commands[slot === 'unit' ? 'test' : slot] = [`./${argv[0]}`, ...argv.slice(1)];
+    for (const [binary, adapter, ...rest] of tools[slot] ?? []) {
+      if (!(await access(path.join(destination, binary)).then(() => true, () => false))) continue;
+      commands[slot] = { argv: [`./${binary}`, ...rest] };
+      checks[slot] = { command: slot, adapter, ...(slot === 'unit' ? { selector: { kind: 'mapping', maxFiles: 20, mappings: [{ source: ['**/*'], tests: ['**/*.{test,spec}.*'] }] } } : {}) };
     }
   }
-  return { projects: [{ id: 'app', root: '.', ecosystem: await access(path.join(destination, 'pyproject.toml')).then(() => 'python', () => 'typescript'), shortlist: [], commands, packs: ['builtin/common-quality', 'builtin/common-checks'] }], requirements: { mcpServer: null } };
+  return {
+    schemaVersion: 3,
+    baseline: '',
+    review: { model: 'sonnet', timeoutSeconds: 300, maxFindings: null, maxChangedFiles: null, maxChangedLines: null, maxContextBytes: null },
+    checks: { timeoutSeconds: 120, maxSelectedTestFiles: 20 },
+    requirements: { mcpServer: null },
+    projects: [{ id: 'app', root: '.', ecosystem: await access(path.join(destination, 'pyproject.toml')).then(() => 'python', () => 'typescript'), packs: ['builtin/common-quality', 'builtin/common-checks'], shortlist: { include: [], exclude: [] }, commands, checks }],
+  };
 }
 
 /** `wires` holds only after an install, so it is empty without one. */
 async function commitAmbicodeInit(fixture, destination, wires) {
   const { createRuntime } = await import('../src/composition/root.ts');
   const { openRepository } = await import('../src/platform/git/open.ts');
-  const { buildProposal, writeConfig } = await import('../src/modules/config/init/proposal.ts');
+  const { writeGitignore } = await import('../src/modules/config/init/proposal.ts');
   const runtime = await createRuntime({ cwd: destination });
   const { repositoryRoot } = await openRepository(runtime);
-  const proposal = await buildProposal(runtime, repositoryRoot, await proposalFor(destination, wires), []);
-  await writeConfig(runtime.fs, repositoryRoot, proposal, []);
+  await mkdir(path.join(repositoryRoot, '.ambicode'), { recursive: true });
+  await writeFile(path.join(repositoryRoot, '.ambicode', 'config.yaml'), stringifyYaml(await configFor(destination, wires)));
+  await writeGitignore(runtime.fs, repositoryRoot);
   if (wires.length > 0) {
     const config = parseYaml(await readFile(path.join(destination, '.ambicode', 'config.yaml'), 'utf8'));
     const root = config.projects.find((project) => project.root === '.');

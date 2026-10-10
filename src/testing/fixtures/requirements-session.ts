@@ -14,10 +14,8 @@ import { SESSION_A } from './ids.ts';
 export const FIXTURE_ROUTE = path.join(import.meta.dirname, 'review-requirements.yaml');
 
 export const jira = (key: string, fields: object = {}): string =>
-  JSON.stringify({ key, fields: { summary: `Summary ${key}`, description: `Body of ${key}`, issuetype: { name: 'Story' }, assignee: { displayName: 'NOT_THE_TICKET' }, ...fields } });
+  JSON.stringify({ key, fields: { summary: `Summary ${key}`, description: `Body of ${key}`, issuetype: { name: 'Story' }, ...fields } });
 export const mcp = (text: string): { content: { type: string; text: string }[] } => ({ content: [{ type: 'text', text }] });
-export const search = (keys: readonly string[], total?: number): ReturnType<typeof mcp> =>
-  mcp(JSON.stringify({ ...(total === undefined ? {} : { total }), issues: keys.map((key) => ({ key, fields: { summary: `Summary ${key}` } })) }));
 
 export interface SessionOptions {
   skill?: string;
@@ -59,17 +57,17 @@ export async function session(options: SessionOptions = {}) {
   const started = await fx.engine.start(startInput);
   const dir = await resolveTaskDir(fx.runtime, task);
   const args = ((await fx.kinds(task, 'route'))[0]!['args']) as RouteArgs;
-  const under = <T>(body: (deps: Omit<CaptureDeps, 'mcpServer' | 'asked'> & { fx: RouteFixture }) => Promise<T>): Promise<T> =>
+  const under = <T>(body: (deps: Omit<CaptureDeps, 'asked'> & { fx: RouteFixture }) => Promise<T>): Promise<T> =>
     withLedgerLock(fx.runtime.fs, dir.root, () => new Date(), SESSION_A, async (ledger) => {
       const view = (await openRouteView(fx.runtime, fx.routes, task, SESSION_A))!;
       return body({ runtime: fx.runtime, dir, ledger, view, fx });
     });
-  const capture = (tool: string, response: unknown, extra: { server?: string | null; asked?: string[]; input?: Record<string, unknown> } = {}) =>
+  const capture = (tool: string, response: unknown, extra: { asked?: string[]; input?: Record<string, unknown> } = {}) =>
     under((deps) => captureRequirement(
-      { hook_event_name: 'PostToolUse', session_id: SESSION_A, tool_name: tool, tool_response: response, ...(extra.input === undefined ? {} : { tool_input: extra.input }) } as never,
-      { ...deps, mcpServer: extra.server === undefined ? server : extra.server, asked: extra.asked ?? [task] },
+      { hook_event_name: 'PostToolUse', session_id: SESSION_A, tool_name: tool, tool_response: response, tool_input: extra.input ?? { issueIdOrKey: /[A-Z][A-Z0-9]+-\d+/.exec(JSON.stringify(response))?.[0] ?? '' } } as never,
+      { ...deps, asked: extra.asked ?? [task] },
     ));
-  const normalize = (overrides: Partial<EnvelopeInput> = {}) => under((deps) => normalizeEnvelope({ ...deps, args, mcpServer: server, ...overrides }));
+  const normalize = (overrides: Partial<EnvelopeInput> = {}) => under((deps) => normalizeEnvelope({ ...deps, args, ...overrides }));
   const next = (input: Partial<Parameters<typeof fx.engine.advance>[0]> = {}) => fx.engine.advance({ task, session: SESSION_A, cause: 'route-next', scratchpadDir: fx.scratchpad, ...input });
   const exits = async (): Promise<string[]> => (await fx.kinds(task, 'exit')).map((entry) => String(entry['reason']));
   return { fx, dir, args, started, under, capture, normalize, next, exits, task };

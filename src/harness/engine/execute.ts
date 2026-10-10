@@ -2,17 +2,18 @@ import path from 'node:path';
 import { buildReport } from '#modules/evidence/report/report';
 import { AmbicodeError } from '#util/errors';
 import { exitRoute, reviseTo, serviceGate } from '../gates/answers.ts';
-import { chainKey, compose, loadPayload, savePayload, stepHeader, writeStepFile } from './delivery.ts';
-import { currentIn, exitOf, latestBound, executions, foldRoute, humanRevisesLeft, windowOf, matches } from './fold.ts';
+import { currentIn, executions, exitOf, foldRoute, humanRevisesLeft, matches, windowOf } from './fold.ts';
 import { gatePrintText, gateThen, needCommandFor, raiseGate, raisedAnswerHandler } from '../gates/gates.ts';
-import { payloadKey } from './handlers.ts';
 import { append, chainOf, gateFor, viewFor } from './run-context.ts';
 import type { Runtime } from '#types/composition';
-import type { GateDef, RouteArgs, HandlerRegistry, CommandContext, RouteRegistry, StepDef, StepMessage } from '#types/harness';
-import type { Composed, Part, Run } from '../types/engine.ts';
+import type { CommandContext, GateDef, Handler, HandlerRegistry, RouteArgs, RouteRegistry, StepDef, StepMessage } from '#types/harness';
+import type { Composed, DeliveryChannel, Part, Run } from '../types/engine.ts';
+import type { Call } from '../definition/routes.ts';
+import type { TaskDir } from '#types/modules/evidence';
+import type { FileSystem } from '#types/platform/ports';
 
 /** Causes from a command the model ran, as opposed to a hook or a resume. */
-export const EXPLICIT: ReadonlySet<string> = new Set(['route-next', 'requirements normalize', 'check', 'format', 'review', 'plan check', 'policy check --drafts', 'rules apply', 'init --apply', 'init propose', 'note save', 'note promote']);
+export const EXPLICIT: ReadonlySet<string> = new Set(['route-next', 'requirements normalize', 'check', 'format', 'review', 'policy check --drafts', 'rules apply', 'init --apply', 'init propose', 'note save', 'note promote']);
 
 const MAX_TURNS = 200;
 
@@ -22,12 +23,6 @@ const endsWithoutCommand = (step: StepDef): boolean => step.actor === 'model' &&
 
 /** A final model step with nothing after it. */
 export const isClosing = (fold: Fold, step: StepDef): boolean => step.final && endsWithoutCommand(step) && fold.steps.slice(step.index + 1).every((state) => state.state === 'skipped' || state.skipsNow === true);
-
-/** The model step delivered in the same message, when this one and the next both end without a command. */
-function chainedAfter(run: Run, fold: Fold, step: StepDef): StepDef | null {
-  const next = run.def.steps[step.index + 1];
-  return step.chain === 'next' && next !== undefined && endsWithoutCommand(step) && endsWithoutCommand(next) && fold.steps[next.index]!.state === 'pending' ? next : null;
-}
 
 export const quiet = (value: unknown): string => String(value ?? '');
 
@@ -44,8 +39,6 @@ export interface EngineScope { runtime: Runtime; routes: RouteRegistry; handlers
 /** The advance loop: fold, run what is reachable, record, and compose what the caller prints. */
 export function createExecutor(scope: EngineScope): { execute(run: Run): Promise<Part>; messageOf(run: Run, part: Part): StepMessage } {
   const { routes, handlers, context, cli } = scope;
-  const now = (): Date => scope.runtime.clock.now();
-
   const commandFor = (tail: string): string => `${cli} ${tail}`;
 
   const answerLine = (step: StepDef): string => `answer the user; your answer is saved as the ${step.produces.find((produced) => produced.kind === 'note')?.value ?? ''} note when you stop`;
@@ -204,21 +197,16 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
       await exitRoute(run, error.reason, `${result.code}: ${result.message.slice(0, 200)}`);
       return finish(run);
     }
-    if (error.kind === 'ask') {
-      await raiseGate(run.ledger, viewFor(run, step.id), { gate: error.gate, values: {}, raisedBy: step.id }, routes);
-      return null;
-    }
     const repeated = earlier + 1 >= 2;
     if (repeated) await append(run, { kind: 'limit', which: 'same-error', step: step.id, count: earlier + 1, code: result.code });
     const recent = chainOf(run).entries.filter((entry) => entry.kind === 'step').slice(-3);
     if (recent.length === 3 && recent.every((entry) => entry['step'] === step.id && entry['status'] === 'failed')) await append(run, { kind: 'limit', which: 'identical-next', step: step.id, count: 3 });
-    throw new AmbicodeError(result.code, result.message, { details: error.kind === 'retry-with' ? [error.hint] : [] });
+    throw new AmbicodeError(result.code, result.message, {});
   }
 
   async function runModel(run: Run, step: StepDef, fold: Fold): Promise<Part | null> {
     const window = windowOf(fold, step);
     const delivered = window.some((entry) => entry.kind === 'step' && entry['step'] === step.id && entry['status'] === 'delivered');
-    const chain = chainOf(run);
     let prefix = '';
     if (!run.deliverOnly && delivered && step.produces.length > 0 && step.answer === null && EXPLICIT.has(run.cause)) {
       const again = window.filter((entry) => entry.kind === 'step' && entry['step'] === step.id && entry['status'] === 'repeated').length + 1;
@@ -236,8 +224,6 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
       const redEnds = step.produces.some((produced) => produced.kind === 'check' && produced.value === 'red') && again === 1;
       prefix = `Not done yet: ${missing.join(', ')} is not on record. Produce it with: ${producerHint(run, step)}.${redEnds ? ` If no failing test is possible, \`${commandFor(`route next --task ${run.task}`)}\` again ends the route as no-red.` : ''}\n\n`;
     }
-    const chained = chainedAfter(run, fold, step);
-    const last = chained ?? step;
     const fill = (text: string): string => text.replaceAll('{cli}', cli).replaceAll('{task}', run.task);
     const instruction = fill(step.instruction!);
     const nowLine = instruction.split('\n').find((line) => line.trim() !== '')!.replace(/^#+\s*/, '');
@@ -254,16 +240,11 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
       const payload = await loadPayload(run.runtime.fs, run.dir, chainKey([...chainOf(run).ids]), key);
       if (payload !== null && payload.trim() !== '') sections.push(`## ${key}\n${payload}`);
     }
-    if (chained !== null) sections.push(fill(chained.instruction!));
-    const closing = isClosing(fold, last);
+    const closing = isClosing(fold, step);
     const header = stepHeader({ skill: run.def.skill, task: run.task, step: step.id, position: step.index + 1, total: run.def.steps.length, now: nowLine, then: closing ? 'write your final message; no route command is needed' : endingCommand(run, step), route: routeLine(fold, step.id) });
     const { part, composed } = await partOf(run, step, header, `${prefix}${sections.join('\n\n')}`);
     if (!delivered) {
       const entry = await append(run, { kind: 'step', step: step.id, actor: 'model', status: 'delivered', cause: run.cause, channel: run.channel, bytes: part.bytes, ...(step.answer === null ? {} : { answer: step.answer }), ...(part.file === null ? {} : { file: part.file }) });
-      if (chained !== null) {
-        await append(run, { kind: 'step', step: step.id, actor: 'model', status: 'completed', cause: run.cause });
-        await append(run, { kind: 'step', step: chained.id, actor: 'model', status: 'delivered', cause: run.cause, channel: run.channel, bytes: part.bytes, ...(chained.answer === null ? {} : { answer: chained.answer }) });
-      }
       await writeStepFile(run.runtime.fs, composed, `ambicode step: ${run.def.skill}/${step.id}, task ${run.task}, ${part.bytes} bytes, ${entry.id}`);
     } else {
       await writeStepFile(run.runtime.fs, composed, `ambicode step: ${run.def.skill}/${step.id}, task ${run.task}, ${part.bytes} bytes`);
@@ -285,14 +266,6 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     for (const entry of chainOf(run).entries) {
       if (entry.kind === 'acceptance') await raisedAnswerHandler(String(entry['gate']))?.({ view: viewFor(run, ''), ledger: run.ledger, acceptance: entry, routes });
     }
-  }
-
-  /** The worker step's gate is answered: no worker process runs any more, so a `run` answer leaves the work inline. */
-  async function workerStep(run: Run, step: StepDef): Promise<void> {
-    const answered = latestBound(windowOf(foldRoute(run.def, chainOf(run)), step), step.gate!.id)?.['answer'];
-    const base = { kind: 'worker', worker: step.id, ms: 0, artifact: null } as const;
-    if (answered === 'run') await append(run, { ...base, outcome: 'inline', reason: 'worker runs are not available' });
-    else await append(run, { ...base, outcome: answered === 'inline' ? 'inline' : 'skipped' });
   }
 
   /** Steps 2–6 of 12 §8: fold, check, run what is reachable, record, deliver. */
@@ -322,19 +295,83 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
       } else if (step.actor === 'model') {
         const part = await runModel(run, step, fold);
         if (part !== null) return part;
-      } else if (step.actor === 'human') {
+      } else {
         const outcome = await serviceGate(run, step.gate!, step.id);
         if (outcome.state === 'print') return gatePart(run, step, outcome);
-      } else {
-        if (latestBound(windowOf(fold, step), step.gate!.id) === null) {
-          const outcome = await serviceGate(run, step.gate!, step.id);
-          if (outcome.state === 'print') return gatePart(run, step, outcome);
-        }
-        await workerStep(run, step);
       }
     }
     throw new AmbicodeError('internal', `Route ${run.def.skill} did not settle within ${MAX_TURNS} turns.`);
   }
 
   return { execute, messageOf };
+}
+
+export function handlerRegistry(handlers: Readonly<Record<string, Handler>>): HandlerRegistry {
+  return { get: (name) => handlers[name] ?? null, names: () => Object.keys(handlers) };
+}
+
+/** The key a step's `payload` list names a call's output by. */
+export function payloadKey(call: Call): string {
+  switch (call.name) {
+    case 'script': return `script:${call.params[0] ?? ''}`;
+    case 'search.map': return 'map';
+    case 'policy.stage': return `policy:${call.params[0] ?? ''}`;
+    case 'requirements.normalize': return 'envelope';
+    case 'evidence.navigationLine': return 'navigation';
+    case 'task.start': return 'brief';
+    case 'checks.baseline': return 'baseline';
+    case 'task.report': return 'report';
+    default: return call.name;
+  }
+}
+
+export const CLI_LIMIT = 8000;
+export const HOOK_LIMIT = 9800;
+const PREVIEW_CHARS = 300;
+
+/** The first route of a chain: it stays the same when a later route resumes it. */
+export const chainKey = (ids: readonly string[]): string => ids.at(-1) ?? '';
+
+/**
+ * The lines every step message starts with: where we are, what to do now, the command that ends the step, and the
+ * route around the step (skipped steps are left out).
+ */
+export function stepHeader(input: { skill: string; task: string; step: string; position: number; total: number; now: string; then: string; route?: string }): string {
+  const now = input.now.replace(/\s+/g, ' ').trim();
+  // A command in backticks is never cut: a cut one cannot be run.
+  const clipped = now.length <= 160 || now.includes('`') ? now : `${now.slice(0, 157)}…`;
+  return [
+    `[ambicode] ${input.skill} · task ${input.task} · step ${input.step} (${input.position}/${input.total})`,
+    `Now: ${clipped}`,
+    `Then: ${input.then}`,
+    ...(input.route === undefined ? [] : [`Route: ${input.route}`]),
+  ].join('\n');
+}
+
+export function compose(input: { header: string; body: string; channel: DeliveryChannel; dir: TaskDir; step: string; chain: string }): Composed {
+  const full = input.body === '' ? input.header : `${input.header}\n\n${input.body}`;
+  const limit = input.channel === 'hook' ? HOOK_LIMIT : CLI_LIMIT;
+  if (full.length <= limit) return { text: full, file: null, full, bytes: Buffer.byteLength(full) };
+  const file = path.join(input.dir.steps, `${safe(input.chain)}-${input.step}.md`);
+  const bytes = Buffer.byteLength(full);
+  const preview = input.body.slice(0, PREVIEW_CHARS);
+  return { text: `${input.header}\n\n${preview}…\nRead it whole: ${bytes} bytes: ${file}`, file, full, bytes };
+}
+
+export async function writeStepFile(fs: FileSystem, composed: Composed, comment: string): Promise<void> {
+  if (composed.file === null) return;
+  await fs.mkdirp(path.dirname(composed.file));
+  await fs.writeText(composed.file, `<!-- ${comment} -->\n${composed.full}\n`);
+}
+
+const safe = (value: string): string => value.replace(/[^A-Za-z0-9_-]/g, '-');
+const payloadFile = (dir: TaskDir, chain: string, key: string): string => path.join(dir.steps, `payload-${safe(chain)}-${safe(key)}.txt`);
+
+export async function savePayload(fs: FileSystem, dir: TaskDir, chain: string, key: string, text: string): Promise<void> {
+  await fs.mkdirp(dir.steps);
+  await fs.writeText(payloadFile(dir, chain, key), text);
+}
+
+export async function loadPayload(fs: FileSystem, dir: TaskDir, chain: string, key: string): Promise<string | null> {
+  return fs.readText(payloadFile(dir, chain, key)).catch(() => null);
 }

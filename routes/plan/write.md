@@ -1,6 +1,6 @@
-Pipe the plan once to `{cli} plan check --task {task}` on standard input, as a quoted heredoc (`<<'EOF'`). It saves the draft and checks anchors and acceptance units by code.
+Write the plan once to `.ambicode/task/{task}/steps/plan-body.md`, then run `{cli} route next --task {task}`. Code saves it as the draft and checks that every `path:line` anchor exists; failures come back to you as a section here.
 Shape:
-- An AC → section table: one row per acceptance unit id from the design step (`| AC id | section |`), or the id listed under a `## Not covered` heading with the reason.
+- A requirement → section table: one row per requirement point (`| requirement | section |`), or the point listed under a `## Not covered` heading with the reason.
 - Ordered, independently reviewable iterations. Each one has:
   - *Goal*: the behaviour once it lands, and why it comes in this order.
   - *Changes*: files and symbols as `path:line` (`path:N-M` for a range), the approach and the code it reuses. A new file has no line.

@@ -1,11 +1,10 @@
 skill: rules
 version: 3
-budget: { modelSteps: 8 }
-exits: [done, blocked, human, inconclusive, superseded, budget]
+exits: [done, blocked, human, inconclusive, superseded]
 steps:
   - id: discover
     actor: code
-    run: [rules.discover]
+    run: ["script(discover)"]
   - id: sources
     actor: human
     gate:
@@ -16,18 +15,14 @@ steps:
       onAnswer: { "*": "revise discover --source $answer" }
   - id: context
     actor: code
-    run: [rules.context]
+    run: ["script(context)"]
     onError: stop:human
   - id: draft
     actor: model
     instruction: "file:routes/rules/draft.md"
-    payload: [rules.discover, rules.context, rules.draftsCheck]
-    repeat: 3
-  - id: drafts-check
-    actor: code
-    run: [rules.draftsCheck]
+    payload: ["script:discover", "script:context"]
     produces: ["policy{drafts}"]
-    onFail: revise draft
+    repeat: 3
   - id: rules-table
     actor: human
     gate:
@@ -44,6 +39,3 @@ steps:
     when: gate.rules-table.is(Apply all)
     instruction: "file:routes/rules/apply-run.md"
     produces: ["policy{apply}"]
-  - id: close
-    actor: code
-    run: [rules.close]

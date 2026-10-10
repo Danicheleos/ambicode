@@ -15,6 +15,9 @@ interface SelectOptions {
   maxSelectedTestFiles: number;
 }
 
+/** The adapter id only decides how files are chosen: lint checks take the changed files, the rest go through the mapping. */
+export const isLintAdapter = (adapter: string): boolean => !['jest', 'vitest', 'pytest', 'playwright'].includes(adapter);
+
 /** A deleted file is dropped from the argument vector but its deletion stays in the review evidence. */
 export function selectLintFiles(options: SelectOptions): Selection {
   const projectRoot = normalizeRelative(options.project.root);

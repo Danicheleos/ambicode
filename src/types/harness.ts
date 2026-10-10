@@ -3,7 +3,7 @@ import type { Runtime } from './composition.ts';
 import type { HookInput, StopHookOutput } from './hook.ts';
 import type { ArtifactRef, LedgerEntry, TaskDir, LockedLedger } from './modules/evidence.ts';
 
-export const EXITS = ['done', 'blocked', 'human', 'inconclusive', 'superseded', 'budget'] as const;
+export const EXITS = ['done', 'blocked', 'human', 'inconclusive', 'superseded'] as const;
 
 export type Exit = (typeof EXITS)[number];
 
@@ -15,13 +15,10 @@ export interface Revise { target: string; args: Readonly<Record<string, readonly
 
 export type OnError =
   | { kind: 'default' }
-  | { kind: 'retry-with'; hint: string }
-  | { kind: 'ask'; gate: string }
   | { kind: 'stop'; reason: Exit };
 
 export type When =
-  | { predicate: 'args.hasRequirement' | '!args.hasRequirement' | 'args.hasMergeRequest' | 'map.empty' | 'plan.isDraft' | 'headless' | 'interactive' | 'revised' }
-  | { predicate: 'gate.answered'; gate: string }
+  | { predicate: 'args.hasRequirement' | 'args.hasMergeRequest' | 'map.empty' | 'plan.isDraft' | 'revised' }
   | { predicate: 'gate.is' | 'gate.isnt'; gate: string; option: string };
 
 export interface GateDef {
@@ -59,38 +56,29 @@ export interface RouteArgs {
 
 /** Every `run` name a shipped route may use; `handlers.ts` registers exactly these and `src/skills/handlers.test.ts` keeps the two equal. */
 export const HANDLER_NAMES = [
-  'requirements.template',
+  'script',
   'requirements.normalize',
-  'requirements.acs',
   'search.map',
   'policy.stage',
   'evidence.navigationLine',
   'evidence.notes.save',
   'evidence.notes.promote',
-  'workers.planCheck',
-  'init.scan',
   'init.propose',
   'init.close',
-  'rules.discover',
-  'rules.context',
-  'rules.draftsCheck',
-  'rules.close',
   'task.start',
-  'task.inventory',
   'task.report',
   'checks.baseline',
   'checks.preflight',
   'review.evaluate',
   'review.await',
   'review.estimate',
-  'review.mrTemplate',
   'review.publishList',
 ] as const;
 
 export interface StepDef {
   id: string;
   index: number;
-  actor: 'code' | 'model' | 'worker' | 'human';
+  actor: 'code' | 'model' | 'human';
   run: readonly Call[];
   instruction: string | null;
   payload: readonly string[];
@@ -103,8 +91,6 @@ export interface StepDef {
   repeat: number;
   /** `note`: the model's final answer is the step's note; the Stop hook saves it. */
   answer: 'note' | null;
-  /** `next`: the following command-less model step is delivered in this step's message. */
-  chain: 'next' | null;
   /** The model's final message is this step's work; the next prompt closes the route. */
   final: boolean;
 }
@@ -127,7 +113,7 @@ export interface RouteRegistry {
 export type StartChannel = 'hook' | 'cli' | 'harness';
 
 export type CommandName =
-  | 'requirements normalize' | 'check' | 'format' | 'review' | 'plan check' | 'policy check --drafts' | 'rules apply' | 'init --apply' | 'init propose'
+  | 'requirements normalize' | 'check' | 'format' | 'review' | 'policy check --drafts' | 'rules apply' | 'init --apply' | 'init propose'
   | 'note save' | 'note promote' | 'review record';
 
 export type Cause = 'route-next' | 'gate-hook' | CommandName;
@@ -212,7 +198,6 @@ export interface AdvanceInput {
   answers?: readonly (Answer & { question?: string })[];
   default?: string;
   revise?: string;
-  conflict?: { summary: string; sources: readonly string[] };
   project?: string;
   show?: string;
   cause: Cause;

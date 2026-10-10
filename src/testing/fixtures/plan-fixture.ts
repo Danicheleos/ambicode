@@ -14,7 +14,6 @@ export const PLAN_TASK = 'ORD-17';
 /** A plan-shaped route: the S2–S5 and S10–S14 mechanisms run on it until the real plan route ships (step 06). */
 export const PLAN = `skill: plan
 version: 3
-budget: { modelSteps: 14 }
 exits: [done, blocked, human, inconclusive, superseded]
 revisable: [design]
 steps:
@@ -66,7 +65,7 @@ export function planHandlers(state: PlanState): Record<string, Handler> {
     },
     't.check': async ({ ledger }) => {
       state.checks += 1;
-      await ledger.append({ kind: 'worker', worker: 'plan-check', outcome: 'ran', ms: 1, artifact: 'workers/x.json', summary: { failed: !state.checkOk, anchorsBad: state.checkOk ? 0 : 1, acsUnmapped: 0, duplicates: 0 } });
+      await ledger.append({ kind: 'worker', worker: 'plan-check', outcome: 'ran', ms: 1, artifact: 'workers/x.json', summary: { failed: !state.checkOk, anchorsBad: state.checkOk ? 0 : 1 } });
       return state.checkOk ? { state: 'ok', payload: null } : { state: 'failed', code: 'plan-check-failed', message: 'bad anchors', recoverable: true };
     },
   };

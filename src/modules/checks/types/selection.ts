@@ -1,5 +1,3 @@
-export interface RunnerSummary { ran: number; failed: number; loadErrors: number }
-
 /**
  * Every external command, selector scripts included, passes through here, so no call site
  * can acquire execution without a decision.

@@ -1,17 +1,11 @@
 skill: task
 version: 3
-budget: { modelSteps: 18, wallMinutes: 90 }      # wallMinutes applies in --headless only
-exits: [done, blocked, human, inconclusive, superseded, budget]
+exits: [done, blocked, human, inconclusive, superseded]
 steps:
-  - id: template
-    actor: code
-    when: args.hasRequirement
-    run: requirements.template
   - id: fetch
     actor: model
     when: args.hasRequirement
-    instruction: file:routes/plan/fetch.md
-    payload: [template]
+    instruction: file:routes/investigate/fetch.md
   - id: start
     actor: code
     run: task.start                               # may exit iterations-complete
@@ -25,12 +19,12 @@ steps:
       release: stop
   - id: ground
     actor: code
-    run: [requirements.normalize, checks.preflight, checks.baseline, "search.map(context)", task.inventory, "policy.stage(before-work)", "policy.stage(before-checks)"]
+    run: [requirements.normalize, checks.preflight, checks.baseline, "search.map(context)", script(inventory), "policy.stage(before-work)", "policy.stage(before-checks)"]
     produces: [baseline, map, policy]
   - id: red
     actor: model
     instruction: file:routes/task/red.md
-    payload: [brief, envelope, baseline, map, callers, "policy:before-work"]
+    payload: [brief, envelope, baseline, map, "script:inventory", "policy:before-work"]
     produces: ["check{red}"]
   - id: green
     actor: model
@@ -51,6 +45,10 @@ steps:
     needs: [review]                               # unmet: the step prints the review command
     run: review.await                             # waiting checks raise their gate before the reviewer sees the evidence
     repeat: 2
+  - id: brief
+    actor: code
+    when: gate.review-offer.is(run)
+    run: ["policy.stage(before-work)", script(brief)]
   - id: review-agent
     actor: model
     when: gate.review-offer.is(run)

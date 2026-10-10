@@ -215,7 +215,7 @@ describe('ledger-metrics: instrumentation measures', () => {
   const at = (s) => `2026-10-07T10:00:${String(s).padStart(2, '0')}.000Z`;
   const m = (entries, metrics) => ledgerMetrics([{ entries, unreadable: 0 }], null, metrics);
 
-  it('reads timing, budget, size, map decisions, commands and context from the new fields', () => {
+  it('reads timing, budget, size, commands and context from the new fields', () => {
     const got = m([
       { id: 'a-1', kind: 'route', skill: 'task', at: at(0) },
       { id: 'a-2', kind: 'step', step: 'ground', ms: 30, at: at(1) },
@@ -224,7 +224,6 @@ describe('ledger-metrics: instrumentation measures', () => {
       { id: 'a-5', kind: 'gate', gate: 'g', class: 'declared', at: at(3) },
       { id: 'a-6', kind: 'acceptance', gate: 'g', instance: 'a-5', answer: 'x', via: 'hook', at: at(8) },
       { id: 'a-7', kind: 'exit', reason: 'done', budget: { modelSteps: 3, wallMs: 9 }, at: at(9) },
-      { id: 'a-8', kind: 'map', tuning: { hash: 'h1', overrides: [] }, decisions: { proseRetry: true }, at: at(1) },
       { id: 'a-9', kind: 'command', type: 'check', exit: 1, ms: 5, outBytes: 1, argv: ['x'], at: at(4) },
       { id: 'a-10', kind: 'command', type: 'check', exit: 0, ms: 7, outBytes: 1, argv: ['x'], at: at(5) },
       { id: 'a-11', kind: 'turn', context: { peak: 90 }, at: at(6) },
@@ -233,8 +232,6 @@ describe('ledger-metrics: instrumentation measures', () => {
     assert.deepEqual(got.stepMs, { ground: 42 });
     assert.deepEqual(got.gateLatencyMs, [5000]);
     assert.deepEqual(got.budgetUsage, { modelSteps: 3, wallMs: 9 });
-    assert.deepEqual(got.mapTuning, { h1: 1 });
-    assert.deepEqual(got.mapRetry, { maps: 1, proseRetry: 1 });
     assert.deepEqual([got.initRuns, got.rulesRuns], [1, 2]);
     assert.deepEqual(got.commands, { count: 3, ms: 15, failures: { check: 1 } });
     assert.equal(got.contextPeak, 120);
@@ -243,6 +240,6 @@ describe('ledger-metrics: instrumentation measures', () => {
 
   it('a kind never written is null, not a zero', () => {
     const got = m([{ id: 'a-1', kind: 'route', skill: 'task', at: at(0) }]);
-    for (const key of ['stepMs', 'gateLatencyMs', 'budgetUsage', 'mapDecisions', 'mapTuning', 'mapRetry', 'initRuns', 'rulesRuns', 'commands', 'contextPeak', 'contextByStep']) assert.equal(got[key], null, key);
+    for (const key of ['stepMs', 'gateLatencyMs', 'budgetUsage', 'initRuns', 'rulesRuns', 'commands', 'contextPeak', 'contextByStep']) assert.equal(got[key], null, key);
   });
 });

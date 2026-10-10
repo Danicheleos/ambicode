@@ -7,7 +7,7 @@ import type { LedgerEntry } from '#types/modules/evidence';
 
 let counter = 0;
 const entry = (kind: string, fields: object = {}): LedgerEntry => ({ id: `a1b2c3d4-${(counter += 1)}`, at: '2026-10-05T10:00:00.000Z', kind, ...fields });
-const check = (fields: object): LedgerEntry => entry('check', { key: 'web/unit', argv: ['npm', 'test'], only: [], exit: 0, phase: 'green', summary: { ran: 3, failed: 0 }, ms: 10, ...fields });
+const check = (fields: object): LedgerEntry => entry('check', { key: 'web/unit', argv: ['npm', 'test'], only: [], exit: 0, phase: 'green', ms: 10, ...fields });
 const route = (fields: object = {}): LedgerEntry => entry('route', { skill: 'task', args: 'x', mode: 'interactive', channel: 'hook', trusted: true, session: 'a1b2c3d4', epoch: 1, ...fields });
 
 describe('02-R1: the report skeleton', () => {
@@ -28,7 +28,7 @@ describe('02-R1: the report skeleton', () => {
       entry('envelope', { sources: [{ key: 'ORD-17' }], builtFrom: 'captures', asked: ['ORD-17'], missingAsked: [], server: 'atlassian', hash: 'h' }),
       entry('map', { layers: [{ name: 'shortlist' }, { name: 'harvest' }], collisions: ['validate'], index: 'none' }),
       entry('baseline', { head: 'a1b2c3d4e5f6', dirty: ['README.md'] }),
-      check({ phase: 'red', exit: 1, summary: { ran: 1, failed: 1 }, only: ['a.spec.ts'] }),
+      check({ phase: 'red', exit: 1, only: ['a.spec.ts'] }),
       check({ only: ['a.spec.ts'] }),
       entry('review', { reviewId: 'local_1', status: 'complete', reviewerRan: true, findings: 2, omissions: 0 }),
       entry('acceptance', { route: 'r', gate: 'plan-accept', instance: 'i', answer: 'Accept', via: 'hook' }),
@@ -38,7 +38,7 @@ describe('02-R1: the report skeleton', () => {
     assert.match(report.evidence, /Requirements: 1 source\(s\) from captures \(ORD-17\) via atlassian; ORD-17 \(asked\)/);
     assert.match(report.evidence, /Map: layers shortlist→harvest, 1 colliding names/);
     assert.match(report.evidence, /Baseline: a1b2c3d4e5f6, dirty: README\.md/);
-    assert.match(report.evidence, /Checks: web\/unit --only a\.spec\.ts: red exit 1 \(1 ran, 1 failed\) → green exit 0 \(3 ran, 0 failed\)/);
+    assert.match(report.evidence, /Checks: web\/unit --only a\.spec\.ts: red exit 1 → green exit 0/);
     assert.match(report.evidence, /Review: local_1 complete, 2 findings/);
     assert.match(report.evidence, /Decisions: plan-accept "Accept" \(via hook\)/);
     assert.match(report.evidence, /Revisions: plan-write ×2 \(last: none left\)/);
@@ -47,19 +47,14 @@ describe('02-R1: the report skeleton', () => {
 });
 
 describe('02-R2: checks never claim more than the ledger says', () => {
-  it('a missing test count, zero tests, a nonzero last exit and a declined key are not verified', () => {
+  it('a nonzero last exit and a declined key are not verified', () => {
     const report = buildReport([
-      check({ key: 'api/lint', summary: null }),
-      check({ key: 'web/unit', summary: { ran: 0, failed: 0 } }),
-      check({ key: 'web/e2e', phase: 'red', exit: 2, summary: { ran: 4, failed: 1 } }),
+      check({ key: 'web/e2e', phase: 'red', exit: 2 }),
       entry('declined', { route: 'r', gate: 'check:web/slow', instance: null, answer: 'no', via: 'flag', reason: 'acting-needs-human' }),
     ]);
-    assert.match(report.notVerified, /api\/lint: test count unknown/);
-    assert.match(report.notVerified, /web\/unit: no tests ran/);
     assert.match(report.notVerified, /web\/e2e: last run exited 2/);
     assert.match(report.notVerified, /check:web\/slow: declined "no" \(acting-needs-human\)/);
     assert.doesNotMatch(report.evidence, /passed/);
-    assert.match(report.evidence, /api\/lint: green exit 0; web\/unit/);
   });
 
   it('a delivery, a completion or an exit code alone is not a test result', () => {
@@ -69,7 +64,7 @@ describe('02-R2: checks never claim more than the ledger says', () => {
   });
 
   it('only the last run of a key decides whether it is verified', () => {
-    const report = buildReport([check({ phase: 'red', exit: 1, summary: null }), check({})]);
+    const report = buildReport([check({ phase: 'red', exit: 1 }), check({})]);
     assert.equal(report.notVerified, 'Not verified\n  none recorded');
   });
 });
@@ -104,14 +99,13 @@ describe('02-R3: what was skipped, declined or limited is visible', () => {
 
 describe('02-R4: historical evidence is labelled', () => {
   it('suffixes an entry that is not current, in both blocks, and every entry is current without the option', () => {
-    const old = check({ phase: 'red', exit: 1, summary: null });
+    const old = check({ phase: 'red', exit: 1 });
     const stale = entry('declined', { route: 'r', gate: 'g', instance: null, answer: 'no', via: 'flag' });
     const entries = [old, stale, check({ key: 'web/other' })];
     const report = buildReport(entries, { current: (candidate) => candidate.id !== old.id && candidate.id !== stale.id });
     assert.match(report.evidence, /red exit 1 \(historical\)/);
     assert.match(report.evidence, /g declined "no" \(via flag\) \(historical\)/);
-    assert.match(report.notVerified, /web\/unit: test count unknown \(exit code only\) \(historical\)/);
-    assert.match(report.evidence, /web\/other: green exit 0 \(3 ran, 0 failed\)\n/);
+    assert.match(report.evidence, /web\/other: green exit 0\n/);
     assert.doesNotMatch(buildReport(entries).text, /historical/);
   });
 });
@@ -125,9 +119,9 @@ describe('02-R5: the same entries give the same bytes, in a small space', () => 
     entry('search', { command: 'refs', names: ['a', 'b', 'c'] }),
     entry('search', { command: 'find' }),
     entry('baseline', { head: 'a1b2c3d4', dirty: ['README.md'] }),
-    check({ phase: 'red', exit: 1, summary: { ran: 1, failed: 1 } }),
+    check({ phase: 'red', exit: 1 }),
     check({}),
-    check({ key: 'web/e2e', summary: null }),
+    check({ key: 'web/e2e' }),
     entry('review', { reviewId: 'local_2026-10-03T11-02', status: 'complete', reviewerRan: true, findings: 2, omissions: 1 }),
     entry('gate', { route: 'r', gate: 'plan-accept', class: 'declared', question: 'q', print: 1 }),
     entry('acceptance', { route: 'r', gate: 'plan-accept', instance: 'i', answer: 'Accept', via: 'hook' }),
@@ -231,7 +225,7 @@ describe('07-R9: Not verified for the task route', () => {
   });
 
   it('07-R9: a failed check and an absent check or format stay in Not verified, never in a clean report', () => {
-    const failed = buildReport([check({ exit: 1, summary: { ran: 2, failed: 1 } })]);
+    const failed = buildReport([check({ exit: 1 })]);
     assert.match(failed.notVerified, /web\/unit: last run exited 1/);
     const absent = buildReport([]);
     assert.match(absent.evidence, /Checks: none recorded/);

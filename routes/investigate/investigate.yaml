@@ -1,21 +1,15 @@
 skill: investigate
 version: 3
-budget: { modelSteps: 6 }
-exits: [done, blocked, human, inconclusive, superseded, budget]
+exits: [done, blocked, human, inconclusive, superseded]
 revisable: [ground]
 steps:
-  - id: template
-    actor: code
-    when: args.hasRequirement
-    run: [requirements.template]
   - id: fetch
     actor: model
     when: args.hasRequirement
     instruction: "file:routes/investigate/fetch.md"
-    payload: [template]
   - id: ground
     actor: code
-    run: [requirements.normalize, requirements.acs, search.map(prompt), policy.stage(before-work), policy.stage(before-report)]
+    run: [requirements.normalize, search.map(prompt), policy.stage(before-work), policy.stage(before-report)]
     produces: [envelope, map, policy]
     repeat: 2
   - id: scope
@@ -30,6 +24,6 @@ steps:
   - id: read
     actor: model
     instruction: "file:routes/investigate/read.md"
-    payload: [envelope, acs, map, "policy:before-work", "policy:before-report"]
+    payload: [envelope, map, "policy:before-work", "policy:before-report"]
     produces: ["note{investigation}"]
     answer: note

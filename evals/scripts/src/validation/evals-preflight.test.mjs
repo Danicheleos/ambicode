@@ -4,7 +4,7 @@ import path from 'node:path';
 import { describe, it } from 'node:test';
 import { ROOT } from '../shared/bench-paths.mjs';
 import { parse as parseYaml } from 'yaml';
-import { ARCHIVED_EVAL_DIR, PREFLIGHT, PREFLIGHT_MAX_COST_USD, RECORDINGS, judge, preflightArgs } from './evals-preflight.mjs';
+import { ARCHIVED_EVAL_DIR, PREFLIGHT, PREFLIGHT_MAX_COST_USD, judge, preflightArgs } from './evals-preflight.mjs';
 
 const EVALS = path.join(ROOT, ARCHIVED_EVAL_DIR);
 
@@ -43,7 +43,7 @@ describe('evals-preflight: the decision', () => {
     assert.equal(ok, true, lines.join('\n'));
     assert.ok(lines.includes('PASS  regression-ts reviewer-completed'));
     assert.ok(lines.includes('PASS  p2-task-regression-fix unit-check-ran'));
-    assert.match(lines.join('\n'), /^NOTE {2}p2-task-regression-fix reviewer-completed: failed, not gated: .*replay-miss/m);
+    assert.match(lines.join('\n'), /^NOTE {2}p2-task-regression-fix reviewer-completed: failed, not gated: .*reviewer subagent/m);
   });
 
   it('fails on each gated indicator that did not pass, with the grader\'s explanation', () => {
@@ -117,15 +117,5 @@ describe('evals-preflight: the cases it runs', () => {
     assert.equal(after('--json'), '/tmp/out.json');
     assert.ok(!argv.includes('--case'), '--case is not repeatable: the last one wins');
     assert.equal(argv.at(-1), '--trust-plugin');
-    assert.ok(path.isAbsolute(RECORDINGS));
-  });
-
-  it('keeps the recordings where the sandboxed agent can read them, outside the eval directory', async () => {
-    const fromEvals = path.relative(EVALS, RECORDINGS);
-    const fromRoot = path.relative(ROOT, RECORDINGS);
-    assert.ok(fromEvals.startsWith('..'), fromEvals);
-    assert.ok(!fromRoot.startsWith('..') && !path.isAbsolute(fromRoot), fromRoot);
-    const recordings = JSON.parse(await readFile(RECORDINGS, 'utf8')).recordings;
-    assert.ok(recordings.some((recording) => recording.case === 'regression-ts'), 'the preflight case has no recording');
   });
 });

@@ -3,42 +3,22 @@ import { openRepository } from '#platform/git/open';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { AmbicodeError } from '#util/errors';
 import { CONFIG_FILE } from '#types/defaults';
-import { runDoctor } from './doctor.ts';
 import { contentHash } from '#util/hash';
-import { lineDiff } from './init-choices.ts';
-import { parseSets, setStrings } from './init-sets.ts';
+import { localTimestamp } from '#util/files';
+import { runDoctor } from './doctor.ts';
 import { loadConfigWithNotices } from '../load.ts';
-import { DRAFT_FILE, buildProposal, configFileState, configUnparsable, planDraft, writeConfig } from './proposal.ts';
-import type { InitProposal } from '#types/modules/config';
+import { DRAFT_FILE, writeGitignore } from './proposal.ts';
 import { APPLY_OPTIONS, type ApplyDeps, type DoctorTable } from '#types/modules/config';
-import type { FileSystem } from '#types/platform/ports';
-
-export { writeConfig } from './proposal.ts';
-export const PREVIOUS_DRAFT = 'draft-previous.yaml';
-export const PROPOSAL_FILE = 'proposal.json';
-/** The model's YAML exactly as `init propose` received it; `init.propose` validates it, so a bad field returns to `detect`. */
-export const PROPOSAL_INPUT_FILE = 'proposal.yaml';
 
 function initUnconfirmed(reason: string, detail?: string): AmbicodeError {
   return new AmbicodeError('init-unconfirmed', `init --apply needs the user's own answer to the init question (reason: ${reason}). Nothing was written.`, {
-    details: [`reason: ${reason}`, ...(detail === undefined ? [] : [detail]), 'Release: answer the init question in /ambicode:init; if the draft changed, run route next --task <task> --answer init-apply=Adjust to be asked again.'],
+    details: [`reason: ${reason}`, ...(detail === undefined ? [] : [detail]), 'Release: answer the init question in /ambicode:init.'],
   });
 }
 
-/** The newest `.bak-` copy of the config with exactly these bytes, as a repository-relative path. */
-export async function backupOf(fs: FileSystem, repositoryRoot: string, raw: string): Promise<string | null> {
-  const directory = path.join(repositoryRoot, path.dirname(CONFIG_FILE));
-  const prefix = `${path.basename(CONFIG_FILE)}.bak-`;
-  const names = (await fs.readdir(directory).catch(() => [])).filter((entry) => entry.isFile() && entry.name.startsWith(prefix)).map((entry) => entry.name).sort().reverse();
-  for (const name of names) {
-    if ((await fs.readText(path.join(directory, name)).catch(() => null)) === raw) return `${path.dirname(CONFIG_FILE)}/${name}`;
-  }
-  return null;
-}
-
-/** 09-G4's checks in order, nothing written before the last passes; then 09-G5's writes. */
+/** The checks in order, nothing written before the last passes; an existing config is copied to `.bak-<time>` before it is replaced. */
 export async function applyInit(deps: ApplyDeps, input: { task: string }): Promise<{
-  configPath: string; created: boolean; changes: string[]; notices: string[]; gitignoreAdded: string[]; doctor: DoctorTable }> {
+  configPath: string; created: boolean; backup: string | null; notices: string[]; gitignoreAdded: string[]; doctor: DoctorTable }> {
   const { runtime, session, context } = deps;
   if (session === null) {
     throw new AmbicodeError('session-unbound', `init --apply cannot tell which route it speaks for: task ${input.task} has no single live route.`, {
@@ -58,38 +38,27 @@ export async function applyInit(deps: ApplyDeps, input: { task: string }): Promi
 
   const window = await context.window(view, 'init-apply');
   const print = window.find((entry) => entry.kind === 'gate' && entry.id === source['instance']);
-  const shown = (print?.['values'] ?? {}) as { set?: unknown; draft?: unknown };
-  if (typeof shown.draft !== 'string' || !Array.isArray(shown.set)) throw initUnconfirmed('not-accepted');
-  const pairs = parseSets(shown.set as string[]);
+  const shown = (print?.['values'] ?? {}) as { draft?: unknown };
+  if (typeof shown.draft !== 'string') throw initUnconfirmed('not-accepted');
 
   const { repositoryRoot } = await openRepository(runtime);
-  const file = await configFileState(runtime.fs, repositoryRoot);
-  if (!file.parses) {
-    const backup = await context.consent(view, 'config-unparsable');
-    if (backup.state !== 'honoured' || (await backupOf(runtime.fs, repositoryRoot, file.raw!)) === null) throw configUnparsable();
-  }
-
   const approved = await runtime.fs.readText(path.join(repositoryRoot, DRAFT_FILE)).catch(() => '');
   if (contentHash(approved) !== shown.draft) throw initUnconfirmed('draft-differs', `${DRAFT_FILE} is not the draft the answer was given to. Nothing was written.`);
-
-  const dir = await resolveTaskDir(runtime, input.task);
-  const stored = await runtime.fs.readText(path.join(dir.steps, PROPOSAL_FILE)).catch(() => null);
-  if (stored === null) throw initUnconfirmed('not-accepted', `${PROPOSAL_FILE} is missing from the task: the proposal was never stored.`);
-  const proposal = await buildProposal(runtime, repositoryRoot, (JSON.parse(stored) as InitProposal).input, pairs, { task: input.task, regenerate: !file.parses });
-  const fresh = (await planDraft(runtime.fs, repositoryRoot, proposal, pairs)).yaml;
-  if (contentHash(fresh) !== shown.draft) {
-    await runtime.fs.mkdirp(dir.steps);
-    await runtime.fs.writeText(path.join(dir.steps, PREVIOUS_DRAFT), approved);
-    await runtime.fs.writeText(path.join(repositoryRoot, DRAFT_FILE), fresh);
-    throw initUnconfirmed('draft-changed', `Detection now differs from what you approved:\n${lineDiff(approved, fresh).slice(0, 40).join('\n')}`);
-  }
-  const bound = await context.consent(view, 'init-apply', { set: setStrings(pairs), draft: contentHash(fresh) });
+  const bound = await context.consent(view, 'init-apply', { draft: shown.draft });
   if (bound.state === 'refused') throw initUnconfirmed(bound.reason);
-  const written = await writeConfig(runtime.fs, repositoryRoot, proposal, pairs, fresh);
+
+  const configPath = path.join(repositoryRoot, CONFIG_FILE);
+  const existing = await runtime.fs.readText(configPath).catch(() => null);
+  const backup = existing === null ? null : `${CONFIG_FILE}.bak-${localTimestamp(runtime.clock.now())}`;
+  if (existing !== null) await runtime.fs.createExclusive(path.join(repositoryRoot, backup!), existing);
+  await runtime.fs.mkdirp(path.dirname(configPath));
+  await runtime.fs.writeText(configPath, approved);
+  const gitignoreAdded = await writeGitignore(runtime.fs, repositoryRoot);
   await runtime.fs.remove(path.join(repositoryRoot, DRAFT_FILE));
   const loaded = await loadConfigWithNotices(runtime.fs, repositoryRoot);
   const doctor = await runDoctor(runtime, repositoryRoot, loaded.config, deps.doctor);
+  const dir = await resolveTaskDir(runtime, input.task);
   await runtime.fs.mkdirp(dir.steps);
   await runtime.fs.writeText(path.join(dir.steps, 'doctor.md'), doctor.text);
-  return { configPath: proposal.configPath, ...written, notices: [...proposal.notices, ...loaded.notices], doctor };
+  return { configPath, created: existing === null, backup, notices: loaded.notices, gitignoreAdded, doctor };
 }

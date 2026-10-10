@@ -1,21 +1,22 @@
-import { open } from 'node:fs/promises';
 import path from 'node:path';
 import { findSessionRepository } from '#platform/git/session-repository';
 import { openRepository } from '#platform/git/open';
 import type { HookInput, StopHookOutput } from '#types/hook';
 import { endedRouteInLedger, resolveActiveRoute } from '../session/active-route.ts';
-import { buildChain, currentIn, foldRoute, isBoundAnswer, isGreen, windowOf } from './fold.ts';
+import { buildChain, currentIn, foldRoute, isGreen, windowOf } from './fold.ts';
 import { ReviewResult } from '#types/modules/review';
 import { containsBlock, notCoveredBlock } from '#modules/review/bundle/coverage-block';
 import { harnessOf } from '../session/harness.ts';
+import { citationProblems, citesRepository } from './cited.ts';
+import { exportForEval } from './eval-export.ts';
+import { lastAssistantText } from '#platform/claude/transcript';
 import { readLedger } from '#platform/ledger/ledger';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { buildReport } from '#modules/evidence/report/report';
 import { navigationLine } from '#modules/evidence/report/navigation-line';
-import { NOTE_LABELS, saveNote } from '#modules/evidence/notes';
+import { saveNote } from '#modules/evidence/notes';
 import { taskDirFor } from '#modules/evidence/task/task-dir';
 import { hookStateBaseDir, readStopCursor, writeStopCursor } from '#platform/claude/hook-state';
-import { contentHash } from '#util/hash';
 import type { Runtime } from '#types/composition';
 import type { LedgerEntry, LockedLedger } from '#types/modules/evidence';
 import type { ActiveRoutePointer, RouteDef, RouteRegistry } from '#types/harness';
@@ -30,7 +31,8 @@ export interface StopPorts {
   closeFinal(task: string, routeId: string, scratchpadDir?: string): Promise<boolean>;
 }
 
-export const TRANSCRIPT_TAIL_BYTES = 1024 * 1024;
+export { lastAssistantText, TRANSCRIPT_TAIL_BYTES } from '#platform/claude/transcript';
+export { EVAL_EXPORT_VARIABLE } from './eval-export.ts';
 export const REASON_LIMIT_BYTES = 2048;
 
 /** A failing check precedes the first green one of the key: the defect was shown before it was fixed. */
@@ -38,42 +40,8 @@ export function redBeforeGreen(entries: readonly LedgerEntry[], key: string): bo
   const runs = entries.filter((entry) => entry.kind === 'check' && entry['key'] === key);
   const green = runs.findIndex(isGreen);
   if (green < 0) return true;
-  return runs.slice(0, green).some((run) => run['exit'] !== 0 && ((run['summary'] as { failed?: number } | null)?.failed ?? 0) >= 1);
+  return runs.slice(0, green).some((run) => run['exit'] !== 0);
 }
-
-/** The text of the last assistant turn, read from the end of the transcript; null when it cannot be read. */
-export async function lastAssistantText(transcript: string): Promise<string | null> {
-  try {
-    const handle = await open(transcript, 'r');
-    try {
-      const { size } = await handle.stat();
-      const length = Math.min(size, TRANSCRIPT_TAIL_BYTES);
-      const buffer = Buffer.alloc(length);
-      await handle.read(buffer, 0, length, size - length);
-      const lines = buffer.toString('utf8').split('\n').slice(size > length ? 1 : 0);
-      for (const line of lines.reverse()) {
-        if (line.trim() === '') continue;
-        let entry: { type?: string; message?: { role?: string; content?: unknown } };
-        try {
-          entry = JSON.parse(line) as typeof entry;
-        } catch {
-          continue;
-        }
-        if (entry.type !== 'assistant' && entry.message?.role !== 'assistant') continue;
-        const content = entry.message?.content;
-        const text = typeof content === 'string' ? content : Array.isArray(content) ? content.flatMap((block: { type?: string; text?: string }) => (block.type === 'text' && typeof block.text === 'string' ? [block.text] : [])).join('\n') : '';
-        if (text.trim() !== '') return text;
-      }
-      return null;
-    } finally {
-      await handle.close();
-    }
-  } catch {
-    return null;
-  }
-}
-
-const TESTS_PASS = [/\btests? (?:pass(?:ed|es|ing)?|are green)\b/i, /\ball tests pass/i];
 
 const squash = (value: string): string => value.replace(/\s+/g, ' ').trim();
 const firstHeading = (instruction: string | null): string | null => instruction?.split('\n').find((line) => /^#+\s/.test(line))?.trim() ?? null;
@@ -81,68 +49,15 @@ const firstLine = (text: string): string => text.split('\n').find((line) => line
 
 interface Checked { chain: readonly LedgerEntry[]; def: RouteDef; routes: RouteRegistry; root: string; text: string; defectBrief: boolean; files: () => Promise<readonly string[]>; citationsOnly?: boolean }
 
-const CITATION = /(?<![\w:/])((?:\/|[\w.-]+\/)?[\w./-]*[\w-]\.[A-Za-z][A-Za-z0-9]*):(\d+)(?:-(\d+))?/g;
-/** A path with a directory part, or a bare file name with a line: what an answer cites. */
-const CITED_PATH = /(?<![\w:/@])((?:[\w.-]+\/)+[\w.-]*[\w-]\.[A-Za-z][A-Za-z0-9]*|[\w-][\w.-]*\.[A-Za-z][A-Za-z0-9]*(?=:\d))/g;
-
-/**
- * The repository file a cited path names: as written from the root, else the one file whose path ends with it (a bare
- * name, or a path relative to a feature directory); `ambiguous` when several do.
- */
-async function locateCited(cited: string, input: Pick<Checked, 'root' | 'files'>, runtime: Runtime): Promise<string | 'ambiguous' | null> {
-  const file = path.isAbsolute(cited) ? cited : path.join(input.root, cited);
-  if (await runtime.fs.exists(file)) return file;
-  if (path.isAbsolute(cited)) return null;
-  const tail = cited.replace(/^\.\//, '');
-  const named = (await input.files()).filter((candidate) => candidate === tail || candidate.endsWith(`/${tail}`));
-  if (named.length > 1) return 'ambiguous';
-  return named.length === 1 ? path.join(input.root, named[0]!) : null;
-}
-
-/** An answer is report-shaped when it cites at least one file that exists in the repository. */
-async function citesRepository(text: string, input: Pick<Checked, 'root' | 'files'>, runtime: Runtime): Promise<boolean> {
-  for (const match of text.matchAll(CITED_PATH)) {
-    if (match.index > 0 && text.slice(Math.max(0, match.index - 3), match.index).includes('//')) continue;
-    const found = await locateCited(match[1]!, input, runtime);
-    if (found !== null && found !== 'ambiguous' && !path.relative(input.root, found).startsWith('..')) return true;
-  }
-  return false;
-}
-
 /** The report is written once a step that delivers it to the model has run. */
 const reportWritten = (def: RouteDef, chain: readonly LedgerEntry[]): boolean =>
   def.steps.some((step) => step.payload.includes('report') && chain.some((entry) => entry.kind === 'step' && entry['step'] === step.id));
 
-/** A bound acceptance of an acting option that no later revise replaced; a default taken is not one. */
-function actingAcceptance(input: Pick<Checked, 'chain' | 'def' | 'routes'>, current: (entry: LedgerEntry) => boolean): boolean {
-  return input.chain.some((entry) => {
-    if (entry.kind !== 'acceptance' || !isBoundAnswer(entry) || !current(entry)) return false;
-    const gate = input.def.steps.find((step) => step.gate?.id === entry['gate'])?.gate ?? input.routes.gate(String(entry['gate']));
-    return gate !== null && gate !== undefined && gate.acting.includes(String(entry['answer']));
-  });
-}
-
 /** `report` is the generated block when the answer's copy of it differs; the stop-check file carries it. */
 async function problemsOf(input: Checked, runtime: Runtime): Promise<{ problems: string[]; report: string | null }> {
-  const problems: string[] = [];
+  const problems = await citationProblems(input.text, input, runtime, input.citationsOnly === true);
   let generated: string | null = null;
-  const { text, root } = input;
-  for (const match of text.matchAll(CITATION)) {
-    if (match[0].includes('://')) continue;
-    const found = await locateCited(match[1]!, input, runtime);
-    if (found === 'ambiguous') continue;
-    const file = found ?? (path.isAbsolute(match[1]!) ? match[1]! : path.join(root, match[1]!));
-    if (path.relative(root, file).startsWith('..')) continue;
-    // In an answer a range that starts inside the file only overshoots its end; the cited code is there.
-    const last = Number(input.citationsOnly === true ? match[2] : (match[3] ?? match[2]));
-    try {
-      const content = await runtime.fs.readText(file);
-      const lines = content.split('\n').length - (/\n$/.test(content) ? 1 : 0);
-      if (last > lines) problems.push(`${match[0]}: ${path.relative(root, file)} has ${lines} lines.`);
-    } catch {
-      problems.push(`${match[0]}: ${path.relative(root, file)} does not exist.`);
-    }
-  }
+  const { text } = input;
   // An answer step runs no checks and records no acceptance, so only its citations can be wrong.
   if (input.citationsOnly === true) {
     return { problems, report: null };
@@ -159,34 +74,10 @@ async function problemsOf(input: Checked, runtime: Runtime): Promise<{ problems:
     const hash = /<!-- ambicode report (\S+) -->/.exec(text)?.[1];
     if (hash !== undefined && hash !== report.hash) problems.push('The report hash comment does not match the generated report.');
   }
-  if (/\b(accepted|approved)\b/i.test(NOTE_LABELS.reduce((rest, label) => rest.replaceAll(label, ''), text)) && !actingAcceptance(input, current)) problems.push('The text says accepted or approved; no bound acceptance by the user is current.');
-  if (TESTS_PASS.some((phrase) => phrase.test(text)) && !input.chain.some((entry) => entry.kind === 'check' && entry['phase'] !== 'red' && isGreen(entry))) problems.push('The text says tests pass; no check with exit 0, a test count and no failures is recorded.');
   if (input.defectBrief) {
     for (const key of new Set(input.chain.filter(isGreen).map((entry) => String(entry['key'])))) if (!redBeforeGreen(input.chain, key)) problems.push(`${key}: no failing run precedes the first green one.`);
   }
   return { problems, report: generated };
-}
-
-/** Cell text only: column padding, Markdown pipes, separator rows and code fences do not count. */
-const cells = (value: string): string =>
-  squash(
-    value
-      .split('\n')
-      .filter((line) => !/^\s*(```.*|[|:\-\s]+)$/.test(line))
-      .join('\n')
-      .replaceAll('|', ' '),
-  );
-
-/** A final message presenting the doctor table must carry the same cells as `steps/doctor.md`, however it is laid out. */
-async function doctorReadBackProblem(runtime: Runtime, dir: { steps: string }, text: string): Promise<string | null> {
-  const expected = await runtime.fs.readText(path.join(dir.steps, 'doctor.md')).catch(() => null);
-  if (expected === null) return null;
-  const table = expected.replace(/\n<!-- ambicode doctor \S+ -->\s*$/, '').trimEnd();
-  const header = cells(table.split('\n')[0] ?? '');
-  const said = cells(text);
-  if (header === '' || !said.includes(header)) return null;
-  if (said.includes(cells(table))) return null;
-  return 'The doctor table in your answer does not match steps/doctor.md; quote it as printed.';
 }
 
 const NOT_VERBATIM = 'the "not covered" block is not reproduced verbatim';
@@ -235,7 +126,6 @@ const entriesOf = async (ledger: LockedLedger): Promise<LedgerEntry[]> => {
 
 interface Verdict { output: StopHookOutput | null; save: { text: string; kind: RouteDef['steps'][number]; chain: readonly LedgerEntry[] } | null; head: LedgerEntry }
 
-/** Stop's three conditions, the checks they run, and the single block they may cause, all decided under one ledger lock. */
 /** A Stop that did nothing is not the same as a Stop that was never reached: the reason is left on stderr, where the session record keeps it. */
 function skipped(reason: string): null {
   process.stderr.write(`ambicode stop: skipped, ${reason}\n`);
@@ -309,8 +199,6 @@ export async function stopHook(ports: StopPorts, input: HookInput, options: { de
         // The task route's ground step records a defect brief.
         const defectBrief = options.defectBrief ?? chain.some((entry) => entry.kind === 'step' && entry['defectBrief'] === true);
         const { problems, report } = text === null ? { problems: [], report: null } : await problemsOf({ chain, def, routes, root, text, defectBrief, files, citationsOnly: saveAnswer }, runtime);
-        const doctorProblem = text === null ? null : await doctorReadBackProblem(runtime, dir, text);
-        if (doctorProblem !== null) problems.push(doctorProblem);
         if (missingBlock !== null) problems.push(`${NOT_VERBATIM}: copy part 4 of the review report as printed (below in the stop-check file).`);
         if (problems.length > 0) {
           const where = path.relative(root, dir.stopCheck);
@@ -340,50 +228,6 @@ export async function stopHook(ports: StopPorts, input: HookInput, options: { de
     return verdict.output;
   } finally {
     if (active === null) await pointer.clearEnded(session, scratchpad);
-  }
-}
-
-export const EVAL_EXPORT_VARIABLE = 'EVAL_AMBICODE_EXPORT';
-
-/**
- * Under an eval, the final ledger and its notes are copied out of the sandbox, which the harness deletes when the run
- * ends: polling it every 2 s left 7 of runs 24–27's ledgers short of their last entries. A failure is said, never thrown.
- */
-async function exportForEval(runtime: Runtime, input: { root: string; session: string; task: string; ledger: string; entries: readonly LedgerEntry[] }): Promise<void> {
-  const root = runtime.env[EVAL_EXPORT_VARIABLE];
-  if (root === undefined || root === '') return;
-  try {
-    const target = path.join(root, input.session, input.task);
-    await runtime.fs.mkdirp(path.join(target, 'notes'));
-    const notes = [...new Set(input.entries.filter((entry) => entry.kind === 'note' && typeof entry['path'] === 'string').map((entry) => String(entry['path'])))];
-    const files = [await exportFile(runtime, input.ledger, target, 'ledger.jsonl')];
-    for (const note of notes) files.push(await exportFile(runtime, path.join(input.root, note), target, path.join('notes', path.basename(note))));
-    // Promotion renames a draft to its plan, so the draft is absent by design; its bytes count only if the plan was copied.
-    for (const promotion of input.entries.filter((entry) => entry.kind === 'note' && typeof entry['promotedFrom'] === 'string')) {
-      const draft = input.entries.find((entry) => entry.id === promotion['promotedFrom']);
-      const missing = files.find((file) => draft !== undefined && file.error === 'missing' && file.to === path.join('notes', path.basename(String(draft['path']))));
-      const plan = files.find((file) => file.to === path.join('notes', path.basename(String(promotion['path']))));
-      if (missing !== undefined && plan?.copied === true && plan.hash === promotion['contentHash']) Object.assign(missing, { error: 'promoted', promotedTo: String(promotion['path']) });
-    }
-    const complete = files.every((file) => file.copied || file.error === 'promoted');
-    if (!complete) process.stderr.write(`ambicode stop: export incomplete, ${files.filter((file) => !file.copied && file.error !== 'promoted').map((file) => file.to).join(', ')}\n`);
-    await runtime.fs.writeText(path.join(target, 'source.json'), `${JSON.stringify({ ledger: input.ledger, entries: input.entries.length, notes, complete, files })}\n`);
-  } catch (error) {
-    process.stderr.write(`ambicode stop: export failed, ${(error as Error).message}\n`);
-  }
-}
-
-/** One exported file: `copied` holds only when the copy's hash equals the source's. */
-async function exportFile(runtime: Runtime, from: string, target: string, name: string): Promise<{ from: string; to: string; present: boolean; bytes: number | null; hash: string | null; copied: boolean; error?: string; promotedTo?: string }> {
-  const bytes = await runtime.fs.readBytes(from).catch(() => null);
-  if (bytes === null) return { from, to: name, present: false, bytes: null, hash: null, copied: false, error: 'missing' };
-  const hash = contentHash(bytes);
-  try {
-    await runtime.fs.copyFile(from, path.join(target, name));
-    const copy = contentHash(await runtime.fs.readBytes(path.join(target, name)));
-    return { from, to: name, present: true, bytes: bytes.length, hash, copied: copy === hash, ...(copy === hash ? {} : { error: `copy hash ${copy}` }) };
-  } catch (error) {
-    return { from, to: name, present: true, bytes: bytes.length, hash, copied: false, error: (error as Error).message };
   }
 }
 

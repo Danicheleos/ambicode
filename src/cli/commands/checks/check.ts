@@ -1,6 +1,6 @@
 import { runCheckOnly } from '#modules/checks/run/check-command';
 import { COMMAND_SPECS } from '#skills/task/commands';
-import { runCommandTail } from '#harness/engine/command-tail';
+import { runCommandTail } from '#harness/engine/engine';
 import { AmbicodeError } from '#util/errors';
 import { routeTools, taskOf } from '../route/route.ts';
 import type { CheckOnlyOutcome } from '#types/modules/checks';
@@ -33,10 +33,9 @@ export function renderCheck(output: CheckOutput): string {
     switch (result.outcome) {
       case 'ran': {
         const { entry, proof } = result;
-        const summary = entry.summary === null ? 'no summary' : `ran ${entry.summary.ran}, failed ${entry.summary.failed}`;
-        return `check ${key} ${entry.phase}: exit ${entry.exit}, ${summary} — proof: ${proof.proven ? 'met' : `not met (${proof.cause})`}`;
+        return `check ${key} ${entry.phase}: exit ${entry.exit} (${entry.phase === 'red' ? 'red = exit != 0' : 'green = exit 0'}) — ${proof.proven ? 'as expected' : `not as expected (${proof.cause})`}\n${entry.tail ?? ''}`.trimEnd();
       }
-      case 'not-run': return `check ${key}: not run (${result.status}): ${result.detail} — proof: not met (no-summary)`;
+      case 'not-run': return `check ${key}: not run (${result.status}): ${result.detail} `;
       case 'waiting': return `check ${key}: waiting for the user's answer to ${result.gate}; nothing was run.`;
       case 'declined': return `check ${key}: declined; nothing was run. It stays under Not verified.`;
     }

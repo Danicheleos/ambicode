@@ -29,7 +29,7 @@ const RawGate = z.strictObject({
 
 const RawStep = z.strictObject({
   id: z.string().min(1),
-  actor: z.enum(['code', 'model', 'worker', 'human']),
+  actor: z.enum(['code', 'model', 'human']),
   run: list.optional(),
   instruction: z.string().optional(),
   payload: z.array(z.string()).optional(),
@@ -41,15 +41,12 @@ const RawStep = z.strictObject({
   onError: z.string().optional(),
   repeat: z.number().int().min(1).optional(),
   answer: z.literal('note').optional(),
-  chain: z.literal('next').optional(),
   final: z.boolean().optional(),
 });
 
 const RawRoute = z.strictObject({
   skill: z.string().min(1),
   version: z.literal(3),
-  /** Documentation only: nothing enforces it. */
-  budget: z.unknown().optional(),
   exits: z.array(z.enum(EXITS)),
   revisable: z.array(z.string()).default([]),
   steps: z.array(RawStep).min(1),
@@ -121,16 +118,15 @@ async function normalizeStep(file: string, raw: z.infer<typeof RawStep>, index: 
     throw invalid(file, `${where}.instruction`, `only a model step has an instruction; this is ${raw.actor}`);
   }
 
-  if ((raw.chain !== undefined || raw.final !== undefined) && raw.actor !== 'model') throw invalid(file, `${where}.chain`, 'chain and final are for model steps only');
+  if (raw.final !== undefined && raw.actor !== 'model') throw invalid(file, `${where}.final`, 'final is for model steps only');
   if (raw.answer !== undefined) {
     if (raw.actor !== 'model') throw invalid(file, `${where}.answer`, 'answer is for model steps only');
     const notes = (raw.produces ?? []).filter((text) => /^note\{[^}]+\}$/.test(text.trim()));
     if (notes.length !== 1) throw invalid(file, `${where}.answer`, 'answer: note needs produces note{<kind>}');
   }
 
-  const gated = raw.actor === 'human' || raw.actor === 'worker';
-  if (gated && raw.gate === undefined) throw invalid(file, `${where}.gate`, `a ${raw.actor} step declares its gate`);
-  if (!gated && raw.gate !== undefined) throw invalid(file, `${where}.gate`, `a gate goes on a human step or a worker step; this is ${raw.actor}`);
+  if (raw.actor === 'human' && raw.gate === undefined) throw invalid(file, `${where}.gate`, 'a human step declares its gate');
+  if (raw.actor !== 'human' && raw.gate !== undefined) throw invalid(file, `${where}.gate`, `a gate goes on a human step; this is ${raw.actor}`);
 
   return {
     id: raw.id,
@@ -147,7 +143,6 @@ async function normalizeStep(file: string, raw: z.infer<typeof RawStep>, index: 
     onError: raw.onError === undefined ? { kind: 'default' } : parseOnError(file, `${where}.onError`, raw.onError),
     repeat: raw.repeat ?? DEFAULT_REPEAT[raw.id] ?? 1,
     answer: raw.answer ?? null,
-    chain: raw.chain ?? null,
     final: raw.final ?? false,
   };
 }
@@ -166,10 +161,10 @@ function validateRoute(file: string, route: RouteDef, registry: readonly GateDef
 
   for (const step of route.steps) {
     const where = `step ${step.id}`;
-    if (step.when?.predicate === 'gate.answered' || step.when?.predicate === 'gate.is' || step.when?.predicate === 'gate.isnt') {
+    if (step.when?.predicate === 'gate.is' || step.when?.predicate === 'gate.isnt') {
       const gate = gates.get(step.when.gate);
       if (gate === undefined) throw invalid(file, `${where}.when`, `"${step.when.gate}" is not a gate of this route`);
-      if (step.when.predicate !== 'gate.answered' && !gate.options.includes(step.when.option)) {
+      if (!gate.options.includes(step.when.option)) {
         throw invalid(file, `${where}.when`, `"${step.when.option}" is not an option of gate ${gate.id}`);
       }
     }
@@ -185,10 +180,6 @@ function validateRoute(file: string, route: RouteDef, registry: readonly GateDef
     };
     if (step.onFail !== null) checkTarget(step.onFail, 'onFail', true);
     if (step.gate !== null) for (const [option, revise] of Object.entries(step.gate.onAnswer)) checkTarget(revise, `gate.onAnswer.${option}`, false);
-    if (step.onError.kind === 'ask' && !gates.has(step.onError.gate) && !registry.some((gate) => gate.id === (step.onError as { gate: string }).gate)) {
-      throw invalid(file, `${where}.onError`, `"${step.onError.gate}" is not a gate of this route or the registry`);
-    }
-
     if (step.gate !== null && step.gate.object !== null) {
       const object = step.gate.object;
       const producer = route.steps.slice(0, step.index).find((earlier) => earlier.produces.some((produced) => samePair(produced, object)));

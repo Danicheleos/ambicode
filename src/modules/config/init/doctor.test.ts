@@ -3,13 +3,12 @@ import { readdir } from 'node:fs/promises';
 import { describe, it } from 'node:test';
 import { createRuntime } from '#composition/root';
 import { NodeProcessRunner } from '#platform/ports/node-process-runner';
-import { initConfig } from '#testing/fixtures/init-config';
+import { FIXTURE_CONFIG, initConfig } from '#testing/fixtures/init-config';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { AmbicodeError } from '#util/errors';
 import { loadConfigWithNotices } from '../load.ts';
 import { probeArgv, runDoctor } from './doctor.ts';
 import type { Runtime } from '#types/composition';
-import type { SetPair } from '#types/modules/config';
 import type { ProcessOutcome, ProcessRequest, ProcessRunner } from '#types/platform/ports';
 
 const outcome = (patch: Partial<ProcessOutcome>): ProcessOutcome => ({ kind: 'exited', exitCode: 0, stdout: '', stderr: '', truncated: false, durationMs: 1, failure: null, ...patch });
@@ -30,6 +29,12 @@ class ScriptedRunner implements ProcessRunner {
   }
 }
 
+interface SetPair { key: string; value: string[] }
+
+/** The fixture config with these command slots filled in. */
+const withCommands = (pairs: readonly SetPair[]): string =>
+  pairs.reduce((text, pair) => text.replace(`${pair.key.split('.').at(-1)}: null`, `${pair.key.split('.').at(-1)}: { argv: ${JSON.stringify(pair.value)} }`), FIXTURE_CONFIG);
+
 async function setup(script: Record<string, ProcessOutcome>, overrides: SetPair[], files: Record<string, string> = {}) {
   const repo = await TempRepo.create();
   await repo.write('package.json', '{"name":"a"}');
@@ -37,9 +42,9 @@ async function setup(script: Record<string, ProcessOutcome>, overrides: SetPair[
   await repo.commitAll('initial');
   const runner = new ScriptedRunner(script);
   const runtime: Runtime = await createRuntime({ cwd: repo.root, runner });
-  const written = await initConfig(runtime, overrides);
+  const configPath = await initConfig(runtime, withCommands(overrides));
   const { config } = await loadConfigWithNotices(runtime.fs, repo.root);
-  return { repo, runner, runtime, config, configPath: written.configPath };
+  return { repo, runner, runtime, config, configPath };
 }
 
 const lint = (argv: string[] = ['./bin/lint']): SetPair => ({ key: 'projects.app.commands.lint', value: argv });
@@ -144,7 +149,7 @@ describe('09-D2: probing a command', () => {
       const before = await runtime.fs.readText(configPath);
       assert.equal(rowOf(await runDoctor(runtime, repo.root, config), 'lint').result, 'failed');
       assert.equal(await runtime.fs.readText(configPath), before);
-      assert.match(before, /- \.\/bin\/lint/);
+      assert.match(before, /\.\/bin\/lint/);
     } finally {
       await repo.dispose();
     }

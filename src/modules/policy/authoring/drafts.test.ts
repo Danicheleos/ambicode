@@ -6,7 +6,6 @@ import { createRuntime } from '#composition/root';
 import { openWorkspace } from '#modules/config/workspace';
 import { initConfig } from '#testing/fixtures/init-config';
 import { TempRepo } from '#testing/fixtures/temp-repo';
-import { taskDirFor } from '#modules/evidence/task/task-dir';
 import { checkDrafts } from './drafts.ts';
 import { DRAFTS_DIR } from '#types/modules/policy';
 
@@ -35,7 +34,7 @@ async function drafted(files: Record<string, string>) {
   await initConfig(runtime);
   for (const [name, text] of Object.entries(files)) await repo.write(`${DRAFTS_DIR}/${name}`, text);
   const workspace = await openWorkspace(runtime);
-  return { repo, runtime, workspace, check: (taskDir = null as ReturnType<typeof taskDirFor> | null) => checkDrafts(runtime, workspace, { project: null, taskDir }) };
+  return { repo, runtime, workspace, check: () => checkDrafts(runtime, workspace, { project: null }) };
 }
 
 const codes = (check: Awaited<ReturnType<Awaited<ReturnType<typeof drafted>>['check']>>): string[] => check.diagnostics.map((diagnostic) => diagnostic.code);
@@ -88,17 +87,13 @@ describe('09-Q3: quotes are verified', () => {
     }
   });
 
-  it('09-Q3: a URL quote needs a captured payload with that url and the quote in its content', async () => {
+  it('09-Q3: a URL quote is not verified and warns', async () => {
     const url = 'https://wiki.example.invalid/wiki/spaces/ENG/pages/123456/Rules';
     const d = await drafted({ 'a.yaml': pack([rule('page', 'Keep layers apart.', QUOTE, url)]) });
     try {
-      const dir = taskDirFor(d.workspace.repositoryRoot, 'rules-1');
-      assert.equal((await d.check(dir)).notMigrated[0]?.reason, 'pack-quote-missing: source not captured');
-      assert.equal((await d.check()).notMigrated[0]?.reason, 'pack-quote-missing: source not captured', 'no task: nothing is captured');
-      await d.repo.write('.ambicode/task/rules-1/requirements/123456.json', JSON.stringify({ key: '123456', url, content: `Intro\n${QUOTE}\n` }));
-      assert.deepEqual((await d.check(dir)).notMigrated, []);
-      await d.repo.write('.ambicode/task/rules-1/requirements/123456.json', JSON.stringify({ key: '123456', url, content: 'Something else entirely.' }));
-      assert.equal((await d.check(dir)).notMigrated[0]?.reason, 'pack-quote-missing: not in file');
+      const check = await d.check();
+      assert.ok(codes(check).includes('pack-quote-unchecked'), JSON.stringify(check.diagnostics));
+      assert.equal(check.ok, true);
     } finally {
       await d.repo.dispose();
     }
@@ -139,7 +134,7 @@ describe('09-Q2: policy check --drafts', () => {
     try {
       const project = d.workspace.config.projects.find((candidate) => candidate.id === 'app' || d.workspace.config.projects.length === 1)!;
       assert.ok(project.packs.includes('builtin/common-quality'), 'the fixture must already enable this built-in');
-      const check = await checkDrafts(d.runtime, d.workspace, { project: project.id, taskDir: null });
+      const check = await checkDrafts(d.runtime, d.workspace, { project: project.id });
       assert.ok(codes(check).includes('pack-duplicate-id'), JSON.stringify(check.diagnostics));
       assert.equal(check.ok, false);
     } finally {
@@ -153,7 +148,7 @@ describe('09-Q2: policy check --drafts', () => {
     try {
       const project = d.workspace.config.projects[0]!;
       assert.ok(project.packs.includes('builtin/common-quality'), 'the fixture must already enable this built-in');
-      const check = await checkDrafts(d.runtime, d.workspace, { project: project.id, taskDir: null });
+      const check = await checkDrafts(d.runtime, d.workspace, { project: project.id });
       assert.ok(!codes(check).includes('pack-duplicate-id'), JSON.stringify(check.diagnostics));
       assert.equal(check.ok, true);
     } finally {

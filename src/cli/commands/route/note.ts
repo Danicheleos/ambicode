@@ -1,6 +1,6 @@
 import { taskSlugFor } from '#modules/review/bundle/review-name';
 import { COMMAND_SPECS } from '#skills/plan/commands';
-import { runCommandTail } from '#harness/engine/command-tail';
+import { runCommandTail } from '#harness/engine/engine';
 import { promotePlan, saveNote } from '#modules/evidence/notes';
 import { AmbicodeError } from '#util/errors';
 import { routeTools } from './route.ts';

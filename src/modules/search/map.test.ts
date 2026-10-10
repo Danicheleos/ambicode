@@ -1,8 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { routeFixture, type RouteFixture } from '#testing/fixtures/route-fixture';
-import { buildMap, resolveLayers, MAP_LIMIT_BYTES } from './map.ts';
-import { rankTerms } from './terms.ts';
+import { rankTerms, buildMap, resolveLayers, MAP_LIMIT_BYTES } from './map.ts';
+
 import { SearchConfig } from '#types/modules/config';
 
 const project = { id: 'app', root: '.', ecosystem: 'typescript', commands: {}, packs: [], checks: {}, policyFiles: [] } as never;

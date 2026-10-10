@@ -15,7 +15,7 @@ export const EVAL_ANSWERS = {
   // The review is the requested work here, not an extra.
   review: [['estimate', 'run']],
   plan: [['plan-accept', 'Accept']],
-  init: [['init-apply', 'Apply as proposed']],
+  init: [['init-apply', 'Apply']],
   rules: [
     ['sources', 'use these sources'],
     ['rules-table', 'Apply all'],

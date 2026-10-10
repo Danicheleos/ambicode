@@ -49,7 +49,7 @@ export const TRACE = [
   toolUse('Bash', { command: 'sed -n 1,40p src/a.ts; cat src/b.ts' }),
   toolUse('Bash', { command: 'npm test' }),
   toolUse('Bash', { command: `${HELPER} review --branch 2>&1 | tail -150` }),
-  event('user', { message: { content: [{ type: 'tool_result', content: 'reviewer    ok — model sonnet, REPLAYED from a recording (no model call)' }] } }),
+  event('user', { message: { content: [{ type: 'tool_result', content: 'reviewer    ok' }] } }),
   toolUse('Read', { file_path: 'src/a.ts' }),
   toolUse('Grep', { pattern: 'x' }),
   'not json',

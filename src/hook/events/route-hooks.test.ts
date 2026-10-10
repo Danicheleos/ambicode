@@ -298,14 +298,12 @@ describe('D5 tool record', () => {
 });
 
 describe('03-H6 MCP capture with a route', () => {
-  it('records the requirement the bound server returned for the active route, and nothing for another server', async () => {
+  it('records the result of a call that names an asked key, whatever server returned it', async () => {
     const plan = await planFixture({ config: CONFIG.replace('mcpServer: null', 'mcpServer: atlassian') });
     try {
       await prompt(plan, '/ambicode:plan ORD-17 add a limit --task ORD-17');
       const response = { content: [{ type: 'text', text: JSON.stringify({ key: 'ORD-17', fields: { summary: 'Limit', description: 'Cap the cart at 50 items.' } }) }] };
-      await hook(plan, { hook_event_name: 'PostToolUse', tool_name: 'mcp__linear__getIssue', tool_response: response });
-      assert.equal((await plan.fx.kinds(PLAN_TASK, 'requirement')).length, 0);
-      assert.deepEqual(await hook(plan, { hook_event_name: 'PostToolUse', tool_name: 'mcp__claude_ai_Atlassian__getJiraIssue', tool_response: response }), {});
+      assert.deepEqual(await hook(plan, { hook_event_name: 'PostToolUse', tool_name: 'mcp__claude_ai_Atlassian__getJiraIssue', tool_input: { issueIdOrKey: 'ORD-17' }, tool_response: response }), {});
       const [entry] = await plan.fx.kinds(PLAN_TASK, 'requirement');
       assert.deepEqual([entry!['key'], entry!['relation'], entry!['capture']], ['ORD-17', 'asked', 'full']);
       assert.equal(entry!['route'], (await plan.fx.kinds(PLAN_TASK, 'route'))[0]!.id);
@@ -329,14 +327,12 @@ describe('04-B hook binding', () => {
     }
   });
 
-  it('04-B2: with no server configured a candidate-named server is captured and another is not', async () => {
+  it('04-B2: with no server configured a call naming an asked key is captured', async () => {
     const plan = await planFixture();
     try {
       await prompt(plan, '/ambicode:plan ORD-17 add a limit --task ORD-17');
       const response = { content: [{ type: 'text', text: JSON.stringify({ key: 'ORD-17', fields: { summary: 'Limit', description: 'Cap the cart at 50 items.' } }) }] };
-      await hook(plan, { hook_event_name: 'PostToolUse', tool_name: 'mcp__linear__getIssue', tool_response: response });
-      assert.equal((await plan.fx.kinds(PLAN_TASK, 'requirement')).length, 0);
-      await hook(plan, { hook_event_name: 'PostToolUse', tool_name: 'mcp__claude_ai_Atlassian_Rovo__getJiraIssue', tool_response: response });
+      await hook(plan, { hook_event_name: 'PostToolUse', tool_name: 'mcp__claude_ai_Atlassian_Rovo__getJiraIssue', tool_input: { issueIdOrKey: 'ORD-17' }, tool_response: response });
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'requirement')).length, 1);
     } finally {
       await plan.dispose();

@@ -43,8 +43,10 @@ a Confluence page through the bound MCP server — and then, with you:
    preserving the rest of `.ambicode/config.yaml`, then probes a covered and an
    uncovered path.
 
-`ambicode rules discover [<path-or-url>...]` lists the candidate sources
-without reading them into rules.
+The route's first step runs `skills/rules/scripts/discover.mjs`, which only lists
+the files that usually hold rules (agent instructions, contribution guides,
+ADRs, `docs/`); it reads none of them into rules. You then name the sources in
+your own words or take the listed ones.
 
 `ambicode policy check <file...>` is usable on its own, for a pack you wrote by
 hand. It validates a candidate file that nothing references yet — the schema,
@@ -58,9 +60,8 @@ ambicode policy check --project web .ambicode/policies/team-components.yaml
 A glob that matches nothing is the mistake worth running it for. The pack
 validates, gets enabled, and never applies to anything.
 
-`init` names the documents in your repository that usually hold rules, as
-migration candidates. It checks only whether they exist; it does not read,
-classify, or migrate any of them.
+`init` lists which of those rule sources exist in your repository. It does not
+read, classify, or migrate any of them.
 
 Two things the skill deliberately does not carry over, for the reasons the
 worked example gives below: a rule that encodes one team's structural choice
@@ -105,7 +106,7 @@ responsibility, ownership, error semantics, and boundary typing.
 `common-checks` carries no rules. It exists to declare command policy — which of
 the project's own configured checks may run — and nothing else.
 
-## Angular (enabled by init when package.json declares `@angular/core`)
+## Angular (proposed by init when the repository is an Angular project)
 
 | Pack | Rules | Disposition |
 |---|---|---|
@@ -115,7 +116,7 @@ the project's own configured checks may run — and nothing else.
 | `angular-http` | `response-validation`, `error-semantics`, `duplicate-requests`, `cross-cutting-http-concerns` | Retained as transport concerns that hold across versions. Specific `HttpClient` API expectations dropped. |
 | `angular-style` | `configured-style`, `honest-types`, `distinct-shapes` | `configured-style` defers to the project's linter rather than restating it. Folder-naming conventions dropped. |
 
-## Express (enabled by init when package.json declares `express` and not `@angular/core`)
+## Express (proposed by init when the repository is an Express project)
 
 Doc 05 asks for general HTTP safety to be separated from Express- and
 version-specific assumptions. That split is the reason there are four packs.

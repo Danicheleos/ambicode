@@ -9,14 +9,11 @@ import { TempRepo } from '#testing/fixtures/temp-repo';
 import { builtinPoliciesDirectory } from '#util/plugin-root';
 import { isAmbicodeError } from '#util/errors';
 import { parseArgs } from '#util/args';
-import { buildProposal } from '#modules/config/init/proposal';
-import { FIXTURE_PROPOSAL } from '#testing/fixtures/init-config';
 import { openWorkspace, projectById, toRepositoryRelative } from '#modules/config/workspace';
 import { resolvePolicyFor } from '#modules/policy/resolve-for';
 import { renderPolicyCheck, runPolicyCheck, POLICY_CHECK_OPTIONS, type PolicyCheckOutput } from './policy-check.ts';
 import { REPO_ROOT } from '#testing/paths';
 import type { Runtime } from '#types/composition';
-import type { FileSystem } from '#types/platform/ports';
 
 const CONFIG_TAIL = [
   'review: { model: sonnet, timeoutSeconds: 300, maxFindings: 7, maxChangedFiles: 50, maxChangedLines: 2000, maxContextBytes: 524288 }',
@@ -565,14 +562,6 @@ describe('R3 no runtime path reads a Markdown rule source', () => {
       [],
       'a rule source belongs to the setup-time /ambicode:rules skill; the runtime resolves policy from YAML packs only',
     );
-
-    const init = await readFile(path.join(repositoryRoot, 'src', 'modules', 'config', 'init', 'init.ts'), 'utf8');
-    const detector = /export async function detectRuleSources[\s\S]*?\n}/.exec(init)?.[0] ?? '';
-    assert.ok(detector !== '', 'detectRuleSources not found');
-    assert.match(detector, /fs\.exists\(/);
-    for (const forbidden of ['readText', 'readBytes', 'parseYaml', 'writeText']) {
-      assert.ok(!detector.includes(forbidden), `detectRuleSources must not ${forbidden}`);
-    }
   });
 
   it('resolves prompt Markdown only from a path a pack declared', async () => {
@@ -583,48 +572,6 @@ describe('R3 no runtime path reads a Markdown rule source', () => {
     const validate = await readFile(path.join(repositoryRoot, 'src', 'modules', 'policy', 'packs', 'validate.ts'), 'utf8');
     assert.match(validate, /resolveInsideBoundary\(/);
     assert.equal((validate.match(/fs\.readText\(/g) ?? []).length, 2, 'the pack file and its declared prompts, nothing else');
-  });
-});
-
-describe('R3 init names rule sources without reading them', () => {
-  it('reports the candidates it found and opens none of them', async () => {
-    const repo = await TempRepo.create();
-    try {
-      await repo.write('src/app.ts', 'export const a = 1;\n');
-      await repo.write('CLAUDE.md', '# Rules\n\n- Never log secrets.\n');
-      await repo.write('CONTRIBUTING.md', '# Contributing\n');
-      await repo.write('.cursor/rules/style.mdc', 'Prefer named exports.\n');
-      await repo.write('docs/architecture.md', '# Architecture\n');
-      await repo.commitAll('rule sources');
-
-      const reads: string[] = [];
-      const fs: FileSystem = {
-        ...nodeFileSystem,
-        readText: async (absolutePath) => {
-          reads.push(absolutePath);
-          return nodeFileSystem.readText(absolutePath);
-        },
-        readBytes: async (absolutePath) => {
-          reads.push(absolutePath);
-          return nodeFileSystem.readBytes(absolutePath);
-        },
-      };
-      const runtime = await createRuntime({ cwd: repo.root, fs });
-
-      const output = await buildProposal(runtime, repo.root, FIXTURE_PROPOSAL, []);
-
-      assert.deepEqual(output.ruleSources, ['CLAUDE.md', 'CONTRIBUTING.md', 'docs', '.cursor/rules']);
-      const notice = output.notices.find((candidate) => candidate.includes('/ambicode:rules'));
-      assert.ok(notice !== undefined, output.notices.join('\n'));
-      assert.match(notice, /Nothing above was read, classified, or migrated by init\./);
-
-      const opened = reads.filter((absolutePath) =>
-        ['CLAUDE.md', 'CONTRIBUTING.md', 'style.mdc', 'architecture.md'].some((name) => absolutePath.endsWith(name)),
-      );
-      assert.deepEqual(opened, []);
-    } finally {
-      await repo.dispose();
-    }
   });
 });
 

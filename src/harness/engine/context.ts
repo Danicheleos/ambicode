@@ -6,7 +6,7 @@ import { raiseGate } from '../gates/gates.ts';
 import { buildChain, exitOf, foldRoute, latestRouteOf, matches, windowOf } from './fold.ts';
 import { ownerOf, OWNING_SKILLS } from '#modules/evidence/ownership';
 import type { Runtime } from '#types/composition';
-import type { ArtifactRef, LedgerEntry } from '#types/modules/evidence';
+import type { LedgerEntry } from '#types/modules/evidence';
 import type { RouteDef, RouteRegistry, RouteView, StartChannel, CommandContext } from '#types/harness';
 import { refOf } from '#modules/evidence/ledger-chain';
 import type { Chain, ConsentBinding } from '../types/engine.ts';

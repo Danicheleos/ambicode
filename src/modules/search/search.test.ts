@@ -8,9 +8,8 @@ import { openRepository } from '#platform/git/open';
 import { routeFixture, type RouteFixture } from '#testing/fixtures/route-fixture';
 import { excludeWorkingDirs } from '#modules/evidence/task/task-dir';
 import { harvest } from './harvest.ts';
-import { buildMap } from './map.ts';
+import { buildMap, pathsCitedIn, symbolsCitedIn } from './map.ts';
 import { refs, REFS_LIMIT_BYTES } from './refs.ts';
-import { pathsCitedIn, symbolsCitedIn } from './text/seed.ts';
 
 const project = { id: 'app', root: '.', ecosystem: 'typescript', commands: {}, packs: [], checks: {}, policyFiles: [] } as never;
 

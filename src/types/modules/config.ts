@@ -157,7 +157,7 @@ export type AmbicodeConfig = z.infer<typeof AmbicodeConfig>;
 
 export const SUPPORTED_SCHEMA_VERSION = 3;
 
-export const APPLY_OPTIONS = ['Apply as proposed', 'Apply as adjusted'] as const;
+export const APPLY_OPTIONS = ['Apply'] as const;
 
 export interface DoctorRow {
   project: string;
@@ -170,42 +170,6 @@ export interface DoctorRow {
 }
 
 export interface DoctorTable { rows: DoctorRow[]; text: string; hash: string }
-
-export type SetValue = string | null | readonly string[];
-
-export interface SetPair { key: string; value: SetValue }
-
-/** What the model writes in the init proposal: judgment about the repository, checked against the config schema afterwards. */
-const Argv = z.array(z.string().min(1)).min(1).nullable();
-export const ProposalProject = z.strictObject({
-  id: z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, { error: 'must be kebab-case' }),
-  root: z.string().min(1),
-  ecosystem: z.string().min(1),
-  shortlist: z.array(Glob).default([]),
-  commands: z.strictObject({ test: Argv.optional(), lint: Argv.optional(), typecheck: Argv.optional(), format: Argv.optional(), e2e: Argv.optional() }).default({}),
-  packs: z.array(z.string().min(1)).default([]),
-});
-export const ProposalInput = z.strictObject({
-  projects: z.array(ProposalProject).min(1),
-  requirements: z.strictObject({ mcpServer: z.string().min(1).nullable() }).default({ mcpServer: null }),
-});
-export type ProposalInput = z.infer<typeof ProposalInput>;
-
-export interface InitProposal {
-  command: 'init';
-  mode: 'dry-run';
-  configPath: string;
-  configState: 'missing' | 'current' | 'legacy' | 'unparsable-backed-up';
-  input: ProposalInput;
-  baseline: string;
-  baselineNotice: string;
-  ruleSources: string[];
-  gitignore: { missing: string[]; present: string[] };
-  changes: string[];
-  notices: string[];
-  values: string;
-  applyLine: string;
-}
 
 export interface ApplyDeps { runtime: Runtime; session: string | null; context: CommandContext | null; doctor?: DoctorOptions }
 

@@ -2,30 +2,27 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import path from 'node:path';
 import { TASKS_DIR } from '#types/defaults';
 import { loadConfigWithNotices } from '#modules/config/load';
-import { Git } from '#platform/git/git';
-import { raiseConflict } from '#modules/requirements/envelope/conflict';
 import { hasRequirement } from '#modules/requirements/capture/has-requirement';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { mintTaskSlug } from '#modules/evidence/task/slug';
 import { excludeWorkingDirs, resolveTaskDir } from '#modules/evidence/task/task-dir';
-import { AmbicodeError } from '#util/errors';
+import { AmbicodeError, isAmbicodeError } from '#util/errors';
 import { contentHash } from '#util/hash';
 import { endRoute, markStepDelivered } from '../session/active-route.ts';
 import { exitRoute, recordDefaultFlag, recordFlagAnswer, recordHookAnswer, reviseTo } from '../gates/answers.ts';
 import { checkOwner, commandContext, ledgerUnreadable, readEntries } from './context.ts';
-import { continuedTask } from './plan-task.ts';
 import { canonicalArgs } from '../definition/flags.ts';
-import { buildChain, exitOf, foldRoute, latestRouteOf, liveHeads, openPrint, windowOf } from './fold.ts';
+import { buildChain, exitOf, foldRoute, latestRouteOf, liveHeads, windowOf } from './fold.ts';
 import { stopHook } from './stop.ts';
 import { harnessOf } from '../session/harness.ts';
-import { raiseGate } from '../gates/gates.ts';
-import { createExecutor, EXPLICIT, isClosing, quiet } from './execute.ts';
-import { runCommand } from './command.ts';
-import { ownerOf, OWNING_SKILLS } from '#modules/evidence/ownership';
-import { append, chainOf, latestPrint, viewFor } from './run-context.ts';
+import { EXPLICIT, createExecutor, isClosing, quiet } from './execute.ts';
+import { OWNING_SKILLS, ownerOf } from '#modules/evidence/ownership';
+import { append, chainOf, latestPrint } from './run-context.ts';
+import { sessionUnbound, taskSessionSource } from '../session/session.ts';
+import { readLedgerStrict } from '#platform/ledger/ledger';
 import type { Runtime } from '#types/composition';
 import type { LedgerEntry, LockedLedger, TaskDir } from '#types/modules/evidence';
-import type { ActiveRoutePointer, StartChannel, Exit, Answer, RouteArgs, HandlerRegistry, RouteRegistry, Engine, StepMessage, StartInput, AdvanceInput } from '#types/harness';
+import type { ActiveRoutePointer, AdvanceInput, Answer, CommandName, CommandScope, Engine, Exit, GuardedCommand, HandlerRegistry, RouteArgs, RouteRegistry, SessionBinding, StartChannel, StartInput, StepMessage } from '#types/harness';
 import type { DeliveryChannel, Part, Run } from '../types/engine.ts';
 
 export type { Answer } from '#types/harness';
@@ -284,10 +281,6 @@ export function createEngine(deps: EngineDeps): Engine {
       const run = newRun({ runtime, def, task: input.task, dir, ledger, entries, head, session: input.session, stateKey: harnessOf(head) ?? input.session, cause: input.cause, channel: input.cause === 'gate-hook' ? 'hook' : 'cli', ...scratchOf(head, input.scratchpadDir) });
       if (input.produced !== undefined) run.produced = input.produced;
       const position = foldRoute(def, chain).position;
-      const raised = input.conflict !== undefined && position !== null
-        ? await raiseConflict({ view: viewFor(run, position.id), ledger: run.ledger, summary: input.conflict.summary, sources: input.conflict.sources })
-        : null;
-      if (raised?.state === 'failed') throw new AmbicodeError(raised.code, raised.message);
       if (position?.actor === 'model' && position.produces.length === 0 && EXPLICIT.has(input.cause)) {
         await append(run, { kind: 'step', step: position.id, actor: 'model', status: 'completed', cause: input.cause });
       }
@@ -306,9 +299,6 @@ export function createEngine(deps: EngineDeps): Engine {
           throw new AmbicodeError('revise-not-allowed', `Step "${input.revise}" is not revisable in route ${def.skill}.`, { details: [`Revisable steps: ${def.revisable.join(', ') || 'none'}.`] });
         }
         if (!(await reviseTo(run, { target: input.revise, args: {} }, 'model', { reason: 'model requested' }))) run.notes.push(`Revising ${input.revise} was refused: its repeat limit is spent.`);
-      }
-      if (raised?.state === 'raise' && position !== null) {
-        await raiseGate(run.ledger, viewFor(run, position.id), { gate: raised.gate, values: raised.values, raisedBy: position.id }, routes);
       }
       const part = await execute(run);
       return { run, message: messageOf(run, part), part };
@@ -381,4 +371,68 @@ export function createEngine(deps: EngineDeps): Engine {
     live: async (task) => liveHeads(await readEntries(runtime, task)).length > 0,
     command: (spec, request, body) => runCommand({ runtime, routes }, spec, request, body),
   };
+}
+
+/** Resolves whom a guarded command speaks for and hands its body the route context; the body does the module's work. */
+export async function runCommand<T>(
+  deps: { runtime: Runtime; routes: RouteRegistry },
+  spec: GuardedCommand,
+  request: { task: string },
+  body: (scope: CommandScope) => Promise<T>,
+): Promise<T> {
+  const { runtime } = deps;
+  const context = commandContext(deps);
+  const binding = await taskSessionSource(request.task).resolve(runtime);
+  if (spec.route === 'owned' && binding.state === 'unbound') throw sessionUnbound(binding, request.task);
+  const session = binding.state === 'bound' ? binding.session : null;
+  const view = session === null ? null : await context.open(request.task, session);
+  return body({ task: request.task, session, binding, view, context });
+}
+
+const ITERATION_OF = /^\s*iteration\s+(\d+)\s+of\s+([\w.-]+)\s*$/i;
+const ITERATION_ONLY = /^\s*iteration\s+\d+\s*$/i;
+
+/** The task a `task` request continues: `iteration N of <slug>` names it; a bare `iteration N` takes the task of the latest accepted plan. */
+export async function continuedTask(runtime: Runtime, text: string): Promise<string | null> {
+  const named = ITERATION_OF.exec(text);
+  if (named !== null) return named[2]!;
+  if (!ITERATION_ONLY.test(text)) return null;
+  const tasks = path.dirname((await resolveTaskDir(runtime, '-')).root);
+  let latest: { at: string; task: string } | null = null;
+  for (const entry of await runtime.fs.readdir(tasks).catch(() => [])) {
+    if (!entry.isDirectory()) continue;
+    const read = await readLedgerStrict(runtime.fs, path.join(tasks, entry.name));
+    if (read.state !== 'ok') continue;
+    for (const note of read.entries) if (note.kind === 'note' && note['note'] === 'plan' && (latest === null || note.at > latest.at)) latest = { at: note.at, task: entry.name };
+  }
+  return latest?.task ?? null;
+}
+
+interface TailDeps {
+  engine: Engine;
+  /** Where the unbound notice goes: standard error, so a `--json` reader of stdout still gets one document. */
+  warn?: (line: string) => void;
+}
+
+/**
+ * Called once by each evidence-writing wrapper after its own ledger write. No bound session or no open route means
+ * the write stands and nothing advances (03-T1). A handler inside the engine never reaches here (03-T3).
+ */
+export async function runCommandTail(
+  deps: TailDeps,
+  input: { task: string; cause: CommandName; session: SessionBinding; scratchpadDir?: string; produced?: readonly string[] },
+): Promise<StepMessage | null> {
+  if (insideEngine()) throw new Error(`The ${input.cause} tail ran inside the route engine; a handler must not call a command tail.`);
+  if (input.session.state === 'unbound') {
+    if (!(await deps.engine.live(input.task))) return null;
+    const unbound = sessionUnbound(input.session, input.task);
+    (deps.warn ?? ((line) => void process.stderr.write(`${line}\n`)))(`${unbound.message} (${input.cause}: the command's own write stands) ${unbound.details.join(' ')}`);
+    return null;
+  }
+  try {
+    return await deps.engine.advance({ task: input.task, session: input.session.session, cause: input.cause, ...(input.produced === undefined ? {} : { produced: input.produced }), ...(input.scratchpadDir === undefined ? {} : { scratchpadDir: input.scratchpadDir }) });
+  } catch (error) {
+    if (isAmbicodeError(error) && error.code === 'route-not-open') return null;
+    throw error;
+  }
 }

@@ -1,16 +1,15 @@
 skill: init
 version: 3
-budget: { modelSteps: 6 }
-exits: [done, blocked, human, inconclusive, superseded, budget]
+exits: [done, blocked, human, inconclusive, superseded]
 steps:
   - id: scan
     actor: code
-    run: [init.scan]
+    run: ["script(scan)"]
     onError: "stop:blocked"
   - id: detect
     actor: model
     instruction: "file:routes/init/detect.md"
-    payload: [init.scan, init.propose]
+    payload: ["script:scan", init.propose]
     repeat: 3
   - id: propose
     actor: code
@@ -20,19 +19,15 @@ steps:
     actor: human
     gate:
       question: "Write this configuration?"
-      options: ["Apply as proposed", "Apply as adjusted", "Adjust", "Cancel"]
-      acting: ["Apply as proposed", "Apply as adjusted"]
+      options: ["Apply", "Adjust", "Cancel"]
+      acting: ["Apply"]
       default: "Cancel"
       release: "Cancel"
-      onAnswer: { "Adjust": "revise init-apply", "*": "revise init-apply" }
+      onAnswer: { "Adjust": "revise detect", "*": "revise detect --change $answer" }
       maxRevises: 20
   - id: apply
     actor: model
-    when: gate.init-apply.is(Apply as proposed)
-    instruction: "file:routes/init/apply-run.md"
-  - id: apply-adjusted
-    actor: model
-    when: gate.init-apply.is(Apply as adjusted)
+    when: gate.init-apply.is(Apply)
     instruction: "file:routes/init/apply-run.md"
   - id: close
     actor: code

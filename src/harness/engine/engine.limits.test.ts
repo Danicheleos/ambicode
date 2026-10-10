@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { appendFile, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { routeFixture } from '#testing/fixtures/route-fixture';
-import { CLI_LIMIT, HOOK_LIMIT } from './delivery.ts';
+import { CLI_LIMIT, HOOK_LIMIT } from './execute.ts';
 import type { Handler } from '#types/harness';
 
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';
@@ -41,7 +41,6 @@ const FAILING = `${HEAD('r')}  - id: work
     actor: code
     run: [t.work]
     produces: ["policy{before-work}"]
-    onError: retry-with "Fix the input, then run route next."
   - id: finish
     actor: model
     instruction: "Finish."

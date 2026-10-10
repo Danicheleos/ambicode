@@ -20,7 +20,6 @@ const code = async (promise: Promise<unknown>): Promise<string> => {
 const startAs = (plan: PlanFixture, session: string, input: object = {}) => plan.start({ session, ...input });
 const INV = `skill: inv
 version: 3
-budget: { modelSteps: 4 }
 exits: [done, blocked, human, inconclusive, superseded]
 revisable: []
 steps:

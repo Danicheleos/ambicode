@@ -1,20 +1,13 @@
-import { applyRules, discoverRules } from '#modules/policy/authoring/rules';
+import { applyRules } from '#modules/policy/authoring/rules';
 import { COMMAND_SPECS } from '#skills/rules/commands';
-import { runCommandTail } from '#harness/engine/command-tail';
+import { runCommandTail } from '#harness/engine/engine';
 import { routeTools, taskOf } from '../route/route.ts';
 import type { Runtime } from '#types/composition';
 import type { ParsedArgs, CliCommand } from '../../types/cli.ts';
 
-export const RULES_DISCOVER_OPTIONS = { values: ['project'], flags: ['json'], positionals: true } as const;
-
 export const RULES_APPLY_OPTIONS = { values: ['task', 'project'], flags: ['json'] } as const;
 
 interface RulesOutput { command: string; text: string; [field: string]: unknown }
-
-export async function runRulesDiscover(runtime: Runtime, args: ParsedArgs): Promise<RulesOutput> {
-  const discovery = await discoverRules(runtime, args.positionals, { project: args.value('project') });
-  return { command: 'rules discover', ...discovery };
-}
 
 /** The command's own write stands whatever the tail does; the tail prints the next step. */
 export async function runRulesApply(runtime: Runtime, args: ParsedArgs): Promise<RulesOutput> {
@@ -29,16 +22,6 @@ export async function runRulesApply(runtime: Runtime, args: ParsedArgs): Promise
 }
 
 export const renderRules = (output: RulesOutput): string => output.text;
-
-export const rulesDiscoverCommand: CliCommand = {
-  name: 'rules discover',
-  summary: 'List rule-source candidates for /ambicode:rules.',
-  options: RULES_DISCOVER_OPTIONS,
-  run: async (runtime, args) => {
-    const output = await runRulesDiscover(runtime, args);
-    return { text: renderRules(output), data: output };
-  },
-};
 
 export const rulesApplyCommand: CliCommand = {
   name: 'rules apply',

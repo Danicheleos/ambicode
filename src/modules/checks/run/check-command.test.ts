@@ -35,7 +35,7 @@ describe('check --only (07-C, 07-K)', () => {
     }
   });
 
-  it('07-C3/07-C4/07-P3 an allowed run appends one check entry with the summary and route', async () => {
+  it('07-C3/07-C4/07-P3 an allowed run appends one check entry with the exit code, output tail and route', async () => {
     const { fx, start, check, runner } = await checkFixture();
     try {
       await start();
@@ -44,7 +44,8 @@ describe('check --only (07-C, 07-K)', () => {
       assert.deepEqual(runner.calls, [['jest', 'src/a.spec.ts']]);
       const [entry] = await kinds(fx, 'check');
       assert.equal(entry?.['phase'], 'red');
-      assert.deepEqual(entry?.['summary'], { ran: 1, failed: 1 });
+      assert.equal(entry?.['summary'], null);
+      assert.equal(typeof entry?.['tail'], 'string');
       assert.deepEqual(entry?.['only'], ['src/a.spec.ts']);
       assert.equal(entry?.['key'], 'app/unit');
       assert.equal(typeof entry?.['route'], 'string');
@@ -55,21 +56,21 @@ describe('check --only (07-C, 07-K)', () => {
     }
   });
 
-  it('07-P3 an unproven green appends the check, then limit green-unproven with its cause', async () => {
+  it('07-P3 a green with a non-zero exit appends the check, then limit green-unproven with its cause', async () => {
     const { fx, start, check, runner } = await checkFixture();
     try {
       await start();
-      runner.out = { exitCode: 0, stdout: 'Tests:       0 total\n' };
+      runner.out = { exitCode: 1, stdout: 'Tests:       1 failed, 1 total\n' };
       const result = await check({ phase: 'green' });
-      assert.ok(result.outcome === 'ran' && !result.proof.proven && result.proof.cause === 'zero-tests');
+      assert.ok(result.outcome === 'ran' && !result.proof.proven && result.proof.cause === 'nonzero-exit');
       const limits = await kinds(fx, 'limit');
-      assert.deepEqual(limits.map((entry) => [entry['which'], entry['cause'], entry['step']]), [['green-unproven', 'zero-tests', 'red']]);
+      assert.deepEqual(limits.map((entry) => [entry['which'], entry['cause'], entry['step']]), [['green-unproven', 'nonzero-exit', 'red']]);
     } finally {
       await fx.dispose();
     }
   });
 
-  it('07-C4 a timeout appends no check entry, only limit red-unproven no-summary', async () => {
+  it('07-C4 a timeout appends no check entry, only limit red-unproven not-run', async () => {
     const { fx, start, check, runner } = await checkFixture();
     try {
       await start();
@@ -77,7 +78,23 @@ describe('check --only (07-C, 07-K)', () => {
       const result = await check();
       assert.equal(result.outcome, 'not-run');
       assert.equal((await kinds(fx, 'check')).length, 0);
-      assert.deepEqual((await kinds(fx, 'limit')).map((entry) => [entry['which'], entry['cause']]), [['red-unproven', 'no-summary']]);
+      assert.deepEqual((await kinds(fx, 'limit')).map((entry) => [entry['which'], entry['cause']]), [['red-unproven', 'not-run']]);
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('the entry keeps the last 40 output lines and a red that exits 0 is a gap', async () => {
+    const { fx, start, check, runner } = await checkFixture();
+    try {
+      await start();
+      runner.out = { exitCode: 0, stdout: Array.from({ length: 60 }, (_, index) => `line ${index}`).join('\n') };
+      const result = await check();
+      assert.ok(result.outcome === 'ran' && !result.proof.proven && result.proof.cause === 'no-failure');
+      const [entry] = await kinds(fx, 'check');
+      const tail = String(entry?.['tail']).split('\n');
+      assert.equal(tail.length, 40);
+      assert.ok(tail.some((line) => line.startsWith('line 59')) && !tail.includes('line 0'));
     } finally {
       await fx.dispose();
     }

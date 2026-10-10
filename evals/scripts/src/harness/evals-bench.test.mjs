@@ -30,7 +30,6 @@ describe('evals-bench: preset sets', () => {
       const plan = planRun(args, { benchmarks: root });
       assert.deepEqual(plan.cases.map((c) => c.kind), ['plan', 'review']);
       assert.match(formatPlan(plan), /set: preset; cases: 2 \(plan 1, review 1\)/);
-      assert.throws(() => planRun(args, { benchmarks: root, env: { EVAL_AMBICODE_REVIEWER_REPLAY: 'x.json' } }), /--set preset refuses EVAL_AMBICODE_REVIEWER_REPLAY/);
       writeFileSync(path.join(plugin, 'evals', 'common', 'presets', 'light', GENERATION_MARKER), '');
       assert.throws(() => planRun(args, { benchmarks: root }), /interrupted: recreate it with `npm run evals:presets -- --regenerate`/);
     } finally {

@@ -5,10 +5,9 @@ import type { CheckResult } from '#types/modules/review';
 import { MAX_COMMAND_OUTPUT_BYTES } from '#types/defaults';
 import type { Git } from '#platform/git/git';
 import { normalizeRelative } from '#util/paths';
-import { adapterFor } from '../selection/adapters.ts';
 import { authorizeCommand, checkApprovalKey } from '../selection/authorize.ts';
 import { watchWorkspace } from '../workspace/mutations.ts';
-import { expandFiles, selectLintFiles, selectTestFiles } from '../selection/select.ts';
+import { expandFiles, isLintAdapter, selectLintFiles, selectTestFiles } from '../selection/select.ts';
 import type { ChangedPath, PendingApproval } from '#types/modules/checks';
 import type { Clock, FileSystem, ProcessRunner } from '#types/platform/ports';
 import type { Selection } from '../types/selection.ts';
@@ -71,7 +70,6 @@ export async function runChecks(options: RunChecksOptions): Promise<RunChecksOut
       continue;
     }
 
-    const adapter = adapterFor(check.adapter);
     const command = options.project.commands[check.command];
     if (command === undefined) {
       results.push(skipped(checkId, options.project.id, check.command, check.adapter, [`The check references command "${check.command}", which the project does not declare.`]));
@@ -106,7 +104,7 @@ export async function runChecks(options: RunChecksOptions): Promise<RunChecksOut
     const selection: Selection =
       options.only !== undefined
         ? forcedSelection(options.only.files)
-        : adapter.role === 'lint'
+        : isLintAdapter(check.adapter)
           ? selectLintFiles(selectOptions)
           : await selectTestFiles(selectOptions);
 
@@ -174,7 +172,7 @@ export async function runChecks(options: RunChecksOptions): Promise<RunChecksOut
     const commandMutations = await watch.observe(`the "${check.command}" command`);
     const mutations = reportMutations(commandMutations);
 
-    const limitations = [...new Set([...selection.limitations, ...(adapter.limitations ?? [])])];
+    const limitations = [...new Set(selection.limitations)];
     if (options.revisionNote !== null) limitations.push(options.revisionNote);
     limitations.push(...mutationLimitation(commandMutations));
     if (outcome.truncated) limitations.push('The captured output was truncated at the configured limit.');
@@ -205,21 +203,9 @@ export async function runChecks(options: RunChecksOptions): Promise<RunChecksOut
 
     const outputRef = await captureOutput(options.fs, options.reviewDirectory, options.project.id, checkId, outcome.stdout, outcome.stderr);
 
-    // A kill is not automatically an absent result: a complete summary the runner already printed
-    // is kept as the verdict. The overrun is still reported and `exitCode` stays null.
-    const recovered =
-      outcome.kind === 'timed-out'
-        ? (adapter.parseCompletedRun?.(`${outcome.stdout}\n${outcome.stderr}`) ?? null)
-        : null;
-    if (recovered !== null) {
-      limitations.push(
-        `The command was killed at the ${Math.round((command.timeoutSeconds ?? options.config.checks.timeoutSeconds))}s checks.timeoutSeconds timeout, after ${durationMs}ms, but it had already reported a complete run: that reported result is what this check carries. Work after the last test — teardown, coverage, reporters — did not finish.`,
-      );
-    }
-
     results.push({
       ...ran,
-      status: recovered ?? (outcome.kind === 'timed-out' ? 'timed-out' : outcome.exitCode === 0 ? 'passed' : 'failed'),
+      status: (outcome.kind === 'timed-out' ? 'timed-out' : outcome.exitCode === 0 ? 'passed' : 'failed'),
       exitCode: outcome.exitCode,
       outputRef,
     });

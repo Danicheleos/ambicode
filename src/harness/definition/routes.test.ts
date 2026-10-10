@@ -12,7 +12,7 @@ import { HANDLER_NAMES } from '#types/harness';
 const HANDLERS = ['code.one', 'code.two'];
 
 const BASE = {
-  head: 'skill: demo\nversion: 3\nbudget: { modelSteps: 6 }\nexits: [done, blocked, human]\nrevisable: []\nsteps:\n',
+  head: 'skill: demo\nversion: 3\nexits: [done, blocked, human]\nrevisable: []\nsteps:\n',
   code: '  - id: ground\n    actor: code\n    run: code.one\n    produces: [envelope]\n    repeat: 2\n',
   model: '  - id: read\n    actor: model\n    instruction: Read the code.\n',
   gate: [
@@ -73,13 +73,13 @@ test('03-R1: one rejection per schema rule, each naming the file and the field',
 
 test('03-R2: when accepts the fixed vocabulary and gate predicates of this route only', async (t) => {
   const withWhen = (when: string): string => `${BASE.head}${BASE.code}${BASE.gate}  - id: after\n    actor: code\n    run: code.two\n    when: "${when}"\n`;
-  for (const when of ['args.hasRequirement', '!args.hasRequirement', 'map.empty', 'plan.isDraft', 'headless', 'interactive', 'revised', 'gate.ask.answered', 'gate.ask.is(Yes)']) {
+  for (const when of ['args.hasRequirement', 'map.empty', 'plan.isDraft', 'revised', 'gate.ask.is(Yes)']) {
     const directory = await root(t, { 'routes/demo/demo.yaml': withWhen(when) });
     await validateRouteFiles(directory, { handlers: HANDLERS });
   }
   await refuses(t, withWhen('index.present'), /not in the when vocabulary/);
   await refuses(t, withWhen('args.other'), /after\.when: "args\.other" is not in the when vocabulary/);
-  await refuses(t, withWhen('gate.nope.answered'), /"nope" is not a gate of this route/);
+  await refuses(t, withWhen('gate.nope.is(Yes)'), /"nope" is not a gate of this route/);
   await refuses(t, withWhen('gate.ask.is(Never)'), /"Never" is not an option of gate ask/);
 });
 
@@ -154,7 +154,7 @@ test('03-R7: the registry holds every v6/32 §4 gate with a question, default an
   const { registry } = await validateRouteFiles(REPO_ROOT, { handlers: HANDLER_NAMES });
   const ids = registry.map((gate) => gate.id).sort();
   assert.deepEqual(ids, [
-    'check-only-unauthorized', 'config-unparsable', 'decision:*', 'project-ambiguous', 'requirements-conflicting',
+    'check-only-unauthorized', 'decision:*', 'project-ambiguous',
     'requirements-expansion-capped', 'requirements-not-captured-twice', 'requirements-server-ambiguous', 'requirements-server-disconnected', 'review-again', 'review-checks', 'scope-expanding',
   ]);
   for (const gate of registry) {
@@ -164,9 +164,8 @@ test('03-R7: the registry holds every v6/32 §4 gate with a question, default an
   }
   const acting = Object.fromEntries(registry.map((gate) => [gate.id, gate.acting]));
   assert.deepEqual(acting['check-only-unauthorized'], ['approve']);
-  assert.deepEqual(acting['config-unparsable'], ['back up and regenerate']);
   assert.deepEqual(acting['review-checks'], ['with']);
-  assert.deepEqual(Object.entries(acting).filter(([id]) => !['check-only-unauthorized', 'config-unparsable', 'review-again', 'review-checks'].includes(id)).flatMap(([, value]) => value), []);
+  assert.deepEqual(Object.entries(acting).filter(([id]) => !['check-only-unauthorized', 'review-again', 'review-checks'].includes(id)).flatMap(([, value]) => value), []);
   const reviewStop = registry.filter((gate) => gate.policy['review'] === 'stop').map((gate) => gate.id).sort();
   assert.deepEqual(reviewStop, ['requirements-not-captured-twice', 'requirements-server-ambiguous', 'requirements-server-disconnected']);
   const decision = registry.find((gate) => gate.id === 'decision:*')!;

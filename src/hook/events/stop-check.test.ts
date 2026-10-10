@@ -20,7 +20,6 @@ const A = 'aaaaaaaa-1111-4111-8111-111111111111';
 const TASK = 'ORD-17';
 const INV = `skill: inv
 version: 3
-budget: { modelSteps: 6 }
 exits: [done, blocked, human, inconclusive, superseded]
 revisable: []
 steps:
@@ -85,21 +84,6 @@ describe('03-K1 conditions', () => {
       await s.say('## Confirmed facts\nsrc/missing.ts:3');
       assert.deepEqual(await s.stop({ agent_id: 'sub' }), {});
       assert.deepEqual(await s.stop({ session_id: 'cccccccc-3333-4333-8333-333333333333' }), {});
-    } finally {
-      await s.dispose();
-    }
-  });
-
-  it('03-K3: the generated note label is not an acceptance claim', async () => {
-    const s = await stopper();
-    try {
-      await toWrite(s);
-      await s.fx.repo.write('src/a.ts', 'one\ntwo\n');
-      await s.saveNote('## Confirmed facts\nIt is at src/a.ts:1.\n');
-      await s.fx.engine.advance({ task: TASK, session: A, cause: 'note save', scratchpadDir: s.fx.scratchpad });
-      await s.say('Saved the note.');
-      assert.deepEqual(await s.stop(), {});
-      assert.deepEqual(await s.limits(), []);
     } finally {
       await s.dispose();
     }
@@ -175,52 +159,6 @@ describe('03-K3 checks', () => {
     }
   });
 
-  it('"accepted" needs a bound acceptance; "tests pass" needs a counted green check', async () => {
-    const s = await stopper();
-    try {
-      await toWrite(s);
-      await s.say(`${heading}The plan was accepted and all tests pass.`);
-      const blocked = await s.stop();
-      assert.match(blocked.reason!, /no bound acceptance/);
-      assert.match(blocked.reason!, /no check with exit 0/);
-    } finally {
-      await s.dispose();
-    }
-    const backed = await stopper();
-    try {
-      await toWrite(backed);
-      const route = (await backed.fx.kinds(TASK, 'route'))[0]!.id;
-      await writeFile(path.join(backed.fx.repo.root, '.ambicode', 'task', TASK, 'ledger.jsonl'), (await readFile(path.join(backed.fx.repo.root, '.ambicode', 'task', TASK, 'ledger.jsonl'), 'utf8')) + [
-        { id: 'zzzzzzzz-901', at: '2026-10-05T10:00:00.000Z', kind: 'acceptance', route, gate: 'check-only-unauthorized', instance: 'x', answer: 'approve', via: 'hook' },
-        { id: 'zzzzzzzz-902', at: '2026-10-05T10:00:00.000Z', kind: 'check', route, key: 'app/unit', argv: ['npm', 'test'], only: [], exit: 0, phase: 'green', summary: { ran: 3, failed: 0 }, ms: 10 },
-      ].map((entry) => `${JSON.stringify(entry)}\n`).join(''));
-      await backed.say(`${heading}The plan was accepted and all tests pass.`);
-      assert.deepEqual(await backed.stop(), {});
-    } finally {
-      await backed.dispose();
-    }
-  });
-
-  it('"approved" needs a current acceptance of an acting option: not a non-acting answer, not one a revise replaced', async () => {
-    const attempt = async (rows: (route: string) => object[]) => {
-      const t = await stopper();
-      try {
-        await toWrite(t);
-        const route = (await t.fx.kinds(TASK, 'route'))[0]!.id;
-        const file = path.join(t.fx.repo.root, '.ambicode', 'task', TASK, 'ledger.jsonl');
-        await writeFile(file, (await readFile(file, 'utf8')) + rows(route).map((entry) => `${JSON.stringify(entry)}\n`).join(''));
-        await t.say(`${heading}The plan was approved.`);
-        return (await t.stop()).decision;
-      } finally {
-        await t.dispose();
-      }
-    };
-    const accept = (route: string, answer: string, n: number) => ({ id: `zzzzzzzz-91${n}`, at: '2026-10-05T10:00:00.000Z', kind: 'acceptance', route, gate: 'check-only-unauthorized', instance: 'x', answer, via: 'hook' });
-    assert.equal(await attempt((route) => [accept(route, 'approve', 1)]), undefined);
-    assert.equal(await attempt((route) => [accept(route, 'decline', 1)]), 'block');
-    assert.equal(await attempt((route) => [accept(route, 'approve', 1), { id: 'zzzzzzzz-929', at: '2026-10-05T10:00:01.000Z', kind: 'revise', route, from: 'read', via: 'gate', cycle: 0, reason: 'more' }]), 'block');
-  });
-
   it('the generated sections are checked once the report was written, even with neither heading in the text', async () => {
     const withReport = INV.replace('instruction: "## Confirmed facts\\nWrite the note."', 'payload: [report]\n    instruction: "## Confirmed facts\\nWrite the note."');
     const fx = await routeFixture({ routes: { inv: withReport } });
@@ -283,11 +221,10 @@ describe('03-K6 transcript', () => {
 });
 
 describe('03-K4 redBeforeGreen', () => {
-  const check = (exit: number, failed: number, ran = 2): LedgerEntry => ({ id: 'a-1', at: 'x', kind: 'check', key: 'k', exit, summary: { ran, failed } });
+  const check = (exit: number, _failed = 0, _ran = 2): LedgerEntry => ({ id: 'a-1', at: 'x', kind: 'check', key: 'k', exit });
   it('is true only when a failing run precedes the first green one', () => {
     assert.equal(redBeforeGreen([check(1, 1), check(0, 0)], 'k'), true);
     assert.equal(redBeforeGreen([check(0, 0)], 'k'), false);
-    assert.equal(redBeforeGreen([check(1, 0, 0), check(0, 0)], 'k'), false, 'exit 1 with no failed test is not a red run');
     assert.equal(redBeforeGreen([check(1, 1)], 'k'), true, 'no green yet');
     assert.equal(redBeforeGreen([], 'k'), true);
   });
@@ -295,7 +232,6 @@ describe('03-K4 redBeforeGreen', () => {
 
 const ANSWER = `skill: inv
 version: 3
-budget: { modelSteps: 6 }
 exits: [done, blocked, human, inconclusive, superseded]
 revisable: []
 steps:
@@ -456,7 +392,7 @@ describe('07-S task stop inputs', () => {
     await writeFile(LEDGER(s), (await readFile(LEDGER(s), 'utf8')) + lines.join(''));
   };
   const BRIEF = { kind: 'step', step: 'ground', actor: 'code', status: 'completed', cause: 'route-next', defectBrief: true };
-  const run = (phase: string, exit: number, summary: { ran: number; failed: number } | null, key = 'app/unit'): Record<string, unknown> => ({ kind: 'check', key, argv: ['jest'], only: ['a.spec.ts'], exit, phase, summary, ms: 3 });
+  const run = (phase: string, exit: number, _summary: { ran: number; failed: number } | null, key = 'app/unit'): Record<string, unknown> => ({ kind: 'check', key, argv: ['jest'], only: ['a.spec.ts'], exit, phase, ms: 3 });
   async function withStop(body: (s: Stopper) => Promise<void>): Promise<void> {
     const s = await stopper();
     try {
@@ -466,55 +402,6 @@ describe('07-S task stop inputs', () => {
       await s.dispose();
     }
   }
-
-  it('07-S1/07-S4: each "tests pass" phrasing without a green check that ran tests blocks once, then the second failure allows', async () => {
-    for (const phrase of ['tests pass', 'All tests pass.', 'The tests are green.', 'test passed']) {
-      await withStop(async (s) => {
-        await s.say(`${heading}Done: ${phrase}`);
-        const blocked = await s.stop();
-        assert.equal(blocked.decision, 'block', phrase);
-        assert.match(blocked.reason!, /says tests pass/);
-        assert.deepEqual(await s.limits(), ['stop-block']);
-        assert.deepEqual(await s.stop(), {}, '07-S4 second failure allows');
-        assert.deepEqual(await s.limits(), ['stop-block']);
-      });
-    }
-  });
-
-  it('07-S1: a text without the phrase is not blocked for lack of a green check', async () => {
-    await withStop(async (s) => {
-      await s.say(`${heading}The failing test now fails for the right reason; nothing was run to completion.`);
-      assert.deepEqual(await s.stop(), {});
-    });
-  });
-
-  it('07-S1: a green check that ran tests allows the claim', async () => {
-    await withStop(async (s) => {
-      await append(s, [run('red', 1, { ran: 1, failed: 1 }), run('green', 0, { ran: 3, failed: 0 })]);
-      await s.say(`${heading}All tests pass.`);
-      assert.deepEqual(await s.stop(), {});
-      assert.deepEqual(await s.limits(), []);
-    });
-  });
-
-  it('07-S1: a red-phase check shaped green, a zero-test green and a green with failures do not count', async () => {
-    const cases: [string, Record<string, unknown>][] = [
-      ['red phase shaped green', run('red', 0, { ran: 3, failed: 0 })],
-      ['zero tests', run('green', 0, { ran: 0, failed: 0 })],
-      ['null summary', run('green', 0, null)],
-      ['failures', run('green', 0, { ran: 3, failed: 1 })],
-      ['nonzero exit', run('green', 1, { ran: 3, failed: 0 })],
-    ];
-    for (const [name, entry] of cases) {
-      await withStop(async (s) => {
-        await append(s, [entry]);
-        await s.say(`${heading}Tests pass.`);
-        const blocked = await s.stop();
-        assert.equal(blocked.decision, 'block', name);
-        assert.match(blocked.reason!, /says tests pass/, name);
-      });
-    }
-  });
 
   it('07-S2: a defect brief with a green check and no failing run before it blocks; a failing run first allows', async () => {
     await withStop(async (s) => {
@@ -531,14 +418,9 @@ describe('07-S task stop inputs', () => {
     });
   });
 
-  it('07-S2: a red run with no failed test does not satisfy red-before-green; without a defect brief no red is required', async () => {
+  it('07-S2: without a defect brief no red is required', async () => {
     await withStop(async (s) => {
-      await append(s, [BRIEF, run('red', 1, { ran: 0, failed: 0 }), run('green', 0, { ran: 3, failed: 0 })]);
-      await s.say(`${heading}Fixed it.`);
-      assert.equal((await s.stop()).decision, 'block');
-    });
-    await withStop(async (s) => {
-      await append(s, [run('green', 0, { ran: 3, failed: 0 })]);
+      await append(s, [run('green', 0, null)]);
       await s.say(`${heading}Fixed it.`);
       assert.deepEqual(await s.stop(), {});
     });
@@ -592,13 +474,12 @@ describe('07-S task stop inputs', () => {
   it('07-S5: with many problems the reason stays within the limit and stop-check.md lists them all', async () => {
     await withStop(async (s) => {
       const missing = Array.from({ length: 60 }, (_, index) => `src/missing-${index}.ts:${index + 1}`).join(' ');
-      await s.say(`${heading}All tests pass. ${missing}`);
+      await s.say(`${heading}${missing}`);
       const blocked = await s.stop();
       assert.equal(blocked.decision, 'block');
       assert.ok(Buffer.byteLength(blocked.reason!) <= REASON_LIMIT_BYTES, `${Buffer.byteLength(blocked.reason!)} bytes`);
       const full = await readFile(path.join(s.fx.repo.root, '.ambicode', 'task', TASK, 'stop-check.md'), 'utf8');
-      assert.equal(full.split('\n').filter((line) => line.startsWith('- ')).length, 61);
-      assert.match(full, /says tests pass/);
+      assert.equal(full.split('\n').filter((line) => line.startsWith('- ')).length, 60);
       assert.match(blocked.reason!, /stop-check\.md/);
     });
   });

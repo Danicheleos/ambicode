@@ -11,10 +11,7 @@ export function latestRouteOf(all: readonly LedgerEntry[], session: string): Led
   return all.findLast((entry) => entry.kind === 'route' && entry.session === session) ?? null;
 }
 
-export const isGreen = (entry: LedgerEntry): boolean => {
-  const summary = entry['summary'] as { ran?: number; failed?: number } | null | undefined;
-  return entry['exit'] === 0 && summary != null && (summary.ran ?? 0) >= 1 && summary.failed === 0;
-};
+export const isGreen = (entry: LedgerEntry): boolean => entry['exit'] === 0;
 
 /** `kind{value}` matches on the field that kind carries its qualifier in (01-contracts §1). */
 export function matches(entry: LedgerEntry, qualified: Qualified): boolean {
@@ -40,22 +37,18 @@ function windowStart(def: RouteDef, entries: readonly LedgerEntry[], stepIndex: 
   return index + 1;
 }
 
-interface FoldContext { mode: 'interactive' | 'headless'; args: { hasRequirement?: boolean; target?: { mr?: string | null }; plan?: string | null; fromDraft?: string | null } }
+interface FoldContext { args: { hasRequirement?: boolean; target?: { mr?: string | null }; plan?: string | null; fromDraft?: string | null } }
 
 function evaluate(when: When, window: readonly LedgerEntry[], all: readonly LedgerEntry[], context: FoldContext, gateWindow: (gate: string) => readonly LedgerEntry[], opener: LedgerEntry | undefined, step: StepDef): boolean {
   switch (when.predicate) {
     case 'args.hasRequirement': return context.args.hasRequirement === true;
-    case '!args.hasRequirement': return context.args.hasRequirement !== true;
     case 'args.hasMergeRequest': return typeof context.args.target?.mr === 'string';
     case 'map.empty': {
       const map = all.findLast((entry) => entry.kind === 'map');
       return map !== undefined && map['candidates'] === 0;
     }
     case 'plan.isDraft': return context.args.fromDraft != null || /(^|[\\/])plan-draft[^\\/]*$/.test(context.args.plan ?? '');
-    case 'headless': return context.mode === 'headless';
-    case 'interactive': return context.mode === 'interactive';
     case 'revised': return opener?.kind === 'revise' && opener['from'] === step.id;
-    case 'gate.answered': return latestBound(gateWindow(when.gate), when.gate) !== null;
     case 'gate.is': return latestBound(gateWindow(when.gate), when.gate)?.['answer'] === when.option;
     case 'gate.isnt': {
       const answer = latestBound(gateWindow(when.gate), when.gate)?.['answer'];
@@ -77,7 +70,6 @@ function isDone(step: StepDef, window: readonly LedgerEntry[]): boolean {
     case 'code': return ownCompletion(window, step) && produced();
     case 'model': return (step.produces.length > 0 ? produced() : ownCompletion(window, step)) || limited(window, step);
     case 'human': return latestBound(window, step.gate!.id) !== null || limited(window, step);
-    case 'worker': return window.some((entry) => entry.kind === 'worker');
   }
 }
 
@@ -97,7 +89,7 @@ interface Fold {
 
 export function foldRoute(def: RouteDef, chain: Chain): Fold {
   const head = chain.head;
-  const context: FoldContext = { mode: head['mode'] === 'headless' ? 'headless' : 'interactive', args: (head['args'] ?? {}) as FoldContext['args'] };
+  const context: FoldContext = { args: (head['args'] ?? {}) as FoldContext['args'] };
   const steps: StepState[] = [];
   let position: StepDef | null = null;
   // A gate's answer is read in its own step's window: a revise to a later step does not unanswer it.

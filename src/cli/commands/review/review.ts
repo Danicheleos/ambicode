@@ -12,7 +12,7 @@ import { routeEvidence } from '#modules/requirements/envelope/envelope';
 import { taskSlugFor } from '#modules/review/bundle/review-name';
 import { readEntries } from '#harness/engine/context';
 import { COMMAND_SPECS } from '#skills/review/commands';
-import { runCommandTail } from '#harness/engine/command-tail';
+import { runCommandTail } from '#harness/engine/engine';
 import { AmbicodeError } from '#util/errors';
 import { routeTools } from '../route/route.ts';
 import { GATE, type PendingApproval, type CheckDeps, type Routed } from '#types/modules/checks';
@@ -40,7 +40,7 @@ async function envelopeRequirements(runtime: Runtime, routed: Routed, options: R
   const envelope = chain.findLast((entry) => entry.kind === 'envelope');
   const head = chain.find((entry) => entry.kind === 'route' && entry.id === routed.view.routeId);
   if (envelope === undefined || head === undefined) return null;
-  const found = await routeEvidence({ runtime, dir: routed.dir, args: head['args'] as RouteArgs }, envelope, null);
+  const found = await routeEvidence({ runtime, dir: routed.dir, args: head['args'] as RouteArgs }, envelope);
   return found === null ? null : { requirementUrls: found.urls, evidence: { kind: 'inline', evidence: found.evidence } };
 }
 

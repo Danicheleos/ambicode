@@ -4,7 +4,6 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { session, mcp } from '#testing/fixtures/requirements-session';
 import { captureMrDiff, MR_DIFF_JSON, MR_DIFF_PATCH } from './mr-capture.ts';
-import { parseMergeRequestUrl } from './mr-url.ts';
 import { SESSION_A } from '#testing/fixtures/ids';
 
 const URL_MR = 'https://gitlab.example.com/g/p/-/merge_requests/7';
@@ -48,12 +47,3 @@ describe('mr diff capture', () => {
   });
 });
 
-describe('parseMergeRequestUrl', () => {
-  it('reads project and iid from the dashed and the older form, nested groups included', () => {
-    assert.deepEqual(parseMergeRequestUrl(URL_MR), { project: 'g/p', iid: 7 });
-    assert.deepEqual(parseMergeRequestUrl('https://gitlab.com/a/b/c/merge_requests/12/diffs?x=1'), { project: 'a/b/c', iid: 12 });
-  });
-  it('refuses a URL that is not a merge request', () => {
-    for (const bad of ['https://gitlab.com/a/b/-/issues/3', 'not a url']) assert.throws(() => parseMergeRequestUrl(bad), { code: 'bad-argument' });
-  });
-});

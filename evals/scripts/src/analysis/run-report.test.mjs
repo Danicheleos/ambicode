@@ -133,7 +133,7 @@ describe('run-report: comparisons and findings', () => {
   it('flags a loss beyond the band, a saturated case, an open route and a map the answer ignored; proposals follow', () => {
     const row = (name, arm, run, recall, extra = {}) => ({ case: name, arm, run, kind: 'localize', recall, score: 1, costUsd: 0.1, absent: false, traced: true, truth: ['a/x.ts'], ...extra });
     const plugin = [
-      row('lost', 'with', 0, 0.2, { route: { routes: 1, exit: null, signature: 'route > read:delivered', stopBlocked: 0 }, step: { text: 's', leads: ['a/x.ts'], feature: [] }, mapTrue: ['a/x.ts'], mapTrueMissed: ['a/x.ts'], trueOutsideMap: [] }),
+      row('lost', 'with', 0, 0.2, { route: { routes: 1, exit: null, signature: 'route > read:delivered', stopBlocked: 0 }, step: { text: 's', leads: ['a/x.ts'] }, mapTrue: ['a/x.ts'], mapTrueMissed: ['a/x.ts'], trueOutsideMap: [] }),
       row('full', 'with', 0, 1, { route: { routes: 1, exit: { reason: 'done' }, signature: 'route > exit:done', stopBlocked: 0 } }),
     ];
     const bare = [row('lost', 'without', 0, 0.8), row('full', 'without', 0, 1)];

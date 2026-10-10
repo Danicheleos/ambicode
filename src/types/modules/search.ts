@@ -1,5 +1,3 @@
-import type { SearchProfile } from './config.ts';
-import type { Ecosystem } from '../primitives.ts';
 
 export const LAYER_NAMES = ['shortlist', 'harvest', 'grep'] as const;
 export type LayerName = (typeof LAYER_NAMES)[number];
@@ -17,14 +15,6 @@ export interface RefsResult {
   text: string;
   bytes: number;
   truncated: boolean;
-}
-
-export interface NavigationGuidance {
-  strategy: 'shortlist-then-known-paths-then-lsp-then-targeted-search';
-  ecosystem: Ecosystem;
-  statusSource: 'current-session';
-  evidenceRequirement: string;
-  readGuidance: string;
 }
 
 /** `spans`: up to three line ranges (`40-52`) where the terms occur. */

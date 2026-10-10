@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { routeFixture , stopRoute } from '#testing/fixtures/route-fixture';
-import { handlerRegistry } from './handlers.ts';
+import { handlerRegistry } from './execute.ts';
 import { createEngine } from './engine.ts';
 import type { Handler, HandlerRegistry, StartInput } from '#types/harness';
 
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';
-const HEAD = (skill: string, extra = '') => `skill: ${skill}\nversion: 3\nbudget: { modelSteps: 6 }\nexits: [done, blocked, human, inconclusive, superseded]\nrevisable: [${extra}]\nsteps:\n`;
+const HEAD = (skill: string, extra = '') => `skill: ${skill}\nversion: 3\nexits: [done, blocked, human, inconclusive, superseded]\nrevisable: [${extra}]\nsteps:\n`;
 
 export const INVESTIGATE = `${HEAD('inv')}  - id: template
     actor: code
@@ -241,48 +241,6 @@ describe('engine: templates, scope revises and re-entry (S9)', () => {
       assert.match(refused.text, /repeat limit is spent/);
       assert.deepEqual((await fx.kinds('t1', 'limit')).map((entry) => [entry['which'], entry['step']]), [['repeat', 'template']]);
       await assert.rejects(fx.engine.advance({ task: 't1', session: A, cause: 'route-next', revise: 'read' }), (error: Error & { code?: string }) => error.code === 'revise-not-allowed');
-    } finally {
-      await fx.dispose();
-    }
-  });
-});
-
-const WORKER_ROUTE = `${HEAD('wk')}  - id: scout
-    actor: worker
-    gate:
-      question: "Run the scout worker?"
-      options: [run, inline, skip]
-      default: skip
-      release: skip
-  - id: write
-    actor: model
-    instruction: "Write it."
-`;
-
-describe('engine: headless visibility and worker steps (B18, B15)', () => {
-  it('B15: a worker step prints a run/inline/skip gate and does not throw; the default skips it and records the skip', async () => {
-    const fx = await routeFixture({ routes: { wk: WORKER_ROUTE } });
-    try {
-      const input = { skill: 'wk', text: 'go', requirements: [], task: 'w1', cwd: fx.repo.root, session: A, channel: 'hook' as const, scratchpadDir: fx.scratchpad };
-      const first = await fx.engine.start(input);
-      assert.equal(first.position, 'scout');
-      assert.match(first.text, /Run the scout worker\?/);
-      const headless = await fx.engine.start({ ...input, task: 'w2', headless: true, session: 'bbbbbbbb-1111-4111-8111-111111111111' });
-      assert.equal(headless.position, 'write');
-      assert.deepEqual((await fx.kinds('w2', 'worker')).map((entry) => [entry['worker'], entry['outcome']]), [['scout', 'skipped']]);
-    } finally {
-      await fx.dispose();
-    }
-  });
-
-  it('B15: a run answer is not run, since workers are not available, and records inline', async () => {
-    const fx = await routeFixture({ routes: { wk: WORKER_ROUTE } });
-    try {
-      await fx.engine.start({ skill: 'wk', text: 'go', requirements: [], task: 'w1', cwd: fx.repo.root, session: A, channel: 'hook', scratchpadDir: fx.scratchpad });
-      const print = (await fx.kinds('w1', 'gate')).at(-1)!;
-      const after = await fx.engine.advance({ task: 'w1', session: A, cause: 'gate-hook', scratchpadDir: fx.scratchpad, answers: [{ gate: 'scout', option: 'run', instance: print.id }] });
-      assert.equal(after.position, 'write');
-      assert.deepEqual((await fx.kinds('w1', 'worker')).map((entry) => [entry['outcome'], entry['reason']]), [['inline', 'worker runs are not available']]);
     } finally {
       await fx.dispose();
     }

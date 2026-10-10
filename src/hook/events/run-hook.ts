@@ -148,7 +148,6 @@ async function captureForRoute(runtime: Runtime, input: HookInput, deps: HookDep
   if (typeof found === 'string') return;
   const active = await resolveActiveRoute(runtime.fs, deps.pointer, { repositoryRoot: found.repositoryRoot, session: input.session_id, scratchpad: input.scratchpad_dir });
   if (active === null) return;
-  const mcpServer = await loadConfig(runtime.fs, found.repositoryRoot).then((loaded) => loaded.config.requirements.mcpServer).catch(() => null);
   const routeRuntime = await createRuntime({ ...runtime, cwd: found.repositoryRoot });
   const { routes } = await deps.load();
   const view = await openRouteView(routeRuntime, routes, active.task, active.owner);
@@ -159,7 +158,7 @@ async function captureForRoute(runtime: Runtime, input: HookInput, deps: HookDep
     const head = read.state === 'ok' ? read.entries.find((entry) => entry.id === view.routeId) : undefined;
     const mrUrl = view.skill === 'review' ? ((head?.['args'] as { target?: { mr?: string | null } } | undefined)?.target?.mr ?? null) : null;
     await captureMrDiff(input, { runtime: routeRuntime, dir, ledger, routeId: view.routeId, mrUrl });
-    await captureRequirement(input, { runtime: routeRuntime, dir, ledger, view, mcpServer, asked: askedKeys((head?.['args'] ?? { requirements: [], text: '' }) as Pick<RouteArgs, 'requirements' | 'text'>) });
+    await captureRequirement(input, { runtime: routeRuntime, dir, ledger, view, asked: askedKeys((head?.['args'] ?? { requirements: [], text: '' }) as Pick<RouteArgs, 'requirements' | 'text'>) });
   });
 }
 

@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { runCommandTail } from './command-tail.ts';
+import { runCommandTail } from './engine.ts';
 import { insideEngine } from './engine.ts';
 import { hookBinding } from '../session/session.ts';
 import { PLAN_TASK, planFixture } from '#testing/fixtures/plan-fixture';

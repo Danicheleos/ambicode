@@ -54,7 +54,7 @@ In the target repository, start or restart Claude Code and run:
 
 `/ambicode:init` scans the repository, lets the model judge the projects and
 commands from the scan, validates that proposal against the config schema, and
-asks one question: *Apply as proposed*, *Adjust* (pick a printed choice, such as
+asks one question: *Apply*, *Adjust* (pick a printed choice, such as
 `MCP server: <name>`), or *Cancel*. Only an accepted answer writes
 the config and the `.gitignore` lines, then prints a `doctor` table that probes
 every configured command. *Cancel*, or a headless run, writes nothing outside
@@ -173,20 +173,11 @@ claude plugin install pyright-lsp@claude-plugins-official --scope user
 pipx install pyright
 ```
 
-Restart or reload Claude after installing. `ambicode init` shows the
-recommendation for every project; `ambicode map`
-leaves installation guidance out of its per-call payload and
-carries only the search strategy, the evidence requirement, and the boundary
-shortlist when the call asked for one. During `investigate`, `plan`, and
-`task`, the skill must report the LSP operations it actually used or a
-specific targeted-search fallback reason — and a session with no LSP tools
-reports that fact in one line, which is the complete fallback evidence.
-Installed state alone is not evidence that the current session used LSP.
-
-Nothing here is required for the shortlist. `ambicode map --term <term>` needs
-only git, and it is what narrows a repository to candidate files before LSP is
-asked anything; LSP then explains a candidate rather than finding it. A
-session with no LSP plugin installed still gets the shortlist.
+Restart or reload Claude after installing. These plugins are optional and
+independent of AMBICODE: no AMBICODE skill or command requires them, checks for
+them or reports on them. `ambicode map` and `ambicode refs` need only git; they
+narrow a repository to candidate files and name usages, and a language server
+can then explain a candidate.
 
 ## Repository verification
 

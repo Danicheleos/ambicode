@@ -1,6 +1,4 @@
 import type { TypedEntry } from '#platform/ledger/kinds';
-import type { Workspace } from '../composition.ts';
-import type { ProjectConfig } from './config.ts';
 import type { LedgerEntry, NoteDeps, TaskDir } from './evidence.ts';
 import type { RouteView } from '../harness.ts';
 import type { DiffFile } from '../platform/git.ts';
@@ -47,8 +45,6 @@ export interface ChangedPath {
   changeKind: DiffFile['changeKind'];
 }
 
-export type ProofCause = 'no-summary' | 'zero-tests' | 'load-error' | 'no-failure' | 'nonzero-exit';
-
 export type ProofVerdict =
   | { proven: true }
-  | { proven: false; which: 'red-unproven' | 'green-unproven'; cause: ProofCause };
+  | { proven: false; cause: 'no-failure' | 'nonzero-exit' };

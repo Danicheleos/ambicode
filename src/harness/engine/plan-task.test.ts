@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { appendLedger } from '#platform/ledger/ledger';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { taskFixture } from '#testing/fixtures/task-fixture';
-import { continuedTask } from './plan-task.ts';
+import { continuedTask } from './engine.ts';
 
 describe('continuedTask', () => {
   it('names the task for `iteration N of <slug>`, takes the latest accepted plan for a bare `iteration N`, and ignores other requests', async () => {

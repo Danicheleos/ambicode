@@ -62,7 +62,6 @@ export function reviewResult(options: FixtureOptions = {}): ReviewResult {
       },
     ],
     requirementMode: 'requirement-based',
-    requirementConflicts: [],
     provenance: [{ kind: 'config', reference: '.ambicode/config.yaml', contentHash: 'sha256:abc' }],
     inputs: {
       changedFiles: 1,

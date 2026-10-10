@@ -4,7 +4,7 @@ import { mkdtemp, rm, writeFile, mkdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { commandContext } from '#harness/engine/context';
-import { loadPayload } from '#harness/engine/delivery';
+import { loadPayload } from '#harness/engine/execute';
 import { skillHandlers } from '#skills/handlers';
 import { saveNote } from '#modules/evidence/notes';
 import { assembleEngine, CONFIG, routeFixture , stopRoute } from '#testing/fixtures/route-fixture';
@@ -37,7 +37,7 @@ describe('investigate route (03-I1, 03-I2)', () => {
     try {
       const first = await start();
       assert.equal(first.position, 'read');
-      assert.deepEqual(await rows(), ['template:skipped', 'fetch:skipped', 'ground:completed', 'scope:skipped', 'read:delivered']);
+      assert.deepEqual(await rows(), ['fetch:skipped', 'ground:completed', 'scope:skipped', 'read:delivered']);
       assert.match(first.text, /Now: Read the code the question is about, then answer it\./);
       assert.match(first.text, /Then: answer the user; your answer is saved as the investigation note when you stop/);
       assert.match(first.text, /## map\n/);
@@ -73,11 +73,11 @@ describe('investigate route (03-I1, 03-I2)', () => {
     const { fx, start } = await investigation();
     try {
       const first = await start();
-      assert.doesNotMatch(first.text, /## envelope|## acs|## ARGS|## policy:before-work|rulesOmitted/);
+      assert.doesNotMatch(first.text, /## envelope|## ARGS|## policy:before-work|rulesOmitted/);
       assert.equal(first.text.split('Read the code the question is about, then answer it.').length - 1, 1, 'the Now: line is not repeated in the body');
       const dir = path.join(fx.repo.root, '.ambicode', 'task', 'cart');
       const chain = (await fx.kinds('cart', 'route'))[0]!.id;
-      for (const key of ['envelope', 'acs', 'policy:before-work']) {
+      for (const key of ['envelope', 'policy:before-work']) {
         assert.equal(await loadPayload(fx.runtime.fs, { steps: path.join(dir, 'steps') } as never, chain, key), '', `${key}: an empty payload is saved, so no earlier one is delivered`);
       }
       assert.equal((await fx.kinds('cart', 'envelope')).length, 1, 'the envelope is still recorded');
@@ -139,7 +139,7 @@ describe('investigate route (03-I1, 03-I2)', () => {
       assert.equal(done.position, 'complete');
       assert.match(done.text, /The route is complete/);
       assert.equal((await fx.kinds('cart', 'exit')).at(-1)?.['reason'], 'done');
-      assert.deepEqual(fx.routes.route('investigate')!.steps.map((step) => step.id), ['template', 'fetch', 'ground', 'scope', 'read']);
+      assert.deepEqual(fx.routes.route('investigate')!.steps.map((step) => step.id), ['fetch', 'ground', 'scope', 'read']);
     } finally {
       await fx.dispose();
     }
@@ -283,12 +283,11 @@ describe('investigate route: a synthetic walk on ts-feature-boundary (03-I1, 03-
     assert.match(result.texts[0]!, /src\/(invoices|routes|reports|legacy)\//);
   });
 
-  it('03b-N3: with a requirement the model sees two, fetch first with the template in its payload', async () => {
+  it('03b-N3: with a requirement the model sees two, fetch first', async () => {
     const result = await walk(['https://example.atlassian.net/browse/ORD-17']);
     assert.ok(Buffer.byteLength(result.texts[0]!) <= 4_096, '03-X1: a start that delivers fetch');
     assert.deepEqual(result.positions, ['fetch', 'read', 'complete']);
     assert.equal(result.modelSteps, 2);
-    assert.match(result.texts[0]!, /## template\n/);
   });
 });
 

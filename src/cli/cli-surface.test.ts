@@ -4,15 +4,12 @@ import { SPECS, USAGE } from './main.ts';
 
 const TABLE: Record<string, readonly string[]> = {
   'route start': ['task', 'headless', 'project', 'answer', 'fresh', 'adopt'],
-  'route next': ['task', 'answer', 'default', 'revise', 'conflict', 'sources', 'project', 'show'],
+  'route next': ['task', 'answer', 'default', 'revise', 'project', 'show'],
   'route stop': ['task', 'reason', 'detail'],
   map: ['task', 'project', 'mode', 'term', 'symbol'],
   refs: ['project', 'declarations'],
-  'requirements template': ['requirement', 'task'],
   'requirements normalize': ['task'],
-  'requirements acs': ['task'],
   'policy check': ['project', 'drafts'],
-  'rules discover': ['project'],
   'rules apply': ['project'],
   check: ['task', 'only', 'phase', 'approve', 'decline'],
   format: ['task'],
@@ -21,7 +18,6 @@ const TABLE: Record<string, readonly string[]> = {
   'note save': ['task', 'kind', 'from', 'iteration'],
   'note promote': ['task'],
   report: ['task'],
-  'plan check': ['task', 'from'],
   init: ['apply', 'task'],
   'init propose': ['task'],
   version: [],
@@ -29,7 +25,7 @@ const TABLE: Record<string, readonly string[]> = {
 
 const GAPS: Record<string, string> = {};
 
-const SUBCOMMANDS = ['route', 'requirements', 'rules', 'note', 'policy', 'plan'];
+const SUBCOMMANDS = ['route', 'requirements', 'rules', 'note', 'policy'];
 
 const declared = (command: string): string[] => {
   const spec = SPECS[command];
@@ -77,10 +73,9 @@ describe('CLI surface (08-I1)', () => {
     assert.ok(SPECS['review']?.flags?.includes('estimate'));
   });
 
-  it('08-I1: the route and requirements --answer, --requirement and --conflict options repeat as the table says', () => {
+  it('08-I1: the route and requirements --answer, --requirement options repeat as the table says', () => {
     assert.ok(SPECS['route start']?.repeated?.includes('answer'));
     assert.ok(SPECS['route next']?.repeated?.includes('answer'));
-    assert.ok(SPECS['requirements template']?.repeated?.includes('requirement'));
   });
 
   it('08-I1: no command has a channel or trusted flag, and the help text names none', () => {

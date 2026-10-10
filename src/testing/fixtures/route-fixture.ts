@@ -6,7 +6,8 @@ import { harnessOf } from '#harness/session/harness';
 import { latestRouteOf } from '#harness/engine/fold';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { createEngine } from '#harness/engine/engine';
-import { handlerRegistry } from '#harness/engine/handlers';
+import { handlerRegistry } from '#harness/engine/execute';
+import { scriptHandler } from '#harness/engine/script';
 import { loadRoute, routeRegistry } from '#harness/definition/routes';
 import { parseRegistry } from '#harness/gates/gates';
 import { readLedger } from '#platform/ledger/ledger';
@@ -58,9 +59,9 @@ export async function stopRoute(fx: Pick<RouteFixture, 'runtime' | 'pointer' | '
 export interface Assembled { runtime: Runtime; routes: RouteRegistry; pointer: ActiveRoutePointer; build(handlers: Record<string, Handler>): Engine }
 
 /** The engine over an existing repository: what a second process attached to the same task directory builds. */
-export async function assembleEngine(options: { root: string; routes: Record<string, string>; handlers?: readonly string[]; step?: Record<string, string>; clock?: () => Date }): Promise<Assembled> {
+export async function assembleEngine(options: { root: string; routes: Record<string, string>; handlers?: readonly string[]; step?: Record<string, string>; clock?: () => Date; pluginRoot?: string }): Promise<Assembled> {
   const clock = options.clock ?? ((): Date => new Date());
-  const runtime = await createRuntime({ cwd: options.root, clock: { now: clock, elapsed: () => 0 } });
+  const runtime = await createRuntime({ cwd: options.root, clock: { now: clock, elapsed: () => 0 }, ...(options.pluginRoot === undefined ? {} : { pluginRoot: options.pluginRoot }) });
   const handlerNames = [...HANDLER_NAMES, ...(options.handlers ?? [])];
   const registry = parseRegistry('routes/gates.yaml', await readFile(path.join(REPO_ROOT, 'routes', 'gates.yaml'), 'utf8'), KINDS);
   const context = { root: REPO_ROOT, handlers: handlerNames, readInstruction: async (relative: string) => options.step?.[relative] ?? '' };
@@ -72,7 +73,7 @@ export async function assembleEngine(options: { root: string; routes: Record<str
     runtime,
     routes,
     pointer,
-    build: (handlers) => createEngine({ runtime, routes, handlers: handlerRegistry(handlers) as HandlerRegistry, pointer }),
+    build: (handlers) => createEngine({ runtime, routes, handlers: handlerRegistry({ script: scriptHandler, ...handlers }) as HandlerRegistry, pointer }),
   };
 }
 
@@ -81,13 +82,15 @@ export async function routeFixture(options: {
   handlers?: Record<string, Handler>;
   step?: Record<string, string>;
   config?: string | null;
+  /** Where `skills/<skill>/scripts/*.mjs` are read from for `run: script(<name>)` steps; the repository by default. */
+  pluginRoot?: string;
 }): Promise<RouteFixture> {
   const repo = await TempRepo.create();
   await repo.write('package.json', '{}\n');
   if (options.config !== null) await repo.write('.ambicode/config.yaml', options.config ?? CONFIG);
   await repo.commitAll('initial');
   let time = new Date(2026, 9, 5, 10, 0, 0).getTime();
-  const assembled = await assembleEngine({ root: repo.root, routes: options.routes, handlers: Object.keys(options.handlers ?? {}), ...(options.step === undefined ? {} : { step: options.step }), clock: () => new Date(time) });
+  const assembled = await assembleEngine({ root: repo.root, routes: options.routes, handlers: Object.keys(options.handlers ?? {}), ...(options.step === undefined ? {} : { step: options.step }), ...(options.pluginRoot === undefined ? {} : { pluginRoot: options.pluginRoot }), clock: () => new Date(time) });
   const { runtime, routes, pointer, build } = assembled;
   const scratchpad = await runtime.fs.temporaryDirectory('ambicode-scratch-');
   const dir = (task: string): string => path.join(repo.root, '.ambicode', 'task', task);
@@ -95,7 +98,7 @@ export async function routeFixture(options: {
     repo,
     runtime,
     routes,
-    engine: build(options.handlers ?? {}),
+    engine: build({ script: scriptHandler, ...(options.handlers ?? {}) }),
     pointer,
     scratchpad,
     ledger: (task) => readLedger(nodeFileSystem, dir(task)),

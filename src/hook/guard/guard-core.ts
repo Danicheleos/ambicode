@@ -49,11 +49,8 @@ function noteSaveReason(pluginRoot: string): string {
   );
 }
 
-function planBodyReason(pluginRoot: string, slug: string): string {
-  return (
-    `AMBICODE: the plan body is not written with the shell. Pipe the plan to \`node "${pluginRoot}/scripts/ambicode.mjs" plan check ` +
-    `--task ${slug}\` on standard input, as a quoted heredoc: it saves the draft and checks it.`
-  );
+function planBodyReason(slug: string): string {
+  return `AMBICODE: the plan body is not written with the shell. Write it with the Write tool to .ambicode/task/${slug}/steps/plan-body.md, then run route next: the route saves it as the draft and checks it.`;
 }
 
 const USER_DECIDES = 'The user decides, so this asks. Approve only if the user asked for it in this session.';
@@ -166,7 +163,7 @@ function bashDecision(command: string, cwd: string | undefined, pluginRoot: stri
         asks.add(`AMBICODE: cannot tell where this writes: \`${shown(target.path)}\` is resolved only when the shell runs it. ${USER_DECIDES}`);
       } else if (TASK_DIR.test(path)) {
         const slug = PLAN_BODY.exec(path)?.[2];
-        const reason = slug === undefined ? noteSaveReason(pluginRoot) : planBodyReason(pluginRoot, slug);
+        const reason = slug === undefined ? noteSaveReason(pluginRoot) : planBodyReason(slug);
         if (!segments.some((other) => other.unparsed)) return decide('deny', reason);
         asks.add(reason);
       } else if (moved && !isAbsolute(target.path)) {
@@ -189,7 +186,7 @@ function routeOf(input: GuardInput, state: GuardState | undefined): ActiveRoute 
 
 function planBodyDecision(input: GuardInput, state: GuardState | undefined, taskDirectory: string, slug: string, pluginRoot: string): Decision {
   const refuse = (why: string): Decision =>
-    decide('deny', `AMBICODE: steps/plan-body.md is written only by the session that owns the task's live plan route; ${why}. ${planBodyReason(pluginRoot, slug)}`);
+    decide('deny', `AMBICODE: steps/plan-body.md is written only by the session that owns the task's live plan route; ${why}. ${planBodyReason(slug)}`);
   const session = nonEmpty(input.session_id);
   if (session === null) return refuse('the hook named no session');
   if (!isAbsolute(taskDirectory)) return refuse('the hook gave no absolute path for it');

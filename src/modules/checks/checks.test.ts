@@ -427,7 +427,7 @@ test('U15 passed, failed, timed-out, skipped and error stay distinct', async (t)
   assert.equal(broken?.status, 'error');
 });
 
-test('U15 a check killed after its runner finished reporting keeps the result it produced', async (t) => {
+test('U15 a check killed at the timeout stays timed-out even when its output reads like a finished run', async (t) => {
   const directory = await sandbox(t);
   const vitestSummary = [
     ' ✓ src/a.spec.ts (14 tests) 1203ms',
@@ -459,12 +459,8 @@ test('U15 a check killed after its runner finished reporting keeps the result it
   };
 
   const recovered = await run(vitestSummary);
-  assert.equal(recovered?.status, 'failed', 'the runner reported a complete run with a failure');
+  assert.equal(recovered?.status, 'timed-out', 'no exit code was produced, so the output is not read as a verdict');
   assert.equal(recovered?.exitCode, null, 'no exit code was ever produced, and none is invented');
-  assert.ok(
-    recovered?.limitations.some((line) => line.includes('killed') && line.includes('timeout')),
-    `the overrun must still be reported; got ${JSON.stringify(recovered?.limitations)}`,
-  );
 
   const partial = await run(' ✓ src/a.spec.ts (14 tests) 1203ms\n');
   assert.equal(partial?.status, 'timed-out');

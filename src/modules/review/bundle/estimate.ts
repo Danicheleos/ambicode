@@ -1,9 +1,8 @@
 import { type ReviewEstimate, type AssembleOptions } from '#types/modules/review';
 import { tokenize } from '#util/text';
 import { AmbicodeError } from '#util/errors';
-import { adapterFor } from '#modules/checks/selection/adapters';
 import { authorizeCommand, checkApprovalKey } from '#modules/checks/selection/authorize';
-import { selectLintFiles, selectTestFiles } from '#modules/checks/selection/select';
+import { isLintAdapter, selectLintFiles, selectTestFiles } from '#modules/checks/selection/select';
 import { assembleBundle, groupByProject } from './bundle.ts';
 import type { Runtime } from '#types/composition';
 import type { DiffFile } from '#types/platform/git';
@@ -56,7 +55,7 @@ export async function estimateReview(runtime: Runtime, options: AssembleOptions)
         checks.push({ key, decision: 'forbid', reason: authorization.reason });
         continue;
       }
-      const lint = adapterFor(check.adapter).role === 'lint';
+      const lint = isLintAdapter(check.adapter);
       const select = {
         fs: runtime.fs, project, check, changed: changedOf.get(project.id) ?? [], repositoryRoot: dry.workspace.repositoryRoot,
         maxSelectedTestFiles: dry.workspace.config.checks.maxSelectedTestFiles,

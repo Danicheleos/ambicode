@@ -1,7 +1,8 @@
 import path from 'node:path';
-import { PROPOSAL_INPUT_FILE, applyInit } from '#modules/config/init/apply';
+import { applyInit } from '#modules/config/init/apply';
+import { PROPOSAL_FILE } from '#modules/config/init/proposal';
 import type { DoctorTable } from '#types/modules/config';
-import { runCommandTail } from '#harness/engine/command-tail';
+import { runCommandTail } from '#harness/engine/engine';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { COMMAND_SPECS } from '#skills/init/commands';
 import { AmbicodeError } from '#util/errors';
@@ -18,7 +19,7 @@ interface InitApplyOutput {
   mode: 'apply';
   configPath: string;
   created: boolean;
-  changes: string[];
+  backup: string | null;
   notices: string[];
   gitignoreAdded: string[];
   doctor: DoctorTable;
@@ -42,7 +43,7 @@ export async function runInit(runtime: Runtime, args: ParsedArgs): Promise<InitO
   return { command: 'init', mode: 'apply', ...result, ...(next === null ? {} : { next: next.text }) };
 }
 
-/** Stores the model's proposal YAML in the task and advances the route; `init.propose` validates it there, so a bad field returns to `detect`. */
+/** Stores the model's proposed config YAML in the task and advances the route; `init.propose` validates it there, so a bad field returns to `detect`. */
 export async function runInitPropose(runtime: Runtime, args: ParsedArgs): Promise<{ command: 'init propose'; task: string; bytes: number; next?: string }> {
   const task = args.value('task');
   if (task === null) throw new AmbicodeError('bad-argument', '"init propose" needs --task <slug>: the init task the proposal belongs to.', { field: 'task' });
@@ -52,7 +53,7 @@ export async function runInitPropose(runtime: Runtime, args: ParsedArgs): Promis
   const { binding } = await tools.engine.command(COMMAND_SPECS.initPropose, { task }, async ({ binding }) => ({ binding }));
   const dir = await resolveTaskDir(runtime, task);
   await runtime.fs.mkdirp(dir.steps);
-  await runtime.fs.writeText(path.join(dir.steps, PROPOSAL_INPUT_FILE), text);
+  await runtime.fs.writeText(path.join(dir.steps, PROPOSAL_FILE), text);
   const next = await runCommandTail({ engine: tools.engine }, { task, cause: 'init propose', session: binding });
   return { command: 'init propose', task, bytes: Buffer.byteLength(text), ...(next === null ? {} : { next: next.text }) };
 }
@@ -61,7 +62,7 @@ export function renderInit(output: InitOutput): string {
   if (output.mode === 'hint') return 'Run /ambicode:init: the route scans the repository, proposes the configuration and asks you before anything is written.';
   const lines = [`${output.created ? 'Created' : 'Updated'} ${output.configPath}`];
   if (output.gitignoreAdded.length > 0) lines.push(`Added to .gitignore: ${output.gitignoreAdded.join(', ')}`);
-  if (output.changes.length > 0) lines.push('', 'Changes:', ...output.changes.map((change) => `  - ${change}`));
+  if (output.backup !== null) lines.push(`The previous config is kept at ${output.backup}`);
   if (output.notices.length > 0) lines.push('', 'Notices:', ...output.notices.map((notice) => `  - ${notice.split('\n').join('\n    ')}`));
   lines.push('', 'Doctor:', output.doctor.text.trimEnd());
   if (output.next !== undefined) lines.push('', output.next);

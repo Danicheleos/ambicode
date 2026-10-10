@@ -4,8 +4,6 @@ import { createHash } from 'node:crypto';
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
-import { parseArgs } from '#util/args';
-import { renderPlanCheck, runPlanCheckCommand, PLAN_CHECK_OPTIONS } from '#cli/commands/workers/plan-check';
 import { answerGates } from '#hook/events/gate-answer';
 import { runHook } from '#hook/events/run-hook';
 import { buildReport } from '#modules/evidence/report/report';
@@ -13,13 +11,11 @@ import { appendLedger } from '#platform/ledger/ledger';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { PLAN_TASK, planFixture, type PlanFixture } from '#testing/fixtures/plan-fixture';
 import { CONFIG } from '#testing/fixtures/route-fixture';
-import { commandContext } from '#harness/engine/context';
-import { runPlanCheck } from '#modules/workers/plan-check';
 import { REPO_ROOT } from '#testing/paths';
 import { SESSION_A, SESSION_B } from '#testing/fixtures/ids';
 
-/** SHA-256 of the step-06 Contract YAML with amend-06-review-r1 P2 (`fetch` gets `payload: [template]`, `plan-write` gets `payload: [policy:before-report]`) and Revise acting. */
-const CONTRACT_SHA256 = 'cf4580d5fb6105e7e8bdd49f6f78f793f4ba39880aeba7f537544ea75907b50c';
+/** SHA-256 of routes/plan/plan.yaml. */
+const CONTRACT_SHA256 = '623da2f1d0e40796ce4a658ad06bcbc6e87eba6a42a783350ac604837eb2bfcb';
 const GOOD = '# Plan\n\n- *Changes*: `src/orders/limit.ts:1` `orderLimit`\n';
 const BAD = '# Plan\n\n- *Changes*: `src/orders/limit.ts:40` `orderLimit`\n';
 const PLATFORM = { askBinding: 'supported', answerContext: 'supported' } as const;
@@ -30,10 +26,10 @@ const notes = async (plan: PlanFixture, kind: string) => (await plan.fx.kinds(PL
 const steps = async (plan: PlanFixture, step: string, status: string) => (await plan.fx.kinds(PLAN_TASK, 'step')).filter((entry) => entry['step'] === step && entry['status'] === status);
 const lastPrint = async (plan: PlanFixture) => (await plan.prints()).at(-1)!;
 
-/** `plan check --from steps/plan-body.md` as the owner's CLI call: the session binds from the task's live route. */
+/** The model's call: write the body, then `route next` runs the plan-check step. */
 async function planCheck(plan: PlanFixture, body: string) {
   await plan.body(body);
-  return runPlanCheckCommand(plan.fx.runtime, parseArgs('plan check', ['--task', PLAN_TASK, '--from', 'steps/plan-body.md'], PLAN_CHECK_OPTIONS));
+  return plan.next();
 }
 
 /** Start, then deliver plan-write: the point where the model writes its body. */
@@ -54,13 +50,11 @@ const hookAnswer = (plan: PlanFixture, question: string, label: string, options:
 const hookDeps = (plan: PlanFixture) => ({ engine: plan.fx.engine, routes: plan.fx.routes, pointer: plan.fx.pointer });
 
 describe('06-R1/06-R2 the shipped plan route', () => {
-  it('06-R2: with a requirement, fetch is delivered first with the template in its payload', async () => {
+  it('06-R2: with a requirement, fetch is delivered first', async () => {
     const plan = await shipped();
     try {
       const first = await plan.start({ requirements: ['https://example.atlassian.net/browse/ORD-17'] });
       assert.equal(first.position, 'fetch');
-      assert.match(first.text, /## template\n/);
-      assert.doesNotMatch(first.text, /payload-\*-template/);
     } finally {
       await plan.dispose();
     }
@@ -71,7 +65,7 @@ describe('06-R1/06-R2 the shipped plan route', () => {
     assert.equal(createHash('sha256').update(text).digest('hex'), CONTRACT_SHA256);
     assert.deepEqual(YAML.parseDocument(text).errors, []);
     const route = YAML.parse(text) as { steps: { id: string; gate?: { acting?: string[] } }[] };
-    assert.deepEqual(route.steps.map((step) => step.id), ['template', 'fetch', 'ground', 'design', 'plan-step', 'plan-write', 'plan-check', 'plan-accept', 'promote']);
+    assert.deepEqual(route.steps.map((step) => step.id), ['fetch', 'ground', 'design', 'plan-step', 'plan-write', 'plan-check', 'plan-accept', 'promote']);
     assert.deepEqual(route.steps.find((step) => step.id === 'plan-accept')?.gate?.acting, ['Accept', 'Revise']);
     assert.match(await readFile(path.join(REPO_ROOT, 'tools', 'package-candidate.mjs'), 'utf8'), /from: 'routes', extensions: \['\.yaml', '\.md'\]/);
     const plan = await shipped();
@@ -85,8 +79,7 @@ describe('06-R1/06-R2 the shipped plan route', () => {
       assert.match(text, /--task \{task\}/, name);
     }
     const write = await readFile(path.join(REPO_ROOT, 'routes', 'plan', 'write.md'), 'utf8');
-    assert.match(write, /plan check --task \{task\}` on standard input/);
-    assert.doesNotMatch(write, /--from|Write the plan/);
+    assert.match(write, /steps\/plan-body\.md.*route next --task \{task\}/);
     assert.match(await readFile(path.join(REPO_ROOT, 'routes', 'plan', 'design.md'), 'utf8'), /\[ambicode gate decision:<slug>\]/);
   });
 
@@ -113,7 +106,7 @@ describe('06-P5/06-P6/06-P7 write and check', () => {
     try {
       await toWrite(plan);
       const out = await planCheck(plan, GOOD);
-      assert.equal(out.failed, false);
+      assert.equal(out.position, 'plan-accept');
       assert.equal((await notes(plan, 'plan-draft')).length, 1);
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'worker')).length, 1);
       assert.equal((await steps(plan, 'plan-write', 'completed')).length, 1);
@@ -133,19 +126,17 @@ describe('06-P5/06-P6/06-P7 write and check', () => {
     }
   });
 
-  it('S4 06-P6: a failing check is recorded, nothing is rewritten, and the route goes to plan-accept without Accept', async () => {
+  it('S4 06-P6: a failing check is recorded and the bad anchors come back to plan-write as a section; the draft stays', async () => {
     const plan = await shipped();
     try {
       await toWrite(plan);
       const failed = await planCheck(plan, BAD);
-      assert.equal(failed.failed, true);
-      assert.match(failed.next ?? '', /Accept this plan\?/);
-      assert.match(failed.next ?? '', /Plan check FAILED: 1 bad anchors/);
-      assert.doesNotMatch(failed.next ?? '', /  - Accept/);
-      assert.equal((await steps(plan, 'plan-write', 'delivered')).length, 1);
-      assert.deepEqual(await plan.fx.kinds(PLAN_TASK, 'revise'), []);
-      assert.equal((await lastPrint(plan))['gate'], 'plan-accept');
+      assert.equal(failed.position, 'plan-write');
+      assert.match(failed.text, /## Plan check failed/);
+      assert.match(failed.text, /bad anchor: src\/orders\/limit\.ts:40 line-out-of-range/);
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'worker')).length, 1);
       assert.equal((await notes(plan, 'plan-draft')).length, 1, '06-P9: the failed draft stays');
+      assert.equal((await planCheck(plan, GOOD)).position, 'plan-accept');
     } finally {
       await plan.dispose();
     }
@@ -283,32 +274,28 @@ describe('06-R8/06-R9/06-H4 acting authority', () => {
     }
   });
 
-  it('S14 06-R9/06-H4: a trusted Accept preanswer never accepts a draft whose check failed: Accept is not offered, so it is declined', async () => {
+  it('S14 06-R9/06-H4: a failed check never reaches the gate, so a trusted Accept preanswer promotes nothing', async () => {
     const plan = await shipped();
     try {
       await toWrite(plan, { answers: [{ gate: 'plan-accept', option: 'Accept' }] });
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'preanswer')).length, 1);
-      await planCheck(plan, BAD);
+      assert.equal((await planCheck(plan, BAD)).position, 'plan-write');
       assert.equal((await notes(plan, 'plan')).length, 0);
-      const declined = (await plan.fx.kinds(PLAN_TASK, 'declined')).at(-1)!;
-      assert.deepEqual([declined['reason'], declined['via']], ['option-not-offered', 'prompt']);
-      assert.equal((await lastPrint(plan))['gate'], 'plan-accept');
     } finally {
       await plan.dispose();
     }
   });
 
-  it('a user-set headless run accepts its first draft even when the check failed, and offers no Revise', async () => {
+  it('a user-set headless run whose check keeps failing hands the last draft to the gate with the failure and no Revise', async () => {
     const plan = await shipped();
     try {
       await toWrite(plan, { headless: true, answers: [{ gate: 'plan-accept', option: 'Accept' }] });
-      await planCheck(plan, BAD);
+      let message = await planCheck(plan, BAD);
+      for (let round = 0; round < 3 && message.position === 'plan-write'; round += 1) message = await planCheck(plan, BAD);
       const print = (await plan.fx.kinds(PLAN_TASK, 'gate')).findLast((entry) => entry['gate'] === 'plan-accept')!;
       assert.deepEqual(print['options'], ['Accept', 'Reject']);
-      assert.match(String(print['question']), /Plan check FAILED: .* Headless: this draft is accepted or rejected as it is, never revised\./);
-      assert.equal((await notes(plan, 'plan')).length, 1, 'the failed draft is promoted');
-      assert.equal((await plan.fx.kinds(PLAN_TASK, 'revise')).length, 0);
-      assert.equal((await plan.fx.kinds(PLAN_TASK, 'exit')).at(-1)!['reason'], 'done');
+      assert.match(String(print['question']), /Plan check FAILED: 1 bad anchors\..*Headless: this draft is accepted or rejected as it is, never revised\./s);
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'revise')).filter((entry) => entry['via'] === 'gate').length, 0);
     } finally {
       await plan.dispose();
     }
@@ -366,17 +353,16 @@ describe('06-R3 decision gates', () => {
 });
 
 describe('06-P9/D1 interruption', () => {
-  it('S10: a crash after the worker entry is repaired by route next, which saves and checks once more; no draft is deleted', async () => {
+  it('S10: route next after a completed check run is idempotent for the draft: a repeated check saves one more draft and no draft is deleted', async () => {
     const plan = await shipped();
     try {
       await toWrite(plan);
       await plan.body(GOOD);
-      await runPlanCheck({ runtime: plan.fx.runtime, session: SESSION_A, context: commandContext({ runtime: plan.fx.runtime, routes: plan.fx.routes }) }, { task: PLAN_TASK, body: null, from: 'steps/plan-body.md' });
+      await plan.saveDraft(GOOD);
       assert.equal((await plan.next()).position, 'plan-accept');
       assert.equal((await notes(plan, 'plan-draft')).length, 2);
-      assert.equal((await plan.fx.kinds(PLAN_TASK, 'worker')).length, 2);
-      const drafts = (await readdir(taskDir(plan))).filter((name) => name.startsWith('plan-draft_'));
-      assert.equal(drafts.length, 2);
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'worker')).length, 1);
+      assert.equal((await readdir(taskDir(plan))).filter((name) => name.startsWith('plan-draft_')).length, 2);
     } finally {
       await plan.dispose();
     }
@@ -414,8 +400,6 @@ describe('06-N2 write-time ownership on the shipped route', () => {
       const taken = (error: { code?: string }) => error.code === 'route-taken-over';
       await assert.rejects(plan.next(), taken);
       await assert.rejects(plan.saveDraft('# Plan\n'), taken);
-      await plan.body(GOOD);
-      await assert.rejects(runPlanCheck({ runtime: plan.fx.runtime, session: SESSION_A, context: commandContext({ runtime: plan.fx.runtime, routes: plan.fx.routes }) }, { task: PLAN_TASK, body: null, from: 'steps/plan-body.md' }), taken);
       await assert.rejects(plan.promote(SESSION_A), taken);
       assert.equal((await notes(plan, 'plan-draft')).length, 0);
     } finally {
@@ -441,99 +425,7 @@ describe('06-R11 launch', () => {
   });
 });
 
-describe('06-H1 caps with many diagnostics', () => {
-  const missing = (count: number): string =>
-    `# Plan\n\n${Array.from({ length: count }, (_, i) => `- \`src/features/orders/limits/validation/rules/nested/deeply/rule-${i}.ts:3\``).join('\n')}\n`;
-
-  it('06-H1/06-P7: 60 missing files keep plan check under 8,000 characters and the gate print under 3,072 bytes', async () => {
-    const plan = await shipped();
-    try {
-      await toWrite(plan);
-      const out = await planCheck(plan, missing(60));
-      assert.equal(out.anchors.badTotal, 60);
-      assert.ok(JSON.stringify(out, null, 2).length <= 8000, `${JSON.stringify(out, null, 2).length} characters`);
-      assert.equal(out.listsCut, true);
-      const reprint = out.next ?? '';
-      assert.ok(Buffer.byteLength(reprint) <= 3072, `${Buffer.byteLength(reprint)} bytes`);
-      assert.match(reprint, /Plan check FAILED: 60 bad anchors/);
-      const artifact = JSON.parse(await readFile(path.join(plan.fx.repo.root, out.artifact), 'utf8')) as { anchors: { bad: unknown[] } };
-      assert.equal(artifact.anchors.bad.length, 50, 'the artifact keeps the first 50 (D7)');
-    } finally {
-      await plan.dispose();
-    }
-  });
-});
-
-describe('06-H1/06-P8 mixed diagnostics on a long task', () => {
-  const long = 'invoice-discount-validation-and-rounding';
-  const anchors = (count: number): string =>
-    Array.from({ length: count }, (_, i) => `- src/modules/order-processing/validation/configuration/missing-file-with-business-logic-${i}.ts:3`).join('\n');
-  const check = async (plan: PlanFixture, task: string) =>
-    runPlanCheckCommand(plan.fx.runtime, parseArgs('plan check', ['--task', task, '--from', 'steps/plan-body.md'], PLAN_CHECK_OPTIONS));
-
-  it('06-H1/06-P7: 60 bad anchors and 60 unmapped ACs keep the gate print under 3,072 bytes', async () => {
-    const plan = await planFixture({ shipped: true, config: CONFIG.replace('mcpServer: null', 'mcpServer: atlassian') });
-    try {
-      assert.equal((await plan.start({ task: long, requirements: ['ORD-17'] })).position, 'fetch');
-      const description = `Acceptance criteria:\n${Array.from({ length: 60 }, (_, i) => `- Invoice check ${i + 1} must reject invalid totals.`).join('\n')}`;
-      await runHook(plan.fx.runtime, JSON.stringify({
-        hook_event_name: 'PostToolUse', session_id: SESSION_A, cwd: plan.fx.repo.root, scratchpad_dir: plan.fx.scratchpad,
-        tool_name: 'mcp__atlassian__getJiraIssue', tool_input: { issueIdOrKey: 'ORD-17' },
-        tool_response: { key: 'ORD-17', fields: { summary: 'Invoice validation', description } },
-      }), { pointer: plan.fx.pointer, load: async () => ({ engine: plan.fx.engine, routes: plan.fx.routes, pointer: plan.fx.pointer }) });
-      await plan.next({ task: long });
-      assert.equal((await plan.next({ task: long })).position, 'plan-write');
-      await plan.body(`# Plan\n\n${anchors(60)}\n`, long);
-      const out = await check(plan, long);
-      assert.equal(out.acs.unmappedTotal, 60);
-      assert.equal(out.anchors.badTotal, 60);
-      const reprint = out.next ?? '';
-      assert.ok(Buffer.byteLength(reprint) <= 3072, `${Buffer.byteLength(reprint)} bytes`);
-      assert.match(reprint, /Plan check FAILED: 60 bad anchors, 60 unmapped acceptance units/);
-    } finally {
-      await plan.dispose();
-    }
-  });
-
-  it('06-P8: shortening the inline duplicate list keeps the count in the JSON and the text', async () => {
-    const plan = await planFixture({ shipped: true });
-    try {
-      const names = Array.from({ length: 50 }, (_, i) => `discountRule${String(i).padStart(2, '0')}`);
-      await plan.fx.repo.write('src/orders/discountRules.ts', `${names.map((name) => `export const ${name} = 1;`).join('\n')}\n`);
-      await plan.fx.repo.commitAll('discount rules');
-      await plan.body(`# Plan\n\n${names.map((name) => `Add \`${name}\``).join('\n')}\n\n${anchors(50)}\n`);
-      const out = await check(plan, PLAN_TASK);
-      assert.equal(out.listsCut, true);
-      assert.ok(out.duplicates.length < 50);
-      assert.equal(out.duplicatesTotal, 50);
-      const text = renderPlanCheck(out);
-      assert.match(text, /; 50 new names already declared/);
-      assert.ok(text.includes(`Inline lists were shortened; see ${out.artifact}.`));
-    } finally {
-      await plan.dispose();
-    }
-  });
-});
-
-describe('06-C7/06-P2 duplicates on a monorepo', () => {
-  it('06-C7: a project chosen at the project-ambiguous gate is the one find searches', async () => {
-    const config = CONFIG.replace('  - { id: app, root: ".", ecosystem: typescript }', '  - { id: orders, root: "src/orders", ecosystem: typescript }\n  - { id: invoices, root: "src/invoices", ecosystem: typescript }');
-    const plan = await planFixture({ shipped: true, config });
-    try {
-      await plan.fx.repo.write('src/invoices/empty.ts', 'export const emptyInvoice = 0;\n');
-      await plan.fx.repo.commitAll('invoices');
-      await plan.start({ text: 'Add orderLimit' });
-      assert.equal((await plan.next({ project: 'orders' })).position, 'design');
-      await plan.next();
-      await plan.body('# Plan\n\nAdd `orderLimit` in src/orders/limit.ts:1\n');
-      const checked = await runPlanCheck({ runtime: plan.fx.runtime, session: SESSION_A, context: commandContext({ runtime: plan.fx.runtime, routes: plan.fx.routes }) }, { task: PLAN_TASK, body: null, from: 'steps/plan-body.md' });
-      assert.deepEqual(checked.result.duplicates, [{ name: 'orderLimit', declaredAt: 'src/orders/limit.ts:1' }]);
-      assert.equal(checked.result.duplicatesSkipped, undefined);
-    } finally {
-      await plan.dispose();
-    }
-  });
-
+describe('06-C7 project answers', () => {
   it('06-C7: the project answered in one task is not asked again by another task of the same session', async () => {
     const config = CONFIG.replace('  - { id: app, root: ".", ecosystem: typescript }', '  - { id: orders, root: "src/orders", ecosystem: typescript }\n  - { id: invoices, root: "src/invoices", ecosystem: typescript }');
     const plan = await planFixture({ shipped: true, config });
@@ -546,16 +438,4 @@ describe('06-C7/06-P2 duplicates on a monorepo', () => {
     }
   });
 
-  it('06-C7: with no project known, the result says the names were not looked up instead of listing none', async () => {
-    const config = CONFIG.replace('  - { id: app, root: ".", ecosystem: typescript }', '  - { id: orders, root: "src/orders", ecosystem: typescript }\n  - { id: invoices, root: "src/invoices", ecosystem: typescript }');
-    const plan = await planFixture({ shipped: true, config });
-    try {
-      await plan.body('# Plan\n\nAdd `orderLimit`\n');
-      const checked = await runPlanCheck({ runtime: plan.fx.runtime, session: null, context: commandContext({ runtime: plan.fx.runtime, routes: plan.fx.routes }) }, { task: PLAN_TASK, body: null, from: 'steps/plan-body.md' });
-      assert.deepEqual(checked.result.duplicates, []);
-      assert.match(checked.result.duplicatesSkipped ?? '', /^ambiguous-project/);
-    } finally {
-      await plan.dispose();
-    }
-  });
 });

@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
+import YAML from 'yaml';
 import { parseArgs } from '#util/args';
 import { runPolicyCheck, POLICY_CHECK_OPTIONS } from '#cli/commands/policy/policy-check';
 import { routeTools } from '#cli/commands/route/route';
@@ -52,6 +53,8 @@ async function world(options: { text?: string; headless?: boolean } = {}) {
   const w = {
     root,
     runtime,
+    engine,
+    scratchpad: scratchpadDir,
     ledger,
     kinds,
     draft,
@@ -82,14 +85,6 @@ async function atDraft(w: Awaited<ReturnType<typeof world>>) {
   const first = await w.start();
   assert.equal(first.position, 'sources');
   return { first, draftStep: await w.answer('sources', 'use these sources') };
-}
-
-/** Three failing checks of a permanently bad quote: the route moves forward to the table. */
-async function exhaust(w: Awaited<ReturnType<typeof world>>) {
-  await atDraft(w);
-  let next: string | undefined;
-  for (let attempt = 0; attempt < 3; attempt += 1) next = (await w.check()).next;
-  return next!;
 }
 
 describe('09-T2: B13 the disposition and the ledger cap', () => {
@@ -163,9 +158,8 @@ describe('09-T5: the walk-through on ts-feature-boundary', () => {
       const failed = await w.check();
       assert.equal(failed.ok, false);
       assert.ok(failed.diagnostics.some((diagnostic) => diagnostic.code === 'pack-quote-missing'));
-      assert.match(failed.next ?? '', /Write rule drafts/);
-      assert.match(failed.next ?? '', /pack-quote-missing/);
-      assert.match(failed.next ?? '', /not migrated: pack-quote-missing team-services\/tests-beside/);
+      assert.equal(failed.next, undefined, 'a failing check records nothing and runs no tail');
+      assert.deepEqual(failed.drafts?.notMigrated.map((entry) => entry.rule), ['team-services/tests-beside']);
       assert.equal(await w.position(), 'draft');
 
       await w.draft('team-services.yaml', GOOD);
@@ -185,21 +179,19 @@ describe('09-T5: the walk-through on ts-feature-boundary', () => {
       const applied = await w.apply();
       assert.equal((applied.packs as unknown[]).length, 1);
       assert.deepEqual((applied.packs as { id: string; path: string; rules: number }[])[0], { id: 'team-services', path: `${policies}/team-services.yaml`, rules: 2 });
-      const probe = (applied.probes as { covered: { ok: boolean }; uncovered: { ok: boolean } }[])[0]!;
-      assert.equal(probe.covered.ok, true);
-      assert.equal(probe.uncovered.ok, true);
-      assert.match(String(applied.next), /team-services/, 'the route closes with the table');
+      assert.match(applied.text, /team-services/);
       assert.equal(await w.position(), 'complete');
       assert.equal(await w.exists(`${policies}/team-services.yaml`), true);
       assert.equal(await w.exists(`${policies}/drafts/team-services.yaml`), false);
       const wired = await w.config();
       assert.ok(wired.includes('.ambicode/policies/team-services.yaml'));
-      for (const line of before.split('\n').filter((candidate) => candidate.trim() !== '' && !candidate.includes('policyFiles'))) assert.ok(wired.includes(line), `kept: ${line}`);
+      const strip = (text: string) => { const { projects, ...rest } = YAML.parse(text) as { projects: Record<string, unknown>[] }; return { ...rest, projects: projects.map(({ policyFiles: _ignored, ...project }) => project) }; };
+      assert.deepEqual(strip(wired), strip(before), 'everything but policyFiles is kept');
       const note = await readFile(path.join(w.root, '.ambicode', 'task', TASK, 'steps', 'rules-apply.md'), 'utf8');
       assert.match(note, /<!-- ambicode rules sha256:[0-9a-f]+ -->/);
 
       const entries = await w.ledger();
-      assert.equal(entries.filter((entry) => entry.kind === 'policy' && entry['stage'] === 'drafts').length, 2, 'one entry per check, none from the handler');
+      assert.equal(entries.filter((entry) => entry.kind === 'policy' && entry['stage'] === 'drafts').length, 1, 'only the clean check is recorded');
       assert.equal(entries.filter((entry) => entry.kind === 'policy' && entry['stage'] === 'apply').length, 1);
     } finally {
       await w.dispose();
@@ -216,7 +208,6 @@ describe('09-T2: a human who does not apply', () => {
       await w.check();
       const closed = await w.answer('rules-table', 'Discard drafts');
       assert.equal(closed.position, 'complete');
-      assert.match(closed.text, /No pack was applied/);
       assert.equal(await w.exists('.ambicode/policies/drafts/team-services.yaml'), true);
       assert.equal((await codeOf(w.apply())).code, 'session-unbound', 'the closed route no longer owns the session');
       assert.doesNotMatch(await w.config(), /team-services/);
@@ -232,7 +223,6 @@ describe('09-T2: a human who does not apply', () => {
       await w.draft('team-services.yaml', GOOD);
       const checked = await w.check();
       assert.equal(await w.position(), 'complete');
-      assert.match(String(checked.next), /No pack was applied/);
       assert.equal((await w.kinds('default-taken')).at(-1)?.['answer'], 'Discard drafts');
       assert.equal((await w.kinds('policy')).filter((entry) => entry['stage'] === 'apply').length, 0);
       assert.equal(await w.exists('.ambicode/policies/drafts/team-services.yaml'), true);
@@ -312,38 +302,41 @@ describe('09-T4: the object the answer consented to', () => {
 });
 
 describe('09-T3: a permanently bad quote', () => {
-  it('09-T3: exactly 3 draft deliveries, then not migrated and the table', async () => {
+  it('09-T3: exactly 3 draft deliveries, then the table lists the rule as not migrated and Apply all is refused', async () => {
     const w = await world();
     try {
+      await atDraft(w);
       await w.draft('team-services.yaml', pack('team-services', [rule('no-direct-transport', 'Keep services apart from the transport layer.', QUOTE), rule('tests-beside', 'Pair every service function with a test.', BAD)]));
-      const table = await exhaust(w);
-      const delivered = (await w.kinds('step')).filter((entry) => entry['step'] === 'draft' && entry['status'] === 'delivered');
+      assert.equal((await w.check()).ok, false);
+      let table = '';
+      for (let attempt = 0; attempt < 3; attempt += 1) table = (await w.engine.advance({ task: TASK, session: SESSION, cause: 'route-next', scratchpadDir: w.scratchpad })).text;
+      const delivered = (await w.kinds('step')).filter((entry) => entry['step'] === 'draft' && ['delivered', 'repeated'].includes(String(entry['status'])));
       assert.equal(delivered.length, 3);
-      assert.ok((await w.kinds('limit')).some((entry) => entry['which'] === 'repeat' && entry['step'] === 'draft'));
+      assert.ok((await w.kinds('limit')).some((entry) => entry['step'] === 'draft'));
       assert.equal(await w.position(), 'rules-table');
       assert.match(table, /team-services\/tests-beside: not migrated: pack-quote-missing: not in file/);
       assert.match(table, /team-services\/no-direct-transport: applied/);
+      await w.answer('rules-table', 'Apply all');
+      assert.equal((await codeOf(w.apply())).code, 'rules-apply-unconfirmed', 'no clean check was recorded, so there is nothing the answer consented to');
+      assert.equal(await w.exists('.ambicode/policies/team-services.yaml'), false);
     } finally {
       await w.dispose();
     }
   });
 
-  it('09-T5: D10: Apply all drops the quote-failing rule and skips the pack whose glob matches nothing', async () => {
+  it('09-T5: D10: Apply all skips the pack whose glob matches nothing and applies the other', async () => {
     const w = await world();
     try {
-      await w.draft('team-services.yaml', pack('team-services', [rule('no-direct-transport', 'Keep services apart from the transport layer.', QUOTE), rule('tests-beside', 'Pair every service function with a test.', BAD)]));
+      await atDraft(w);
+      await w.draft('team-services.yaml', GOOD);
       await w.draft('team-nowhere.yaml', pack('team-nowhere', [rule('somewhere', 'Keep things somewhere sensible.', QUOTE)], 'nowhere/**'));
-      await exhaust(w);
+      await w.check();
       await w.answer('rules-table', 'Apply all');
       const applied = await w.apply();
-      assert.deepEqual((applied.packs as { id: string; rules: number }[]).map((entry) => [entry.id, entry.rules]), [['team-services', 1]]);
+      assert.deepEqual((applied.packs as { id: string; rules: number }[]).map((entry) => [entry.id, entry.rules]), [['team-services', 2]]);
       assert.deepEqual(applied.skipped, [{ file: '.ambicode/policies/drafts/team-nowhere.yaml', reason: 'pack-glob-matches-nothing' }]);
-      assert.deepEqual((applied.notMigrated as { rule: string }[]).map((entry) => entry.rule), ['team-services/tests-beside']);
-      const live = await readFile(path.join(w.root, '.ambicode', 'policies', 'team-services.yaml'), 'utf8');
-      assert.ok(live.includes('no-direct-transport') && !live.includes('tests-beside'));
       assert.equal(await w.exists('.ambicode/policies/drafts/team-nowhere.yaml'), true);
       assert.equal(await w.exists('.ambicode/policies/team-nowhere.yaml'), false);
-      assert.match(String(applied.next), /not migrated: team-services\/tests-beside/);
     } finally {
       await w.dispose();
     }
@@ -396,7 +389,7 @@ describe('09-Q5: policy check --drafts and the ledger', () => {
       assert.equal(entries[0]!['contentHash'], output.drafts!.aggregateHash);
       assert.equal(entries[0]!['errors'], 0);
       assert.deepEqual((entries[0]!['drafts'] as { path: string }[]).map((file) => file.path), ['.ambicode/policies/drafts/team-services.yaml']);
-      assert.equal((await w.kinds('step')).filter((entry) => entry['step'] === 'draft' && entry['status'] === 'completed').length, 1);
+      assert.equal((await w.kinds('step')).filter((entry) => entry['step'] === 'rules-table' && entry['status'] === 'delivered').length, 1);
     } finally {
       await w.dispose();
     }
@@ -411,7 +404,6 @@ describe('09-T1: route text', () => {
       assert.doesNotMatch(text, /typescript|python|angular|express|eslint|jest/i);
     }
     const route = await readFile(path.join(REPO_ROOT, 'routes', 'rules', 'rules.yaml'), 'utf8');
-    assert.match(route, /modelSteps: 8/);
     assert.doesNotMatch(route, /typescript|python|angular/i);
   });
 });

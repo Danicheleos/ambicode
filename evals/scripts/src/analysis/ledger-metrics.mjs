@@ -117,7 +117,7 @@ function redGreenOf(entries) {
 }
 
 const LEDGER_MEASURES = ['routes', 'mapLayers', 'mapPass2', 'routeSteps', 'revises', 'gates', 'preanswers', 'headlessDefaults', 'stopBlocked', 'checkRedGreen', 'envelopeBuiltFrom', 'permissionDenied',
-  'stepMs', 'gateLatencyMs', 'budgetUsage', 'mapDecisions', 'mapTuning', 'mapRetry', 'initRuns', 'rulesRuns', 'commands', 'contextPeak', 'contextByStep', 'exit', 'readerReceipts'];
+  'stepMs', 'gateLatencyMs', 'budgetUsage', 'initRuns', 'rulesRuns', 'commands', 'contextPeak', 'contextByStep', 'exit', 'readerReceipts'];
 
 /**
  * The v6 route measures of one run, from the task ledgers its sandbox left: `[{entries, unreadable}]`, one per
@@ -216,8 +216,6 @@ function instrumentation(of, metrics) {
     return Number.isFinite(ms) && ms >= 0 ? [ms] : [];
   });
   const budgeted = [...of('step').filter((e) => e.budget && typeof e.budget === 'object'), ...of('exit').filter((e) => e.budget && typeof e.budget === 'object')];
-  const maps = of('map');
-  const decided = maps.filter((e) => e.decisions);
   const commands = [...of('command'), ...(rows ?? []).filter((r) => r?.kind === 'command')];
   const turns = of('turn');
   const runsOf = (kind) => (rows ? rows.filter((r) => r?.kind === kind).length : null);
@@ -225,9 +223,6 @@ function instrumentation(of, metrics) {
     stepMs: timed.length ? sumBy(timed, 'step', (e) => e.ms) : null,
     gateLatencyMs: latencies.length ? latencies : null,
     budgetUsage: budgeted.length ? budgeted.at(-1).budget : null,
-    mapDecisions: decided.length ? decided.at(-1).decisions : null,
-    mapTuning: maps.some((e) => e.tuning) ? tally(maps.filter((e) => e.tuning).map((e) => e.tuning.hash)) : null,
-    mapRetry: decided.length ? { maps: decided.length, proseRetry: decided.filter((e) => e.decisions.proseRetry === true).length } : null,
     initRuns: runsOf('init'),
     rulesRuns: runsOf('rules'),
     commands: commands.length

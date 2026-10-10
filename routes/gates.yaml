@@ -15,11 +15,6 @@ requirements-expansion-capped:
   options: ["read all", "read these: {keys}", "none"]
   default: "none"
   release: "none"
-requirements-conflicting:
-  question: "The requirement sources disagree: {summary}. Which source decides?"
-  options: ["{sources…}", "stop"]
-  default: "stop"
-  release: "stop"
 requirements-not-captured-twice:
   question: "The requirement was fetched twice and nothing was captured. Continue without it?"
   options: ["continue without", "stop"]
@@ -58,13 +53,6 @@ project-ambiguous:
   options: ["{projects…}", "stop"]
   default: "stop"
   release: "route next --project <id>"
-config-unparsable:
-  question: "The configuration file cannot be parsed. Back it up and regenerate it?"
-  options: ["back up and regenerate", "stop"]
-  default: "stop"
-  release: "stop"
-  acting: ["back up and regenerate"]
-  onAnswer: { "back up and regenerate": "revise $raisedBy" }
 "decision:*":
   question: "A decision the plan depends on."
   options: ["keep open"]

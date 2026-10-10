@@ -20,8 +20,7 @@ Routes are checked by `npm run build`, `npm run verify` and the package build. A
 ```yaml
 skill: investigate        # required, equals the file name
 version: 3                # required, always 3
-budget: { modelSteps: 6 } # optional, documentation only: nothing enforces it
-exits: [done, blocked, human, inconclusive, superseded, budget]
+exits: [done, blocked, human, inconclusive, superseded]
 revisable: [ground]       # optional, default []
 steps: [ ... ]            # required, at least one
 ```
@@ -30,8 +29,7 @@ steps: [ ... ]            # required, at least one
 |---|---|---|
 | `skill` | string | The skill the route belongs to; `/ambicode:<skill>` starts it. |
 | `version` | `3` | Schema version of the route language. |
-| `budget` | any, optional | The size the route was designed for. Ignored: no step count or clock limit is enforced. |
-| `exits` | any of `done`, `blocked`, `human`, `inconclusive`, `superseded`, `budget` | The ways the route may end. `done` normal; `blocked` stuck or stopped; `human` waiting for the user; `inconclusive` finished without an answer; `superseded` replaced by another route; `budget` is still accepted in the list but nothing ends a route with it any more. |
+| `exits` | any of `done`, `blocked`, `human`, `inconclusive`, `superseded` | The ways the route may end. `done` normal; `blocked` stuck or stopped; `human` waiting for the user; `inconclusive` finished without an answer; `superseded` replaced by another route. |
 | `revisable` | list of step ids | Steps the model may ask to run again with `route next --revise <step>`. A listed code or model step needs `repeat` of at least 2. Use it for a step whose result may need redoing with new input. |
 
 ## A step
@@ -49,7 +47,7 @@ Unknown fields are rejected. Step ids are unique inside a route.
 | Field | Values | Meaning and when to use |
 |---|---|---|
 | `id` | string | Name used in the ledger, in `when`, `revisable` and revise targets. |
-| `actor` | `code`, `model`, `human`, `worker` | `code`: runs handlers, no model turn. `model`: the model gets instruction text and must do the work. `human`: asks the user through a gate. `worker`: reserved, not implemented yet. |
+| `actor` | `code`, `model`, `human` | `code`: runs handlers, no model turn. `model`: the model gets instruction text and must do the work. `human`: asks the user through a gate. |
 | `run` | handler call or list | **Code steps only** (required there). Handlers run in order, as `name` or `name(param, param)`. Allowed names are listed below. |
 | `instruction` | inline text or `file:<path>` | **Model steps only** (required there). At most 1,500 characters. Put long text in `routes/<skill>/<step>.md` and reference it. The placeholders `{cli}` (command prefix) and `{task}` (task slug) are filled in. |
 | `payload` | list of keys | **Model steps.** Outputs of earlier handlers appended to the instruction under `## <key>`. Empty outputs are left out. Keys below. |
@@ -58,39 +56,39 @@ Unknown fields are rejected. Step ids are unique inside a route.
 | `when` | condition | Run the step only if true; otherwise it is recorded as skipped. Conditions below. |
 | `gate` | gate object | **Human steps only** (required there). See Gates. |
 | `onFail` | `revise <step> [--name value]` | Code step that finishes but reports a failed result: return to an earlier step instead of stopping. The target must be an earlier step or the next one. |
-| `onError` | `retry-with <hint>`, `ask <gate>`, `stop:<exit>` | What an error in the step does. Default: show the error to the model (a second identical error adds a stop hint). `retry-with` adds a hint to the error, `ask` raises that gate (declared on the route or in `gates.yaml`), `stop:` ends the route with that exit. |
+| `onError` | `stop:<exit>` | What an error in the step does. Default: show the error to the model (a second identical error adds a stop hint). `stop:` ends the route with that exit. |
 | `repeat` | integer >= 1 | How many times the step may run (revises included). Default 1; defaults by id: `ground` 2, `design` 2, `plan-write` 3, `draft` 3, `fix` 2, `review-run` 2. |
 
 ### Handlers (`run`)
 
 | Handler | Produces payload key | What it does |
 |---|---|---|
-| `requirements.template` | `template` | Prints the MCP calls the model must make to fetch the requirement. |
 | `requirements.normalize` | `envelope` | Builds the requirement envelope from captures (or from the request text) and records it. |
-| `requirements.acs` | `acs` | Splits acceptance criteria from the envelope. |
 | `search.map(prompt)` | `map` | Builds the search map for the request. The parameter picks the layer set (`prompt` or `context`). |
 | `policy.stage(<stage>)` | `policy:<stage>` | Rules for the stage: `before-work`, `before-checks`, `before-report`. |
 | `evidence.navigationLine` | `navigation` | The line saying which navigation calls were recorded. |
 | `evidence.notes.save(<kind>)`, `evidence.notes.promote` | none | Save a note / promote a plan draft. |
+| `script(<name>)` | `script:<name>` | Runs `skills/<skill>/scripts/<name>.mjs`; see Scripts. |
 | `review.evaluate` | `review.evaluate` | Judges the latest review: waiting checks, out-of-scope findings, findings to fix. On the review route it also prints the snapshot and `brief.md` paths the reviewer subagent is given. |
-| `review.mrTemplate` | `review.mrTemplate` | `--mr` review: the MCP calls the model makes to fetch the merge request and its diff. |
 | `review.publishList` | `review.publishList` | `--mr` review: the recorded findings as a numbered list; none ends the route. |
 | `review.await` | `review.await` | Task route, after `review --task`: raises waiting checks, else prints the same two paths. |
 
 Qualifiers for `needs`/`produces`: `note{investigation|plan-draft|plan|notes}`, `policy{before-work|before-checks|before-report}`, `check{green}`, `requirement{full|list}`, `review{pending|recorded}`. Other kinds take no qualifier: `envelope`, `map`, `search`, `gate`, `acceptance`, ... (any ledger kind).
 
-Evidence-writing commands write their ledger entry and then advance the route at their tail: `check`, `format`, `review` (writes `review{pending}`), `review record` (writes `review{recorded}` from the `ambicode:reviewer` subagent's JSON on stdin), `note save`, `note promote`, `plan check`, `requirements normalize`.
+Evidence-writing commands write their ledger entry and then advance the route at their tail: `check`, `format`, `review` (writes `review{pending}`), `review record` (writes `review{recorded}` from the `ambicode:reviewer` subagent's JSON on stdin), `note save`, `note promote`, `requirements normalize`.
+
+### Scripts (`script(<name>)`)
+
+A skill-local script is a plain ESM file (`skills/<skill>/scripts/<name>.mjs`, no imports from `src/`, no npm packages) run with `node`. It reads one JSON object on stdin: `{task, skill, repositoryRoot, taskDir, steps, args, params, revise, raisedBy, headless}` (`params` are the arguments after the name; `steps` is the task's steps directory). It prints one JSON object on stdout, every key optional: `payload` (text for the model, saved as `script:<name>`), `record` (fields merged into the step's completion entry), `entries` (ledger entries, each with a `kind`, appended before any `failed`), `failed: {code, message, recoverable?, revise?: {args, lastRound?}}`, `raise: {gate, values}`, `exit` and `exitDetail`. A non-zero exit, a timeout (60 s) or output that is not JSON fails the step with `script-failed` or `script-output-invalid`. A script never writes the ledger itself.
 
 ### Conditions (`when`)
 
 | Condition | True when |
 |---|---|
-| `args.hasRequirement` / `!args.hasRequirement` | The request names a requirement (URL, `--requirement`, or a bare key with an MCP server configured) / does not. |
+| `args.hasRequirement` | The request names a requirement (URL, `--requirement`, or a bare key with an MCP server configured). |
 | `args.hasMergeRequest` | The review route was started with `--mr <url>`. |
 | `map.empty` | The search map found nothing. |
 | `plan.isDraft` | The plan is still a draft. |
-| `headless` / `interactive` | The route was started headless / with a user present. |
-| `gate.<id>.answered` | The gate has a bound answer. |
 | `gate.<id>.is(<option>)` / `gate.<id>.isnt(<option>)` | The gate's answer is that option / is any other answer, free text included. |
 
 ## Gates

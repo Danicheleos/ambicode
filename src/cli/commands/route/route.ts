@@ -1,5 +1,5 @@
 import { createApp } from '#composition/app';
-import { chainKey, loadPayload } from '#harness/engine/delivery';
+import { chainKey, loadPayload } from '#harness/engine/execute';
 import { readEntries } from '#harness/engine/context';
 import { buildChain, latestRouteOf } from '#harness/engine/fold';
 import { parseAnswerFlag } from '#harness/definition/flags';
@@ -11,13 +11,13 @@ import { contentHash } from '#util/hash';
 import { startTarget } from '#composition/start';
 import type { Runtime } from '#types/composition';
 import { EXITS } from '#types/harness';
-import type { Exit, StepMessage, ReviewTargetArgs, SessionBinding } from '#types/harness';
+import type { Exit, StepMessage, SessionBinding } from '#types/harness';
 import type { ParsedArgs, RouteTools, CliCommand } from '../../types/cli.ts';
 import { ROUTE_START_OPTIONS } from '#types/cli';
 
 export { startTarget };
 
-export const ROUTE_NEXT_OPTIONS = { values: ['task', 'default', 'revise', 'conflict', 'sources', 'project', 'show'], repeated: ['answer'], flags: ['json'] } as const;
+export const ROUTE_NEXT_OPTIONS = { values: ['task', 'default', 'revise', 'project', 'show'], repeated: ['answer'], flags: ['json'] } as const;
 
 /** The engine over the shipped routes; `binding` is the owner of the named task's one live route, unbound when there is none to name. */
 export async function routeTools(runtime: Runtime, task: string | null): Promise<RouteTools> {
@@ -75,9 +75,6 @@ export async function runRouteNext(runtime: Runtime, args: ParsedArgs): Promise<
   const task = taskOf('route next', args);
   const { engine, binding } = await routeTools(runtime, task);
   const session = ownerFor(binding, task);
-  const conflict = args.value('conflict');
-  const sources = args.value('sources');
-  if ((conflict === null) !== (sources === null)) throw new AmbicodeError('bad-argument', '--conflict and --sources go together.', { field: 'conflict' });
   const defaultGate = args.value('default');
   const revise = args.value('revise');
   const project = args.value('project');
@@ -89,7 +86,6 @@ export async function runRouteNext(runtime: Runtime, args: ParsedArgs): Promise<
     answers: args.all('answer').map(parseAnswerFlag),
     ...(defaultGate === null ? {} : { default: defaultGate }),
     ...(revise === null ? {} : { revise }),
-    ...(conflict === null || sources === null ? {} : { conflict: { summary: conflict, sources: sources.split(',').map((source) => source.trim()) } }),
     ...(project === null ? {} : { project }),
     ...(show === null ? {} : { show }),
   });

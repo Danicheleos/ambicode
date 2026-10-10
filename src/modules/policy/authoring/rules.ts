@@ -1,162 +1,75 @@
 import path from 'node:path';
-import { isMap, isScalar, isSeq, parse as parseYaml, parseDocument } from 'yaml';
-import { openRepository } from '#platform/git/open';
+import { isMap, isScalar, isSeq, parseDocument } from 'yaml';
 import { openWorkspace } from '#modules/config/workspace';
-import { detectRuleSources } from '#modules/config/init/init';
-import { loadConfigWithNotices } from '#modules/config/load';
 import type { ProjectConfig, ApplyDeps } from '#types/modules/config';
 import { refOf } from '#modules/evidence/ledger-chain';
-import { classifySource, requirementsTemplate } from '#modules/requirements/capture/template';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { AmbicodeError } from '#util/errors';
-import { matchesAnyGlob } from '#util/glob';
 import { contentHash } from '#util/hash';
-import { normalizeRelative } from '#util/paths';
-import { builtinPoliciesDirectory } from '#util/plugin-root';
-import { pathExclusionReason } from '#util/path-classes';
 import { blockingProblem, checkDrafts } from './drafts.ts';
-import { loadPacksForProject, type PackWithPrompts } from '../packs/load.ts';
-import { resolvePolicy } from '../packs/resolve.ts';
-import type { Runtime, Workspace } from '#types/composition';
-import { DRAFTS_DIR, type DraftsCheck } from '#types/modules/policy';
+import type { DraftsCheck } from '#types/modules/policy';
 
 const LIVE_DIR = '.ambicode/policies';
 
-interface RulesDiscovery { candidates: string[]; named: string[]; missing: string[]; urls: string[]; fetch: string | null; text: string }
-interface AppliedPack { id: string; path: string; rules: number }
-interface PackProbe { pack: string; covered: { path: string; ok: boolean } | null; uncovered: { path: string; ok: boolean } | 'n/a' | null }
-interface RulesApplied { packs: AppliedPack[]; skipped: { file: string; reason: string }[]; notMigrated: { rule: string; reason: string }[]; probes: PackProbe[]; text: string; hash: string }
-
-const badArgument = (message: string, field: string): AmbicodeError => new AmbicodeError('bad-argument', message, { field });
-
-function rulesUnconfirmed(reason: string): AmbicodeError {
-  return new AmbicodeError('rules-apply-unconfirmed', `rules apply needs the user's own "Apply all" answer to the rules table (reason: ${reason}). Nothing was written.`, {
+const unconfirmed = (reason: string): AmbicodeError =>
+  new AmbicodeError('rules-apply-unconfirmed', `rules apply needs the user's own "Apply all" answer to the rules table (reason: ${reason}). Nothing was written.`, {
     details: [`reason: ${reason}`, 'Release: answer the rules-table gate in /ambicode:rules; the default is to apply nothing.'],
   });
-}
 
-export async function discoverRules(runtime: Runtime, args: readonly string[], options: { task?: string; project?: string | null } = {}): Promise<RulesDiscovery> {
-  const { repositoryRoot } = await openRepository(runtime);
-  const scope = options.project == null ? null : normalizeRelative(projectFor(await openWorkspace(runtime), options.project).root);
-  const candidates = scope === null
-    ? await detectRuleSources(runtime.fs, repositoryRoot)
-    : (await detectRuleSources(runtime.fs, path.join(repositoryRoot, scope))).map((candidate) => path.posix.join(scope, candidate));
-  const urls = args.filter((arg) => arg.startsWith('https://'));
-  const named: string[] = [];
-  const missing: string[] = [];
-  for (const arg of args.filter((value) => !value.startsWith('https://'))) {
-    const relative = normalizeRelative(path.relative(repositoryRoot, path.resolve(repositoryRoot, arg)));
-    (await runtime.fs.exists(path.join(repositoryRoot, relative)) ? named : missing).push(relative);
-  }
-  const pages = urls.filter((url) => classifySource(url).kind === 'confluence');
-  const config = pages.length === 0 ? null : (await loadConfigWithNotices(runtime.fs, repositoryRoot).catch(() => null))?.config ?? null;
-  const fetch = pages.length === 0 ? null : requirementsTemplate({ sources: pages, task: options.task ?? '<task>', mcpServer: config?.requirements.mcpServer ?? null, acceptanceField: config?.requirements.acceptanceField ?? null, observedTools: [], runner: `node "${runtime.pluginRoot}/scripts/ambicode.mjs"` }).text;
-  const text = [
-    `Rule sources found: ${candidates.join(', ') || 'none'}`,
-    ...(named.length === 0 ? [] : [`Named in the request: ${named.join(', ')}`]),
-    ...(urls.length === 0 ? [] : [`Pages named in the request: ${urls.join(', ')}`]),
-    ...(missing.length === 0 ? [] : [`Not found: ${missing.join(', ')}`]),
-    ...(fetch === null ? [] : ['Fetch these pages first; the capture happens on read:', fetch]),
-  ].join('\n');
-  return { candidates, named, missing, urls, fetch, text };
-}
-
-function projectFor(workspace: Workspace, requested: string | null): ProjectConfig {
-  const projects = workspace.config.projects;
-  const found = requested === null ? (projects.length === 1 ? projects[0] : undefined) : projects.find((project) => project.id === requested);
-  if (found === undefined) throw badArgument(requested === null ? `This repository configures ${projects.length} projects; pass --project <id>.` : `No project "${requested}" is configured.`, '--project');
-  return found;
-}
-
-/** Edits `policyFiles` through the document API so every comment and other value stays. */
-async function editPolicyFiles(runtime: Runtime, configPath: string, projectId: string, change: { add?: string; remove?: string }): Promise<void> {
-  const document = parseDocument(await runtime.fs.readText(configPath));
+/** Adds `policyFiles` entries through the document API so every comment and other value stays. */
+async function addPolicyFile(fs: { readText(p: string): Promise<string>; writeText(p: string, t: string): Promise<void> }, configPath: string, projectId: string, file: string): Promise<void> {
+  const document = parseDocument(await fs.readText(configPath));
   const projects = document.get('projects');
   const index = isSeq(projects) ? projects.items.findIndex((item) => isMap(item) && item.get('id') === projectId) : -1;
   if (index < 0) throw new AmbicodeError('unknown-project', `No project "${projectId}" is configured.`);
   const files = document.getIn(['projects', index, 'policyFiles']);
-  const at = isSeq(files) ? files.items.findIndex((item) => isScalar(item) && item.value === (change.add ?? change.remove)) : -1;
-  if (change.add !== undefined && at < 0) document.addIn(['projects', index, 'policyFiles'], change.add);
-  if (change.remove !== undefined && isSeq(files) && at >= 0) files.delete(at);
-  await runtime.fs.writeText(configPath, document.toString({ lineWidth: 0 }));
+  if (!(isSeq(files) && files.items.some((item) => isScalar(item) && item.value === file))) document.addIn(['projects', index, 'policyFiles'], file);
+  await fs.writeText(configPath, document.toString({ lineWidth: 0 }));
 }
 
-async function probe(runtime: Runtime, workspace: Workspace, project: ProjectConfig, packs: readonly PackWithPrompts[], live: PackWithPrompts): Promise<PackProbe> {
-  const root = path.join(workspace.repositoryRoot, project.root);
-  const globs = live.pack.appliesTo;
-  const files = (await runtime.fs.glob('**/*', root).catch(() => [])).filter((file) => pathExclusionReason(file) === null).sort();
-  const isFile = async (file: string): Promise<boolean> => (await runtime.fs.lstat(path.join(root, file)).catch(() => null))?.isFile() === true;
-  const applies = async (file: string): Promise<boolean> => resolvePolicy({ activity: live.pack.activities[0]!, project, packs, paths: [path.posix.join(normalizeRelative(project.root), file)] }).packs.some((entry) => entry.id === live.pack.id);
-  let covered: string | undefined;
-  let uncovered: string | undefined;
-  for (const file of files) {
-    const matched = matchesAnyGlob(file, globs);
-    if ((matched ? covered : uncovered) !== undefined || !(await isFile(file))) continue;
-    if (matched) covered = file;
-    else uncovered = file;
-  }
-  return {
-    pack: live.pack.id,
-    covered: covered === undefined ? null : { path: covered, ok: await applies(covered) },
-    uncovered: globs.includes('**/*') ? 'n/a' : uncovered === undefined ? null : { path: uncovered, ok: !(await applies(uncovered)) },
-  };
-}
-
-const probeCell = (value: PackProbe['covered'] | PackProbe['uncovered']): string => (value === null ? 'no file' : value === 'n/a' ? 'n/a' : `${value.ok ? 'ok' : 'FAILED'} ${value.path}`);
-
-export async function applyRules(deps: ApplyDeps, input: { task: string; project: string | null }): Promise<RulesApplied> {
+export async function applyRules(deps: ApplyDeps, input: { task: string; project: string | null }) {
   const { runtime, session, context } = deps;
-  if (session === null) {
-    throw new AmbicodeError('session-unbound', `rules apply cannot tell which route it speaks for: task ${input.task} has no single live route.`, { details: ['Start the rules route in /ambicode:rules; rules apply runs inside it.'] });
-  }
+  if (session === null) throw new AmbicodeError('session-unbound', `rules apply cannot tell which route it speaks for: task ${input.task} has no single live route.`, { details: ['Start the rules route in /ambicode:rules; rules apply runs inside it.'] });
   const view = context === null ? null : await context.resolve(input.task, session);
-  if (context === null || view === null || view.skill !== 'rules') throw rulesUnconfirmed('no-rules-route');
+  if (context === null || view === null || view.skill !== 'rules') throw unconfirmed('no-rules-route');
   await context.assertOwner(view);
-
   const consent = await context.consent(view, 'rules-table');
-  if (consent.state === 'refused') throw rulesUnconfirmed(consent.reason);
+  if (consent.state === 'refused') throw unconfirmed(consent.reason);
   const source = consent.source as unknown as Record<string, unknown>;
-  if (source['answer'] !== 'Apply all' || source['unbound'] === true) throw rulesUnconfirmed('not-accepted');
-  if (!((source['via'] === 'hook' && typeof source['instance'] === 'string') || (source['via'] === 'prompt' && source['trusted'] === true))) throw rulesUnconfirmed('acting-needs-human');
+  if (source['answer'] !== 'Apply all' || source['unbound'] === true) throw unconfirmed('not-accepted');
+  if (!((source['via'] === 'hook' && typeof source['instance'] === 'string') || (source['via'] === 'prompt' && source['trusted'] === true))) throw unconfirmed('acting-needs-human');
 
-  const latest = (await context.window(view, 'drafts-check')).findLast((entry) => entry.kind === 'policy' && entry['stage'] === 'drafts');
+  const latest = (await context.window(view, 'draft')).findLast((entry) => entry.kind === 'policy' && entry['stage'] === 'drafts');
   const ref = latest === undefined ? null : refOf(latest, 'policy', 'drafts');
-  const same = ref !== null && consent.object !== null && (['kind', 'value', 'id', 'path', 'contentHash'] as const).every((field) => consent.object![field] === ref[field]);
-  if (!same) throw rulesUnconfirmed('object-changed');
+  if (ref === null || consent.object === null || !(['kind', 'value', 'id', 'path', 'contentHash'] as const).every((field) => consent.object![field] === ref[field])) throw unconfirmed('object-changed');
 
   const workspace = await openWorkspace(runtime);
-  const project = projectFor(workspace, input.project);
+  const projects = workspace.config.projects;
+  const project: ProjectConfig | undefined = input.project === null ? (projects.length === 1 ? projects[0] : undefined) : projects.find((candidate) => candidate.id === input.project);
+  if (project === undefined) throw new AmbicodeError('bad-argument', input.project === null ? `This repository configures ${projects.length} projects; pass --project <id>.` : `No project "${input.project}" is configured.`, { field: '--project' });
   const dir = await resolveTaskDir(runtime, input.task);
   const verify = async (): Promise<DraftsCheck> => {
-    const check = await checkDrafts(runtime, workspace, { project: project.id, taskDir: dir });
-    if (check.aggregateHash !== ref.contentHash) throw rulesUnconfirmed('object-changed');
+    const check = await checkDrafts(runtime, workspace, { project: project.id });
+    if (check.aggregateHash !== ref.contentHash) throw unconfirmed('object-changed');
     return check;
   };
   const check = await verify();
 
   const root = workspace.repositoryRoot;
-  const skipped: RulesApplied['skipped'] = [];
+  const skipped: { file: string; reason: string }[] = [];
   const plan: { id: string; draft: string; live: string; text: string; rules: number }[] = [];
   for (const file of check.files) {
     const blocking = blockingProblem(check, root, file.path);
-    if (file.packId === null || blocking !== undefined) {
-      skipped.push({ file: file.path, reason: blocking?.code ?? 'pack-invalid' });
-      continue;
-    }
-    const document = parseDocument(await runtime.fs.readText(path.join(root, file.path)));
-    const dropped = new Set(check.notMigrated.map((entry) => entry.rule));
-    const rules = document.get('rules');
-    if (isSeq(rules)) rules.items = rules.items.filter((item) => !(isMap(item) && dropped.has(`${file.packId}/${String(item.get('id'))}`)));
-    const left = isSeq(rules) ? rules.items.length : 0;
-    if (left === 0) {
-      skipped.push({ file: file.path, reason: 'no rules left' });
-      continue;
-    }
-    plan.push({ id: file.packId, draft: file.path, live: `${LIVE_DIR}/${path.posix.basename(file.path)}`, text: document.toString({ lineWidth: 0 }), rules: left });
+    if (file.packId === null || blocking !== undefined) { skipped.push({ file: file.path, reason: blocking?.code ?? 'pack-invalid' }); continue; }
+    const text = await runtime.fs.readText(path.join(root, file.path));
+    const rules = parseDocument(text).get('rules');
+    const count = isSeq(rules) ? rules.items.length : 0;
+    if (count === 0) { skipped.push({ file: file.path, reason: 'no rules' }); continue; }
+    plan.push({ id: file.packId, draft: file.path, live: `${LIVE_DIR}/${path.posix.basename(file.path)}`, text, rules: count });
   }
   for (const pack of plan) {
-    if (await runtime.fs.exists(path.join(root, pack.live))) throw badArgument(`${pack.live} already exists; a live pack is never overwritten. Rename the draft or remove the live pack first.`, 'rules apply');
+    if (await runtime.fs.exists(path.join(root, pack.live))) throw new AmbicodeError('bad-argument', `${pack.live} already exists; a live pack is never overwritten. Rename the draft or remove the live pack first.`, { field: 'rules apply' });
   }
 
   return withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), session, async (ledger) => {
@@ -165,29 +78,19 @@ export async function applyRules(deps: ApplyDeps, input: { task: string; project
     for (const pack of plan) {
       await runtime.fs.writeText(path.join(root, pack.live), pack.text);
       await runtime.fs.remove(path.join(root, pack.draft));
-      await editPolicyFiles(runtime, workspace.configPath, project.id, { add: pack.live });
+      await addPolicyFile(runtime.fs, workspace.configPath, project.id, pack.live);
     }
-    const updated = { ...project, policyFiles: [...project.policyFiles, ...plan.map((pack) => pack.live)] };
-    const loaded = await loadPacksForProject({ fs: runtime.fs, project: updated, builtinDirectory: builtinPoliciesDirectory(runtime.pluginRoot), repositoryRoot: root });
-    const probes: PackProbe[] = [];
-    for (const pack of plan) {
-      const live = loaded.packs.find((candidate) => candidate.reference === pack.live);
-      probes.push(live === undefined ? { pack: pack.id, covered: null, uncovered: null } : await probe(runtime, workspace, updated, loaded.packs, live));
-    }
-    const applied = plan.map(({ id, live, rules }) => ({ id, path: live, rules }));
-    await ledger.append({ kind: 'policy', route: view.routeId, stage: 'apply', packs: applied, probes });
-
+    const packs = plan.map(({ id, live, rules }) => ({ id, path: live, rules }));
+    await ledger.append({ kind: 'policy', route: view.routeId, stage: 'apply', packs });
     const table = [
-      '| pack | live file | rules | covered probe | uncovered probe |',
-      '|---|---|---|---|---|',
-      ...applied.map((pack, index) => `| ${pack.id} | ${pack.path} | ${pack.rules} | ${probeCell(probes[index]!.covered)} | ${probeCell(probes[index]!.uncovered)} |`),
+      '| pack | live file | rules |',
+      '|---|---|---|',
+      ...packs.map((pack) => `| ${pack.id} | ${pack.path} | ${pack.rules} |`),
       ...skipped.map((entry) => `skipped: ${entry.file} (${entry.reason})`),
-      ...check.notMigrated.map((entry) => `not migrated: ${entry.rule} (${entry.reason})`),
     ].join('\n');
-    const hash = contentHash(table);
-    const text = `${table}\n<!-- ambicode rules ${hash} -->\n`;
+    const text = `${table}\n<!-- ambicode rules ${contentHash(table)} -->\n`;
     await runtime.fs.mkdirp(dir.steps);
     await runtime.fs.writeText(path.join(dir.steps, 'rules-apply.md'), text);
-    return { packs: applied, skipped, notMigrated: check.notMigrated, probes, text, hash };
+    return { packs, skipped, text };
   });
 }

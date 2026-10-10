@@ -1,5 +1,5 @@
 import { createEngine } from '#harness/engine/engine';
-import { handlerRegistry } from '#harness/engine/handlers';
+import { handlerRegistry } from '#harness/engine/execute';
 import { loadRouteRegistry } from '#harness/definition/routes';
 import { fsActiveRoutePointer } from '#harness/session/active-route';
 import { skillHandlers } from '#skills/handlers';

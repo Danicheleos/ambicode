@@ -1,6 +1,5 @@
 import path from 'node:path';
 import { projectById } from '#modules/config/workspace';
-import type { ProjectConfig } from '#types/modules/config';
 import { DRAFTS_DIR, type Diagnostic, type PackWithPrompts, type DraftsCheck } from '#types/modules/policy';
 import { pathExclusionReason } from '#util/path-classes';
 import { matchesGlob } from '#util/glob';
@@ -9,7 +8,6 @@ import { builtinPoliciesDirectory } from '#util/plugin-root';
 import { loadPacksForProject } from '../packs/load.ts';
 import { readPackText, validatePack, validatePackSet } from '../packs/validate.ts';
 import type { Runtime, Workspace } from '#types/composition';
-import type { TaskDir } from '#types/modules/evidence';
 
 const MIN_QUOTE_CHARS = 20;
 
@@ -19,103 +17,59 @@ export const blockingProblem = (check: DraftsCheck, root: string, file: string):
 
 const collapse = (text: string): string => text.replace(/\s+/g, ' ').trim();
 
-async function capturedContents(runtime: Runtime, taskDir: TaskDir | null, url: string): Promise<string[]> {
-  if (taskDir === null) return [];
-  const found: string[] = [];
-  for (const entry of await runtime.fs.readdir(taskDir.requirements).catch(() => [])) {
-    if (!entry.name.endsWith('.json')) continue;
-    try {
-      const parsed = JSON.parse(await runtime.fs.readText(path.join(taskDir.requirements, entry.name))) as { url?: unknown; content?: unknown };
-      if (parsed.url === url && typeof parsed.content === 'string') found.push(parsed.content);
-    } catch {
-      // An unreadable capture proves nothing.
-    }
-  }
-  return found;
-}
-
-/** The reason a quote is not verified, or null when it is (09-Q3). */
-async function quoteProblem(runtime: Runtime, root: string, taskDir: TaskDir | null, source: { quote: string; location: string }): Promise<string | null> {
-  const quote = collapse(source.quote);
-  if (source.location.startsWith('https://')) {
-    const captured = await capturedContents(runtime, taskDir, source.location);
-    if (captured.length === 0) return 'source not captured';
-    return captured.some((content) => collapse(content).includes(quote)) ? null : 'not in file';
-  }
-  const relative = source.location.replace(/#.*$/, '').replace(/:\d+(?:-\d+)?$/, '');
-  const absolute = path.resolve(root, relative);
-  if (path.relative(root, absolute).startsWith('..')) return 'file missing';
-  const text = await runtime.fs.readText(absolute).catch(() => null);
+/** Why a file quote is not verified, or null when it is: the quote appears in the file, whitespace collapsed. */
+async function quoteProblem(runtime: Runtime, root: string, source: { quote: string; location: string }): Promise<string | null> {
+  const absolute = path.resolve(root, source.location.replace(/#.*$/, '').replace(/:\d+(?:-\d+)?$/, ''));
+  const text = path.relative(root, absolute).startsWith('..') ? null : await runtime.fs.readText(absolute).catch(() => null);
   if (text === null) return 'file missing';
-  return collapse(text).includes(quote) ? null : 'not in file';
+  return collapse(text).includes(collapse(source.quote)) ? null : 'not in file';
 }
 
 async function matchedFiles(runtime: Runtime, projectRoot: string, glob: string): Promise<number> {
   let matched = 0;
   for (const entry of (await runtime.fs.glob(glob, projectRoot).catch(() => [])).slice(0, 20_000)) {
-    if (pathExclusionReason(entry) !== null || !matchesGlob(entry, glob)) continue;
-    if ((await runtime.fs.lstat(path.join(projectRoot, entry)).catch(() => null))?.isFile()) matched += 1;
+    if (pathExclusionReason(entry) === null && matchesGlob(entry, glob) && (await runtime.fs.lstat(path.join(projectRoot, entry)).catch(() => null))?.isFile()) matched += 1;
   }
   return matched;
 }
 
-export async function checkDrafts(runtime: Runtime, workspace: Workspace, options: { project: string | null; taskDir: TaskDir | null }): Promise<DraftsCheck> {
+export async function checkDrafts(runtime: Runtime, workspace: Workspace, options: { project: string | null }): Promise<DraftsCheck> {
   const root = workspace.repositoryRoot;
-  const project: ProjectConfig | null = options.project !== null ? projectById(workspace.config, options.project) : workspace.config.projects.length === 1 ? workspace.config.projects[0]! : null;
-  const constraints = project === null ? { commands: null, projectId: null } : { commands: project.commands, projectId: project.id };
+  const project = options.project !== null ? projectById(workspace.config, options.project) : workspace.config.projects.length === 1 ? workspace.config.projects[0]! : null;
   const diagnostics: Diagnostic[] = [];
   const result: DraftsCheck = { files: [], diagnostics, rulesBySource: {}, notMigrated: [], aggregateHash: '', ok: true, rules: [] };
-  const draftPacks = new Map<string, PackWithPrompts>();
-
+  const packs: PackWithPrompts[] = [];
   const names = (await runtime.fs.readdir(path.join(root, DRAFTS_DIR)).catch(() => [])).filter((entry) => entry.isFile() && entry.name.endsWith('.yaml')).map((entry) => entry.name).sort();
   for (const name of names) {
     const relative = `${DRAFTS_DIR}/${name}`;
     const filePath = path.join(root, relative);
     const raw = (await readPackText(runtime.fs, filePath)) ?? '';
-    const validated = await validatePack(runtime.fs, { raw, filePath, reference: relative, origin: 'project' }, constraints);
+    const validated = await validatePack(runtime.fs, { raw, filePath, reference: relative, origin: 'project' }, project === null ? { commands: null, projectId: null } : { commands: project.commands, projectId: project.id });
     diagnostics.push(...validated.diagnostics);
     result.files.push({ path: relative, contentHash: contentHash(raw), packId: validated.pack?.pack.id ?? null });
     if (validated.pack === null) continue;
-    if (!draftPacks.has(validated.pack.pack.id)) draftPacks.set(validated.pack.pack.id, validated.pack);
+    packs.push(validated.pack);
     const pack = validated.pack.pack;
     const error = (code: string, message: string): number => diagnostics.push({ severity: 'error', code, message: `${relative}: ${message}`, where: filePath });
-
     for (const rule of pack.rules) {
       const qualified = `${pack.id}/${rule.id}`;
       result.rules.push(qualified);
-      if (rule.source === undefined) {
-        error('pack-invalid', `rule "${rule.id}" has no source {quote, location}.`);
-        continue;
-      }
+      if (rule.source === undefined) { error('pack-invalid', `rule "${rule.id}" has no source {quote, location}.`); continue; }
       result.rulesBySource[rule.source.location] = (result.rulesBySource[rule.source.location] ?? 0) + 1;
       if (collapse(rule.source.quote).length < MIN_QUOTE_CHARS) error('pack-invalid', `rule "${rule.id}": source.quote is shorter than ${MIN_QUOTE_CHARS} characters.`);
-      const problem = await quoteProblem(runtime, root, options.taskDir, rule.source);
-      if (problem !== null) {
-        error('pack-quote-missing', `rule "${rule.id}": the quote is not verified (${problem}). Fix the quote or drop the rule.`);
-        result.notMigrated.push({ rule: qualified, reason: `pack-quote-missing: ${problem}` });
-      }
+      // A page's text is not on disk: its quote is the model's word, and the table says so.
+      if (rule.source.location.startsWith('https://')) { diagnostics.push({ severity: 'warning', code: 'pack-quote-unchecked', message: `${relative}: rule "${rule.id}" quotes a page; the quote was not checked.`, where: filePath }); continue; }
+      const problem = await quoteProblem(runtime, root, rule.source);
+      if (problem === null) continue;
+      error('pack-quote-missing', `rule "${rule.id}": the quote is not verified (${problem}). Fix the quote or drop the rule.`);
+      result.notMigrated.push({ rule: qualified, reason: `pack-quote-missing: ${problem}` });
     }
-    if (project !== null) {
-      for (const glob of pack.appliesTo) {
-        if ((await matchedFiles(runtime, path.join(root, project.root), glob)) > 0) continue;
-        diagnostics.push({ severity: 'warning', code: 'pack-glob-matches-nothing', message: `${relative}: appliesTo glob "${glob}" matches no file under project "${project.id}" today.`, where: filePath });
-      }
+    for (const glob of project === null ? [] : pack.appliesTo) {
+      if ((await matchedFiles(runtime, path.join(root, project!.root), glob)) === 0) diagnostics.push({ severity: 'warning', code: 'pack-glob-matches-nothing', message: `${relative}: appliesTo glob "${glob}" matches no file under project "${project!.id}" today.`, where: filePath });
     }
   }
-  const byPackId = new Map<string, string[]>();
-  for (const file of result.files) {
-    if (file.packId === null) continue;
-    byPackId.set(file.packId, [...(byPackId.get(file.packId) ?? []), file.path]);
-  }
-  for (const [packId, files] of byPackId) {
-    if (files.length < 2) continue;
-    diagnostics.push({ severity: 'error', code: 'pack-duplicate-id', message: `pack id "${packId}" is used by more than one draft: ${files.join(', ')}.`, where: path.join(root, files[0]!) });
-  }
-  if (project !== null) {
-    const enabled = await loadPacksForProject({ fs: runtime.fs, project, builtinDirectory: builtinPoliciesDirectory(runtime.pluginRoot), repositoryRoot: root });
-    const prospective = validatePackSet([...enabled.packs, ...draftPacks.values()]);
-    diagnostics.push(...prospective.diagnostics.filter((diagnostic) => diagnostic.code === 'pack-duplicate-id'));
-  }
+  const enabled = project === null ? [] : (await loadPacksForProject({ fs: runtime.fs, project, builtinDirectory: builtinPoliciesDirectory(runtime.pluginRoot), repositoryRoot: root })).packs;
+  diagnostics.push(...validatePackSet([...enabled, ...packs]).diagnostics.filter((diagnostic) => diagnostic.code === 'pack-duplicate-id'));
   if (names.length === 0) diagnostics.push({ severity: 'error', code: 'drafts-empty', message: `No *.yaml draft under ${DRAFTS_DIR}.`, where: path.join(root, DRAFTS_DIR) });
   result.aggregateHash = contentHash(result.files.map((file) => `${file.path} ${file.contentHash}`).join('\n'));
   result.ok = !diagnostics.some((diagnostic) => diagnostic.severity === 'error');

@@ -4,7 +4,7 @@ Written for developers using AMBICODE in a product repository.
 
 `/ambicode:review` is the default. It pins what is being reviewed, mirrors it
 into a snapshot, runs the checks the change affects, and puts the result to an
-independent Claude Code process that can read only that snapshot.
+independent reviewer subagent that can read only that snapshot.
 
 There is no "quality only" switch and no "skip the checks" switch. What the
 review does follows from what you give it.
@@ -22,7 +22,7 @@ One target per run. `--branch` and `--mr` are mutually exclusive, and `--base`
 is valid only with `--branch` — a merge request carries its own base, start and
 head SHAs, and AMBICODE will not substitute a local ref for them. 
 Arguments are parsed and checked before anything happens: a conflicting target
-exits nonzero without creating a directory, running git, or reaching GitLab.
+exits nonzero without creating a directory or running git.
 
 ## Quality review
 
@@ -44,6 +44,10 @@ ambicode review \
 `--requirement` is the one canonical way a requirement enters a review. It is
 repeatable. The result is then labelled `requirement-based`.
 
+On a route (`/ambicode:review`, `investigate`, `plan`, `task`) you only call the MCP tools: the hook stores each response whole under
+`.ambicode/task/<task>/requirements/<key>.json` (url, tool, retrievedAt, rawHash, content up to 256 KB) and `requirements normalize` builds the
+envelope from those files. The JSON envelope below is for a standalone `review --evidence`.
+
 **The helper never retrieves anything.** It has no Atlassian client, no
 credentials and no MCP connection, by design. Your Claude session holds the MCP
 connection, retrieves each URL, and hands the result over as a JSON envelope.
@@ -54,12 +58,10 @@ content, citations, status, failureReason, retrievedVia) and `conflicts`; `inves
 `task` follow the same procedure.
 
 **No skill writes an evidence file.** A workflow that hands the same evidence
-to two commands — `review`, or `review` again after fixing
-a finding — pipes it again, so there is nothing to keep alive across
+to two commands — `review`, or `review` again after fixing a finding — pipes it again, so there is nothing to keep alive across
 consumers and nothing to remember to delete. Nothing is lost either way:
 every retrieved source's content, citations, and provenance are carried into
-the saved review result (`.ambicode/reviews/<id>/result.json`), which is what
-makes a requirement-based review reopenable.
+the saved review result (`.ambicode/reviews/<id>/result.json`).
 
 Every `--requirement` URL must have an entry in that envelope, and the
 envelope must hold nothing else. A URL whose entry says `forbidden`, `not-found` or
@@ -88,169 +90,85 @@ compatible server is connected, `/ambicode:init` asks which one this repository
 should use rather than choosing. Evidence produced by a different server than
 the binding names is refused.
 
+
 ## Reviewing a GitLab merge request
 
 ```sh
-ambicode review --mr https://gitlab.example.com/group/sub/project/-/merge_requests/42
+/ambicode:review --mr https://gitlab.example.com/group/sub/project/-/merge_requests/42
 ```
 
-Give it the full URL. AMBICODE takes the host — including a port — the full
-namespace/project path and the merge request number from that URL, and never
-from your current checkout or branch. Reviewing a merge request on one GitLab
-while standing in a clone of another works, and asks the right server.
-
-A URL that carries credentials, names something other than
-`/-/merge_requests/<iid>`, or points inside a merge request rather than at it is
-refused before `glab` is invoked at all.
-
-### What it pins
-
-The review is pinned to one collected diff version and records provider, host,
-target project, source project, merge request iid, web URL, version id, and the
-base, start and head SHAs. Comments built from this review are positioned
-against those SHAs, so a later push cannot silently move them onto new lines.
-The local `HEAD` is never used as a remote revision.
+Give it the full URL. AMBICODE has no GitLab client and calls no GitLab API.
+The merge request comes through the GitLab MCP server connected to your Claude
+session: the route tells Claude to call `get_merge_request` and the diff tool
+of that server, every page. A hook records the diff from that response as
+`reviews/mr-diff.patch` beside `mr-diff.json` (url, head sha, tool, hash) in
+the task directory. Without a captured diff, `review` refuses with
+`mr-diff-missing`.
 
 ### What it does not do
 
 - **It does not touch your checkout.** No fetch, no checkout, no stash, no
-  index write, no branch switch. Your uncommitted work is irrelevant to the
-  result and unchanged by it.
-- **It does not publish.** There is no flag for it. Remote writes are
-  unreachable until the local selection page exists and a human submits it.
-- **It does not run merge request code on your machine.** See below.
-
-### Transport
-
-Only `glab api`, through the same process port everything else uses. No GitLab
-SDK, no HTTP client of its own, no shell pipeline, and nothing that parses
-`glab mr view` or any other human-formatted output. Every response is validated
-against a schema before it is used, output that hit the capture ceiling is
-rejected rather than half-parsed, and every paginated collection is read to its
-end — a failure on page three fails the listing instead of returning pages one
-and two as if they were all of it.
-
-Authentication is glab's: `glab auth login <host>`. AMBICODE stores no GitLab
-credential and passes none to the reviewer.
+  index write, no branch switch.
+- **It does not run merge request code.** Checks are skipped for a merge
+  request, and each skip is reported as a gap, not a pass.
+- **It does not read files from GitLab.** File content comes from git, and only
+  when the merge request's head sha exists in your checkout. Otherwise the
+  reviewer sees the diff alone and part 4 says so.
 
 ### What can be missing, and how you find out
 
-GitLab does not always deliver a complete diff. A file it marks too large, or
-collapses, or whose content in a fork you cannot read, appears in the result's
-omissions with the reason, and its change is not part of what was reviewed. A
-capped discussion list says so too. Nothing partial is presented as complete.
-
-### Existing discussions
-
-Threads already on the merge request are read and given to the reviewer under
-the `UNTRUSTED EVIDENCE` marker, bounded by thread count and by bytes, so it
-repeats fewer points that somebody has already made. They are evidence and not
-proof: a reply saying something was handled, and a resolved thread, are both
-claims about an earlier revision. The threads are also kept in the result, with
-note identity, author, position and resolution state, because publication later
-needs to recognize a comment it already posted.
+The review sees only the diff the MCP server returned. A server that omits a
+file, collapses it, or truncates a page produces a review of less than the
+merge request, and nothing in the diff says so. Ask for every page.
 
 ### Test code is not reviewed
 
 A merge request's own test files are left out by default: `*.spec.*`,
 `*.test.*`, `*_test.*`, `*_spec.*`, `*.cy.*`, `test_*.py`, `conftest.py`, and
 anything under `__tests__/`, `__mocks__/`, `tests/`, `test/`, `spec/`, `e2e/`
-or `cypress/`. Measured on one 299-file merge request, 60 of those files were
-`.spec.ts` — a fifth of the budget spent on files that, without a pinned
-container, no check here will ever execute.
-
-The rules are deliberately narrow, and match only markers that mean "test" and
-nothing else. `fixtures/` and `testdata/` are **not** among them: a silent
-over-exclusion drops shipped code out of a review.
+or `cypress/`. The rules are deliberately narrow: `fixtures/` and `testdata/`
+are **not** among them, because a silent over-exclusion drops shipped code out
+of a review.
 
 What this costs is stated in the result's omissions: whether the tests cover
 the change, and whether an assertion was weakened, is unestablished. Pass
 `--with-tests` to review them. A local or `--branch` review keeps them, because
 there the tests are usually the work you just did.
 
-### Checks on merge request code
+### Publishing
 
-Merge request code is somebody else's, so it never executes in your checkout —
-not as a fallback, not "just the linter". It runs only in a configured isolated
-container, and otherwise every executable check is skipped with the exact
-reason.
-
-```yaml
-remoteChecks:
-  image: registry.example.com/ambicode/ci@sha256:<digest>
-```
-
-The image must be pinned by digest: a tag can be moved between the review and
-the run. AMBICODE does not pull or build it, and does not install dependencies
-into it — an absent image is a skip, not a task. When it does run, the container
-has no network, no bind mount of any kind, an unprivileged user, all
-capabilities dropped, `no-new-privileges`, and bounded CPU, memory, processes
-and time. The pinned snapshot is copied into the container's own disposable
-storage before anything starts; whatever a command writes there is reported as a
-limitation and then destroyed with the container. It never reaches your files
-and never becomes the reviewed revision.
-
-## GitHub
-
-```
-$ ambicode review --mr https://github.com/acme/widgets/pull/12
-error [provider-unsupported]: AMBICODE does not support GitHub pull requests. …
-```
-
-GitHub is registered under the same interface and returns a typed unsupported
-result for every remote operation. It never invokes `glab`, never falls through
-to the GitLab adapter, never claims a remote operation succeeded, and has no
-effect on local working or branch review. Implementing it is one module and one
-registry entry.
+After the read-back the route lists the findings as `n. path:line — comment`
+and asks "Post which findings as merge-request comments?" with `all`, `none`,
+or a number list as free text. `none` is the default and ends the route.
+Posting is Claude's action after your answer: one discussion per selected
+finding through the GitLab MCP server, body the suggested comment, position the
+new path and line. AMBICODE records the answer. It does not post and does not
+verify that Claude did.
 
 ## What the reviewer can do
 
-A fresh `claude` process per review, started in the sanitized snapshot
-directory, with:
+The reviewer is the plugin subagent `ambicode:reviewer`
+(`agents/reviewer.md`). It has `Read`, `Grep` and `Glob`, and nothing else: no
+command-running tool, no MCP, no way to post. Its prompt names the sanitized
+snapshot directory and `brief.md` beside it, and the product checkout is not
+what it is pointed at.
 
-- `Read`, `Grep` and `Glob`, and nothing else;
-- `--safe-mode` and `--restricted`: no project `CLAUDE.md`, skills, hooks,
-  settings files or customizations; no command-running tools;
-- `--strict-mcp-config` with an empty MCP configuration: no MCP servers;
-- `--no-session-persistence`: nothing written to a session on disk;
-- no `--add-dir`, so the product checkout is not reachable;
-- a replacement environment, not the developer's: only what the runtime needs
-  (`PATH`, `HOME`, locale, TLS and proxy settings) and what authenticates it to
-  the model provider. `GITLAB_TOKEN`, `GLAB_TOKEN`, GitHub, Jira, package
-  registry, database and cloud workload variables are absent from the process,
-  not merely unused by it;
-- `MAX_STRUCTURED_OUTPUT_RETRIES=3`, set rather than inherited (the default is
-  five). A retry re-asks the model to serialize the answer it already reached;
-  it does not revise a finding. What keeps an unchecked answer out is the Zod
-  validation in `parseReviewerOutput`, which fails the review rather than
-  degrading to an empty finding list, and that is independent of this number.
-  The cap was briefly `1`, which threw away a completed review whenever the
-  model mis-serialized once — on a nineteen-file merge request, three minutes
-  of analysis and a full model call, with a re-run as the only remedy.
+Code, requirements and check output reach it below a heading marked
+`UNTRUSTED EVIDENCE`. Text in there cannot grant a tool, a permission or a
+goal. It is data, whatever it claims about itself.
 
-  When the budget is exhausted the review still fails, as
-  `structured-output-exhausted`. It is reported as a failure and never as a
-  clean review with no findings: the analysis is not recoverable, and
-  reconstructing it from the model's prose would be inventing findings nothing
-  validated. A nonzero exit is classified from the result envelope Claude Code
-  prints alongside it, not from the exit code, so the failure is named.
-
-If the installed Claude Code stops offering one of the options that boundary is
-built from, the review is refused with `reviewer-isolation-unavailable` rather
-than run with less isolation than the result claims.
-
-Code, requirements, and check output all reach the reviewer below a heading
-marked `UNTRUSTED EVIDENCE`. Text in there cannot grant a tool, a permission or
-a goal. It is data, whatever it claims about itself.
+The route does not trust the answer. Claude pastes the subagent's JSON block,
+unchanged, into `review record --task <slug>`, which validates every finding
+against the pinned change and writes the result.
 
 ## What comes back
 
 Four parts, in this order.
 
 1. **What was reviewed.** Review id, mode, pinned target, measured input,
-   snapshot location, the reviewer's model and tool set, the requirements with
-   their versions and retrieval times, and content hashes for every prompt,
-   policy pack, configuration file and requirement that went into it.
+   snapshot location, the requirements with their versions and retrieval
+   times, and content hashes for the policy packs, configuration and
+   requirements that went into it.
 2. **Findings.** Each with risk, confidence, category, a validated location, an
    excerpt taken from the snapshot, an explanation, a suggested comment, and the
    rules or requirements it cites.
@@ -261,39 +179,40 @@ Four parts, in this order.
    why, what the reviewer said it could not assess, and every finding that was
    rejected for naming a file or line that is not in the change.
 
-Results are written to `.ambicode/reviews/<id>/` — `result.json`, `report.txt`,
-`reviewer-system-prompt.md` and `reviewer-user-prompt.md` (split per doc 04
-P2.4 correction E, so the appended system instructions and the user-turn
-content are separately inspectable) — which is gitignored. The snapshot lives
-outside the repository.
+`review` writes `result.json`, `report.txt` and `brief.md` to
+`.ambicode/reviews/<id>/` (gitignored); `review record` adds `findings.json`
+and rewrites `result.json` and `report.txt` with the findings. The snapshot
+lives outside the repository.
 
 ### Reading the outcome honestly
 
 **No findings is a valid result and not a clean bill of health.** It means the
 reviewer identified nothing material within the scope and material it was given.
 
-**A failed reviewer produced no finding list at all.** `status: error` with
-`reviewer.status: failed` is a timeout, a spawn failure, or output that did not
-survive validation. It is not a review that found nothing.
+**A failed reviewer produced no finding list at all.** If the subagent returns
+no parsable JSON block, `review record` records a failed review and keeps the
+raw answer in `rejected-output.txt`. It is not a review that found nothing.
 
 **A failed or skipped check does not block the review.** It narrows what was
-verified, which makes the result `partial` and puts the reason in part 4. Only a
-reviewer that produced nothing usable makes the result an `error`.
+verified, which makes the result `partial` and puts the reason in part 4.
 
 **An unverifiable claim invalidates the result.** If the reviewer named a path
 or a line the pinned change does not contain, cited a rule or requirement this
 review does not hold, or returned more findings than `review.maxFindings`, the
-review is an `error`: the reasons are in `reviewer.rejections`, the finding list
-is empty, and the surviving findings are *not* offered as validated output. A
-reviewer that named a file the change does not hold has not shown that its other
-claims were checked against the same evidence. Nothing is repaired and no second
-model call is made.
+review is an `error`: the finding list is empty and the surviving findings are
+*not* offered as validated output. Nothing is repaired and no second model call
+is made.
+
+**A result is recorded once.** A second `review record` for the same review
+stops with `review-recorded`; run `review --task <slug>` for a new review.
 
 ## Evidence without a model
 
-
-The same target, snapshot, requirements and check evidence, with no model
-invoked. Its empty `findings` list means nothing ran, and the omissions say so.
+`ambicode review` on its own prepares the evidence: target, snapshot,
+requirements and check results. It invokes no reviewer, so its empty `findings`
+list means nothing ran, and its status is `partial` with the reason
+"reviewer pending". `review --estimate` prints what a review would cost and
+writes nothing.
 
 ## Where a review is saved
 
@@ -318,13 +237,8 @@ plus a timestamp (`raise-upload-limit_2026-09-23T10-15`). With neither, the
 review stays directly under `.ambicode/reviews/`, because there is no task to
 group it with.
 
-A merge-request review always stays under `.ambicode/reviews/`: it reviews
-somebody else's branch, and there is no local task it belongs beside.
-
 The review id is the directory name only — `local_2026-09-22T23-42`, with no
 ticket in it, because the directory above already carries the ticket.
-`ambicode view --review <id>` looks through every task directory for it, and
-refuses rather than guesses if two of them hold that id.
 
 ## A check waiting for a human
 
@@ -335,26 +249,17 @@ one, its reason, and the exact argv it would execute.
 
 **While any check is waiting, `review` stops at the evidence and invokes no
 reviewer.** There is no finding list, and the omissions say why rather than
-presenting an empty one. Answer every waiting key and re-run once:
+presenting an empty one. Check evidence is part of what the reviewer is given,
+so reviewing while a check is unresolved would buy a review of evidence that is
+about to change.
 
-```sh
-ambicode review --approve app/unit --decline app/e2e
-```
-
-Both options are repeatable, and one key answers one run: neither authorizes
-the same check next time. `--decline` leaves the check skipped exactly as an
-unauthorized one is — it never widens or substitutes a run — and the result
-records that a human was asked and said no, which is a gap in verification
-somebody chose rather than one nobody noticed.
-
-The reason for stopping is arithmetic, not ceremony. Check evidence is part
-of the reviewer prompt, so running the reviewer while a check is unresolved
-buys a review of evidence that is about to change, and the same review is
-paid for again afterwards. Measured on a real task: 187s of reviewer time
-with the unit check skipped over a selection limit, then 233s more for the
-identical review once the human had approved it — 233s whose only new
-information was one check result. Stopping first makes that run cost what
-`review --estimate` costs.
+On the review route the human answers the `review-checks` question: `with`
+runs the waiting checks, `without` (the default) declines them. Outside a
+route, `--decline <key>` (repeatable) reviews without a waiting check, and a
+typed `--approve <key>` approves nothing: the result says so in its omissions.
+A declined check stays skipped, and the result records that a human was asked
+and said no, which is a gap in verification somebody chose rather than one
+nobody noticed.
 
 A failed or skipped check is different and does **not** stop anything: it is
 settled evidence, it narrows what the review verified, and the review runs.
@@ -362,12 +267,9 @@ settled evidence, it narrows what the review verified, and the review runs.
 ## Review input limits
 
 `review.maxContextBytes` bounds **everything the model is handed**, measured in
-encoded UTF-8 bytes before the reviewer is started:
-
-- the composed canonical prompt — the shared contract and reviewer role, the
-  scoped policy rules and prompt files, the requirements, prior merge request
-  discussion, the check evidence and the patch;
-- the files mirrored into the snapshot, which the reviewer reads.
+encoded UTF-8 bytes before the reviewer is started: the composed prompt (the
+shared contract and reviewer role, the scoped policy rules, the requirements,
+the check evidence and the patch) and the files mirrored into the snapshot.
 
 Exceeding it refuses the review and names each measured component. Nothing is
 trimmed to fit: not the change, not a requirement. The one discretionary part is
@@ -377,8 +279,7 @@ it left out.
 Two snapshot ceilings sit below the configurable limits and are not settings:
 262,144 bytes per mirrored file and 4,194,304 in total. Raising
 `review.maxContextBytes` does not move them, so one oversized generated file
-can make a whole change unreviewable — measured on a 299-file merge request
-that stopped at a 390,029-byte translation JSON.
+can make a whole change unreviewable.
 
 `--exclude <glob>`, repeatable, and `review.excludePaths` are the way through.
 Matching paths join the built-in exclusions: out of the patch, out of the
@@ -388,189 +289,11 @@ file renamed *into* the selection is in it.
 
 The result's omissions name the patterns and each path they removed, because
 the review then covers part of a change and has to read as one. A refusal names
-every oversized path at once rather than the first, so one pass tells you
-everything you have to decide about. Narrowing to nothing is refused
-(`nothing-to-review`), and so is a target with no changed files at all: a
-reviewer is never spent on an empty change.
-
-## What gathering the context costs
-
-**A merge-request review fetches the change and nothing else.** The diff, and
-the full content of the files the diff touches. Not the unchanged files beside
-them, and not the repository.
-
-A local review still takes its neighbours: reading them is a filesystem call.
-Over the API each one is a request, and on MR 2677 they were 94 of the 141
-files mirrored and 19 directory listings on top — two thirds of the requests
-and half the mirrored bytes, spent on code the merge request does not touch.
-Either way, whatever a review does not hold is in its omissions: an absent
-neighbour means "not read", never "nothing there".
-
-The changed files themselves are fetched in one GraphQL query per hundred
-paths rather than one request each. The reply carries every blob's own
-`rawSize`, and a body that does not weigh exactly that — a binary blob, a
-re-encoded one, a path GitLab left out of a capped page — is not used at all;
-that file is read the per-file way, where bytes are classified before they are
-decoded. So the batch is an optimization that cannot change an answer, only
-the number of requests it took.
-
-Measured end to end on MR 2677, `review --mr` with one `--exclude`:
-
-```
-before   160 requests   68.5s   141 files mirrored   648 KB snapshot
-after      ~9 requests  12.0s    41 files mirrored   223 KB snapshot
-```
-
-Before that, the same gathering had been 1,086 serial requests and about 27.5
-minutes on a 299-file merge request.
-
-### A file kept out does not come back beside the change
+every oversized path at once rather than the first. Narrowing to nothing is
+refused (`nothing-to-review`), and so is a target with no changed files at all:
+a reviewer is never spent on an empty change.
 
 Sibling context is filtered through the same patterns that decided what is
-reviewed. It has to be: on MR 2677 the result said the change's test code was
-not reviewed while six of those exact `.spec.ts` files sat in the snapshot as
-neighbours of a changed file, where the reviewer could read them. An exclusion
-that the snapshot quietly undoes is worse than no exclusion, because the report
-claims it happened.
-
-## Publishing selected comments
-
-`ambicode review` never publishes anything by themselves.
-For a merge request review, the exact remote position of every finding that has
-one is derived while the pinned diff is still available and saved beside the
-result, in `.ambicode/reviews/<id>/publication-positions.json`. That position —
-provider, host, project, merge request, base/start/head SHAs, diff version id,
-path and line — is never recomputed later from the current branch or merge
-request. A finding without an exact position is shown but cannot be selected.
-
-The review's printed output always includes the exact command to reopen it:
-
-```sh
-ambicode view --review <review-id>
-```
-
-### `ambicode view`
-
-```sh
-ambicode view --review <review-id-or-path-to-result.json>
-ambicode view --review <review-id>
-```
-
-Starts a local page, bound only to `127.0.0.1` on port 45831 (`page.port`;
-`0` picks a free port per run), holding the
-saved result, its positions, its drafts and its publication history. It prints
-the URL once, tries to open your default browser, and keeps serving either
-way — paste the URL yourself if the browser does not open. The page stays up
-until you press Ctrl-C, send a signal, or it idles out (`page.idleTimeoutSeconds`
-in configuration; requests reset the timer, so an open tab you're reading does
-not expire under you).
-
-A local or branch review opens the same way and reads the same way; it simply
-has no publish action, because there is no merge request to publish to.
-**GitHub is not supported for publication**, the same as it is not supported
-for review.
-
-There is one page per machine. A new `ambicode view` that finds the port held
-by an earlier review page stops that page and takes the port; a tab still
-showing the old page then says it was disconnected, and nothing it submits is
-published. A page in the middle of publishing is left running. Anything else
-holding the port is left alone, and the new page uses a free port and says so.
-
-The page is plain HTML with no script, so a tab cannot notice on its own that
-its server stopped; it finds out on its next request. If no page runs on the
-port any more, that request fails in the browser itself.
-
-The link is `http://127.0.0.1:45831/<token>`. It opens the page from any
-browser on this machine, as many times as needed, for as long as that page
-runs; each browser gets its own session cookie, and the address bar is
-cleaned to `/`. The bare `/` without a session says to use the link. Only a
-page load opens a session: a `HEAD` request, a prefetch or a subresource
-fetch does not. Each request carrying the link is logged to stderr, without
-the token.
-
-The token lives only in that process's memory and dies with it, and the next
-`ambicode view` replaces the process with a new token. While the page runs,
-anyone who can read the printed link on this machine can open it; it was
-one-time before 0.2.7, but the browser launch spent it, so the link reported
-in chat never opened anything.
-
-### What the page shows
-
-Above the findings: the review id and status, whether it is a quality or a
-requirement-based review, the GitLab host/project/merge-request link, the
-pinned version and its SHAs, each requirement source and how it was retrieved,
-the check results and whether their selection was complete, any coverage gap
-GitLab did not deliver, ordinary omissions, a failed or empty reviewer state,
-and whether publication is currently available (it is not, for a stale,
-still-collecting, or non-merge-request review).
-
-Each finding is its own card: risk, confidence, category, path, line and side,
-the pinned excerpt, the explanation, the rules or requirements it cites, an
-editable multi-line proposed comment, and — only when the finding has an exact
-saved position and publication is available — an initially unchecked checkbox
-to select it. A finding that cannot be published shows the specific reason
-instead of a checkbox (no saved position, review is stale, and so on). Every
-checkbox starts unchecked in every new session; nothing is ever pre-selected.
-
-Hostile text anywhere in the review — a finding's explanation, a requirement
-title, an existing GitLab note — is escaped before it reaches the page. There
-is no script on the page, no client framework, no remote font or analytics
-call, and no browser-held credential; every render is a server-side template
-and every state change is an ordinary form POST.
-
-### Publishing
-
-Submitting the form authorizes publication — nothing else does. A GET, a
-rendered checkbox, a model's own output and a skill's own instructions are
-never enough by themselves. What you submit can only be which findings are
-selected and the edited text of their comments, plus the session's CSRF token;
-the target merge request, its host, project, SHAs and each comment's position
-come exclusively from the server's own saved state. A submitted field that
-tried to name any of those is rejected, not silently ignored.
-
-Before sending anything, the page asks GitLab for the merge request's current
-metadata and its most recently collected diff version, and compares that
-against what the review was pinned to. If the merge request has moved, is
-closed or merged, or GitLab has not finished collecting the version the pinned
-review used, nothing is sent, the reason is shown, and your edits are kept —
-you can copy them elsewhere or wait and retry. The same check runs again
-immediately before **every individual comment**, not just once at the start:
-if the merge request moves partway through a run of several comments, sending
-stops there. What was already sent is preserved as sent; what had not gone out
-yet is marked stale, not silently moved onto a new line.
-
-### If GitLab's answer is uncertain
-
-If a write to GitLab does not clearly succeed or fail — a network error, a
-timeout, an unparseable response — the page does not guess and does not retry
-automatically. It queries the merge request's discussions once, looking for
-its own hidden marker (the review id, the finding id and the position, none
-of it visible in the rendered comment). If the marker is found, posted by the
-identity AMBICODE is authenticated as, at the exact position: the comment is
-confirmed and no duplicate is ever posted, even from an edited retry. If it is
-not found, the finding stays `uncertain` and a later reopen reconciles it
-again, the same way, before offering another attempt. A network failure is
-never turned into a second, possibly duplicate, post.
-
-### What is saved, and what never is
-
-Under `.ambicode/reviews/<id>/`, already covered by the repository's
-`.gitignore`:
-
-- `publication-positions.json` — the derived, immutable positions.
-- `publication.json` — edited drafts, the selection and outcome of every
-  publication attempt, confirmed GitLab links, and stale/uncertain state.
-
-Never saved, anywhere: the one-time capability, the session id, the session or
-CSRF signing secret, or any GitLab or model credential. Reopening always
-starts a fresh capability and session; only the drafts and history persist.
-
-### Shutdown and cleanup
-
-On idle timeout, Ctrl-C or a signal, the page stops accepting requests, clears
-its in-memory sessions, and removes only its own ephemeral state — never the
-saved result, drafts or publication history, and never a file it did not
-create itself. A later `ambicode view` sweeps leftover AMBICODE temporary
-directories from a prior run that ended uncleanly, but only ones carrying
-AMBICODE's own ownership marker; anything else with a similar name is left
-alone and reported.
+reviewed, so an excluded file does not come back beside the change. Whatever a
+review does not hold is in its omissions: an absent neighbour means "not read",
+never "nothing there".

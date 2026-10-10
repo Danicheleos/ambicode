@@ -160,34 +160,6 @@ describe('U16 requirement modes end to end', () => {
     }
   });
 
-  it('stops on contradictory requirements before any check or model call', async () => {
-    const context = await fixture();
-    try {
-      const evidence = await writeEvidence(context.repo, {
-        mcpServer: null,
-        sources: [
-          retrieved(JIRA, 'ORD-17', 'Totals sum the amounts.'),
-          retrieved(CONFLUENCE, 'ENG-orders', 'Totals count the amounts.'),
-        ],
-        conflicts: [
-          { summary: 'one document says sum, the other says count', sourceIds: ['ORD-17', 'ENG-orders'] },
-        ],
-      });
-      
-      const error = await failure(() =>
-        review(
-          context.runtime,
-          ['--requirement', JIRA, '--requirement', CONFLUENCE, '--evidence', evidence],
-      ),
-      );
-      assert.equal(error.code, 'requirements-conflicting');
-      // The review directory is created after the checks are planned, so its
-      // absence shows nothing downstream of requirements ran.
-      assert.equal(await nodeFileSystem.exists(path.join(context.repo.root, '.ambicode', 'reviews')), false);
-    } finally {
-      await context.dispose();
-    }
-  });
 });
 
 describe('files that rely on the change', () => {
@@ -205,35 +177,6 @@ describe('files that rely on the change', () => {
     await repo.write('src/pricing/pricing.service.ts', 'export function shippingFee(weight: number) {\n  return weight * 3;\n}\n');
     return { repo, runtime: await createRuntime({ cwd: repo.root }), dispose: () => repo.dispose() };
   }
-
-  it('gives the reviewer the unchanged source files that use a name the change removed, and says so', async () => {
-    const context = await dependentsFixture();
-    try {
-            const output = await review(context.runtime, []);
-
-      assert.ok(await nodeFileSystem.exists(path.join(output.snapshotDirectory, 'files', 'src/checkout/checkout.ts')), output.result.omissions.join(' | '));
-      assert.ok(!(await nodeFileSystem.exists(path.join(output.snapshotDirectory, 'files', 'docs/pricing.md'))), 'prose is not a dependent');
-      assert.ok(
-        output.result.omissions.some((line) => line.includes('mention names this change adds, removes or renames') && line.includes('src/checkout/checkout.ts')),
-        output.result.omissions.join(' | '),
-      );
-      await nodeFileSystem.remove(output.snapshotDirectory);
-    } finally {
-      await context.dispose();
-    }
-  });
-
-  it('finds them for a branch review too, reading the committed revision', async () => {
-    const context = await dependentsFixture();
-    try {
-      await context.repo.commitAll('rename the function');
-      const output = await review(context.runtime, ['--branch', '--base', 'HEAD~1']);
-      assert.ok(await nodeFileSystem.exists(path.join(output.snapshotDirectory, 'files', 'src/checkout/checkout.ts')), output.result.omissions.join(' | '));
-      await nodeFileSystem.remove(output.snapshotDirectory);
-    } finally {
-      await context.dispose();
-    }
-  });
 
   it('adds the files --context names, and refuses --context for a merge request', async () => {
     const context = await dependentsFixture();
@@ -525,10 +468,10 @@ describe('B8 an applicable policy diagnostic becomes an explicit coverage omissi
       );
       const configPath = path.join(context.repo.root, '.ambicode', 'config.yaml');
       const config = await nodeFileSystem.readText(configPath);
-      assert.match(config, /policyFiles: \[\]/);
+      assert.doesNotMatch(config, /policyFiles/);
       await nodeFileSystem.writeText(
         configPath,
-        config.replace('policyFiles: []', 'policyFiles: [".ambicode/policies/broken-review.yaml"]'),
+        config.replace(/^(\s+packs: .*)$/m, '$1\n    policyFiles: [".ambicode/policies/broken-review.yaml"]'),
       );
 
             const output = await review(context.runtime, []);
@@ -563,7 +506,7 @@ describe('B8 an applicable policy diagnostic becomes an explicit coverage omissi
       const config = await nodeFileSystem.readText(configPath);
       await nodeFileSystem.writeText(
         configPath,
-        config.replace('policyFiles: []', 'policyFiles: [".ambicode/policies/broken-plan-only.yaml"]'),
+        config.replace(/^(\s+packs: .*)$/m, '$1\n    policyFiles: [".ambicode/policies/broken-plan-only.yaml"]'),
       );
 
             const output = await review(context.runtime, []);

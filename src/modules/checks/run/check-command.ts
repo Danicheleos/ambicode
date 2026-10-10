@@ -8,15 +8,13 @@ import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { AmbicodeError } from '#util/errors';
 import { normalizeRelative } from '#util/paths';
-import { adapterFor } from '../selection/adapters.ts';
 import { authorizeCommand, checkApprovalKey } from '../selection/authorize.ts';
-import { classifyProof } from '../selection/proof.ts';
 import { runChecks } from './run.ts';
 import { GATE, type CheckDeps, type Routed, type CheckOnlyInput, type CheckOnlyOutcome, type CheckEntry } from '#types/modules/checks';
-import type { Workspace } from '#types/composition';
 import type { LedgerEntry, LockedLedger, NoteDeps, TaskDir } from '#types/modules/evidence';
 import type { RouteView } from '#types/harness';
 const CHECK_LIMIT = 5;
+const TAIL_LINES = 40;
 
 const badArgument = (message: string, field: string): AmbicodeError => new AmbicodeError('bad-argument', message, { field });
 
@@ -163,18 +161,21 @@ export async function runCheckOnly(deps: CheckDeps, input: CheckOnlyInput): Prom
     routed === null ? Promise.resolve() : withLedger(deps, dir, (ledger) => ledger.append({ kind: 'limit', ...route, which, count: 1, step, cause }).then(() => undefined));
 
   if (result === undefined || result.exitCode === null) {
-    await unproven(`${input.phase}-unproven`, 'no-summary');
+    await unproven(`${input.phase}-unproven`, 'not-run');
     return { outcome: 'not-run', status: result?.status === 'timed-out' ? 'timeout' : 'spawn-failed', detail: result?.limitations[0] ?? 'the check did not run' };
   }
 
   const output = result.outputRef === null ? '' : await deps.runtime.fs.readText(path.join(dir.root, result.outputRef)).catch(() => '');
-  const parsed = adapterFor(check.adapter).parseSummary?.(output) ?? null;
-  const proof = classifyProof(input.phase, result.exitCode, parsed);
   const entry = await withLedger(deps, dir, (ledger) => ledger.append({
     kind: 'check', ...route, key, argv: result.argv, only: input.only, exit: result.exitCode, phase: input.phase,
-    summary: parsed === null ? null : { ran: parsed.ran, failed: parsed.failed }, ms: result.durationMs ?? 0,
+    summary: null, tail: tailOf(output), ms: result.durationMs ?? 0,
     ...(result.mutations.length === 0 ? {} : { mutations: result.mutations }), ...(deps.session === null ? {} : { session: deps.session }),
   })) as CheckEntry;
-  if (!proof.proven) await unproven(proof.which, proof.cause);
-  return { outcome: 'ran', entry, proof };
+  // Red is exit != 0 and green is exit 0; the other combination is recorded as a gap, never as proof.
+  const cause = input.phase === 'red' ? (result.exitCode === 0 ? 'no-failure' : null) : (result.exitCode === 0 ? null : 'nonzero-exit');
+  if (cause !== null) await unproven(`${input.phase}-unproven`, cause);
+  return { outcome: 'ran', entry, proof: cause === null ? { proven: true } : { proven: false, cause } };
 }
+
+/** The last 40 lines of stdout then stderr, the part a runner prints its verdict and failures in. */
+const tailOf = (output: string): string => output.trimEnd().split('\n').slice(-TAIL_LINES).join('\n');

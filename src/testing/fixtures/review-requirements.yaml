@@ -1,6 +1,5 @@
 skill: review
 version: 3
-budget: { modelSteps: 6 }
 exits: [done, blocked, human, inconclusive, superseded]
 revisable: []
 steps:

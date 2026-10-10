@@ -42,12 +42,12 @@ async function pending() {
 }
 
 describe('review record', () => {
-  it('a pending review carries the brief and stage pending', async () => {
+  it('a pending review has stage pending and names its brief path', async () => {
     const t = await pending();
     const entry = (await t.ledger()).findLast((candidate) => candidate.kind === 'review')!;
     assert.deepEqual([entry['stage'], entry['reviewerRan']], ['pending', false]);
     const result = ReviewResult.parse(JSON.parse(await readFile(t.reviewed.resultPath, 'utf8')));
-    assert.match(await readFile(path.join(t.root, result.brief!), 'utf8'), /^# Review brief /);
+    assert.match(result.brief!, /brief\.md$/);
   });
 
   it('valid findings, fenced, are recorded: stage recorded, the count, findings.json and the four-part report', async () => {

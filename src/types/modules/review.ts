@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { CheckStatus, Confidence, ReviewStatus, Risk, TargetKind } from '../primitives.ts';
-import { ProvenanceEntry, RequirementConflict, RequirementSource, type NormalizedRequirements, type EvidenceSource } from './requirements.ts';
+import { ProvenanceEntry, RequirementSource, type NormalizedRequirements, type EvidenceSource } from './requirements.ts';
 import type { PendingApproval } from './checks.ts';
 import type { Workspace, Runtime } from '../composition.ts';
 import type { ProjectConfig } from './config.ts';
@@ -109,7 +109,6 @@ export const ReviewResult = z.strictObject({
   target: ReviewTarget,
   requirements: z.array(RequirementSource).default([]),
   requirementMode: ReviewRequirementMode,
-  requirementConflicts: z.array(RequirementConflict).default([]),
   provenance: z.array(ProvenanceEntry).default([]),
   inputs: ReviewInputs,
   reviewer: ReviewerRun.nullable().default(null),

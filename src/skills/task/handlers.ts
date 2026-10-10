@@ -1,5 +1,4 @@
 import path from 'node:path';
-import { refs } from '#modules/search/refs';
 import { touchedSet, captureBaseline } from '#modules/checks/workspace/baseline';
 import { evaluateReview } from '#modules/checks/review-evaluation';
 import { ReviewResult } from '#types/modules/review';
@@ -9,7 +8,6 @@ import { onGatePrint, onNeedCommand, onRaisedAnswer, raiseGate } from '#harness/
 import { chainEntries, configOf, isResult, projectOf } from '../common.ts';
 import { briefOf } from '../brief.ts';
 import { agentPayload } from '../review/agent-payload.ts';
-import { CODE_SHAPED } from '#modules/search/text/seed';
 import { isAmbicodeError } from '#util/errors';
 import { buildReport } from '#modules/evidence/report/report';
 import type { BaselineEntryFields, ReviewEntry } from '#types/modules/checks';
@@ -18,21 +16,14 @@ import type { Handler, HandlerInput, HandlerResult } from '#types/harness';
 
 const MAX_START_BYTES = 4096;
 const MAX_REPORT_BYTES = 3072;
-const MAX_CALLERS = 8;
 const KEY_GATE = 'check-only-unauthorized';
 const keyValues = (key: string): Record<string, string[]> => ({ key: [key], files: ['the change under review'] });
-const DEFECT = /\bdefect\b|\b(?:issue\s*)?type\W{0,3}(?:bug|defect)\b/i;
 
 const cutTo = (text: string, bytes: number, rest: string): string => {
   if (Buffer.byteLength(text) <= bytes) return text;
   let kept = text.slice(0, bytes - Buffer.byteLength(rest) - 1);
   while (Buffer.byteLength(`${kept}\n${rest}`) > bytes) kept = kept.slice(0, -1);
   return `${kept}\n${rest}`;
-};
-
-const identifiers = (text: string): string[] => {
-  const names = [...text.matchAll(CODE_SHAPED)].map((match) => (match[1] ?? match[2] ?? '').replace(/\(\)$/, '').split('.').at(-1) ?? '');
-  return [...new Set(names.filter((name) => /^[A-Za-z_$][\w$]*$/.test(name)))].slice(0, MAX_CALLERS);
 };
 
 async function readResult(input: HandlerInput, review: LedgerEntry): Promise<ReviewResult | null> {
@@ -73,27 +64,6 @@ export const TASK_HANDLERS: Readonly<Record<string, Handler>> = {
     if (runnable) return { state: 'ok', payload: null };
     const detail = `no-check: project "${project.id}" has no check with a configured command, so no failing test can be recorded`;
     return { state: 'ok', payload: `${detail}. Configure one in .ambicode/config.yaml, then start the task again.`, exit: 'blocked', exitDetail: detail };
-  },
-
-  /** Callers of the brief's code-shaped names (07-G1, 07-G2); also records whether the brief is a defect (07-S2, D19). */
-  'task.inventory': async (input) => {
-    const chain = await chainEntries(input);
-    const config = await configOf(input);
-    const project = await projectOf(input, config);
-    if (isResult(project)) return project;
-    const { brief } = await briefOf(input, (await input.ledger.read().then((read) => (read.state === 'ok' ? read.entries : []))));
-    const text = brief ?? input.args.text;
-    const sources = JSON.stringify(chain.filter((entry) => entry.kind === 'envelope').map((entry) => entry['sources']));
-    const defectBrief = DEFECT.test(text) || DEFECT.test(input.args.text) || DEFECT.test(sources);
-    const names = identifiers(text);
-    const lines = ['Callers (whole-word search; a `collides` caller → verify its import before editing):'];
-    if (names.length === 0) lines.push('  no code-shaped name in the brief');
-    else {
-      const found = await refs(input.runtime, names, { project });
-      for (const row of found.names) lines.push(`  ${row.name} — ${row.hits} refs${row.collides === true ? ', collides' : ''}`);
-      for (const limitation of found.limitations) lines.push(`  ${limitation}`);
-    }
-    return { state: 'ok', payload: lines.join('\n'), record: defectBrief ? { defectBrief } : {} };
   },
 
   /** 07-V1 on the latest review; the route's onFail turns `review-findings` into the revise to fix. */

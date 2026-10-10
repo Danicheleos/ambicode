@@ -9,7 +9,7 @@ import { validateFindings } from '#modules/review/findings/validate';
 import { applyStatus } from '#modules/review/findings/status';
 import { renderReport } from '#modules/review/findings/report';
 import { readEntries } from '#harness/engine/context';
-import { runCommandTail } from '#harness/engine/command-tail';
+import { runCommandTail } from '#harness/engine/engine';
 import { COMMAND_SPECS } from '#skills/review/commands';
 import { AmbicodeError, messageOf } from '#util/errors';
 import { routeTools, taskOf } from '../route/route.ts';

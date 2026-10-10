@@ -10,7 +10,6 @@ import type { Handler } from '#types/harness';
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';
 const ROUTE = `skill: tbl
 version: 3
-budget: { modelSteps: 6 }
 exits: [done, blocked, human, inconclusive, superseded]
 revisable: []
 steps:
@@ -32,14 +31,12 @@ const VALUES: Record<string, Record<string, string[]>> = {
   'requirements-server-disconnected': {},
   'requirements-server-ambiguous': { servers: ['jira-a', 'jira-b'] },
   'requirements-expansion-capped': { keys: ['ORD-1', 'ORD-2'] },
-  'requirements-conflicting': { summary: ['title differs'], sources: ['ORD-1', 'ORD-2'] },
   'requirements-not-captured-twice': {},
   'check-only-unauthorized': { key: ['unit'], files: ['src/a.ts'] },
   'review-checks': { key: ['app/lint', 'app/test'] },
   'review-again': {},
   'scope-expanding': { finding: ['extra file'] },
   'project-ambiguous': { projects: ['app', 'lib'] },
-  'config-unparsable': {},
   'decision:db-choice': {},
 };
 
@@ -192,12 +189,12 @@ describe('gate table: every registry gate', () => {
   it('03-G13: a command-side raiseGate writes the same print a handler raise writes', async () => {
     const t = await table();
     try {
-      const { task } = await t.begin('requirements-conflicting');
+      const { task } = await t.begin('requirements-expansion-capped');
       const handlerPrint = (await t.fx.kinds(task, 'gate'))[0]!;
       const dir = await resolveTaskDir(t.fx.runtime, task);
       const written = await withLedgerLock(t.fx.runtime.fs, dir.root, () => new Date(), A, async (ledger) => {
         const head = (await t.fx.kinds(task, 'route'))[0]!;
-        return raiseGate(ledger, { task, routeId: head.id, chainIds: [head.id], skill: 'tbl', session: A, mode: 'interactive', channel: 'hook', trusted: true, position: 'ask' }, { gate: 'requirements-conflicting', values: VALUES['requirements-conflicting']!, raisedBy: 'ask' }, t.fx.routes);
+        return raiseGate(ledger, { task, routeId: head.id, chainIds: [head.id], skill: 'tbl', session: A, mode: 'interactive', channel: 'hook', trusted: true, position: 'ask' }, { gate: 'requirements-expansion-capped', values: VALUES['requirements-expansion-capped']!, raisedBy: 'ask' }, t.fx.routes);
       });
       const strip = (entry: Record<string, unknown>) => Object.fromEntries(Object.entries(entry).filter(([key]) => !['id', 'at', 'print'].includes(key)));
       assert.deepEqual(strip(written), strip(handlerPrint));

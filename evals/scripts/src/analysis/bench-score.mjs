@@ -368,7 +368,6 @@ export function scoreWithAnalysis(results, analysis) {
       out['skill-fired'] = traced.filter((r) => r.trace.skills.some((s) => s.startsWith('ambicode:'))).length;
       out['prepare-ran'] = traced.filter((r) => r.trace.prepareRuns > 0).length;
       out['prepare-truncated'] = traced.filter((r) => r.trace.prepareTruncated > 0).length;
-      out['replay-missed'] = traced.filter((r) => r.trace.replayMisses > 0).length;
       for (const [name, key] of [['review-runs', 'reviewRuns'], ['bash-reads', 'bashReads'], ['read-calls', 'readCalls'], ['grep-calls', 'grepCalls']])
         out[name] = mean(traced.map((r) => r.trace[key]));
       out['peak-context'] = mean(traced.map((r) => r.trace.peakContext).filter((x) => x !== null));

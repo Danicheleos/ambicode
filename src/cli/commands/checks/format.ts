@@ -1,6 +1,6 @@
 import { runFormat } from '#modules/checks/run/format';
 import { COMMAND_SPECS } from '#skills/task/commands';
-import { runCommandTail } from '#harness/engine/command-tail';
+import { runCommandTail } from '#harness/engine/engine';
 import { routeTools, taskOf } from '../route/route.ts';
 import type { FormatEntry } from '#types/modules/checks';
 import type { Runtime } from '#types/composition';

@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { captureRequirement } from '#modules/requirements/capture/capture';
 import { normalizeEnvelope } from '#modules/requirements/envelope/envelope';
-import { jira, mcp, search } from '#testing/fixtures/requirements-session';
+import { jira, mcp } from '#testing/fixtures/requirements-session';
 import { runReview, REVIEW_OPTIONS } from '#cli/commands/review/review';
 import { parseArgs } from '#util/args';
 import { createRuntime } from '#composition/root';
@@ -22,7 +22,6 @@ import type { CaptureDeps, EnvelopeInput } from '#types/modules/requirements';
 import { SESSION_A } from '#testing/fixtures/ids';
 
 const GET = 'mcp__atlassian__getJiraIssue';
-const AMBIGUOUS = 'requirements-server-ambiguous';
 const TWICE = 'requirements-not-captured-twice';
 const TWO_URLS = ['https://x.atlassian.net/browse/ORD-17', 'https://x.atlassian.net/browse/ORD-18'];
 const ASKED = ['ORD-17', 'ORD-18'];
@@ -48,17 +47,17 @@ async function shipped(options: { requirements?: string[]; headless?: boolean; s
   });
   const dir = await resolveTaskDir(fx.runtime, TASK);
   const args = ((await fx.kinds(TASK, 'route'))[0]!['args']) as RouteArgs;
-  const under = <T>(body: (deps: Omit<CaptureDeps, 'mcpServer' | 'asked'> & { fx: RouteFixture }) => Promise<T>): Promise<T> =>
+  const under = <T>(body: (deps: Omit<CaptureDeps, 'asked'> & { fx: RouteFixture }) => Promise<T>): Promise<T> =>
     withLedgerLock(fx.runtime.fs, dir.root, () => new Date(), SESSION_A, async (ledger) => {
       const view = (await openRouteView(fx.runtime, fx.routes, TASK, SESSION_A))!;
       return body({ runtime: fx.runtime, dir, ledger, view, fx });
     });
-  const capture = (tool: string, response: unknown, extra: { server?: string | null; asked?: string[]; input?: Record<string, unknown> } = {}) =>
+  const capture = (tool: string, response: unknown, extra: { asked?: string[]; input?: Record<string, unknown> } = {}) =>
     under((deps) => captureRequirement(
-      { hook_event_name: 'PostToolUse', session_id: SESSION_A, tool_name: tool, tool_response: response, ...(extra.input === undefined ? {} : { tool_input: extra.input }) } as never,
-      { ...deps, mcpServer: extra.server === undefined ? server : extra.server, asked: extra.asked ?? [TASK] },
+      { hook_event_name: 'PostToolUse', session_id: SESSION_A, tool_name: tool, tool_response: response, tool_input: extra.input ?? { issueIdOrKey: /[A-Z][A-Z0-9]+-\d+/.exec(JSON.stringify(response))?.[0] ?? '' } } as never,
+      { ...deps, asked: extra.asked ?? [TASK] },
     ));
-  const normalize = (overrides: Partial<EnvelopeInput> = {}) => under((deps) => normalizeEnvelope({ ...deps, args, mcpServer: server, ...overrides }));
+  const normalize = (overrides: Partial<EnvelopeInput> = {}) => under((deps) => normalizeEnvelope({ ...deps, args, ...overrides }));
   const next = (input: Partial<Parameters<typeof fx.engine.advance>[0]> = {}) => fx.engine.advance({ task: TASK, session: SESSION_A, cause: 'route-next', scratchpadDir: fx.scratchpad, ...input });
   const exits = async (): Promise<string[]> => (await fx.kinds(TASK, 'exit')).map((entry) => String(entry['reason']));
   return { fx, task: TASK, capture, normalize, next, exits };
@@ -110,50 +109,20 @@ describe('review route, missing sources (08-Q)', () => {
     }
   });
 
-  it('08-Q2: a list-only hit or an unrecognised payload leaves the second source missing', async () => {
-    for (const second of ['list', 'unrecognized']) {
-      const s = await shipped();
-      try {
-        await s.capture(GET, mcp(jira('ORD-17')), { asked: ASKED });
-        if (second === 'list') await s.capture('mcp__atlassian__searchJiraIssuesUsingJql', search(['ORD-18']), { asked: ASKED, input: { jql: 'project = ORD' } });
-        else assert.equal(await s.capture(GET, mcp('{"unrelated":true}'), { asked: ASKED }), null);
-        await assert.rejects(s.next(), (error: Error & { code?: string }) => error.code === 'requirements-missing' && /ORD-18/.test(error.message), second);
-        assert.deepEqual(await s.exits(), [], second);
-      } finally {
-        await s.fx.dispose();
-      }
+  it('08-Q2: a call that names no key leaves the second source missing', async () => {
+    const s = await shipped();
+    try {
+      await s.capture(GET, mcp(jira('ORD-17')), { asked: ASKED });
+      assert.equal(await s.capture(GET, mcp('{"unrelated":true}'), { asked: ASKED, input: { cloudId: 'abc' } }), null);
+      await assert.rejects(s.next(), (error: Error & { code?: string }) => error.code === 'requirements-missing' && /ORD-18/.test(error.message));
+      assert.deepEqual(await s.exits(), []);
+    } finally {
+      await s.fx.dispose();
     }
   });
 });
 
 describe('review route, stop policy (08-Q1)', () => {
-  it('08-Q1: headless server-ambiguous exits blocked with no estimate and no reviewer', async () => {
-    const s = await shipped({ headless: true, server: null });
-    try {
-      await s.capture('mcp__jira_a__getJiraIssue', mcp(jira('ORD-17')), { server: null });
-      await s.capture('mcp__confluence_b__getJiraIssue', mcp(jira('ORD-17', { description: 'Other body' })), { server: null });
-      await s.next();
-      assert.deepEqual(await s.exits(), ['blocked']);
-      assert.deepEqual((await s.fx.kinds(s.task, 'default-taken')).map((entry) => [entry['gate'], entry['answer']]), [[AMBIGUOUS, 'stop']]);
-      assert.equal((await s.fx.kinds(s.task, 'review')).length, 0);
-      assert.equal((await s.fx.kinds(s.task, 'step')).some((entry) => entry['step'] === 'estimate-step' && entry['status'] === 'completed'), false);
-    } finally {
-      await s.fx.dispose();
-    }
-  });
-
-  it('08-Q1: interactive server-ambiguous offers the connected servers with stop as the default', async () => {
-    const s = await shipped({ server: null });
-    try {
-      await s.capture('mcp__jira_a__getJiraIssue', mcp(jira('ORD-17')), { server: null });
-      await s.capture('mcp__confluence_b__getJiraIssue', mcp(jira('ORD-17', { description: 'Other body' })), { server: null });
-      const gate = await s.next();
-      assert.match(gate.text, /- confluence_b\n {2}- jira_a\n {2}- continue without\n {2}- stop \(default if nobody answers\)/);
-    } finally {
-      await s.fx.dispose();
-    }
-  });
-
   it('08-Q1: not-captured-twice takes stop in a headless review: blocked, no estimate', async () => {
     const s = await shipped({ headless: true, requirements: [TWO_URLS[0]!] });
     try {
@@ -183,10 +152,10 @@ describe('review route, stop policy (08-Q1)', () => {
 });
 
 describe('review route, stop policy by registry (08-Q1)', () => {
-  it('08-Q1: the three requirement gates take stop as default and release on a review, and keep their own defaults elsewhere', async () => {
+  it('08-Q1: the not-captured-twice gate takes stop as default and release on a review, and keep their own defaults elsewhere', async () => {
     const fx = await routeFixture({ routes: { review: SHIPPED }, step: STEPS });
     try {
-      for (const id of ['requirements-server-disconnected', AMBIGUOUS, TWICE]) {
+      for (const id of [TWICE]) {
         const gate = fx.routes.gate(id)!;
         const onReview = instantiateGate(gate, { skill: 'review', values: { servers: ['jira_a'] } });
         assert.deepEqual([onReview.default, onReview.release, onReview.options.includes('stop')], ['stop', 'stop', true], id);

@@ -13,7 +13,7 @@ import { runCheckOnly } from '#modules/checks/run/check-command';
 import { runFormat } from '#modules/checks/run/format';
 import { runHook } from '#hook/events/run-hook';
 import { commandContext } from '#harness/engine/context';
-import { runCommandTail } from '#harness/engine/command-tail';
+import { runCommandTail } from '#harness/engine/engine';
 import { skillHandlers } from '#skills/handlers';
 import { assembleEngine } from '#testing/fixtures/route-fixture';
 import { COMMAND_PACK, SplitRunner } from '#testing/fixtures/check-fixture';
@@ -121,7 +121,7 @@ describe('task route on ts-off-by-one (integration, test 18)', () => {
 
       const ledger = await t.ledger();
       const checks = ledger.filter((entry) => entry.kind === 'check');
-      assert.deepEqual(checks.map((entry) => [entry['phase'], entry['summary']]), [['red', { ran: 1, failed: 1 }], ['green', { ran: 1, failed: 0 }]]);
+      assert.deepEqual(checks.map((entry) => [entry['phase'], entry['exit']]), [['red', 1], ['green', 0]]);
       assert.deepEqual(ledger.filter((entry) => entry.kind === 'baseline').map((entry) => (entry['dirty'] as { path: string }[]).map((dirty) => dirty.path)), [['src/page.js']]);
       const report = write.text.split('## report\n')[1]!.split('\n\n## ')[0]!;
       const allowed = await t.stop(`# Task report\n\n**Done**: the last item stays on its page. All tests pass.\n\n**Remaining**: none\n\n${report}`);

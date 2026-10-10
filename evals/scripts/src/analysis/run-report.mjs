@@ -330,7 +330,7 @@ export function analyzeResult(results, { tracesDirs, cases = CASES_ROOT, withCha
           if (step !== null) {
             const listed = mapPaths(step);
             const full = (f) => (truth.includes(f) || !truth.includes(path.posix.join(root, f)) ? f : path.posix.join(root, f));
-            row.step = { bytes: Buffer.byteLength(step), text: step, leads: listed.leads.map(full), feature: listed.feature.map(full) };
+            row.step = { bytes: Buffer.byteLength(step), text: step, leads: listed.leads.map(full) };
           }
         }
         const ledgers = id ? (ledgersDir ? ledgersIn(path.join(ledgersDir, id)) : ledgersOf(run, tracesDirs)) : null;
@@ -348,12 +348,12 @@ export function analyzeResult(results, { tracesDirs, cases = CASES_ROOT, withCha
         }
         if (truth.length && decided) {
           const receipts = (ledgers ?? []).flatMap((l) => l.entries).filter((e) => e.kind === 'search' && e.command === 'read').flatMap((e) => e.names ?? []);
-          const leads = row.step ? [...row.step.leads, ...row.step.feature] : [];
+          const leads = row.step ? row.step.leads : [];
           row.fileStates = fileStates({ truth, created: meta?.created ?? [], root, calls, receipts, leads, named: decided.named, excluded: decided.excluded });
           row.missing = missingByExposure(row.fileStates);
         }
         if (row.step && row.namedFiles) {
-          const map = new Set([...row.step.leads, ...row.step.feature]);
+          const map = new Set(row.step.leads);
           row.mapTrue = [...map].filter((f) => truth.includes(f));
           row.mapTrueMissed = row.mapTrue.filter((f) => !row.namedFiles.includes(f));
           row.trueOutsideMap = row.namedFiles.filter((f) => truth.includes(f) && !map.has(f));
@@ -545,8 +545,8 @@ export function findingsOf({ plugin, bare, previous, band, servedPrompt, current
   if (outside.length) add('info', 'outside-map', `in ${outside.length} runs the model found true files the map never listed (${outside.reduce((n, r) => n + r.trueOutsideMap.length, 0)} files)`, outside.map((r) => `${r.case} run ${r.run}: ${r.trueOutsideMap.join(', ')}`));
   const emptyMap = plugin.filter((r) => r.step && r.truth.length && r.mapTrue?.length === 0);
   if (emptyMap.length) add('weak', 'map-empty', `in ${emptyMap.length} runs the map listed no true file`, [...new Set(emptyMap.map((r) => r.case))]);
-  const mapped = plugin.filter((r) => r.step && r.step.leads.length + r.step.feature.length > 0);
-  const broad = mapped.filter((r) => SEARCH_CLASSES.has(r.firstTool?.class) && !r.firstTool.files.some((f) => r.step.leads.includes(f) || r.step.feature.includes(f)));
+  const mapped = plugin.filter((r) => r.step && r.step.leads.length > 0);
+  const broad = mapped.filter((r) => SEARCH_CLASSES.has(r.firstTool?.class) && !r.firstTool.files.some((f) => r.step.leads.includes(f)));
   if (broad.length) add('weak', 'first-call-broad', `${broad.length} of ${mapped.length} runs opened with a search or listing that names no map file, although the step had delivered a map`, broad.map((r) => `${r.case} run ${r.run}: ${r.firstTool.class}`));
   const failed = plugin.filter((r) => r.failedCalls);
   if (failed.length) add('info', 'failed-calls', `${failed.reduce((n, r) => n + r.failedCalls, 0)} failed tool calls in ${failed.length} runs`);
@@ -795,7 +795,7 @@ export function renderChains(rows, { full = false } = {}) {
     }
     if (r.step) {
       const mark = (f) => `${f}${r.truth.includes(f) ? ' ✓' : ''}`;
-      out.push(`Map leads: ${r.step.leads.map(mark).join(', ') || '-'}; same feature: ${r.step.feature.map(mark).join(', ') || '-'}.`, '');
+      out.push(`Map leads: ${r.step.leads.map(mark).join(', ') || '-'}.`, '');
     }
     if (r.injected) out.push(`Injected: ${Object.entries(r.injected).map(([k, v]) => `${k} ${kb(v)}`).join(', ')}.`, '');
     for (const [i, call] of (r.calls ?? []).entries()) {
@@ -826,7 +826,7 @@ function resolveResult(target) {
   return path.join(dir, json[0]);
 }
 
-const strip = (rows) => rows.map(({ calls, answer, step, ...rest }) => ({ ...rest, ...(step ? { step: { bytes: step.bytes, leads: step.leads, feature: step.feature } } : {}) }));
+const strip = (rows) => rows.map(({ calls, answer, step, ...rest }) => ({ ...rest, ...(step ? { step: { bytes: step.bytes, leads: step.leads } } : {}) }));
 
 export function buildReport(target, { baseline = null, lockFile = BASELINE_LOCK_FILE, previous = PREVIOUS, out = null, full = false, outputs = OUTPUTS, reports = REPORTS, cases = CASES_ROOT } = {}) {
   const file = resolveResult(target);

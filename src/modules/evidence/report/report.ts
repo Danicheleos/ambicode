@@ -43,14 +43,8 @@ export function buildReport(
   const notVerified: string[] = [];
   const checks = [...keys].map(([key, runs]) => {
     const only = (runs.at(-1)?.only as unknown[] | undefined) ?? [];
-    const steps = runs.map((run) => {
-      const summary = run.summary as { ran: number; failed: number } | null;
-      return `${clip(run.phase)} exit ${run.exit}${summary === null ? '' : ` (${summary.ran} ran, ${summary.failed} failed)`}${historical(run)}`;
-    });
+    const steps = runs.map((run) => `${clip(run.phase)} exit ${run.exit}${historical(run)}`);
     const last = runs.at(-1)!;
-    const summary = last.summary as { ran: number; failed: number } | null;
-    if (summary === null) notVerified.push(`${key}: test count unknown (exit code only)${historical(last)}`);
-    else if (summary.ran === 0) notVerified.push(`${key}: no tests ran${historical(last)}`);
     if (last.exit !== 0) notVerified.push(`${key}: last run exited ${last.exit}${historical(last)}`);
     return `${key}${only.length > 0 ? ` --only ${only.join(' ')}` : ''}: ${steps.join(' → ')}`;
   });

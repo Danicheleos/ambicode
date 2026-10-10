@@ -9,7 +9,6 @@ import { SESSION_A } from './ids.ts';
 export const CHECK_TASK = 'ord-7';
 export const DEMO = `skill: demo
 version: 3
-budget: { modelSteps: 10 }
 exits: [done, blocked, human, inconclusive, superseded]
 steps:
   - id: red
@@ -55,7 +54,7 @@ export class SplitRunner implements ProcessRunner {
     this.real = real;
   }
   async run(request: ProcessRequest): Promise<ProcessOutcome> {
-    if (request.argv[0] === 'git') return this.real.run(request);
+    if (request.argv[0] === 'git' || request.argv[0] === process.execPath) return this.real.run(request);
     this.calls.push([...request.argv]);
     await this.effect?.(request);
     const kind = this.out.kind ?? 'exited';

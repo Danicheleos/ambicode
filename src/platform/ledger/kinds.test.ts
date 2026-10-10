@@ -5,7 +5,7 @@ import { KINDS } from '#types/modules/evidence';
 
 const REF = { kind: 'note', value: 'plan-draft', id: 'a1b2c3d4-3', path: 'plan-draft_x.md', contentHash: 'sha256:x' };
 const ANSWER = { route: 'a1b2c3d4-1', gate: 'plan-accept', instance: 'a1b2c3d4-4', answer: 'Accept', via: 'hook' };
-const CHECK = { key: 'web/unit', argv: ['npm', 'test'], only: [], exit: 0, phase: 'green', summary: { ran: 3, failed: 0 }, ms: 40 };
+const CHECK = { key: 'web/unit', argv: ['npm', 'test'], only: [], exit: 0, phase: 'green', ms: 40 };
 
 /** One valid record per kind, and one that breaks exactly one rule of its row. */
 const TABLE: Record<Kind, { valid: object; invalid: object }> = {
@@ -46,7 +46,7 @@ const TABLE: Record<Kind, { valid: object; invalid: object }> = {
   search: { valid: { command: 'refs', names: ['a'], hits: 4, bytes: 300 }, invalid: { command: 'locate' } },
   policy: { valid: { stage: 'before-work', packs: [], rules: 0, omitted: 0, bytes: 10 }, invalid: { stage: ['before-work'] } },
   baseline: { valid: { head: 'a1b2c3d', dirty: [{ path: 'README.md', hash: 'sha256:x' }] }, invalid: { head: null, dirty: ['README.md'] } },
-  check: { valid: CHECK, invalid: { ...CHECK, summary: undefined } },
+  check: { valid: CHECK, invalid: { ...CHECK, exit: 'zero' } },
   format: { valid: { key: 'web/format', files: [], exit: 0, via: 'model', outcome: 'formatted' }, invalid: { key: 'web/format', files: [], exit: null, via: 'model', outcome: 'skipped' } },
   review: { valid: { reviewId: 'local_2026', status: 'complete', reviewerRan: true, findings: 2, omissions: 0 }, invalid: { status: 'complete' } },
   worker: { valid: { worker: 'plan-checker', outcome: 'ran', ms: 5, artifact: 'workers/x.json', costUsd: 0.1 }, invalid: { outcome: 'ok', ms: 5, artifact: 'x' } },
