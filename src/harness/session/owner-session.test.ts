@@ -2,14 +2,14 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseArgs } from '#util/args';
 import { runNoteSave, NOTE_SAVE_OPTIONS } from '#cli/commands/route/note';
-import { runRouteNext, runRouteStart, runRouteStatus, runRouteStop, ROUTE_NEXT_OPTIONS, ROUTE_STATUS_OPTIONS, ROUTE_STOP_OPTIONS } from '#cli/commands/route/route';
+import { stopRoute } from '#testing/fixtures/route-fixture';
+import { runRouteNext, runRouteStart, ROUTE_NEXT_OPTIONS } from '#cli/commands/route/route';
 import { answerGates } from '#hook/events/gate-answer';
 import { hookRunner, investigation, type Hooked } from '#testing/fixtures/owner-fixture';
 import { planFixture, PLAN_TASK, type PlanFixture } from '#testing/fixtures/plan-fixture';
 import { resolveActiveRoute } from './active-route.ts';
 import { harnessOf, ownerOfHarness } from './harness.ts';
 import { ownerOf } from '#modules/evidence/ownership';
-import { harnessEnded } from './rebind.ts';
 import { taskSessionSource } from './session.ts';
 import { commandContext } from '../engine/context.ts';
 import { saveNote } from '#modules/evidence/notes';
@@ -47,13 +47,16 @@ describe('5.1 / 03-S1: a hook launch mints the owner id and records the Claude s
     }
   });
 
-  it('the same Claude session launching the same request again keeps its owner and writes no second route', async () => {
+  it('the same Claude session launching the same request again supersedes its route and mints a new owner', async () => {
     const inv = await investigation();
     try {
       await launch(inv.hooked, '/ambicode:investigate how does addToCart work --task cart');
-      const before = await inv.fx.kinds('cart', 'route');
+      const [first] = await inv.fx.kinds('cart', 'route');
       await launch(inv.hooked, '/ambicode:investigate how does addToCart work --task cart');
-      assert.deepEqual((await inv.fx.kinds('cart', 'route')).map((entry) => entry.id), before.map((entry) => entry.id));
+      const routes = await inv.fx.kinds('cart', 'route');
+      assert.equal(routes.length, 2);
+      assert.deepEqual((await inv.fx.kinds('cart', 'exit')).map((entry) => [entry['route'], entry['reason']]), [[first!.id, 'superseded']]);
+      assert.deepEqual(await inv.fx.pointer.read(CLAUDE_1, inv.scratchpad(CLAUDE_1)), { task: 'cart', skill: 'investigate', owner: routes[1]!['session'] });
     } finally {
       await inv.dispose();
     }
@@ -73,14 +76,10 @@ describe('5.1 / 03-S1: a hook launch mints the owner id and records the Claude s
 });
 
 describe('5.1 / 03-S2: routed CLI calls find the owner from --task', () => {
-  it('route status, route next and note save work with no Claude session at all', async () => {
+  it('route next and note save work with no Claude session at all', async () => {
     const inv = await investigation();
     try {
       await launch(inv.hooked, '/ambicode:investigate how does addToCart work --task cart');
-      const owner = String((await inv.fx.kinds('cart', 'route'))[0]!['session']);
-      const status = await runRouteStatus(inv.fx.runtime, args('route status', ['--task', 'cart'], ROUTE_STATUS_OPTIONS));
-      assert.deepEqual(status.routes.map((route) => [route.skill, route.position, route.sessions.map((entry) => entry.session)]), [['investigate', 'read', [owner]]]);
-
       const next = await runRouteNext(inv.fx.runtime, args('route next', ['--task', 'cart'], ROUTE_NEXT_OPTIONS));
       assert.equal(next.position, 'read');
 
@@ -96,21 +95,7 @@ describe('5.1 / 03-S2: routed CLI calls find the owner from --task', () => {
     }
   });
 
-  it('route stop by --task ends the hook-started route; the Claude session no longer has an open route', async () => {
-    const inv = await investigation();
-    try {
-      await launch(inv.hooked, '/ambicode:investigate how does addToCart work --task cart');
-      const stopped = await runRouteStop(inv.fx.runtime, args('route stop', ['--task', 'cart', '--reason', 'human'], ROUTE_STOP_OPTIONS));
-      assert.equal(stopped.reason, 'human');
-      assert.equal((await inv.fx.kinds('cart', 'exit')).at(-1)?.['reason'], 'human');
-      assert.equal(await resolveActiveRoute(inv.fx.runtime.fs, inv.fx.pointer, { repositoryRoot: inv.fx.repo.root, session: CLAUDE_1, scratchpad: inv.scratchpad(CLAUDE_1) }), null);
-      assert.equal(await codeOf(runRouteNext(inv.fx.runtime, args('route next', ['--task', 'cart'], ROUTE_NEXT_OPTIONS))), 'route-not-open');
-    } finally {
-      await inv.dispose();
-    }
-  });
-
-  it('a task with two live chains is route-ambiguous for route next and route stop; nothing is guessed', async () => {
+  it('a task with two live chains is route-ambiguous for route next; nothing is guessed', async () => {
     const inv = await investigation();
     try {
       await launch(inv.hooked, '/ambicode:investigate how does addToCart work --task cart', CLAUDE_1);
@@ -119,7 +104,6 @@ describe('5.1 / 03-S2: routed CLI calls find the owner from --task', () => {
       assert.deepEqual(await taskSessionSource('cart').resolve(inv.fx.runtime), { state: 'unbound', reason: 'ambiguous' });
       const before = await inv.fx.ledger('cart');
       assert.equal(await codeOf(runRouteNext(inv.fx.runtime, args('route next', ['--task', 'cart'], ROUTE_NEXT_OPTIONS))), 'route-ambiguous');
-      assert.equal(await codeOf(runRouteStop(inv.fx.runtime, args('route stop', ['--task', 'cart', '--reason', 'human'], ROUTE_STOP_OPTIONS))), 'route-ambiguous');
       assert.deepEqual(await inv.fx.ledger('cart'), before);
     } finally {
       await inv.dispose();
@@ -145,7 +129,7 @@ describe('5.1 / 03-S2: routed CLI calls find the owner from --task', () => {
 describe('5.1 / 03-O1: ownership is by owner id', () => {
   const asked = (plan: PlanFixture, hooked: Hooked, session: string, extra = '') => launch(hooked, `/ambicode:plan add a limit --task ${PLAN_TASK}${extra}`, session).then(context).then((text) => ({ text, plan }));
 
-  it('a second Claude session starting the same plan task is route-busy and writes nothing; --adopt makes a new owner', async () => {
+  it('a second Claude session starting the same plan task is route-busy and writes nothing; --fresh supersedes the first owner and makes a new one', async () => {
     const plan = await planFixture();
     const hooked = hookRunner(plan.fx, plan.fx.runtime, { pointer: plan.fx.pointer, load: async () => ({ engine: plan.fx.engine, routes: plan.fx.routes, pointer: plan.fx.pointer }) });
     try {
@@ -155,13 +139,14 @@ describe('5.1 / 03-O1: ownership is by owner id', () => {
       assert.match(busy.text, /could not start the plan route: route-busy/);
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'route')).length, 1);
 
-      assert.match((await asked(plan, hooked, CLAUDE_2, ' --adopt')).text, /\[ambicode\] plan/);
+      assert.match((await asked(plan, hooked, CLAUDE_2, ' --fresh')).text, /\[ambicode\] plan/);
       const routes = await plan.fx.kinds(PLAN_TASK, 'route');
       assert.equal(routes.length, 2);
       assert.notEqual(routes[1]!['session'], first['session']);
-      assert.deepEqual([routes[1]!['harnessSession'], routes[1]!['resumes'], routes[1]!['adopts']], [CLAUDE_2, first.id, true]);
+      assert.equal(routes[1]!['harnessSession'], CLAUDE_2);
+      assert.deepEqual((await plan.fx.kinds(PLAN_TASK, 'exit')).map((entry) => [entry['route'], entry['reason']]), [[first.id, 'superseded']]);
       const owner = ownerOf(await plan.fx.ledger(PLAN_TASK), PLAN_TASK);
-      assert.deepEqual(owner.state === 'owned' ? [owner.session, owner.takenOver] : null, [routes[1]!['session'], [first['session']]]);
+      assert.equal(owner.state === 'owned' ? owner.session : null, routes[1]!['session']);
     } finally {
       await plan.dispose();
     }
@@ -195,7 +180,7 @@ describe('5.1 / 03-O1: ownership is by owner id', () => {
       assert.equal((await runRouteNext(inv.fx.runtime, args('route next', ['--task', 'cart'], ROUTE_NEXT_OPTIONS))).task, 'cart');
       assert.deepEqual(await inv.fx.ledger('checkout'), otherBefore);
 
-      await runRouteStop(inv.fx.runtime, args('route stop', ['--task', 'cart', '--reason', 'human'], ROUTE_STOP_OPTIONS));
+      await stopRoute(inv.fx, 'cart', String(cart!['session']), 'human', undefined, inv.scratchpad(CLAUDE_1));
       assert.deepEqual(await taskSessionSource('checkout').resolve(inv.fx.runtime), { state: 'bound', session: checkout!['session'], via: 'task' });
       assert.equal((await inv.fx.pointer.read(CLAUDE_2, inv.scratchpad(CLAUDE_2)))?.task, 'checkout');
       assert.equal((await runRouteNext(inv.fx.runtime, args('route next', ['--task', 'checkout'], ROUTE_NEXT_OPTIONS))).task, 'checkout');
@@ -250,207 +235,7 @@ describe('5.1 / 03-G3/03-G4: the owner id is never consent', () => {
   });
 });
 
-describe('5.1 / 03-S7: a Claude session change re-attaches the session only when that is unambiguous', () => {
-  const planTask = async (hooked: Hooked, plan: PlanFixture, task: string, session: string) => {
-    await launch(hooked, `/ambicode:plan add a limit --task ${task}`, session);
-    assert.equal((await plan.fx.kinds(task, 'route')).length, 1);
-  };
-  const setup = async () => {
-    const plan = await planFixture();
-    const deps: HookDeps = { pointer: plan.fx.pointer, load: async () => ({ engine: plan.fx.engine, routes: plan.fx.routes, pointer: plan.fx.pointer }) };
-    const tmp = await plan.fx.runtime.fs.temporaryDirectory('ambicode-ended-');
-    const runtime: Runtime = { ...plan.fx.runtime, fs: { ...plan.fx.runtime.fs, temporaryRoot: () => tmp } };
-    return { plan, hooked: hookRunner(plan.fx, runtime, deps), tmp };
-  };
-  const routes = (plan: PlanFixture, task = PLAN_TASK) => plan.fx.kinds(task, 'route');
-
-  it('one live route whose Claude session ended is re-attached to the new session, keeping its owner', async () => {
-    const { plan, hooked } = await setup();
-    try {
-      await planTask(hooked, plan, PLAN_TASK, CLAUDE_1);
-      const first = (await routes(plan))[0]!;
-      await hooked.event({ hook_event_name: 'SessionEnd' }, CLAUDE_1);
-      await hooked.event({ hook_event_name: 'SessionStart', source: 'clear' }, CLAUDE_2);
-
-      const all = await routes(plan);
-      assert.equal(all.length, 2);
-      assert.deepEqual([all[1]!['session'], all[1]!['harnessSession'], all[1]!['resumes'], all[1]!['adopts'], all[1]!['channel'], all[1]!['trusted']], [first['session'], CLAUDE_2, first.id, true, first['channel'], first['trusted']]);
-      const owner = ownerOf(await plan.fx.ledger(PLAN_TASK), PLAN_TASK);
-      assert.deepEqual(owner.state === 'owned' ? [owner.session, owner.takenOver] : null, [first['session'], []]);
-
-      const resolve = (session: string) => resolveActiveRoute(plan.fx.runtime.fs, plan.fx.pointer, { repositoryRoot: plan.fx.repo.root, session, scratchpad: hooked.scratchpad(session) });
-      assert.equal((await resolve(CLAUDE_2))?.owner, first['session']);
-      assert.equal(await resolve(CLAUDE_1), null, 'the ended session is detached');
-      assert.deepEqual(await plan.fx.pointer.read(CLAUDE_2, hooked.scratchpad(CLAUDE_2)), { task: PLAN_TASK, skill: 'plan', owner: first['session'] });
-      assert.match(context(await launch(hooked, 'continue', CLAUDE_2)), /\[ambicode\] plan · task ORD-17 · step design/);
-      assert.equal((await taskSessionSource(PLAN_TASK).resolve(plan.fx.runtime) as { session: string }).session, first['session']);
-    } finally {
-      await plan.dispose();
-    }
-  });
-
-  it('nothing is attached when the route session has not ended, on a fresh startup, or for a subagent', async () => {
-    const { plan, hooked } = await setup();
-    try {
-      await planTask(hooked, plan, PLAN_TASK, CLAUDE_1);
-      await hooked.event({ hook_event_name: 'SessionStart', source: 'clear' }, CLAUDE_2);
-      await hooked.event({ hook_event_name: 'SessionEnd' }, CLAUDE_1);
-      await hooked.event({ hook_event_name: 'SessionStart', source: 'startup' }, CLAUDE_3);
-      await hooked.event({ hook_event_name: 'SessionStart', source: 'clear', agent_id: 'sub' }, CLAUDE_4);
-      assert.equal((await routes(plan)).length, 1);
-    } finally {
-      await plan.dispose();
-    }
-  });
-
-  it('two live routes of ended sessions are ambiguous: nothing is attached, and --adopt stays the way', async () => {
-    const { plan, hooked } = await setup();
-    try {
-      await planTask(hooked, plan, PLAN_TASK, CLAUDE_1);
-      await planTask(hooked, plan, 'ORD-18', CLAUDE_2);
-      await hooked.event({ hook_event_name: 'SessionEnd' }, CLAUDE_1);
-      await hooked.event({ hook_event_name: 'SessionEnd' }, CLAUDE_2);
-      await hooked.event({ hook_event_name: 'SessionStart', source: 'resume' }, CLAUDE_3);
-      assert.equal((await routes(plan)).length, 1);
-      assert.equal((await routes(plan, 'ORD-18')).length, 1);
-      assert.equal(await plan.fx.pointer.read(CLAUDE_3, hooked.scratchpad(CLAUDE_3)), null);
-      assert.match(context(await launch(hooked, `/ambicode:plan add a limit --task ${PLAN_TASK}`, CLAUDE_3)), /route-busy/);
-    } finally {
-      await plan.dispose();
-    }
-  });
-
-  it('a session that already holds a route is not re-attached to another, and a resumed id clears its ended mark', async () => {
-    const { plan, hooked } = await setup();
-    try {
-      await planTask(hooked, plan, PLAN_TASK, CLAUDE_1);
-      await planTask(hooked, plan, 'ORD-18', CLAUDE_2);
-      await hooked.event({ hook_event_name: 'SessionEnd' }, CLAUDE_1);
-      await hooked.event({ hook_event_name: 'SessionStart', source: 'resume' }, CLAUDE_2);
-      assert.equal((await routes(plan)).length, 1, 'CLAUDE_2 holds ORD-18 already');
-      await hooked.event({ hook_event_name: 'SessionStart', source: 'resume' }, CLAUDE_1);
-      await hooked.event({ hook_event_name: 'SessionStart', source: 'resume' }, CLAUDE_3);
-      assert.equal((await routes(plan)).length, 2, 'CLAUDE_1 is alive again: its own hand-over is the only new entry');
-      assert.deepEqual((await routes(plan))[1]!['rebind'], { from: CLAUDE_1, to: CLAUDE_1 });
-    } finally {
-      await plan.dispose();
-    }
-  });
-
-  it('a same-id resume appends one rebind route, however often the hook fires', async () => {
-    const { plan, hooked } = await setup();
-    try {
-      await planTask(hooked, plan, PLAN_TASK, CLAUDE_1);
-      await hooked.event({ hook_event_name: 'SessionEnd' }, CLAUDE_1);
-      await hooked.event({ hook_event_name: 'SessionEnd' }, CLAUDE_1);
-      const ends = (await plan.fx.kinds(PLAN_TASK, 'session')).filter((entry) => entry['event'] === 'end');
-      assert.equal(ends.length, 1);
-      assert.deepEqual([ends[0]!['harnessSession'], ends[0]!['route'], harnessEnded(await plan.fx.ledger(PLAN_TASK), CLAUDE_1)], [CLAUDE_1, (await routes(plan))[0]!.id, true]);
-      await hooked.event({ hook_event_name: 'SessionStart', source: 'resume' }, CLAUDE_1);
-      await hooked.event({ hook_event_name: 'SessionStart', source: 'resume' }, CLAUDE_1);
-      const all = await routes(plan);
-      assert.equal(all.length, 2);
-      assert.deepEqual([all[1]!['adopts'], all[1]!['resumes'], all[1]!['rebind'], all[1]!['session']], [true, all[0]!.id, { from: CLAUDE_1, to: CLAUDE_1 }, all[0]!['session']]);
-      assert.equal(harnessEnded(await plan.fx.ledger(PLAN_TASK), CLAUDE_1), false);
-    } finally {
-      await plan.dispose();
-    }
-  });
-
-  it('a late end of the previous process right after a same-id resume is ignored; a later end is recorded', async () => {
-    const { plan, hooked } = await setup();
-    try {
-      await planTask(hooked, plan, PLAN_TASK, CLAUDE_1);
-      await hooked.event({ hook_event_name: 'SessionEnd' }, CLAUDE_1);
-      await hooked.event({ hook_event_name: 'SessionStart', source: 'resume' }, CLAUDE_1);
-      plan.fx.advanceClock(2_000);
-      await hooked.event({ hook_event_name: 'SessionEnd' }, CLAUDE_1);
-      assert.equal(harnessEnded(await plan.fx.ledger(PLAN_TASK), CLAUDE_1), false, 'the stale end is dropped');
-      plan.fx.advanceClock(60_000);
-      await hooked.event({ hook_event_name: 'SessionEnd' }, CLAUDE_1);
-      assert.equal(harnessEnded(await plan.fx.ledger(PLAN_TASK), CLAUDE_1), true);
-    } finally {
-      await plan.dispose();
-    }
-  });
-
-  it('a new-id start attaches the orphan once, with the previous id in rebind, and a second new id attaches nothing', async () => {
-    const { plan, hooked } = await setup();
-    try {
-      await planTask(hooked, plan, PLAN_TASK, CLAUDE_1);
-      await hooked.event({ hook_event_name: 'SessionEnd' }, CLAUDE_1);
-      await hooked.event({ hook_event_name: 'SessionStart', source: 'clear' }, CLAUDE_2);
-      await hooked.event({ hook_event_name: 'SessionStart', source: 'clear' }, CLAUDE_2);
-      await hooked.event({ hook_event_name: 'SessionStart', source: 'resume' }, CLAUDE_3);
-      const all = await routes(plan);
-      assert.equal(all.length, 2);
-      assert.deepEqual(all[1]!['rebind'], { from: CLAUDE_1, to: CLAUDE_2 });
-      assert.equal(await plan.fx.pointer.read(CLAUDE_3, hooked.scratchpad(CLAUDE_3)), null);
-    } finally {
-      await plan.dispose();
-    }
-  });
-
-  it('an orphan whose session ended over 30 minutes ago is not attached, and a subagent end records nothing', async () => {
-    const { plan, hooked } = await setup();
-    try {
-      await planTask(hooked, plan, PLAN_TASK, CLAUDE_1);
-      await hooked.event({ hook_event_name: 'SessionEnd', agent_id: 'sub' }, CLAUDE_1);
-      assert.equal((await plan.fx.kinds(PLAN_TASK, 'session')).length, 0);
-      await hooked.event({ hook_event_name: 'SessionEnd' }, CLAUDE_1);
-      plan.fx.advanceClock(31 * 60_000);
-      await hooked.event({ hook_event_name: 'SessionStart', source: 'clear' }, CLAUDE_2);
-      assert.equal((await routes(plan)).length, 1);
-      assert.equal(await plan.fx.pointer.read(CLAUDE_2, hooked.scratchpad(CLAUDE_2)), null);
-    } finally {
-      await plan.dispose();
-    }
-  });
-
-  it('re-typing the skill for a stopped chain adopts it only once its harness has ended', async () => {
-    const { plan, hooked } = await setup();
-    try {
-      await planTask(hooked, plan, PLAN_TASK, CLAUDE_1);
-      await plan.fx.engine.stop(PLAN_TASK, String((await routes(plan))[0]!['session']), 'blocked', 'x', hooked.scratchpad(CLAUDE_1));
-      const first = (await routes(plan))[0]!;
-      const adopted = async () => (await routes(plan)).filter((entry) => entry['resumes'] === first.id);
-      await launch(hooked, `/ambicode:plan add a limit --task ${PLAN_TASK}`, CLAUDE_2);
-      assert.equal((await adopted()).length, 0, 'CLAUDE_1 has not ended');
-      await hooked.event({ hook_event_name: 'SessionEnd' }, CLAUDE_1);
-      await launch(hooked, `/ambicode:plan add a limit --task ${PLAN_TASK}`, CLAUDE_2);
-      assert.deepEqual((await adopted()).map((entry) => [entry['harnessSession'], entry['adopts']]), [[CLAUDE_2, true]]);
-    } finally {
-      await plan.dispose();
-    }
-  });
-
-  it('an owner id written by the CLI has no Claude session to end, so it is never re-attached', async () => {
-    const { plan, hooked } = await setup();
-    try {
-      await plan.start({ session: 'cli-owner-0001', channel: 'cli' });
-      await hooked.event({ hook_event_name: 'SessionStart', source: 'resume' }, CLAUDE_3);
-      assert.equal((await routes(plan)).length, 1);
-    } finally {
-      await plan.dispose();
-    }
-  });
-});
-
 describe('03-S7/03-H4: the same Claude session resumed, and a CLI advance after a hook launch', () => {
-  it('03-H4: a resumed session with the same id gets its pointer back and the active step is re-injected without a relaunch', async () => {
-    const inv = await investigation();
-    try {
-      await launch(inv.hooked, '/ambicode:investigate how does addToCart work --task cart');
-      await inv.hooked.event({ hook_event_name: 'SessionEnd' }, CLAUDE_1);
-      assert.equal(await inv.fx.pointer.read(CLAUDE_1, inv.scratchpad(CLAUDE_1)), null);
-      await inv.hooked.event({ hook_event_name: 'SessionStart', source: 'resume' }, CLAUDE_1);
-      assert.equal((await inv.fx.pointer.read(CLAUDE_1, inv.scratchpad(CLAUDE_1)))?.task, 'cart');
-      assert.match(context(await launch(inv.hooked, 'continue', CLAUDE_1)), /step read/);
-    } finally {
-      await inv.dispose();
-    }
-  });
-
   it('03-S7/03-K3: a CLI advance after a hook launch writes its state where the hook looks, so Stop still checks the finished note', async () => {
     const inv = await investigation();
     try {
@@ -458,11 +243,12 @@ describe('03-S7/03-H4: the same Claude session resumed, and a CLI advance after 
       const owner = String((await inv.fx.kinds('cart', 'route'))[0]!['session']);
       await inv.fx.engine.advance({ task: 'cart', session: owner, cause: 'route-next' });
       const context = commandContext({ runtime: inv.fx.runtime, routes: inv.fx.routes });
-      await saveNote({ runtime: inv.fx.runtime, session: owner, context }, { task: 'cart', kind: 'investigation', body: '## Confirmed facts\n- missing (src/missing.ts:999)\n', from: null, iteration: null, route: (await inv.fx.kinds('cart', 'route'))[0]!.id });
+      await saveNote({ runtime: inv.fx.runtime, session: owner, context }, { task: 'cart', kind: 'investigation', body: '## Confirmed facts\n- appends (src/cart.ts:2)\n', from: null, iteration: null, route: (await inv.fx.kinds('cart', 'route'))[0]!.id });
       await inv.fx.engine.advance({ task: 'cart', session: owner, cause: 'note save' });
-      const stopped = (await inv.hooked.event({ hook_event_name: 'Stop' }, CLAUDE_1)) as { decision?: string; reason?: string };
+      assert.equal((await inv.fx.kinds('cart', 'exit')).at(-1)?.['reason'], 'done');
+      const stopped = (await inv.hooked.event({ hook_event_name: 'Stop', last_assistant_message: 'Evidence\nnothing was run' }, CLAUDE_1)) as { decision?: string; reason?: string };
       assert.equal(stopped.decision, 'block');
-      assert.match(stopped.reason ?? '', /src\/missing\.ts:999/);
+      assert.match(stopped.reason ?? '', /stop-check\.md/);
     } finally {
       await inv.dispose();
     }

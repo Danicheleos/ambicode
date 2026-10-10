@@ -26,46 +26,17 @@ interface ResolveOptions {
 
 export function resolvePolicy(options: ResolveOptions): ResolvedPolicy {
   const { activity, project, packs } = options;
-  const diagnostics: Diagnostic[] = [...(options.diagnostics ?? [])];
   const projectRoot = normalizeRelative(project.root);
 
-  // "No paths supplied" and "paths supplied, none of them in this project" are
-  // different questions. Collapsing them would widen an out-of-scope request
-  // into the whole activity-level checklist.
   const pathsSupplied = options.paths.length > 0;
   const projectRelativePaths = options.paths
     .map((value) => toProjectRelative(projectRoot, value))
     .filter((value): value is string => value !== null);
 
-  if (pathsSupplied && projectRelativePaths.length === 0) {
-    return {
-      activity,
-      projectId: project.id,
-      packs: [],
-      rules: [],
-      prompts: [],
-      commandDecisions: [],
-      diagnostics: [
-        ...diagnostics,
-        {
-          severity: 'notice',
-          code: 'paths-outside-project',
-          message: `None of the supplied paths are inside project "${project.id}" (root "${project.root}"), so no policy from it applies.`,
-        },
-      ],
-    };
-  }
-
   const packEntries: ResolvedPolicy['packs'] = [];
   const rules: ResolvedRule[] = [];
   const prompts: ResolvedPromptRef[] = [];
   const decisionsByCommand = new Map<string, ResolvedCommandDecision>();
-
-  // Parsed pack files, so a content diagnostic from a pack that does not apply here
-  // can be downgraded. A pack whose YAML never parsed has unknown applicability and
-  // keeps blocking.
-  const consideredFilePaths = new Set(packs.map((loaded) => loaded.filePath));
-  const applicableFilePaths = new Set<string>();
 
   for (const loaded of packs) {
     const pack = loaded.pack;
@@ -78,20 +49,11 @@ export function resolvePolicy(options: ResolveOptions): ResolvedPolicy {
       : [];
     if (pathsSupplied && matchedPaths.length === 0) continue;
 
-    applicableFilePaths.add(loaded.filePath);
     packEntries.push({
       id: pack.id,
       reference: loaded.reference,
-      origin: loaded.origin,
       authority: pack.authority,
       sourceLocation: pack.source.location,
-      ...(pack.source.externalVersion === undefined
-        ? {}
-        : { sourceExternalVersion: pack.source.externalVersion }),
-      contentHash: loaded.contentHash,
-      ...(loaded.replacedReference === undefined
-        ? {}
-        : { replacedReference: loaded.replacedReference }),
       matchedPaths,
     });
 
@@ -102,13 +64,9 @@ export function resolvePolicy(options: ResolveOptions): ResolvedPolicy {
         packReference: loaded.reference,
         authority: pack.authority,
         sourceLocation: pack.source.location,
-        ...(pack.source.externalVersion === undefined
-          ? {}
-          : { sourceExternalVersion: pack.source.externalVersion }),
         category: rule.category,
         instruction: rule.instruction,
         check: rule.check,
-        remindOnEdit: rule.remindOnEdit,
       });
     }
 
@@ -155,38 +113,8 @@ export function resolvePolicy(options: ResolveOptions): ResolvedPolicy {
     rules: dedupeBy(rules, (rule) => rule.qualifiedId),
     prompts: dedupeBy(prompts, (prompt) => `${prompt.stage}::${prompt.absolutePath}`),
     commandDecisions,
-    diagnostics: scopeDiagnostics(diagnostics, consideredFilePaths, applicableFilePaths),
+    diagnostics: [...(options.diagnostics ?? [])],
   };
-}
-
-const PACK_SCOPED_DIAGNOSTIC_CODES: ReadonlySet<string> = new Set([
-  'pack-unknown-command',
-  'prompt-unreadable',
-  'path-escape',
-  'path-missing',
-  'remind-on-edit-broad-pack',
-]);
-
-/**
- * Downgrades a pack-scoped error to a notice when its pack parsed but does not
- * apply to this activity or these paths. It stays visible either way.
- */
-function scopeDiagnostics(
-  diagnostics: readonly Diagnostic[],
-  consideredFilePaths: ReadonlySet<string>,
-  applicableFilePaths: ReadonlySet<string>,
-): Diagnostic[] {
-  return diagnostics.map((diagnostic) => {
-    if (diagnostic.severity !== 'error') return diagnostic;
-    if (!PACK_SCOPED_DIAGNOSTIC_CODES.has(diagnostic.code)) return diagnostic;
-    if (diagnostic.where === undefined) return diagnostic;
-    const parsedSuccessfully = consideredFilePaths.has(diagnostic.where);
-    const applicable = applicableFilePaths.has(diagnostic.where);
-    if (parsedSuccessfully && !applicable) {
-      return { ...diagnostic, severity: 'notice' };
-    }
-    return diagnostic;
-  });
 }
 
 /**

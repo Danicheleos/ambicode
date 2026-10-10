@@ -13,7 +13,7 @@ import { runCheckOnly } from '#modules/checks/run/check-command';
 import { runFormat } from '#modules/checks/run/format';
 import { runHook } from '#hook/events/run-hook';
 import { commandContext } from '#harness/engine/context';
-import { runCommandTail } from '#harness/engine/command-tail';
+import { runCommandTail } from '#harness/engine/engine';
 import { skillHandlers } from '#skills/handlers';
 import { assembleEngine } from '#testing/fixtures/route-fixture';
 import { COMMAND_PACK, SplitRunner } from '#testing/fixtures/check-fixture';
@@ -38,13 +38,12 @@ async function offByOne() {
   const configPath = path.join(root, '.ambicode', 'config.yaml');
   const config = parse(await readFile(configPath, 'utf8'));
   const app = config.projects[0];
-  app.commands.unit = { argv: ['jest', '{files}'] };
-  app.checks.unit = { command: 'unit', adapter: 'jest' };
+  app.checks.unit = { all: 'jest', file: 'jest {file}' };
   app.policyFiles = ['.ambicode/policies/cmds.yaml'];
   await writeFile(configPath, stringify(config));
   await mkdir(path.join(root, '.ambicode', 'policies'), { recursive: true });
   await writeFile(path.join(root, '.ambicode', 'policies', 'cmds.yaml'), COMMAND_PACK);
-  execFileSync('git', ['add', '.ambicode'], { cwd: root });
+  execFileSync('git', ['add', '-f', '.ambicode'], { cwd: root });
   execFileSync('git', ['-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'wire jest'], { cwd: root });
 
   const step: Record<string, string> = {};
@@ -54,11 +53,11 @@ async function offByOne() {
   const scratchpad = await assembled.runtime.fs.temporaryDirectory('ambicode-scratch-');
   const runner = new SplitRunner(assembled.runtime.runner);
   const runtime: Runtime = { ...assembled.runtime, runner };
-  const deps: CheckDeps = { runtime, session: SESSION_A, context: commandContext({ runtime, routes: assembled.routes }), warm: async () => undefined };
+  const deps: CheckDeps = { runtime, session: SESSION_A, context: commandContext({ runtime, routes: assembled.routes }) };
   const tail = (cause: 'check' | 'format', produced: string[]) =>
     runCommandTail({ engine }, { task: TASK, cause, session: { state: 'bound', session: SESSION_A } as never, produced, scratchpadDir: scratchpad });
   const check = async (phase: 'red' | 'green') => {
-    const result = await runCheckOnly(deps, { task: TASK, key: 'app/unit', only: [SPEC], phase, approve: [], decline: [] });
+    const result = await runCheckOnly(deps, { task: TASK, name: 'unit', project: null, files: [SPEC], phase, approve: [], decline: [] });
     assert.equal(result.outcome, 'ran');
     return tail('check', result.outcome === 'ran' ? [result.entry.id] : []);
   };
@@ -69,7 +68,7 @@ async function offByOne() {
     await writeFile(transcript, `${JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text }] } })}\n`);
     return runHook(runtime, JSON.stringify({ hook_event_name: 'Stop', session_id: SESSION_A, cwd: root, scratchpad_dir: scratchpad, transcript_path: transcript }), hookDeps) as Promise<{ decision?: string; reason?: string } | null>;
   };
-  const ledger = (): Promise<LedgerEntry[]> => readLedger(nodeFileSystem, path.join(root, '.ambicode', 'task', TASK));
+  const ledger = (): Promise<LedgerEntry[]> => readLedger(nodeFileSystem, path.join(root, '.ambicode', 'tasks', TASK));
   return {
     root, engine, runner, check, format, stop,
     start: () => engine.start({ skill: 'task', text: 'Fix the defect: `page` drops the last item of every page.', requirements: [], task: TASK, cwd: root, session: SESSION_A, channel: 'hook', scratchpadDir: scratchpad }),
@@ -93,13 +92,13 @@ const trail = (ledger: readonly LedgerEntry[]): string =>
   }).join(' · ');
 
 describe('task route on ts-off-by-one (integration, test 18)', () => {
-  it('07-R4/07-C4/07-F2/07-R7/07-S1: ground → red → green → unconfigured format → offer → skip → report; Stop holds a claim to the evidence', async () => {
+  it('07-R4/07-C4/07-F2/07-R7/07-S1: ground → red → green → unconfigured format → offer → skip → report', async () => {
     const t = await offByOne();
     try {
       const red = await t.start();
       assert.equal(red.position, 'red');
       assert.match(red.text, /1 file\(s\) already changed stay out of this task's review/);
-      assert.match(red.text, /^ {2}page — \d+ refs/m);
+      assert.doesNotMatch(red.text, /git grep|Callers/);
 
       await t.write(SPEC, "const { page } = require('../src/page');\n\ntest('full page', () => {\n  expect(page([1, 2, 3, 4], 0, 2)).toEqual([1, 2]);\n});\n");
       t.runner.out = { exitCode: 1, stdout: FAILING };
@@ -121,31 +120,12 @@ describe('task route on ts-off-by-one (integration, test 18)', () => {
 
       const ledger = await t.ledger();
       const checks = ledger.filter((entry) => entry.kind === 'check');
-      assert.deepEqual(checks.map((entry) => [entry['phase'], entry['summary']]), [['red', { ran: 1, failed: 1 }], ['green', { ran: 1, failed: 0 }]]);
+      assert.deepEqual(checks.map((entry) => [entry['phase'], entry['exit']]), [['red', 1], ['green', 0]]);
       assert.deepEqual(ledger.filter((entry) => entry.kind === 'baseline').map((entry) => (entry['dirty'] as { path: string }[]).map((dirty) => dirty.path)), [['src/page.js']]);
       const report = write.text.split('## report\n')[1]!.split('\n\n## ')[0]!;
       const allowed = await t.stop(`# Task report\n\n**Done**: the last item stays on its page. All tests pass.\n\n**Remaining**: none\n\n${report}`);
       assert.notEqual(allowed?.decision, 'block', allowed?.reason);
       console.log(`[test 18 ledger] ${trail(await t.ledger())}`);
-    } finally {
-      await t.dispose();
-    }
-  });
-
-  it('07-S1: on the same fixture, a "tests pass" report with no green check that ran a test is blocked once', async () => {
-    const t = await offByOne();
-    try {
-      await t.start();
-      await t.write(SPEC, "test('full page', () => {});\n");
-      t.runner.out = { exitCode: 1, stdout: FAILING };
-      await t.check('red');
-      t.runner.out = { exitCode: 0, stdout: 'Tests:       0 total\n' };
-      await t.check('green');
-      assert.equal((await t.format())?.position, 'review-offer', 'an unproven green still completes green (D4)');
-      await t.skip();
-      const blocked = await t.stop('# Task report\n\nDone: the last item stays on its page. All tests pass.');
-      assert.equal(blocked?.decision, 'block');
-      assert.ok((await t.ledger()).some((entry) => entry.kind === 'limit' && entry['which'] === 'stop-block'));
     } finally {
       await t.dispose();
     }

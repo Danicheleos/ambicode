@@ -127,22 +127,6 @@ describe('eval-gate', () => {
     assert.deepEqual(failed(gate(results(three(), three(), { aggregates: {} }), { cases: benchmarks, tracesDir })), ['meanDelta'], 'an absent meanDelta is not a zero one');
   });
 
-  it('reports the cost of an arm that replayed the reviewer as unmeasured, not as a pass', () => {
-    const replayRun = (recall, cost) => {
-      const id = `e-${traceId++}`;
-      const lines = [
-        { type: 'system', subtype: 'init', model: MODEL },
-        { type: 'user', message: { content: [{ type: 'tool_result', content: 'reviewer ok — REPLAYED from a recording' }] } },
-      ];
-      writeFileSync(path.join(tracesDir, `${id}.jsonl`), lines.map((l) => JSON.stringify(l)).join('\n'));
-      return { ...run(recall, { cost }), tracePath: `/tmp/${id}/out/trace.jsonl` };
-    };
-    const verdict = gate(results([replayRun(1, 0.05), replayRun(1, 0.05), replayRun(1, 0.05)], [run(1), run(1), run(1)]), { cases: benchmarks, tracesDir });
-    assert.equal(verdict.pass, true);
-    assert.equal(verdict.gaps, 3);
-    assert.deepEqual(verdict.checks.filter((c) => c.status === 'gap').map((c) => c.name), ['localize: cost', 'localize: drift', 'localize: case floors'], 'no ledger leaves drift unmeasured, no reference leaves floors unmeasured');
-  });
-
   it('reports a gate the eval answers did not cover as a gap, naming it and its count', () => {
     const defaulted = () => {
       const row = run(1);
@@ -171,22 +155,6 @@ describe('eval-gate', () => {
     const line = verdict.info.find((l) => l.startsWith('localize/with:'));
     assert.match(line, /route started 2\/3 \(ledger\), Skill tool 0\/3/);
     assert.doesNotMatch(line, /skill fired/);
-  });
-
-  it('reports the recall of an arm whose review hit replay-miss as unmeasured, not as a loss', () => {
-    const missRun = () => {
-      const id = `e-${traceId++}`;
-      const lines = [
-        { type: 'system', subtype: 'init', model: MODEL },
-        { type: 'assistant', message: { content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'node "/p/scripts/ambicode.mjs" review --exclude "x/*.json"' } }] } },
-        { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: 'review local_1 (error: replay-miss: no recording for snapshot working-4e4c' }] } },
-      ];
-      writeFileSync(path.join(tracesDir, `${id}.jsonl`), lines.map((l) => JSON.stringify(l)).join('\n'));
-      return { ...run(0.5), tracePath: `/tmp/${id}/out/trace.jsonl` };
-    };
-    const verdict = gate(results([missRun(), missRun(), missRun()], [run(1), run(1), run(1)]), { cases: benchmarks, tracesDir });
-    assert.deepEqual(failed(verdict), [], 'the same loss without a replay-miss fails the recall check');
-    assert.deepEqual(verdict.checks.filter((c) => c.status === 'gap').map((c) => c.name), ['localize: recall', 'localize: drift', 'localize: case floors']);
   });
 
   it('gates a plugin-only run against a cached no-plugin arm, and says that it did', () => {

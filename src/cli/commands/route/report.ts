@@ -31,6 +31,7 @@ export function renderReport(output: ReportOutput): string {
 
 export const reportCommand: CliCommand = {
   name: 'report',
+  summary: 'The evidence of a task and what was not verified, from its ledger.',
   options: REPORT_OPTIONS,
   run: async (runtime, args) => {
     const output = await runReport(runtime, args);

@@ -24,7 +24,7 @@ const EXCLUDED_PATH_GLOBS = [
   '**/target/**',
   '**/vendor/**',
   '**/.ambicode/reviews/**',
-  '**/.ambicode/task/**',
+  '**/.ambicode/tasks/**',
 ];
 
 /**
@@ -39,6 +39,14 @@ export const TEST_PATH_PATTERNS: readonly RegExp[] = [
   /(^|\/)conftest\.py$/,
   /(^|\/)(__tests__|__mocks__|tests|test|spec|e2e|cypress)\//,
 ];
+
+/** Prose, data, markup and style files: they mention names without using them, so a name search skips them. */
+const NON_CODE_EXTENSIONS = new Set(['md', 'mdx', 'txt', 'rst', 'adoc', 'json', 'yaml', 'yml', 'toml', 'lock', 'csv', 'xml', 'svg', 'html', 'htm', 'css', 'scss', 'sass', 'less']);
+
+/** A file a name search may list: not a test, not prose, data, markup or style, and nothing `pathExclusionReason` rejects. */
+export function isSearchable(relativePath: string): boolean {
+  return pathExclusionReason(relativePath, { excludeTests: true }) === null && !NON_CODE_EXTENSIONS.has(relativePath.split('.').pop()?.toLowerCase() ?? '');
+}
 
 export function isTestPath(relativePath: string): boolean {
   return TEST_PATH_PATTERNS.some((pattern) => pattern.test(relativePath));
@@ -65,29 +73,6 @@ const BINARY_EXTENSIONS = new Set([
   'so', 'dylib', 'dll', 'exe', 'bin', 'o', 'a', 'class', 'pyc', 'wasm',
   'sqlite', 'db', 'parquet',
 ]);
-
-/**
- * Worth reviewing when changed, worthless as context: an unchanged lockfile
- * would occupy a third of the context budget for nothing.
- */
-const GENERATED_CONTEXT_NAMES = new Set([
-  'package-lock.json',
-  'npm-shrinkwrap.json',
-  'yarn.lock',
-  'pnpm-lock.yaml',
-  'bun.lock',
-  'Cargo.lock',
-  'composer.lock',
-  'Gemfile.lock',
-  'poetry.lock',
-  'Pipfile.lock',
-  'uv.lock',
-  'go.sum',
-]);
-
-export function isUselessAsContext(relativePath: string): boolean {
-  return GENERATED_CONTEXT_NAMES.has(relativePath.split('/').pop() ?? '');
-}
 
 export function pathExclusionReason(
   relativePath: string,

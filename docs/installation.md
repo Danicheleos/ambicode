@@ -52,15 +52,29 @@ In the target repository, start or restart Claude Code and run:
 /ambicode:init
 ```
 
-`/ambicode:init` proposes the repository-owned `.ambicode/config.yaml` and asks
-one question: *Apply as proposed*, *Adjust* (type `key=value` pairs, such as
-`requirements.mcpServer=<server>`), or *Cancel*. Only an accepted answer writes
-the config and the `.gitignore` lines, then prints a `doctor` table that probes
-every configured command. *Cancel*, or a headless run, writes nothing outside
-`.ambicode/task/init-<date>/`. `ambicode init` on its own is a dry run;
-`ambicode doctor` reprints the table at any time. That configuration file is
-the expected repository-visible result of initialization; the installed plugin
-itself remains in Claude's plugin storage.
+`/ambicode:init` is run by the user once per repository, from the git root:
+
+1. A scaffold script creates `.ambicode/` (`tasks/`, `reviews/`, `context/`),
+   writes `.ambicode/config.yaml` from the template, and adds `.ambicode/` to
+   `.gitignore`. The whole folder is gitignored: config, run ledgers and the
+   learning context stay local.
+2. The `ambicode:scout` agent maps the repository in the background and writes
+   the learning context (overview, navigation, conventions, one file per
+   module) through `ambicode context write`, within `context.maxTotalTokens`
+   and `context.maxFileTokens`.
+3. Meanwhile the skill reads the manifests to fill in each project's
+   ecosystem, commands and checks, then picks the `policies/*.yaml` packs
+   whose `appliesTo` matches into `packs` and merges the free-text `rules` (the
+   scout's conventions, and unless `--auto` a web search and one confirmation
+   question; at most 10 per project).
+4. It writes `.ambicode/config.yaml` once and runs
+   `ambicode config validate`; errors get one corrective write.
+
+Run it again to refresh: the scaffold leaves an existing config untouched, and
+the skill asks whether to refresh or abort (`--auto` refreshes). Edit
+`.ambicode/config.yaml` directly at any time and re-run `config validate`.
+`ambicode context list` shows the context files, their first line and size.
+The installed plugin itself remains in Claude's plugin storage.
 
 ## Windows PowerShell
 
@@ -172,20 +186,11 @@ claude plugin install pyright-lsp@claude-plugins-official --scope user
 pipx install pyright
 ```
 
-Restart or reload Claude after installing. `ambicode config` shows the
-recommendation for every project; `ambicode prepare --json`
-deliberately leaves installation guidance out of its per-call payload and
-carries only the search strategy, the evidence requirement, and the boundary
-shortlist when the call asked for one. During `investigate`, `plan`, and
-`task`, the skill must report the LSP operations it actually used or a
-specific targeted-search fallback reason — and a session with no LSP tools
-reports that fact in one line, which is the complete fallback evidence.
-Installed state alone is not evidence that the current session used LSP.
-
-Nothing here is required for the shortlist. `ambicode locate <term>...` needs
-only git, and it is what narrows a repository to candidate files before LSP is
-asked anything; LSP then explains a candidate rather than finding it. A
-session with no LSP plugin installed still gets the shortlist.
+Restart or reload Claude after installing. These plugins are optional and
+independent of AMBICODE: no AMBICODE skill or command requires them, checks for
+them or reports on them. `ambicode map` and `ambicode refs` need only git; they
+narrow a repository to candidate files and name usages, and a language server
+can then explain a candidate.
 
 ## Repository verification
 

@@ -52,27 +52,6 @@ describe('S2 trusted preanswer', () => {
   });
 });
 
-describe('S12 late bound answer', () => {
-  it('supersedes a never-asked default and applies onAnswer; the answered instance is used', async () => {
-    const plan = await planFixture();
-    try {
-      await plan.toGate();
-      const first = await printOf(plan);
-      await plan.next();
-      await plan.next();
-      const defaulted = await plan.next();
-      assert.equal((await plan.fx.kinds(PLAN_TASK, 'default-taken')).at(-1)!['via'], 'never-asked');
-      assert.ok(defaulted.position);
-      const message = await plan.hook('plan-accept', 'Revise', first.id);
-      const acceptance = (await plan.fx.kinds(PLAN_TASK, 'acceptance')).at(-1)!;
-      assert.equal(acceptance['instance'], first.id);
-      assert.equal(message.position, 'design');
-    } finally {
-      await plan.dispose();
-    }
-  });
-});
-
 describe('S13 instance binding', () => {
   it('answering an old instance after a new draft refuses promote and reprints for the new draft', async () => {
     const plan = await planFixture();
@@ -96,7 +75,7 @@ describe('S13 instance binding', () => {
       await plan.toGate();
       const print = await printOf(plan);
       await plan.hook('plan-accept', 'Accept', 'aaaaaaaa-99');
-      const last = await plan.hook('budget-exhausted', 'Accept', print.id);
+      const last = await plan.hook('review-again', 'Accept', print.id);
       const unbound = (await plan.fx.kinds(PLAN_TASK, 'declined')).filter((entry) => entry['unbound'] === true);
       assert.deepEqual(unbound.map((entry) => entry['reason']), ['unknown-instance', 'wrong-gate']);
       assert.equal((await notes(plan, 'plan')).length, 0);
@@ -108,13 +87,15 @@ describe('S13 instance binding', () => {
 });
 
 describe('S13 marker-less answer', () => {
-  it('an answer without an instance is unbound and the gate is reprinted with a retry notice', async () => {
+  it('an answer without an instance is declined as no-instance and the gate is shown again as it was', async () => {
     const plan = await planFixture();
     try {
       await plan.toGate();
       const message = await plan.hook('plan-accept', 'Accept', undefined);
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'declined')).at(-1)!['reason'], 'no-instance');
-      assert.match(message.text, /carried no usable marker/);
+      assert.match(message.text, /Accept this plan\?/);
+      assert.doesNotMatch(message.text, /carried no usable marker/);
+      assert.equal((await plan.prints()).length, 1);
     } finally {
       await plan.dispose();
     }

@@ -34,35 +34,34 @@ a Confluence page through the bound MCP server — and then, with you:
    Each rule carries `source.quote`, a verbatim passage, and `source.location`,
    the file or page it came from; nothing in `drafts/` is in force;
 3. validates the drafts with `ambicode policy check --drafts` and loops until
-   clean. The check confirms every quote is in its source, warns when a rule
-   duplicates a built-in (`pack-duplicates-builtin`), and reports a glob that
+   clean. The check confirms every quote is in its source and reports a glob that
    matches nothing. A rule whose quote cannot be found is not migrated;
 4. shows you a table with one row per rule, applied or not migrated and why, and
    asks: Apply all, Apply with changes, or Discard drafts;
 5. on Apply all only, `ambicode rules apply` moves each draft to
    `.ambicode/policies/<id>.yaml` and adds it to the project's `policyFiles`,
    preserving the rest of `.ambicode/config.yaml`, then probes a covered and an
-   uncovered path. `ambicode rules revert <pack-id>` moves one pack back to
-   `drafts/` and removes it from `policyFiles`.
+   uncovered path.
 
-`ambicode rules discover [<path-or-url>...]` lists the candidate sources
-without reading them into rules.
+The route's first step runs `skills/rules/scripts/discover.mjs`, which only lists
+the files that usually hold rules (agent instructions, contribution guides,
+ADRs, `docs/`); it reads none of them into rules. You then name the sources in
+your own words or take the listed ones.
 
 `ambicode policy check <file...>` is usable on its own, for a pack you wrote by
 hand. It validates a candidate file that nothing references yet — the schema,
-every load-time rule the schema cannot express, and what each `appliesTo` glob
-matches in the repository as it stands — and exits nonzero on an error:
+and every load-time rule the schema cannot express — and exits nonzero on an
+error:
 
 ```sh
 ambicode policy check --project web .ambicode/policies/team-components.yaml
 ```
 
-A glob that matches nothing is the mistake worth running it for. The pack
-validates, gets enabled, and never applies to anything.
+It does not count what a glob matches: a glob that matches nothing validates,
+gets enabled, and never applies to anything, so derive it from the real layout.
 
-`init` names the documents in your repository that usually hold rules, as
-migration candidates. It checks only whether they exist; it does not read,
-classify, or migrate any of them.
+`init` lists which of those rule sources exist in your repository. It does not
+read, classify, or migrate any of them.
 
 Two things the skill deliberately does not carry over, for the reasons the
 worked example gives below: a rule that encodes one team's structural choice
@@ -70,8 +69,8 @@ rather than a defect (see [the layering note](#common)), and a rule naming a
 specific framework API (see [the one deviation](#the-one-deviation-worth-arguing-about)).
 It asks you about the first and drops the second.
 
-See [policy authoring](policy-authoring.md) for what `authority`, `replaces` and
-`remindOnEdit` actually change.
+See [policy authoring](policy-authoring.md) for what `authority` and `replaces`
+actually change.
 
 ## The one deviation worth arguing about
 
@@ -107,7 +106,7 @@ responsibility, ownership, error semantics, and boundary typing.
 `common-checks` carries no rules. It exists to declare command policy — which of
 the project's own configured checks may run — and nothing else.
 
-## Angular (enabled by init when package.json declares `@angular/core`)
+## Angular (proposed by init when the repository is an Angular project)
 
 | Pack | Rules | Disposition |
 |---|---|---|
@@ -117,7 +116,7 @@ the project's own configured checks may run — and nothing else.
 | `angular-http` | `response-validation`, `error-semantics`, `duplicate-requests`, `cross-cutting-http-concerns` | Retained as transport concerns that hold across versions. Specific `HttpClient` API expectations dropped. |
 | `angular-style` | `configured-style`, `honest-types`, `distinct-shapes` | `configured-style` defers to the project's linter rather than restating it. Folder-naming conventions dropped. |
 
-## Express (enabled by init when package.json declares `express` and not `@angular/core`)
+## Express (proposed by init when the repository is an Express project)
 
 Doc 05 asks for general HTTP safety to be separated from Express- and
 version-specific assumptions. That split is the reason there are four packs.

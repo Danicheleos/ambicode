@@ -4,11 +4,10 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { PROJECT_CODE_DIRECTORY, projectCodeDir } from '../shared/bench-paths.mjs';
-import { GITIGNORE_ENTRIES, INDEX_DIR } from '../../../../src/types/defaults.ts';
+import { AMBICODE_DIR } from '../../../../src/types/defaults.ts';
 
 const FIXED_DATE = '2026-01-01T00:00:00Z';
-/** The index directory stays unignored: ignoring it is the consent `index build` checks, and evals do not build one. */
-const EXCLUDED = GITIGNORE_ENTRIES.filter((entry) => entry !== `${INDEX_DIR}/`);
+const EXCLUDED = [`${AMBICODE_DIR}/`];
 
 const quote = (text) => `'${String(text).replace(/'/g, `'\\''`)}'`;
 

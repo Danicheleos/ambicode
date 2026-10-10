@@ -2,52 +2,17 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { openRouteView } from '#harness/engine/context';
-import { CONFIG, routeFixture, type RouteFixture } from '#testing/fixtures/route-fixture';
-import { withLedgerLock } from '#platform/ledger/ledger-lock';
-import { resolveTaskDir } from '#modules/evidence/task/task-dir';
-import { captureRequirement } from './capture/capture.ts';
-import { capturesFrom } from './capture/binding.ts';
-import { askedKeys, normalizeEnvelope } from './envelope/envelope.ts';
-import { splitAcs } from './envelope/acs.ts';
+import { jira, mcp, session } from '#testing/fixtures/requirements-session';
+import { contentHash } from '#util/hash';
 import { hasRequirement } from './capture/has-requirement.ts';
-import { requirementsTemplate } from './capture/template.ts';
-import type { RouteArgs } from '#types/harness';
-import type { CaptureDeps, EnvelopeInput } from '#types/modules/requirements';
+import { readCapture } from './capture/capture.ts';
+import { askedKeys } from './envelope/envelope.ts';
 
-const A = 'aaaaaaaa-1111-4111-8111-111111111111';
-const ROUTE = `skill: investigate
-version: 3
-budget: { modelSteps: 6 }
-exits: [done, blocked, human, inconclusive, superseded, budget]
-revisable: []
-steps:
-  - id: read
-    actor: model
-    instruction: "Read."
-`;
-const SERVER = 'atlassian';
+const GET = 'mcp__atlassian__getJiraIssue';
+const TICKET = 'https://x.atlassian.net/browse/ORD-17';
+const PAGE = 'https://x.atlassian.net/wiki/spaces/ENG/pages/42/Orders';
 
-const jira = (key: string, fields: object) => JSON.stringify({ key, fields: { summary: `Summary ${key}`, description: `Body of ${key}`, issuetype: { name: 'Story' }, assignee: { displayName: 'NOT_THE_TICKET' }, ...fields } });
-const mcp = (text: string) => ({ content: [{ type: 'text', text }] });
-
-async function session(text = 'ORD-17 which files?', requirements: string[] = []) {
-  const fx = await routeFixture({ routes: { investigate: ROUTE }, config: CONFIG.replace('mcpServer: null', `mcpServer: ${SERVER}`) });
-  await fx.engine.start({ skill: 'investigate', text, requirements, task: 'ORD-17', cwd: fx.repo.root, session: A, channel: 'hook' });
-  const dir = await resolveTaskDir(fx.runtime, 'ORD-17');
-  const args = ((await fx.kinds('ORD-17', 'route'))[0]!['args']) as RouteArgs;
-  const under = <T>(body: (deps: Omit<CaptureDeps, 'mcpServer' | 'asked'> & { fx: RouteFixture }) => Promise<T>): Promise<T> =>
-    withLedgerLock(fx.runtime.fs, dir.root, () => new Date(), A, async (ledger) => {
-      const view = (await openRouteView(fx.runtime, fx.routes, 'ORD-17', A))!;
-      return body({ runtime: fx.runtime, dir, ledger, view, fx });
-    });
-  const capture = (tool: string, response: unknown, options: { mcpServer?: string | null; asked?: string[]; input?: Record<string, unknown> } = {}) =>
-    under((deps) => captureRequirement({ hook_event_name: 'PostToolUse', session_id: A, tool_name: tool, tool_response: response, ...(options.input === undefined ? {} : { tool_input: options.input }) }, { ...deps, mcpServer: options.mcpServer === undefined ? SERVER : options.mcpServer, asked: options.asked ?? ['ORD-17'] }));
-  const normalize = (overrides: Partial<EnvelopeInput> = {}) => under((deps) => normalizeEnvelope({ ...deps, args, mcpServer: SERVER, ...overrides }));
-  return { fx, dir, args, under, capture, normalize };
-}
-
-describe('03-Q1 hasRequirement', () => {
+describe('hasRequirement', () => {
   const table: [string, { text: string; requirements?: string[]; headless?: boolean }, string | null, boolean][] = [
     ['a URL in the text', { text: 'look at https://x.atlassian.net/browse/ORD-17' }, null, true],
     ['any --requirement', { text: 'look', requirements: ['https://x/y'] }, null, true],
@@ -55,365 +20,120 @@ describe('03-Q1 hasRequirement', () => {
     ['a bare key without a server', { text: 'ORD-17 why slow' }, null, false],
     ['a key inside prose', { text: 'why is ORD-17 slow' }, 'atlassian', false],
     ['headless without --requirement', { text: 'ORD-17 https://x/y', headless: true }, 'atlassian', false],
-    ['headless with --requirement', { text: 'x', requirements: ['u'], headless: true }, null, true],
   ];
   for (const [name, input, server, expected] of table) {
     it(name, () => assert.equal(hasRequirement({ text: input.text, requirements: input.requirements ?? [], headless: input.headless ?? false }, { mcpServer: server }), expected));
   }
 });
 
-describe('03-Q2 requirementsTemplate', () => {
-  it('names the binding first, the calls per source, the child cap before any child read, and ends with the completion command', () => {
-    const { text, bytes } = requirementsTemplate({ sources: ['https://x.atlassian.net/browse/ORD-17', 'https://x.atlassian.net/wiki/spaces/A/pages/123/Title'], task: 'ORD-17', mcpServer: 'atlassian', acceptanceField: null, observedTools: [] });
-    const lines = text.split('\n');
-    assert.match(lines[0]!, /Use MCP server `atlassian`/);
-    assert.ok(text.includes('getJiraIssue ORD-17 fields=summary,description,issuetype,parent,issuelinks'));
-    assert.ok(text.includes('searchJiraIssuesUsingJql "parent = ORD-17" fields=key,summary'));
-    assert.match(text, /Confluence page 123: read the page; list its child pages/);
-    assert.ok(text.indexOf('more than 10 hits') > text.indexOf('searchJiraIssuesUsingJql'));
-    assert.match(lines.at(-1)!, /route next --task ORD-17/);
-    assert.ok(bytes <= 1536);
-  });
-
-  it('tells the model to pin the server when none is configured and stays under the byte cap for many sources', () => {
-    assert.match(requirementsTemplate({ sources: ['ORD-1'], task: 't', mcpServer: null, acceptanceField: null, observedTools: ['mcp__atlassian__getJiraIssue'] }).text, /requirements\.mcpServer/);
-    const many = requirementsTemplate({ sources: Array.from({ length: 40 }, (_, index) => `https://x/browse/ORD-${index + 1}`), task: 't', mcpServer: 'a', acceptanceField: null, observedTools: [] });
-    assert.ok(many.bytes <= 1536);
-    assert.match(many.text.split('\n').at(-1)!, /route next/);
+describe('keys', () => {
+  it('asked keys are the --requirement values, URLs in the text and a bare first key, raw; prose keys are not asked', () => {
+    assert.deepEqual(askedKeys({ requirements: [PAGE], text: `ORD-18 see ${TICKET} and ORD-19` }), [PAGE, TICKET, 'ORD-18']);
   });
 });
 
-describe('03-Q3 capture binding', () => {
-  it('binds on the exact server or on a case-insensitive token, and on nothing else', () => {
-    assert.equal(capturesFrom('atlassian', 'atlassian'), true);
-    assert.equal(capturesFrom('atlassian', 'claude_ai_Atlassian_Rovo'), true);
-    assert.equal(capturesFrom('atlassian', 'claude_ai_Linear'), false);
-    assert.equal(capturesFrom('atlassian', 'atlassianish'), false);
-  });
-
-  it('captures nothing for another server or for an unknown tool class', async () => {
-    const s = await session();
+describe('capture stores the raw result text', () => {
+  it('an MCP call is stored under its key with url, tool, retrievedAt, rawHash and the whole text; no step, no map', async () => {
+    const s = await session({ skill: 'investigate', requirements: [TICKET] });
     try {
-      const response = mcp(jira('ORD-17', {}));
-      assert.equal(await s.capture('mcp__linear__getIssue', response), null);
-      assert.equal(await s.capture('mcp__atlassian__createJiraIssue', response), null);
-      assert.equal((await s.fx.kinds('ORD-17', 'requirement')).length, 0);
-    } finally {
-      await s.fx.dispose();
-    }
-  });
-});
-
-describe('03-Q4 capture', () => {
-  it('get: writes requirements/<key>.json with the NOT_THE_TICKET fields stripped, one entry, and advances nothing', async () => {
-    const s = await session();
-    try {
-      const before = (await s.fx.ledger('ORD-17')).length;
-      const entry = await s.capture('mcp__atlassian__getJiraIssue', mcp(jira('ORD-17', { parent: { key: 'ORD-1' }, issuelinks: [{ inwardIssue: { key: 'ORD-9' } }] })));
-      assert.deepEqual([entry?.['key'], entry?.['relation'], entry?.['capture'], entry?.['via']], ['ORD-17', 'asked', 'full', 'mcp__atlassian__getJiraIssue']);
-      const file = JSON.parse(await readFile(path.join(s.dir.requirements, 'ORD-17.json'), 'utf8'));
-      assert.equal(file.title, 'Summary ORD-17');
-      assert.equal(file.type, 'Story');
-      assert.equal(file.parent, 'ORD-1');
-      assert.deepEqual(file.links, ['ORD-9']);
-      assert.match(file.content, /Body of ORD-17/);
-      assert.doesNotMatch(file.content, /NOT_THE_TICKET/);
-      assert.equal((await s.fx.ledger('ORD-17')).length, before + 1);
-      assert.equal((await s.fx.kinds('ORD-17', 'step')).filter((row) => row['status'] === 'completed').length, 0);
+      const body = jira('ORD-17', { description: 'The cart holds 50 items.' });
+      const entry = await s.capture(GET, mcp(body), { input: { issueIdOrKey: 'ORD-17' } });
+      assert.equal(entry?.['key'], 'ORD-17');
+      const stored = await readCapture(s.fx.runtime.fs, s.dir, 'ORD-17', null);
+      assert.deepEqual(stored && { key: stored.key, tool: stored.tool, content: stored.content, rawHash: stored.rawHash }, { key: 'ORD-17', tool: GET, content: body, rawHash: contentHash(body) });
+      assert.deepEqual((await s.fx.ledger(s.task)).map((e) => e.kind).filter((kind) => kind === 'requirement' || kind === 'map'), ['requirement']);
     } finally {
       await s.fx.dispose();
     }
   });
 
-  it('fetch and read classes capture a Confluence page', async () => {
-    const s = await session();
+  it('WebFetch is keyed by its URL; the same response twice is one entry; a call naming no key writes nothing; so does a call when nothing was asked', async () => {
+    const s = await session({ skill: 'investigate', requirements: [PAGE] });
     try {
-      const page = JSON.stringify({ id: '123', title: 'Design', body: { storage: { value: '<p>The <b>design</b></p>' } }, version: { number: 4 } });
-      const entry = await s.capture('mcp__atlassian__fetch', mcp(page), { asked: ['page-123'] });
-      assert.equal(entry?.['key'], 'page-123');
-      const file = JSON.parse(await readFile(path.join(s.dir.requirements, 'page-123.json'), 'utf8'));
-      assert.equal(file.sourceVersion, '4');
-      assert.match(file.content, /The design/);
-      assert.equal((await s.capture('mcp__atlassian__readConfluencePage', mcp(page), { asked: ['page-123'] })), null, 'the same raw payload is not recorded twice');
+      const response = { result: 'Orders page body' };
+      assert.equal((await s.capture('WebFetch', response, { input: { url: PAGE }, asked: [PAGE] }))?.['key'], PAGE);
+      assert.equal(await s.capture('WebFetch', response, { input: { url: PAGE }, asked: [PAGE] }), null);
+      assert.equal(await s.capture(GET, mcp('x'), { input: { cloudId: 'abc' } }), null);
+      assert.equal(await s.capture('mcp__other__search', mcp('x'), { input: { issueIdOrKey: 'ORD-17' }, asked: [] }), null);
+      assert.equal(await s.capture('Read', mcp('x'), { input: { issueIdOrKey: 'ORD-17' } }), null);
+      assert.equal((await s.fx.kinds(s.task, 'requirement')).length, 1);
     } finally {
       await s.fx.dispose();
     }
   });
 
-  it('search: reduced on disk to {key, summary} per hit as capture list, and it is not a capture of the listed document', async () => {
-    const s = await session();
+  it('a call naming only the issue key is stored under the asked URL it is the last segment of', async () => {
+    const s = await session({ skill: 'investigate', requirements: [TICKET] });
     try {
-      const hits = mcp(JSON.stringify({ issues: [{ key: 'ORD-18', fields: { summary: 'Child A', description: 'long text' } }, { key: 'ORD-19', fields: { summary: 'Child B' } }] }));
-      const entry = await s.capture('mcp__atlassian__searchJiraIssuesUsingJql', hits);
-      assert.equal(entry?.['capture'], 'list');
-      assert.equal(entry?.['key'], 'SEARCH');
-      const file = JSON.parse(await readFile(path.join(s.dir.requirements, `search-${String(entry?.['rawHash']).slice(7, 19)}.json`), 'utf8'));
-      assert.deepEqual(file.hits, [{ key: 'ORD-18', summary: 'Child A' }, { key: 'ORD-19', summary: 'Child B' }]);
-      const normalized = await s.normalize();
-      assert.equal(normalized.state, 'failed', 'the hits are not documents');
+      assert.equal((await s.capture(GET, mcp(jira('ORD-17')), { input: { issueIdOrKey: 'ORD-17' }, asked: [TICKET] }))?.['key'], TICKET);
     } finally {
       await s.fx.dispose();
     }
   });
 
-  it('03-F1: two chains on one task keep their own captures of the same key', async () => {
-    const s = await session();
-    const B = 'bbbbbbbb-2222-4222-8222-222222222222';
+  it('a result over 256 KB is cut to 256 KB and its hash is of what is stored; an edited file no longer reads', async () => {
+    const s = await session({ skill: 'investigate', requirements: [TICKET] });
     try {
-      const inLedger = <T>(who: string, body: (deps: Omit<CaptureDeps, 'mcpServer' | 'asked'>) => Promise<T>): Promise<T> =>
-        withLedgerLock(s.fx.runtime.fs, s.dir.root, () => new Date(), who, async (ledger) => body({ runtime: s.fx.runtime, dir: s.dir, ledger, view: (await openRouteView(s.fx.runtime, s.fx.routes, 'ORD-17', who))! }));
-      const captureAs = (who: string, text: string) => inLedger(who, (deps) => captureRequirement({ hook_event_name: 'PostToolUse', session_id: who, tool_name: 'mcp__atlassian__getJiraIssue', tool_response: mcp(text) }, { ...deps, mcpServer: SERVER, asked: ['ORD-17'] }));
-      await captureAs(A, jira('ORD-17', { description: 'Original body' }));
-      await s.fx.engine.start({ skill: 'investigate', text: 'ORD-17 changed', requirements: [], task: 'ORD-17', cwd: s.fx.repo.root, session: B, channel: 'hook' });
-      await captureAs(B, jira('ORD-17', { description: 'Changed body' }));
-      const sourcesOf = async (who: string): Promise<string> => {
-        const result = await inLedger(who, (deps) => normalizeEnvelope({ ...deps, args: ((deps.view as { args?: RouteArgs }).args ?? s.args), mcpServer: SERVER }));
-        assert.equal(result.state, 'ok');
-        return result.state === 'ok' ? result.sources.map((source) => source.content).join('\n') : '';
-      };
-      assert.match(await sourcesOf(A), /Original body/);
-      assert.doesNotMatch(await sourcesOf(A), /Changed body/);
-      assert.match(await sourcesOf(B), /Changed body/);
-    } finally {
-      await s.fx.dispose();
-    }
-  });
-
-  it('03-F1/03-Q6: an identical response captured by another chain keeps this chain\'s relation, so its unrelated ticket stays dropped', async () => {
-    const s = await session();
-    const B = 'bbbbbbbb-2222-4222-8222-222222222222';
-    try {
-      const inLedger = <T>(who: string, body: (deps: Omit<CaptureDeps, 'mcpServer' | 'asked'>) => Promise<T>): Promise<T> =>
-        withLedgerLock(s.fx.runtime.fs, s.dir.root, () => new Date(), who, async (ledger) => body({ runtime: s.fx.runtime, dir: s.dir, ledger, view: (await openRouteView(s.fx.runtime, s.fx.routes, 'ORD-17', who))! }));
-      const captureAs = (who: string, asked: string[], text: string) => inLedger(who, (deps) => captureRequirement({ hook_event_name: 'PostToolUse', session_id: who, tool_name: 'mcp__atlassian__getJiraIssue', tool_response: mcp(text) }, { ...deps, mcpServer: SERVER, asked }));
-      await s.fx.engine.start({ skill: 'investigate', text: 'ORD-18 which files?', requirements: [], task: 'ORD-17', cwd: s.fx.repo.root, session: B, channel: 'hook' });
-      await captureAs(B, ['ORD-18'], jira('ORD-18', { description: 'Asked by B' }));
-      await captureAs(B, ['ORD-18'], jira('ORD-17', { description: 'Unrelated' }));
-      await captureAs(A, ['ORD-17'], jira('ORD-17', { description: 'Unrelated' }));
-      const bArgs = ((await s.fx.kinds('ORD-17', 'route')).find((entry) => entry['session'] === B)!['args']) as RouteArgs;
-      const result = await inLedger(B, (deps) => normalizeEnvelope({ ...deps, args: bArgs, mcpServer: SERVER }));
-      assert.equal(result.state, 'ok');
-      assert.deepEqual(result.state === 'ok' ? result.sources.map((source) => source.key) : [], ['ORD-18']);
-    } finally {
-      await s.fx.dispose();
-    }
-  });
-
-  it('an unrecognized payload writes nothing', async () => {
-    const s = await session();
-    try {
-      assert.equal(await s.capture('mcp__atlassian__getAccessibleAtlassianResources', mcp('[{"id":"cloud","url":"https://x"}]')), null);
-      assert.equal(await s.capture('mcp__atlassian__getJiraIssue', mcp('not json at all')), null);
-      assert.equal((await s.fx.kinds('ORD-17', 'requirement')).length, 0);
-    } finally {
-      await s.fx.dispose();
-    }
-  });
-
-  it('classifies relation: child by its parent, parent by a captured child, link by a captured link', async () => {
-    const s = await session();
-    try {
-      await s.capture('mcp__atlassian__getJiraIssue', mcp(jira('ORD-17', { parent: { key: 'ORD-1' }, issuelinks: [{ outwardIssue: { key: 'ORD-9' } }] })));
-      const child = await s.capture('mcp__atlassian__getJiraIssue', mcp(jira('ORD-20', { parent: { key: 'ORD-17' } })));
-      const parent = await s.capture('mcp__atlassian__getJiraIssue', mcp(jira('ORD-1', {})));
-      const link = await s.capture('mcp__atlassian__getJiraIssue', mcp(jira('ORD-9', {})));
-      assert.deepEqual([child?.['relation'], child?.['derivedFrom']], ['child', 'ORD-17']);
-      assert.deepEqual([parent?.['relation'], parent?.['derivedFrom']], ['parent', 'ORD-17']);
-      assert.deepEqual([link?.['relation'], link?.['derivedFrom']], ['link', 'ORD-17']);
+      await s.capture(GET, mcp('a'.repeat(300 * 1024)), { input: { issueIdOrKey: 'ORD-17' } });
+      const stored = await readCapture(s.fx.runtime.fs, s.dir, 'ORD-17', null);
+      assert.equal(stored?.content.length, 256 * 1024);
+      const file = path.join(s.dir.requirements, (await s.fx.runtime.fs.readdir(s.dir.requirements))[0]!.name);
+      await s.fx.runtime.fs.writeText(file, (await readFile(file, 'utf8')).replace('"aaaa', '"bbbb'));
+      assert.equal(await readCapture(s.fx.runtime.fs, s.dir, 'ORD-17', null), null);
     } finally {
       await s.fx.dispose();
     }
   });
 });
 
-describe('03-Q5/03-Q6/03-Q7 normalize', () => {
-  it('asked keys come from --requirement, URLs and a bare first key; prose keys are not asked', () => {
-    assert.deepEqual(askedKeys({ requirements: ['https://x.atlassian.net/browse/ORD-5?focus=1'], text: 'ORD-17 see https://x.atlassian.net/wiki/spaces/A/pages/42/T and ORD-99' }), ['ORD-5', 'page-42', 'ORD-17']);
-  });
-
-  it('a generic asked URL is captured by WebFetch under its normalized key and is not missing', async () => {
-    const url = 'https://Example.com/spec/';
-    const s = await session('read the spec', [url]);
+describe('envelope', () => {
+  it('captured sources build the envelope with their url and hash; the asked set and missingAsked are recorded', async () => {
+    const s = await session({ skill: 'investigate', requirements: [TICKET, PAGE] });
     try {
-      const entry = await s.capture('WebFetch', { result: 'The spec says X.' }, { asked: askedKeys({ requirements: [url], text: '' }), input: { url } });
-      assert.deepEqual([entry?.['key'], entry?.['relation']], ['https://example.com/spec', 'asked']);
+      await s.capture(GET, mcp(jira('ORD-17')), { input: { issueIdOrKey: 'ORD-17' }, asked: [TICKET, PAGE] });
       const result = await s.normalize();
-      assert.equal(result.state, 'ok');
-      if (result.state === 'ok') assert.deepEqual([result.builtFrom, result.missingAsked], ['captures', []]);
+      assert.ok(result.state === 'ok' && result.builtFrom === 'captures');
+      assert.deepEqual([result.asked, result.missingAsked], [[TICKET, PAGE], [PAGE]]);
+      const [entry] = await s.fx.kinds(s.task, 'envelope');
+      assert.deepEqual((entry!['sources'] as { key: string; rawHash: string }[]).map((source) => [source.key, source.rawHash]), [[TICKET, contentHash(jira('ORD-17'))]]);
     } finally {
       await s.fx.dispose();
     }
   });
 
-  it('a disconnected server result raises requirements-server-disconnected when nothing was captured', async () => {
-    const s = await session('ORD-17 which files?', ['https://x.atlassian.net/browse/ORD-17']);
+  it('a review with an asked source missing is refused requirements-missing, recoverably', async () => {
+    const s = await session({ requirements: [TICKET, PAGE] });
     try {
-      const entry = await s.capture('mcp__atlassian__getJiraIssue', mcp('The atlassian server is not connected; authenticate first.'));
-      assert.equal(entry?.['capture'], 'disconnected');
+      await s.capture(GET, mcp(jira('ORD-17')), { input: { issueIdOrKey: 'ORD-17' }, asked: [TICKET, PAGE] });
       const result = await s.normalize();
-      assert.deepEqual(result.state === 'raise' ? result.gate : result.state, 'requirements-server-disconnected');
+      assert.ok(result.state === 'failed' && result.code === 'requirements-missing');
     } finally {
       await s.fx.dispose();
     }
   });
 
-  it('a fragment does not change a URL key, and an unasked, unmentioned fetch writes nothing', async () => {
-    const url = 'https://example.com/spec#intro';
-    const s = await session('read the spec', [url]);
-    try {
-      const asked = askedKeys({ requirements: [url], text: '' });
-      assert.deepEqual(asked, ['https://example.com/spec']);
-      assert.equal(await s.capture('WebFetch', { result: 'Other.' }, { asked, input: { url: 'https://example.com/specs' } }), null);
-      assert.equal((await s.capture('WebFetch', { result: 'Spec.' }, { asked, input: { url: 'https://example.com/spec#other' } }))?.['key'], 'https://example.com/spec');
-    } finally {
-      await s.fx.dispose();
-    }
+  it('nothing captured is refused once, then a gate; "continue without" builds the args envelope and "stop" exits blocked', async () => {
+    const run = async (answer: string) => {
+      const s = await session({ skill: 'investigate' });
+      try {
+        await assert.rejects(s.next(), (error: Error & { code?: string }) => error.code === 'requirements-not-captured' && /Fetch https:\/\/x.atlassian.net\/browse\/ORD-17/.test(error.message));
+        assert.match((await s.next()).text, /requirements-not-captured-twice/);
+        await s.next({ answers: [{ gate: 'requirements-not-captured-twice', option: answer }] });
+        return { envelope: (await s.fx.kinds(s.task, 'envelope')).at(-1), exits: await s.exits() };
+      } finally {
+        await s.fx.dispose();
+      }
+    };
+    assert.equal((await run('continue without')).envelope?.['builtFrom'], 'args');
+    assert.deepEqual(await run('stop').then((result) => [result.envelope, result.exits]), [undefined, ['blocked']]);
   });
 
-  it('a page that discusses being disconnected is not a server error', async () => {
-    const s = await session('ORD-17 which files?', ['https://x.atlassian.net/browse/ORD-17']);
-    try {
-      const entry = await s.capture('mcp__atlassian__getJiraIssue', mcp(`When the VPN is disconnected, retry. ${'Detail. '.repeat(60)}`));
-      assert.notEqual(entry?.['capture'], 'disconnected');
-    } finally {
-      await s.fx.dispose();
-    }
-  });
-
-  it('complete captures build the envelope from captures; a list-only hit is not complete; the asked set is recorded', async () => {
-    const s = await session('ORD-17 which files?', ['https://x.atlassian.net/browse/ORD-17']);
-    try {
-      await s.capture('mcp__atlassian__getJiraIssue', mcp(jira('ORD-17', {})));
-      const result = await s.normalize();
-      assert.equal(result.state, 'ok');
-      if (result.state !== 'ok') return;
-      assert.equal(result.builtFrom, 'captures');
-      assert.deepEqual([result.asked, result.missingAsked, result.notices], [['ORD-17'], [], []]);
-      const envelope = (await s.fx.kinds('ORD-17', 'envelope')).at(-1)!;
-      assert.deepEqual([envelope['builtFrom'], envelope['asked'], envelope['missingAsked']], ['captures', ['ORD-17'], []]);
-      assert.match(String(envelope['hash']), /^sha256:/);
-    } finally {
-      await s.fx.dispose();
-    }
-  });
-
-  it('a derived capture with no chain to an asked key is dropped with a notice; a partial capture carries requirements-partial', async () => {
-    const s = await session('ORD-17 x https://x.atlassian.net/browse/ORD-18', []);
-    try {
-      await s.capture('mcp__atlassian__getJiraIssue', mcp(jira('ORD-17', {})), { asked: ['ORD-17', 'ORD-18'] });
-      await s.capture('mcp__atlassian__getJiraIssue', mcp(jira('ORD-77', { parent: { key: 'ORD-76' } })), { asked: ['ORD-17', 'ORD-18'] });
-      await s.capture('mcp__atlassian__getJiraIssue', mcp(jira('ORD-30', { parent: { key: 'ORD-17' } })), { asked: ['ORD-17', 'ORD-18'] });
-      const result = await s.normalize();
-      assert.equal(result.state, 'ok');
-      if (result.state !== 'ok') return;
-      assert.deepEqual(result.sources.map((source) => source.key).sort(), ['ORD-17', 'ORD-30']);
-      assert.ok(result.notices.some((notice) => notice.startsWith('requirements-derived-orphan: ORD-77')));
-      assert.ok(result.notices.some((notice) => notice.startsWith('requirements-partial: ORD-18')));
-      assert.deepEqual(result.missingAsked, ['ORD-18']);
-    } finally {
-      await s.fx.dispose();
-    }
-  });
-
-  it('a review with a missing asked source gets the recoverable requirements-missing refusal instead', async () => {
-    const s = await session('ORD-17 x https://x.atlassian.net/browse/ORD-18', []);
-    try {
-      await s.capture('mcp__atlassian__getJiraIssue', mcp(jira('ORD-17', {})), { asked: ['ORD-17', 'ORD-18'] });
-      const result = await s.under(async (deps) => normalizeEnvelope({ ...deps, view: { ...deps.view, skill: 'review' }, args: s.args, mcpServer: SERVER }));
-      assert.deepEqual(result.state === 'failed' ? [result.code, result.recoverable] : null, ['requirements-missing', true]);
-      assert.equal((await s.fx.kinds('ORD-17', 'envelope')).length, 0);
-    } finally {
-      await s.fx.dispose();
-    }
-  });
-
-  it('no capture and no requirement is one ARGS source built from the text', async () => {
-    const s = await session('why is the cart slow', []);
+  it('with nothing to fetch the envelope has no sources and is built from the request', async () => {
+    const s = await session({ skill: 'investigate', requirements: [], text: 'which files?' });
     try {
       const result = await s.normalize();
-      assert.equal(result.state, 'ok');
-      if (result.state !== 'ok') return;
-      assert.equal(result.builtFrom, 'args');
-      assert.deepEqual(result.sources.map((source) => [source.key, source.title, source.content]), [['ARGS', 'why is the cart slow', 'why is the cart slow']]);
-    } finally {
-      await s.fx.dispose();
-    }
-  });
-
-  it('03b-M7: with nothing to fetch, a URL in the prose is asked but not a missing requirement', async () => {
-    const s = await session('why does ![](blob:https://media.example.net/?type=file&id=1) show the cart', []);
-    try {
-      const result = await s.normalize({ args: { ...s.args, hasRequirement: false } });
-      assert.equal(result.state, 'ok');
-      if (result.state !== 'ok') return;
-      assert.equal(result.builtFrom, 'args');
-      assert.equal(result.asked.length, 1);
-      assert.deepEqual(result.missingAsked, []);
-      assert.deepEqual((await s.fx.kinds('ORD-17', 'envelope')).at(-1)!['missingAsked'], []);
-    } finally {
-      await s.fx.dispose();
-    }
-  });
-
-  it('no capture with a requirement: not-captured first, the gate second, the args envelope after "continue without"', async () => {
-    const s = await session('ORD-17 which files?', []);
-    try {
-      const first = await s.normalize();
-      assert.equal(first.state, 'failed');
-      assert.match(first.state === 'failed' ? first.message : '', /Fetch ORD-17/);
-      await s.under(async ({ ledger, fx }) => ledger.append({ kind: 'step', route: (await fx.kinds('ORD-17', 'route'))[0]!.id, step: 'ground', actor: 'code', status: 'failed', cause: 'route-next', code: 'requirements-not-captured' }));
-      const second = await s.normalize();
-      assert.deepEqual(second.state === 'raise' ? second.gate : null, 'requirements-not-captured-twice');
-      await s.under(async ({ ledger, fx }) => {
-        const route = (await fx.kinds('ORD-17', 'route'))[0]!.id;
-        await ledger.append({ kind: 'acceptance', route, gate: 'requirements-not-captured-twice', instance: 'x', answer: 'continue without', via: 'hook' });
-      });
-      const third = await s.normalize();
-      assert.equal(third.state === 'ok' ? third.builtFrom : null, 'args');
-    } finally {
-      await s.fx.dispose();
-    }
-  });
-});
-
-describe('03-Q8 splitAcs', () => {
-  it('prefers an explicit acceptance section, then bullets, then normative sentences, with stable two-digit ids', () => {
-    const explicit = splitAcs([{ key: 'ORD-17', content: 'Context\n- not an AC\n\n## Acceptance criteria\n- Cart shows total\n- Empty cart hides pay\n\n## Notes\n- other' }]);
-    assert.deepEqual(explicit, [
-      { id: 'AC-ORD-17-01', key: 'ORD-17', quote: 'Cart shows total', where: 'section:Acceptance criteria' },
-      { id: 'AC-ORD-17-02', key: 'ORD-17', quote: 'Empty cart hides pay', where: 'section:Acceptance criteria' },
-    ]);
-    assert.deepEqual(splitAcs([{ key: 'ARGS', content: '1. First\n2) Second' }]).map((unit) => unit.id), ['AC-ARGS-01', 'AC-ARGS-02']);
-    const prose = splitAcs([{ key: 'ORD-2', content: 'Short. The cart total must include the shipping fee at checkout time. Another line here.' }]);
-    assert.deepEqual(prose.map((unit) => unit.quote), ['The cart total must include the shipping fee at checkout time.']);
-    assert.deepEqual(splitAcs([{ key: 'ORD-17', content: 'Nothing normative here' }]), []);
-  });
-
-  it('the same text gives the same ids', () => {
-    const source = [{ key: 'ORD-17', content: '- one\n- two' }];
-    assert.deepEqual(splitAcs(source), splitAcs(source));
-  });
-});
-
-describe('03-T8 requirements commands', () => {
-  it('template prints the calls for the asked sources; acs on a task with no envelope says so; normalize finds the owner from the task (5.1)', async () => {
-    const { runRequirementsAcs, runRequirementsNormalize, runRequirementsTemplate } = await import('#cli/commands/requirements/requirements');
-    const { REQUIREMENTS_ACS_OPTIONS, REQUIREMENTS_NORMALIZE_OPTIONS, REQUIREMENTS_TEMPLATE_OPTIONS } = await import('#cli/commands/requirements/requirements');
-    const { parseArgs } = await import('#util/args');
-    const s = await session();
-    try {
-      const template = await runRequirementsTemplate(s.fx.runtime, parseArgs('requirements template', ['--task', 'ORD-17', '--requirement', 'https://x.atlassian.net/browse/ORD-17'], REQUIREMENTS_TEMPLATE_OPTIONS));
-      assert.match(template.text, /getJiraIssue ORD-17/);
-      assert.match(template.text, /Use MCP server `atlassian`/);
-      assert.ok(Buffer.byteLength(template.text) <= 1536);
-      const acs = await runRequirementsAcs(s.fx.runtime, parseArgs('requirements acs', ['--task', 'ORD-17'], REQUIREMENTS_ACS_OPTIONS));
-      assert.match(acs.text, /No envelope/);
-      const normalizeArgs = parseArgs('requirements normalize', ['--task', 'ORD-17'], REQUIREMENTS_NORMALIZE_OPTIONS);
-      await assert.rejects(runRequirementsNormalize(s.fx.runtime, normalizeArgs), (error: Error & { code?: string }) => error.code !== 'session-unbound' && /Nothing was captured/.test(error.message));
-      await s.capture('mcp__atlassian__getJiraIssue', mcp(jira('ORD-17', {})));
-      const normalized = await runRequirementsNormalize(s.fx.runtime, normalizeArgs);
-      assert.match(normalized.text, /Envelope built from captures: ORD-17/);
-      assert.equal((await s.fx.kinds('ORD-17', 'envelope')).length, 1);
+      assert.ok(result.state === 'ok' && result.builtFrom === 'args');
+      assert.deepEqual(result.sources, []);
     } finally {
       await s.fx.dispose();
     }

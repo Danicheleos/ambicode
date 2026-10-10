@@ -4,14 +4,13 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { REGISTERED_HOOK_ENTRIES, REGISTERED_HOOK_EVENTS, type HookDeps } from '#types/hook';
 import { PLAN_TASK, planFixture, type PlanFixture } from '#testing/fixtures/plan-fixture';
-import { CONFIG } from '#testing/fixtures/route-fixture';
+import { CONFIG , stopRoute } from '#testing/fixtures/route-fixture';
 import { answerGates } from './gate-answer.ts';
 import { splitLaunch } from './prompt-launch.ts';
 import { runHook } from './run-hook.ts';
 import { REPO_ROOT } from '#testing/paths';
 import type { FileSystem } from '#types/platform/ports';
 import { SESSION_A, SESSION_B } from '#testing/fixtures/ids';
-import { EVAL_EXPORT_VARIABLE } from '#harness/engine/stop';
 
 const deps = (plan: PlanFixture): HookDeps => ({ pointer: plan.fx.pointer, load: async () => ({ engine: plan.fx.engine, routes: plan.fx.routes, pointer: plan.fx.pointer }) });
 const hook = (plan: PlanFixture, event: Record<string, unknown>, session = SESSION_A) =>
@@ -20,18 +19,18 @@ const prompt = (plan: PlanFixture, text: string, extra: Record<string, unknown> 
 const context = (output: { hookSpecificOutput?: { additionalContext: string } }): string => output.hookSpecificOutput?.additionalContext ?? '';
 
 describe('03-H1/03-H8 the hook matrix', () => {
-  it('registers seven events and twenty-three handler entries, and the docs say so', async () => {
+  it('registers seven events and fourteen handler entries, and the docs say so', async () => {
     const manifest = JSON.parse(await readFile(path.join(REPO_ROOT, 'hooks', 'hooks.json'), 'utf8')) as { hooks: Record<string, { matcher?: string; hooks: unknown[] }[]> };
     assert.deepEqual(Object.keys(manifest.hooks), [...REGISTERED_HOOK_EVENTS]);
     const entries = Object.values(manifest.hooks).flatMap((groups) => groups.flatMap((group) => group.hooks));
     assert.equal(entries.length, REGISTERED_HOOK_ENTRIES);
-    assert.deepEqual(manifest.hooks['PostToolUse']!.map((group) => group.matcher), ['mcp__.*', 'WebFetch', 'AskUserQuestion', 'Read|Grep|Glob']);
-    assert.deepEqual(manifest.hooks['PreToolUse']!.map((group) => group.matcher), ['Bash', 'Write|Edit|MultiEdit|NotebookEdit', 'Read']);
+    assert.deepEqual(manifest.hooks['PostToolUse']!.map((group) => group.matcher), ['mcp__.*', 'WebFetch', 'AskUserQuestion']);
+    assert.deepEqual(manifest.hooks['PreToolUse']!.map((group) => group.matcher), ['Bash', 'Write|Edit|MultiEdit|NotebookEdit']);
     assert.ok(manifest.hooks['Stop'] !== undefined);
     for (const doc of ['docs/compatibility.md', 'docs/release-checklist.md']) {
       const text = (await readFile(path.join(REPO_ROOT, doc), 'utf8')).replace(/\s+/g, ' ');
       assert.match(text, /seven events/, doc);
-      assert.match(text, /twenty-three handler entries/, doc);
+      assert.match(text, /fourteen handler entries/, doc);
     }
   });
 });
@@ -280,22 +279,17 @@ describe('03-H6 MCP capture', () => {
 });
 
 describe('D5 tool record', () => {
-  it('appends tool{name, step, path, bytes} for the active route and nothing without one', async () => {
+  it('writes no ledger entry for Read, Grep or Glob, with or without an active route', async () => {
     const plan = await planFixture();
     try {
       await plan.fx.repo.write('src/orders/service.ts', 'export const total = 0;\n');
       const read = { hook_event_name: 'PostToolUse', tool_name: 'Read', tool_input: { file_path: path.join(plan.fx.repo.root, 'src/orders/service.ts') }, tool_response: { file: { content: 'export const total = 0;\n' } } };
-      assert.deepEqual(await hook(plan, read), {});
-      assert.equal((await plan.fx.kinds(PLAN_TASK, 'tool')).length, 0);
       await prompt(plan, '/ambicode:plan add a limit --task ORD-17');
+      const before = await plan.fx.ledger(PLAN_TASK);
       assert.deepEqual(await hook(plan, read), {});
       await hook(plan, { hook_event_name: 'PostToolUse', tool_name: 'Grep', tool_input: { pattern: 'x', path: 'src' } });
       await hook(plan, { hook_event_name: 'PostToolUse', tool_name: 'Glob', tool_input: { pattern: '**/*.ts' } });
-      const [first, second, third] = await plan.fx.kinds(PLAN_TASK, 'tool');
-      assert.deepEqual([first!['name'], first!['step'], first!['path'], first!['bytes']], ['Read', 'design', 'src/orders/service.ts', 24]);
-      assert.equal(first!['route'], (await plan.fx.kinds(PLAN_TASK, 'route'))[0]!.id);
-      assert.deepEqual([second!['name'], second!['path'], second!['bytes']], ['Grep', 'src', undefined]);
-      assert.deepEqual([third!['name'], third!['path']], ['Glob', undefined]);
+      assert.deepEqual(await plan.fx.ledger(PLAN_TASK), before);
     } finally {
       await plan.dispose();
     }
@@ -303,14 +297,12 @@ describe('D5 tool record', () => {
 });
 
 describe('03-H6 MCP capture with a route', () => {
-  it('records the requirement the bound server returned for the active route, and nothing for another server', async () => {
+  it('records the result of a call that names an asked key, whatever server returned it', async () => {
     const plan = await planFixture({ config: CONFIG.replace('mcpServer: null', 'mcpServer: atlassian') });
     try {
       await prompt(plan, '/ambicode:plan ORD-17 add a limit --task ORD-17');
       const response = { content: [{ type: 'text', text: JSON.stringify({ key: 'ORD-17', fields: { summary: 'Limit', description: 'Cap the cart at 50 items.' } }) }] };
-      await hook(plan, { hook_event_name: 'PostToolUse', tool_name: 'mcp__linear__getIssue', tool_response: response });
-      assert.equal((await plan.fx.kinds(PLAN_TASK, 'requirement')).length, 0);
-      assert.deepEqual(await hook(plan, { hook_event_name: 'PostToolUse', tool_name: 'mcp__claude_ai_Atlassian__getJiraIssue', tool_response: response }), {});
+      assert.deepEqual(await hook(plan, { hook_event_name: 'PostToolUse', tool_name: 'mcp__claude_ai_Atlassian__getJiraIssue', tool_input: { issueIdOrKey: 'ORD-17' }, tool_response: response }), {});
       const [entry] = await plan.fx.kinds(PLAN_TASK, 'requirement');
       assert.deepEqual([entry!['key'], entry!['relation'], entry!['capture']], ['ORD-17', 'asked', 'full']);
       assert.equal(entry!['route'], (await plan.fx.kinds(PLAN_TASK, 'route'))[0]!.id);
@@ -334,14 +326,12 @@ describe('04-B hook binding', () => {
     }
   });
 
-  it('04-B2: with no server configured a candidate-named server is captured and another is not', async () => {
+  it('04-B2: with no server configured a call naming an asked key is captured', async () => {
     const plan = await planFixture();
     try {
       await prompt(plan, '/ambicode:plan ORD-17 add a limit --task ORD-17');
       const response = { content: [{ type: 'text', text: JSON.stringify({ key: 'ORD-17', fields: { summary: 'Limit', description: 'Cap the cart at 50 items.' } }) }] };
-      await hook(plan, { hook_event_name: 'PostToolUse', tool_name: 'mcp__linear__getIssue', tool_response: response });
-      assert.equal((await plan.fx.kinds(PLAN_TASK, 'requirement')).length, 0);
-      await hook(plan, { hook_event_name: 'PostToolUse', tool_name: 'mcp__claude_ai_Atlassian_Rovo__getJiraIssue', tool_response: response });
+      await hook(plan, { hook_event_name: 'PostToolUse', tool_name: 'mcp__claude_ai_Atlassian_Rovo__getJiraIssue', tool_input: { issueIdOrKey: 'ORD-17' }, tool_response: response });
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'requirement')).length, 1);
     } finally {
       await plan.dispose();
@@ -354,78 +344,10 @@ describe('03-H7 SessionEnd', () => {
     const plan = await planFixture();
     try {
       await plan.start();
-      await plan.fx.engine.stop(PLAN_TASK, SESSION_A, 'blocked', 'x', plan.fx.scratchpad);
-      assert.ok((await plan.fx.pointer.readEnded(SESSION_A, plan.fx.scratchpad)) !== null);
+      await stopRoute(plan.fx, PLAN_TASK, SESSION_A, 'blocked', 'x');
       await hook(plan, { hook_event_name: 'SessionEnd' });
-      assert.equal(await plan.fx.pointer.readEnded(SESSION_A, plan.fx.scratchpad), null);
       assert.equal(await plan.fx.pointer.read(SESSION_A, plan.fx.scratchpad), null);
     } finally {
-      await plan.dispose();
-    }
-  });
-});
-
-describe('the eval export at Stop', () => {
-  it('a draft promoted into the plan is exported as promoted, not missing, and the export stays complete', async () => {
-    const plan = await planFixture();
-    const exported = await plan.fx.runtime.fs.temporaryDirectory('ambicode-export-');
-    process.env[EVAL_EXPORT_VARIABLE] = exported;
-    try {
-      await plan.toGate({ headless: true, answers: [{ gate: 'plan-accept', option: 'Accept' }] });
-      const promoted = (await plan.fx.kinds(PLAN_TASK, 'note')).find((entry) => entry['note'] === 'plan')!;
-      await hook(plan, { hook_event_name: 'Stop' });
-      const source = JSON.parse(await readFile(path.join(exported, SESSION_A, PLAN_TASK, 'source.json'), 'utf8')) as { complete: boolean; files: { to: string; copied: boolean; error?: string; promotedTo?: string }[] };
-      assert.equal(source.complete, true, JSON.stringify(source.files));
-      const draft = source.files.find((file) => file.to.startsWith(path.join('notes', 'plan-draft_')))!;
-      assert.deepEqual([draft.copied, draft.error, draft.promotedTo], [false, 'promoted', promoted['path']]);
-      assert.ok(source.files.some((file) => file.to === path.join('notes', path.basename(String(promoted['path']))) && file.copied));
-    } finally {
-      delete process.env[EVAL_EXPORT_VARIABLE];
-      await plan.fx.runtime.fs.remove(exported);
-      await plan.dispose();
-    }
-  });
-
-  it('a route that ended on a CLI step before Stop is still exported', async () => {
-    const plan = await planFixture();
-    const exported = await plan.fx.runtime.fs.temporaryDirectory('ambicode-export-');
-    process.env[EVAL_EXPORT_VARIABLE] = exported;
-    try {
-      await plan.toGate({ headless: true });
-      assert.equal((await plan.fx.kinds(PLAN_TASK, 'exit')).at(-1)?.['reason'], 'done');
-      await hook(plan, { hook_event_name: 'Stop' });
-      const source = JSON.parse(await readFile(path.join(exported, SESSION_A, PLAN_TASK, 'source.json'), 'utf8')) as { complete: boolean };
-      assert.equal(source.complete, true);
-    } finally {
-      delete process.env[EVAL_EXPORT_VARIABLE];
-      await plan.fx.runtime.fs.remove(exported);
-      await plan.dispose();
-    }
-  });
-
-  it('a route that ended on a CLI step whose state files the Stop hook cannot see is found in the ledger, once', async () => {
-    const plan = await planFixture();
-    const exported = await plan.fx.runtime.fs.temporaryDirectory('ambicode-export-');
-    const elsewhere = await plan.fx.runtime.fs.temporaryDirectory('ambicode-hook-state-');
-    const errors: string[] = [];
-    const write = process.stderr.write;
-    process.env[EVAL_EXPORT_VARIABLE] = exported;
-    process.stderr.write = ((chunk: string) => errors.push(String(chunk)) > 0) as typeof process.stderr.write;
-    try {
-      await plan.toGate({ headless: true });
-      const stop = () => runHook(plan.fx.runtime, JSON.stringify({ hook_event_name: 'Stop', session_id: SESSION_A, cwd: plan.fx.repo.root, scratchpad_dir: elsewhere }), deps(plan));
-      await stop();
-      const source = JSON.parse(await readFile(path.join(exported, SESSION_A, PLAN_TASK, 'source.json'), 'utf8')) as { complete: boolean };
-      assert.equal(source.complete, true);
-      assert.equal((await plan.fx.kinds(PLAN_TASK, 'hook')).filter((entry) => entry['name'] === 'stop').length, 1);
-      await stop();
-      assert.equal((await plan.fx.kinds(PLAN_TASK, 'hook')).filter((entry) => entry['name'] === 'stop').length, 1, 'a later Stop leaves the ended route alone');
-      assert.ok(errors.some((line) => line.startsWith('ambicode stop: skipped, no route pointer')), errors.join(''));
-    } finally {
-      process.stderr.write = write;
-      delete process.env[EVAL_EXPORT_VARIABLE];
-      await plan.fx.runtime.fs.remove(exported);
-      await plan.fx.runtime.fs.remove(elsewhere);
       await plan.dispose();
     }
   });

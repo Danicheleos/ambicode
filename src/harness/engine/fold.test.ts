@@ -9,7 +9,7 @@ import { REPO_ROOT } from '#testing/paths';
 import { KINDS, type LedgerEntry } from '#types/modules/evidence';
 import type { RouteDef } from '#types/harness';
 
-const HEAD = 'skill: demo\nversion: 3\nbudget: { modelSteps: 6 }\nexits: [done, blocked]\nrevisable: [ground]\nsteps:\n';
+const HEAD = 'skill: demo\nversion: 3\nrevisable: [ground]\nsteps:\n';
 const YAML = `${HEAD}  - id: template
     actor: code
     when: args.hasRequirement
@@ -22,7 +22,7 @@ const YAML = `${HEAD}  - id: template
   - id: scope
     actor: human
     when: map.empty
-    gate: { question: Q, options: [go, other], default: go, release: go, onAnswer: { "*": "revise ground --term $answer" } }
+    gate: { question: Q, options: [go, other], default: go, onAnswer: { "*": "revise ground --term $answer" } }
   - id: read
     actor: model
     instruction: Read.
@@ -44,19 +44,17 @@ async function def(yaml = YAML): Promise<RouteDef> {
 }
 
 describe('fold', () => {
-  it('03-F1: the chain follows resumes transitively, from any session, and never includes legacy or foreign entries', async () => {
+  it('03-F1: the chain is the head route and its own entries, never another route\'s, legacy or foreign entries', async () => {
     const entries = [
       route('r0', { session: 'cccccccc' }),
       entry('envelope', { route: 'r0' }),
-      route('r1', { session: 'aaaaaaaa', resumes: 'r0' }),
-      entry('envelope', { route: 'r1' }),
       route('r9', { session: 'bbbbbbbb' }),
       entry('envelope', { route: 'r9' }),
       entry('note', { note: 'investigation', path: 'x', contentHash: 'h' }),
     ];
     const chain = buildChain(entries, entries[2]!);
-    assert.deepEqual([...chain.ids], ['r1', 'r0']);
-    assert.deepEqual(chain.entries.map((candidate) => candidate.id), [entries[0]!.id, entries[1]!.id, 'r1', entries[3]!.id]);
+    assert.deepEqual([...chain.ids], ['r9']);
+    assert.deepEqual(chain.entries.map((candidate) => candidate.id), ['r9', entries[3]!.id]);
     assert.equal(latestRouteOf(entries, 'bbbbbbbb')?.id, 'r9');
   });
 
@@ -134,8 +132,6 @@ describe('fold', () => {
     assert.equal(matches(entry('note', { note: 'plan-draft' }), { kind: 'note', value: 'plan' }), false);
     assert.equal(matches(entry('policy', { stage: 'before-work' }), { kind: 'policy', value: 'before-report' }), false);
     assert.equal(isGreen(entry('check', { exit: 0, summary: { ran: 3, failed: 0 } })), true);
-    assert.equal(isGreen(entry('check', { exit: 0, summary: { ran: 0, failed: 0 } })), false);
-    assert.equal(isGreen(entry('check', { exit: 0, summary: null })), false);
     assert.equal(matches(entry('check', { exit: 1, summary: { ran: 1, failed: 1 } }), { kind: 'check', value: 'green' }), false);
     assert.equal(matches(entry('requirement', { capture: 'list' }), { kind: 'requirement', value: 'full' }), false);
   });
@@ -147,14 +143,11 @@ describe('fold', () => {
   });
 });
 
-describe('exitOf and reopen', () => {
-  it('an exit before the latest reopen no longer ends the chain; one after it does', () => {
+describe('exitOf', () => {
+  it('the latest exit ends the chain', () => {
     const exit = (reason: string): LedgerEntry => entry('exit', { route: 'r1', reason, complete: true });
-    const reopen = entry('revise', { route: 'r1', from: 'read', via: 'reopen', cycle: 0, reason: 'more' });
     const head = route('r1');
-    const closed = [head, exit('done')];
-    assert.equal(exitOf(buildChain(closed, head))?.['reason'], 'done');
-    assert.equal(exitOf(buildChain([...closed, reopen], head)), null);
-    assert.equal(exitOf(buildChain([...closed, reopen, exit('blocked')], head))?.['reason'], 'blocked');
+    assert.equal(exitOf(buildChain([head], head)), null);
+    assert.equal(exitOf(buildChain([head, exit('done'), exit('blocked')], head))?.['reason'], 'blocked');
   });
 });

@@ -56,17 +56,9 @@ export const presetCasesRel = (preset) => (preset === CORE_PRESET ? `${CURATED_E
 export const presetCasesDir = (preset, casesRoot = CASES_ROOT) => path.join(casesRoot, ...presetCasesRel(preset).split('/'));
 export const TRIGGERS_EVAL_DIR = 'evals/common/triggers';
 export const ARCHIVED_EVAL_DIR = 'evals/common/archived';
-/**
- * Reviewer answers recorded against the review cases, replayed by `EVAL_AMBICODE_REVIEWER_REPLAY`. Beside the
- * suites, never inside an `--eval-dir`: the sandbox denies reads there, and the replay runs inside the sandbox.
- */
-export const REVIEWER_RECORDINGS = path.join(CASES_ROOT, 'common', 'reviewer-recordings');
-export const CURATED_REVIEWER_RECORDINGS = path.join(ROOT, 'eval-replay', 'core.json');
 /** Per-thread `defect` / `opinion` labels (see classify-threads.mjs); the review cases keep only the defects. */
 export const THREAD_CLASSES = path.join(BENCHMARKS, 'thread-classes.json');
 /** Each run's `plugin-eval/` (report.html, aggregate-result.json) is copied to `<this>/<date>/<iteration>/`; the originals stay in the iteration. */
 export const REPLAY_REPORTS = path.join(ROOT, 'eval-replay');
-/** The synthetic archived suite's recordings; committed, unlike the curated ones. */
-export const ARCHIVED_REVIEWER_RECORDINGS = path.join(REVIEWER_RECORDINGS, 'archived.json');
 /** The plugin `naked-arm.mjs` builds: no components, so its plugin arm stands in for the no-plugin arm. */
 export const NAKED_PLUGIN = 'naked';

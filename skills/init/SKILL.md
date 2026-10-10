@@ -1,38 +1,15 @@
 ---
 name: init
-description: "Set up AMBICODE — propose .ambicode/config.yaml from the repository and write it after the user accepts. Run at setup, or when an AMBICODE skill reports no configuration."
+description: "Set up AMBICODE in this repository: .ambicode/ folder, config.yaml, rules and learning context. Run once per project."
+argument-hint: "[--auto]"
 disable-model-invocation: true
-allowed-tools: Read, Grep, Glob, Bash(node *ambicode.mjs*)
+allowed-tools: Bash(node *skills/init/scripts/*) Bash(node *ambicode.mjs config validate*) Read Write(.ambicode/config.yaml) Glob Grep Agent AskUserQuestion WebSearch
 ---
+`--auto` in `$ARGUMENTS`: never ask, skip manual and web rules. Run commands plain; never poll.
 
-# Set up AMBICODE
-
-A route detects the projects, writes a proposal, and asks the user one question. Nothing is
-written until the user accepts; then the route gives you one line to run. Do what each step says.
-
-If no step message appeared, start the route yourself:
-
-```sh
-node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" route start init
-```
-
-## Presenting the proposal
-
-Read `steps/proposal.json` (the question names its path) and tell the user, briefly: the
-projects and their commands (a `null` command is a skipped check, with its notice), the
-`.gitignore` lines to add, the index choice, removed fields, and the rule sources found.
-
-## The one question
-
-Ask it with AskUserQuestion exactly as printed, marker included. The route has saved the draft
-config as `.ambicode/config.draft.yaml`; the print names its hash. Apply writes exactly that draft.
-
-The print lists separate choices: MCP server, runner (skip a detected command, or keep it) and
-search index. Each is an answer; the user picks one and the question is asked again with the draft
-updated. For the MCP server, offer the Jira or Confluence servers you can see as
-`MCP server: <name>`. Never choose for them.
-
-If the route reports the draft changed, show the user the diff it printed and ask again.
-
-After an apply, show the doctor table as printed. You never write `.ambicode/config.yaml` or
-`.gitignore` yourself; rule sources are for `/ambicode:rules`.
+1. `node "${CLAUDE_PLUGIN_ROOT}/skills/init/scripts/scaffold.mjs"`. Exit 2: stop, tell the user. `configExisted` and not `--auto`: ask refresh or abort.
+2. Read `.ambicode/config.yaml`. Launch `ambicode:scout` in the background (`model`/`effort` from `skills.init.scout`), prompt: "Map this repo, write the context, return your report."
+3. Meanwhile one Glob for manifests and lockfiles (depth 2), read them, derive `ecosystem`, `commands`, `checks.<name>.{all,file}` (`{file}` placeholder). Unknown stays null; invent nothing. End your turn.
+4. On the scout's report: `paths`, `include`, `exclude`. `packs`: Glob `${CLAUDE_PLUGIN_ROOT}/policies/*.yaml`, read each `appliesTo`, put the ids of packs matching the project into `packs`. `rules` (`{source: scout|manual|web, rule}`, at most 10, deduplicated): the scout's conventions, unless `--auto` one WebSearch of core-stack practice and one AskUserQuestion to confirm.
+5. One Write of `.ambicode/config.yaml` (keep the template shape), then `node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" config validate`; on errors one corrective Write.
+6. Summary: projects, checks found and missing, context files, open questions. Errors: `references/outcomes.md`.

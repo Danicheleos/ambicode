@@ -1,22 +1,19 @@
 import { openRepository } from '#platform/git/open';
 import { projectForRequest } from '#modules/config/workspace';
-import { rankTerms, buildMap, leadsOf, resolveLayers, resolveTuning } from '#modules/search/text/map';
-import { pathsCitedIn, symbolsCitedIn } from '#modules/search/text/seed';
+import { buildMap, resolveLayers } from '#modules/search/map';
+import { pathsCitedIn, symbolsCitedIn } from '#modules/search/map';
 import { seedTextOf } from './brief.ts';
-import { loadConfigWithNotices } from '#modules/config/load';
+import { loadConfig } from '#modules/config/load';
 import { readLedgerStrict } from '#platform/ledger/ledger';
 import path from 'node:path';
 import type { AmbicodeConfig, ProjectConfig } from '#types/modules/config';
+import { listContext, renderListing } from '#modules/context/context';
 import { Activity } from '#types/primitives';
 import { policyStage } from '#modules/policy/stage';
-import { splitAcs } from '#modules/requirements/envelope/acs';
 import { envelopeSources, normalizeEnvelope } from '#modules/requirements/envelope/envelope';
-import { observedTools } from '#modules/requirements/capture/binding';
-import { requirementsTemplate } from '#modules/requirements/capture/template';
 import { AmbicodeError } from '#util/errors';
 import { latestBound } from '#harness/engine/fold';
-import { onGatePrint, onRaisedAnswer } from '#harness/gates/gates';
-import { CONFLICT_GATE, recordGoverning } from '#modules/requirements/envelope/conflict';
+import { onGatePrint } from '#harness/gates/gates';
 import type { Runtime } from '#types/composition';
 import type { LedgerEntry } from '#types/modules/evidence';
 import type { Handler, HandlerInput, HandlerResult } from '#types/harness';
@@ -28,15 +25,12 @@ onGatePrint('project-ambiguous', async ({ task, chain }) => {
   return { line: `The user's prompt did not start this route, so no hook records their answer. Ask the user which project with AskUserQuestion and wait for the reply; do not run route next before it. Then run: route next --task ${task} --project <id>` };
 });
 
-onRaisedAnswer(CONFLICT_GATE, async (input) => void (await recordGoverning(input)));
 
 const MAX_SOURCE_CHARS = 2500;
 const MAX_TOTAL_CHARS = 4500;
 
 export async function configOf(input: HandlerInput): Promise<AmbicodeConfig> {
-  const loaded = await loadConfigWithNotices(input.runtime.fs, input.dir.repositoryRoot);
-  for (const notice of loaded.notices) if (input.runtime.notices !== undefined && !input.runtime.notices.includes(notice)) input.runtime.notices.push(notice);
-  return loaded.config;
+  return (await loadConfig(input.runtime.fs, input.dir.repositoryRoot)).config;
 }
 
 export async function chainEntries(input: HandlerInput): Promise<LedgerEntry[]> {
@@ -87,38 +81,22 @@ function renderSources(sources: readonly EnvelopeSource[]): string {
     .map((source) => {
       const body = source.content.slice(0, Math.min(MAX_SOURCE_CHARS, Math.max(0, left)));
       left -= body.length;
-      return `## ${source.key}${source.relation === 'args' ? '' : ` (${source.relation})`} ${source.title}\n${body}${body.length < source.content.length ? '\n[cut]' : ''}`;
+      return `## ${source.key}${source.url === '' ? '' : ` ${source.url}`}\n${body}${body.length < source.content.length ? '\n[cut]' : ''}`;
     })
     .join('\n\n');
 }
 
 export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
-  'requirements.template': async (input) => {
-    const config = await configOf(input);
-    const first = input.args.text.trim().split(/\s+/)[0] ?? '';
-    const sources = [...input.args.requirements, ...(input.args.text.match(/https?:\/\/[^\s)>\]"']+/g) ?? []), ...(/^[A-Z][A-Z0-9]+-\d+$/.test(first) ? [first] : [])];
-    const runner = `node "${input.runtime.pluginRoot}/scripts/ambicode.mjs"`;
-    const observed = observedTools(await chainEntries(input));
-    return { state: 'ok', payload: requirementsTemplate({ sources: [...new Set(sources)], task: input.view.task, mcpServer: config.requirements.mcpServer, acceptanceField: config.requirements.acceptanceField, observedTools: observed, runner }).text };
-  },
+  'context.list': async (input) => ({ state: 'ok', payload: `${renderListing(await listContext(input.runtime.fs, input.dir.repositoryRoot), (await configOf(input)).context)}\nRead only the one file you need.` }),
 
   'requirements.normalize': async (input) => {
-    const config = await configOf(input);
-    const result = await normalizeEnvelope({ runtime: input.runtime, dir: input.dir, ledger: input.ledger, view: input.view, args: input.args, mcpServer: config.requirements.mcpServer, acceptanceField: config.requirements.acceptanceField, runner: `node "${input.runtime.pluginRoot}/scripts/ambicode.mjs"` });
+    const result = await normalizeEnvelope({ runtime: input.runtime, dir: input.dir, ledger: input.ledger, view: input.view, args: input.args });
     if (result.state === 'failed') return { state: 'failed', code: result.code, message: result.message, recoverable: result.recoverable };
     if (result.state === 'raise') return { state: 'raise', gate: result.gate, values: result.values };
     // The request alone is already in the model's context; repeating it as an envelope adds nothing.
-    if (result.notices.length === 0 && result.sources.every((source) => source.relation === 'args')) return { state: 'ok', payload: null };
-    return { state: 'ok', payload: [...result.notices, renderSources(result.sources)].filter((part) => part !== '').join('\n\n') };
-  },
-
-  'requirements.acs': async (input) => {
-    const envelope = (await chainEntries(input)).findLast((entry) => entry.kind === 'envelope');
-    if (envelope === undefined) return { state: 'ok', payload: null };
-    const sources = await envelopeSources(input, envelope);
-    if (sources.every((source) => source.relation === 'args')) return { state: 'ok', payload: null };
-    const units = splitAcs(sources);
-    return { state: 'ok', payload: units.length === 0 ? null : `Acceptance units (a signal, not a checklist):\n${units.map((unit) => `${unit.id}: ${unit.quote}`).join('\n')}` };
+    if (result.sources.length === 0 && result.missingAsked.length === 0) return { state: 'ok', payload: null };
+    const missing = result.missingAsked.length === 0 ? '' : `Not captured: ${result.missingAsked.join(', ')}; list it under Not verified.`;
+    return { state: 'ok', payload: [missing, renderSources(result.sources)].filter((part) => part !== '').join('\n\n') };
   },
 
   'search.map': async (input) => {
@@ -127,39 +105,20 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
     if (isResult(project)) return project;
     const mode = input.params[0] === 'context' ? 'context' : 'prompt';
     const stated = input.revise?.args['term'] ?? [];
-    let terms = [...stated];
     const chain = await chainEntries(input);
     const { git } = await openRepository(input.runtime);
     const envelope = chain.findLast((entry) => entry.kind === 'envelope');
     const envelopeSourcesOf = envelope === undefined ? [] : await envelopeSources(input, envelope);
     const seedText = mode === 'context' ? await seedTextOf(input, chain) : null;
-    const units = splitAcs(envelopeSourcesOf.filter((source) => source.relation !== 'args'));
-    const seedable = seedText === null ? null : [seedText, ...units.map((unit) => unit.quote)].join('\n');
-    const files = seedable !== null || stated.length === 0 ? await git.listFiles(null) : [];
-    const tuning = resolveTuning(config.search);
-    const rank = async (withProse: boolean): Promise<string[]> => {
-      const sources = seedText === null ? envelopeSourcesOf : [...envelopeSourcesOf.filter((source) => source.relation !== 'args'), { title: '', content: seedText }];
-      return rankTerms(sources.length === 0 ? [{ title: '', content: input.args.text }] : sources, { runtime: input.runtime, root: input.dir.repositoryRoot, project, files, withProse, tuning: tuning.tuning });
-    };
-    if (terms.length === 0) terms = await rank(false);
-    const { layers, source } = resolveLayers(config.search, mode);
-    const paths = seedable === null ? [] : pathsCitedIn(seedable, files);
-    const symbols = seedable === null ? [] : symbolsCitedIn(seedable);
+    const seedable = seedText;
+    const files = seedable === null ? [] : await git.listFiles(null);
+    const sources = seedText === null ? envelopeSourcesOf : [...envelopeSourcesOf, { title: '', content: seedText }];
+    const request = (sources.length === 0 ? [{ title: '', content: input.args.text }] : sources).map((source) => `${source.title}\n${source.content}`).join('\n');
+    const { layers, source } = resolveLayers(mode);
     try {
-      const build = (given: readonly string[]) => buildMap({ runtime: input.runtime, project, mode, layers, layersSource: source, terms: given, paths, symbols, tuning });
-      let map = await build(terms);
-      let retried = false;
-      if (map.candidates.length === 0 && stated.length === 0) {
-        const wider = await rank(true);
-        if (wider.join('\n') !== terms.join('\n')) {
-          map = await build(wider);
-          retried = true;
-        }
-      }
-      const decisions = { ...(map.entry['decisions'] as object), proseRetry: retried };
-      const leads = leadsOf({ ...map, readCommand: `node "${input.runtime.pluginRoot}/scripts/ambicode.mjs" read --task ${input.view.task}` }, tuning.tuning.leads);
-      await input.ledger.append({ kind: 'map', route: input.view.routeId, ...map.entry, decisions, delivered: { leads: leads.leads, feature: leads.feature, operands: leads.operands, bytes: leads.bytes, hash: leads.hash } });
-      return { state: 'ok', payload: leads.text };
+      const map = await buildMap(input.runtime, { project, mode, layers, layersSource: source, terms: stated, request, paths: seedable === null ? [] : pathsCitedIn(seedable, files), symbols: seedable === null ? [] : symbolsCitedIn(seedable) });
+      await input.ledger.append({ kind: 'map', route: input.view.routeId, ...map.entry });
+      return { state: 'ok', payload: map.text };
     } catch (error) {
       return failed(error);
     }
@@ -175,9 +134,7 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
     try {
       const payload = await policyStage({ runtime: input.runtime as Runtime, project, activity: activity.success ? activity.data : 'task', paths: [], stage, show: false });
       await input.ledger.append({ kind: 'policy', route: input.view.routeId, ...payload.entry });
-      // A stage with no prompt and no rule in scope prints only the omitted count, which tells the model nothing.
-      const pointerOnly = payload.entry.rules === 0 && /^rulesOmitted: \d+ \(read them: [^\n]*\)$/.test(payload.text.trim());
-      return { state: 'ok', payload: pointerOnly ? null : payload.text };
+      return { state: 'ok', payload: payload.text.trim() === '' ? null : payload.text };
     } catch (error) {
       return failed(error);
     }

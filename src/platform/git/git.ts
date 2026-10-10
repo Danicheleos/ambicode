@@ -135,30 +135,10 @@ export class Git {
     return sha === '' ? null : sha;
   }
 
-  /** Exit 1 means not ignored; anything else above 0 is a failure, not an answer. */
-  async isIgnored(repositoryRelativePath: string): Promise<boolean> {
-    const outcome = await this.execOutcome(['check-ignore', '-q', '--', repositoryRelativePath], true);
-    if (outcome.exitCode === 0) return true;
-    if (outcome.exitCode === 1) return false;
-    throw new AmbicodeError('git-failed', `git check-ignore failed with exit code ${String(outcome.exitCode)}.`);
-  }
-
   async mergeBase(a: string, b: string): Promise<string | null> {
     const output = await this.exec(['merge-base', a, b], true);
     const sha = output.trim();
     return sha === '' ? null : sha;
-  }
-
-  async remoteUrl(name: string): Promise<string | null> {
-    const url = (await this.exec(['remote', 'get-url', '--', name], true)).trim();
-    return url === '' ? null : url;
-  }
-
-  async originHead(): Promise<string | null> {
-    const output = await this.exec(['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD'], true);
-    const ref = output.trim();
-    if (ref === '') return null;
-    return ref.replace(/^refs\/remotes\//, '');
   }
 
   async unmergedPaths(): Promise<string[]> {
@@ -169,11 +149,6 @@ export class Git {
       if (path !== '') paths.add(path);
     }
     return [...paths];
-  }
-
-  async untrackedFiles(): Promise<string[]> {
-    const output = await this.exec(['ls-files', '--others', '--exclude-standard', '-z']);
-    return splitNul(output);
   }
 
   async rawDiff(args: readonly string[]): Promise<RawChange[]> {
@@ -265,16 +240,16 @@ export class Git {
     return splitNul(outcome.stdout);
   }
 
-  /** Each file's first line holding any of these terms, case-insensitive, fixed-string. */
-  async firstLines(terms: readonly string[], files: readonly string[]): Promise<Map<string, number>> {
-    const found = new Map<string, number>();
+  /** Line numbers per file of any term, case-insensitive, fixed-string; at most `perFile` lines each. */
+  async grepLines(terms: readonly string[], files: readonly string[], perFile = 20): Promise<Map<string, number[]>> {
+    const found = new Map<string, number[]>();
     if (terms.length === 0 || files.length === 0) return found;
-    const outcome = await this.execOutcome(['grep', '--untracked', '-I', '-n', '-z', '-i', '-F', '-m', '1', ...terms.flatMap((term) => ['-e', term]), '--', ...files.map(literalPathspec)], true);
+    const outcome = await this.execOutcome(['grep', '--untracked', '-I', '-n', '-z', '-i', '-F', '-m', String(perFile), ...terms.flatMap((term) => ['-e', term]), '--', ...files.map(literalPathspec)], true);
     if (outcome.exitCode === 1) return found;
     if (outcome.exitCode !== 0) throw new AmbicodeError('git-failed', `git grep failed with exit code ${String(outcome.exitCode)}.`);
     for (const record of outcome.stdout.split('\n')) {
       const match = /^([^\0]+)\0(\d+)\0/.exec(record);
-      if (match !== null && !found.has(match[1]!)) found.set(match[1]!, Number(match[2]));
+      if (match !== null) found.set(match[1]!, [...(found.get(match[1]!) ?? []), Number(match[2])]);
     }
     return found;
   }
@@ -292,49 +267,6 @@ export class Git {
     return rows;
   }
 
-  /**
-   * Merges are excluded: under `--name-only` a merge lists no files, so commit
-   * and per-file counts would disagree. A repository with no commits yet makes
-   * git fail, which answers empty rather than raising.
-   */
-  async commitsTouching(paths: readonly string[], limit: number): Promise<string[]> {
-    if (paths.length === 0 || limit <= 0) return [];
-    const outcome = await this.execOutcome(
-      ['log', '--no-merges', '--format=%H', '-n', String(limit), '--', ...paths],
-      true,
-    );
-    if (outcome.exitCode !== 0) return [];
-    return outcome.stdout
-      .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line !== '');
-  }
-
-  /**
-   * Under `-z` the stream is `<sha> NUL LF <path> NUL ... <sha> NUL ...`; the
-   * given `commits` tell a boundary record from a path, not a guess about names.
-   */
-  async commitFileLists(commits: readonly string[]): Promise<{ commit: string; paths: string[] }[]> {
-    if (commits.length === 0) return [];
-    const known = new Set(commits);
-    const output = await this.exec(['log', '--no-walk', '-z', '--format=%H', '--name-only', ...commits, '--']);
-    const lists: { commit: string; paths: string[] }[] = [];
-    let current: { commit: string; paths: string[] } | null = null;
-    for (const record of output.split('\0')) {
-      // The format's own terminator arrives attached to the first path of each
-      // commit; it is separator, not part of the name.
-      const entry = record.startsWith('\n') ? record.slice(1) : record;
-      if (entry === '') continue;
-      if (known.has(entry)) {
-        current = { commit: entry, paths: [] };
-        lists.push(current);
-        continue;
-      }
-      current?.paths.push(entry);
-    }
-    return lists;
-  }
-
   async version(): Promise<string> {
     return (await this.exec(['--version'])).trim();
   }
@@ -346,37 +278,6 @@ export class Git {
  */
 export function literalPathspec(repositoryRelativePath: string): string {
   return `:(literal,top)${repositoryRelativePath}`;
-}
-
-/**
- * Host and project path of an https, ssh or scp-like remote URL; null otherwise.
- * Never returns user, password or port: a URL can carry a token, and callers print this.
- */
-export function parseRemoteProject(url: string): { host: string; path: string } | null {
-  const trimmed = url.trim();
-  let host: string;
-  let pathname: string;
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) {
-    let parsed: URL;
-    try {
-      parsed = new URL(trimmed);
-    } catch {
-      return null;
-    }
-    if (parsed.protocol === 'file:') return null;
-    host = parsed.hostname;
-    pathname = decodeURIComponent(parsed.pathname);
-  } else {
-    // scp-like: `[user@]host:path`, where the path does not start with `/`
-    // only by convention. A Windows drive letter (`C:\...`) is a local path.
-    const match = /^(?:[^@/\s]+@)?([^:/\s]+):(?!\\)(.+)$/.exec(trimmed);
-    if (match === null || /^[a-z]$/i.test(match[1] ?? '')) return null;
-    host = match[1] ?? '';
-    pathname = match[2] ?? '';
-  }
-  const path = pathname.replace(/^\/+/, '').replace(/\/+$/, '').replace(/\.git$/i, '');
-  if (host === '' || path === '') return null;
-  return { host: host.toLowerCase(), path };
 }
 
 export function splitNul(output: string): string[] {

@@ -12,19 +12,9 @@ export interface NoteDeps {
   ledger?: LockedLedger;
 }
 
-export interface NoteRow {
-  id: string;
-  note: string;
-  path: string;
-  at: string;
-  heading: string;
-  iteration: number | null;
-  link: string | null;
-}
-
 export const KINDS = ['route', 'step', 'gate', 'acceptance', 'declined', 'default-taken', 'preanswer', 'revise',
   'limit', 'exit', 'requirement', 'envelope', 'map', 'search', 'policy', 'baseline', 'check', 'format', 'review',
-  'worker', 'note', 'session', 'command', 'turn', 'hook', 'tool'] as const;
+  'worker', 'note', 'capture'] as const;
 
 export interface ArtifactRef { kind: string; value: string; id: string; path: string; contentHash: string }
 
@@ -58,16 +48,15 @@ export interface TaskDir {
   planBody: string;
   requirements: string;
   workers: string;
-  reviews: string;
   stopCheck: string;
   answerBlocked: string;
 }
 
 export const NOTE_KINDS = {
-  investigation: { stem: 'investigation', stamped: true, label: '**investigation note** — not an accepted plan, not a task, not a decision record.' },
-  'plan-draft': { stem: 'plan-draft', stamped: true, label: '**plan draft** — acceptance is recorded by `note promote`, not in this file.' },
-  plan: { stem: 'plan', stamped: true, label: '**plan** — accepted' },
-  notes: { stem: 'notes', stamped: false, label: '**task note**' },
+  investigation: { stem: 'investigation', stamped: true },
+  'plan-draft': { stem: 'plan-draft', stamped: true },
+  plan: { stem: 'plan', stamped: true },
+  notes: { stem: 'notes', stamped: false },
 } as const;
 
 export type NoteKind = keyof typeof NOTE_KINDS;

@@ -4,7 +4,6 @@ import { main } from '../main.ts';
 import { parseArgs } from '#util/args';
 import { validateTargetArgs } from './target-option.ts';
 import { isAmbicodeError } from '#util/errors';
-import { BUNDLE_OPTIONS } from '../commands/review/bundle.ts';
 import { REVIEW_OPTIONS } from '../commands/review/review.ts';
 
 const MR = 'https://gitlab.example.com/group/project/-/merge_requests/42';
@@ -28,12 +27,8 @@ describe('U27 target options', () => {
     assert.deepEqual(target('review', []), { kind: 'working' });
   });
 
-  it('takes --mr as the merge request target for review and bundle alike', () => {
+  it('takes --mr as the merge request target for review', () => {
     assert.deepEqual(target('review', ['--mr', MR]), { kind: 'merge-request', url: MR });
-    assert.deepEqual(target('bundle', ['--mr', MR], BUNDLE_OPTIONS), {
-      kind: 'merge-request',
-      url: MR,
-    });
     assert.deepEqual(target('review', [`--mr=${MR}`]), { kind: 'merge-request', url: MR });
   });
 
@@ -51,7 +46,6 @@ describe('U27 target options', () => {
   it('refuses --branch together with --mr', () => {
     const error = refusal(() => target('review', ['--branch', '--mr', MR]));
     assert.equal(error.code, 'conflicting-target');
-    assert.equal(refusal(() => target('bundle', ['--branch', '--mr', MR], BUNDLE_OPTIONS)).code, 'conflicting-target');
   });
 
   it('refuses --base outside branch review', () => {
@@ -77,25 +71,21 @@ describe('U27 target options', () => {
     assert.equal(code, 2);
   });
 
-  it('documents --mr in the usage text for both commands', async () => {
-    const { USAGE } = await import('../main.ts');
-    assert.match(USAGE, /--mr <url> {2,}Review a GitLab merge request/);
-    assert.match(USAGE, /--mr <url> {2,}Bundle a GitLab merge request/);
-    assert.match(USAGE, /mutually exclusive/);
-    assert.match(USAGE, /--base <ref> {2,}Baseline for --branch\. Valid only there\./);
-  });
-
   it('accepts every documented target option through the parser', () => {
-    for (const spec of [REVIEW_OPTIONS, BUNDLE_OPTIONS]) {
-      const args = parseArgs(
-        'review',
-        ['--mr', MR, '--requirement', 'a', '--requirement', 'b', '--approve', 'web/lint', '--json'],
-        spec,
-      );
-      assert.equal(args.value('mr'), MR);
-      assert.deepEqual(args.all('requirement'), ['a', 'b']);
-      assert.deepEqual(args.all('approve'), ['web/lint']);
-      assert.equal(args.flag('json'), true);
-    }
+    const args = parseArgs(
+      'review',
+      ['--mr', MR, '--requirement', 'a', '--requirement', 'b', '--only', 'src/**', '--json'],
+      REVIEW_OPTIONS,
+    );
+    assert.equal(args.value('mr'), MR);
+    assert.deepEqual(args.all('requirement'), ['a', 'b']);
+    assert.deepEqual(args.all('only'), ['src/**']);
+    assert.equal(args.flag('json'), true);
+  });
+});
+
+describe('U27 removed target options', () => {
+  it('refuses --approve, --decline and --context on review: the review runs no check and mirrors no context', () => {
+    for (const flag of ['--approve', '--decline', '--context']) assert.throws(() => parseArgs('review', [flag, 'x'], REVIEW_OPTIONS), (error: unknown) => isAmbicodeError(error), flag);
   });
 });

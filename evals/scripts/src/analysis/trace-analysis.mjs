@@ -1,12 +1,9 @@
 // Parse observed trace evidence and harvest it before the sandbox disappears.
-import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { LEDGER_DIRECTORY } from './ledger-metrics.mjs';
 
-// Printed by `ambicode review` when EVAL_AMBICODE_REVIEWER_REPLAY stood in for the reviewer: that
-// reviewer's cost and time are then absent from the arm, which reads cheaper than the product is.
-const REPLAY_MARK = 'REPLAYED from a recording';
 const READ_COMMANDS = new Set(['cat', 'sed', 'head', 'tail', 'grep', 'rg', 'find', 'ls', 'awk', 'wc', 'nl', 'less', 'tree']);
 const firstWords = (command) =>
   command
@@ -38,7 +35,7 @@ function classifyCall(block) {
  * names `prepare` itself, so a text match counts a call nobody made.
  */
 function parseTrace(jsonl) {
-  const trace = { model: null, builtinPlugins: null, calls: [], replayedReviews: 0, peakContext: null, postToolUseResponses: 0, mcpHookResponses: 0, finalText: null, agentCostUsd: null };
+  const trace = { model: null, builtinPlugins: null, calls: [], peakContext: null, postToolUseResponses: 0, mcpHookResponses: 0, finalText: null, agentCostUsd: null };
   const byId = new Map();
   for (const line of jsonl.split('\n')) {
     if (!line.trim()) continue;
@@ -60,7 +57,6 @@ function parseTrace(jsonl) {
       for (const block of Array.isArray(event.message?.content) ? event.message.content : []) {
         if (block.type !== 'tool_result') continue;
         const text = typeof block.content === 'string' ? block.content : JSON.stringify(block.content ?? '');
-        if (text.includes(REPLAY_MARK)) trace.replayedReviews += 1;
         const call = byId.get(block.tool_use_id);
         if (call?.helper) call.failure = HELPER_FAILURE.map((pattern) => pattern.exec(text)?.[1]).find(Boolean) ?? null;
       }
@@ -90,7 +86,7 @@ export function traceMetrics(jsonl) {
 }
 
 export function metricsOfTrace(trace) {
-  const { model, builtinPlugins = null, calls, replayedReviews, peakContext, postToolUseResponses, mcpHookResponses, agentCostUsd = null } = trace;
+  const { model, builtinPlugins = null, calls, peakContext, postToolUseResponses, mcpHookResponses, agentCostUsd = null } = trace;
   const count = (pred) => calls.filter(pred).length;
   return {
     model,
@@ -102,8 +98,6 @@ export function metricsOfTrace(trace) {
     prepareRuns: count((c) => c.helper === 'prepare'),
     prepareTruncated: count((c) => c.truncated),
     reviewRuns: count((c) => c.helper === 'review'),
-    replayedReviews,
-    replayMisses: count((c) => c.failure === 'replay-miss'),
     bashReads: count((c) => c.bashRead),
     readCalls: count((c) => c.block.name === 'Read'),
     grepCalls: count((c) => c.block.name === 'Grep' || c.block.name === 'Glob'),
@@ -143,7 +137,7 @@ const SANDBOX_ROOTS = [...new Set(['/tmp', tmpdir()])];
 // puts the repository at `repo/` under it, so task ledgers sit one level down. Deeper is not searched: the
 // snapshot is thousands of files.
 const SANDBOX_CWD = ['home', 'cwd'];
-const PLAN_NOTE = /^plan(-draft)?_.*\.md$/;
+const PLAN_NOTE = /^(plan(-draft)?|investigation)_.*\.md$/;
 
 function sandboxLedgers(sandbox) {
   const cwd = path.join(sandbox, ...SANDBOX_CWD);
@@ -158,15 +152,15 @@ function sandboxLedgers(sandbox) {
   for (const base of bases) {
     let slugs;
     try {
-      slugs = readdirSync(path.join(base, '.ambicode', 'task'));
+      slugs = readdirSync(path.join(base, '.ambicode', 'tasks'));
     } catch (error) {
       if (error.code === 'ENOENT' || error.code === 'ENOTDIR') continue;
       throw error;
     }
     for (const slug of slugs) {
-      const task = path.join(base, '.ambicode', 'task', slug);
+      const task = path.join(base, '.ambicode', 'tasks', slug);
       found.push(path.relative(sandbox, path.join(task, 'ledger.jsonl')));
-      // The plan notes beside it: a plan run is scored from its promoted plan (`scoredPlan`), not from its last message.
+      // The notes beside it: a plan run is scored from its promoted plan (`scoredPlan`), not from its last message; an investigation's saved note is kept with it.
       let names = [];
       try {
         names = readdirSync(task).filter((name) => PLAN_NOTE.test(name));
@@ -263,59 +257,8 @@ export function harvestTraces(outDir, { sandboxRoots = SANDBOX_ROOTS } = {}) {
       }
     }
   }
-  try {
-    harvestExports(outDir, { sandboxRoots });
-  } catch (error) {
-    failure ??= error;
-  }
   if (failure) throw failure;
   return copied;
-}
-
-/** Where `runSweep` points `EVAL_AMBICODE_EXPORT`: the Stop hook's copies of each session's final ledger. */
-export const EXPORT_DIRECTORY = 'exports';
-
-const lineCount = (file) => {
-  try {
-    return readFileSync(file, 'utf8').split('\n').filter((line) => line.trim() !== '').length;
-  } catch (error) {
-    if (error.code === 'ENOENT') return -1;
-    throw error;
-  }
-};
-
-/**
- * Lays each exported ledger over the polled copy of the same sandbox ledger, when it holds at least as many entries:
- * the poll can miss a run's last seconds, the Stop hook's copy cannot. A source outside every sandbox root is skipped.
- */
-export function harvestExports(outDir, { sandboxRoots = SANDBOX_ROOTS, exportDir = path.join(outDir, EXPORT_DIRECTORY) } = {}) {
-  let laid = 0;
-  const roots = sandboxRoots.flatMap((root) => {
-    try {
-      return [...new Set([root, realpathSync(root)])];
-    } catch {
-      return [root];
-    }
-  });
-  for (const session of existsSync(exportDir) ? readdirSync(exportDir) : [])
-    for (const task of readdirSync(path.join(exportDir, session))) {
-      const dir = path.join(exportDir, session, task);
-      const sourceFile = path.join(dir, 'source.json');
-      if (!existsSync(sourceFile)) continue;
-      const { ledger } = JSON.parse(readFileSync(sourceFile, 'utf8'));
-      const root = roots.find((r) => typeof ledger === 'string' && ledger.startsWith(`${r}${path.sep}`));
-      if (root === undefined) continue;
-      const [name, ...relative] = path.relative(root, ledger).split(path.sep);
-      if (!name.startsWith('e-') || relative.length === 0) continue;
-      const target = path.join(outDir, LEDGER_DIRECTORY, name, ...relative);
-      const exported = path.join(dir, 'ledger.jsonl');
-      if (lineCount(exported) < lineCount(target)) continue;
-      mkdirSync(path.dirname(target), { recursive: true });
-      copyFileSync(exported, `${target}.tmp`);
-      renameSync(`${target}.tmp`, target);
-      laid += 1;
-    }
-  return laid;
 }
 
 /** The sandbox ids (`e-…`) a result's runs name. */

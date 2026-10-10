@@ -6,7 +6,7 @@ export interface GuardInput {
   cwd?: unknown;
   scratchpad_dir?: unknown;
   tool_name?: string;
-  tool_input?: { command?: unknown; file_path?: unknown; notebook_path?: unknown; offset?: unknown; limit?: unknown };
+  tool_input?: { command?: unknown; file_path?: unknown; notebook_path?: unknown };
 }
 
 /** The session's cached pointer to its active route (30 §2). A pointer alone never authorizes a write. */
@@ -21,8 +21,6 @@ export interface GuardState {
   /** The pointer in the scratchpad, else in the temporary-directory fallback the hook state uses when the host gives no scratchpad. */
   activeRoute(scratchpadDir: string | null, sessionId: string | null): ActiveRoute | null;
   ledger(taskDirectory: string): LedgerEntry[] | null;
-  /** A regular file exists at this absolute path; absent in a state that cannot tell, which leaves reads alone. */
-  file?(path: string): boolean;
 }
 
 // Equal to markers.ts HOOK_STATE_DIR_NAME and ledger.ts LEDGER_FILE (tested); importing either would bundle node:path and node:crypto.

@@ -24,7 +24,7 @@ against evidence that already exists, not as open-ended advice.
   ordinary `claude plugin list` and
   `claude plugin details ambicode@ambicode-team` report all six
   skills (`init`, `review`, `investigate`, `plan`, `task`, `rules`) and the
-  hooks of `hooks/hooks.json` (seven events, twenty-three handler entries:
+  hooks of `hooks/hooks.json` (seven events, fourteen handler entries:
   `PostToolUse`, `PreToolUse`, `SessionStart`, `UserPromptSubmit`, `Stop`,
   `PostCompact`, `SessionEnd`; record the count the CLI prints) before relying
   on it.
@@ -86,7 +86,7 @@ honest adjudication — nothing here can be produced without them.
   evidence").
 - [ ] Confirm authorized model access for the pilot's own usage (separate
   from, and likely more than, the one E02 smoke case — see below).
-- [ ] Confirm `glab` is installed and authenticated against each pilot
+- [ ] Confirm a GitLab MCP server is connected and authorized against each pilot
   repository's GitLab host, and that publishing test comments there is
   acceptable — never pilot against a repository where an accidental
   duplicate comment would be a real incident.
@@ -116,13 +116,11 @@ have.
 
 | Pending item | Exact prerequisite | Exact next step |
 | --- | --- | --- |
-| M05–M09 (live GitLab sandbox scenarios) | A private test GitLab project, an MR with added/renamed/deleted lines, an authenticated `glab` | Follow doc 07's manual scenario table M05–M09 against that project; record the discussion links it produces |
-| M10 (hostile input through a real browser), M12 (real browser idle/reopen/disable/reinstall) | A browser on the machine running the page | Run `ambicode view --review <id>` and drive the scenarios in doc 07 by hand; `curl`/Fastify-injection evidence already exists but does not substitute |
-| M06 executable-check portion, M10 isolation portion | A running Docker daemon and a digest-pinned image | Start the daemon, configure `remoteChecks.image`, rerun the relevant fixture review |
-| M13 and its Phase 2 evaluation | A connected Jira/Confluence MCP server, an authenticated `glab`, and a GitLab sandbox project — P2.1's code (`/ambicode:investigate`), P2.2's (`/ambicode:plan`), and P2.3's (`/ambicode:task`) were explicitly authorized to start and are implemented despite the Phase 1 value gate still being pending; only the *evaluation* against real external services remains gated on these prerequisites | Follow doc 07's M13 procedure once the prerequisites exist; record model/MCP/GitLab cases as pending until they are actually executed with authorized access, never as passed from a unit-test fixture |
+| M05–M09 (live GitLab sandbox scenarios) | A private test GitLab project, an MR with added/renamed/deleted lines, an authorized GitLab MCP server | Follow doc 07's manual scenario table M05–M09 against that project; record the discussion links it produces |
+| M13 and its Phase 2 evaluation | A connected Jira/Confluence MCP server, an authorized GitLab MCP server, and a GitLab sandbox project — P2.1's code (`/ambicode:investigate`), P2.2's (`/ambicode:plan`), and P2.3's (`/ambicode:task`) were explicitly authorized to start and are implemented despite the Phase 1 value gate still being pending; only the *evaluation* against real external services remains gated on these prerequisites | Follow doc 07's M13 procedure once the prerequisites exist; record model/MCP/GitLab cases as pending until they are actually executed with authorized access, never as passed from a unit-test fixture |
 | I01–I08 (P2.1 fixed investigation cases) | Authorized model access; I02–I05/I07 additionally need a connected Jira/Confluence MCP server; I08 needs a configured diagnostic command | Follow doc 07's "P2.1 fixed investigation cases" table |
 | PL01–PL10 (P2.2 fixed plan cases) | Authorized model access; PL02–PL05 additionally need a connected Jira/Confluence MCP server; PL06 needs a prior investigation (note or same-session) | Follow doc 07's "P2.2 fixed plan cases" table |
-| T01–T11 (P2.3 fixed task cases) | Authorized model access with a fixture project whose configured checks actually run; T03 needs a previously accepted plan; T05 needs a fixture with no configured reproduction mechanism; T06 needs a configured `propose` command or an over-limit selection; T09 needs a deliberately planted scope-expanding finding | Follow doc 07's "P2.3 fixed task cases" table |
+| T01–T11 (P2.3 fixed task cases) | Authorized model access with a fixture project whose configured checks actually run; T03 needs a previously accepted plan; T05 needs a fixture with no configured reproduction mechanism; T06 needs a configured `propose` command or an over-limit selection; T09 needs a deliberately planted finding outside the brief (it must end under Remaining, not as a gate) | Follow doc 07's "P2.3 fixed task cases" table |
 | E02 (one authorized eval smoke case) | Authorized, budgeted model access for `claude plugin eval` | `claude plugin eval . --scaffold --allow-tools Bash --runs 1 --max-cost-usd <budget>` on one case; inspect the trace for skill routing *and* the packaged helper actually running, per doc 07. The suite now has 18 cases (12 Phase-1 plus the 6 P2.4 correction-I cases); the zero-cost load check covers all 18 across both arms, but no case has actually been run with model access. |
 | A live authenticated Claude Code session confirming a disabled plugin's skills are unavailable (doc 04 P2.4, "Disable / re-enable" in `docs/installation.md`) | A developer's own authenticated Claude Code session (the isolated sandbox used for this candidate has no credentials in it deliberately) | Disable the plugin (`claude plugin disable ambicode@ambicode-team -s user`) in a real session and confirm no `/ambicode:*` skill is offered |
 | AskUserQuestion gate answers beyond the one probe run (free-text and "Chat about this" answers, multi-question and multi-select calls, resume or compact between ask and answer, subagent askers, other Claude Code versions) | A developer's own interactive Claude Code session on the current 2.1 minor | Repeat the probe in `plan/migration-v6-reports/step-03/probe-p2-p48.md` for each case and record the observed `PostToolUse` payload; single-select answers in the interactive dialog and `additionalContext` delivery were observed on 2026-10-05 (Claude Code 2.1.289) |

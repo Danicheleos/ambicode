@@ -109,7 +109,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
     }
     for (const relative of ['review/references/requirements.md']) {
       const content = await readFile(path.join(SKILLS_DIR, relative), 'utf8');
-      assert.match(content, /requirements\.mcpServer/, `${relative} binds the server inline`);
+      assert.match(content, /requirements\.mcps/, `${relative} binds the server list inline`);
       assert.match(content, /--evidence -/, `${relative} pipes the envelope`);
     }
   });
@@ -131,7 +131,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
     }
   });
 
-  it('03b-N9: the read step answers with citations and treats the map as leads, with no note command', async () => {
+  it('03b-N9: the read step answers with citations and treats the map as leads, and saves the answer as the investigation note', async () => {
     const read = await readFile(path.join(repositoryRoot, 'routes', 'investigate', 'read.md'), 'utf8');
     assert.match(read, /`path:line`/);
     assert.match(read, /leads, not answers/);
@@ -141,8 +141,9 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.match(read, /naming that assumption/);
     assert.match(read, /similar features the request does not name/);
     assert.match(read, /not in the code, say so/, '03b-N14: a missing premise ends the search');
-    assert.doesNotMatch(read, /note save|route next|\{cli\} (find|refs)/);
-    // 07-I1 adds one Diagnostics sentence on top of the 700-character read text.
+    assert.match(read, /\{cli\} note save --task \{task\} --kind investigation/);
+    assert.doesNotMatch(read, /route next|\{cli\} (find|refs)/);
+    // 07-I1 adds one Diagnostics sentence.
     assert.ok(read.replace(/^Diagnostics .*\n/m, '').length <= 700);
     assert.equal(existsSync(path.join(repositoryRoot, 'routes', 'investigate', 'write.md')), false);
   });
@@ -153,6 +154,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.match(investigate, /saved as the investigation note/);
     assert.match(investigate, /route start investigate "<request>"/);
     assert.doesNotMatch(investigate, /route next|note save/);
+    assert.doesNotMatch(investigate, /when you stop/);
     assert.ok(Buffer.byteLength(investigate) <= 900);
   });
 
@@ -166,7 +168,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.ok(Buffer.byteLength(plan) <= 2560, `${Buffer.byteLength(plan)} bytes`);
     const fm = frontmatter(plan, 'plan/SKILL.md');
     assert.equal(fm['disable-model-invocation'], true);
-    assert.equal(requiredString(fm, 'allowed-tools', 'plan/SKILL.md'), 'Read, Grep, Glob, Bash(node *ambicode.mjs*), Write(.ambicode/task/*/steps/plan-body.md)');
+    assert.equal(requiredString(fm, 'allowed-tools', 'plan/SKILL.md'), 'Read, Grep, Glob, Bash(node *ambicode.mjs*), Write(.ambicode/tasks/*/steps/plan-body.md)');
     const normalized = plan.replace(/\s+/g, ' ');
     for (const judgment of [/material versus routine/i, /reuse over new/i, /independently reviewable iterations/i]) assert.match(normalized, judgment);
   });
@@ -231,7 +233,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
     const gate = route.steps.find((step) => step.id === 'plan-accept')?.gate;
     assert.deepEqual(gate?.['options'], ['Accept', 'Revise', 'Reject']);
     assert.equal(gate?.['default'], 'Reject');
-    assert.equal(gate?.['release'], 'Reject');
+    assert.equal(gate?.['release'], undefined, 'the release field is gone; the default alone is the decline');
   });
   it('plan states it never implements, never invokes the reviewer, and never publishes, commits, or pushes', async () => {
     const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
@@ -298,7 +300,7 @@ describe('P2.3 task skill', () => {
     assert.ok(Buffer.byteLength(raw) <= 2560, `${Buffer.byteLength(raw)} bytes`);
     const fm = frontmatter(raw, 'task/SKILL.md');
     assert.equal(fm['disable-model-invocation'], true);
-    assert.equal(requiredString(fm, 'allowed-tools', 'task/SKILL.md'), 'Read, Grep, Glob, Edit(**), Write(**), Bash(node *ambicode.mjs*), Bash(git status*), Bash(git diff*)');
+    assert.equal(requiredString(fm, 'allowed-tools', 'task/SKILL.md'), 'Read, Grep, Glob, Agent, Edit(**), Write(**), Bash(node *ambicode.mjs*), Bash(git status*), Bash(git diff*)');
     requiredString(fm, 'argument-hint', 'task/SKILL.md');
   });
 
@@ -401,7 +403,7 @@ describe('07-M2 task outcomes', () => {
 });
 
 describe('F7 rules confirmation gate', () => {
-  it('09-T2/09-T6: the rules table is answered before any pack goes live, and the skill states how to undo one', async () => {
+  it('09-T2/09-T6: the rules table is answered before any pack goes live, ', async () => {
     const route = YAML.parse(await readFile(path.join(repositoryRoot, 'routes', 'rules', 'rules.yaml'), 'utf8')) as { steps: { id: string; when?: string; gate?: { acting?: string[]; default?: string } }[] };
     const ids = route.steps.map((step) => step.id);
     const table = route.steps.find((step) => step.id === 'rules-table');
@@ -410,25 +412,27 @@ describe('F7 rules confirmation gate', () => {
     assert.ok(ids.indexOf('rules-table') < ids.indexOf('apply'), 'a gate after the change it guards cannot stop it');
     assert.equal(route.steps.find((step) => step.id === 'apply')?.when, 'gate.rules-table.is(Apply all)');
     const content = await readFile(path.join(SKILLS_DIR, 'rules', 'SKILL.md'), 'utf8');
-    assert.match(content, /rules revert <pack-id>` undoes one pack/);
+    assert.doesNotMatch(content, /rules revert/);
   });
 });
 
 describe('09-R3/09-W1: the init skill and the init route steps', () => {
-  it('09-R3: the init body stays within 1,536 bytes, starts the route, and grants no config or ignore writes', async () => {
+  it('09-R3: the init body stays within 1,536 bytes, runs the scaffold and config validate, and may write only the config', async () => {
     const content = await readFile(path.join(SKILLS_DIR, 'init', 'SKILL.md'), 'utf8');
     const fm = frontmatter(content, 'init/SKILL.md');
     const body = content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '');
     assert.ok(Buffer.byteLength(body) <= 1536, `${Buffer.byteLength(body)} bytes`);
-    assert.match(body, /route start init/);
+    assert.match(body, /skills\/init\/scripts\/scaffold\.mjs/);
+    assert.match(body, /config validate/);
     assert.equal(fm['disable-model-invocation'], true);
-    assert.doesNotMatch(requiredString(fm, 'allowed-tools', 'init/SKILL.md'), /Write|Edit/);
+    const tools = requiredString(fm, 'allowed-tools', 'init/SKILL.md');
+    assert.match(tools, /Write\(\.ambicode\/config\.yaml\)/);
+    assert.doesNotMatch(tools, /Edit|Write(?!\(\.ambicode\/config\.yaml\))/);
   });
 
-  it('09-W1: each init step instruction is at most 1,500 characters', async () => {
-    for (const file of (await readdir(path.join(repositoryRoot, 'routes', 'init'))).filter((name) => name.endsWith('.md'))) {
-      const text = await readFile(path.join(repositoryRoot, 'routes', 'init', file), 'utf8');
-      assert.ok(text.length <= 1500, `${file}: ${text.length} characters`);
-    }
+  it('the scout agent is internal to init and may not write files', async () => {
+    const fm = frontmatter(await readFile(path.join(repositoryRoot, 'agents', 'scout.md'), 'utf8'), 'agents/scout.md');
+    assert.equal(fm['name'], 'scout');
+    assert.doesNotMatch(requiredString(fm, 'tools', 'agents/scout.md'), /Write|Edit/);
   });
 });

@@ -1,33 +1,26 @@
 skill: rules
 version: 3
-budget: { modelSteps: 8 }
-exits: [done, blocked, human, inconclusive, superseded, budget]
 steps:
   - id: discover
     actor: code
-    run: [rules.discover]
+    run: ["script(discover)"]
   - id: sources
     actor: human
     gate:
       question: "Which written rules should become policy packs? Name the files in your own words, or use the sources listed."
       options: ["use these sources", "none — stop"]
       default: "none — stop"
-      release: "none — stop"
       onAnswer: { "*": "revise discover --source $answer" }
-  - id: context
+  - id: chosen
     actor: code
-    run: [rules.context]
+    run: ["script(chosen)"]
     onError: stop:human
   - id: draft
     actor: model
     instruction: "file:routes/rules/draft.md"
-    payload: [rules.discover, rules.context, rules.draftsCheck]
-    repeat: 3
-  - id: drafts-check
-    actor: code
-    run: [rules.draftsCheck]
+    payload: ["script:discover"]
     produces: ["policy{drafts}"]
-    onFail: revise draft
+    repeat: 3
   - id: rules-table
     actor: human
     gate:
@@ -35,15 +28,10 @@ steps:
       object: "policy{drafts}"
       options: ["Apply all", "Apply with changes", "Discard drafts"]
       default: "Discard drafts"
-      release: "Discard drafts"
       acting: ["Apply all"]
       onAnswer: { "Apply with changes": "revise draft", "*": "revise draft --change $answer" }
-      maxRevises: 3
   - id: apply
     actor: model
     when: gate.rules-table.is(Apply all)
     instruction: "file:routes/rules/apply-run.md"
     produces: ["policy{apply}"]
-  - id: close
-    actor: code
-    run: [rules.close]

@@ -10,8 +10,6 @@ import type { Handler } from '#types/harness';
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';
 const ROUTE = `skill: tbl
 version: 3
-budget: { modelSteps: 6 }
-exits: [done, blocked, human, inconclusive, superseded, budget]
 revisable: []
 steps:
   - id: ask
@@ -23,21 +21,16 @@ steps:
   - id: review-run
     actor: model
     instruction: "Review."
+  - id: review-cmd
+    actor: model
+    instruction: "Review again."
 `;
 
 const VALUES: Record<string, Record<string, string[]>> = {
-  'requirements-server-disconnected': {},
-  'requirements-server-ambiguous': { servers: ['jira-a', 'jira-b'] },
-  'requirements-expansion-capped': { keys: ['ORD-1', 'ORD-2'] },
-  'requirements-conflicting': { summary: ['title differs'], sources: ['ORD-1', 'ORD-2'] },
   'requirements-not-captured-twice': {},
   'check-only-unauthorized': { key: ['unit'], files: ['src/a.ts'] },
-  'review-checks': { key: ['app/lint', 'app/test'] },
   'review-again': {},
-  'scope-expanding': { finding: ['extra file'] },
   'project-ambiguous': { projects: ['app', 'lib'] },
-  'config-unparsable': {},
-  'budget-exhausted': {},
   'decision:db-choice': {},
 };
 
@@ -123,48 +116,32 @@ describe('gate table: every registry gate', () => {
     }
   });
 
-  it('03-G2/03-G7/03-G8: --default needs a question put to the user first; the default never acts', async () => {
+  it('03-G7/03-G8: an unanswered interactive gate is re-shown as it was, never defaulted; headless takes the default at once; the default never acts', async () => {
     const t = await table();
     try {
       for (const gate of REGISTRY) {
         const resolved = t.instantiated(gate);
         assert.equal(resolved.acting.includes(resolved.default), false, `${gate} default is not acting`);
         const { task } = await t.begin(gate);
-        await assert.rejects(t.advance(task, { default: gate }), (error: { code?: string }) => error.code === 'default-not-allowed');
-        const print = await t.lastPrint(task, gate);
-        await t.hook(task, gate, 'no-such-option-asked', print.id);
-        await t.advance(task, { default: gate });
-        const taken = (await t.fx.kinds(task, 'default-taken')).at(-1);
-        assert.equal(taken?.['answer'], resolved.default, gate);
-        assert.equal((await t.fx.kinds(task, 'note')).length, 0);
-      }
-    } finally {
-      await t.fx.dispose();
-    }
-  });
-
-  it('03-G7: three advances with the question never asked take the default as never-asked; headless takes it at once', async () => {
-    const t = await table();
-    try {
-      for (const gate of REGISTRY) {
-        const { task } = await t.begin(gate);
-        for (let turn = 0; turn < 3 && (await t.fx.kinds(task, 'default-taken')).length === 0; turn += 1) await t.advance(task);
-        assert.equal((await t.fx.kinds(task, 'default-taken')).at(-1)?.['via'], 'never-asked', gate);
+        const prints = (await t.fx.kinds(task, 'gate')).length;
+        for (let turn = 0; turn < 4; turn += 1) await t.advance(task);
+        assert.equal((await t.fx.kinds(task, 'gate')).length, prints, gate);
+        assert.equal((await t.fx.kinds(task, 'default-taken')).length, 0, gate);
         const headless = await t.begin(gate, { headless: true });
         assert.equal((await t.fx.kinds(headless.task, 'default-taken')).at(-1)?.['via'], 'headless', gate);
+        assert.equal((await t.fx.kinds(headless.task, 'note')).length, 0);
       }
     } finally {
       await t.fx.dispose();
     }
   });
 
-  it('03-G12: the review policy override leaves a stop option as the default and release', async () => {
+  it('03-G12: the review policy override leaves a stop option as the default', async () => {
     const t = await table();
     try {
       for (const gate of t.fx.routes.gates().filter((candidate) => Object.keys(candidate.policy).length > 0)) {
         const stopped = instantiateGate(gate, { skill: 'review', values: VALUES[gate.id] ?? {} });
         assert.equal(stopped.default, 'stop');
-        assert.equal(stopped.release, 'stop');
         assert.ok(stopped.options.includes('stop'));
         assert.equal(instantiateGate(gate, { skill: 'investigate', values: VALUES[gate.id] ?? {} }).default, gate.default);
       }
@@ -190,12 +167,12 @@ describe('gate table: every registry gate', () => {
   it('03-G13: a command-side raiseGate writes the same print a handler raise writes', async () => {
     const t = await table();
     try {
-      const { task } = await t.begin('requirements-conflicting');
+      const { task } = await t.begin('check-only-unauthorized');
       const handlerPrint = (await t.fx.kinds(task, 'gate'))[0]!;
       const dir = await resolveTaskDir(t.fx.runtime, task);
       const written = await withLedgerLock(t.fx.runtime.fs, dir.root, () => new Date(), A, async (ledger) => {
         const head = (await t.fx.kinds(task, 'route'))[0]!;
-        return raiseGate(ledger, { task, routeId: head.id, chainIds: [head.id], skill: 'tbl', session: A, mode: 'interactive', channel: 'hook', trusted: true, position: 'ask' }, { gate: 'requirements-conflicting', values: VALUES['requirements-conflicting']!, raisedBy: 'ask' }, t.fx.routes);
+        return raiseGate(ledger, { task, routeId: head.id, chainIds: [head.id], skill: 'tbl', session: A, mode: 'interactive', channel: 'hook', trusted: true, position: 'ask' }, { gate: 'check-only-unauthorized', values: VALUES['check-only-unauthorized']!, raisedBy: 'ask' }, t.fx.routes);
       });
       const strip = (entry: Record<string, unknown>) => Object.fromEntries(Object.entries(entry).filter(([key]) => !['id', 'at', 'print'].includes(key)));
       assert.deepEqual(strip(written), strip(handlerPrint));
@@ -207,16 +184,16 @@ describe('gate table: every registry gate', () => {
   it('03-G9/03-L3/03-L4: the print carries the instructions for the platform flags; the shipped default is supported and offers no model-typed answer', async () => {
     const t = await table();
     try {
-      const { task, message } = await t.begin('scope-expanding');
+      const { task, message } = await t.begin('check-only-unauthorized');
       assert.match(message.text, /Ask the user with AskUserQuestion, with the marker line verbatim in the question text\. The answer is recorded for you\.\nThe next step arrives with the user's answer\. Do not run a route command before then\./);
       assert.doesNotMatch(message.text, /--answer/);
       assert.match(message.text, /Then: the user's answer brings the next step\n/);
-      const input = { task, gate: t.instantiated('scope-expanding'), entry: await t.lastPrint(task, 'scope-expanding'), object: null, revisesLeft: null };
+      const input = { task, gate: t.instantiated('check-only-unauthorized'), entry: await t.lastPrint(task, 'check-only-unauthorized'), object: null, revisesLeft: null };
       const text = (askBinding: 'supported' | 'unsupported', answerContext: 'supported' | 'unsupported') => gatePrintText({ ...input, platform: { askBinding, answerContext } });
       const flagged = input.gate.options.filter((option) => !input.gate.acting.includes(option)).join(', ');
-      assert.match(text('unsupported', 'unsupported'), new RegExp(`For an answer that does not act \\(${flagged}\\) run: ambicode route next --task ${task} --answer scope-expanding=<option>`));
+      assert.match(text('unsupported', 'unsupported'), new RegExp(`For an answer that does not act \\(${flagged}\\) run: ambicode route next --task ${task} --answer check-only-unauthorized=<option>`));
       assert.match(text('unsupported', 'unsupported'), new RegExp(`\\nAfter the user answers, run: ambicode route next --task ${task}$`));
-      assert.match(text('unsupported', 'supported'), /--answer scope-expanding=<option>/);
+      assert.match(text('unsupported', 'supported'), /--answer check-only-unauthorized=<option>/);
       assert.doesNotMatch(text('unsupported', 'supported'), /After the user answers, run/);
       assert.doesNotMatch(text('supported', 'unsupported'), /--answer/);
       assert.match(text('supported', 'unsupported'), /\nAfter the user answers, run: /);
@@ -242,22 +219,23 @@ describe('gate table: every registry gate', () => {
 });
 
 describe('gate table: the shipped plan-accept gate', () => {
-  it('03-G7: unanswered prints take the default Reject; --default before asking is refused; defaults promote nothing', async () => {
+  it('03-G7: route next on an unanswered plan-accept re-shows the print and promotes nothing', async () => {
     const plan = await planFixture({ shipped: true });
     try {
       await plan.toGate();
-      await assert.rejects(plan.next({ default: 'plan-accept' }), (error: { code?: string }) => error.code === 'default-not-allowed');
+      const before = (await plan.prints()).length;
       await plan.next();
       await plan.next();
       await plan.next();
-      assert.equal((await plan.fx.kinds(PLAN_TASK, 'default-taken')).at(-1)!['answer'], 'Reject');
+      assert.equal((await plan.prints()).length, before);
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'default-taken')).length, 0);
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'note')).filter((entry) => entry['note'] === 'plan').length, 0);
     } finally {
       await plan.dispose();
     }
   });
 
-  it('03-F7: a gate Revise past maxRevises is declined as max-revises', async () => {
+  it('03-F7: a gate Revise past repeat is declined as max-revises', async () => {
     const plan = await planFixture({ shipped: true });
     try {
       await plan.toGate();

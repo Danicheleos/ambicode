@@ -11,7 +11,7 @@ import { AmbicodeError } from '#util/errors';
 import { contentHash } from '#util/hash';
 import { appendLedger, readLedger } from '#platform/ledger/ledger';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
-import { listNotes, promotePlan, saveNote } from './notes.ts';
+import { promotePlan, saveNote } from './notes.ts';
 import type { Runtime } from '#types/composition';
 import { LEDGER_FILE, type LedgerEntry, type NoteDeps } from '#types/modules/evidence';
 import type { ConsentResult, CommandContext, RouteView } from '#types/harness';
@@ -36,7 +36,7 @@ async function inRepo(run: (repo: TempRepo) => Promise<void>): Promise<void> {
 const runtimeFor = (repo: TempRepo, fs: FileSystem = nodeFileSystem): Promise<Runtime> =>
   createRuntime({ cwd: repo.root, fs, clock: { now: () => NOW, elapsed: () => 0 }, ids: { ...systemIds, writerId: () => 'feedbeef' } });
 
-const taskDir = (repo: TempRepo, slug = TASK): string => path.join(repo.root, '.ambicode', 'task', slug);
+const taskDir = (repo: TempRepo, slug = TASK): string => path.join(repo.root, '.ambicode', 'tasks', slug);
 
 const route = (id: string, session: string, extra: object = {}): object => ({
   id, at: 't', kind: 'route', skill: 'plan', args: 'x', mode: 'interactive', channel: 'hook', trusted: true, session, epoch: 1, ...extra,
@@ -68,9 +68,9 @@ describe('note save: kinds, bodies and headers', () => {
       const draft = await save(deps, 'plan-draft', '# Plan\n');
       const notes = await save(deps, 'notes', 'work so far');
       assert.deepEqual([investigation.path, draft.path, notes.path], [
-        '.ambicode/task/ORD-17/investigation_2026-10-02T14-35.md',
-        '.ambicode/task/ORD-17/plan-draft_2026-10-02T14-35.md',
-        '.ambicode/task/ORD-17/notes.md',
+        '.ambicode/tasks/ORD-17/investigation_2026-10-02T14-35.md',
+        '.ambicode/tasks/ORD-17/plan-draft_2026-10-02T14-35.md',
+        '.ambicode/tasks/ORD-17/notes.md',
       ]);
       await assert.rejects(save(deps, 'notes', null, { from: 'steps/plan-body.md' }), { code: 'bad-argument', field: 'from' });
       await assert.rejects(save(deps, 'investigation', '  '), { code: 'bad-argument', field: 'stdin' });
@@ -91,15 +91,12 @@ describe('note save: kinds, bodies and headers', () => {
     });
   });
 
-  it('02-N2: --iteration puts the header on the first line, replaces an old one, and is for notes only', async () => {
+  it('02-N2: --iteration is recorded in the entry, not stamped into the file, and is for notes only', async () => {
     await inRepo(async (repo) => {
       const deps = { runtime: await runtimeFor(repo), session: null, context: null };
       const first = await save(deps, 'notes', 'step one done', { iteration: 1 });
-      const second = await save(deps, 'notes', '<!-- ambicode iteration: 1 done -->\nstep two done', { iteration: 2 });
-      const text = await readFile(path.join(repo.root, second.path), 'utf8');
-      assert.equal(text.split('\n')[0], '<!-- ambicode iteration: 2 done -->');
-      assert.equal(text.match(/iteration/g)?.length, 1);
-      assert.match(text, /\*\*task note\*\*\n\nstep two done/);
+      const second = await save(deps, 'notes', 'step two done', { iteration: 2 });
+      assert.equal(await readFile(path.join(repo.root, second.path), 'utf8'), 'step two done\n');
       assert.equal(first.entry.iteration, 1);
       assert.equal(second.entry.iteration, 2);
       for (const bad of [0, 1.5, -1]) await assert.rejects(save(deps, 'notes', 'x', { iteration: bad }), { field: 'iteration' });
@@ -108,14 +105,14 @@ describe('note save: kinds, bodies and headers', () => {
     });
   });
 
-  it('02-N3: a plan-draft is stamped, labelled as a draft, collision-suffixed and recorded', async () => {
+  it('02-N3: a plan-draft is stamped, collision-suffixed and recorded, with the author\'s words only', async () => {
     await inRepo(async (repo) => {
       const deps = { runtime: await runtimeFor(repo), session: null, context: null };
       const first = await save(deps, 'plan-draft', '# Plan A');
       const second = await save(deps, 'plan-draft', '# Plan B');
       assert.match(second.path, /plan-draft_2026-10-02T14-35-2\.md$/);
       const text = await readFile(path.join(repo.root, first.path), 'utf8');
-      assert.equal(text, '**plan draft** — acceptance is recorded by `note promote`, not in this file.\n\n# Plan A\n');
+      assert.equal(text, '# Plan A\n');
       assert.deepEqual(
         { ...first.entry },
         { id: 'feedbeef-1', at: first.entry.at, kind: 'note', note: 'plan-draft', path: first.path, contentHash: contentHash(text) },
@@ -136,15 +133,15 @@ describe('note save: kinds, bodies and headers', () => {
 
 describe('02-N4: a plan-draft is saved only by the owner of the live plan route', () => {
   const live = [route(`${A}-1`, A)];
-  const takenOver = [route(`${A}-1`, A), route(`${B}-1`, B, { resumes: `${A}-1`, adopts: true })];
+  const takenOver = [route(`${A}-1`, A), { id: `${A}-2`, at: 't', kind: 'exit', route: `${A}-1`, reason: 'superseded' }, route(`${B}-1`, B)];
   const cases: { label: string; ledger: (object | string)[] | null; session: string | null; allowed?: { id: RegExp; route: string | null }; code?: string }[] = [
     { label: 'no ledger: routeless', ledger: null, session: null, allowed: { id: /^feedbeef-1$/, route: null } },
     { label: 'no live plan route: routeless', ledger: [route(`${A}-1`, A), { id: `${A}-2`, at: 't', kind: 'exit', route: `${A}-1`, reason: 'done' }], session: A, allowed: { id: new RegExp(`^${A}-3$`), route: null } },
     { label: 'the owner', ledger: live, session: A, allowed: { id: new RegExp(`^${A}-2$`), route: `${A}-1` } },
-    { label: 'the owner after an adoption', ledger: takenOver, session: B, allowed: { id: new RegExp(`^${B}-2$`), route: `${B}-1` } },
+    { label: 'the owner after a restart', ledger: takenOver, session: B, allowed: { id: new RegExp(`^${B}-2$`), route: `${B}-1` } },
     { label: 'an owned route and no session', ledger: live, session: null, code: 'session-unbound' },
-    { label: 'a session that was taken over', ledger: takenOver, session: A, code: 'route-taken-over' },
-    { label: 'any other session', ledger: live, session: 'cccccccc', code: 'route-busy' },
+    { label: 'a session whose route was superseded', ledger: takenOver, session: A, code: 'route-taken-over' },
+    { label: 'any other session', ledger: live, session: 'cccccccc', code: 'route-taken-over' },
     { label: 'two live plan routes: unknown', ledger: [route(`${A}-1`, A), route(`${B}-1`, B)], session: A, code: 'ledger-unreadable' },
     { label: 'a torn ledger: unknown', ledger: [route(`${A}-1`, A), '{"id":"aaaaaaaa-2","at":'], session: A, code: 'ledger-unreadable' },
   ];
@@ -173,34 +170,6 @@ describe('02-N4: a plan-draft is saved only by the owner of the live plan route'
       await assert.rejects(save(deps, 'plan-draft', 'x'), (error: AmbicodeError) => error.message.includes(B));
       await save({ ...deps, session: 'cccccccc' }, 'investigation', 'x');
       await save({ ...deps, session: null }, 'notes', 'x');
-    });
-  });
-});
-
-describe('02-N6: note list', () => {
-  it('lists every note entry in ledger order, legacy and new, with heading, iteration and promotion links', async () => {
-    await inRepo(async (repo) => {
-      const dir = taskDir(repo);
-      await mkdir(dir, { recursive: true });
-      await writeFile(path.join(dir, 'investigation_old.md'), '**investigation note** — x\n\n# Old findings\ntext\n');
-      await writeFile(path.join(dir, 'plan_2026-10-02T14-35.md'), '# The plan\n');
-      const rel = (name: string): string => `.ambicode/task/${TASK}/${name}`;
-      await seed(repo, [
-        { id: 'L1', at: 't1', kind: 'note', note: 'investigation', path: rel('investigation_old.md'), contentHash: 'h' },
-        { id: 'L2', at: 't2', kind: 'review', reviewId: 'r', status: 'complete' },
-        { id: `${A}-1`, at: 't3', kind: 'note', note: 'plan-draft', path: rel('plan-draft_2026-10-02T14-35.md'), contentHash: 'h' },
-        { id: `${A}-2`, at: 't4', kind: 'note', note: 'plan', path: rel('plan_2026-10-02T14-35.md'), contentHash: 'h', promotedFrom: `${A}-1` },
-        { id: `${A}-3`, at: 't5', kind: 'note', note: 'notes', path: rel('notes.md'), contentHash: 'h', iteration: 2 },
-      ]);
-      const rows = await listNotes(await runtimeFor(repo), TASK);
-      assert.deepEqual(rows.map((row) => [row.id, row.note, row.heading, row.iteration, row.link]), [
-        ['L1', 'investigation', 'Old findings', null, null],
-        [`${A}-1`, 'plan-draft', '—', null, 'promoted → plan_2026-10-02T14-35.md'],
-        [`${A}-2`, 'plan', 'The plan', null, 'from plan-draft_2026-10-02T14-35.md'],
-        [`${A}-3`, 'notes', '—', 2, null],
-      ]);
-      assert.deepEqual(rows.map((row) => row.at), ['t1', 't3', 't4', 't5']);
-      assert.equal(rows[0]?.path, rel('investigation_old.md'));
     });
   });
 });
@@ -393,7 +362,8 @@ describe('note promote: the accepted draft, and only that draft, becomes the pla
       await scenario.append({ kind: 'acceptance', route: scenario.routeId, gate: 'plan-accept', instance: 'zzzzzzzz-99', answer: 'Accept', via: 'hook', object: gate.object });
       await assert.rejects(scenario.promote(), refused('unbound'));
       await scenario.answer(gate, 'Accept');
-      await scenario.append(route(`${B}-1`, B, { resumes: `${A}-1`, adopts: true }));
+      await scenario.append({ id: `${A}-98`, at: 't', kind: 'exit', route: `${A}-1`, reason: 'superseded' });
+      await scenario.append(route(`${B}-1`, B));
       await assert.rejects(scenario.promote(), { code: 'route-taken-over' });
     });
     await inRepo(async (repo) => {
@@ -408,14 +378,14 @@ describe('note promote: the accepted draft, and only that draft, becomes the pla
     await inRepo(async (repo) => {
       const scenario = await Scenario.start(repo);
       await writeFile(path.join(taskDir(repo), 'plan_old.md'), '**plan** — accepted\n\n# Old way\n');
-      await appendLedger(nodeFileSystem, taskDir(repo), new Date(), 'legacy00', { kind: 'note', note: 'plan', path: `.ambicode/task/${TASK}/plan_old.md`, contentHash: 'h' });
+      await appendLedger(nodeFileSystem, taskDir(repo), new Date(), 'legacy00', { kind: 'note', note: 'plan', path: `.ambicode/tasks/${TASK}/plan_old.md`, contentHash: 'h' });
       const gate = await scenario.gate(await scenario.draft('# Plan'));
       await scenario.answer(gate, 'Accept');
       assert.equal((await scenario.promote()).outcome, 'promoted');
     });
   });
 
-  it('02-P7/S10: a crash after the rename and before the entry is repaired by the next call, with no new consent and no rename', async () => {
+  it('02-P7/S10: a crash after the rename and before the entry is not repaired: the draft is gone, so the next call is plan-draft-missing', async () => {
     await inRepo(async (repo) => {
       const crashing: FileSystem = {
         ...nodeFileSystem,
@@ -431,18 +401,12 @@ describe('note promote: the accepted draft, and only that draft, becomes the pla
       assert.deepEqual(await scenario.files(), ['plan_2026-10-02T14-35.md']);
       assert.equal(await scenario.count('note', 'plan'), 0);
 
-      const renames: string[] = [];
-      scenario.runtime = await runtimeFor(repo, { ...nodeFileSystem, rename: async (from, to) => void renames.push(from, to) });
-      const consent = (await entriesOf(repo)).length;
-      const repaired = await scenario.promote();
-      assert.equal(repaired.outcome, 'repaired');
-      assert.deepEqual(renames, []);
-      assert.equal((await entriesOf(repo)).length, consent + 1);
-      assert.equal((await scenario.promote()).outcome, 'plan-already-promoted');
+      scenario.runtime = await runtimeFor(repo);
+      await assert.rejects(scenario.promote(), { code: 'plan-draft-missing' });
     });
   });
 
-  it('02-P7: neither file present is plan-draft-missing; a plan file with other bytes is object-changed', async () => {
+  it('02-P7: a missing draft is plan-draft-missing, whatever file stands in its place', async () => {
     await inRepo(async (repo) => {
       const scenario = await Scenario.start(repo);
       const draft = await scenario.draft('# Plan');
@@ -450,7 +414,7 @@ describe('note promote: the accepted draft, and only that draft, becomes the pla
       await rm(path.join(repo.root, draft.path));
       await assert.rejects(scenario.promote(), { code: 'plan-draft-missing' });
       await writeFile(path.join(repo.root, draft.path.replace('plan-draft_', 'plan_')), 'other bytes');
-      await assert.rejects(scenario.promote(), refused('object-changed'));
+      await assert.rejects(scenario.promote(), { code: 'plan-draft-missing' });
     });
   });
 });

@@ -8,7 +8,7 @@ import { readFileSync, existsSync, readdirSync, mkdtempSync, rmSync, mkdirSync, 
 import path from 'node:path';
 import { tmpdir, hostname } from 'node:os';
 import { GENERATION_MARKER } from './prompt-transport.mjs';
-import { syntheticBenchmarks, syntheticPlugin, sha256, snapshot, jsonOf, neverSpawn } from '../testing/bench-test-fixtures.mjs';
+import { BENCH_CONFIG, syntheticBenchmarks, syntheticPlugin, sha256, snapshot, jsonOf, neverSpawn } from '../testing/bench-test-fixtures.mjs';
 import { buildNaked } from '../arms/naked-arm.mjs';
 
 describe('evals-bench: preset sets', () => {
@@ -30,7 +30,6 @@ describe('evals-bench: preset sets', () => {
       const plan = planRun(args, { benchmarks: root });
       assert.deepEqual(plan.cases.map((c) => c.kind), ['plan', 'review']);
       assert.match(formatPlan(plan), /set: preset; cases: 2 \(plan 1, review 1\)/);
-      assert.throws(() => planRun(args, { benchmarks: root, env: { EVAL_AMBICODE_REVIEWER_REPLAY: 'x.json' } }), /--set preset refuses EVAL_AMBICODE_REVIEWER_REPLAY/);
       writeFileSync(path.join(plugin, 'evals', 'common', 'presets', 'light', GENERATION_MARKER), '');
       assert.throws(() => planRun(args, { benchmarks: root }), /interrupted: recreate it with `npm run evals:presets -- --regenerate`/);
     } finally {
@@ -508,20 +507,17 @@ describe('evals-bench: a run owns only the result it wrote', () => {
 
   it('keeps and walks a partial result the failing run itself wrote', async () => {
     const json = fresh();
-    let exportedTo;
     const status = await runSweep(argv(json), {
       harvest: () => 0, clean: () => 0,
       log: () => {},
       warn: () => {},
       benchmarks,
-      spawnRun: async (harnessArgv, spawnOptions) => {
-        exportedTo = spawnOptions?.env?.EVAL_AMBICODE_EXPORT;
+      spawnRun: async (harnessArgv) => {
         writeFileSync(jsonOf(harnessArgv), JSON.stringify({ partial: true, claudeVersion: '2.1.289', suite: { modelOverride: 'm' }, cases: cases() }));
         return 2;
       },
     });
     assert.equal(status, 2);
-    assert.equal(exportedTo, path.join(path.dirname(json), 'traces', 'exports'), 'the Stop hook is told where to copy its final ledger');
     const result = JSON.parse(readFileSync(json, 'utf8'));
     assert.deepEqual([result.partial, result.suite.servedPrompt], [true, 'naked']);
     assert.ok(existsSync(walkOf(json)));
@@ -630,7 +626,7 @@ describe('evals-bench: a run owns only the result it wrote', () => {
 });
 
 describe('evals-bench: review cases under the plugin prompt (08-P3)', () => {
-  const CONFIG = ['schemaVersion: 3', 'baseline: ""', 'review: { model: sonnet, timeoutSeconds: 300, maxFindings: 7, maxChangedFiles: 50, maxChangedLines: 2000, maxContextBytes: 524288 }', 'checks: { timeoutSeconds: 120, maxSelectedTestFiles: 20 }', 'page: { idleTimeoutSeconds: 1800, port: 45831 }', 'requirements: { mcpServer: null }', 'remoteChecks: { image: null }', 'projects:', '  - { id: app, root: ".", ecosystem: typescript }', ''].join('\n');
+  const CONFIG = BENCH_CONFIG;
   let root;
   let benchmarks;
   let plugin;

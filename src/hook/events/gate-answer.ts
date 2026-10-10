@@ -1,7 +1,7 @@
+import { dirKindFor } from '#types/defaults';
 import { findSessionRepository } from '#platform/git/session-repository';
 import { AskUserQuestionResponse, type HookInput, type RouteHookDeps } from '#types/hook';
 import { resolveActiveRoute } from '#harness/session/active-route';
-import { sessionLatest } from '#harness/engine/reopen';
 import { readLedger } from '#platform/ledger/ledger';
 import { taskDirFor } from '#modules/evidence/task/task-dir';
 import { PLATFORM, type PlatformFlags } from '#types/platform/claude';
@@ -39,15 +39,10 @@ export async function answerGates(runtime: Runtime, input: HookInput, deps: Rout
   if (input.agent_id !== undefined || input.tool_name !== 'AskUserQuestion' || platform.askBinding !== 'supported') return null;
   const found = await findSessionRepository(runtime, input.cwd ?? runtime.cwd);
   if (typeof found === 'string') return null;
-  const pointed = await resolveActiveRoute(runtime.fs, deps.pointer, { repositoryRoot: found.repositoryRoot, session: input.session_id, scratchpad: input.scratchpad_dir });
-  // A completed route has no pointer; an answer to one of its gates goes to the session's latest route, which reopens it.
-  const latest = pointed !== null || input.session_id === undefined ? null : await sessionLatest(runtime, found.repositoryRoot, input.session_id, 'harnessSession');
-  const active = pointed ?? (latest === null ? null : { task: latest.task, owner: latest.owner });
+  const active = await resolveActiveRoute(runtime.fs, deps.pointer, { repositoryRoot: found.repositoryRoot, session: input.session_id, scratchpad: input.scratchpad_dir });
   if (active === null) return null;
-  const answers = await gateAnswers(input, await readLedger(runtime.fs, taskDirFor(found.repositoryRoot, active.task).root));
+  const answers = await gateAnswers(input, await readLedger(runtime.fs, taskDirFor(found.repositoryRoot, active.task, '.', dirKindFor(active.skill)).root));
   if (answers.length === 0) return null;
-  const advancing = deps.engine.advance({ task: active.task, session: active.owner, cause: 'gate-hook', answers, ...(input.scratchpad_dir === undefined ? {} : { scratchpadDir: input.scratchpad_dir }) });
-  const message = pointed !== null ? await advancing : await advancing.catch(() => null);
-  if (message === null) return null;
+  const message = await deps.engine.advance({ task: active.task, session: active.owner, cause: 'gate-hook', answers, ...(input.scratchpad_dir === undefined ? {} : { scratchpadDir: input.scratchpad_dir }) });
   return platform.answerContext === 'supported' ? message.text : null;
 }

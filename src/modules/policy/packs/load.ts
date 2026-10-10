@@ -26,7 +26,7 @@ export async function loadPacksForProject(options: LoadPacksOptions): Promise<Lo
   const { fs, project, builtinDirectory, repositoryRoot } = options;
   const diagnostics: Diagnostic[] = [];
   const loaded: PackWithPrompts[] = [];
-  const constraints = { commands: project.commands, projectId: project.id };
+  const constraints = { commands: { ...project.commands, ...project.checks }, projectId: project.id };
 
   for (const reference of project.packs) {
     const id = reference.slice('builtin/'.length);
@@ -44,15 +44,6 @@ export async function loadPacksForProject(options: LoadPacksOptions): Promise<Lo
     const validated = await validatePack(fs, { raw, filePath, reference, origin: 'builtin' }, constraints);
     diagnostics.push(...validated.diagnostics);
     if (validated.pack === null) continue;
-    if (validated.pack.pack.id !== id) {
-      diagnostics.push({
-        severity: 'error',
-        code: 'pack-id-mismatch',
-        message: `Built-in pack "${reference}" declares id "${validated.pack.pack.id}".`,
-        where: filePath,
-      });
-      continue;
-    }
     loaded.push(validated.pack);
   }
 

@@ -1,27 +1,20 @@
 skill: plan
 version: 3
-budget: { modelSteps: 14, wallMinutes: 45 }      # wallMinutes applies in --headless only
-exits: [done, blocked, human, inconclusive, superseded, budget]
 revisable: [design]                               # the model may `route next --revise design`
 steps:
-  - id: template
-    actor: code
-    when: args.hasRequirement
-    run: requirements.template
   - id: fetch
     actor: model
     when: args.hasRequirement
     instruction: file:routes/plan/fetch.md
-    payload: [template]
   - id: ground
     actor: code
-    run: [requirements.normalize, requirements.acs, "search.map(context)", "policy.stage(before-work)"]
+    run: [requirements.normalize, "search.map(context)", "policy.stage(before-work)", context.list]
     produces: [envelope, map, policy]
     repeat: 2                                     # one automatic re-run; a human scope answer starts a new cycle
   - id: design
     actor: model
     instruction: file:routes/plan/design.md
-    payload: [map, "policy:before-work", acs]
+    payload: [map, "policy:before-work", context.list]
     repeat: 2
   - id: plan-step
     actor: code
@@ -34,8 +27,9 @@ steps:
     repeat: 3
   - id: plan-check
     actor: code
-    run: ["evidence.notes.save(plan-draft, from: steps/plan-body.md)", workers.planCheck]
+    run: ["evidence.notes.save(plan-draft, from: steps/plan-body.md)", "script(plan-check)"]
     produces: ["note{plan-draft}", worker]
+    onFail: revise plan-write                     # a failed anchor or an unmapped acceptance id; the failures come back as a section
   - id: plan-accept
     actor: human
     gate:
@@ -44,9 +38,7 @@ steps:
       options: [Accept, Revise, Reject]
       acting: [Accept, Revise]                    # 01-contracts §5; a revision too needs the user's own answer
       default: Reject                             # non-acting: the draft stays a draft
-      release: Reject
       onAnswer: { Revise: revise design }         # a human cycle: resets design/plan-write repeats
-      maxRevises: 3                               # printed as "Revise (N left)"
   - id: promote
     actor: code
     when: gate.plan-accept.is(Accept)             # the latest answer in this step's window

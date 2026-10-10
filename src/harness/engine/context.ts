@@ -6,7 +6,7 @@ import { raiseGate } from '../gates/gates.ts';
 import { buildChain, exitOf, foldRoute, latestRouteOf, matches, windowOf } from './fold.ts';
 import { ownerOf, OWNING_SKILLS } from '#modules/evidence/ownership';
 import type { Runtime } from '#types/composition';
-import type { ArtifactRef, LedgerEntry } from '#types/modules/evidence';
+import type { LedgerEntry } from '#types/modules/evidence';
 import type { RouteDef, RouteRegistry, RouteView, StartChannel, CommandContext } from '#types/harness';
 import { refOf } from '#modules/evidence/ledger-chain';
 import type { Chain, ConsentBinding } from '../types/engine.ts';
@@ -39,19 +39,14 @@ function viewOf(task: string, def: RouteDef, chain: Chain): RouteView {
   };
 }
 
-/** Throws unless this view may write: the plan route's one live owner passes, a taken-over or foreign session does not (03-O5). */
+/** Throws unless this view may write: the plan route's one live owner passes, any other session no longer owns its files (03-O5). */
 export function checkOwner(entries: readonly LedgerEntry[], view: RouteView): void {
   if (!OWNING_SKILLS.has(view.skill)) return;
   const owner = ownerOf(entries, view.task);
   if (owner.state === 'unknown') throw ledgerUnreadable(view.task, owner.reason);
   if (owner.state === 'none' || owner.session === view.session) return;
-  if (owner.takenOver.includes(view.session)) {
-    throw new AmbicodeError('route-taken-over', `The plan route of task ${view.task} now belongs to session ${owner.session}; this session no longer writes its files.`, {
-      details: ['Taking it back (--adopt) or continuing under another --task is the user\'s decision.'],
-    });
-  }
-  throw new AmbicodeError('route-busy', `Task ${view.task} has a live plan route owned by session ${owner.session} (route ${owner.routeId}).`, {
-    details: ['Adopt it (--adopt), restart it (--fresh) or continue under another task: --task <slug>-2.'],
+  throw new AmbicodeError('route-taken-over', `The plan route of task ${view.task} now belongs to session ${owner.session}; this session no longer writes its files.`, {
+    details: ['Restart it with --fresh or continue under another --task.'],
   });
 }
 

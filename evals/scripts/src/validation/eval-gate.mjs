@@ -123,7 +123,7 @@ export function gate(given, { cases = CASES_ROOT, tracesDir = null, budget = BUD
   const info = [];
   const check = (name, pass, detail) => checks.push({ name, pass, status: pass ? 'pass' : 'fail', detail });
   // Neither a pass nor a failure: the number the check needs was never produced. It is printed as a gap
-  // and counted in the verdict, so a replayed run cannot read as a measured one.
+  // and counted in the verdict, so an unpriced run cannot read as a measured one.
   const gap = (name, detail) => checks.push({ name, pass: true, status: 'gap', detail });
 
   info.push(...baselineProvenance(results));
@@ -161,18 +161,13 @@ export function gate(given, { cases = CASES_ROOT, tracesDir = null, budget = BUD
     bands.push(band);
     const delta = mean(w) - mean(wo);
     const recallDetail = `with ${fmt(mean(w))} vs without ${fmt(mean(wo))}, Δ ${fmt(delta)}, noise band ${fmt(band)}`;
-    // The recordings are keyed by snapshot, so an `--exclude` or `--branch` recovery finds none and the reviewer never runs.
-    const missed = withRows.filter((r) => r.trace?.replayMisses > 0).length;
-    if (missed) gap(`${kind}: recall`, `${recallDetail}, but ${missed} run(s) hit replay-miss, so the reviewer's findings were never produced`);
-    else check(`${kind}: recall`, delta >= -band, recallDetail);
+    check(`${kind}: recall`, delta >= -band, recallDetail);
 
     const scored = (rows, key) => mean(rows.filter((r) => !r.absent && typeof r[key] === 'number').map((r) => r[key]));
     const costRatio = scored(withRows, 'agentCostUsd') / scored(withoutRows, 'agentCostUsd');
-    const replayed = withRows.filter((r) => r.trace?.replayedReviews > 0).length;
     const unpriced = [...withRows, ...withoutRows].filter((r) => !r.absent && typeof r.agentCostUsd !== 'number').length;
     const costDetail = `${fmt(costRatio, RATIO_DIGITS)}× the no-plugin arm (agent cost, judging excluded; harness total ${fmt(scored(withRows, 'costUsd') / scored(withoutRows, 'costUsd'), RATIO_DIGITS)}×), budget ${budget.maxCostRatio}×`;
-    if (replayed) gap(`${kind}: cost`, `${costDetail}, but ${replayed} run(s) replayed the reviewer, whose cost is not in the arm`);
-    else if (unpriced) gap(`${kind}: cost`, `${costDetail}, but ${unpriced} run(s) have neither a trace cost nor a judge cost to subtract`);
+    if (unpriced) gap(`${kind}: cost`, `${costDetail}, but ${unpriced} run(s) have neither a trace cost nor a judge cost to subtract`);
     else check(`${kind}: cost`, costRatio <= budget.maxCostRatio, costDetail);
     const drift = driftOf(withRows, drifting);
     const measured = drift.filter((d) => d.status !== 'gap');

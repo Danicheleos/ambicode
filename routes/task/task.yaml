@@ -1,17 +1,10 @@
 skill: task
 version: 3
-budget: { modelSteps: 18, wallMinutes: 90 }      # wallMinutes applies in --headless only
-exits: [done, blocked, human, inconclusive, superseded, budget]
 steps:
-  - id: template
-    actor: code
-    when: args.hasRequirement
-    run: requirements.template
   - id: fetch
     actor: model
     when: args.hasRequirement
-    instruction: file:routes/plan/fetch.md
-    payload: [template]
+    instruction: file:routes/investigate/fetch.md
   - id: start
     actor: code
     run: task.start                               # may exit iterations-complete
@@ -22,15 +15,15 @@ steps:
       question: "The plan is a draft nobody accepted. Implement it anyway?"
       options: ["implement anyway", stop]
       default: stop                               # non-acting: --from-draft records it as a preanswer
-      release: stop
   - id: ground
     actor: code
-    run: [requirements.normalize, checks.preflight, checks.baseline, "search.map(context)", task.inventory, "policy.stage(before-work)", "policy.stage(before-checks)", task.index]
+    run: [requirements.normalize, checks.preflight, checks.baseline, "search.map(context)", script(inventory), "policy.stage(before-work)", "policy.stage(before-checks)", context.list]
     produces: [baseline, map, policy]
+    repeat: 2
   - id: red
     actor: model
     instruction: file:routes/task/red.md
-    payload: [brief, envelope, baseline, map, callers, "policy:before-work"]
+    payload: [brief, envelope, baseline, map, "policy:before-work", context.list]
     produces: ["check{red}"]
   - id: green
     actor: model
@@ -43,14 +36,27 @@ steps:
       question: "Run the independent review of this change?"
       options: [run, "skip — verification incomplete"]
       default: "skip — verification incomplete"
-      release: "skip — verification incomplete"
       acting: [run]
+  - id: review-cmd
+    actor: model
+    when: gate.review-offer.is(run)
+    instruction: file:routes/task/review.md
+    produces: [review]
+    repeat: 2                                     # review-again revises it
+  - id: brief
+    actor: code
+    when: gate.review-offer.is(run)
+    run: ["policy.stage(before-work)", script(brief)]
+  - id: review-agent
+    actor: model
+    when: gate.review-offer.is(run)
+    instruction: file:routes/review/agent.md
+    payload: ["script:brief"]
+    produces: ["review{recorded}"]
   - id: review-run
     actor: code
     when: gate.review-offer.is(run)
-    needs: [review]                               # unmet: the step prints the review command
     run: review.evaluate
-    repeat: 2
     onFail: revise fix                            # review-findings: the first entry to fix
   - id: fix
     actor: model

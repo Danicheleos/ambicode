@@ -1,10 +1,12 @@
 import path from 'node:path';
-import { combineDiff } from '#platform/git/diff';
+import { combineDiff, splitPatchSections } from '#platform/git/diff';
 import { Git } from '#platform/git/git';
 import { AmbicodeError } from '#util/errors';
 import { contentHash } from '#util/hash';
-import { captureWorkingTree, revisionContent } from './content.ts';
-import type { DiffFile } from '#types/platform/git';
+import { taskDirFor } from '#modules/evidence/task/task-dir';
+import { MR_DIFF_JSON, MR_DIFF_PATCH } from './mr-capture.ts';
+import type { Workspace } from '#types/composition';
+import type { RawChange } from '#types/platform/git';
 import type { FileSystem } from '#types/platform/ports';
 import type { TargetResolution } from '../types/snapshot.ts';
 
@@ -12,8 +14,6 @@ interface WorkingTargetOptions {
   fs: FileSystem;
   git: Git;
   repositoryRoot: string;
-  /** Unchanged files to capture with the change, chosen from the change itself. */
-  extraPaths?: (files: readonly DiffFile[]) => Promise<readonly string[]>;
 }
 
 /**
@@ -54,51 +54,18 @@ export async function resolveWorkingTarget(options: WorkingTargetOptions): Promi
     const files = combineDiff(changes, patch);
     notes.push('Untracked files that git does not ignore are included as additions.');
 
-    // The only content that can change while the review runs, so it is read once here.
-    const content = await captureWorkingTree({
-      fs,
-      repositoryRoot,
-      changedPaths: files
-        .map((file) => file.newPath)
-        .filter((value): value is string => value !== null),
-      includeSiblings: true,
-      extraPaths: (await options.extraPaths?.(files)) ?? [],
-    });
-
-    // A build or editor can write during the read. If the diff moved, capture
-    // and patch may describe different bytes, so stop instead of publishing.
-    const patchAfterCapture = await shadow.patchDiff(['HEAD'], 3);
-    if (patchAfterCapture !== patch) {
-      throw new AmbicodeError(
-        'working-tree-changed',
-        'The working tree changed while the review target was being captured, so the snapshot would not describe a single state of the code.',
-        {
-          details: [
-            'Nothing was reviewed and nothing was modified.',
-            'Let the build or editor finish writing, then run the review again.',
-          ],
-        },
-      );
-    }
-
-    notes.push(content.pinning);
-
     return {
       target: {
         kind: 'working',
-        // Covers the captured bytes too, so an id cannot name unseen content.
-        snapshotId: `working-${contentHash(`${headSha}\n${patch}\n${content.digest}`).slice(7, 23)}`,
+        snapshotId: `working-${contentHash(`${headSha}\n${patch}`).slice(7, 23)}`,
         repositoryRoot,
         headSha,
         baseSha: headSha,
         baseRef: 'HEAD',
-        remote: null,
         notes,
       },
       files,
       patch,
-      content,
-      preImageRevision: headSha,
     };
   } finally {
     await fs.remove(scratch);
@@ -159,8 +126,7 @@ export async function resolveBranchTarget(options: BranchTargetOptions): Promise
     notes.push('Uncommitted working-tree changes exist and were excluded from this review.');
   }
 
-  const content = revisionContent(git, headSha);
-  notes.push(content.pinning);
+  notes.push('The reviewer reads the checkout, which holds the branch head only if it is checked out.');
 
   return {
     target: {
@@ -170,13 +136,50 @@ export async function resolveBranchTarget(options: BranchTargetOptions): Promise
       headSha,
       baseSha: mergeBase,
       baseRef,
-      remote: null,
       notes,
     },
     files,
     patch,
-    content,
-    preImageRevision: mergeBase,
+  };
+}
+
+interface CapturedTargetOptions { workspace: Workspace; task: string | null; url: string }
+
+/** Paths and kind of one patch section, from its `---`/`+++` headers: the `diff --git` line is ambiguous for paths with spaces. */
+function changeOf(section: string): RawChange {
+  const header = (marker: string): string | null => {
+    const value = section.split('\n').find((line) => line.startsWith(marker))?.slice(4).split('\t')[0] ?? '/dev/null';
+    return value === '/dev/null' ? null : value.replace(/^[ab]\//, '');
+  };
+  const [oldPath, newPath] = [header('--- '), header('+++ ')];
+  const changeKind = oldPath === null ? 'added' : newPath === null ? 'deleted' : oldPath === newPath ? 'modified' : 'renamed';
+  return { oldPath, newPath, changeKind, oldMode: '100644', newMode: '100644' };
+}
+
+/**
+ * Merge-request target from the diff the hook captured off the model's GitLab MCP call. The review is diff-only:
+ * the merge request's files are not in the checkout.
+ */
+export async function resolveCapturedTarget(options: CapturedTargetOptions): Promise<TargetResolution> {
+  const { workspace, task, url } = options;
+  const { runtime, git, repositoryRoot } = workspace;
+  const missing = (): AmbicodeError => new AmbicodeError('mr-diff-missing', `No merge-request diff is captured for ${url}.`, {
+    details: ['Call the diff tool of your GitLab MCP server for this merge request, then run `route next`; the capture hook records its response.'],
+  });
+  if (task === null) throw missing();
+  const dir = taskDirFor(repositoryRoot, task, '.', 'review').root;
+  const patch = await runtime.fs.readText(path.join(dir, MR_DIFF_PATCH)).catch(() => null);
+  if (patch === null) throw missing();
+  const meta = JSON.parse(await runtime.fs.readText(path.join(dir, MR_DIFF_JSON)).catch(() => '{}')) as { sha?: string };
+  const sections = splitPatchSections(patch);
+  const files = combineDiff(sections.map(changeOf), patch);
+
+  const headSha = meta.sha === undefined ? null : await git.revParse(meta.sha);
+  const notes = ['Diff captured from the GitLab MCP server; nothing was fetched or checked out.', 'Diff only: the reviewer has no file content for this merge request.'];
+  return {
+    target: { kind: 'merge-request', repositoryRoot, snapshotId: `mr-${contentHash(`${url}\n${patch}`).slice(7, 23)}`, headSha, baseSha: null, baseRef: null, notes },
+    files,
+    patch,
   };
 }
 

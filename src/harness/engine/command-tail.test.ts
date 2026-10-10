@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { runCommandTail } from './command-tail.ts';
+import { runCommandTail } from './engine.ts';
 import { insideEngine } from './engine.ts';
 import { hookBinding } from '../session/session.ts';
 import { PLAN_TASK, planFixture } from '#testing/fixtures/plan-fixture';
@@ -100,19 +100,6 @@ describe('command tail', () => {
     }
   });
 
-  it('03-T4: read-only reads leave the ledger and the route untouched', async () => {
-    const plan = await planFixture();
-    try {
-      await plan.start();
-      const before = await plan.fx.ledger(PLAN_TASK);
-      await plan.fx.engine.status(PLAN_TASK, SESSION_A);
-      await plan.fx.engine.status(PLAN_TASK, null);
-      assert.deepEqual(await plan.fx.ledger(PLAN_TASK), before);
-    } finally {
-      await plan.dispose();
-    }
-  });
-
   it('03-T4: a failed command writes nothing and advances nothing', async () => {
     const plan = await planFixture();
     try {
@@ -130,7 +117,7 @@ describe('03-T8: --json prints one document', () => {
   it('every read command with --json writes exactly one JSON document to stdout', async () => {
     const fx = await routeFixture({ routes: {} });
     try {
-      const commands = [['version'], ['route', 'status', '--task', 'none'], ['note', 'list', '--task', 'none'], ['report', '--task', 'none']];
+      const commands = [['version'], ['report', '--task', 'none']];
       for (const argv of commands) {
         const script = `import('${REPO_ROOT}/src/cli/main.ts').then((module) => module.main(${JSON.stringify([...argv, '--json'])})).then((code) => { process.exitCode = code; })`;
         const { stdout } = await run(process.execPath, ['-e', script], { cwd: fx.repo.root }).catch((error: { stdout: string }) => ({ stdout: error.stdout }));

@@ -3,8 +3,6 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { parseArgs } from '#util/args';
-import { runPlanCheckCommand, PLAN_CHECK_OPTIONS } from '#cli/commands/workers/plan-check';
 import { answerGates } from '#hook/events/gate-answer';
 import { NodeProcessRunner } from '#platform/ports/node-process-runner';
 import { nodeFileSystem } from '#platform/ports/filesystem';
@@ -74,8 +72,8 @@ describe('06-H1/06-H2 plan route integration on ts-feature-boundary', () => {
       };
       const check = async (text: string) => {
         work += 1;
-        await writeFile(path.join(root, '.ambicode', 'task', TASK, 'steps', 'plan-body.md'), text);
-        return runPlanCheckCommand(assembled.runtime, parseArgs('plan check', ['--task', TASK, '--from', 'steps/plan-body.md'], PLAN_CHECK_OPTIONS));
+        await writeFile(path.join(root, '.ambicode', 'tasks', TASK, 'steps', 'plan-body.md'), text);
+        return engine.advance({ task: TASK, session: A, cause: 'route-next', scratchpadDir: scratchpad });
       };
 
       ceremony += 1;
@@ -91,14 +89,14 @@ describe('06-H1/06-H2 plan route integration on ts-feature-boundary', () => {
       assert.ok(write.bytes <= 3072, `plan-write delivery ${write.bytes}`);
 
       const failing = await check(body('src/invoices/service.ts:30'));
-      assert.equal(failing.failed, true);
-      assert.match(failing.next ?? '', /Plan check FAILED: 1 bad anchors/);
+      assert.equal(failing.position, 'plan-write');
+      assert.match(failing.text, /bad anchor: src\/invoices\/service\.ts:30 line-out-of-range/);
       const passing = await check(body('src/invoices/service.ts:3-6'));
-      assert.equal(passing.failed, false);
-      assert.match(passing.next ?? '', /Revise \(3 left\)/);
-      for (const output of [failing, passing]) assert.ok(JSON.stringify(output).length <= 8000);
+      assert.equal(passing.position, 'plan-accept');
+      assert.match(passing.text, /Revise \(3 left\)/);
+      for (const output of [failing, passing]) assert.ok(output.bytes <= 4096, `${output.bytes}`);
 
-      const ledger = async () => readLedger(nodeFileSystem, path.join(root, '.ambicode', 'task', TASK));
+      const ledger = async () => readLedger(nodeFileSystem, path.join(root, '.ambicode', 'tasks', TASK));
       const print = (await ledger()).findLast((entry) => entry.kind === 'gate' && entry['gate'] === 'plan-accept')!;
       await hook(`Accept this plan? [ambicode gate plan-accept ${print.id}]`, 'Accept', ['Accept', 'Revise', 'Reject']);
 
@@ -106,7 +104,7 @@ describe('06-H1/06-H2 plan route integration on ts-feature-boundary', () => {
       console.log(entries.map((entry) => `${entry.kind}${entry.kind === 'step' ? ` ${entry['step']}:${entry['status']}` : ''}${typeof entry['gate'] === 'string' ? ` ${entry['gate']}` : ''}${typeof entry['via'] === 'string' ? ` via:${entry['via']}` : ''}`).join('\n'));
       const plan = entries.findLast((entry) => entry.kind === 'note' && entry['note'] === 'plan');
       assert.ok(plan !== undefined && typeof plan['promotedFrom'] === 'string');
-      assert.equal((await readdir(path.join(root, '.ambicode', 'task', TASK))).filter((name) => /^plan_.*\.md$/.test(name)).length, 1);
+      assert.equal((await readdir(path.join(root, '.ambicode', 'tasks', TASK))).filter((name) => /^plan_.*\.md$/.test(name)).length, 1);
       const decision = entries.find((entry) => entry.kind === 'acceptance' && entry['gate'] === 'decision:discount-order');
       assert.equal(decision?.['via'], 'hook');
 
@@ -116,57 +114,6 @@ describe('06-H1/06-H2 plan route integration on ts-feature-boundary', () => {
       assert.equal(work, writes);
       assert.equal(entries.filter((entry) => entry.kind === 'worker').length, writes);
       await rm(scratchpad, { recursive: true, force: true });
-    } finally {
-      await rm(path.dirname(root), { recursive: true, force: true });
-    }
-  });
-
-  it('a plan piped to plan check on standard input, with no plan-body.md file, reaches plan-accept', async () => {
-    const root = await materialized();
-    try {
-      const step: Record<string, string> = {};
-      for (const name of ['plan/fetch', 'plan/design', 'plan/write']) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
-      const assembled = await assembleEngine({ root, routes: { plan: await readFile(path.join(REPO_ROOT, 'routes', 'plan', 'plan.yaml'), 'utf8') }, step });
-      const engine = assembled.build(skillHandlers());
-      const scratchpad = await assembled.runtime.fs.temporaryDirectory('ambicode-scratch-');
-      const deps = { engine, routes: assembled.routes, pointer: assembled.pointer };
-      await engine.start({ skill: 'plan', text: 'add a discount to invoice `total` and `amountCents`', requirements: [], task: TASK, cwd: root, session: A, channel: 'hook', scratchpadDir: scratchpad });
-      await answerGates(assembled.runtime, answered(root, scratchpad, 'Apply the discount before or after tax? [ambicode gate decision:discount-order]', 'Before tax', ['Before tax', 'After tax']) as never, deps, PLATFORM);
-      const write = await engine.advance({ task: TASK, session: A, cause: 'route-next', scratchpadDir: scratchpad });
-      assert.equal(write.position, 'plan-write');
-      assert.match(write.text, /plan check --task invoice-discount\b(?! --from)/);
-
-      const piped = { ...assembled.runtime, stdin: { read: async () => body('src/invoices/service.ts:3-6') } };
-      const passing = await runPlanCheckCommand(piped, parseArgs('plan check', ['--task', TASK], PLAN_CHECK_OPTIONS));
-      assert.equal(passing.failed, false);
-      assert.match(passing.next ?? '', /Revise \(3 left\)/);
-      const entries = await readLedger(nodeFileSystem, path.join(root, '.ambicode', 'task', TASK));
-      assert.equal(entries.filter((entry) => entry.kind === 'step' && entry['step'] === 'plan-check' && entry['status'] === 'failed').length, 0);
-      await rm(scratchpad, { recursive: true, force: true });
-    } finally {
-      await rm(path.dirname(root), { recursive: true, force: true });
-    }
-  });
-
-  it('after a headless route accepted its draft, another plan check is refused and nothing is saved', async () => {
-    const root = await materialized();
-    try {
-      const step: Record<string, string> = {};
-      for (const name of ['plan/fetch', 'plan/design', 'plan/write']) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
-      const assembled = await assembleEngine({ root, routes: { plan: await readFile(path.join(REPO_ROOT, 'routes', 'plan', 'plan.yaml'), 'utf8') }, step });
-      const engine = assembled.build(skillHandlers());
-      await engine.start({ skill: 'plan', text: 'add a discount to invoice `total` and `amountCents`', requirements: [], task: TASK, cwd: root, session: A, channel: 'hook', headless: true, answers: [{ gate: 'plan-accept', option: 'Accept' }] });
-      const write = await engine.advance({ task: TASK, session: A, cause: 'route-next' });
-      assert.equal(write.position, 'plan-write');
-      const check = (anchor: string) => runPlanCheckCommand({ ...assembled.runtime, stdin: { read: async () => body(anchor) } }, parseArgs('plan check', ['--task', TASK], PLAN_CHECK_OPTIONS));
-      const first = await check('src/invoices/missing.ts:3-6');
-      assert.equal(first.failed, true);
-      assert.match(first.next ?? '', /accepted as it is/);
-      const before = await readLedger(nodeFileSystem, path.join(root, '.ambicode', 'task', TASK));
-      assert.equal(before.filter((entry) => entry.kind === 'note' && entry['note'] === 'plan').length, 1);
-      await assert.rejects(check('src/invoices/service.ts:3-6'), (error: Error & { code?: string }) => error.code === 'plan-route-ended' && /ended/.test(error.message));
-      const after = await readLedger(nodeFileSystem, path.join(root, '.ambicode', 'task', TASK));
-      assert.equal(after.length, before.length, 'a refused check saves no draft and runs no worker');
     } finally {
       await rm(path.dirname(root), { recursive: true, force: true });
     }

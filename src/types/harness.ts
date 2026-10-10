@@ -3,7 +3,7 @@ import type { Runtime } from './composition.ts';
 import type { HookInput, StopHookOutput } from './hook.ts';
 import type { ArtifactRef, LedgerEntry, TaskDir, LockedLedger } from './modules/evidence.ts';
 
-export const EXITS = ['done', 'blocked', 'human', 'inconclusive', 'superseded', 'budget'] as const;
+export const EXITS = ['done', 'blocked', 'human', 'inconclusive', 'superseded'] as const;
 
 export type Exit = (typeof EXITS)[number];
 
@@ -15,14 +15,11 @@ export interface Revise { target: string; args: Readonly<Record<string, readonly
 
 export type OnError =
   | { kind: 'default' }
-  | { kind: 'retry-with'; hint: string }
-  | { kind: 'ask'; gate: string }
   | { kind: 'stop'; reason: Exit };
 
 export type When =
-  | { predicate: 'args.hasRequirement' | '!args.hasRequirement' | 'map.empty' | 'plan.isDraft' | 'headless' | 'interactive' | 'index.present' | 'revised' }
-  | { predicate: 'gate.answered'; gate: string }
-  | { predicate: 'gate.is'; gate: string; option: string };
+  | { predicate: 'args.hasRequirement' | 'args.hasMergeRequest' | 'map.empty' | 'plan.isDraft' | 'revised' }
+  | { predicate: 'gate.is' | 'gate.isnt'; gate: string; option: string };
 
 export interface GateDef {
   id: string;
@@ -30,10 +27,10 @@ export interface GateDef {
   question: string;
   options: readonly string[];
   default: string;
-  release: string;
   acting: readonly string[];
   onAnswer: Readonly<Record<string, Revise>>;
-  maxRevises: number;
+  /** Human revises through this gate before it declines the next one (the one counter: a step's `repeat`). */
+  repeat: number;
   object: Qualified | null;
   policy: Readonly<Record<string, 'stop'>>;
 }
@@ -59,49 +56,37 @@ export interface RouteArgs {
 
 /** Every `run` name a shipped route may use; `handlers.ts` registers exactly these and `src/skills/handlers.test.ts` keeps the two equal. */
 export const HANDLER_NAMES = [
-  'requirements.template',
+  'script',
   'requirements.normalize',
-  'requirements.acs',
   'search.map',
   'policy.stage',
   'evidence.navigationLine',
+  'context.list',
   'evidence.notes.save',
   'evidence.notes.promote',
-  'workers.planCheck',
-  'init.propose',
-  'init.close',
-  'rules.discover',
-  'rules.context',
-  'rules.draftsCheck',
-  'rules.close',
   'task.start',
-  'task.inventory',
-  'task.index',
   'task.report',
   'checks.baseline',
   'checks.preflight',
   'review.evaluate',
+  'review.command',
   'review.estimate',
+  'review.publishList',
 ] as const;
 
 export interface StepDef {
   id: string;
   index: number;
-  actor: 'code' | 'model' | 'worker' | 'human';
+  actor: 'code' | 'model' | 'human';
   run: readonly Call[];
   instruction: string | null;
   payload: readonly string[];
-  needs: readonly Qualified[];
   produces: readonly Qualified[];
   when: When | null;
   gate: GateDef | null;
   onFail: Revise | null;
   onError: OnError;
   repeat: number;
-  /** `note`: the model's final answer is the step's note; the Stop hook saves it. */
-  answer: 'note' | null;
-  /** `next`: the following command-less model step is delivered in this step's message. */
-  chain: 'next' | null;
   /** The model's final message is this step's work; the next prompt closes the route. */
   final: boolean;
 }
@@ -109,8 +94,6 @@ export interface StepDef {
 export interface RouteDef {
   skill: string;
   version: 3;
-  budget: { modelSteps: number; wallMinutes?: number };
-  exits: readonly Exit[];
   revisable: readonly string[];
   steps: readonly StepDef[];
 }
@@ -122,11 +105,11 @@ export interface RouteRegistry {
   gates(): readonly GateDef[];
 }
 
-export type StartChannel = 'hook' | 'cli' | 'harness';
+export type StartChannel = 'hook' | 'cli';
 
 export type CommandName =
-  | 'requirements normalize' | 'check' | 'format' | 'review' | 'plan check' | 'policy check --drafts' | 'rules apply' | 'init --apply'
-  | 'note save' | 'note promote';
+  | 'requirements normalize' | 'check' | 'format' | 'review' | 'policy check --drafts' | 'rules apply'
+  | 'note save' | 'note promote' | 'review record';
 
 export type Cause = 'route-next' | 'gate-hook' | CommandName;
 
@@ -189,7 +172,6 @@ export interface StartInput {
   project?: string;
   answers?: readonly Answer[];
   fresh?: boolean;
-  adopt?: boolean;
   cwd: string;
   /** The route's owner: an opaque key the engine only compares. */
   session: string;
@@ -208,11 +190,8 @@ export interface AdvanceInput {
   task: string;
   session: string;
   answers?: readonly (Answer & { question?: string })[];
-  default?: string;
   revise?: string;
-  conflict?: { summary: string; sources: readonly string[] };
   project?: string;
-  show?: string;
   cause: Cause;
   scratchpadDir?: string;
   /** What the command (`plan check`) already wrote for the code step it reaches; that step consumes it (D1). */
@@ -229,37 +208,17 @@ export interface StepMessage {
   ledgerIds: readonly string[];
 }
 
-export interface Position {
-  routeId: string;
-  skill: string;
-  chainIds: readonly string[];
-  sessions: readonly { session: string; routeId: string; adopts: boolean }[];
-  owner: PlanOwnership | null;
-  position: string | 'complete';
-  mode: 'interactive' | 'headless';
-  channel: string;
-  /** Every default taken and every revise the route made by itself, in order. */
-  decisions: readonly LedgerEntry[];
-  steps: readonly { id: string; state: 'done' | 'pending' | 'skipped'; windowStart: number }[];
-  cycles: number;
-  repeatsLeft: Readonly<Record<string, number>>;
-  revisesLeft: Readonly<Record<string, number>>;
-  limits: readonly LedgerEntry[];
-  maps: readonly { id: string; layers: readonly unknown[] }[];
-  orphans: readonly string[];
-}
-
 export interface Engine {
   start(input: StartInput): Promise<StepMessage>;
   advance(input: AdvanceInput): Promise<StepMessage>;
   /** Fold and deliver the session's open route again, writing and running nothing (03-E2). */
   deliver(task: string, session: string, scratchpadDir?: string): Promise<StepMessage | null>;
-  status(task: string, session: string | null): Promise<Position[]>;
-  stop(task: string, session: string, reason: 'blocked' | 'human' | 'inconclusive' | 'budget', detail?: string, scratchpadDir?: string): Promise<void>;
-  /** Stop: the checks on the final message under one ledger lock, the single block they may cause, and the pause on a dismissed gate question. */
+  /** Stop: the checks on the final message under one ledger lock and the single block they may cause. */
   stopHook(input: HookInput, options?: { defectBrief?: boolean }): Promise<StopHookOutput | null>;
-  /** UserPromptSubmit: pause the open route when its gate question was dismissed; whether it did. */
-  dismissedGate(input: HookInput): Promise<boolean>;
+  /** Ends the session's open route with an `exit` entry and clears its pointer. */
+  stop(task: string, session: string, reason: Exit, detail?: string, scratchpadDir?: string): Promise<void>;
+  /** Whether the task has a route no exit has closed. */
+  live(task: string): Promise<boolean>;
   /** Runs a guarded command's body with the route the call speaks for resolved and its context supplied. */
   command<T>(spec: GuardedCommand, request: { task: string }, body: (scope: CommandScope) => Promise<T>): Promise<T>;
 }
@@ -302,18 +261,15 @@ export interface ActiveRoutePointer {
   write(session: string, scratchpad: string | undefined, value: { task: string; skill: string; owner?: string; headless?: boolean }): Promise<void>;
   clear(session: string, scratchpad: string | undefined): Promise<void>;
   read(session: string, scratchpad: string | undefined): Promise<{ task: string; skill: string; owner?: string } | null>;
-  /** Written when exit or completion clears `active-route`; read and removed only by Stop. */
-  readEnded(session: string, scratchpad: string | undefined): Promise<{ task: string; skill: string; routeId: string } | null>;
-  clearEnded(session: string, scratchpad: string | undefined): Promise<void>;
 }
 
 export type PlanOwnership =
-  | { task: string; state: 'owned'; session: string; routeId: string; chainIds: string[]; takenOver: string[] }
+  | { task: string; state: 'owned'; session: string; routeId: string; chainIds: string[] }
   | { task: string; state: 'none' }
   | { task: string; state: 'unknown'; reason: string };
 
 export type SessionBinding =
-  | { state: 'bound'; session: string; via: 'hook' | 'env' | 'updated-input' | 'association' | 'task' }
+  | { state: 'bound'; session: string; via: 'hook' | 'task' }
   | { state: 'unbound'; reason: 'missing' | 'stale' | 'ambiguous' };
 
 export const RAISED_BY = '$raisedBy';

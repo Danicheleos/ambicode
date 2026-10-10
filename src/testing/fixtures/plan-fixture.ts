@@ -14,8 +14,6 @@ export const PLAN_TASK = 'ORD-17';
 /** A plan-shaped route: the S2–S5 and S10–S14 mechanisms run on it until the real plan route ships (step 06). */
 export const PLAN = `skill: plan
 version: 3
-budget: { modelSteps: 14 }
-exits: [done, blocked, human, inconclusive, superseded, budget]
 revisable: [design]
 steps:
   - id: design
@@ -42,10 +40,8 @@ steps:
       object: "note{plan-draft}"
       options: [Accept, Revise, Reject]
       default: Reject
-      release: Reject
       acting: [Accept, Revise]
       onAnswer: { Revise: revise design }
-      maxRevises: 3
   - id: promote
     actor: code
     when: gate.plan-accept.is(Accept)
@@ -66,7 +62,7 @@ export function planHandlers(state: PlanState): Record<string, Handler> {
     },
     't.check': async ({ ledger }) => {
       state.checks += 1;
-      await ledger.append({ kind: 'worker', worker: 'plan-check', outcome: 'ran', ms: 1, artifact: 'workers/x.json', summary: { failed: !state.checkOk, anchorsBad: state.checkOk ? 0 : 1, acsUnmapped: 0, duplicates: 0 } });
+      await ledger.append({ kind: 'worker', worker: 'plan-check', outcome: 'ran', ms: 1, artifact: 'workers/x.json', summary: { failed: !state.checkOk, anchorsBad: state.checkOk ? 0 : 1 } });
       return state.checkOk ? { state: 'ok', payload: null } : { state: 'failed', code: 'plan-check-failed', message: 'bad anchors', recoverable: true };
     },
   };
@@ -112,7 +108,7 @@ export async function planFixture(options: { extra?: Record<string, string>; han
     fx.engine.start({ skill: 'plan', text: 'add a limit', requirements: [], task: PLAN_TASK, cwd: fx.repo.root, session: SESSION_A, channel: 'hook', scratchpadDir: fx.scratchpad, ...input });
   const next = (input: Partial<AdvanceInput> = {}) => fx.engine.advance({ task: PLAN_TASK, session: SESSION_A, cause: 'route-next', scratchpadDir: fx.scratchpad, ...input });
   const body = async (text: string, task = PLAN_TASK): Promise<void> => {
-    const file = path.join(fx.repo.root, '.ambicode', 'task', task, 'steps', 'plan-body.md');
+    const file = path.join(fx.repo.root, '.ambicode', 'tasks', task, 'steps', 'plan-body.md');
     await mkdir(path.dirname(file), { recursive: true });
     await writeFile(file, text);
   };

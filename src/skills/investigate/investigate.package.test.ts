@@ -2,7 +2,6 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { navigationFor } from '#modules/search/text/navigation';
 import { REPO_ROOT } from '#testing/paths';
 
 const text = (relative: string): Promise<string> => readFile(path.join(REPO_ROOT, relative), 'utf8');
@@ -30,13 +29,5 @@ describe('investigate evals, packaging and navigation guidance', () => {
 
   it('03-V3: route and step files are packaged', async () => {
     assert.match(await text('tools/package-candidate.mjs'), /from: 'routes', extensions: \['\.yaml', '\.md'\]/);
-  });
-
-  it('03-M7: navigation guidance is short, names find, and carries no reading order', async () => {
-    const guidance = navigationFor('typescript');
-    assert.ok(guidance.evidenceRequirement.length < 100 && guidance.readGuidance.length < 100);
-    assert.match(guidance.evidenceRequirement, /find/);
-    assert.match(guidance.readGuidance, /hypothesis/);
-    assert.equal('readingOrder' in guidance, false);
   });
 });

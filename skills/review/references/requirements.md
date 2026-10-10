@@ -1,10 +1,13 @@
 # Reviewing against requirements
 
-Retrieve each URL through the MCP server `config` names in `requirements.mcpServer` (null with one
-compatible server connected: use it and say so; with several: ask which; named but not connected: stop).
-Hand the helper one JSON envelope of exactly those URLs: `{"mcpServer", "sources": [{"id", "url", "title",
-"retrievedAt", "sourceVersion", "updatedAt", "content" (verbatim), "citations", "status": retrieved|
-unavailable|forbidden|not-found, "failureReason", "retrievedVia"}], "conflicts": [{"summary", "sourceIds"}]}`.
+On a route (`/ambicode:review`, `investigate`, `plan`, `task`) you only call the MCP tools: the hook stores each response whole under
+`.ambicode/tasks/<task>/requirements/<key>.json` (url, tool, retrievedAt, rawHash, content up to 256 KB) and `requirements normalize` builds the
+envelope from those files. The JSON envelope below is for a standalone `review --evidence`.
+
+Retrieve each URL through the first Jira or Confluence MCP server `config` lists in `requirements.mcps` (none listed
+but one compatible server connected: use it and say so; with several: ask which; listed but not connected: stop).
+Hand the helper one JSON envelope of exactly those URLs: `{"sources": [{"id", "url", "title", "retrievedAt",
+"content" (verbatim)}]}`.
 A source you could not read stops the run: say which URL failed and why. Then pipe the envelope to `--evidence -`:
 
 ```sh

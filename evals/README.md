@@ -2,7 +2,7 @@
 
 | Folder | Holds | In git |
 | --- | --- | --- |
-| `evals/common/` | The shared suites (`core`, `task`, `triggers`, `archived`) and the reviewer recordings | suites under NDA are not; see `evals/.gitignore` |
+| `evals/common/` | The shared suites (`core`, `task`, `triggers`, `archived`) | suites under NDA are not; see `evals/.gitignore` |
 | `evals/<project>/` | Per-project suites: `full/` (the generated full set), `impact/`, `reuse/` | no (NDA) |
 | `evals/scripts/` | The harness (`src/`) and one-off local tools (`local/`, gitignored) | `src/` yes |
 | `../ambicode-evals-assets/benchmarks/<project>/` | Static benchmark data, one folder per project: `.git/` (history), `project/` (code snapshot), `assets/` (tickets), `reviews/` (prepared review versions) | no (NDA) |
@@ -31,7 +31,7 @@ Before any paid run, run `npm run build`. The evals run the bundle (`scripts/amb
 
 | Question | Command | Cost |
 | --- | --- | --- |
-| Did my change to `locate` or the map lose true files? | `evals:shortlist-recall`, `evals:map-recall` | free |
+| Did my change to the map lose true files? | `evals:shortlist-recall`, `evals:map-recall` | free |
 | Does the plugin still behave on real tickets? | `evals:walk` | ~$3 (estimate) |
 | Is the plugin better than the bare model? | `evals:decide`, then `evals:gate` against `evals:baseline` | ~$80 (estimate) |
 | What happened in a run, and where should I focus? | `evals:report` | free |
@@ -66,15 +66,11 @@ The other scripts call these. You rarely call them yourself.
 
 ### `evals:run`
 
-This is `evals:bench run` with `EVAL_AMBICODE_REVIEWER_REPLAY` pointed at
-`eval-replay/core.json`. The independent reviewer cannot sign in inside the eval sandbox,
-so the core review cases replay its recorded answers. Recordings made for the earlier core cases do not match
-the current ones; record them again with `evals:reviewer` (below) before trusting review results.
+This is `evals:bench run --prompt with`. Review cases run the reviewer subagent (`agents/reviewer.md`) live in the session.
 
 ### `evals:plugin-eval`
 
-This is `claude plugin eval . --scaffold --no-publish` with the archived reviewer recordings
-(`reviewer-recordings/archived.json`). It is the plain harness, used by the tracked synthetic suites
+This is `claude plugin eval . --scaffold --no-publish` with no extra environment. It is the plain harness, used by the tracked synthetic suites
 (`archived`, `triggers`). It has no NDA guards, so never point it at `evals/common/core` or at `evals/` as a whole.
 
 ## Cases
@@ -258,7 +254,7 @@ as the failure it is.
 | drift | at least 80% of cases keep recall and F1 ≥ 0.9× their best run and agent cost ≤ 1.25× their cheapest; a blocked, open or unverified run puts its case out |
 | meanDelta | the harness's meanDelta is within the noise band |
 
-Replayed reviewers and missing numbers are reported as **GAP**, never as pass.
+Missing numbers are reported as **GAP**, never as pass.
 
 **Why:** `claude plugin eval` reports `meanDelta` but never fails on it. The gate makes "better, and not more
 expensive" a rule instead of a judgment call.
@@ -335,23 +331,18 @@ These read the benchmark code directly, make no model calls, and print counts on
 
 Usage: `-- <BE-express repo> <FE-angular repo> [limit]`
 
-**Measures:** for each localize ticket, recall at N of the file shortlist that `prepare` hands the agent. It
-scores three variants: `locate` as shipped, the map's layers, and the map plus a codeindex lookup. It compares
-them to the earlier measurement (BE-express 0.499, FE-angular 0.123).
+**Measures:** for each localize ticket, recall at N (default 15) of the map's candidates, built from the
+ticket's terms with the layers `shortlist, harvest, shortlist`.
 
-**Why:** a change to `locate` or its search terms can be judged for free, before any walk.
+**Why:** a change to the map or its search terms can be judged for free, before any walk.
 
 ### `evals:map-recall`
 
 Usage: `[--cases <dir>] [--show <dir>] [--save <file>] [--expect <file>]`
 
-**Measures:** for each core investigate case, how many true files the investigate route's map lists (leads and
-same-feature files), and the map's size in bytes. Beside it, the true files in the ranking's first 20 and in the
-6 KiB serialized map's first 20, so a loss can be placed at ranking or at delivery; the last line gives macro recall
-of the ranking and of what was delivered, and how many cases were delivered no true file. A real run's `map` ledger
-entry carries the same delivered paths with the payload's bytes and hash (`delivered`); `evals:layer-audit` reads
-them when a session was not harvested. `--expect` exits 1 when a case loses a true file or a text
-grows past its cap.
+**Measures:** for each core investigate case, how many true files the map's 6 KiB text lists, and its size in bytes. Beside it, the candidates the ranking found
+and the true files in the listed first 20; the last line gives macro recall and how many cases were
+listed no true file. `--expect` exits 1 when a case loses a true file or the map grows past 6,144 bytes.
 
 **Why:** catches regressions in what the agent is shown before paying to see what it does with it.
 
@@ -411,18 +402,11 @@ run that did nothing.
 
 ### `evals:reviewer`
 
-**Does:** runs as you, outside the sandbox. It reviews the archived review cases twice: once with the built
-`ambicode review --json`, and once as `plain`, the same isolated `claude` without AMBICODE's prompt, bundle,
-checks or validation. Output goes to `../ambicode-evals-assets/outputs/archived/<date>/<HHMM>_reviewer`. The `record` subcommand turns
-the ambicode answers into replay recordings.
-For the 16 core review cases: `--evals evals/common/core/cases --arm ambicode --runs 1 --out <dir>`, then `record <dir> --evals evals/common/core/cases`,
-then copy `<dir>/recordings.json` to `eval-replay/core.json`. A recording is keyed on the snapshot hash, so re-record after any change to what the
-review mirrors.
-
-**Measures:** whether AMBICODE's reviewer finds more than plain Claude asked to review.
-
-**Why:** the sandbox cannot sign the reviewer in, so this is the only live measurement of the reviewer. It is
-also how the replay recordings that the other suites use are made.
+**Does:** the review helpers for the archived review cases. The reviewer is the plugin subagent
+(`agents/reviewer.md`), which only runs inside a live Claude Code session, so `evals:reviewer` itself exits with
+an error saying so. Offline, `replayFindings` in `validation/evals-reviewer.mjs` scaffolds a case, runs
+`review --task <slug>`, and feeds the case's `findings.json` (`{ findings, coverageNotes }`) to
+`review record --task <slug>` on stdin. It also holds the blind adjudication sheet builder.
 
 ## Related
 

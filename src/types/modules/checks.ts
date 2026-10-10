@@ -1,6 +1,4 @@
 import type { TypedEntry } from '#platform/ledger/kinds';
-import type { Workspace } from '../composition.ts';
-import type { ProjectConfig } from './config.ts';
 import type { LedgerEntry, NoteDeps, TaskDir } from './evidence.ts';
 import type { RouteView } from '../harness.ts';
 import type { DiffFile } from '../platform/git.ts';
@@ -11,7 +9,7 @@ export type CheckEntry = Extract<TypedEntry, { kind: 'check' }>;
 
 export const GATE = 'check-only-unauthorized';
 
-export interface CheckOnlyInput { task: string; key: string; only: string[]; phase: 'red' | 'green'; approve: string[]; decline: string[] }
+export interface CheckOnlyInput { task: string; name: string; project: string | null; files: string[]; phase: 'red' | 'green'; approve: string[]; decline: string[] }
 
 export type CheckOnlyOutcome =
   | { outcome: 'ran'; entry: CheckEntry; proof: ProofVerdict }
@@ -19,25 +17,12 @@ export type CheckOnlyOutcome =
   | { outcome: 'waiting'; gate: typeof GATE; key: string }
   | { outcome: 'declined'; key: string };
 
-export interface CheckDeps extends NoteDeps {
-  /** The detached warm rebuild (07-G3); never awaited. */
-  warm?: (workspace: Workspace, project: ProjectConfig) => Promise<unknown>;
-}
+export type CheckDeps = NoteDeps;
 
 /** The routed command's place: the task's open route for this session, or null when the slug has none. */
 export interface Routed { view: RouteView; dir: TaskDir }
 
 export type FormatEntry = Extract<TypedEntry, { kind: 'format' }>;
-
-export interface PendingApproval {
-  checkId: string;
-  approvalKey: string;
-  projectId: string;
-  reason: string;
-  scope: string;
-  proposedArgv: string[];
-  cwd: string;
-}
 
 export interface BaselineEntryFields {
   head: string | null;
@@ -50,8 +35,6 @@ export interface ChangedPath {
   changeKind: DiffFile['changeKind'];
 }
 
-export type ProofCause = 'no-summary' | 'zero-tests' | 'load-error' | 'no-failure' | 'nonzero-exit';
-
 export type ProofVerdict =
   | { proven: true }
-  | { proven: false; which: 'red-unproven' | 'green-unproven'; cause: ProofCause };
+  | { proven: false; cause: 'no-failure' | 'nonzero-exit' };

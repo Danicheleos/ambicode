@@ -16,12 +16,9 @@ export function resolveTargetOptions(
     target: validateTargetArgs(command, args),
     requirementUrls: args.all('requirement'),
     evidence: evidenceSource(runtime, args.value('evidence')),
-    approvals: new Set(args.all('approve')),
-    declines: new Set(args.all('decline')),
     task: args.value('task'),
     excludePaths: args.all('exclude'),
     onlyPaths: args.all('only'),
-    contextPaths: args.all('context'),
     withTests: args.flag('with-tests'),
   };
 }

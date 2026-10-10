@@ -151,13 +151,12 @@ describe('base-scaffold', () => {
     const work = path.join(top, 'work-13');
     assert.equal(run(script, work).status, 0);
     const repo = path.join(work, 'repo');
-    put(path.join(repo, '.ambicode/task/t/ledger.jsonl'), '{}\n');
+    put(path.join(repo, '.ambicode/tasks/t/ledger.jsonl'), '{}\n');
     put(path.join(repo, '.ambicode/reviews/r.json'), '{}\n');
-    put(path.join(repo, '.ambicode/metrics.jsonl'), '{}\n');
     assert.equal(git(repo, 'status', '--porcelain', '--untracked-files=all'), 'M src/a.txt');
     assert.equal(git(repo, 'ls-files', '.gitignore'), '', 'the base commit is unchanged');
-    put(path.join(repo, '.ambicode/index/i.db'), 'x');
-    assert.match(git(repo, 'status', '--porcelain', '--untracked-files=all'), /\?\? \.ambicode\/index\/i\.db/, 'an unignored index directory withholds index build consent');
+    put(path.join(repo, '.ambicode/context/overview.md'), 'x');
+    assert.equal(git(repo, 'status', '--porcelain', '--untracked-files=all'), 'M src/a.txt', 'the whole .ambicode folder is ignored');
   });
 
   it('the user\'s git config does not change the base commit: global and default excludes are not applied', () => {

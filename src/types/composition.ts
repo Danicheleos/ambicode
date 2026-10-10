@@ -1,5 +1,4 @@
 import type { Git } from '#platform/git/git';
-import type { ProviderRegistry } from '#platform/providers/registry';
 import type { AmbicodeConfig } from './modules/config.ts';
 import type { ProcessRunner, FileSystem, Clock, IdSource, StandardInput } from './platform/ports.ts';
 
@@ -16,7 +15,6 @@ export interface Runtime {
   pluginRoot: string;
   stdin: StandardInput;
   env: Readonly<Record<string, string | undefined>>;
-  providers: ProviderRegistry;
   /** Config notices collected while commands run; the CLI prints them to stderr. */
   notices?: string[];
 }

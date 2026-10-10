@@ -1,21 +1,26 @@
 import path from 'node:path';
 import { openRepository } from '#platform/git/open';
 import { AmbicodeError } from '#util/errors';
-import { mostSpecificRoot, normalizeRelative } from '#util/paths';
-import { loadConfigWithNotices } from './load.ts';
+import { normalizeRelative, toProjectRelative } from '#util/paths';
+import { loadConfig } from './load.ts';
 import type { AmbicodeConfig, ProjectConfig } from '#types/modules/config';
 import type { Runtime, Workspace } from '#types/composition';
 import type { FileSystem } from '#types/platform/ports';
 
 export async function openWorkspace(runtime: Runtime): Promise<Workspace> {
   const { git, repositoryRoot } = await openRepository(runtime);
-  const loaded = await loadConfigWithNotices(runtime.fs, repositoryRoot);
-  for (const notice of loaded.notices) if (runtime.notices !== undefined && !runtime.notices.includes(notice)) runtime.notices.push(notice);
+  const loaded = await loadConfig(runtime.fs, repositoryRoot);
   return { runtime, git, repositoryRoot, config: loaded.config, configPath: loaded.filePath };
 }
 
+/** The project with the deepest `root` holding the file; among projects sharing that root, the one whose `paths` hold it. */
 export function projectForPath(config: AmbicodeConfig, repositoryRelativePath: string): ProjectConfig | null {
-  return mostSpecificRoot(config.projects, repositoryRelativePath);
+  const file = normalizeRelative(repositoryRelativePath);
+  const inside = config.projects.filter((project) => toProjectRelative(normalizeRelative(project.root), file) !== null);
+  const deepest = Math.max(-1, ...inside.map((project) => normalizeRelative(project.root).length));
+  const sameRoot = inside.filter((project) => normalizeRelative(project.root).length === deepest);
+  const byPaths = sameRoot.find((project) => project.paths.some((entry) => toProjectRelative(normalizeRelative(entry), toProjectRelative(normalizeRelative(project.root), file) ?? '') !== null));
+  return byPaths ?? sameRoot[0] ?? null;
 }
 
 export function projectById(config: AmbicodeConfig, id: string): ProjectConfig {

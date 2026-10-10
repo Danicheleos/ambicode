@@ -21,11 +21,8 @@ import { LEDGER_DIRECTORY, tally } from '../analysis/ledger-metrics.mjs';
 import { atomicWrite, FRONT_MATTER, GENERATION_MARKER, NAKED_COPY, outstandingSwap, PROMPT, promptBody, restorePrompts, swapInPluginPrompts, WITH_PROMPT } from './prompt-transport.mjs';
 import { FORCED_REMOVED, GRANTED_TOOLS, harnessArgv, parseRunOptions, PATH_OPTIONS, resultLayout, runSpec } from './run-options.mjs';
 import { trackSweep } from './sweep-events.mjs';
-import { dryRunArgs, DEFAULT_RECORDINGS, replaySummary, reviewCaseNames, tuningSummaryOf } from '../analysis/model-free-runners.mjs';
-import { EXPORT_DIRECTORY, harvestTraces, harvestedOfResult, removeSandboxes, sandboxIdsOfResult } from '../analysis/trace-analysis.mjs';
-
-// The Stop hook's variable (src/harness/engine/stop.ts): the EVAL_AMBICODE_ prefix is the one the reviewer replay already reaches the sandbox with.
-const EVAL_EXPORT_VARIABLE = 'EVAL_AMBICODE_EXPORT';
+import { dryRunArgs } from '../analysis/model-free-runners.mjs';
+import { harvestTraces, harvestedOfResult, removeSandboxes, sandboxIdsOfResult } from '../analysis/trace-analysis.mjs';
 
 // Existing consumers can still import the approved APIs from the CLI.
 export * from '../shared/bench-paths.mjs';
@@ -187,10 +184,6 @@ function planSpec(spec, { benchmarks, env }) {
     const missing = cases.filter((c) => !c.hasWith).length;
     if (missing) throw new Error(`--prompt with refused: ${missing} of ${cases.length} selected case(s) have no ${WITH_PROMPT} (review and task prompts come with steps 07/08)`);
   }
-  // A task case's reviewer must run live: an old recording would grade a different change.
-  if (spec.set === 'task' && env.EVAL_AMBICODE_REVIEWER_REPLAY) throw new Error('--set task refuses EVAL_AMBICODE_REVIEWER_REPLAY: old reviewer recordings never apply to task cases');
-  // The recordings are keyed on the curated snapshots; a preset's review runs at its own historical base.
-  if (spec.set === 'preset' && env.EVAL_AMBICODE_REVIEWER_REPLAY) throw new Error('--set preset refuses EVAL_AMBICODE_REVIEWER_REPLAY: the reviewer recordings belong to the curated review cases');
   const marker = outstandingSwap(casesDir);
   // Bodies are read now, before any swap: prompt.md may hold the plugin prompt only while a swap is outstanding,
   // and then the naked copy is the naked prompt.
@@ -206,7 +199,6 @@ function planSpec(spec, { benchmarks, env }) {
     benchmarks,
     pluginName,
     trusted: plugin === ROOT ? 'the repository itself' : spec.trustPlugin ? '--trust-plugin given' : 'not asserted: the harness will ask before the first run',
-    replay: env.EVAL_AMBICODE_REVIEWER_REPLAY ? 'set' : 'unset',
     outstandingSwap: marker ? marker.cases.length : 0,
     lockedBy: casesLockStatus(casesDir),
     cases: planned,
@@ -240,7 +232,7 @@ export function formatPlan(plan) {
     `served prompt: ${plan.prompt === 'with' ? `${WITH_PROMPT}, swapped into ${PROMPT} for the run and restored after; promptMarkdown records the naked prompt` : PROMPT}`,
     ...plan.cases.map((c, i) => `  case ${i + 1}: ${c.kind}, naked ${sha(c.nakedBody)}${c.withBody === null ? '' : `, with ${sha(c.withBody)}`}, serves ${c.served}`),
     `model: ${plan.model}; cap: $${plan.maxCostUsd}; runs: ${plan.runs ?? 'per case'}; ablation: ${plan.ablation ?? 'harness default (with-without)'}`,
-    `reviewer replay: ${plan.replay}; outstanding swap: ${plan.outstandingSwap ? `${plan.outstandingSwap} case(s), restored before a real run` : 'none'}; cases lock: ${
+    `outstanding swap: ${plan.outstandingSwap ? `${plan.outstandingSwap} case(s), restored before a real run` : 'none'}; cases lock: ${
       lock ? `${lock.state}, held by ${lock.purpose ?? 'unknown'}; a real run would ${lock.state === 'abandoned' ? 'recover it' : 'be refused'}` : 'free'
     }`,
     'hook support: not claimed (probe P37 pending); a dry run cannot show whether a typed command expands',
@@ -356,7 +348,7 @@ export async function runSweep(rest, { benchmarks = BENCHMARKS, now = new Date()
       pass(); // setInterval's first tick is a whole interval away; a short-lived sandbox would be missed.
       const timer = setInterval(pass, HARVEST_INTERVAL_MS);
       try {
-        status = await spawnRun(harnessArgv(plan, { json: reserved }), { env: { [EVAL_EXPORT_VARIABLE]: path.join(tracesDir, EXPORT_DIRECTORY) } });
+        status = await spawnRun(harnessArgv(plan, { json: reserved }));
       } finally {
         clearInterval(timer);
         tracker.finish(status);
@@ -561,25 +553,14 @@ export async function main(argv, options = {}) {
     console.log(`judged ${judged.length} task run(s) for $${verdicts.costUsd.toFixed(2)} (skipped ${verdicts.runs.length - judged.length}, no verdict ${judged.filter((r) => r.judgeScore === null).length}): ${out}`);
     return 0;
   }
-  if (command === 'tuning-summary') {
-    const [dir] = rest;
-    if (!dir) throw new Error('usage: evals-bench.mjs tuning-summary <traces-dir>');
-    console.log(JSON.stringify(tuningSummaryOf(path.resolve(dir)), null, 2));
-    return 0;
-  }
   if (command === 'task-suite') return runSweep(dryRunArgs(['--set', 'task'], rest), { benchmarks, ...options });
   if (command === 'live-review') {
     const [mode, ...more] = rest;
     if (mode === 'dry-run') return runSweep(dryRunArgs(['--set', 'curated', '--tag', 'review'], more), { benchmarks, ...options });
-    if (mode === 'replay') {
-      const file = path.resolve(more[0] ?? DEFAULT_RECORDINGS);
-      console.log(JSON.stringify(replaySummary(JSON.parse(readFileSync(file, 'utf8')), reviewCaseNames()), null, 2));
-      return 0;
-    }
-    throw new Error('usage: evals-bench.mjs live-review dry-run [run options] | live-review replay [<recordings.json>]');
+    throw new Error('usage: evals-bench.mjs live-review dry-run [run options]');
   }
   throw new Error(
-    'usage: evals-bench.mjs generate [--regenerate] | select [--presets <dir>] [--regenerate] | lock <naked eval.json> [--lock-file <file>] | run [--set curated|task|full --project <project>|preset --preset light|large] [--plugin <dir>] [--prompt naked|with] [--dry-run] --model <m> --max-cost-usd <usd> [--walk] [options] | restore-prompts [--plugin <dir>] [--preset <name>] | score <eval-results.json> [--traces <dir>] [--baseline <file>] | walk <eval-results.json> [--traces <dir>] | drift <eval-results.json> [--traces <dir>] [--ledgers <dir>] [--json <file>] | judge-task <eval-results.json> --model <m> --max-cost-usd <usd> [--traces <dir>] | tuning-summary <traces-dir> | task-suite [run options] | live-review dry-run [run options] | live-review replay [<recordings.json>]',
+    'usage: evals-bench.mjs generate [--regenerate] | select [--presets <dir>] [--regenerate] | lock <naked eval.json> [--lock-file <file>] | run [--set curated|task|full --project <project>|preset --preset light|large] [--plugin <dir>] [--prompt naked|with] [--dry-run] --model <m> --max-cost-usd <usd> [--walk] [options] | restore-prompts [--plugin <dir>] [--preset <name>] | score <eval-results.json> [--traces <dir>] [--baseline <file>] | walk <eval-results.json> [--traces <dir>] | drift <eval-results.json> [--traces <dir>] [--ledgers <dir>] [--json <file>] | judge-task <eval-results.json> --model <m> --max-cost-usd <usd> [--traces <dir>] | task-suite [run options] | live-review dry-run [run options]',
   );
 }
 

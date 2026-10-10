@@ -3,7 +3,6 @@ import { parse as parseYaml } from 'yaml';
 import { describeIssues } from '#modules/config/load';
 import { PolicyPack, type Diagnostic, type ResolvedPromptRef, type PackWithPrompts, type PackConstraints } from '#types/modules/policy';
 import { AmbicodeError, messageOf } from '#util/errors';
-import { contentHash } from '#util/hash';
 import { resolveInsideBoundary } from '#util/paths';
 import type { FileSystem } from '#types/platform/ports';
 
@@ -68,7 +67,7 @@ export async function validatePack(
         promptRef.file,
         `prompt "${promptRef.file}" referenced by ${reference}`,
       );
-      const contents = await fs.readText(absolutePath);
+      await fs.readText(absolutePath);
       resolvedPrompts.push({
         packId: pack.id,
         packReference: reference,
@@ -76,7 +75,6 @@ export async function validatePack(
         stage: promptRef.stage,
         absolutePath,
         declaredPath: promptRef.file,
-        contentHash: contentHash(contents),
       });
     } catch (error) {
       diagnostics.push({
@@ -88,16 +86,7 @@ export async function validatePack(
     }
   }
 
-  if (constraints.commands === null) {
-    if (pack.commandPolicy.length > 0 || pack.rules.some((rule) => rule.check.kind === 'command')) {
-      diagnostics.push({
-        severity: 'notice',
-        code: 'pack-commands-unchecked',
-        message: `${reference} names project commands, but no project was determined for this check, so those references were not verified against a command catalog. Pass --project <id>.`,
-        where: filePath,
-      });
-    }
-  } else {
+  if (constraints.commands !== null) {
     const commands = constraints.commands;
     const owner = constraints.projectId ?? 'this project';
     for (const decision of pack.commandPolicy) {
@@ -122,33 +111,8 @@ export async function validatePack(
     }
   }
 
-  // A `**/*` pack would remind on every edit anywhere, the very noise `remindOnEdit` exists to avoid.
-  if (pack.appliesTo.includes('**/*')) {
-    for (const rule of pack.rules) {
-      if (rule.remindOnEdit) {
-        diagnostics.push({
-          severity: 'error',
-          code: 'remind-on-edit-broad-pack',
-          message: `${reference}: rule "${rule.id}" declares remindOnEdit: true, but this pack applies broadly ("**/*"). A reminder is allowed only for a path-specific pack; narrow "appliesTo" or remove remindOnEdit.`,
-          where: filePath,
-        });
-      }
-    }
-  }
-
-  // The schema checks the form of `replaces` but cannot see where the file came from.
-  if (pack.replaces !== undefined && origin !== 'project') {
-    diagnostics.push({
-      severity: 'error',
-      code: 'pack-replaces-builtin',
-      message: `Built-in pack "${reference}" must not declare "replaces".`,
-      where: filePath,
-    });
-    return { pack: null, diagnostics };
-  }
-
   return {
-    pack: { pack, reference, origin, filePath, contentHash: contentHash(raw), resolvedPrompts },
+    pack: { pack, reference, origin, filePath, resolvedPrompts },
     diagnostics,
   };
 }
@@ -158,33 +122,14 @@ interface PackSetValidation {
   diagnostics: Diagnostic[];
 }
 
+/** A project pack with `replaces: builtin/<id>` takes that built-in's place; two enabled packs with one id are an error. */
 export function validatePackSet(packs: readonly PackWithPrompts[]): PackSetValidation {
   const diagnostics: Diagnostic[] = [];
-  const replacedIds = new Map<string, PackWithPrompts>();
-
-  for (const pack of packs) {
-    if (pack.pack.replaces === undefined) continue;
-    if (pack.origin !== 'project') {
-      diagnostics.push({
-        severity: 'error',
-        code: 'pack-replaces-not-project',
-        message: `Only a project policy file may declare "replaces"; ${pack.reference} is a built-in.`,
-        where: pack.filePath,
-      });
-      continue;
-    }
-    replacedIds.set(pack.pack.replaces, pack);
-  }
-
+  const replaced = new Set(packs.filter((pack) => pack.origin === 'project' && pack.pack.replaces !== undefined).map((pack) => pack.pack.replaces));
   const kept: PackWithPrompts[] = [];
   const seenIds = new Map<string, PackWithPrompts>();
-
   for (const pack of packs) {
-    const replacement = replacedIds.get(pack.reference);
-    if (replacement !== undefined && pack.origin === 'builtin') {
-      replacement.replacedReference = pack.reference;
-      continue;
-    }
+    if (pack.origin === 'builtin' && replaced.has(pack.reference)) continue;
     const existing = seenIds.get(pack.pack.id);
     if (existing !== undefined) {
       diagnostics.push({
@@ -197,17 +142,6 @@ export function validatePackSet(packs: readonly PackWithPrompts[]): PackSetValid
     }
     seenIds.set(pack.pack.id, pack);
     kept.push(pack);
-  }
-
-  for (const [reference, replacement] of replacedIds) {
-    if (replacement.replacedReference === undefined) {
-      diagnostics.push({
-        severity: 'warning',
-        code: 'pack-replaces-unused',
-        message: `${replacement.reference} declares "replaces: ${reference}", but that pack is not enabled for this project.`,
-        where: replacement.filePath,
-      });
-    }
   }
   return { packs: kept, diagnostics };
 }

@@ -1,6 +1,11 @@
 import type { ResolvedPolicy } from '#types/modules/policy';
 import { decisionFor, explainRefusal } from '#modules/policy/packs/resolve';
-import type { CommandAuthorization } from '../types/selection.ts';
+
+/** Every external command passes through here, so no call site can acquire execution without a decision. */
+type CommandAuthorization =
+  | { kind: 'allowed' }
+  | { kind: 'refused'; reason: string }
+  | { kind: 'needs-approval'; reason: string };
 
 interface AuthorizeOptions {
   policy: ResolvedPolicy;
@@ -32,9 +37,4 @@ export function authorizeCommand(options: AuthorizeOptions): CommandAuthorizatio
 /** Scoped by project, so `--approve lint` cannot reach another project's check of the same name. */
 export function checkApprovalKey(projectId: string, checkId: string): string {
   return `${projectId}/${checkId}`;
-}
-
-/** Approving a test run is not approving the script that decides what to run. */
-export function selectorApprovalKey(projectId: string, checkId: string): string {
-  return `${checkApprovalKey(projectId, checkId)}:selector`;
 }

@@ -1,12 +1,10 @@
 skill: review
 version: 3
-budget: { modelSteps: 6, wallMinutes: 45 }
-exits: [done, blocked, human, inconclusive, superseded, budget]
 revisable: []
 steps:
-  - { id: template, actor: code, when: args.hasRequirement, run: requirements.template }
-  - { id: fetch, actor: model, when: args.hasRequirement, instruction: file:routes/review/fetch.md, payload: [template] }
+  - { id: fetch, actor: model, when: args.hasRequirement, instruction: file:routes/review/fetch.md }
   - { id: ground, actor: code, when: args.hasRequirement, run: requirements.normalize, produces: [envelope], repeat: 2 }
+  - { id: mr-fetch, actor: model, when: args.hasMergeRequest, instruction: file:routes/review/mr-fetch.md }
   - { id: estimate-step, actor: code, run: review.estimate }
   - id: estimate
     actor: human
@@ -15,9 +13,20 @@ steps:
       options: [run, narrow, skip]
       acting: [run]
       default: skip
-      release: skip
       onAnswer: { narrow: revise estimate-step --narrow $answer, "*": revise estimate-step --narrow $answer }
-      maxRevises: 3
-  - { id: review-run, actor: code, when: gate.estimate.is(run), needs: [review], run: review.evaluate, produces: [review] }
-  - { id: readback, actor: model, when: gate.estimate.is(run), instruction: file:routes/review/readback.md, chain: next }
-  - { id: view, actor: model, when: gate.estimate.is(run), instruction: file:routes/review/view.md, final: true }
+  - { id: review-cmd, actor: code, when: gate.estimate.is(run), run: [review.command, context.list] }
+  - { id: review-run, actor: model, when: gate.estimate.is(run), instruction: file:routes/review/run.md, payload: [review.command, context.list], produces: [review] }
+  - { id: brief, actor: code, when: gate.estimate.is(run), run: ["policy.stage(before-work)", script(brief)] }
+  - { id: review-agent, actor: model, when: gate.estimate.is(run), instruction: file:routes/review/agent.md, payload: ["script:brief"], produces: ["review{recorded}"] }
+  - { id: readback, actor: model, when: gate.estimate.is(run), instruction: file:routes/review/readback.md, final: true }
+  - { id: publish-list, actor: code, when: args.hasMergeRequest, run: review.publishList }
+  - id: publish
+    actor: human
+    when: args.hasMergeRequest
+    gate:
+      question: "Post which findings as merge-request comments?"   # followed by the numbered list
+      options: [all, none]
+      acting: [all]
+      default: none
+      onAnswer: { "*": revise publish-run }
+  - { id: publish-run, actor: model, when: gate.publish.isnt(none), instruction: file:routes/review/publish.md, payload: [review.publishList], final: true }

@@ -8,7 +8,7 @@ const at = '2026-10-05T10:00:00.000Z';
 const route = (id: string, session: string, extra: Record<string, unknown> = {}): LedgerEntry => ({ id, at, kind: 'route', skill: 'plan', session, ...extra });
 const exit = (id: string, routeId: unknown, reason = 'done'): LedgerEntry => ({ id, at, kind: 'exit', route: routeId, reason });
 
-describe('ownerOf: the live plan chain and its latest session', () => {
+describe('ownerOf: the one live plan route and its session', () => {
   it('no plan route is no owner; legacy and other-skill entries never own', () => {
     assert.deepEqual(ownerOf([], 'T'), { task: 'T', state: 'none' });
     const legacy: LedgerEntry[] = [
@@ -20,28 +20,16 @@ describe('ownerOf: the live plan chain and its latest session', () => {
   });
 
   it('a started plan route is owned by its session', () => {
-    assert.deepEqual(ownerOf([route('a-1', 'A')], 'T'), { task: 'T', state: 'owned', session: 'A', routeId: 'a-1', chainIds: ['a-1'], takenOver: [] });
+    assert.deepEqual(ownerOf([route('a-1', 'A')], 'T'), { task: 'T', state: 'owned', session: 'A', routeId: 'a-1', chainIds: ['a-1'] });
   });
 
-  it('--adopt moves ownership to the adopting session and marks the former one taken over', () => {
-    const owner = ownerOf([route('a-1', 'A'), route('b-1', 'B', { resumes: 'a-1', adopts: true })], 'T');
-    assert.deepEqual(owner, { task: 'T', state: 'owned', session: 'B', routeId: 'b-1', chainIds: ['a-1', 'b-1'], takenOver: ['A'] });
-  });
-
-  it('a same-session resume keeps the owner and takes over nobody', () => {
-    const owner = ownerOf([route('a-1', 'A'), route('a-5', 'A', { resumes: 'a-1' })], 'T');
-    assert.equal(owner.state === 'owned' && owner.session, 'A');
-    assert.deepEqual(owner.state === 'owned' && owner.takenOver, []);
-  });
-
-  it('--fresh supersedes the old chain; its sessions are taken over by the new owner', () => {
+  it('--fresh supersedes the old route; the new session owns', () => {
     const owner = ownerOf([route('a-1', 'A'), exit('b-1', 'a-1', 'superseded'), route('b-2', 'B')], 'T');
-    assert.deepEqual(owner, { task: 'T', state: 'owned', session: 'B', routeId: 'b-2', chainIds: ['b-2'], takenOver: ['A'] });
+    assert.deepEqual(owner, { task: 'T', state: 'owned', session: 'B', routeId: 'b-2', chainIds: ['b-2'] });
   });
 
-  it('an exit on any route of the chain ends it; age is never an end', () => {
-    assert.deepEqual(ownerOf([route('a-1', 'A'), route('b-1', 'B', { resumes: 'a-1', adopts: true }), exit('b-2', 'b-1')], 'T'), { task: 'T', state: 'none' });
-    assert.deepEqual(ownerOf([route('a-1', 'A'), route('b-1', 'B', { resumes: 'a-1', adopts: true }), exit('a-2', 'a-1')], 'T'), { task: 'T', state: 'none' });
+  it('an exit ends the plan route; age is never an end', () => {
+    assert.deepEqual(ownerOf([route('a-1', 'A'), exit('a-2', 'a-1')], 'T'), { task: 'T', state: 'none' });
     const old = { ...route('a-1', 'A'), at: '2020-01-01T00:00:00.000Z' };
     assert.equal(ownerOf([old], 'T').state, 'owned');
   });
@@ -57,33 +45,26 @@ describe('ownerOf: the live plan chain and its latest session', () => {
       { id: 'L2', at, kind: 'future-kind', skill: 7, session: 9, route: 'nowhere' },
       route('a-1', 'A'),
       { id: 'b-1', at, kind: 'route', skill: 'review' },
-      { id: 'b-2', at, kind: 'route', skill: 'investigate', session: 'B', resumes: 'b-1', adopts: true },
+      { id: 'b-2', at, kind: 'route', skill: 'investigate', session: 'B' },
       exit('b-3', 'b-2'),
     ];
     assert.equal(ownerOf(entries, 'T').state, 'owned');
   });
 
-  it('a new start after an ended chain is owned by its session', () => {
+  it('a new start after an ended route is owned by its session', () => {
     const owner = ownerOf([route('a-1', 'A'), exit('a-2', 'a-1'), route('b-1', 'B')], 'T');
     assert.equal(owner.state === 'owned' && owner.session, 'B');
-    assert.deepEqual(owner.state === 'owned' && owner.takenOver, []);
   });
 
   for (const [label, entries] of [
-    ['a plan route without a session', [route('a-1', 'A'), { id: 'b-1', at, kind: 'route', skill: 'plan', resumes: 'a-1' }]],
-    ['a resume of an unknown route', [route('a-1', 'A'), route('b-1', 'B', { resumes: 'zz-1' })]],
-    ['a forward resume', [route('b-1', 'B', { resumes: 'a-1' }), route('a-1', 'A')]],
-    ['a resume that is not a string', [route('a-1', 'A'), route('b-1', 'B', { resumes: 1 })]],
-    ['a resume of an ended chain', [route('a-1', 'A'), exit('a-2', 'a-1'), route('b-1', 'B', { resumes: 'a-1' })]],
+    ['a plan route without a session', [route('a-1', 'A'), { id: 'b-1', at, kind: 'route', skill: 'plan' }]],
     ['a repeated ledger id', [route('a-1', 'A'), route('a-1', 'B')]],
-    ['two live chains at once', [route('a-1', 'A'), route('b-1', 'B')]],
-    ['a later route without a skill', [route('a-1', 'A'), { id: 'b-1', at, kind: 'route', session: 'B', resumes: 'a-1', adopts: true }]],
-    ['a later route with a numeric skill', [route('a-1', 'A'), { id: 'b-1', at, kind: 'route', skill: 7, session: 'B', resumes: 'a-1', adopts: true }]],
+    ['two live plan routes at once', [route('a-1', 'A'), route('b-1', 'B')]],
+    ['a later route without a skill', [route('a-1', 'A'), { id: 'b-1', at, kind: 'route', session: 'B' }]],
+    ['a later route with a numeric skill', [route('a-1', 'A'), { id: 'b-1', at, kind: 'route', skill: 7, session: 'B' }]],
     ['a route with an empty skill', [route('a-1', 'A'), { id: 'b-1', at, kind: 'route', skill: '', session: 'B' }]],
     ['a route with a numeric session', [route('a-1', 'A'), { id: 'b-1', at, kind: 'route', skill: 'investigate', session: 4 }]],
-    ['a plan route with an empty session', [route('a-1', 'A'), route('b-1', '', { resumes: 'a-1' })]],
-    ['a route whose adopts is not a boolean', [route('a-1', 'A'), route('b-1', 'B', { resumes: 'a-1', adopts: 'yes' })]],
-    ['another skill resuming a plan route', [route('a-1', 'A'), { id: 'b-1', at, kind: 'route', skill: 'review', session: 'B', resumes: 'a-1' }]],
+    ['a plan route with an empty session', [route('a-1', 'A'), route('b-1', '')]],
     ['an exit without a route', [route('a-1', 'A'), exit('a-2', undefined)]],
     ['an exit naming an unknown route', [route('a-1', 'A'), exit('a-2', 'zz-9')]],
     ['an exit naming a route after it', [exit('a-0', 'a-1'), route('a-1', 'A')]],
@@ -103,12 +84,4 @@ describe('the ownership module', () => {
     for (const line of source.split('\n').filter((text) => /^\s*import\s/.test(text))) assert.match(line, /^import type /);
   });
 
-  it('a reopened chain is live again and owned by its latest session; a later exit closes it', () => {
-    const reopen = { id: 'v-1', at, kind: 'revise', route: 'a-1', from: 'read', via: 'reopen' } as LedgerEntry;
-    const base = [route('a-1', 'A'), exit('e-1', 'a-1', 'done'), reopen];
-    assert.deepEqual(ownerOf(base, 'T'), { task: 'T', state: 'owned', session: 'A', routeId: 'a-1', chainIds: ['a-1'], takenOver: [] });
-    const resumed = ownerOf([...base, route('b-1', 'B', { resumes: 'a-1', adopts: true })], 'T');
-    assert.equal(resumed.state === 'owned' && resumed.session, 'B');
-    assert.deepEqual(ownerOf([...base, exit('e-2', 'a-1', 'done')], 'T'), { task: 'T', state: 'none' });
-  });
 });

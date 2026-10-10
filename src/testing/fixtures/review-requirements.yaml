@@ -1,7 +1,5 @@
 skill: review
 version: 3
-budget: { modelSteps: 6 }
-exits: [done, blocked, human, inconclusive, superseded, budget]
 revisable: []
 steps:
   - id: fetch
@@ -17,4 +15,3 @@ steps:
       question: "Run the review?"
       options: ["run"]
       default: "run"
-      release: "run"

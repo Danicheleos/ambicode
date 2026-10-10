@@ -9,7 +9,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { BENCH_PROJECTS, BENCHMARKS, CASES_ROOT, casePrefix, IMPACT_CASES_DIRECTORY, PROJECT_CODE_ROOTS, projectCasesDir, projectCodeDir } from '../shared/bench-paths.mjs';
-import { countDeclarations } from '../../../../src/modules/search/declarations/harvest.ts';
+import { DECLARATION_PATTERNS } from '../../../../src/types/modules/ecosystems.ts';
 import { INVESTIGATE_COMMAND, writePluginPrompt } from '../harness/prompt-transport.mjs';
 import { casePrompt, graderFiles, peekGraders, regexEscape, scaffoldFile } from './bench-cases.mjs';
 import { tsconfigFor } from '../arms/lsp-arms.mjs';
@@ -45,6 +45,19 @@ export function exportedSymbols(file, text) {
   return out;
 }
 
+/** Per name, how many of the files declare it (any declaration, exported or not). */
+function countDeclarations(texts, names) {
+  const wanted = new Set(names);
+  const files = new Map();
+  for (const [file, text] of texts)
+    for (const line of text.split(/\r?\n/))
+      for (const pattern of DECLARATION_PATTERNS) {
+        const name = new RegExp(pattern.source, pattern.flags.replace('g', '')).exec(line)?.[1];
+        if (name !== undefined && wanted.has(name)) files.set(name, (files.get(name) ?? new Set()).add(file));
+      }
+  return new Map([...files].map(([name, set]) => [name, { declarations: set.size }]));
+}
+
 const wordIn = (name) => new RegExp(`(?<![A-Za-z0-9_$])${regexEscape(name)}(?![A-Za-z0-9_$])`);
 
 /**
@@ -58,7 +71,7 @@ export function analyse(sideDir, root) {
   const texts = new Map(files.map((f) => [f, readFileSync(path.join(sideDir, f), 'utf8')]));
   const candidates = [];
   const symbols = new Map(code.map((file) => [file, exportedSymbols(file, texts.get(file))]));
-  const census = countDeclarations(new Map(code.map((f) => [f, texts.get(f)])), [...new Set([...symbols.values()].flat().map((s) => s.name))], { exportOnly: false });
+  const census = countDeclarations(new Map(code.map((f) => [f, texts.get(f)])), [...new Set([...symbols.values()].flat().map((s) => s.name))]);
   for (const file of code)
     for (const symbol of symbols.get(file)) {
       const declarations = census.get(symbol.name)?.declarations ?? 0;

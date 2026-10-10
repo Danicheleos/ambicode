@@ -642,19 +642,19 @@ describe('eval graders: trace indicators match what review prints, and only a co
   const traced = (printed) =>
     JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', content: printed }] } });
 
-  /** Check keys ordered as `src/checks/run.ts` writes them, and a replay's `source` last. */
+  /** Check keys ordered as `src/checks/run.ts` writes them. */
   function printed(options) {
     const plain = reviewResult({ reviewerStatus: options.reviewerStatus });
-    const base = options.replay ? { ...plain, reviewer: { ...plain.reviewer, source: 'replay' } } : plain;
-    const [lint] = base.checks;
-    const unit = { ...lint, checkId: 'unit', adapter: 'jest', status: options.unitStatus };
+    
+    const [lint] = plain.checks;
+    const unit = { ...lint, key: 'unit', phase: 'green', exit: options.unitStatus === 'passed' ? 0 : 1 };
     return [
-      [lint, unit],
-      [unit, lint],
+      options.unitStatus === 'absent' ? [lint] : [lint, unit],
+      options.unitStatus === 'absent' ? [lint] : [unit, lint],
     ].flatMap((checks) => {
       const output = {
         command: 'review',
-        result: { ...base, checks },
+        result: { ...plain, checks },
         snapshotDirectory: '/tmp/snapshot',
         resultPath: '/work/repo/.ambicode/reviews/r-0001/result.json',
         pendingApprovals: [],
@@ -708,33 +708,15 @@ describe('eval graders: trace indicators match what review prints, and only a co
     for (const body of await skillBodies()) assert.ok(!regexPasses(grader, body), body.slice(0, 120));
   });
 
-  it('reviewer-completed reads a replayed answer as completed, and a failed replay as not', async () => {
-    // Deliberate: in `claude plugin eval` every review is a replay, and this
-    // indicator says the workflow reached a validated answer. Which kind it
-    // was is `source`, on the same line of both forms.
-    const { grader } = await indicator('reviewer-completed');
-    for (const line of printed({ reviewerStatus: 'ok', unitStatus: 'skipped', replay: true })) {
-      assert.ok(regexPasses(grader, line), line.slice(0, 200));
-      assert.match(line, /REPLAYED from a recording|\\"source\\": \\"replay\\"/);
-    }
-    for (const line of printed({ reviewerStatus: 'failed', unitStatus: 'passed', replay: true })) {
-      assert.ok(!regexPasses(grader, line));
-    }
-  });
-
-  it('unit-check-ran matches a unit check that executed, and never a skipped one beside an executed lint', async () => {
+  it('unit-check-ran matches a unit check entry that ran, and never a run with only a lint check', async () => {
     const { grader } = await indicator('unit-check-ran');
     for (const unitStatus of ['passed', 'failed']) {
       for (const line of printed({ reviewerStatus: 'failed', unitStatus })) {
         assert.ok(regexPasses(grader, line), unitStatus);
       }
     }
-    // `lint` is `failed` in every one of these, so a pattern not anchored to
-    // the unit check's own status would pass them.
-    for (const unitStatus of ['skipped', 'timed-out', 'error']) {
-      for (const line of printed({ reviewerStatus: 'ok', unitStatus })) {
-        assert.ok(!regexPasses(grader, line), unitStatus);
-      }
+    for (const line of printed({ reviewerStatus: 'ok', unitStatus: 'absent' })) {
+      assert.ok(!regexPasses(grader, line), 'lint only');
     }
     for (const body of await skillBodies()) assert.ok(!regexPasses(grader, body), body.slice(0, 120));
   });

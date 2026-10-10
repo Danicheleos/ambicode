@@ -1,23 +1,11 @@
-import { z } from 'zod';
 import { parse as parseYaml } from 'yaml';
 import { AmbicodeError, messageOf } from '#util/errors';
 import { PLATFORM, type PlatformFlags } from '#types/platform/claude';
-import { invalid, normalizeGate } from '../definition/dsl.ts';
+import { RawGate, invalid, normalizeGate } from '../definition/dsl.ts';
 import type { Runtime } from '#types/composition';
 import type { TaskDir, LedgerEntry, LockedLedger, ArtifactRef } from '#types/modules/evidence';
-import type { RouteView, RouteArgs, GateDef, RouteRegistry } from '#types/harness';
+import type { RouteView, GateDef, RouteRegistry } from '#types/harness';
 import { hash12 } from '#util/hash';
-
-const RawEntry = z.strictObject({
-  question: z.string().min(1),
-  options: z.array(z.string().min(1)).min(1),
-  default: z.string().min(1),
-  release: z.string().min(1),
-  onAnswer: z.record(z.string(), z.string()).optional(),
-  maxRevises: z.number().int().optional(),
-  acting: z.array(z.string()).optional(),
-  policy: z.record(z.string(), z.literal('stop')).optional(),
-});
 
 const DECISION_PREFIX = 'decision:';
 
@@ -32,7 +20,7 @@ export function parseRegistry(file: string, text: string, kinds: readonly string
   if (document === null || typeof document !== 'object' || Array.isArray(document)) throw invalid(file, 'root', 'must be a mapping of gate ids');
   const gates: GateDef[] = [];
   for (const [key, value] of Object.entries(document)) {
-    const parsed = RawEntry.safeParse(value);
+    const parsed = RawGate.safeParse(value);
     if (!parsed.success) {
       const issue = parsed.error.issues[0];
       throw invalid(file, `gate ${key}`, `${issue?.path.join('.') || 'entry'}: ${issue?.message ?? 'invalid'}`);
@@ -71,13 +59,12 @@ export function instantiateGate(
     question: fill(gate.question, input.values),
     options: stop && !options.includes('stop') ? [...options, 'stop'] : options,
     default: stop ? 'stop' : fill(gate.default, input.values),
-    release: stop ? 'stop' : fill(gate.release, input.values),
   };
   if (gate.class !== 'decision' && !instantiated.options.includes(instantiated.default)) {
     throw new AmbicodeError('route-invalid', `gate ${gate.id}: the instantiated options do not contain the default "${instantiated.default}".`);
   }
-  if (instantiated.acting.includes(instantiated.default) || instantiated.acting.includes(instantiated.release)) {
-    throw new AmbicodeError('route-invalid', `gate ${gate.id}: an instantiated default or release is acting.`);
+  if (instantiated.acting.includes(instantiated.default)) {
+    throw new AmbicodeError('route-invalid', `gate ${gate.id}: an instantiated default is acting.`);
   }
   return instantiated;
 }
@@ -91,7 +78,6 @@ interface PrintInput {
   entry: LedgerEntry;
   object: ArtifactRef | null;
   revisesLeft: number | null;
-  retry?: boolean;
   platform?: PlatformFlags;
   runner?: string;
 }
@@ -116,7 +102,6 @@ export function gatePrintText(input: PrintInput): string {
   }
   if (object !== null) lines.push(`Object: ${object.path} ${hash12(object.contentHash)}`);
   lines.push(gateMarker(gate.id, entry.id));
-  if (input.retry === true) lines.push('The last answer carried no usable marker: put the marker line above back into the question text.');
   const flagged = offered.filter((option) => !gate.acting.includes(option));
   if (platform.askBinding === 'supported') {
     lines.push('Ask the user with AskUserQuestion, with the marker line verbatim in the question text. The answer is recorded for you.');
@@ -164,13 +149,10 @@ export async function raiseGate(
   });
 }
 
-/** Gates whose answer is open text after a fixed lead: the instantiated option lists the stored choices, not each subset. */
-const OPEN_OPTIONS: Readonly<Record<string, RegExp>> = { 'requirements-expansion-capped': /^read these:\s*\S/ };
-
 /** AskUserQuestion labels often carry a trailing " (Recommended)"; the option is what precedes it. */
 export const stripRecommended = (option: string): string => option.replace(/\s*\(Recommended\)\s*$/i, '');
 
-export const offersOption = (gate: string, options: readonly string[], option: string): boolean => options.includes(option) || options.includes(stripRecommended(option)) || OPEN_OPTIONS[gate]?.test(option) === true;
+export const offersOption = (options: readonly string[], option: string): boolean => options.includes(option) || options.includes(stripRecommended(option));
 
 type RaisedAnswerHandler = (input: { view: RouteView; ledger: LockedLedger; acceptance: LedgerEntry; routes: RouteRegistry }) => Promise<void>;
 const ANSWER_HANDLERS = new Map<string, RaisedAnswerHandler>();
@@ -179,12 +161,6 @@ const ANSWER_HANDLERS = new Map<string, RaisedAnswerHandler>();
 export const onRaisedAnswer = (gate: string, handler: RaisedAnswerHandler): void => void ANSWER_HANDLERS.set(gate, handler);
 export const raisedAnswerHandler = (gate: string): RaisedAnswerHandler | undefined => ANSWER_HANDLERS.get(gate);
 
-/** A route's command for a code step's unmet `needs` kind (08-R5): the step prints it instead of refusing. */
-type NeedCommand = (input: { runtime: Runtime; task: string; args: RouteArgs; chain: readonly LedgerEntry[] }) => Promise<string>;
-const NEED_COMMANDS = new Map<string, NeedCommand>();
-export const onNeedCommand = (skill: string, need: string, command: NeedCommand): void => void NEED_COMMANDS.set(`${skill}:${need}`, command);
-export const needCommandFor = (skill: string, need: string): NeedCommand | undefined => NEED_COMMANDS.get(`${skill}:${need}`);
-
 /** Print-time text and offered options a module adds to a gate's question (09-G1). */
 interface PrintShape { line: string; offered?: readonly string[]; values?: Readonly<Record<string, unknown>> }
 type PrintShaper = (input: { runtime: Runtime; dir: TaskDir; task: string; chain: readonly LedgerEntry[]; gate: GateDef }) => Promise<PrintShape | null>;
@@ -192,14 +168,13 @@ const PRINT_SHAPERS = new Map<string, PrintShaper>();
 
 export const onGatePrint = (gate: string, shaper: PrintShaper): void => void PRINT_SHAPERS.set(gate, shaper);
 
-/** The question and options one print records; `offered` stays within the declared options and keeps default and release. */
+/** The question and options one print records; `offered` stays within the declared options and keeps the default. */
 export async function shapePrint(gate: GateDef, input: Omit<Parameters<PrintShaper>[0], 'gate'>): Promise<{ question: string; options: readonly string[]; values?: Readonly<Record<string, unknown>> }> {
   const shape = (await PRINT_SHAPERS.get(gate.id)?.({ ...input, gate })) ?? null;
   if (shape === null) return { question: gate.question, options: gate.options };
   const offered = shape.offered ?? gate.options;
-  const required = [gate.default, gate.release].filter((option) => gate.options.includes(option));
-  if (offered.some((option) => !gate.options.includes(option)) || required.some((option) => !offered.includes(option))) {
-    throw new AmbicodeError('internal', `gate ${gate.id}: a print offered options outside the declared ones or without the default and release.`);
+  if (offered.some((option) => !gate.options.includes(option)) || !offered.includes(gate.default)) {
+    throw new AmbicodeError('internal', `gate ${gate.id}: a print offered options outside the declared ones or without the default.`);
   }
   return { question: shape.line === '' ? gate.question : `${gate.question}\n${shape.line}`, options: [...offered], ...(shape.values === undefined ? {} : { values: shape.values }) };
 }

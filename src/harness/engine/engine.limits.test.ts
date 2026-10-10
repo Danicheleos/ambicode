@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import { appendFile, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { routeFixture } from '#testing/fixtures/route-fixture';
-import { CLI_LIMIT, HOOK_LIMIT } from './delivery.ts';
+import { CLI_LIMIT, HOOK_LIMIT } from './execute.ts';
 import type { Handler } from '#types/harness';
 
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';
-const HEAD = (skill: string, budget = 8, extra = '') => `skill: ${skill}\nversion: 3\nbudget: { modelSteps: ${budget}${extra} }\nexits: [done, blocked, human, inconclusive, superseded, budget]\nrevisable: []\nsteps:\n`;
+const HEAD = (skill: string) => `skill: ${skill}\nversion: 3\nrevisable: []\nsteps:\n`;
 
 interface Box { failCode: string | null; ran: number; crashAfterOutputs: boolean; payload: string }
 const newBox = (): Box => ({ failCode: null, ran: 0, crashAfterOutputs: false, payload: 'x' });
@@ -41,21 +41,20 @@ const FAILING = `${HEAD('r')}  - id: work
     actor: code
     run: [t.work]
     produces: ["policy{before-work}"]
-    onError: retry-with "Fix the input, then run route next."
   - id: finish
     actor: model
     instruction: "Finish."
 `;
 
 describe('F8 failure counters', () => {
-  it('03-F8: the same error twice writes a same-error limit and names route stop; three in a row write identical-next', async () => {
+  it('03-F8: three identical failures in a row write identical-next and no other limit', async () => {
     const t = await make(FAILING);
     try {
       t.box.failCode = 'x-failed';
       assert.equal(await codeOf(t.start()), 'x-failed');
-      await assert.rejects(t.next(), (error: Error & { details?: string[] }) => /route stop/.test((error.details ?? []).join('\n')));
       await codeOf(t.next());
-      assert.deepEqual(await t.limits(), [['same-error', 'work'], ['same-error', 'work'], ['identical-next', 'work']]);
+      await codeOf(t.next());
+      assert.deepEqual(await t.limits(), [['identical-next', 'work']]);
       assert.equal(t.box.ran, 3);
     } finally {
       await t.fx.dispose();
@@ -80,85 +79,12 @@ describe('F9 missing produces', () => {
       const second = await t.next();
       assert.match(second.text, /Not done yet: note\{investigation\}/);
       const third = await t.next();
-      assert.match(third.text, /Or stop: .*route stop/);
+      assert.match(third.text, /Not done yet: note\{investigation\}/);
       const fourth = await t.next();
       assert.deepEqual(await t.limits(), [['missing-produces', 'write']]);
       assert.equal(fourth.position, 'finish');
     } finally {
       await t.fx.dispose();
-    }
-  });
-});
-
-const BUDGETED = `${HEAD('r', 2)}  - id: one
-    actor: model
-    instruction: "One."
-  - id: two
-    actor: model
-    instruction: "Two."
-  - id: three
-    actor: model
-    instruction: "Three."
-  - id: four
-    actor: model
-    instruction: "Four."
-  - id: five
-    actor: model
-    instruction: "Five."
-`;
-
-describe('F10 model-step budget', () => {
-  it('03-F10: the delivery over budget raises budget-exhausted; stop exits budget; continue extends by one budget', async () => {
-    const t = await make(BUDGETED);
-    try {
-      await t.start();
-      await t.next();
-      const gate = await t.next();
-      assert.equal(gate.position, 'three');
-      assert.match(gate.text, /budget is spent/);
-      const printed = (await t.fx.kinds('t1', 'gate')).at(-1)!;
-      const resumed = await t.fx.engine.advance({ task: 't1', session: A, cause: 'gate-hook', answers: [{ gate: 'budget-exhausted', option: 'continue', instance: printed.id }] });
-      assert.equal(resumed.position, 'three');
-      assert.equal((await t.fx.kinds('t1', 'exit')).length, 0);
-      await t.next();
-      const second = await t.next();
-      assert.match(second.text, /budget is spent/);
-      const again = (await t.fx.kinds('t1', 'gate')).at(-1)!;
-      await t.fx.engine.advance({ task: 't1', session: A, cause: 'gate-hook', answers: [{ gate: 'budget-exhausted', option: 'stop', instance: again.id }] });
-      assert.equal((await t.fx.kinds('t1', 'exit')).at(-1)!['reason'], 'budget');
-    } finally {
-      await t.fx.dispose();
-    }
-  });
-});
-
-const WALL = `${HEAD('r', 8, ', wallMinutes: 5')}  - id: one
-    actor: model
-    instruction: "One."
-  - id: two
-    actor: model
-    instruction: "Two."
-`;
-
-describe('F11 wall clock', () => {
-  it('03-F11: a headless route past wallMinutes exits budget; an interactive one never does', async () => {
-    const headless = await make(WALL);
-    try {
-      await headless.start({ headless: true });
-      headless.fx.advanceClock(6 * 60_000);
-      const ended = await headless.next();
-      assert.equal((await headless.fx.kinds('t1', 'exit')).at(-1)!['reason'], 'budget');
-      assert.match(ended.text, /ended: budget/);
-    } finally {
-      await headless.fx.dispose();
-    }
-    const interactive = await make(WALL);
-    try {
-      await interactive.start();
-      interactive.fx.advanceClock(600 * 60_000);
-      assert.equal((await interactive.next()).position, 'two');
-    } finally {
-      await interactive.fx.dispose();
     }
   });
 });
@@ -221,14 +147,15 @@ describe('E1 crash recovery (S10 engine halves)', () => {
 });
 
 describe('E7 slug and args hash', () => {
-  it('03-E7/03-E8: the task slug is minted from the text; the args hash ignores requirement order', async () => {
+  it('03-E7/03-E8: the task slug is minted from the text; a restart supersedes the live route', async () => {
     const t = await make(BIG);
     try {
       const first = await t.fx.engine.start({ skill: 'r', text: 'refactor the cart', requirements: ['ORD-2', 'ORD-1'], cwd: t.fx.repo.root, session: A, channel: 'hook' });
-      assert.equal(first.task, 'ORD-2');
-      const second = await t.fx.engine.start({ skill: 'r', text: 'refactor  the cart', requirements: ['ORD-1', 'ORD-2'], task: 'ORD-2', cwd: t.fx.repo.root, session: A, channel: 'hook' });
-      assert.equal(first.routeId, second.routeId);
-      assert.equal((await t.fx.kinds('ORD-2', 'route')).length, 1);
+      assert.equal(first.task, 'ord-2');
+      const second = await t.fx.engine.start({ skill: 'r', text: 'refactor  the cart', requirements: ['ORD-1', 'ORD-2'], task: 'ord-2', cwd: t.fx.repo.root, session: A, channel: 'hook' });
+      assert.notEqual(first.routeId, second.routeId);
+      assert.equal((await t.fx.kinds('ord-2', 'route')).length, 2);
+      assert.deepEqual((await t.fx.kinds('ord-2', 'exit')).map((entry) => entry['reason']), ['superseded']);
       const plain = await t.fx.engine.start({ skill: 'r', text: 'Refactor the cart totals', requirements: [], cwd: t.fx.repo.root, session: A, channel: 'hook' });
       assert.match(plain.task, /^[a-z0-9][a-z0-9-]*$/);
     } finally {
@@ -260,23 +187,6 @@ describe('E9 onError', () => {
   });
 });
 
-describe('E10 status', () => {
-  it('03-E10: status is read-only and lists orphan files the ledger does not name', async () => {
-    const t = await make(BIG);
-    try {
-      await t.start();
-      await writeFile(path.join(t.fx.repo.root, '.ambicode', 'task', 't1', 'stray.md'), 'x');
-      const before = await t.fx.ledger('t1');
-      const [position] = await t.fx.engine.status('t1', A);
-      assert.equal(position!.position, 'read');
-      assert.deepEqual(position!.orphans, ['stray.md']);
-      assert.deepEqual(await t.fx.ledger('t1'), before);
-    } finally {
-      await t.fx.dispose();
-    }
-  });
-});
-
 describe('E11/E12 done versus complete', () => {
   it('03-E11: a route with nothing unverified exits done and complete; a stop exit is not complete', async () => {
     const t = await make(`${HEAD('r')}  - id: one\n    actor: model\n    instruction: "One."\n`);
@@ -297,7 +207,7 @@ describe('E13 recovery paths', () => {
     const t = await make(BIG);
     try {
       await t.start();
-      await writeFile(path.join(t.fx.repo.root, '.ambicode', 'task', 't1', 'ledger.jsonl'), '{"id":"a-1"\nnot json\n');
+      await writeFile(path.join(t.fx.repo.root, '.ambicode', 'tasks', 't1', 'ledger.jsonl'), '{"id":"a-1"\nnot json\n');
       assert.equal(await codeOf(t.next()), 'ledger-unreadable');
       assert.equal(await codeOf(t.start()), 'ledger-unreadable');
     } finally {
@@ -312,7 +222,7 @@ describe('E13 recovery paths', () => {
   });
 });
 
-describe('A3 exits on a dirty completion and budgets after a reopen', () => {
+describe('A3 exits on a dirty completion', () => {
   it('a completion with unverified items writes exit complete with the count, once', async () => {
     const t = await make(WRITER);
     try {
@@ -330,20 +240,4 @@ describe('A3 exits on a dirty completion and budgets after a reopen', () => {
     }
   });
 
-  it('model deliveries before a reopen do not count against the budget', async () => {
-    const t = await make(BUDGETED);
-    try {
-      const started = await t.start();
-      await t.next();
-      const routeId = started.routeId;
-      let n = 0;
-      const line = (fields: object): string => `${JSON.stringify({ id: `zzzzzzzz-${(n += 1)}`, at: new Date().toISOString(), ...fields })}\n`;
-      await appendFile(path.join(t.fx.repo.root, '.ambicode', 'task', 't1', 'ledger.jsonl'), line({ kind: 'exit', route: routeId, reason: 'done', complete: true, unverified: 0 }) + line({ kind: 'revise', route: routeId, from: 'one', via: 'reopen', cycle: 0, reason: 'more' }));
-      const again = await t.next();
-      assert.equal(again.position, 'two');
-      assert.doesNotMatch(again.text, /budget is spent/);
-    } finally {
-      await t.fx.dispose();
-    }
-  });
 });

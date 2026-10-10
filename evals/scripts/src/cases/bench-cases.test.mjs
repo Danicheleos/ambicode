@@ -36,13 +36,13 @@ describe('evals-bench: generate', () => {
     benchmarks = mkdtempSync(path.join(tmpdir(), 'bench-'));
     const side = path.join(benchmarks, 'SIDE');
     mkdirSync(path.join(side, 'project', 'app', 'orders'), { recursive: true });
-    mkdirSync(path.join(side, 'project', '.ambicode', 'task', 'old-note'), { recursive: true });
+    mkdirSync(path.join(side, 'project', '.ambicode', 'tasks', 'old-note'), { recursive: true });
     mkdirSync(path.join(side, 'assets'), { recursive: true });
     writeFileSync(path.join(side, 'project', 'app', 'orders', 'service.ts'), 'export const total = 1;\n');
     writeFileSync(path.join(side, 'project', 'app', 'orders', 'model.ts'), 'export type Order = {};\n');
     writeFileSync(path.join(side, 'project', 'app', '.DS_Store'), 'x');
     writeFileSync(path.join(side, 'project', '.ambicode', 'config.yaml'), 'schemaVersion: 1\n');
-    writeFileSync(path.join(side, 'project', '.ambicode', 'task', 'old-note', 'note.md'), 'the answer is app/orders/service.ts\n');
+    writeFileSync(path.join(side, 'project', '.ambicode', 'tasks', 'old-note', 'note.md'), 'the answer is app/orders/service.ts\n');
     writeFileSync(path.join(side, 'assets', 'T-1.md'), ticket('Discount the order total.', ['app/orders/service.ts', 'app/orders/gone.ts']));
     writeFileSync(path.join(side, 'assets', 'T-2.md'), ticket('Only a removed file.', ['app/orders/removed.ts']));
     const version = path.join(side, 'reviews', 'T-1', '7-abcdef12');
@@ -98,7 +98,7 @@ describe('evals-bench: generate', () => {
       assert.equal(all[name].max, 0);
       // Only the code: the investigate skill's own note under .ambicode/ is not an edit.
       assert.ok(new RegExp(all[name].input_match).test('{"file_path":"/tmp/x/repo/app/orders/service.ts"}'));
-      assert.ok(!new RegExp(all[name].input_match).test('{"file_path":"/tmp/x/repo/.ambicode/task/n.md"}'));
+      assert.ok(!new RegExp(all[name].input_match).test('{"file_path":"/tmp/x/repo/.ambicode/tasks/n.md"}'));
     }
     // 03b-H4: the route starts from the prompt hook, so no Skill or prepare/locate indicator is graded.
     assert.equal(all['plugin-fired'], undefined);
@@ -123,7 +123,7 @@ describe('evals-bench: generate', () => {
       const repo = path.join(run, 'repo');
       assert.ok(existsSync(path.join(repo, 'app', 'orders', 'service.ts')));
       assert.ok(existsSync(path.join(repo, '.ambicode', 'config.yaml')));
-      assert.ok(!existsSync(path.join(repo, '.ambicode', 'task')), 'earlier task notes could hand an arm the answer');
+      assert.ok(!existsSync(path.join(repo, '.ambicode', 'tasks')), 'earlier task notes could hand an arm the answer');
       assert.ok(!existsSync(path.join(repo, 'app', '.DS_Store')));
       assert.equal(execFileSync('git', ['status', '--porcelain'], { cwd: repo, encoding: 'utf8' }), '');
       assert.equal(execFileSync('git', ['log', '--format=%aI'], { cwd: repo, encoding: 'utf8' }).trim(), '2026-01-01T00:00:00Z');

@@ -1,14 +1,9 @@
-import path from 'node:path';
+import { dirKindFor } from '#types/defaults';
 import { createRuntime } from '#composition/root';
-import { openRepository } from '#platform/git/open';
-import { projectForPath, toRepositoryRelative } from '#modules/config/workspace';
-import { resolvePolicyFor } from '#modules/policy/resolve-for';
-import { loadConfig } from '#modules/config/load';
-import type { AmbicodeConfig } from '#types/modules/config';
-import type { ResolvedRule } from '#types/modules/policy';
-import { EMPTY_HOOK_OUTPUT, HookInput, type AdditionalContextEvent, type AdditionalContextHookOutput, type PostToolUseHookOutput, type RouteHookDeps, type HookDeps } from '#types/hook';
+import { EMPTY_HOOK_OUTPUT, HookInput, type AdditionalContextEvent, type AdditionalContextHookOutput, type RouteHookDeps, type HookDeps } from '#types/hook';
 import { askedKeys } from '#modules/requirements/envelope/envelope';
 import { captureRequirement } from '#modules/requirements/capture/capture';
+import { captureMrDiff } from '#modules/review/snapshot/mr-capture';
 import { fsActiveRoutePointer, resolveActiveRoute } from '#harness/session/active-route';
 import { openRouteView } from '#harness/engine/context';
 import { createApp } from '#composition/app';
@@ -18,14 +13,10 @@ import { taskDirFor } from '#modules/evidence/task/task-dir';
 import { answerGates } from './gate-answer.ts';
 import { launchRoute, reinjectRoute } from './prompt-launch.ts';
 import { stopCheck } from './stop-check.ts';
-import { rejectedGateMarker } from '#platform/claude/transcript';
 import { readSessionContract } from '#modules/policy/packs/shared-contract';
-import { contentHash } from '#util/hash';
-import { endSession, rebindSession } from '#harness/session/rebind';
-import { cleanupSessionState, currentEpoch, deliverOnce, hookStateBaseDir, resetEpoch } from '#platform/claude/hook-state';
+import { cleanupSessionState, deliverOnce, hookStateBaseDir, resetDelivered } from '#platform/claude/hook-state';
 import type { Runtime } from '#types/composition';
 import type { RouteArgs } from '#types/harness';
-import type { DeliveryKey } from '#types/platform/claude';
 
 export function defaultHookDeps(runtime: Runtime): HookDeps {
   const pointer = fsActiveRoutePointer(runtime.fs);
@@ -64,8 +55,7 @@ export async function runHook(runtime: Runtime, rawStdin: string, injected?: Hoo
     switch (input.hook_event_name) {
       case 'SessionStart': {
         const base = stateDir(runtime, input);
-        await resetEpoch(runtime.fs, runtime.ids, base);
-        if (input['source'] !== 'startup') await rebindSession(runtime, input, deps.pointer).catch(() => false);
+        await resetDelivered(runtime.fs, base);
         return await deliverSharedContract(runtime, input, base, 'SessionStart');
       }
       case 'PostCompact': {
@@ -73,8 +63,7 @@ export async function runHook(runtime: Runtime, rawStdin: string, injected?: Hoo
         // `hookSpecificOutput` variant in Claude Code's schema (returning one fails
         // validation), so the next `UserPromptSubmit` delivers the contract instead.
         const base = stateDir(runtime, input);
-        await resetEpoch(runtime.fs, runtime.ids, base);
-        await rebindSession(runtime, input, deps.pointer).catch(() => false);
+        await resetDelivered(runtime.fs, base);
         return EMPTY_HOOK_OUTPUT;
       }
       case 'UserPromptSubmit': {
@@ -82,7 +71,6 @@ export async function runHook(runtime: Runtime, rawStdin: string, injected?: Hoo
         const contract = (await deliverSharedContract(runtime, input, base, 'UserPromptSubmit')) as {
           hookSpecificOutput?: { additionalContext: string };
         };
-        if (input.transcript_path !== undefined && (await deps.pointer.read(input.session_id, input.scratchpad_dir)) !== null && (await rejectedGateMarker(input.transcript_path)) !== null) await (await deps.load()).engine.dismissedGate(input).catch(() => false);
         const routed = await promptContext(runtime, input, deps);
         if (routed === null) return contract;
         const context = [contract.hookSpecificOutput?.additionalContext, routed].filter(Boolean).join('\n\n');
@@ -92,7 +80,6 @@ export async function runHook(runtime: Runtime, rawStdin: string, injected?: Hoo
         return (await stopCheck(input, await deps.load())) ?? EMPTY_HOOK_OUTPUT;
       case 'SessionEnd': {
         const base = stateDir(runtime, input);
-        await endSession(runtime, input).catch(() => undefined);
         await cleanupSessionState(runtime.fs, base);
         return EMPTY_HOOK_OUTPUT;
       }
@@ -107,10 +94,6 @@ export async function runHook(runtime: Runtime, rawStdin: string, injected?: Hoo
   }
 }
 
-/**
- * The marker is still consulted after `resetEpoch`: two events can reach the
- * same epoch (a `SessionStart` matcher firing alongside a resume).
- */
 async function deliverSharedContract(
   runtime: Runtime,
   input: HookInput,
@@ -118,14 +101,8 @@ async function deliverSharedContract(
   event: AdditionalContextEvent,
 ): Promise<unknown> {
   const contract = await readSessionContract(runtime.fs, runtime.pluginRoot);
-  const key: DeliveryKey = {
-    epoch: await currentEpoch(runtime.fs, runtime.ids, baseDir),
-    agentKey: input.agent_id ?? 'main',
-    kind: 'shared-contract',
-    subject: contract.reference,
-    contentHash: contract.contentHash,
-  };
-  if (!(await deliverOnce(runtime.fs, baseDir, key))) return EMPTY_HOOK_OUTPUT;
+  // Still consulted after a reset: two events can reach it together (a `SessionStart` matcher firing alongside a resume).
+  if (!(await deliverOnce(runtime.fs, baseDir, `contract-${input.agent_id ?? 'main'}`, `${contract.reference}:${contract.contentHash}`))) return EMPTY_HOOK_OUTPUT;
 
   const output: AdditionalContextHookOutput = {
     hookSpecificOutput: {
@@ -153,57 +130,21 @@ async function captureForRoute(runtime: Runtime, input: HookInput, deps: HookDep
   if (typeof found === 'string') return;
   const active = await resolveActiveRoute(runtime.fs, deps.pointer, { repositoryRoot: found.repositoryRoot, session: input.session_id, scratchpad: input.scratchpad_dir });
   if (active === null) return;
-  const mcpServer = await loadConfig(runtime.fs, found.repositoryRoot).then((loaded) => loaded.config.requirements.mcpServer).catch(() => null);
   const routeRuntime = await createRuntime({ ...runtime, cwd: found.repositoryRoot });
   const { routes } = await deps.load();
   const view = await openRouteView(routeRuntime, routes, active.task, active.owner);
   if (view === null) return;
-  const dir = taskDirFor(found.repositoryRoot, active.task);
+  const dir = taskDirFor(found.repositoryRoot, active.task, '.', dirKindFor(active.skill));
   await withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), input.session_id, async (ledger) => {
     const read = await ledger.read();
     const head = read.state === 'ok' ? read.entries.find((entry) => entry.id === view.routeId) : undefined;
-    await captureRequirement(input, { runtime: routeRuntime, dir, ledger, view, mcpServer, asked: askedKeys((head?.['args'] ?? { requirements: [], text: '' }) as Pick<RouteArgs, 'requirements' | 'text'>) });
-  });
-}
-
-/** Bytes the host returned for a read, when its response says; the shapes are the host's, so anything else is unmeasured. */
-function responseBytes(response: unknown): number | undefined {
-  const content = typeof response === 'string' ? response : ((response as { file?: { content?: unknown }; content?: unknown } | null)?.file?.content ?? (response as { content?: unknown } | null)?.content);
-  return typeof content === 'string' ? Buffer.byteLength(content) : undefined;
-}
-
-/** One append to the active route's ledger: which step the model was on when it read with the host's tool. No fold. */
-async function recordTool(runtime: Runtime, input: HookInput, deps: HookDeps): Promise<void> {
-  const active = await deps.pointer.read(input.session_id, input.scratchpad_dir);
-  if (active === null) return;
-  const found = await findSessionRepository(runtime, input.cwd ?? runtime.cwd);
-  if (typeof found === 'string') return;
-  const root = found.repositoryRoot;
-  const target = input.tool_name === 'Read' ? input.tool_input?.file_path : (input.tool_input as { path?: unknown } | undefined)?.path;
-  // Realpath-aware like the edit reminder: a lexical relative path leaves the repository when it is reached through a symlinked prefix.
-  const absolute = typeof target === 'string' ? path.resolve(input.cwd ?? root, target) : '';
-  const relative = absolute === '' ? '' : path.relative(root, await runtime.fs.realpath(absolute).catch(() => absolute));
-  const bytes = input.tool_name === 'Read' ? responseBytes(input.tool_response) : undefined;
-  await withLedgerLock(runtime.fs, taskDirFor(root, active.task).root, () => runtime.clock.now(), input.session_id, async (ledger) => {
-    const read = await ledger.read();
-    if (read.state !== 'ok') return;
-    let step: string | undefined;
-    for (const entry of read.entries.toReversed()) {
-      if (entry.kind === 'exit') return;
-      if (entry.kind === 'step' && step === undefined) step = String(entry['step']);
-      if (entry.kind === 'route') {
-        await ledger.append({ kind: 'tool', route: entry.id, name: input.tool_name, ...(step === undefined ? {} : { step }), ...(relative === '' || relative.startsWith('..') ? {} : { path: relative }), ...(bytes === undefined ? {} : { bytes }) });
-        return;
-      }
-    }
+    const mrUrl = view.skill === 'review' ? ((head?.['args'] as { target?: { mr?: string | null } } | undefined)?.target?.mr ?? null) : null;
+    await captureMrDiff(input, { runtime: routeRuntime, dir, ledger, routeId: view.routeId, mrUrl });
+    await captureRequirement(input, { runtime: routeRuntime, dir, ledger, view, asked: askedKeys((head?.['args'] ?? { requirements: [], text: '' }) as Pick<RouteArgs, 'requirements' | 'text'>) });
   });
 }
 
 async function handlePostToolUse(runtime: Runtime, input: HookInput, deps: HookDeps): Promise<unknown> {
-  if (input.tool_name === 'Read' || input.tool_name === 'Grep' || input.tool_name === 'Glob') {
-    await recordTool(runtime, input, deps);
-    return EMPTY_HOOK_OUTPUT;
-  }
   if (input.tool_name === 'AskUserQuestion') {
     const context = await answerGates(runtime, input, await deps.load());
     return context === null ? EMPTY_HOOK_OUTPUT : { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: context } };
@@ -212,87 +153,5 @@ async function handlePostToolUse(runtime: Runtime, input: HookInput, deps: HookD
     await captureForRoute(runtime, input, deps);
     return EMPTY_HOOK_OUTPUT;
   }
-  if (input.tool_name !== 'Edit' && input.tool_name !== 'Write') return EMPTY_HOOK_OUTPUT;
-  const absoluteFilePath = input.tool_input?.file_path;
-  if (absoluteFilePath === undefined) return EMPTY_HOOK_OUTPUT;
-
-  const hookRuntime = await createRuntime({ ...runtime, cwd: input.cwd ?? runtime.cwd });
-
-  const repository = await openRepository(hookRuntime).catch(() => null);
-  if (repository === null) return EMPTY_HOOK_OUTPUT;
-
-  const config = await loadConfig(hookRuntime.fs, repository.repositoryRoot)
-    .then((loaded) => loaded.config)
-    .catch((): AmbicodeConfig | null => null);
-  if (config === null || !config.authoring.editReminders) return EMPTY_HOOK_OUTPUT;
-
-  const workspace = { runtime: hookRuntime, git: repository.git, repositoryRoot: repository.repositoryRoot, config, configPath: '' };
-  // Realpath-aware: a lexical `path.relative` reports `../../..` when the
-  // repository is reached through a symlinked prefix, as macOS `/tmp` is.
-  const relative = await toRepositoryRelative(workspace, absoluteFilePath);
-  if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
-    return EMPTY_HOOK_OUTPUT;
-  }
-
-  const project = projectForPath(config, relative);
-  if (project === null) return EMPTY_HOOK_OUTPUT;
-
-  const policy = await resolvePolicyFor({ workspace, project, activity: 'task', paths: [relative] }).catch(() => null);
-  if (policy === null) return EMPTY_HOOK_OUTPUT;
-
-  const candidates = policy.rules.filter((rule) => rule.remindOnEdit);
-  if (candidates.length === 0) return EMPTY_HOOK_OUTPUT;
-
-  const base = stateDir(hookRuntime, input);
-  const epoch = await currentEpoch(hookRuntime.fs, hookRuntime.ids, base);
-  const agentKey = input.agent_id ?? 'main';
-
-  const undelivered: ResolvedRule[] = [];
-  for (const rule of candidates) {
-    const key: DeliveryKey = {
-      epoch,
-      agentKey,
-      kind: 'edit-reminder',
-      subject: `${relative}::${rule.qualifiedId}`,
-      contentHash: ruleContentHash(rule),
-    };
-    if (await deliverOnce(hookRuntime.fs, base, key)) undelivered.push(rule);
-  }
-
-  if (undelivered.length === 0) return EMPTY_HOOK_OUTPUT;
-  return buildOutput(relative, undelivered);
-}
-
-function ruleContentHash(rule: ResolvedRule): string {
-  return contentHash(
-    JSON.stringify({
-      id: rule.qualifiedId,
-      category: rule.category,
-      instruction: rule.instruction,
-      check: rule.check,
-    }),
-  );
-}
-
-function buildOutput(relativePath: string, rules: readonly ResolvedRule[]): PostToolUseHookOutput {
-  const lines = [
-    `AMBICODE edit reminder for ${relativePath}.`,
-    'This is a reminder applied on your NEXT model request, not proof that the edit you just made complied — verify it yourself.',
-    '',
-  ];
-  for (const rule of rules) {
-    lines.push(
-      `- [${rule.qualifiedId}] (${rule.authority}, ${rule.category}) — ${rule.instruction}`,
-      `  check: ${rule.check.explanation}`,
-      `  source: ${rule.packReference} (${rule.sourceLocation})`,
-      `  content: ${ruleContentHash(rule)}`,
-      '',
-    );
-  }
-  return {
-    hookSpecificOutput: {
-      hookEventName: 'PostToolUse',
-      additionalContext: lines.join('\n').trimEnd(),
-    },
-  };
+  return EMPTY_HOOK_OUTPUT;
 }

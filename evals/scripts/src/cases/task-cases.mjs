@@ -1,7 +1,7 @@
 // Task cases: the ticket of a real defect fix, implemented from the base commit, graded by the merged fix's own test
 // held out of the scaffold. The prompt is the ticket text only. Cases go to evals/common/task/cases (gitignored, NDA).
 // Commands: --test-command "<argv>" [--setup "<argv>"] [--limit <n>] [--sides BE,FE] [--benchmarks <absolute dir>]
-// [--unit "<argv with {files}>" --unit-adapter <id>]: the unit command written into the case's own config copy.
+// [--unit "<argv with {files}>"]: the unit command written into the case's own config copy.
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -70,12 +70,12 @@ export const taskPrompt = (name, side, text) =>
     .replace('max_turns: 40', 'max_turns: 80')
     .replace('timeout_seconds: 900', 'timeout_seconds: 1800');
 
-/** The side's config with every project's unit command and check set to `unit` ({argv, adapter}). */
+/** The side's config with every project's unit command and check set to `unit` ({argv}). */
 export function caseConfig(sideConfig, unit) {
   const document = parseDocument(sideConfig);
   for (const project of document.get('projects')?.items ?? []) {
     project.setIn(['commands', 'unit'], document.createNode({ argv: unit.argv }));
-    project.setIn(['checks', 'unit'], document.createNode({ command: 'unit', adapter: unit.adapter }));
+    project.setIn(['checks', 'unit'], document.createNode({ command: 'unit' }));
   }
   return document.toString();
 }
@@ -141,8 +141,7 @@ function main(argv) {
   if (!path.isAbsolute(benchmarks)) throw new Error(`--benchmarks must be an absolute directory, got ${benchmarks}`);
   const setup = option('--setup')?.split(/\s+/).filter(Boolean) ?? null;
   const unitArgv = option('--unit')?.split(/\s+/).filter(Boolean);
-  if (unitArgv && !option('--unit-adapter')) throw new Error('--unit needs --unit-adapter <id>');
-  const unit = unitArgv ? { argv: unitArgv, adapter: option('--unit-adapter') } : null;
+  const unit = unitArgv ? { argv: unitArgv } : null;
   const sides = option('--sides', BENCH_PROJECTS.join(',')).split(',');
   const counts = generate({ benchmarks, out: TASK_CASES, limit: Number(option('--limit', '10')), testCommand, setup, sides, unit, check: scaffoldRunner() });
   console.log(`task cases: ${counts.candidates} candidates, ${counts.written} written, ${counts.noTest} without a named test, ${counts.checkFailed} skipped (hidden test not fail-at-base and pass-at-merged)`);

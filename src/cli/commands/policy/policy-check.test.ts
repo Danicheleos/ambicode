@@ -2,8 +2,6 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import { createRuntime } from '#composition/root';
-import { openWorkspace, projectById } from '#modules/config/workspace';
-import { resolvePolicyFor } from '#modules/policy/resolve-for';
 import type { Diagnostic } from '#types/modules/policy';
 import { loadPacksForProject } from '#modules/policy/packs/load';
 import { nodeFileSystem } from '#platform/ports/filesystem';
@@ -11,33 +9,26 @@ import { TempRepo } from '#testing/fixtures/temp-repo';
 import { builtinPoliciesDirectory } from '#util/plugin-root';
 import { isAmbicodeError } from '#util/errors';
 import { parseArgs } from '#util/args';
-import { buildProposal } from '#modules/config/init/proposal';
-import { runPolicy, POLICY_OPTIONS } from './policy.ts';
-import { renderPolicyCheck, runPolicyCheck, POLICY_CHECK_OPTIONS, type PolicyCheckOutput } from './policy-check.ts';
+import { openWorkspace, projectById, toRepositoryRelative } from '#modules/config/workspace';
+import { resolvePolicyFor } from '#modules/policy/resolve-for';
+import { runPolicyCheck, POLICY_CHECK_OPTIONS, type PolicyCheckOutput } from './policy-check.ts';
 import { REPO_ROOT } from '#testing/paths';
+import { CONFIG_HEAD } from '#testing/fixtures/route-fixture';
 import type { Runtime } from '#types/composition';
-import type { FileSystem } from '#types/platform/ports';
-
-const CONFIG_TAIL = [
-  'review: { model: sonnet, timeoutSeconds: 300, maxFindings: 7, maxChangedFiles: 50, maxChangedLines: 2000, maxContextBytes: 524288 }',
-  'checks: { timeoutSeconds: 120, maxSelectedTestFiles: 20 }',
-  'page: { idleTimeoutSeconds: 1800 }',
-  'requirements: { mcpServer: null }',
-  'remoteChecks: { image: null }',
-].join('\n');
 
 function configYaml(projects: readonly string[]): string {
-  return ['schemaVersion: 1', 'baseline: ""', CONFIG_TAIL, 'projects:', ...projects, ''].join('\n');
+  return [CONFIG_HEAD, ...projects, ''].join('\n');
 }
 
 const ONE_PROJECT = [
   '  - id: web',
   '    root: .',
-  '    ecosystem: typescript',
+  '    paths: []',
+  '    ecosystem: { languages: [typescript], frameworks: [], packageManager: null }',
   '    packs: []',
   '    policyFiles: []',
-  '    commands: { lint: null }',
-  '    checks: {}',
+  '    commands: {}',
+  '    checks: { lint: { all: null, file: null } }',
 ];
 
 async function repoWithLayout(): Promise<TempRepo> {
@@ -65,7 +56,6 @@ const COMPONENT_PACK = pack([
   '  - id: no-transport-in-components',
   '    category: architecture',
   '    instruction: A component must not call HTTP directly; the service layer owns transport.',
-  '    remindOnEdit: true',
   '    check: { kind: reviewer, explanation: "Judged from the changed component and its service." }',
 ]);
 
@@ -81,7 +71,7 @@ function codes(diagnostics: readonly Diagnostic[], severity?: Diagnostic['severi
 }
 
 describe('R3 ambicode policy check', () => {
-  it('validates a candidate pack nothing references yet, and reports what its globs match', async () => {
+  it('validates a candidate pack nothing references yet', async () => {
     const repo = await repoWithLayout();
     try {
       await repo.write('.ambicode/policies/team-components.yaml', COMPONENT_PACK);
@@ -89,19 +79,8 @@ describe('R3 ambicode policy check', () => {
 
       const output = await check(runtime, ['.ambicode/policies/team-components.yaml']);
 
-      assert.equal(output.ok, true, renderPolicyCheck(output));
-      assert.equal(output.projectId, 'web');
-      assert.equal(output.files.length, 1);
-      const file = output.files[0];
-      assert.equal(file?.packId, 'team-components');
-      assert.equal(file?.authority, 'team');
-      assert.equal(file?.rules, 1);
-      assert.deepEqual(file?.appliesTo.map((glob) => glob.glob), ['src/**/*.component.ts']);
-      assert.equal(file?.appliesTo[0]?.matched, 2);
-      assert.deepEqual(file?.appliesTo[0]?.examples, [
-        'src/orders/order-detail.component.ts',
-        'src/orders/order-list.component.ts',
-      ]);
+      assert.equal(output.ok, true, JSON.stringify(output.diagnostics));
+      assert.deepEqual(output.files, [{ path: '.ambicode/policies/team-components.yaml', packId: 'team-components' }]);
       const workspace = await openWorkspace(runtime);
       assert.deepEqual(projectById(workspace.config, 'web').policyFiles, []);
     } finally {
@@ -109,208 +88,70 @@ describe('R3 ambicode policy check', () => {
     }
   });
 
-  it('flags a glob that matches nothing, which is the mistake a schema cannot see', async () => {
+  it('catches the load-time rules the schema does not carry', async () => {
     const repo = await repoWithLayout();
     try {
       await repo.write(
-        '.ambicode/policies/ghost.yaml',
+        '.ambicode/policies/drift.yaml',
         pack([
           'schemaVersion: 1',
-          'id: ghost',
-          'authority: team',
-          'appliesTo: ["src/components/**/*.ts", "src/**/*.component.ts"]',
-          'activities: [review]',
-          'source: { location: "CONTRIBUTING.md" }',
-          'rules: []',
-        ]),
-      );
-      const runtime = await createRuntime({ cwd: repo.root });
-
-      const output = await check(runtime, ['.ambicode/policies/ghost.yaml']);
-
-      assert.equal(output.ok, true);
-      const warning = output.diagnostics.find((diagnostic) => diagnostic.code === 'pack-glob-matches-nothing');
-      assert.ok(warning !== undefined, renderPolicyCheck(output));
-      assert.match(warning.message, /src\/components\/\*\*\/\*\.ts/);
-      assert.equal(output.files[0]?.appliesTo[0]?.matched, 0);
-      assert.equal(output.files[0]?.appliesTo[1]?.matched, 2);
-    } finally {
-      await repo.dispose();
-    }
-  });
-
-  it('catches every load-time rule the schema does not carry', async () => {
-    const repo = await repoWithLayout();
-    try {
-      await repo.write(
-        '.ambicode/policies/broad.yaml',
-        pack([
-          'schemaVersion: 1',
-          'id: broad',
+          'id: drift',
           'authority: team',
           'appliesTo: ["**/*"]',
           'activities: [review]',
           'source: { location: "CLAUDE.md" }',
           'prompts: [{ stage: before-review, file: "./missing.md" }]',
           'commandPolicy: [{ command: not-declared, action: run }]',
-          'rules:',
-          '  - id: remind',
-          '    category: workflow',
-          '    instruction: Something.',
-          '    remindOnEdit: true',
-          '    check: { kind: none, explanation: "Nothing verifies this." }',
-        ]),
-      );
-      await repo.write(
-        '.ambicode/policies/bad-replaces.yaml',
-        pack([
-          'schemaVersion: 1',
-          'id: bad-replaces',
-          'authority: team',
-          'appliesTo: ["src/**/*.ts"]',
-          'activities: [review]',
-          'source: { location: "CLAUDE.md" }',
-          'replaces: common-quality',
           'rules: []',
         ]),
       );
       await repo.write('.ambicode/policies/broken.yaml', 'appliesTo: [\n');
+      await repo.write('.ambicode/policies/invalid.yaml', 'schemaVersion: 2\n');
 
       const runtime = await createRuntime({ cwd: repo.root });
       const output = await check(runtime, [
-        '.ambicode/policies/broad.yaml',
-        '.ambicode/policies/bad-replaces.yaml',
+        '.ambicode/policies/drift.yaml',
         '.ambicode/policies/broken.yaml',
+        '.ambicode/policies/invalid.yaml',
         '.ambicode/policies/not-there.yaml',
       ]);
 
       assert.equal(output.ok, false);
       const found = new Set(codes(output.diagnostics, 'error'));
-      for (const expected of [
-        'remind-on-edit-broad-pack',
-        'path-missing',
-        'pack-unknown-command',
-        'pack-invalid',
-        'pack-unparsable',
-        'pack-missing',
-      ]) {
+      for (const expected of ['path-missing', 'pack-unknown-command', 'pack-invalid', 'pack-unparsable', 'pack-missing']) {
         assert.ok(found.has(expected), `expected a ${expected} diagnostic, got ${[...found].join(', ')}`);
       }
-      assert.equal(output.files.length, 4);
       assert.deepEqual(
         output.files.filter((file) => file.packId === null).map((file) => path.posix.basename(file.path)),
-        ['bad-replaces.yaml', 'broken.yaml', 'not-there.yaml'],
+        ['broken.yaml', 'invalid.yaml', 'not-there.yaml'],
       );
     } finally {
       await repo.dispose();
     }
   });
 
-  it('reports a candidate whose id collides with a pack the project already enables', async () => {
-    const repo = await TempRepo.create();
-    try {
-      await repo.write('src/app.ts', 'export const a = 1;\n');
-      await repo.write(
-        '.ambicode/config.yaml',
-        configYaml([
-          '  - id: web',
-          '    root: .',
-          '    ecosystem: typescript',
-          '    packs: [builtin/common-quality]',
-          '    policyFiles: []',
-          '    commands: { lint: null, unit: null }',
-          '    checks: {}',
-        ]),
-      );
-      await repo.write(
-        '.ambicode/policies/mine.yaml',
-        pack([
-          'schemaVersion: 1',
-          'id: common-quality',
-          'authority: team',
-          'appliesTo: ["src/**/*.ts"]',
-          'activities: [review]',
-          'source: { location: "CLAUDE.md" }',
-          'rules: []',
-        ]),
-      );
-      await repo.commitAll('collision');
-      const runtime = await createRuntime({ cwd: repo.root });
-
-      const collision = await check(runtime, ['.ambicode/policies/mine.yaml']);
-      assert.equal(collision.ok, false);
-      const duplicate = collision.diagnostics.find((diagnostic) => diagnostic.code === 'pack-duplicate-id');
-      assert.ok(duplicate !== undefined, renderPolicyCheck(collision));
-      assert.match(duplicate.message, /replaces: builtin\/common-quality/);
-
-      await repo.write(
-        '.ambicode/policies/mine.yaml',
-        pack([
-          'schemaVersion: 1',
-          'id: common-quality',
-          'authority: team',
-          'appliesTo: ["src/**/*.ts"]',
-          'activities: [review]',
-          'source: { location: "CLAUDE.md" }',
-          'replaces: builtin/common-quality',
-          'rules: []',
-        ]),
-      );
-      const resolved = await check(runtime, ['.ambicode/policies/mine.yaml']);
-      assert.equal(resolved.ok, true, renderPolicyCheck(resolved));
-      assert.deepEqual(codes(resolved.diagnostics, 'error'), []);
-    } finally {
-      await repo.dispose();
-    }
-  });
-
-  it('warns when a candidate replaces a built-in the project does not enable', async () => {
-    const repo = await repoWithLayout();
-    try {
-      await repo.write(
-        '.ambicode/policies/mine.yaml',
-        pack([
-          'schemaVersion: 1',
-          'id: angular-components',
-          'authority: team',
-          'appliesTo: ["src/**/*.component.ts"]',
-          'activities: [review]',
-          'source: { location: "CLAUDE.md" }',
-          'replaces: builtin/angular-components',
-          'rules: []',
-        ]),
-      );
-      const runtime = await createRuntime({ cwd: repo.root });
-      const output = await check(runtime, ['.ambicode/policies/mine.yaml']);
-
-      assert.equal(output.ok, true);
-      assert.ok(output.diagnostics.some((diagnostic) => diagnostic.code === 'pack-replaces-unused'));
-    } finally {
-      await repo.dispose();
-    }
-  });
-
-  /** Both paths call `src/policy/validate.ts`; a rule added to only one of them breaks this. */
+  /** Both paths call `packs/validate.ts`; a rule added to only one of them breaks this. */
   it('holds a candidate pack to exactly the rules the loader applies', async () => {
     const repo = await repoWithLayout();
     try {
-      const offending = pack([
-        'schemaVersion: 1',
-        'id: drift',
-        'authority: team',
-        'appliesTo: ["**/*"]',
-        'activities: [review]',
-        'source: { location: "CLAUDE.md" }',
-        'prompts: [{ stage: before-review, file: "./nowhere.md" }]',
-        'commandPolicy: [{ command: never-declared, action: run }]',
-        'rules:',
-        '  - id: remind',
-        '    category: workflow',
-        '    instruction: Something.',
-        '    remindOnEdit: true',
-        '    check: { kind: command, command: also-never-declared, explanation: "x" }',
-      ]);
-      await repo.write('.ambicode/policies/drift.yaml', offending);
+      await repo.write(
+        '.ambicode/policies/drift.yaml',
+        pack([
+          'schemaVersion: 1',
+          'id: drift',
+          'authority: team',
+          'appliesTo: ["**/*"]',
+          'activities: [review]',
+          'source: { location: "CLAUDE.md" }',
+          'prompts: [{ stage: before-review, file: "./nowhere.md" }]',
+          'commandPolicy: [{ command: never-declared, action: run }]',
+          'rules:',
+          '  - id: verify',
+          '    category: workflow',
+          '    instruction: Something.',
+          '    check: { kind: command, command: also-never-declared, explanation: "x" }',
+        ]),
+      );
       const runtime = await createRuntime({ cwd: repo.root });
 
       const fromCommand = await check(runtime, ['--project', 'web', '.ambicode/policies/drift.yaml']);
@@ -324,66 +165,18 @@ describe('R3 ambicode policy check', () => {
       });
 
       assert.deepEqual(codes(fromCommand.diagnostics, 'error'), codes(fromLoader.diagnostics, 'error'));
-      assert.ok(codes(fromLoader.diagnostics, 'error').length >= 4);
+      assert.ok(codes(fromLoader.diagnostics, 'error').length >= 3);
     } finally {
       await repo.dispose();
     }
   });
 
-  it('does not measure scope against a guessed project when the repository has several', async () => {
-    const repo = await TempRepo.create();
+  it('names an unknown --project instead of guessing one', async () => {
+    const repo = await repoWithLayout();
     try {
-      await repo.write('web/src/a.component.ts', 'export class A {}\n');
-      await repo.write('api/app.py', 'x = 1\n');
-      await repo.write(
-        '.ambicode/config.yaml',
-        configYaml([
-          '  - id: web',
-          '    root: web',
-          '    ecosystem: typescript',
-          '    packs: []',
-          '    policyFiles: []',
-          '    commands: {}',
-          '    checks: {}',
-          '  - id: api',
-          '    root: api',
-          '    ecosystem: python',
-          '    packs: []',
-          '    policyFiles: []',
-          '    commands: {}',
-          '    checks: {}',
-        ]),
-      );
-      await repo.write(
-        '.ambicode/policies/team-components.yaml',
-        pack([
-          'schemaVersion: 1',
-          'id: team-components',
-          'authority: team',
-          'appliesTo: ["src/**/*.component.ts"]',
-          'activities: [review]',
-          'source: { location: "CLAUDE.md" }',
-          'rules: []',
-        ]),
-      );
-      await repo.commitAll('two projects');
+      await repo.write('.ambicode/policies/team-components.yaml', COMPONENT_PACK);
       const runtime = await createRuntime({ cwd: repo.root });
-
-      const undetermined = await check(runtime, ['.ambicode/policies/team-components.yaml']);
-      assert.equal(undetermined.projectId, null);
-      assert.ok(undetermined.diagnostics.some((diagnostic) => diagnostic.code === 'project-not-determined'));
-      // 0 means no count is claimed, rather than one measured against the wrong root.
-      assert.equal(undetermined.files[0]?.appliesTo[0]?.matched, 0);
-      assert.equal(undetermined.ok, true);
-
-      const named = await check(runtime, ['--project', 'web', '.ambicode/policies/team-components.yaml']);
-      assert.equal(named.projectId, 'web');
-      assert.equal(named.files[0]?.appliesTo[0]?.matched, 1);
-
-      assert.equal(
-        await failureCode(check(runtime, ['--project', 'nope', '.ambicode/policies/team-components.yaml'])),
-        'unknown-project',
-      );
+      assert.equal(await failureCode(check(runtime, ['--project', 'nope', '.ambicode/policies/team-components.yaml'])), 'unknown-project');
     } finally {
       await repo.dispose();
     }
@@ -432,21 +225,14 @@ describe('R3 ambicode policy check', () => {
       await repo.dispose();
     }
   });
-
-  it('keeps a path literally named "check" reachable through the operand terminator', async () => {
-    const repo = await repoWithLayout();
-    try {
-      await repo.write('check/a.ts', 'export const a = 1;\n');
-      await repo.commitAll('a directory named check');
-      const runtime = await createRuntime({ cwd: repo.root });
-
-      const output = await runPolicy(runtime, parseArgs('policy', ['--', 'check'], POLICY_OPTIONS));
-      assert.deepEqual(output.paths, ['check']);
-    } finally {
-      await repo.dispose();
-    }
-  });
 });
+
+/** What the removed `policy` command printed: the resolver's answer for one project and path. */
+async function policyFor(runtime: Awaited<ReturnType<typeof createRuntime>>, projectId: string, file: string) {
+  const workspace = await openWorkspace(runtime);
+  const paths = [await toRepositoryRelative(workspace, file)];
+  return { policy: await resolvePolicyFor({ workspace, project: projectById(workspace.config, projectId), activity: 'review', paths }) };
+}
 
 describe('R3 migrated packs resolve as scoped project policy', () => {
   it('applies a component pack to a component path and not to a service path', async () => {
@@ -474,11 +260,12 @@ describe('R3 migrated packs resolve as scoped project policy', () => {
         configYaml([
           '  - id: web',
           '    root: .',
-          '    ecosystem: typescript',
+          '    paths: []',
+          '    ecosystem: { languages: [typescript], frameworks: [], packageManager: null }',
           '    packs: []',
           '    policyFiles: [.ambicode/policies/team-global.yaml, .ambicode/policies/team-components.yaml]',
-          '    commands: { lint: null }',
-          '    checks: {}',
+          '    commands: {}',
+          '    checks: { lint: { all: null, file: null } }',
         ]),
       );
       await repo.commitAll('migrated packs');
@@ -490,14 +277,10 @@ describe('R3 migrated packs resolve as scoped project policy', () => {
         '.ambicode/policies/team-global.yaml',
         '.ambicode/policies/team-components.yaml',
       ]);
-      assert.equal(checked.ok, true, renderPolicyCheck(checked));
-      const globs = checked.files.map((file) => file.appliesTo.map((glob) => glob.glob).join(','));
-      assert.deepEqual(globs, ['**/*', 'src/**/*.component.ts']);
+      assert.equal(checked.ok, true, JSON.stringify(checked.diagnostics));
+      assert.deepEqual(checked.files.map((file) => file.packId), ['team-global', 'team-components']);
 
-      const onComponent = await runPolicy(
-        runtime,
-        parseArgs('policy', ['--project', 'web', 'src/orders/order-list.component.ts'], POLICY_OPTIONS),
-      );
+      const onComponent = await policyFor(runtime, 'web', 'src/orders/order-list.component.ts');
       assert.deepEqual(
         onComponent.policy.rules.map((rule) => rule.qualifiedId).sort(),
         ['team-components/no-transport-in-components', 'team-global/no-console'],
@@ -507,10 +290,7 @@ describe('R3 migrated packs resolve as scoped project policy', () => {
         /CLAUDE\.md/,
       );
 
-      const onService = await runPolicy(
-        runtime,
-        parseArgs('policy', ['--project', 'web', 'src/orders/orders.service.ts'], POLICY_OPTIONS),
-      );
+      const onService = await policyFor(runtime, 'web', 'src/orders/orders.service.ts');
       assert.deepEqual(onService.policy.rules.map((rule) => rule.qualifiedId), ['team-global/no-console']);
     } finally {
       await repo.dispose();
@@ -526,11 +306,12 @@ describe('R3 migrated packs resolve as scoped project policy', () => {
         configYaml([
           '  - id: web',
           '    root: .',
-          '    ecosystem: typescript',
+          '    paths: []',
+          '    ecosystem: { languages: [typescript], frameworks: [], packageManager: null }',
           '    packs: []',
           '    policyFiles: []',
-          '    commands: { lint: null }',
-          '    checks: {}',
+          '    commands: {}',
+          '    checks: { lint: { all: null, file: null } }',
         ]),
       );
       await repo.commitAll('a CLAUDE.md nobody wired in');
@@ -566,9 +347,7 @@ describe('R3 no runtime path reads a Markdown rule source', () => {
       .filter((relative) => !relative.endsWith('.test.ts'))
       .sort();
 
-    // The reviewer names CLAUDE.md only to make its sandbox refuse one, which
-    // is asserted below rather than exempted silently.
-    const allowed = new Set(['src/modules/config/init/init.ts', 'src/modules/review/reviewer/claude-reviewer.ts']);
+    const allowed = new Set(['src/modules/config/init/init.ts']);
     const offenders: string[] = [];
     for (const relative of sources) {
       if (allowed.has(relative)) continue;
@@ -582,17 +361,6 @@ describe('R3 no runtime path reads a Markdown rule source', () => {
       [],
       'a rule source belongs to the setup-time /ambicode:rules skill; the runtime resolves policy from YAML packs only',
     );
-
-    const reviewer = await readFile(path.join(repositoryRoot, 'src', 'modules', 'review', 'reviewer', 'claude-reviewer.ts'), 'utf8');
-    assert.match(reviewer, /No CLAUDE\.md[^\n]*\n\s*'--safe-mode'/, 'the reviewer must run with CLAUDE.md loading off');
-
-    const init = await readFile(path.join(repositoryRoot, 'src', 'modules', 'config', 'init', 'init.ts'), 'utf8');
-    const detector = /export async function detectRuleSources[\s\S]*?\n}/.exec(init)?.[0] ?? '';
-    assert.ok(detector !== '', 'detectRuleSources not found');
-    assert.match(detector, /fs\.exists\(/);
-    for (const forbidden of ['readText', 'readBytes', 'parseYaml', 'writeText']) {
-      assert.ok(!detector.includes(forbidden), `detectRuleSources must not ${forbidden}`);
-    }
   });
 
   it('resolves prompt Markdown only from a path a pack declared', async () => {
@@ -603,48 +371,6 @@ describe('R3 no runtime path reads a Markdown rule source', () => {
     const validate = await readFile(path.join(repositoryRoot, 'src', 'modules', 'policy', 'packs', 'validate.ts'), 'utf8');
     assert.match(validate, /resolveInsideBoundary\(/);
     assert.equal((validate.match(/fs\.readText\(/g) ?? []).length, 2, 'the pack file and its declared prompts, nothing else');
-  });
-});
-
-describe('R3 init names rule sources without reading them', () => {
-  it('reports the candidates it found and opens none of them', async () => {
-    const repo = await TempRepo.create();
-    try {
-      await repo.write('src/app.ts', 'export const a = 1;\n');
-      await repo.write('CLAUDE.md', '# Rules\n\n- Never log secrets.\n');
-      await repo.write('CONTRIBUTING.md', '# Contributing\n');
-      await repo.write('.cursor/rules/style.mdc', 'Prefer named exports.\n');
-      await repo.write('docs/architecture.md', '# Architecture\n');
-      await repo.commitAll('rule sources');
-
-      const reads: string[] = [];
-      const fs: FileSystem = {
-        ...nodeFileSystem,
-        readText: async (absolutePath) => {
-          reads.push(absolutePath);
-          return nodeFileSystem.readText(absolutePath);
-        },
-        readBytes: async (absolutePath) => {
-          reads.push(absolutePath);
-          return nodeFileSystem.readBytes(absolutePath);
-        },
-      };
-      const runtime = await createRuntime({ cwd: repo.root, fs });
-
-      const output = await buildProposal(runtime, repo.root, []);
-
-      assert.deepEqual(output.ruleSources, ['CLAUDE.md', 'CONTRIBUTING.md', 'docs', '.cursor/rules']);
-      const notice = output.notices.find((candidate) => candidate.includes('/ambicode:rules'));
-      assert.ok(notice !== undefined, output.notices.join('\n'));
-      assert.match(notice, /Nothing above was read, classified, or migrated by init\./);
-
-      const opened = reads.filter((absolutePath) =>
-        ['CLAUDE.md', 'CONTRIBUTING.md', 'style.mdc', 'architecture.md'].some((name) => absolutePath.endsWith(name)),
-      );
-      assert.deepEqual(opened, []);
-    } finally {
-      await repo.dispose();
-    }
   });
 });
 

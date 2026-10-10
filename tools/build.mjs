@@ -1,7 +1,7 @@
 // Bundled rather than tsc output plus node_modules, so the installed plugin
 // runs without an install step inside a product repository.
 import { build } from 'esbuild';
-import { chmod, cp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, rm, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -13,7 +13,6 @@ await validateRouteFiles(ROOT);
 await rm(new URL('../scripts/ambicode.mjs', import.meta.url), { force: true });
 // A chunk left from an earlier build would otherwise be packaged beside the new ones.
 await rm(new URL('../scripts/chunks/', import.meta.url), { recursive: true, force: true });
-await rm(new URL('../scripts/templates/', import.meta.url), { recursive: true, force: true });
 
 const common = {
   absWorkingDir: ROOT,
@@ -50,8 +49,6 @@ await build({
 // (`ownerOf`, which both read) would make it load a second file.
 await build({ ...common, entryPoints: { guard: 'src/hook/guard/guard.ts' } });
 
-// The page server reads its templates from beside the bundle, in a checkout and in the installed plugin alike.
-await cp(new URL('../src/modules/review/page/templates/', import.meta.url), new URL('../scripts/templates/', import.meta.url), { recursive: true });
 
 const binDirectory = new URL('../bin/', import.meta.url);
 await mkdir(binDirectory, { recursive: true });

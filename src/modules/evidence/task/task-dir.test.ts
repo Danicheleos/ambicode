@@ -23,19 +23,19 @@ describe('02-D1: the task directory', () => {
     const dir = taskDirFor('/repo', 'ORD-17', 'app');
     assert.deepEqual(dir, {
       slug: 'ORD-17',
-      root: '/repo/.ambicode/task/ORD-17',
+      root: '/repo/.ambicode/tasks/ORD-17',
       repositoryRoot: '/repo',
       where: 'app',
-      ledger: '/repo/.ambicode/task/ORD-17/ledger.jsonl',
-      steps: '/repo/.ambicode/task/ORD-17/steps',
-      planBody: '/repo/.ambicode/task/ORD-17/steps/plan-body.md',
-      requirements: '/repo/.ambicode/task/ORD-17/requirements',
-      workers: '/repo/.ambicode/task/ORD-17/workers',
-      reviews: '/repo/.ambicode/task/ORD-17/reviews',
-      stopCheck: '/repo/.ambicode/task/ORD-17/stop-check.md',
-      answerBlocked: '/repo/.ambicode/task/ORD-17/answer-blocked.md',
+      ledger: '/repo/.ambicode/tasks/ORD-17/ledger.jsonl',
+      steps: '/repo/.ambicode/tasks/ORD-17/steps',
+      planBody: '/repo/.ambicode/tasks/ORD-17/steps/plan-body.md',
+      requirements: '/repo/.ambicode/tasks/ORD-17/requirements',
+      workers: '/repo/.ambicode/tasks/ORD-17/workers',
+      stopCheck: '/repo/.ambicode/tasks/ORD-17/stop-check.md',
+      answerBlocked: '/repo/.ambicode/tasks/ORD-17/answer-blocked.md',
     });
     assert.equal(taskDirFor('/repo', 'x').where, '.');
+    assert.equal(taskDirFor('/repo', 'ORD-17', '.', 'review').root, '/repo/.ambicode/reviews/ORD-17');
   });
 });
 

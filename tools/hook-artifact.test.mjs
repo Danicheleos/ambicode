@@ -40,6 +40,31 @@ function git(args, cwd) {
   });
 }
 
+const RUN = 'model: sonnet, effort: medium, timeoutMinutes: 15';
+const CONFIG = [
+  'schemaVersion: 4',
+  'id: app',
+  'context: { maxTotalTokens: 24000, maxFileTokens: 2500 }',
+  'skills:',
+  `  init: { ${RUN}, scout: { ${RUN} }, ruleSources: [presets, scout, manual, web] }`,
+  `  review: { ${RUN}, maxFindings: null, maxChangedFiles: null, maxChangedLines: null, maxContextBytes: null, excludePaths: [] }`,
+  `  task: { ${RUN}, checkTimeoutSeconds: 120 }`,
+  `  plan: { ${RUN} }`,
+  `  investigate: { ${RUN} }`,
+  `  rules: { ${RUN} }`,
+  'requirements: { runtimes: {}, mcps: [], lsps: [], env: [] }',
+  'projects:',
+  '  - id: app',
+  '    root: .',
+  '    paths: [src/]',
+  '    ecosystem: { languages: [typescript], frameworks: [], packageManager: null }',
+  '    packs: [PACKS]',
+  '    policyFiles: [POLICY]',
+  '    commands: {}',
+  '    checks: { lint: { all: null, file: null }, unit: { all: null, file: null }, e2e: { all: null, file: null } }',
+  '',
+].join('\n');
+
 async function writePack(repo, instruction) {
   await writeFile(
     path.join(repo, '.ambicode', 'policies', 'reminders.yaml'),
@@ -55,7 +80,6 @@ async function writePack(repo, instruction) {
       '    category: architecture',
       `    instruction: "${instruction}"`,
       '    check: { kind: reviewer, explanation: "manual read" }',
-      '    remindOnEdit: true',
     ].join('\n') + '\n',
   );
 }
@@ -70,28 +94,7 @@ async function makeFixtureRepo() {
   git(['commit', '-q', '-m', 'initial'], repo);
 
   await mkdir(path.join(repo, '.ambicode', 'policies'), { recursive: true });
-  await writeFile(
-    path.join(repo, '.ambicode', 'config.yaml'),
-    [
-      'schemaVersion: 1',
-      'baseline: ""',
-      'review: { model: sonnet, timeoutSeconds: 300, maxFindings: 7, maxChangedFiles: 50, maxChangedLines: 2000, maxContextBytes: 524288 }',
-      'checks: { timeoutSeconds: 120, maxSelectedTestFiles: 20 }',
-      'page: { idleTimeoutSeconds: 1800 }',
-      'requirements: { mcpServer: null }',
-      'authoring: { editReminders: true }',
-      'projects:',
-      '  - id: app',
-      '    root: .',
-      '    ecosystem: typescript',
-      '    packs: []',
-      '    policyFiles: [".ambicode/policies/reminders.yaml"]',
-      '    commands: { lint: null, unit: null, e2e: null }',
-      '    checks: { lint: null, unit: null, e2e: null }',
-      'remoteChecks: { image: null }',
-      '',
-    ].join('\n'),
-  );
+  await writeFile(path.join(repo, '.ambicode', 'config.yaml'), CONFIG.replace('PACKS', '').replace('POLICY', '".ambicode/policies/reminders.yaml"'));
   await writePack(repo, 'Keep orders logic in the service layer.');
   return repo;
 }
@@ -108,39 +111,21 @@ describe('built-artifact regression: ambicode hook (P2.4 correction G/H)', () =>
     assert.ok((await assertBundleBuilt(BUNDLE)) > 0, `${BUNDLE} is empty`);
   });
 
-  it('delivers once, suppresses a repeat, redelivers on rule-content change, and redelivers after a context reset', async () => {
+  it('delivers the contract once, suppresses a repeat, and redelivers after a context reset', async () => {
+    // The Edit/Write reminder branch (and its rule-content redelivery) is gone: it had no matcher in hooks.json
+    // (cutting-down audit, wave 1). What the delivered/<kind> marker still guards is the operating contract.
     const repo = await makeFixtureRepo();
     const sessionId = randomUUID();
-    const filePath = path.join(repo, 'src', 'orders', 'service.ts');
-    const postToolUse = () => ({
-      hook_event_name: 'PostToolUse',
-      session_id: sessionId,
-      cwd: repo,
-      tool_name: 'Edit',
-      tool_input: { file_path: filePath },
-    });
-
+    const prompt = () => JSON.parse(runHookCli({ hook_event_name: 'UserPromptSubmit', session_id: sessionId, cwd: repo }));
     try {
-      const first = JSON.parse(runHookCli(postToolUse()));
-      assert.equal(first.hookSpecificOutput?.hookEventName, 'PostToolUse');
-      assert.match(first.hookSpecificOutput?.additionalContext ?? '', /orders-reminders\/service-boundary/);
+      const first = prompt();
+      assert.equal(first.hookSpecificOutput?.hookEventName, 'UserPromptSubmit');
+      assert.match(first.hookSpecificOutput?.additionalContext ?? '', /# AMBICODE operating contract/);
+      assert.deepEqual(prompt(), {}, 'a repeated prompt in the same context must not repeat the contract');
 
-      const second = JSON.parse(runHookCli(postToolUse()));
-      assert.deepEqual(second, {}, 'a repeated edit of the same file must be suppressed');
-
-      await writePack(repo, 'Keep orders logic in the service layer, without exception.');
-      const third = JSON.parse(runHookCli(postToolUse()));
-      assert.equal(third.hookSpecificOutput?.hookEventName, 'PostToolUse', 'a changed rule content hash must redeliver');
-
-      const reset = JSON.parse(runHookCli({ hook_event_name: 'SessionStart', session_id: sessionId }));
-      assert.equal(reset.hookSpecificOutput?.hookEventName, 'SessionStart');
-      assert.match(
-        reset.hookSpecificOutput?.additionalContext ?? '',
-        /# AMBICODE operating contract/,
-        'SessionStart must carry the shared operating contract for the new epoch',
-      );
-      const fourth = JSON.parse(runHookCli(postToolUse()));
-      assert.equal(fourth.hookSpecificOutput?.hookEventName, 'PostToolUse', 'a context reset must redeliver');
+      assert.deepEqual(JSON.parse(runHookCli({ hook_event_name: 'PostCompact', session_id: sessionId })), {});
+      const afterReset = prompt();
+      assert.match(afterReset.hookSpecificOutput?.additionalContext ?? '', /# AMBICODE operating contract/, 'a context reset must redeliver');
     } finally {
       await rm(repo, { recursive: true, force: true });
     }
@@ -187,7 +172,7 @@ describe('built-artifact regression: ambicode hook (P2.4 correction G/H)', () =>
           assert.equal(entry.command, 'node');
           if (event === 'PreToolUse') {
             assert.deepEqual(entry.args, ['${CLAUDE_PLUGIN_ROOT}/scripts/guard.mjs']);
-            if (matcher.matcher === 'Bash') assert.match(entry.if, /^Bash\((git \*|glab mr\*|\*\.ambicode\/task\*|\*ambicode\.mjs\*|rm \*|\*--include=\*|\*--exclude=\*|\*--exclude-dir=\*|cat \*|sed \*|head \*|tail \*)\)$/, 'the guard must not spawn for every Bash call');
+            if (matcher.matcher === 'Bash') assert.match(entry.if, /^Bash\((git \*|glab mr\*|\*\.ambicode\/\*|\*ambicode\.mjs\*|rm \*|\*--include=\*|\*--exclude=\*|\*--exclude-dir=\*|cat \*|sed \*|head \*|tail \*)\)$/, 'the guard must not spawn for every Bash call');
             else assert.ok(['Write|Edit|MultiEdit|NotebookEdit', 'Read'].includes(matcher.matcher), matcher.matcher);
           } else {
             assert.deepEqual(entry.args, ['${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs', 'hook']);

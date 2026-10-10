@@ -1,46 +1,38 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import path from 'node:path';
-import { TASKS_DIR } from '#types/defaults';
-import { loadConfigWithNotices } from '#modules/config/load';
-import { indexDepsOf, startIndexBuild } from '#modules/search/code-index/codeindex';
-import { Git } from '#platform/git/git';
-import { raiseConflict } from '#modules/requirements/envelope/conflict';
-import { hasRequirement } from '#modules/requirements/capture/has-requirement';
+import { loadConfig } from '#modules/config/load';
+import { hasRequirement, requirementsServer } from '#modules/requirements/capture/has-requirement';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { mintTaskSlug } from '#modules/evidence/task/slug';
-import { excludeWorkingDirs, resolveTaskDir } from '#modules/evidence/task/task-dir';
-import { AmbicodeError } from '#util/errors';
+import { resolveTaskDir } from '#modules/evidence/task/task-dir';
+import { dirKindFor } from '#types/defaults';
+import { AmbicodeError, isAmbicodeError } from '#util/errors';
 import { contentHash } from '#util/hash';
-import { endRoute, markStepDelivered } from '../session/active-route.ts';
-import { exitRoute, recordDefaultFlag, recordFlagAnswer, recordHookAnswer, reviseTo } from '../gates/answers.ts';
+import { markStepDelivered } from '../session/active-route.ts';
+import { exitRoute, recordFlagAnswer, recordHookAnswer, reviseTo } from '../gates/answers.ts';
 import { checkOwner, commandContext, ledgerUnreadable, readEntries } from './context.ts';
-import { continuedTask } from './plan-task.ts';
 import { canonicalArgs } from '../definition/flags.ts';
-import { buildChain, exitOf, foldRoute, latestRouteOf, liveHeads, openPrint, windowOf } from './fold.ts';
-import { dismissedGate, stopHook } from './stop.ts';
-import { mergeArgs, reopenFrom, reopenHead, resolveReopen, sessionEnded } from './reopen.ts';
+import { buildChain, exitOf, foldRoute, latestRouteOf, liveHeads, windowOf } from './fold.ts';
+import { stopHook } from './stop.ts';
 import { harnessOf } from '../session/harness.ts';
-import { raiseGate } from '../gates/gates.ts';
-import { createExecutor, EXPLICIT, isClosing, quiet } from './execute.ts';
-import { routeStatus } from './status.ts';
-import { runCommand } from './command.ts';
-import { ownerOf, OWNING_SKILLS } from '#modules/evidence/ownership';
-import { append, chainOf, latestPrint, viewFor } from './run-context.ts';
+import { EXPLICIT, createExecutor, isClosing, quiet } from './execute.ts';
+import { OWNING_SKILLS, ownerOf } from '#modules/evidence/ownership';
+import { append, chainOf, latestPrint } from './run-context.ts';
+import { sessionUnbound, taskSessionSource } from '../session/session.ts';
 import type { Runtime } from '#types/composition';
 import type { LedgerEntry, LockedLedger, TaskDir } from '#types/modules/evidence';
-import type { ActiveRoutePointer, StartChannel, Exit, Answer, RouteArgs, HandlerRegistry, RouteRegistry, Engine, StepMessage, StartInput, AdvanceInput } from '#types/harness';
+import type { ActiveRoutePointer, AdvanceInput, Answer, CommandName, CommandScope, Engine, Exit, GuardedCommand, HandlerRegistry, RouteRegistry, SessionBinding, StartChannel, StartInput, StepMessage } from '#types/harness';
 import type { DeliveryChannel, Part, Run } from '../types/engine.ts';
 
 export type { Answer } from '#types/harness';
 
-interface EngineDeps { runtime: Runtime; routes: RouteRegistry; handlers: HandlerRegistry; pointer: ActiveRoutePointer; startIndex?: typeof startIndexBuild }
+interface EngineDeps { runtime: Runtime; routes: RouteRegistry; handlers: HandlerRegistry; pointer: ActiveRoutePointer }
 
 const inside = new AsyncLocalStorage<true>();
 /** Handlers run inside the engine; a command tail started from one would advance twice (03-T3). */
 export const insideEngine = (): boolean => inside.getStore() === true;
 
 export function createEngine(deps: EngineDeps): Engine {
-  const { runtime, routes, handlers, pointer, startIndex = startIndexBuild } = deps;
+  const { runtime, routes, handlers, pointer } = deps;
   const context = commandContext({ runtime, routes });
   const now = (): Date => runtime.clock.now();
   const cli = `node "${runtime.pluginRoot}/scripts/ambicode.mjs"`;
@@ -95,10 +87,10 @@ export function createEngine(deps: EngineDeps): Engine {
 
   async function closePointer(run: Run, part: Part): Promise<void> {
     if (part.position === 'complete' || run.exited !== null || exitOf(chainOf(run)) !== null) {
-      await endRoute(pointer, run.runtime.fs, run.stateKey, run.scratchpadDir, { task: run.task, skill: run.def.skill, routeId: run.head.id });
+      await pointer.clear(run.stateKey, run.scratchpadDir);
     } else {
       await pointer.write(run.stateKey, run.scratchpadDir, { task: run.task, skill: run.def.skill, owner: run.session, headless: run.head['mode'] === 'headless' });
-      await markStepDelivered(run.runtime.fs, run.runtime.ids, { session: run.stateKey, scratchpad: run.scratchpadDir, routeId: run.head.id, position: part.position });
+      await markStepDelivered(run.runtime.fs, { session: run.stateKey, scratchpad: run.scratchpadDir, routeId: run.head.id, position: part.position });
     }
   }
 
@@ -119,30 +111,16 @@ export function createEngine(deps: EngineDeps): Engine {
     }
   }
 
-  async function supersedeIn(rt: Runtime, task: string, session: string, stateKey: string, scratchpadDir: string | undefined): Promise<void> {
-    const dir = await resolveTaskDir(rt, task);
+  /** The exit a new start writes over the session's live route on another task, found through the pointer read before it was overwritten. */
+  async function supersedeIn(rt: Runtime, task: string, skill: string, session: string): Promise<void> {
+    const dir = await resolveTaskDir(rt, task, dirKindFor(skill));
     await withLedgerLock(rt.fs, dir.root, now, session, async (ledger) => {
       const read = await ledger.read();
       if (read.state !== 'ok') return;
       const head = latestRouteOf(read.entries, session);
       if (head === null || exitOf(buildChain(read.entries, head)) !== null) return;
-      await ledger.append({ kind: 'exit', route: head.id, reason: 'superseded', detail: 'another route started in this session' });
+      await ledger.append({ kind: 'exit', route: head.id, reason: 'superseded', detail: 'a new route started' });
     });
-    if ((await pointer.read(stateKey, scratchpadDir))?.task === task) await pointer.clear(stateKey, scratchpadDir);
-  }
-
-  async function supersedeElsewhere(rt: Runtime, dir: TaskDir, session: string, stateKey: string, scratchpadDir: string | undefined): Promise<void> {
-    const tasksRoot = path.join(dir.repositoryRoot, TASKS_DIR);
-    const pointed = await pointer.read(stateKey, scratchpadDir);
-    const candidates = new Set<string>();
-    if (pointed !== null) candidates.add(pointed.task);
-    for (const entry of await rt.fs.readdir(tasksRoot).catch(() => [])) if (entry.isDirectory()) candidates.add(entry.name);
-    for (const task of candidates) {
-      if (task === dir.slug) continue;
-      await supersedeIn(rt, task, session, stateKey, scratchpadDir).catch((error: unknown) => {
-        if (!(error instanceof AmbicodeError)) throw error;
-      });
-    }
   }
 
   async function start(input: StartInput): Promise<StepMessage> {
@@ -154,24 +132,17 @@ export function createEngine(deps: EngineDeps): Engine {
       const field = input.target.mr !== null ? '--mr' : input.target.base !== null ? '--base' : '--branch';
       throw new AmbicodeError('bad-argument', `${field} names a review target; route ${def.skill} takes none.`, { field });
     }
-    const draft = input.fromDraft !== undefined && def.steps.some((step) => step.gate?.id === 'draft-ok') ? [{ gate: 'draft-ok', option: 'implement anyway' }] : [];
-    const answers = [...(input.answers ?? []), ...draft];
+    const answers = input.answers ?? [];
     validateAnswers(def, answers);
     const rt: Runtime = input.cwd === runtime.cwd ? runtime : { ...runtime, cwd: input.cwd };
     const trusted = input.channel !== 'cli';
     const headless = input.headless === true;
 
     const planFile = input.fromDraft ?? input.plan;
-    const planTask = planFile === undefined ? undefined : /(?:^|[\\/])\.ambicode[\\/]task[\\/]([^\\/]+)[\\/][^\\/]+$/.exec(planFile)?.[1];
-    const continued = input.task === undefined && planTask === undefined && input.skill === 'task' ? await continuedTask(rt, input.text) : null;
-    let slug = input.task ?? planTask ?? continued ?? (input.skill === 'init' ? `init-${now().toISOString().slice(0, 10)}` : (mintTaskSlug([...input.requirements, input.text].join(' ')) ?? `task-${contentHash(`${input.cwd}${now().toISOString()}`).slice(7, 15)}`));
-    const derived = await resolveTaskDir(rt, slug);
-    const reopen = await resolveReopen(rt, { skill: def.skill, session: input.session, repositoryRoot: derived.repositoryRoot, ...(input.task === undefined ? {} : { task: input.task }), slug, adopt: input.adopt === true, fresh: input.fresh === true }, (task) => readEntries(rt, task));
-    const derivedSlug = slug;
-    if (reopen !== null) slug = reopen.task;
-    const dir = reopen === null ? derived : await resolveTaskDir(rt, slug);
-    await excludeWorkingDirs(rt, dir.repositoryRoot);
-    const config = input.skill === 'init' ? null : (await loadConfigWithNotices(rt.fs, dir.repositoryRoot)).config;
+    const planTask = planFile === undefined ? undefined : /(?:^|[\\/])\.ambicode[\\/]tasks[\\/]([^\\/]+)[\\/][^\\/]+$/.exec(planFile)?.[1];
+    const slug = input.task ?? planTask ?? (mintTaskSlug(input.requirements[0] ?? input.text) ?? `task-${contentHash(`${input.cwd}${now().toISOString()}`).slice(7, 15)}`);
+    const dir = await resolveTaskDir(rt, slug, dirKindFor(input.skill));
+    const config = (await loadConfig(rt.fs, dir.repositoryRoot)).config;
     const inputArgs = canonicalArgs({
       text: input.text,
       requirements: input.requirements,
@@ -181,85 +152,33 @@ export function createEngine(deps: EngineDeps): Engine {
       answers,
       headless,
       ...(input.target === undefined ? {} : { target: input.target }),
-      hasRequirement: hasRequirement({ text: input.text, requirements: input.requirements, headless }, { mcpServer: config?.requirements.mcpServer ?? null }),
+      hasRequirement: hasRequirement({ text: input.text, requirements: input.requirements, headless }, { mcpServer: requirementsServer(config.requirements.mcps) }),
     });
     const delivery: DeliveryChannel = input.channel === 'hook' ? 'hook' : 'cli';
+    const stateKey = input.harnessSession ?? input.session;
+    const previous = await pointer.read(stateKey, input.scratchpadDir);
 
     const result = await withLedgerLock(rt.fs, dir.root, now, input.session, async (ledger): Promise<{ message: StepMessage; run: Run; part: Part }> => {
       const entries = await readStrict(ledger, slug);
       const owning = OWNING_SKILLS.has(def.skill);
       const owner = owning ? ownerOf(entries, slug) : null;
       if (owner?.state === 'unknown') throw unreadable(slug, owner.reason);
-      let reopened = reopen === null ? null : reopenHead(entries, def.skill, reopen.rule, input.session);
-      const heads = liveHeads(entries).filter((head) => head['skill'] === def.skill);
-      const mine = heads.filter((head) => head['session'] === input.session).at(-1);
-      const others = heads.filter((head) => head['session'] !== input.session);
-
-      let resumes: LedgerEntry | undefined;
-      let adopts = false;
-      let reprint: LedgerEntry | undefined;
-      const toSupersede: LedgerEntry[] = [];
       const busy = owner?.state === 'owned' && owner.session !== input.session;
-      if (busy && input.adopt !== true && input.fresh !== true) {
+      if (busy && input.fresh !== true) {
         throw new AmbicodeError('route-busy', `Task ${slug} has a live ${def.skill} route owned by session ${owner.session} (route ${owner.routeId}).`, {
-          details: ['Adopt it (--adopt), restart it (--fresh) or continue under another task: --task <slug>-2.'],
+          details: ['Restart it (--fresh) or continue under another task: --task <slug>-2.'],
         });
       }
-      if (reopen !== null && reopened === null && slug !== derivedSlug) {
-        throw new AmbicodeError('route-conflict', `The route on task ${slug} changed while this start was deciding to reopen it.`, { details: ['Type the skill again.'] });
-      }
-      let args = inputArgs;
-      if (reopened !== null) {
-        const old = reopened['args'] as RouteArgs;
-        const merged = mergeArgs(old, { text: input.text, requirements: input.requirements, project: input.project ?? null, plan: planFile ?? null, fromDraft: input.fromDraft ?? null, answers, headless, ...(input.target === undefined ? {} : { target: input.target }) });
-        const reopenArgs = canonicalArgs({ ...merged, hasRequirement: hasRequirement({ text: merged.text, requirements: merged.requirements, headless }, { mcpServer: config?.requirements.mcpServer ?? null }) });
-        // A finished route is reopened only by more context; the same words again start a new route.
-        if (exitOf(buildChain(entries, reopened))?.['complete'] === true && reopenArgs.hash === old.hash) reopened = null;
-        else args = reopenArgs;
-      }
-      if (reopened !== null) {
-        resumes = reopened;
-        adopts = reopened['session'] !== input.session;
-      } else if (input.fresh === true) {
-        // Another live session's route is never superseded; the plan owner being taken over is the route this start resumes.
-        toSupersede.push(...heads.filter((head) => head['session'] === input.session || sessionEnded(entries, head) || (busy && head.id === owner.routeId)));
-      } else if (input.adopt === true && (busy || others.length > 0) && mine === undefined) {
-        resumes = busy ? heads.find((head) => head.id === owner.routeId) : others.at(-1);
-        adopts = true;
-      } else if (mine !== undefined) {
-        const same = (mine['args'] as RouteArgs | undefined)?.hash === args.hash;
-        if (same) reprint = mine;
-        else toSupersede.push(mine);
-      } else if (!owning) {
-        const same = others.filter((head) => (head['args'] as RouteArgs | undefined)?.hash === args.hash).at(-1);
-        if (same !== undefined) resumes = same;
-      }
-      if (reprint === undefined) {
-        for (const other of liveHeads(entries).filter((head) => head['session'] === input.session && head['skill'] !== def.skill)) toSupersede.push(other);
-        for (const head of toSupersede) await ledger.append({ kind: 'exit', route: head.id, reason: 'superseded', detail: 'a new route started' });
+      // A start replaces what the session was doing; another session's route goes only to --fresh, and only the plan owner's.
+      const heads = liveHeads(entries);
+      for (const head of heads.filter((candidate) => candidate['session'] === input.session || (busy && input.fresh === true && candidate.id === owner.routeId))) {
+        await ledger.append({ kind: 'exit', route: head.id, reason: 'superseded', detail: 'a new route started' });
       }
 
-      let head: LedgerEntry;
-      const run = (route: LedgerEntry, deliverOnly: boolean): Run =>
-        newRun({ runtime: rt, def, task: slug, dir, ledger, entries, head: route, session: input.session, stateKey: input.harnessSession ?? harnessOf(route) ?? input.session, cause: 'start', channel: delivery, ...(input.scratchpadDir === undefined ? {} : { scratchpadDir: input.scratchpadDir }), deliverOnly });
-      if (reprint !== undefined) {
-        const reuse = run(reprint, true);
-        const part = await execute(reuse);
-        return { message: messageOf(reuse, part), run: reuse, part };
-      }
-      const wasComplete = reopened !== null && exitOf(buildChain(entries, reopened))?.['complete'] === true;
-      if (reopened !== null) {
-        const chain = buildChain(entries, reopened);
-        const changed = args.hash !== (reopened['args'] as RouteArgs).hash;
-        entries.push(await ledger.append({
-          kind: 'revise', route: reopened.id, from: reopenFrom(def, entries, reopened, changed), via: 'reopen',
-          cycle: chain.entries.filter((entry) => entry.kind === 'revise' && entry['via'] === 'gate').length, reason: 'the skill was typed again', source: reopen!.rule,
-        }));
-      }
-      head = await ledger.append({
+      const head = await ledger.append({
         kind: 'route',
         skill: def.skill,
-        args,
+        args: inputArgs,
         mode: headless ? 'headless' : 'interactive',
         channel: input.channel,
         trusted,
@@ -267,22 +186,10 @@ export function createEngine(deps: EngineDeps): Engine {
         ...(input.harnessSession === undefined ? {} : { harnessSession: input.harnessSession }),
         ...(input.scratchpadDir === undefined ? {} : { scratchpad: input.scratchpadDir }),
         epoch: 1,
-        ...(resumes === undefined ? {} : { resumes: resumes.id }),
-        ...(adopts ? { adopts: true } : {}),
-        ...(wasComplete && reopened !== null ? { reopens: reopened.id } : {}),
       });
       entries.push(head);
-      // Detached and best effort: a failure shows later as map's `index:` line, never here (05-B6).
-      const project = config === null ? undefined : input.project === undefined || input.project === null ? (config.projects.length === 1 ? config.projects[0] : undefined) : config.projects.find((candidate) => candidate.id === input.project);
-      if (config !== null && project !== undefined) await startIndex(indexDepsOf(rt, new Git({ runner: rt.runner, repositoryRoot: dir.repositoryRoot }), dir.repositoryRoot, config), project).catch(() => undefined);
-      const active = run(head, false);
+      const active = newRun({ runtime: rt, def, task: slug, dir, ledger, entries, head, session: input.session, stateKey, cause: 'start', channel: delivery, ...(input.scratchpadDir === undefined ? {} : { scratchpadDir: input.scratchpadDir }) });
       active.written.push(head.id);
-      if (reopened !== null) {
-        active.notes.push(`Reopened route ${reopened.id}, which had ended; \`${cli} route start ${def.skill} --fresh\` starts over.`);
-      } else if (resumes !== undefined && !adopts) {
-        const step = foldRoute(def, buildChain(entries, head)).position;
-        active.notes.push(`Resumed route ${resumes.id} at step ${step?.id ?? 'complete'}; \`${cli} route start ${def.skill} --fresh\` restarts.`);
-      }
       if (headless) active.notes.push(trusted ? 'Mode: headless (set by the user).' : 'Mode: headless (set by the model); the report lists it under Not verified.');
       for (const answer of answers) {
         const gate = def.steps.find((step) => step.gate?.id === answer.gate)?.gate ?? routes.gate(answer.gate)!;
@@ -296,7 +203,9 @@ export function createEngine(deps: EngineDeps): Engine {
       return { message: messageOf(active, part), run: active, part };
     });
     await closePointer(result.run, result.part);
-    if (!result.run.deliverOnly) await supersedeElsewhere(rt, dir, input.session, result.run.stateKey, input.scratchpadDir);
+    if (previous !== null && previous.task !== slug) await supersedeIn(rt, previous.task, previous.skill, previous.owner ?? input.session).catch((error: unknown) => {
+      if (!(error instanceof AmbicodeError)) throw error;
+    });
     return result.message;
   }
 
@@ -315,20 +224,12 @@ export function createEngine(deps: EngineDeps): Engine {
       const view = { task: input.task, routeId: head.id, chainIds: [...chain.ids], skill: def.skill, session: input.session, mode: head['mode'] === 'headless' ? ('headless' as const) : ('interactive' as const), channel: head['channel'] as StartChannel, trusted: head['trusted'] === true, position: '' };
       checkOwner(entries, view);
       const ended = exitOf(chain);
-      const late = ended?.['complete'] === true && input.cause === 'gate-hook' && (input.answers ?? []).some((answer) => openPrint(chain.entries, answer.gate, answer.instance));
-      if (late) {
-        const last = def.steps.at(-1)!.id;
-        entries.push(await ledger.append({ kind: 'revise', route: head.id, from: last, via: 'reopen', cycle: chain.entries.filter((entry) => entry.kind === 'revise' && entry['via'] === 'gate').length, reason: 'a gate was answered after the route completed', source: 'gate-hook' }));
-      } else if (ended !== null) {
+      if (ended !== null) {
         throw new AmbicodeError('route-not-open', `The route on task ${input.task} ended (${quiet(ended['reason'])}).`, { details: [`Start one: route start ${def.skill} --task ${input.task}`] });
       }
       const run = newRun({ runtime, def, task: input.task, dir, ledger, entries, head, session: input.session, stateKey: harnessOf(head) ?? input.session, cause: input.cause, channel: input.cause === 'gate-hook' ? 'hook' : 'cli', ...scratchOf(head, input.scratchpadDir) });
       if (input.produced !== undefined) run.produced = input.produced;
       const position = foldRoute(def, chain).position;
-      const raised = input.conflict !== undefined && position !== null
-        ? await raiseConflict({ view: viewFor(run, position.id), ledger: run.ledger, summary: input.conflict.summary, sources: input.conflict.sources })
-        : null;
-      if (raised?.state === 'failed') throw new AmbicodeError(raised.code, raised.message);
       if (position?.actor === 'model' && position.produces.length === 0 && EXPLICIT.has(input.cause)) {
         await append(run, { kind: 'step', step: position.id, actor: 'model', status: 'completed', cause: input.cause });
       }
@@ -341,15 +242,11 @@ export function createEngine(deps: EngineDeps): Engine {
         const open = latestPrint(chainOf(run).entries, 'project-ambiguous');
         if (open !== null) await recordFlagAnswer(run, { gate: 'project-ambiguous', option: input.project });
       }
-      if (input.default !== undefined) await recordDefaultFlag(run, input.default);
       if (input.revise !== undefined) {
         if (!def.revisable.includes(input.revise)) {
           throw new AmbicodeError('revise-not-allowed', `Step "${input.revise}" is not revisable in route ${def.skill}.`, { details: [`Revisable steps: ${def.revisable.join(', ') || 'none'}.`] });
         }
         if (!(await reviseTo(run, { target: input.revise, args: {} }, 'model', { reason: 'model requested' }))) run.notes.push(`Revising ${input.revise} was refused: its repeat limit is spent.`);
-      }
-      if (raised?.state === 'raise' && position !== null) {
-        await raiseGate(run.ledger, viewFor(run, position.id), { gate: raised.gate, values: raised.values, raisedBy: position.id }, routes);
       }
       const part = await execute(run);
       return { run, message: messageOf(run, part), part };
@@ -374,6 +271,18 @@ export function createEngine(deps: EngineDeps): Engine {
    * Stop after the final message: a delivered final model step has no command to end it, so its turn ending completes
    * the route. A user-set headless session has no next turn, so a Stop anywhere else ends its route inconclusive.
    */
+  async function stop(task: string, session: string, reason: Exit, detail: string | undefined, scratchpadDir?: string): Promise<void> {
+    const dir = await resolveTaskDir(runtime, task);
+    const head = await withLedgerLock(runtime.fs, dir.root, now, session, async (ledger) => {
+      const entries = await readStrict(ledger, task);
+      const route = latestRouteOf(entries, session);
+      if (route === null || exitOf(buildChain(entries, route)) !== null) throw new AmbicodeError('route-not-open', `Task ${task} has no open route of this session to stop.`);
+      await ledger.append({ kind: 'exit', route: route.id, reason, ...(detail === undefined ? {} : { detail }) });
+      return route;
+    });
+    await pointer.clear(harnessOf(head) ?? session, scratchpadDir);
+  }
+
   async function closeFinal(task: string, routeId: string, scratchpadDir?: string): Promise<boolean> {
     const dir = await resolveTaskDir(runtime, task);
     return withLedgerLock(runtime.fs, dir.root, now, routeId, async (ledger) => {
@@ -394,40 +303,65 @@ export function createEngine(deps: EngineDeps): Engine {
       } else {
         await exitRoute(run, 'inconclusive', `the headless session stopped at step ${step?.id ?? 'none'}`);
       }
-      await endRoute(pointer, runtime.fs, run.stateKey, run.scratchpadDir, { task, skill: def.skill, routeId: head.id });
+      await pointer.clear(run.stateKey, run.scratchpadDir);
       return true;
     });
   }
 
-  // ---------------------------------------------------------------- stop
-
-  async function stop(task: string, session: string, reason: Exclude<Exit, 'done' | 'superseded'>, detail?: string, scratchpadDir?: string): Promise<void> {
-    const dir = await resolveTaskDir(runtime, task);
-    const run = await withLedgerLock(runtime.fs, dir.root, now, session, async (ledger) => {
-      const entries = await readStrict(ledger, task);
-      const head = latestRouteOf(entries, session);
-      const def = head === null ? null : routes.route(String(head['skill']));
-      if (head === null || def === null || exitOf(buildChain(entries, head)) !== null) {
-        throw new AmbicodeError('route-not-open', `Session has no open route on task ${task}.`);
-      }
-      checkOwner(entries, { task, routeId: head.id, chainIds: [], skill: def.skill, session, mode: 'interactive', channel: 'cli', trusted: false, position: '' });
-      const active = newRun({ runtime, def, task, dir, ledger, entries, head, session, stateKey: harnessOf(head) ?? session, cause: 'route-stop', channel: 'cli', ...scratchOf(head, scratchpadDir) });
-      await exitRoute(active, reason, detail);
-      return active;
-    });
-    await endRoute(pointer, runtime.fs, run.stateKey, run.scratchpadDir, { task, skill: run.def.skill, routeId: run.head.id });
-  }
-
-  const stopPorts = { runtime, routes, pointer, advance: (input: { task: string; session: string; scratchpadDir?: string }) => advance({ ...input, cause: 'note save' }), closeFinal };
+  const stopPorts = { runtime, routes, pointer, closeFinal };
 
   return {
     start: (input) => inside.run(true, () => start(input)),
     advance: (input) => inside.run(true, () => advance(input)),
     deliver: (task, session, scratchpadDir) => inside.run(true, () => deliver(task, session, scratchpadDir)),
-    status: (task, session) => routeStatus({ runtime, routes }, task, session),
-    stop: (task, session, reason, detail, scratchpadDir) => inside.run(true, () => stop(task, session, reason, detail, scratchpadDir)),
     stopHook: (input, options) => inside.run(true, () => stopHook(stopPorts, input, options)),
-    dismissedGate: (input) => inside.run(true, () => dismissedGate(stopPorts, input)),
+    stop: (task, session, reason, detail, scratchpadDir) => inside.run(true, () => stop(task, session, reason, detail, scratchpadDir)),
+    live: async (task) => liveHeads(await readEntries(runtime, task)).length > 0,
     command: (spec, request, body) => runCommand({ runtime, routes }, spec, request, body),
   };
+}
+
+/** Resolves whom a guarded command speaks for and hands its body the route context; the body does the module's work. */
+export async function runCommand<T>(
+  deps: { runtime: Runtime; routes: RouteRegistry },
+  spec: GuardedCommand,
+  request: { task: string },
+  body: (scope: CommandScope) => Promise<T>,
+): Promise<T> {
+  const { runtime } = deps;
+  const context = commandContext(deps);
+  const binding = await taskSessionSource(request.task).resolve(runtime);
+  if (spec.route === 'owned' && binding.state === 'unbound') throw sessionUnbound(binding, request.task);
+  const session = binding.state === 'bound' ? binding.session : null;
+  const view = session === null ? null : await context.open(request.task, session);
+  return body({ task: request.task, session, binding, view, context });
+}
+
+interface TailDeps {
+  engine: Engine;
+  /** Where the unbound notice goes: standard error, so a `--json` reader of stdout still gets one document. */
+  warn?: (line: string) => void;
+}
+
+/**
+ * Called once by each evidence-writing wrapper after its own ledger write. No bound session or no open route means
+ * the write stands and nothing advances (03-T1). A handler inside the engine never reaches here (03-T3).
+ */
+export async function runCommandTail(
+  deps: TailDeps,
+  input: { task: string; cause: CommandName; session: SessionBinding; scratchpadDir?: string; produced?: readonly string[] },
+): Promise<StepMessage | null> {
+  if (insideEngine()) throw new Error(`The ${input.cause} tail ran inside the route engine; a handler must not call a command tail.`);
+  if (input.session.state === 'unbound') {
+    if (!(await deps.engine.live(input.task))) return null;
+    const unbound = sessionUnbound(input.session, input.task);
+    (deps.warn ?? ((line) => void process.stderr.write(`${line}\n`)))(`${unbound.message} (${input.cause}: the command's own write stands) ${unbound.details.join(' ')}`);
+    return null;
+  }
+  try {
+    return await deps.engine.advance({ task: input.task, session: input.session.session, cause: input.cause, ...(input.produced === undefined ? {} : { produced: input.produced }), ...(input.scratchpadDir === undefined ? {} : { scratchpadDir: input.scratchpadDir }) });
+  } catch (error) {
+    if (isAmbicodeError(error) && error.code === 'route-not-open') return null;
+    throw error;
+  }
 }

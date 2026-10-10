@@ -6,21 +6,12 @@ import { initConfig } from '#testing/fixtures/init-config';
 import { runReview, REVIEW_OPTIONS } from '#cli/commands/review/review';
 import { createRuntime } from '#composition/root';
 import { nodeFileSystem } from '#platform/ports/filesystem';
-import { byteLength } from '../snapshot/limits.ts';
+import { byteLength } from '../snapshot/change.ts';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { isAmbicodeError } from '#util/errors';
 import type { Runtime } from '#types/composition';
-import type { Reviewer, ReviewerInvocation, ReviewerRequest } from '#types/platform/ports';
 
 const JIRA = 'https://example.atlassian.net/browse/ORD-17';
-
-class CountingReviewer implements Reviewer {
-  readonly requests: ReviewerRequest[] = [];
-  async invoke(request: ReviewerRequest): Promise<ReviewerInvocation> {
-    this.requests.push(request);
-    return { kind: 'ok', output: { findings: [], coverageNotes: [] }, rawLength: 2, argv: ['claude'] };
-  }
-}
 
 interface Fixture {
   repo: TempRepo;
@@ -64,7 +55,6 @@ async function evidence(repo: TempRepo, content: string): Promise<string> {
           title: 'Sum the amounts',
           retrievedAt: '2026-09-20T09:00:00.000Z',
           sourceVersion: '3',
-          updatedAt: '2026-09-19T12:00:00.000Z',
           content,
           citations: [],
           status: 'retrieved',
@@ -89,66 +79,24 @@ function refusal(run: () => Promise<unknown>): Promise<{ code: string; details: 
 }
 
 describe('U17 the context limit covers the whole model input', () => {
-  it('refuses a requirement larger than the limit before calling the reviewer', async () => {
+  it('refuses a requirement larger than the limit before any reviewer runs', async () => {
     const context = await fixture(8_192);
     try {
       const huge = 'The orders service must reject negative amounts. '.repeat(400);
       assert.ok(byteLength(huge) > 8_192);
       const evidencePath = await evidence(context.repo, huge);
 
-      const reviewer = new CountingReviewer();
       const error = await refusal(() =>
         runReview(
           context.runtime,
           parseArgs('review', ['--requirement', JIRA, '--evidence', evidencePath], REVIEW_OPTIONS),
-          { reviewer },
         ),
       );
 
       assert.equal(error.code, 'input-too-large');
-      assert.equal(reviewer.requests.length, 0);
       assert.match(error.details.join('\n'), /measured components:/);
       assert.match(error.details.join('\n'), /requirement content: \d+ bytes/);
       assert.match(error.details.join('\n'), /does not truncate a change or a requirement to fit/);
-    } finally {
-      await context.dispose();
-    }
-  });
-
-  it('counts the composed prompt, not only the patch, against the limit', async () => {
-    const context = await fixture(4_096);
-    try {
-      const reviewer = new CountingReviewer();
-      const error = await refusal(() =>
-        runReview(context.runtime, parseArgs('review', [], REVIEW_OPTIONS), { reviewer }),
-      );
-
-      assert.equal(error.code, 'input-too-large');
-      assert.equal(reviewer.requests.length, 0);
-      assert.match(error.details.join('\n'), /composed prompt: \d+ bytes/);
-      assert.match(error.details.join('\n'), /mirrored files the reviewer can read: \d+ bytes/);
-    } finally {
-      await context.dispose();
-    }
-  });
-
-  it('measures the prompt that was actually composed and records it in the result', async () => {
-    const context = await fixture(524_288);
-    try {
-      const reviewer = new CountingReviewer();
-      const output = await runReview(context.runtime, parseArgs('review', [], REVIEW_OPTIONS), {
-        reviewer,
-      });
-
-      const sentSystem = reviewer.requests[0]?.systemPrompt ?? '';
-      const sentUser = reviewer.requests[0]?.prompt ?? '';
-      assert.equal(output.result.inputs.promptBytes, byteLength(sentSystem) + byteLength(sentUser));
-      assert.equal(
-        output.result.inputs.contextBytes,
-        output.result.inputs.promptBytes + output.result.inputs.snapshotBytes,
-      );
-      assert.ok(output.result.inputs.promptBytes > output.result.inputs.patchBytes);
-      await nodeFileSystem.remove(output.snapshotDirectory);
     } finally {
       await context.dispose();
     }

@@ -1,31 +1,21 @@
-import { sinceReopen } from '#platform/ledger/reopen';
 import type { ArtifactRef, Chain, LedgerEntry } from '#types/modules/evidence';
 
 export const text = (entry: LedgerEntry, field: string): string | null => (typeof entry[field] === 'string' ? (entry[field] as string) : null);
 export const isBoundKind = (entry: LedgerEntry): boolean => entry.kind === 'acceptance' || entry.kind === 'declined' || entry.kind === 'default-taken';
 
 export function buildChain(all: readonly LedgerEntry[], head: LedgerEntry): Chain {
-  const routes = new Map(all.filter((entry) => entry.kind === 'route').map((entry) => [entry.id, entry]));
   const ids = new Set<string>([head.id]);
-  for (let current: LedgerEntry | undefined = head; current !== undefined; ) {
-    const next = text(current, 'resumes');
-    if (next === null || ids.has(next)) break;
-    ids.add(next);
-    current = routes.get(next);
-  }
-  const member = (entry: LedgerEntry): boolean => (entry.kind === 'route' ? ids.has(entry.id) : ids.has(text(entry, 'route') ?? ''));
-  return { head, ids, entries: all.filter(member) };
+  return { head, ids, entries: all.filter((entry) => (entry.kind === 'route' ? entry.id === head.id : entry['route'] === head.id)) };
 }
 
-/** Heads of the chains no exit has closed: routes nothing resumes. */
+/** Routes no exit has closed. */
 export function liveHeads(entries: readonly LedgerEntry[]): LedgerEntry[] {
-  const resumed = new Set(entries.filter((entry) => entry.kind === 'route' && typeof entry['resumes'] === 'string').map((entry) => entry['resumes'] as string));
-  return entries.filter((entry) => entry.kind === 'route' && !resumed.has(entry.id)).filter((head) => exitOf(buildChain(entries, head)) === null);
+  return entries.filter((entry) => entry.kind === 'route').filter((head) => exitOf(buildChain(entries, head)) === null);
 }
 
-/** The exit that currently ends the chain: exits before the latest reopen no longer count. */
+/** The exit that ends the chain. */
 export function exitOf(chain: Chain): LedgerEntry | null {
-  return sinceReopen(chain.entries).findLast((entry) => entry.kind === 'exit') ?? null;
+  return chain.entries.findLast((entry) => entry.kind === 'exit') ?? null;
 }
 
 /** A bound answer: not an unbound hook answer and not a decline that was never an answer (03-G5). */

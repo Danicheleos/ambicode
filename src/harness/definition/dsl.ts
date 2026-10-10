@@ -1,13 +1,6 @@
+import { z } from 'zod';
 import { AmbicodeError } from '#util/errors';
 import { EXITS, type Qualified, type Call, type Revise, type OnError, type Exit, type When, type GateDef } from '#types/harness';
-
-/** The field of a kind that a `kind{value}` qualifier is checked against. */
-export const QUALIFIERS: Readonly<Record<string, readonly string[]>> = {
-  note: ['investigation', 'plan-draft', 'plan', 'notes'],
-  policy: ['before-work', 'before-checks', 'before-report', 'drafts', 'apply'],
-  check: ['red', 'green'],
-  requirement: ['full', 'list'],
-};
 
 export function invalid(file: string, where: string, message: string): AmbicodeError {
   return new AmbicodeError('route-invalid', `${file}: ${where}: ${message}`, { field: where });
@@ -18,11 +11,6 @@ export function parseQualified(file: string, where: string, text: string, kinds:
   if (match === null) throw invalid(file, where, `"${text}" is not kind or kind{value}`);
   const [, kind, value] = match as unknown as [string, string, string | undefined];
   if (!kinds.includes(kind)) throw invalid(file, where, `"${kind}" is not a ledger kind`);
-  if (value !== undefined) {
-    const allowed = QUALIFIERS[kind];
-    if (allowed === undefined) throw invalid(file, where, `"${kind}" takes no qualifier`);
-    if (!allowed.includes(value)) throw invalid(file, where, `"${value}" is not a ${kind} qualifier; expected ${allowed.join(', ')}`);
-  }
   return { kind, value: value ?? null };
 }
 
@@ -47,69 +35,57 @@ export function parseRevise(file: string, where: string, text: string): Revise {
 }
 
 export function parseOnError(file: string, where: string, text: string): OnError {
-  const trimmed = text.trim();
-  const stop = /^stop:(\w+)$/.exec(trimmed);
-  if (stop !== null) {
-    if (!(EXITS as readonly string[]).includes(stop[1]!)) throw invalid(file, where, `"${stop[1]}" is not an exit reason`);
-    return { kind: 'stop', reason: stop[1] as Exit };
-  }
-  const retry = /^retry-with\s+(.+)$/.exec(trimmed);
-  if (retry !== null) return { kind: 'retry-with', hint: retry[1]! };
-  const ask = /^ask\s+(\S+)$/.exec(trimmed);
-  if (ask !== null) return { kind: 'ask', gate: ask[1]! };
-  throw invalid(file, where, `"${text}" is not retry-with <hint>, ask <gate> or stop:<reason>`);
+  const reason = /^stop:(\w+)$/.exec(text.trim())?.[1];
+  if (reason === undefined || !(EXITS as readonly string[]).includes(reason)) throw invalid(file, where, `"${text}" is not stop:<reason>`);
+  return { kind: 'stop', reason: reason as Exit };
 }
 
-const SIMPLE_WHEN = ['args.hasRequirement', '!args.hasRequirement', 'map.empty', 'plan.isDraft', 'headless', 'interactive', 'index.present', 'revised'];
+const SIMPLE_WHEN = ['args.hasRequirement', 'args.hasMergeRequest', 'map.empty', 'plan.isDraft', 'revised'];
 
 export function parseWhen(file: string, where: string, text: string): When {
   const trimmed = text.trim();
   if (SIMPLE_WHEN.includes(trimmed)) return { predicate: trimmed as never };
-  const answered = /^gate\.([\w:-]+)\.answered$/.exec(trimmed);
-  if (answered !== null) return { predicate: 'gate.answered', gate: answered[1]! };
-  const is = /^gate\.([\w:-]+)\.is\((.+)\)$/.exec(trimmed);
-  if (is !== null) return { predicate: 'gate.is', gate: is[1]!, option: is[2]!.trim() };
+  const is = /^gate\.([\w:-]+)\.(is|isnt)\((.+)\)$/.exec(trimmed);
+  if (is !== null) return { predicate: is[2] === 'is' ? 'gate.is' : 'gate.isnt', gate: is[1]!, option: is[3]!.trim() };
   throw invalid(file, where, `"${text}" is not in the when vocabulary`);
 }
 
-interface RawGate {
-  question: string;
-  options: string[];
-  default: string;
-  release: string;
-  onAnswer?: Record<string, string> | undefined;
-  maxRevises?: number | undefined;
-  acting?: string[] | undefined;
-  object?: string | undefined;
-  policy?: Record<string, 'stop'> | undefined;
-}
+/** One gate as written in a route step or in `routes/gates.yaml`; `policy` is registry-only. */
+export const RawGate = z.strictObject({
+  question: z.string().min(1),
+  options: z.array(z.string().min(1)).min(1),
+  default: z.string().min(1),
+  onAnswer: z.record(z.string(), z.string()).optional(),
+  repeat: z.number().int().min(1).optional(),
+  acting: z.array(z.string()).optional(),
+  object: z.string().optional(),
+  policy: z.record(z.string(), z.literal('stop')).optional(),
+});
 
-export function normalizeGate(file: string, id: string, cls: GateDef['class'], raw: RawGate, kinds: readonly string[]): GateDef {
+/** Human revises a gate allows before it declines the next one; 3 was the default of every shipped gate but init's. */
+const DEFAULT_GATE_REPEAT = 3;
+
+export function normalizeGate(file: string, id: string, cls: GateDef['class'], raw: z.infer<typeof RawGate>, kinds: readonly string[]): GateDef {
   const where = `gate ${id}`;
   const acting = raw.acting ?? [];
   const options = raw.options;
   for (const name of acting) if (!options.includes(name)) throw invalid(file, `${where}.acting`, `"${name}" is not one of the options`);
   if (cls !== 'decision' && !options.includes(raw.default)) throw invalid(file, `${where}.default`, `"${raw.default}" is not one of the options`);
   if (acting.includes(raw.default)) throw invalid(file, `${where}.default`, `"${raw.default}" is acting; a default is never acting`);
-  if (raw.release === '') throw invalid(file, `${where}.release`, 'a gate needs a release');
-  if (acting.includes(raw.release)) throw invalid(file, `${where}.release`, `"${raw.release}" is acting; a release is never acting`);
   const onAnswer: Record<string, Revise> = {};
   for (const [key, text] of Object.entries(raw.onAnswer ?? {})) {
     if (key !== '*' && !options.includes(key)) throw invalid(file, `${where}.onAnswer`, `"${key}" is neither an option nor "*"`);
     onAnswer[key] = parseRevise(file, `${where}.onAnswer.${key}`, text);
   }
-  const maxRevises = raw.maxRevises ?? 3;
-  if (!Number.isInteger(maxRevises) || maxRevises < 1) throw invalid(file, `${where}.maxRevises`, 'must be at least 1');
   return {
     id,
     class: cls,
     question: raw.question,
     options: [...options],
     default: raw.default,
-    release: raw.release,
     acting: [...acting],
     onAnswer,
-    maxRevises,
+    repeat: raw.repeat ?? DEFAULT_GATE_REPEAT,
     object: raw.object === undefined ? null : parseQualified(file, `${where}.object`, raw.object, kinds),
     policy: raw.policy ?? {},
   };

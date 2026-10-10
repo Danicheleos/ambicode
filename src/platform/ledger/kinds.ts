@@ -27,16 +27,13 @@ const routed = (value: { route?: string | undefined; unbound?: true | undefined 
 
 const schemas = [
   entry('route', {
-    skill: text, args: z.union([text, z.looseObject({})]), mode: z.enum(['interactive', 'headless']), channel: z.enum(['hook', 'cli', 'harness']), trusted: z.boolean(),
-    session: text, harnessSession: text.optional(), scratchpad: text.optional(), epoch: z.number().int().min(1), resumes: text.optional(), adopts: z.boolean().optional(),
-    reopens: text.optional(), rebind: z.object({ from: text, to: text }).optional(),
+    skill: text, args: z.union([text, z.looseObject({})]), mode: z.enum(['interactive', 'headless']), channel: z.enum(['hook', 'cli']), trusted: z.boolean(),
+    session: text, harnessSession: text.optional(), scratchpad: text.optional(), epoch: z.number().int().min(1),
   }).refine((value) => value.trusted === (value.channel !== 'cli'), { path: ['trusted'], message: 'must equal channel !== cli' }),
   entry('step', {
-    route: text, step: text, actor: z.enum(['code', 'model', 'human', 'worker']), status: z.enum(['delivered', 'completed', 'skipped', 'failed', 'repeated']), cause: text,
+    route: text, step: text, actor: z.enum(['code', 'model', 'human']), status: z.enum(['delivered', 'completed', 'skipped', 'failed', 'repeated']), cause: text,
     channel: text.optional(), bytes: count.optional(), file: text.optional(),
-    revise: z.union([text, z.looseObject({})]).optional(), exit: text.optional(), ms: z.number().nonnegative().optional(),
-    budget: z.record(text, z.number().nonnegative()).optional(),
-    payloadBytes: count.optional(), payloadTokens: count.optional(), answer: z.literal('note').optional(),
+    revise: z.union([text, z.looseObject({})]).optional(), exit: text.optional(),
   }),
   entry('gate', {
     route: text, gate: text, class: z.enum(['declared', 'raised', 'decision']), question: text, print: z.number().int().min(1),
@@ -46,9 +43,9 @@ const schemas = [
   entry('declined', answer).superRefine(routed),
   entry('default-taken', answer).superRefine(routed),
   entry('preanswer', { route: text, gate: text, option: text, via: z.literal('prompt'), trusted: z.boolean() }),
-  entry('revise', { route: text, from: text, via: z.enum(['gate', 'code', 'model', 'reopen']), cycle: count, reason: text, source: text.optional() }),
-  entry('limit', { route: text, which: text, count, step: text.optional(), source: text.optional() }),
-  entry('exit', { route: text, reason: text, detail: present.optional(), complete: z.boolean().optional(), unverified: count.optional(), source: text.optional(), budget: z.record(text, z.number().nonnegative()).optional() }),
+  entry('revise', { route: text, from: text, via: z.enum(['gate', 'code', 'model']), cycle: count, reason: text }),
+  entry('limit', { route: text, which: text, count, step: text.optional() }),
+  entry('exit', { route: text, reason: text, detail: present.optional(), complete: z.boolean().optional(), unverified: count.optional() }),
   entry('requirement', {
     key: text, via: text, rawHash: text, bytes: count, relation: present, capture: present, derivedFrom: text.nullable().optional(),
   }),
@@ -57,51 +54,36 @@ const schemas = [
   }),
   entry('map', {
     mode: z.enum(['prompt', 'context']), layers: z.array(z.object({ name: text, ms: z.number(), hits: count })), layersSource: z.enum(['config', 'default', 'route']),
-    terms: z.object({ pass1: z.array(text), pass2: z.array(text) }), candidates: count, limitations: z.array(text), index: z.union([z.literal('none'), z.object({ tool: text, state: text, fresh: z.boolean(), builtMs: z.number().nullable() })]), bytes: count, collisions: z.array(text).optional(),
-    candidatePaths: z.array(text).optional(), serialized: count.optional(),
-    delivered: z.object({ leads: z.array(text), feature: z.array(text), operands: z.array(text).optional(), bytes: count, hash: text }).optional(), feature: z.object({ root: text, paths: count }).optional(),
-    tuning: z.object({ hash: text, overrides: z.array(text) }).optional(), profile: z.object({ commit: text, files: count }).nullable().optional(),
-    decisions: z.object({ sequenceFiles: count, pass2Downweighted: count, harvestFiles: count, feature: z.enum(['folder', 'named']).nullable(), proseRetry: z.boolean() }).optional(),
+    terms: z.object({ pass1: z.array(text), pass2: z.array(text) }), candidates: count, limitations: z.array(text), bytes: count, collisions: z.array(text).optional(),
   }),
-  entry('search', { command: z.enum(['refs', 'find', 'relates', 'read']), names: z.array(text), hits: count, bytes: count, truncated: count.optional() }),
+  entry('search', { command: z.enum(['refs']), names: z.array(text), hits: count, bytes: count, truncated: count.optional() }),
   entry('policy', {
     stage: z.enum(['before-work', 'before-checks', 'before-report', 'drafts', 'apply']), packs: optionalList, rules: count.optional(), omitted: count.optional(), bytes: count.optional(),
-    path: text.optional(), contentHash: text.optional(), drafts: optionalList, errors: count.optional(), probes: optionalList,
+    path: text.optional(), contentHash: text.optional(), drafts: optionalList, errors: count.optional(),
   }).superRefine((value, context) => {
-    const required = { drafts: ['path', 'contentHash', 'drafts', 'errors'], apply: ['packs', 'probes'] }[value.stage as string] ?? ['packs', 'rules', 'omitted', 'bytes'];
+    const required = { drafts: ['path', 'contentHash', 'drafts', 'errors'], apply: ['packs'] }[value.stage as string] ?? ['packs', 'rules', 'bytes'];
     for (const field of required) if ((value as Record<string, unknown>)[field] === undefined) context.addIssue({ code: 'custom', path: [field], message: `required for stage ${value.stage}` });
   }),
   entry('baseline', { head: text.nullable(), dirty: z.array(z.object({ path: text, hash: text.nullable() })) }),
   entry('check', {
-    key: text, argv: z.array(text), only: z.array(text), exit: z.number().int(), phase: z.enum(['red', 'green']),
-    summary: z.object({ ran: count, failed: count }).nullable(), ms: z.number(), mutations: z.unknown().optional(),
+    key: text, files: z.array(text), exit: z.number().int(), phase: z.enum(['red', 'green']),
+    tail: z.string().optional(), ms: z.number(), mutations: z.unknown().optional(),
   }),
   entry('format', {
     key: text, files: z.array(text), exit: z.number().int().nullable(), via: z.literal('model'), outcome: z.enum(['formatted', 'unconfigured', 'failed', 'refused']),
   }),
   entry('review', {
-    reviewId: text, status: text.optional(), statusReason: text.nullable().optional(), reviewerRan: z.boolean().optional(),
+    reviewId: text, status: text.optional(), statusReason: text.nullable().optional(), reviewerRan: z.boolean().optional(), stage: z.enum(['pending', 'recorded']).optional(),
     findings: count.optional(), omissions: z.unknown().optional(), preexisting: z.array(text).optional(), baseline: text.nullable().optional(),
   }),
   entry('worker', {
     worker: text, outcome: z.enum(['ran', 'inline', 'skipped']), ms: z.number(), artifact: text.nullable(), costUsd: z.number().optional(), reason: text.optional(),
-    summary: z.object({ failed: z.boolean(), anchorsBad: count, acsUnmapped: count, duplicates: count }).optional(),
+    summary: z.object({ failed: z.boolean(), anchorsBad: count }).optional(),
   }),
+  entry('capture', { what: z.literal('mr-diff'), path: text, rawHash: text, bytes: count, tool: text }),
   entry('note', {
     note: z.enum(['investigation', 'plan-draft', 'plan', 'notes']), path: text, contentHash: text,
     iteration: z.number().int().min(1).optional(), promotedFrom: text.optional(), from: text.optional(),
-  }),
-  entry('session', { route: text, harnessSession: text, event: z.literal('end'), reason: text }),
-  entry('command', {
-    argv: z.array(text.max(200)), type: z.enum(['ambicode', 'check', 'format', 'baseline', 'reviewer', 'worker', 'index']), exit: z.number().int().nullable(), ms: z.number().nonnegative(), outBytes: count,
-  }),
-  entry('hook', { name: text, ms: z.number().nonnegative() }),
-  entry('tool', { name: text, step: text.optional(), path: text.optional(), bytes: count.optional() }),
-  entry('turn', {
-    from: text, to: text, tools: z.record(text, count),
-    commands: z.array(z.object({ text: text.max(200), kind: z.enum(['package-script', 'node-script', 'git', 'ambicode', 'other']) })),
-    context: z.object({ input: count, cacheRead: count, cacheCreate: count, output: count, peak: count }),
-    lastMessage: text.nullable().optional(),
   }),
 ] as const;
 

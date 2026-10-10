@@ -5,10 +5,10 @@
  * before the uncommitted change is replayed, keeping the config out of the reviewed change.
  */
 import { execFile } from 'node:child_process';
-import { mkdir, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import { access, mkdir, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { parse as parseYaml } from 'yaml';
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { FIXTURES, fixtureByName } from './definitions.mjs';
 
 const run = promisify(execFile);
@@ -77,25 +77,59 @@ async function install(fixture, destination) {
   }
 }
 
+/** Stands in for the model's judgment: one root project; a wired slot gets the installed tool that serves it, found by looking for the binary. */
+async function configFor(destination, wires) {
+  const tools = {
+    lint: [['node_modules/.bin/eslint', '{file}'], ['.venv/bin/ruff', 'check {file}']],
+    unit: [['node_modules/.bin/jest', '--findRelatedTests {file}'], ['.venv/bin/python', '-m pytest {file}']],
+  };
+  const checks = { lint: { all: null, file: null }, unit: { all: null, file: null } };
+  for (const slot of wires) {
+    for (const [binary, rest] of tools[slot] ?? []) {
+      if (!(await access(path.join(destination, binary)).then(() => true, () => false))) continue;
+      const command = `./${binary} ${rest}`;
+      checks[slot] = { all: command.replace(' {file}', ''), file: command };
+    }
+  }
+  const python = await access(path.join(destination, 'pyproject.toml')).then(() => true, () => false);
+  const run = { model: 'sonnet', effort: 'medium', timeoutMinutes: 15 };
+  return {
+    schemaVersion: 4,
+    id: 'app',
+    context: { maxTotalTokens: 24000, maxFileTokens: 2500 },
+    skills: {
+      init: { ...run, scout: run, ruleSources: ['presets', 'scout', 'manual', 'web'] },
+      review: { ...run, maxFindings: null, maxChangedFiles: null, maxChangedLines: null, maxContextBytes: null, excludePaths: [] },
+      task: { ...run, checkTimeoutSeconds: 120 },
+      plan: run,
+      investigate: run,
+      rules: run,
+    },
+    requirements: { runtimes: {}, mcps: [], lsps: [], env: [] },
+    projects: [{ id: 'app', root: '.', paths: [], ecosystem: { languages: [python ? 'python' : 'typescript'], frameworks: [], packageManager: null }, include: [], exclude: [], packs: ['builtin/common-quality', 'builtin/common-checks'], policyFiles: [], rules: [], commands: {}, checks }],
+  };
+}
+
 /** `wires` holds only after an install, so it is empty without one. */
 async function commitAmbicodeInit(fixture, destination, wires) {
   const { createRuntime } = await import('../src/composition/root.ts');
   const { openRepository } = await import('../src/platform/git/open.ts');
-  const { buildProposal, writeConfig } = await import('../src/modules/config/init/proposal.ts');
   const runtime = await createRuntime({ cwd: destination });
   const { repositoryRoot } = await openRepository(runtime);
-  const proposal = await buildProposal(runtime, repositoryRoot, []);
-  await writeConfig(runtime.fs, repositoryRoot, proposal, []);
+  await mkdir(path.join(repositoryRoot, '.ambicode'), { recursive: true });
+  await writeFile(path.join(repositoryRoot, '.ambicode', 'config.yaml'), stringifyYaml(await configFor(destination, wires)));
+  await writeFile(path.join(repositoryRoot, '.gitignore'), '.ambicode/\n', { flag: 'a' });
   if (wires.length > 0) {
     const config = parseYaml(await readFile(path.join(destination, '.ambicode', 'config.yaml'), 'utf8'));
     const root = config.projects.find((project) => project.root === '.');
     if (root === undefined) throw new Error(`${fixture.name}: init configured no project at the repository root`);
-    const unwired = wires.filter((slot) => root.checks?.[slot] == null).map((slot) => `checks.${slot}`);
+    const unwired = wires.filter((slot) => root.checks?.[slot]?.all == null).map((slot) => `checks.${slot}`);
     if (unwired.length > 0) {
       throw new Error(`${fixture.name}: init left ${unwired.join(', ')} unwired after the install`);
     }
   }
   await git(destination, ['add', '-A']);
+  await git(destination, ['add', '-f', '.ambicode/config.yaml']);
   await git(destination, ['commit', '-q', '-m', 'configure ambicode']);
   await settle(destination);
 }

@@ -3,14 +3,11 @@ import { ownerOf } from '#modules/evidence/ownership';
 import { AmbicodeError } from '#util/errors';
 import { localTimestamp, UNIQUE_FILE_LIMIT, writeUniqueFile } from '#util/files';
 import { contentHash, hash12 } from '#util/hash';
-import { ledgerSizeWarning, readLedger } from '#platform/ledger/ledger';
+import { ledgerSizeWarning } from '#platform/ledger/ledger';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { resolveFrom, resolveTaskDir } from './task/task-dir.ts';
 import type { Runtime } from '#types/composition';
-import { MAX_NOTE_BYTES, NOTE_KINDS, SAVE_KINDS, type LedgerEntry, type LockedLedger, type TaskDir, type NoteDeps, type NoteRow, type NoteKind, type SaveKind } from '#types/modules/evidence';
-
-/** The label line the note writer stamps on a note: not the author's words. */
-export const NOTE_LABELS: readonly string[] = Object.values(NOTE_KINDS).map((kind) => kind.label);
+import { MAX_NOTE_BYTES, NOTE_KINDS, SAVE_KINDS, type LedgerEntry, type LockedLedger, type TaskDir, type NoteDeps, type NoteKind, type SaveKind } from '#types/modules/evidence';
 
 interface SavedNote {
   task: string;
@@ -20,8 +17,6 @@ interface SavedNote {
   entry: LedgerEntry;
   warning: string | null;
 }
-
-const ITERATION_HEADER = /^\s*<!-- ambicode iteration: \d+ done -->[^\n]*\n?/;
 
 const badArgument = (message: string, field: string): AmbicodeError => new AmbicodeError('bad-argument', message, { field });
 const relativeTo = (dir: TaskDir, file: string): string => path.relative(dir.repositoryRoot, file).split(path.sep).join('/');
@@ -39,7 +34,7 @@ const notAccepted = (reason: string, why: string): AmbicodeError =>
   new AmbicodeError('plan-not-accepted', `The plan was not promoted: ${why}`, { details: [`reason: ${reason}`] });
 const draftMissing = (task: string): AmbicodeError =>
   new AmbicodeError('plan-draft-missing', `Task ${task} has no plan draft to promote.`, {
-    details: [`Pipe the plan to \`plan check --task ${task}\` on standard input to save the draft, then ask plan-accept again.`],
+    details: [`Write the plan to steps/plan-body.md and run route next to save the draft, then ask plan-accept again.`],
   });
 
 /** The route a `plan-draft` is saved for, or `null` for a routeless save; every other state refuses before anything is written. */
@@ -51,20 +46,9 @@ export async function owningRoute(ledger: LockedLedger, session: string | null, 
   if (owner.state === 'unknown') throw unreadable(task, owner.reason);
   if (session === null) throw noRouteSession(task);
   if (session === owner.session) return owner.routeId;
-  if (owner.takenOver.includes(session)) {
-    throw new AmbicodeError('route-taken-over', `The plan route of task ${task} now belongs to session ${owner.session}; this session no longer writes its files.`);
-  }
-  throw new AmbicodeError('route-busy', `Task ${task} has a live plan route owned by session ${owner.session}.`, {
-    details: ['Adopt it (--adopt), restart it (--fresh) or continue under another task: --task <slug>-2.'],
+  throw new AmbicodeError('route-taken-over', `The plan route of task ${task} belongs to session ${owner.session}; this session does not write its files.`, {
+    details: ['Restart it with --fresh or continue under another task: --task <slug>-2.'],
   });
-}
-
-function render(kind: NoteKind, body: string, iteration: number | null): string {
-  const { label } = NOTE_KINDS[kind];
-  const content = iteration === null ? body : body.replace(ITERATION_HEADER, '');
-  const marker = label.slice(0, label.indexOf('**', 2) + 2);
-  const text = `${content.trimStart().startsWith(marker) ? '' : `${label}\n\n`}${content.trimEnd()}\n`;
-  return iteration === null ? text : `<!-- ambicode iteration: ${iteration} done -->\n${text}`;
 }
 
 async function writeNote(runtime: Runtime, dir: TaskDir, kind: NoteKind, text: string): Promise<string> {
@@ -98,7 +82,7 @@ export async function saveNote(
   const body = from === null ? input.body! : await runtime.fs.readText(await resolveFrom(runtime.fs, dir, from));
   if (Buffer.byteLength(body) > MAX_NOTE_BYTES) throw badArgument(`The note is over ${MAX_NOTE_BYTES} bytes.`, from === null ? 'stdin' : 'from');
   if (body.trim() === '') throw badArgument(`${from} is empty.`, 'from');
-  const text = render(kind, body, iteration);
+  const text = `${body.trimEnd()}\n`;
 
   const work = async (ledger: LockedLedger): Promise<SavedNote> => {
     const route = kind === 'plan-draft' ? await owningRoute(ledger, session, task) : (input.route ?? null);
@@ -126,7 +110,7 @@ const isNote = (entry: LedgerEntry, note: string): entry is PlanNote =>
 export async function promotePlan(
   deps: NoteDeps,
   task: string,
-): Promise<{ outcome: 'promoted' | 'plan-already-promoted' | 'repaired'; path: string; promotedFrom: string }> {
+): Promise<{ outcome: 'promoted' | 'plan-already-promoted'; path: string; promotedFrom: string }> {
   const { runtime, session, context } = deps;
   if (session === null) throw noRouteSession(task);
   if (context === null) throw new AmbicodeError('internal', 'note promote has no route context to evaluate acceptance against.');
@@ -162,43 +146,12 @@ export async function promotePlan(
     if (planName === draftName) throw new AmbicodeError('internal', `${draft.path} is not named plan-draft_<timestamp>.md.`);
     const [draftFile, planFile] = [path.join(dir.root, draftName), path.join(dir.root, planName)];
     const bytesMatch = async (file: string): Promise<boolean> => contentHash(await runtime.fs.readBytes(file)) === draft.contentHash;
-    let outcome: 'promoted' | 'repaired';
-    if (await runtime.fs.exists(draftFile)) {
-      if (!(await bytesMatch(draftFile))) throw notAccepted('object-changed', `${draft.path} no longer has the bytes that were accepted.`);
-      await runtime.fs.rename(draftFile, planFile);
-      outcome = 'promoted';
-    } else if (await runtime.fs.exists(planFile)) {
-      // A crash between the rename and the entry: record what the rename made, rename nothing.
-      if (!(await bytesMatch(planFile))) throw notAccepted('object-changed', `${planName} does not have the bytes that were accepted.`);
-      outcome = 'repaired';
-    } else {
-      throw draftMissing(task);
-    }
+    if (!(await runtime.fs.exists(draftFile))) throw draftMissing(task);
+    if (!(await bytesMatch(draftFile))) throw notAccepted('object-changed', `${draft.path} no longer has the bytes that were accepted.`);
+    await runtime.fs.rename(draftFile, planFile);
     const relative = relativeTo(dir, planFile);
     await ledger.append({ kind: 'note', note: 'plan', path: relative, contentHash: draft.contentHash, promotedFrom: draft.id, route: view.routeId });
-    return { outcome, path: shown(dir, relative), promotedFrom: draft.id };
+    return { outcome: 'promoted' as const, path: shown(dir, relative), promotedFrom: draft.id };
   };
   return deps.ledger !== undefined ? work(deps.ledger) : withLedgerLock(runtime.fs, dir.root, () => runtime.clock.now(), session, work);
-}
-
-export async function listNotes(runtime: Runtime, task: string): Promise<NoteRow[]> {
-  const dir = await resolveTaskDir(runtime, task);
-  const notes = (await readLedger(runtime.fs, dir.root)).filter((entry): entry is PlanNote => entry.kind === 'note' && typeof entry.path === 'string');
-  const rows: NoteRow[] = [];
-  for (const entry of notes) {
-    const file = await runtime.fs.readText(path.join(dir.repositoryRoot, entry.path)).catch(() => null);
-    const promotedFrom = typeof entry.promotedFrom === 'string' ? entry.promotedFrom : null;
-    const plan = entry.note === 'plan-draft' ? notes.find((other) => other.promotedFrom === entry.id) : undefined;
-    const draft = promotedFrom === null ? undefined : notes.find((other) => other.id === promotedFrom);
-    rows.push({
-      id: entry.id,
-      note: entry.note,
-      path: shown(dir, entry.path),
-      at: entry.at,
-      heading: file === null ? '—' : (/^#+\s+(.+)$/m.exec(file)?.[1]?.trim() ?? '—'),
-      iteration: typeof entry.iteration === 'number' ? entry.iteration : null,
-      link: plan !== undefined ? `promoted → ${path.basename(plan.path)}` : draft !== undefined ? `from ${path.basename(draft.path)}` : null,
-    });
-  }
-  return rows;
 }

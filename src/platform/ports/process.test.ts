@@ -1,10 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
-import { CombinedCapture, NodeProcessRunner, decodeCompleteUtf8, windowsCommandExists } from './node-process-runner.ts';
-import { describeOutcome, outcomeFailure } from './process.ts';
+import { NodeProcessRunner } from './node-process-runner.ts';
 import type { ProcessOutcome } from '#types/platform/ports';
 
 const runner = new NodeProcessRunner();
@@ -24,13 +23,6 @@ describe('U29 process runner', () => {
     const outcome = await node('process.stdout.write("é".repeat(10))', 10);
     assert.equal(Buffer.byteLength(outcome.stdout, 'utf8'), 10);
     assert.equal(outcome.stdout, 'é'.repeat(5));
-    assert.equal(outcome.truncated, true);
-  });
-
-  it('never returns a broken character created by truncation alone', async () => {
-    const outcome = await node('process.stdout.write("é".repeat(10))', 5);
-    assert.equal(outcome.stdout, 'éé');
-    assert.ok(!outcome.stdout.includes('�'));
     assert.equal(outcome.truncated, true);
   });
 
@@ -157,85 +149,6 @@ describe('U29 process runner', () => {
     });
     assert.equal(outcome.stdout, 'base:C');
   });
-
-  it('retains chunks in arrival order and cuts on a byte boundary', () => {
-    const capture = new CombinedCapture(5);
-    capture.push('stdout', Buffer.from('ab'));
-    capture.push('stderr', Buffer.from('XY'));
-    capture.push('stdout', Buffer.from('cdef'));
-    const decoded = capture.decode();
-    assert.equal(decoded.stdout, 'abc');
-    assert.equal(decoded.stderr, 'XY');
-    assert.equal(decoded.truncated, true);
-  });
-
-  it('decodes only whole UTF-8 sequences', () => {
-    const four = Buffer.from('😀');
-    assert.equal(decodeCompleteUtf8(four), '😀');
-    assert.equal(decodeCompleteUtf8(four.subarray(0, 3)), '');
-    assert.equal(decodeCompleteUtf8(Buffer.concat([Buffer.from('ok'), four.subarray(0, 2)])), 'ok');
-  });
-});
-
-describe('U29 Windows command resolution', () => {
-  let directory = '';
-
-  before(async () => {
-    directory = await mkdtemp(path.join(os.tmpdir(), 'ambicode-resolve-'));
-    await writeFile(path.join(directory, 'linter.EXE'), '');
-    await writeFile(path.join(directory, 'plain'), '');
-    await mkdir(path.join(directory, 'a-directory'));
-  });
-
-  after(async () => {
-    await rm(directory, { recursive: true, force: true });
-  });
-
-  const env = (overrides: Record<string, string> = {}): Record<string, string> => ({
-    PATHEXT: '.COM;.EXE;.BAT;.CMD',
-    ...overrides,
-  });
-
-  it('finds a bare name through PATH by appending a PATHEXT extension', () => {
-    assert.equal(windowsCommandExists('linter', env({ PATH: directory }), os.tmpdir()), true);
-  });
-
-  it('finds a bare name whose file has no extension at all', () => {
-    assert.equal(windowsCommandExists('plain', env({ PATH: directory }), os.tmpdir()), true);
-  });
-
-  it('reports a name that is on no PATH entry as missing', () => {
-    assert.equal(windowsCommandExists('linter', env({ PATH: os.tmpdir() }), os.tmpdir()), false);
-  });
-
-  it('searches the current directory ahead of PATH', () => {
-    assert.equal(windowsCommandExists('linter', env({ PATH: '' }), directory), true);
-  });
-
-  it('resolves a command carrying a path separator instead of searching PATH', () => {
-    assert.equal(windowsCommandExists(path.join(directory, 'linter.EXE'), env(), os.tmpdir()), true);
-    assert.equal(windowsCommandExists('./linter', env({ PATH: directory }), os.tmpdir()), false);
-  });
-
-  it('never resolves a directory to a command', () => {
-    assert.equal(windowsCommandExists('a-directory', env({ PATH: directory }), os.tmpdir()), false);
-  });
-
-  it('skips an empty PATH entry rather than reading it as the current directory', () => {
-    assert.equal(windowsCommandExists('linter', env({ PATH: ';;' }), os.tmpdir()), false);
-  });
-
-  it('unquotes a quoted PATH entry, as Windows allows', () => {
-    assert.equal(windowsCommandExists('linter', env({ PATH: `"${directory}"` }), os.tmpdir()), true);
-  });
-
-  it('reads PATH and PATHEXT case-insensitively, as Windows names them', () => {
-    assert.equal(windowsCommandExists('linter', { Path: directory, PathExt: '.EXE' }, os.tmpdir()), true);
-  });
-
-  it('falls back to the default PATHEXT when the environment sets an empty one', () => {
-    assert.equal(windowsCommandExists('linter', { PATH: directory, PATHEXT: '' }, os.tmpdir()), true);
-  });
 });
 
 describe('U29 a timeout kills the whole process tree', () => {
@@ -278,7 +191,7 @@ describe('U29 a timeout kills the whole process tree', () => {
   });
 
   describe('a command that exits and leaves a grandchild holding the pipes', () => {
-    async function launcher(request: { output?: 'capture' | 'ignore'; timeoutMs: number }): Promise<{
+    async function launcher(request: { timeoutMs: number }): Promise<{
       outcome: ProcessOutcome;
       elapsed: number;
     }> {
@@ -307,44 +220,5 @@ describe('U29 a timeout kills the whole process tree', () => {
       const { outcome } = await launcher({ timeoutMs: 1_000 });
       assert.equal(outcome.kind, 'timed-out');
     });
-
-    it('ends when the command exits once output is ignored', { timeout: 30_000 }, async () => {
-      const { outcome, elapsed } = await launcher({ output: 'ignore', timeoutMs: 5_000 });
-      assert.equal(outcome.kind, 'exited');
-      assert.equal(outcome.exitCode, 0);
-      assert.ok(elapsed < 2_000, `waited ${Math.round(elapsed)}ms for a launcher that exits at once`);
-      assert.equal(outcome.stdout, '');
-      assert.equal(outcome.stderr, '');
-    });
-  });
-});
-
-describe('05-B7 detached output', () => {
-  it('05-B7: a long-running child resolves at once with kind detached, and a missing binary is spawn-failed', { timeout: 30_000 }, async () => {
-    const started = performance.now();
-    const outcome = await runner.run({ argv: [process.execPath, '-e', 'setTimeout(()=>{},5000)'], cwd: os.tmpdir(), timeoutMs: 0, maxOutputBytes: 0, env: { kind: 'inherited' }, output: 'detached' });
-    assert.ok(performance.now() - started < 1_000);
-    assert.deepEqual([outcome.kind, outcome.exitCode, outcome.stdout, outcome.stderr, outcome.truncated, outcome.failure], ['detached', null, '', '', false, null]);
-    const missing = await runner.run({ argv: ['ambicode-no-such-binary-05'], cwd: os.tmpdir(), timeoutMs: 0, maxOutputBytes: 0, env: { kind: 'inherited' }, output: 'detached' });
-    assert.equal(missing.kind, 'spawn-failed');
-  });
-});
-
-describe('outcomeFailure and describeOutcome', () => {
-  const outcome = (fields: Partial<ProcessOutcome>): ProcessOutcome => ({ kind: 'exited', exitCode: 0, stdout: '', stderr: '', truncated: false, durationMs: 0, failure: null, ...fields });
-
-  it('ranks spawn-failed, timed-out, truncated, nonzero-exit and passes a detached start', () => {
-    assert.equal(outcomeFailure(outcome({ kind: 'spawn-failed', exitCode: null, truncated: true })), 'spawn-failed');
-    assert.equal(outcomeFailure(outcome({ kind: 'timed-out', exitCode: null, truncated: true })), 'timed-out');
-    assert.equal(outcomeFailure(outcome({ exitCode: 1, truncated: true })), 'truncated');
-    assert.equal(outcomeFailure(outcome({ exitCode: 1 })), 'nonzero-exit');
-    assert.equal(outcomeFailure(outcome({ kind: 'detached', exitCode: null })), null);
-    assert.equal(outcomeFailure(outcome({})), null);
-  });
-
-  it('describes each failure as the tail of a "<program> …" message', () => {
-    assert.equal(describeOutcome(outcome({ kind: 'spawn-failed', exitCode: null, failure: 'ENOENT' })), 'could not be started (ENOENT)');
-    assert.equal(describeOutcome(outcome({ kind: 'timed-out', exitCode: null })), 'timed out');
-    assert.equal(describeOutcome(outcome({ exitCode: 3 })), 'exited with 3');
   });
 });

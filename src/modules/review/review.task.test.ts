@@ -15,9 +15,7 @@ import { ROUTE_START_OPTIONS } from '#types/cli';
 
 type Fixture = Awaited<ReturnType<typeof taskFixture>>;
 
-const reviewer = { async invoke() { return { kind: 'ok', output: { findings: [], coverageNotes: [] }, rawLength: 2, argv: ['claude'] } as never; } };
 const LINT_RUNS = COMMAND_PACK.replace('{ command: lint, action: forbid, reason: "never here" }', '{ command: lint, action: run, reason: "lint" }');
-const LINT_PROPOSED = COMMAND_PACK.replace('{ command: lint, action: forbid, reason: "never here" }', '{ command: lint, action: propose, reason: "ask" }');
 const args = (...extra: string[]) => parseArgs('review', ['--task', CHECK_TASK, ...extra], REVIEW_OPTIONS);
 
 async function withTask(body: (t: Fixture) => Promise<void>, pack = LINT_RUNS): Promise<void> {
@@ -40,19 +38,16 @@ async function toRun(t: Fixture, before: () => Promise<void> = async () => {}, a
   if (answer !== null) await t.hook('review-offer', answer);
 }
 
-const review = (t: Fixture, ...extra: string[]) => runReview(t.runtime, args(...extra), { reviewer: reviewer as never, warm: async () => {} });
-const lint = (out: Awaited<ReturnType<typeof review>>) => out.result.checks.find((check) => check.commandId === 'lint');
+const review = (t: Fixture, ...extra: string[]) => runReview(t.runtime, args(...extra));
 const code = async (p: Promise<unknown>): Promise<string | null> => p.then(() => null, (error: { code?: string }) => error.code ?? 'other');
 
-describe('review --task (07-B, 07-K5)', () => {
-  it('07-B3: pre-existing changes are listed in one omission and checks skip them', async () => {
+describe('review --task (07-B)', () => {
+  it('07-B3: pre-existing changes are listed in one omission and leave the change', async () => {
     await withTask(async (t) => {
       await toRun(t, () => t.fx.repo.write('src/pre.ts', 'export const pre = 1;\n'));
       const out = await review(t);
       assert.ok(out.result.omissions.includes('not covered: pre-existing changes: src/pre.ts'), out.result.omissions.join('|'));
-      const selected = lint(out)?.selected.map((file) => file.path) ?? [];
-      assert.ok(selected.includes('src/orders.ts'));
-      assert.ok(!selected.includes('src/pre.ts'));
+      assert.ok(out.result.changedFiles.some((file) => file.newPath === 'src/orders.ts'));
       assert.ok(!out.result.changedFiles.some((file) => file.newPath === 'src/pre.ts' || file.oldPath === 'src/pre.ts'));
     });
   });
@@ -108,10 +103,10 @@ describe('review --task (07-B, 07-K5)', () => {
       const runtime = await createRuntime({ cwd: repo.root });
       await runRouteStart(runtime, parseArgs('route start', ['investigate', '--task', CHECK_TASK, 'how does a work'], ROUTE_START_OPTIONS));
       await repo.write('src/a.ts', 'export const a = 2;\n');
-      const out = await runReview(runtime, args(), { reviewer: reviewer as never, warm: async () => {} });
+      const out = await runReview(runtime, args());
       assert.doesNotMatch(out.result.omissions.join('\n'), /baseline|pre-existing/);
       assert.ok(out.result.changedFiles.some((file) => file.newPath === 'src/a.ts'));
-      const entries = await readLedger(nodeFileSystem, path.join(repo.root, '.ambicode', 'task', CHECK_TASK));
+      const entries = await readLedger(nodeFileSystem, path.join(repo.root, '.ambicode', 'tasks', CHECK_TASK));
       assert.equal(entries.filter((entry) => entry.kind === 'review').at(-1)?.['preexisting'] === undefined, true);
     } finally {
       await repo.dispose();
@@ -130,7 +125,7 @@ describe('review --task (07-B, 07-K5)', () => {
   it('07-B3: without --task the review is unchanged and carries no baseline omission', async () => {
     await withTask(async (t) => {
       await t.fx.repo.write('src/orders.ts', 'export const changed = 1;\n');
-      const out = await runReview(t.runtime, parseArgs('review', [], REVIEW_OPTIONS), { reviewer: reviewer as never });
+      const out = await runReview(t.runtime, parseArgs('review', [], REVIEW_OPTIONS));
       assert.doesNotMatch(out.result.omissions.join('\n'), /baseline|pre-existing/);
       assert.equal(out.next, undefined);
     });
@@ -160,35 +155,4 @@ describe('review --task (07-B, 07-K5)', () => {
     });
   });
 
-  it('07-K5: in a task route a model --approve on a waiting key records declined acting-needs-human and the key stays pending', async () => {
-    await withTask(async (t) => {
-      await toRun(t);
-      const out = await review(t, '--approve', 'app/lint');
-      const declined = (await t.kinds('declined')).filter((entry) => entry['key'] === 'app/lint');
-      assert.deepEqual(declined.map((entry) => [entry['reason'], entry['gate']]), [['acting-needs-human', 'check-only-unauthorized']]);
-      assert.deepEqual(out.pendingApprovals.map((approval) => approval.approvalKey), ['app/lint']);
-      assert.equal(out.awaitingAuthorization, true);
-    }, LINT_PROPOSED);
-  });
-
-  it('07-K5: in an investigate route a model --approve on a waiting key records declined acting-needs-human and the key stays pending', async () => {
-    const repo = await TempRepo.create();
-    try {
-      await repo.write('package.json', '{}\n');
-      await repo.write('.ambicode/config.yaml', CHECK_CONFIG);
-      await repo.write('.ambicode/policies/cmds.yaml', LINT_PROPOSED);
-      await repo.write('src/a.ts', 'export const a = 1;\n');
-      await repo.commitAll('initial');
-      const runtime = await createRuntime({ cwd: repo.root });
-      await runRouteStart(runtime, parseArgs('route start', ['investigate', '--task', CHECK_TASK, 'how does a work'], ROUTE_START_OPTIONS));
-      await repo.write('src/a.ts', 'export const a = 2;\n');
-      const out = await runReview(runtime, args('--approve', 'app/lint'), { reviewer: reviewer as never, warm: async () => {} });
-      const entries = await readLedger(nodeFileSystem, path.join(repo.root, '.ambicode', 'task', CHECK_TASK));
-      const declined = entries.filter((entry) => entry.kind === 'declined' && entry['key'] === 'app/lint');
-      assert.deepEqual(declined.map((entry) => entry['reason']), ['acting-needs-human']);
-      assert.deepEqual(out.pendingApprovals.map((approval) => approval.approvalKey), ['app/lint']);
-    } finally {
-      await repo.dispose();
-    }
-  });
 });

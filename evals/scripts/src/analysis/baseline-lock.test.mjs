@@ -8,7 +8,7 @@ import { attachBaseline, bareRates, lockedBaseline, readBaselineLock, resolveBas
 const analysis = {
   tracesDir: null,
   meta: () => ({ kind: 'localize', side: 'BE', truth: ['src/a.ts', 'src/b.ts'], root: 'src' }),
-  trace: () => ({ model: 'm', calls: [{ block: { name: 'Read' } }, { block: { name: 'Bash' }, bashRead: true }], replayedReviews: 0, peakContext: 1000 }),
+  trace: () => ({ model: 'm', calls: [{ block: { name: 'Read' } }, { block: { name: 'Bash' }, bashRead: true }], peakContext: 1000 }),
   exports: () => ({}),
 };
 const run = (answer, costUsd) => ({ costUsd, turns: 4, graders: [{ name: 'names-a-true-file', passed: true, evidence: answer }] });

@@ -1,9 +1,14 @@
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createRuntime } from '#composition/root';
 import { fsActiveRoutePointer } from '#harness/session/active-route';
+import { harnessOf } from '#harness/session/harness';
+import { latestRouteOf } from '#harness/engine/fold';
+import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { createEngine } from '#harness/engine/engine';
-import { handlerRegistry } from '#harness/engine/handlers';
+import { handlerRegistry } from '#harness/engine/execute';
+import { scriptHandler } from '#harness/engine/script';
 import { loadRoute, routeRegistry } from '#harness/definition/routes';
 import { parseRegistry } from '#harness/gates/gates';
 import { readLedger } from '#platform/ledger/ledger';
@@ -15,17 +20,26 @@ import { KINDS, type LedgerEntry } from '#types/modules/evidence';
 import { HANDLER_NAMES, type ActiveRoutePointer, type Engine, type Handler, type HandlerRegistry, type RouteDef, type RouteRegistry } from '#types/harness';
 
 
-export const CONFIG = [
-  'schemaVersion: 3',
+const RUN = 'model: sonnet, effort: medium, timeoutMinutes: 15';
+
+/** Everything above `projects:`; the review limits are the ones tests assert against. */
+export const CONFIG_HEAD = [
+  'schemaVersion: 4',
+  'id: repo',
   'baseline: origin/main',
-  'review: { model: sonnet, timeoutSeconds: 300, maxFindings: 7, maxChangedFiles: 50, maxChangedLines: 2000, maxContextBytes: 524288 }',
-  'checks: { timeoutSeconds: 120, maxSelectedTestFiles: 20 }',
-  'page: { idleTimeoutSeconds: 1800, port: 45831 }',
-  'requirements: { mcpServer: null }',
-  'remoteChecks: { image: null }',
+  'context: { maxTotalTokens: 24000, maxFileTokens: 2500 }',
+  'skills:',
+  `  init: { ${RUN}, scout: { ${RUN} }, ruleSources: [presets, scout, manual, web] }`,
+  `  review: { ${RUN}, maxFindings: 7, maxChangedFiles: 50, maxChangedLines: 2000, maxContextBytes: 524288, excludePaths: [] }`,
+  `  task: { ${RUN}, checkTimeoutSeconds: 120 }`,
+  `  plan: { ${RUN} }`,
+  `  investigate: { ${RUN} }`,
+  `  rules: { ${RUN} }`,
+  'requirements: { runtimes: {}, mcps: [], lsps: [], env: [] }',
   'projects:',
-  '  - { id: app, root: ".", ecosystem: typescript }',
 ].join('\n');
+
+export const CONFIG = `${CONFIG_HEAD}\n  - { id: app, root: ".", paths: [src/], ecosystem: { languages: [typescript], frameworks: [], packageManager: null } }`;
 
 export interface RouteFixture {
   repo: TempRepo;
@@ -41,12 +55,31 @@ export interface RouteFixture {
   dispose(): Promise<void>;
 }
 
+/** A review run lives under reviews/, every other route under tasks/. */
+export function runDirOf(root: string, task: string): string {
+  const reviews = path.join(root, '.ambicode', 'reviews', task);
+  return existsSync(path.join(reviews, 'ledger.jsonl')) ? reviews : path.join(root, '.ambicode', 'tasks', task);
+}
+
+/** Ends the session's open route as the removed `route stop` did: an `exit` entry, then the pointer cleared. */
+export async function stopRoute(fx: Pick<RouteFixture, 'runtime' | 'pointer' | 'scratchpad'>, task: string, session: string, reason: string, detail?: string, scratchpad: string = fx.scratchpad): Promise<void> {
+  const root = runDirOf(fx.runtime.cwd, task);
+  const head = await withLedgerLock(fx.runtime.fs, root, () => fx.runtime.clock.now(), session, async (ledger) => {
+    const read = await ledger.read();
+    const route = read.state === 'ok' ? latestRouteOf(read.entries, session) : null;
+    if (route === null) throw new Error(`no route of ${session} on ${task}`);
+    await ledger.append({ kind: 'exit', route: route.id, reason, ...(detail === undefined ? {} : { detail }) });
+    return route;
+  });
+  await fx.pointer.clear(harnessOf(head) ?? session, scratchpad);
+}
+
 export interface Assembled { runtime: Runtime; routes: RouteRegistry; pointer: ActiveRoutePointer; build(handlers: Record<string, Handler>): Engine }
 
 /** The engine over an existing repository: what a second process attached to the same task directory builds. */
-export async function assembleEngine(options: { root: string; routes: Record<string, string>; handlers?: readonly string[]; step?: Record<string, string>; clock?: () => Date }): Promise<Assembled> {
+export async function assembleEngine(options: { root: string; routes: Record<string, string>; handlers?: readonly string[]; step?: Record<string, string>; clock?: () => Date; pluginRoot?: string }): Promise<Assembled> {
   const clock = options.clock ?? ((): Date => new Date());
-  const runtime = await createRuntime({ cwd: options.root, clock: { now: clock, elapsed: () => 0 } });
+  const runtime = await createRuntime({ cwd: options.root, clock: { now: clock, elapsed: () => 0 }, ...(options.pluginRoot === undefined ? {} : { pluginRoot: options.pluginRoot }) });
   const handlerNames = [...HANDLER_NAMES, ...(options.handlers ?? [])];
   const registry = parseRegistry('routes/gates.yaml', await readFile(path.join(REPO_ROOT, 'routes', 'gates.yaml'), 'utf8'), KINDS);
   const context = { root: REPO_ROOT, handlers: handlerNames, readInstruction: async (relative: string) => options.step?.[relative] ?? '' };
@@ -58,7 +91,7 @@ export async function assembleEngine(options: { root: string; routes: Record<str
     runtime,
     routes,
     pointer,
-    build: (handlers) => createEngine({ runtime, routes, handlers: handlerRegistry(handlers) as HandlerRegistry, pointer }),
+    build: (handlers) => createEngine({ runtime, routes, handlers: handlerRegistry({ script: scriptHandler, ...handlers }) as HandlerRegistry, pointer }),
   };
 }
 
@@ -67,21 +100,23 @@ export async function routeFixture(options: {
   handlers?: Record<string, Handler>;
   step?: Record<string, string>;
   config?: string | null;
+  /** Where `skills/<skill>/scripts/*.mjs` are read from for `run: script(<name>)` steps; the repository by default. */
+  pluginRoot?: string;
 }): Promise<RouteFixture> {
   const repo = await TempRepo.create();
   await repo.write('package.json', '{}\n');
   if (options.config !== null) await repo.write('.ambicode/config.yaml', options.config ?? CONFIG);
   await repo.commitAll('initial');
   let time = new Date(2026, 9, 5, 10, 0, 0).getTime();
-  const assembled = await assembleEngine({ root: repo.root, routes: options.routes, handlers: Object.keys(options.handlers ?? {}), ...(options.step === undefined ? {} : { step: options.step }), clock: () => new Date(time) });
+  const assembled = await assembleEngine({ root: repo.root, routes: options.routes, handlers: Object.keys(options.handlers ?? {}), ...(options.step === undefined ? {} : { step: options.step }), ...(options.pluginRoot === undefined ? {} : { pluginRoot: options.pluginRoot }), clock: () => new Date(time) });
   const { runtime, routes, pointer, build } = assembled;
   const scratchpad = await runtime.fs.temporaryDirectory('ambicode-scratch-');
-  const dir = (task: string): string => path.join(repo.root, '.ambicode', 'task', task);
+  const dir = (task: string): string => runDirOf(repo.root, task);
   return {
     repo,
     runtime,
     routes,
-    engine: build(options.handlers ?? {}),
+    engine: build({ script: scriptHandler, ...(options.handlers ?? {}) }),
     pointer,
     scratchpad,
     ledger: (task) => readLedger(nodeFileSystem, dir(task)),

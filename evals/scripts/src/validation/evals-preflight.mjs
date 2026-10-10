@@ -7,21 +7,18 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { ARCHIVED_EVAL_DIR as ARCHIVED_SUITES, ARCHIVED_REVIEWER_RECORDINGS, ROOT } from '../shared/bench-paths.mjs';
+import { ARCHIVED_EVAL_DIR as ARCHIVED_SUITES, ROOT } from '../shared/bench-paths.mjs';
 
 // Relative to the plugin root, as `--eval-dir` takes it.
 export const ARCHIVED_EVAL_DIR = `${ARCHIVED_SUITES}/typescript`;
-
-// Outside the eval directory: the sandbox's `denyRead` covers it, so the agent could not read a recording there.
-export const RECORDINGS = ARCHIVED_REVIEWER_RECORDINGS;
 
 // Above the $0.4–0.7 estimate, so a normal run never trips it, and far below
 // a sweep, so a broken setup costs this at most.
 export const PREFLIGHT_MAX_COST_USD = 1.5;
 
 /**
- * `expectedToFail` is printed and never counted as a pass: no recording matches a task
- * case's agent-written diff, and no reviewer signs in inside the sandbox.
+ * `expectedToFail` is printed and never counted as a pass: a task case's agent-written diff is only
+ * reviewed when the agent launches the reviewer subagent, which the case does not ask for.
  */
 export const PREFLIGHT = [
   { case: 'regression-ts', require: ['plugin-fired', 'helper-ran', 'reviewer-completed', 'unit-check-ran'] },
@@ -30,7 +27,7 @@ export const PREFLIGHT = [
     require: ['plugin-fired', 'helper-ran', 'unit-check-ran'],
     expectedToFail: {
       'reviewer-completed':
-        'the agent writes this diff, so no recording matches it (replay-miss), and no reviewer signs in inside the sandbox',
+        'the agent writes this diff and may not launch the reviewer subagent for it',
     },
   },
 ];
@@ -104,12 +101,8 @@ async function main(extra) {
   if (!existsSync(path.join(ROOT, 'scripts', 'ambicode.mjs'))) {
     throw new Error('scripts/ambicode.mjs is missing: run `npm run build` first');
   }
-  if (!existsSync(RECORDINGS)) throw new Error(`${path.relative(ROOT, RECORDINGS)} is missing`);
   const jsonPath = path.join(await mkdtemp(path.join(tmpdir(), 'ambicode-preflight-')), 'result.json');
-  const child = spawnSync('claude', preflightArgs(jsonPath, extra), {
-    stdio: 'inherit',
-    env: { ...process.env, EVAL_AMBICODE_REVIEWER_REPLAY: RECORDINGS },
-  });
+  const child = spawnSync('claude', preflightArgs(jsonPath, extra), { stdio: 'inherit' });
   if (!existsSync(jsonPath)) {
     throw new Error(`claude plugin eval wrote no result (exit ${child.status ?? child.signal}); the preflight did not run`);
   }

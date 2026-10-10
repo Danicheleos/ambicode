@@ -30,10 +30,7 @@ export function parseArgs(command: string, argv: readonly string[], spec: Option
   if (spec.positionals !== true && parsed.positionals.length > 0) {
     throw new AmbicodeError('bad-argument', `"${command}" takes no positional arguments.`, {
       field: command,
-      details: [
-        `Unexpected: ${parsed.positionals.map((value) => JSON.stringify(value)).join(', ')}.`,
-        'Only "policy" accepts paths as operands.',
-      ],
+      details: [`Unexpected: ${parsed.positionals.map((value) => JSON.stringify(value)).join(', ')}.`],
     });
   }
 

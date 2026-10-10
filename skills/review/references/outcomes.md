@@ -7,59 +7,18 @@ ends in anything but a completed review.
 **`requirements-not-retrieved` / `requirements-unavailable`.** A requirement URL
 has no usable evidence. Fix the access or the envelope; do not fall back.
 
-**`requirements-invalid-url`.** A `--requirement` is not an http(s) URL. Pass
-the Jira issue or Confluence page URL itself, not a key or a title.
-
-**`requirements-undeclared` / `requirements-duplicated`.** The envelope and the
-`--requirement` list disagree: the envelope answers a URL nobody declared, or a
-URL was declared twice. Make the two lists the same; never drop a requirement
-to get past it.
-
 **`requirements-unreadable` / `requirements-unparsable` / `requirements-invalid`.**
 The envelope on `--evidence -` is empty, over the size limit, not JSON, or not
 the envelope shape (the details name the field). Rebuild it as the
 requirements reference describes and pipe it again; do not hand-edit retrieved content into it.
-
-**`requirements-empty`.** A source is marked retrieved but has no content.
-Retrieve it again; an empty page is not evidence that the ticket says nothing.
-
-**`requirements-ambiguous`.** Two retrievals for one URL, or two URLs under one
-id. AMBICODE will not choose. Keep one retrieval per URL.
-
-**`requirements-server-unrecorded`.** The envelope does not name the MCP server
-it came from, and the repository binds one. Record the server that answered.
-
-**`requirements-conflicting`.** Two requirements disagree, so there is no single
-contract to review against. Nothing ran. Take it back to the user.
-
-**`requirements-server-mismatch`.** The evidence names a different MCP server
-than the configuration binds. Retrieve through the bound one, or change the
-binding deliberately.
-
-**`reviewer-isolation-unavailable`.** The installed Claude Code no longer offers
-an option the reviewer's sandbox is built from. AMBICODE refuses rather than
-running with weaker isolation than it reports.
-
-**`reviewer-unavailable`.** The reviewer process could not start, or the
-installed Claude Code lacks an option it needs. Checks may have run; no model
-review did. Report it as unreviewed and name the cause the details give.
 
 **`input-too-large`.** The change exceeds the configured limits. The error names
 the largest contributors. Usually something uncommitted and generated — a
 lockfile, build output — is in the working tree. Commit or ignore it, or split
 the change. Raising the limit is a deliberate decision, not the default advice.
 
-**`snapshot-too-large`.** Changed files exceed a per-file ceiling no setting
-raises. Every one is named: ask once, re-run once with `--exclude <glob>`,
-repeatable (`review.excludePaths` makes it permanent). `--only <glob>` narrows
-from the other side, for a dirty tree. Neither may empty the review.
-
 **`nothing-to-review`.** Nothing changed, or the patterns took all of it. No
 reviewer ran. Say which; do not widen the patterns without asking.
-
-**`working-tree-changed`.** Something wrote to the working tree while the target
-was being captured. Nothing was reviewed and nothing was modified. Wait for the
-build or editor to settle and run it again.
 
 **`baseline-missing`.** Branch review needs a baseline. AMBICODE will not guess a
 default branch name. Pass `--base <ref>`.
@@ -67,10 +26,10 @@ Second cause: `review --task` in an open task route with no task baseline yet.
 Release: `$A route next --task <slug>` (its ground step records the baseline), then
 run the review again.
 
-**`check-only-unauthorized`.** `check --only` or `format` met a command policy of
+**`check-only-unauthorized`.** `check --file` or `format` met a command policy of
 `forbid`, an undeclared command, or `propose` with no route on the task. Release:
 configure the check's policy, or run it inside `/ambicode:task`. Inside a task route
-a `propose` check asks the user instead; a typed `--approve` never approves it.
+a `propose` check asks the user instead; only the user's own answer approves it.
 
 **`ambiguous-project`.** More than one configured project matches the paths and
 none was named. Refuse to guess: ask which project, then pass `--project <id>` or
@@ -92,81 +51,47 @@ substitute `HEAD~1`, and neither should you.
 **`not-a-repository` / `no-head`.** Not inside a git work tree, or the
 repository has no commit yet. Run from the checkout, or make the first commit.
 
-**`preparation-blocked`.** Applicable policy content could not be delivered. It is a stop, not a warning: a policy that looks complete while quietly missing something applicable is worse than no policy.
-
-**`config-missing` / `config-unparsable` / `config-invalid` / `config-schema-too-new`.**
-`.ambicode/config.yaml` is absent, not YAML, not a mapping, or written by a
+**`config-missing` / `config-invalid` / `config-schema-too-new`.**
+`.ambicode/config.yaml` is absent, fails the schemaVersion 4 schema (an older
+version included; `config validate` names the field) or was written by a
 newer AMBICODE. Offer `/ambicode:init` for the first; show the user the error
 for the others. For a too-new schema, upgrade the plugin rather than editing
-the file down. In `/ambicode:init`, an unparsable file raises the
-`config-unparsable` question: *back up and regenerate* copies it to
-`.ambicode/config.yaml.bak-<time>` and proposes a new one; *stop* (the default)
-copies and writes nothing.
-
-**`init-unconfirmed`.** `init --apply` ran without the user's own answer to the
-init question. `reason` says which: `no-init-route` (no live init route for the
-task), a consent refusal (`no-answer`, `superseded`, `unbound`,
-`acting-needs-human`, `not-accepted`), or `values-differ` (the typed `--set`
-pairs are not the `Values:` line the user accepted). Nothing was written.
-Release: answer the init question in `/ambicode:init`, then run the line printed
-with the option chosen. Never retry with other values.
+the file down.
 
 **`rules-apply-unconfirmed`.** `rules apply` ran without the user's *Apply all*
 answer to the rules table. `reason`: `no-rules-route`, a consent refusal, or
-`object-changed` (a draft changed after the answer). Nothing went live. Release:
+`not-accepted` or `object-changed` (a draft changed after the answer). Nothing went live. Release:
 answer the `rules-table` question in `/ambicode:rules`; headless runs never apply.
 
-**`pack-quote-missing` / `pack-duplicates-builtin`.** A draft rule's
-`source.quote` was not found at its `source.location` (an error: fix the quote
-or drop the rule; after three tries it is listed as not migrated), or a draft
-rule repeats a built-in rule (a warning naming it: drop the draft rule).
+**`pack-quote-missing`.** A draft rule's `source.quote` was not found at its
+`source.location` (an error: fix the quote or drop the rule; after three tries
+it is listed as not migrated).
 
 **`path-missing` / `path-escape`.** A path the configuration or a pack declares
 does not exist, or resolves outside the repository. The message names which.
 Fix the declaration; AMBICODE will not follow it anywhere else.
 
-**`unknown-rule`.** A `--rule` id names no rule that applies to this activity and
-paths. The error lists the ids that do.
-
 **`unknown-project`.** The `--project` id is not configured, or no path places
 the request inside a configured project root. Ask which project.
 
-**`review-not-found` / `review-ambiguous` / `review-outside-repository`.** `view
---review` could not pick one saved review in this repository. Pass the path
-of its `result.json`, or the id the review printed.
+**`review-not-found`.** `review record` found no review waiting for its reviewer (or none with the
+`--review` id). Run `review --task <slug>` first; it prints the diff and brief the reviewer reads.
 
 **`conflicting-target` / `baseline-not-applicable`.** One target per run, and
 `--base` belongs to `--branch`. Ask which target the user meant.
 
-**`unsupported-target` / `provider-unsupported`.** GitLab merge requests and
-local targets are what Phase 1 reviews; GitHub is recognized and refused. Do not
-translate the URL or work around it — offer the local `--branch` review instead.
-
-**`provider-resolve-failed` / `provider-fetch-failed`.** `glab` could not answer.
-Usually the host is not authorized (`glab auth login <host>`), `glab` is not
-installed, or the merge request is not readable by this account. Nothing was
-reviewed and the checkout was not modified.
-
 **`unmerged-index`.** There is a conflict in progress, so there is no single
 working state to review. Resolve it first.
-
-**`preparation-too-large`.** `prepare` measured its payload over
-`review.maxContextBytes`, and the details measure each component. Drop or
-narrow a requirement, or narrow the paths. Raising the limit is the user's
-decision, not a retry.
 
 **Faults, not decisions.** `bad-argument` is a usage error: the message
 names the flag, so correct the call once. `git-unavailable`, `git-failed`,
 `git-timeout`, `git-output-truncated`, `diff-unparsable`, `diff-mismatch`,
-`plugin-root-unresolved`, `shared-contract-unreadable`, `internal`, `unknown-provider`,
-`review-file-unreadable`, `review-result-invalid`, `review-aggregate-invalid`,
-`publication-record-invalid` and `publication-positions-invalid` mean git, the
-installation or a saved file is not in the state AMBICODE relies on. Nothing
-was reviewed or published. Report the message verbatim and stop; retrying
-will not change it.
+`plugin-root-unresolved` and `internal` mean git or the installation is not in
+the state AMBICODE relies on. Nothing was reviewed. Report the message verbatim
+and stop; retrying will not change it.
 
 **Guard decisions** (reasons from the `PreToolUse` guard, not error codes).
-A write into `.ambicode/task/` is denied and names `note save`; run that. A git
+A write into `.ambicode/tasks/` or `.ambicode/reviews/` is denied and names `note save`; run that. A write into `.ambicode/context/` is denied and names `context write`. A git
 or `glab mr` state change, `rm -r` of the working directory or above, and a
 write whose target only the shell resolves (`$VAR`, `$(…)`) ask: the user
 decides, so do not rephrase the command to avoid the question.
@@ -174,9 +99,9 @@ decides, so do not rephrase the command to avoid the question.
 plan route; any other session, a missing session or route pointer, or an
 unreadable ledger is denied.
 
-**`route-taken-over`.** Another session adopted or restarted this task's plan
-route; this session no longer writes its files. Stop and tell the user. Taking
-it back (`--adopt`) or continuing under another `--task` is their decision.
+**`route-taken-over`.** Another session took this task's plan
+route; this session no longer writes its files. Stop and tell the user. Continuing
+under another `--task` is their decision.
 
 **Ledger and notes.** `ledger-entry-too-large`: one ledger entry may be 16 KiB;
 keep the payload in a file and record its path and hash. `ledger-unreadable`:
@@ -188,41 +113,23 @@ directory. `session-unbound`: the call names no task, so the CLI cannot
 tell which route it speaks for; pass `--task <slug>`. `route-ambiguous`: the task has more than
 one live route; `route start <skill> --task <slug> --fresh` ends the others, or continue under
 another `--task`. `route-busy`: another session owns the task's live plan route; the
-user chooses `--adopt`, `--fresh` or another `--task`. `route-conflict`: another start
-changed the task's route while this one was reopening it; type the skill again. `plan-draft-missing`:
-no plan draft exists to promote; pipe the plan to `plan check --task <slug>` on
-standard input to save the draft.
+user chooses `--fresh` or another `--task`. `plan-draft-missing`:
+no plan draft exists to promote; the route's `plan-check` step saves it, so continue the
+plan route to that step.
 
 **Routes.** `route-invalid`: a route, gate registry or step file is malformed; the
 message names the file, the step or gate and the field (build and load): fix that
 file. `route-unknown`: no route ships for that skill; the message lists the shipped
 ones. `route-not-open`: the task has no live route; start one with
-`route start <skill> --task <slug>`. `route-needs-unmet`: a step's inputs are not
-on record; the message names the missing kinds and the command that produces
-each. `gate-unknown` / `gate-option-unknown`: the answer names a gate or option
-the route does not have; the message lists the valid ones. `default-not-allowed`:
-`--default` is allowed only in a headless route or after the gate was put to the
-user; ask first through AskUserQuestion. `revise-not-allowed`: `--revise` names a
+`route start <skill> --task <slug>`. `gate-unknown` / `gate-option-unknown`: the answer names a gate or option
+the route does not have; the message lists the valid ones. `revise-not-allowed`: `--revise` names a
 step the route does not list as revisable; the message lists them.
-`search-layers-not-for-model`: `map --layers` is not a model option; edit
-`search.layers` in `.ambicode/config.yaml`. `search-layer-unknown`: `search.layers`
-names a layer that does not exist; fix it, the message lists the known names.
-`index-not-ignored`: `index build` refuses while `.ambicode/index/` is not
-ignored; add it to `.gitignore` (`init --apply` writes it on acceptance).
-`index-unavailable`: `codeindex` is not installed or executable, or init measured
-no file it indexes in the project; install it in the project or on PATH, or set
-`search.index: none`. `index-build-failed`: the index build exited nonzero or
-timed out; run `index build` again. The previous index (if any) stays in use,
-fresh while at most `search.indexDriftFiles` (20) project files differ from it. Queries
-never raise these: `map`, `find` and `relates` fall back and print their `index:` line.
+`search-layers-not-for-model`: `map --layers` is not a model option;
+the layers are the route's defaults. `search-layer-unknown`: a layer name that does not exist; the message lists the known names.
 `requirements-not-captured`: a requirement named at the start has no captured
 payload yet; fetch it with the call the message names, then `route next`.
 `requirements-missing`: some requested sources are not captured; fetch them and run
 `route next`, or start again without that `--requirement`.
-`requirements-conflict-sources`: `--conflict` needs `--sources` naming at least two
-distinct source ids of the latest envelope; the message lists the valid ids.
-`requirements-expansion-fetch`: the user chose child issues to read; make the
-`getJiraIssue` calls the message lists, then run `route next`.
 
 **`plan-not-accepted`.** The draft was not promoted; its `reason` says why:
 `no-plan-route`, `no-answer`, `superseded`, `unbound`, `acting-needs-human`,
@@ -232,34 +139,40 @@ changed). Ask the user `plan-accept` again for the current draft; do not
 rewrite or re-check the plan. `plan-already-promoted` is not an error: the plan
 exists and its path is printed.
 
-**`plan-route-ended`.** `plan check` ran after the plan route ended, so nothing
-was saved or checked. A plan was accepted as it is, or the route ended without
-one. Do not revise: name the check failures in your answer. Only the user can ask
-for a new draft, by starting `/ambicode:plan` again.
+**`rules-no-sources`.** `/ambicode:rules` ended because the user chose no rule source (*none — stop*).
+Nothing was drafted; start again and name a source.
 
-**`worker-output-invalid`.** A worker run by `worker run` gave no usable output:
-the process failed, or its output was not one JSON object matching the worker's
-schema within 64 KiB; the `reason` detail says which. No artifact was written.
-Release: continue inline — do this work in the session; the worker's output was
-not used.
+**`drafts-empty` / `pack-invalid` / `pack-missing`.** `policy check --drafts` found no `*.yaml` draft, or a
+draft that fails the pack schema, or a declared file that does not exist. The diagnostic names the file; fix the draft.
 
-**`worker-not-approved`.** `worker run` named a worker that is not listed in
-`workers.approved` in `.ambicode/config.yaml`. Nothing ran. Release: continue
-inline, or ask the user to add the id to the list.
-
-**`artifact-collision`.** `worker run` or `plan check` found nine artifacts of
-the same name already written this minute, so it wrote none. Wait for the next
-minute and run it again.
-
-**Init owns its files.** While an init route is active, editing
-`.ambicode/config.yaml` or `.gitignore` is denied: `init --apply --set` writes
-them when the user accepts the proposal. Answer the init gate instead.
+**`artifact-collision`.** Nine files of the same name were already written this minute, so
+none was written. Wait for the next minute and run it again.
 
 **A command was refused.** Policy declares commands as run, propose, or forbid,
 and a command no pack declares is not run either — absence is not permission. The
 message names the pack and the reason. Changing it is a deliberate edit to that
 pack's `commandPolicy`, not something to work around.
 
-Hooks: AMBICODE registers seven hook events with eleven handler entries. The `Stop`
+Hooks: AMBICODE registers seven hook events with fourteen handler entries. The `Stop`
 hook blocks a finishing message at most once per route, naming what to fix and the
 full list in `stop-check.md` of the task directory; a second failing stop is allowed.
+
+**`review-unreadable`.** The review's `result.json` is missing or not a review
+result. Run `review --task <slug>` again; do not hand-edit the file.
+
+**`script-failed` / `script-output-invalid` / `script-name-invalid`.** A route step
+`script(<name>)` runs `skills/<skill>/scripts/<name>.mjs`. `script-failed`: it exited
+non-zero, timed out or could not start; the message names the file and the last stderr
+lines. `script-output-invalid`: it printed no JSON object, or an entry without a `kind`.
+`script-name-invalid`: the name is not letters, digits, `_` or `-`. Report the message and
+stop; the scripts ship with the plugin, so retrying will not change it.
+
+**`mr-diff-missing`.** `review --mr` has no captured merge-request diff. Make the diff call
+the route step names on the GitLab MCP server, then `route next`; see
+`merge-request.md`.
+
+**`review-findings`.** The task route's review step found findings to fix. They come back
+in the step's `Findings` section; fix them, do not discard them.
+
+**`route-produces-missing`.** A step finished without recording what its route declares in
+`produces`. A defect in the route or its handler; report the message verbatim.

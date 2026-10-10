@@ -5,7 +5,7 @@ import { KINDS } from '#types/modules/evidence';
 
 const REF = { kind: 'note', value: 'plan-draft', id: 'a1b2c3d4-3', path: 'plan-draft_x.md', contentHash: 'sha256:x' };
 const ANSWER = { route: 'a1b2c3d4-1', gate: 'plan-accept', instance: 'a1b2c3d4-4', answer: 'Accept', via: 'hook' };
-const CHECK = { key: 'web/unit', argv: ['npm', 'test'], only: [], exit: 0, phase: 'green', summary: { ran: 3, failed: 0 }, ms: 40 };
+const CHECK = { key: 'web/unit', files: [], exit: 0, phase: 'green', ms: 40 };
 
 /** One valid record per kind, and one that breaks exactly one rule of its row. */
 const TABLE: Record<Kind, { valid: object; invalid: object }> = {
@@ -46,25 +46,18 @@ const TABLE: Record<Kind, { valid: object; invalid: object }> = {
   search: { valid: { command: 'refs', names: ['a'], hits: 4, bytes: 300 }, invalid: { command: 'locate' } },
   policy: { valid: { stage: 'before-work', packs: [], rules: 0, omitted: 0, bytes: 10 }, invalid: { stage: ['before-work'] } },
   baseline: { valid: { head: 'a1b2c3d', dirty: [{ path: 'README.md', hash: 'sha256:x' }] }, invalid: { head: null, dirty: ['README.md'] } },
-  check: { valid: CHECK, invalid: { ...CHECK, summary: undefined } },
+  check: { valid: CHECK, invalid: { ...CHECK, exit: 'zero' } },
   format: { valid: { key: 'web/format', files: [], exit: 0, via: 'model', outcome: 'formatted' }, invalid: { key: 'web/format', files: [], exit: null, via: 'model', outcome: 'skipped' } },
   review: { valid: { reviewId: 'local_2026', status: 'complete', reviewerRan: true, findings: 2, omissions: 0 }, invalid: { status: 'complete' } },
   worker: { valid: { worker: 'plan-checker', outcome: 'ran', ms: 5, artifact: 'workers/x.json', costUsd: 0.1 }, invalid: { outcome: 'ok', ms: 5, artifact: 'x' } },
   note: { valid: { note: 'plan', path: 'plan_x.md', contentHash: 'sha256:x', promotedFrom: 'a1b2c3d4-3' }, invalid: { note: 'draft', path: 'plan_x.md', contentHash: 'sha256:x' } },
-  session: { valid: { route: 'a1b2c3d4-1', harnessSession: 'h1', event: 'end', reason: 'clear' }, invalid: { route: 'a1b2c3d4-1', harnessSession: 'h1', event: 'start', reason: 'x' } },
-  command: { valid: { argv: ['npm', 'test'], type: 'check', exit: 0, ms: 5, outBytes: 10 }, invalid: { argv: ['npm'], type: 'other', exit: 0, ms: 5, outBytes: 10 } },
-  hook: { valid: { name: 'stop', ms: 12 }, invalid: { name: 'stop', ms: -1 } },
-  tool: { valid: { name: 'Read', step: 'read', path: 'src/a.ts', bytes: 120 }, invalid: { name: 'Read', bytes: -1 } },
-  turn: {
-    valid: { from: 'a1b2c3d4-1', to: 'a1b2c3d4-2', tools: { Bash: 2 }, commands: [{ text: 'git status', kind: 'git' }], context: { input: 1, cacheRead: 2, cacheCreate: 3, output: 4, peak: 6 } },
-    invalid: { from: 'a1b2c3d4-1', to: 'a1b2c3d4-2', tools: { Bash: -1 }, commands: [], context: { input: 1, cacheRead: 2, cacheCreate: 3, output: 4, peak: 6 } },
-  },
+  capture: { valid: { what: 'mr-diff', path: '.ambicode/tasks/t/reviews/mr-diff.patch', rawHash: 'sha256:x', bytes: 10, tool: 'mcp__gitlab__get_merge_request_diffs' }, invalid: { what: 'other', path: 'x', rawHash: 'sha256:x', bytes: 10, tool: 't' } },
 };
 const common = { id: 'a1b2c3d4-9', at: '2026-10-05T10:00:00.000Z' };
 
-describe('the 26 ledger kinds', () => {
+describe('the 22 ledger kinds', () => {
   it('02-K1: the table covers every kind', () => {
-    assert.equal(KINDS.length, 26);
+    assert.equal(KINDS.length, 22);
     assert.deepEqual(Object.keys(TABLE).sort(), [...KINDS].sort());
   });
 
@@ -107,23 +100,13 @@ describe('the 26 ledger kinds', () => {
   it('03: the added fields are accepted and malformed ones rejected', () => {
     const ok = (kind: string, body: object) => parseEntry({ ...common, kind, ...body }).ok;
     const route = { skill: 'plan', args: 'x', mode: 'interactive', channel: 'hook', trusted: true, session: 'a1b2c3d4', epoch: 1 };
-    assert.equal(ok('route', { ...route, reopens: 'a1b2c3d4-1', rebind: { from: 'h1', to: 'h2' }, adopts: true }), true);
-    assert.equal(ok('route', { ...route, rebind: true }), false);
-    assert.equal(ok('route', { ...route, reopens: 3 }), false);
-    assert.equal(ok('exit', { route: 'r', reason: 'dismissed', complete: true, unverified: 2, source: 'stop' }), true);
-    assert.equal(ok('exit', { route: 'r', reason: 'budget', budget: { modelSteps: 4, wallMs: 10 } }), true);
-    assert.equal(ok('exit', { route: 'r', reason: 'budget', budget: { modelSteps: 'x' } }), false);
+    assert.equal(ok('route', route), true);
+    assert.equal(ok('exit', { route: 'r', reason: 'dismissed', complete: true, unverified: 2 }), true);
     assert.equal(ok('exit', { route: 'r', reason: 'done', unverified: -1 }), false);
     assert.equal(ok('exit', { route: 'r', reason: 'done', complete: 'yes' }), false);
-    assert.equal(ok('revise', { ...TABLE.revise.valid, via: 'reopen', source: 'cli' }), true);
-    assert.equal(ok('limit', { ...TABLE.limit.valid, source: 'guard' }), true);
-    assert.equal(ok('limit', { ...TABLE.limit.valid, source: 1 }), false);
-    const step = { ...TABLE.step.valid, revise: { a: 1 }, exit: 'done', ms: 12, budget: { modelSteps: 1 }, payloadBytes: 40, payloadTokens: 10 };
+    const step = { ...TABLE.step.valid, revise: { a: 1 }, exit: 'done' };
     assert.equal(ok('step', step), true);
-    assert.equal(ok('step', { ...step, payloadBytes: -1 }), false);
     assert.equal(ok('step', { ...step, exit: 0 }), false);
-    assert.equal(ok('step', { ...step, budget: { modelSteps: 'x' } }), false);
-    assert.equal(ok('turn', { ...TABLE.turn.valid, commands: [{ text: 'x'.repeat(201), kind: 'other' }] }), false);
   });
 
   it('03: ledgers written before the new fields and kinds still parse', () => {

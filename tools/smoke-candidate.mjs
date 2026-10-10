@@ -7,6 +7,31 @@ const packageVersion = JSON.parse(await readFile(new URL('../package.json', impo
 const candidateDir = path.resolve(process.argv[2] ?? path.join('dist', `ambicode-${packageVersion}`));
 const bundle = path.resolve(candidateDir, 'scripts/ambicode.mjs');
 
+const RUN = 'model: sonnet, effort: medium, timeoutMinutes: 15';
+const CONFIG = [
+  'schemaVersion: 4',
+  'id: app',
+  'context: { maxTotalTokens: 24000, maxFileTokens: 2500 }',
+  'skills:',
+  `  init: { ${RUN}, scout: { ${RUN} }, ruleSources: [presets, scout, manual, web] }`,
+  `  review: { ${RUN}, maxFindings: null, maxChangedFiles: null, maxChangedLines: null, maxContextBytes: null, excludePaths: [] }`,
+  `  task: { ${RUN}, checkTimeoutSeconds: 120 }`,
+  `  plan: { ${RUN} }`,
+  `  investigate: { ${RUN} }`,
+  `  rules: { ${RUN} }`,
+  'requirements: { runtimes: {}, mcps: [], lsps: [], env: [] }',
+  'projects:',
+  '  - id: app',
+  '    root: .',
+  '    paths: [src/]',
+  '    ecosystem: { languages: [typescript], frameworks: [], packageManager: null }',
+  '    packs: [PACKS]',
+  '    policyFiles: [POLICY]',
+  '    commands: {}',
+  '    checks: { lint: { all: null, file: null }, unit: { all: null, file: null }, e2e: { all: null, file: null } }',
+  '',
+].join('\n');
+
 function run(args, options = {}) {
   return execFileSync(process.execPath, [bundle, ...args], { encoding: 'utf8', ...options });
 }
@@ -43,15 +68,12 @@ async function checkPoliciesAndPromptsResolve() {
     execFileSync('git', ['add', '-A'], { cwd });
     execFileSync('git', ['commit', '--quiet', '-m', 'seed'], { cwd });
 
-    const initOutput = run(['init'], { cwd });
-    // On Windows `init` reports `.ambicode\config.yaml`, so either separator is accepted.
-    if (!/\.ambicode[\\/]config\.yaml/.test(initOutput)) throw new Error(`init did not report writing config:\n${initOutput}`);
+    await mkdir(path.join(cwd, '.ambicode'), { recursive: true });
+    await writeFile(path.join(cwd, '.ambicode', 'config.yaml'), CONFIG.replace('PACKS', 'builtin/common-quality, builtin/common-checks').replace('POLICY', ''));
+    const validateOutput = run(['config', 'validate'], { cwd });
+    if (!/^ok/m.test(validateOutput)) throw new Error(`config validate did not accept the v4 config:\n${validateOutput}`);
 
-    const policyOutput = run(['policy'], { cwd });
-    if (!policyOutput.includes('common-quality')) {
-      throw new Error(`resolved policy did not include the built-in common-quality pack:\n${policyOutput}`);
-    }
-    console.log('OK: `ambicode init` + `ambicode policy` resolve the installed candidate\'s built-in policies.');
+    console.log('OK: `ambicode config validate` accepts the installed candidate\'s v4 config with built-in packs.');
 
     // Through the bundle: a subcommand dispatched only in `src/cli/main.ts` would pass unit
     // tests and be unreachable in the shipped bundle.
@@ -71,8 +93,9 @@ async function checkPoliciesAndPromptsResolve() {
       ].join('\n'),
     );
     const checkOutput = run(['policy', 'check', candidatePack], { cwd });
-    if (!/appliesTo/.test(checkOutput) || !/1 file/.test(checkOutput)) {
-      throw new Error(`policy check did not report what the candidate pack's glob matches:\n${checkOutput}`);
+    // The glob counter left with the second audit; a valid pack prints its id and "No errors".
+    if (!/smoke\.yaml: smoke/.test(checkOutput) || !/No errors/.test(checkOutput)) {
+      throw new Error(`policy check did not accept the candidate pack:\n${checkOutput}`);
     }
 
     await writeFile(path.join(cwd, candidatePack), 'schemaVersion: 2\n');
@@ -86,117 +109,24 @@ async function checkPoliciesAndPromptsResolve() {
     if (!failed) throw new Error('policy check accepted an invalid pack');
     console.log('OK: `ambicode policy check` validates a candidate pack and exits nonzero on an error.');
 
-    const locateOutput = run(['locate', 'app'], { cwd });
-    if (!/app\.ts/.test(locateOutput) || !/filename matched "app"/.test(locateOutput)) {
-      throw new Error(`locate did not return a reason-carrying candidate:\n${locateOutput}`);
+    const mapOutput = run(['map', '--term', 'app'], { cwd });
+    // The reasons sit inside compact JSON, so the quotes around the term are escaped.
+    if (!/app\.ts/.test(mapOutput) || !/filename matched \\"app\\"/.test(mapOutput)) {
+      throw new Error(`map did not return a reason-carrying candidate:\n${mapOutput}`);
     }
-    const emptyOutput = run(['locate', 'kaleidoscope'], { cwd });
-    if (!/\(none/.test(emptyOutput) || /app\.ts/.test(emptyOutput)) {
-      throw new Error(`locate widened an empty shortlist:\n${emptyOutput}`);
+    const emptyOutput = run(['map', '--term', 'kaleidoscope'], { cwd });
+    if (/app\.ts/.test(emptyOutput)) {
+      throw new Error(`map widened an empty shortlist:\n${emptyOutput}`);
     }
-    console.log('OK: `ambicode locate` ranks with reasons and stays empty when nothing matches.');
+    console.log('OK: `ambicode map` ranks with reasons and stays empty when nothing matches.');
   });
 }
 
-async function checkViewTemplatesResolve() {
-  await withTempDir('ambicode-smoke-view-', async (cwd) => {
-    execFileSync('git', ['init', '--quiet'], { cwd });
-    execFileSync('git', ['config', 'user.email', 'smoke@example.com'], { cwd });
-    execFileSync('git', ['config', 'user.name', 'Smoke Test'], { cwd });
-    await writeFile(path.join(cwd, 'app.ts'), 'export const x = 1;\n');
-    execFileSync('git', ['add', '-A'], { cwd });
-    execFileSync('git', ['commit', '--quiet', '-m', 'seed'], { cwd });
-    run(['init'], { cwd });
 
-    const reviewId = 'smoke-0001';
-    const reviewDir = path.join(cwd, '.ambicode', 'reviews', reviewId);
-    await import('node:fs/promises').then((fs) => fs.mkdir(reviewDir, { recursive: true }));
-    const result = minimalLocalReviewResult(reviewId);
-    await writeFile(path.join(reviewDir, 'result.json'), `${JSON.stringify(result, null, 2)}\n`);
-
-    const child = spawn(process.execPath, [bundle, 'view', '--review', reviewId, '--no-open'], { cwd });
-    let stdout = '';
-    let stderr = '';
-    const url = await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error(`view did not print a URL in time; stdout so far:\n${stdout}\nstderr:\n${stderr}`)), 15_000);
-      child.stdout.on('data', (chunk) => {
-        stdout += chunk.toString();
-        const match = /http:\/\/127\.0\.0\.1:\d+\/\?c=\S+/.exec(stdout);
-        if (match) {
-          clearTimeout(timeout);
-          resolve(match[0]);
-        }
-      });
-      child.stderr.on('data', (chunk) => {
-        stderr += chunk.toString();
-      });
-      child.on('error', reject);
-      child.on('exit', (code) => {
-        clearTimeout(timeout);
-        reject(new Error(`view exited early with code ${code}; stdout:\n${stdout}\nstderr:\n${stderr}`));
-      });
-    });
-
-    try {
-      const response = await fetch(url, { redirect: 'manual' });
-      if (response.status !== 303) throw new Error(`expected 303 from the bootstrap URL, got ${response.status}`);
-      console.log('OK: `ambicode view` serves a page rendered from the candidate\'s own templates directory.');
-    } finally {
-      child.kill('SIGINT');
-      await new Promise((resolve) => child.on('exit', resolve));
-    }
-  });
-}
-
-function minimalLocalReviewResult(reviewId) {
-  const now = new Date().toISOString();
-  return {
-    schemaVersion: 1,
-    reviewId,
-    createdAt: now,
-    pluginVersion: '0.0.0-smoke',
-    reviewModel: 'smoke',
-    target: {
-      kind: 'working',
-      repositoryRoot: '/smoke',
-      snapshotId: 'smoke-snapshot',
-      headSha: null,
-      baseSha: null,
-      baseRef: null,
-      remote: null,
-      notes: [],
-    },
-    requirements: [],
-    requirementMode: 'quality-review',
-    requirementConflicts: [],
-    provenance: [],
-    inputs: {
-      changedFiles: 0,
-      changedLines: 0,
-      patchBytes: 0,
-      snapshotBytes: 0,
-      requirementBytes: 0,
-      promptBytes: 0,
-      contextBytes: 0,
-      limits: { maxChangedFiles: 50, maxChangedLines: 2000, maxContextBytes: 524288, maxFindings: 7 },
-    },
-    reviewer: null,
-    policySummary: { packs: [], ruleIds: [] },
-    checks: [],
-    coverage: { complete: true, declaredFileCount: null, deliveredFileCount: 0, versionState: null, gaps: [] },
-    discussions: [],
-    changedFiles: [],
-    findings: [],
-    omissions: [],
-    status: 'complete',
-    statusReason: null,
-  };
-}
 
 async function main() {
   await checkVersionOutsideAnyRepo();
   await checkPoliciesAndPromptsResolve();
-  await checkViewTemplatesResolve();
   console.log('\nAll smoke checks passed against the packaged candidate.');
 }
 

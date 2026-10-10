@@ -177,7 +177,7 @@ GIT_AUTHOR_DATE=${SNAPSHOT_DATE} GIT_COMMITTER_DATE=${SNAPSHOT_DATE} \\
 
 export function graderFiles(truth, root) {
   const list = truth.map((p) => `- \`${p}\``).join('\n');
-  // The investigate skill writes its note under .ambicode/task/; only a write into the code is an edit.
+  // The investigate skill writes its note under .ambicode/tasks/; only a write into the code is an edit.
   const code = `"file_path":"[^"]*/repo/${regexEscape(root)}/`;
   const files = {
     'names-a-true-file.md': `---

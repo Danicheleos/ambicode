@@ -1,42 +1,28 @@
 import path from 'node:path';
-import { approvedWorkers, runWorker } from '#modules/workers/index';
 import { buildReport } from '#modules/evidence/report/report';
 import { AmbicodeError } from '#util/errors';
-import { repairEffects } from './repair.ts';
 import { exitRoute, reviseTo, serviceGate } from '../gates/answers.ts';
-import { chainKey, compose, loadPayload, savePayload, stepHeader, writeStepFile } from './delivery.ts';
-import { currentIn, exitOf, latestBound, sinceReopen, executions, foldRoute, humanRevisesLeft, modelDeliveries, windowOf, matches } from './fold.ts';
-import { gatePrintText, gateThen, needCommandFor, raiseGate, raisedAnswerHandler } from '../gates/gates.ts';
-import { payloadKey } from './handlers.ts';
+import { currentIn, executions, exitOf, foldRoute, humanRevisesLeft, matches, windowOf } from './fold.ts';
+import { gatePrintText, gateThen, raiseGate, raisedAnswerHandler } from '../gates/gates.ts';
 import { append, chainOf, gateFor, viewFor } from './run-context.ts';
 import type { Runtime } from '#types/composition';
-import type { GateDef, RouteArgs, HandlerRegistry, CommandContext, RouteRegistry, StepDef, StepMessage } from '#types/harness';
-import type { Composed, Part, Run } from '../types/engine.ts';
+import type { CommandContext, GateDef, Handler, HandlerRegistry, RouteArgs, RouteRegistry, StepDef, StepMessage } from '#types/harness';
+import type { Composed, DeliveryChannel, Part, Run } from '../types/engine.ts';
+import type { Call } from '../definition/routes.ts';
+import type { TaskDir } from '#types/modules/evidence';
+import type { FileSystem } from '#types/platform/ports';
 
 /** Causes from a command the model ran, as opposed to a hook or a resume. */
-export const EXPLICIT: ReadonlySet<string> = new Set(['route-next', 'requirements normalize', 'check', 'format', 'review', 'plan check', 'policy check --drafts', 'rules apply', 'init --apply', 'note save', 'note promote']);
-
-/** Campaign 1: 12 of 15 runs were blocked once at Stop by these rules; saying them in the first pass saves the turn. */
-export const ANSWER_FILES_NOTE = 'Files: under ## Files list paths this route read with `read` (a served file covers its same-stem companions), paths marked new, or paths marked on their line "same change as <a path this route read>". An entry is a decision: no "only if"/"possibly". The Stop check blocks once on anything else.';
+export const EXPLICIT: ReadonlySet<string> = new Set(['route-next', 'requirements normalize', 'check', 'format', 'review', 'rules apply', 'init --apply', 'init propose', 'note save', 'note promote']);
 
 const MAX_TURNS = 200;
-const DEFAULT_WALL_MINUTES = 45;
 
 type Fold = ReturnType<typeof foldRoute>;
 
-/** What a printed step costs the model's context: tokens are bytes / 4. */
-const payloadSize = (bytes: number): { payloadBytes: number; payloadTokens: number } => ({ payloadBytes: bytes, payloadTokens: Math.ceil(bytes / 4) });
-
-const endsWithoutCommand = (step: StepDef): boolean => step.actor === 'model' && step.produces.length === 0 && step.answer === null;
+const endsWithoutCommand = (step: StepDef): boolean => step.actor === 'model' && step.produces.length === 0;
 
 /** A final model step with nothing after it. */
-export const isClosing = (fold: Fold, step: StepDef): boolean => step.final && endsWithoutCommand(step) && fold.steps.slice(step.index + 1).every((state) => state.state === 'skipped');
-
-/** The model step delivered in the same message, when this one and the next both end without a command. */
-function chainedAfter(run: Run, fold: Fold, step: StepDef): StepDef | null {
-  const next = run.def.steps[step.index + 1];
-  return step.chain === 'next' && next !== undefined && endsWithoutCommand(step) && endsWithoutCommand(next) && fold.steps[next.index]!.state === 'pending' ? next : null;
-}
+export const isClosing = (fold: Fold, step: StepDef): boolean => step.final && endsWithoutCommand(step) && fold.steps.slice(step.index + 1).every((state) => state.state === 'skipped' || state.skipsNow === true);
 
 export const quiet = (value: unknown): string => String(value ?? '');
 
@@ -53,30 +39,28 @@ export interface EngineScope { runtime: Runtime; routes: RouteRegistry; handlers
 /** The advance loop: fold, run what is reachable, record, and compose what the caller prints. */
 export function createExecutor(scope: EngineScope): { execute(run: Run): Promise<Part>; messageOf(run: Run, part: Part): StepMessage } {
   const { routes, handlers, context, cli } = scope;
-  const now = (): Date => scope.runtime.clock.now();
-
   const commandFor = (tail: string): string => `${cli} ${tail}`;
 
-  const answerLine = (step: StepDef): string => `answer the user; your answer is saved as the ${step.produces.find((produced) => produced.kind === 'note')?.value ?? ''} note when you stop`;
-
-  // e-cLRPPf: a missing check{red} was told to produce it with `route next`, the call that ends the route no-red.
+  // e-cLRPPf: a missing check{red} was told to produce it with `route next`, the call that ends the route no-red; the check command is the way to produce it.
   function checkCommand(run: Run, step: StepDef): string | null {
     const check = step.produces.find((produced) => produced.kind === 'check' && produced.value !== null);
-    return check === undefined || step.produces.some((produced) => produced.kind === 'format') ? null : commandFor(`check --task ${run.task} <projectId>/<checkId> --only <spec> --phase ${check.value}`);
+    return check === undefined || step.produces.some((produced) => produced.kind === 'format') ? null : commandFor(`check --task ${run.task} --name <check> --file <spec> --phase ${check.value}`);
   }
 
+  // The reviewer subagent's answer is written by `review record`; `route next` would not record it.
+  const recordCommand = (run: Run, step: StepDef): string | null =>
+    step.produces.some((produced) => produced.kind === 'review' && produced.value === 'recorded') ? `${commandFor(`review record --task ${run.task}`)} (reviewer JSON on standard input)` : null;
+
   function producerHint(run: Run, step: StepDef): string {
-    if (step.answer === 'note') return answerLine(step);
     const note = step.produces.find((produced) => produced.kind === 'note');
     if (note?.value) return commandFor(`note save --task ${run.task} --kind ${note.value}`);
-    return checkCommand(run, step) ?? commandFor(`route next --task ${run.task}`);
+    return recordCommand(run, step) ?? checkCommand(run, step) ?? commandFor(`route next --task ${run.task}`);
   }
 
   function endingCommand(run: Run, step: StepDef): string {
-    if (step.answer === 'note') return answerLine(step);
     const note = step.produces.find((produced) => produced.kind === 'note');
     if (step.actor === 'model' && note?.value) return `${commandFor(`note save --task ${run.task} --kind ${note.value}`)} (note on standard input)`;
-    return checkCommand(run, step) ?? commandFor(`route next --task ${run.task}`);
+    return recordCommand(run, step) ?? checkCommand(run, step) ?? commandFor(`route next --task ${run.task}`);
   }
 
   function messageOf(run: Run, part: Part): StepMessage {
@@ -84,8 +68,7 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
   }
 
   async function partOf(run: Run, step: StepDef | null, header: string, body: string): Promise<{ part: Part; composed: Composed }> {
-    const lines = step?.actor === 'model' && step.answer === 'note' ? [...run.notes, ANSWER_FILES_NOTE] : run.notes;
-    const notes = lines.length === 0 ? '' : `${lines.join('\n')}\n\n`;
+    const notes = run.notes.length === 0 ? '' : `${run.notes.join('\n')}\n\n`;
     const composed = compose({ header, body: `${notes}${body}`.trimEnd(), channel: run.channel, dir: run.dir, step: step?.id ?? 'complete', chain: chainKey([...chainOf(run).ids]) });
     return { part: { text: composed.text, file: composed.file, bytes: composed.bytes, position: step?.id ?? 'complete', full: composed.full }, composed };
   }
@@ -98,7 +81,7 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     if (ended !== null && ended['complete'] !== true) {
       status = `ended: ${ended['reason']}${ended['detail'] === undefined ? '' : ` (${quiet(ended['detail'])})`}`;
     } else {
-      // An unverified completion still exits; a late bound answer reopens the chain instead of changing it in place.
+      // An unverified completion still exits.
       const items = buildReport(chain.entries, { current: currentIn(run.def, chain) }).notVerified.split('\n').filter((line, index) => index > 0 && line.trim() !== 'none recorded' && line.trim() !== '' && !line.endsWith(' (historical)')).length;
       if (ended === null) await exitRoute(run, 'done', undefined, { complete: true, unverified: items });
       status = items === 0 ? 'complete' : `complete, ${items} items not verified`;
@@ -114,12 +97,6 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
   }
 
 
-  function wallExceeded(run: Run): boolean {
-    if (run.head['mode'] !== 'headless') return false;
-    const first = sinceReopen(chainOf(run).entries)[0]!;
-    return now().getTime() - Date.parse(first.at) > (run.def.budget.wallMinutes ?? DEFAULT_WALL_MINUTES) * 60_000;
-  }
-
   function openRaisedGate(run: Run, step: StepDef): GateDef | null {
     const entries = chainOf(run).entries;
     const print = entries.findLast((entry) => entry.kind === 'gate' && (entry['openAt'] ?? entry['raisedBy']) === step.id && entry['class'] !== 'declared');
@@ -132,34 +109,13 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     const { gate, print } = outcome;
     const declared = run.def.steps.find((candidate) => candidate.gate?.id === gate.id);
     const left = Object.keys(gate.onAnswer).length === 0 ? null : humanRevisesLeft(chainOf(run).entries, gate);
-    const text = gatePrintText({ task: run.task, gate, entry: print, object: (print['object'] as never) ?? null, revisesLeft: left, retry: outcome.retry, runner: cli });
+    const text = gatePrintText({ task: run.task, gate, entry: print, object: (print['object'] as never) ?? null, revisesLeft: left, runner: cli });
     const position = (declared ?? step).id;
     const header = stepHeader({ skill: run.def.skill, task: run.task, step: position, position: (declared ?? step).index + 1, total: run.def.steps.length, now: `Put this question to the user: ${gate.question}`, then: gateThen(run.task, cli), route: routeLine(foldRoute(run.def, chainOf(run)), position) });
-    const { part } = await partOf(run, declared ?? step, header, text);
-    if (!run.deliverOnly && !chainOf(run).entries.some((entry) => entry.kind === 'step' && entry['source'] === `print:${print.id}`)) {
-      await append(run, { kind: 'step', step: gate.id, actor: 'human', status: 'delivered', cause: run.cause, channel: run.channel, source: `print:${print.id}`, ...payloadSize(part.bytes) });
-    }
-    return part;
+    return (await partOf(run, declared ?? step, header, text)).part;
   }
 
   async function runCode(run: Run, step: StepDef, fold: Fold): Promise<Part | null> {
-    const window = windowOf(fold, step);
-    const missing = step.needs.filter((need) => !window.some((entry) => matches(entry, need)));
-    if (missing.length > 0) {
-      const commands = await Promise.all(missing.map(async (need) => {
-        const shaped = needCommandFor(run.def.skill, need.kind);
-        return shaped?.({ runtime: run.runtime, task: run.task, args: (run.head['args'] ?? {}) as RouteArgs, chain: chainOf(run).entries });
-      }));
-      if (commands.every((command) => command !== undefined)) {
-        const lines = commands.map((command) => `\`${commandFor(command)}\``);
-        const header = stepHeader({ skill: run.def.skill, task: run.task, step: step.id, position: step.index + 1, total: run.def.steps.length, now: `Run ${lines.join(', then ')}`, then: 'its output brings the next step', route: routeLine(fold, step.id) });
-        return (await partOf(run, step, header, '')).part;
-      }
-      const names = missing.map((need) => `${need.kind}${need.value === null ? '' : `{${need.value}}`}`);
-      throw new AmbicodeError('route-needs-unmet', `Step ${step.id} needs ${names.join(', ')}, which is not on record.`, {
-        details: missing.map((need) => `${need.kind} is written by ${run.def.steps.find((candidate) => candidate.produces.some((produced) => produced.kind === need.kind))?.id ?? 'an earlier step'}.`),
-      });
-    }
     const start = fold.steps[step.index]!.windowStart;
     const reviseEntry = start > 0 ? fold.chain.entries[start - 1] : undefined;
     const revise = reviseEntry?.kind === 'revise' ? { args: (reviseEntry['args'] ?? {}) as Record<string, string[]> } : null;
@@ -168,8 +124,6 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     const record: Record<string, unknown> = {};
     let exit: string | undefined;
     let exitDetail: string | undefined;
-    const started = run.runtime.clock.elapsed();
-    const spentMs = (): number => Math.max(0, Math.round(run.runtime.clock.elapsed() - started));
     for (const call of step.run) {
       const handler = handlers.get(call.name);
       if (handler === null) throw new AmbicodeError('internal', `No handler "${call.name}" is registered.`);
@@ -187,26 +141,24 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
         await raiseGate(run.ledger, view, { gate: result.gate, values: result.values, raisedBy: result.raisedBy ?? step.id, ...(elsewhere ? { openAt: step.id } : {}) }, routes);
         return null;
       }
-      return failure(run, step, result, spentMs());
+      return failure(run, step, result);
     }
     const recorded = windowOf(foldRoute(run.def, chainOf(run)), step);
     const unmet = step.produces.filter((produced) => !recorded.some((entry) => matches(entry, produced)));
     if (unmet.length > 0) {
       const names = unmet.map((need) => `${need.kind}${need.value === null ? '' : `{${need.value}}`}`);
-      return failure(run, step, { code: 'route-produces-missing', message: `Step ${step.id} ran but did not record ${names.join(', ')}.`, recoverable: false }, spentMs());
+      return failure(run, step, { code: 'route-produces-missing', message: `Step ${step.id} ran but did not record ${names.join(', ')}.`, recoverable: false });
     }
-    await append(run, { ...record, kind: 'step', step: step.id, actor: 'code', status: 'completed', cause: run.cause, ms: spentMs(), ...(exit === undefined ? {} : { exit }) });
+    await append(run, { ...record, kind: 'step', step: step.id, actor: 'code', status: 'completed', cause: run.cause, ...(exit === undefined ? {} : { exit }) });
     if (exit !== undefined) await exitRoute(run, exit, exitDetail);
     return null;
   }
 
-  async function failure(run: Run, step: StepDef, result: { code: string; message: string; recoverable: boolean; revise?: { args: Readonly<Record<string, readonly string[]>>; lastRound?: string } }, ms?: number): Promise<Part | null> {
-    const window = windowOf(foldRoute(run.def, chainOf(run)), step);
-    const earlier = window.filter((entry) => entry.kind === 'step' && entry['step'] === step.id && entry['status'] === 'failed' && entry['code'] === result.code).length;
+  async function failure(run: Run, step: StepDef, result: { code: string; message: string; recoverable: boolean; revise?: { args: Readonly<Record<string, readonly string[]>>; lastRound?: string } }): Promise<Part | null> {
     const target = step.onFail === null ? undefined : run.def.steps.find((candidate) => candidate.id === step.onFail!.target);
     const last = result.revise?.lastRound !== undefined && target !== undefined && executions(chainOf(run).entries, target) + (target.id === step.id ? 2 : 1) === target.repeat;
     const args = step.onFail === null ? {} : { ...step.onFail.args, ...result.revise?.args, ...(last ? { 'Last round': [result.revise!.lastRound!] } : {}) };
-    await append(run, { kind: 'step', step: step.id, actor: 'code', status: 'failed', cause: run.cause, code: result.code, message: result.message.slice(0, 300), ...(ms === undefined ? {} : { ms }), ...(step.onFail === null ? {} : { revise: args }) });
+    await append(run, { kind: 'step', step: step.id, actor: 'code', status: 'failed', cause: run.cause, code: result.code, message: result.message.slice(0, 300), ...(step.onFail === null ? {} : { revise: args }) });
     if (step.onFail !== null) {
       // The step ran and its result is on record; the failure is what the route wants redone (S4).
       await append(run, { kind: 'step', step: step.id, actor: 'code', status: 'completed', cause: run.cause, failed: true });
@@ -218,24 +170,16 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
       await exitRoute(run, error.reason, `${result.code}: ${result.message.slice(0, 200)}`);
       return finish(run);
     }
-    if (error.kind === 'ask') {
-      await raiseGate(run.ledger, viewFor(run, step.id), { gate: error.gate, values: {}, raisedBy: step.id }, routes);
-      return null;
-    }
-    const repeated = earlier + 1 >= 2;
-    if (repeated) await append(run, { kind: 'limit', which: 'same-error', step: step.id, count: earlier + 1, code: result.code });
     const recent = chainOf(run).entries.filter((entry) => entry.kind === 'step').slice(-3);
     if (recent.length === 3 && recent.every((entry) => entry['step'] === step.id && entry['status'] === 'failed')) await append(run, { kind: 'limit', which: 'identical-next', step: step.id, count: 3 });
-    const stop = repeated ? [`The same error twice: if you cannot fix it, run \`${commandFor(`route stop --task ${run.task} --reason blocked`)}\`.`] : [];
-    throw new AmbicodeError(result.code, result.message, { details: [...(error.kind === 'retry-with' ? [error.hint] : []), ...stop] });
+    throw new AmbicodeError(result.code, result.message, {});
   }
 
   async function runModel(run: Run, step: StepDef, fold: Fold): Promise<Part | null> {
     const window = windowOf(fold, step);
     const delivered = window.some((entry) => entry.kind === 'step' && entry['step'] === step.id && entry['status'] === 'delivered');
-    const chain = chainOf(run);
     let prefix = '';
-    if (!run.deliverOnly && delivered && step.produces.length > 0 && step.answer === null && EXPLICIT.has(run.cause)) {
+    if (!run.deliverOnly && delivered && step.produces.length > 0 && EXPLICIT.has(run.cause)) {
       const again = window.filter((entry) => entry.kind === 'step' && entry['step'] === step.id && entry['status'] === 'repeated').length + 1;
       const missing = step.produces.filter((produced) => !window.some((entry) => matches(entry, produced))).map((produced) => `${produced.kind}${produced.value === null ? '' : `{${produced.value}}`}`);
       if (again >= 2 && step.produces.some((produced) => produced.kind === 'check' && produced.value === 'red')) {
@@ -248,22 +192,8 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
         return null;
       }
       await append(run, { kind: 'step', step: step.id, actor: 'model', status: 'repeated', cause: run.cause });
-      const redEnds = step.produces.some((produced) => produced.kind === 'check' && produced.value === 'red') && again === 1;
-      prefix = `Not done yet: ${missing.join(', ')} is not on record. Produce it with: ${producerHint(run, step)}.${redEnds ? ` If no failing test is possible, \`${commandFor(`route next --task ${run.task}`)}\` again ends the route as no-red.` : ''}${again === 2 ? ` Or stop: ${commandFor(`route stop --task ${run.task} --reason blocked`)}.` : ''}\n\n`;
+      prefix = `Not done yet: ${missing.join(', ')} is not on record. Produce it with: ${producerHint(run, step)}.\n\n`;
     }
-    let budget: Record<string, number> | undefined;
-    if (!delivered) {
-      const current = sinceReopen(chain.entries);
-      const spent = modelDeliveries(run.def, current);
-      const continues = current.filter((entry) => entry.kind === 'acceptance' && entry['gate'] === 'budget-exhausted' && entry['answer'] === 'continue').length;
-      if (spent + 1 > run.def.budget.modelSteps * (1 + continues)) {
-        await raiseGate(run.ledger, viewFor(run, step.id), { gate: 'budget-exhausted', values: {}, raisedBy: step.id }, routes);
-        return null;
-      }
-      budget = { modelSteps: spent + 1, modelStepsAllowed: run.def.budget.modelSteps * (1 + continues) };
-    }
-    const chained = chainedAfter(run, fold, step);
-    const last = chained ?? step;
     const fill = (text: string): string => text.replaceAll('{cli}', cli).replaceAll('{task}', run.task);
     const instruction = fill(step.instruction!);
     const nowLine = instruction.split('\n').find((line) => line.trim() !== '')!.replace(/^#+\s*/, '');
@@ -280,16 +210,11 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
       const payload = await loadPayload(run.runtime.fs, run.dir, chainKey([...chainOf(run).ids]), key);
       if (payload !== null && payload.trim() !== '') sections.push(`## ${key}\n${payload}`);
     }
-    if (chained !== null) sections.push(fill(chained.instruction!));
-    const closing = isClosing(fold, last);
+    const closing = isClosing(fold, step);
     const header = stepHeader({ skill: run.def.skill, task: run.task, step: step.id, position: step.index + 1, total: run.def.steps.length, now: nowLine, then: closing ? 'write your final message; no route command is needed' : endingCommand(run, step), route: routeLine(fold, step.id) });
     const { part, composed } = await partOf(run, step, header, `${prefix}${sections.join('\n\n')}`);
     if (!delivered) {
-      const entry = await append(run, { kind: 'step', step: step.id, actor: 'model', status: 'delivered', cause: run.cause, channel: run.channel, bytes: part.bytes, ...payloadSize(part.bytes), ...(step.answer === null ? {} : { answer: step.answer }), ...(budget === undefined ? {} : { budget }), ...(part.file === null ? {} : { file: part.file }) });
-      if (chained !== null) {
-        await append(run, { kind: 'step', step: step.id, actor: 'model', status: 'completed', cause: run.cause });
-        await append(run, { kind: 'step', step: chained.id, actor: 'model', status: 'delivered', cause: run.cause, channel: run.channel, bytes: part.bytes, ...payloadSize(part.bytes), ...(chained.answer === null ? {} : { answer: chained.answer }) });
-      }
+      const entry = await append(run, { kind: 'step', step: step.id, actor: 'model', status: 'delivered', cause: run.cause, channel: run.channel, bytes: part.bytes, ...(part.file === null ? {} : { file: part.file }) });
       await writeStepFile(run.runtime.fs, composed, `ambicode step: ${run.def.skill}/${step.id}, task ${run.task}, ${part.bytes} bytes, ${entry.id}`);
     } else {
       await writeStepFile(run.runtime.fs, composed, `ambicode step: ${run.def.skill}/${step.id}, task ${run.task}, ${part.bytes} bytes`);
@@ -313,31 +238,9 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     }
   }
 
-  /** The worker step's gate is answered: the worker runs only on a run answer for an approved id, else the work stays inline or is skipped. */
-  async function workerStep(run: Run, step: StepDef): Promise<void> {
-    const answered = latestBound(windowOf(foldRoute(run.def, chainOf(run)), step), step.gate!.id)?.['answer'];
-    const base = { kind: 'worker', worker: step.id, ms: 0, artifact: null } as const;
-    if (answered === 'run') {
-      if ((await approvedWorkers(run.runtime, run.dir.repositoryRoot)).includes(step.id)) {
-        try {
-          await runWorker({ runtime: run.runtime, session: run.session, context, ledger: run.ledger, runner: run.runtime.runner, definitions: path.join(run.runtime.pluginRoot, 'workers') }, { id: step.id, task: run.task });
-          return;
-        } catch (error) {
-          if (!(error instanceof AmbicodeError)) throw error;
-          if (error.code !== 'worker-output-invalid') await append(run, { ...base, outcome: 'inline', reason: error.message.slice(0, 200) });
-          return;
-        }
-      }
-      await append(run, { ...base, outcome: 'inline', reason: 'not in workers.approved' });
-      return;
-    }
-    await append(run, { ...base, outcome: answered === 'inline' ? 'inline' : 'skipped' });
-  }
-
   /** Steps 2–6 of 12 §8: fold, check, run what is reachable, record, deliver. */
   async function execute(run: Run): Promise<Part> {
     if (!run.deliverOnly) {
-      await repairEffects(run);
       await applyRaisedAnswers(run);
     }
     for (let turn = 0; turn < MAX_TURNS; turn += 1) {
@@ -346,10 +249,6 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
       if (!run.deliverOnly) await writeSkips(run, fold);
       const step = fold.position;
       if (step === null) return finish(run);
-      if (wallExceeded(run)) {
-        await exitRoute(run, 'budget', 'wallMinutes');
-        return finish(run);
-      }
       const open = openRaisedGate(run, step);
       if (open !== null) {
         const outcome = await serviceGate(run, open, step.id);
@@ -366,19 +265,83 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
       } else if (step.actor === 'model') {
         const part = await runModel(run, step, fold);
         if (part !== null) return part;
-      } else if (step.actor === 'human') {
+      } else {
         const outcome = await serviceGate(run, step.gate!, step.id);
         if (outcome.state === 'print') return gatePart(run, step, outcome);
-      } else {
-        if (latestBound(windowOf(fold, step), step.gate!.id) === null) {
-          const outcome = await serviceGate(run, step.gate!, step.id);
-          if (outcome.state === 'print') return gatePart(run, step, outcome);
-        }
-        await workerStep(run, step);
       }
     }
     throw new AmbicodeError('internal', `Route ${run.def.skill} did not settle within ${MAX_TURNS} turns.`);
   }
 
   return { execute, messageOf };
+}
+
+export function handlerRegistry(handlers: Readonly<Record<string, Handler>>): HandlerRegistry {
+  return { get: (name) => handlers[name] ?? null, names: () => Object.keys(handlers) };
+}
+
+/** The key a step's `payload` list names a call's output by. */
+export function payloadKey(call: Call): string {
+  switch (call.name) {
+    case 'script': return `script:${call.params[0] ?? ''}`;
+    case 'search.map': return 'map';
+    case 'policy.stage': return `policy:${call.params[0] ?? ''}`;
+    case 'requirements.normalize': return 'envelope';
+    case 'evidence.navigationLine': return 'navigation';
+    case 'task.start': return 'brief';
+    case 'checks.baseline': return 'baseline';
+    case 'task.report': return 'report';
+    default: return call.name;
+  }
+}
+
+export const CLI_LIMIT = 8000;
+export const HOOK_LIMIT = 9800;
+const PREVIEW_CHARS = 300;
+
+/** The first route of a chain: it stays the same when a later route resumes it. */
+export const chainKey = (ids: readonly string[]): string => ids.at(-1) ?? '';
+
+/**
+ * The lines every step message starts with: where we are, what to do now, the command that ends the step, and the
+ * route around the step (skipped steps are left out).
+ */
+export function stepHeader(input: { skill: string; task: string; step: string; position: number; total: number; now: string; then: string; route?: string }): string {
+  const now = input.now.replace(/\s+/g, ' ').trim();
+  // A command in backticks is never cut: a cut one cannot be run.
+  const clipped = now.length <= 160 || now.includes('`') ? now : `${now.slice(0, 157)}…`;
+  return [
+    `[ambicode] ${input.skill} · task ${input.task} · step ${input.step} (${input.position}/${input.total})`,
+    `Now: ${clipped}`,
+    `Then: ${input.then}`,
+    ...(input.route === undefined ? [] : [`Route: ${input.route}`]),
+  ].join('\n');
+}
+
+export function compose(input: { header: string; body: string; channel: DeliveryChannel; dir: TaskDir; step: string; chain: string }): Composed {
+  const full = input.body === '' ? input.header : `${input.header}\n\n${input.body}`;
+  const limit = input.channel === 'hook' ? HOOK_LIMIT : CLI_LIMIT;
+  if (full.length <= limit) return { text: full, file: null, full, bytes: Buffer.byteLength(full) };
+  const file = path.join(input.dir.steps, `${safe(input.chain)}-${input.step}.md`);
+  const bytes = Buffer.byteLength(full);
+  const preview = input.body.slice(0, PREVIEW_CHARS);
+  return { text: `${input.header}\n\n${preview}…\nRead it whole: ${bytes} bytes: ${file}`, file, full, bytes };
+}
+
+export async function writeStepFile(fs: FileSystem, composed: Composed, comment: string): Promise<void> {
+  if (composed.file === null) return;
+  await fs.mkdirp(path.dirname(composed.file));
+  await fs.writeText(composed.file, `<!-- ${comment} -->\n${composed.full}\n`);
+}
+
+const safe = (value: string): string => value.replace(/[^A-Za-z0-9_-]/g, '-');
+const payloadFile = (dir: TaskDir, chain: string, key: string): string => path.join(dir.steps, `payload-${safe(chain)}-${safe(key)}.txt`);
+
+export async function savePayload(fs: FileSystem, dir: TaskDir, chain: string, key: string, text: string): Promise<void> {
+  await fs.mkdirp(dir.steps);
+  await fs.writeText(payloadFile(dir, chain, key), text);
+}
+
+export async function loadPayload(fs: FileSystem, dir: TaskDir, chain: string, key: string): Promise<string | null> {
+  return fs.readText(payloadFile(dir, chain, key)).catch(() => null);
 }

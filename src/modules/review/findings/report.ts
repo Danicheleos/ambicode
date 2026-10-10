@@ -1,6 +1,4 @@
 import type { ReviewResult } from '#types/modules/review';
-import { reopenCommand } from '../page/reopen.ts';
-import type { PendingApproval } from '#types/modules/checks';
 
 /**
  * The last part, what was not covered, is not optional: a result without it reads
@@ -8,32 +6,12 @@ import type { PendingApproval } from '#types/modules/checks';
  */
 interface ReportOptions {
   result: ReviewResult;
-  snapshotDirectory: string;
   resultPath: string;
-  pendingApprovals: readonly PendingApproval[];
-}
-
-function describeInputSplit(inputs: ReviewResult['inputs']): string {
-  if (inputs.promptBytes === 0) {
-    return `${inputs.patchBytes} patch + ${inputs.requirementBytes} requirements + ${inputs.snapshotBytes} mirrored`;
-  }
-  return (
-    `${inputs.promptBytes} prompt, of which ${inputs.patchBytes} patch and ` +
-    `${inputs.requirementBytes} requirements, + ${inputs.snapshotBytes} mirrored`
-  );
 }
 
 export function renderReport(options: ReportOptions): string {
   const { result } = options;
-  return [
-    ...whatWasReviewed(options),
-    '',
-    ...findings(result),
-    '',
-    ...verification(options),
-    '',
-    ...uncovered(options),
-  ].join('\n');
+  return [...whatWasReviewed(options), '', ...findings(result), '', ...verification(result), '', ...uncovered(result)].join('\n');
 }
 
 function whatWasReviewed(options: ReportOptions): string[] {
@@ -43,35 +21,12 @@ function whatWasReviewed(options: ReportOptions): string[] {
     `   review      ${result.reviewId}  (${result.status}${result.statusReason === null ? '' : `: ${result.statusReason}`})`,
     `   mode        ${result.requirementMode}`,
     `   target      ${result.target.kind} (${result.target.snapshotId})`,
-    `   measured    ${result.inputs.changedFiles} file(s), ${result.inputs.changedLines} line(s), ` +
-      `${result.inputs.contextBytes} model-input byte(s) ` +
-      `(${describeInputSplit(result.inputs)}), limit ${result.inputs.limits.maxContextBytes ?? 'none'}`,
-    `   snapshot    ${options.snapshotDirectory}`,
+    `   measured    ${result.inputs.changedFiles} file(s), ${result.inputs.changedLines} line(s), ${result.inputs.contextBytes} model-input byte(s)`,
     `   result      ${options.resultPath}`,
-    `   reopen      ${reopenCommand(result.reviewId)}`,
   ];
 
   if (result.reviewer !== null) {
-    lines.push(
-      `   reviewer    ${result.reviewer.status} — model ${result.reviewer.model}, ` +
-        // On the status line itself: a reader who stops there must not take a
-        // replayed answer for a review made now.
-        (result.reviewer.source === 'replay' ? 'REPLAYED from a recording (no model call), ' : '') +
-        `tools ${result.reviewer.tools.join(',') || '(none)'}, ` +
-        `timeout ${result.reviewer.timeoutSeconds}s` +
-        (result.reviewer.durationMs === null ? '' : `, took ${Math.round(result.reviewer.durationMs / 1000)}s`),
-    );
-    const usage = result.reviewer.usage;
-    if (usage !== null) {
-      const unknown = 'unknown';
-      lines.push(
-        `               ${usage.turns ?? unknown} turn(s), ` +
-          `model time ${usage.apiDurationMs === null ? unknown : `${Math.round(usage.apiDurationMs / 1000)}s`}, ` +
-          `${usage.outputTokens ?? unknown} output token(s), ` +
-          `cost ${usage.costUsd === null ? unknown : `$${usage.costUsd.toFixed(2)}`}` +
-          (usage.thinkingTokens === null ? '' : `, ${usage.thinkingTokens} of them reasoning`),
-      );
-    }
+    lines.push(`   reviewer    ${result.reviewer.status}`);
     if (result.reviewer.detail !== null) lines.push(`               ${result.reviewer.detail}`);
     if (result.reviewer.rejectedOutputRef !== null) {
       lines.push(`               the refused answer, unvalidated: ${result.reviewer.rejectedOutputRef}`);
@@ -82,22 +37,10 @@ function whatWasReviewed(options: ReportOptions): string[] {
 
   if (result.requirements.length > 0) {
     lines.push('   requirements');
-    for (const source of result.requirements) {
-      const version = source.sourceVersion === null ? '' : ` @${source.sourceVersion}`;
-      lines.push(`     ${source.id}${version}  ${source.url}`);
-      lines.push(`       ${source.title || '(untitled)'} — retrieved ${source.retrievedAt} via ${source.retrievedVia}`);
-    }
+    for (const source of result.requirements) lines.push(`     ${source.id}  ${source.title || '(untitled)'}  ${source.url}`);
   } else {
     lines.push('   requirements  none supplied; this is a quality review');
   }
-
-  if (result.provenance.length > 0) {
-    lines.push('   provenance');
-    for (const entry of result.provenance) {
-      lines.push(`     ${entry.kind.padEnd(11)} ${entry.reference}  ${entry.contentHash}`);
-    }
-  }
-
   return lines;
 }
 
@@ -130,66 +73,24 @@ function findings(result: ReviewResult): string[] {
     lines.push(`   ${finding.explanation}`);
     lines.push(`   suggested comment: ${finding.suggestedComment}`);
     if (finding.ruleRefs.length > 0) lines.push(`   rules: ${finding.ruleRefs.join(', ')}`);
-    if (finding.requirementRefs.length > 0) {
-      lines.push(`   requirements: ${finding.requirementRefs.join(', ')}`);
-    }
-    for (const extra of finding.supportingLocations) {
-      const path = extra.side === 'new' ? extra.newPath : extra.oldPath;
-      lines.push(`   also: ${path}:${extra.line} (${extra.side})`);
-    }
+    if (finding.requirementRefs.length > 0) lines.push(`   requirements: ${finding.requirementRefs.join(', ')}`);
   }
   return lines;
 }
 
-function verification(options: ReportOptions): string[] {
+function verification(result: ReviewResult): string[] {
   const lines = ['3. CHECKS AND VERIFICATION EVIDENCE'];
-  if (options.result.checks.length === 0) {
-    lines.push('   No configured check covered this change. Nothing was verified by execution.');
+  if (result.checks.length === 0) {
+    lines.push('   No check recorded for this task. Nothing was verified by execution: that is a gap, not a pass.');
   }
-  for (const check of options.result.checks) {
-    lines.push(
-      `   ${check.projectId}/${check.checkId}: ${check.status}` +
-        `  selected=${check.selected.length}` +
-        `  complete=${check.selectionComplete}` +
-        (check.exitCode === null ? '' : `  exit=${check.exitCode}`),
-    );
-    // A skipped check may still carry the argv it was not allowed to run (no
-    // container, binary missing); "ran:" would read as execution.
-    if (check.argv.length > 0) {
-      lines.push(`     ${check.status === 'skipped' ? 'would have run' : 'ran'}: ${check.argv.join(' ')}`);
-    }
-    if (check.outputRef !== null) lines.push(`     output: ${check.outputRef}`);
-    for (const limitation of check.limitations) lines.push(`     - ${limitation}`);
-    for (const mutation of check.mutations) lines.push(`     ! ${mutation}`);
-  }
-
-  if (options.pendingApprovals.length > 0) {
-    lines.push('   waiting for authorization');
-    for (const approval of options.pendingApprovals) {
-      lines.push(`     ${approval.approvalKey}`);
-      lines.push(`       reason: ${approval.reason}`);
-      lines.push(`       scope:  ${approval.scope}`);
-      lines.push(`       would run: ${approval.proposedArgv.join(' ')}`);
-    }
+  for (const check of result.checks) {
+    lines.push(`   ${check.key} ${check.phase}: exit ${check.exit}${check.files.length === 0 ? '' : `  on: ${check.files.join(' ')}`}`);
   }
   return lines;
 }
 
-function uncovered(options: ReportOptions): string[] {
-  const { result } = options;
+function uncovered(result: ReviewResult): string[] {
   const lines = ['4. OMISSIONS, UNCERTAINTY AND UNAVAILABLE COVERAGE'];
-
-  if (!result.coverage.complete) {
-    lines.push(
-      `   coverage    ${result.coverage.deliveredFileCount} file(s) delivered` +
-        (result.coverage.declaredFileCount === null
-          ? ''
-          : ` of ${result.coverage.declaredFileCount} declared`) +
-        (result.coverage.versionState === null ? '' : `, version state ${result.coverage.versionState}`),
-    );
-    for (const gap of result.coverage.gaps) lines.push(`   ! [${gap.kind}] ${gap.detail}`);
-  }
-
   for (const omission of result.omissions) lines.push(`   - ${omission}`);
   if (result.reviewer !== null) {
     for (const rejection of result.reviewer.rejections) lines.push(`   - ${rejection}`);

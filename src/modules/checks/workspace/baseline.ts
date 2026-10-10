@@ -1,13 +1,13 @@
+import { AMBICODE_DIR } from '#types/defaults';
 import { openRepository } from '#platform/git/open';
 import { splitNul } from '#platform/git/git';
-import { taggedRunner } from '#platform/ports/recording-process-runner';
 import { fingerprintWorkspace } from './mutations.ts';
 import type { BaselineEntryFields } from '#types/modules/checks';
 import type { Runtime } from '#types/composition';
 
 /** Porcelain `-z` puts a rename or copy's origin in the next NUL field; both sides count as changed. */
 async function changedPaths(runtime: Runtime): Promise<{ paths: string[]; head: string | null; hashes: ReadonlyMap<string, string | null> }> {
-  const { git, repositoryRoot } = await openRepository({ ...runtime, runner: taggedRunner(runtime.runner, 'baseline') });
+  const { git, repositoryRoot } = await openRepository(runtime);
   const fields = splitNul(await git.status());
   const found = new Set<string>();
   for (let index = 0; index < fields.length; index += 1) {
@@ -19,7 +19,8 @@ async function changedPaths(runtime: Runtime): Promise<{ paths: string[]; head: 
     }
   }
   found.delete('');
-  const paths = [...found].sort();
+  // The run directories are not the user's work, and `.git/info/exclude` no longer hides them; ignored only if init added the .gitignore line.
+  const paths = [...found].filter((file) => file !== AMBICODE_DIR && !file.startsWith(`${AMBICODE_DIR}/`)).sort();
   const { fileHashes } = await fingerprintWorkspace({ fs: runtime.fs, git, repositoryRoot, paths });
   return { paths, head: await git.revParse('HEAD'), hashes: fileHashes };
 }

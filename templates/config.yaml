@@ -1,0 +1,59 @@
+# AMBICODE configuration. Written by /ambicode:init; edit freely, then run:
+#   node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" config validate
+schemaVersion: 4
+id: __PROJECT_ID__
+baseline: origin/main            # branch review needs it or --base
+context:                         # limits for .ambicode/context (tokens = chars / 4)
+  maxTotalTokens: 24000
+  maxFileTokens: 2500
+skills:                          # every skill: model, effort, timeoutMinutes, plus its own keys
+  init:
+    model: sonnet
+    effort: medium
+    timeoutMinutes: 20
+    scout: { model: sonnet, effort: medium, timeoutMinutes: 10 }
+    ruleSources: [scout, manual, web]
+  review:
+    model: sonnet
+    effort: medium
+    timeoutMinutes: 15
+    maxFindings: null
+    maxChangedFiles: null
+    maxChangedLines: null
+    maxContextBytes: null
+    excludePaths: []
+  task: { model: sonnet, effort: medium, timeoutMinutes: 60, checkTimeoutSeconds: 120 }
+  plan: { model: sonnet, effort: medium, timeoutMinutes: 30 }
+  investigate: { model: sonnet, effort: low, timeoutMinutes: 15 }
+  rules: { model: sonnet, effort: medium, timeoutMinutes: 15 }
+requirements:
+  runtimes: {}                   # node: ">=20"
+  mcps: []                       # MCP server names; the first Jira/Confluence one is the requirements server
+  lsps: []
+  env: []                        # names only
+# One entry per project (a monorepo lists each package). A filled entry:
+#   - id: web                    # kebab-case
+#     root: .                    # where commands run
+#     paths: [src/]              # working code roots
+#     ecosystem: { languages: [typescript], frameworks: [react], packageManager: pnpm }
+#     include: ["src/**"]        # globs agents may read and edit
+#     exclude: ["**/*.test.*"]   # globs agents ignore
+#     rules:                     # at most 10, deduplicated
+#       - { source: scout, rule: "..." }   # source: scout | manual | web
+#     packs: [angular-http]      # ids of policies/*.yaml packs whose appliesTo matches
+#     policyFiles: []
+#     commands: { dev: "pnpm dev" }
+#     checks:                    # {file} is replaced for single-file runs
+#       test: { all: "pnpm vitest run", file: "pnpm vitest run {file}" }
+projects:
+  - id: __PROJECT_ID__
+    root: .
+    paths: []
+    ecosystem: { languages: [], frameworks: [], packageManager: null }
+    include: []
+    exclude: []
+    rules: []
+    packs: []
+    policyFiles: []
+    commands: {}
+    checks: {}

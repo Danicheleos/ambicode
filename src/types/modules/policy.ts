@@ -32,11 +32,6 @@ export const PolicyRule = z.strictObject({
   category: RuleCategory,
   instruction: z.string().min(1),
   check: RuleCheck,
-  /**
-   * Allowed only on a path-specific pack (no `**\/*` in `appliesTo`); enforced in
-   * `policy/load.ts` because the check needs the pack's `appliesTo`.
-   */
-  remindOnEdit: z.boolean().default(false),
   source: RuleSource.optional(),
 });
 export type PolicyRule = z.infer<typeof PolicyRule>;
@@ -85,8 +80,6 @@ export interface LoadedPack {
   origin: 'builtin' | 'project';
   /** Absolute path of the pack file; prompt references resolve against its directory. */
   filePath: string;
-  contentHash: string;
-  replacedReference?: string;
 }
 
 export interface ResolvedRule {
@@ -95,11 +88,9 @@ export interface ResolvedRule {
   packReference: string;
   authority: z.infer<typeof Authority>;
   sourceLocation: string;
-  sourceExternalVersion?: string;
   category: z.infer<typeof RuleCategory>;
   instruction: string;
   check: RuleCheck;
-  remindOnEdit: boolean;
 }
 
 export interface ResolvedPromptRef {
@@ -110,7 +101,6 @@ export interface ResolvedPromptRef {
   /** Absolute path, already proven to sit inside the pack directory. */
   absolutePath: string;
   declaredPath: string;
-  contentHash: string;
 }
 
 export interface ResolvedCommandDecision {
@@ -134,12 +124,8 @@ export interface ResolvedPolicy {
   packs: Array<{
     id: string;
     reference: string;
-    origin: 'builtin' | 'project';
     authority: z.infer<typeof Authority>;
     sourceLocation: string;
-    sourceExternalVersion?: string;
-    contentHash: string;
-    replacedReference?: string;
     matchedPaths: string[];
   }>;
   rules: ResolvedRule[];
@@ -153,7 +139,7 @@ export interface StagePayload {
   text: string;
   bytes: number;
   /** The `policy` ledger entry's fields. */
-  entry: { stage: PromptStage; packs: string[]; rules: number; omitted: number; bytes: number };
+  entry: { stage: PromptStage; packs: string[]; rules: number; bytes: number };
 }
 
 export const DRAFTS_DIR = '.ambicode/policies/drafts';
