@@ -1,6 +1,5 @@
 skill: plan
 version: 3
-exits: [done, blocked, human, inconclusive, superseded]
 revisable: [design]                               # the model may `route next --revise design`
 steps:
   - id: fetch
@@ -39,9 +38,7 @@ steps:
       options: [Accept, Revise, Reject]
       acting: [Accept, Revise]                    # 01-contracts §5; a revision too needs the user's own answer
       default: Reject                             # non-acting: the draft stays a draft
-      release: Reject
       onAnswer: { Revise: revise design }         # a human cycle: resets design/plan-write repeats
-      maxRevises: 3                               # printed as "Revise (N left)"
   - id: promote
     actor: code
     when: gate.plan-accept.is(Accept)             # the latest answer in this step's window

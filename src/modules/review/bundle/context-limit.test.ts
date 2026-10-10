@@ -6,7 +6,7 @@ import { initConfig } from '#testing/fixtures/init-config';
 import { runReview, REVIEW_OPTIONS } from '#cli/commands/review/review';
 import { createRuntime } from '#composition/root';
 import { nodeFileSystem } from '#platform/ports/filesystem';
-import { byteLength } from '../snapshot/snapshot.ts';
+import { byteLength } from '../snapshot/change.ts';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { isAmbicodeError } from '#util/errors';
 import type { Runtime } from '#types/composition';
@@ -79,7 +79,7 @@ function refusal(run: () => Promise<unknown>): Promise<{ code: string; details: 
 }
 
 describe('U17 the context limit covers the whole model input', () => {
-  it('refuses a requirement larger than the limit before any check runs', async () => {
+  it('refuses a requirement larger than the limit before any reviewer runs', async () => {
     const context = await fixture(8_192);
     try {
       const huge = 'The orders service must reject negative amounts. '.repeat(400);

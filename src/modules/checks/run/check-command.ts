@@ -1,4 +1,3 @@
-import path from 'node:path';
 import { openWorkspace, projectById } from '#modules/config/workspace';
 import { resolvePolicyFor } from '#modules/policy/resolve-for';
 import type { ProjectConfig } from '#types/modules/config';
@@ -9,7 +8,7 @@ import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { AmbicodeError } from '#util/errors';
 import { normalizeRelative } from '#util/paths';
 import { authorizeCommand, checkApprovalKey } from '../selection/authorize.ts';
-import { runChecks } from './run.ts';
+import { runOne } from './run.ts';
 import { GATE, type CheckDeps, type Routed, type CheckOnlyInput, type CheckOnlyOutcome, type CheckEntry } from '#types/modules/checks';
 import type { LedgerEntry, LockedLedger, NoteDeps, TaskDir } from '#types/modules/evidence';
 import type { RouteView } from '#types/harness';
@@ -149,27 +148,23 @@ export async function runCheckOnly(deps: CheckDeps, input: CheckOnlyInput): Prom
   if (decision === 'declined') return { outcome: 'declined', key };
 
   const dir = routed?.dir ?? (await resolveTaskDir(deps.runtime, input.task));
-  const { results } = await runChecks({
-    fs: deps.runtime.fs, config: workspace.config, project, policy, changed: [], repositoryRoot: workspace.repositoryRoot,
-    runner: deps.runtime.runner, clock: deps.runtime.clock, approvals: new Set([key]), declines: new Set(), reviewDirectory: dir.root,
-    enumerationRevision: null, git: workspace.git, watchedPaths: input.only, revisionNote: null, only: { checkId, files: input.only.map((file) => projectRelative(project, file)) },
+  const result = await runOne({
+    runner: deps.runtime.runner, clock: deps.runtime.clock, repositoryRoot: workspace.repositoryRoot, project, policy, commandId: check.command, key,
+    command: project.commands[check.command], files: input.only.map((file) => projectRelative(project, file)), timeoutSeconds: workspace.config.checks.timeoutSeconds,
   });
-  const result = results[0];
   const step = routed === null ? null : stepOf(routed.view);
   const route = routed === null ? {} : { route: routed.view.routeId };
   const unproven = (which: string, cause: string) =>
     routed === null ? Promise.resolve() : withLedger(deps, dir, (ledger) => ledger.append({ kind: 'limit', ...route, which, count: 1, step, cause }).then(() => undefined));
 
-  if (result === undefined || result.exitCode === null) {
+  if (result.exitCode === null) {
     await unproven(`${input.phase}-unproven`, 'not-run');
-    return { outcome: 'not-run', status: result?.status === 'timed-out' ? 'timeout' : 'spawn-failed', detail: result?.limitations[0] ?? 'the check did not run' };
+    return { outcome: 'not-run', status: result.status === 'timed-out' ? 'timeout' : 'spawn-failed', detail: result.detail ?? 'the check did not run' };
   }
 
-  const output = result.outputRef === null ? '' : await deps.runtime.fs.readText(path.join(dir.root, result.outputRef)).catch(() => '');
   const entry = await withLedger(deps, dir, (ledger) => ledger.append({
     kind: 'check', ...route, key, argv: result.argv, only: input.only, exit: result.exitCode, phase: input.phase,
-    summary: null, tail: tailOf(output), ms: result.durationMs ?? 0,
-    ...(result.mutations.length === 0 ? {} : { mutations: result.mutations }), ...(deps.session === null ? {} : { session: deps.session }),
+    summary: null, tail: tailOf(result.output), ms: result.ms, ...(deps.session === null ? {} : { session: deps.session }),
   })) as CheckEntry;
   // Red is exit != 0 and green is exit 0; the other combination is recorded as a gap, never as proof.
   const cause = input.phase === 'red' ? (result.exitCode === 0 ? 'no-failure' : null) : (result.exitCode === 0 ? null : 'nonzero-exit');

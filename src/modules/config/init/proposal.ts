@@ -3,7 +3,7 @@ import { AmbicodeError } from '#util/errors';
 import { contentHash } from '#util/hash';
 import { GITIGNORE_ENTRIES } from '#types/defaults';
 import { SUPPORTED_SCHEMA_VERSION } from '#types/modules/config';
-import { parseConfigWithNotices } from '../load.ts';
+import { parseConfig } from '../load.ts';
 import type { FileSystem } from '#types/platform/ports';
 
 export const DRAFT_FILE = '.ambicode/config.draft.yaml';
@@ -14,7 +14,7 @@ export const PROPOSAL_FILE = 'proposal.yaml';
 export function parseDraft(text: string): string {
   const body = /```ya?ml\s*\n([\s\S]*?)```/.exec(text)?.[1] ?? text;
   try {
-    const { config } = parseConfigWithNotices(body);
+    const config = parseConfig(body);
     if (config.schemaVersion === SUPPORTED_SCHEMA_VERSION) return body;
     throw new AmbicodeError('config-invalid', `schemaVersion must be ${SUPPORTED_SCHEMA_VERSION}.`);
   } catch (error) {

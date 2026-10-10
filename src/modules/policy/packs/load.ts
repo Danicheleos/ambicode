@@ -44,15 +44,6 @@ export async function loadPacksForProject(options: LoadPacksOptions): Promise<Lo
     const validated = await validatePack(fs, { raw, filePath, reference, origin: 'builtin' }, constraints);
     diagnostics.push(...validated.diagnostics);
     if (validated.pack === null) continue;
-    if (validated.pack.pack.id !== id) {
-      diagnostics.push({
-        severity: 'error',
-        code: 'pack-id-mismatch',
-        message: `Built-in pack "${reference}" declares id "${validated.pack.pack.id}".`,
-        where: filePath,
-      });
-      continue;
-    }
     loaded.push(validated.pack);
   }
 

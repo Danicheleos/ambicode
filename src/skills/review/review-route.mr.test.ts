@@ -16,8 +16,7 @@ type Fixture = Awaited<ReturnType<typeof reviewRouteFixture>>;
 async function toReadback(t: Fixture, findings = [finding({ id: 'f-1' }), finding({ id: 'f-2', risk: 'low', location: { oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'new', line: 3 } })]) {
   const start = await t.start({ target: { branch: false, base: null, mr: MR } });
   assert.equal(start.position, 'mr-fetch');
-  assert.match(start.text, /project "g\/p", merge request 7/);
-  assert.match(start.text, /get_merge_request\b/);
+  assert.match(start.text, /Parse the project path and merge-request iid from the URL/);
   const dir = await resolveTaskDir(t.fx.runtime, CHECK_TASK);
   await withLedgerLock(t.fx.runtime.fs, dir.root, () => new Date(), SESSION_A, async (ledger) => {
     const view = (await openRouteView(t.fx.runtime, t.fx.routes, CHECK_TASK, SESSION_A))!;

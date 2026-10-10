@@ -1,4 +1,3 @@
-import path from 'node:path';
 import { openWorkspace } from '#modules/config/workspace';
 import { chainKey, loadPayload } from '#harness/engine/execute';
 import { onGatePrint } from '#harness/gates/gates';
@@ -7,27 +6,20 @@ import { blockingProblem, checkDrafts } from '#modules/policy/authoring/drafts';
 import type { RouteArgs } from '#types/harness';
 import type { DraftsCheck } from '#types/modules/policy';
 
-/** Comfortably under the 16 KiB ledger-entry cap once the gate's own envelope (question, options, values) is added (09-T2/B13). */
+/** Under the 16 KiB ledger-entry cap once the gate's own envelope (question, options, values) is added. */
 const DISPOSITION_GATE_BYTES = 8_000;
-/** `rules-table.md` under the task's own steps directory: the full disposition, past any gate cap. */
-const DISPOSITION_FILE = 'rules-table.md';
 
-function cap(text: string, bytes: number): string {
-  if (Buffer.byteLength(text) <= bytes) return text;
-  return `${Buffer.from(text).subarray(0, bytes - 8).toString('utf8').replace(/�$/, '')}\n[cut]`;
-}
-
-/** The rules-table guidance: one row per rule, applied or not migrated with the reason (09-T2). */
+/** One row per rule: applied, or not migrated with the reason. */
 function disposition(check: DraftsCheck, root: string): string {
   const rows = check.rules.map((rule) => {
-    const [pack] = rule.split('/') as [string];
-    const file = check.files.find((candidate) => candidate.packId === pack);
+    const file = check.files.find((candidate) => candidate.packId === rule.split('/')[0]);
     const blocked = file === undefined ? undefined : blockingProblem(check, root, file.path);
     const failed = check.notMigrated.find((entry) => entry.rule === rule);
     return `- ${rule}: ${blocked !== undefined ? `not migrated: pack skipped (${blocked.code})` : failed !== undefined ? `not migrated: ${failed.reason}` : 'applied'}`;
   });
   const unusable = check.files.filter((file) => file.packId === null).map((file) => `- ${file.path}: not migrated: unusable pack`);
-  return ['Disposition if you choose Apply all:', ...rows, ...unusable, 'Apply with changes: say what to change and the drafts are revised. Discard drafts applies nothing and deletes nothing.'].join('\n');
+  const text = ['Disposition if you choose Apply all:', ...rows, ...unusable].join('\n');
+  return Buffer.byteLength(text) <= DISPOSITION_GATE_BYTES ? text : `${text.slice(0, DISPOSITION_GATE_BYTES - 40)}\n[cut: ${check.rules.length} rules in all]`;
 }
 
 onGatePrint('sources', async ({ runtime, dir, chain }) => {
@@ -40,11 +32,7 @@ onGatePrint('rules-table', async ({ runtime, dir, chain }) => {
   try {
     const workspace = await openWorkspace({ ...runtime, cwd: dir.repositoryRoot });
     const check = await checkDrafts(runtime, workspace, { project: (head?.['args'] as RouteArgs | undefined)?.project ?? null });
-    const full = disposition(check, workspace.repositoryRoot);
-    if (Buffer.byteLength(full) <= DISPOSITION_GATE_BYTES) return { line: full };
-    await runtime.fs.mkdirp(dir.steps);
-    await runtime.fs.writeText(path.join(dir.steps, DISPOSITION_FILE), full);
-    return { line: cap(full, DISPOSITION_GATE_BYTES - 120) + `\n(The full disposition, ${check.rules.length} rules, is at ${path.relative(dir.repositoryRoot, path.join(dir.steps, DISPOSITION_FILE))}; read it before answering.)` };
+    return { line: disposition(check, workspace.repositoryRoot) };
   } catch (error) {
     if (error instanceof AmbicodeError) return null;
     throw error;

@@ -1,12 +1,10 @@
 import { z } from 'zod';
-import { CheckStatus, Confidence, ReviewStatus, Risk, TargetKind } from '../primitives.ts';
-import { ProvenanceEntry, RequirementSource, type NormalizedRequirements, type EvidenceSource } from './requirements.ts';
-import type { PendingApproval } from './checks.ts';
+import { Confidence, ReviewStatus, Risk, TargetKind } from '../primitives.ts';
+import { RequirementSource } from './requirements.ts';
 import type { Workspace, Runtime } from '../composition.ts';
 import type { ProjectConfig } from './config.ts';
 import type { DiffFile } from '../platform/git.ts';
 import type { ResolvedPolicy } from './policy.ts';
-import type { Dependent } from './search.ts';
 
 export const REVIEW_SCHEMA_VERSION = 1;
 
@@ -23,23 +21,15 @@ export type ReviewTarget = z.infer<typeof ReviewTarget>;
 
 const count = z.number().int().nonnegative();
 
-export const CheckResult = z.strictObject({
-  checkId: z.string().min(1),
-  projectId: z.string().min(1),
-  commandId: z.string().min(1),
-  adapter: z.string().min(1),
-  status: CheckStatus,
-  selected: z.array(z.strictObject({ path: z.string().min(1), reason: z.string().min(1) })).default([]),
-  selectionComplete: z.boolean(),
+/** One `check` ledger entry of the task, as the review saw it when the bundle was assembled. */
+export const RecordedCheck = z.strictObject({
+  key: z.string().min(1),
+  phase: z.enum(['red', 'green']),
+  exit: z.number().int(),
   argv: z.array(z.string()).default([]),
-  durationMs: count.nullable().default(null),
-  exitCode: z.number().int().nullable().default(null),
-  outputRef: z.string().nullable().default(null),
-  limitations: z.array(z.string()).default([]),
-  /** Source or index changes this command made, reported and never reverted. */
-  mutations: z.array(z.string()).default([]),
+  only: z.array(z.string()).default([]),
 });
-export type CheckResult = z.infer<typeof CheckResult>;
+export type RecordedCheck = z.infer<typeof RecordedCheck>;
 
 export const FindingLocation = z.strictObject({
   oldPath: z.string().nullable(),
@@ -55,8 +45,7 @@ export const Finding = z.strictObject({
   confidence: Confidence,
   category: z.string().min(1),
   location: FindingLocation,
-  supportingLocations: z.array(FindingLocation).default([]),
-  /** Excerpt taken from the snapshot by the validator, never from the model. */
+  /** Excerpt taken from the checkout or the diff by the validator, never from the model. */
   evidence: z.string(),
   explanation: z.string().min(1),
   suggestedComment: z.string().min(1),
@@ -75,18 +64,11 @@ export const ReviewInputs = z.strictObject({
   changedFiles: count,
   changedLines: count,
   patchBytes: count,
-  snapshotBytes: count,
   requirementBytes: count.default(0),
   contextBytes: count,
-  limits: z.strictObject({
-    maxChangedFiles: z.number().int().positive().nullable(),
-    maxChangedLines: z.number().int().positive().nullable(),
-    maxContextBytes: z.number().int().positive().nullable(),
-    maxFindings: z.number().int().positive().nullable(),
-  }),
 });
 export type ReviewInputs = z.infer<typeof ReviewInputs>;
-export type MeasuredInput = Omit<ReviewInputs, 'limits'>;
+export type MeasuredInput = ReviewInputs;
 
 /** `review record` stored the subagent's answer: `ok`, or `failed` with the refused text kept at `rejectedOutputRef`. */
 export const ReviewerRun = z.strictObject({
@@ -105,17 +87,16 @@ export const ReviewResult = z.strictObject({
   schemaVersion: z.literal(REVIEW_SCHEMA_VERSION),
   reviewId: z.string().min(1),
   createdAt: z.string().min(1),
-  pluginVersion: z.string().min(1),
   target: ReviewTarget,
   requirements: z.array(RequirementSource).default([]),
   requirementMode: ReviewRequirementMode,
-  provenance: z.array(ProvenanceEntry).default([]),
   inputs: ReviewInputs,
   reviewer: ReviewerRun.nullable().default(null),
   /** Repository-relative path of the reviewer's `brief.md`. */
   brief: z.string().nullable().default(null),
-  policySummary: z.strictObject({ packs: z.array(z.string()).default([]), ruleIds: z.array(z.string()).default([]) }),
-  checks: z.array(CheckResult).default([]),
+  /** Rule ids of the resolved policy: the only ids a finding may cite. */
+  ruleIds: z.array(z.string()).default([]),
+  checks: z.array(RecordedCheck).default([]),
   changedFiles: z
     .array(
       z.strictObject({
@@ -124,7 +105,6 @@ export const ReviewResult = z.strictObject({
         changeKind: z.enum(['added', 'modified', 'deleted', 'renamed', 'copied', 'type-changed']),
         addedLines: count,
         removedLines: count,
-        included: z.boolean(),
         exclusionReason: z.string().nullable().default(null),
       }),
     )
@@ -136,7 +116,7 @@ export const ReviewResult = z.strictObject({
 });
 export type ReviewResult = z.infer<typeof ReviewResult>;
 
-/** What `assembleBundle` measured and decided: policy, snapshot and checks, so no caller re-derives them. */
+/** What `assembleBundle` measured and decided, so no caller re-derives it. */
 export interface ReviewBundle {
   workspace: Workspace;
   reviewId: string;
@@ -144,16 +124,11 @@ export interface ReviewBundle {
   /** `null` when the run belongs to no task, so there is no ledger to write. */
   taskDirectory: string | null;
   resultPath: string;
-  snapshot: Snapshot;
-  plan: SnapshotPlan;
-  /** Unchanged files the reviewer was given because they rely on the change, with why. */
-  dependents: Dependent[];
   measured: MeasuredInput;
   files: DiffFile[];
   patch: string;
   policies: { project: ProjectConfig; policy: ResolvedPolicy }[];
-  requirements: NormalizedRequirements;
-  pendingApprovals: PendingApproval[];
+  requirements: readonly RequirementSource[];
   /** Findings are empty and status is `partial` until a reviewer has run. */
   result: ReviewResult;
 }
@@ -167,55 +142,20 @@ export interface ReviewEstimate {
   target: string;
   files: number;
   changedLines: number;
-  checks: { key: string; decision: 'run' | 'waiting' | 'skip' | 'forbid'; reason: string | null }[];
-  waitingKeys: string[];
-  snapshotBytes: number | null;
-  refusal: { code: 'input-too-large' | 'snapshot-too-large'; message: string; suggestions: string[] } | null;
+  refusal: { code: 'input-too-large'; message: string; suggestions: string[] } | null;
 }
-
-/** Exactly what the reviewer may read, mirrored under `files/` outside the checkout and without `.git`. */
-export interface Snapshot {
-  directory: string;
-  filesDirectory: string;
-  included: string[];
-  omissions: string[];
-  totalBytes: number;
-  dispose(): Promise<void>;
-}
-
-export interface SnapshotEntry {
-  path: string;
-  text: string;
-  bytes: number;
-}
-
-/** Everything the snapshot would contain, so the whole input can be measured against the limits before any of it exists on disk. */
-export interface SnapshotPlan {
-  entries: SnapshotEntry[];
-  changedPaths: string[];
-  omissions: string[];
-  totalBytes: number;
-  /** Unchanged files included because they rely on the change; a subset of `entries`. */
-  dependentPaths: string[];
-}
-
-export const CHECKS_GATE = 'review-checks';
 
 export interface AssembleOptions {
   runtime: Runtime;
   target: TargetSelection;
-  requirementUrls: readonly string[];
-  evidence: EvidenceSource | null;
-  approvals: ReadonlySet<string>;
-  declines: ReadonlySet<string>;
+  /** Already validated: the review never resolves requirement URLs itself. */
+  requirements: readonly RequirementSource[];
   task: string | null;
   excludePaths?: readonly string[];
   onlyPaths?: readonly string[];
   withTests?: boolean;
-  /** `--context <path>`: unchanged files the caller found relying on the change, e.g. by LSP references. */
-  contextPaths?: readonly string[];
-  /** Dirty before the task began and untouched since: left out of the review and of check selection (07-B3). */
+  /** Dirty before the task began and untouched since: left out of the review. */
   preexisting?: readonly string[];
-  /** Stop after `planSnapshot`: nothing is written and no check runs (07-E1). */
+  /** Stop after measuring the input: nothing is written. */
   dryRun?: boolean;
 }

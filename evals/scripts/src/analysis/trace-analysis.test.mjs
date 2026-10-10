@@ -1,7 +1,7 @@
 // Regression assertions moved intact from the approved harness suite.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { EXPORT_DIRECTORY, traceMetrics, harvestExports, harvestTraces, harvestedOfResult, removeSandboxes } from './trace-analysis.mjs';
+import { traceMetrics, harvestTraces, harvestedOfResult, removeSandboxes } from './trace-analysis.mjs';
 import { LEDGER_DIRECTORY } from './ledger-metrics.mjs';
 import { chmodSync, existsSync, realpathSync } from 'node:fs';
 import { TRACE, ticket, M, event } from '../testing/bench-test-fixtures.mjs';
@@ -58,45 +58,16 @@ describe('evals-bench: measures taken from the trace', () => {
 });
 
 describe('evals-bench: plan notes', () => {
-  it('copies a task directory\'s plan and plan-draft notes beside its ledger, and no other note', () => {
+  it('copies a task directory\'s plan, plan-draft and investigation notes beside its ledger, and no other note', () => {
     const sandboxRoot = realpathSync(mkdtempSync(path.join(tmpdir(), 'harvest-plan-')));
     const outDir = path.join(sandboxRoot, 'kept');
     try {
       const task = path.join('home', 'cwd', 'repo', '.ambicode', 'task', 'cart');
       mkdirSync(path.join(sandboxRoot, 'e-one', task), { recursive: true });
-      for (const name of ['ledger.jsonl', 'plan_2026-10-07T10-00.md', 'plan-draft_2026-10-07T09-59.md', 'investigate_2026-10-07T09-58.md'])
+      for (const name of ['ledger.jsonl', 'plan_2026-10-07T10-00.md', 'plan-draft_2026-10-07T09-59.md', 'investigation_2026-10-07T09-58.md', 'notes_2026-10-07T09-57.md'])
         writeFileSync(path.join(sandboxRoot, 'e-one', task, name), name);
       harvestTraces(outDir, { sandboxRoots: [sandboxRoot] });
-      assert.deepEqual(readdirSync(path.join(outDir, LEDGER_DIRECTORY, 'e-one', task)).sort(), ['ledger.jsonl', 'plan-draft_2026-10-07T09-59.md', 'plan_2026-10-07T10-00.md']);
-    } finally {
-      rmSync(sandboxRoot, { recursive: true, force: true });
-    }
-  });
-});
-
-describe('evals-bench: the Stop hook\'s exported ledgers', () => {
-  it('lays an export over a shorter polled copy of the same sandbox ledger, never over a longer one', () => {
-    const sandboxRoot = realpathSync(mkdtempSync(path.join(tmpdir(), 'harvest-export-')));
-    const outDir = path.join(sandboxRoot, 'kept');
-    try {
-      const relative = path.join('home', 'cwd', 'repo', '.ambicode', 'task', 'cart', 'ledger.jsonl');
-      const live = path.join(sandboxRoot, 'e-one', relative);
-      mkdirSync(path.dirname(live), { recursive: true });
-      writeFileSync(live, '{"n":1}\n');
-      harvestTraces(outDir, { sandboxRoots: [sandboxRoot] });
-      const polled = path.join(outDir, LEDGER_DIRECTORY, 'e-one', relative);
-      assert.equal(readFileSync(polled, 'utf8'), '{"n":1}\n');
-      const exported = path.join(outDir, EXPORT_DIRECTORY, 'session-a', 'cart');
-      mkdirSync(exported, { recursive: true });
-      writeFileSync(path.join(exported, 'ledger.jsonl'), '{"n":1}\n{"n":2}\n{"n":3}\n');
-      writeFileSync(path.join(exported, 'source.json'), JSON.stringify({ ledger: live, entries: 3 }));
-      rmSync(path.join(sandboxRoot, 'e-one'), { recursive: true }); // the harness deleted the sandbox before the last poll
-      harvestTraces(outDir, { sandboxRoots: [sandboxRoot] });
-      assert.equal(readFileSync(polled, 'utf8'), '{"n":1}\n{"n":2}\n{"n":3}\n', 'the export carries the entries the poll missed');
-      writeFileSync(polled, '{"n":1}\n{"n":2}\n{"n":3}\n{"n":4}\n');
-      assert.equal(harvestExports(outDir, { sandboxRoots: [sandboxRoot] }), 0, 'a later turn the poll saw is not rolled back');
-      writeFileSync(path.join(exported, 'source.json'), JSON.stringify({ ledger: '/elsewhere/e-one/ledger.jsonl', entries: 3 }));
-      assert.equal(harvestExports(outDir, { sandboxRoots: [sandboxRoot] }), 0, 'a source outside every sandbox root is skipped');
+      assert.deepEqual(readdirSync(path.join(outDir, LEDGER_DIRECTORY, 'e-one', task)).sort(), ['investigation_2026-10-07T09-58.md', 'ledger.jsonl', 'plan-draft_2026-10-07T09-59.md', 'plan_2026-10-07T10-00.md']);
     } finally {
       rmSync(sandboxRoot, { recursive: true, force: true });
     }

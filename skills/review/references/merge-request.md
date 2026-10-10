@@ -15,11 +15,9 @@ merge request comes through the GitLab MCP server you already have.
   hash) and one `capture` ledger entry. Nothing else is recorded. Without a
   capture, `review` refuses with `mr-diff-missing`: make the diff call, then
   `route next`.
-- **File content.** It is read from git only when the merge request's head sha
-  exists in this checkout. Otherwise part 4 says the reviewer saw the diff only.
-  Your checkout is never fetched, switched or modified.
-- **Nothing executed.** Merge request code does not run here; checks are
-  skipped, and the change's test files leave the review (`--with-tests` keeps
+- **Diff only.** The reviewer has the diff and no file content; part 4 says so.
+- **Nothing executed.** Merge request code does not run here, so no check
+  is recorded, and the change's test files leave the review (`--with-tests` keeps
   them). Gaps, not passes.
 
 ## Publishing

@@ -69,13 +69,13 @@ describe('task cases', () => {
     put(path.join(benchmarks, 'BE-express', 'project', '.ambicode', 'config.yaml'), '# team\nprojects:\n  - id: app\n    commands:\n      unit: null\n    checks:\n      unit: null\n');
     const out = path.join(top, 'out-unit');
     assert.equal(generate({ benchmarks, out, sides: ['FE-angular'], testCommand: ['t'], check: () => ({ exit: 1 }) }).candidates, 0);
-    const unit = { argv: ['node_modules/.bin/vitest', 'run', '{files}'], adapter: 'vitest' };
+    const unit = { argv: ['node_modules/.bin/vitest', 'run', '{files}'] };
     generate({ benchmarks, out, limit: 1, sides: ['BE-express'], testCommand: ['t'], unit, check: ({ patch }) => ({ exit: patch ? 0 : 1 }) });
     const dir = path.join(out, 'be-task-t1');
     const config = readFileSync(path.join(dir, 'config.yaml'), 'utf8');
     assert.match(config, /^# team/);
     assert.match(config, /unit:\n\s+argv:\n\s+- node_modules\/\.bin\/vitest\n\s+- run\n\s+- "\{files\}"/);
-    assert.match(config, /unit:\n\s+command: unit\n\s+adapter: vitest/);
+    assert.match(config, /unit:\n\s+command: unit\n/);
     const scaffold = readFileSync(path.join(dir, 'scaffold.sh'), 'utf8');
     assert.match(scaffold, /cp "\$\(dirname "\$0"\)"\/'config\.yaml'/);
     assert.match(scaffold, /archive '[0-9a-f]{40}' \| tar/);

@@ -5,6 +5,7 @@ import { createRuntime } from '#composition/root';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { parseArgs } from '#util/args';
 import { assembleBundle, writeBundleArtifacts } from '#modules/review/bundle/bundle';
+import { requirementSources } from '#modules/review/bundle/requirements';
 import { resolveTargetOptions } from '../../options/target-option.ts';
 import { TARGET_OPTIONS as BUNDLE_OPTIONS } from '../../types/options.ts';
 import type { Runtime } from '#types/composition';
@@ -14,18 +15,12 @@ import { runReview, REVIEW_OPTIONS } from './review.ts';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import type { FileSystem } from '#types/platform/ports';
 
-/** The evidence stage on its own, as the removed `bundle` command ran it: no model, no approvals. */
+/** The evidence stage on its own, as the removed `bundle` command ran it: no model. */
 async function runBundle(runtime: Runtime, args: ParsedArgs) {
-  const bundle = await assembleBundle({ runtime, ...resolveTargetOptions('bundle', runtime, args), approvals: new Set() });
+  const { requirementUrls, evidence, ...options } = resolveTargetOptions('bundle', runtime, args);
+  const bundle = await assembleBundle({ runtime, ...options, requirements: await requirementSources(runtime, { urls: requirementUrls, evidence }) });
   await writeBundleArtifacts(runtime, bundle);
-  return {
-    reviewDirectory: bundle.reviewDirectory,
-    snapshotDirectory: bundle.snapshot.directory,
-    resultPath: bundle.resultPath,
-    measured: bundle.measured,
-    result: bundle.result,
-    pendingApprovals: bundle.pendingApprovals,
-  };
+  return { reviewDirectory: bundle.reviewDirectory, resultPath: bundle.resultPath, measured: bundle.measured, result: bundle.result };
 }
 
 function recording(inner: FileSystem): { fs: FileSystem; writes: string[]; dirs: string[] } {
@@ -54,7 +49,7 @@ function recording(inner: FileSystem): { fs: FileSystem; writes: string[]; dirs:
 }
 
 describe('U28 bundle writes only through the filesystem port', () => {
-  it('creates the review directory, result and snapshot marker through the injected port', async () => {
+  it('creates the review directory, result, diff and file list through the injected port', async () => {
     const repo = await TempRepo.create();
     try {
       await repo.write('package.json', '{"name":"app","version":"1.0.0"}\n');
@@ -71,13 +66,9 @@ describe('U28 bundle writes only through the filesystem port', () => {
       const output = await runBundle(runtime, parseArgs('bundle', [], BUNDLE_OPTIONS));
 
       assert.ok(recorder.writes.includes(output.resultPath));
-      assert.ok(recorder.writes.includes(path.join(output.reviewDirectory, 'snapshot-path.txt')));
+      assert.ok(recorder.writes.includes(path.join(output.reviewDirectory, 'changed.diff')));
+      assert.ok(recorder.writes.includes(path.join(output.reviewDirectory, 'files.txt')));
       assert.ok(recorder.dirs.includes(output.reviewDirectory));
-      assert.ok(recorder.dirs.includes(output.snapshotDirectory));
-
-      assert.match(output.result.pluginVersion, /^\d/);
-
-      await nodeFileSystem.remove(output.snapshotDirectory);
     } finally {
       await repo.dispose();
     }
@@ -101,13 +92,10 @@ describe('U28 bundle writes only through the filesystem port', () => {
       for (const artifact of [
         output.resultPath,
         output.reportPath,
-        path.join(output.reviewDirectory, 'snapshot-path.txt'),
+        path.join(output.reviewDirectory, 'changed.diff'),
       ]) {
         assert.ok(recorder.writes.includes(artifact), `${artifact} was not written through the port`);
       }
-      assert.ok(recorder.dirs.includes(output.snapshotDirectory));
-
-      await nodeFileSystem.remove(output.snapshotDirectory);
     } finally {
       await repo.dispose();
     }
@@ -136,10 +124,9 @@ describe('U09 --exclude narrows a review the limits would otherwise refuse', () 
         parseArgs('bundle', ['--exclude', 'assets/i18n/**'], BUNDLE_OPTIONS),
       );
 
-      const reviewed = output.result.changedFiles.filter((file) => file.included);
+      const reviewed = output.result.changedFiles.filter((file) => file.exclusionReason === null);
       assert.deepEqual(reviewed.map((file) => file.newPath), ['src/app.ts']);
       const left = output.result.changedFiles.find((file) => file.newPath === 'assets/i18n/cs.json');
-      assert.equal(left?.included, false);
       assert.match(left?.exclusionReason ?? '', /pattern/);
       assert.ok(
         output.result.omissions.some(
@@ -147,7 +134,6 @@ describe('U09 --exclude narrows a review the limits would otherwise refuse', () 
         ),
         `the narrowing must be stated once, as coverage; got ${JSON.stringify(output.result.omissions)}`,
       );
-      await nodeFileSystem.remove(output.snapshotDirectory);
     } finally {
       await repo.dispose();
     }
@@ -212,15 +198,13 @@ describe('U09 the reviewed set is bounded on both sides, and never empty', () =>
         parseArgs('bundle', ['--only', 'src/**'], BUNDLE_OPTIONS),
       );
 
-      const reviewed = output.result.changedFiles.filter((file) => file.included);
+      const reviewed = output.result.changedFiles.filter((file) => file.exclusionReason === null);
       assert.deepEqual(reviewed.map((file) => file.newPath), ['src/app.ts']);
       const left = output.result.changedFiles.find((file) => file.newPath === 'web/page.ts');
-      assert.equal(left?.included, false);
       assert.ok(
         output.result.omissions.some((line) => line.includes('narrowed on request') && line.includes('src/**')),
         `the narrowing must be stated as coverage; got ${JSON.stringify(output.result.omissions)}`,
       );
-      await nodeFileSystem.remove(output.snapshotDirectory);
     } finally {
       await created.dispose();
     }

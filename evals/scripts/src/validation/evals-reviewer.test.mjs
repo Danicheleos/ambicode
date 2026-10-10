@@ -49,7 +49,7 @@ describe('evals-reviewer: findings fixture through `review record`', () => {
   const finding = {
     risk: 'high', confidence: 'high', category: 'correctness',
     location: { oldPath: 'src/page.js', newPath: 'src/page.js', side: 'new', line: 1 },
-    supportingLocations: [], explanation: 'The slice ends one item early, so every page loses its last item.',
+    explanation: 'The slice ends one item early, so every page loses its last item.',
     suggestedComment: 'End the slice at (index + 1) * size.', ruleRefs: [], requirementRefs: [],
   };
 

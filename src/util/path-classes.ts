@@ -74,29 +74,6 @@ const BINARY_EXTENSIONS = new Set([
   'sqlite', 'db', 'parquet',
 ]);
 
-/**
- * Worth reviewing when changed, worthless as context: an unchanged lockfile
- * would occupy a third of the context budget for nothing.
- */
-const GENERATED_CONTEXT_NAMES = new Set([
-  'package-lock.json',
-  'npm-shrinkwrap.json',
-  'yarn.lock',
-  'pnpm-lock.yaml',
-  'bun.lock',
-  'Cargo.lock',
-  'composer.lock',
-  'Gemfile.lock',
-  'poetry.lock',
-  'Pipfile.lock',
-  'uv.lock',
-  'go.sum',
-]);
-
-export function isUselessAsContext(relativePath: string): boolean {
-  return GENERATED_CONTEXT_NAMES.has(relativePath.split('/').pop() ?? '');
-}
-
 export function pathExclusionReason(
   relativePath: string,
   operator: OperatorPatterns = {},

@@ -1,5 +1,4 @@
 import type { ReviewResult } from '#types/modules/review';
-import type { PendingApproval } from '#types/modules/checks';
 
 /**
  * The last part, what was not covered, is not optional: a result without it reads
@@ -7,22 +6,12 @@ import type { PendingApproval } from '#types/modules/checks';
  */
 interface ReportOptions {
   result: ReviewResult;
-  snapshotDirectory: string;
   resultPath: string;
-  pendingApprovals: readonly PendingApproval[];
 }
 
 export function renderReport(options: ReportOptions): string {
   const { result } = options;
-  return [
-    ...whatWasReviewed(options),
-    '',
-    ...findings(result),
-    '',
-    ...verification(options),
-    '',
-    ...uncovered(options),
-  ].join('\n');
+  return [...whatWasReviewed(options), '', ...findings(result), '', ...verification(result), '', ...uncovered(result)].join('\n');
 }
 
 function whatWasReviewed(options: ReportOptions): string[] {
@@ -32,10 +21,7 @@ function whatWasReviewed(options: ReportOptions): string[] {
     `   review      ${result.reviewId}  (${result.status}${result.statusReason === null ? '' : `: ${result.statusReason}`})`,
     `   mode        ${result.requirementMode}`,
     `   target      ${result.target.kind} (${result.target.snapshotId})`,
-    `   measured    ${result.inputs.changedFiles} file(s), ${result.inputs.changedLines} line(s), ` +
-      `${result.inputs.contextBytes} model-input byte(s) ` +
-      `(${result.inputs.patchBytes} patch + ${result.inputs.requirementBytes} requirements + ${result.inputs.snapshotBytes} mirrored), limit ${result.inputs.limits.maxContextBytes ?? 'none'}`,
-    `   snapshot    ${options.snapshotDirectory}`,
+    `   measured    ${result.inputs.changedFiles} file(s), ${result.inputs.changedLines} line(s), ${result.inputs.contextBytes} model-input byte(s)`,
     `   result      ${options.resultPath}`,
   ];
 
@@ -51,22 +37,10 @@ function whatWasReviewed(options: ReportOptions): string[] {
 
   if (result.requirements.length > 0) {
     lines.push('   requirements');
-    for (const source of result.requirements) {
-      const version = source.sourceVersion === null ? '' : ` @${source.sourceVersion}`;
-      lines.push(`     ${source.id}${version}  ${source.url}`);
-      lines.push(`       ${source.title || '(untitled)'} — retrieved ${source.retrievedAt} via ${source.retrievedVia}`);
-    }
+    for (const source of result.requirements) lines.push(`     ${source.id}  ${source.title || '(untitled)'}  ${source.url}`);
   } else {
     lines.push('   requirements  none supplied; this is a quality review');
   }
-
-  if (result.provenance.length > 0) {
-    lines.push('   provenance');
-    for (const entry of result.provenance) {
-      lines.push(`     ${entry.kind.padEnd(11)} ${entry.reference}  ${entry.contentHash}`);
-    }
-  }
-
   return lines;
 }
 
@@ -99,53 +73,23 @@ function findings(result: ReviewResult): string[] {
     lines.push(`   ${finding.explanation}`);
     lines.push(`   suggested comment: ${finding.suggestedComment}`);
     if (finding.ruleRefs.length > 0) lines.push(`   rules: ${finding.ruleRefs.join(', ')}`);
-    if (finding.requirementRefs.length > 0) {
-      lines.push(`   requirements: ${finding.requirementRefs.join(', ')}`);
-    }
-    for (const extra of finding.supportingLocations) {
-      const path = extra.side === 'new' ? extra.newPath : extra.oldPath;
-      lines.push(`   also: ${path}:${extra.line} (${extra.side})`);
-    }
+    if (finding.requirementRefs.length > 0) lines.push(`   requirements: ${finding.requirementRefs.join(', ')}`);
   }
   return lines;
 }
 
-function verification(options: ReportOptions): string[] {
+function verification(result: ReviewResult): string[] {
   const lines = ['3. CHECKS AND VERIFICATION EVIDENCE'];
-  if (options.result.checks.length === 0) {
-    lines.push('   No configured check covered this change. Nothing was verified by execution.');
+  if (result.checks.length === 0) {
+    lines.push('   No check recorded for this task. Nothing was verified by execution: that is a gap, not a pass.');
   }
-  for (const check of options.result.checks) {
-    lines.push(
-      `   ${check.projectId}/${check.checkId}: ${check.status}` +
-        `  selected=${check.selected.length}` +
-        `  complete=${check.selectionComplete}` +
-        (check.exitCode === null ? '' : `  exit=${check.exitCode}`),
-    );
-    // A skipped check may still carry the argv it was not allowed to run (no
-    // container, binary missing); "ran:" would read as execution.
-    if (check.argv.length > 0) {
-      lines.push(`     ${check.status === 'skipped' ? 'would have run' : 'ran'}: ${check.argv.join(' ')}`);
-    }
-    if (check.outputRef !== null) lines.push(`     output: ${check.outputRef}`);
-    for (const limitation of check.limitations) lines.push(`     - ${limitation}`);
-    for (const mutation of check.mutations) lines.push(`     ! ${mutation}`);
-  }
-
-  if (options.pendingApprovals.length > 0) {
-    lines.push('   waiting for authorization');
-    for (const approval of options.pendingApprovals) {
-      lines.push(`     ${approval.approvalKey}`);
-      lines.push(`       reason: ${approval.reason}`);
-      lines.push(`       scope:  ${approval.scope}`);
-      lines.push(`       would run: ${approval.proposedArgv.join(' ')}`);
-    }
+  for (const check of result.checks) {
+    lines.push(`   ${check.key} ${check.phase}: exit ${check.exit}${check.argv.length === 0 ? '' : `  ran: ${check.argv.join(' ')}`}`);
   }
   return lines;
 }
 
-function uncovered(options: ReportOptions): string[] {
-  const { result } = options;
+function uncovered(result: ReviewResult): string[] {
   const lines = ['4. OMISSIONS, UNCERTAINTY AND UNAVAILABLE COVERAGE'];
   for (const omission of result.omissions) lines.push(`   - ${omission}`);
   if (result.reviewer !== null) {

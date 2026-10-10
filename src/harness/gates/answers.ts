@@ -1,5 +1,5 @@
 import { AmbicodeError } from '#util/errors';
-import { askedCount, executions, foldRoute, humanRevisesLeft, printsOf, unconsumedPreanswer, windowOf } from '../engine/fold.ts';
+import { executions, foldRoute, humanRevisesLeft, printsOf, unconsumedPreanswer, windowOf } from '../engine/fold.ts';
 import { raisedAnswerHandler, offersOption, shapePrint, stripRecommended } from './gates.ts';
 import { append, chainOf, gateFor, latestPrint, objectOf, viewFor } from '../engine/run-context.ts';
 import type { ArtifactRef, LedgerEntry } from '#types/modules/evidence';
@@ -30,7 +30,7 @@ export async function reviseTo(
   run: Run,
   revise: Revise,
   via: RevisePath,
-  info: { reason: string; gate?: string; raisedBy?: string; answer?: string; maxRevises?: number },
+  info: { reason: string; gate?: string; raisedBy?: string; answer?: string; repeat?: number },
 ): Promise<boolean> {
   const exempt = revise.target === RAISED_BY;
   const target = exempt ? info.raisedBy : revise.target;
@@ -45,9 +45,9 @@ export async function reviseTo(
       return false;
     }
   }
-  if (exempt && info.maxRevises !== undefined) {
+  if (exempt && info.repeat !== undefined) {
     const done = chain.entries.filter((entry) => entry.kind === 'revise' && entry['from'] === step.id && entry['gate'] === info.gate).length;
-    if (done >= info.maxRevises) {
+    if (done >= info.repeat) {
       await append(run, { kind: 'limit', which: 'max-revises', step: step.id, count: done, ...mark });
       return false;
     }
@@ -90,7 +90,7 @@ async function recordAnswer(run: Run, gate: GateDef, recorded: Recorded, raisedB
   if (recorded.kind === 'acceptance') await raisedAnswerHandler(gate.id)?.({ view: viewFor(run, raisedBy ?? ''), ledger: run.ledger, acceptance: written, routes: run.routes });
   if (recorded.answer === 'stop' || recorded.answer === 'pause') return exitRoute(run, stopReason(gate.id), `${gate.id}: stop`);
   if (revise !== undefined) {
-    await reviseTo(run, revise, recorded.revisePath, { reason: `${gate.id}: ${recorded.answer}`, gate: gate.id, answer: recorded.answer, maxRevises: gate.maxRevises, ...(raisedBy === undefined ? {} : { raisedBy }) });
+    await reviseTo(run, revise, recorded.revisePath, { reason: `${gate.id}: ${recorded.answer}`, gate: gate.id, answer: recorded.answer, repeat: gate.repeat, ...(raisedBy === undefined ? {} : { raisedBy }) });
   }
 }
 
@@ -107,7 +107,7 @@ export async function recordFlagAnswer(run: Run, given: Answer): Promise<void> {
   const gate = gateFor(run, answer.gate, print);
   if (gate === null) throw unknownGate(run, answer.gate);
   const options = (print?.['options'] as string[] | undefined) ?? gate.options;
-  const known = offersOption(gate.id, options, answer.option);
+  const known = offersOption(options, answer.option);
   if (!known && gate.onAnswer['*'] === undefined && gate.class !== 'decision') {
     throw new AmbicodeError('gate-option-unknown', `Gate ${gate.id} has no option "${answer.option}".`, { details: [`Options: ${options.join(', ')}.`] });
   }
@@ -121,19 +121,6 @@ export async function recordFlagAnswer(run: Run, given: Answer): Promise<void> {
     return;
   }
   await recordAnswer(run, gate, { kind: 'acceptance', answer: answer.option, via: 'flag', instance, object: (print?.['object'] as ArtifactRef | undefined) ?? null, revisePath: 'model' }, print?.['raisedBy'] as string | undefined);
-}
-
-export async function recordDefaultFlag(run: Run, gateId: string): Promise<void> {
-  const window = gateWindow(run, gateId);
-  const print = latestPrint(window, gateId);
-  const gate = gateFor(run, gateId, print);
-  if (gate === null) throw unknownGate(run, gateId);
-  if (run.head['mode'] !== 'headless' && askedCount(window, gateId) < 1) {
-    throw new AmbicodeError('default-not-allowed', `--default ${gateId} is allowed only after the question was put to the user.`, {
-      details: ['Ask first: put the gate to the user through AskUserQuestion, then run route next.'],
-    });
-  }
-  await recordAnswer(run, gate, { kind: 'default-taken', answer: gate.default, via: 'flag', instance: print?.id ?? null, object: (print?.['object'] as ArtifactRef | undefined) ?? null, revisePath: 'code' }, print?.['raisedBy'] as string | undefined);
 }
 
 /** A hook answer binds to the exact printed instance in this chain or it is unbound and changes nothing (03-G4, 03-G6). */
@@ -157,18 +144,18 @@ export async function recordHookAnswer(run: Run, given: Answer & { question?: st
   if (gate === null) return void (await unbound('unknown-gate'));
   const options = (print['options'] as string[] | undefined) ?? gate.options;
   const declaredOnly = gate.options.includes(answer.option);
-  if (!offersOption(gate.id, options, answer.option) && gate.class !== 'decision' && (gate.onAnswer['*'] === undefined || declaredOnly)) {
+  if (!offersOption(options, answer.option) && gate.class !== 'decision' && (gate.onAnswer['*'] === undefined || declaredOnly)) {
     await append(run, { kind: 'declined', gate: gate.id, instance: print.id, answer: answer.option, via: 'hook', reason: 'option-not-offered' });
     return;
   }
   await recordAnswer(run, gate, { kind: 'acceptance', answer: answer.option, via: 'hook', instance: print.id, object: (print['object'] as ArtifactRef | undefined) ?? null, revisePath: 'gate' }, print['raisedBy'] as string | undefined);
 }
 
-type GateOutcome = { state: 'continue' } | { state: 'print'; print: LedgerEntry; gate: GateDef; retry: boolean };
+type GateOutcome = { state: 'continue' } | { state: 'print'; print: LedgerEntry; gate: GateDef };
 
 /**
- * A gate at the position: convert a preanswer, take the headless default, take the default after three unanswered
- * prints, or print it (03-G3, 03-G7). `deliverOnly` reprints the latest print and writes nothing new.
+ * A gate at the position: convert a preanswer, take the headless default, or print it (03-G3). A print already in the
+ * window is delivered again; `deliverOnly` writes nothing new.
  */
 export async function serviceGate(run: Run, gate: GateDef, stepId: string): Promise<GateOutcome> {
   const step = run.def.steps.find((candidate) => candidate.id === stepId)!;
@@ -202,7 +189,7 @@ export async function serviceGate(run: Run, gate: GateDef, stepId: string): Prom
   if (preanswer !== null) {
     const print = await newPrint();
     const option = stripRecommended(String(preanswer['option']));
-    if (!offersOption(gate.id, (print['options'] as string[] | undefined) ?? gate.options, option)) {
+    if (!offersOption((print['options'] as string[] | undefined) ?? gate.options, option)) {
       await append(run, { kind: 'declined', gate: gate.id, instance: print.id, answer: option, via: 'prompt', reason: 'option-not-offered', preanswer: preanswer.id });
     } else {
       const trusted = preanswer['trusted'] === true;
@@ -212,26 +199,11 @@ export async function serviceGate(run: Run, gate: GateDef, stepId: string): Prom
   }
 
   const prints = printsOf(window(), gate.id);
-  const markers = chainOf(run).entries.filter((entry) => entry.kind === 'step' && String(entry['source'] ?? '').startsWith('print:'));
-  // A ledger written before delivery markers existed counts every print as delivered.
-  const delivered = markers.length === 0 ? prints : prints.filter((print) => run.written.includes(print.id) || markers.some((entry) => entry['source'] === `print:${print.id}`));
-  const asked = askedCount(window(), gate.id);
-  const takeDefault = async (print: LedgerEntry, via: string): Promise<GateOutcome> => {
-    await recordAnswer(run, gate, { kind: 'default-taken', answer: gate.default, via, instance: print.id, object: (print['object'] as ArtifactRef | undefined) ?? null, revisePath: 'code' }, raisedBy);
+  if (!run.deliverOnly && run.head['mode'] === 'headless') {
+    const print = prints.at(-1) ?? (await newPrint());
+    await recordAnswer(run, gate, { kind: 'default-taken', answer: gate.default, via: 'headless', instance: print.id, object: (print['object'] as ArtifactRef | undefined) ?? null, revisePath: 'code' }, raisedBy);
     return { state: 'continue' };
-  };
-  if (run.head['mode'] === 'headless' && !run.deliverOnly) return takeDefault(prints.at(-1) ?? (await newPrint()), 'headless');
-  if (run.deliverOnly) return { state: 'print', print: prints.at(-1) ?? (await newPrint()), gate, retry: false };
-  if (delivered.length >= 3 && preanswer === null) return takeDefault(prints.at(-1)!, asked === 0 ? 'never-asked' : 'unanswered');
-  const latest = prints.at(-1);
-  if (run.cause === 'route-next' && latest !== undefined && latest['cause'] === 'gate-hook') {
-    const after = chainOf(run).entries.slice(chainOf(run).entries.indexOf(latest) + 1);
-    if (!after.some((entry) => entry.kind === 'limit' && entry['which'] === 'gate-reprint-reused')) {
-      await append(run, { kind: 'limit', which: 'gate-reprint-reused', step: stepId, count: 1 });
-      return { state: 'print', print: latest, gate, retry: false };
-    }
   }
-  const print = await newPrint();
-  const lastHook = window().findLast((entry) => entry['via'] === 'hook' && entry['gate'] === gate.id);
-  return { state: 'print', print, gate, retry: lastHook?.['unbound'] === true && prints.length > 0 && chainOf(run).entries.indexOf(lastHook) > chainOf(run).entries.indexOf(prints.at(-1)!) };
+  // One rule for an unanswered gate: a printed question holds the route and is shown again as it was, never counted toward a default.
+  return { state: 'print', print: prints.at(-1) ?? (await newPrint()), gate };
 }

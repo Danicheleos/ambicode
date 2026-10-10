@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createRuntime } from '#composition/root';
-import { endRoute, fsActiveRoutePointer } from '#harness/session/active-route';
+import { fsActiveRoutePointer } from '#harness/session/active-route';
 import { harnessOf } from '#harness/session/harness';
 import { latestRouteOf } from '#harness/engine/fold';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
@@ -23,7 +23,7 @@ export const CONFIG = [
   'schemaVersion: 3',
   'baseline: origin/main',
   'review: { model: sonnet, timeoutSeconds: 300, maxFindings: 7, maxChangedFiles: 50, maxChangedLines: 2000, maxContextBytes: 524288 }',
-  'checks: { timeoutSeconds: 120, maxSelectedTestFiles: 20 }',
+  'checks: { timeoutSeconds: 120 }',
   'requirements: { mcpServer: null }',
   'projects:',
   '  - { id: app, root: ".", ecosystem: typescript }',
@@ -53,7 +53,7 @@ export async function stopRoute(fx: Pick<RouteFixture, 'runtime' | 'pointer' | '
     await ledger.append({ kind: 'exit', route: route.id, reason, ...(detail === undefined ? {} : { detail }) });
     return route;
   });
-  await endRoute(fx.pointer, fx.runtime.fs, harnessOf(head) ?? session, scratchpad, { task, skill: String(head['skill']), routeId: head.id });
+  await fx.pointer.clear(harnessOf(head) ?? session, scratchpad);
 }
 
 export interface Assembled { runtime: Runtime; routes: RouteRegistry; pointer: ActiveRoutePointer; build(handlers: Record<string, Handler>): Engine }

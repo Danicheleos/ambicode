@@ -47,7 +47,8 @@ function evaluate(when: When, window: readonly LedgerEntry[], all: readonly Ledg
       const map = all.findLast((entry) => entry.kind === 'map');
       return map !== undefined && map['candidates'] === 0;
     }
-    case 'plan.isDraft': return context.args.fromDraft != null || /(^|[\\/])plan-draft[^\\/]*$/.test(context.args.plan ?? '');
+    // `--from-draft` is the user's own "implement anyway", so the draft question is never asked under it.
+    case 'plan.isDraft': return context.args.fromDraft == null && /(^|[\\/])plan-draft[^\\/]*$/.test(context.args.plan ?? '');
     case 'revised': return opener?.kind === 'revise' && opener['from'] === step.id;
     case 'gate.is': return latestBound(gateWindow(when.gate), when.gate)?.['answer'] === when.option;
     case 'gate.isnt': {
@@ -123,13 +124,9 @@ export function executions(entries: readonly LedgerEntry[], step: StepDef): numb
 }
 
 export const humanRevisesLeft = (entries: readonly LedgerEntry[], gate: GateDef): number =>
-  Math.max(0, gate.maxRevises - entries.filter((entry) => entry.kind === 'revise' && entry['via'] === 'gate' && entry['gate'] === gate.id).length);
+  Math.max(0, gate.repeat - entries.filter((entry) => entry.kind === 'revise' && entry['via'] === 'gate' && entry['gate'] === gate.id).length);
 
 export const printsOf = (window: readonly LedgerEntry[], gate: string): LedgerEntry[] => window.filter((entry) => entry.kind === 'gate' && entry['gate'] === gate);
-
-/** Entries the hook wrote for this gate, unbound included; prints never count (03-G7). */
-export const askedCount = (window: readonly LedgerEntry[], gate: string): number =>
-  window.filter((entry) => (entry.kind === 'acceptance' || entry.kind === 'declined') && entry['via'] === 'hook' && entry['gate'] === gate).length;
 
 /** The first preanswer for this gate that no answer names yet; preanswers are read outside windows (03-G3). */
 export function unconsumedPreanswer(entries: readonly LedgerEntry[], gate: string): LedgerEntry | null {

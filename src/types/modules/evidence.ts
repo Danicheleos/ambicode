@@ -54,10 +54,10 @@ export interface TaskDir {
 }
 
 export const NOTE_KINDS = {
-  investigation: { stem: 'investigation', stamped: true, label: '**investigation note** — not an accepted plan, not a task, not a decision record.' },
-  'plan-draft': { stem: 'plan-draft', stamped: true, label: '**plan draft** — acceptance is recorded by `note promote`, not in this file.' },
-  plan: { stem: 'plan', stamped: true, label: '**plan** — accepted' },
-  notes: { stem: 'notes', stamped: false, label: '**task note**' },
+  investigation: { stem: 'investigation', stamped: true },
+  'plan-draft': { stem: 'plan-draft', stamped: true },
+  plan: { stem: 'plan', stamped: true },
+  notes: { stem: 'notes', stamped: false },
 } as const;
 
 export type NoteKind = keyof typeof NOTE_KINDS;

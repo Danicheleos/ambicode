@@ -8,7 +8,7 @@ allowed-tools: Read, Grep, Glob, Bash(node *ambicode.mjs*)
 # Investigate a question
 
 A route grounds the question in the code and hands you one step at a time. Do what it says. Your
-final answer, with its `path:line` citations, is saved as the investigation note when you stop.
+final answer, with its `path:line` citations, is saved as the investigation note first.
 
 An investigation edits nothing: no source, no config, no `.ambicode` file. A change made while looking would make
 the answer describe code nobody else has.

@@ -37,11 +37,10 @@ export const INIT_HANDLERS: Readonly<Record<string, Handler>> = {
       return { state: 'failed', code: error.code, message: error.message, recoverable: true };
     }
   },
-  'init.close': async ({ runtime, view, context, dir }) => {
+  'init.close': async ({ view, context }) => {
     const consent = await context.consent(view, GATE);
-    const doctor = await runtime.fs.readText(path.join(dir.steps, 'doctor.md')).catch(() => null);
-    if (consent.state === 'honoured' && (APPLY_OPTIONS as readonly string[]).includes(consent.source.answer) && doctor !== null) {
-      return { state: 'ok', payload: [`Applied: ${CONFIG_FILE} is written. Doctor:`, doctor.trimEnd(), 'Show the user this table as it is. A row that is not ok is theirs to fix: edit the command in the config, or run /ambicode:init again.'].join('\n\n') };
+    if (consent.state === 'honoured' && (APPLY_OPTIONS as readonly string[]).includes(consent.source.answer)) {
+      return { state: 'ok', payload: `Applied: ${CONFIG_FILE} is written. For each command in it, run its argv up to the first "--" or "{files}" with --version (a command that has no version flag: say so) and show the user one line per command: ok, or the error. A command that fails is theirs to fix: edit the config, or run /ambicode:init again.` };
     }
     const taskDir = `${TASKS_DIR}/${view.task}`;
     return {

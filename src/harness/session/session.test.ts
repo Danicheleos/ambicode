@@ -7,10 +7,7 @@ import { runRouteNext, ROUTE_NEXT_OPTIONS } from '#cli/commands/route/route';
 import { routeFixture , stopRoute } from '#testing/fixtures/route-fixture';
 import { PLAN_TASK, planFixture } from '#testing/fixtures/plan-fixture';
 import { resolveActiveRoute } from './active-route.ts';
-import {
-  associationSessionSource, cliHarnessPort, environmentSessionSource, hookBinding, removeAssociation, rejectingHarnessPort,
-  sessionUnbound, taskSessionSource, updatedInputSessionSource, writeAssociation,
-} from './session.ts';
+import { hookBinding, sessionUnbound, taskSessionSource } from './session.ts';
 import { SESSION_A, SESSION_B } from '#testing/fixtures/ids';
 
 const codeOf = (promise: Promise<unknown>): Promise<string> => promise.then(() => 'ok', (error: { code?: string }) => error.code ?? 'unknown');
@@ -50,77 +47,14 @@ describe('03-S2/5.1: the CLI finds the owner from the task', () => {
   });
 });
 
-describe('03-S3/S4: environment and updatedInput outcomes', () => {
-  it('a variable names the session; absent or empty is missing', async () => {
-    const fx = await routeFixture({ routes: {} });
-    try {
-      const withValue = { ...fx.runtime, env: { ...fx.runtime.env, AMBICODE_SESSION: ' s-1 ' } };
-      assert.deepEqual(await environmentSessionSource('AMBICODE_SESSION').resolve(withValue), { state: 'bound', session: 's-1', via: 'env' });
-      assert.deepEqual(await environmentSessionSource('AMBICODE_SESSION').resolve({ ...fx.runtime, env: { ...fx.runtime.env, AMBICODE_SESSION: '  ' } }), { state: 'unbound', reason: 'missing' });
-      assert.deepEqual(await environmentSessionSource('AMBICODE_SESSION').resolve({ ...fx.runtime, env: {} }), { state: 'unbound', reason: 'missing' });
-    } finally {
-      await fx.dispose();
-    }
-  });
-
-  it('--session carries identity only', async () => {
-    const fx = await routeFixture({ routes: {} });
-    try {
-      assert.deepEqual(await updatedInputSessionSource('s-2').resolve(fx.runtime), { state: 'bound', session: 's-2', via: 'updated-input' });
-      assert.deepEqual(await updatedInputSessionSource(null).resolve(fx.runtime), { state: 'unbound', reason: 'missing' });
-      assert.deepEqual(await updatedInputSessionSource('').resolve(fx.runtime), { state: 'unbound', reason: 'missing' });
-    } finally {
-      await fx.dispose();
-    }
-  });
-});
-
-describe('03-S5: hook-written association', () => {
-  it('none is missing, exactly one binds, more than one is ambiguous; SessionEnd removes it', async () => {
-    const fx = await routeFixture({ routes: {} });
-    try {
-      const root = fx.repo.root;
-      const source = associationSessionSource(root);
-      assert.deepEqual(await source.resolve(fx.runtime), { state: 'unbound', reason: 'missing' });
-      await writeAssociation(fx.runtime, root, SESSION_A);
-      assert.deepEqual(await source.resolve(fx.runtime), { state: 'bound', session: SESSION_A, via: 'association' });
-      await writeAssociation(fx.runtime, root, SESSION_B);
-      assert.deepEqual(await source.resolve(fx.runtime), { state: 'unbound', reason: 'ambiguous' });
-      await removeAssociation(fx.runtime, root, SESSION_B);
-      await removeAssociation(fx.runtime, root, SESSION_A);
-      assert.deepEqual(await source.resolve(fx.runtime), { state: 'unbound', reason: 'missing' });
-      await writeAssociation(fx.runtime, '/another/repo', SESSION_A);
-      assert.deepEqual(await source.resolve(fx.runtime), { state: 'unbound', reason: 'missing' });
-    } finally {
-      await fx.dispose();
-    }
-  });
-});
-
-describe('03-S6: harness token port', () => {
-  it('rejects by default, whatever the token', async () => {
-    const fx = await routeFixture({ routes: {} });
-    try {
-      assert.equal(cliHarnessPort, rejectingHarnessPort);
-      assert.equal(await cliHarnessPort.validate(fx.runtime, SESSION_A, 'start'), false);
-    } finally {
-      await fx.dispose();
-    }
-  });
-});
-
 describe('03-S7: the pointer is a cache', () => {
-  it('start writes it, completion clears it and leaves ended-route for one Stop', async () => {
+  it('start writes it, completion clears it', async () => {
     const plan = await planFixture();
     try {
       await plan.start();
       assert.deepEqual(await plan.fx.pointer.read(SESSION_A, plan.fx.scratchpad), { task: PLAN_TASK, skill: 'plan', owner: SESSION_A });
       await stopRoute(plan.fx, PLAN_TASK, SESSION_A, 'blocked', 'x');
       assert.equal(await plan.fx.pointer.read(SESSION_A, plan.fx.scratchpad), null);
-      const ended = await plan.fx.pointer.readEnded(SESSION_A, plan.fx.scratchpad);
-      assert.equal(ended?.task, PLAN_TASK);
-      await plan.fx.pointer.clearEnded(SESSION_A, plan.fx.scratchpad);
-      assert.equal(await plan.fx.pointer.readEnded(SESSION_A, plan.fx.scratchpad), null);
     } finally {
       await plan.dispose();
     }

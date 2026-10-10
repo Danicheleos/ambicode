@@ -5,42 +5,19 @@ import { reviewResult } from '#testing/fixtures/review-fixture';
 import { renderReport } from './report.ts';
 
 function render(checks: ReviewResult['checks']): string {
-  return renderReport({
-    result: { ...reviewResult(), checks },
-    snapshotDirectory: '/tmp/snapshot',
-    resultPath: '/work/app/.ambicode/reviews/r-0001/result.json',
-    pendingApprovals: [],
-  });
+  return renderReport({ result: { ...reviewResult(), checks }, resultPath: '/work/app/.ambicode/reviews/r-0001/result.json' });
 }
 
-describe('the verification section says whether a command executed', () => {
-  const [executed] = reviewResult().checks;
-  assert.ok(executed !== undefined);
-
-  it('labels an executed command "ran"', () => {
-    const text = render([executed]);
-    assert.match(text, /^ {5}ran: eslint -- src\/orders\.ts$/m);
-    assert.doesNotMatch(text, /would have run/);
+describe('the verification section lists recorded checks', () => {
+  it('prints key, phase, exit and argv of a recorded check', () => {
+    const text = render(reviewResult().checks);
+    assert.match(text, /web\/lint green: exit 1/);
+    assert.match(text, /ran: eslint -- src\/orders\.ts/);
   });
 
-  it('labels a skipped check that carries an argv "would have run", never "ran"', () => {
-    const text = render([
-      {
-        ...executed,
-        status: 'skipped',
-        exitCode: null,
-        durationMs: null,
-        outputRef: null,
-        mutations: [],
-        limitations: ['Remote executable checks are disabled.'],
-      },
-    ]);
-    assert.match(text, /^ {5}would have run: eslint -- src\/orders\.ts$/m);
-    assert.doesNotMatch(text, /^ {5}ran:/m);
-  });
-
-  it('prints no command line for a check that had none', () => {
-    const text = render([{ ...executed, status: 'skipped', argv: [], exitCode: null }]);
-    assert.doesNotMatch(text, /ran:/);
+  it('prints "no check recorded" as a gap, not a pass', () => {
+    const text = render([]);
+    assert.match(text, /No check recorded/);
+    assert.match(text, /gap, not a pass/);
   });
 });

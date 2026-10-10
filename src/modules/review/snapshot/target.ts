@@ -3,20 +3,17 @@ import { combineDiff, splitPatchSections } from '#platform/git/diff';
 import { Git } from '#platform/git/git';
 import { AmbicodeError } from '#util/errors';
 import { contentHash } from '#util/hash';
-import { captureWorkingTree, revisionContent } from './snapshot.ts';
 import { taskDirFor } from '#modules/evidence/task/task-dir';
 import { MR_DIFF_JSON, MR_DIFF_PATCH } from './mr-capture.ts';
 import type { Workspace } from '#types/composition';
-import type { DiffFile, RawChange } from '#types/platform/git';
+import type { RawChange } from '#types/platform/git';
 import type { FileSystem } from '#types/platform/ports';
-import type { ContentSource, TargetResolution } from '../types/snapshot.ts';
+import type { TargetResolution } from '../types/snapshot.ts';
 
 interface WorkingTargetOptions {
   fs: FileSystem;
   git: Git;
   repositoryRoot: string;
-  /** Unchanged files to capture with the change, chosen from the change itself. */
-  extraPaths?: (files: readonly DiffFile[]) => Promise<readonly string[]>;
 }
 
 /**
@@ -57,40 +54,10 @@ export async function resolveWorkingTarget(options: WorkingTargetOptions): Promi
     const files = combineDiff(changes, patch);
     notes.push('Untracked files that git does not ignore are included as additions.');
 
-    // The only content that can change while the review runs, so it is read once here.
-    const content = await captureWorkingTree({
-      fs,
-      repositoryRoot,
-      changedPaths: files
-        .map((file) => file.newPath)
-        .filter((value): value is string => value !== null),
-      includeSiblings: true,
-      extraPaths: (await options.extraPaths?.(files)) ?? [],
-    });
-
-    // A build or editor can write during the read. If the diff moved, capture
-    // and patch may describe different bytes, so stop instead of publishing.
-    const patchAfterCapture = await shadow.patchDiff(['HEAD'], 3);
-    if (patchAfterCapture !== patch) {
-      throw new AmbicodeError(
-        'working-tree-changed',
-        'The working tree changed while the review target was being captured, so the snapshot would not describe a single state of the code.',
-        {
-          details: [
-            'Nothing was reviewed and nothing was modified.',
-            'Let the build or editor finish writing, then run the review again.',
-          ],
-        },
-      );
-    }
-
-    notes.push(content.pinning);
-
     return {
       target: {
         kind: 'working',
-        // Covers the captured bytes too, so an id cannot name unseen content.
-        snapshotId: `working-${contentHash(`${headSha}\n${patch}\n${content.digest}`).slice(7, 23)}`,
+        snapshotId: `working-${contentHash(`${headSha}\n${patch}`).slice(7, 23)}`,
         repositoryRoot,
         headSha,
         baseSha: headSha,
@@ -99,8 +66,6 @@ export async function resolveWorkingTarget(options: WorkingTargetOptions): Promi
       },
       files,
       patch,
-      content,
-      preImageRevision: headSha,
     };
   } finally {
     await fs.remove(scratch);
@@ -161,8 +126,7 @@ export async function resolveBranchTarget(options: BranchTargetOptions): Promise
     notes.push('Uncommitted working-tree changes exist and were excluded from this review.');
   }
 
-  const content = revisionContent(git, headSha);
-  notes.push(content.pinning);
+  notes.push('The reviewer reads the checkout, which holds the branch head only if it is checked out.');
 
   return {
     target: {
@@ -176,8 +140,6 @@ export async function resolveBranchTarget(options: BranchTargetOptions): Promise
     },
     files,
     patch,
-    content,
-    preImageRevision: mergeBase,
   };
 }
 
@@ -195,8 +157,8 @@ function changeOf(section: string): RawChange {
 }
 
 /**
- * Merge-request target from the diff the hook captured off the model's GitLab MCP call. File bytes come from git only when the
- * captured head sha exists locally; otherwise the reviewer sees the diff alone and the notes say so.
+ * Merge-request target from the diff the hook captured off the model's GitLab MCP call. The review is diff-only:
+ * the merge request's files are not in the checkout.
  */
 export async function resolveCapturedTarget(options: CapturedTargetOptions): Promise<TargetResolution> {
   const { workspace, task, url } = options;
@@ -213,17 +175,11 @@ export async function resolveCapturedTarget(options: CapturedTargetOptions): Pro
   const files = combineDiff(sections.map(changeOf), patch);
 
   const headSha = meta.sha === undefined ? null : await git.revParse(meta.sha);
-  const notes = ['Diff captured from the GitLab MCP server; nothing was fetched or checked out.'];
-  const content: ContentSource = headSha === null
-    ? { pinning: 'File content not available locally; the reviewer sees the diff only.', digest: contentHash(patch), read: async () => null, list: async () => [] }
-    : revisionContent(git, headSha);
-  notes.push(content.pinning);
+  const notes = ['Diff captured from the GitLab MCP server; nothing was fetched or checked out.', 'Diff only: the reviewer has no file content for this merge request.'];
   return {
     target: { kind: 'merge-request', repositoryRoot, snapshotId: `mr-${contentHash(`${url}\n${patch}`).slice(7, 23)}`, headSha, baseSha: null, baseRef: null, notes },
     files,
     patch,
-    content,
-    preImageRevision: headSha ?? '',
   };
 }
 

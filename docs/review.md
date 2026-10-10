@@ -2,12 +2,13 @@
 
 Written for developers using AMBICODE in a product repository.
 
-`/ambicode:review` is the default. It pins what is being reviewed, mirrors it
-into a snapshot, runs the checks the change affects, and puts the result to an
-independent reviewer subagent that can read only that snapshot.
+`/ambicode:review` is the default. It pins what is being reviewed, writes the
+diff, lists the checks recorded for the task, and puts both to an independent
+reviewer subagent that reads the diff and the checkout.
 
-There is no "quality only" switch and no "skip the checks" switch. What the
-review does follows from what you give it.
+The review runs no checks. The model picks the tests that cover the change and
+records each with `ambicode check --task <slug> --only <files> --phase red|green`.
+A review with no recorded check says so as a gap.
 
 ## Choosing a target
 
@@ -149,9 +150,8 @@ verify that Claude did.
 
 The reviewer is the plugin subagent `ambicode:reviewer`
 (`agents/reviewer.md`). It has `Read`, `Grep` and `Glob`, and nothing else: no
-command-running tool, no MCP, no way to post. Its prompt names the sanitized
-snapshot directory and `brief.md` beside it, and the product checkout is not
-what it is pointed at.
+command-running tool, no MCP, no way to post. Its prompt names the diff file and `brief.md`; the code is in the checkout. A
+merge request is diff-only: the reviewer has no file content for it.
 
 Code, requirements and check output reach it below a heading marked
 `UNTRUSTED EVIDENCE`. Text in there cannot grant a tool, a permission or a
@@ -166,23 +166,19 @@ against the pinned change and writes the result.
 Four parts, in this order.
 
 1. **What was reviewed.** Review id, mode, pinned target, measured input,
-   snapshot location, the requirements with their versions and retrieval
-   times, and content hashes for the policy packs, configuration and
-   requirements that went into it.
+   and the requirements with their versions and retrieval times.
 2. **Findings.** Each with risk, confidence, category, a validated location, an
-   excerpt taken from the snapshot, an explanation, a suggested comment, and the
+   excerpt, an explanation, a suggested comment, and the
    rules or requirements it cites.
-3. **Checks and verification evidence.** Per check: status, what was selected,
-   whether the selection was complete, the exact argument vector, the exit code,
-   limitations, and any file the command changed.
+3. **Checks and verification evidence.** Per recorded check: key, phase, exit
+   code and the exact argument vector, or "no check recorded" as a gap.
 4. **Omissions, uncertainty and unavailable coverage.** What was excluded and
    why, what the reviewer said it could not assess, and every finding that was
    rejected for naming a file or line that is not in the change.
 
-`review` writes `result.json`, `report.txt` and `brief.md` to
-`.ambicode/reviews/<id>/` (gitignored); `review record` adds `findings.json`
-and rewrites `result.json` and `report.txt` with the findings. The snapshot
-lives outside the repository.
+`review` writes `result.json`, `changed.diff`, `files.txt`, `report.txt` and
+`brief.md` to `.ambicode/reviews/<id>/` (gitignored); `review record` adds
+`findings.json` and rewrites `result.json` and `report.txt` with the findings.
 
 ### Reading the outcome honestly
 
@@ -193,7 +189,7 @@ reviewer identified nothing material within the scope and material it was given.
 no parsable JSON block, `review record` records a failed review and keeps the
 raw answer in `rejected-output.txt`. It is not a review that found nothing.
 
-**A failed or skipped check does not block the review.** It narrows what was
+**A missing or failing check does not block the review.** It narrows what was
 verified, which makes the result `partial` and puts the reason in part 4.
 
 **An unverifiable claim invalidates the result.** If the reviewer named a path
@@ -203,13 +199,10 @@ review is an `error`: the finding list is empty and the surviving findings are
 *not* offered as validated output. Nothing is repaired and no second model call
 is made.
 
-**A result is recorded once.** A second `review record` for the same review
-stops with `review-recorded`; run `review --task <slug>` for a new review.
-
 ## Evidence without a model
 
-`ambicode review` on its own prepares the evidence: target, snapshot,
-requirements and check results. It invokes no reviewer, so its empty `findings`
+`ambicode review` on its own prepares the evidence: target, diff,
+requirements and recorded checks. It invokes no reviewer, so its empty `findings`
 list means nothing ran, and its status is `partial` with the reason
 "reviewer pending". `review --estimate` prints what a review would cost and
 writes nothing.
@@ -240,50 +233,16 @@ group it with.
 The review id is the directory name only — `local_2026-09-22T23-42`, with no
 ticket in it, because the directory above already carries the ticket.
 
-## A check waiting for a human
-
-A check can stop and ask before it runs: its command is `propose` in policy,
-or its selection is incomplete, reaches outside the project, or holds more
-test files than `checks.maxSelectedTestFiles` allows. The report names each
-one, its reason, and the exact argv it would execute.
-
-**While any check is waiting, `review` stops at the evidence and invokes no
-reviewer.** There is no finding list, and the omissions say why rather than
-presenting an empty one. Check evidence is part of what the reviewer is given,
-so reviewing while a check is unresolved would buy a review of evidence that is
-about to change.
-
-On the review route the human answers the `review-checks` question: `with`
-runs the waiting checks, `without` (the default) declines them. Outside a
-route, `--decline <key>` (repeatable) reviews without a waiting check, and a
-typed `--approve <key>` approves nothing: the result says so in its omissions.
-A declined check stays skipped, and the result records that a human was asked
-and said no, which is a gap in verification somebody chose rather than one
-nobody noticed.
-
-A failed or skipped check is different and does **not** stop anything: it is
-settled evidence, it narrows what the review verified, and the review runs.
-
 ## Review input limits
 
-`review.maxContextBytes` bounds **everything the model is handed**, measured in
-encoded UTF-8 bytes before the reviewer is started: the composed prompt (the
-shared contract and reviewer role, the scoped policy rules, the requirements,
-the check evidence and the patch) and the files mirrored into the snapshot.
+`review.maxContextBytes` bounds what the model is handed, measured in encoded
+UTF-8 bytes before the reviewer is started: the requirements and the patch.
 
 Exceeding it refuses the review and names each measured component. Nothing is
-trimmed to fit: not the change, not a requirement. The one discretionary part is
-unchanged sibling context, which stops at the remaining budget and reports what
-it left out.
-
-Two snapshot ceilings sit below the configurable limits and are not settings:
-262,144 bytes per mirrored file and 4,194,304 in total. Raising
-`review.maxContextBytes` does not move them, so one oversized generated file
-can make a whole change unreviewable.
+trimmed to fit: not the change, not a requirement.
 
 `--exclude <glob>`, repeatable, and `review.excludePaths` are the way through.
-Matching paths join the built-in exclusions: out of the patch, out of the
-mirror, out of every count. `--only <glob>` is its counterpart, for a working
+Matching paths join the built-in exclusions: out of the patch and out of every count. `--only <glob>` is its counterpart, for a working
 tree holding more than the work in hand: nothing outside it is reviewed, and a
 file renamed *into* the selection is in it.
 
@@ -293,7 +252,4 @@ every oversized path at once rather than the first. Narrowing to nothing is
 refused (`nothing-to-review`), and so is a target with no changed files at all:
 a reviewer is never spent on an empty change.
 
-Sibling context is filtered through the same patterns that decided what is
-reviewed, so an excluded file does not come back beside the change. Whatever a
-review does not hold is in its omissions: an absent neighbour means "not read",
-never "nothing there".
+Whatever a review does not hold is in its omissions: an unread file means "not read", never "nothing there".

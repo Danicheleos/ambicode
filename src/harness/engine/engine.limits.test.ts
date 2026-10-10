@@ -7,7 +7,7 @@ import { CLI_LIMIT, HOOK_LIMIT } from './execute.ts';
 import type { Handler } from '#types/harness';
 
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';
-const HEAD = (skill: string) => `skill: ${skill}\nversion: 3\nexits: [done, blocked, human, inconclusive, superseded]\nrevisable: []\nsteps:\n`;
+const HEAD = (skill: string) => `skill: ${skill}\nversion: 3\nrevisable: []\nsteps:\n`;
 
 interface Box { failCode: string | null; ran: number; crashAfterOutputs: boolean; payload: string }
 const newBox = (): Box => ({ failCode: null, ran: 0, crashAfterOutputs: false, payload: 'x' });
@@ -47,14 +47,14 @@ const FAILING = `${HEAD('r')}  - id: work
 `;
 
 describe('F8 failure counters', () => {
-  it('03-F8: the same error twice writes a same-error limit; three in a row write identical-next', async () => {
+  it('03-F8: three identical failures in a row write identical-next and no other limit', async () => {
     const t = await make(FAILING);
     try {
       t.box.failCode = 'x-failed';
       assert.equal(await codeOf(t.start()), 'x-failed');
       await codeOf(t.next());
       await codeOf(t.next());
-      assert.deepEqual(await t.limits(), [['same-error', 'work'], ['same-error', 'work'], ['identical-next', 'work']]);
+      assert.deepEqual(await t.limits(), [['identical-next', 'work']]);
       assert.equal(t.box.ran, 3);
     } finally {
       await t.fx.dispose();
@@ -147,14 +147,15 @@ describe('E1 crash recovery (S10 engine halves)', () => {
 });
 
 describe('E7 slug and args hash', () => {
-  it('03-E7/03-E8: the task slug is minted from the text; the args hash ignores requirement order', async () => {
+  it('03-E7/03-E8: the task slug is minted from the text; a restart supersedes the live route', async () => {
     const t = await make(BIG);
     try {
       const first = await t.fx.engine.start({ skill: 'r', text: 'refactor the cart', requirements: ['ORD-2', 'ORD-1'], cwd: t.fx.repo.root, session: A, channel: 'hook' });
-      assert.equal(first.task, 'ORD-2');
-      const second = await t.fx.engine.start({ skill: 'r', text: 'refactor  the cart', requirements: ['ORD-1', 'ORD-2'], task: 'ORD-2', cwd: t.fx.repo.root, session: A, channel: 'hook' });
-      assert.equal(first.routeId, second.routeId);
-      assert.equal((await t.fx.kinds('ORD-2', 'route')).length, 1);
+      assert.equal(first.task, 'ord-2');
+      const second = await t.fx.engine.start({ skill: 'r', text: 'refactor  the cart', requirements: ['ORD-1', 'ORD-2'], task: 'ord-2', cwd: t.fx.repo.root, session: A, channel: 'hook' });
+      assert.notEqual(first.routeId, second.routeId);
+      assert.equal((await t.fx.kinds('ord-2', 'route')).length, 2);
+      assert.deepEqual((await t.fx.kinds('ord-2', 'exit')).map((entry) => entry['reason']), ['superseded']);
       const plain = await t.fx.engine.start({ skill: 'r', text: 'Refactor the cart totals', requirements: [], cwd: t.fx.repo.root, session: A, channel: 'hook' });
       assert.match(plain.task, /^[a-z0-9][a-z0-9-]*$/);
     } finally {

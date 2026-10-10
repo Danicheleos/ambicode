@@ -29,5 +29,5 @@ Adjust with the change as free text; the proposal is rewritten and the question 
 For the MCP server offer the Jira or Confluence servers you can see. Never choose for them.
 Error codes: `references/outcomes.md`.
 
-After an apply, show the doctor table as printed. Never write the config or
+After an apply, run each configured command with `--version` and show one line per command. Never write the config or
 `.gitignore` yourself; rule sources are for `/ambicode:rules`.

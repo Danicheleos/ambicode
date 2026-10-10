@@ -1,6 +1,5 @@
 skill: investigate
 version: 3
-exits: [done, blocked, human, inconclusive, superseded]
 revisable: [ground]
 steps:
   - id: fetch
@@ -19,11 +18,15 @@ steps:
       question: "Nothing matched the request. Name a file, a symbol or a word to look at, or pause, and when you have more context type /ambicode:investigate again with it: the route reopens and the search reruns."
       options: ["pause"]
       default: "pause"
-      release: "pause"
       onAnswer: { "*": "revise ground --term $answer" }
   - id: read
     actor: model
     instruction: "file:routes/investigate/read.md"
     payload: [envelope, map, "policy:before-work", "policy:before-report"]
     produces: ["note{investigation}"]
-    answer: note
+    repeat: 2
+  - id: check-citations
+    actor: code
+    run: ["script(check-citations)"]
+    produces: [worker]
+    onFail: revise read                           # a bad path:line citation; the list comes back as a section

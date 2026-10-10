@@ -1,7 +1,6 @@
 import path from 'node:path';
 import { applyInit } from '#modules/config/init/apply';
 import { PROPOSAL_FILE } from '#modules/config/init/proposal';
-import type { DoctorTable } from '#types/modules/config';
 import { runCommandTail } from '#harness/engine/engine';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { COMMAND_SPECS } from '#skills/init/commands';
@@ -20,9 +19,7 @@ interface InitApplyOutput {
   configPath: string;
   created: boolean;
   backup: string | null;
-  notices: string[];
   gitignoreAdded: string[];
-  doctor: DoctorTable;
   next?: string;
 }
 
@@ -63,8 +60,6 @@ export function renderInit(output: InitOutput): string {
   const lines = [`${output.created ? 'Created' : 'Updated'} ${output.configPath}`];
   if (output.gitignoreAdded.length > 0) lines.push(`Added to .gitignore: ${output.gitignoreAdded.join(', ')}`);
   if (output.backup !== null) lines.push(`The previous config is kept at ${output.backup}`);
-  if (output.notices.length > 0) lines.push('', 'Notices:', ...output.notices.map((notice) => `  - ${notice.split('\n').join('\n    ')}`));
-  lines.push('', 'Doctor:', output.doctor.text.trimEnd());
   if (output.next !== undefined) lines.push('', output.next);
   return lines.join('\n');
 }

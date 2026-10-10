@@ -100,7 +100,7 @@ describe('the 22 ledger kinds', () => {
   it('03: the added fields are accepted and malformed ones rejected', () => {
     const ok = (kind: string, body: object) => parseEntry({ ...common, kind, ...body }).ok;
     const route = { skill: 'plan', args: 'x', mode: 'interactive', channel: 'hook', trusted: true, session: 'a1b2c3d4', epoch: 1 };
-    assert.equal(ok('route', { ...route, adopts: true }), true);
+    assert.equal(ok('route', route), true);
     assert.equal(ok('exit', { route: 'r', reason: 'dismissed', complete: true, unverified: 2 }), true);
     assert.equal(ok('exit', { route: 'r', reason: 'done', unverified: -1 }), false);
     assert.equal(ok('exit', { route: 'r', reason: 'done', complete: 'yes' }), false);

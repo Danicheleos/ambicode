@@ -87,13 +87,15 @@ describe('S13 instance binding', () => {
 });
 
 describe('S13 marker-less answer', () => {
-  it('an answer without an instance is unbound and the gate is reprinted with a retry notice', async () => {
+  it('an answer without an instance is declined as no-instance and the gate is shown again as it was', async () => {
     const plan = await planFixture();
     try {
       await plan.toGate();
       const message = await plan.hook('plan-accept', 'Accept', undefined);
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'declined')).at(-1)!['reason'], 'no-instance');
-      assert.match(message.text, /carried no usable marker/);
+      assert.match(message.text, /Accept this plan\?/);
+      assert.doesNotMatch(message.text, /carried no usable marker/);
+      assert.equal((await plan.prints()).length, 1);
     } finally {
       await plan.dispose();
     }

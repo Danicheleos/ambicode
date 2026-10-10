@@ -39,7 +39,7 @@ async function offByOne() {
   const config = parse(await readFile(configPath, 'utf8'));
   const app = config.projects[0];
   app.commands.unit = { argv: ['jest', '{files}'] };
-  app.checks.unit = { command: 'unit', adapter: 'jest' };
+  app.checks.unit = { command: 'unit' };
   app.policyFiles = ['.ambicode/policies/cmds.yaml'];
   await writeFile(configPath, stringify(config));
   await mkdir(path.join(root, '.ambicode', 'policies'), { recursive: true });
@@ -93,13 +93,13 @@ const trail = (ledger: readonly LedgerEntry[]): string =>
   }).join(' · ');
 
 describe('task route on ts-off-by-one (integration, test 18)', () => {
-  it('07-R4/07-C4/07-F2/07-R7/07-S1: ground → red → green → unconfigured format → offer → skip → report; Stop holds a claim to the evidence', async () => {
+  it('07-R4/07-C4/07-F2/07-R7/07-S1: ground → red → green → unconfigured format → offer → skip → report', async () => {
     const t = await offByOne();
     try {
       const red = await t.start();
       assert.equal(red.position, 'red');
       assert.match(red.text, /1 file\(s\) already changed stay out of this task's review/);
-      assert.match(red.text, /^ {2}page — \d+ refs/m);
+      assert.doesNotMatch(red.text, /git grep|Callers/);
 
       await t.write(SPEC, "const { page } = require('../src/page');\n\ntest('full page', () => {\n  expect(page([1, 2, 3, 4], 0, 2)).toEqual([1, 2]);\n});\n");
       t.runner.out = { exitCode: 1, stdout: FAILING };
@@ -127,25 +127,6 @@ describe('task route on ts-off-by-one (integration, test 18)', () => {
       const allowed = await t.stop(`# Task report\n\n**Done**: the last item stays on its page. All tests pass.\n\n**Remaining**: none\n\n${report}`);
       assert.notEqual(allowed?.decision, 'block', allowed?.reason);
       console.log(`[test 18 ledger] ${trail(await t.ledger())}`);
-    } finally {
-      await t.dispose();
-    }
-  });
-
-  it('07-S1: on the same fixture, a "tests pass" report with no green check that ran a test is blocked once', async () => {
-    const t = await offByOne();
-    try {
-      await t.start();
-      await t.write(SPEC, "test('full page', () => {});\n");
-      t.runner.out = { exitCode: 1, stdout: FAILING };
-      await t.check('red');
-      t.runner.out = { exitCode: 0, stdout: 'Tests:       0 total\n' };
-      await t.check('green');
-      assert.equal((await t.format())?.position, 'review-offer', 'an unproven green still completes green (D4)');
-      await t.skip();
-      const blocked = await t.stop('# Task report\n\nDone: the last item stays on its page. All tests pass.');
-      assert.equal(blocked?.decision, 'block');
-      assert.ok((await t.ledger()).some((entry) => entry.kind === 'limit' && entry['which'] === 'stop-block'));
     } finally {
       await t.dispose();
     }

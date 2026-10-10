@@ -7,12 +7,6 @@ ends in anything but a completed review.
 **`requirements-not-retrieved` / `requirements-unavailable`.** A requirement URL
 has no usable evidence. Fix the access or the envelope; do not fall back.
 
-**`requirements-invalid-url`.** A `--requirement` is not an http(s) URL. Pass
-the Jira issue or Confluence page URL itself, not a key or a title.
-
-**`requirements-undeclared`.** The envelope answers a URL that no `--requirement` declared. Make
-the two lists the same; never drop a requirement to get past it.
-
 **`requirements-unreadable` / `requirements-unparsable` / `requirements-invalid`.**
 The envelope on `--evidence -` is empty, over the size limit, not JSON, or not
 the envelope shape (the details name the field). Rebuild it as the
@@ -23,17 +17,8 @@ the largest contributors. Usually something uncommitted and generated — a
 lockfile, build output — is in the working tree. Commit or ignore it, or split
 the change. Raising the limit is a deliberate decision, not the default advice.
 
-**`snapshot-too-large`.** Changed files exceed a per-file ceiling no setting
-raises. Every one is named: ask once, re-run once with `--exclude <glob>`,
-repeatable (`review.excludePaths` makes it permanent). `--only <glob>` narrows
-from the other side, for a dirty tree. Neither may empty the review.
-
 **`nothing-to-review`.** Nothing changed, or the patterns took all of it. No
 reviewer ran. Say which; do not widen the patterns without asking.
-
-**`working-tree-changed`.** Something wrote to the working tree while the target
-was being captured. Nothing was reviewed and nothing was modified. Wait for the
-build or editor to settle and run it again.
 
 **`baseline-missing`.** Branch review needs a baseline. AMBICODE will not guess a
 default branch name. Pass `--base <ref>`.
@@ -44,7 +29,7 @@ run the review again.
 **`check-only-unauthorized`.** `check --only` or `format` met a command policy of
 `forbid`, an undeclared command, or `propose` with no route on the task. Release:
 configure the check's policy, or run it inside `/ambicode:task`. Inside a task route
-a `propose` check asks the user instead; a typed `--approve` never approves it.
+a `propose` check asks the user instead; only the user's own answer approves it.
 
 **`ambiguous-project`.** More than one configured project matches the paths and
 none was named. Refuse to guess: ask which project, then pass `--project <id>` or
@@ -66,14 +51,11 @@ substitute `HEAD~1`, and neither should you.
 **`not-a-repository` / `no-head`.** Not inside a git work tree, or the
 repository has no commit yet. Run from the checkout, or make the first commit.
 
-**`config-missing` / `config-unparsable` / `config-invalid` / `config-schema-too-new`.**
-`.ambicode/config.yaml` is absent, not YAML, not a mapping, or written by a
+**`config-missing` / `config-invalid` / `config-schema-too-new`.**
+`.ambicode/config.yaml` is absent, not valid YAML or not a mapping, or written by a
 newer AMBICODE. Offer `/ambicode:init` for the first; show the user the error
 for the others. For a too-new schema, upgrade the plugin rather than editing
-the file down. In `/ambicode:init`, an unparsable file raises the
-`config-unparsable` question: *back up and regenerate* copies it to
-`.ambicode/config.yaml.bak-<time>` and proposes a new one; *stop* (the default)
-copies and writes nothing.
+the file down.
 
 **`init-unconfirmed`.** `init --apply` ran without the user's own answer to the init question.
 `reason` says which: `no-init-route` (no live init route for the task), a consent refusal
@@ -98,7 +80,7 @@ Fix the declaration; AMBICODE will not follow it anywhere else.
 the request inside a configured project root. Ask which project.
 
 **`review-not-found`.** `review record` found no review waiting for its reviewer (or none with the
-`--review` id). Run `review --task <slug>` first; it prints the snapshot and brief the reviewer reads.
+`--review` id). Run `review --task <slug>` first; it prints the diff and brief the reviewer reads.
 
 **`conflicting-target` / `baseline-not-applicable`.** One target per run, and
 `--base` belongs to `--branch`. Ask which target the user meant.
@@ -122,9 +104,9 @@ decides, so do not rephrase the command to avoid the question.
 plan route; any other session, a missing session or route pointer, or an
 unreadable ledger is denied.
 
-**`route-taken-over`.** Another session adopted or restarted this task's plan
-route; this session no longer writes its files. Stop and tell the user. Taking
-it back (`--adopt`) or continuing under another `--task` is their decision.
+**`route-taken-over`.** Another session took this task's plan
+route; this session no longer writes its files. Stop and tell the user. Continuing
+under another `--task` is their decision.
 
 **Ledger and notes.** `ledger-entry-too-large`: one ledger entry may be 16 KiB;
 keep the payload in a file and record its path and hash. `ledger-unreadable`:
@@ -136,7 +118,7 @@ directory. `session-unbound`: the call names no task, so the CLI cannot
 tell which route it speaks for; pass `--task <slug>`. `route-ambiguous`: the task has more than
 one live route; `route start <skill> --task <slug> --fresh` ends the others, or continue under
 another `--task`. `route-busy`: another session owns the task's live plan route; the
-user chooses `--adopt`, `--fresh` or another `--task`. `plan-draft-missing`:
+user chooses `--fresh` or another `--task`. `plan-draft-missing`:
 no plan draft exists to promote; the route's `plan-check` step saves it, so continue the
 plan route to that step.
 
@@ -144,12 +126,8 @@ plan route to that step.
 message names the file, the step or gate and the field (build and load): fix that
 file. `route-unknown`: no route ships for that skill; the message lists the shipped
 ones. `route-not-open`: the task has no live route; start one with
-`route start <skill> --task <slug>`. `route-needs-unmet`: a step's inputs are not
-on record; the message names the missing kinds and the command that produces
-each. `gate-unknown` / `gate-option-unknown`: the answer names a gate or option
-the route does not have; the message lists the valid ones. `default-not-allowed`:
-`--default` is allowed only in a headless route or after the gate was put to the
-user; ask first through AskUserQuestion. `revise-not-allowed`: `--revise` names a
+`route start <skill> --task <slug>`. `gate-unknown` / `gate-option-unknown`: the answer names a gate or option
+the route does not have; the message lists the valid ones. `revise-not-allowed`: `--revise` names a
 step the route does not list as revisable; the message lists them.
 `search-layers-not-for-model`: `map --layers` is not a model option; edit
 `search.layers` in `.ambicode/config.yaml`. `search-layer-unknown`: `search.layers`
@@ -167,6 +145,15 @@ changed). Ask the user `plan-accept` again for the current draft; do not
 rewrite or re-check the plan. `plan-already-promoted` is not an error: the plan
 exists and its path is printed.
 
+**`rules-no-sources`.** `/ambicode:rules` ended because the user chose no rule source (*none — stop*).
+Nothing was drafted; start again and name a source.
+
+**`init-proposal-invalid`.** `init propose` received no YAML, or YAML that is not a valid config proposal;
+the message names the field. Fix it and run `init propose` again.
+
+**`drafts-empty` / `pack-invalid` / `pack-missing`.** `policy check --drafts` found no `*.yaml` draft, or a
+draft that fails the pack schema, or a declared file that does not exist. The diagnostic names the file; fix the draft.
+
 **`artifact-collision`.** Nine files of the same name were already written this minute, so
 none was written. Wait for the next minute and run it again.
 
@@ -182,14 +169,6 @@ pack's `commandPolicy`, not something to work around.
 Hooks: AMBICODE registers seven hook events with fourteen handler entries. The `Stop`
 hook blocks a finishing message at most once per route, naming what to fix and the
 full list in `stop-check.md` of the task directory; a second failing stop is allowed.
-
-**`review-recorded`.** `review record` found the reviewer's answer already
-recorded for that review. Run `review --task <slug>` for a new review; a second
-answer never overwrites the first.
-
-**`review-waiting`.** `review record` ran on a review that stopped on checks
-waiting for a human, so no reviewer was due. Answer the waiting checks, then run
-the review again.
 
 **`review-unreadable`.** The review's `result.json` is missing or not a review
 result. Run `review --task <slug>` again; do not hand-edit the file.

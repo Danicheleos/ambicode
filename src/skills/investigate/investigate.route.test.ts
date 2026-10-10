@@ -32,6 +32,27 @@ async function investigation() {
 }
 
 describe('investigate route (03-I1, 03-I2)', () => {
+  it('D4: a note with a bad citation sends the route back to read once, then lets the corrected note complete it', async () => {
+    const { fx, start, next } = await investigation();
+    try {
+      const first = await start();
+      const context = commandContext({ runtime: fx.runtime, routes: fx.routes });
+      const save = (body: string) => saveNote({ runtime: fx.runtime, session: A, context }, { task: 'cart', kind: 'investigation', body, from: null, iteration: null, route: first.routeId });
+      await save('## Files\n- src/missing.ts:3\n');
+      const back = await next({ cause: 'note save' });
+      assert.equal(back.position, 'read');
+      assert.match(back.text, /bad citation: src\/missing\.ts:3 missing-file/);
+      await save('## Files\n- src/cart.ts:2\n');
+      assert.equal((await next({ cause: 'note save' })).position, 'complete');
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('D4: read.md tells the model to save the note before answering, and no Stop hook saves it', async () => {
+    assert.match(await readFile(path.join(REPO_ROOT, 'routes', 'investigate', 'read.md'), 'utf8'), /\{cli\} note save --task \{task\} --kind investigation/);
+  });
+
   it('03-I1: with no requirement the start runs ground synchronously and delivers read with the map and stage text', async () => {
     const { fx, start, rows } = await investigation();
     try {
@@ -39,10 +60,10 @@ describe('investigate route (03-I1, 03-I2)', () => {
       assert.equal(first.position, 'read');
       assert.deepEqual(await rows(), ['fetch:skipped', 'ground:completed', 'scope:skipped', 'read:delivered']);
       assert.match(first.text, /Now: Read the code the question is about, then answer it\./);
-      assert.match(first.text, /Then: answer the user; your answer is saved as the investigation note when you stop/);
+      assert.match(first.text, /Then: .*note save --task cart --kind investigation/);
+      assert.match(first.text, /Save the answer before giving it: `.*note save --task cart --kind investigation`/);
       assert.match(first.text, /## map\n/);
       assert.match(first.text, /src\/cart\.ts/);
-      assert.doesNotMatch(first.text, /note save|route next/);
       assert.ok(first.bytes <= 8_192, `03-X1: ground-and-read message is ${first.bytes} bytes`);
       const dir = path.join(fx.repo.root, '.ambicode', 'task', 'cart');
       for (const [key, limit] of [['map', 6_144], ['policy:before-work', 8_192]] as const) {
@@ -63,7 +84,7 @@ describe('investigate route (03-I1, 03-I2)', () => {
   it('the header carries the route: done and current steps named, skipped ones left out', async () => {
     const { fx, start } = await investigation();
     try {
-      assert.match((await start()).text, /^Route: ground \(done\) · read \(now\)$/m);
+      assert.match((await start()).text, /^Route: ground \(done\) · read \(now\) · check-citations$/m);
     } finally {
       await fx.dispose();
     }
@@ -131,15 +152,15 @@ describe('investigate route (03-I1, 03-I2)', () => {
       const first = await start();
       const again = await next();
       assert.equal(again.position, 'read');
-      assert.doesNotMatch(again.text, /Not done yet/);
-      assert.ok(!(await rows()).includes('read:repeated'));
+      assert.match(again.text, /Not done yet: note\{investigation\} is not on record/);
+      assert.ok((await rows()).includes('read:repeated'));
       const context = commandContext({ runtime: fx.runtime, routes: fx.routes });
       await saveNote({ runtime: fx.runtime, session: A, context }, { task: 'cart', kind: 'investigation', body: '## Files\n- src/cart.ts:2 appends\n', from: null, iteration: null, route: first.routeId });
       const done = await next({ cause: 'note save' });
       assert.equal(done.position, 'complete');
       assert.match(done.text, /The route is complete/);
       assert.equal((await fx.kinds('cart', 'exit')).at(-1)?.['reason'], 'done');
-      assert.deepEqual(fx.routes.route('investigate')!.steps.map((step) => step.id), ['fetch', 'ground', 'scope', 'read']);
+      assert.deepEqual(fx.routes.route('investigate')!.steps.map((step) => step.id), ['fetch', 'ground', 'scope', 'read', 'check-citations']);
     } finally {
       await fx.dispose();
     }

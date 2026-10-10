@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { REPO_ROOT } from '#testing/paths';
 
 describe('task scripts (C7)', () => {
-  it('inventory lists callers with git grep -w -n, stays under 4 KB and flags a defect brief', async () => {
+  it('inventory flags a defect brief and prints no payload', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'ambicode-inventory-'));
     try {
       const git = (...args: string[]): void => { assert.equal(spawnSync('git', args, { cwd: root }).status, 0); };
@@ -22,11 +22,11 @@ describe('task scripts (C7)', () => {
         input: JSON.stringify({ repositoryRoot: root, taskDir, args: { text: 'Defect: `computeTotal` drops the last line' } }), encoding: 'utf8',
       });
       assert.equal(out.status, 0, out.stderr);
-      const result = JSON.parse(out.stdout) as { payload: string; record: { defectBrief?: boolean } };
-      assert.match(result.payload, /computeTotal — 3 refs/);
-      assert.ok(!result.payload.includes('computeTotalOther —'));
-      assert.ok(Buffer.byteLength(result.payload) <= 4096);
+      const result = JSON.parse(out.stdout) as { payload: string | null; record: { defectBrief?: boolean } };
+      assert.equal(result.payload, null, 'no callers grep');
       assert.equal(result.record.defectBrief, true);
+      const plain = spawnSync(process.execPath, [path.join(REPO_ROOT, 'skills', 'task', 'scripts', 'inventory.mjs')], { input: JSON.stringify({ repositoryRoot: root, taskDir, args: { text: 'Add a field' } }), encoding: 'utf8' });
+      assert.deepEqual(JSON.parse(plain.stdout).record, {});
     } finally {
       await rm(root, { recursive: true, force: true });
     }

@@ -1,15 +1,14 @@
 import path from 'node:path';
 import { TASKS_DIR } from '#types/defaults';
-import { currentEpoch, deliverOnce, hookStateBaseDir } from '#platform/claude/hook-state';
+import { deliverOnce, hookStateBaseDir } from '#platform/claude/hook-state';
 import { readLedger } from '#platform/ledger/ledger';
 import { buildChain, exitOf, latestRouteOf } from '../engine/fold.ts';
 import { ownerOfHarness } from './harness.ts';
 import type { LedgerEntry } from '#types/modules/evidence';
 import type { ActiveRoutePointer } from '#types/harness';
-import type { FileSystem, IdSource } from '#types/platform/ports';
+import type { FileSystem } from '#types/platform/ports';
 
 const ACTIVE = 'active-route';
-const ENDED = 'ended-route';
 export const POINTER_LIMIT = 4 * 1024;
 
 /** The pointer is a cache of "which route is active"; the ledger stays the authority (03-S7). */
@@ -40,30 +39,7 @@ export function fsActiveRoutePointer(fs: FileSystem): ActiveRoutePointer {
         ? { task: value['task'], skill: value['skill'], ...(typeof value['owner'] === 'string' ? { owner: value['owner'] } : {}) }
         : null;
     },
-    async readEnded(session, scratchpad) {
-      const value = await readJson(file(session, scratchpad, ENDED));
-      return typeof value?.['task'] === 'string' && typeof value['skill'] === 'string' && typeof value['routeId'] === 'string'
-        ? { task: value['task'], skill: value['skill'], routeId: value['routeId'] }
-        : null;
-    },
-    async clearEnded(session, scratchpad) {
-      await fs.remove(file(session, scratchpad, ENDED));
-    },
   };
-}
-
-/** Exit and completion: the pointer goes, `ended-route` stays for one Stop (03-S7). */
-export async function endRoute(
-  pointer: ActiveRoutePointer,
-  fs: FileSystem,
-  session: string,
-  scratchpad: string | undefined,
-  value: { task: string; skill: string; routeId: string },
-): Promise<void> {
-  await pointer.clear(session, scratchpad);
-  const target = path.join(hookStateBaseDir(fs, session, scratchpad), ENDED);
-  await fs.mkdirp(path.dirname(target));
-  await fs.writeText(target, JSON.stringify(value));
 }
 
 const openRouteOf = (entries: readonly LedgerEntry[], harness: string): { head: LedgerEntry; owner: string } | null => {
@@ -100,32 +76,25 @@ export async function resolveActiveRoute(
 }
 
 /**
- * The session's latest route when it exited, with the entry count of its chain so the caller can tell whether a Stop has seen the exit: a CLI call in the Claude sandbox has another
- * TMPDIR than the hooks, so its `ended-route` file is not where Stop looks (walk 10_2314, both plan sessions).
+ * The session's latest route when it exited: a CLI call in the Claude sandbox has another TMPDIR than the hooks, so the
+ * ledger is the only record every process shares (walk 10_2314, both plan sessions).
  */
-export async function endedRouteInLedger(fs: FileSystem, input: { repositoryRoot: string; session: string }): Promise<{ task: string; skill: string; routeId: string; entries: number } | null> {
+export async function endedRouteInLedger(fs: FileSystem, input: { repositoryRoot: string; session: string }): Promise<{ task: string; skill: string; routeId: string } | null> {
   const tasksRoot = path.join(input.repositoryRoot, TASKS_DIR);
-  let found: { task: string; skill: string; routeId: string; at: string; entries: number } | null = null;
+  let found: { task: string; skill: string; routeId: string; at: string } | null = null;
   for (const entry of await fs.readdir(tasksRoot).catch(() => [])) {
     if (!entry.isDirectory()) continue;
     const entries = await readLedger(fs, path.join(tasksRoot, entry.name)).catch(() => []);
     const owner = ownerOfHarness(entries, input.session);
     const head = owner === null ? null : latestRouteOf(entries, owner);
     if (head === null) continue;
-    const chain = buildChain(entries, head).entries;
-    const exit = chain.findLastIndex((item) => item.kind === 'exit');
-    if (exit < 0) continue;
-    if (found === null || chain[exit]!.at > found.at) found = { task: entry.name, skill: String(head['skill']), routeId: head.id, at: chain[exit]!.at, entries: chain.length };
+    const exit = exitOf(buildChain(entries, head));
+    if (exit !== null && (found === null || exit.at > found.at)) found = { task: entry.name, skill: String(head['skill']), routeId: head.id, at: exit.at };
   }
-  return found === null ? null : { task: found.task, skill: found.skill, routeId: found.routeId, entries: found.entries };
+  return found === null ? null : { task: found.task, skill: found.skill, routeId: found.routeId };
 }
 
-/** A step was delivered to this session in this epoch: the next prompt need not re-inject it (03-H4). */
-export async function markStepDelivered(
-  fs: FileSystem,
-  ids: IdSource,
-  input: { session: string; scratchpad: string | undefined; routeId: string; position: string },
-): Promise<boolean> {
-  const base = hookStateBaseDir(fs, input.session, input.scratchpad);
-  return deliverOnce(fs, base, { epoch: await currentEpoch(fs, ids, base), agentKey: 'main', kind: 'route-step', subject: input.routeId, contentHash: input.position });
+/** A step was delivered to this session since the last reset: the next prompt need not re-inject it (03-H4). */
+export async function markStepDelivered(fs: FileSystem, input: { session: string; scratchpad: string | undefined; routeId: string; position: string }): Promise<boolean> {
+  return deliverOnce(fs, hookStateBaseDir(fs, input.session, input.scratchpad), 'route-step', `${input.routeId}:${input.position}`);
 }

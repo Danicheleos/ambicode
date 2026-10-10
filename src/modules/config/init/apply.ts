@@ -5,10 +5,8 @@ import { AmbicodeError } from '#util/errors';
 import { CONFIG_FILE } from '#types/defaults';
 import { contentHash } from '#util/hash';
 import { localTimestamp } from '#util/files';
-import { runDoctor } from './doctor.ts';
-import { loadConfigWithNotices } from '../load.ts';
 import { DRAFT_FILE, writeGitignore } from './proposal.ts';
-import { APPLY_OPTIONS, type ApplyDeps, type DoctorTable } from '#types/modules/config';
+import { APPLY_OPTIONS, type ApplyDeps } from '#types/modules/config';
 
 function initUnconfirmed(reason: string, detail?: string): AmbicodeError {
   return new AmbicodeError('init-unconfirmed', `init --apply needs the user's own answer to the init question (reason: ${reason}). Nothing was written.`, {
@@ -18,7 +16,7 @@ function initUnconfirmed(reason: string, detail?: string): AmbicodeError {
 
 /** The checks in order, nothing written before the last passes; an existing config is copied to `.bak-<time>` before it is replaced. */
 export async function applyInit(deps: ApplyDeps, input: { task: string }): Promise<{
-  configPath: string; created: boolean; backup: string | null; notices: string[]; gitignoreAdded: string[]; doctor: DoctorTable }> {
+  configPath: string; created: boolean; backup: string | null; gitignoreAdded: string[] }> {
   const { runtime, session, context } = deps;
   if (session === null) {
     throw new AmbicodeError('session-unbound', `init --apply cannot tell which route it speaks for: task ${input.task} has no single live route.`, {
@@ -55,10 +53,5 @@ export async function applyInit(deps: ApplyDeps, input: { task: string }): Promi
   await runtime.fs.writeText(configPath, approved);
   const gitignoreAdded = await writeGitignore(runtime.fs, repositoryRoot);
   await runtime.fs.remove(path.join(repositoryRoot, DRAFT_FILE));
-  const loaded = await loadConfigWithNotices(runtime.fs, repositoryRoot);
-  const doctor = await runDoctor(runtime, repositoryRoot, loaded.config, deps.doctor);
-  const dir = await resolveTaskDir(runtime, input.task);
-  await runtime.fs.mkdirp(dir.steps);
-  await runtime.fs.writeText(path.join(dir.steps, 'doctor.md'), doctor.text);
-  return { configPath, created: existing === null, backup, notices: loaded.notices, gitignoreAdded, doctor };
+  return { configPath, created: existing === null, backup, gitignoreAdded };
 }

@@ -27,10 +27,10 @@ export interface GateDef {
   question: string;
   options: readonly string[];
   default: string;
-  release: string;
   acting: readonly string[];
   onAnswer: Readonly<Record<string, Revise>>;
-  maxRevises: number;
+  /** Human revises through this gate before it declines the next one (the one counter: a step's `repeat`). */
+  repeat: number;
   object: Qualified | null;
   policy: Readonly<Record<string, 'stop'>>;
 }
@@ -70,7 +70,7 @@ export const HANDLER_NAMES = [
   'checks.baseline',
   'checks.preflight',
   'review.evaluate',
-  'review.await',
+  'review.command',
   'review.estimate',
   'review.publishList',
 ] as const;
@@ -82,15 +82,12 @@ export interface StepDef {
   run: readonly Call[];
   instruction: string | null;
   payload: readonly string[];
-  needs: readonly Qualified[];
   produces: readonly Qualified[];
   when: When | null;
   gate: GateDef | null;
   onFail: Revise | null;
   onError: OnError;
   repeat: number;
-  /** `note`: the model's final answer is the step's note; the Stop hook saves it. */
-  answer: 'note' | null;
   /** The model's final message is this step's work; the next prompt closes the route. */
   final: boolean;
 }
@@ -98,7 +95,6 @@ export interface StepDef {
 export interface RouteDef {
   skill: string;
   version: 3;
-  exits: readonly Exit[];
   revisable: readonly string[];
   steps: readonly StepDef[];
 }
@@ -110,7 +106,7 @@ export interface RouteRegistry {
   gates(): readonly GateDef[];
 }
 
-export type StartChannel = 'hook' | 'cli' | 'harness';
+export type StartChannel = 'hook' | 'cli';
 
 export type CommandName =
   | 'requirements normalize' | 'check' | 'format' | 'review' | 'policy check --drafts' | 'rules apply' | 'init --apply' | 'init propose'
@@ -177,7 +173,6 @@ export interface StartInput {
   project?: string;
   answers?: readonly Answer[];
   fresh?: boolean;
-  adopt?: boolean;
   cwd: string;
   /** The route's owner: an opaque key the engine only compares. */
   session: string;
@@ -196,10 +191,8 @@ export interface AdvanceInput {
   task: string;
   session: string;
   answers?: readonly (Answer & { question?: string })[];
-  default?: string;
   revise?: string;
   project?: string;
-  show?: string;
   cause: Cause;
   scratchpadDir?: string;
   /** What the command (`plan check`) already wrote for the code step it reaches; that step consumes it (D1). */
@@ -269,18 +262,15 @@ export interface ActiveRoutePointer {
   write(session: string, scratchpad: string | undefined, value: { task: string; skill: string; owner?: string; headless?: boolean }): Promise<void>;
   clear(session: string, scratchpad: string | undefined): Promise<void>;
   read(session: string, scratchpad: string | undefined): Promise<{ task: string; skill: string; owner?: string } | null>;
-  /** Written when exit or completion clears `active-route`; read and removed only by Stop. */
-  readEnded(session: string, scratchpad: string | undefined): Promise<{ task: string; skill: string; routeId: string } | null>;
-  clearEnded(session: string, scratchpad: string | undefined): Promise<void>;
 }
 
 export type PlanOwnership =
-  | { task: string; state: 'owned'; session: string; routeId: string; chainIds: string[]; takenOver: string[] }
+  | { task: string; state: 'owned'; session: string; routeId: string; chainIds: string[] }
   | { task: string; state: 'none' }
   | { task: string; state: 'unknown'; reason: string };
 
 export type SessionBinding =
-  | { state: 'bound'; session: string; via: 'hook' | 'env' | 'updated-input' | 'association' | 'task' }
+  | { state: 'bound'; session: string; via: 'hook' | 'task' }
   | { state: 'unbound'; reason: 'missing' | 'stale' | 'ambiguous' };
 
 export const RAISED_BY = '$raisedBy';

@@ -2,15 +2,14 @@ import path from 'node:path';
 import { openRepository } from '#platform/git/open';
 import { AmbicodeError } from '#util/errors';
 import { mostSpecificRoot, normalizeRelative } from '#util/paths';
-import { loadConfigWithNotices } from './load.ts';
+import { loadConfig } from './load.ts';
 import type { AmbicodeConfig, ProjectConfig } from '#types/modules/config';
 import type { Runtime, Workspace } from '#types/composition';
 import type { FileSystem } from '#types/platform/ports';
 
 export async function openWorkspace(runtime: Runtime): Promise<Workspace> {
   const { git, repositoryRoot } = await openRepository(runtime);
-  const loaded = await loadConfigWithNotices(runtime.fs, repositoryRoot);
-  for (const notice of loaded.notices) if (runtime.notices !== undefined && !runtime.notices.includes(notice)) runtime.notices.push(notice);
+  const loaded = await loadConfig(runtime.fs, repositoryRoot);
   return { runtime, git, repositoryRoot, config: loaded.config, configPath: loaded.filePath };
 }
 

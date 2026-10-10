@@ -1,6 +1,5 @@
 skill: init
 version: 3
-exits: [done, blocked, human, inconclusive, superseded]
 steps:
   - id: scan
     actor: code
@@ -22,9 +21,8 @@ steps:
       options: ["Apply", "Adjust", "Cancel"]
       acting: ["Apply"]
       default: "Cancel"
-      release: "Cancel"
       onAnswer: { "Adjust": "revise detect", "*": "revise detect --change $answer" }
-      maxRevises: 20
+      repeat: 20
   - id: apply
     actor: model
     when: gate.init-apply.is(Apply)

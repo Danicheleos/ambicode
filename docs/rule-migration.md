@@ -50,15 +50,15 @@ your own words or take the listed ones.
 
 `ambicode policy check <file...>` is usable on its own, for a pack you wrote by
 hand. It validates a candidate file that nothing references yet — the schema,
-every load-time rule the schema cannot express, and what each `appliesTo` glob
-matches in the repository as it stands — and exits nonzero on an error:
+and every load-time rule the schema cannot express — and exits nonzero on an
+error:
 
 ```sh
 ambicode policy check --project web .ambicode/policies/team-components.yaml
 ```
 
-A glob that matches nothing is the mistake worth running it for. The pack
-validates, gets enabled, and never applies to anything.
+It does not count what a glob matches: a glob that matches nothing validates,
+gets enabled, and never applies to anything, so derive it from the real layout.
 
 `init` lists which of those rule sources exist in your repository. It does not
 read, classify, or migrate any of them.
@@ -69,8 +69,8 @@ rather than a defect (see [the layering note](#common)), and a rule naming a
 specific framework API (see [the one deviation](#the-one-deviation-worth-arguing-about)).
 It asks you about the first and drops the second.
 
-See [policy authoring](policy-authoring.md) for what `authority`, `replaces` and
-`remindOnEdit` actually change.
+See [policy authoring](policy-authoring.md) for what `authority` and `replaces`
+actually change.
 
 ## The one deviation worth arguing about
 

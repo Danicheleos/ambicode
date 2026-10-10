@@ -3,8 +3,8 @@ import { describe, it } from 'node:test';
 import { SPECS, USAGE } from './main.ts';
 
 const TABLE: Record<string, readonly string[]> = {
-  'route start': ['task', 'headless', 'project', 'answer', 'fresh', 'adopt'],
-  'route next': ['task', 'answer', 'default', 'revise', 'project', 'show'],
+  'route start': ['task', 'headless', 'project', 'answer', 'fresh'],
+  'route next': ['task', 'answer', 'revise', 'project'],
   'route stop': ['task', 'reason', 'detail'],
   map: ['task', 'project', 'mode', 'term', 'symbol'],
   refs: ['project', 'declarations'],

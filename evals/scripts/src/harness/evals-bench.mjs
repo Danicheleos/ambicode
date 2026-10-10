@@ -22,10 +22,7 @@ import { atomicWrite, FRONT_MATTER, GENERATION_MARKER, NAKED_COPY, outstandingSw
 import { FORCED_REMOVED, GRANTED_TOOLS, harnessArgv, parseRunOptions, PATH_OPTIONS, resultLayout, runSpec } from './run-options.mjs';
 import { trackSweep } from './sweep-events.mjs';
 import { dryRunArgs } from '../analysis/model-free-runners.mjs';
-import { EXPORT_DIRECTORY, harvestTraces, harvestedOfResult, removeSandboxes, sandboxIdsOfResult } from '../analysis/trace-analysis.mjs';
-
-// The Stop hook's variable (src/harness/engine/stop.ts): the EVAL_AMBICODE_ prefix is the one the reviewer replay already reaches the sandbox with.
-const EVAL_EXPORT_VARIABLE = 'EVAL_AMBICODE_EXPORT';
+import { harvestTraces, harvestedOfResult, removeSandboxes, sandboxIdsOfResult } from '../analysis/trace-analysis.mjs';
 
 // Existing consumers can still import the approved APIs from the CLI.
 export * from '../shared/bench-paths.mjs';
@@ -351,7 +348,7 @@ export async function runSweep(rest, { benchmarks = BENCHMARKS, now = new Date()
       pass(); // setInterval's first tick is a whole interval away; a short-lived sandbox would be missed.
       const timer = setInterval(pass, HARVEST_INTERVAL_MS);
       try {
-        status = await spawnRun(harnessArgv(plan, { json: reserved }), { env: { [EVAL_EXPORT_VARIABLE]: path.join(tracesDir, EXPORT_DIRECTORY) } });
+        status = await spawnRun(harnessArgv(plan, { json: reserved }));
       } finally {
         clearInterval(timer);
         tracker.finish(status);

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { createRuntime } from '#composition/root';
 import { openWorkspace } from '#modules/config/workspace';
 import { DECLARATION_PATTERNS } from '#types/modules/ecosystems';
-import { loadConfig, loadConfigWithNotices, parseConfig, parseConfigWithNotices, validateArgv } from './load.ts';
+import { loadConfig, parseConfig, validateArgv } from './load.ts';
 import { loadPacksForProject } from '#modules/policy/packs/load';
 import { mostSpecificRoot, normalizeRelative, toProjectRelative } from '#util/paths';
 import { nodeFileSystem } from '#platform/ports/filesystem';
@@ -22,18 +22,18 @@ const MINIMAL = [
   'schemaVersion: 1',
   'baseline: origin/main',
   'review: { model: sonnet, timeoutSeconds: 300, maxFindings: 7, maxChangedFiles: 50, maxChangedLines: 2000, maxContextBytes: 524288 }',
-  'checks: { timeoutSeconds: 120, maxSelectedTestFiles: 20 }',
-  'requirements: { mcpServer: null, lsp: [] }',
+  'checks: { timeoutSeconds: 120 }',
+  'requirements: { mcpServer: null }',
 ].join('\n');
 
 /** A current (schema 3) file: re-init has nothing to migrate in it. */
 const CURRENT = [
   'schemaVersion: 3',
   'baseline: origin/main',
-  'review: { model: sonnet, timeoutSeconds: 300, maxFindings: 7, maxChangedFiles: 50, maxChangedLines: 2000, maxContextBytes: 524288, onInvalid: void }',
-  'checks: { timeoutSeconds: 120, maxSelectedTestFiles: 20 }',
+  'review: { model: sonnet, timeoutSeconds: 300, maxFindings: 7, maxChangedFiles: 50, maxChangedLines: 2000, maxContextBytes: 524288 }',
+  'checks: { timeoutSeconds: 120 }',
   'requirements: { mcpServer: null, acceptanceField: null }',
-  'search: { index: none, layers: { prompt: [shortlist, harvest, shortlist], context: [grep, harvest] } }',
+  'search: { layers: { prompt: [shortlist, harvest, shortlist], context: [grep, harvest] } }',
   'guard: { askOutsideMap: false }',
 ].join('\n');
 
@@ -47,26 +47,6 @@ test('U01 an unknown field is an error rather than being ignored', () => {
     () => parseConfig(`${withProjects('  - { id: web, root: ".", ecosystem: typescript }')}\nreviewModel: sonnet\n`),
     (error: Error & { details?: string[] }) =>
       error.details?.some((detail) => detail.includes('reviewModel')) === true,
-  );
-});
-
-test('a lint check may name the generic adapter; an adapter AMBICODE does not know is refused with the list', () => {
-  const project = (adapter: string): string =>
-    withProjects(
-      [
-        '  - id: web',
-        '    root: .',
-        '    ecosystem: typescript',
-        '    commands: { format: { argv: ["./node_modules/.bin/prettier", "--check", "--", "{files}"] } }',
-        `    checks: { format: { command: format, adapter: ${adapter} } }`,
-      ].join('\n'),
-    );
-
-  assert.equal(parseConfig(project('generic')).projects[0]?.checks['format']?.adapter, 'generic');
-  assert.throws(
-    () => parseConfig(project('prettier')),
-    (error: Error & { details?: string[] }) =>
-      error.details?.some((detail) => detail.includes('checks.format.adapter') && detail.includes('"generic"')) === true,
   );
 });
 
@@ -152,7 +132,7 @@ test('U01 a check must reference a declared command', () => {
             '    root: "."',
             '    ecosystem: typescript',
             '    commands: { lint: null }',
-            '    checks: { lint: { command: linter, adapter: eslint } }',
+            '    checks: { lint: { command: linter } }',
           ].join('\n'),
         ),
       ),
@@ -169,19 +149,6 @@ test('U14 placeholder misuse and shell syntax are rejected at the boundary', () 
   assert.ok(validateArgv('argv', ['eslint . && rm -rf /'])[0]?.includes('not a shell expression'));
 });
 
-test('a config that still has page or remoteChecks loads, drops them and notices each once', () => {
-  const raw = `${withProjects('  - { id: web, root: ".", ecosystem: typescript }')}\npage: { idleTimeoutSeconds: 1800, port: 45831 }\nremoteChecks: { image: null }\n`;
-  const { config, notices } = parseConfigWithNotices(raw);
-  assert.deepEqual(notices.filter((notice) => notice.startsWith('config: ')), ['config: "page" is no longer used; remove it from .ambicode/config.yaml', 'config: "remoteChecks" is no longer used; remove it from .ambicode/config.yaml']);
-  assert.equal(Object.hasOwn(config, 'page'), false);
-});
-
-test('a config that still has workers loads, drops it and notices once', () => {
-  const { config, notices } = parseConfigWithNotices(`${withProjects('  - { id: web, root: ".", ecosystem: typescript }')}\nworkers: { approved: [plan-check] }\n`);
-  assert.deepEqual(notices.filter((notice) => notice.startsWith('config: ')), ['config: "workers" is no longer used; remove it from .ambicode/config.yaml']);
-  assert.equal(Object.hasOwn(config, 'workers'), false);
-});
-
 test('path normalization keeps repository-relative form', () => {
   assert.equal(normalizeRelative('./apps/web/'), 'apps/web');
   assert.equal(normalizeRelative('.'), '');
@@ -191,7 +158,7 @@ test('path normalization keeps repository-relative form', () => {
 const V3_BODY = '  - { id: app, root: ".", ecosystem: typescript, packs: [], commands: {}, checks: {} }';
 
 function atVersion(version: number, extra = ''): string {
-  return `${withProjects(V3_BODY).replace('schemaVersion: 1', `schemaVersion: ${version}`).replace(', lsp: []', '')}${extra}`;
+  return `${withProjects(V3_BODY).replace('schemaVersion: 1', `schemaVersion: ${version}`)}${extra}`;
 }
 
 test('03-C1: schema versions 1, 2 and 3 load; 4 refuses with config-schema-too-new', () => {
@@ -203,17 +170,10 @@ test('03-C2: v3 fields default in memory and parse when present', () => {
   const plain = parseConfig(atVersion(3));
   assert.equal(plain.search.layers, undefined);
   assert.equal(plain.guard.askOutsideMap, false);
-  assert.equal(plain.review.onInvalid, 'void');
 
-  const explicit = parseConfig(
-    atVersion(3, '\nsearch: { layers: { prompt: [shortlist], context: [grep] } }\nguard: { askOutsideMap: true }\n').replace(
-      'maxContextBytes: 524288 }',
-      'maxContextBytes: 524288, onInvalid: drop }',
-    ),
-  );
+  const explicit = parseConfig(atVersion(3, '\nsearch: { layers: { prompt: [shortlist], context: [grep] } }\nguard: { askOutsideMap: true }\n'));
   assert.deepEqual(explicit.search.layers, { prompt: ['shortlist'], context: ['grep'] });
   assert.equal(explicit.guard.askOutsideMap, true);
-  assert.equal(explicit.review.onInvalid, 'drop');
 });
 
 test('03-C2: projects[].commands.format is a valid key, null or a command', () => {
@@ -222,41 +182,16 @@ test('03-C2: projects[].commands.format is a valid key, null or a command', () =
   assert.deepEqual(parseConfig(withProjects(body('{ argv: [prettier, --write, "{files}"] }'))).projects[0]?.commands['format']?.argv, ['prettier', '--write', '{files}']);
 });
 
-test('03-C3: removed fields are accepted in any version, dropped, and noticed once each', () => {
-  const raw = atVersion(3, '\ntask: { lspPlugins: [x] }\nsearch: { exactMaxFiles: 40 }\n').replace('requirements: { mcpServer: null }', 'requirements: { mcpServer: null, lsp: [a] }');
-  const { config, notices } = parseConfigWithNotices(raw);
-  assert.deepEqual(notices, ['config-field-removed: requirements.lsp', 'config-field-removed: task.lspPlugins', 'config-field-removed: search.exactMaxFiles']);
-  assert.equal(Object.hasOwn(config.requirements, 'lsp'), false);
-  assert.equal(Object.hasOwn(config.search, 'index'), false);
-  assert.equal(config.review.model, 'sonnet');
-});
-
-test('03-C4: v1 and v2 files add config-schema-old; v3 adds nothing', () => {
-  assert.deepEqual(parseConfigWithNotices(atVersion(1)).notices, ['config-schema-old: schemaVersion 1 read with v3 defaults; init --apply writes v3']);
-  assert.deepEqual(parseConfigWithNotices(atVersion(2)).notices, ['config-schema-old: schemaVersion 2 read with v3 defaults; init --apply writes v3']);
-  assert.deepEqual(parseConfigWithNotices(atVersion(3)).notices, []);
-});
-
-test('03-C4: loadConfigWithNotices returns the notices and never writes the file', async (t) => {
+test('a stale config fails with one config-invalid error naming every stale key, and loading never writes the file', async (t) => {
+  const stale = atVersion(3, '\nworkers: { approved: [plan-check] }\npage: { port: 1 }\n');
+  assert.throws(() => parseConfig(stale), (error: Error & { code?: string; details?: string[] }) => error.code === 'config-invalid' && /workers/.test((error.details ?? []).join(' ')) && /page/.test((error.details ?? []).join(' ')));
   const directory = await sandbox(t);
   await mkdir(path.join(directory, '.ambicode'), { recursive: true });
   const file = path.join(directory, '.ambicode', 'config.yaml');
-  const raw = atVersion(1);
-  await writeFile(file, raw, 'utf8');
-  const loaded = await loadConfigWithNotices(nodeFileSystem, directory);
-  assert.equal(loaded.notices.length, 1);
-  assert.equal(await readFile(file, 'utf8'), raw);
-  assert.equal((await loadConfig(nodeFileSystem, directory)).config.schemaVersion, 1);
-});
-
-test('03-C4: the notices reach the CLI user once, on stderr', async (t) => {
-  const directory = await sandbox(t);
-  await mkdir(path.join(directory, '.ambicode'), { recursive: true });
-  await writeFile(path.join(directory, '.ambicode', 'config.yaml'), atVersion(1), 'utf8');
-  const runtime = await createRuntime({ cwd: directory, runner: { run: async () => ({ exitCode: 0, stdout: `${directory}\n`, stderr: '' }) } as never });
-  await openWorkspace(runtime).catch(() => undefined);
-  await openWorkspace(runtime).catch(() => undefined);
-  assert.ok((runtime.notices ?? []).length <= 1);
+  await writeFile(file, stale, 'utf8');
+  await assert.rejects(loadConfig(nodeFileSystem, directory), (error: Error & { code?: string }) => error.code === 'config-invalid');
+  assert.equal(await readFile(file, 'utf8'), stale);
+  assert.throws(() => parseConfig('a: [unclosed'), (error: Error & { code?: string }) => error.code === 'config-invalid');
 });
 
 test('03c-S1: search keeps one declaration list and reads no ecosystem', async () => {
@@ -296,7 +231,7 @@ test('03-C6: no ecosystem or language name in routes, step texts or the route en
 
 test('04-T5: requirements.acceptanceField is nullable, defaults to null in every schema version and must be a customfield id', () => {
   const project = '  - { id: web, root: ".", ecosystem: typescript }';
-  const at = (version: number, requirements: string): string => withProjects(project).replace('schemaVersion: 1', `schemaVersion: ${version}`).replace('requirements: { mcpServer: null, lsp: [] }', requirements);
+  const at = (version: number, requirements: string): string => withProjects(project).replace('schemaVersion: 1', `schemaVersion: ${version}`).replace('requirements: { mcpServer: null }', requirements);
   for (const version of [1, 2, 3]) assert.equal(parseConfig(at(version, 'requirements: { mcpServer: null }')).requirements.acceptanceField, null, `v${version}`);
   assert.equal(parseConfig(at(3, 'requirements: { mcpServer: null, acceptanceField: customfield_10042 }')).requirements.acceptanceField, 'customfield_10042');
   assert.equal(parseConfig(at(3, 'requirements: { mcpServer: null, acceptanceField: null }')).requirements.acceptanceField, null);

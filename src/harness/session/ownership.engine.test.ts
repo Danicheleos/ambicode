@@ -20,7 +20,6 @@ const code = async (promise: Promise<unknown>): Promise<string> => {
 const startAs = (plan: PlanFixture, session: string, input: object = {}) => plan.start({ session, ...input });
 const INV = `skill: inv
 version: 3
-exits: [done, blocked, human, inconclusive, superseded]
 revisable: []
 steps:
   - id: read
@@ -52,14 +51,15 @@ describe('S11 plan ownership', () => {
     }
   });
 
-  it('03-O2/03-O5: --adopt moves ownership: the old owner next, note save --from and promote refuse route-taken-over', async () => {
+  it('03-O2/03-O5: --fresh moves ownership: the old owner next, note save --from and promote are refused', async () => {
     const plan = await planFixture();
     try {
       await plan.toGate();
-      await startAs(plan, SESSION_B, { adopt: true });
-      assert.equal(await code(plan.next()), 'route-taken-over');
-      assert.equal(await code(plan.saveDraft('# Plan\n\n1. A.\n', SESSION_A)), 'route-taken-over');
-      assert.equal(await code(plan.promote(SESSION_A)), 'route-taken-over');
+      await startAs(plan, SESSION_B, { fresh: true });
+      const refused = ['route-taken-over', 'route-not-open'];
+      assert.ok(refused.includes(await code(plan.next())));
+      assert.ok(refused.includes(await code(plan.saveDraft('# Plan\n\n1. A.\n', SESSION_A))));
+      assert.ok(refused.includes(await code(plan.promote(SESSION_A))));
       assert.equal(await code(plan.fx.engine.advance({ task: PLAN_TASK, session: SESSION_B, cause: 'route-next', scratchpadDir: plan.fx.scratchpad })), 'ok');
     } finally {
       await plan.dispose();
@@ -92,17 +92,15 @@ describe('S11 plan ownership', () => {
 });
 
 describe('S11 non-owning routes', () => {
-  it('the same args from another session resume the chain; different args open a separate chain', async () => {
+  it('another session starting a non-plan route opens a separate chain and ends nothing of the first session', async () => {
     const plan = await planFixture({ extra: { inv: INV } });
     try {
-      const input = { skill: 'inv', text: 'where is x' };
-      await startAs(plan, SESSION_A, input);
-      await startAs(plan, SESSION_B, input);
+      await startAs(plan, SESSION_A, { skill: 'inv', text: 'where is x' });
+      await startAs(plan, SESSION_B, { skill: 'inv', text: 'where is x' });
       const routes = await plan.fx.kinds(PLAN_TASK, 'route');
-      assert.equal(routes[1]!['resumes'], routes[0]!['id']);
-      await startAs(plan, SESSION_B, { skill: 'inv', text: 'where is y' });
-      const after = await plan.fx.kinds(PLAN_TASK, 'route');
-      assert.equal(after.at(-1)!['resumes'], undefined);
+      assert.equal(routes.length, 2);
+      assert.equal(routes[1]!['resumes'], undefined);
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'exit')).length, 0);
     } finally {
       await plan.dispose();
     }

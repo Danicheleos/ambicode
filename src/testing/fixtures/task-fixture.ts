@@ -10,7 +10,7 @@ import type { LedgerEntry } from '#types/modules/evidence';
 import type { AdvanceInput, StartInput, StepMessage } from '#types/harness';
 import { SESSION_A } from './ids.ts';
 
-const STEPS = ['plan/fetch', 'task/red', 'task/green', 'task/fix', 'task/write', 'review/agent'];
+const STEPS = ['plan/fetch', 'task/red', 'task/green', 'task/fix', 'task/write', 'task/review', 'review/agent'];
 
 export const ORDERS = 'export function total(amounts: number[]): number {\n  return amounts.reduce((a, b) => a + b);\n}\n';
 
@@ -49,14 +49,14 @@ export async function taskFixture(options: { config?: string; pack?: string } = 
     return next({ cause: 'format', produced: [entry.id] });
   };
   /** What `review --task` leaves: the result file and the `review` entry, then the tail. */
-  const review = async (findings: Finding[], extra: { waiting?: string[]; reviewerRan?: boolean } = {}): Promise<StepMessage> => {
+  const review = async (findings: Finding[], extra: { reviewerRan?: boolean } = {}): Promise<StepMessage> => {
     reviews += 1;
     const reviewId = `r-${reviews}`;
     const result = path.join('.ambicode', 'task', CHECK_TASK, 'reviews', reviewId, 'result.json');
     await fx.repo.write(result, JSON.stringify({ ...reviewResult({ kind: 'working', findings }), reviewId, brief: path.join('.ambicode', 'task', CHECK_TASK, 'reviews', reviewId, 'brief.md') }));
-    await fx.repo.write(path.join('.ambicode', 'task', CHECK_TASK, 'reviews', reviewId, 'snapshot-path.txt'), '/tmp/snapshot-x\n');
+    await fx.repo.write(path.join('.ambicode', 'task', CHECK_TASK, 'reviews', reviewId, 'changed.diff'), 'diff --git a/src/orders.ts b/src/orders.ts\n--- a/src/orders.ts\n+++ b/src/orders.ts\n@@ -1 +1 @@\n-a\n+b\n');
     const ran = extra.reviewerRan ?? true;
-    const entry = await append({ kind: 'review', reviewId, result, status: 'partial', stage: ran ? 'recorded' : 'pending', reviewerRan: ran, findings: findings.length, waiting: extra.waiting ?? [] });
+    const entry = await append({ kind: 'review', reviewId, result, status: 'partial', stage: ran ? 'recorded' : 'pending', reviewerRan: ran, findings: findings.length });
     return next({ cause: ran ? 'review record' : 'review', produced: [entry.id] });
   };
   /** Edits the committed source, so `src/orders.ts` is in the touched set. */

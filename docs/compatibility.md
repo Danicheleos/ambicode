@@ -30,11 +30,10 @@ environment for it.
 
 The subagent runs inside the user's own session, so the boundary is the
 tool allowlist in the agent file and nothing stronger: the session's hooks,
-settings and managed policy still apply to it. The snapshot it is told to read
-is a sanitized copy of the reviewed revision, and the product checkout is not
-named in its prompt. What was not established: that a running subagent cannot
-read outside the snapshot with `Read`. That is a property of Claude Code's
-tool permissions, not something AMBICODE enforces.
+settings and managed policy still apply to it. It reads the checkout and the
+diff file its request names. It cannot run commands or post, but it can `Read`
+any file the session can. That is a property of Claude Code's tool permissions,
+not something AMBICODE enforces.
 
 The answer is not trusted. Claude pastes the subagent's JSON block into
 `review record --task <slug>`, which validates every finding against the pinned
@@ -44,61 +43,26 @@ block is missing or invalid. Fixtures for answer shapes are in
 
 ## Check runners
 
-Affected tests come from a configured `mapping` selector; no runner is asked to list them. Lint is file-scoped.
+Affected tests come from the configured `mapping`; no runner is asked to list them. Lint is file-scoped.
 
 ## Review input limits
 
-`review.maxContextBytes` bounds **everything the model is handed**, measured in
-encoded UTF-8 bytes before the reviewer is invoked:
+`review.maxContextBytes` bounds what the review's own input weighs: the patch
+plus the requirement content, in encoded UTF-8 bytes, checked before the
+reviewer is invoked (`enforceReviewInputLimits` in
+`src/modules/review/snapshot/change.ts`). The reviewer reads the code from the
+checkout, so no copy of it counts. `ReviewInputs` records `patchBytes`,
+`requirementBytes` and `contextBytes`, and a refusal prints the patch and
+requirement components.
 
-- the composed canonical prompt — the shared contract and reviewer role, the
-  scoped policy rules and prompt files, the requirement content, the check evidence and the patch;
-- the files mirrored into the snapshot, which the reviewer reads.
-
-The patch alone is not the review's context, and neither is the patch plus the
-mirror: a requirement document and the scoped policy are bytes the model sees.
-The bundle composes the prompt and applies the limit to `promptBytes +
-snapshotBytes` before returning, so the refusal happens before any caller can
-reach a reviewer. `ReviewInputs` records `patchBytes`, `requirementBytes`,
-`promptBytes`, `snapshotBytes` and `contextBytes`, and a refusal prints each.
-
-Re-measured this session (doc 04 P2.4 correction E, since the prompt is now
-composed as separate system/user parts rather than one concatenated string)
-on a one-line edit in a fresh minimal TypeScript fixture with the built
-artifact: 266 patch bytes, 104 mirrored bytes, **16,969 prompt bytes**
-(`system` + `user` combined), 17,073 model-input bytes. A limit that counted
-only patch plus mirror (370 bytes) would have under-measured that review by
-roughly a factor of 46 — the exact ratio depends on the fixture's canonical
-prompt/policy overhead relative to its patch size, so the ratio itself is
-illustrative, not a constant; what is invariant is that patch-plus-mirror is
-never the actual context size.
-
-Two further consequences follow, both deliberate:
-
-- Changed files are mirrored regardless of the limit, because a review that
-  quietly dropped part of a change would report on half of it. If the changed
-  files alone exceed the limit, the review is refused and names the measurement.
-- Unchanged sibling files are discretionary context, so they stop at the
-  remaining budget instead of pushing the review over it. What was trimmed is
-  counted in the result's omissions. The budget subtracts an estimate of the
-  prompt overhead — canonical prompts, policy, requirements, patch,
-  plus a fixed `PROMPT_EVIDENCE_RESERVE_BYTES` reserve for the check and
-  omission sections written afterwards — so trimming is decided against what is
-  actually left. The exact measurement of the finished prompt still decides.
-- A requirement larger than the limit refuses the review before the snapshot is
-  planned and before any process runs. Requirements are never trimmed.
-
-`ambicode review` reports the split (`N model-input
-byte(s) (P prompt, of which … patch and … requirements, + M mirrored)`) so a
-refusal can be acted on without guessing which part was large.
-
-Unchanged lockfiles are skipped as sibling context. A lockfile the change
-*touches* is still reviewed — that decision is recorded in
-`src/util/path-classes.ts` and stands — but an untouched one beside a changed
-source file tells a reviewer nothing while being the largest file in the
-directory. Measured on the `ts-source-regression` fixture with dependencies
-installed: a two-line source edit carried 195,977 context bytes before this
-rule and 581 after it.
+- The change is never truncated to fit. If the patch alone exceeds the limit the
+  review is refused (`input-too-large`) and names the measurement and the five
+  largest changed files.
+- A requirement is never trimmed either.
+- Unchanged lockfiles are not part of the patch, so they cost nothing. A
+  lockfile the change *touches* is still reviewed (`src/util/path-classes.ts`).
+- `--exclude <glob>` and `review.excludePaths` narrow the patch deliberately; the
+  report states the gap.
 
 ## GitLab merge requests
 
@@ -156,8 +120,8 @@ and `AskUserQuestion`), `PreToolUse` (all routed to
 exec form through command `node` with arguments
 `${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs`, `hook`. This avoids shell parsing
 and works when the plugin path contains spaces or the host has no POSIX shell.
-The `Skill` and `Edit|Write` `PostToolUse` entries are no longer registered; the
-edit-reminder code stays in the source, unregistered. The count that
+The `Skill` and `Edit|Write` `PostToolUse` entries are no longer registered, and the
+edit-reminder code is removed. The count that
 `claude plugin details ambicode@ambicode-team` reports for these events was
 measured as `Hooks (5)` before `PreToolUse` and `Stop` were registered and has
 not been re-measured against this manifest.
@@ -165,14 +129,14 @@ not been re-measured against this manifest.
 `ambicode hook` reads a hook invocation's JSON payload from stdin (fields
 confirmed against 2.1.272: `session_id`, `agent_id` (present only for a
 subagent invocation, absent for the main agent), `cwd`, `scratchpad_dir`,
-`hook_event_name`, `tool_name`, `tool_input.file_path`) and, for a
-`PostToolUse` Edit/Write inside a configured repository with an applicable
-`remindOnEdit` rule not yet delivered this session epoch, replies with
-`{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext":
+`hook_event_name`, `tool_name`, `tool_input.file_path`). It replies with
+`{"hookSpecificOutput": {"hookEventName": "<event>", "additionalContext":
 "…"}}` — the documented contract for surfacing text back into the
 conversation from a hook, never a permission decision or a blocking exit
-code. `SessionStart` and `PostCompact` reset the per-session delivery epoch so a
-reminder can fire again after a context compaction or a fresh session.
+code. The operating contract and the active route step are delivered once per
+context: one `delivered/<kind>` marker per session holds the last value
+delivered, and `SessionStart` and `PostCompact` clear them so both arrive again
+after a compaction or a fresh session.
 
 A probe on 2026-10-05 (Claude Code 2.1.289, interactive dialog,
 `plan/migration-v6-reports/step-03/probe-p2-p48.md`) observed that a
@@ -301,7 +265,7 @@ Recorded per plan/11. No new runtime dependency was added for these.
 
 | Capability | Component | Evidence |
 |---|---|---|
-| CLI arguments | Node 24 `util.parseArgs` | Strict mode, positionals, `multiple` for repeatable `--approve`, `--decline` and `--requirement`, and `--` handled by the platform. Parsed once in `main` before `createRuntime`, so a rejected argument reaches no process or file (U27). Combination rules (`--branch` versus `--mr`, `--base` only with `--branch`) are applied in `main` immediately after parsing and still before `createRuntime`. Only commands that declare `positionals` (`route`, `check`, `format`, `policy check`) accept an operand; every other command rejects one. |
+| CLI arguments | Node 24 `util.parseArgs` | Strict mode, positionals, `multiple` for repeatable `--requirement`, and `--` handled by the platform. Parsed once in `main` before `createRuntime`, so a rejected argument reaches no process or file (U27). Combination rules (`--branch` versus `--mr`, `--base` only with `--branch`) are applied in `main` immediately after parsing and still before `createRuntime`. Only commands that declare `positionals` (`route`, `check`, `format`, `policy check`) accept an operand; every other command rejects one. |
 | Temporary directories | `FileSystem.temporaryDirectory` | The adapter owns the host location; no domain module calls `tmpdir()`. |
 | Process execution | `execa` behind `ProcessRunner` | See the dependency record below. |
 | Binary content | `isbinaryfile` on bytes | See the dependency record below. |

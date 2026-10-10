@@ -14,7 +14,6 @@ export const PLAN_TASK = 'ORD-17';
 /** A plan-shaped route: the S2–S5 and S10–S14 mechanisms run on it until the real plan route ships (step 06). */
 export const PLAN = `skill: plan
 version: 3
-exits: [done, blocked, human, inconclusive, superseded]
 revisable: [design]
 steps:
   - id: design
@@ -41,10 +40,8 @@ steps:
       object: "note{plan-draft}"
       options: [Accept, Revise, Reject]
       default: Reject
-      release: Reject
       acting: [Accept, Revise]
       onAnswer: { Revise: revise design }
-      maxRevises: 3
   - id: promote
     actor: code
     when: gate.plan-accept.is(Accept)

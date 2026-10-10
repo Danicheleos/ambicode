@@ -34,7 +34,7 @@ describe('skills/rules/scripts', () => {
     }
   });
 
-  it('context.mjs lists the existing pack ids once a source is chosen, and stops when none is', async () => {
+  it('chosen.mjs lets the route reach draft once a source is chosen', async () => {
     const root = await materialized('ts-feature-boundary');
     try {
       await writeFile(path.join(root, 'CONTRIBUTING.md'), '# Contributing\n');
@@ -43,8 +43,7 @@ describe('skills/rules/scripts', () => {
       const print = (await ledger()).findLast((entry) => entry['kind'] === 'gate' && entry['gate'] === 'sources')!;
       const next = await engine.advance({ task: first.task, session: SESSION, cause: 'gate-hook', answers: [{ gate: 'sources', option: 'use these sources', instance: print['id'] as string }] });
       assert.equal(next.position, 'draft');
-      assert.match(next.text, /## script:context/);
-      assert.match(next.text, /\w+: [\w-]+/);
+      assert.match(next.text, /config\.yaml/);
     } finally {
       await rm(path.dirname(root), { recursive: true, force: true });
     }

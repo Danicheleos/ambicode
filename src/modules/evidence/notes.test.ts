@@ -91,15 +91,12 @@ describe('note save: kinds, bodies and headers', () => {
     });
   });
 
-  it('02-N2: --iteration puts the header on the first line, replaces an old one, and is for notes only', async () => {
+  it('02-N2: --iteration is recorded in the entry, not stamped into the file, and is for notes only', async () => {
     await inRepo(async (repo) => {
       const deps = { runtime: await runtimeFor(repo), session: null, context: null };
       const first = await save(deps, 'notes', 'step one done', { iteration: 1 });
-      const second = await save(deps, 'notes', '<!-- ambicode iteration: 1 done -->\nstep two done', { iteration: 2 });
-      const text = await readFile(path.join(repo.root, second.path), 'utf8');
-      assert.equal(text.split('\n')[0], '<!-- ambicode iteration: 2 done -->');
-      assert.equal(text.match(/iteration/g)?.length, 1);
-      assert.match(text, /\*\*task note\*\*\n\nstep two done/);
+      const second = await save(deps, 'notes', 'step two done', { iteration: 2 });
+      assert.equal(await readFile(path.join(repo.root, second.path), 'utf8'), 'step two done\n');
       assert.equal(first.entry.iteration, 1);
       assert.equal(second.entry.iteration, 2);
       for (const bad of [0, 1.5, -1]) await assert.rejects(save(deps, 'notes', 'x', { iteration: bad }), { field: 'iteration' });
@@ -108,14 +105,14 @@ describe('note save: kinds, bodies and headers', () => {
     });
   });
 
-  it('02-N3: a plan-draft is stamped, labelled as a draft, collision-suffixed and recorded', async () => {
+  it('02-N3: a plan-draft is stamped, collision-suffixed and recorded, with the author\'s words only', async () => {
     await inRepo(async (repo) => {
       const deps = { runtime: await runtimeFor(repo), session: null, context: null };
       const first = await save(deps, 'plan-draft', '# Plan A');
       const second = await save(deps, 'plan-draft', '# Plan B');
       assert.match(second.path, /plan-draft_2026-10-02T14-35-2\.md$/);
       const text = await readFile(path.join(repo.root, first.path), 'utf8');
-      assert.equal(text, '**plan draft** — acceptance is recorded by `note promote`, not in this file.\n\n# Plan A\n');
+      assert.equal(text, '# Plan A\n');
       assert.deepEqual(
         { ...first.entry },
         { id: 'feedbeef-1', at: first.entry.at, kind: 'note', note: 'plan-draft', path: first.path, contentHash: contentHash(text) },
@@ -136,15 +133,15 @@ describe('note save: kinds, bodies and headers', () => {
 
 describe('02-N4: a plan-draft is saved only by the owner of the live plan route', () => {
   const live = [route(`${A}-1`, A)];
-  const takenOver = [route(`${A}-1`, A), route(`${B}-1`, B, { resumes: `${A}-1`, adopts: true })];
+  const takenOver = [route(`${A}-1`, A), { id: `${A}-2`, at: 't', kind: 'exit', route: `${A}-1`, reason: 'superseded' }, route(`${B}-1`, B)];
   const cases: { label: string; ledger: (object | string)[] | null; session: string | null; allowed?: { id: RegExp; route: string | null }; code?: string }[] = [
     { label: 'no ledger: routeless', ledger: null, session: null, allowed: { id: /^feedbeef-1$/, route: null } },
     { label: 'no live plan route: routeless', ledger: [route(`${A}-1`, A), { id: `${A}-2`, at: 't', kind: 'exit', route: `${A}-1`, reason: 'done' }], session: A, allowed: { id: new RegExp(`^${A}-3$`), route: null } },
     { label: 'the owner', ledger: live, session: A, allowed: { id: new RegExp(`^${A}-2$`), route: `${A}-1` } },
-    { label: 'the owner after an adoption', ledger: takenOver, session: B, allowed: { id: new RegExp(`^${B}-2$`), route: `${B}-1` } },
+    { label: 'the owner after a restart', ledger: takenOver, session: B, allowed: { id: new RegExp(`^${B}-2$`), route: `${B}-1` } },
     { label: 'an owned route and no session', ledger: live, session: null, code: 'session-unbound' },
-    { label: 'a session that was taken over', ledger: takenOver, session: A, code: 'route-taken-over' },
-    { label: 'any other session', ledger: live, session: 'cccccccc', code: 'route-busy' },
+    { label: 'a session whose route was superseded', ledger: takenOver, session: A, code: 'route-taken-over' },
+    { label: 'any other session', ledger: live, session: 'cccccccc', code: 'route-taken-over' },
     { label: 'two live plan routes: unknown', ledger: [route(`${A}-1`, A), route(`${B}-1`, B)], session: A, code: 'ledger-unreadable' },
     { label: 'a torn ledger: unknown', ledger: [route(`${A}-1`, A), '{"id":"aaaaaaaa-2","at":'], session: A, code: 'ledger-unreadable' },
   ];
@@ -365,7 +362,8 @@ describe('note promote: the accepted draft, and only that draft, becomes the pla
       await scenario.append({ kind: 'acceptance', route: scenario.routeId, gate: 'plan-accept', instance: 'zzzzzzzz-99', answer: 'Accept', via: 'hook', object: gate.object });
       await assert.rejects(scenario.promote(), refused('unbound'));
       await scenario.answer(gate, 'Accept');
-      await scenario.append(route(`${B}-1`, B, { resumes: `${A}-1`, adopts: true }));
+      await scenario.append({ id: `${A}-98`, at: 't', kind: 'exit', route: `${A}-1`, reason: 'superseded' });
+      await scenario.append(route(`${B}-1`, B));
       await assert.rejects(scenario.promote(), { code: 'route-taken-over' });
     });
     await inRepo(async (repo) => {
@@ -387,7 +385,7 @@ describe('note promote: the accepted draft, and only that draft, becomes the pla
     });
   });
 
-  it('02-P7/S10: a crash after the rename and before the entry is repaired by the next call, with no new consent and no rename', async () => {
+  it('02-P7/S10: a crash after the rename and before the entry is not repaired: the draft is gone, so the next call is plan-draft-missing', async () => {
     await inRepo(async (repo) => {
       const crashing: FileSystem = {
         ...nodeFileSystem,
@@ -403,18 +401,12 @@ describe('note promote: the accepted draft, and only that draft, becomes the pla
       assert.deepEqual(await scenario.files(), ['plan_2026-10-02T14-35.md']);
       assert.equal(await scenario.count('note', 'plan'), 0);
 
-      const renames: string[] = [];
-      scenario.runtime = await runtimeFor(repo, { ...nodeFileSystem, rename: async (from, to) => void renames.push(from, to) });
-      const consent = (await entriesOf(repo)).length;
-      const repaired = await scenario.promote();
-      assert.equal(repaired.outcome, 'repaired');
-      assert.deepEqual(renames, []);
-      assert.equal((await entriesOf(repo)).length, consent + 1);
-      assert.equal((await scenario.promote()).outcome, 'plan-already-promoted');
+      scenario.runtime = await runtimeFor(repo);
+      await assert.rejects(scenario.promote(), { code: 'plan-draft-missing' });
     });
   });
 
-  it('02-P7: neither file present is plan-draft-missing; a plan file with other bytes is object-changed', async () => {
+  it('02-P7: a missing draft is plan-draft-missing, whatever file stands in its place', async () => {
     await inRepo(async (repo) => {
       const scenario = await Scenario.start(repo);
       const draft = await scenario.draft('# Plan');
@@ -422,7 +414,7 @@ describe('note promote: the accepted draft, and only that draft, becomes the pla
       await rm(path.join(repo.root, draft.path));
       await assert.rejects(scenario.promote(), { code: 'plan-draft-missing' });
       await writeFile(path.join(repo.root, draft.path.replace('plan-draft_', 'plan_')), 'other bytes');
-      await assert.rejects(scenario.promote(), refused('object-changed'));
+      await assert.rejects(scenario.promote(), { code: 'plan-draft-missing' });
     });
   });
 });

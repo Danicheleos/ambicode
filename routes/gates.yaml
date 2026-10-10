@@ -1,60 +1,26 @@
-requirements-server-disconnected:
-  question: "The requirement server is not connected. Continue without the requirement?"
-  options: ["continue without", "stop"]
-  default: "continue without"
-  release: "stop"
-  policy: { review: stop }
-requirements-server-ambiguous:
-  question: "More than one requirement server is connected. Which one does this repository use?"
-  options: ["{servers…}", "continue without"]
-  default: "continue without"
-  release: "continue without"
-  policy: { review: stop }
-requirements-expansion-capped:
-  question: "The requirement links more than 10 child items. Read them?"
-  options: ["read all", "read these: {keys}", "none"]
-  default: "none"
-  release: "none"
 requirements-not-captured-twice:
   question: "The requirement was fetched twice and nothing was captured. Continue without it?"
   options: ["continue without", "stop"]
   default: "continue without"
-  release: "stop"
   policy: { review: stop }
 check-only-unauthorized:
   question: "Run {key} on {files}? (policy: propose)"
   options: [approve, decline]
   default: decline
-  release: decline
   acting: [approve]
   onAnswer: { approve: "revise $raisedBy" }
-review-checks:
-  question: "Checks waiting: {key}. The reviewer has not run yet. Run the review with them, without them, or no review?"
-  options: [with, without, "no review"]
-  default: without
-  release: without
-  acting: [with]
-  onAnswer: { with: "revise $raisedBy", without: "revise $raisedBy" }
 review-again:
   question: "The fix changed the code after the review. Run the independent review again?"
   options: [run, skip]
   default: skip
-  release: skip
   acting: [run]
   onAnswer: { run: "revise review-cmd" }
-  maxRevises: 2
-scope-expanding:
-  question: "This finding is outside the brief: {finding}. Treat as out of scope?"
-  options: ["out of scope", "include"]
-  default: "out of scope"
-  release: "out of scope"
+  repeat: 2
 project-ambiguous:
   question: "Two projects match. Which one?"
   options: ["{projects…}", "stop"]
   default: "stop"
-  release: "route next --project <id>"
 "decision:*":
   question: "A decision the plan depends on."
   options: ["keep open"]
   default: "keep open"
-  release: "keep open"

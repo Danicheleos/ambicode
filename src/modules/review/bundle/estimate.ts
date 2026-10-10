@@ -1,19 +1,14 @@
 import { type ReviewEstimate, type AssembleOptions } from '#types/modules/review';
 import { tokenize } from '#util/text';
 import { AmbicodeError } from '#util/errors';
-import { authorizeCommand, checkApprovalKey } from '#modules/checks/selection/authorize';
-import { isLintAdapter, selectLintFiles, selectTestFiles } from '#modules/checks/selection/select';
-import { assembleBundle, groupByProject } from './bundle.ts';
+import { assembleBundle } from './bundle.ts';
 import type { Runtime } from '#types/composition';
 import type { DiffFile } from '#types/platform/git';
-
-export const MAX_ESTIMATE_BYTES = 2_048;
 
 const SUGGESTED_EXCLUDES = 3;
 
 /** `--exclude` lines a limit refusal can be passed with (08-E3). */
-export function refusalSuggestions(refusal: AmbicodeError, files: readonly DiffFile[]): string[] {
-  if (refusal.code === 'snapshot-too-large') return refusal.details.filter((line) => /^\s*--exclude "/.test(line)).map((line) => line.trim());
+export function refusalSuggestions(files: readonly DiffFile[]): string[] {
   const pathOf = (file: DiffFile): string => file.newPath ?? file.oldPath ?? '';
   const largest = [...files].sort((a, b) => b.addedLines + b.removedLines - (a.addedLines + a.removedLines)).slice(0, SUGGESTED_EXCLUDES);
   const top = [...new Set(files.map(pathOf).filter((file) => file.includes('/')).map((file) => file.split('/')[0]!))];
@@ -35,70 +30,26 @@ export function parseNarrow(text: string): { onlyPaths: string[]; excludePaths: 
   return narrowed;
 }
 
-/** The review measured without writing a snapshot, running a check or a selector, or appending to a ledger (07-E1 … 07-E3). */
+/** The review measured without writing anything or appending to a ledger (07-E1 … 07-E3). */
 export async function estimateReview(runtime: Runtime, options: AssembleOptions): Promise<ReviewEstimate> {
   const dry = await assembleBundle({ ...options, runtime, dryRun: true });
-  const changedOf = new Map(groupByProject(dry.workspace, dry.files).map((entry) => [entry.project.id, entry.changed]));
   const target = dry.target.kind === 'branch' ? `branch ${dry.target.baseRef ?? dry.target.baseSha?.slice(0, 12) ?? "base"}..HEAD` : 'working tree';
-  const checks: ReviewEstimate['checks'] = [];
-  for (const { project, policy } of dry.policies) {
-    for (const checkId of Object.keys(project.checks).sort()) {
-      const key = checkApprovalKey(project.id, checkId);
-      const check = project.checks[checkId];
-      const command = check === null || check === undefined ? undefined : project.commands[check.command];
-      if (check === null || check === undefined || command === null || command === undefined) {
-        checks.push({ key, decision: 'skip', reason: check == null ? 'not configured' : `command "${check.command}" is not configured` });
-        continue;
-      }
-      const authorization = authorizeCommand({ policy, commandId: check.command, approvalKey: key, approvals: options.approvals });
-      if (authorization.kind === 'refused') {
-        checks.push({ key, decision: 'forbid', reason: authorization.reason });
-        continue;
-      }
-      const lint = isLintAdapter(check.adapter);
-      const select = {
-        fs: runtime.fs, project, check, changed: changedOf.get(project.id) ?? [], repositoryRoot: dry.workspace.repositoryRoot,
-        maxSelectedTestFiles: dry.workspace.config.checks.maxSelectedTestFiles,
-      };
-      const selection = lint ? selectLintFiles(select) : await selectTestFiles(select);
-      if (selection.files.length === 0) {
-        checks.push({ key, decision: 'skip', reason: selection.complete ? 'no changed file is in scope' : (selection.limitations[0] ?? 'no test file could be selected') });
-      } else if (authorization.kind === 'allowed' && selection.approval === null) checks.push({ key, decision: 'run', reason: null });
-      else checks.push({ key, decision: options.declines.has(key) ? 'skip' : 'waiting', reason: options.declines.has(key) ? 'declined' : (selection.approval?.reason ?? (authorization.kind === 'needs-approval' ? authorization.reason : 'needs authorization')) });
-    }
-  }
   return {
     target,
     files: dry.files.length,
     changedLines: dry.files.reduce((total, file) => total + file.addedLines + file.removedLines, 0),
-    checks,
-    waitingKeys: checks.filter((check) => check.decision === 'waiting').map((check) => check.key),
-    snapshotBytes: dry.plan?.totalBytes ?? null,
-    refusal: dry.refusal === null ? null : { code: dry.refusal.code as 'input-too-large', message: dry.refusal.message, suggestions: refusalSuggestions(dry.refusal, dry.files) },
+    refusal: dry.refusal === null ? null : { code: 'input-too-large', message: dry.refusal.message, suggestions: refusalSuggestions(dry.files) },
   };
 }
 
 const more = (count: number): string => `… ${count} more`;
 
-/** Refusal and its suggestions first; lists are cut with "… N more" to stay within 2,048 bytes (08-E5). */
+/** Refusal and its suggestions first; the suggestion list is cut with "… N more" to stay within 2,048 bytes (08-E5). */
 export function renderEstimate(estimate: ReviewEstimate): string {
   const refusal = estimate.refusal === null ? [] : [
-    `refused before the snapshot: ${estimate.refusal.code}: ${estimate.refusal.message}`.slice(0, 300),
+    `refused before the reviewer: ${estimate.refusal.code}: ${estimate.refusal.message}`.slice(0, 300),
     ...estimate.refusal.suggestions.slice(0, 6).map((line) => `  ${line}`.slice(0, 160)),
     ...(estimate.refusal.suggestions.length > 6 ? [`  ${more(estimate.refusal.suggestions.length - 6)}`] : []),
   ];
-  const head = [
-    ...refusal,
-    `Review estimate: ${estimate.target} · ${estimate.files} file(s) · ${estimate.changedLines} changed line(s) · snapshot ${estimate.snapshotBytes === null ? 'not planned' : `${estimate.snapshotBytes} bytes`}`,
-  ];
-  const waiting = estimate.waitingKeys.length <= 8 ? estimate.waitingKeys.join(', ') : `${estimate.waitingKeys.slice(0, 8).join(', ')}, ${more(estimate.waitingKeys.length - 8)}`;
-  const tail = [
-    `waiting: ${estimate.waitingKeys.length === 0 ? 'none' : waiting}`.slice(0, 300),
-  ];
-  const lines = estimate.checks.map((check) => `  ${check.key} ${check.decision}${check.reason === null ? '' : ` — ${check.reason}`}`.slice(0, 160));
-  const size = (shown: number): number => Buffer.byteLength([...head, 'checks:', ...lines.slice(0, shown), `  ${more(lines.length - shown)}`, ...tail].join('\n'));
-  let shown = lines.length;
-  while (shown > 0 && size(shown) > MAX_ESTIMATE_BYTES) shown -= 1;
-  const cut = shown < lines.length ? [`  ${more(lines.length - shown)}`] : [];
-  return [...head, 'checks:', ...lines.slice(0, shown), ...cut, ...tail].join('\n');
+  return [...refusal, `Review estimate: ${estimate.target} · ${estimate.files} file(s) · ${estimate.changedLines} changed line(s)`].join('\n');
 }

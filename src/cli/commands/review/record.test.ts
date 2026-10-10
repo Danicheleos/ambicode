@@ -1,6 +1,6 @@
 import { afterEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 // @ts-expect-error untyped fixture modules
@@ -31,8 +31,8 @@ async function pending() {
   await materialize(fixtureByName('ts-source-regression'), root, { ambicodeInit: true });
   const runtime = await createRuntime({ cwd: root });
   const reviewed = await runReview(runtime, parseArgs('review', ['--task', TASK], REVIEW_OPTIONS));
-  const file = reviewed.result.changedFiles.find((entry) => entry.included)!;
-  const diff = combineDiff([{ oldPath: file.oldPath, newPath: file.newPath, changeKind: file.changeKind, oldMode: '', newMode: '' }], await readFile(path.join(reviewed.snapshotDirectory, 'changed.diff'), 'utf8'))[0]!;
+  const file = reviewed.result.changedFiles.find((entry) => entry.exclusionReason === null)!;
+  const diff = combineDiff([{ oldPath: file.oldPath, newPath: file.newPath, changeKind: file.changeKind, oldMode: '', newMode: '' }], await readFile(path.join(reviewed.reviewDirectory, 'changed.diff'), 'utf8'))[0]!;
   const line = [...addressableLines(diff, 'new')][0]!;
   const location = (at: number) => ({ oldPath: file.oldPath, newPath: file.newPath, side: 'new', line: at });
   const finding = (at: number) => ({ risk: 'high', confidence: 'high', category: 'correctness', location: location(at), explanation: 'drops the last element', suggestedComment: 'check the slice end' });
@@ -54,7 +54,7 @@ describe('review record', () => {
     const t = await pending();
     const out = await t.record(`Here is my review.\n\`\`\`json\n${JSON.stringify({ findings: [t.finding(t.line)], coverageNotes: ['did not run the tests'] })}\n\`\`\`\n`);
     assert.equal(out.result.findings.length, 1);
-    assert.equal(out.result.findings[0]!.evidence === '', false, 'the excerpt comes from the snapshot');
+    assert.equal(out.result.findings[0]!.evidence === '', false, 'the excerpt comes from the checkout');
     assert.equal(out.result.reviewer?.status, 'ok');
     assert.notEqual(out.result.status, 'error');
     const entry = (await t.ledger()).findLast((candidate) => candidate.kind === 'review')!;
@@ -63,6 +63,16 @@ describe('review record', () => {
     const text = renderRecord(out);
     for (const heading of ['1. WHAT WAS REVIEWED', '2. FINDINGS', '3. CHECKS AND VERIFICATION EVIDENCE', '4. OMISSIONS, UNCERTAINTY AND UNAVAILABLE COVERAGE']) assert.ok(text.includes(heading), heading);
     assert.match(text, /did not run the tests/);
+  });
+
+  it('the excerpt is read from the checkout at record time, not from a mirror', async () => {
+    const t = await pending();
+    const target = path.join(t.root, t.reviewed.result.changedFiles.find((entry) => entry.exclusionReason === null)!.newPath!);
+    const lines = (await readFile(target, 'utf8')).split('\n');
+    lines[t.line - 1] = 'const markerFromTheCheckout = 1;';
+    await writeFile(target, lines.join('\n'));
+    const out = await t.record(`\`\`\`json\n${JSON.stringify({ findings: [t.finding(t.line)], coverageNotes: [] })}\n\`\`\``);
+    assert.match(out.result.findings[0]!.evidence, /markerFromTheCheckout/);
   });
 
   it('bare JSON is accepted as well as a fenced block', async () => {
@@ -88,10 +98,17 @@ describe('review record', () => {
     assert.match(out.result.reviewer!.rejections[0]!, /not JSON/);
   });
 
-  it('refuses when nothing is pending, and when the review was already recorded', async () => {
+  it('a review with no check recorded is partial, and says so in part 3', async () => {
+    const t = await pending();
+    const out = await t.record(JSON.stringify({ findings: [], coverageNotes: [] }));
+    assert.equal(out.result.status, 'partial');
+    assert.match(renderRecord(out), /No check recorded/);
+  });
+
+  it('refuses when nothing is pending, whether it was already recorded or never made', async () => {
     const t = await pending();
     await t.record(JSON.stringify({ findings: [] }));
-    await assert.rejects(t.record(JSON.stringify({ findings: [] })), (error: Error & { code?: string }) => error.code === 'review-recorded' || error.code === 'review-not-found');
+    await assert.rejects(t.record(JSON.stringify({ findings: [] })), (error: Error & { code?: string }) => error.code === 'review-not-found');
     await assert.rejects(t.record('{}', '--review', 'no-such-review'), (error: Error & { code?: string }) => error.code === 'review-not-found');
   });
 });

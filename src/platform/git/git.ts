@@ -141,13 +141,6 @@ export class Git {
     return sha === '' ? null : sha;
   }
 
-  async originHead(): Promise<string | null> {
-    const output = await this.exec(['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD'], true);
-    const ref = output.trim();
-    if (ref === '') return null;
-    return ref.replace(/^refs\/remotes\//, '');
-  }
-
   async unmergedPaths(): Promise<string[]> {
     const output = await this.exec(['ls-files', '--unmerged', '-z'], true);
     const paths = new Set<string>();
@@ -245,20 +238,6 @@ export class Git {
     if (outcome.exitCode === 1) return [];
     if (outcome.exitCode !== 0) throw new AmbicodeError('git-failed', `git grep failed with exit code ${String(outcome.exitCode)}.`);
     return splitNul(outcome.stdout);
-  }
-
-  /** Each file's first line holding any of these terms, case-insensitive, fixed-string. */
-  async firstLines(terms: readonly string[], files: readonly string[]): Promise<Map<string, number>> {
-    const found = new Map<string, number>();
-    if (terms.length === 0 || files.length === 0) return found;
-    const outcome = await this.execOutcome(['grep', '--untracked', '-I', '-n', '-z', '-i', '-F', '-m', '1', ...terms.flatMap((term) => ['-e', term]), '--', ...files.map(literalPathspec)], true);
-    if (outcome.exitCode === 1) return found;
-    if (outcome.exitCode !== 0) throw new AmbicodeError('git-failed', `git grep failed with exit code ${String(outcome.exitCode)}.`);
-    for (const record of outcome.stdout.split('\n')) {
-      const match = /^([^\0]+)\0(\d+)\0/.exec(record);
-      if (match !== null && !found.has(match[1]!)) found.set(match[1]!, Number(match[2]));
-    }
-    return found;
   }
 
   /** Line numbers per file of any term, case-insensitive, fixed-string; at most `perFile` lines each. */

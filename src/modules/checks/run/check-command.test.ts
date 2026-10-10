@@ -23,7 +23,7 @@ describe('check --only (07-C, 07-K)', () => {
   });
 
   it('a check configured as null is named as having no command, not listed as configured', async () => {
-    const { fx, check } = await checkFixture({ config: CHECK_CONFIG.replace('unit: { command: unit, adapter: jest }', 'unit: null') });
+    const { fx, check } = await checkFixture({ config: CHECK_CONFIG.replace('unit: { command: unit }', 'unit: null') });
     try {
       await assert.rejects(check({ key: 'app/unit' }), (error: unknown) => {
         assert.ok(error instanceof AmbicodeError && error.code === 'bad-argument');
@@ -145,7 +145,7 @@ describe('check --only (07-C, 07-K)', () => {
     }
   });
 
-  for (const channel of ['hook', 'cli', 'harness'] as const) {
+  for (const channel of ['hook', 'cli'] as const) {
     for (const headless of [false, true]) {
       it(`07-K3 a typed --approve on the ${channel} channel, ${headless ? 'headless' : 'interactive'}, records acting-needs-human and prints again`, async () => {
         const { fx, start, check, runner } = await checkFixture();

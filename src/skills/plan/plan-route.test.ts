@@ -15,7 +15,7 @@ import { REPO_ROOT } from '#testing/paths';
 import { SESSION_A, SESSION_B } from '#testing/fixtures/ids';
 
 /** SHA-256 of routes/plan/plan.yaml. */
-const CONTRACT_SHA256 = '623da2f1d0e40796ce4a658ad06bcbc6e87eba6a42a783350ac604837eb2bfcb';
+const CONTRACT_SHA256 = '7a15ef7994f6417c777ad3182cf2ab9e0dba7568fa85a40e29752b6ba1fa6b63';
 const GOOD = '# Plan\n\n- *Changes*: `src/orders/limit.ts:1` `orderLimit`\n';
 const BAD = '# Plan\n\n- *Changes*: `src/orders/limit.ts:40` `orderLimit`\n';
 const PLATFORM = { askBinding: 'supported', answerContext: 'supported' } as const;
@@ -368,7 +368,7 @@ describe('06-P9/D1 interruption', () => {
     }
   });
 
-  it('S10 06-P9: a crash after the promotion rename is repaired without a new consent; a draft with no entry is an orphan', async () => {
+  it('S10 06-P9: no crash repair exists: promoting after a crash between rename and ledger entry fails plan-draft-missing', async () => {
     const plan = await shipped();
     try {
       await plan.toGate();
@@ -377,12 +377,8 @@ describe('06-P9/D1 interruption', () => {
       const promoted = ledger.findLast((entry) => entry.kind === 'note' && entry['note'] === 'plan')!;
       const kept = ledger.filter((entry) => entry.id !== promoted.id && !(entry.kind === 'step' && entry['step'] === 'promote'));
       await writeFile(path.join(taskDir(plan), 'ledger.jsonl'), kept.map((entry) => JSON.stringify(entry)).join('\n') + '\n');
-      const acceptances = (await plan.fx.kinds(PLAN_TASK, 'acceptance')).length;
-      assert.equal((await plan.promote()).outcome, 'repaired');
-      assert.equal((await plan.fx.kinds(PLAN_TASK, 'acceptance')).length, acceptances);
-      assert.equal((await notes(plan, 'plan')).length, 1);
-      await writeFile(path.join(taskDir(plan), 'plan-draft_2026-10-05T10-00-9.md'), '# stray\n');
-      await appendLedger(nodeFileSystem, taskDir(plan), new Date(), 'aaaaaaaa', { kind: 'route', skill: 'plan', args: { text: 'again', requirements: [] }, mode: 'interactive', channel: 'hook', trusted: true, session: SESSION_A, epoch: 1 });
+      await assert.rejects(plan.promote(), (error: { code?: string }) => error.code === 'plan-draft-missing');
+      assert.equal((await notes(plan, 'plan')).length, 0);
     } finally {
       await plan.dispose();
     }
@@ -390,14 +386,14 @@ describe('06-P9/D1 interruption', () => {
 });
 
 describe('06-N2 write-time ownership on the shipped route', () => {
-  it('S11: another session is route-busy; after --adopt the old owner is route-taken-over for every write, and time changes nothing', async () => {
+  it('S11: another session is route-busy; after --fresh the old owner is refused every write, and time changes nothing', async () => {
     const plan = await shipped();
     try {
       await toWrite(plan);
       await assert.rejects(plan.start({ session: SESSION_B }), (error: { code?: string }) => error.code === 'route-busy');
-      await plan.start({ session: SESSION_B, adopt: true });
+      await plan.start({ session: SESSION_B, fresh: true });
       plan.fx.advanceClock(60 * 60_000);
-      const taken = (error: { code?: string }) => error.code === 'route-taken-over';
+      const taken = (error: { code?: string }) => error.code === 'route-taken-over' || error.code === 'route-not-open';
       await assert.rejects(plan.next(), taken);
       await assert.rejects(plan.saveDraft('# Plan\n'), taken);
       await assert.rejects(plan.promote(SESSION_A), taken);

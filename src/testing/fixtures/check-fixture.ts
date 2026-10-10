@@ -9,7 +9,6 @@ import { SESSION_A } from './ids.ts';
 export const CHECK_TASK = 'ord-7';
 export const DEMO = `skill: demo
 version: 3
-exits: [done, blocked, human, inconclusive, superseded]
 steps:
   - id: red
     actor: model
@@ -26,7 +25,7 @@ export const CHECK_CONFIG = `${CONFIG.replace('  - { id: app, root: ".", ecosyst
     ecosystem: typescript
     policyFiles: [.ambicode/policies/cmds.yaml]
     commands: { unit: { argv: [jest, "{files}"] }, e2e: { argv: [pw, "{files}"] }, lint: { argv: [eslint, "{files}"] }, format: { argv: [fmt] } }
-    checks: { unit: { command: unit, adapter: jest }, e2e: { command: e2e, adapter: playwright }, lint: { command: lint, adapter: eslint } }
+    checks: { unit: { command: unit }, e2e: { command: e2e }, lint: { command: lint } }
 `;
 
 export const COMMAND_PACK = `schemaVersion: 1

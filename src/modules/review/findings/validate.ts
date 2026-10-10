@@ -1,10 +1,9 @@
 import type { Finding, FindingLocation, ReviewerOutput } from '#types/modules/review';
 import { addressableLines, lineAt } from '#platform/git/diff';
-import { contentHash } from '#util/hash';
 import type { DiffFile } from '#types/platform/git';
 
 /**
- * Reviewer output is checked against the pinned bundle; nothing is repaired or re-asked.
+ * Reviewer output is checked against the pinned diff; nothing is repaired or re-asked.
  * One invalid location, unknown rule or requirement, or finding over the limit voids the
  * whole result: the survivors of an unverified answer are not validated output.
  */
@@ -13,25 +12,21 @@ export interface ValidateOptions {
   output: ReviewerOutput;
   /** The files that entered the review: the only valid finding locations. */
   files: readonly DiffFile[];
+  /** Checkout text of the files a `new`-side finding names, read by the caller; a path absent here falls back to the diff line. */
   snapshotText: ReadonlyMap<string, string>;
-  reviewId: string;
   maxFindings: number | null;
   knownRuleIds: ReadonlySet<string>;
   knownRequirementIds: ReadonlySet<string>;
-  /** `drop` removes each unverifiable finding and keeps the rest as `partial`; over `maxFindings` still voids. */
-  onInvalid?: 'void' | 'drop';
 }
 
 type ValidatedFindings =
   | { kind: 'ok'; findings: Finding[] }
   /** `rejections` are persisted, because a refusal is evidence about the review. */
-  | { kind: 'invalid'; reason: string; rejections: string[] }
-  | { kind: 'partial'; findings: Finding[]; reason: string; rejections: string[] };
+  | { kind: 'invalid'; reason: string; rejections: string[] };
 
 export function validateFindings(options: ValidateOptions): ValidatedFindings {
   const rejections: string[] = [];
   const findings: Finding[] = [];
-  const usedIds = new Set<string>();
 
   if (options.maxFindings !== null && options.output.findings.length > options.maxFindings) {
     return {
@@ -53,17 +48,7 @@ export function validateFindings(options: ValidateOptions): ValidatedFindings {
       continue;
     }
 
-    const supporting: FindingLocation[] = [];
-    for (const extra of candidate.supportingLocations) {
-      const resolved = resolveSupporting(extra, options.files, options.snapshotText);
-      if (typeof resolved === 'string') {
-        rejections.push(`${label}: a supporting location is unverifiable — ${resolved}`);
-        continue;
-      }
-      supporting.push(resolved);
-    }
-
-    // Excerpt taken from the snapshot and the pinned diff, never from text the model supplied.
+    // Excerpt taken from the checkout and the diff, never from text the model supplied.
     const evidence = snippetFor(located, options.snapshotText);
 
     for (const ref of candidate.ruleRefs) {
@@ -79,12 +64,11 @@ export function validateFindings(options: ValidateOptions): ValidatedFindings {
 
     if (rejections.length > before) continue;
     findings.push({
-      id: stableId(options.reviewId, located.location, candidate.category, candidate.suggestedComment, usedIds),
+      id: `f${findings.length + 1}`,
       risk: candidate.risk,
       confidence: candidate.confidence,
       category: candidate.category,
       location: located.location,
-      supportingLocations: supporting,
       evidence,
       explanation: candidate.explanation,
       suggestedComment: candidate.suggestedComment,
@@ -93,10 +77,6 @@ export function validateFindings(options: ValidateOptions): ValidatedFindings {
     });
   }
 
-  if (rejections.length > 0 && options.onInvalid === 'drop') {
-    const dropped = options.output.findings.length - findings.length;
-    return { kind: 'partial', findings, reason: `${dropped} invalid finding(s) dropped (review.onInvalid: drop)`, rejections };
-  }
   if (rejections.length > 0) {
     return {
       kind: 'invalid',
@@ -148,41 +128,10 @@ function resolveLocation(
   };
 }
 
-/**
- * Evidence, never a comment position, so on the `new` side it may name any line of a
- * mirrored file: a change's consequence often sits on an untouched line. The old side
- * is not mirrored, so it stays diff-only.
- */
-function resolveSupporting(
-  location: FindingLocation,
-  files: readonly DiffFile[],
-  snapshotText: ReadonlyMap<string, string>,
-): FindingLocation | string {
-  const inDiff = resolveLocation(location, files);
-  if (typeof inDiff !== 'string') return inDiff.location;
-  if (location.side !== 'new' || location.newPath === null) return inDiff;
-
-  const text = snapshotText.get(location.newPath);
-  if (text === undefined) return inDiff;
-  const lineCount = text.endsWith('\n') ? text.split('\n').length - 1 : text.split('\n').length;
-  if (location.line > lineCount) {
-    return `line ${location.line} is past the end of "${location.newPath}", which has ${lineCount} line(s).`;
-  }
-  // A changed file keeps its own pre-image name; an unchanged neighbour is the
-  // same file on both sides.
-  const changed = files.find((file) => file.newPath === location.newPath);
-  return {
-    oldPath: changed === undefined ? location.newPath : changed.oldPath,
-    newPath: location.newPath,
-    side: 'new',
-    line: location.line,
-  };
-}
-
 const SNIPPET_RADIUS = 2;
 const COMMENT_MARKER = ' <---';
 
-/** Up to five lines around the location from the snapshot, or the one line from the diff. */
+/** Up to five lines around the location from the checkout, or the one line from the diff. */
 function snippetFor(located: Located, snapshotText: ReadonlyMap<string, string>): string {
   const { file, location } = located;
 
@@ -204,37 +153,9 @@ function snippetFor(located: Located, snapshotText: ReadonlyMap<string, string>)
     }
   }
 
-  // Deleted or excluded content is not mirrored; the pinned diff still holds the exact line.
+  // Deleted content, or a merge request, has no checkout text; the diff still holds the exact line.
   const line = lineAt(file, location.side, location.line);
   return line === null ? '' : `${location.line}: ${line.text}${COMMENT_MARKER}`;
-}
-
-/**
- * Derived from where and what the finding is, so it is stable across re-reads;
- * the review ID keeps IDs from colliding between reviews.
- */
-function stableId(
-  reviewId: string,
-  location: FindingLocation,
-  category: string,
-  suggestedComment: string,
-  used: Set<string>,
-): string {
-  const seed = [
-    reviewId,
-    location.newPath ?? '',
-    location.oldPath ?? '',
-    location.side,
-    String(location.line),
-    category,
-    suggestedComment,
-  ].join('\0');
-
-  const base = `f-${contentHash(seed).slice('sha256:'.length, 'sha256:'.length + 12)}`;
-  let id = base;
-  for (let suffix = 2; used.has(id); suffix += 1) id = `${base}-${suffix}`;
-  used.add(id);
-  return id;
 }
 
 function describe(location: FindingLocation): string {

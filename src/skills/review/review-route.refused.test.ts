@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewRouteFixture } from '#testing/fixtures/review-route-fixture';
 
-// 12,000 lines rewritten whole: past the model-input limit, so the estimate refuses before any snapshot.
+// 12,000 lines rewritten whole: past the model-input limit, so the estimate refuses before the reviewer.
 const lines = (tag: string): string => Array.from({ length: 12000 }, (_, i) => `${tag} line ${i} with some padding text\n`).join('');
 
 async function withRefused(body: (t: Awaited<ReturnType<typeof reviewRouteFixture>>) => Promise<void>): Promise<void> {
@@ -35,7 +35,7 @@ describe('review route: an estimate the engine refuses', () => {
     await withRefused(async (t) => {
       const started = await t.start();
       assert.equal(started.position, 'estimate');
-      assert.match(String((await t.kinds('gate'))[0]!['question']), /refused before the snapshot: input-too-large/);
+      assert.match(String((await t.kinds('gate'))[0]!['question']), /refused before the reviewer: input-too-large/);
       assert.deepEqual((await t.kinds('exit')).length, 0);
     });
   });

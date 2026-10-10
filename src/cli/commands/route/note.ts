@@ -64,7 +64,7 @@ export function renderNoteSave(output: NoteSaveOutput): string {
 interface NotePromoteOutput {
   command: 'note promote';
   task: string;
-  outcome: 'promoted' | 'plan-already-promoted' | 'repaired';
+  outcome: 'promoted' | 'plan-already-promoted';
   path: string;
   promotedFrom: string;
   next?: string;
@@ -82,7 +82,7 @@ export async function runNotePromote(runtime: Runtime, args: ParsedArgs): Promis
 }
 
 export function renderNotePromote(output: NotePromoteOutput): string {
-  const verb = { promoted: 'Promoted the accepted draft to', 'plan-already-promoted': 'Already promoted; nothing changed:', repaired: 'Recorded the missing entry for' }[output.outcome];
+  const verb = { promoted: 'Promoted the accepted draft to', 'plan-already-promoted': 'Already promoted; nothing changed:' }[output.outcome];
   return `${verb} ${output.path}${output.next === undefined ? '' : `\n\n${output.next}`}`;
 }
 

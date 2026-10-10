@@ -114,7 +114,7 @@ describe('09-T1: the rules route', () => {
       assert.match(first.text, /default if nobody answers/);
       assert.equal(draftStep.position, 'draft');
       assert.match(draftStep.text, /Write rule drafts/);
-      assert.match(draftStep.text, /Projects \(pass --project/);
+      assert.match(draftStep.text, /Read `\.ambicode\/config\.yaml`/);
     } finally {
       await w.dispose();
     }
@@ -389,7 +389,7 @@ describe('09-Q5: policy check --drafts and the ledger', () => {
       assert.equal(entries[0]!['contentHash'], output.drafts!.aggregateHash);
       assert.equal(entries[0]!['errors'], 0);
       assert.deepEqual((entries[0]!['drafts'] as { path: string }[]).map((file) => file.path), ['.ambicode/policies/drafts/team-services.yaml']);
-      assert.equal((await w.kinds('step')).filter((entry) => entry['step'] === 'rules-table' && entry['status'] === 'delivered').length, 1);
+      assert.equal((await w.kinds('gate')).filter((entry) => entry['gate'] === 'rules-table').length, 1, 'the tail prints the rules-table gate once');
     } finally {
       await w.dispose();
     }

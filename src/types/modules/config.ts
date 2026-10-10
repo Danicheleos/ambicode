@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { DEFAULTS } from '../defaults.ts';
-import { AdapterId, Ecosystem } from '../primitives.ts';
+import { Ecosystem } from '../primitives.ts';
 import type { Runtime } from '../composition.ts';
 import type { CommandContext } from '../harness.ts';
 
@@ -23,27 +23,9 @@ export type CommandSpec = z.infer<typeof CommandSpec>;
 /** `null` is an intentionally unavailable command, not a missing field. */
 export const CommandEntry = CommandSpec.nullable();
 
-export const MappingSelector = z.strictObject({
-  kind: z.literal('mapping'),
-  maxFiles: z.number().int().positive().optional(),
-  mappings: z
-    .array(
-      z.strictObject({
-        source: z.array(Glob).min(1),
-        tests: z.array(Glob).min(1),
-      }),
-    )
-    .min(1),
-});
-
-export const Selector = MappingSelector;
-export type Selector = z.infer<typeof Selector>;
-
 export const CheckSpec = z.strictObject({
   command: z.string().min(1),
-  adapter: AdapterId,
   include: z.array(Glob).optional(),
-  selector: Selector.optional(),
 });
 export type CheckSpec = z.infer<typeof CheckSpec>;
 
@@ -110,20 +92,12 @@ export const ReviewConfig = z.strictObject({
    * large generated file would otherwise block the whole change. `--exclude` adds to it.
    */
   excludePaths: z.array(z.string().min(1)).default([]),
-  /** What happens to a finding that fails validation: kept as a voided entry, or dropped. */
-  onInvalid: z.enum(['void', 'drop']).default('void'),
 });
 export type ReviewConfig = z.infer<typeof ReviewConfig>;
 
 export const ChecksConfig = z.strictObject({
   timeoutSeconds: z.number().int().positive(),
-  maxSelectedTestFiles: z.number().int().positive(),
 });
-
-export const AuthoringConfig = z.strictObject({
-  editReminders: z.boolean().default(true),
-});
-export type AuthoringConfig = z.infer<typeof AuthoringConfig>;
 
 /** Absent lists mean the defaults in `config/defaults.ts`; the map prints which one it used. */
 export const SearchConfig = z.strictObject({
@@ -151,7 +125,6 @@ export const AmbicodeConfig = z.strictObject({
   search: SearchConfig.default({}),
   guard: GuardConfig.default({ askOutsideMap: false }),
   projects: z.array(ProjectConfig).min(1),
-  authoring: AuthoringConfig.default({ editReminders: true }),
 });
 export type AmbicodeConfig = z.infer<typeof AmbicodeConfig>;
 
@@ -159,20 +132,4 @@ export const SUPPORTED_SCHEMA_VERSION = 3;
 
 export const APPLY_OPTIONS = ['Apply'] as const;
 
-export interface DoctorRow {
-  project: string;
-  slot: string;
-  argv0: string;
-  resolved: string | null;
-  probe: readonly string[] | null;
-  result: 'ok' | 'failed' | 'not-found' | 'timeout' | 'null' | 'not-run';
-  detail: string;
-}
-
-export interface DoctorTable { rows: DoctorRow[]; text: string; hash: string }
-
-export interface ApplyDeps { runtime: Runtime; session: string | null; context: CommandContext | null; doctor?: DoctorOptions }
-
-export interface DoctorOptions {
-  project?: string;
-}
+export interface ApplyDeps { runtime: Runtime; session: string | null; context: CommandContext | null }

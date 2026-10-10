@@ -10,7 +10,6 @@ const TASK = 'script-task';
 
 const ROUTE = (name: string): string => `skill: inv
 version: 3
-exits: [done, blocked, human, inconclusive, superseded]
 steps:
   - id: collect
     actor: code

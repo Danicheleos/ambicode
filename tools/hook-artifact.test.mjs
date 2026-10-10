@@ -55,7 +55,6 @@ async function writePack(repo, instruction) {
       '    category: architecture',
       `    instruction: "${instruction}"`,
       '    check: { kind: reviewer, explanation: "manual read" }',
-      '    remindOnEdit: true',
     ].join('\n') + '\n',
   );
 }
@@ -76,9 +75,8 @@ async function makeFixtureRepo() {
       'schemaVersion: 1',
       'baseline: ""',
       'review: { model: sonnet, timeoutSeconds: 300, maxFindings: 7, maxChangedFiles: 50, maxChangedLines: 2000, maxContextBytes: 524288 }',
-      'checks: { timeoutSeconds: 120, maxSelectedTestFiles: 20 }',
+      'checks: { timeoutSeconds: 120 }',
       'requirements: { mcpServer: null }',
-      'authoring: { editReminders: true }',
       'projects:',
       '  - id: app',
       '    root: .',
@@ -106,39 +104,21 @@ describe('built-artifact regression: ambicode hook (P2.4 correction G/H)', () =>
     assert.ok((await assertBundleBuilt(BUNDLE)) > 0, `${BUNDLE} is empty`);
   });
 
-  it('delivers once, suppresses a repeat, redelivers on rule-content change, and redelivers after a context reset', async () => {
+  it('delivers the contract once, suppresses a repeat, and redelivers after a context reset', async () => {
+    // The Edit/Write reminder branch (and its rule-content redelivery) is gone: it had no matcher in hooks.json
+    // (cutting-down audit, wave 1). What the delivered/<kind> marker still guards is the operating contract.
     const repo = await makeFixtureRepo();
     const sessionId = randomUUID();
-    const filePath = path.join(repo, 'src', 'orders', 'service.ts');
-    const postToolUse = () => ({
-      hook_event_name: 'PostToolUse',
-      session_id: sessionId,
-      cwd: repo,
-      tool_name: 'Edit',
-      tool_input: { file_path: filePath },
-    });
-
+    const prompt = () => JSON.parse(runHookCli({ hook_event_name: 'UserPromptSubmit', session_id: sessionId, cwd: repo }));
     try {
-      const first = JSON.parse(runHookCli(postToolUse()));
-      assert.equal(first.hookSpecificOutput?.hookEventName, 'PostToolUse');
-      assert.match(first.hookSpecificOutput?.additionalContext ?? '', /orders-reminders\/service-boundary/);
+      const first = prompt();
+      assert.equal(first.hookSpecificOutput?.hookEventName, 'UserPromptSubmit');
+      assert.match(first.hookSpecificOutput?.additionalContext ?? '', /# AMBICODE operating contract/);
+      assert.deepEqual(prompt(), {}, 'a repeated prompt in the same context must not repeat the contract');
 
-      const second = JSON.parse(runHookCli(postToolUse()));
-      assert.deepEqual(second, {}, 'a repeated edit of the same file must be suppressed');
-
-      await writePack(repo, 'Keep orders logic in the service layer, without exception.');
-      const third = JSON.parse(runHookCli(postToolUse()));
-      assert.equal(third.hookSpecificOutput?.hookEventName, 'PostToolUse', 'a changed rule content hash must redeliver');
-
-      const reset = JSON.parse(runHookCli({ hook_event_name: 'SessionStart', session_id: sessionId }));
-      assert.equal(reset.hookSpecificOutput?.hookEventName, 'SessionStart');
-      assert.match(
-        reset.hookSpecificOutput?.additionalContext ?? '',
-        /# AMBICODE operating contract/,
-        'SessionStart must carry the shared operating contract for the new epoch',
-      );
-      const fourth = JSON.parse(runHookCli(postToolUse()));
-      assert.equal(fourth.hookSpecificOutput?.hookEventName, 'PostToolUse', 'a context reset must redeliver');
+      assert.deepEqual(JSON.parse(runHookCli({ hook_event_name: 'PostCompact', session_id: sessionId })), {});
+      const afterReset = prompt();
+      assert.match(afterReset.hookSpecificOutput?.additionalContext ?? '', /# AMBICODE operating contract/, 'a context reset must redeliver');
     } finally {
       await rm(repo, { recursive: true, force: true });
     }

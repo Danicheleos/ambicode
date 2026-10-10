@@ -23,9 +23,6 @@ so `SKILL.md` stays within its per-call budget. The worked example is
   of the project's **already declared** commands proves it (an undeclared
   command id makes the pack an error), `none` when nothing verifies it. All
   three need an `explanation`.
-- **`remindOnEdit`** — only on a path-scoped pack. It is rejected on a pack
-  whose `appliesTo` includes `**/*`, because such a reminder would fire on
-  every edit anywhere.
 
 ## Provenance on every drafted rule
 

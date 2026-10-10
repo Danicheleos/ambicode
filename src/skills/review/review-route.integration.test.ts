@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { parse, stringify } from 'yaml';
@@ -15,44 +15,31 @@ import { runReviewRecord, REVIEW_RECORD_OPTIONS } from '#cli/commands/review/rec
 import { routeTools, runRouteStart } from '#cli/commands/route/route';
 import { createRuntime } from '#composition/root';
 import { ReviewResult } from '#types/modules/review';
-import { runHook } from '#hook/events/run-hook';
 import { nodeFileSystem } from '#platform/ports/filesystem';
-import { fsActiveRoutePointer } from '#harness/session/active-route';
 import { readLedger } from '#platform/ledger/ledger';
-import { COMMAND_PACK, SplitRunner } from '#testing/fixtures/check-fixture';
-import { notCoveredBlock } from '#modules/review/bundle/coverage-block';
+import { SplitRunner } from '#testing/fixtures/check-fixture';
 import { ROUTE_START_OPTIONS } from '#types/cli';
 import type { Runtime } from '#types/composition';
 import type { LedgerEntry } from '#types/modules/evidence';
-import type { HookDeps } from '#types/hook';
 
 const TASK = 'src-regression';
-const LINT_PROPOSED = COMMAND_PACK.replace('{ command: lint, action: forbid, reason: "never here" }', '{ command: lint, action: propose, reason: "lint" }');
 
-/** `ts-source-regression` with an eslint check wired by hand under a propose policy; the runner's output is scripted. */
+/** `ts-source-regression` with the runner scripted, so a check the review ran would show in `runner.calls`. */
 async function regression() {
   const scratch = await mkdtemp(path.join(tmpdir(), 'ambicode-review-int-'));
   const root = path.join(scratch, 'repo');
   await materialize(fixtureByName('ts-source-regression'), root, { ambicodeInit: true });
   const configPath = path.join(root, '.ambicode', 'config.yaml');
   const config = parse(await readFile(configPath, 'utf8'));
-  const app = config.projects[0];
-  app.commands.lint = { argv: ['eslint', '{files}'] };
-  app.checks.lint = { command: 'lint', adapter: 'eslint' };
-  app.policyFiles = ['.ambicode/policies/cmds.yaml'];
   await writeFile(configPath, stringify(config));
-  await mkdir(path.join(root, '.ambicode', 'policies'), { recursive: true });
-  await writeFile(path.join(root, '.ambicode', 'policies', 'cmds.yaml'), LINT_PROPOSED);
   execFileSync('git', ['add', '.ambicode'], { cwd: root });
-  execFileSync('git', ['-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'wire eslint'], { cwd: root });
+  execFileSync('git', ['-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'wire config', '--allow-empty'], { cwd: root });
 
   const base = await createRuntime({ cwd: root });
   const runner = new SplitRunner(base.runner);
   runner.out = { exitCode: 0, stdout: '' };
   const runtime: Runtime = { ...base, runner };
   const tools = await routeTools(runtime, null);
-  const pointer = fsActiveRoutePointer(runtime.fs);
-  const hookDeps: HookDeps = { pointer, load: async () => ({ engine: tools.engine, routes: tools.routes, pointer }) };
   const dir = path.join(root, '.ambicode', 'task', TASK);
   const ledger = (): Promise<LedgerEntry[]> => readLedger(nodeFileSystem, dir);
   const owner = async (): Promise<string> => String((await ledger()).find((entry) => entry.kind === 'route')!['session']);
@@ -66,71 +53,43 @@ async function regression() {
       const print = (await ledger()).findLast((entry) => entry.kind === 'gate' && entry['gate'] === gate);
       return tools.engine.advance({ task: TASK, session: await owner(), cause: 'gate-hook', answers: [{ gate, option, ...(print === undefined ? {} : { instance: print.id }) }] });
     },
-    stop: async (text: string) => {
-      const transcript = path.join(scratch, 'transcript.jsonl');
-      await writeFile(transcript, `${JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text }] } })}\n`);
-      return runHook(runtime, JSON.stringify({ hook_event_name: 'Stop', session_id: await owner(), cwd: root, transcript_path: transcript }), hookDeps) as Promise<{ decision?: string; reason?: string } | null>;
-    },
     dispose: () => rm(scratch, { recursive: true, force: true }),
   };
 }
 
-const compact = (ledger: readonly LedgerEntry[]): string =>
-  ledger.map((entry) => {
-    const what = entry['step'] ?? entry['gate'] ?? entry['reason'] ?? entry['which'] ?? '';
-    const tag = entry['status'] ?? (entry.kind === 'acceptance' || entry.kind === 'declined' ? entry['answer'] : undefined) ?? (entry.kind === 'review' ? `waiting=${(entry['waiting'] as string[]).join(',') || '-'}` : undefined);
-    return `${entry.kind}${what === '' ? '' : `:${String(what)}`}${tag === undefined ? '' : `=${String(tag)}`}`;
-  }).join(' · ');
-
 describe('review route on ts-source-regression (08-I3)', () => {
-  it('08-I3: start → estimate → run → review waits on a propose check → review-checks → with → revise review-run → one reviewer run → readback; Stop checks part 4 verbatim', async () => {
+  it('08-I3: start → estimate → run → review (runs no check) → brief → one reviewer run → readback; the report keeps part 4', async () => {
     const t = await regression();
     try {
       const started = await t.start();
       assert.equal(started.position, 'estimate');
       assert.match(started.text, /Review estimate: working tree · 1 file\(s\)/);
-      assert.match(started.text, /waiting: app\/lint/);
-      assert.match(started.text, /\n {2}- run /);
+      assert.doesNotMatch(started.text, /waiting:/);
       assert.ok(Buffer.byteLength(started.text) <= 3072, `${Buffer.byteLength(started.text)}`);
 
       const run = await t.answer('estimate', 'run');
       assert.equal(run.position, 'review-run');
-      assert.match(run.text, /review --task src-regression`/);
-
-      const waiting = await t.review();
-      assert.deepEqual((await t.ledger()).filter((entry) => entry.kind === 'review').map((entry) => entry['waiting']), [['app/lint']]);
-      assert.match(waiting.next ?? '', /Checks waiting: app\/lint\. The reviewer has not run yet\./);
-      assert.equal(t.runner.calls.length, 0, 'the proposed check did not run');
-
-      const rerun = await t.answer('review-checks', 'with');
-      assert.equal(rerun.position, 'review-run');
-      assert.match(rerun.text, /review --task src-regression`/);
-      assert.deepEqual((await t.ledger()).filter((entry) => entry.kind === 'revise').map((entry) => [entry['from'], entry['reason']]), [['review-run', 'review-checks: with']]);
+      assert.match(run.text, /review --task src-regression/);
 
       const done = await t.review();
+      assert.equal(t.runner.calls.length, 0, 'the review ran no check');
       assert.match(done.next ?? '', /step review-agent/);
-      assert.match(done.next ?? '', /brief: .*brief\.md/);
-      assert.equal(t.runner.calls.length, 1, 'the approved check ran once');
+      assert.match(done.next ?? '', /diff: .*changed\.diff/);
+      const brief = (done.next ?? '').match(/brief: (.*brief\.md)/)![1]!;
+      assert.match(await readFile(brief, 'utf8'), /No check recorded for this task/);
 
       const recorded = await t.record('```json\n{"findings":[],"coverageNotes":["read src/index.ts"]}\n```');
       assert.match(recorded.next ?? '', /step readback/);
       assert.equal(recorded.result.reviewer?.status, 'ok');
+      assert.equal(recorded.result.status, 'partial', 'no check was recorded, so the review is partial');
       const entries = (await t.ledger()).filter((entry) => entry.kind === 'review');
-      assert.deepEqual(entries.map((entry) => entry['waiting']), [['app/lint'], [], []]);
-      assert.deepEqual(entries.map((entry) => entry['stage']), ['pending', 'pending', 'recorded']);
+      assert.deepEqual(entries.map((entry) => entry['stage']), ['pending', 'recorded']);
 
       const result = ReviewResult.parse(JSON.parse(await readFile(path.join(t.root, String(entries.at(-1)!['result'])), 'utf8')));
-      const block = notCoveredBlock(result);
-      assert.match(block, /^4\. OMISSIONS, UNCERTAINTY AND UNAVAILABLE COVERAGE/);
-      assert.deepEqual(await t.stop(`# Review\n\nFindings: ${recorded.result.findings.length}.\n\n${block}\n`), {});
-      const blocked = await t.stop('# Review\n\nThe change breaks add; see the findings above.');
-      assert.equal(blocked?.decision, 'block');
-      assert.match(blocked?.reason ?? '', /the "not covered" block is not reproduced verbatim/);
-      assert.deepEqual(await t.stop('Still no block.'), {}, 'the second failure allows');
-      console.log(`[08-I3 ledger] ${compact(await t.ledger())}`);
+      assert.match(await readFile(path.join(path.dirname(path.join(t.root, String(entries.at(-1)!['result']))), 'report.txt'), 'utf8'), /4\. OMISSIONS, UNCERTAINTY AND UNAVAILABLE COVERAGE/);
+      assert.equal(result.checks.length, 0);
     } finally {
       await t.dispose();
     }
   });
 });
-

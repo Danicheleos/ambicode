@@ -7,21 +7,14 @@ import type { CaptureDeps } from '#types/modules/requirements';
 import type { LedgerEntry, TaskDir } from '#types/modules/evidence';
 import type { FileSystem } from '#types/platform/ports';
 
-const JIRA_KEY = /\b[A-Z][A-Z0-9]+-\d+\b/;
 // A Confluence page body measured 40-90 KB; 256 KB keeps a long spec whole without letting one result fill the task directory.
 const MAX_CONTENT = 256 * 1024;
 
 export const CapturedRequirement = z.strictObject({ key: z.string().min(1), url: z.string(), tool: z.string().min(1), retrievedAt: z.string().min(1), rawHash: z.string().min(1), content: z.string() });
 export type CapturedRequirement = z.infer<typeof CapturedRequirement>;
 
-/** The key a source is recorded and asked under: a Jira key anywhere in it, else a URL's last path segment, else the text. */
-export function keyOfSource(source: string): string {
-  const text = source.trim();
-  const jira = JIRA_KEY.exec(text)?.[0];
-  if (jira !== undefined || !/^https?:\/\//i.test(text)) return jira ?? text;
-  const segments = text.split(/[?#]/)[0]!.split('/').filter((segment) => segment !== '');
-  return segments.length > 2 ? segments.at(-1)! : text;
-}
+/** The last path segment of a URL, so a call that names only the issue key still matches the URL the route asked for. */
+const tailOf = (asked: string): string => asked.split(/[?#]/)[0]!.split('/').filter((segment) => segment !== '').at(-1) ?? asked;
 
 const fileOf = (dir: TaskDir, key: string): string => path.join(dir.requirements, `${key.replace(/[^\w.-]+/g, '_').slice(0, 80)}.${contentHash(key).replace(/^sha256:/, '').slice(0, 8)}.json`);
 
@@ -48,15 +41,15 @@ function resultText(response: unknown): string {
 
 /**
  * Stores the raw result of a `mcp__*` or WebFetch call under `requirements/<key>.json` while the route asked for
- * requirements. The key is an asked key the call's input names, else the Jira key in the input, else the last
- * path segment of its URL; a call with none of these is not a requirement read.
+ * requirements. The key is the asked key whose text or last path segment the call's input names; a call naming
+ * none is not a requirement read.
  */
 export async function captureRequirement(input: HookInput, deps: CaptureDeps): Promise<LedgerEntry | null> {
   const tool = input.tool_name ?? '';
   if (deps.asked.length === 0 || (tool !== 'WebFetch' && !tool.startsWith('mcp__'))) return null;
   const given = JSON.stringify(input.tool_input ?? {});
   const url = typeof input.tool_input?.['url'] === 'string' ? input.tool_input['url'] : '';
-  const key = deps.asked.find((asked) => given.includes(asked)) ?? JIRA_KEY.exec(given)?.[0] ?? (url === '' ? null : keyOfSource(url));
+  const key = deps.asked.find((asked) => given.includes(asked) || given.includes(tailOf(asked))) ?? null;
   const content = resultText(input.tool_response).trim().slice(0, MAX_CONTENT);
   if (key === null || content === '') return null;
   const rawHash = contentHash(content);

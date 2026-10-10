@@ -1,15 +1,13 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import path from 'node:path';
-import { TASKS_DIR } from '#types/defaults';
-import { loadConfigWithNotices } from '#modules/config/load';
+import { loadConfig } from '#modules/config/load';
 import { hasRequirement } from '#modules/requirements/capture/has-requirement';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { mintTaskSlug } from '#modules/evidence/task/slug';
 import { excludeWorkingDirs, resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { AmbicodeError, isAmbicodeError } from '#util/errors';
 import { contentHash } from '#util/hash';
-import { endRoute, markStepDelivered } from '../session/active-route.ts';
-import { exitRoute, recordDefaultFlag, recordFlagAnswer, recordHookAnswer, reviseTo } from '../gates/answers.ts';
+import { markStepDelivered } from '../session/active-route.ts';
+import { exitRoute, recordFlagAnswer, recordHookAnswer, reviseTo } from '../gates/answers.ts';
 import { checkOwner, commandContext, ledgerUnreadable, readEntries } from './context.ts';
 import { canonicalArgs } from '../definition/flags.ts';
 import { buildChain, exitOf, foldRoute, latestRouteOf, liveHeads, windowOf } from './fold.ts';
@@ -19,10 +17,9 @@ import { EXPLICIT, createExecutor, isClosing, quiet } from './execute.ts';
 import { OWNING_SKILLS, ownerOf } from '#modules/evidence/ownership';
 import { append, chainOf, latestPrint } from './run-context.ts';
 import { sessionUnbound, taskSessionSource } from '../session/session.ts';
-import { readLedgerStrict } from '#platform/ledger/ledger';
 import type { Runtime } from '#types/composition';
 import type { LedgerEntry, LockedLedger, TaskDir } from '#types/modules/evidence';
-import type { ActiveRoutePointer, AdvanceInput, Answer, CommandName, CommandScope, Engine, Exit, GuardedCommand, HandlerRegistry, RouteArgs, RouteRegistry, SessionBinding, StartChannel, StartInput, StepMessage } from '#types/harness';
+import type { ActiveRoutePointer, AdvanceInput, Answer, CommandName, CommandScope, Engine, Exit, GuardedCommand, HandlerRegistry, RouteRegistry, SessionBinding, StartChannel, StartInput, StepMessage } from '#types/harness';
 import type { DeliveryChannel, Part, Run } from '../types/engine.ts';
 
 export type { Answer } from '#types/harness';
@@ -89,10 +86,10 @@ export function createEngine(deps: EngineDeps): Engine {
 
   async function closePointer(run: Run, part: Part): Promise<void> {
     if (part.position === 'complete' || run.exited !== null || exitOf(chainOf(run)) !== null) {
-      await endRoute(pointer, run.runtime.fs, run.stateKey, run.scratchpadDir, { task: run.task, skill: run.def.skill, routeId: run.head.id });
+      await pointer.clear(run.stateKey, run.scratchpadDir);
     } else {
       await pointer.write(run.stateKey, run.scratchpadDir, { task: run.task, skill: run.def.skill, owner: run.session, headless: run.head['mode'] === 'headless' });
-      await markStepDelivered(run.runtime.fs, run.runtime.ids, { session: run.stateKey, scratchpad: run.scratchpadDir, routeId: run.head.id, position: part.position });
+      await markStepDelivered(run.runtime.fs, { session: run.stateKey, scratchpad: run.scratchpadDir, routeId: run.head.id, position: part.position });
     }
   }
 
@@ -113,30 +110,16 @@ export function createEngine(deps: EngineDeps): Engine {
     }
   }
 
-  async function supersedeIn(rt: Runtime, task: string, session: string, stateKey: string, scratchpadDir: string | undefined): Promise<void> {
+  /** The exit a new start writes over the session's live route on another task, found through the pointer read before it was overwritten. */
+  async function supersedeIn(rt: Runtime, task: string, session: string): Promise<void> {
     const dir = await resolveTaskDir(rt, task);
     await withLedgerLock(rt.fs, dir.root, now, session, async (ledger) => {
       const read = await ledger.read();
       if (read.state !== 'ok') return;
       const head = latestRouteOf(read.entries, session);
       if (head === null || exitOf(buildChain(read.entries, head)) !== null) return;
-      await ledger.append({ kind: 'exit', route: head.id, reason: 'superseded', detail: 'another route started in this session' });
+      await ledger.append({ kind: 'exit', route: head.id, reason: 'superseded', detail: 'a new route started' });
     });
-    if ((await pointer.read(stateKey, scratchpadDir))?.task === task) await pointer.clear(stateKey, scratchpadDir);
-  }
-
-  async function supersedeElsewhere(rt: Runtime, dir: TaskDir, session: string, stateKey: string, scratchpadDir: string | undefined): Promise<void> {
-    const tasksRoot = path.join(dir.repositoryRoot, TASKS_DIR);
-    const pointed = await pointer.read(stateKey, scratchpadDir);
-    const candidates = new Set<string>();
-    if (pointed !== null) candidates.add(pointed.task);
-    for (const entry of await rt.fs.readdir(tasksRoot).catch(() => [])) if (entry.isDirectory()) candidates.add(entry.name);
-    for (const task of candidates) {
-      if (task === dir.slug) continue;
-      await supersedeIn(rt, task, session, stateKey, scratchpadDir).catch((error: unknown) => {
-        if (!(error instanceof AmbicodeError)) throw error;
-      });
-    }
   }
 
   async function start(input: StartInput): Promise<StepMessage> {
@@ -148,8 +131,7 @@ export function createEngine(deps: EngineDeps): Engine {
       const field = input.target.mr !== null ? '--mr' : input.target.base !== null ? '--base' : '--branch';
       throw new AmbicodeError('bad-argument', `${field} names a review target; route ${def.skill} takes none.`, { field });
     }
-    const draft = input.fromDraft !== undefined && def.steps.some((step) => step.gate?.id === 'draft-ok') ? [{ gate: 'draft-ok', option: 'implement anyway' }] : [];
-    const answers = [...(input.answers ?? []), ...draft];
+    const answers = input.answers ?? [];
     validateAnswers(def, answers);
     const rt: Runtime = input.cwd === runtime.cwd ? runtime : { ...runtime, cwd: input.cwd };
     const trusted = input.channel !== 'cli';
@@ -157,11 +139,10 @@ export function createEngine(deps: EngineDeps): Engine {
 
     const planFile = input.fromDraft ?? input.plan;
     const planTask = planFile === undefined ? undefined : /(?:^|[\\/])\.ambicode[\\/]task[\\/]([^\\/]+)[\\/][^\\/]+$/.exec(planFile)?.[1];
-    const continued = input.task === undefined && planTask === undefined && input.skill === 'task' ? await continuedTask(rt, input.text) : null;
-    const slug = input.task ?? planTask ?? continued ?? (input.skill === 'init' ? `init-${now().toISOString().slice(0, 10)}` : (mintTaskSlug([...input.requirements, input.text].join(' ')) ?? `task-${contentHash(`${input.cwd}${now().toISOString()}`).slice(7, 15)}`));
+    const slug = input.task ?? planTask ?? (input.skill === 'init' ? `init-${now().toISOString().slice(0, 10)}` : (mintTaskSlug(input.requirements[0] ?? input.text) ?? `task-${contentHash(`${input.cwd}${now().toISOString()}`).slice(7, 15)}`));
     const dir = await resolveTaskDir(rt, slug);
     await excludeWorkingDirs(rt, dir.repositoryRoot);
-    const config = input.skill === 'init' ? null : (await loadConfigWithNotices(rt.fs, dir.repositoryRoot)).config;
+    const config = input.skill === 'init' ? null : (await loadConfig(rt.fs, dir.repositoryRoot)).config;
     const inputArgs = canonicalArgs({
       text: input.text,
       requirements: input.requirements,
@@ -174,58 +155,30 @@ export function createEngine(deps: EngineDeps): Engine {
       hasRequirement: hasRequirement({ text: input.text, requirements: input.requirements, headless }, { mcpServer: config?.requirements.mcpServer ?? null }),
     });
     const delivery: DeliveryChannel = input.channel === 'hook' ? 'hook' : 'cli';
+    const stateKey = input.harnessSession ?? input.session;
+    const previous = await pointer.read(stateKey, input.scratchpadDir);
 
     const result = await withLedgerLock(rt.fs, dir.root, now, input.session, async (ledger): Promise<{ message: StepMessage; run: Run; part: Part }> => {
       const entries = await readStrict(ledger, slug);
       const owning = OWNING_SKILLS.has(def.skill);
       const owner = owning ? ownerOf(entries, slug) : null;
       if (owner?.state === 'unknown') throw unreadable(slug, owner.reason);
-      const heads = liveHeads(entries).filter((head) => head['skill'] === def.skill);
-      const mine = heads.filter((head) => head['session'] === input.session).at(-1);
-      const others = heads.filter((head) => head['session'] !== input.session);
-
-      let resumes: LedgerEntry | undefined;
-      let adopts = false;
-      let reprint: LedgerEntry | undefined;
-      const toSupersede: LedgerEntry[] = [];
       const busy = owner?.state === 'owned' && owner.session !== input.session;
-      if (busy && input.adopt !== true && input.fresh !== true) {
+      if (busy && input.fresh !== true) {
         throw new AmbicodeError('route-busy', `Task ${slug} has a live ${def.skill} route owned by session ${owner.session} (route ${owner.routeId}).`, {
-          details: ['Adopt it (--adopt), restart it (--fresh) or continue under another task: --task <slug>-2.'],
+          details: ['Restart it (--fresh) or continue under another task: --task <slug>-2.'],
         });
       }
-      const args = inputArgs;
-      if (input.fresh === true) {
-        // Another live session's route is never superseded; the plan owner being taken over is the route this start resumes.
-        toSupersede.push(...heads.filter((head) => head['session'] === input.session || (busy && head.id === owner.routeId)));
-      } else if (input.adopt === true && (busy || others.length > 0) && mine === undefined) {
-        resumes = busy ? heads.find((head) => head.id === owner.routeId) : others.at(-1);
-        adopts = true;
-      } else if (mine !== undefined) {
-        const same = (mine['args'] as RouteArgs | undefined)?.hash === args.hash;
-        if (same) reprint = mine;
-        else toSupersede.push(mine);
-      } else if (!owning) {
-        const same = others.filter((head) => (head['args'] as RouteArgs | undefined)?.hash === args.hash).at(-1);
-        if (same !== undefined) resumes = same;
-      }
-      if (reprint === undefined) {
-        for (const other of liveHeads(entries).filter((head) => head['session'] === input.session && head['skill'] !== def.skill)) toSupersede.push(other);
-        for (const head of toSupersede) await ledger.append({ kind: 'exit', route: head.id, reason: 'superseded', detail: 'a new route started' });
+      // A start replaces what the session was doing; another session's route goes only to --fresh, and only the plan owner's.
+      const heads = liveHeads(entries);
+      for (const head of heads.filter((candidate) => candidate['session'] === input.session || (busy && input.fresh === true && candidate.id === owner.routeId))) {
+        await ledger.append({ kind: 'exit', route: head.id, reason: 'superseded', detail: 'a new route started' });
       }
 
-      let head: LedgerEntry;
-      const run = (route: LedgerEntry, deliverOnly: boolean): Run =>
-        newRun({ runtime: rt, def, task: slug, dir, ledger, entries, head: route, session: input.session, stateKey: input.harnessSession ?? harnessOf(route) ?? input.session, cause: 'start', channel: delivery, ...(input.scratchpadDir === undefined ? {} : { scratchpadDir: input.scratchpadDir }), deliverOnly });
-      if (reprint !== undefined) {
-        const reuse = run(reprint, true);
-        const part = await execute(reuse);
-        return { message: messageOf(reuse, part), run: reuse, part };
-      }
-      head = await ledger.append({
+      const head = await ledger.append({
         kind: 'route',
         skill: def.skill,
-        args,
+        args: inputArgs,
         mode: headless ? 'headless' : 'interactive',
         channel: input.channel,
         trusted,
@@ -233,16 +186,10 @@ export function createEngine(deps: EngineDeps): Engine {
         ...(input.harnessSession === undefined ? {} : { harnessSession: input.harnessSession }),
         ...(input.scratchpadDir === undefined ? {} : { scratchpad: input.scratchpadDir }),
         epoch: 1,
-        ...(resumes === undefined ? {} : { resumes: resumes.id }),
-        ...(adopts ? { adopts: true } : {}),
       });
       entries.push(head);
-      const active = run(head, false);
+      const active = newRun({ runtime: rt, def, task: slug, dir, ledger, entries, head, session: input.session, stateKey, cause: 'start', channel: delivery, ...(input.scratchpadDir === undefined ? {} : { scratchpadDir: input.scratchpadDir }) });
       active.written.push(head.id);
-      if (resumes !== undefined && !adopts) {
-        const step = foldRoute(def, buildChain(entries, head)).position;
-        active.notes.push(`Resumed route ${resumes.id} at step ${step?.id ?? 'complete'}; \`${cli} route start ${def.skill} --fresh\` restarts.`);
-      }
       if (headless) active.notes.push(trusted ? 'Mode: headless (set by the user).' : 'Mode: headless (set by the model); the report lists it under Not verified.');
       for (const answer of answers) {
         const gate = def.steps.find((step) => step.gate?.id === answer.gate)?.gate ?? routes.gate(answer.gate)!;
@@ -256,7 +203,9 @@ export function createEngine(deps: EngineDeps): Engine {
       return { message: messageOf(active, part), run: active, part };
     });
     await closePointer(result.run, result.part);
-    if (!result.run.deliverOnly) await supersedeElsewhere(rt, dir, input.session, result.run.stateKey, input.scratchpadDir);
+    if (previous !== null && previous.task !== slug) await supersedeIn(rt, previous.task, previous.owner ?? input.session).catch((error: unknown) => {
+      if (!(error instanceof AmbicodeError)) throw error;
+    });
     return result.message;
   }
 
@@ -293,7 +242,6 @@ export function createEngine(deps: EngineDeps): Engine {
         const open = latestPrint(chainOf(run).entries, 'project-ambiguous');
         if (open !== null) await recordFlagAnswer(run, { gate: 'project-ambiguous', option: input.project });
       }
-      if (input.default !== undefined) await recordDefaultFlag(run, input.default);
       if (input.revise !== undefined) {
         if (!def.revisable.includes(input.revise)) {
           throw new AmbicodeError('revise-not-allowed', `Step "${input.revise}" is not revisable in route ${def.skill}.`, { details: [`Revisable steps: ${def.revisable.join(', ') || 'none'}.`] });
@@ -332,7 +280,7 @@ export function createEngine(deps: EngineDeps): Engine {
       await ledger.append({ kind: 'exit', route: route.id, reason, ...(detail === undefined ? {} : { detail }) });
       return route;
     });
-    await endRoute(pointer, runtime.fs, harnessOf(head) ?? session, scratchpadDir, { task, skill: String(head['skill']), routeId: head.id });
+    await pointer.clear(harnessOf(head) ?? session, scratchpadDir);
   }
 
   async function closeFinal(task: string, routeId: string, scratchpadDir?: string): Promise<boolean> {
@@ -355,12 +303,12 @@ export function createEngine(deps: EngineDeps): Engine {
       } else {
         await exitRoute(run, 'inconclusive', `the headless session stopped at step ${step?.id ?? 'none'}`);
       }
-      await endRoute(pointer, runtime.fs, run.stateKey, run.scratchpadDir, { task, skill: def.skill, routeId: head.id });
+      await pointer.clear(run.stateKey, run.scratchpadDir);
       return true;
     });
   }
 
-  const stopPorts = { runtime, routes, pointer, advance: (input: { task: string; session: string; scratchpadDir?: string }) => advance({ ...input, cause: 'note save' }), closeFinal };
+  const stopPorts = { runtime, routes, pointer, closeFinal };
 
   return {
     start: (input) => inside.run(true, () => start(input)),
@@ -387,25 +335,6 @@ export async function runCommand<T>(
   const session = binding.state === 'bound' ? binding.session : null;
   const view = session === null ? null : await context.open(request.task, session);
   return body({ task: request.task, session, binding, view, context });
-}
-
-const ITERATION_OF = /^\s*iteration\s+(\d+)\s+of\s+([\w.-]+)\s*$/i;
-const ITERATION_ONLY = /^\s*iteration\s+\d+\s*$/i;
-
-/** The task a `task` request continues: `iteration N of <slug>` names it; a bare `iteration N` takes the task of the latest accepted plan. */
-export async function continuedTask(runtime: Runtime, text: string): Promise<string | null> {
-  const named = ITERATION_OF.exec(text);
-  if (named !== null) return named[2]!;
-  if (!ITERATION_ONLY.test(text)) return null;
-  const tasks = path.dirname((await resolveTaskDir(runtime, '-')).root);
-  let latest: { at: string; task: string } | null = null;
-  for (const entry of await runtime.fs.readdir(tasks).catch(() => [])) {
-    if (!entry.isDirectory()) continue;
-    const read = await readLedgerStrict(runtime.fs, path.join(tasks, entry.name));
-    if (read.state !== 'ok') continue;
-    for (const note of read.entries) if (note.kind === 'note' && note['note'] === 'plan' && (latest === null || note.at > latest.at)) latest = { at: note.at, task: entry.name };
-  }
-  return latest?.task ?? null;
 }
 
 interface TailDeps {

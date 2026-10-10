@@ -6,8 +6,8 @@ import type { Runtime } from '#types/composition';
 export const FIXTURE_CONFIG = [
   'schemaVersion: 3',
   'baseline: ""',
-  'review: { model: sonnet, timeoutSeconds: 300, maxFindings: null, maxChangedFiles: null, maxChangedLines: null, maxContextBytes: null, onInvalid: void }',
-  'checks: { timeoutSeconds: 120, maxSelectedTestFiles: 20 }',
+  'review: { model: sonnet, timeoutSeconds: 300, maxFindings: null, maxChangedFiles: null, maxChangedLines: null, maxContextBytes: null }',
+  'checks: { timeoutSeconds: 120 }',
   'requirements: { mcpServer: null, acceptanceField: null }',
   'guard: { askOutsideMap: false }',
   'projects:',

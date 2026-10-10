@@ -1,6 +1,6 @@
 # Authoring a policy pack
 
-Three fields change AMBICODE's behaviour in ways the schema cannot warn you
+Two fields change AMBICODE's behaviour in ways the schema cannot warn you
 about, because each one is valid either way and only the consequence differs.
 This is what each one does.
 
@@ -12,8 +12,8 @@ you wrote by hand before wiring it in:
 ambicode policy check --project web .ambicode/policies/team-components.yaml
 ```
 
-It applies the same rules the loader does, reports what each `appliesTo` glob
-matches in the repository as it stands, and exits nonzero on an error.
+It applies the same rules the loader does and exits nonzero on an error. It does
+not measure what an `appliesTo` glob matches; derive globs from the real layout.
 
 For drafts that `/ambicode:rules` writes, run `ambicode policy check --drafts`.
 It checks every file in `.ambicode/policies/drafts/` and requires each rule to
@@ -67,9 +67,6 @@ Then:
 
 - the built-in is dropped **whole**. None of its rules, prompts, or command
   decisions survive — you are taking over the entire pack, not editing it;
-- provenance stays visible: effective-policy output records that your pack
-  replaced `builtin/common-quality`, so a reader can see what is no longer
-  there;
 - only a project pack may declare it, and only as `builtin/<id>`.
 
 Use it when you genuinely want to own that whole area. If you only want to add
@@ -77,58 +74,15 @@ to a built-in, do not use `replaces` — add a **second** pack with its own id. 
 remove a built-in you do not want, take it out of that project's `packs` list;
 there is no need to replace a pack in order to disable it.
 
-`policy check` warns (`pack-replaces-unused`) when a pack declares `replaces`
-for a built-in the project does not enable. That is a no-op you probably did
-not intend.
-
-## `remindOnEdit`: only on a path-scoped pack
-
-A rule with `remindOnEdit: true` is a candidate for delivery by the packaged
-`PostToolUse` hook: when you edit a file the owning pack matches, the rule can
-arrive as context while you are writing the code, rather than waiting for a
-review.
-
-It is **rejected** — a configuration error, not a silently ignored flag — on any
-pack whose `appliesTo` includes `**/*`.
-
-The reason is the point of the feature. A reminder earns its place by being
-about the file in front of you. A broad pack matches every file in the project,
-so its reminders would fire on every edit anywhere, which is exactly the
-per-file noise the feature exists to avoid: a checklist repeated at every
-keystroke is ignored within a day, and it then crowds out the reminder that
-would have mattered.
-
-So a reminder needs a scope narrow enough that seeing it is informative:
-
-```yaml
-appliesTo:
-  - "src/**/*.component.ts"
-rules:
-  - id: no-transport-in-components
-    remindOnEdit: true
-    # ...
-```
-
-If you want a rule both globally and as a reminder, that is two decisions: keep
-the global rule in the broad pack without `remindOnEdit`, and put the reminder
-in a narrow pack covering the paths where the mistake is actually made.
-
-The whole mechanism is also switchable per repository:
-
-```yaml
-authoring:
-  editReminders: false
-```
-
-That disables reminder delivery entirely, whatever any pack declares.
+A `replaces` for a built-in the project does not enable does nothing.
 
 ## Two smaller things worth knowing
 
 **`appliesTo` is project-relative.** The globs are matched against paths
 relative to the project's `root`, not to the repository. In a monorepository
 with `root: apps/web`, a component rule is `"src/**/*.component.ts"`, not
-`"apps/web/src/**/*.component.ts"`. `policy check` reports the match count, so a
-glob written against the wrong base shows up as zero matches.
+`"apps/web/src/**/*.component.ts"`. A glob written against the
+wrong base matches nothing and the rule never applies.
 
 **A `command` check must name a declared command.** `check: { kind: command,
 command: lint }` requires `lint` in that project's command catalog — as `null`

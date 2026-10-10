@@ -1,6 +1,11 @@
 import type { ResolvedPolicy } from '#types/modules/policy';
 import { decisionFor, explainRefusal } from '#modules/policy/packs/resolve';
-import type { CommandAuthorization } from '../types/selection.ts';
+
+/** Every external command passes through here, so no call site can acquire execution without a decision. */
+type CommandAuthorization =
+  | { kind: 'allowed' }
+  | { kind: 'refused'; reason: string }
+  | { kind: 'needs-approval'; reason: string };
 
 interface AuthorizeOptions {
   policy: ResolvedPolicy;

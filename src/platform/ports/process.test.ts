@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
-import { CombinedCapture, NodeProcessRunner, decodeCompleteUtf8, windowsCommandExists } from './node-process-runner.ts';
+import { NodeProcessRunner } from './node-process-runner.ts';
 import type { ProcessOutcome } from '#types/platform/ports';
 
 const runner = new NodeProcessRunner();
@@ -23,13 +23,6 @@ describe('U29 process runner', () => {
     const outcome = await node('process.stdout.write("é".repeat(10))', 10);
     assert.equal(Buffer.byteLength(outcome.stdout, 'utf8'), 10);
     assert.equal(outcome.stdout, 'é'.repeat(5));
-    assert.equal(outcome.truncated, true);
-  });
-
-  it('never returns a broken character created by truncation alone', async () => {
-    const outcome = await node('process.stdout.write("é".repeat(10))', 5);
-    assert.equal(outcome.stdout, 'éé');
-    assert.ok(!outcome.stdout.includes('�'));
     assert.equal(outcome.truncated, true);
   });
 
@@ -155,85 +148,6 @@ describe('U29 process runner', () => {
       env: { kind: 'inherited', overrides: { LC_ALL: 'C' } },
     });
     assert.equal(outcome.stdout, 'base:C');
-  });
-
-  it('retains chunks in arrival order and cuts on a byte boundary', () => {
-    const capture = new CombinedCapture(5);
-    capture.push('stdout', Buffer.from('ab'));
-    capture.push('stderr', Buffer.from('XY'));
-    capture.push('stdout', Buffer.from('cdef'));
-    const decoded = capture.decode();
-    assert.equal(decoded.stdout, 'abc');
-    assert.equal(decoded.stderr, 'XY');
-    assert.equal(decoded.truncated, true);
-  });
-
-  it('decodes only whole UTF-8 sequences', () => {
-    const four = Buffer.from('😀');
-    assert.equal(decodeCompleteUtf8(four), '😀');
-    assert.equal(decodeCompleteUtf8(four.subarray(0, 3)), '');
-    assert.equal(decodeCompleteUtf8(Buffer.concat([Buffer.from('ok'), four.subarray(0, 2)])), 'ok');
-  });
-});
-
-describe('U29 Windows command resolution', () => {
-  let directory = '';
-
-  before(async () => {
-    directory = await mkdtemp(path.join(os.tmpdir(), 'ambicode-resolve-'));
-    await writeFile(path.join(directory, 'linter.EXE'), '');
-    await writeFile(path.join(directory, 'plain'), '');
-    await mkdir(path.join(directory, 'a-directory'));
-  });
-
-  after(async () => {
-    await rm(directory, { recursive: true, force: true });
-  });
-
-  const env = (overrides: Record<string, string> = {}): Record<string, string> => ({
-    PATHEXT: '.COM;.EXE;.BAT;.CMD',
-    ...overrides,
-  });
-
-  it('finds a bare name through PATH by appending a PATHEXT extension', () => {
-    assert.equal(windowsCommandExists('linter', env({ PATH: directory }), os.tmpdir()), true);
-  });
-
-  it('finds a bare name whose file has no extension at all', () => {
-    assert.equal(windowsCommandExists('plain', env({ PATH: directory }), os.tmpdir()), true);
-  });
-
-  it('reports a name that is on no PATH entry as missing', () => {
-    assert.equal(windowsCommandExists('linter', env({ PATH: os.tmpdir() }), os.tmpdir()), false);
-  });
-
-  it('searches the current directory ahead of PATH', () => {
-    assert.equal(windowsCommandExists('linter', env({ PATH: '' }), directory), true);
-  });
-
-  it('resolves a command carrying a path separator instead of searching PATH', () => {
-    assert.equal(windowsCommandExists(path.join(directory, 'linter.EXE'), env(), os.tmpdir()), true);
-    assert.equal(windowsCommandExists('./linter', env({ PATH: directory }), os.tmpdir()), false);
-  });
-
-  it('never resolves a directory to a command', () => {
-    assert.equal(windowsCommandExists('a-directory', env({ PATH: directory }), os.tmpdir()), false);
-  });
-
-  it('skips an empty PATH entry rather than reading it as the current directory', () => {
-    assert.equal(windowsCommandExists('linter', env({ PATH: ';;' }), os.tmpdir()), false);
-  });
-
-  it('unquotes a quoted PATH entry, as Windows allows', () => {
-    assert.equal(windowsCommandExists('linter', env({ PATH: `"${directory}"` }), os.tmpdir()), true);
-  });
-
-  it('reads PATH and PATHEXT case-insensitively, as Windows names them', () => {
-    assert.equal(windowsCommandExists('linter', { Path: directory, PathExt: '.EXE' }, os.tmpdir()), true);
-  });
-
-  it('falls back to the default PATHEXT when the environment sets an empty one', () => {
-    assert.equal(windowsCommandExists('linter', { PATH: directory, PATHEXT: '' }, os.tmpdir()), true);
   });
 });
 

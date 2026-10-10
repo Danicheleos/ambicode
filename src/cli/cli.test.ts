@@ -94,10 +94,10 @@ describe('U27 command line arguments', () => {
     }
   });
 
-  it('collects repeated approvals in order and keeps them apart from values', () => {
-    const args = parseArgs('review', ['--approve', 'web/unit', '--approve', 'api/lint'], REVIEW_OPTIONS);
-    assert.deepEqual(args.all('approve'), ['web/unit', 'api/lint']);
-    assert.deepEqual(parseArgs('review', [], REVIEW_OPTIONS).all('approve'), []);
+  it('collects repeated values in order and keeps them apart from single values', () => {
+    const args = parseArgs('review', ['--only', 'src/**', '--only', 'lib/**'], REVIEW_OPTIONS);
+    assert.deepEqual(args.all('only'), ['src/**', 'lib/**']);
+    assert.deepEqual(parseArgs('review', [], REVIEW_OPTIONS).all('only'), []);
     assert.deepEqual(parseArgs('review', ['--base', 'main'], REVIEW_OPTIONS).all('base'), []);
   });
 

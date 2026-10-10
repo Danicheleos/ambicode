@@ -26,8 +26,8 @@ export const HookInput = z.looseObject({
       questions: z.array(z.looseObject({ question: z.string(), options: z.array(z.looseObject({ label: z.string() })).optional() })).optional(),
     })
     .optional(),
-  /** Stop: where the session transcript is. */
-  transcript_path: z.string().min(1).optional(),
+  /** Stop: the text of the last assistant message; Claude Code sends it so no transcript is read. */
+  last_assistant_message: z.string().optional(),
   stop_hook_active: z.boolean().optional(),
 });
 export type HookInput = z.infer<typeof HookInput>;
@@ -45,8 +45,6 @@ export interface AdditionalContextHookOutput<Event extends AdditionalContextEven
     additionalContext: string;
   };
 }
-
-export type PostToolUseHookOutput = AdditionalContextHookOutput<'PostToolUse'>;
 
 export const EMPTY_HOOK_OUTPUT: Record<string, never> = {};
 

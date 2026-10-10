@@ -29,17 +29,15 @@ test('a captured diff resolves to a merge-request target with addressable lines'
   assert.equal(resolved.target.kind, 'merge-request');
   assert.deepEqual(resolved.files.map((file) => [file.oldPath, file.newPath, file.changeKind]), [['src/a.ts', 'src/a.ts', 'modified'], [null, 'src/b.ts', 'added']]);
   assert.deepEqual([...addressableLines(resolved.files[0]!, 'new')], [1, 2]);
-  assert.equal(await resolved.content.read('src/a.ts'), null);
-  assert.match(resolved.target.notes.join('\n'), /File content not available locally; the reviewer sees the diff only/);
+  assert.match(resolved.target.notes.join('\n'), /Diff only: the reviewer has no file content/);
 });
 
-test('a captured head sha that exists locally pins the file content to it', async (t) => {
+test('a captured head sha is pinned as the target head', async (t) => {
   const { repo, workspace } = await setup(t);
   const sha = await repo.git.revParse('HEAD');
   await repo.write(path.relative(repo.root, path.join(taskDirFor(repo.root, 't').reviews, MR_DIFF_JSON)), JSON.stringify({ sha }));
   const resolved = await resolveCapturedTarget({ workspace, task: 't', url: URL_MR });
   assert.equal(resolved.target.headSha, sha);
-  assert.deepEqual(await resolved.content.read('src/a.ts'), { kind: 'text', text: 'keep\nnew\n' });
 });
 
 test('no capture on disk is mr-diff-missing, naming the MCP call and route next', async (t) => {

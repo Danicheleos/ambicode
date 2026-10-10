@@ -92,7 +92,7 @@ describe('02-R3: what was skipped, declined or limited is visible', () => {
   });
 
   it('a trusted headless start and a complete review are not listed', () => {
-    const report = buildReport([route({ mode: 'headless', channel: 'harness', trusted: true }), entry('review', { reviewId: 'r', status: 'complete', reviewerRan: true })]);
+    const report = buildReport([route({ mode: 'headless', channel: 'hook', trusted: true }), entry('review', { reviewId: 'r', status: 'complete', reviewerRan: true })]);
     assert.equal(report.notVerified, 'Not verified\n  none recorded');
   });
 });

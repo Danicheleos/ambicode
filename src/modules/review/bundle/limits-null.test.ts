@@ -4,7 +4,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { DEFAULTS } from '#types/defaults';
 import { parseHunks } from '#platform/git/diff';
-import { enforceReviewInputLimits } from '../snapshot/snapshot.ts';
+import { enforceReviewInputLimits } from '../snapshot/change.ts';
 import { reviewRouteFixture } from '#testing/fixtures/review-route-fixture';
 import { validateFindings } from '../findings/validate.ts';
 import type { DiffFile } from '#types/platform/git';
@@ -18,16 +18,16 @@ describe('null review limits mean no limit (08-LIM)', () => {
   });
 
   it('08-LIM2: a very large change passes the input limits when they are null', () => {
-    const measured = { changedFiles: 10_000, changedLines: 5_000_000, patchBytes: 1e9, snapshotBytes: 1e9, requirementBytes: 0, promptBytes: 0, contextBytes: 2e9 };
+    const measured = { changedFiles: 10_000, changedLines: 5_000_000, patchBytes: 1e9, requirementBytes: 0, contextBytes: 2e9 };
     assert.doesNotThrow(() => enforceReviewInputLimits(measured, DEFAULTS.review));
   });
 
   it('08-LIM3: any number of valid findings is ok when maxFindings is null', () => {
-    const finding = (line: number) => ({ risk: 'high' as const, confidence: 'high' as const, category: 'correctness', location: { oldPath: 'src/a.ts', newPath: 'src/a.ts', side: 'new' as const, line }, supportingLocations: [], explanation: 'x', suggestedComment: `y${line}`, ruleRefs: [], requirementRefs: [] });
+    const finding = (line: number) => ({ risk: 'high' as const, confidence: 'high' as const, category: 'correctness', location: { oldPath: 'src/a.ts', newPath: 'src/a.ts', side: 'new' as const, line }, explanation: 'x', suggestedComment: `y${line}`, ruleRefs: [], requirementRefs: [] });
     const result = validateFindings({
       output: { findings: Array.from({ length: 40 }, () => finding(2)), coverageNotes: [] },
       files: [file], snapshotText: new Map([['src/a.ts', 'export const a = 1;\nexport const b = 2;\n']]),
-      reviewId: 'r1', maxFindings: null, knownRuleIds: new Set(), knownRequirementIds: new Set(),
+      maxFindings: null, knownRuleIds: new Set(), knownRequirementIds: new Set(),
     });
     assert.equal(result.kind, 'ok');
   });

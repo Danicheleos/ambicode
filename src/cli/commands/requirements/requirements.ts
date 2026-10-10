@@ -27,8 +27,8 @@ export async function runRequirementsNormalize(runtime: Runtime, args: ParsedArg
   if (result.state === 'failed') throw new AmbicodeError(result.code, result.message, { details: ['Fetch what is missing, then run requirements normalize again.'] });
   if (result.state === 'raise') throw new AmbicodeError('requirements-not-captured', `The route raises ${result.gate}; run route next to put it to the user.`);
   const next = await runCommandTail({ engine: tools.engine }, { task, cause: 'requirements normalize', session: tools.binding });
-  const text = [`Envelope built from ${result.builtFrom}: ${result.sources.map((source) => source.key).join(', ')}.`, ...result.notices].join('\n');
-  return { command: 'requirements normalize', task, text, data: { builtFrom: result.builtFrom, asked: result.asked, missingAsked: result.missingAsked, notices: result.notices }, ...(next === null ? {} : { next: next.text }) };
+  const text = [`Envelope built from ${result.builtFrom}: ${result.sources.map((source) => source.key).join(', ')}.`].join('\n');
+  return { command: 'requirements normalize', task, text, data: { builtFrom: result.builtFrom, asked: result.asked, missingAsked: result.missingAsked }, ...(next === null ? {} : { next: next.text }) };
 }
 
 export const requirementsNormalizeCommand: CliCommand = {

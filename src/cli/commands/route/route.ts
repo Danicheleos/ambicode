@@ -1,13 +1,8 @@
 import { createApp } from '#composition/app';
-import { chainKey, loadPayload } from '#harness/engine/execute';
-import { readEntries } from '#harness/engine/context';
-import { buildChain, latestRouteOf } from '#harness/engine/fold';
 import { parseAnswerFlag } from '#harness/definition/flags';
-import { cliHarnessPort, sessionUnbound, taskSessionSource } from '#harness/session/session';
-import { resolveTaskDir } from '#modules/evidence/task/task-dir';
+import { sessionUnbound, taskSessionSource } from '#harness/session/session';
 import { taskSlugFor } from '#modules/review/bundle/review-name';
 import { AmbicodeError } from '#util/errors';
-import { contentHash } from '#util/hash';
 import { startTarget } from '#composition/start';
 import type { Runtime } from '#types/composition';
 import { EXITS } from '#types/harness';
@@ -17,7 +12,7 @@ import { ROUTE_START_OPTIONS } from '#types/cli';
 
 export { startTarget };
 
-export const ROUTE_NEXT_OPTIONS = { values: ['task', 'default', 'revise', 'project', 'show'], repeated: ['answer'], flags: ['json'] } as const;
+export const ROUTE_NEXT_OPTIONS = { values: ['task', 'revise', 'project'], repeated: ['answer'], flags: ['json'] } as const;
 
 /** The engine over the shipped routes; `binding` is the owner of the named task's one live route, unbound when there is none to name. */
 export async function routeTools(runtime: Runtime, task: string | null): Promise<RouteTools> {
@@ -37,7 +32,7 @@ export function ownerFor(binding: SessionBinding, task: string): string {
   return binding.session;
 }
 
-interface RouteOutput extends StepMessage { command: string; extra?: string }
+interface RouteOutput extends StepMessage { command: string }
 
 export async function runRouteStart(runtime: Runtime, args: ParsedArgs): Promise<RouteOutput> {
   const [skill, ...words] = args.positionals;
@@ -45,7 +40,6 @@ export async function runRouteStart(runtime: Runtime, args: ParsedArgs): Promise
   const { engine } = await routeTools(runtime, null);
   const session = runtime.ids.ownerId();
   const text = words.join(' ');
-  const channel = (await cliHarnessPort.validate(runtime, session, contentHash(`${skill} ${text}`))) ? 'harness' : 'cli';
   const task = args.value('task');
   const project = args.value('project');
   const plan = args.value('plan');
@@ -63,10 +57,9 @@ export async function runRouteStart(runtime: Runtime, args: ParsedArgs): Promise
     ...(target === undefined ? {} : { target }),
     answers: args.all('answer').map(parseAnswerFlag),
     fresh: args.flag('fresh'),
-    adopt: args.flag('adopt'),
     cwd: runtime.cwd,
     session,
-    channel,
+    channel: 'cli',
   });
   return { command: 'route start', ...message };
 }
@@ -75,31 +68,18 @@ export async function runRouteNext(runtime: Runtime, args: ParsedArgs): Promise<
   const task = taskOf('route next', args);
   const { engine, binding } = await routeTools(runtime, task);
   const session = ownerFor(binding, task);
-  const defaultGate = args.value('default');
   const revise = args.value('revise');
   const project = args.value('project');
-  const show = args.value('show');
   const message = await engine.advance({
     task,
     session,
     cause: 'route-next',
     answers: args.all('answer').map(parseAnswerFlag),
-    ...(defaultGate === null ? {} : { default: defaultGate }),
     ...(revise === null ? {} : { revise }),
     ...(project === null ? {} : { project }),
-    ...(show === null ? {} : { show }),
   });
-  const shown = show === null ? null : await shownPayload(runtime, task, session, show);
-  return { command: 'route next', ...message, ...(shown === null ? {} : { extra: shown }) };
+  return { command: 'route next', ...message };
 }
-
-async function shownPayload(runtime: Runtime, task: string, session: string, key: string): Promise<string | null> {
-  const entries = await readEntries(runtime, task);
-  const head = latestRouteOf(entries, session);
-  return head === null ? null : loadPayload(runtime.fs, await resolveTaskDir(runtime, task), chainKey([...buildChain(entries, head).ids]), key);
-}
-
-export const renderMessage = (output: RouteOutput): string => (output.extra === undefined ? output.text : `${output.text}\n\n${output.extra}`);
 
 export const routeStartCommand: CliCommand = {
   name: 'route start',
@@ -107,7 +87,7 @@ export const routeStartCommand: CliCommand = {
   options: ROUTE_START_OPTIONS,
   run: async (runtime, args) => {
     const output = await runRouteStart(runtime, args);
-    return { text: renderMessage(output), data: output };
+    return { text: output.text, data: output };
   },
 };
 
@@ -117,7 +97,7 @@ export const routeNextCommand: CliCommand = {
   options: ROUTE_NEXT_OPTIONS,
   run: async (runtime, args) => {
     const output = await runRouteNext(runtime, args);
-    return { text: renderMessage(output), data: output };
+    return { text: output.text, data: output };
   },
 };
 

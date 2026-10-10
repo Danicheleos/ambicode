@@ -507,20 +507,17 @@ describe('evals-bench: a run owns only the result it wrote', () => {
 
   it('keeps and walks a partial result the failing run itself wrote', async () => {
     const json = fresh();
-    let exportedTo;
     const status = await runSweep(argv(json), {
       harvest: () => 0, clean: () => 0,
       log: () => {},
       warn: () => {},
       benchmarks,
-      spawnRun: async (harnessArgv, spawnOptions) => {
-        exportedTo = spawnOptions?.env?.EVAL_AMBICODE_EXPORT;
+      spawnRun: async (harnessArgv) => {
         writeFileSync(jsonOf(harnessArgv), JSON.stringify({ partial: true, claudeVersion: '2.1.289', suite: { modelOverride: 'm' }, cases: cases() }));
         return 2;
       },
     });
     assert.equal(status, 2);
-    assert.equal(exportedTo, path.join(path.dirname(json), 'traces', 'exports'), 'the Stop hook is told where to copy its final ledger');
     const result = JSON.parse(readFileSync(json, 'utf8'));
     assert.deepEqual([result.partial, result.suite.servedPrompt], [true, 'naked']);
     assert.ok(existsSync(walkOf(json)));
@@ -629,7 +626,7 @@ describe('evals-bench: a run owns only the result it wrote', () => {
 });
 
 describe('evals-bench: review cases under the plugin prompt (08-P3)', () => {
-  const CONFIG = ['schemaVersion: 3', 'baseline: ""', 'review: { model: sonnet, timeoutSeconds: 300, maxFindings: 7, maxChangedFiles: 50, maxChangedLines: 2000, maxContextBytes: 524288 }', 'checks: { timeoutSeconds: 120, maxSelectedTestFiles: 20 }', 'requirements: { mcpServer: null }', 'projects:', '  - { id: app, root: ".", ecosystem: typescript }', ''].join('\n');
+  const CONFIG = ['schemaVersion: 3', 'baseline: ""', 'review: { model: sonnet, timeoutSeconds: 300, maxFindings: 7, maxChangedFiles: 50, maxChangedLines: 2000, maxContextBytes: 524288 }', 'checks: { timeoutSeconds: 120 }', 'requirements: { mcpServer: null }', 'projects:', '  - { id: app, root: ".", ecosystem: typescript }', ''].join('\n');
   let root;
   let benchmarks;
   let plugin;

@@ -13,138 +13,35 @@ export interface LoadedConfig {
   raw: string;
 }
 
-export interface ConfigWithNotices {
-  config: AmbicodeConfig;
-  notices: string[];
-}
-
-/** Accepted in every version and dropped from the normalized config, one notice each. */
-const REMOVED_FIELDS: readonly (readonly [string, string])[] = [
-  ['requirements', 'lsp'],
-  ['task', 'lspPlugins'],
-  ['search', 'exactMaxFiles'],
-];
-
-/** `search` keys of the removed code index and ranking constants; accepted and dropped with the section-style notice. */
-const REMOVED_SEARCH_KEYS: readonly string[] = ['tuning', 'index', 'indexDriftFiles'];
-
-/** Layers that no longer exist; a configured list keeps the legal names, and the notice names what was dropped. */
-const REMOVED_LAYERS: readonly string[] = ['index', 'index.find', 'index.relates', 'history'];
-
-/** Whole top-level sections accepted and dropped, so a config written before the removal still loads. */
-const REMOVED_SECTIONS: readonly string[] = ['page', 'remoteChecks', 'workers'];
-
 export async function loadConfig(fs: FileSystem, repositoryRoot: string): Promise<LoadedConfig> {
-  const loaded = await loadConfigWithNotices(fs, repositoryRoot);
-  return { config: loaded.config, filePath: loaded.filePath, raw: loaded.raw };
-}
-
-export async function loadConfigWithNotices(
-  fs: FileSystem,
-  repositoryRoot: string,
-): Promise<LoadedConfig & { notices: string[] }> {
   const filePath = path.join(repositoryRoot, CONFIG_FILE);
   let raw: string;
   try {
     raw = await fs.readText(filePath);
   } catch (cause) {
-    throw new AmbicodeError(
-      'config-missing',
-      `No ${CONFIG_FILE} in this repository. Run the AMBICODE init skill first.`,
-      { field: CONFIG_FILE, cause },
-    );
+    throw new AmbicodeError('config-missing', `No ${CONFIG_FILE} in this repository. Run the AMBICODE init skill first.`, { field: CONFIG_FILE, cause });
   }
-  const { config, notices } = parseConfigWithNotices(raw);
-  return { config, filePath, raw, notices };
+  return { config: parseConfig(raw), filePath, raw };
 }
 
 export function parseConfig(raw: string): AmbicodeConfig {
-  return parseConfigWithNotices(raw).config;
-}
-
-export function parseConfigWithNotices(raw: string): ConfigWithNotices {
   let document: unknown;
   try {
     document = parseYaml(raw);
   } catch (cause) {
-    throw new AmbicodeError('config-unparsable', `${CONFIG_FILE} is not valid YAML.`, {
-      field: CONFIG_FILE,
-      details: [messageOf(cause)],
-    });
+    throw new AmbicodeError('config-invalid', `${CONFIG_FILE} is not valid YAML.`, { field: CONFIG_FILE, details: [messageOf(cause)] });
   }
-  if (document === null || typeof document !== 'object' || Array.isArray(document)) {
-    throw new AmbicodeError('config-invalid', `${CONFIG_FILE} must contain a YAML mapping.`, {
-      field: CONFIG_FILE,
-    });
-  }
-
-  // Before field validation, so a newer file yields an upgrade instruction
-  // rather than a list of mismatched fields.
-  const declared = (document as Record<string, unknown>)['schemaVersion'];
+  // Before field validation, so a newer file yields an upgrade instruction rather than a list of mismatched fields.
+  const declared = document !== null && typeof document === 'object' ? (document as Record<string, unknown>)['schemaVersion'] : undefined;
   if (typeof declared === 'number' && declared > SUPPORTED_SCHEMA_VERSION) {
-    throw new AmbicodeError(
-      'config-schema-too-new',
-      `${CONFIG_FILE} declares schemaVersion ${declared}; this AMBICODE release supports ${SUPPORTED_SCHEMA_VERSION}. Upgrade the plugin instead of editing the file.`,
-      { field: 'schemaVersion' },
-    );
+    throw new AmbicodeError('config-schema-too-new', `${CONFIG_FILE} declares schemaVersion ${declared}; this AMBICODE release supports ${SUPPORTED_SCHEMA_VERSION}. Upgrade the plugin instead of editing the file.`, { field: 'schemaVersion' });
   }
-
-  const notices = dropRemovedFields(document as Record<string, unknown>);
-  if (typeof declared === 'number' && declared < SUPPORTED_SCHEMA_VERSION) {
-    notices.unshift(
-      `config-schema-old: schemaVersion ${declared} read with v${SUPPORTED_SCHEMA_VERSION} defaults; init --apply writes v${SUPPORTED_SCHEMA_VERSION}`,
-    );
-  }
-
   const parsed = AmbicodeConfig.safeParse(document);
   if (!parsed.success) {
-    throw new AmbicodeError('config-invalid', `${CONFIG_FILE} is not a valid AMBICODE configuration.`, {
-      field: CONFIG_FILE,
-      details: describeIssues(parsed.error),
-    });
+    throw new AmbicodeError('config-invalid', `${CONFIG_FILE} is not a valid AMBICODE configuration.`, { field: CONFIG_FILE, details: describeIssues(parsed.error) });
   }
   validateCrossFieldRules(parsed.data);
-  return { config: parsed.data, notices };
-}
-
-function dropRemovedFields(document: Record<string, unknown>): string[] {
-  const notices: string[] = [];
-  for (const section of REMOVED_SECTIONS) {
-    if (!Object.hasOwn(document, section)) continue;
-    delete document[section];
-    notices.push(`config: "${section}" is no longer used; remove it from ${CONFIG_FILE}`);
-  }
-  const search = document['search'];
-  if (search !== null && typeof search === 'object' && !Array.isArray(search)) {
-    const block = search as Record<string, unknown>;
-    for (const key of REMOVED_SEARCH_KEYS) {
-      if (!Object.hasOwn(block, key)) continue;
-      delete block[key];
-      notices.push(`config: "search.${key}" is no longer used; remove it from ${CONFIG_FILE}`);
-    }
-    const layers = block['layers'];
-    if (layers !== null && typeof layers === 'object' && !Array.isArray(layers)) {
-      for (const mode of ['prompt', 'context']) {
-        const list = (layers as Record<string, unknown>)[mode];
-        if (!Array.isArray(list)) continue;
-        const dropped = list.filter((name) => typeof name === 'string' && REMOVED_LAYERS.includes(name));
-        if (dropped.length === 0) continue;
-        const kept = list.filter((name) => !dropped.includes(name));
-        if (kept.length === 0) delete (layers as Record<string, unknown>)[mode];
-        else (layers as Record<string, unknown>)[mode] = kept;
-        notices.push(`config: "search.layers.${mode}" names ${dropped.join(', ')}, which no longer exist; remove them from ${CONFIG_FILE}`);
-      }
-    }
-  }
-  for (const [section, field] of REMOVED_FIELDS) {
-    const value = document[section];
-    if (value === null || typeof value !== 'object' || Array.isArray(value)) continue;
-    if (!Object.hasOwn(value, field)) continue;
-    delete (value as Record<string, unknown>)[field];
-    notices.push(`config-field-removed: ${section}.${field}`);
-    if (section === 'task' && Object.keys(value).length === 0) delete document[section];
-  }
-  return notices;
+  return parsed.data;
 }
 
 /** Reports the field and the expected shape, never the offending value. */

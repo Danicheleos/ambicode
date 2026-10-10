@@ -5,7 +5,7 @@ import path from 'node:path';
 import { jira, mcp, session } from '#testing/fixtures/requirements-session';
 import { contentHash } from '#util/hash';
 import { hasRequirement } from './capture/has-requirement.ts';
-import { keyOfSource, readCapture } from './capture/capture.ts';
+import { readCapture } from './capture/capture.ts';
 import { askedKeys } from './envelope/envelope.ts';
 
 const GET = 'mcp__atlassian__getJiraIssue';
@@ -27,16 +27,8 @@ describe('hasRequirement', () => {
 });
 
 describe('keys', () => {
-  it('a Jira key anywhere wins, else the last path segment of a URL, else the text; a fragment or query does not change it', () => {
-    assert.equal(keyOfSource(TICKET), 'ORD-17');
-    assert.equal(keyOfSource(`${TICKET}?focusedId=1#top`), 'ORD-17');
-    assert.equal(keyOfSource(PAGE), 'Orders');
-    assert.equal(keyOfSource('https://x.example/docs/spec#intro'), 'spec');
-    assert.equal(keyOfSource('ORD-17'), 'ORD-17');
-  });
-
-  it('asked keys come from --requirement, URLs and a bare first key; prose keys are not asked', () => {
-    assert.deepEqual(askedKeys({ requirements: [PAGE], text: `ORD-18 see ${TICKET} and ORD-19` }), ['Orders', 'ORD-17', 'ORD-18']);
+  it('asked keys are the --requirement values, URLs in the text and a bare first key, raw; prose keys are not asked', () => {
+    assert.deepEqual(askedKeys({ requirements: [PAGE], text: `ORD-18 see ${TICKET} and ORD-19` }), [PAGE, TICKET, 'ORD-18']);
   });
 });
 
@@ -59,12 +51,21 @@ describe('capture stores the raw result text', () => {
     const s = await session({ skill: 'investigate', requirements: [PAGE] });
     try {
       const response = { result: 'Orders page body' };
-      assert.equal((await s.capture('WebFetch', response, { input: { url: PAGE }, asked: ['Orders'] }))?.['key'], 'Orders');
-      assert.equal(await s.capture('WebFetch', response, { input: { url: PAGE }, asked: ['Orders'] }), null);
+      assert.equal((await s.capture('WebFetch', response, { input: { url: PAGE }, asked: [PAGE] }))?.['key'], PAGE);
+      assert.equal(await s.capture('WebFetch', response, { input: { url: PAGE }, asked: [PAGE] }), null);
       assert.equal(await s.capture(GET, mcp('x'), { input: { cloudId: 'abc' } }), null);
       assert.equal(await s.capture('mcp__other__search', mcp('x'), { input: { issueIdOrKey: 'ORD-17' }, asked: [] }), null);
       assert.equal(await s.capture('Read', mcp('x'), { input: { issueIdOrKey: 'ORD-17' } }), null);
       assert.equal((await s.fx.kinds(s.task, 'requirement')).length, 1);
+    } finally {
+      await s.fx.dispose();
+    }
+  });
+
+  it('a call naming only the issue key is stored under the asked URL it is the last segment of', async () => {
+    const s = await session({ skill: 'investigate', requirements: [TICKET] });
+    try {
+      assert.equal((await s.capture(GET, mcp(jira('ORD-17')), { input: { issueIdOrKey: 'ORD-17' }, asked: [TICKET] }))?.['key'], TICKET);
     } finally {
       await s.fx.dispose();
     }
@@ -89,13 +90,12 @@ describe('envelope', () => {
   it('captured sources build the envelope with their url and hash; the asked set and missingAsked are recorded', async () => {
     const s = await session({ skill: 'investigate', requirements: [TICKET, PAGE] });
     try {
-      await s.capture(GET, mcp(jira('ORD-17')), { input: { issueIdOrKey: 'ORD-17' }, asked: ['ORD-17', 'Orders'] });
+      await s.capture(GET, mcp(jira('ORD-17')), { input: { issueIdOrKey: 'ORD-17' }, asked: [TICKET, PAGE] });
       const result = await s.normalize();
       assert.ok(result.state === 'ok' && result.builtFrom === 'captures');
-      assert.deepEqual([result.asked, result.missingAsked], [['ORD-17', 'Orders'], ['Orders']]);
-      assert.match(result.notices.join(' '), /requirements-partial: Orders/);
+      assert.deepEqual([result.asked, result.missingAsked], [[TICKET, PAGE], [PAGE]]);
       const [entry] = await s.fx.kinds(s.task, 'envelope');
-      assert.deepEqual((entry!['sources'] as { key: string; rawHash: string }[]).map((source) => [source.key, source.rawHash]), [['ORD-17', contentHash(jira('ORD-17'))]]);
+      assert.deepEqual((entry!['sources'] as { key: string; rawHash: string }[]).map((source) => [source.key, source.rawHash]), [[TICKET, contentHash(jira('ORD-17'))]]);
     } finally {
       await s.fx.dispose();
     }
@@ -104,7 +104,7 @@ describe('envelope', () => {
   it('a review with an asked source missing is refused requirements-missing, recoverably', async () => {
     const s = await session({ requirements: [TICKET, PAGE] });
     try {
-      await s.capture(GET, mcp(jira('ORD-17')), { input: { issueIdOrKey: 'ORD-17' }, asked: ['ORD-17', 'Orders'] });
+      await s.capture(GET, mcp(jira('ORD-17')), { input: { issueIdOrKey: 'ORD-17' }, asked: [TICKET, PAGE] });
       const result = await s.normalize();
       assert.ok(result.state === 'failed' && result.code === 'requirements-missing');
     } finally {
@@ -116,7 +116,7 @@ describe('envelope', () => {
     const run = async (answer: string) => {
       const s = await session({ skill: 'investigate' });
       try {
-        await assert.rejects(s.next(), (error: Error & { code?: string }) => error.code === 'requirements-not-captured' && /Fetch ORD-17/.test(error.message));
+        await assert.rejects(s.next(), (error: Error & { code?: string }) => error.code === 'requirements-not-captured' && /Fetch https:\/\/x.atlassian.net\/browse\/ORD-17/.test(error.message));
         assert.match((await s.next()).text, /requirements-not-captured-twice/);
         await s.next({ answers: [{ gate: 'requirements-not-captured-twice', option: answer }] });
         return { envelope: (await s.fx.kinds(s.task, 'envelope')).at(-1), exits: await s.exits() };
@@ -128,12 +128,12 @@ describe('envelope', () => {
     assert.deepEqual(await run('stop').then((result) => [result.envelope, result.exits]), [undefined, ['blocked']]);
   });
 
-  it('with nothing to fetch the envelope is one ARGS source', async () => {
+  it('with nothing to fetch the envelope has no sources and is built from the request', async () => {
     const s = await session({ skill: 'investigate', requirements: [], text: 'which files?' });
     try {
       const result = await s.normalize();
       assert.ok(result.state === 'ok' && result.builtFrom === 'args');
-      assert.deepEqual(result.sources.map((source) => source.key), ['ARGS']);
+      assert.deepEqual(result.sources, []);
     } finally {
       await s.fx.dispose();
     }

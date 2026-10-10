@@ -1,12 +1,10 @@
 skill: review
 version: 3
-exits: [done, blocked, human, inconclusive, superseded]
 revisable: []
 steps:
   - { id: fetch, actor: model, when: args.hasRequirement, instruction: file:routes/review/fetch.md }
   - { id: ground, actor: code, when: args.hasRequirement, run: requirements.normalize, produces: [envelope], repeat: 2 }
-  - { id: mr-template, actor: code, when: args.hasMergeRequest, run: script(mr-diff) }
-  - { id: mr-fetch, actor: model, when: args.hasMergeRequest, instruction: file:routes/review/mr-fetch.md, payload: ["script:mr-diff"] }
+  - { id: mr-fetch, actor: model, when: args.hasMergeRequest, instruction: file:routes/review/mr-fetch.md }
   - { id: estimate-step, actor: code, run: review.estimate }
   - id: estimate
     actor: human
@@ -15,12 +13,11 @@ steps:
       options: [run, narrow, skip]
       acting: [run]
       default: skip
-      release: skip
       onAnswer: { narrow: revise estimate-step --narrow $answer, "*": revise estimate-step --narrow $answer }
-      maxRevises: 3
-  - { id: review-run, actor: code, when: gate.estimate.is(run), needs: [review], run: review.evaluate, produces: [review] }
+  - { id: review-cmd, actor: code, when: gate.estimate.is(run), run: review.command }
+  - { id: review-run, actor: model, when: gate.estimate.is(run), instruction: file:routes/review/run.md, payload: [review.command], produces: [review] }
   - { id: brief, actor: code, when: gate.estimate.is(run), run: ["policy.stage(before-work)", script(brief)] }
-  - { id: review-agent, actor: model, when: gate.estimate.is(run), instruction: file:routes/review/agent.md, payload: [review.evaluate], produces: ["review{recorded}"] }
+  - { id: review-agent, actor: model, when: gate.estimate.is(run), instruction: file:routes/review/agent.md, payload: ["script:brief"], produces: ["review{recorded}"] }
   - { id: readback, actor: model, when: gate.estimate.is(run), instruction: file:routes/review/readback.md, final: true }
   - { id: publish-list, actor: code, when: args.hasMergeRequest, run: review.publishList }
   - id: publish
@@ -31,6 +28,5 @@ steps:
       options: [all, none]
       acting: [all]
       default: none
-      release: none
       onAnswer: { "*": revise publish-run }
   - { id: publish-run, actor: model, when: gate.publish.isnt(none), instruction: file:routes/review/publish.md, payload: [review.publishList], final: true }

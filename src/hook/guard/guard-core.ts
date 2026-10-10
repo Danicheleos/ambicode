@@ -200,14 +200,6 @@ function planBodyDecision(input: GuardInput, state: GuardState | undefined, task
   if (owner.state === 'unknown') return refuse(owner.reason);
   const mine = ownerOfHarness(entries, session);
   if (mine !== null && owner.session === mine) return {};
-  if (mine !== null && owner.takenOver.includes(mine)) {
-    return decide(
-      'deny',
-      `AMBICODE: route-taken-over: session ${owner.session} took over the plan route on ${slug} (route ${owner.routeId}); ` +
-        'this session no longer writes its files. Stop and tell the user: taking it back is their decision (`--adopt` ' +
-        'on a new plan start), or the work continues under another `--task`.',
-    );
-  }
   return refuse(`session ${owner.session} owns it`);
 }
 

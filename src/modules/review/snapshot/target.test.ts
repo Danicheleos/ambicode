@@ -43,7 +43,6 @@ test('U09 working target is the net of staged and unstaged edits plus untracked 
 
   assert.deepEqual(paths, ['.gitignore', 'src/brand-new.ts', 'src/unstaged.ts']);
   assert.equal(resolution.target.kind, 'working');
-  assert.equal(await resolution.content.read('src/unstaged.ts').then((c) => c?.kind), 'text');
 
   assert.equal(await digestOf(indexPath), indexBefore);
 });

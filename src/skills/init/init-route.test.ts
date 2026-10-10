@@ -9,7 +9,7 @@ import { routeFixture, type RouteFixture } from '#testing/fixtures/route-fixture
 import { applyInit } from '#modules/config/init/apply';
 import { FIXTURE_CONFIG } from '#testing/fixtures/init-config';
 import { INIT_HANDLERS } from './handlers.ts';
-import { loadConfigWithNotices } from '#modules/config/load';
+import { loadConfig } from '#modules/config/load';
 import { REPO_ROOT } from '#testing/paths';
 import type { HookDeps } from '#types/hook';
 
@@ -104,17 +104,16 @@ describe('the init route', () => {
     }
   });
 
-  it('Apply, init --apply writes the config, the ignore lines and the doctor table in one gate', async () => {
+  it('Apply, init --apply writes the config, the ignore lines and the version-probe instruction in one gate', async () => {
     const t = await fixture();
     try {
-      await assert.rejects(loadConfigWithNotices(t.runtime.fs, t.repo.root), code('config-missing'));
+      await assert.rejects(loadConfig(t.runtime.fs, t.repo.root), code('config-missing'));
       const { task } = await t.begin();
       assert.equal((await t.hook(task, 'Apply')).position, 'apply');
       const result = await t.apply(task);
       assert.equal(result.created, true);
       assert.equal(result.backup, null);
-      assert.match(result.next, /Applied: \.ambicode\/config\.yaml is written\. Doctor/);
-      assert.match(result.next, /project +slot +command +result +detail/);
+      assert.match(result.next, /Applied: \.ambicode\/config\.yaml is written\..*--version/);
       assert.equal(await t.runtime.fs.readText(path.join(t.repo.root, '.ambicode/config.yaml')), PROPOSAL);
       assert.match(await t.runtime.fs.readText(path.join(t.repo.root, '.gitignore')), /^\.ambicode\/task\/$/m);
       assert.equal(await t.exists('.ambicode/config.draft.yaml'), false);
@@ -157,7 +156,7 @@ describe('the init route', () => {
       assert.notEqual(after, before);
       await t.hook(task, 'Apply');
       await t.apply(task);
-      assert.equal((await loadConfigWithNotices(t.runtime.fs, t.repo.root)).config.requirements.mcpServer, 'jira');
+      assert.equal((await loadConfig(t.runtime.fs, t.repo.root)).config.requirements.mcpServer, 'jira');
     } finally {
       await t.dispose();
     }

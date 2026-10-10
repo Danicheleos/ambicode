@@ -2,10 +2,9 @@ import { parseArgs } from '#util/args';
 import { startTarget } from '#composition/start';
 import { findSessionRepository } from '#platform/git/session-repository';
 import type { HookInput, RouteHookDeps } from '#types/hook';
-import { resolveActiveRoute } from '#harness/session/active-route';
+import { markStepDelivered, resolveActiveRoute } from '#harness/session/active-route';
 import { parseAnswerFlag } from '#harness/definition/flags';
 import { isAmbicodeError } from '#util/errors';
-import { currentEpoch, deliverOnce, hookStateBaseDir } from '#platform/claude/hook-state';
 import { ROUTE_START_OPTIONS } from '#types/cli';
 import type { Runtime } from '#types/composition';
 
@@ -69,7 +68,6 @@ export async function launchRoute(runtime: Runtime, input: HookInput, deps: Rout
       headless: parsed?.flag('headless') ?? false,
       answers: (parsed?.all('answer') ?? []).map(parseAnswerFlag),
       fresh: parsed?.flag('fresh') ?? false,
-      adopt: parsed?.flag('adopt') ?? false,
       cwd: found.repositoryRoot,
       session: attached?.owner ?? runtime.ids.ownerId(),
       harnessSession: input.session_id,
@@ -83,7 +81,7 @@ export async function launchRoute(runtime: Runtime, input: HookInput, deps: Rout
   }
 }
 
-/** A new epoch since the route's step was last delivered (a resume, a compaction): deliver it again, once (03-H4). */
+/** The route's step was not delivered since the last reset (a resume, a compaction): deliver it again, once (03-H4). */
 export async function reinjectRoute(runtime: Runtime, input: HookInput, deps: RouteHookDeps): Promise<string | null> {
   if (input.agent_id !== undefined) return null;
   const found = await findSessionRepository(runtime, input.cwd ?? runtime.cwd);
@@ -92,7 +90,5 @@ export async function reinjectRoute(runtime: Runtime, input: HookInput, deps: Ro
   if (active === null) return null;
   const message = await deps.engine.deliver(active.task, active.owner, input.scratchpad_dir);
   if (message === null) return null;
-  const base = hookStateBaseDir(runtime.fs, input.session_id, input.scratchpad_dir);
-  const fresh = await deliverOnce(runtime.fs, base, { epoch: await currentEpoch(runtime.fs, runtime.ids, base), agentKey: 'main', kind: 'route-step', subject: active.routeId, contentHash: message.position });
-  return fresh ? message.text : null;
+  return (await markStepDelivered(runtime.fs, { session: input.session_id, scratchpad: input.scratchpad_dir, routeId: active.routeId, position: message.position })) ? message.text : null;
 }

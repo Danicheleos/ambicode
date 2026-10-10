@@ -80,23 +80,23 @@ async function install(fixture, destination) {
 /** Stands in for the model's judgment: one root project; a wired slot gets the installed tool that serves it, found by looking for the binary. */
 async function configFor(destination, wires) {
   const tools = {
-    lint: [['node_modules/.bin/eslint', 'eslint', '--', '{files}'], ['.venv/bin/ruff', 'ruff', 'check', '--', '{files}']],
-    unit: [['node_modules/.bin/jest', 'jest', '--findRelatedTests', '{files}'], ['.venv/bin/python', 'pytest', '-m', 'pytest', '--', '{files}']],
+    lint: [['node_modules/.bin/eslint', '--', '{files}'], ['.venv/bin/ruff', 'check', '--', '{files}']],
+    unit: [['node_modules/.bin/jest', '--findRelatedTests', '{files}'], ['.venv/bin/python', '-m', 'pytest', '--', '{files}']],
   };
   const commands = { lint: null, unit: null, typecheck: null, e2e: null, format: null };
   const checks = { lint: null, unit: null };
   for (const slot of wires) {
-    for (const [binary, adapter, ...rest] of tools[slot] ?? []) {
+    for (const [binary, ...rest] of tools[slot] ?? []) {
       if (!(await access(path.join(destination, binary)).then(() => true, () => false))) continue;
       commands[slot] = { argv: [`./${binary}`, ...rest] };
-      checks[slot] = { command: slot, adapter, ...(slot === 'unit' ? { selector: { kind: 'mapping', maxFiles: 20, mappings: [{ source: ['**/*'], tests: ['**/*.{test,spec}.*'] }] } } : {}) };
+      checks[slot] = { command: slot };
     }
   }
   return {
     schemaVersion: 3,
     baseline: '',
     review: { model: 'sonnet', timeoutSeconds: 300, maxFindings: null, maxChangedFiles: null, maxChangedLines: null, maxContextBytes: null },
-    checks: { timeoutSeconds: 120, maxSelectedTestFiles: 20 },
+    checks: { timeoutSeconds: 120 },
     requirements: { mcpServer: null },
     projects: [{ id: 'app', root: '.', ecosystem: await access(path.join(destination, 'pyproject.toml')).then(() => 'python', () => 'typescript'), packs: ['builtin/common-quality', 'builtin/common-checks'], shortlist: { include: [], exclude: [] }, commands, checks }],
   };

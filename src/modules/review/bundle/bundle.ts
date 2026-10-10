@@ -1,23 +1,19 @@
 import path from 'node:path';
-import { runChecks } from '#modules/checks/run/run';
-import { REVIEWS_DIR, UNLIMITED_CONTEXT_BUDGET_BYTES } from '#types/defaults';
-import { appendLedger } from '#platform/ledger/ledger';
+import { REVIEWS_DIR } from '#types/defaults';
+import { appendLedger, readLedger } from '#platform/ledger/ledger';
 import { taskDirFor } from '#modules/evidence/task/task-dir';
-import { taskSlugFor, uniqueReviewName } from './review-name.ts';
+import { reviewName, taskSlugFor } from './review-name.ts';
 import { openWorkspace, projectForPath } from '#modules/config/workspace';
 import { resolvePolicyFor } from '#modules/policy/resolve-for';
-import { REVIEW_SCHEMA_VERSION, type CheckResult, type ReviewResult, type SnapshotPlan, type ReviewBundle, type AssembleOptions } from '#types/modules/review';
-import { configProvenance, policyProvenance } from '#modules/policy/packs/provenance';
-import { canonicalUrl, normalizeRequirements, loadRequirementEvidence } from '#modules/requirements/envelope/normalize';
+import { REVIEW_SCHEMA_VERSION, type RecordedCheck, type ReviewResult, type ReviewBundle, type AssembleOptions } from '#types/modules/review';
 import { describeExclusion, isExcludedFromReview } from '#util/path-classes';
-import { byteLength, enforceReviewInputLimits, measureInput, partitionChange, planSnapshot, writeSnapshot } from '../snapshot/snapshot.ts';
+import { byteLength, enforceReviewInputLimits, measureInput, partitionChange } from '../snapshot/change.ts';
 import { resolveBranchTarget, resolveCapturedTarget, resolveWorkingTarget } from '../snapshot/target.ts';
 import { AmbicodeError } from '#util/errors';
 import { normalizeRelative } from '#util/paths';
 import type { ProjectConfig } from '#types/modules/config';
 import type { ResolvedPolicy } from '#types/modules/policy';
-import type { ChangedPath, PendingApproval } from '#types/modules/checks';
-import type { Dependent } from '#types/modules/search';
+import type { ChangedPath } from '#types/modules/checks';
 import type { Runtime, Workspace } from '#types/composition';
 import type { LedgerEntry } from '#types/modules/evidence';
 import type { DiffFile } from '#types/platform/git';
@@ -31,11 +27,9 @@ interface DryRunPlan {
   target: TargetResolution['target'];
   files: DiffFile[];
   policies: Policies;
-  plan: SnapshotPlan | null;
   refusal: AmbicodeError | null;
 }
 
-const DRY_REFUSALS = new Set(['input-too-large', 'snapshot-too-large']);
 const quoteAll = (globs: readonly string[]): string => globs.map((glob) => `"${glob}"`).join(', ');
 const AGAINST_EMPTY = 'AMBICODE does not spend a reviewer on an empty change and report the result as a review.';
 
@@ -69,11 +63,21 @@ export function groupByProject(workspace: Workspace, files: readonly DiffFile[])
   return [...byProject.values()].sort((a, b) => a.project.id.localeCompare(b.project.id));
 }
 
-async function resolveTarget(workspace: Workspace, options: AssembleOptions, dependentPaths: (files: readonly DiffFile[]) => Promise<readonly string[]>): Promise<TargetResolution> {
+async function resolveTarget(workspace: Workspace, options: AssembleOptions): Promise<TargetResolution> {
   const { target } = options;
   if (target.kind === 'merge-request') return resolveCapturedTarget({ workspace, task: options.task, url: target.url });
   if (target.kind === 'branch') return resolveBranchTarget({ git: workspace.git, repositoryRoot: workspace.repositoryRoot, baseRef: target.baseRef ?? workspace.config.baseline });
-  return resolveWorkingTarget({ fs: workspace.runtime.fs, git: workspace.git, repositoryRoot: workspace.repositoryRoot, extraPaths: dependentPaths });
+  return resolveWorkingTarget({ fs: workspace.runtime.fs, git: workspace.git, repositoryRoot: workspace.repositoryRoot });
+}
+
+/** The task's `check` entries, newest last: what the model chose to run and recorded with `check --task`. */
+async function recordedChecks(runtime: Runtime, taskDirectory: string | null): Promise<RecordedCheck[]> {
+  if (taskDirectory === null) return [];
+  return (await readLedger(runtime.fs, taskDirectory)).flatMap((entry) =>
+    entry.kind === 'check' && typeof entry['key'] === 'string' && typeof entry['exit'] === 'number' && (entry['phase'] === 'red' || entry['phase'] === 'green')
+      ? [{ key: entry['key'], phase: entry['phase'], exit: entry['exit'], argv: Array.isArray(entry['argv']) ? (entry['argv'] as string[]) : [], only: Array.isArray(entry['only']) ? (entry['only'] as string[]) : [] }]
+      : [],
+  );
 }
 
 export async function assembleBundle(options: AssembleOptions & { dryRun: true }): Promise<DryRunPlan>;
@@ -82,24 +86,14 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
   const { runtime } = options;
   const workspace = await openWorkspace(runtime);
   const limits = workspace.config.review;
+  const requirements = [...options.requirements];
+  const requirementBytes = requirements.reduce((total, source) => total + byteLength(source.content), 0);
 
-  // Requirements first: a bad requirement must stop the run before it costs a check or a model call.
-  const requirements = normalizeRequirements({
-    urls: options.requirementUrls,
-    evidence: options.evidence === null ? null : await loadRequirementEvidence(runtime, options.evidence),
-    declared: options.evidence?.kind === 'inline' ? 'captured' : 'urls',
-  });
-  const requirementBytes = requirements.sources.reduce((total, source) => total + byteLength(source.content), 0);
-
-  // The working tree is read once, so what relies on the change is chosen before that read.
-  // A merge request's code is not the checkout, so a name search there would describe the wrong tree.
-  const named = (options.contextPaths ?? []).map((entry) => ({ path: normalizeRelative(entry), reasons: ['named with --context'] }));
-  const lookUp = async (_files: readonly DiffFile[]): Promise<Dependent[]> => named;
-  const resolution = await resolveTarget(workspace, options, async (files) => (await lookUp(files)).map((entry) => entry.path));
+  const resolution = await resolveTarget(workspace, options);
   const preexisting = new Set(options.preexisting ?? []);
   if (preexisting.size > 0) resolution.files = resolution.files.filter((file) => !preexisting.has(file.newPath ?? '') && !preexisting.has(file.oldPath ?? ''));
 
-  // Vendored, build-output and credential-shaped files leave the review here: not mirrored, not in the patch, not counted.
+  // Vendored, build-output and credential-shaped files leave the review here: not in the patch, not listed, not counted.
   const excludePaths = [...limits.excludePaths, ...(options.excludePaths ?? [])];
   const onlyPaths = [...(options.onlyPaths ?? [])];
   // Merge-request tests are never executed here (no pinned container), so they are dropped; a local review keeps them.
@@ -113,93 +107,52 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
     const paths = changed.map((change) => change.newPath ?? change.oldPath).filter((value): value is string => value !== null);
     policies.push({ project, policy: await resolvePolicyFor({ workspace, project, activity: 'review', paths }) });
   }
-  const dry = (plan: SnapshotPlan | null, refusal: AmbicodeError | null): DryRunPlan => ({ workspace, target: resolution.target, files: reviewable.files, policies, plan, refusal });
-  const refused = (error: unknown): AmbicodeError | null => (options.dryRun === true && error instanceof AmbicodeError && DRY_REFUSALS.has(error.code) ? error : null);
+  const dry = (refusal: AmbicodeError | null): DryRunPlan => ({ workspace, target: resolution.target, files: reviewable.files, policies, refusal });
 
-  const local = resolution.target.kind !== 'merge-request';
-  let plan: SnapshotPlan;
-  let wanted: Dependent[] = [];
+  const measured = measureInput(reviewable.files, reviewable.patch, { requirementBytes });
   try {
-    enforceReviewInputLimits(measureInput(reviewable.files, reviewable.patch, { requirementBytes }), limits, reviewable.files);
-    wanted = !local ? [] : await lookUp(resolution.files);
-    plan = await planSnapshot({
-      files: reviewable.files,
-      content: resolution.content,
-      includeSiblingContext: local,
-      operator: patterns,
-      contextBudgetBytes: Math.max(0, limits.maxContextBytes ?? UNLIMITED_CONTEXT_BUDGET_BYTES),
-      dependentPaths: wanted.map((entry) => entry.path),
-    });
+    enforceReviewInputLimits(measured, limits, reviewable.files);
   } catch (error) {
-    const refusal = refused(error);
-    if (refusal === null) throw error;
-    return dry(null, refusal);
+    if (options.dryRun === true && error instanceof AmbicodeError && error.code === 'input-too-large') return dry(error);
+    throw error;
   }
-  if (options.dryRun === true) return dry(plan, null);
+  if (options.dryRun === true) return dry(null);
 
-  const snapshot = await writeSnapshot(runtime.fs, plan, reviewable.patch);
-  const requirementIds = requirements.sources.map((source) => source.id);
-  // `normalizeRequirements` sorts sources by id, but the task is named after the first `--requirement` the caller gave.
-  const asNamed = options.requirementUrls.flatMap((url) => requirements.sources.find((source) => canonicalUrl(source.url) === canonicalUrl(url))?.id ?? []);
-  const taskSlug = taskSlugFor({ requirementIds: !local ? [] : asNamed.length > 0 ? asNamed : requirementIds, task: options.task });
+  const taskSlug = taskSlugFor({ requirementIds: resolution.target.kind === 'merge-request' ? [] : requirements.map((source) => source.id), task: options.task });
   const reviewsRoot = taskSlug === null ? path.join(workspace.repositoryRoot, REVIEWS_DIR) : taskDirFor(workspace.repositoryRoot, taskSlug).reviews;
-  const reviewId = await uniqueReviewName(
-    { target: resolution.target, requirementIds, now: runtime.clock.now(), insideTask: taskSlug !== null },
-    (name) => runtime.fs.exists(path.join(reviewsRoot, name)),
-    runtime.ids.reviewId(),
-  );
+  const reviewId = reviewName(runtime.clock.now(), runtime.ids.reviewId());
   const reviewDirectory = path.join(reviewsRoot, reviewId);
   await runtime.fs.mkdirp(reviewDirectory);
+  const taskDirectory = taskSlug === null ? null : taskDirFor(workspace.repositoryRoot, taskSlug).root;
 
-  // Both names of every change are watched: a check that resurrects a deleted or renamed file changed the tree as surely as one that rewrites a survivor.
-  const watchedPaths = [...new Set(reviewable.files.flatMap((file) => [file.newPath, file.oldPath]).filter((value): value is string => value !== null))];
-  // Branch review judges committed content while checks run in the checkout, so a dirty checkout is stated on every result.
-  const revisionNote = resolution.target.kind === 'branch' && (await workspace.git.isDirty()) ? 'Checks ran in the working checkout, which holds uncommitted changes that are not part of the reviewed revision.' : null;
-  const checks: CheckResult[] = [];
-  const pendingApprovals: PendingApproval[] = [];
-  for (const { project, changed } of groupByProject(workspace, reviewable.files)) {
-    const outcome = await runChecks({
-      fs: runtime.fs, config: workspace.config, project, policy: policies.find((entry) => entry.project.id === project.id)!.policy, changed,
-      repositoryRoot: workspace.repositoryRoot, runner: runtime.runner, clock: runtime.clock, approvals: options.approvals, declines: options.declines,
-      reviewDirectory, enumerationRevision: resolution.preImageRevision, git: workspace.git, watchedPaths, revisionNote,
-    });
-    checks.push(...outcome.results);
-    pendingApprovals.push(...outcome.pendingApprovals);
-  }
-
-  const measured = measureInput(reviewable.files, reviewable.patch, { snapshotBytes: plan.totalBytes, requirementBytes });
-  const manifest = JSON.parse(await runtime.fs.readText(path.join(runtime.pluginRoot, '.claude-plugin', 'plugin.json')).catch(() => '{}')) as { version?: unknown };
-  const sourceFree = requirements.mode === 'source-free';
+  const sourceFree = requirements.length === 0;
   const narrowed = (what: string, globs: readonly string[], rest: string): string[] => (globs.length === 0 ? [] : [`This review was narrowed on request: ${what} matching ${quoteAll(globs)} ${rest}`]);
   const result: ReviewResult = {
     schemaVersion: REVIEW_SCHEMA_VERSION,
     reviewId,
     createdAt: runtime.clock.now().toISOString(),
-    pluginVersion: typeof manifest.version === 'string' ? manifest.version : 'unknown',
     target: resolution.target,
-    requirements: requirements.sources,
+    requirements,
     requirementMode: sourceFree ? 'quality-review' : 'requirement-based',
-    provenance: [...(await configProvenance(runtime.fs, workspace)), ...policyProvenance(policies), ...requirements.provenance],
-    inputs: { ...measured, limits: { maxChangedFiles: limits.maxChangedFiles, maxChangedLines: limits.maxChangedLines, maxContextBytes: limits.maxContextBytes, maxFindings: limits.maxFindings } },
+    inputs: measured,
     reviewer: null,
     brief: null,
-    policySummary: { packs: [...new Set(policies.flatMap(({ policy }) => policy.packs.map((pack) => pack.reference)))].sort(), ruleIds: [...new Set(policies.flatMap(({ policy }) => policy.rules.map((rule) => rule.qualifiedId)))].sort() },
-    checks,
+    ruleIds: [...new Set(policies.flatMap(({ policy }) => policy.rules.map((rule) => rule.qualifiedId)))].sort(),
+    checks: await recordedChecks(runtime, taskDirectory),
     changedFiles: resolution.files.map((file) => {
       const reason = isExcludedFromReview(file.oldPath, file.newPath, patterns);
-      return { oldPath: file.oldPath, newPath: file.newPath, changeKind: file.changeKind, addedLines: file.addedLines, removedLines: file.removedLines, included: file.newPath !== null && snapshot.included.includes(file.newPath), exclusionReason: reason === null ? null : describeExclusion(reason) };
+      return { oldPath: file.oldPath, newPath: file.newPath, changeKind: file.changeKind, addedLines: file.addedLines, removedLines: file.removedLines, exclusionReason: reason === null ? null : describeExclusion(reason) };
     }),
     findings: [],
     omissions: [
       ...(preexisting.size === 0 ? [] : [`not covered: pre-existing changes: ${[...preexisting].sort().slice(0, 10).join(', ')}${preexisting.size > 10 ? ` (+${preexisting.size - 10} more)` : ''}`]),
       ...narrowed('only paths', onlyPaths, 'were reviewed. Everything else the change touches is unexamined.'),
       ...narrowed('paths', excludePaths, 'were not reviewed. Whatever changed in them is unexamined.'),
+      ...(resolution.target.kind === 'merge-request' ? ['Diff-only review: the reviewer had the merge request diff and no file content, so code the diff does not show was not examined.'] : []),
       ...(excludeTests && reviewable.excluded.some((entry) => entry.reason.includes('test code'))
         ? ["This is a merge-request review, so the change's test code was not reviewed and no check executed it. Whether the tests cover the change, and whether any assertion was weakened, is unestablished. Re-run with --with-tests to review them."]
         : []),
       ...reviewable.excluded.map((entry) => `${entry.path}: ${entry.reason}.`),
-      ...snapshot.omissions,
-      ...requirements.notices,
       // An applicable policy error becomes a coverage omission: it keeps the result `partial` without stopping the reviewer.
       ...policies.flatMap(({ project, policy }) => policy.diagnostics.filter((diagnostic) => diagnostic.severity === 'error').map((diagnostic) => `project "${project.id}" policy: ${diagnostic.code}: ${diagnostic.message}`)),
       ...(sourceFree ? ['No requirement was supplied, so this is a quality review. It does not establish that the change does what any ticket or specification asked for.'] : []),
@@ -209,11 +162,9 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
   };
 
   return {
-    workspace, reviewId, reviewDirectory,
-    taskDirectory: taskSlug === null ? null : taskDirFor(workspace.repositoryRoot, taskSlug).root,
+    workspace, reviewId, reviewDirectory, taskDirectory,
     resultPath: path.join(reviewDirectory, 'result.json'),
-    snapshot, plan, dependents: wanted.filter((entry) => plan.dependentPaths.includes(entry.path)),
-    measured, files: reviewable.files, patch: reviewable.patch, policies, requirements, pendingApprovals, result,
+    measured, files: reviewable.files, patch: reviewable.patch, policies, requirements, result,
   };
 }
 
@@ -222,7 +173,8 @@ export async function writeBundleArtifacts(runtime: Runtime, bundle: ReviewBundl
   const { result } = bundle;
   result.brief = path.relative(bundle.workspace.repositoryRoot, path.join(bundle.reviewDirectory, 'brief.md'));
   await runtime.fs.writeText(bundle.resultPath, `${JSON.stringify(result, null, 2)}\n`);
-  await runtime.fs.writeText(path.join(bundle.reviewDirectory, 'snapshot-path.txt'), `${bundle.snapshot.directory}\n`);
+  await runtime.fs.writeText(path.join(bundle.reviewDirectory, 'changed.diff'), bundle.patch);
+  await runtime.fs.writeText(path.join(bundle.reviewDirectory, 'files.txt'), `${bundle.files.map((file) => file.newPath ?? file.oldPath ?? '').join('\n')}\n`);
   if (bundle.taskDirectory === null) return null;
   return (await appendLedger(runtime.fs, bundle.taskDirectory, runtime.clock.now(), runtime.ids.writerId(), {
     ...ledger,
@@ -235,7 +187,5 @@ export async function writeBundleArtifacts(runtime: Runtime, bundle: ReviewBundl
     reviewerRan: result.reviewer !== null,
     findings: result.findings.length,
     omissions: result.omissions.length,
-    checks: result.checks.map((check) => ({ projectId: check.projectId, commandId: check.commandId, status: check.status, exitCode: check.exitCode })),
-    waiting: bundle.pendingApprovals.map((approval) => approval.approvalKey),
   })).entry;
 }

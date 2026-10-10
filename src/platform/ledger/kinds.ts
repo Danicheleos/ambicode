@@ -27,13 +27,13 @@ const routed = (value: { route?: string | undefined; unbound?: true | undefined 
 
 const schemas = [
   entry('route', {
-    skill: text, args: z.union([text, z.looseObject({})]), mode: z.enum(['interactive', 'headless']), channel: z.enum(['hook', 'cli', 'harness']), trusted: z.boolean(),
-    session: text, harnessSession: text.optional(), scratchpad: text.optional(), epoch: z.number().int().min(1), resumes: text.optional(), adopts: z.boolean().optional(),
+    skill: text, args: z.union([text, z.looseObject({})]), mode: z.enum(['interactive', 'headless']), channel: z.enum(['hook', 'cli']), trusted: z.boolean(),
+    session: text, harnessSession: text.optional(), scratchpad: text.optional(), epoch: z.number().int().min(1),
   }).refine((value) => value.trusted === (value.channel !== 'cli'), { path: ['trusted'], message: 'must equal channel !== cli' }),
   entry('step', {
     route: text, step: text, actor: z.enum(['code', 'model', 'human']), status: z.enum(['delivered', 'completed', 'skipped', 'failed', 'repeated']), cause: text,
     channel: text.optional(), bytes: count.optional(), file: text.optional(),
-    revise: z.union([text, z.looseObject({})]).optional(), exit: text.optional(), answer: z.literal('note').optional(),
+    revise: z.union([text, z.looseObject({})]).optional(), exit: text.optional(),
   }),
   entry('gate', {
     route: text, gate: text, class: z.enum(['declared', 'raised', 'decision']), question: text, print: z.number().int().min(1),
@@ -61,7 +61,7 @@ const schemas = [
     stage: z.enum(['before-work', 'before-checks', 'before-report', 'drafts', 'apply']), packs: optionalList, rules: count.optional(), omitted: count.optional(), bytes: count.optional(),
     path: text.optional(), contentHash: text.optional(), drafts: optionalList, errors: count.optional(),
   }).superRefine((value, context) => {
-    const required = { drafts: ['path', 'contentHash', 'drafts', 'errors'], apply: ['packs'] }[value.stage as string] ?? ['packs', 'rules', 'omitted', 'bytes'];
+    const required = { drafts: ['path', 'contentHash', 'drafts', 'errors'], apply: ['packs'] }[value.stage as string] ?? ['packs', 'rules', 'bytes'];
     for (const field of required) if ((value as Record<string, unknown>)[field] === undefined) context.addIssue({ code: 'custom', path: [field], message: `required for stage ${value.stage}` });
   }),
   entry('baseline', { head: text.nullable(), dirty: z.array(z.object({ path: text, hash: text.nullable() })) }),

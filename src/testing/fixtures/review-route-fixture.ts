@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { Finding } from '#types/modules/review';
 import { skillHandlers } from '#skills/handlers';
 import { appendLedger } from '#platform/ledger/ledger';
-import { checkFixture, COMMAND_PACK, CHECK_TASK } from './check-fixture.ts';
+import { checkFixture, CHECK_TASK } from './check-fixture.ts';
 import { reviewResult } from './review-fixture.ts';
 import { ORDERS } from './task-fixture.ts';
 import { REPO_ROOT } from '../paths.ts';
@@ -11,9 +11,7 @@ import type { LedgerEntry } from '#types/modules/evidence';
 import type { AdvanceInput, StartInput, StepMessage, Handler } from '#types/harness';
 import { SESSION_A } from './ids.ts';
 
-const STEPS = ['review/fetch', 'review/mr-fetch', 'review/readback', 'review/agent', 'review/publish'];
-
-export const PROPOSED = COMMAND_PACK.replace('{ command: lint, action: forbid, reason: "never here" }', '{ command: lint, action: propose, reason: "ask" }');
+const STEPS = ['review/fetch', 'review/mr-fetch', 'review/readback', 'review/agent', 'review/run', 'review/publish'];
 
 /** The shipped review route with its step texts and the real handlers, on an uncommitted change to `src/orders.ts`. */
 export async function reviewRouteFixture(options: { config?: string; pack?: string; dirty?: boolean; handlers?: Record<string, Handler> } = {}) {
@@ -41,15 +39,14 @@ export async function reviewRouteFixture(options: { config?: string; pack?: stri
   const append = async (fields: Record<string, unknown> & { kind: string }): Promise<LedgerEntry> =>
     (await appendLedger(fx.runtime.fs, dir, fx.runtime.clock.now(), 'test-writer', { route: await routeId(), session: SESSION_A, ...fields })).entry;
   /** What `review --task` leaves: the result file and the `review` entry, then the tail. */
-  const synthetic = async (findings: Finding[], extra: { waiting?: string[]; stage?: 'pending' | 'recorded' } = {}): Promise<StepMessage> => {
+  const synthetic = async (findings: Finding[], extra: { stage?: 'pending' | 'recorded' } = {}): Promise<StepMessage> => {
     const stage = extra.stage ?? 'recorded';
     reviews += 1;
     const reviewId = `r-${reviews}`;
     const result = path.join('.ambicode', 'task', CHECK_TASK, 'reviews', reviewId, 'result.json');
-    const snapshot = path.join(fx.repo.root, '.ambicode', 'task', CHECK_TASK, 'reviews', reviewId, 'snapshot-path.txt');
-    await fx.repo.write(path.relative(fx.repo.root, snapshot), '/tmp/snapshot-x\n');
+    await fx.repo.write(path.join('.ambicode', 'task', CHECK_TASK, 'reviews', reviewId, 'changed.diff'), 'diff --git a/src/orders.ts b/src/orders.ts\n--- a/src/orders.ts\n+++ b/src/orders.ts\n@@ -1 +1 @@\n-a\n+b\n');
     await fx.repo.write(result, JSON.stringify({ ...reviewResult({ kind: 'working', findings }), reviewId, brief: path.join('.ambicode', 'task', CHECK_TASK, 'reviews', reviewId, 'brief.md') }));
-    const entry = await append({ kind: 'review', reviewId, result, status: 'partial', stage, reviewerRan: stage === 'recorded', findings: findings.length, waiting: extra.waiting ?? [] });
+    const entry = await append({ kind: 'review', reviewId, result, status: 'partial', stage, reviewerRan: stage === 'recorded', findings: findings.length });
     return next({ cause: stage === 'recorded' ? 'review record' : 'review', produced: [entry.id] });
   };
   return { ...base, dir, start, next, hook, append, synthetic, ledger: () => fx.ledger(CHECK_TASK), kinds: (kind: string) => fx.kinds(CHECK_TASK, kind) };

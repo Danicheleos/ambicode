@@ -1,6 +1,5 @@
 skill: review
 version: 3
-exits: [done, blocked, human, inconclusive, superseded]
 revisable: []
 steps:
   - id: fetch
@@ -16,4 +15,3 @@ steps:
       question: "Run the review?"
       options: ["run"]
       default: "run"
-      release: "run"

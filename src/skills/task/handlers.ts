@@ -4,10 +4,9 @@ import { evaluateReview } from '#modules/checks/review-evaluation';
 import { ReviewResult } from '#types/modules/review';
 import { estimateReview, renderEstimate } from '#modules/review/bundle/estimate';
 import { buildChain, currentIn } from '#harness/engine/fold';
-import { onGatePrint, onNeedCommand, onRaisedAnswer, raiseGate } from '#harness/gates/gates';
+import { onGatePrint } from '#harness/gates/gates';
 import { chainEntries, configOf, isResult, projectOf } from '../common.ts';
 import { briefOf } from '../brief.ts';
-import { agentPayload } from '../review/agent-payload.ts';
 import { isAmbicodeError } from '#util/errors';
 import { buildReport } from '#modules/evidence/report/report';
 import type { BaselineEntryFields, ReviewEntry } from '#types/modules/checks';
@@ -16,8 +15,6 @@ import type { Handler, HandlerInput, HandlerResult } from '#types/harness';
 
 const MAX_START_BYTES = 4096;
 const MAX_REPORT_BYTES = 3072;
-const KEY_GATE = 'check-only-unauthorized';
-const keyValues = (key: string): Record<string, string[]> => ({ key: [key], files: ['the change under review'] });
 
 const cutTo = (text: string, bytes: number, rest: string): string => {
   if (Buffer.byteLength(text) <= bytes) return text;
@@ -71,28 +68,10 @@ export const TASK_HANDLERS: Readonly<Record<string, Handler>> = {
     const chain = await chainEntries(input);
     const review = chain.findLast((entry): entry is ReviewEntry => entry.kind === 'review');
     if (review === undefined) return { state: 'ok', payload: null };
-    const { touched } = await touchedSet(input.runtime, baselineIn(chain) ?? { head: null, dirty: [] });
-    const evaluation = evaluateReview(input.view, review, await readResult(input, review), touched, chain);
-    switch (evaluation.next) {
-      case 'waiting':
-        return { state: 'raise', gate: KEY_GATE, values: keyValues(evaluation.keys[0]!), raisedBy: evaluation.raisedBy };
-      case 'scope':
-        return { state: 'raise', gate: 'scope-expanding', values: { finding: [...evaluation.findings, ...(evaluation.more > 0 ? [`(+${evaluation.more} more)`] : [])] } };
-      case 'revise-fix':
-        return { state: 'failed', code: 'review-findings', message: `${evaluation.findings.length} review finding(s) to fix.`, recoverable: true, revise: { args: { Findings: evaluation.findings } } };
-      case 'proceed':
-        return { state: 'ok', payload: null };
-    }
-  },
-
-  /** After `review --task`: unanswered waiting keys raise their gate before the reviewer is offered the evidence; else the paths for the subagent. */
-  'review.await': async (input): Promise<HandlerResult> => {
-    const chain = await chainEntries(input);
-    const review = chain.findLast((entry): entry is ReviewEntry => entry.kind === 'review');
-    if (review === undefined) return { state: 'ok', payload: null };
-    const evaluation = evaluateReview(input.view, review, null, [], chain);
-    if (evaluation.next === 'waiting') return { state: 'raise', gate: KEY_GATE, values: keyValues(evaluation.keys[0]!), raisedBy: 'review-cmd' };
-    return { state: 'ok', payload: await agentPayload(input, review) };
+    const evaluation = evaluateReview(review, await readResult(input, review));
+    return evaluation.next === 'revise-fix'
+      ? { state: 'failed', code: 'review-findings', message: `${evaluation.findings.length} review finding(s) to fix.`, recoverable: true, revise: { args: { Findings: evaluation.findings } } }
+      : { state: 'ok', payload: null };
   },
 
   'task.report': async (input) => {
@@ -105,32 +84,11 @@ export const TASK_HANDLERS: Readonly<Record<string, Handler>> = {
   },
 };
 
-// An approve revises its step, so the review's next waiting key is raised now rather than after another review (07-V1).
-onRaisedAnswer(KEY_GATE, async ({ view, ledger, acceptance, routes }) => {
-  if (acceptance['answer'] !== 'approve') return;
-  const read = await ledger.read();
-  const chain: LedgerEntry[] = (read.state === 'ok' ? read.entries : []).filter((entry) => view.chainIds.includes(String(entry.kind === 'route' ? entry.id : entry['route'])));
-  const print = chain.find((entry) => entry.id === acceptance['instance']);
-  const review = chain.findLast((entry): entry is ReviewEntry => entry.kind === 'review');
-  if (print === undefined || review === undefined || chain.indexOf(review) > chain.indexOf(print)) return;
-  const later = chain.slice(chain.findIndex((entry) => entry.id === acceptance.id) + 1);
-  if (!later.some((entry) => entry.kind === 'revise') || later.some((entry) => entry.kind === 'gate' && entry['gate'] === KEY_GATE)) return;
-  const evaluation = evaluateReview(view, review, null, [], chain);
-  if (evaluation.next === 'waiting') await raiseGate(ledger, view, { gate: KEY_GATE, values: keyValues(evaluation.keys[0]!), raisedBy: String(print['raisedBy']) }, routes);
-});
-
-// A pending review already has its snapshot: the missing piece is the reviewer's answer, not another review.
-onNeedCommand('task', 'review', async ({ task, chain }) => {
-  // A revise resets the step windows, so only a review written since the last one counts.
-  const since = chain.slice(chain.findLastIndex((entry) => entry.kind === 'revise') + 1);
-  return since.findLast((entry) => entry.kind === 'review')?.['stage'] === 'pending' ? `review record --task ${task}` : `review --task ${task}`;
-});
-
 onGatePrint('review-offer', async ({ runtime, task, chain }) => {
   try {
     const baseline = baselineIn(chain);
     const preexisting = baseline === null ? [] : (await touchedSet(runtime, baseline)).preexisting;
-    const estimate = await estimateReview(runtime, { runtime, target: { kind: 'working' }, requirementUrls: [], evidence: null, approvals: new Set(), declines: new Set(), task, preexisting });
+    const estimate = await estimateReview(runtime, { runtime, target: { kind: 'working' }, requirements: [], task, preexisting });
     return { line: renderEstimate(estimate) };
   } catch (error) {
     return { line: `Review estimate unavailable: ${isAmbicodeError(error) ? error.code : 'an unexpected error'}.` };

@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { ReviewResult, ReviewerOutput } from '#types/modules/review';
-import { MAX_EVIDENCE_BYTES } from '#types/defaults';
+import { MAX_EVIDENCE_BYTES, MAX_SNAPSHOT_FILE_BYTES } from '#types/defaults';
 import { openWorkspace } from '#modules/config/workspace';
 import { combineDiff } from '#platform/git/diff';
 import { appendLedger } from '#platform/ledger/ledger';
@@ -23,7 +23,7 @@ export const REVIEW_RECORD_OPTIONS = { values: ['task', 'review'], flags: ['json
 const FENCE = /```(?:json)?[ \t]*\r?\n([\s\S]*?)```/;
 const REJECTED_FILE = 'rejected-output.txt';
 
-interface RecordOutput { command: 'review record'; task: string; reviewId: string; resultPath: string; reportPath: string; snapshotDirectory: string; result: ReviewResult; next?: string }
+interface RecordOutput { command: 'review record'; task: string; reviewId: string; resultPath: string; reportPath: string; result: ReviewResult; next?: string }
 
 const unfenced = (raw: string): string => FENCE.exec(raw)?.[1]?.trim() ?? raw.trim();
 
@@ -38,13 +38,20 @@ function parseOutput(raw: string): { ok: true; output: ReviewerOutput } | { ok: 
   return parsed.success ? { ok: true, output: parsed.data } : { ok: false, reason: `the reviewer's answer does not match the findings shape: ${parsed.error.issues.slice(0, 3).map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`).join('; ')}` };
 }
 
-/** Every file the snapshot mirrored, keyed by repository-relative path, for the validator's excerpts. */
-async function mirrored(runtime: Runtime, directory: string, relative = ''): Promise<Map<string, string>> {
+/** The checkout text of each file a `new`-side finding names, size-bounded; a merge request has no checkout to read, so its snippets come from the diff. */
+async function checkoutText(runtime: Runtime, root: string, result: ReviewResult, output: ReviewerOutput): Promise<Map<string, string>> {
   const found = new Map<string, string>();
-  for (const entry of await runtime.fs.readdir(path.join(directory, relative))) {
-    const next = relative === '' ? entry.name : `${relative}/${entry.name}`;
-    if (entry.isDirectory()) for (const [name, text] of await mirrored(runtime, directory, next)) found.set(name, text);
-    else found.set(next, await runtime.fs.readText(path.join(directory, next)));
+  if (result.target.kind === 'merge-request') return found;
+  for (const finding of output.findings) {
+    const name = finding.location.side === 'new' ? finding.location.newPath : null;
+    if (name === null || found.has(name)) continue;
+    const absolute = path.join(root, name);
+    try {
+      const stats = await runtime.fs.lstat(absolute);
+      if (stats.isFile() && stats.size <= MAX_SNAPSHOT_FILE_BYTES) found.set(name, await runtime.fs.readText(absolute));
+    } catch {
+      // Unreadable or gone: the validator falls back to the diff line.
+    }
   }
   return found;
 }
@@ -53,16 +60,10 @@ function locate(entries: readonly LedgerEntry[], task: string, wanted: string | 
   // One review has a pending entry and, once recorded, a later recorded one: only the newest per id says where it stands.
   const newest = new Map(entries.filter((entry) => entry.kind === 'review').map((entry) => [String(entry['reviewId']), entry]));
   const entry = wanted === null ? [...newest.values()].findLast((candidate) => candidate['stage'] === 'pending') : newest.get(wanted);
-  if (entry === undefined) {
-    throw new AmbicodeError('review-not-found', wanted === null ? `Task ${task} has no review waiting for its reviewer.` : `Task ${task} has no review ${wanted}.`, {
-      details: [`Release: run \`review --task ${task}\` first; it prints the snapshot and brief the reviewer reads.`],
+  if (entry === undefined || entry['stage'] !== 'pending') {
+    throw new AmbicodeError('review-not-found', wanted === null ? `Task ${task} has no review waiting for its reviewer.` : `Task ${task} has no review ${wanted} waiting for its reviewer (missing, or its answer is already recorded).`, {
+      details: [`Release: run \`review --task ${task}\` first; it prints the diff and brief the reviewer reads.`],
     });
-  }
-  if (entry['stage'] !== 'pending') {
-    throw new AmbicodeError('review-recorded', `Review ${String(entry['reviewId'])} already has its reviewer's answer recorded.`, { details: [`Release: run \`review --task ${task}\` for a new review.`] });
-  }
-  if (Array.isArray(entry['waiting']) && entry['waiting'].length > 0) {
-    throw new AmbicodeError('review-waiting', `Review ${String(entry['reviewId'])} stopped on checks waiting for a human (${entry['waiting'].join(', ')}), so no reviewer was due.`, { details: ['Release: answer the waiting checks, then run the review again.'] });
   }
   return entry;
 }
@@ -77,14 +78,12 @@ export async function runReviewRecord(runtime: Runtime, args: ParsedArgs): Promi
   const parsedResult = ReviewResult.safeParse(JSON.parse(await runtime.fs.readText(resultPath)));
   if (!parsedResult.success) throw new AmbicodeError('review-unreadable', `${resultPath} is not a review result.`, { details: [parsedResult.error.issues[0]?.message ?? ''] });
   const result = parsedResult.data;
-  const snapshotDirectory = (await runtime.fs.readText(path.join(reviewDirectory, 'snapshot-path.txt'))).trim();
   const config = workspace.config.review;
 
   const run = {
     status: 'ok' as 'ok' | 'failed', rejections: [] as string[], detail: null as string | null, rejectedOutputRef: null as string | null, at: runtime.clock.now().toISOString(),
   };
   let ok = true;
-  let dropped: string | null = null;
   const answer = parseOutput(raw);
   if (!answer.ok) {
     ok = false;
@@ -93,10 +92,10 @@ export async function runReviewRecord(runtime: Runtime, args: ParsedArgs): Promi
   } else {
     // Only the files that entered the review are valid locations; their order is the patch's (see bundle.ts).
     const reviewable = result.changedFiles.filter((file) => file.exclusionReason === null);
-    const files = combineDiff(reviewable.map((file) => ({ oldPath: file.oldPath, newPath: file.newPath, changeKind: file.changeKind, oldMode: '', newMode: '' })), await runtime.fs.readText(path.join(snapshotDirectory, 'changed.diff')));
+    const files = combineDiff(reviewable.map((file) => ({ oldPath: file.oldPath, newPath: file.newPath, changeKind: file.changeKind, oldMode: '', newMode: '' })), await runtime.fs.readText(path.join(reviewDirectory, 'changed.diff')));
     const validated = validateFindings({
-      output: answer.output, files, snapshotText: await mirrored(runtime, path.join(snapshotDirectory, 'files')), reviewId: result.reviewId, maxFindings: config.maxFindings,
-      knownRuleIds: new Set(result.policySummary.ruleIds), knownRequirementIds: new Set(result.requirements.map((source) => source.id)), onInvalid: config.onInvalid,
+      output: answer.output, files, snapshotText: await checkoutText(runtime, workspace.repositoryRoot, result, answer.output), maxFindings: config.maxFindings,
+      knownRuleIds: new Set(result.ruleIds), knownRequirementIds: new Set(result.requirements.map((source) => source.id)),
     });
     if (validated.kind === 'invalid') {
       ok = false;
@@ -105,10 +104,6 @@ export async function runReviewRecord(runtime: Runtime, args: ParsedArgs): Promi
     } else {
       result.findings = validated.findings;
       result.omissions = [...result.omissions, ...answer.output.coverageNotes];
-      if (validated.kind === 'partial') {
-        run.rejections = validated.rejections;
-        dropped = validated.reason;
-      }
     }
   }
   if (!ok) {
@@ -118,8 +113,7 @@ export async function runReviewRecord(runtime: Runtime, args: ParsedArgs): Promi
     await runtime.fs.writeText(path.join(reviewDirectory, REJECTED_FILE), `${raw}\n`);
   }
   result.reviewer = run;
-  const policyGaps = result.omissions.filter((line) => /^project ".*" policy: /.test(line)).length;
-  applyStatus({ result, policyGaps, waiting: 0 }, ok, dropped);
+  applyStatus(result, ok);
 
   await runtime.fs.writeText(resultPath, `${JSON.stringify(result, null, 2)}\n`);
   await runtime.fs.writeText(path.join(reviewDirectory, 'findings.json'), `${JSON.stringify(result.findings, null, 2)}\n`);
@@ -127,19 +121,18 @@ export async function runReviewRecord(runtime: Runtime, args: ParsedArgs): Promi
   const { entry } = await appendLedger(runtime.fs, taskDirFor(workspace.repositoryRoot, task).root, runtime.clock.now(), runtime.ids.writerId(), {
     ...carried, kind: 'review', reviewId: result.reviewId, result: pending['result'], stage: 'recorded', reviewerRan: true, findings: result.findings.length,
     status: result.status, statusReason: result.statusReason, omissions: result.omissions.length,
-    checks: result.checks.map((check) => ({ projectId: check.projectId, commandId: check.commandId, status: check.status, exitCode: check.exitCode })), waiting: [],
   });
 
   const reportPath = path.join(reviewDirectory, 'report.txt');
-  await runtime.fs.writeText(reportPath, `${renderReport({ result, snapshotDirectory, resultPath, pendingApprovals: [] })}\n`);
+  await runtime.fs.writeText(reportPath, `${renderReport({ result, resultPath })}\n`);
   const tools = await routeTools(runtime, task);
   const { binding } = await tools.engine.command(COMMAND_SPECS.reviewRecord, { task }, async ({ binding }) => ({ binding }));
   const next = await runCommandTail({ engine: tools.engine }, { task, cause: 'review record', session: binding, produced: [entry.id] });
-  return { command: 'review record', task, reviewId: result.reviewId, resultPath, reportPath, snapshotDirectory, result, ...(next === null ? {} : { next: next.text }) };
+  return { command: 'review record', task, reviewId: result.reviewId, resultPath, reportPath, result, ...(next === null ? {} : { next: next.text }) };
 }
 
 export function renderRecord(output: RecordOutput): string {
-  const report = renderReport({ result: output.result, snapshotDirectory: output.snapshotDirectory, resultPath: output.resultPath, pendingApprovals: [] });
+  const report = renderReport({ result: output.result, resultPath: output.resultPath });
   const failed = output.result.status === 'error' ? `\n\nNo finding list was produced: ${output.result.statusReason ?? ''}\n${(output.result.reviewer?.rejections ?? []).map((line) => `  - ${line}`).join('\n')}` : '';
   return `${report}${failed}${output.next === undefined ? '' : `\n\n${output.next}`}`;
 }

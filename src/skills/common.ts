@@ -3,7 +3,7 @@ import { projectForRequest } from '#modules/config/workspace';
 import { buildMap, resolveLayers } from '#modules/search/map';
 import { pathsCitedIn, symbolsCitedIn } from '#modules/search/map';
 import { seedTextOf } from './brief.ts';
-import { loadConfigWithNotices } from '#modules/config/load';
+import { loadConfig } from '#modules/config/load';
 import { readLedgerStrict } from '#platform/ledger/ledger';
 import path from 'node:path';
 import type { AmbicodeConfig, ProjectConfig } from '#types/modules/config';
@@ -29,9 +29,7 @@ const MAX_SOURCE_CHARS = 2500;
 const MAX_TOTAL_CHARS = 4500;
 
 export async function configOf(input: HandlerInput): Promise<AmbicodeConfig> {
-  const loaded = await loadConfigWithNotices(input.runtime.fs, input.dir.repositoryRoot);
-  for (const notice of loaded.notices) if (input.runtime.notices !== undefined && !input.runtime.notices.includes(notice)) input.runtime.notices.push(notice);
-  return loaded.config;
+  return (await loadConfig(input.runtime.fs, input.dir.repositoryRoot)).config;
 }
 
 export async function chainEntries(input: HandlerInput): Promise<LedgerEntry[]> {
@@ -93,8 +91,9 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
     if (result.state === 'failed') return { state: 'failed', code: result.code, message: result.message, recoverable: result.recoverable };
     if (result.state === 'raise') return { state: 'raise', gate: result.gate, values: result.values };
     // The request alone is already in the model's context; repeating it as an envelope adds nothing.
-    if (result.notices.length === 0 && result.sources.every((source) => source.relation === 'args')) return { state: 'ok', payload: null };
-    return { state: 'ok', payload: [...result.notices, renderSources(result.sources)].filter((part) => part !== '').join('\n\n') };
+    if (result.sources.length === 0 && result.missingAsked.length === 0) return { state: 'ok', payload: null };
+    const missing = result.missingAsked.length === 0 ? '' : `Not captured: ${result.missingAsked.join(', ')}; list it under Not verified.`;
+    return { state: 'ok', payload: [missing, renderSources(result.sources)].filter((part) => part !== '').join('\n\n') };
   },
 
   'search.map': async (input) => {
@@ -110,7 +109,7 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
     const seedText = mode === 'context' ? await seedTextOf(input, chain) : null;
     const seedable = seedText;
     const files = seedable === null ? [] : await git.listFiles(null);
-    const sources = seedText === null ? envelopeSourcesOf : [...envelopeSourcesOf.filter((source) => source.relation !== 'args'), { title: '', content: seedText }];
+    const sources = seedText === null ? envelopeSourcesOf : [...envelopeSourcesOf, { title: '', content: seedText }];
     const request = (sources.length === 0 ? [{ title: '', content: input.args.text }] : sources).map((source) => `${source.title}\n${source.content}`).join('\n');
     const { layers, source } = resolveLayers(config.search, mode);
     try {
@@ -132,9 +131,7 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
     try {
       const payload = await policyStage({ runtime: input.runtime as Runtime, project, activity: activity.success ? activity.data : 'task', paths: [], stage, show: false });
       await input.ledger.append({ kind: 'policy', route: input.view.routeId, ...payload.entry });
-      // A stage with no prompt and no rule in scope prints only the omitted count, which tells the model nothing.
-      const pointerOnly = payload.entry.rules === 0 && /^rulesOmitted: \d+ \(read them: [^\n]*\)$/.test(payload.text.trim());
-      return { state: 'ok', payload: pointerOnly ? null : payload.text };
+      return { state: 'ok', payload: payload.text.trim() === '' ? null : payload.text };
     } catch (error) {
       return failed(error);
     }

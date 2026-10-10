@@ -131,7 +131,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
     }
   });
 
-  it('03b-N9: the read step answers with citations and treats the map as leads, with no note command', async () => {
+  it('03b-N9: the read step answers with citations and treats the map as leads, and saves the answer as the investigation note', async () => {
     const read = await readFile(path.join(repositoryRoot, 'routes', 'investigate', 'read.md'), 'utf8');
     assert.match(read, /`path:line`/);
     assert.match(read, /leads, not answers/);
@@ -141,7 +141,8 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.match(read, /naming that assumption/);
     assert.match(read, /similar features the request does not name/);
     assert.match(read, /not in the code, say so/, '03b-N14: a missing premise ends the search');
-    assert.doesNotMatch(read, /note save|route next|\{cli\} (find|refs)/);
+    assert.match(read, /\{cli\} note save --task \{task\} --kind investigation/);
+    assert.doesNotMatch(read, /route next|\{cli\} (find|refs)/);
     // 07-I1 adds one Diagnostics sentence on top of the 700-character read text.
     assert.ok(read.replace(/^Diagnostics .*\n/m, '').length <= 700);
     assert.equal(existsSync(path.join(repositoryRoot, 'routes', 'investigate', 'write.md')), false);
@@ -153,6 +154,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.match(investigate, /saved as the investigation note/);
     assert.match(investigate, /route start investigate "<request>"/);
     assert.doesNotMatch(investigate, /route next|note save/);
+    assert.doesNotMatch(investigate, /when you stop/);
     assert.ok(Buffer.byteLength(investigate) <= 900);
   });
 
@@ -231,7 +233,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
     const gate = route.steps.find((step) => step.id === 'plan-accept')?.gate;
     assert.deepEqual(gate?.['options'], ['Accept', 'Revise', 'Reject']);
     assert.equal(gate?.['default'], 'Reject');
-    assert.equal(gate?.['release'], 'Reject');
+    assert.equal(gate?.['release'], undefined, 'the release field is gone; the default alone is the decline');
   });
   it('plan states it never implements, never invokes the reviewer, and never publishes, commits, or pushes', async () => {
     const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');

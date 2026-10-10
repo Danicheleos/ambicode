@@ -35,21 +35,13 @@ async function inRepo(run: (repo: TempRepo) => Promise<void>): Promise<void> {
   }
 }
 
-describe('note save owns the name, the time and the label of a task note', () => {
-  it('stamps the clock into the name and labels an investigation note', async () => {
+describe('note save owns the name and the time of a task note', () => {
+  it('stamps the clock into the name and writes the body as given', async () => {
     await inRepo(async (repo) => {
       const out = await save(repo, ['--task', 'ORD-17', '--kind', 'investigation'], 'Finding: validate() lives in service.ts:12\n');
       assert.equal(out.path, '.ambicode/task/ORD-17/investigation_2026-10-02T14-35.md');
       const text = await readFile(path.join(repo.root, out.path), 'utf8');
-      assert.match(text, /^\*\*investigation note\*\* — not an accepted plan/);
-      assert.match(text, /Finding: validate\(\)/);
-    });
-  });
-
-  it('does not label twice when the body already starts with the label', async () => {
-    await inRepo(async (repo) => {
-      const note = await save(repo, ['--task', 'ORD-17', '--kind', 'investigation'], '**investigation note** — mine\n\n# Findings\n');
-      assert.equal((await readFile(path.join(repo.root, note.path), 'utf8')).match(/\*\*investigation note\*\*/g)?.length, 1);
+      assert.equal(text, 'Finding: validate() lives in service.ts:12\n');
     });
   });
 

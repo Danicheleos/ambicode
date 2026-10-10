@@ -16,8 +16,7 @@ function brief(entry) {
 const resultFile = path.join(input.repositoryRoot, entry.result);
 const result = JSON.parse(read(resultFile) ?? '{}');
 const reviewDir = path.dirname(resultFile);
-const snapshot = (read(path.join(reviewDir, 'snapshot-path.txt')) ?? '').trim();
-const patch = read(path.join(snapshot, 'changed.diff')) ?? '';
+const patch = read(path.join(reviewDir, 'changed.diff')) ?? '';
 
 const ranges = (lines) => {
   const out = [];
@@ -59,16 +58,17 @@ try {
 } catch { /* no steps directory: no policy text */ }
 
 const target = result.target ?? {};
+const checks = entries.filter((candidate) => candidate.kind === 'check');
 const lines = [
   `# Review brief ${result.reviewId ?? ''}`, '',
   `Target: ${target.kind}${target.baseRef ? ` against ${target.baseRef}` : ''} (${target.snapshotId}).`,
-  `Snapshot: ${snapshot} (mirrored files under files/, the whole patch in changed.diff).`,
+  `The whole patch is ${path.join(reviewDir, 'changed.diff')}; the code is in the checkout.`,
   'A finding may name only a line listed below, on the side listed. Anything else voids the whole answer.', '',
   '## Changed files', '', ...files.flat(),
   '## Policy rules', '', rules, '',
   '## Requirements', '', ...((result.requirements ?? []).length === 0 ? ['(none supplied: quality review)'] : result.requirements.flatMap((source) => [`### ${source.id}: ${source.title}`, source.content, ''])),
-  '## Check results', '', ...((result.checks ?? []).length === 0 ? ['(no check ran)'] : result.checks.map((check) => `- ${check.projectId}/${check.checkId ?? check.commandId}: ${check.status}, exit ${check.exitCode ?? 'none'}${(check.limitations ?? []).length === 0 ? '' : `; limitations: ${check.limitations.join(' | ')}`}`)), '',
+  '## Check results', '', ...(checks.length === 0 ? ['No check recorded for this task: nothing was verified by execution. That is a gap, not a pass.'] : checks.map((check) => `- ${check.key} ${check.phase}: exit ${check.exit}; ran: ${(check.argv ?? []).join(' ')}${(check.only ?? []).length === 0 ? '' : `; only: ${check.only.join(' ')}`}`)), '',
 ];
 writeFileSync(path.join(reviewDir, 'brief.md'), lines.join('\n'));
-process.stdout.write(JSON.stringify({ payload: null }));
+process.stdout.write(JSON.stringify({ payload: `diff: ${path.join(reviewDir, 'changed.diff')}\nbrief: ${path.join(reviewDir, 'brief.md')}` }));
 }

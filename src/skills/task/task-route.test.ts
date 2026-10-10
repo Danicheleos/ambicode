@@ -6,7 +6,6 @@ import { launchRoute } from '#hook/events/prompt-launch';
 import { buildReport } from '#modules/evidence/report/report';
 import { STAGE_LIMITS } from '#modules/policy/stage';
 import { stepHeader } from '#harness/engine/execute';
-import { MAX_INSTRUCTION_CHARS } from '#harness/definition/routes';
 import { COMMAND_PACK, CHECK_CONFIG, CHECK_TASK } from '#testing/fixtures/check-fixture';
 import { finding } from '#testing/fixtures/review-fixture';
 import { taskFixture } from '#testing/fixtures/task-fixture';
@@ -46,17 +45,8 @@ describe('task route (07-R, 07-V, 07-G)', () => {
       const def = t.fx.routes.route('task')!;
       assert.deepEqual(def.steps.map((step) => step.id), ['fetch', 'start', 'draft-ok', 'ground', 'red', 'green', 'review-offer', 'review-cmd', 'brief', 'review-agent', 'review-run', 'fix', 'report-step', 'write']);
       assert.deepEqual(def.steps.find((step) => step.id === 'draft-ok')?.gate?.options, ['implement anyway', 'stop']);
-      assert.ok(t.fx.routes.gate('check-only-unauthorized') !== null && t.fx.routes.gate('scope-expanding') !== null);
-    });
-  });
-
-  it('07-R2: `iteration 2 of <slug>` continues that task\'s accepted plan at that iteration', async () => {
-    await withTask(async (t) => {
-      const dir = path.join(t.fx.repo.root, '.ambicode', 'task', 'ord-7');
-      await t.fx.repo.write('.ambicode/task/ord-7/plan.md', '# Plan\n\n## Iteration 1\nAdd the guard.\n\n## Iteration 2\nSeed the reduce.\n');
-      await appendLedger(t.fx.runtime.fs, dir, t.fx.runtime.clock.now(), 'test-writer', { kind: 'note', note: 'plan', path: '.ambicode/task/ord-7/plan.md', contentHash: 'sha256:0' });
-      const red = await t.fx.engine.start({ skill: 'task', text: 'iteration 2 of ord-7', requirements: [], cwd: t.fx.repo.root, session: SESSION_A, channel: 'hook', scratchpadDir: t.fx.scratchpad });
-      assert.match(red.text, /Task ord-7 · iteration 2 of 2 · plan: \.ambicode\/task\/ord-7\/plan\.md\n\n## Iteration 2\nSeed the reduce\./);
+      assert.ok(t.fx.routes.gate('check-only-unauthorized') != null);
+      for (const gone of ['review-checks', 'scope-expanding']) assert.equal(t.fx.routes.gate(gone) ?? null, null, `${gone} is not a gate`);
     });
   });
 
@@ -70,12 +60,12 @@ describe('task route (07-R, 07-V, 07-G)', () => {
     });
   });
 
-  it('07-R3: --from-draft on the cli channel is a preanswer the draft-ok gate honours', async () => {
+  it('07-R3: --from-draft is the user\'s own implement-anyway: draft-ok is skipped, never asked', async () => {
     await withTask(async (t) => {
       await t.fx.repo.write('docs/plan-draft.md', '# Plan\n\nDo it.\n');
       assert.equal((await t.start({ fromDraft: 'docs/plan-draft.md', channel: 'cli' })).position, 'red');
-      assert.deepEqual((await t.kinds('preanswer')).map((entry) => [entry['gate'], entry['option']]), [['draft-ok', 'implement anyway']]);
-      assert.equal((await t.kinds('acceptance')).find((entry) => entry['gate'] === 'draft-ok')?.['answer'], 'implement anyway');
+      assert.equal((await t.kinds('gate')).filter((entry) => entry['gate'] === 'draft-ok').length, 0);
+      assert.equal((await t.kinds('step')).find((entry) => entry['step'] === 'draft-ok')?.['status'], 'skipped');
     });
   });
 
@@ -115,7 +105,7 @@ describe('task route (07-R, 07-V, 07-G)', () => {
     });
   });
 
-  it('07-R4/07-G1/07-G2: ground records baseline, map and both policy stages in order, lists callers, under 9 KiB', async () => {
+  it('07-R4/07-G1/07-G2: ground records baseline, map and both policy stages in order, under 9 KiB', async () => {
     await withTask(async (t) => {
       await t.fx.repo.write('src/other.ts', 'export function total(): number {\n  return 1;\n}\n');
       await t.fx.repo.commitAll('a second total');
@@ -123,9 +113,7 @@ describe('task route (07-R, 07-V, 07-G)', () => {
       const order = (await t.ledger()).map((entry) => (entry.kind === 'policy' ? `policy:${entry['stage']}` : entry.kind === 'step' ? `step:${entry['step']}` : entry.kind));
       const at = (name: string): number => order.indexOf(name);
       assert.ok(at('baseline') < at('map') && at('map') < at('policy:before-work') && at('policy:before-work') < at('policy:before-checks') && at('policy:before-checks') < at('step:ground'), order.join(' '));
-      const callers = section(red.text, 'script:inventory');
-      assert.match(callers, /git grep -w -n/);
-      assert.match(callers, /^ {2}total — \d+ refs$/m);
+      assert.doesNotMatch(red.text, /git grep|Callers/);
       assert.ok(Buffer.byteLength(red.text) <= 9 * 1024, `${Buffer.byteLength(red.text)} bytes`);
     });
   });
@@ -168,7 +156,7 @@ describe('task route (07-R, 07-V, 07-G)', () => {
       assert.match(again.text, /Not done yet/);
       // e-cLRPPf: the re-print named `route next`, the call that ends the route, as the way to produce the red check.
       assert.match(again.text, /Produce it with: \S.* check --task \S+ <projectId>\/<checkId> --only <spec> --phase red\./);
-      assert.match(again.text, /If no failing test is possible, `.* route next --task \S+` again ends the route as no-red\./);
+      assert.match(again.text, /a second `route next` with no red check recorded ends the route as no-red\./);
       const stopped = await t.next();
       assert.equal(stopped.position, 'complete');
       assert.deepEqual((await t.kinds('limit')).map((entry) => [entry['which'], entry['step']]), [['no-red', 'red']]);
@@ -233,14 +221,14 @@ describe('task route (07-R, 07-V, 07-G)', () => {
     });
   });
 
-  it('07-V5: review --task leaves the reviewer pending: review-agent gets the snapshot and brief paths, review record reaches review-run and its findings revise fix', async () => {
+  it('07-V5: review --task leaves the reviewer pending: review-agent gets the diff and brief paths, review record reaches review-run and its findings revise fix', async () => {
     await withTask(async (t) => {
       await toOffer(t);
       await t.hook('review-offer', 'run');
       const agent = await t.review([finding({ id: 'F1' })], { reviewerRan: false });
       assert.equal(agent.position, 'review-agent');
       assert.match(agent.text, /ambicode:reviewer/);
-      assert.match(agent.text, /snapshot: \/tmp\/snapshot-x\nbrief: .*brief\.md/);
+      assert.match(agent.text, /diff: .*changed\.diff\nbrief: .*brief\.md/);
       assert.match(agent.text, /review record --task ord-7/);
       assert.equal(await delivered(t, 'fix'), 0, 'a pending review has no findings to fix');
       const fix = await t.review([finding({ id: 'F1' })]);
@@ -250,75 +238,27 @@ describe('task route (07-R, 07-V, 07-G)', () => {
     });
   });
 
-  it('07-V3: the review-again default is skip and runs no reviewer and no revise', async () => {
+  it('07-V3: an unanswered review-again holds the route: no default is taken, no reviewer runs and no revise', async () => {
     await withTask(async (t) => {
       await toOffer(t);
       await t.hook('review-offer', 'run');
       await t.review([finding({ id: 'F1' })]);
       await t.check('green', { ran: 1, failed: 0 });
-      for (let turn = 0; turn < 4; turn += 1) await t.next();
-      assert.deepEqual((await t.kinds('default-taken')).map((entry) => [entry['gate'], entry['answer']]), [['review-again', 'skip']]);
+      for (let turn = 0; turn < 4; turn += 1) assert.equal((await t.next()).position, 'report-step');
+      assert.equal((await t.kinds('default-taken')).length, 0);
       assert.deepEqual((await t.kinds('revise')).map((entry) => entry['reason']), ['review-run: review-findings']);
       assert.equal((await t.kinds('review')).length, 1);
     });
   });
 
-  it('07-V1/07-V3: an approved waiting key re-enters review-cmd, the review reruns, and a clean rerun goes on without fix', async () => {
+  it('07-V1: a finding outside the touched files goes to fix like any other: one rule, no scope question', async () => {
     await withTask(async (t) => {
       await toOffer(t);
       await t.hook('review-offer', 'run');
-      assert.equal((await t.review([], { waiting: ['app/e2e'], reviewerRan: false })).position, 'review-cmd');
-      assert.deepEqual((await prints(t, 'check-only-unauthorized')).map((entry) => [entry['raisedBy'], entry['values']]), [['review-cmd', { key: ['app/e2e'], files: ['the change under review'] }]]);
-      assert.match((await t.hook('check-only-unauthorized', 'approve')).text, /review --task ord-7/);
-      assert.equal((await t.review([])).position, 'write');
-      assert.equal(await delivered(t, 'fix'), 0);
-    });
-  });
-
-  it('07-V1: each waiting key gets its own gate, the next one raised as soon as the first is approved', async () => {
-    await withTask(async (t) => {
-      await toOffer(t);
-      await t.hook('review-offer', 'run');
-      await t.review([], { waiting: ['app/e2e', 'app/unit'] });
-      const second = await t.hook('check-only-unauthorized', 'approve');
-      assert.match(second.text, /Run app\/unit on/);
-      assert.deepEqual((await prints(t, 'check-only-unauthorized')).map((entry) => (entry['values'] as { key: string[] }).key), [['app/e2e'], ['app/unit']]);
-      assert.match((await t.hook('check-only-unauthorized', 'approve')).text, /review --task ord-7/);
-    });
-  });
-
-  it('07-V1: a waiting key in the review that follows a fix round is raised at review-cmd and approved back into it', async () => {
-    await withTask(async (t) => {
-      await toOffer(t);
-      await t.hook('review-offer', 'run');
-      await t.review([finding({ id: 'F1' })]);
-      await t.check('green', { ran: 1, failed: 0 });
-      assert.equal((await t.hook('review-again', 'run')).position, 'review-cmd');
-      await t.review([], { waiting: ['app/e2e'], reviewerRan: false });
-      assert.deepEqual((await prints(t, 'check-only-unauthorized')).map((entry) => entry['raisedBy']), ['review-cmd']);
-      assert.equal((await t.hook('check-only-unauthorized', 'approve')).position, 'review-cmd');
-    });
-  });
-
-  it('07-V1: an out-of-scope finding asks scope-expanding; "out of scope" goes on without fix', async () => {
-    await withTask(async (t) => {
-      await toOffer(t);
-      await t.hook('review-offer', 'run');
-      await t.review([finding({ id: 'F1', location: OTHER })]);
-      assert.match(String((await prints(t, 'scope-expanding'))[0]?.['question']), /F1 src\/other\.ts:1/);
-      assert.equal((await t.hook('scope-expanding', 'out of scope')).position, 'write');
-      assert.equal(await delivered(t, 'fix'), 0);
-    });
-  });
-
-  it('07-V1: "include" on scope-expanding revises fix with the finding', async () => {
-    await withTask(async (t) => {
-      await toOffer(t);
-      await t.hook('review-offer', 'run');
-      await t.review([finding({ id: 'F1', location: OTHER })]);
-      const fix = await t.hook('scope-expanding', 'include');
+      const fix = await t.review([finding({ id: 'F1', location: OTHER })]);
       assert.equal(fix.position, 'fix');
       assert.match(fix.text, /F1 src\/other\.ts:1/);
+      assert.equal((await prints(t, 'scope-expanding')).length, 0);
     });
   });
 
@@ -411,9 +351,9 @@ describe('task route (07-R, 07-V, 07-G)', () => {
 
   it('07-R8: every task step text is at most 1,500 characters after inclusion; start ≤ 4 KiB, report ≤ 3 KiB, before-checks ≤ 1.5 KiB', async () => {
     const cli = `node "${REPO_ROOT}/scripts/ambicode.mjs"`;
-    for (const name of ['task/red', 'task/green', 'task/fix', 'task/write']) {
+    for (const name of ['task/red', 'task/green', 'task/fix', 'task/write', 'task/review']) {
       const text = (await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8')).replaceAll('{cli}', cli).replaceAll('{task}', CHECK_TASK);
-      assert.ok(text.length <= MAX_INSTRUCTION_CHARS, `${name}: ${text.length}`);
+      assert.ok(text.length <= 1500, `${name}: ${text.length}`);
     }
     assert.equal(STAGE_LIMITS['before-checks'], 1536);
     await withTask(async (t) => {

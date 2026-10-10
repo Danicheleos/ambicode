@@ -74,12 +74,18 @@ describe('U27 target options', () => {
   it('accepts every documented target option through the parser', () => {
     const args = parseArgs(
       'review',
-      ['--mr', MR, '--requirement', 'a', '--requirement', 'b', '--approve', 'web/lint', '--json'],
+      ['--mr', MR, '--requirement', 'a', '--requirement', 'b', '--only', 'src/**', '--json'],
       REVIEW_OPTIONS,
     );
     assert.equal(args.value('mr'), MR);
     assert.deepEqual(args.all('requirement'), ['a', 'b']);
-    assert.deepEqual(args.all('approve'), ['web/lint']);
+    assert.deepEqual(args.all('only'), ['src/**']);
     assert.equal(args.flag('json'), true);
+  });
+});
+
+describe('U27 removed target options', () => {
+  it('refuses --approve, --decline and --context on review: the review runs no check and mirrors no context', () => {
+    for (const flag of ['--approve', '--decline', '--context']) assert.throws(() => parseArgs('review', [flag, 'x'], REVIEW_OPTIONS), (error: unknown) => isAmbicodeError(error), flag);
   });
 });

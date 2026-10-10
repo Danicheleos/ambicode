@@ -9,7 +9,7 @@ import { REPO_ROOT } from '#testing/paths';
 import { KINDS, type LedgerEntry } from '#types/modules/evidence';
 import type { RouteDef } from '#types/harness';
 
-const HEAD = 'skill: demo\nversion: 3\nexits: [done, blocked]\nrevisable: [ground]\nsteps:\n';
+const HEAD = 'skill: demo\nversion: 3\nrevisable: [ground]\nsteps:\n';
 const YAML = `${HEAD}  - id: template
     actor: code
     when: args.hasRequirement
@@ -22,7 +22,7 @@ const YAML = `${HEAD}  - id: template
   - id: scope
     actor: human
     when: map.empty
-    gate: { question: Q, options: [go, other], default: go, release: go, onAnswer: { "*": "revise ground --term $answer" } }
+    gate: { question: Q, options: [go, other], default: go, onAnswer: { "*": "revise ground --term $answer" } }
   - id: read
     actor: model
     instruction: Read.
@@ -44,19 +44,17 @@ async function def(yaml = YAML): Promise<RouteDef> {
 }
 
 describe('fold', () => {
-  it('03-F1: the chain follows resumes transitively, from any session, and never includes legacy or foreign entries', async () => {
+  it('03-F1: the chain is the head route and its own entries, never another route\'s, legacy or foreign entries', async () => {
     const entries = [
       route('r0', { session: 'cccccccc' }),
       entry('envelope', { route: 'r0' }),
-      route('r1', { session: 'aaaaaaaa', resumes: 'r0' }),
-      entry('envelope', { route: 'r1' }),
       route('r9', { session: 'bbbbbbbb' }),
       entry('envelope', { route: 'r9' }),
       entry('note', { note: 'investigation', path: 'x', contentHash: 'h' }),
     ];
     const chain = buildChain(entries, entries[2]!);
-    assert.deepEqual([...chain.ids], ['r1', 'r0']);
-    assert.deepEqual(chain.entries.map((candidate) => candidate.id), [entries[0]!.id, entries[1]!.id, 'r1', entries[3]!.id]);
+    assert.deepEqual([...chain.ids], ['r9']);
+    assert.deepEqual(chain.entries.map((candidate) => candidate.id), ['r9', entries[3]!.id]);
     assert.equal(latestRouteOf(entries, 'bbbbbbbb')?.id, 'r9');
   });
 

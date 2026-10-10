@@ -314,18 +314,10 @@ describe('plan-body writes: allowed only to the session that owns the live plan 
     for (const tool of ['Write', 'Edit', 'MultiEdit']) assert.deepEqual(write('A', undefined, tool), {});
   });
 
-  it('after another session --adopt, the former owner is denied naming route-taken-over and the new owner writes', () => {
-    const { write } = fixture([planRoute('a-1', 'A'), planRoute('b-1', 'B', { resumes: 'a-1', adopts: true })], { A: onPlanT, B: onPlanT });
-    const out = write('A');
-    assert.equal(decisionOf(out), 'deny');
-    assert.match(out.hookSpecificOutput!.permissionDecisionReason, /route-taken-over: session B took over the plan route on T \(route b-1\)/);
-    assert.deepEqual(write('B'), {});
-  });
-
-  it('after another session --fresh, the former owner is denied naming route-taken-over', () => {
+  it('after another session --fresh, the former owner is denied naming the new owner', () => {
     const ledger = [planRoute('a-1', 'A'), { id: 'b-1', at, kind: 'exit', route: 'a-1', reason: 'superseded' }, planRoute('b-2', 'B')];
     const { write } = fixture(ledger, { A: onPlanT, B: onPlanT });
-    assert.match(write('A').hookSpecificOutput!.permissionDecisionReason, /route-taken-over: session B/);
+    assert.match(write('A').hookSpecificOutput!.permissionDecisionReason, /session B owns it/);
     assert.deepEqual(write('B'), {});
   });
 
@@ -342,11 +334,9 @@ describe('plan-body writes: allowed only to the session that owns the live plan 
     ['a torn ledger line', `${JSON.stringify(planRoute('a-1', 'A'))}\n{"id":"b-1","kind":"rou`, { A: onPlanT }, 'A', undefined, /missing, unreadable or over 1 MiB/],
     ['a non-object ledger line', `${JSON.stringify(planRoute('a-1', 'A'))}\n42\n`, { A: onPlanT }, 'A', undefined, /missing, unreadable or over 1 MiB/],
     ['an exited chain', [planRoute('a-1', 'A'), { id: 'a-2', at, kind: 'exit', route: 'a-1', reason: 'done' }], { A: onPlanT }, 'A', undefined, /no plan route is open on T/],
-    ['a dangling resume', [planRoute('a-1', 'A'), planRoute('b-1', 'B', { resumes: 'zz' })], { A: onPlanT }, 'A', undefined, /resumes zz/],
     ['legacy notes only', [{ id: 'L1', at, kind: 'note', note: 'plan', path: 'plan_x.md' }], { A: onPlanT }, 'A', undefined, /no plan route is open/],
     ['a later route with no skill', [planRoute('a-1', 'A'), { id: 'b-1', at, kind: 'route', session: 'B' }], { A: onPlanT }, 'A', undefined, /route b-1 names no skill/],
     ['a later route with a numeric skill', [planRoute('a-1', 'A'), { id: 'b-1', at, kind: 'route', skill: 7, session: 'B' }], { A: onPlanT }, 'A', undefined, /route b-1 names no skill/],
-    ['a later route with a malformed adopts', [planRoute('a-1', 'A'), planRoute('b-1', 'B', { resumes: 'a-1', adopts: 'yes' })], { A: onPlanT }, 'A', undefined, /malformed adopts/],
     ['an exit naming no route', [planRoute('a-1', 'A'), { id: 'x-1', at, kind: 'exit', route: 'zz' }], { A: onPlanT }, 'A', undefined, /exit x-1 names no route/],
     ['an exit with no route', [planRoute('a-1', 'A'), { id: 'x-1', at, kind: 'exit', reason: 'done' }], { A: onPlanT }, 'A', undefined, /exit x-1 names no route/],
   ] as [string, LedgerEntry[] | string | null, Record<string, unknown>, string | undefined, string | undefined, RegExp][]) {
@@ -385,20 +375,6 @@ describe('plan-body writes: allowed only to the session that owns the live plan 
     assert.deepEqual(write('A'), {});
     assert.equal(decisionOf(write('owner-1')), 'deny');
     assert.match(write('B').hookSpecificOutput!.permissionDecisionReason, /session owner-1 owns it/);
-  });
-
-  it('5.1: a rebinding record moves the write right to the new Claude session and detaches the old one', () => {
-    const ledger = [planRoute('a-1', 'owner-1', { harnessSession: 'A' }), planRoute('a-2', 'owner-1', { harnessSession: 'B', resumes: 'a-1', adopts: true })];
-    const { write } = fixture(ledger, { A: onPlanT, B: onPlanT });
-    assert.deepEqual(write('B'), {});
-    assert.equal(decisionOf(write('A')), 'deny');
-  });
-
-  it('5.1: another owner adopting the route names route-taken-over to the former owner Claude session', () => {
-    const ledger = [planRoute('a-1', 'owner-1', { harnessSession: 'A' }), planRoute('b-1', 'owner-2', { harnessSession: 'B', resumes: 'a-1', adopts: true })];
-    const { write } = fixture(ledger, { A: onPlanT, B: onPlanT });
-    assert.match(write('A').hookSpecificOutput!.permissionDecisionReason, /route-taken-over: session owner-2 took over/);
-    assert.deepEqual(write('B'), {});
   });
 
   it('a ledger of exactly the read limit is read; one byte more is not', () => {
@@ -486,11 +462,11 @@ describe('the built guard entry', () => {
   });
 
   it('reads the fixture state directory for the plan-body exception', { skip: !existsSync(built) }, () => {
-    const { repo, scratch } = fixture([planRoute('a-1', 'A'), planRoute('b-1', 'B', { resumes: 'a-1', adopts: true })], { A: onPlanT, B: onPlanT });
+    const { repo, scratch } = fixture([planRoute('a-1', 'A'), { id: 'x-1', at, kind: 'exit', route: 'a-1', reason: 'superseded' }, planRoute('b-2', 'B')], { A: onPlanT, B: onPlanT });
     const input = (session: string) =>
       JSON.stringify({ hook_event_name: 'PreToolUse', session_id: session, scratchpad_dir: scratch[session], tool_name: 'Write', tool_input: { file_path: path.join(repo, '.ambicode/task/T/steps/plan-body.md') } });
     assert.deepEqual(JSON.parse(run(input('B')).stdout), {});
-    assert.match(JSON.parse(run(input('A')).stdout).hookSpecificOutput.permissionDecisionReason, /route-taken-over/);
+    assert.match(JSON.parse(run(input('A')).stdout).hookSpecificOutput.permissionDecisionReason, /owns it/);
   });
 
   it('denies a malformed later route without reading past it', { skip: !existsSync(built) }, () => {

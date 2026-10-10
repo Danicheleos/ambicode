@@ -56,8 +56,8 @@ In the target repository, start or restart Claude Code and run:
 commands from the scan, validates that proposal against the config schema, and
 asks one question: *Apply*, *Adjust* (pick a printed choice, such as
 `MCP server: <name>`), or *Cancel*. Only an accepted answer writes
-the config and the `.gitignore` lines, then prints a `doctor` table that probes
-every configured command. *Cancel*, or a headless run, writes nothing outside
+the config and the `.gitignore` lines, then has the model run each configured
+command with `--version` and report which do not run. *Cancel*, or a headless run, writes nothing outside
 `.ambicode/task/init-<date>/`. `ambicode init` on its own only points at the
 skill. That configuration file is
 the expected repository-visible result of initialization; the installed plugin

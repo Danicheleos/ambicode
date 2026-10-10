@@ -1,54 +1,28 @@
 import type { ReviewResult } from '#types/modules/review';
 
-/** What the status needs of a bundle; `review record` has only the persisted result, so it counts gaps from that. */
-export interface StatusInput {
-  result: ReviewResult;
-  /** Applicable policy diagnostics that could not be resolved. */
-  policyGaps: number;
-  /** Checks still waiting for a human. */
-  waiting: number;
-}
-
 /**
- * A failed or skipped check narrows what was verified (`partial`) but does not
- * stop the model; only unusable reviewer output makes the review an error.
+ * Two rules. A reviewer that produced no validated answer is an `error`; otherwise any gap makes the result `partial`.
+ * A missing check is a gap, not a pass: the model chose not to run one, or forgot, and either way nothing was verified by execution.
  */
-export function applyStatus(bundle: StatusInput, reviewerOk: boolean, dropped: string | null = null): void {
+export function applyStatus(result: ReviewResult, reviewerOk: boolean): void {
   if (!reviewerOk) {
-    bundle.result.status = 'error';
-    bundle.result.statusReason =
-        bundle.result.reviewer?.detail ??
-      'The independent reviewer did not produce a validated result, so no finding list was produced. This is not a clean review.';
+    result.status = 'error';
+    result.statusReason =
+      result.reviewer?.detail ?? 'The independent reviewer did not produce a validated result, so no finding list was produced. This is not a clean review.';
     return;
   }
 
-  // A check configured as null says the project has nothing to run there; a declined or failed one is still a gap.
-  const unverified = bundle.result.checks.filter(
-    (check) => check.adapter !== 'unconfigured' && (check.status !== 'passed' || !check.selectionComplete),
-  );
-  const policyGaps = bundle.policyGaps;
+  const policyGaps = result.omissions.filter((line) => /^project ".*" policy: /.test(line)).length;
+  const narrowed = result.omissions.some((line) => line.startsWith('This review was narrowed on request'));
+  // The newest green run per check decides: an earlier failure the model then fixed is not a gap.
+  const latestGreen = new Map(result.checks.filter((check) => check.phase === 'green').map((check) => [check.key, check]));
+  const failing = [...latestGreen.values()].filter((check) => check.exit !== 0);
   const gaps = [
     ...(policyGaps > 0 ? [`${policyGaps} applicable policy diagnostic(s) could not be resolved`] : []),
-    ...(unverified.length > 0
-      ? [`${unverified.length} check(s) did not pass or could not establish what they covered`]
-      : []),
-    ...(bundle.waiting > 0
-      ? [`${bundle.waiting} check(s) are waiting for authorization`]
-      : []),
-    ...(dropped !== null ? [dropped] : (bundle.result.reviewer?.rejections.length ?? 0) > 0
-      ? ['some reviewer output was rejected as unverifiable']
-      : []),
+    ...(narrowed ? ['--only or --exclude left part of the change unexamined (see section 4)'] : []),
+    ...(result.checks.length === 0 ? ['no check recorded, so nothing was verified by execution'] : []),
+    ...(failing.length > 0 ? [`${failing.length} check(s) last ran green with a non-zero exit`] : []),
   ];
-
-  if (gaps.length === 0) {
-    const narrowed = bundle.result.omissions.some((line) => line.startsWith('This review was narrowed on request'));
-    bundle.result.status = 'complete';
-    bundle.result.statusReason = narrowed
-      ? 'Complete for the paths reviewed only: --only or --exclude left part of the change unexamined (see section 4).'
-      : null;
-    return;
-  }
-  bundle.result.status = 'partial';
-  bundle.result.statusReason = gaps.length === 1 && gaps[0] === dropped ? dropped : `The review ran, with gaps: ${gaps.join('; ')}.`;
+  result.status = gaps.length === 0 ? 'complete' : 'partial';
+  result.statusReason = gaps.length === 0 ? null : `The review ran, with gaps: ${gaps.join('; ')}.`;
 }
-

@@ -39,13 +39,6 @@ export function validateTargetArgs(command: string, args: ParsedArgs): TargetSel
     throw new AmbicodeError('bad-argument', '--mr needs a merge request URL.', { field: '--mr' });
   }
 
-  if (mr !== null && args.all('context').length > 0) {
-    throw new AmbicodeError('bad-argument', '--context names files in your checkout, and a merge request is not your checkout.', {
-      field: '--context',
-      details: ['Review the branch locally with --branch to use --context.'],
-    });
-  }
-
   if (mr !== null) return { kind: 'merge-request', url: mr };
   if (branch) return { kind: 'branch', baseRef: base };
   return { kind: 'working' };

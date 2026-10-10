@@ -47,13 +47,16 @@ describe('5.1 / 03-S1: a hook launch mints the owner id and records the Claude s
     }
   });
 
-  it('the same Claude session launching the same request again keeps its owner and writes no second route', async () => {
+  it('the same Claude session launching the same request again supersedes its route and mints a new owner', async () => {
     const inv = await investigation();
     try {
       await launch(inv.hooked, '/ambicode:investigate how does addToCart work --task cart');
-      const before = await inv.fx.kinds('cart', 'route');
+      const [first] = await inv.fx.kinds('cart', 'route');
       await launch(inv.hooked, '/ambicode:investigate how does addToCart work --task cart');
-      assert.deepEqual((await inv.fx.kinds('cart', 'route')).map((entry) => entry.id), before.map((entry) => entry.id));
+      const routes = await inv.fx.kinds('cart', 'route');
+      assert.equal(routes.length, 2);
+      assert.deepEqual((await inv.fx.kinds('cart', 'exit')).map((entry) => [entry['route'], entry['reason']]), [[first!.id, 'superseded']]);
+      assert.deepEqual(await inv.fx.pointer.read(CLAUDE_1, inv.scratchpad(CLAUDE_1)), { task: 'cart', skill: 'investigate', owner: routes[1]!['session'] });
     } finally {
       await inv.dispose();
     }
@@ -126,7 +129,7 @@ describe('5.1 / 03-S2: routed CLI calls find the owner from --task', () => {
 describe('5.1 / 03-O1: ownership is by owner id', () => {
   const asked = (plan: PlanFixture, hooked: Hooked, session: string, extra = '') => launch(hooked, `/ambicode:plan add a limit --task ${PLAN_TASK}${extra}`, session).then(context).then((text) => ({ text, plan }));
 
-  it('a second Claude session starting the same plan task is route-busy and writes nothing; --adopt makes a new owner', async () => {
+  it('a second Claude session starting the same plan task is route-busy and writes nothing; --fresh supersedes the first owner and makes a new one', async () => {
     const plan = await planFixture();
     const hooked = hookRunner(plan.fx, plan.fx.runtime, { pointer: plan.fx.pointer, load: async () => ({ engine: plan.fx.engine, routes: plan.fx.routes, pointer: plan.fx.pointer }) });
     try {
@@ -136,13 +139,14 @@ describe('5.1 / 03-O1: ownership is by owner id', () => {
       assert.match(busy.text, /could not start the plan route: route-busy/);
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'route')).length, 1);
 
-      assert.match((await asked(plan, hooked, CLAUDE_2, ' --adopt')).text, /\[ambicode\] plan/);
+      assert.match((await asked(plan, hooked, CLAUDE_2, ' --fresh')).text, /\[ambicode\] plan/);
       const routes = await plan.fx.kinds(PLAN_TASK, 'route');
       assert.equal(routes.length, 2);
       assert.notEqual(routes[1]!['session'], first['session']);
-      assert.deepEqual([routes[1]!['harnessSession'], routes[1]!['resumes'], routes[1]!['adopts']], [CLAUDE_2, first.id, true]);
+      assert.equal(routes[1]!['harnessSession'], CLAUDE_2);
+      assert.deepEqual((await plan.fx.kinds(PLAN_TASK, 'exit')).map((entry) => [entry['route'], entry['reason']]), [[first.id, 'superseded']]);
       const owner = ownerOf(await plan.fx.ledger(PLAN_TASK), PLAN_TASK);
-      assert.deepEqual(owner.state === 'owned' ? [owner.session, owner.takenOver] : null, [routes[1]!['session'], [first['session']]]);
+      assert.equal(owner.state === 'owned' ? owner.session : null, routes[1]!['session']);
     } finally {
       await plan.dispose();
     }
@@ -239,11 +243,12 @@ describe('03-S7/03-H4: the same Claude session resumed, and a CLI advance after 
       const owner = String((await inv.fx.kinds('cart', 'route'))[0]!['session']);
       await inv.fx.engine.advance({ task: 'cart', session: owner, cause: 'route-next' });
       const context = commandContext({ runtime: inv.fx.runtime, routes: inv.fx.routes });
-      await saveNote({ runtime: inv.fx.runtime, session: owner, context }, { task: 'cart', kind: 'investigation', body: '## Confirmed facts\n- missing (src/missing.ts:999)\n', from: null, iteration: null, route: (await inv.fx.kinds('cart', 'route'))[0]!.id });
+      await saveNote({ runtime: inv.fx.runtime, session: owner, context }, { task: 'cart', kind: 'investigation', body: '## Confirmed facts\n- appends (src/cart.ts:2)\n', from: null, iteration: null, route: (await inv.fx.kinds('cart', 'route'))[0]!.id });
       await inv.fx.engine.advance({ task: 'cart', session: owner, cause: 'note save' });
-      const stopped = (await inv.hooked.event({ hook_event_name: 'Stop' }, CLAUDE_1)) as { decision?: string; reason?: string };
+      assert.equal((await inv.fx.kinds('cart', 'exit')).at(-1)?.['reason'], 'done');
+      const stopped = (await inv.hooked.event({ hook_event_name: 'Stop', last_assistant_message: 'Evidence\nnothing was run' }, CLAUDE_1)) as { decision?: string; reason?: string };
       assert.equal(stopped.decision, 'block');
-      assert.match(stopped.reason ?? '', /src\/missing\.ts:999/);
+      assert.match(stopped.reason ?? '', /stop-check\.md/);
     } finally {
       await inv.dispose();
     }

@@ -8,7 +8,7 @@ import { createEngine } from './engine.ts';
 import type { Handler, HandlerRegistry, StartInput } from '#types/harness';
 
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';
-const HEAD = (skill: string, extra = '') => `skill: ${skill}\nversion: 3\nexits: [done, blocked, human, inconclusive, superseded]\nrevisable: [${extra}]\nsteps:\n`;
+const HEAD = (skill: string, extra = '') => `skill: ${skill}\nversion: 3\nrevisable: [${extra}]\nsteps:\n`;
 
 export const INVESTIGATE = `${HEAD('inv')}  - id: template
     actor: code
@@ -30,7 +30,6 @@ export const INVESTIGATE = `${HEAD('inv')}  - id: template
       question: "Nothing matched. Where should I look?"
       options: ["search anyway"]
       default: "search anyway"
-      release: "search anyway"
       onAnswer: { "*": "revise ground --term $answer" }
   - id: read
     actor: model
@@ -113,20 +112,6 @@ describe('engine: entry points and the one algorithm', () => {
     }
   });
 
-  it('D5: a delivered step entry carries `answer` exactly when the step declares answer: note', async () => {
-    const answering = INVESTIGATE.replace('    produces: ["note{investigation}"]\n', '    produces: ["note{investigation}"]\n    answer: note\n');
-    assert.notEqual(answering, INVESTIGATE);
-    const { fx, start, next } = await inv({ extraRoutes: { inv: answering } });
-    try {
-      await start();
-      await next();
-      const delivered = (await fx.kinds('cart', 'step')).filter((entry) => entry['status'] === 'delivered' && entry['actor'] === 'model');
-      assert.deepEqual(delivered.map((entry) => [entry['step'], entry['answer']]), [['read', undefined], ['write', 'note']]);
-    } finally {
-      await fx.dispose();
-    }
-  });
-
   it('03-E1/03-E3: a command tail at a model step completes it exactly as route next does; delivery alone completes nothing', async () => {
     const { fx, start, next } = await inv();
     try {
@@ -141,35 +126,45 @@ describe('engine: entry points and the one algorithm', () => {
     }
   });
 
-  it('03-E2: a same-session start with the same args reprints and writes no completion, no counter, no rerun', async () => {
+  it('03-E2: a same-session start supersedes the live route on the same task and begins a new one', async () => {
     const { fx, counts, start } = await inv();
     try {
       const first = await start();
-      const before = await fx.ledger('cart');
       const again = await start();
       assert.equal(again.position, first.position);
-      assert.equal(again.text.split('\n')[0], first.text.split('\n')[0]);
-      assert.equal(counts.ground, 1);
-      assert.deepEqual(await fx.ledger('cart'), before);
+      assert.notEqual(again.routeId, first.routeId);
+      assert.equal(counts.ground, 2);
+      const exits = await fx.kinds('cart', 'exit');
+      assert.deepEqual(exits.map((entry) => [entry['route'], entry['reason']]), [[first.routeId, 'superseded']]);
     } finally {
       await fx.dispose();
     }
   });
 
-  it('03-E1: an interrupted start (outputs recorded, delivery lost) only delivers on the next entry point', async () => {
-    const { fx, counts, start } = await inv();
+  it('03-E1: a start whose delivery was lost begins a fresh route; the lost one is superseded', async () => {
+    const { fx, start } = await inv();
     try {
-      await start();
+      const first = await start();
       const file = path.join(fx.repo.root, '.ambicode', 'task', 'cart', 'ledger.jsonl');
       const lines = (await readFile(file, 'utf8')).trim().split('\n');
       assert.equal(JSON.parse(lines.at(-1)!).status, 'delivered');
       await writeFile(file, `${lines.slice(0, -1).join('\n')}\n`);
-      const resumed = await start();
-      assert.equal(resumed.position, 'read');
-      assert.equal(counts.ground, 1);
-      const rows = stepRows(await fx.ledger('cart'));
-      assert.equal(rows.filter((row) => row === 'ground:completed').length, 1);
-      assert.equal(rows.filter((row) => row === 'read:delivered').length, 1);
+      const restarted = await start();
+      assert.equal(restarted.position, 'read');
+      assert.notEqual(restarted.routeId, first.routeId);
+      assert.equal((await fx.kinds('cart', 'exit')).at(-1)?.['reason'], 'superseded');
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('03-E2b: a start on another task supersedes the session route found through the pointer', async () => {
+    const { fx, start } = await inv();
+    try {
+      const first = await start({ task: 'one' });
+      await start({ task: 'two' });
+      assert.deepEqual((await fx.kinds('one', 'exit')).map((entry) => [entry['route'], entry['reason']]), [[first.routeId, 'superseded']]);
+      assert.equal((await fx.kinds('two', 'exit')).length, 0);
     } finally {
       await fx.dispose();
     }
@@ -189,7 +184,7 @@ const REVISABLE_TEMPLATE = `${HEAD('rt', 'template')}  - id: template
 `;
 
 describe('engine: templates, scope revises and re-entry (S9)', () => {
-  it('S9/03-F12: the template completes once; resumes do not rerun it; a scope revise re-enters ground only', async () => {
+  it('S9/03-F12: the template completes once; a scope revise does not rerun it; a scope revise re-enters ground only', async () => {
     const { fx, counts, state, start, next } = await inv({ candidates: 0 });
     try {
       const requirement = 'https://example.invalid/browse/ORD-17';
@@ -197,8 +192,6 @@ describe('engine: templates, scope revises and re-entry (S9)', () => {
       assert.equal(first.position, 'fetch');
       assert.equal(counts.template, 1);
       assert.equal(counts.ground, 0);
-      await start({ requirements: [requirement], task: 'ORD-17' });
-      assert.equal(counts.template, 1);
 
       const gate = await next({ task: 'ORD-17' });
       assert.equal(gate.position, 'scope');
