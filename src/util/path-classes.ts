@@ -43,9 +43,9 @@ export const TEST_PATH_PATTERNS: readonly RegExp[] = [
 /** Prose, data, markup and style files: they mention names without using them, so a name search skips them. */
 const NON_CODE_EXTENSIONS = new Set(['md', 'mdx', 'txt', 'rst', 'adoc', 'json', 'yaml', 'yml', 'toml', 'lock', 'csv', 'xml', 'svg', 'html', 'htm', 'css', 'scss', 'sass', 'less']);
 
-/** A file a name search may list: not a test, not prose, data, markup or style, and nothing `pathExclusionReason` rejects. */
+/** A file a name search may list: not prose, data, markup or style, and nothing `pathExclusionReason` rejects. Tests stay: the question may be where they are. */
 export function isSearchable(relativePath: string): boolean {
-  return pathExclusionReason(relativePath, { excludeTests: true }) === null && !NON_CODE_EXTENSIONS.has(relativePath.split('.').pop()?.toLowerCase() ?? '');
+  return pathExclusionReason(relativePath) === null && !NON_CODE_EXTENSIONS.has(relativePath.split('.').pop()?.toLowerCase() ?? '');
 }
 
 export function isTestPath(relativePath: string): boolean {

@@ -37,7 +37,8 @@ export function foundPaths(text, source) {
   let body = text;
   if (source === 'files-section') {
     const lines = text.split('\n');
-    const start = lines.findIndex((line) => /^#{1,6}\s*files\b/i.test(line.trim()));
+    // Exactly `Files`: "Files that look relevant but are not" is another section. The last one is the answer's closing list.
+    const start = lines.findLastIndex((line) => /^#{1,6}\s*files\s*:?\s*$/i.test(line.trim()));
     if (start < 0) return null; // no section: the run broke the contract, which is not an empty list
     const end = lines.findIndex((line, index) => index > start && /^#{1,6}\s/.test(line.trim()));
     body = lines.slice(start + 1, end < 0 ? undefined : end).join('\n');

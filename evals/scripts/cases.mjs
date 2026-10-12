@@ -39,6 +39,9 @@ const DONE = (file) => ledger('route-done', '"kind":"exit"[^\\n]*"reason":"done"
 const REPO = 'The repository is at `repo/`.';
 // The files list a case scores; both arms get the same sentence, so the list is a contract, not plugin behaviour.
 const FILES_SECTION = 'End your answer with a `## Files` section: one path per line, only the files the change edits.';
+/** Asked of both arms so a shared citation grader does not score the arm that was never asked for citations. */
+const CITE = 'Cite `path:line` for each claim.';
+
 // A how-question cites the decoys to rule them out, so its citations are no retrieval measure (2026-10-12, 5 runs).
 const FILES_ANSWER = 'End your answer with a `## Files` section: one path per line, only the files that take part in the answer.';
 
@@ -76,10 +79,10 @@ export const CASES = [
     description: 'A how-does-it-work question whose answer spans a service and a route, with keyword decoys in the repository.',
     tags: ['investigate'],
     fixture: 'ts-feature-boundary', flags: '--ambicode-init',
-    version: 2,
+    version: 3,
     metrics: { source: 'files-section', relevant: ['src/invoices/service.ts', 'src/routes/invoices.ts'], allowed: ['src/invoices/model.ts', 'tests/invoices.test.ts'] },
-    prompt: `/ambicode:investigate --task inv-how How is an invoice total computed, and where is it exposed over HTTP? ${FILES_ANSWER} ${REPO}`,
-    bare: `How is an invoice total computed, and where is it exposed over HTTP? ${FILES_ANSWER} ${REPO}`,
+    prompt: `/ambicode:investigate --task inv-how How is an invoice total computed, and where is it exposed over HTTP? ${CITE} ${FILES_ANSWER} ${REPO}`,
+    bare: `How is an invoice total computed, and where is it exposed over HTTP? ${CITE} ${FILES_ANSWER} ${REPO}`,
     graders: [
       ledger('route-started', '"kind":"route","skill":"investigate"', T('inv-how')),
       ledger('note-saved', '"kind":"note","note":"investigation"', T('inv-how')),
@@ -100,10 +103,10 @@ FAIL otherwise, including when the answer invents an HTTP framework, a database 
     description: 'A which-files-would-change question; the right answer is the invoice boundary, not the decoys.',
     tags: ['investigate'],
     fixture: 'ts-feature-boundary', flags: '--ambicode-init',
-    version: 2,
+    version: 3,
     metrics: { source: 'files-section', relevant: ['src/invoices/model.ts', 'src/routes/invoices.ts', 'tests/invoices.test.ts'], allowed: ['src/invoices/service.ts'] },
-    prompt: `/ambicode:investigate --task inv-files Which files would change to add a dueDate field to invoices and return it from the invoices route? ${FILES_SECTION} ${REPO}`,
-    bare: `Which files would change to add a dueDate field to invoices and return it from the invoices route? ${FILES_SECTION} ${REPO}`,
+    prompt: `/ambicode:investigate --task inv-files Which files would change to add a required dueDate field to invoices and return it from the invoices route? ${FILES_SECTION} ${REPO}`,
+    bare: `Which files would change to add a required dueDate field to invoices and return it from the invoices route? ${FILES_SECTION} ${REPO}`,
     graders: [
       ledger('note-saved', '"kind":"note","note":"investigation"', T('inv-files')),
       ledger('citations-valid', '"worker":"check-citations"[^\\n]*"failed":false', T('inv-files')),

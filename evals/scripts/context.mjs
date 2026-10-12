@@ -4,9 +4,10 @@
 import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import path from 'node:path';
 
-/** `{peak, final, calls}` in tokens, or null when the trace has no main-session call. */
+/** `{peak, final, calls, tools}`: sizes in tokens, `tools` the distinct main-session tool_use blocks, or null when the trace has no main-session call. */
 export function contextOf(traceText) {
   const calls = new Map();
+  const tools = new Set();
   for (const line of traceText.split('\n')) {
     if (!line.trim()) continue;
     let event;
@@ -18,10 +19,11 @@ export function contextOf(traceText) {
     if (event.type !== 'assistant' || event.parent_tool_use_id || !event.message?.usage) continue;
     // One API call streams as several events with the same message id and the same usage.
     const usage = event.message.usage;
+    for (const part of event.message.content ?? []) if (part.type === 'tool_use' && part.id) tools.add(part.id);
     calls.set(event.message.id, (usage.input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0));
   }
   const sizes = [...calls.values()];
-  return sizes.length === 0 ? null : { peak: Math.max(...sizes), final: sizes.at(-1), calls: sizes.length };
+  return sizes.length === 0 ? null : { peak: Math.max(...sizes), final: sizes.at(-1), calls: sizes.length, tools: tools.size };
 }
 
 /** The harness's sandbox of a trace (`<tmp>/e-XXXX/out/trace.jsonl`), or null for any other path: never delete beyond it. */

@@ -206,10 +206,17 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     for (const [key, values] of Object.entries(reviseArgs ?? {})) {
       if (values.length > 0) sections.push(`## ${key}\n${values.join('\n')}`);
     }
+    // A code revise re-asks for the same inputs: the model has them, so only the revise text is new.
+    const resent = reviseEntry?.kind === 'revise' && reviseEntry['via'] === 'code' && fold.chain.entries.slice(0, start).some((entry) => entry.kind === 'step' && entry['step'] === step.id && entry['status'] === 'delivered');
+    const unchanged: string[] = [];
     for (const key of step.payload) {
-      const payload = await loadPayload(run.runtime.fs, run.dir, chainKey([...chainOf(run).ids]), key);
-      if (payload !== null && payload.trim() !== '') sections.push(`## ${key}\n${payload}`);
+      const chain = chainKey([...chainOf(run).ids]);
+      const payload = await loadPayload(run.runtime.fs, run.dir, chain, key);
+      if (payload === null || payload.trim() === '') continue;
+      if (resent) unchanged.push(path.relative(run.dir.repositoryRoot, payloadFile(run.dir, chain, key)));
+      else sections.push(`## ${key}\n${payload}`);
     }
+    if (unchanged.length > 0) sections.push(`Inputs unchanged since the last delivery: ${unchanged.join(', ')}`);
     const closing = isClosing(fold, step);
     const header = stepHeader({ skill: run.def.skill, task: run.task, step: step.id, position: step.index + 1, total: run.def.steps.length, now: nowLine, then: closing ? 'write your final message; no route command is needed' : endingCommand(run, step), route: routeLine(fold, step.id) });
     const { part, composed } = await partOf(run, step, header, `${prefix}${sections.join('\n\n')}`);
@@ -335,7 +342,7 @@ export async function writeStepFile(fs: FileSystem, composed: Composed, comment:
 }
 
 const safe = (value: string): string => value.replace(/[^A-Za-z0-9_-]/g, '-');
-const payloadFile = (dir: TaskDir, chain: string, key: string): string => path.join(dir.steps, `payload-${safe(chain)}-${safe(key)}.txt`);
+export const payloadFile = (dir: TaskDir, chain: string, key: string): string => path.join(dir.steps, `payload-${safe(chain)}-${safe(key)}.txt`);
 
 export async function savePayload(fs: FileSystem, dir: TaskDir, chain: string, key: string, text: string): Promise<void> {
   await fs.mkdirp(dir.steps);

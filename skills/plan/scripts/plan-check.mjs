@@ -45,7 +45,7 @@ if (failed) {
     code: 'plan-check-failed',
     message: `${anchorsBad} bad anchors.`,
     recoverable: true,
-    revise: { args: { 'Plan check failed': lines }, lastRound: 'This is the last revision: the next draft goes to the user as it is, with the failures listed.' },
+    revise: { args: { 'Plan check failed': lines }, lastRound: 'This is the last revision. Save the corrected draft the same way; it then goes to the user as it is, with the failures listed.' },
   };
 }
 process.stdout.write(JSON.stringify(out));

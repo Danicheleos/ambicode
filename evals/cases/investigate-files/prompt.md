@@ -8,4 +8,4 @@ timeout_seconds: 420
 allowed_tools: [Read, Glob, Grep, Bash, Skill]
 ---
 
-/ambicode:investigate --task inv-files Which files would change to add a dueDate field to invoices and return it from the invoices route? End your answer with a `## Files` section: one path per line, only the files the change edits. The repository is at `repo/`.
+/ambicode:investigate --task inv-files Which files would change to add a required dueDate field to invoices and return it from the invoices route? End your answer with a `## Files` section: one path per line, only the files the change edits. The repository is at `repo/`.

@@ -96,6 +96,17 @@ describe('map', () => {
     }
   });
 
+  it('lists a test file named after the term, so a question can find where its tests are', async () => {
+    const fx = await repo({ 'tests/discount.test.ts': 'import { applyDiscount } from "../src/cart/discount";\n', 'tests/unrelated.test.ts': 'it("works", () => {});\n' });
+    try {
+      const paths = (await map(fx, ['shortlist'], ['discount'])).candidates.map((candidate) => candidate.path);
+      assert.ok(paths.includes('tests/discount.test.ts'), paths.join(','));
+      assert.ok(!paths.includes('tests/unrelated.test.ts'));
+    } finally {
+      await fx.dispose();
+    }
+  });
+
   it('refuses an unknown layer, and the default list names its source', async () => {
     const fx = await repo();
     try {

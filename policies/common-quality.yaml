@@ -24,6 +24,23 @@ rules:
         Assess against the stated requirement and the callers present in the
         change. Absence of a caller is evidence; it is not proof on its own.
 
+  - id: fix-the-cause
+    category: architecture
+    instruction: >-
+      Before writing new code (a function, branch, guard, option or file), even
+      code a plan or spec prescribes: find the existing code that produces
+      today's behaviour, edit it, and check whether the request's outcome now
+      holds. If it holds, keep that edit, skip the prescribed code and report
+      the departure. Judge by what the request asks for, not by the mechanism
+      the spec describes. Change the behaviour in place; an option no caller
+      needs only keeps the old one alive.
+    check:
+      kind: reviewer
+      explanation: >-
+        For each function, branch, guard, option or file the change adds, find
+        the existing code that produced the old behaviour. Report the addition
+        when an edit there delivers the same outcome, naming that code.
+
   - id: cohesion
     category: architecture
     instruction: >-

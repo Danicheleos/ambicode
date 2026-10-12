@@ -8,4 +8,4 @@ timeout_seconds: 420
 allowed_tools: [Read, Glob, Grep, Bash, Skill]
 ---
 
-How is an invoice total computed, and where is it exposed over HTTP? End your answer with a `## Files` section: one path per line, only the files that take part in the answer. The repository is at `repo/`.
+How is an invoice total computed, and where is it exposed over HTTP? Cite `path:line` for each claim. End your answer with a `## Files` section: one path per line, only the files that take part in the answer. The repository is at `repo/`.

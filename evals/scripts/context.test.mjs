@@ -5,14 +5,14 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { contextOf, harvest, sandboxOf } from './context.mjs';
 
-const call = (id, input, created, read, parent = null) =>
-  JSON.stringify({ type: 'assistant', parent_tool_use_id: parent, message: { id, usage: { input_tokens: input, cache_creation_input_tokens: created, cache_read_input_tokens: read, output_tokens: 9 } } });
+const call = (id, input, created, read, parent = null, content = undefined) =>
+  JSON.stringify({ type: 'assistant', parent_tool_use_id: parent, message: { id, content, usage: { input_tokens: input, cache_creation_input_tokens: created, cache_read_input_tokens: read, output_tokens: 9 } } });
 const TRACE = [
   JSON.stringify({ type: 'system', subtype: 'init' }),
-  call('m1', 5, 19000, 0),
-  call('m1', 5, 19000, 0), // the same call streamed twice
-  call('s1', 3, 40000, 0, 'toolu_1'), // a subagent call: not the main session's context
-  call('m2', 2, 500, 21000),
+  call('m1', 5, 19000, 0, null, [{ type: 'tool_use', id: 'tu1' }, { type: 'tool_use', id: 'tu2' }]),
+  call('m1', 5, 19000, 0, null, [{ type: 'tool_use', id: 'tu1' }, { type: 'tool_use', id: 'tu2' }]), // the same call streamed twice
+  call('s1', 3, 40000, 0, 'toolu_1', [{ type: 'tool_use', id: 'sub1' }]), // a subagent call: not the main session's context
+  call('m2', 2, 500, 21000, null, [{ type: 'text', text: 'x' }, { type: 'tool_use', id: 'tu3' }]),
   call('m3', 1, 100, 20000),
   'not json',
   JSON.stringify({ type: 'result', usage: {} }),
@@ -20,7 +20,7 @@ const TRACE = [
 
 describe('evals context size', () => {
   it('peak and final are the main session context per call (input + cache), each call counted once, subagents left out', () => {
-    assert.deepEqual(contextOf(TRACE), { peak: 21502, final: 20101, calls: 3 });
+    assert.deepEqual(contextOf(TRACE), { peak: 21502, final: 20101, calls: 3, tools: 3 });
   });
 
   it('a trace with no main-session call has no context, not a zero one', () => {

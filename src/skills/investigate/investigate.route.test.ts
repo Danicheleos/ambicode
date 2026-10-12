@@ -49,6 +49,31 @@ describe('investigate route (03-I1, 03-I2)', () => {
     }
   });
 
+  it('D4: the last round asks for the save and re-sends no inputs; a second bad note still completes the route with the failed check on record', async () => {
+    const { fx, start, next } = await investigation();
+    try {
+      const first = await start();
+      const context = commandContext({ runtime: fx.runtime, routes: fx.routes });
+      const save = (body: string) => saveNote({ runtime: fx.runtime, session: A, context }, { task: 'cart', kind: 'investigation', body, from: null, iteration: null, route: first.routeId });
+      await save('## Files\n- src/missing.ts:3\n');
+      const back = await next({ cause: 'note save' });
+      assert.equal(back.position, 'read');
+      assert.match(back.text, /## Last round\n.*Save the corrected note again/);
+      assert.doesNotMatch(back.text, /## map/);
+      assert.match(back.text, /Inputs unchanged since the last delivery: .*payload-.*-map\.txt/);
+      assert.ok(back.bytes < first.bytes, `revise ${back.bytes} bytes, first delivery ${first.bytes}`);
+      await save('## Files\n- src/also-missing.ts:1\n');
+      const end = await next({ cause: 'note save' });
+      assert.equal(end.position, 'complete');
+      assert.equal((await fx.kinds('cart', 'exit')).at(-1)?.['reason'], 'done');
+      const checks = (await fx.ledger('cart')).filter((entry) => entry.kind === 'step' && entry['step'] === 'check-citations');
+      assert.deepEqual(checks.map((entry) => entry['status']), ['failed', 'completed', 'failed', 'completed']);
+      assert.ok((await fx.kinds('cart', 'limit')).some((entry) => entry['which'] === 'repeat' && entry['step'] === 'read'));
+    } finally {
+      await fx.dispose();
+    }
+  });
+
   it('D4: read.md tells the model to save the note before answering, and no Stop hook saves it', async () => {
     assert.match(await readFile(path.join(REPO_ROOT, 'routes', 'investigate', 'read.md'), 'utf8'), /\{cli\} note save --task \{task\} --kind investigation/);
   });
@@ -66,7 +91,7 @@ describe('investigate route (03-I1, 03-I2)', () => {
       assert.match(first.text, /src\/cart\.ts/);
       assert.ok(first.bytes <= 8_192, `03-X1: ground-and-read message is ${first.bytes} bytes`);
       const dir = path.join(fx.repo.root, '.ambicode', 'tasks', 'cart');
-      for (const [key, limit] of [['map', 6_144], ['policy:before-work', 8_192]] as const) {
+      for (const [key, limit] of [['map', 6_144]] as const) {
         const payload = await loadPayload(fx.runtime.fs, { steps: path.join(dir, 'steps') } as never, (await fx.kinds('cart', 'route'))[0]!.id, key);
         assert.ok(Buffer.byteLength(payload ?? '') <= limit, `03-X1: ${key} payload`);
       }
@@ -98,9 +123,8 @@ describe('investigate route (03-I1, 03-I2)', () => {
       assert.equal(first.text.split('Read the code the question is about.').length - 1, 1, 'the Now: line is not repeated in the body');
       const dir = path.join(fx.repo.root, '.ambicode', 'tasks', 'cart');
       const chain = (await fx.kinds('cart', 'route'))[0]!.id;
-      for (const key of ['envelope', 'policy:before-work']) {
-        assert.equal(await loadPayload(fx.runtime.fs, { steps: path.join(dir, 'steps') } as never, chain, key), '', `${key}: an empty payload is saved, so no earlier one is delivered`);
-      }
+      assert.equal(await loadPayload(fx.runtime.fs, { steps: path.join(dir, 'steps') } as never, chain, 'envelope'), '', 'envelope: an empty payload is saved, so no earlier one is delivered');
+      assert.deepEqual((await fx.kinds('cart', 'policy')).map((entry) => entry['stage']), ['before-report'], 'investigate edits nothing: no code-writing policy is staged');
       assert.equal((await fx.kinds('cart', 'envelope')).length, 1, 'the envelope is still recorded');
     } finally {
       await fx.dispose();

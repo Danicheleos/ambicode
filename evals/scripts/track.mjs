@@ -45,6 +45,9 @@ export function rowsOf(result, { arm = 'plugin', model = 'unknown', effort = 'un
       // Main-session tokens per model call (context.mjs); null when no trace was kept.
       contextPeak: round(mean(context.map((c) => c.peak)), 0),
       contextFinal: round(mean(context.map((c) => c.final)), 0),
+      // Distinct main-session model calls and tool calls (context.mjs); `turns` above is the harness's raw count, ≈ tool calls + 1.
+      modelCalls: round(mean(context.map((c) => c.calls)), 1),
+      toolCalls: round(mean(context.map((c) => c.tools).filter((n) => typeof n === 'number')), 1),
       graders: Object.fromEntries(Object.entries(graders).map(([name, passes]) => [name, round(mean(passes), 2)])),
       // Retrieval metrics (metrics.mjs), only for a case that declares them; a run that broke the files contract counts in `contractBroken`.
       ...(runs.some((run) => run.metrics) ? {
@@ -58,7 +61,7 @@ export function rowsOf(result, { arm = 'plugin', model = 'unknown', effort = 'un
       // One entry per run, for the drift between runs of the same case.
       perRun: runs.map((run) => ({
         score: round(run.score ?? 0, 2), turns: run.turns ?? null, seconds: run.durationSeconds ?? null, costUsd: round((run.costUsd ?? 0) + (run.judgeCostUsd ?? 0), 4),
-        contextPeak: run.context?.peak ?? null, error: run.error ?? null, trace: run.trace ?? null,
+        contextPeak: run.context?.peak ?? null, modelCalls: run.context?.calls ?? null, toolCalls: run.context?.tools ?? null, error: run.error ?? null, trace: run.trace ?? null,
         failing: (run.graders ?? []).filter((grader) => !grader.passed).map((grader) => grader.name),
         ...(run.metrics ? { recall: run.metrics.recall, precision: run.metrics.precision, f1: run.metrics.f1, missed: run.metrics.missed, extra: run.metrics.extra, contract: run.metrics.contract } : {}),
       })),
@@ -78,6 +81,8 @@ export function readHistory(file) {
   return readFileSync(file, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line));
 }
 
+/** `calls/tools` of a row; rows written before those fields existed show `—`. */
+const callsOf = (row) => `${row?.modelCalls ?? '—'}/${row?.toolCalls ?? '—'}`;
 const kilo = (tokens) => (tokens === null || tokens === undefined ? '—' : (tokens / 1000).toFixed(1));
 const signed = (value, digits = 2) => `${value > 0 ? '+' : ''}${value.toFixed(digits)}`;
 const delta = (now, before, digits = 2) => (before === undefined || before === null || now === null || now === before ? '' : ` (${signed(now - before, digits)})`);
@@ -107,12 +112,13 @@ export function summary(history, { shared = sharedGraders, version = versionOf }
     '',
     '`plugin` is the full case score; `outcome` is its shared graders only (answer, code, boundary); `bare` is the same',
     'shared graders with no plugin loaded; `lift` = outcome − bare, shown only when both rows ran the same model, effort and case version.',
+    '`calls/tools` are the distinct model calls and tool calls of the main session (the harness turn count is about tool calls + 1), plugin · bare.',
     '`context` is the largest main-session context of the run in thousands of tokens (input + cache), plugin / bare.',
     'Brackets: change against the previous row of the same arm. Failing graders are the latest plugin run\'s.',
     '',
   );
   for (const skill of [...new Set(names.map((name) => name.split('-')[0]))].sort()) {
-    lines.push(`## ${skill}`, '', '| case | plugin | outcome | bare | lift | plugin $ | bare $ | turns | context k | failing graders |', '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |');
+    lines.push(`## ${skill}`, '', '| case | plugin | outcome | bare | lift | plugin $ | bare $ | calls/tools | context k | failing graders |', '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |');
     for (const name of names.filter((n) => n.split('-')[0] === skill)) {
       const now = latest('plugin', name);
       const bare = latest('bare', name);
@@ -120,7 +126,7 @@ export function summary(history, { shared = sharedGraders, version = versionOf }
       const current = (row) => (row.version ?? 1) === version(name);
       const lift = now !== undefined && bare !== undefined && outcome !== null && setting(now) === setting(bare) && current(now) && current(bare) ? signed(outcome - bare.score) : '';
       const failing = now === undefined ? [] : Object.entries(now.graders).filter(([, rate]) => rate < 1).map(([grader, rate]) => (now.runs > 1 ? `${grader} ${rate}` : grader));
-      lines.push(`| ${name} | ${now ? `${now.score}${delta(now.score, previous('plugin', name)?.score)}` : '—'} | ${outcome ?? '—'} | ${bare ? `${bare.score}${delta(bare.score, previous('bare', name)?.score)}` : '—'} | ${lift || '—'} | ${now?.costUsd ?? '—'} | ${bare?.costUsd ?? '—'} | ${now?.turns ?? '—'}${bare ? ` / ${bare.turns}` : ''} | ${kilo(now?.contextPeak)}${bare ? ` / ${kilo(bare.contextPeak)}` : ''} | ${failing.join(', ') || '—'} |`);
+      lines.push(`| ${name} | ${now ? `${now.score}${delta(now.score, previous('plugin', name)?.score)}` : '—'} | ${outcome ?? '—'} | ${bare ? `${bare.score}${delta(bare.score, previous('bare', name)?.score)}` : '—'} | ${lift || '—'} | ${now?.costUsd ?? '—'} | ${bare?.costUsd ?? '—'} | ${callsOf(now)}${bare ? ` · ${callsOf(bare)}` : ''} | ${kilo(now?.contextPeak)}${bare ? ` / ${kilo(bare.contextPeak)}` : ''} | ${failing.join(', ') || '—'} |`);
     }
     lines.push('');
   }
@@ -146,12 +152,12 @@ function runsSection(names, latest) {
     const m = row.metrics;
     lines.push(`### ${row.case} · ${armOf(row)} · ${row.runs} run(s) · ${row.at.slice(0, 16)}`, '');
     if (m) lines.push(`recall ${fmt(m.recall)} · precision ${fmt(m.precision)} · F1 ${fmt(m.f1)}${m.contractBroken ? ` · ${m.contractBroken} run(s) without the Files section` : ''}`, '');
-    lines.push('| run | score | recall | precision | F1 | turns | context k | $ | missed | extra | failing graders |', '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |');
+    lines.push('| run | score | recall | precision | F1 | calls | tools | context k | $ | missed | extra | failing graders |', '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |');
     row.perRun.forEach((run, index) => {
       const missed = run.contract === false ? 'no Files section' : (run.missed ?? []).join(', ');
-      lines.push(`| ${index + 1} | ${cell(run.score)} | ${cell(run.recall)} | ${cell(run.precision)} | ${cell(run.f1)} | ${cell(run.turns)} | ${kilo(run.contextPeak)} | ${cell(run.costUsd)} | ${missed || '—'} | ${(run.extra ?? []).join(', ') || '—'} | ${run.failing.join(', ') || '—'}${run.error ? ` (${clip(run.error)})` : ''} |`);
+      lines.push(`| ${index + 1} | ${cell(run.score)} | ${cell(run.recall)} | ${cell(run.precision)} | ${cell(run.f1)} | ${cell(run.modelCalls)} | ${cell(run.toolCalls)} | ${kilo(run.contextPeak)} | ${cell(run.costUsd)} | ${missed || '—'} | ${(run.extra ?? []).join(', ') || '—'} | ${run.failing.join(', ') || '—'}${run.error ? ` (${clip(run.error)})` : ''} |`);
     });
-    lines.push(`| spread | ${fmt(stat(row.perRun.map((r) => r.score)))} | | | | ${fmt(stat(row.perRun.map((r) => r.turns)))} | | | | | |`, '');
+    lines.push(`| spread | ${fmt(stat(row.perRun.map((r) => r.score)))} | | | | ${fmt(stat(row.perRun.map((r) => r.modelCalls)))} | ${fmt(stat(row.perRun.map((r) => r.toolCalls)))} | | | | | |`, '');
   }
   return lines;
 }

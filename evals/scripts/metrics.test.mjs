@@ -18,6 +18,13 @@ describe('evals retrieval metrics', () => {
     assert.equal(foundPaths('no section here: src/a.ts', 'files-section'), null);
   });
 
+  it('only a heading that is exactly Files opens the section, and the last one wins', () => {
+    const text = '## Files that look relevant but are not part of the answer\n- src/users/decoy.ts\n- src/legacy/old.ts\n\n## Files\n- src/a.ts\n- tests/a.test.ts\n';
+    assert.deepEqual(foundPaths(text, 'files-section'), ['src/a.ts', 'tests/a.test.ts']);
+    assert.deepEqual(foundPaths('## Files:\nsrc/a.ts\n\n### Files\nsrc/b.ts', 'files-section'), ['src/b.ts']);
+    assert.equal(foundPaths('## Files that look relevant\nsrc/a.ts', 'files-section'), null);
+  });
+
   it('citations are only paths with a line, so a file named to rule it out is not counted', () => {
     assert.deepEqual(foundPaths('`total` in `src/a.ts:3-6`; **`src/b.ts:1`**. src/legacy.ts is retired.', 'citations'), ['src/a.ts', 'src/b.ts']);
   });
