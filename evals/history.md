@@ -1,7 +1,7 @@
 # Skill coverage history
 
 - **plugin** [longest run, turn by turn](chains/plugin-longest.md) · latest run 2026-10-12T21:18:58.797Z · claude-sonnet-5-5/low · Claude Code 2.1.296 · plugin 0.5.1 · 13 case(s) · mean score 0.92 · cost $6.14
-- **bare** [longest run, turn by turn](chains/bare-longest.md) · latest run 2026-10-12T21:21:04.718Z · claude-sonnet-5-5/low · Claude Code 2.1.296 · 8 case(s) · mean score 0.82 · cost $2.04
+- **bare** [longest run, turn by turn](chains/bare-longest.md) · latest run 2026-10-12T22:35:11.166Z · claude-sonnet-5-5/low · Claude Code 2.1.296 · 12 case(s) · mean score 0.85 · cost $4.19
 
 `plugin` is the full case score; `outcome` is its shared graders only (answer, code, boundary); `bare` is the same
 shared graders with no plugin loaded; `lift` = outcome − bare, shown only when both rows ran the same model, effort and case version.
@@ -22,13 +22,15 @@ Brackets: change against the previous row of the same arm. Failing graders are t
 | investigate-files | 1 | 1 | 1 (+0.07) | 0.00 | 0.0705 | 0.0536 | 3/2 · 3.4/4.2 | 20.3 / 17.2 | — |
 | investigate-how | 1 | 1 | 1 | 0.00 | 0.0741 | 0.0533 | 3.2/2.2 · 2.6/4 | 20.7 / 17.2 | — |
 | investigate-nomatch | 1 | 1 | 1 | 0.00 | 0.0507 | 0.0538 | 2/1 · 4.2/3.2 | 18.0 / 17.4 | — |
+| investigate-trace | — | — | 0.925 (-0.07) | — | — | 0.1028 | —/— · 4/3.6 | — / 24.9 | — |
 
 ## plan
 
 | case | plugin | outcome | bare | lift | plugin $ | bare $ | calls/tools | context k | failing graders |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| plan-accept | 0.891 | 0.76 | 0.6 | +0.16 | 0.1266 | 0.0659 | 6.4/7.2 · 3/2.2 | 26.3 / 17.5 | plan-quality 0.4 |
+| plan-accept | 0.891 | 0.76 | 0.92 (+0.32) | — | 0.1266 | 0.0743 | 6.4/7.2 · 3.2/5.4 | 26.3 / 19.1 | plan-quality 0.4 |
 | plan-draft | 1 | 1 | — | — | 0.1295 | — | 7/12.2 | 26.9 | — |
+| plan-reuse | — | — | 0.76 | — | — | 0.1125 | —/— · 4/3.2 | — / 25.1 | — |
 
 ## review
 
@@ -38,6 +40,7 @@ Brackets: change against the previous row of the same arm. Failing graders are t
 | review-defect | 0.873 (-0.13) | 0.96 | 0.8 | +0.16 | 0.1099 | 0.0464 | 7.4/6.4 · 2/1 | 23.4 / 16.9 | cites-location 0.8, finding-recorded 0.8, part4-fenced 0.8, review-recorded 0.8, reviewer-invoked 0.8, route-done 0.8 |
 | review-regression | 1 (+0.07) | 1 | 0.8 | +0.20 | 0.1582 | 0.0447 | 14.6/13.6 · 2/1 | 27.8 / 16.9 | — |
 | review-skipped | 0.943 (-0.06) | 1 | — | — | 0.0474 | — | 1/0 | 17.7 | skip-stated 0.8 |
+| review-subtle | — | — | 0.6 | — | — | 0.0839 | —/— · 4.2/3.6 | — / 20.1 | — |
 
 ## rules
 
@@ -50,6 +53,7 @@ Brackets: change against the previous row of the same arm. Failing graders are t
 | case | plugin | outcome | bare | lift | plugin $ | bare $ | calls/tools | context k | failing graders |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | task-fix | 1 | 1 | 0.667 | +0.33 | 0.168 | 0.0451 | 11.2/11.2 · 3/2 | 30.5 / 16.5 | — |
+| task-multi | — | — | 0.969 | — | — | 0.1228 | —/— · 9/8.2 | — / 24.7 | — |
 | task-review-skipped | 1 | 1 | — | — | 0.12 | — | 8.4/9.6 | 27.3 | — |
 
 ## Runs
@@ -131,6 +135,19 @@ recall 1.00 ± 0.00 · precision 1.00 ± 0.00 · F1 1.00 ± 0.00
 | 5 | 1 | 4 | 3 | 17.3 | 0.05 | — |
 | spread | 1.00 ± 0.00 | 4.20 ± 0.45 | 3.20 ± 0.45 |  |  |  |
 
+### investigate-trace · bare · 5 run(s) · 2026-10-12T22:34
+
+recall 1.00 ± 0.00 · precision 0.91 ± 0.06 · F1 0.95 ± 0.03
+
+| run | score | recall | precision | F1 | calls | tools | context k | $ | missed | extra | failing graders |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 0.88 | 1 | 0.87 | 0.93 | 4 | 4 | 25.2 | 0.11 | — | src/legacy/payment-hooks.js, src/notifications/queue.js | files-skip-legacy |
+| 2 | 0.88 | 1 | 0.88 | 0.93 | 4 | 4 | 24.9 | 0.1 | — | src/legacy/payment-hooks.js, src/notifications/queue.js | files-skip-legacy |
+| 3 | 1 | 1 | 1 | 1 | 4 | 4 | 24.8 | 0.1 | — | — | — |
+| 4 | 1 | 1 | 0.94 | 0.97 | 4 | 3 | 24.8 | 0.1 | — | src/notifications/queue.js | — |
+| 5 | 0.88 | 1 | 0.87 | 0.93 | 4 | 3 | 24.9 | 0.1 | — | src/legacy/payment-hooks.js, src/notifications/queue.js | files-skip-legacy |
+| spread | 0.93 ± 0.07 |  |  |  | 4.00 ± 0.00 | 3.60 ± 0.55 |  |  |  |  |  |
+
 ### plan-accept · plugin · 5 run(s) · 2026-10-12T21:07
 
 | run | score | calls | tools | context k | $ | failing graders |
@@ -142,16 +159,16 @@ recall 1.00 ± 0.00 · precision 1.00 ± 0.00 · F1 1.00 ± 0.00
 | 5 | 0.82 | 6 | 6 | 24.5 | 0.11 | plan-quality |
 | spread | 0.89 ± 0.10 | 6.40 ± 1.52 | 7.20 ± 3.27 |  |  |  |
 
-### plan-accept · bare · 5 run(s) · 2026-10-12T21:09
+### plan-accept · bare · 5 run(s) · 2026-10-12T22:26
 
 | run | score | calls | tools | context k | $ | failing graders |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | 0.6 | 3 | 3 | 17.6 | 0.07 | plan-quality |
-| 2 | 0.6 | 3 | 2 | 17.6 | 0.07 | plan-quality |
-| 3 | 0.6 | 3 | 2 | 17.3 | 0.07 | plan-quality |
-| 4 | 0.6 | 3 | 2 | 17.4 | 0.06 | plan-quality |
-| 5 | 0.6 | 3 | 2 | 17.5 | 0.06 | plan-quality |
-| spread | 0.60 ± 0.00 | 3.00 ± 0.00 | 2.20 ± 0.45 |  |  |  |
+| 1 | 1 | 4 | 11 | 20.5 | 0.09 | — |
+| 2 | 1 | 3 | 2 | 17.6 | 0.06 | — |
+| 3 | 1 | 3 | 2 | 17.4 | 0.06 | — |
+| 4 | 0.6 | 3 | 3 | 19.8 | 0.08 | plan-quality |
+| 5 | 1 | 3 | 9 | 20.3 | 0.08 | — |
+| spread | 0.92 ± 0.18 | 3.20 ± 0.45 | 5.40 ± 4.28 |  |  |  |
 
 ### plan-draft · plugin · 5 run(s) · 2026-10-12T21:07
 
@@ -163,6 +180,17 @@ recall 1.00 ± 0.00 · precision 1.00 ± 0.00 · F1 1.00 ± 0.00
 | 4 | 1 | 6 | 6 | 25.4 | 0.12 | — |
 | 5 | 1 | 7 | 7 | 25.6 | 0.12 | — |
 | spread | 1.00 ± 0.00 | 7.00 ± 0.71 | 12.20 ± 5.36 |  |  |  |
+
+### plan-reuse · bare · 5 run(s) · 2026-10-12T22:25
+
+| run | score | calls | tools | context k | $ | failing graders |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | 0.6 | 4 | 3 | 25.6 | 0.11 | plan-quality |
+| 2 | 0.6 | 4 | 3 | 25.4 | 0.11 | plan-quality |
+| 3 | 1 | 4 | 3 | 24.2 | 0.11 | — |
+| 4 | 0.6 | 4 | 3 | 24.4 | 0.11 | plan-quality |
+| 5 | 1 | 4 | 4 | 26.1 | 0.12 | — |
+| spread | 0.76 ± 0.22 | 4.00 ± 0.00 | 3.20 ± 0.45 |  |  |  |
 
 ### review-clean · plugin · 5 run(s) · 2026-10-12T20:02
 
@@ -241,6 +269,17 @@ recall 1.00 ± 0.00 · precision 1.00 ± 0.00 · F1 1.00 ± 0.00
 | 5 | 1 | 1 | 0 | 17.6 | 0.05 | — |
 | spread | 0.94 ± 0.13 | 1.00 ± 0.00 | 0.00 ± 0.00 |  |  |  |
 
+### review-subtle · bare · 5 run(s) · 2026-10-12T22:28
+
+| run | score | calls | tools | context k | $ | failing graders |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | 0.56 | 3 | 3 | 19.2 | 0.08 | convention-finding, no-false-defect |
+| 2 | 0.78 | 3 | 3 | 19.3 | 0.07 | convention-finding |
+| 3 | 0.56 | 4 | 3 | 19.9 | 0.08 | convention-finding, no-false-defect |
+| 4 | 0.56 | 5 | 4 | 19.4 | 0.08 | convention-finding, finding-correct |
+| 5 | 0.56 | 6 | 5 | 22.9 | 0.1 | convention-finding, no-false-defect |
+| spread | 0.60 ± 0.10 | 4.20 ± 1.30 | 3.60 ± 0.89 |  |  |  |
+
 ### task-fix · plugin · 5 run(s) · 2026-10-12T21:18
 
 | run | score | calls | tools | context k | $ | failing graders |
@@ -262,6 +301,17 @@ recall 1.00 ± 0.00 · precision 1.00 ± 0.00 · F1 1.00 ± 0.00
 | 4 | 0.67 | 3 | 2 | 16.5 | 0.05 | test-added |
 | 5 | 0.67 | 3 | 2 | 16.4 | 0.04 | test-added |
 | spread | 0.67 ± 0.00 | 3.00 ± 0.00 | 2.00 ± 0.00 |  |  |  |
+
+### task-multi · bare · 5 run(s) · 2026-10-12T22:35
+
+| run | score | calls | tools | context k | $ | failing graders |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | 1 | 9 | 8 | 25.0 | 0.13 | — |
+| 2 | 1 | 8 | 7 | 23.1 | 0.11 | — |
+| 3 | 1 | 9 | 8 | 25.4 | 0.13 | — |
+| 4 | 0.85 | 9 | 8 | 25.4 | 0.13 | test-added |
+| 5 | 1 | 10 | 10 | 24.7 | 0.12 | — |
+| spread | 0.97 ± 0.07 | 9.00 ± 0.71 | 8.20 ± 1.09 |  |  |  |
 
 ### task-review-skipped · plugin · 5 run(s) · 2026-10-12T21:18
 

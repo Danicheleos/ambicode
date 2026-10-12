@@ -150,7 +150,7 @@ FAIL if it names a file, function or delay value as the implementation, or answe
     description: 'A flow that reaches its last step only through the event bus, in a repository with a frozen legacy copy of that step.',
     tags: ['investigate'],
     fixture: 'ts-app-medium', flags: '--ambicode-init',
-    version: 1,
+    version: 2,
     // A 7-file chain in a 120-file repository; plugin investigate-how already used 11 of 12 turns on 6 files. Unmeasured here.
     limits: { max_turns: 20, timeout_seconds: 600 },
     // The files the answer must walk through; the rest of what a thorough answer cites is allowed.
@@ -199,6 +199,8 @@ FAIL if it names a file, function or delay value as the implementation, or answe
       shared(regex('cites-service', 'src/payments/service\\.js:\\d+')),
       shared(regex('cites-handler', 'src/notifications/handlers\\.js:\\d+')),
       shared(regex('names-the-event', 'payment\\.received|PAYMENT_RECEIVED')),
+      // 3/5 bare runs listed the dead legacy hook among the files of the flow (2026-10-13).
+      shared(regex('files-skip-legacy', '## Files[\\s\\S]*src/legacy/', { match: 'not_contains' })),
       ...noEdits,
       shared(llm('answer-correct', `
 PASS only if all hold:
@@ -300,10 +302,10 @@ FAIL if no such test exists or an existing assertion was weakened or removed.`, 
     name: 'task-multi',
     description: 'A refund defect whose fix spans the payments service and repository, in a project with an error hierarchy and a test factory it must use.',
     tags: ['task', 'review'],
-    version: 1,
+    version: 2,
     fixture: 'ts-app-medium-refund-bug', flags: '--ambicode-init --install',
-    prompt: `/ambicode:task --task fix-refund --headless --answer review-offer=run Fix refunds in src/payments: after an invoice is paid in full and part of it is refunded (pay 1106 cents, refund 300) the invoice still has status paid instead of partially_paid, and refunding more than was paid answers with a 500 instead of a client error. Put the regression test in tests/payments/payments.test.js. ${REPO}`,
-    bare: `Fix refunds in src/payments: after an invoice is paid in full and part of it is refunded (pay 1106 cents, refund 300) the invoice still has status paid instead of partially_paid, and refunding more than was paid answers with a 500 instead of a client error. Put the regression test in tests/payments/payments.test.js. ${REPO}`,
+    prompt: `/ambicode:task --task fix-refund --headless --answer review-offer=run Refunds are broken: after a partial refund on a fully paid invoice, the invoice still shows as paid, and refunding more than was paid crashes the API. Put the regression test in tests/payments/payments.test.js. ${REPO}`,
+    bare: `Refunds are broken: after a partial refund on a fully paid invoice, the invoice still shows as paid, and refunding more than was paid crashes the API. Put the regression test in tests/payments/payments.test.js. ${REPO}`,
     graders: [
       ledger('format-recorded', '"kind":"format"', T('fix-refund')),
       tool('reviewer-invoked', 'Agent', 'ambicode:reviewer'),

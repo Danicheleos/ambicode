@@ -8,4 +8,4 @@ timeout_seconds: 1200
 allowed_tools: [Read, Glob, Grep, Bash, Edit, Write, Skill]
 ---
 
-/ambicode:task --task fix-refund --headless --answer review-offer=run Fix refunds in src/payments: after an invoice is paid in full and part of it is refunded (pay 1106 cents, refund 300) the invoice still has status paid instead of partially_paid, and refunding more than was paid answers with a 500 instead of a client error. Put the regression test in tests/payments/payments.test.js. The repository is at `repo/`.
+/ambicode:task --task fix-refund --headless --answer review-offer=run Refunds are broken: after a partial refund on a fully paid invoice, the invoice still shows as paid, and refunding more than was paid crashes the API. Put the regression test in tests/payments/payments.test.js. The repository is at `repo/`.
