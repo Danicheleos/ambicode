@@ -1,86 +1,106 @@
 # Evals: skill coverage
 
-One synthetic case per behaviour each skill must show, graded from the ledger and the files the run leaves, with
-a history row per case per run. Nothing here is real project data: every case runs on a fixture from
-`fixtures/definitions.mjs`, so the suite is tracked in git and a bare `claude plugin eval .` runs it.
-
-The previous suites (benchmark tickets, trigger boundary, tuning harness) are under `archive/evals/` and are not
-run any more: real tickets were unstable from run to run and could not be committed.
+Thirteen synthetic cases, at least one per skill, each checking one behaviour. Eight of them also run with no
+plugin loaded, which is the baseline. Every case runs on a fixture from `fixtures/definitions.mjs`, so nothing
+here is real project data and the whole suite is in git. The previous benchmark suites are in `archive/evals/`
+and are not run any more.
 
 ```
 evals/
-  cases/<skill>-<name>/   case.yaml, prompt.md, scaffold.sh, graders/*.md   (claude plugin eval layout)
-  cases/results/          raw harness output, gitignored
-  scripts/run.mjs         builds the harness argv, runs it, then tracks the result
-  scripts/track.mjs       one history row per case; rewrites history.md
-  scripts/suite.test.mjs  static checks over every case (part of npm run test:unit)
-  history.jsonl           one row per case per run, appended, tracked in git
-  history.md              latest row per case with the delta to its previous row
+  scripts/cases.mjs       the single source: every case, its prompt per arm, its graders
+  cases/<case>/           plugin arm, generated (claude plugin eval layout: case.yaml, prompt.md, scaffold.sh, graders/)
+  bare/<case>/            no-plugin arm, generated: same request in plain words, shared graders only
+  scripts/run.mjs         runs one arm through `claude plugin eval`, then tracks the result
+  scripts/track.mjs       appends one row per case to history.jsonl and rewrites history.md
+  history.jsonl           every run, one row per case, in git
+  history.md              latest plugin row and latest bare row per case, with the lift
 ```
 
 ## Run
 
 ```sh
-npm run build                                   # the cases run scripts/ambicode.mjs, not src/
-npm run evals                                   # 13 cases, 1 run each, Sonnet 5.5, $15 cap, 4 in parallel
-npm run evals -- --case 'review-*'              # one skill (a glob on the case name; --case is not repeatable)
-npm run evals -- --tag gate --runs 3            # by tag; more runs per case
-npm run evals -- --ablation with-without        # add the no-plugin arm (skill cases mostly cannot pass without it)
-npm run evals:dry                               # print the harness command and change nothing
-npm run evals:track -- <result.json> --model <m>  # record a result produced by hand
+npm run build                       # cases run scripts/ambicode.mjs, not src/
+npm run evals                       # plugin arm: 13 cases
+npm run evals:bare                  # bare arm: 8 cases, no plugin
+npm run evals -- --case 'task-*'    # one skill (a glob; --case is not repeatable)
+npm run evals -- --tag gate         # by tag
+npm run evals -- --runs 3           # more runs per case, for a decision
+npm run evals:dry                   # print both commands and change nothing
 ```
 
-The first full run (2026-10-10, Sonnet 5.5, 1 run per case) is the first row of `history.jsonl`; `history.md` shows
-its cost per case. Two probes before it: `task-fix` $0.14 and 11 turns, `init-auto` $0.18 and 8 turns.
+Defaults: Sonnet 5.5, effort low, 1 run per case, 4 runs in parallel, a $15 cap per arm. Override any of them with
+`--model`, `--effort`, `--runs` or `--max-cost-usd`. The harness has no effort flag, so `run.mjs` sets
+`CLAUDE_CODE_EFFORT_LEVEL` in the environment. A probe showed the variable inside the run. It does not prove the
+model honoured it.
+
+Each run appends to `history.jsonl` and rewrites `history.md`. Read `history.md`, not the exit code. The harness
+exits 1 whenever any case scores below 1.0.
+
+## How a case works
+
+1. **Scaffold.** `scaffold.sh` replays a fixture into `repo/`, a fresh git repository with known history. The
+   plugin arm also commits `.ambicode/config.yaml`. `--install` fixtures run `npm ci`, so jest and eslint are real.
+2. **Prompt.** The plugin arm types the skill exactly as a user would, for example
+   `/ambicode:task --task fix-page --headless --answer review-offer=run Fix page() …`. `--task` fixes the slug so
+   graders can find the ledger. `--answer` pre-answers a gate. A case with no answer tests the gate's default. The
+   bare arm sends the same request in plain words: "Fix page() …", or "Review the uncommitted change in `repo/`".
+3. **Graders.** They run after the session ends, on what it left behind:
+   - `regex` on the ledger (`repo/.ambicode/tasks/<slug>/ledger.jsonl`), on a produced file, or on the final message.
+   - `tool_used` on the trace, for example the `Agent` tool with `ambicode:reviewer`, or "never `git commit`".
+   - `file_exists` for files the run created.
+   - `llm` when only judgment works: is the answer right, is the fix right, is the gap stated. Haiku judges with
+     three votes.
+4. **Score.** The weighted share of graders that passed.
+
+## Plugin against bare
+
+Graders come in two kinds:
+
+- **Shared graders** judge the outcome: the answer, the code, the review finding, the boundary (no edits, no git).
+  They run in both arms.
+- **Plugin-only graders** check what only AMBICODE writes: ledger entries, the reviewer subagent, report sections.
+  They run in the plugin arm only.
+
+`history.md` shows four numbers per case:
+
+| Column | Meaning |
+| --- | --- |
+| plugin | Full score of the plugin arm. |
+| outcome | Shared graders only, in the plugin arm. |
+| bare | Shared graders in the bare arm. |
+| lift | outcome − bare. Shown only when both rows ran the same model and effort. |
+
+Five cases have no bare arm because what they test belongs to the plugin: a gate default (`plan-draft`,
+`task-review-skipped`, `review-skipped`), policy packs (`rules-migrate`) and `init-auto`.
 
 ## Cases
 
-| Case | Fixture | Shows |
-| --- | --- | --- |
-| investigate-how | ts-feature-boundary | note saved, citations valid, the answer names the service and the route, decoys excluded |
-| investigate-files | ts-feature-boundary | the file list is the invoice boundary, not the keyword decoys |
-| investigate-nomatch | ts-feature-boundary | the scope gate is raised on an empty map and nothing is invented |
-| plan-accept | ts-feature-boundary | draft written with six fields and valid anchors, promoted on Accept, no code touched |
-| plan-draft | ts-feature-boundary | without an answer the plan stays a draft and is not called accepted |
-| task-fix | eval-page-bug | red check before green, format, reviewer subagent, review recorded, report sections, fix and test correct |
-| task-review-skipped | eval-page-bug | the review offer defaults to skip and the report says so |
-| review-defect | ts-off-by-one | reviewer subagent, a finding with its location, part 4 fenced |
-| review-clean | py-clean-docstring | no false defect, verification gap still stated |
-| review-regression | ts-source-regression | a check is recorded, the broken unchanged test is found |
-| review-skipped | ts-off-by-one | the estimate gate defaults to skip, no reviewer, no finding |
-| rules-migrate | eval-rules-contributing | drafts checked and applied, quotes verbatim, the vague line and the embedded `rm -rf` instruction ignored |
-| init-auto | ts-feature-boundary (installed, no config) | scaffold, scout subagent, context files, checks wired, config validated |
+| Case | Fixture | Checks | Bare |
+| --- | --- | --- | --- |
+| investigate-how | ts-feature-boundary | note saved, citations valid, the answer names the service and route, decoys excluded | yes |
+| investigate-files | ts-feature-boundary | the file list is the invoice boundary, not the keyword decoys | yes |
+| investigate-nomatch | ts-feature-boundary | the scope gate is raised on an empty map, nothing invented | yes |
+| plan-accept | ts-feature-boundary | six-field draft, valid anchors, promoted on Accept, no code touched | yes |
+| plan-draft | ts-feature-boundary | with no answer the plan stays a draft and is not called accepted | no |
+| task-fix | eval-page-bug | red before green, format, reviewer subagent, report sections, fix and test correct | yes |
+| task-review-skipped | eval-page-bug | the review offer defaults to skip and the report says so | no |
+| review-defect | ts-off-by-one | the off-by-one is found with its location | yes |
+| review-clean | py-clean-docstring | no false defect, verification gap stated | yes |
+| review-regression | ts-source-regression | a check is recorded, the broken behaviour is found | yes |
+| review-skipped | ts-off-by-one | the estimate gate defaults to skip, no reviewer, no finding | no |
+| rules-migrate | eval-rules-contributing | drafts checked and applied, the vague line and the embedded `rm -rf` ignored | no |
+| init-auto | ts-feature-boundary, no config | scaffold, scout subagent, context files, checks wired, config validated | no |
 
-Every route case fixes its task with `--task <slug>` so graders can name `repo/.ambicode/tasks/<slug>/ledger.jsonl`
-(reviews: `repo/.ambicode/reviews/<slug>/`): the harness resolves no globs in file paths. Gate answers are typed in
-the prompt (`--headless --answer <gate>=<option>`), which the UserPromptSubmit hook records as trusted preanswers;
-a case without an answer measures the default.
+## Change or add a case
 
-## Graders
+1. Edit `evals/scripts/cases.mjs`. Use an existing fixture or add an `eval-*` one to `fixtures/definitions.mjs`.
+   Wrap a grader in `shared(...)` when a bare run could pass it too. Pass a second grader when the bare arm reads
+   the artefact somewhere else, like `plan-quality`, which reads the plan file in one arm and the message in the
+   other.
+2. `npm run evals:generate`. It rewrites `evals/cases/` and `evals/bare/`, so never edit those by hand.
+   `suite.test.mjs` fails when the trees drift from `cases.mjs`.
+3. `node --test evals/scripts/*.test.mjs`, then `npm run evals -- --case <name>` and, if it has a bare arm,
+   `npm run evals:bare -- --case <name>`.
 
-Structural graders read the ledger or a produced file (`type: regex` with `target: {source: file, path}`), the
-trace (`tool_used`) or created files (`file_exists`); they are free. One or two `llm` graders per case judge
-what no regex can (the answer is right, the fix is right, the gap is stated); they are judged by Haiku, three votes.
-
-| Grader family | Reads | Means |
-| --- | --- | --- |
-| route-done | ledger `exit … reason done` | the route reached its end |
-| note-saved, citations-valid | ledger `note`, `worker check-citations … failed:false` | the answer was saved and every `path:line` exists |
-| red-before-green | ledger `check` entries | a failing check was recorded before a passing one |
-| review-recorded, finding-recorded | ledger `review … stage recorded`, `findings:N` | the reviewer's answer went through `review record` |
-| reviewer-invoked, scout-invoked | trace `Agent` tool with `ambicode:<agent>` | the subagent ran, the model did not stand in for it |
-| *-defaulted, *-gate-raised | ledger `default-taken`, `gate` | the gate behaved without an answer |
-| no-edit, no-git-mutation, instruction-not-obeyed | trace `Edit`/`Write`/`Bash` with `max: 0` | the skill stayed inside its boundary |
-
-A case score is the weighted share of its graders that passed; the harness's own threshold is 1.0, so the exit
-code is 1 unless every case is perfect. Read `history.md` rather than the exit code.
-
-## Adding a case
-
-1. A fixture: reuse one or add an `eval-*` entry to `fixtures/definitions.mjs` (committed state, passing tests).
-2. `evals/cases/<skill>-<name>/` with `case.yaml`, `scaffold.sh` (copy a sibling's), `prompt.md` starting with
-   `/ambicode:<skill> --task <slug> …`, and graders. Ledger entry shapes are in `src/platform/ledger/kinds.ts`.
-3. `node --test evals/scripts/suite.test.mjs`, then `npm run evals -- --case <name>`.
-
-Keep a case to one behaviour and under 15 graders. A grader that cannot fail measures nothing; a grader that
-always fails is a finding about the plugin and belongs in a ticket, not in the suite forever.
+Keep a case to one behaviour and under 15 graders. Ledger entry shapes are in `src/platform/ledger/kinds.ts`. Graders
+must name literal paths, because the harness does not resolve globs.

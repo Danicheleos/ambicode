@@ -2,7 +2,6 @@
 *.tsbuildinfo
 /scripts/*
 /dist/
-/vendor/
 /coverage/
 .cache/
 .tmp/

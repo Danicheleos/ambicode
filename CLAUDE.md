@@ -136,10 +136,11 @@ makes measurement cheap in that project.
 - `validate:plugin` (and so `verify`) shells out to the `claude` CLI.
 - `npm run bump` raises the patch version; the `version` lifecycle runs
   `tools/sync-plugin-version.mjs` to keep `.claude-plugin/plugin.json` in step.
-- `npm run evals` costs money and runs the bundle, not `src/`. Build first.
-  It is the synthetic skill-coverage suite under `evals/cases/` (one row per
-  case per run in `evals/history.jsonl`); `evals/README.md` has the cases,
-  the grader families and the cost. `npm run evals:dry` prints the command.
+- `npm run evals` (plugin arm) and `npm run evals:bare` (no plugin, the
+  baseline) cost money and run the bundle, not `src/`. Build first. Defaults:
+  Sonnet 5.5, effort low, 1 run. Cases are generated from
+  `evals/scripts/cases.mjs` (`npm run evals:generate`); every run appends to
+  `evals/history.jsonl`. `evals/README.md` explains the arms and the lift.
 
 CI (`.github/workflows/verify.yml`) runs `npm run verify` on Linux, macOS and
 native Windows `cmd`, plus an LF line-endings check. Paths, separators and

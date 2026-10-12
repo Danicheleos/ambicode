@@ -1,54 +1,83 @@
-// Runs the skill-coverage suite through `claude plugin eval` and records the result in the history.
-// Usage: run.mjs [--case <glob>] [--tag <tag>] [--runs <n>] [--model <m>] [--max-cost-usd <usd>]
-//                [--ablation none|with-without] [--dry-run]
+// Runs the suite through `claude plugin eval` and records the result in the history.
+// Usage: run.mjs [--bare] [--case <glob>] [--tag <tag>] [--runs <n>] [--model <m>] [--effort <level>]
+//                [--max-cost-usd <usd>] [--dry-run]
+// --bare runs evals/bare/ against an empty plugin: the same requests with nothing of AMBICODE loaded.
 import { spawnSync } from 'node:child_process';
+import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
-export const DEFAULTS = { model: 'claude-sonnet-5-5', runs: '1', maxCostUsd: '15', ablation: 'none', concurrency: '4' };
-export const EVAL_DIR = 'evals/cases';
-export const RESULT = `${EVAL_DIR}/results/latest.json`;
+export const DEFAULTS = { model: 'claude-sonnet-5-5', effort: 'low', runs: '1', maxCostUsd: '15', concurrency: '4' };
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+export const RESULTS = path.join(REPO, 'evals', 'cases', 'results');
+// Outside the plugin, because the harness walks the whole target directory; .tmp/ is gitignored.
+export const NAKED = path.join(REPO, '.tmp', 'naked');
 
 function option(argv, name) {
   const at = argv.indexOf(name);
   return at >= 0 ? (argv[at + 1] ?? null) : null;
 }
 
-/** The harness argv for one run; everything the suite needs is fixed here so a run is reproducible from the history row. */
-export function harnessArgv(argv, defaults = DEFAULTS) {
+/** The harness argv and environment of one run; everything is fixed here so a history row says how to reproduce it. */
+export function plan(argv, defaults = DEFAULTS) {
+  const arm = argv.includes('--bare') ? 'bare' : 'plugin';
   const model = option(argv, '--model') ?? defaults.model;
+  const effort = option(argv, '--effort') ?? defaults.effort;
+  const result = path.join(RESULTS, `${arm}.json`);
   const out = [
-    'plugin', 'eval', '.',
-    '--eval-dir', EVAL_DIR,
+    'plugin', 'eval', arm === 'bare' ? NAKED : REPO,
+    '--eval-dir', arm === 'bare' ? 'evals/bare' : 'evals/cases',
     '--scaffold', '--trust-plugin', '--no-publish',
-    '--ablation', option(argv, '--ablation') ?? defaults.ablation,
+    // One arm per run: a plugin case's prompt types /ambicode:<skill>, which means nothing with no plugin loaded.
+    '--ablation', 'none',
     '--allow-tools', 'Bash', 'Edit', 'Write',
     '--model', model,
     '--runs', option(argv, '--runs') ?? defaults.runs,
     '-j', defaults.concurrency,
     '--max-cost-usd', option(argv, '--max-cost-usd') ?? defaults.maxCostUsd,
-    '--json', RESULT,
+    '--json', result,
   ];
   for (const name of ['--case', '--tag']) {
     const value = option(argv, name);
     if (value !== null) out.push(name, value);
   }
-  return { argv: out, model };
+  // The harness has no effort flag; the variable reaches the run's claude child (probed 2026-10-12: `env=[low]`).
+  const env = { CLAUDE_CODE_EFFORT_LEVEL: effort };
+  const track = [path.join(REPO, 'evals', 'scripts', 'track.mjs'), result, '--arm', arm, '--model', model, '--effort', effort];
+  return { arm, argv: out, env, track };
+}
+
+/** An empty plugin holding a copy of evals/bare, with each scaffold pointed back at this repository's fixtures. */
+export function buildNaked(repo = REPO, naked = NAKED) {
+  rmSync(naked, { recursive: true, force: true });
+  mkdirSync(path.join(naked, '.claude-plugin'), { recursive: true });
+  writeFileSync(path.join(naked, '.claude-plugin', 'plugin.json'), `${JSON.stringify({ name: 'naked', version: '0.0.0', description: 'No components: the bare arm.' })}\n`);
+  const target = path.join(naked, 'evals', 'bare');
+  cpSync(path.join(repo, 'evals', 'bare'), target, { recursive: true });
+  for (const name of readdirSync(target)) {
+    const file = path.join(target, name, 'scaffold.sh');
+    try {
+      writeFileSync(file, readFileSync(file, 'utf8').replaceAll('$(cd "$(dirname "$0")/../../.." && pwd)', repo), { mode: 0o755 });
+    } catch (error) {
+      if (error.code !== 'ENOENT' && error.code !== 'ENOTDIR') throw error;
+    }
+  }
 }
 
 function main(argv) {
-  const plan = harnessArgv(argv);
-  const track = ['evals/scripts/track.mjs', RESULT, '--model', plan.model];
+  const run = plan(argv);
   if (argv.includes('--dry-run')) {
-    console.log(`claude ${plan.argv.join(' ')}\nnode ${track.join(' ')}`);
+    console.log(`${Object.entries(run.env).map(([k, v]) => `${k}=${v}`).join(' ')} claude ${run.argv.join(' ')}\nnode ${run.track.join(' ')}`);
     return 0;
   }
-  const run = spawnSync('claude', plan.argv, { stdio: 'inherit' });
+  mkdirSync(RESULTS, { recursive: true });
+  if (run.arm === 'bare') buildNaked();
+  const status = spawnSync('claude', run.argv, { stdio: 'inherit', env: { ...process.env, ...run.env } }).status;
   // Exit 1 is a case below the harness threshold (1.0) and 2 a partial result (cost ceiling): both are results and are
   // tracked (`partial` is the harness's own flag in the JSON). Anything else is a harness failure with nothing to track.
-  if (![0, 1, 2].includes(run.status)) return run.status ?? 1;
-  const tracked = spawnSync(process.execPath, track, { stdio: 'inherit' });
-  return tracked.status === 0 ? run.status : (tracked.status ?? 1);
+  if (![0, 1, 2].includes(status)) return status ?? 1;
+  const tracked = spawnSync(process.execPath, run.track, { stdio: 'inherit', cwd: REPO }).status;
+  return tracked === 0 ? status : (tracked ?? 1);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = main(process.argv.slice(2));

@@ -1,6 +1,6 @@
 ---
 name: review-defect
-description: 'An uncommitted off-by-one: the reviewer subagent runs, the finding is recorded and read back with its location.'
+description: 'An uncommitted off-by-one: the reviewer subagent runs, the finding is recorded and reported with its location.'
 tags: ["review"]
 runs: 1
 max_turns: 20
