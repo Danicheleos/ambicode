@@ -87,6 +87,7 @@ describe('investigate route (03-I1, 03-I2)', () => {
       assert.match(first.text, /Now: Read the code the question is about\./);
       assert.match(first.text, /Then: .*note save --task cart --kind investigation/);
       assert.match(first.text, /Save the answer before giving it: `.*note save --task cart --kind investigation`/);
+      assert.match(first.text, /never a bare file name/);
       assert.match(first.text, /## map\n/);
       assert.match(first.text, /src\/cart\.ts/);
       assert.ok(first.bytes <= 8_192, `03-X1: ground-and-read message is ${first.bytes} bytes`);

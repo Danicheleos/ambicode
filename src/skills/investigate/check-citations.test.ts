@@ -39,18 +39,12 @@ describe('skills/investigate/scripts/check-citations.mjs', () => {
     }
   });
 
-  it('resolves a bare file name the note already cited in full; a never-cited, an ambiguous or an out-of-range one fails', async () => {
+  it('a bare file name is checked from the repository root: missing-file even when the note cites the file in full', async () => {
     const root = await materialized('ts-feature-boundary');
     try {
-      const shape = await check(root, 'Total (src/invoices/service.ts:3-5), throws (service.ts:4). src/routes/invoices.ts:3\n');
-      assert.equal(shape.failed, undefined);
-      assert.deepEqual(shape.entries[0]!.summary, { failed: false, anchorsBad: 0, resolved: 1 });
-      const never = await check(root, 'See (model.ts:1) and src/routes/invoices.ts:3\n');
-      assert.deepEqual(never.entries[0]!.summary.anchors, ['model.ts:1 missing-file']);
-      const twice = await check(root, '`src/invoices/model.ts:1` `src/users/model.ts:1` `src/invoices/service.ts:3` `src/users/service.ts:3` model.ts:1 (service.ts:2)\n');
-      assert.deepEqual(twice.entries[0]!.summary.anchors, ['model.ts:1 ambiguous-file (src/invoices/model.ts, src/users/model.ts)', 'service.ts:2 ambiguous-file (src/invoices/service.ts, src/users/service.ts)']);
-      const range = await check(root, '`src/invoices/service.ts:3` and (service.ts:40)\n');
-      assert.deepEqual(range.entries[0]!.summary.anchors, ['service.ts:40 line-out-of-range (file has 6 lines)']);
+      const bare = await check(root, 'Total (src/invoices/service.ts:3-5), throws (service.ts:4).\n');
+      assert.equal(bare.failed?.code, 'citations-failed');
+      assert.deepEqual(bare.entries[0]!.summary, { failed: true, anchorsBad: 1, anchors: ['service.ts:4 missing-file'] });
     } finally {
       await rm(path.dirname(root), { recursive: true, force: true });
     }

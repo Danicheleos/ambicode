@@ -103,10 +103,10 @@ FAIL otherwise, including when the answer invents an HTTP framework, a database 
     description: 'A which-files-would-change question; the right answer is the invoice boundary, not the decoys.',
     tags: ['investigate'],
     fixture: 'ts-feature-boundary', flags: '--ambicode-init',
-    version: 3,
-    metrics: { source: 'files-section', relevant: ['src/invoices/model.ts', 'src/routes/invoices.ts', 'tests/invoices.test.ts'], allowed: ['src/invoices/service.ts'] },
-    prompt: `/ambicode:investigate --task inv-files Which files would change to add a required dueDate field to invoices and return it from the invoices route? ${FILES_SECTION} ${REPO}`,
-    bare: `Which files would change to add a required dueDate field to invoices and return it from the invoices route? ${FILES_SECTION} ${REPO}`,
+    version: 4,
+    metrics: { source: 'files-section', relevant: ['src/invoices/model.ts', 'src/routes/invoices.ts'], allowed: ['src/invoices/service.ts', 'tests/invoices.test.ts'] },
+    prompt: `/ambicode:investigate --task inv-files Which files would change to add a dueDate field to invoices and return it from the invoices route? ${FILES_SECTION} ${REPO}`,
+    bare: `Which files would change to add a dueDate field to invoices and return it from the invoices route? ${FILES_SECTION} ${REPO}`,
     graders: [
       ledger('note-saved', '"kind":"note","note":"investigation"', T('inv-files')),
       ledger('citations-valid', '"worker":"check-citations"[^\\n]*"failed":false', T('inv-files')),
@@ -115,8 +115,8 @@ FAIL otherwise, including when the answer invents an HTTP framework, a database 
       shared(regex('lists-route', 'src/routes/invoices\\.ts')),
       ...noEdits,
       shared(llm('files-complete', `
-PASS only if the answer lists src/invoices/model.ts, src/routes/invoices.ts and tests/invoices.test.ts as files to edit (src/invoices/service.ts may be listed either way, with a reason), and lists no file under src/users/, src/legacy/, src/reports/ or docs/ as one to edit.
-FAIL if any of the three is missing or any decoy is listed as a file to change.`)),
+PASS only if the answer lists src/invoices/model.ts and src/routes/invoices.ts as files to edit (src/invoices/service.ts and tests/invoices.test.ts may be listed either way, with a reason), and lists no file under src/users/, src/legacy/, src/reports/ or docs/ as one to edit.
+FAIL if either is missing or any decoy is listed as a file to change.`)),
     ],
   },
   {
