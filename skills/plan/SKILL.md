@@ -27,8 +27,8 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" route start plan "<request>" [
 - **Independently reviewable iterations.** Each lands, passes its checks and
   can be reviewed alone, in an order that says why.
 
-Each iteration names six fields: *Goal*, *Changes* (`path:line`), *Tests*,
-*Accept*, *Checks* and *Leaves out*.
+Each iteration names five fields: *Goal*, *Changes* (`path:line`), *Accept*,
+*Checks* and *Leaves out*. Tests are the task route's red step, not the plan's.
 
 ## Draft and accepted
 

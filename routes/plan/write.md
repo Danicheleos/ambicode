@@ -4,7 +4,6 @@ Shape:
 - Ordered, independently reviewable iterations. Each one has:
   - *Goal*: the behaviour once it lands, and why it comes in this order.
   - *Changes*: files and symbols as repository-relative `path:line` (`path:N-M` for a range), the full path every time, never a bare file name; the approach and the code it reuses. A new file has no line.
-  - *Tests*: one line per test it adds or changes: `<test>`: fails before the fix because … (or: kept as a guard).
   - *Accept*: criteria a reviewer can observe.
   - *Checks*: the affected checks by key, not "run the suite".
   - *Leaves out*: what a later iteration owns.

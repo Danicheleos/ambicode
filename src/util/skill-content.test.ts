@@ -207,10 +207,11 @@ describe('P2.2/P2.3 shipped skill content', () => {
     }
   });
 
-  it('06-S4: plan and its write step name the six iteration fields', async () => {
+  it('06-S4: plan and its write step name the five iteration fields, and leave tests to the task route', async () => {
     const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
     const write = await readFile(path.join(repositoryRoot, 'routes', 'plan', 'write.md'), 'utf8');
-    for (const field of ['Goal', 'Changes', 'Tests', 'Accept', 'Checks', 'Leaves out']) {
+    assert.ok(!write.includes('*Tests*'), 'plan-write.md still asks for *Tests*');
+    for (const field of ['Goal', 'Changes', 'Accept', 'Checks', 'Leaves out']) {
       assert.ok(plan.includes(`*${field}*`), `plan/SKILL.md lacks *${field}*`);
       assert.ok(write.includes(`*${field}*`), `plan-write.md lacks *${field}*`);
     }

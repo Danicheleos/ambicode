@@ -1,7 +1,7 @@
 # Skill coverage history
 
-- **plugin** [longest run, turn by turn](chains/plugin-longest.md) · latest run 2026-10-12T20:54:29.645Z · claude-sonnet-5-5/low · Claude Code 2.1.296 · plugin 0.5.1 · 13 case(s) · mean score 0.92 · cost $5.87
-- **bare** [longest run, turn by turn](chains/bare-longest.md) · latest run 2026-10-12T20:01:34.083Z · claude-sonnet-5-5/low · Claude Code 2.1.296 · 8 case(s) · mean score 0.82 · cost $2.04
+- **plugin** [longest run, turn by turn](chains/plugin-longest.md) · latest run 2026-10-12T21:07:42.937Z · claude-sonnet-5-5/low · Claude Code 2.1.296 · plugin 0.5.1 · 13 case(s) · mean score 0.92 · cost $5.94
+- **bare** [longest run, turn by turn](chains/bare-longest.md) · latest run 2026-10-12T21:09:41.525Z · claude-sonnet-5-5/low · Claude Code 2.1.296 · 8 case(s) · mean score 0.82 · cost $2.04
 
 `plugin` is the full case score; `outcome` is its shared graders only (answer, code, boundary); `bare` is the same
 shared graders with no plugin loaded; `lift` = outcome − bare, shown only when both rows ran the same model, effort and case version.
@@ -27,8 +27,8 @@ Brackets: change against the previous row of the same arm. Failing graders are t
 
 | case | plugin | outcome | bare | lift | plugin $ | bare $ | calls/tools | context k | failing graders |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| plan-accept | 0.818 (-0.04) | 0.6 | 0.6 (+0.04) | 0.00 | 0.1249 | 0.0659 | 6/6 · 3.2/2.2 | 25.8 / 17.6 | plan-quality 0 |
-| plan-draft | 1 | 1 | — | — | 0.1177 | — | 6.6/8.6 | 25.4 | — |
+| plan-accept | 0.891 | 0.76 | 0.6 | +0.16 | 0.1266 | 0.0659 | 6.4/7.2 · 3/2.2 | 26.3 / 17.5 | plan-quality 0.4 |
+| plan-draft | 1 | 1 | — | — | 0.1295 | — | 7/12.2 | 26.9 | — |
 
 ## review
 
@@ -131,38 +131,38 @@ recall 1.00 ± 0.00 · precision 1.00 ± 0.00 · F1 1.00 ± 0.00
 | 5 | 1 | 4 | 3 | 17.3 | 0.05 | — |
 | spread | 1.00 ± 0.00 | 4.20 ± 0.45 | 3.20 ± 0.45 |  |  |  |
 
-### plan-accept · plugin · 5 run(s) · 2026-10-12T20:54
+### plan-accept · plugin · 5 run(s) · 2026-10-12T21:07
 
 | run | score | calls | tools | context k | $ | failing graders |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | 0.82 | 6 | 6 | 26.5 | 0.13 | plan-quality |
-| 2 | 0.82 | 6 | 6 | 25.6 | 0.12 | plan-quality |
-| 3 | 0.82 | 6 | 6 | 25.7 | 0.12 | plan-quality |
-| 4 | 0.82 | 6 | 6 | 25.1 | 0.12 | plan-quality |
-| 5 | 0.82 | 6 | 6 | 26.0 | 0.13 | plan-quality |
-| spread | 0.82 ± 0.00 | 6.00 ± 0.00 | 6.00 ± 0.00 |  |  |  |
+| 1 | 1 | 6 | 6 | 25.8 | 0.12 | — |
+| 2 | 0.82 | 9 | 13 | 30.8 | 0.17 | plan-quality |
+| 3 | 0.82 | 5 | 5 | 24.9 | 0.11 | plan-quality |
+| 4 | 1 | 6 | 6 | 25.4 | 0.12 | — |
+| 5 | 0.82 | 6 | 6 | 24.5 | 0.11 | plan-quality |
+| spread | 0.89 ± 0.10 | 6.40 ± 1.52 | 7.20 ± 3.27 |  |  |  |
 
-### plan-accept · bare · 5 run(s) · 2026-10-12T20:00
-
-| run | score | calls | tools | context k | $ | failing graders |
-| --- | --- | --- | --- | --- | --- | --- |
-| 1 | 0.6 | 4 | 3 | 17.6 | 0.07 | plan-quality |
-| 2 | 0.6 | 3 | 2 | 17.7 | 0.07 | plan-quality |
-| 3 | 0.6 | 3 | 2 | 17.6 | 0.06 | plan-quality |
-| 4 | 0.6 | 3 | 2 | 17.6 | 0.07 | plan-quality |
-| 5 | 0.6 | 3 | 2 | 17.7 | 0.06 | plan-quality |
-| spread | 0.60 ± 0.00 | 3.20 ± 0.45 | 2.20 ± 0.45 |  |  |  |
-
-### plan-draft · plugin · 5 run(s) · 2026-10-12T20:54
+### plan-accept · bare · 5 run(s) · 2026-10-12T21:09
 
 | run | score | calls | tools | context k | $ | failing graders |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | 1 | 6 | 6 | 25.3 | 0.11 | — |
-| 2 | 1 | 6 | 10 | 25.2 | 0.12 | — |
-| 3 | 1 | 7 | 13 | 25.6 | 0.12 | — |
-| 4 | 1 | 7 | 7 | 26.0 | 0.12 | — |
-| 5 | 1 | 7 | 7 | 25.0 | 0.12 | — |
-| spread | 1.00 ± 0.00 | 6.60 ± 0.55 | 8.60 ± 2.88 |  |  |  |
+| 1 | 0.6 | 3 | 3 | 17.6 | 0.07 | plan-quality |
+| 2 | 0.6 | 3 | 2 | 17.6 | 0.07 | plan-quality |
+| 3 | 0.6 | 3 | 2 | 17.3 | 0.07 | plan-quality |
+| 4 | 0.6 | 3 | 2 | 17.4 | 0.06 | plan-quality |
+| 5 | 0.6 | 3 | 2 | 17.5 | 0.06 | plan-quality |
+| spread | 0.60 ± 0.00 | 3.00 ± 0.00 | 2.20 ± 0.45 |  |  |  |
+
+### plan-draft · plugin · 5 run(s) · 2026-10-12T21:07
+
+| run | score | calls | tools | context k | $ | failing graders |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | 1 | 7 | 17 | 29.2 | 0.14 | — |
+| 2 | 1 | 7 | 14 | 25.9 | 0.13 | — |
+| 3 | 1 | 8 | 17 | 28.6 | 0.14 | — |
+| 4 | 1 | 6 | 6 | 25.4 | 0.12 | — |
+| 5 | 1 | 7 | 7 | 25.6 | 0.12 | — |
+| spread | 1.00 ± 0.00 | 7.00 ± 0.71 | 12.20 ± 5.36 |  |  |  |
 
 ### review-clean · plugin · 5 run(s) · 2026-10-12T20:02
 

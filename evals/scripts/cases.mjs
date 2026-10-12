@@ -60,9 +60,8 @@ PASS if page() now returns every item of the requested page including the last o
 FAIL otherwise.`;
 const PLAN_QUALITY = (where) => `
 ${where} PASS only if all hold:
-- Every iteration has Goal, Changes, Tests, Accept, Checks and Leaves out (or plainly equivalent headings).
+- Every iteration has Goal, Changes, Accept, Checks and Leaves out (or plainly equivalent headings).
 - Changes extend the existing Invoice interface (src/invoices/model.ts), src/invoices/service.ts and invoicesRoute in src/routes/invoices.ts rather than new parallel modules, and name no file under src/users/, src/legacy/ or src/reports/.
-- Tests say what fails first, before the change.
 FAIL otherwise.`;
 
 /**
@@ -140,7 +139,7 @@ FAIL if it names a file, function or delay value as the implementation, or answe
   // ---------------------------------------------------------------- plan
   {
     name: 'plan-accept',
-    version: 2,
+    version: 3,
     description: 'A plan that the user accepts headlessly: draft written, anchors checked, promoted, no code touched.',
     tags: ['plan', 'gate'],
     fixture: 'ts-feature-boundary', flags: '--ambicode-init',
@@ -148,7 +147,7 @@ FAIL if it names a file, function or delay value as the implementation, or answe
     bare: `Write an implementation plan for this change, in iterations that can each be reviewed alone; do not implement it. Add a dueDate field to invoices: the model carries it, total() is unchanged, the invoices route returns it, and creating an invoice with a dueDate in the past is rejected. ${REPO}`,
     graders: [
       exists('plan-body-written', 'repo/.ambicode/tasks/plan-due/steps/plan-body.md'),
-      regex('six-fields', 'Goal[\\s\\S]*Changes[\\s\\S]*Tests[\\s\\S]*Accept[\\s\\S]*Checks[\\s\\S]*Leaves out', { file: 'repo/.ambicode/tasks/plan-due/steps/plan-body.md' }),
+      regex('five-fields', 'Goal[\\s\\S]*Changes[\\s\\S]*Accept[\\s\\S]*Checks[\\s\\S]*Leaves out', { file: 'repo/.ambicode/tasks/plan-due/steps/plan-body.md' }),
       regex('anchors-present', 'src/invoices/model\\.ts:\\d+', { file: 'repo/.ambicode/tasks/plan-due/steps/plan-body.md' }),
       ledger('anchors-valid', '"worker":"plan-check"[^\\n]*"anchorsBad":0', T('plan-due')),
       ledger('plan-promoted', '"kind":"note","note":"plan"', T('plan-due')),

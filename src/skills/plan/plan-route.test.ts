@@ -83,7 +83,6 @@ describe('06-R1/06-R2 the shipped plan route', () => {
     assert.match(write, /never a bare file name/);
     assert.match(write, /writing it again with the Write tool, not the shell/);
     assert.doesNotMatch(write, /\bEdit\b(?! nothing)/);
-    assert.match(write, /one line per test it adds or changes, at least one failing first, like:\n(?: {4}- .*\(new\): fails before the fix: .*\n){2} {4}- .*\(existing\): stays green as a guard\./);
     assert.match(await readFile(path.join(REPO_ROOT, 'routes', 'plan', 'design.md'), 'utf8'), /\[ambicode gate decision:<slug>\]/);
   });
 
