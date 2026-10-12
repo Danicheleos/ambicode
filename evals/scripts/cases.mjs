@@ -140,6 +140,7 @@ FAIL if it names a file, function or delay value as the implementation, or answe
   // ---------------------------------------------------------------- plan
   {
     name: 'plan-accept',
+    version: 2,
     description: 'A plan that the user accepts headlessly: draft written, anchors checked, promoted, no code touched.',
     tags: ['plan', 'gate'],
     fixture: 'ts-feature-boundary', flags: '--ambicode-init',
@@ -153,7 +154,7 @@ FAIL if it names a file, function or delay value as the implementation, or answe
       ledger('plan-promoted', '"kind":"note","note":"plan"', T('plan-due')),
       DONE(T('plan-due')),
       ...noEdits,
-      shared(never('no-checks-run', 'Bash', 'jest|eslint|npm (test|run)')),
+      shared(never('no-checks-run', 'Bash', '(^|"command":"|[;&|]|\\n)\\s*(npx\\s+|node\\s+)?\\S*(jest|eslint)\\b|(^|"command":"|[;&|]|\\n)\\s*npm\\s+(test|run)\\b')),
       shared(
         llm('plan-quality', PLAN_QUALITY('This is the plan body.'), { file: 'repo/.ambicode/tasks/plan-due/steps/plan-body.md' }),
         llm('plan-quality', PLAN_QUALITY('The final message is the plan.')),

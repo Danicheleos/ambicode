@@ -179,6 +179,7 @@ describe('review route: the estimate gate (08-R4, 08-R5, S12, S14)', () => {
       const run = await t.start({ answers: [{ gate: 'estimate', option: 'run' }] });
       assert.equal(run.position, 'review-run');
       assert.match(run.text, /## review\.command\nreview --task ord-7/);
+      assert.match(run.text, /First run the ones that cover the change[\s\S]*run the review command/);
       const print = (await prints(t, 'estimate'))[0]!;
       const preanswer = (await t.kinds('preanswer'))[0]!;
       assert.deepEqual((await t.kinds('acceptance')).map((entry) => [entry['gate'], entry['answer'], entry['via'], entry['instance'], entry['preanswer']]), [['estimate', 'run', 'prompt', print.id, preanswer.id]]);

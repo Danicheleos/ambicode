@@ -149,15 +149,18 @@ function runsSection(names, latest) {
     '',
   ];
   for (const row of rows) {
-    const m = row.metrics;
+    const m = row.metrics?.recall?.n > 0 ? row.metrics : null;
     lines.push(`### ${row.case} · ${armOf(row)} · ${row.runs} run(s) · ${row.at.slice(0, 16)}`, '');
     if (m) lines.push(`recall ${fmt(m.recall)} · precision ${fmt(m.precision)} · F1 ${fmt(m.f1)}${m.contractBroken ? ` · ${m.contractBroken} run(s) without the Files section` : ''}`, '');
-    lines.push('| run | score | recall | precision | F1 | calls | tools | context k | $ | missed | extra | failing graders |', '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |');
+    const retrieval = (...values) => (m ? values : []);
+    const head = ['run', 'score', ...retrieval('recall', 'precision', 'F1'), 'calls', 'tools', 'context k', '$', ...retrieval('missed', 'extra'), 'failing graders'];
+    const line = (cells) => `| ${cells.join(' | ')} |`;
+    lines.push(line(head), line(head.map(() => '---')));
     row.perRun.forEach((run, index) => {
       const missed = run.contract === false ? 'no Files section' : (run.missed ?? []).join(', ');
-      lines.push(`| ${index + 1} | ${cell(run.score)} | ${cell(run.recall)} | ${cell(run.precision)} | ${cell(run.f1)} | ${cell(run.modelCalls)} | ${cell(run.toolCalls)} | ${kilo(run.contextPeak)} | ${cell(run.costUsd)} | ${missed || '—'} | ${(run.extra ?? []).join(', ') || '—'} | ${run.failing.join(', ') || '—'}${run.error ? ` (${clip(run.error)})` : ''} |`);
+      lines.push(line([index + 1, cell(run.score), ...retrieval(cell(run.recall), cell(run.precision), cell(run.f1)), cell(run.modelCalls), cell(run.toolCalls), kilo(run.contextPeak), cell(run.costUsd), ...retrieval(missed || '—', (run.extra ?? []).join(', ') || '—'), `${run.failing.join(', ') || '—'}${run.error ? ` (${clip(run.error)})` : ''}`]));
     });
-    lines.push(`| spread | ${fmt(stat(row.perRun.map((r) => r.score)))} | | | | ${fmt(stat(row.perRun.map((r) => r.modelCalls)))} | ${fmt(stat(row.perRun.map((r) => r.toolCalls)))} | | | | | |`, '');
+    lines.push(line(['spread', fmt(stat(row.perRun.map((r) => r.score))), ...retrieval('', '', ''), fmt(stat(row.perRun.map((r) => r.modelCalls))), fmt(stat(row.perRun.map((r) => r.toolCalls))), '', '', ...retrieval('', ''), '']), '');
   }
   return lines;
 }

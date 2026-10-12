@@ -269,3 +269,29 @@ raw/2026-10-12-investigate-x5/
 evals/cases/results/traces/plugin/2026-10-12T18-45-58-015Z/   traces and kept .ambicode records
 evals/cases/results/traces/bare/2026-10-12T18-47-11-218Z/
 ```
+
+## 6. Rerun after fixes A1–A5 and B1–B4 (2026-10-12 19:30)
+
+Investigate ×5 on both arms, Sonnet 5.5, effort low, bundle rebuilt first. Model-run cost $1.78
+(plugin $0.97, bare $0.81). Data in `raw/2026-10-12-investigate-x5-rerun/`.
+
+```
+case                 arm     before  after   failing after
+investigate-files    plugin  0.956   1       —            (recall 1 in 5/5; was 0.667 in 1/5)
+investigate-how      plugin  0.867   1       —            (citations-valid, route-done 5/5; were 2/5)
+investigate-nomatch  plugin  1       1       —
+investigate-files    bare    0.733   0.933   files-complete 1/5 (run 1 left out tests/invoices.test.ts)
+investigate-how      bare    0.76    1       —
+investigate-nomatch  bare    1       1       —
+```
+
+- Plugin drift is gone: 15/15 runs score 1, no revise in any run, every run saved its note once.
+- Read step: 3,433 bytes (files) and 3,561 (how), was 6,875. The map now lists 7 candidates for
+  files (was 6) because tests are searchable again.
+- A5 (revise re-delivers only what changed) was not exercised: no run revised.
+- Calls/tools, plugin · bare: files 3.2/2.2 · 3.2/3.6, how 3.4/2.2 · 2.8/3.6, nomatch 2/1 · 4.4/3.4.
+  The plugin answers in fewer tool calls; context peak is about 3k higher (20.4k against 17.4k).
+- Lift: files +0.07, how 0.00, nomatch 0.00. With the case premise and the citation ask now shared,
+  bare scores 1 on how, so this suite no longer separates the arms on investigate.
+- `npm run evals:bare` exited 1 because bare files did not pass all runs; the results and history
+  rows were written normally.

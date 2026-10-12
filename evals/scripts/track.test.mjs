@@ -103,6 +103,27 @@ describe('evals drift', () => {
     assert.match(text, /\| 3 \| 0 \| 0 \| — \| 0 \| .* \| no Files section \|/);
   });
 
+  it('the Runs table drops the retrieval columns and the summary line for a row that measured none', () => {
+    const header = '| run | score | calls | tools | context k | $ | failing graders |';
+    const render = (metrics) => {
+      const result = { startedAt: '2026-10-12T00:00:00.000Z', cases: [{ name: 'plan-accept', arms: { with: [run(1, [grader('g', true)], { metrics }), run(0.5, [grader('g', false)], { metrics })] } }] };
+      return summary(rowsOf(result, { arm: 'plugin', model: 'm', effort: 'low' }), { shared: () => [] });
+    };
+    const plain = render(undefined);
+    assert.ok(plain.includes(header));
+    assert.doesNotMatch(plain, /\| (recall|precision|F1|missed|extra) \|/);
+    assert.match(plain, /\| spread \| .* \|$/m);
+    const empty = render({ recall: null, precision: null, f1: null, missed: [], extra: [], contract: true });
+    assert.ok(empty.includes(header));
+    assert.doesNotMatch(empty, /^recall /m);
+  });
+
+  it('the Runs table keeps the retrieval columns and numbers for a row that measured recall', () => {
+    const text = summary(rowsOf(RESULT, { arm: 'plugin', model: 'm', effort: 'low', version }), { shared: () => [], version });
+    assert.ok(text.includes('| run | score | recall | precision | F1 | calls | tools | context k | $ | missed | extra | failing graders |'));
+    assert.match(text, /^recall 0\.50 ± 0\.50 /m);
+  });
+
   it('a lift is not shown when either row is from an older case version', () => {
     const plugin = rowsOf(RESULT, { arm: 'plugin', model: 'm', effort: 'low', version });
     const bare = rowsOf(RESULT, { arm: 'bare', model: 'm', effort: 'low', version: () => 1 });
