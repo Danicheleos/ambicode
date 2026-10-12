@@ -6,7 +6,7 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-const run = (score, graders, extra = {}) => ({ score, passed: score === 1, turns: 7, costUsd: 0.4, judgeCostUsd: 0.01, durationSeconds: 30, error: null, graders, ...extra });
+const run = (score, graders, extra = {}) => ({ score, passed: score === 1, turns: 7, costUsd: 0.4, judgeCostUsd: 0.01, durationSeconds: 30, error: null, context: { peak: 20000, final: 19000, calls: 7 }, graders, ...extra });
 const grader = (name, passed) => ({ name, passed });
 
 const RESULT_JSON = {
@@ -34,6 +34,9 @@ describe('evals history', () => {
     assert.equal(task.costUsd, 0.41);
     assert.deepEqual(task.graders, { 'red-before-green': 1, 'fix-correct': 0.5 });
     assert.equal(rows[1].errors, 1);
+    assert.equal(task.contextPeak, 20000);
+    assert.equal(task.contextFinal, 19000);
+    assert.equal(rowsOf({ cases: [{ name: 'x-y', arms: { with: [run(1, [], { context: undefined })] } }] })[0].contextPeak, null, 'no trace: absent, not zero');
     assert.equal(rowsOf(RESULT_JSON, { arm: 'bare' })[0].plugin, null);
   });
 
@@ -45,10 +48,10 @@ describe('evals history', () => {
 
   it('the summary puts the plugin outcome beside the bare score and shows the lift only for the same model and effort', () => {
     const plugin = rowsOf(RESULT_JSON, { arm: 'plugin', model: 'm', effort: 'low', plugin: '0.5.1' });
-    const bare = rowsOf({ ...RESULT_JSON, cases: [{ name: 'task-fix', arms: { with: [run(0.25, [grader('fix-correct', false)])] } }] }, { arm: 'bare', model: 'm', effort: 'low' });
+    const bare = rowsOf({ ...RESULT_JSON, cases: [{ name: 'task-fix', arms: { with: [run(0.25, [grader('fix-correct', false)], { context: { peak: 12345, final: 1, calls: 2 } })] } }] }, { arm: 'bare', model: 'm', effort: 'low' });
     const text = summary([...plugin, ...bare], { shared });
-    assert.match(text, /\| task-fix \| 0\.75 \| 0\.5 \| 0\.25 \| \+0\.25 \| 0\.41 \| 0\.41 \| 7 \/ 7 \| fix-correct 0\.5 \|/);
-    assert.match(text, /\*\*bare\*\* latest run .* m\/low/);
+    assert.match(text, /\| task-fix \| 0\.75 \| 0\.5 \| 0\.25 \| \+0\.25 \| 0\.41 \| 0\.41 \| 7 \/ 7 \| 20\.0 \/ 12\.3 \| fix-correct 0\.5 \|/);
+    assert.match(text, /\*\*bare\*\* \[longest run, turn by turn\]\(chains\/bare-longest\.md\) · latest run .* m\/low/);
     const mismatched = summary([...plugin, ...bare.map((row) => ({ ...row, effort: 'high' }))], { shared });
     assert.match(mismatched, /\| task-fix \| 0\.75 \| 0\.5 \| 0\.25 \| — \|/);
   });

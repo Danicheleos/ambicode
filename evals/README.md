@@ -12,6 +12,9 @@ evals/
   bare/<case>/            no-plugin arm, generated: same request in plain words, shared graders only
   scripts/run.mjs         runs one arm through `claude plugin eval`, then tracks the result
   scripts/track.mjs       appends one row per case to history.jsonl and rewrites history.md
+  scripts/context.mjs     reads the context size from each run's trace
+  scripts/chain.mjs       turn-by-turn chain of a run; after each run, of the longest one (chains/<arm>-longest.md)
+  cases/results/          raw output of the last run per arm, and traces/<arm>/<case>-<n>.jsonl (gitignored)
   history.jsonl           every run, one row per case, in git
   history.md              latest plugin row and latest bare row per case, with the lift
 ```
@@ -32,6 +35,11 @@ Defaults: Sonnet 5.5, effort low, 1 run per case, 4 runs in parallel, a $15 cap 
 `--model`, `--effort`, `--runs` or `--max-cost-usd`. The harness has no effort flag, so `run.mjs` sets
 `CLAUDE_CODE_EFFORT_LEVEL` in the environment. A probe showed the variable inside the run. It does not prove the
 model honoured it.
+
+Each run also writes `evals/chains/<arm>-longest.md`, linked from `history.md`: the turn-by-turn chain of the run with the most turns.
+Each line shows the time since the start, the context, the tool call and its result with the time it took. A gap of
+30 s or more is marked ⏱. `node evals/scripts/chain.mjs evals/cases/results/traces/<arm>/<case>-1.jsonl` prints the
+chain of any other run.
 
 Each run appends to `history.jsonl` and rewrites `history.md`. Read `history.md`, not the exit code. The harness
 exits 1 whenever any case scores below 1.0.
@@ -69,6 +77,8 @@ Graders come in two kinds:
 | outcome | Shared graders only, in the plugin arm. |
 | bare | Shared graders in the bare arm. |
 | lift | outcome − bare. Shown only when both rows ran the same model and effort. |
+| turns | Model turns, plugin / bare. |
+| context k | Largest context the main session sent the model in one call, in thousands of tokens (input plus cache), plugin / bare. `history.jsonl` also keeps `contextFinal`, the last call's context. Subagent calls are left out, because the trace records only some of them. |
 
 Five cases have no bare arm because what they test belongs to the plugin: a gate default (`plan-draft`,
 `task-review-skipped`, `review-skipped`), policy packs (`rules-migrate`) and `init-auto`.

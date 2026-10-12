@@ -15,6 +15,7 @@ export function rowsOf(result, { arm = 'plugin', model = 'unknown', effort = 'un
   return (result.cases ?? []).map((evalCase) => {
     const runs = runsOf(evalCase);
     const graders = {};
+    const context = runs.map((run) => run.context).filter(Boolean);
     for (const run of runs) for (const grader of run.graders ?? []) (graders[grader.name] ??= []).push(grader.passed ? 1 : 0);
     return {
       at: result.startedAt ?? new Date().toISOString(),
@@ -32,6 +33,9 @@ export function rowsOf(result, { arm = 'plugin', model = 'unknown', effort = 'un
       costUsd: round(mean(runs.map((run) => (run.costUsd ?? 0) + (run.judgeCostUsd ?? 0))), 4),
       turns: round(mean(runs.map((run) => run.turns ?? 0)), 1),
       seconds: round(mean(runs.map((run) => run.durationSeconds ?? 0)), 0),
+      // Main-session tokens per model call (context.mjs); null when no trace was kept.
+      contextPeak: round(mean(context.map((c) => c.peak)), 0),
+      contextFinal: round(mean(context.map((c) => c.final)), 0),
       graders: Object.fromEntries(Object.entries(graders).map(([name, passes]) => [name, round(mean(passes), 2)])),
     };
   });
@@ -49,6 +53,7 @@ export function readHistory(file) {
   return readFileSync(file, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line));
 }
 
+const kilo = (tokens) => (tokens === null || tokens === undefined ? '—' : (tokens / 1000).toFixed(1));
 const signed = (value, digits = 2) => `${value > 0 ? '+' : ''}${value.toFixed(digits)}`;
 const delta = (now, before, digits = 2) => (before === undefined || before === null || now === null || now === before ? '' : ` (${signed(now - before, digits)})`);
 // Rows written before the arm and effort fields existed are plugin rows at the model's default effort.
@@ -71,24 +76,25 @@ export function summary(history, { shared = sharedGraders } = {}) {
     const rows = names.map((name) => latest(arm, name)).filter(Boolean);
     if (rows.length === 0) continue;
     const last = rows.reduce((a, b) => (a.at > b.at ? a : b));
-    lines.push(`- **${arm}** latest run ${last.at} · ${setting(last)} · Claude Code ${last.claude}${arm === 'plugin' ? ` · plugin ${last.plugin}` : ''} · ${rows.length} case(s) · mean score ${round(mean(rows.map((row) => row.score ?? 0)), 2)} · cost $${round(rows.reduce((sum, row) => sum + (row.costUsd ?? 0) * row.runs, 0), 2)}`);
+    lines.push(`- **${arm}** [longest run, turn by turn](chains/${arm}-longest.md) · latest run ${last.at} · ${setting(last)} · Claude Code ${last.claude}${arm === 'plugin' ? ` · plugin ${last.plugin}` : ''} · ${rows.length} case(s) · mean score ${round(mean(rows.map((row) => row.score ?? 0)), 2)} · cost $${round(rows.reduce((sum, row) => sum + (row.costUsd ?? 0) * row.runs, 0), 2)}`);
   }
   lines.push(
     '',
     '`plugin` is the full case score; `outcome` is its shared graders only (answer, code, boundary); `bare` is the same',
     'shared graders with no plugin loaded; `lift` = outcome − bare, shown only when both rows ran the same model and effort.',
+    '`context` is the largest main-session context of the run in thousands of tokens (input + cache), plugin / bare.',
     'Brackets: change against the previous row of the same arm. Failing graders are the latest plugin run\'s.',
     '',
   );
   for (const skill of [...new Set(names.map((name) => name.split('-')[0]))].sort()) {
-    lines.push(`## ${skill}`, '', '| case | plugin | outcome | bare | lift | plugin $ | bare $ | turns | failing graders |', '| --- | --- | --- | --- | --- | --- | --- | --- | --- |');
+    lines.push(`## ${skill}`, '', '| case | plugin | outcome | bare | lift | plugin $ | bare $ | turns | context k | failing graders |', '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |');
     for (const name of names.filter((n) => n.split('-')[0] === skill)) {
       const now = latest('plugin', name);
       const bare = latest('bare', name);
       const outcome = now === undefined ? null : outcomeOf(now, shared(name));
       const lift = now !== undefined && bare !== undefined && outcome !== null && setting(now) === setting(bare) ? signed(outcome - bare.score) : '';
       const failing = now === undefined ? [] : Object.entries(now.graders).filter(([, rate]) => rate < 1).map(([grader, rate]) => (now.runs > 1 ? `${grader} ${rate}` : grader));
-      lines.push(`| ${name} | ${now ? `${now.score}${delta(now.score, previous('plugin', name)?.score)}` : '—'} | ${outcome ?? '—'} | ${bare ? `${bare.score}${delta(bare.score, previous('bare', name)?.score)}` : '—'} | ${lift || '—'} | ${now?.costUsd ?? '—'} | ${bare?.costUsd ?? '—'} | ${now?.turns ?? '—'}${bare ? ` / ${bare.turns}` : ''} | ${failing.join(', ') || '—'} |`);
+      lines.push(`| ${name} | ${now ? `${now.score}${delta(now.score, previous('plugin', name)?.score)}` : '—'} | ${outcome ?? '—'} | ${bare ? `${bare.score}${delta(bare.score, previous('bare', name)?.score)}` : '—'} | ${lift || '—'} | ${now?.costUsd ?? '—'} | ${bare?.costUsd ?? '—'} | ${now?.turns ?? '—'}${bare ? ` / ${bare.turns}` : ''} | ${kilo(now?.contextPeak)}${bare ? ` / ${kilo(bare.contextPeak)}` : ''} | ${failing.join(', ') || '—'} |`);
     }
     lines.push('');
   }

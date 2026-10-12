@@ -4,6 +4,8 @@
 // --bare runs evals/bare/ against an empty plugin: the same requests with nothing of AMBICODE loaded.
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { harvest } from './context.mjs';
+import { longestReport } from './chain.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -12,6 +14,8 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 export const RESULTS = path.join(REPO, 'evals', 'cases', 'results');
 // Outside the plugin, because the harness walks the whole target directory; .tmp/ is gitignored.
 export const NAKED = path.join(REPO, '.tmp', 'naked');
+// In git beside history.md, which links them: the results folder is gitignored and hidden in most views.
+export const CHAINS = path.join(REPO, 'evals', 'chains');
 
 function option(argv, name) {
   const at = argv.indexOf(name);
@@ -28,6 +32,8 @@ export function plan(argv, defaults = DEFAULTS) {
     'plugin', 'eval', arm === 'bare' ? NAKED : REPO,
     '--eval-dir', arm === 'bare' ? 'evals/bare' : 'evals/cases',
     '--scaffold', '--trust-plugin', '--no-publish',
+    // Kept so the context size can be read from each trace; harvest() deletes every sandbox afterwards.
+    '--keep-temp',
     // One arm per run: a plugin case's prompt types /ambicode:<skill>, which means nothing with no plugin loaded.
     '--ablation', 'none',
     '--allow-tools', 'Bash', 'Edit', 'Write',
@@ -44,7 +50,7 @@ export function plan(argv, defaults = DEFAULTS) {
   // The harness has no effort flag; the variable reaches the run's claude child (probed 2026-10-12: `env=[low]`).
   const env = { CLAUDE_CODE_EFFORT_LEVEL: effort };
   const track = [path.join(REPO, 'evals', 'scripts', 'track.mjs'), result, '--arm', arm, '--model', model, '--effort', effort];
-  return { arm, argv: out, env, track };
+  return { arm, argv: out, env, track, result };
 }
 
 /** An empty plugin holding a copy of evals/bare, with each scaffold pointed back at this repository's fixtures. */
@@ -76,6 +82,15 @@ function main(argv) {
   // Exit 1 is a case below the harness threshold (1.0) and 2 a partial result (cost ceiling): both are results and are
   // tracked (`partial` is the harness's own flag in the JSON). Anything else is a harness failure with nothing to track.
   if (![0, 1, 2].includes(status)) return status ?? 1;
+  const result = JSON.parse(readFileSync(run.result, 'utf8'));
+  writeFileSync(run.result, `${JSON.stringify(harvest(result, path.join(RESULTS, 'traces', run.arm)), null, 2)}\n`);
+  const longest = longestReport(result, run.arm);
+  if (longest !== null) {
+    mkdirSync(CHAINS, { recursive: true });
+    const file = path.join(CHAINS, `${run.arm}-longest.md`);
+    writeFileSync(file, longest);
+    console.log(`${longest.split('\n').slice(0, 3).join('\n')}\nchain: ${path.relative(REPO, file)}`);
+  }
   const tracked = spawnSync(process.execPath, run.track, { stdio: 'inherit', cwd: REPO }).status;
   return tracked === 0 ? status : (tracked ?? 1);
 }
