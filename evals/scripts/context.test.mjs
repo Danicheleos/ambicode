@@ -37,7 +37,8 @@ describe('evals context size', () => {
     const tmp = mkdtempSync(path.join(tmpdir(), 'evals-harvest-'));
     const sandbox = path.join(tmp, 'e-Kept1');
     mkdirSync(path.join(sandbox, 'out'), { recursive: true });
-    mkdirSync(path.join(sandbox, 'sealed', 'home'), { recursive: true });
+    mkdirSync(path.join(sandbox, 'sealed', 'home', 'cwd', 'repo', '.ambicode', 'tasks', 't'), { recursive: true });
+    writeFileSync(path.join(sandbox, 'sealed', 'home', 'cwd', 'repo', '.ambicode', 'tasks', 't', 'ledger.jsonl'), '{}\n');
     chmodSync(path.join(sandbox, 'sealed'), 0o000);
     writeFileSync(path.join(sandbox, 'out', 'trace.jsonl'), TRACE);
     const result = { cases: [{ name: 'task-fix', arms: { with: [{ tracePath: path.join(sandbox, 'out', 'trace.jsonl') }, { tracePath: path.join(tmp, 'e-Gone2', 'out', 'trace.jsonl') }] } }] };
@@ -47,6 +48,7 @@ describe('evals context size', () => {
     assert.equal(kept.context.peak, 21502);
     assert.equal(gone.context, undefined);
     assert.equal(readFileSync(path.join(traces, 'task-fix-1.jsonl'), 'utf8'), TRACE);
+    assert.equal(readFileSync(path.join(traces, 'task-fix-1.ambicode', 'repo', '.ambicode', 'tasks', 't', 'ledger.jsonl'), 'utf8'), '{}\n', 'the route record is kept beside the trace');
     assert.equal(existsSync(sandbox), false);
   });
 });

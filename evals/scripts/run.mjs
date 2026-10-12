@@ -85,7 +85,8 @@ function main(argv) {
   // tracked (`partial` is the harness's own flag in the JSON). Anything else is a harness failure with nothing to track.
   if (![0, 1, 2].includes(status)) return status ?? 1;
   const result = JSON.parse(readFileSync(run.result, 'utf8'));
-  harvest(result, path.join(RESULTS, 'traces', run.arm));
+  // Per suite run: clearing one shared folder lost the traces of every earlier run (2026-10-12).
+  harvest(result, path.join(RESULTS, 'traces', run.arm, String(result.startedAt ?? Date.now()).replace(/[:.]/g, '-')));
   for (const evalCase of result.cases ?? []) {
     const spec = caseOf(evalCase.name)?.metrics;
     if (spec === undefined) continue;

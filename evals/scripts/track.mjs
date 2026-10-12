@@ -58,7 +58,7 @@ export function rowsOf(result, { arm = 'plugin', model = 'unknown', effort = 'un
       // One entry per run, for the drift between runs of the same case.
       perRun: runs.map((run) => ({
         score: round(run.score ?? 0, 2), turns: run.turns ?? null, seconds: run.durationSeconds ?? null, costUsd: round((run.costUsd ?? 0) + (run.judgeCostUsd ?? 0), 4),
-        contextPeak: run.context?.peak ?? null, error: run.error ?? null,
+        contextPeak: run.context?.peak ?? null, error: run.error ?? null, trace: run.trace ?? null,
         failing: (run.graders ?? []).filter((grader) => !grader.passed).map((grader) => grader.name),
         ...(run.metrics ? { recall: run.metrics.recall, precision: run.metrics.precision, f1: run.metrics.f1, missed: run.metrics.missed, extra: run.metrics.extra, contract: run.metrics.contract } : {}),
       })),

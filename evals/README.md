@@ -39,7 +39,7 @@ model honoured it.
 
 Each run also writes `evals/chains/<arm>-longest.md`, linked from `history.md`: the turn-by-turn chain of the run with the most turns.
 Each line shows the time since the start, the context, the tool call and its result with the time it took. A gap of
-30 s or more is marked ⏱. `node evals/scripts/chain.mjs evals/cases/results/traces/<arm>/<case>-1.jsonl` prints the
+30 s or more is marked ⏱. `node evals/scripts/chain.mjs evals/cases/results/traces/<arm>/<run time>/<case>-1.jsonl` prints the
 chain of any other run.
 
 ## Recall, precision, drift
