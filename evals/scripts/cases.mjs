@@ -37,6 +37,10 @@ const T = (slug) => `repo/.ambicode/tasks/${slug}/ledger.jsonl`;
 const R = (slug) => `repo/.ambicode/reviews/${slug}/ledger.jsonl`;
 const DONE = (file) => ledger('route-done', '"kind":"exit"[^\\n]*"reason":"done"', file);
 const REPO = 'The repository is at `repo/`.';
+// The files list a case scores; both arms get the same sentence, so the list is a contract, not plugin behaviour.
+const FILES_SECTION = 'End your answer with a `## Files` section: one path per line, only the files the change edits.';
+// A how-question cites the decoys to rule them out, so its citations are no retrieval measure (2026-10-12, 5 runs).
+const FILES_ANSWER = 'End your answer with a `## Files` section: one path per line, only the files that take part in the answer.';
 
 const LIMITS = {
   investigate: { max_turns: 12, timeout_seconds: 420, allowed_tools: ['Read', 'Glob', 'Grep', 'Bash', 'Skill'] },
@@ -62,6 +66,8 @@ FAIL otherwise.`;
  * name: `<skill>-<behaviour>`. prompt: the plugin arm (types the skill with a fixed --task slug). bare: the same request
  * as a user would type it to Claude Code with no plugin, or null when the behaviour is the plugin's own (a gate, a
  * policy pack, init) and has no bare counterpart.
+ * version: raise it whenever a prompt or grader changes; a lift is computed only between rows of the current version.
+ * metrics: recall and precision of the files the answer names (metrics.mjs): `relevant` must be named, `allowed` may be.
  */
 export const CASES = [
   // ---------------------------------------------------------------- investigate
@@ -70,8 +76,10 @@ export const CASES = [
     description: 'A how-does-it-work question whose answer spans a service and a route, with keyword decoys in the repository.',
     tags: ['investigate'],
     fixture: 'ts-feature-boundary', flags: '--ambicode-init',
-    prompt: `/ambicode:investigate --task inv-how How is an invoice total computed, and where is it exposed over HTTP? ${REPO}`,
-    bare: `How is an invoice total computed, and where is it exposed over HTTP? ${REPO}`,
+    version: 2,
+    metrics: { source: 'files-section', relevant: ['src/invoices/service.ts', 'src/routes/invoices.ts'], allowed: ['src/invoices/model.ts', 'tests/invoices.test.ts'] },
+    prompt: `/ambicode:investigate --task inv-how How is an invoice total computed, and where is it exposed over HTTP? ${FILES_ANSWER} ${REPO}`,
+    bare: `How is an invoice total computed, and where is it exposed over HTTP? ${FILES_ANSWER} ${REPO}`,
     graders: [
       ledger('route-started', '"kind":"route","skill":"investigate"', T('inv-how')),
       ledger('note-saved', '"kind":"note","note":"investigation"', T('inv-how')),
@@ -92,8 +100,10 @@ FAIL otherwise, including when the answer invents an HTTP framework, a database 
     description: 'A which-files-would-change question; the right answer is the invoice boundary, not the decoys.',
     tags: ['investigate'],
     fixture: 'ts-feature-boundary', flags: '--ambicode-init',
-    prompt: `/ambicode:investigate --task inv-files Which files would change to add a dueDate field to invoices and return it from the invoices route? ${REPO}`,
-    bare: `Which files would change to add a dueDate field to invoices and return it from the invoices route? ${REPO}`,
+    version: 2,
+    metrics: { source: 'files-section', relevant: ['src/invoices/model.ts', 'src/routes/invoices.ts', 'tests/invoices.test.ts'], allowed: ['src/invoices/service.ts'] },
+    prompt: `/ambicode:investigate --task inv-files Which files would change to add a dueDate field to invoices and return it from the invoices route? ${FILES_SECTION} ${REPO}`,
+    bare: `Which files would change to add a dueDate field to invoices and return it from the invoices route? ${FILES_SECTION} ${REPO}`,
     graders: [
       ledger('note-saved', '"kind":"note","note":"investigation"', T('inv-files')),
       ledger('citations-valid', '"worker":"check-citations"[^\\n]*"failed":false', T('inv-files')),
@@ -111,6 +121,8 @@ FAIL if any of the three is missing or any decoy is listed as a file to change.`
     description: 'A question about code that does not exist: the scope gate must be raised and nothing invented.',
     tags: ['investigate', 'gate'],
     fixture: 'ts-feature-boundary', flags: '--ambicode-init',
+    // Nothing is relevant: any file cited as the implementation is an extra, so precision falls below 1.
+    metrics: { source: 'citations', relevant: [], allowed: [] },
     prompt: `/ambicode:investigate --task inv-none Where is the WebSocket reconnect backoff implemented, and what is its maximum delay? ${REPO}`,
     bare: `Where is the WebSocket reconnect backoff implemented, and what is its maximum delay? ${REPO}`,
     graders: [
@@ -388,6 +400,9 @@ export function render(cases = CASES) {
   }
   return files;
 }
+
+export const caseOf = (name) => CASES.find((c) => c.name === name) ?? null;
+export const versionOf = (name) => caseOf(name)?.version ?? 1;
 
 /** The graders of a case's bare arm, with their weights: what a lift is computed over. */
 export const sharedGraders = (name) =>

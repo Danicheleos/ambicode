@@ -3,15 +3,23 @@
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { sharedGraders } from './cases.mjs';
+import { sharedGraders, versionOf } from './cases.mjs';
 
 const mean = (values) => (values.length === 0 ? null : values.reduce((a, b) => a + b, 0) / values.length);
 const round = (value, digits = 3) => (value === null ? null : Number(value.toFixed(digits)));
+/** Sample standard deviation; null under two values. */
+const spread = (values) => {
+  if (values.length < 2) return null;
+  const m = mean(values);
+  return Math.sqrt(values.reduce((sum, v) => sum + (v - m) ** 2, 0) / (values.length - 1));
+};
+const numbers = (values) => values.filter((v) => typeof v === 'number');
+const stat = (values) => ({ mean: round(mean(numbers(values))), sd: round(spread(numbers(values))), n: numbers(values).length });
 
 /** The run's single arm: the suite always runs with --ablation none, so the harness names it `with` either way. */
 const runsOf = (evalCase) => evalCase.arms?.with ?? Object.values(evalCase.arms ?? {})[0] ?? [];
 
-export function rowsOf(result, { arm = 'plugin', model = 'unknown', effort = 'unknown', plugin = 'unknown' } = {}) {
+export function rowsOf(result, { arm = 'plugin', model = 'unknown', effort = 'unknown', plugin = 'unknown', version = versionOf } = {}) {
   return (result.cases ?? []).map((evalCase) => {
     const runs = runsOf(evalCase);
     const graders = {};
@@ -25,6 +33,7 @@ export function rowsOf(result, { arm = 'plugin', model = 'unknown', effort = 'un
       model,
       effort,
       case: evalCase.name,
+      version: version(evalCase.name),
       skill: evalCase.name.split('-')[0],
       runs: runs.length,
       errors: runs.filter((run) => run.error).length,
@@ -37,6 +46,22 @@ export function rowsOf(result, { arm = 'plugin', model = 'unknown', effort = 'un
       contextPeak: round(mean(context.map((c) => c.peak)), 0),
       contextFinal: round(mean(context.map((c) => c.final)), 0),
       graders: Object.fromEntries(Object.entries(graders).map(([name, passes]) => [name, round(mean(passes), 2)])),
+      // Retrieval metrics (metrics.mjs), only for a case that declares them; a run that broke the files contract counts in `contractBroken`.
+      ...(runs.some((run) => run.metrics) ? {
+        metrics: {
+          recall: stat(runs.map((run) => run.metrics?.recall)),
+          precision: stat(runs.map((run) => run.metrics?.precision)),
+          f1: stat(runs.map((run) => run.metrics?.f1)),
+          contractBroken: runs.filter((run) => run.metrics?.contract === false).length,
+        },
+      } : {}),
+      // One entry per run, for the drift between runs of the same case.
+      perRun: runs.map((run) => ({
+        score: round(run.score ?? 0, 2), turns: run.turns ?? null, seconds: run.durationSeconds ?? null, costUsd: round((run.costUsd ?? 0) + (run.judgeCostUsd ?? 0), 4),
+        contextPeak: run.context?.peak ?? null, error: run.error ?? null,
+        failing: (run.graders ?? []).filter((grader) => !grader.passed).map((grader) => grader.name),
+        ...(run.metrics ? { recall: run.metrics.recall, precision: run.metrics.precision, f1: run.metrics.f1, missed: run.metrics.missed, extra: run.metrics.extra, contract: run.metrics.contract } : {}),
+      })),
     };
   });
 }
@@ -61,7 +86,7 @@ const armOf = (row) => row.arm ?? 'plugin';
 const setting = (row) => `${row.model}/${row.effort ?? 'default'}`;
 
 /** Latest plugin row per case beside the latest bare row; the lift is shown only when both ran the same model and effort. */
-export function summary(history, { shared = sharedGraders } = {}) {
+export function summary(history, { shared = sharedGraders, version = versionOf } = {}) {
   const series = new Map();
   for (const row of history) {
     const key = `${armOf(row)}:${row.case}`;
@@ -81,7 +106,7 @@ export function summary(history, { shared = sharedGraders } = {}) {
   lines.push(
     '',
     '`plugin` is the full case score; `outcome` is its shared graders only (answer, code, boundary); `bare` is the same',
-    'shared graders with no plugin loaded; `lift` = outcome − bare, shown only when both rows ran the same model and effort.',
+    'shared graders with no plugin loaded; `lift` = outcome − bare, shown only when both rows ran the same model, effort and case version.',
     '`context` is the largest main-session context of the run in thousands of tokens (input + cache), plugin / bare.',
     'Brackets: change against the previous row of the same arm. Failing graders are the latest plugin run\'s.',
     '',
@@ -92,14 +117,45 @@ export function summary(history, { shared = sharedGraders } = {}) {
       const now = latest('plugin', name);
       const bare = latest('bare', name);
       const outcome = now === undefined ? null : outcomeOf(now, shared(name));
-      const lift = now !== undefined && bare !== undefined && outcome !== null && setting(now) === setting(bare) ? signed(outcome - bare.score) : '';
+      const current = (row) => (row.version ?? 1) === version(name);
+      const lift = now !== undefined && bare !== undefined && outcome !== null && setting(now) === setting(bare) && current(now) && current(bare) ? signed(outcome - bare.score) : '';
       const failing = now === undefined ? [] : Object.entries(now.graders).filter(([, rate]) => rate < 1).map(([grader, rate]) => (now.runs > 1 ? `${grader} ${rate}` : grader));
       lines.push(`| ${name} | ${now ? `${now.score}${delta(now.score, previous('plugin', name)?.score)}` : '—'} | ${outcome ?? '—'} | ${bare ? `${bare.score}${delta(bare.score, previous('bare', name)?.score)}` : '—'} | ${lift || '—'} | ${now?.costUsd ?? '—'} | ${bare?.costUsd ?? '—'} | ${now?.turns ?? '—'}${bare ? ` / ${bare.turns}` : ''} | ${kilo(now?.contextPeak)}${bare ? ` / ${kilo(bare.contextPeak)}` : ''} | ${failing.join(', ') || '—'} |`);
     }
     lines.push('');
   }
+  lines.push(...runsSection(names, latest));
   return lines.join('\n');
 }
+
+const fmt = (s) => (s === undefined || s.mean === null ? '—' : `${s.mean.toFixed(2)}${s.sd === null ? '' : ` ± ${s.sd.toFixed(2)}`}`);
+const cell = (value) => (value === null || value === undefined ? '—' : typeof value === 'number' ? String(Number(value.toFixed(2))) : value);
+
+/** Every run of the latest multi-run row, and every latest row with retrieval metrics: the drift between runs of one case. */
+function runsSection(names, latest) {
+  const rows = names.flatMap((name) => ['plugin', 'bare'].map((arm) => latest(arm, name))).filter((row) => row?.perRun && (row.runs > 1 || row.metrics));
+  if (rows.length === 0) return [];
+  const lines = [
+    '## Runs',
+    '',
+    'Every run of the latest row, for the drift on one case. Recall: share of the files a right answer names that were',
+    'named. Precision: share of the named files that are right (or allowed). Mean ± sample standard deviation.',
+    '',
+  ];
+  for (const row of rows) {
+    const m = row.metrics;
+    lines.push(`### ${row.case} · ${armOf(row)} · ${row.runs} run(s) · ${row.at.slice(0, 16)}`, '');
+    if (m) lines.push(`recall ${fmt(m.recall)} · precision ${fmt(m.precision)} · F1 ${fmt(m.f1)}${m.contractBroken ? ` · ${m.contractBroken} run(s) without the Files section` : ''}`, '');
+    lines.push('| run | score | recall | precision | F1 | turns | context k | $ | missed | extra | failing graders |', '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |');
+    row.perRun.forEach((run, index) => {
+      const missed = run.contract === false ? 'no Files section' : (run.missed ?? []).join(', ');
+      lines.push(`| ${index + 1} | ${cell(run.score)} | ${cell(run.recall)} | ${cell(run.precision)} | ${cell(run.f1)} | ${cell(run.turns)} | ${kilo(run.contextPeak)} | ${cell(run.costUsd)} | ${missed || '—'} | ${(run.extra ?? []).join(', ') || '—'} | ${run.failing.join(', ') || '—'}${run.error ? ` (${clip(run.error)})` : ''} |`);
+    });
+    lines.push(`| spread | ${fmt(stat(row.perRun.map((r) => r.score)))} | | | | ${fmt(stat(row.perRun.map((r) => r.turns)))} | | | | | |`, '');
+  }
+  return lines;
+}
+const clip = (text) => String(text).replace(/\s+/g, ' ').slice(0, 60);
 
 function main(argv) {
   const [file] = argv;

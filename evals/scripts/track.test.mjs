@@ -68,6 +68,41 @@ describe('evals history', () => {
   });
 });
 
+describe('evals drift', () => {
+  const runWith = (score, metrics) => run(score, [grader('files-complete', score === 1)], { metrics });
+  const RESULT = { startedAt: '2026-10-12T00:00:00.000Z', cases: [{ name: 'investigate-files', arms: { with: [
+    runWith(1, { recall: 1, precision: 1, f1: 1, missed: [], extra: [], contract: true }),
+    runWith(0.5, { recall: 0.5, precision: 0.5, f1: 0.5, missed: ['tests/a.test.ts'], extra: ['docs/glossary.md'], contract: true }),
+    runWith(0, { recall: 0, precision: null, f1: 0, missed: ['src/a.ts'], extra: [], contract: false }),
+  ] } }] };
+  const version = (name) => (name === 'investigate-files' ? 2 : 1);
+
+  it('a row keeps the case version, mean ± sd of each metric, the contract breaks, and every run', () => {
+    const [row] = rowsOf(RESULT, { arm: 'plugin', model: 'm', effort: 'low', version });
+    assert.equal(row.version, 2);
+    assert.deepEqual(row.metrics.recall, { mean: 0.5, sd: 0.5, n: 3 });
+    assert.deepEqual(row.metrics.precision, { mean: 0.75, sd: 0.354, n: 2 });
+    assert.equal(row.metrics.contractBroken, 1);
+    assert.equal(row.perRun.length, 3);
+    assert.deepEqual(row.perRun[1].extra, ['docs/glossary.md']);
+  });
+
+  it('the Runs section lists every run with its misses and extras; a run without the section says so', () => {
+    const text = summary(rowsOf(RESULT, { arm: 'plugin', model: 'm', effort: 'low', version }), { shared: () => [], version });
+    assert.match(text, /### investigate-files · plugin · 3 run\(s\)/);
+    assert.match(text, /recall 0\.50 ± 0\.50 · precision 0\.75 ± 0\.35 · F1 0\.50 ± 0\.50 · 1 run\(s\) without the Files section/);
+    assert.match(text, /\| 2 \| 0\.5 \| 0\.5 \| 0\.5 \| 0\.5 \| 7 \| 20\.0 \| 0\.41 \| tests\/a\.test\.ts \| docs\/glossary\.md \| files-complete \|/);
+    assert.match(text, /\| 3 \| 0 \| 0 \| — \| 0 \| .* \| no Files section \|/);
+  });
+
+  it('a lift is not shown when either row is from an older case version', () => {
+    const plugin = rowsOf(RESULT, { arm: 'plugin', model: 'm', effort: 'low', version });
+    const bare = rowsOf(RESULT, { arm: 'bare', model: 'm', effort: 'low', version: () => 1 });
+    const text = summary([...plugin, ...bare], { shared: () => [{ name: 'files-complete', weight: 1 }], version });
+    assert.match(text, /\| investigate-files \| 0\.5 \| 0\.33 \| 0\.5 \| — \|/);
+  });
+});
+
 describe('evals runner', () => {
   it('the plugin arm runs evals/cases against this repository at low effort by default, with filters passed through', () => {
     const { arm, argv, env, track } = plan(['--case', 'task-*', '--runs', '3']);

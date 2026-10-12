@@ -13,6 +13,7 @@ evals/
   scripts/run.mjs         runs one arm through `claude plugin eval`, then tracks the result
   scripts/track.mjs       appends one row per case to history.jsonl and rewrites history.md
   scripts/context.mjs     reads the context size from each run's trace
+  scripts/metrics.mjs     recall, precision and F1 of the files an answer lists (cases that declare `metrics`)
   scripts/chain.mjs       turn-by-turn chain of a run; after each run, of the longest one (chains/<arm>-longest.md)
   cases/results/          raw output of the last run per arm, and traces/<arm>/<case>-<n>.jsonl (gitignored)
   history.jsonl           every run, one row per case, in git
@@ -40,6 +41,23 @@ Each run also writes `evals/chains/<arm>-longest.md`, linked from `history.md`: 
 Each line shows the time since the start, the context, the tool call and its result with the time it took. A gap of
 30 s or more is marked ⏱. `node evals/scripts/chain.mjs evals/cases/results/traces/<arm>/<case>-1.jsonl` prints the
 chain of any other run.
+
+## Recall, precision, drift
+
+A case with `metrics` in `cases.mjs` is scored on the files its answer lists. The prompt asks both arms for a
+`## Files` section, and only that section counts, because answers also name decoys in order to rule them out.
+- **Recall** is the share of the `relevant` files the list names.
+- **Precision** is the share of listed files that are `relevant` or `allowed`.
+- **F1** combines the two.
+
+A run with no Files section scores recall 0 and F1 0, and is counted separately.
+
+With `--runs N`, the `Runs` section of `history.md` lists every run of the latest row: score, recall, precision, F1,
+turns, context, cost, and the files missed and extra. A spread line under it gives mean ± sample standard deviation.
+That section is where drift on one task shows.
+
+Raise a case's `version` whenever its prompt or graders change. A lift is shown only between rows of the current
+version.
 
 Each run appends to `history.jsonl` and rewrites `history.md`. Read `history.md`, not the exit code. The harness
 exits 1 whenever any case scores below 1.0.

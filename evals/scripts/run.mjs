@@ -6,6 +6,8 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { harvest } from './context.mjs';
 import { longestReport } from './chain.mjs';
+import { caseOf } from './cases.mjs';
+import { metricsOf } from './metrics.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -83,7 +85,13 @@ function main(argv) {
   // tracked (`partial` is the harness's own flag in the JSON). Anything else is a harness failure with nothing to track.
   if (![0, 1, 2].includes(status)) return status ?? 1;
   const result = JSON.parse(readFileSync(run.result, 'utf8'));
-  writeFileSync(run.result, `${JSON.stringify(harvest(result, path.join(RESULTS, 'traces', run.arm)), null, 2)}\n`);
+  harvest(result, path.join(RESULTS, 'traces', run.arm));
+  for (const evalCase of result.cases ?? []) {
+    const spec = caseOf(evalCase.name)?.metrics;
+    if (spec === undefined) continue;
+    for (const runs of Object.values(evalCase.arms ?? {})) for (const one of runs ?? []) if (one.trace) one.metrics = metricsOf(spec, readFileSync(one.trace, 'utf8'));
+  }
+  writeFileSync(run.result, `${JSON.stringify(result, null, 2)}\n`);
   const longest = longestReport(result, run.arm);
   if (longest !== null) {
     mkdirSync(CHAINS, { recursive: true });
