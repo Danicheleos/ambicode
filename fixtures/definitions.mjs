@@ -623,7 +623,7 @@ export const FIXTURES = [
   {
     name: 'eval-page-bug',
     summary: 'A committed pagination off-by-one whose two tests never touch a full page.',
-    covers: ['task: red before green', 'existing tests kept'],
+    covers: ['task: tests added with the fix', 'existing tests kept'],
     ...MATH_PROJECT,
     steps: [
       {

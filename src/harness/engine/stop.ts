@@ -3,7 +3,7 @@ import path from 'node:path';
 import { findSessionRepository } from '#platform/git/session-repository';
 import type { HookInput, StopHookOutput } from '#types/hook';
 import { endedRouteInLedger, resolveActiveRoute } from '../session/active-route.ts';
-import { buildChain, currentIn, isGreen } from './fold.ts';
+import { buildChain, currentIn } from './fold.ts';
 import { harnessOf } from '../session/harness.ts';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
 import { buildReport } from '#modules/evidence/report/report';
@@ -21,16 +21,6 @@ export interface StopPorts {
   closeFinal(task: string, routeId: string, scratchpadDir?: string): Promise<boolean>;
 }
 
-export const REASON_LIMIT_BYTES = 2048;
-
-/** A failing check precedes the first green one of the key: the defect was shown before it was fixed. */
-export function redBeforeGreen(entries: readonly LedgerEntry[], key: string): boolean {
-  const runs = entries.filter((entry) => entry.kind === 'check' && entry['key'] === key);
-  const green = runs.findIndex(isGreen);
-  if (green < 0) return true;
-  return runs.slice(0, green).some((run) => run['exit'] !== 0);
-}
-
 const squash = (value: string): string => value.replace(/\s+/g, ' ').trim();
 const firstHeading = (instruction: string | null): string | null => instruction?.split('\n').find((line) => /^#+\s/.test(line))?.trim() ?? null;
 const firstLine = (text: string): string => text.split('\n').find((line) => line.trim() !== '')?.trim() ?? '';
@@ -40,7 +30,7 @@ const reportWritten = (def: RouteDef, chain: readonly LedgerEntry[]): boolean =>
   def.steps.some((step) => step.payload.includes('report') && chain.some((entry) => entry.kind === 'step' && entry['step'] === step.id));
 
 /** `generated` is the block the message's copy differs from; the stop-check file carries it. */
-function problemsOf(chain: readonly LedgerEntry[], def: RouteDef, text: string, defectBrief: boolean): { problems: string[]; generated: string | null } {
+function problemsOf(chain: readonly LedgerEntry[], def: RouteDef, text: string): { problems: string[]; generated: string | null } {
   const problems: string[] = [];
   let generated: string | null = null;
   if (/(^|\n)Evidence\b/.test(text) || /Not verified/.test(text) || reportWritten(def, chain)) {
@@ -54,9 +44,6 @@ function problemsOf(chain: readonly LedgerEntry[], def: RouteDef, text: string, 
     const hash = /<!-- ambicode report (\S+) -->/.exec(text)?.[1];
     if (hash !== undefined && hash !== report.hash) problems.push('The report hash comment does not match the generated report.');
   }
-  if (defectBrief) {
-    for (const key of new Set(chain.filter(isGreen).map((entry) => String(entry['key'])))) if (!redBeforeGreen(chain, key)) problems.push(`${key}: no failing run precedes the first green one.`);
-  }
   return { problems, generated };
 }
 
@@ -67,7 +54,7 @@ function skipped(reason: string): null {
 }
 
 /** The final message must carry the generated report; it is the message the user gets, read from the hook input, not the transcript. */
-export async function stopHook(ports: StopPorts, input: HookInput, options: { defectBrief?: boolean } = {}): Promise<StopHookOutput | null> {
+export async function stopHook(ports: StopPorts, input: HookInput): Promise<StopHookOutput | null> {
   const { runtime, pointer, routes } = ports;
   if (input.agent_id !== undefined) return null;
   const found = await findSessionRepository(runtime, input.cwd ?? runtime.cwd);
@@ -92,17 +79,12 @@ export async function stopHook(ports: StopPorts, input: HookInput, options: { de
     const finalMessage = message !== null && (active === null || (heading !== null && firstLine(message) === heading));
     // One block per route: a second Stop lets the message through, or a model that cannot fix it would never finish.
     if (!finalMessage || chain.some((entry) => entry.kind === 'limit' && entry['which'] === 'stop-block')) return { output: null, entries: entries.length };
-    const defectBrief = options.defectBrief ?? chain.some((entry) => entry.kind === 'step' && entry['defectBrief'] === true);
-    const { problems, generated } = problemsOf(chain, def, message, defectBrief);
+    const { problems, generated } = problemsOf(chain, def, message);
     if (problems.length === 0) return { output: null, entries: entries.length };
     const where = path.relative(root, dir.stopCheck);
     await runtime.fs.mkdirp(dir.root);
     await runtime.fs.writeText(dir.stopCheck, `# Stop check\n\n${problems.map((item) => `- ${item}`).join('\n')}\n${generated === null ? '' : `\n${generated}\n`}`);
-    let reason = `The text you are about to finish with has ${problems.length} problem(s). Fix them, or state them; the full list is in ${where}:`;
-    for (const item of problems) {
-      if (Buffer.byteLength(`${reason}\n- ${item}`) > REASON_LIMIT_BYTES) break;
-      reason += `\n- ${item}`;
-    }
+    const reason = `The text you are about to finish with has ${problems.length} problem(s). Fix them, or state them; the full list is in ${where}:${problems.map((item) => `\n- ${item}`).join('')}`;
     await ledger.append({ kind: 'limit', route: target.routeId, which: 'stop-block', count: problems.length });
     return { output: { decision: 'block', reason }, entries: entries.length };
   });

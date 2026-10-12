@@ -28,7 +28,7 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" route start plan "<request>" [
   can be reviewed alone, in an order that says why.
 
 Each iteration names five fields: *Goal*, *Changes* (`path:line`), *Accept*,
-*Checks* and *Leaves out*. Tests are the task route's red step, not the plan's.
+*Checks* and *Leaves out*. Tests are written by the task route, not the plan.
 
 ## Draft and accepted
 

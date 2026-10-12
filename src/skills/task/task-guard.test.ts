@@ -9,8 +9,8 @@ describe('07-R1 guard: a denied headless guard ask in the task route', () => {
   it('07-R1 guard: route stop blocked with permission-denied detail exits blocked, leads the report, and records no check', async () => {
     const t = await taskFixture();
     try {
-      const red = await t.start({ headless: true });
-      assert.equal(red.position, 'red');
+      const first = await t.start({ headless: true });
+      assert.equal(first.position, 'change');
       await stopRoute(t.fx, 'ord-7', 'aaaaaaaa-1111-4111-8111-111111111111', 'blocked', 'permission-denied: npx jest src/a.spec.ts');
       const [exit] = await t.kinds('exit');
       assert.equal(exit?.['reason'], 'blocked');

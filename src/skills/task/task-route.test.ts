@@ -26,10 +26,9 @@ async function withTask(body: (t: Fixture) => Promise<void>, options: Parameters
   }
 }
 
-/** red → green → format, landing on the review offer. */
+/** change → green check → format, landing on the review offer. */
 async function toOffer(t: Fixture, start: Parameters<Fixture['start']>[0] = {}) {
   await t.start(start);
-  await t.check('red', { ran: 1, failed: 1 });
   await t.edit();
   await t.check('green', { ran: 1, failed: 0 });
   return t.format();
@@ -40,10 +39,11 @@ const delivered = async (t: Fixture, step: string): Promise<number> => (await t.
 const prints = async (t: Fixture, gate?: string) => (await t.kinds('gate')).filter((entry) => gate === undefined || entry['gate'] === gate);
 
 describe('task route (07-R, 07-V, 07-G)', () => {
-  it('07-R1: the shipped route declares its steps in order, the draft-ok gate, the raised registry gates and 18 model steps', async () => {
+  it('07-R1: the shipped route declares its steps in order, the draft-ok gate, the raised registry gates and 6 model steps', async () => {
     await withTask(async (t) => {
       const def = t.fx.routes.route('task')!;
-      assert.deepEqual(def.steps.map((step) => step.id), ['fetch', 'start', 'draft-ok', 'ground', 'red', 'green', 'review-offer', 'review-cmd', 'brief', 'review-agent', 'review-run', 'fix', 'report-step', 'write']);
+      assert.deepEqual(def.steps.map((step) => step.id), ['fetch', 'start', 'draft-ok', 'ground', 'change', 'review-offer', 'review-cmd', 'brief', 'review-agent', 'review-run', 'fix', 'report-step', 'write']);
+      assert.equal(def.steps.filter((step) => step.actor === 'model').length, 6);
       assert.deepEqual(def.steps.find((step) => step.id === 'draft-ok')?.gate?.options, ['implement anyway', 'stop']);
       assert.ok(t.fx.routes.gate('check-only-unauthorized') != null);
       for (const gone of ['review-checks', 'scope-expanding']) assert.equal(t.fx.routes.gate(gone) ?? null, null, `${gone} is not a gate`);
@@ -63,7 +63,7 @@ describe('task route (07-R, 07-V, 07-G)', () => {
   it('07-R3: --from-draft is the user\'s own implement-anyway: draft-ok is skipped, never asked', async () => {
     await withTask(async (t) => {
       await t.fx.repo.write('docs/plan-draft.md', '# Plan\n\nDo it.\n');
-      assert.equal((await t.start({ fromDraft: 'docs/plan-draft.md', channel: 'cli' })).position, 'red');
+      assert.equal((await t.start({ fromDraft: 'docs/plan-draft.md', channel: 'cli' })).position, 'change');
       assert.equal((await t.kinds('gate')).filter((entry) => entry['gate'] === 'draft-ok').length, 0);
       assert.equal((await t.kinds('step')).find((entry) => entry['step'] === 'draft-ok')?.['status'], 'skipped');
     });
@@ -118,53 +118,25 @@ describe('task route (07-R, 07-V, 07-G)', () => {
     });
   });
 
-  it('07-R6/D4: check{red} and check{green} match on phase, and an unproven green still completes green', async () => {
+  it('07-R6/D4: check{green} matches on phase alone: a red-phase check is no green evidence, and an unproven green still completes the step once formatted', async () => {
     await withTask(async (t) => {
       await t.start();
-      assert.equal((await t.check('green', { ran: 1, failed: 0 })).position, 'red', 'a green check is no red evidence');
-      assert.equal((await t.check('red', { ran: 1, failed: 1 })).position, 'green');
-      await t.check('green', { ran: 0, failed: 0 });
+      assert.equal((await t.check('red', { ran: 1, failed: 1 })).position, 'change', 'a red check is no green evidence');
+      assert.equal((await t.check('green', { ran: 0, failed: 0 })).position, 'change', 'green also needs format');
       assert.equal((await t.format()).position, 'review-offer');
     });
   });
 
-  it('e-cLRPPf: with no check that can run, the route ends blocked at ground and red is never delivered', async () => {
+  it('e-cLRPPf: with no check that can run, the route ends blocked at ground and change is never delivered', async () => {
     const config = CHECK_CONFIG.replace(/ {4}checks:\n(?: {6}.*\n)+/, '    checks: { unit: { all: null, file: null } }\n');
     await withTask(async (t) => {
       const ended = await t.start();
       assert.equal(ended.position, 'complete');
-      assert.equal(await delivered(t, 'red'), 0);
+      assert.equal(await delivered(t, 'change'), 0);
       assert.deepEqual((await t.kinds('exit')).map((entry) => entry['reason']), ['blocked']);
       assert.match(String((await t.kinds('exit'))[0]!['detail']), /^no-check: project "app" has no check with a configured command/);
       assert.match(ended.text, /The route has ended\. Make no more edits/);
     }, { config });
-  });
-
-  it('e-cLRPPf: red\'s Then line is its check command, not route next', async () => {
-    await withTask(async (t) => {
-      const red = await t.start();
-      assert.equal(red.position, 'red');
-      assert.match(red.text, /^Then: \S.* check --task ord-7 --name <check> --file <spec> --phase red$/m);
-    });
-  });
-
-  it('07-R5/07-R9: one re-print with no red check writes limit no-red and ends the route for the human', async () => {
-    await withTask(async (t) => {
-      await t.start();
-      const again = await t.next();
-      assert.equal(again.position, 'red');
-      assert.match(again.text, /Not done yet/);
-      // e-cLRPPf: the re-print named `route next`, the call that ends the route, as the way to produce the red check.
-      assert.match(again.text, /Produce it with: \S.* check --task \S+ --name <check> --file <spec> --phase red\./);
-      assert.match(again.text, /a second `route next` with no red check recorded ends the route as no-red\./);
-      const stopped = await t.next();
-      assert.equal(stopped.position, 'complete');
-      assert.deepEqual((await t.kinds('limit')).map((entry) => [entry['which'], entry['step']]), [['no-red', 'red']]);
-      assert.deepEqual((await t.kinds('exit')).map((entry) => [entry['reason'], entry['detail']]), [['human', 'no-red']]);
-      // be-vs-6140-task edited files after this end: the message says no more edits and no more route calls.
-      assert.match(stopped.text, /ended: human \(no-red\)/);
-      assert.match(stopped.text, /The route has ended\. Make no more edits or route calls; write your final message, saying why it ended\./);
-    });
   });
 
   it('07-R7/07-V4: headless, the offer defaults to skip; review-cmd, review-agent, review-run and fix are skipped, no review runs, and the report says so', async () => {
@@ -278,11 +250,11 @@ describe('task route (07-R, 07-V, 07-G)', () => {
     });
   });
 
-  it('07-R1: a UserPromptSubmit /ambicode:task with --plan starts the route at red, without prepare', async () => {
+  it('07-R1: a UserPromptSubmit /ambicode:task with --plan starts the route at change, without prepare', async () => {
     await withTask(async (t) => {
       await t.fx.repo.write('docs/plan.md', '# Plan\n\nSeed the reduce.\n');
       const text = await launchRoute(t.fx.runtime, { hook_event_name: 'UserPromptSubmit', prompt: '/ambicode:task --task ord-7 --plan docs/plan.md fix total', session_id: SESSION_A, cwd: t.fx.repo.root, scratchpad_dir: t.fx.scratchpad } as never, { engine: t.fx.engine, routes: t.fx.routes, pointer: t.fx.pointer });
-      assert.match(text ?? '', /step red/);
+      assert.match(text ?? '', /step change/);
       assert.doesNotMatch(text ?? '', /prepare/);
       assert.equal(((await t.kinds('route'))[0]?.['args'] as { plan: string }).plan, 'docs/plan.md');
     });
@@ -322,36 +294,35 @@ describe('task route (07-R, 07-V, 07-G)', () => {
   it('a headless session that stops mid-route ends it inconclusive at that step; an interactive one leaves it open', async () => {
     for (const headless of [true, false]) {
       await withTask(async (t) => {
-        assert.equal((await t.start({ headless })).position, 'red');
+        assert.equal((await t.start({ headless })).position, 'change');
         await t.fx.engine.stopHook({ hook_event_name: 'Stop', session_id: SESSION_A, cwd: t.fx.repo.root, scratchpad_dir: t.fx.scratchpad });
         const exits = await t.kinds('exit');
-        if (headless) assert.deepEqual([exits.length, exits[0]?.['reason'], exits[0]?.['detail']], [1, 'inconclusive', 'the headless session stopped at step red']);
+        if (headless) assert.deepEqual([exits.length, exits[0]?.['reason'], exits[0]?.['detail']], [1, 'inconclusive', 'the headless session stopped at step change']);
         else assert.equal(exits.length, 0);
       });
     }
   });
 
-  it('B9: before-work reaches red, before-checks reaches green, before-report reaches write', async () => {
+  it('B9: before-work and before-checks both reach change, before-report reaches write', async () => {
     await withTask(async (t) => {
       const def = t.fx.routes.route('task')!;
       const payloadOf = (id: string): readonly string[] => def.steps.find((step) => step.id === id)!.payload;
-      assert.ok(payloadOf('red').includes('policy:before-work') && !payloadOf('red').includes('policy:before-checks'));
-      assert.deepEqual(payloadOf('green'), ['policy:before-checks']);
+      assert.ok(payloadOf('change').includes('policy:before-work') && payloadOf('change').includes('policy:before-checks'));
       assert.ok(payloadOf('write').includes('policy:before-report'));
     });
   });
 
-  it('07-R8: ceremony — a red check under propose adds one question', async () => {
+  it('07-R8: ceremony — a check under propose adds one question', async () => {
     await withTask(async (t) => {
       await t.start();
-      await t.runCheck();
+      await t.runCheck({ phase: 'green' });
       assert.deepEqual((await prints(t)).map((entry) => entry['gate']), ['check-only-unauthorized']);
     }, { pack: COMMAND_PACK.replace('{ command: unit, action: run, reason: "unit" }', '{ command: unit, action: propose, reason: "unit" }') });
   });
 
   it('07-R8: every task step text is at most 1,500 characters after inclusion; start ≤ 4 KiB, report ≤ 3 KiB, before-checks ≤ 1.5 KiB', async () => {
     const cli = `node "${REPO_ROOT}/scripts/ambicode.mjs"`;
-    for (const name of ['task/red', 'task/green', 'task/fix', 'task/write', 'task/review']) {
+    for (const name of ['task/change', 'task/fix', 'task/write', 'task/review']) {
       const text = (await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8')).replaceAll('{cli}', cli).replaceAll('{task}', CHECK_TASK);
       assert.ok(text.length <= 1500, `${name}: ${text.length}`);
     }
@@ -363,7 +334,6 @@ describe('task route (07-R, 07-V, 07-G)', () => {
       assert.ok(Buffer.byteLength(brief) <= 4096, `${Buffer.byteLength(brief)}`);
       assert.match(brief, /\[cut: read docs\/plan\.md\]$/);
       assert.ok((await t.kinds('policy')).every((entry) => entry['stage'] !== 'before-checks' || Number(entry['bytes']) <= 1536));
-      await t.check('red', { ran: 1, failed: 1 });
       await t.edit();
       await t.check('green', { ran: 1, failed: 0 });
       await t.format('unconfigured');
@@ -376,9 +346,9 @@ describe('task route (07-R, 07-V, 07-G)', () => {
 
 describe('step header (round-2 N9)', () => {
   it('prints the Route line last, only when one is given', () => {
-    const base = { skill: 'task', task: 't', step: 'red', position: 6, total: 12, now: 'n', then: 'x' };
+    const base = { skill: 'task', task: 't', step: 'change', position: 6, total: 12, now: 'n', then: 'x' };
     assert.equal(stepHeader(base).split('\n').length, 3);
-    assert.equal(stepHeader({ ...base, route: 'ground (done) · red (now) · green' }).split('\n')[3], 'Route: ground (done) · red (now) · green');
+    assert.equal(stepHeader({ ...base, route: 'ground (done) · change (now) · review-offer' }).split('\n')[3], 'Route: ground (done) · change (now) · review-offer');
   });
 
   it('07-R7: a review command in the Now line stays whole under a long task slug; long prose is still cut', async () => {
@@ -386,7 +356,7 @@ describe('step header (round-2 N9)', () => {
     const now = `Run \`node "/a/very/long/plugin/cache/path/ambicode/0.3.1/scripts/ambicode.mjs" review --task ${task}\``;
     const line = stepHeader({ skill: 'task', task, step: 'review-run', position: 9, total: 12, now, then: 'next' }).split('\n')[1]!;
     assert.equal(line, `Now: ${now}`);
-    const prose = stepHeader({ skill: 'task', task, step: 'red', position: 6, total: 12, now: 'word '.repeat(60), then: 'next' }).split('\n')[1]!;
+    const prose = stepHeader({ skill: 'task', task, step: 'change', position: 6, total: 12, now: 'word '.repeat(60), then: 'next' }).split('\n')[1]!;
     assert.equal(prose.length, 'Now: '.length + 158);
     assert.ok(prose.endsWith('…'));
   });

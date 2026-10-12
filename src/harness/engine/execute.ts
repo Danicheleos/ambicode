@@ -41,7 +41,7 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
   const { routes, handlers, context, cli } = scope;
   const commandFor = (tail: string): string => `${cli} ${tail}`;
 
-  // e-cLRPPf: a missing check{red} was told to produce it with `route next`, the call that ends the route no-red; the check command is the way to produce it.
+  // e-cLRPPf: a missing check was told to produce it with `route next`; the check command is the way to produce it.
   function checkCommand(run: Run, step: StepDef): string | null {
     const check = step.produces.find((produced) => produced.kind === 'check' && produced.value !== null);
     return check === undefined || step.produces.some((produced) => produced.kind === 'format') ? null : commandFor(`check --task ${run.task} --name <check> --file <spec> --phase ${check.value}`);
@@ -90,7 +90,7 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     // A route that ends on a code step (init, rules) closes with that step's text.
     const last = run.def.steps.at(-1);
     const closing = last?.actor === 'code' && ended === null ? (await Promise.all(last.run.map((call) => loadPayload(run.runtime.fs, run.dir, chainKey([...chain.ids]), payloadKey(call))))).filter((text) => text !== null && text.trim() !== '').join('\n\n') : '';
-    // be-vs-6140-task: after `ended: human (no-red)` the model went on editing; the end says what is left to do.
+    // be-vs-6140-task: after `ended: human (no-check)` the model went on editing; the end says what is left to do.
     const after = 'Make no more edits or route calls; write your final message';
     const body = status.startsWith('ended') ? `The route has ended. ${after}, saying why it ended.` : `The route is complete. ${after}.`;
     return (await partOf(run, null, header, closing !== '' ? closing : body)).part;
@@ -182,11 +182,6 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     if (!run.deliverOnly && delivered && step.produces.length > 0 && EXPLICIT.has(run.cause)) {
       const again = window.filter((entry) => entry.kind === 'step' && entry['step'] === step.id && entry['status'] === 'repeated').length + 1;
       const missing = step.produces.filter((produced) => !window.some((entry) => matches(entry, produced))).map((produced) => `${produced.kind}${produced.value === null ? '' : `{${produced.value}}`}`);
-      if (again >= 2 && step.produces.some((produced) => produced.kind === 'check' && produced.value === 'red')) {
-        await append(run, { kind: 'limit', which: 'no-red', step: step.id, count: again });
-        await exitRoute(run, 'human', 'no-red');
-        return finish(run);
-      }
       if (again >= 3) {
         await append(run, { kind: 'limit', which: 'missing-produces', step: step.id, count: again });
         return null;

@@ -5,10 +5,7 @@ import path from 'node:path';
 import { buildChain, currentIn } from '#harness/engine/fold';
 import { buildReport } from '#modules/evidence/report/report';
 import { routeFixture, type RouteFixture , stopRoute } from '#testing/fixtures/route-fixture';
-import { taskFixture } from '#testing/fixtures/task-fixture';
 import { runHook } from './run-hook.ts';
-import { redBeforeGreen, REASON_LIMIT_BYTES } from './stop-check.ts';
-import type { LedgerEntry } from '#types/modules/evidence';
 import type { HookDeps } from '#types/hook';
 
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';
@@ -138,16 +135,6 @@ describe('03-K3 checks', () => {
 
 });
 
-describe('03-K4 redBeforeGreen', () => {
-  const check = (exit: number, _failed = 0, _ran = 2): LedgerEntry => ({ id: 'a-1', at: 'x', kind: 'check', key: 'k', exit });
-  it('is true only when a failing run precedes the first green one', () => {
-    assert.equal(redBeforeGreen([check(1, 1), check(0, 0)], 'k'), true);
-    assert.equal(redBeforeGreen([check(0, 0)], 'k'), false);
-    assert.equal(redBeforeGreen([check(1, 1)], 'k'), true, 'no green yet');
-    assert.equal(redBeforeGreen([], 'k'), true);
-  });
-});
-
 describe('07-S task stop inputs', () => {
   const heading = '## Confirmed facts\n';
   const LEDGER = (s: Stopper): string => path.join(s.fx.repo.root, '.ambicode', 'tasks', TASK, 'ledger.jsonl');
@@ -157,8 +144,6 @@ describe('07-S task stop inputs', () => {
     const lines = entries.map((fields) => `${JSON.stringify({ id: `zzzzzzzz-${(serial += 1)}`, at: '2026-10-05T10:00:00.000Z', route, ...fields })}\n`);
     await writeFile(LEDGER(s), (await readFile(LEDGER(s), 'utf8')) + lines.join(''));
   };
-  const BRIEF = { kind: 'step', step: 'ground', actor: 'code', status: 'completed', cause: 'route-next', defectBrief: true };
-  const run = (phase: string, exit: number, _summary: { ran: number; failed: number } | null, key = 'app/unit'): Record<string, unknown> => ({ kind: 'check', key, files: ['a.spec.ts'], exit, phase, ms: 3 });
   async function withStop(body: (s: Stopper) => Promise<void>): Promise<void> {
     const s = await stopper();
     try {
@@ -168,39 +153,6 @@ describe('07-S task stop inputs', () => {
       await s.dispose();
     }
   }
-
-  it('07-S2: a defect brief with a green check and no failing run before it blocks; a failing run first allows', async () => {
-    await withStop(async (s) => {
-      await append(s, [BRIEF, run('green', 0, { ran: 3, failed: 0 })]);
-      await s.say(`${heading}Fixed it.`);
-      const blocked = await s.stop();
-      assert.equal(blocked.decision, 'block');
-      assert.match(blocked.reason!, /app\/unit: no failing run precedes the first green one/);
-    });
-    await withStop(async (s) => {
-      await append(s, [BRIEF, run('red', 1, { ran: 1, failed: 1 }), run('green', 0, { ran: 3, failed: 0 })]);
-      await s.say(`${heading}Fixed it.`);
-      assert.deepEqual(await s.stop(), {});
-    });
-  });
-
-  it('07-S2: without a defect brief no red is required', async () => {
-    await withStop(async (s) => {
-      await append(s, [run('green', 0, null)]);
-      await s.say(`${heading}Fixed it.`);
-      assert.deepEqual(await s.stop(), {});
-    });
-  });
-
-  it('07-S2: the red-before-green rule applies to each key with a green check', async () => {
-    await withStop(async (s) => {
-      await append(s, [BRIEF, run('red', 1, { ran: 1, failed: 1 }), run('green', 0, { ran: 1, failed: 0 }), run('green', 0, { ran: 2, failed: 0 }, 'app/e2e')]);
-      await s.say(`${heading}Fixed it.`);
-      const blocked = await s.stop();
-      assert.match(blocked.reason!, /app\/e2e: no failing run/);
-      assert.doesNotMatch(blocked.reason!, /app\/unit: no failing/);
-    });
-  });
 
   const generated = async (s: Stopper): Promise<string> => {
     const entries = await s.fx.ledger(TASK);
@@ -236,33 +188,4 @@ describe('07-S task stop inputs', () => {
       assert.equal((await s.stop()).decision, 'block');
     });
   });
-
-  it('07-S5: with many problems the reason stays within the limit and stop-check.md lists them all', async () => {
-    await withStop(async (s) => {
-      await append(s, [BRIEF, ...Array.from({ length: 60 }, (_, index) => run('green', 0, { ran: 1, failed: 0 }, `app/key-${index}`))]);
-      await s.say(`${heading}Fixed it.`);
-      const blocked = await s.stop();
-      assert.equal(blocked.decision, 'block');
-      assert.ok(Buffer.byteLength(blocked.reason!) <= REASON_LIMIT_BYTES, `${Buffer.byteLength(blocked.reason!)} bytes`);
-      const full = await readFile(path.join(s.fx.repo.root, '.ambicode', 'tasks', TASK, 'stop-check.md'), 'utf8');
-      assert.equal(full.split('\n').filter((line) => line.startsWith('- ')).length, 60);
-      assert.match(blocked.reason!, /stop-check\.md/);
-    });
-  });
-
-  it('07-S2: on the shipped task route a defect request is recorded by ground and a green check with no red blocks the report', async () => {
-    const t = await taskFixture();
-    try {
-      await t.start({ text: 'fix the defect in `total`', headless: true });
-      assert.equal((await t.kinds('step')).find((entry) => entry['step'] === 'ground' && entry['defectBrief'] === true) !== undefined, true);
-      await t.check('green', { ran: 1, failed: 0 });
-      const deps: HookDeps = { pointer: t.fx.pointer, load: async () => ({ engine: t.fx.engine, routes: t.fx.routes, pointer: t.fx.pointer }) };
-      const out = (await runHook(t.fx.runtime, JSON.stringify({ hook_event_name: 'Stop', session_id: A, cwd: t.fx.repo.root, scratchpad_dir: t.fx.scratchpad, last_assistant_message: '# Task report\nDone: fixed it.' }), deps)) as { decision?: string; reason?: string };
-      assert.equal(out.decision, 'block');
-      assert.match(out.reason!, /app\/unit: no failing run precedes the first green one/);
-    } finally {
-      await t.fx.dispose();
-    }
-  });
 });
-

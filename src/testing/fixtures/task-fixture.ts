@@ -10,7 +10,7 @@ import type { LedgerEntry } from '#types/modules/evidence';
 import type { AdvanceInput, StartInput, StepMessage } from '#types/harness';
 import { SESSION_A } from './ids.ts';
 
-const STEPS = ['plan/fetch', 'task/red', 'task/green', 'task/fix', 'task/write', 'task/review', 'review/agent'];
+const STEPS = ['plan/fetch', 'task/change', 'task/fix', 'task/write', 'task/review', 'review/agent'];
 
 export const ORDERS = 'export function total(amounts: number[]): number {\n  return amounts.reduce((a, b) => a + b);\n}\n';
 

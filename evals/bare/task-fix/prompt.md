@@ -1,6 +1,6 @@
 ---
 name: task-fix
-description: 'A one-line defect with a passing-but-incomplete test: red before green, format, independent review, report.'
+description: 'A one-line defect with a passing-but-incomplete test: fix, test, format, independent review, report.'
 tags: ["task", "review"]
 runs: 1
 max_turns: 40

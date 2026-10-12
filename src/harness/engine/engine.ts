@@ -314,7 +314,7 @@ export function createEngine(deps: EngineDeps): Engine {
     start: (input) => inside.run(true, () => start(input)),
     advance: (input) => inside.run(true, () => advance(input)),
     deliver: (task, session, scratchpadDir) => inside.run(true, () => deliver(task, session, scratchpadDir)),
-    stopHook: (input, options) => inside.run(true, () => stopHook(stopPorts, input, options)),
+    stopHook: (input) => inside.run(true, () => stopHook(stopPorts, input)),
     stop: (task, session, reason, detail, scratchpadDir) => inside.run(true, () => stop(task, session, reason, detail, scratchpadDir)),
     live: async (task) => liveHeads(await readEntries(runtime, task)).length > 0,
     command: (spec, request, body) => runCommand({ runtime, routes }, spec, request, body),

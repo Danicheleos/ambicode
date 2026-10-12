@@ -214,7 +214,7 @@ export interface Engine {
   /** Fold and deliver the session's open route again, writing and running nothing (03-E2). */
   deliver(task: string, session: string, scratchpadDir?: string): Promise<StepMessage | null>;
   /** Stop: the checks on the final message under one ledger lock and the single block they may cause. */
-  stopHook(input: HookInput, options?: { defectBrief?: boolean }): Promise<StopHookOutput | null>;
+  stopHook(input: HookInput): Promise<StopHookOutput | null>;
   /** Ends the session's open route with an `exit` entry and clears its pointer. */
   stop(task: string, session: string, reason: Exit, detail?: string, scratchpadDir?: string): Promise<void>;
   /** Whether the task has a route no exit has closed. */

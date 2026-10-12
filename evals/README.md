@@ -110,7 +110,7 @@ Five cases have no bare arm because what they test belongs to the plugin: a gate
 | investigate-nomatch | ts-feature-boundary | the scope gate is raised on an empty map, nothing invented | yes |
 | plan-accept | ts-feature-boundary | six-field draft, valid anchors, promoted on Accept, no code touched | yes |
 | plan-draft | ts-feature-boundary | with no answer the plan stays a draft and is not called accepted | no |
-| task-fix | eval-page-bug | red before green, format, reviewer subagent, report sections, fix and test correct | yes |
+| task-fix | eval-page-bug | format, reviewer subagent, report sections, fix and test correct | yes |
 | task-review-skipped | eval-page-bug | the review offer defaults to skip and the report says so | no |
 | review-defect | ts-off-by-one | the off-by-one is found with its location | yes |
 | review-clean | py-clean-docstring | no false defect, verification gap stated | yes |

@@ -28,7 +28,6 @@ import { SESSION_A } from '#testing/fixtures/ids';
 
 const TASK = 'page-last';
 const SPEC = 'tests/page-last.test.js';
-const FAILING = 'Tests:       1 failed, 1 total\n';
 const PASSING = 'Tests:       1 passed, 1 total\n';
 
 /** `ts-off-by-one` with jest wired by hand (no install: the runner's output is scripted) and no format command. */
@@ -47,7 +46,7 @@ async function offByOne() {
   execFileSync('git', ['-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'wire jest'], { cwd: root });
 
   const step: Record<string, string> = {};
-  for (const name of ['plan/fetch', 'task/red', 'task/green', 'task/fix', 'task/write']) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
+  for (const name of ['plan/fetch', 'task/change', 'task/fix', 'task/write']) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
   const assembled = await assembleEngine({ root, routes: { task: await readFile(path.join(REPO_ROOT, 'routes', 'task', 'task.yaml'), 'utf8') }, step });
   const engine = assembled.build(skillHandlers());
   const scratchpad = await assembled.runtime.fs.temporaryDirectory('ambicode-scratch-');
@@ -92,21 +91,18 @@ const trail = (ledger: readonly LedgerEntry[]): string =>
   }).join(' · ');
 
 describe('task route on ts-off-by-one (integration, test 18)', () => {
-  it('07-R4/07-C4/07-F2/07-R7/07-S1: ground → red → green → unconfigured format → offer → skip → report', async () => {
+  it('07-R4/07-C4/07-F2/07-R7/07-S1: ground → change (green) → unconfigured format → offer → skip → report', async () => {
     const t = await offByOne();
     try {
-      const red = await t.start();
-      assert.equal(red.position, 'red');
-      assert.match(red.text, /1 file\(s\) already changed stay out of this task's review/);
-      assert.doesNotMatch(red.text, /git grep|Callers/);
+      const first = await t.start();
+      assert.equal(first.position, 'change');
+      assert.match(first.text, /1 file\(s\) already changed stay out of this task's review/);
+      assert.doesNotMatch(first.text, /git grep|Callers/);
 
       await t.write(SPEC, "const { page } = require('../src/page');\n\ntest('full page', () => {\n  expect(page([1, 2, 3, 4], 0, 2)).toEqual([1, 2]);\n});\n");
-      t.runner.out = { exitCode: 1, stdout: FAILING };
-      assert.equal((await t.check('red'))?.position, 'green');
-
       await t.write('src/page.js', 'module.exports.page = (items, index, size) => items.slice(index * size, (index + 1) * size);\n');
       t.runner.out = { exitCode: 0, stdout: PASSING };
-      assert.equal((await t.check('green'))?.position, 'green', 'green also needs format');
+      assert.equal((await t.check('green'))?.position, 'change', 'green also needs format');
       const offer = await t.format();
       assert.equal(offer?.position, 'review-offer');
       assert.match(offer?.text ?? '', /Review estimate: working tree/);
@@ -120,7 +116,7 @@ describe('task route on ts-off-by-one (integration, test 18)', () => {
 
       const ledger = await t.ledger();
       const checks = ledger.filter((entry) => entry.kind === 'check');
-      assert.deepEqual(checks.map((entry) => [entry['phase'], entry['exit']]), [['red', 1], ['green', 0]]);
+      assert.deepEqual(checks.map((entry) => [entry['phase'], entry['exit']]), [['green', 0]]);
       assert.deepEqual(ledger.filter((entry) => entry.kind === 'baseline').map((entry) => (entry['dirty'] as { path: string }[]).map((dirty) => dirty.path)), [['src/page.js']]);
       const report = write.text.split('## report\n')[1]!.split('\n\n## ')[0]!;
       const allowed = await t.stop(`# Task report\n\n**Done**: the last item stays on its page. All tests pass.\n\n**Remaining**: none\n\n${report}`);

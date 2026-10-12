@@ -73,7 +73,6 @@ describe('review estimate (07-E)', () => {
     const t = await taskFixture();
     try {
       await t.start();
-      await t.check('red', { ran: 1, failed: 1 });
       await t.edit();
       await t.check('green', { ran: 1, failed: 0 });
       await t.format();

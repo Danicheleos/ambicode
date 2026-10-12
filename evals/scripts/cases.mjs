@@ -180,13 +180,13 @@ FAIL if it calls the plan accepted, final or approved, or starts implementing.`)
   // ---------------------------------------------------------------- task
   {
     name: 'task-fix',
-    description: 'A one-line defect with a passing-but-incomplete test: red before green, format, independent review, report.',
+    description: 'A one-line defect with a passing-but-incomplete test: fix, test, format, independent review, report.',
     tags: ['task', 'review'],
+    version: 2,
     fixture: 'eval-page-bug', flags: '--ambicode-init --install',
     prompt: `/ambicode:task --task fix-page --headless --answer review-offer=run Fix page() in src/page.js: the last item of every page is missing, so page([1, 2, 3], 0, 2) returns [1] instead of [1, 2]. ${REPO}`,
     bare: `Fix page() in src/page.js: the last item of every page is missing, so page([1, 2, 3], 0, 2) returns [1] instead of [1, 2]. ${REPO}`,
     graders: [
-      ledger('red-before-green', '"exit":[1-9]\\d*,"phase":"red"[\\s\\S]*"exit":0,"phase":"green"', T('fix-page'), { weight: 2 }),
       ledger('format-recorded', '"kind":"format"', T('fix-page')),
       tool('reviewer-invoked', 'Agent', 'ambicode:reviewer'),
       ledger('review-recorded', '"kind":"review"[^\\n]*"stage":"recorded"', T('fix-page')),
@@ -204,11 +204,11 @@ FAIL if no such test exists or an existing assertion was weakened or removed.`, 
     name: 'task-review-skipped',
     description: 'The same defect with no gate answer: the review offer defaults to skip and the report must say verification is incomplete.',
     tags: ['task', 'gate'],
+    version: 2,
     fixture: 'eval-page-bug', flags: '--ambicode-init --install',
     prompt: `/ambicode:task --task fix-page-noreview --headless Fix page() in src/page.js: the last item of every page is missing, so page([1, 2, 3], 0, 2) returns [1] instead of [1, 2]. ${REPO}`,
     bare: null,
     graders: [
-      ledger('red-before-green', '"exit":[1-9]\\d*,"phase":"red"[\\s\\S]*"exit":0,"phase":"green"', T('fix-page-noreview'), { weight: 2 }),
       ledger('offer-defaulted', '"kind":"default-taken","gate":"review-offer"', T('fix-page-noreview')),
       never('no-reviewer', 'Agent', 'ambicode:reviewer'),
       DONE(T('fix-page-noreview')),

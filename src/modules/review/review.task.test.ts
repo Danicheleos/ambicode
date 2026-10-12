@@ -31,7 +31,6 @@ async function withTask(body: (t: Fixture) => Promise<void>, pack = LINT_RUNS): 
 async function toRun(t: Fixture, before: () => Promise<void> = async () => {}, answer: string | null = 'run'): Promise<void> {
   await before();
   await t.start();
-  await t.check('red', { ran: 1, failed: 1 });
   await t.edit();
   await t.check('green', { ran: 1, failed: 0 });
   await t.format();

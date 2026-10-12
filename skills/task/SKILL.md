@@ -1,6 +1,6 @@
 ---
 name: task
-description: "Make one bounded code change with the record to prove it — a test that fails first, the smallest fix, formatted and checked, an independent review offered, and a report built from the ledger; it never commits, pushes, or publishes. Use when the user asks to implement, add, fix, or build something, hands over a Jira/Confluence URL to implement, or says to go ahead with or resume a plan."
+description: "Make one bounded code change with the record to prove it — the smallest change with its tests, formatted and checked, an independent review offered, and a report built from the ledger; it never commits, pushes, or publishes. Use when the user asks to implement, add, fix, or build something, hands over a Jira/Confluence URL to implement, or says to go ahead with or resume a plan."
 argument-hint: <request-or-jira/confluence-url> [--requirement <url>]... [--plan <file>] [--from-draft <file>]
 disable-model-invocation: true
 allowed-tools: Read, Grep, Glob, Agent, Edit(**), Write(**), Bash(node *ambicode.mjs*), Bash(git status*), Bash(git diff*)
@@ -8,8 +8,8 @@ allowed-tools: Read, Grep, Glob, Agent, Edit(**), Write(**), Bash(node *ambicode
 
 # Implement a change
 
-A route grounds the change in the code and hands you one step at a time: a test that fails first, the smallest
-fix, format, an independent review offered, then the report. Do what each step says; the output of the command
+A route grounds the change in the code and hands you one step at a time: the smallest change with its
+tests, format, an independent review offered, then the report. Do what each step says; the output of the command
 it ends with brings the next step.
 
 ## Judgments the route leaves to you
