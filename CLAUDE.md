@@ -73,6 +73,13 @@ don't assert** and **Before anything destructive**.
 
 ## Making changes
 
+- Fix the cause. Before writing new code (a function, branch, guard, option or
+  file), even code a plan or spec prescribes: find the existing code that
+  produces today's behaviour, edit it, and check whether the request's outcome
+  now holds. If it holds, keep that edit, skip the prescribed code and report
+  the departure. Judge by what the request asks for, not by the mechanism the
+  spec describes. Change the behaviour in place; an option no caller needs only
+  keeps the old one alive.
 - Extend the seam that already exists rather than adding a parallel one. A new
   option belongs beside the option it is the counterpart of, threaded through
   the same call path, sharing the values that path already computed.
@@ -153,10 +160,11 @@ All of their behaviour lives in a single bundled CLI:
 
 - `.claude-plugin/plugin.json` is the manifest. `hooks/hooks.json` sends every
   hook event to `scripts/ambicode.mjs hook`. The exception is `PreToolUse` on
-  Bash (git, `glab mr`, `rm`, ledger paths) and on Write/Edit, which goes to
-  `scripts/guard.mjs`. The guard runs on every tool call, so it is built
-  separately with no chunks shared with the CLI. `src/architecture.test.ts`
-  caps it at 70 KiB.
+  Bash (git, `glab mr`, `ambicode.mjs`, `.ambicode/` paths) and on Write/Edit,
+  which goes to `scripts/guard.mjs`. The guard runs on every tool call, so it is
+  built separately with no chunks shared with the CLI;
+  `src/architecture.test.ts` caps its size (`GUARD_BUNDLE_MAX_BYTES`). Its
+  rules live in `src/hook/guard/rules/`, one file per concern.
 - `skills/<name>/SKILL.md` are the user-facing `/ambicode:<name>` skills
   (init, investigate, plan, review, rules, task). Each one only starts a route:
   `node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" route start <skill>`.

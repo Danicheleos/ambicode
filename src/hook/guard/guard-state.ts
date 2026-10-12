@@ -6,7 +6,7 @@ import type { LedgerEntry } from '#types/modules/evidence';
 import { GUARD_STATE_DIR_NAME, ACTIVE_ROUTE_FILE, GUARD_LEDGER_FILE, LEDGER_LIMIT, type ActiveRoute, type GuardState } from '../types/guard.ts';
 
 // Copies, so the guard bundle stays import-light.
-export const POINTER_LIMIT = 4 * 1024;
+const POINTER_LIMIT = 4 * 1024;
 
 // Opening a FIFO without a writer would block the hook; non-blocking, it opens at once and fstat rejects it.
 const OPEN_FLAGS = constants.O_RDONLY | (constants.O_NONBLOCK ?? 0);

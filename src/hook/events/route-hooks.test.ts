@@ -19,7 +19,7 @@ const prompt = (plan: PlanFixture, text: string, extra: Record<string, unknown> 
 const context = (output: { hookSpecificOutput?: { additionalContext: string } }): string => output.hookSpecificOutput?.additionalContext ?? '';
 
 describe('03-H1/03-H8 the hook matrix', () => {
-  it('registers seven events and fourteen handler entries, and the docs say so', async () => {
+  it('registers seven events and thirteen handler entries, and the docs say so', async () => {
     const manifest = JSON.parse(await readFile(path.join(REPO_ROOT, 'hooks', 'hooks.json'), 'utf8')) as { hooks: Record<string, { matcher?: string; hooks: unknown[] }[]> };
     assert.deepEqual(Object.keys(manifest.hooks), [...REGISTERED_HOOK_EVENTS]);
     const entries = Object.values(manifest.hooks).flatMap((groups) => groups.flatMap((group) => group.hooks));
@@ -30,7 +30,7 @@ describe('03-H1/03-H8 the hook matrix', () => {
     for (const doc of ['docs/compatibility.md', 'docs/release-checklist.md']) {
       const text = (await readFile(path.join(REPO_ROOT, doc), 'utf8')).replace(/\s+/g, ' ');
       assert.match(text, /seven events/, doc);
-      assert.match(text, /fourteen handler entries/, doc);
+      assert.match(text, /thirteen handler entries/, doc);
     }
   });
 });

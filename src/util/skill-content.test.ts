@@ -143,8 +143,9 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.match(read, /not in the code, say so/, '03b-N14: a missing premise ends the search');
     assert.match(read, /\{cli\} note save --task \{task\} --kind investigation/);
     assert.doesNotMatch(read, /route next|\{cli\} (find|refs)/);
-    // 07-I1 adds one Diagnostics sentence.
-    assert.ok(read.replace(/^Diagnostics .*\n/m, '').length <= 700);
+    // 07-I1 adds one Diagnostics sentence. Raised from 700 (693 B) for the full-path citation wording (investigate x5:
+    // 15/15 with it, bare-name revisions without it); to be cut back in the optimization phase.
+    assert.ok(read.replace(/^Diagnostics .*\n/m, '').length <= 780);
     assert.equal(existsSync(path.join(repositoryRoot, 'routes', 'investigate', 'write.md')), false);
   });
 

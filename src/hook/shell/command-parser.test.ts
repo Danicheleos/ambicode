@@ -33,6 +33,15 @@ describe('parseCommand splits segments', () => {
   });
 });
 
+describe('parseCommand records the subshell depth of each segment', () => {
+  it('counts ( … ) around a segment and drops back after the closing parenthesis', () => {
+    const depths = (command: string) => parseCommand(command).map((segment) => segment.depth);
+    assert.deepEqual(depths('(cd a && ls); echo x'), [1, 1, 0]);
+    assert.deepEqual(depths('a; ((b; c); d); e'), [0, 2, 2, 1, 0]);
+    assert.deepEqual(depths('echo $(cd a); f'), [0, 0]);
+  });
+});
+
 describe('parseCommand marks words only the shell resolves', () => {
   it('flags $VAR, ${…}, $(…), backticks and <(…), in or out of double quotes, keeping the text', () => {
     const [segment] = parseCommand('echo $A "${B:-x}" "$(id -u)" `id` <(ls) \'$C\' plain');
@@ -77,6 +86,7 @@ describe('parseCommand reports write targets', () => {
     assert.deepEqual(targets('echo hi | tee -a a b'), [['a', false], ['b', false]]);
     assert.deepEqual(targets("sed -i 's/a/b/' f g"), [['f', false], ['g', false]]);
     assert.deepEqual(targets("sed --in-place=.bak -e 's/a/b/' f"), [['f', false]]);
+    assert.deepEqual(targets("sed -i '' 's#a#b#g' f"), [['f', false]]);
     assert.deepEqual(targets("sed -n 's/a/b/p' f"), []);
     assert.deepEqual(targets('cp -r a b c'), [['c', false]]);
     assert.deepEqual(targets('cp -r a b c'), [['c', false]]);

@@ -92,7 +92,7 @@ and stop; retrying will not change it.
 
 **Guard decisions** (reasons from the `PreToolUse` guard, not error codes).
 A write into `.ambicode/tasks/` or `.ambicode/reviews/` is denied and names `note save`; run that. A write into `.ambicode/context/` is denied and names `context write`. A git
-or `glab mr` state change, `rm -r` of the working directory or above, and a
+or `glab mr` state change and a
 write whose target only the shell resolves (`$VAR`, `$(…)`) ask: the user
 decides, so do not rephrase the command to avoid the question.
 `steps/plan-body.md` is writable only by the session that owns the task's live

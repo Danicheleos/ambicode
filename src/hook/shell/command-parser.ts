@@ -1,7 +1,7 @@
 // Import-free: bundled into the standalone guard entry. A structural reading, not a shell: it splits a command into
 // segments, words and the files a segment writes. What only the shell can resolve is marked `opaque`, never guessed.
 
-export interface WriteTarget {
+interface WriteTarget {
   path: string;
   /** The path holds an expansion, so only the shell knows where it writes. */
   opaque: boolean;
@@ -14,6 +14,8 @@ export interface Segment {
   opaque: boolean[];
   writeTargets: WriteTarget[];
   raw: string;
+  /** How many `( … )` subshells enclose the segment; a `cd` in one ends when the depth drops. */
+  depth: number;
   /** The lexer gave up (unterminated quote): `argv` is what was read before that. */
   unparsed?: true;
 }
@@ -31,6 +33,7 @@ interface Chunk {
   words: Word[];
   targets: Word[];
   raw: string;
+  depth: number;
   unparsed: boolean;
 }
 
@@ -128,9 +131,10 @@ function lex(text: string): Chunk[] {
   let pending: 'target' | 'skip' | null = null;
   let start = 0;
   let lastEnd = -1;
+  let depth = 0;
   let i = 0;
   const flush = (end: number, unparsed = false): void => {
-    if (words.length > 0 || targets.length > 0 || unparsed) chunks.push({ words, targets, raw: text.slice(start, end).trim(), unparsed });
+    if (words.length > 0 || targets.length > 0 || unparsed) chunks.push({ words, targets, raw: text.slice(start, end).trim(), depth, unparsed });
     words = [];
     targets = [];
     pending = null;
@@ -161,6 +165,8 @@ function lex(text: string): Chunk[] {
       pending = 'target';
     } else if (c === ';' || c === '&' || c === '|' || c === '(' || c === ')') {
       flush(i);
+      if (c === '(') depth++;
+      else if (c === ')' && depth > 0) depth--;
       i += (c === '&' || c === '|') && next === c ? 2 : 1;
       start = i;
     } else if ((c === '<' || c === '>') && next !== '(') {
@@ -237,6 +243,7 @@ function argumentTargets(argv: Word[]): Word[] {
       for (let k = 0; k < args.length; k++) {
         const arg = args[k]!;
         if (!arg.opaque && /^-[A-Za-z]*[ef]$/.test(arg.text)) (script = true), k++;
+        else if (arg.text === '-i' && args[k + 1]?.text === '') k++;
         else if (arg.opaque || !arg.text.startsWith('-')) files.push(arg);
       }
       return script ? files : files.slice(1);
@@ -265,6 +272,7 @@ function toSegment(chunk: Chunk): Segment {
     opaque: argv.map((word) => word.opaque),
     writeTargets,
     raw: chunk.raw,
+    depth: chunk.depth,
     ...(chunk.unparsed ? { unparsed: true as const } : {}),
   };
 }

@@ -114,24 +114,6 @@ describe('the git-write guard decides on the command structure', () => {
   });
 });
 
-describe('rm -r of the working directory or above asks', () => {
-  for (const command of ['rm -rf .', 'rm -rf /', 'rm -r ./', 'rm -rf ~', 'rm -rf *', 'rm -fr ..', 'rm --recursive --force .']) {
-    it(`asks for: ${command}`, () => {
-      const out = bash(command);
-      assert.equal(decisionOf(out), 'ask');
-      assert.match(out.hookSpecificOutput!.permissionDecisionReason, /`rm -r /);
-    });
-  }
-  it('asks for the repository root given as the absolute cwd or an ancestor of it', () => {
-    assert.equal(decisionOf(bash('rm -rf /work/repo', { cwd: '/work/repo' })), 'ask');
-    assert.equal(decisionOf(bash('rm -rf /work', { cwd: '/work/repo' })), 'ask');
-    assert.equal(decisionOf(bash('rm -rf ../repo', { cwd: '/work/repo' })), 'ask');
-  });
-  for (const command of ['rm -rf dist', 'rm -f .', 'rm -rf ./build/*']) {
-    it(`leaves alone: ${command}`, () => assert.deepEqual(bash(command, { cwd: '/work/repo' }), {}));
-  }
-});
-
 describe('the task-directory guard sends notes through note save', () => {
   const decide = (tool_name: string, tool_input: Record<string, unknown>, extra: Partial<GuardInput> = {}) =>
     guardDecision({ hook_event_name: 'PreToolUse', tool_name, tool_input, ...extra }) as Output;
@@ -207,19 +189,48 @@ describe('the task-directory guard sends notes through note save', () => {
     });
   }
 
-  // No directory tracking: a relative target after a cd is not provably outside the task directory, so the guard asks.
-  for (const command of ['cd .ambicode/tasks/X && echo x > notes.md', 'cd /tmp && echo x > notes.md', 'pushd /tmp; rm notes.md', 'cd /tmp || exit 1; echo x > notes.md']) {
-    it(`asks for a relative target after a cd: ${command}`, () => {
+  // A literal cd is followed; only a directory the shell alone knows, or one a failed cd may not have reached, asks.
+  it('denies a relative target under the task directory after a literal cd', () => {
+    for (const command of ['cd .ambicode/tasks/X && echo x > notes.md', 'cd .ambicode && echo x > tasks/X/n.md']) {
+      const out = decide('Bash', { command });
+      assert.equal(decisionOf(out), 'deny', command);
+      assert.match(out.hookSpecificOutput!.permissionDecisionReason, /note save/);
+    }
+  });
+  for (const command of ['cd /tmp && echo x > notes.md', 'pushd /tmp; rm notes.md', 'cd /tmp || exit 1; echo x > notes.md']) {
+    it(`allows a relative target after a cd outside the task directory: ${command}`, () => assert.deepEqual(decide('Bash', { command }), {}));
+  }
+  it('allows the task-fix replay: cd into the repository, then append to a test', () => {
+    assert.deepEqual(decide('Bash', { command: 'cd repo && cat >> tests/page.test.js <<EOF\nx\nEOF' }, { cwd: '/w' }), {});
+  });
+  it('a cd inside ( … ) ends with the subshell', () => {
+    assert.deepEqual(decide('Bash', { command: '(cd .ambicode/tasks/X && ls); echo x > notes.md' }, { cwd: '/w' }), {});
+    assert.equal(decisionOf(decide('Bash', { command: '(cd .ambicode/tasks/X && echo x > n.md)' }, { cwd: '/w' })), 'deny');
+    assert.deepEqual(decide('Bash', { command: '(cd repo && cat >> tests/a.js <<EOF\nx\nEOF)' }, { cwd: '/w' }), {});
+    assert.deepEqual(decide('Bash', { command: 'cd /tmp; (cd .ambicode/tasks/X); echo x > notes.md' }, { cwd: '/w' }), {});
+  });
+  for (const [command, reason] of [
+    ['cd /repo/.ambicode/tasks/X; cd /tmp; echo x > n.md', /relative to a directory an earlier `cd` changed/],
+    ['cd - && echo x > n', /cannot tell where this writes/],
+    ['cd && echo x > n', /cannot tell where this writes/],
+    ['popd; echo x > n', /cannot tell where this writes/],
+  ] as const) {
+    it(`asks for a relative target when the directory is not certain: ${command}`, () => {
       const out = decide('Bash', { command });
       assert.equal(decisionOf(out), 'ask');
-      assert.match(out.hookSpecificOutput!.permissionDecisionReason, /cannot tell where this writes/);
+      assert.match(out.hookSpecificOutput!.permissionDecisionReason, reason);
     });
   }
+  it('the plan-body message wins over the note-save message within one command', () => {
+    const out = decide('Bash', { command: 'mkdir -p .ambicode/tasks/S/steps && cat > .ambicode/tasks/S/steps/plan-body.md <<EOF\nx\nEOF' });
+    assert.equal(decisionOf(out), 'deny');
+    assert.match(out.hookSpecificOutput!.permissionDecisionReason, /Write it with the Write tool/);
+  });
   for (const command of ['cd /tmp && echo x > /tmp/notes.md', 'cd /tmp && echo x > /dev/null']) {
     it(`leaves an absolute target after a cd alone: ${command}`, () => assert.deepEqual(decide('Bash', { command }), {}));
   }
-  it('asks, never denies, for a git write, the task directory or rm -r inside an expansion; a harmless one is silent', () => {
-    for (const command of ['echo "$(git push)"', 'echo "$(echo x > .ambicode/tasks/X/n.md)"', 'echo `rm -rf x`', 'cat <(glab mr create)']) {
+  it('asks, never denies, for a git write or the task directory inside an expansion; a harmless one is silent', () => {
+    for (const command of ['echo "$(git push)"', 'echo "$(echo x > .ambicode/tasks/X/n.md)"', 'cat <(glab mr create)']) {
       const out = decide('Bash', { command });
       assert.equal(decisionOf(out), 'ask', command);
       assert.match(out.hookSpecificOutput!.permissionDecisionReason, /cannot read a command inside/);
@@ -515,6 +526,21 @@ describe('an active route shapes the decision', () => {
     const out = run('git push', true);
     assert.equal(decisionOf(out), 'deny');
     assert.match(out.hookSpecificOutput!.permissionDecisionReason, /final message that says "permission-denied: /);
+  });
+  it('a placement ask in a headless route denies with a retry that names the path literally, and stops nothing', () => {
+    for (const command of ['echo x > "$OUT"', 'cd /tmp && cd - && echo x > n']) {
+      const out = run(command, true);
+      assert.equal(decisionOf(out), 'deny', command);
+      assert.match(out.hookSpecificOutput!.permissionDecisionReason, /cannot tell where this writes.*literally.*Write tool.*run it again/s);
+      assert.doesNotMatch(out.hookSpecificOutput!.permissionDecisionReason, /route stop/);
+    }
+    assert.equal(decisionOf(run('echo x > "$OUT"', false)), 'ask');
+    assert.equal(decisionOf(run('cd - && echo x > n', false)), 'ask');
+  });
+  it('a placement ask beside any other ask in a headless route still stops the route', () => {
+    for (const command of ['echo x > "$OUT" && git push', 'echo x > "$OUT" && echo "oops; git push', 'echo x > "$OUT"; $TOOL a']) {
+      assert.match(run(command, true).hookSpecificOutput!.permissionDecisionReason, /route stop/, command);
+    }
   });
   it('leaves a deny and an allow as they are in a headless route', () => {
     assert.match(run('echo x > .ambicode/tasks/T/a.md', true).hookSpecificOutput!.permissionDecisionReason, /note save/);
