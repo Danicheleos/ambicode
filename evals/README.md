@@ -1,6 +1,6 @@
 # Evals: skill coverage
 
-Thirteen synthetic cases, at least one per skill, each checking one behaviour. Eight of them also run with no
+Seventeen synthetic cases, at least one per skill, each checking one behaviour. Twelve of them also run with no
 plugin loaded, which is the baseline. Every case runs on a fixture from `fixtures/definitions.mjs`, so nothing
 here is real project data and the whole suite is in git. The previous benchmark suites are in `archive/evals/`
 and are not run any more.
@@ -24,8 +24,8 @@ evals/
 
 ```sh
 npm run build                       # cases run scripts/ambicode.mjs, not src/
-npm run evals                       # plugin arm: 13 cases
-npm run evals:bare                  # bare arm: 8 cases, no plugin
+npm run evals                       # plugin arm: 17 cases
+npm run evals:bare                  # bare arm: 12 cases, no plugin
 npm run evals -- --case 'task-*'    # one skill (a glob; --case is not repeatable)
 npm run evals -- --tag gate         # by tag
 npm run evals -- --runs 3           # more runs per case, for a decision
@@ -109,10 +109,14 @@ Five cases have no bare arm because what they test belongs to the plugin: a gate
 | investigate-files | ts-feature-boundary | the file list is the invoice boundary, not the keyword decoys | yes |
 | investigate-nomatch | ts-feature-boundary | the scope gate is raised on an empty map, nothing invented | yes |
 | plan-accept | ts-feature-boundary | six-field draft, valid anchors, promoted on Accept, no code touched | yes |
+| investigate-trace | ts-app-medium | a payment flow that reaches notifications only through the event bus; the legacy hook is not part of it | yes |
+| plan-reuse | ts-app-medium | the plan reuses shared validation, money and the reports module and leaves legacy alone | yes |
 | plan-draft | ts-feature-boundary | with no answer the plan stays a draft and is not called accepted | no |
 | task-fix | eval-page-bug | format, reviewer subagent, report sections, fix and test correct | yes |
+| task-multi | ts-app-medium-refund-bug | a fix across payments service and repository with AppError and the test factory | yes |
 | task-review-skipped | eval-page-bug | the review offer defaults to skip and the report says so | no |
 | review-defect | ts-off-by-one | the off-by-one is found with its location | yes |
+| review-subtle | ts-app-medium-money-change | the broken caller outside the diff is named, the bare Error is flagged | yes |
 | review-clean | py-clean-docstring | no false defect, verification gap stated | yes |
 | review-regression | ts-source-regression | a check is recorded, the broken behaviour is found | yes |
 | review-skipped | ts-off-by-one | the estimate gate defaults to skip, no reviewer, no finding | no |

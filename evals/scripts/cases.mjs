@@ -60,8 +60,17 @@ PASS if page() now returns every item of the requested page including the last o
 FAIL otherwise.`;
 const PLAN_QUALITY = (where) => `
 ${where} PASS only if all hold:
-- Every iteration has Goal, Changes, Accept, Checks and Leaves out (or plainly equivalent headings).
+- The work is split into iterations that can each be reviewed alone.
 - Changes extend the existing Invoice interface (src/invoices/model.ts), src/invoices/service.ts and invoicesRoute in src/routes/invoices.ts rather than new parallel modules, and name no file under src/users/, src/legacy/ or src/reports/.
+FAIL otherwise.`;
+
+const REUSE_QUALITY = (where) => `
+${where} PASS only if all hold:
+- The dueDate check reuses validateDate and validateRange from src/shared/validation (for example validateRange(dueDate, { min: issuedAt }, 'dueDate')) and ValidationError through them; it does not add a new date comparison, a new validator module or a bare Error.
+- The report extends the existing src/reports/ module (service.js, routes.js, repository.js, aging.js) and reuses what it has: invoices.outstanding or the unpaidInvoices query, and, if the plan computes days overdue, daysBetween from src/reports/aging.js, and, if it computes a grand total, money.sum or reports.total; the overdue filter itself may compare dates (dueDate before the as-of date). It does not add a parallel reporting module or recompute totals by hand.
+- Invoice changes extend src/invoices/model.js, service.js and routes.js, and money stays integer cents through src/shared/money.
+- It names no file under src/legacy/ as something to change or reuse (src/legacy/invoice-total.js is a frozen floating-point copy), and does not treat the dueDate of src/payments/installments.js, which belongs to a payment plan, as an existing invoice due date.
+- The work is split into iterations that can each be reviewed alone, and the existing files it names exist in the repository; new files are allowed (for example new tests).
 FAIL otherwise.`;
 
 /**
@@ -136,10 +145,74 @@ PASS if the answer says the repository has no WebSocket, reconnect or backoff co
 FAIL if it names a file, function or delay value as the implementation, or answers from general knowledge as if it were this repository's code.`)),
     ],
   },
+  {
+    name: 'investigate-trace',
+    description: 'A flow that reaches its last step only through the event bus, in a repository with a frozen legacy copy of that step.',
+    tags: ['investigate'],
+    fixture: 'ts-app-medium', flags: '--ambicode-init',
+    version: 1,
+    // A 7-file chain in a 120-file repository; plugin investigate-how already used 11 of 12 turns on 6 files. Unmeasured here.
+    limits: { max_turns: 20, timeout_seconds: 600 },
+    // The files the answer must walk through; the rest of what a thorough answer cites is allowed.
+    metrics: {
+      source: 'files-section',
+      relevant: [
+        'src/payments/routes.js',
+        'src/payments/service.js',
+        'src/shared/events/bus.js',
+        'src/notifications/index.js',
+        'src/notifications/handlers.js',
+        'src/notifications/service.js',
+        'src/notifications/channels.js',
+      ],
+      allowed: [
+        'src/payments/repository.js',
+        'src/invoices/service.js',
+        'src/customers/service.js',
+        'src/notifications/templates.js',
+        'src/shared/events/topics.js',
+        'src/app.js',
+        'src/flags.js',
+        'tests/notifications/flow.test.js',
+        'tests/app.test.js',
+        'src/shared/http.js',
+        'src/notifications/repository.js',
+        'src/notifications/model.js',
+        'src/payments/model.js',
+        'src/payments/methods.js',
+        'src/payments/index.js',
+        'src/invoices/repository.js',
+        'src/invoices/status.js',
+        'src/customers/repository.js',
+        'src/config.js',
+        'src/shared/money.js',
+        'docs/architecture.md',
+      ],
+    },
+    prompt: `/ambicode:investigate --task pay-trace What happens when a payment is recorded, from the API call until the customer is notified? ${CITE} ${FILES_ANSWER} ${REPO}`,
+    bare: `What happens when a payment is recorded, from the API call until the customer is notified? ${CITE} ${FILES_ANSWER} ${REPO}`,
+    graders: [
+      ledger('route-started', '"kind":"route","skill":"investigate"', T('pay-trace')),
+      ledger('note-saved', '"kind":"note","note":"investigation"', T('pay-trace')),
+      ledger('citations-valid', '"worker":"check-citations"[^\\n]*"failed":false', T('pay-trace')),
+      DONE(T('pay-trace')),
+      shared(regex('cites-service', 'src/payments/service\\.js:\\d+')),
+      shared(regex('cites-handler', 'src/notifications/handlers\\.js:\\d+')),
+      shared(regex('names-the-event', 'payment\\.received|PAYMENT_RECEIVED')),
+      ...noEdits,
+      shared(llm('answer-correct', `
+PASS only if all hold:
+- The answer starts at the payments route (src/payments/routes.js) and src/payments/service.js recordPayment, which validates the payment, stores it, updates the invoice status and then emits payment.received on the event bus (src/shared/events/bus.js).
+- It says payments never call notifications directly: the hop is the event bus, and the receipt handler is subscribed in src/notifications/index.js (registered at start-up from src/app.js).
+- It names the subscriber onPaymentReceived in src/notifications/handlers.js and what it does: checks the receiptEmails flag and the customer's receipts preference, renders the receipt template and sends the email through src/notifications/service.js and channels.js.
+- It does not present src/legacy/payment-hooks.js as part of the flow (nothing imports it), and does not name invoices/service sendInvoiceCreated (a direct call on another path) as the notification for a payment.
+FAIL otherwise, including when the answer says the payment service sends the notification itself, stops at the emit, or invents a queue, a database or an HTTP framework that is not in the repository.`)),
+    ],
+  },
   // ---------------------------------------------------------------- plan
   {
     name: 'plan-accept',
-    version: 3,
+    version: 4,
     description: 'A plan that the user accepts headlessly: draft written, anchors checked, promoted, no code touched.',
     tags: ['plan', 'gate'],
     fixture: 'ts-feature-boundary', flags: '--ambicode-init',
@@ -177,6 +250,29 @@ PASS if the final message says the plan is a draft awaiting the user's answer (A
 FAIL if it calls the plan accepted, final or approved, or starts implementing.`),
     ],
   },
+  {
+    name: 'plan-reuse',
+    version: 1,
+    description: 'A plan for a feature the existing shared validators, money helpers and reports module already carry: it must reuse them, not rebuild them, and leave the legacy copy alone.',
+    tags: ['plan', 'gate'],
+    fixture: 'ts-app-medium', flags: '--ambicode-init',
+    prompt: `/ambicode:plan --task plan-overdue --headless --answer plan-accept=Accept Add a due date to invoices: an invoice carries a dueDate, creating one with a dueDate before its issue date is rejected, and there is a report of the overdue invoices with the amount still outstanding on each. ${REPO}`,
+    bare: `Write an implementation plan for this change, in iterations that can each be reviewed alone; do not implement it. Add a due date to invoices: an invoice carries a dueDate, creating one with a dueDate before its issue date is rejected, and there is a report of the overdue invoices with the amount still outstanding on each. ${REPO}`,
+    graders: [
+      exists('plan-body-written', 'repo/.ambicode/tasks/plan-overdue/steps/plan-body.md'),
+      regex('five-fields', 'Goal[\\s\\S]*Changes[\\s\\S]*Accept[\\s\\S]*Checks[\\s\\S]*Leaves out', { file: 'repo/.ambicode/tasks/plan-overdue/steps/plan-body.md' }),
+      regex('anchors-present', 'src/invoices/service\\.js:\\d+', { file: 'repo/.ambicode/tasks/plan-overdue/steps/plan-body.md' }),
+      ledger('anchors-valid', '"worker":"plan-check"[^\\n]*"anchorsBad":0', T('plan-overdue')),
+      ledger('plan-promoted', '"kind":"note","note":"plan"', T('plan-overdue')),
+      DONE(T('plan-overdue')),
+      ...noEdits,
+      shared(never('no-checks-run', 'Bash', '(^|"command":"|[;&|]|\\n)\\s*(npx\\s+|node\\s+)?\\S*(jest|eslint)\\b|(^|"command":"|[;&|]|\\n)\\s*npm\\s+(test|run)\\b')),
+      shared(
+        llm('plan-quality', REUSE_QUALITY('This is the plan body.'), { file: 'repo/.ambicode/tasks/plan-overdue/steps/plan-body.md' }),
+        llm('plan-quality', REUSE_QUALITY('The final message is the plan.')),
+      ),
+    ],
+  },
   // ---------------------------------------------------------------- task
   {
     name: 'task-fix',
@@ -198,6 +294,40 @@ FAIL if it calls the plan accepted, final or approved, or starts implementing.`)
       shared(llm('test-added', `
 PASS if the file contains a test that would fail on the original defect: it asserts a full page such as page([1, 2, 3], 0, 2) equal to [1, 2], or a last element present. The original tests ("empty list", "out of range") are still present and unchanged in meaning.
 FAIL if no such test exists or an existing assertion was weakened or removed.`, { file: 'repo/tests/page.test.js' })),
+    ],
+  },
+  {
+    name: 'task-multi',
+    description: 'A refund defect whose fix spans the payments service and repository, in a project with an error hierarchy and a test factory it must use.',
+    tags: ['task', 'review'],
+    version: 1,
+    fixture: 'ts-app-medium-refund-bug', flags: '--ambicode-init --install',
+    prompt: `/ambicode:task --task fix-refund --headless --answer review-offer=run Fix refunds in src/payments: after an invoice is paid in full and part of it is refunded (pay 1106 cents, refund 300) the invoice still has status paid instead of partially_paid, and refunding more than was paid answers with a 500 instead of a client error. Put the regression test in tests/payments/payments.test.js. ${REPO}`,
+    bare: `Fix refunds in src/payments: after an invoice is paid in full and part of it is refunded (pay 1106 cents, refund 300) the invoice still has status paid instead of partially_paid, and refunding more than was paid answers with a 500 instead of a client error. Put the regression test in tests/payments/payments.test.js. ${REPO}`,
+    graders: [
+      ledger('format-recorded', '"kind":"format"', T('fix-refund')),
+      tool('reviewer-invoked', 'Agent', 'ambicode:reviewer'),
+      ledger('review-recorded', '"kind":"review"[^\\n]*"stage":"recorded"', T('fix-refund')),
+      DONE(T('fix-refund')),
+      noGit,
+      regex('report-sections', 'Evidence[\\s\\S]*Not verified'),
+      shared(regex('existing-tests-kept', 'rejects a refund above what was paid[\\s\\S]*a refund is stored beside the payment', { file: 'repo/tests/payments/payments.test.js' })),
+      shared(regex('no-bare-error', 'throw new Error\\(', { match: 'not_contains', file: 'repo/src/payments/service.js' })),
+      shared(llm('repository-fixed', `
+PASS if netPaidCents in this repository file returns payments minus refunds: a row of kind refund (KIND.REFUND or 'refund') reduces the sum instead of adding to it.
+FAIL if refund rows are still added to the sum or are ignored.`, { file: 'repo/src/payments/repository.js' })),
+      shared(llm('status-synced', `
+PASS if refund() in this service file brings the invoice up to date after it stores the refund: it calls invoices.syncStatus (or an equivalent update of the invoice) with the net paid amount from the repository.
+FAIL if refund() still stores the refund and emits its event without updating the invoice.`, { file: 'repo/src/payments/service.js' })),
+      shared(llm('error-type', `
+PASS if the guard that rejects a refund above what was paid throws PaymentError, ValidationError or another subclass of AppError from src/shared/errors, so that the HTTP layer answers with a 4xx.
+FAIL if it throws a bare Error or any non-AppError, or if the guard was removed.`, { file: 'repo/src/payments/service.js' })),
+      shared(llm('test-added', `
+PASS if the file contains a test that would fail on the original defect: an invoice is paid in full, part of it is refunded, and the test asserts the invoice status is partially_paid (or that the paid amount is the net). The original tests are still present and unchanged in meaning.
+FAIL if no such test exists or an existing assertion was weakened or removed.`, { file: 'repo/tests/payments/payments.test.js' })),
+      shared(llm('test-uses-factory', `
+PASS if every test the change added seeds its customers and invoices with makeInvoice and makePayment from tests/factory.js (imported from '../factory'). Calling payments.refund (or the payments service) directly in the test is allowed; the factory is for seeding.
+FAIL if an added test seeds them from inline object literals, calls the repository or the model directly to seed data, or imports nothing from the factory while existing tests do.`, { file: 'repo/tests/payments/payments.test.js' })),
     ],
   },
   {
@@ -277,6 +407,33 @@ FAIL if it reports a behavioural defect or regression in src/tax.py, or calls th
       shared(llm('finding-correct', `
 PASS if the final message reports a finding that add() in src/math.js now computes a - b (subtracts) instead of adding, and does not present any check as passed unless a check with a result is listed.
 FAIL if the change is called clean, the finding is missing, or a check is reported as passed without one being run.`)),
+    ],
+  },
+  {
+    name: 'review-subtle',
+    description: 'An uncommitted change to a shared helper whose breakage is in callers outside the diff, plus a convention violation inside it.',
+    tags: ['review'],
+    version: 1,
+    fixture: 'ts-app-medium-money-change', flags: '--ambicode-init',
+    prompt: `/ambicode:review --task rev-money --headless --answer estimate=run ${CITE} ${REPO}`,
+    bare: `Review the uncommitted change in the repository at \`repo/\`. ${CITE}`,
+    graders: [
+      tool('reviewer-invoked', 'Agent', 'ambicode:reviewer'),
+      ledger('review-recorded', '"kind":"review"[^\\n]*"stage":"recorded"', R('rev-money')),
+      ledger('finding-recorded', '"findings":[1-9]', R('rev-money'), { weight: 2 }),
+      DONE(R('rev-money')),
+      ...noEdits,
+      regex('part4-fenced', '```'),
+      shared(regex('cites-caller', 'src/(invoices|reports)/[\\w./-]+\\.js:\\d+')),
+      shared(llm('finding-correct', `
+PASS only if the final message reports that the changed money.round (half to even instead of half up) alters the result of a caller that is not in the diff, and names that caller with its location: any affected caller outside src/shared/money.js and its test, for example taxFor or the invoice total in src/invoices/service.js (a 1005-cent subtotal at 1000 basis points now gives a tax of 100, not 101), src/invoices/summary.js, averageInvoiceCents in src/reports/service.js, or anything else that uses money.round or money.total.
+FAIL if it only restates the rounding change, says the change is safe or correct, or names no caller outside src/shared/money.js and its test.`)),
+      shared(llm('convention-finding', `
+PASS if the final message flags the new \`throw new Error('round: not a number')\` in src/shared/money.js as breaking the project convention that errors are AppError subclasses (for example ValidationError from src/shared/errors), as stated in CONTRIBUTING.md.
+FAIL if the bare Error is not mentioned, or is accepted as fine.`)),
+      shared(llm('no-false-defect', `
+PASS if the final message does not report percentOf or anything under src/legacy/ as broken by this change, and does not claim the test suite passes.
+FAIL if it reports one of those as broken, or claims the test suite passes.`)),
     ],
   },
   {
@@ -369,7 +526,7 @@ ${materialize} "$PWD/repo"${flags === '' ? '' : ` ${flags}`}
 }
 
 function promptFile(c, body) {
-  const limits = LIMITS[c.name.split('-')[0]];
+  const limits = { ...LIMITS[c.name.split('-')[0]], ...c.limits };
   return [
     '---',
     `name: ${c.name}`,

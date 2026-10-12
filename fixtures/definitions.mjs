@@ -4,6 +4,7 @@
  * `install` runs after the last commit; it must leave `provides`, and init must then wire `wires`.
  */
 import { readFileSync } from 'node:fs';
+import { APP_FILES, APP_MONEY_CHANGE, APP_REFUND_BUG, APP_REFUND_BUG_DROPPED_TESTS, withoutTest } from './app-medium.mjs';
 
 const STANDARD_IGNORE = ['node_modules/', '.venv/', '__pycache__/', '*.log', ''].join('\n');
 
@@ -99,6 +100,46 @@ const MATH_PROJECT = {
   provides: ['node_modules/.bin/jest', 'node_modules/.bin/eslint'],
   wires: ['lint', 'unit'],
 };
+
+/**
+ * Same dependencies and lockfile as JEST_MANIFEST, plus the scripts and the jest setup file the app fixtures need;
+ * `npm ci` checks only the dependency fields against the lockfile.
+ */
+const APP_MANIFEST = JSON.stringify(
+  {
+    ...JSON.parse(JEST_MANIFEST),
+    scripts: { test: 'jest', lint: 'eslint src' },
+    jest: { setupFilesAfterEnv: ['<rootDir>/tests/setup.js'] },
+  },
+  null,
+  2,
+);
+
+// The commits of ts-app-medium, in the order the features were added. A file goes to the first stage whose pattern matches.
+const APP_STAGES = [
+  ['payments: record payments and refunds', /^(src|tests)\/payments\//],
+  ['notifications: send receipts over the event bus', /^(src|tests)\/notifications\//],
+  ['reports: revenue, outstanding and aging', /^(src|tests)\/reports\//],
+  ['app: mount every feature', /^(src\/app\.js|tests\/app\.test\.js)$/],
+  ['init: shared layer, customers and invoices', /./],
+];
+
+/** `overrides` replace files before they are committed; `uncommitted` is written after the last commit. */
+function appSteps({ overrides = {}, dropTests = {}, uncommitted = null } = {}) {
+  const files = { ...APP_FILES, ...overrides };
+  for (const [file, title] of Object.entries(dropTests)) files[file] = withoutTest(files[file], title);
+  const staged = APP_STAGES.map(() => ({}));
+  staged.at(-1)['.gitignore'] = STANDARD_IGNORE;
+  staged.at(-1)['package.json'] = APP_MANIFEST;
+  staged.at(-1)['package-lock.json'] = JEST_LOCKFILE;
+  for (const [file, contents] of Object.entries(files)) {
+    staged[APP_STAGES.findIndex(([, pattern]) => pattern.test(file))][file] = contents;
+  }
+  // Oldest first: the catch-all stage is the first commit, the app wiring the last.
+  const order = [APP_STAGES.length - 1, ...APP_STAGES.keys()].slice(0, APP_STAGES.length);
+  const steps = order.flatMap((index) => [{ write: staged[index] }, { commit: APP_STAGES[index][0] }]);
+  return uncommitted === null ? steps : [...steps, { write: uncommitted }];
+}
 
 const MATH_PROJECT_COMMITTED = [
   {
@@ -640,6 +681,28 @@ export const FIXTURES = [
       },
       { commit: 'init' },
     ],
+  },
+  // A billing service of ~120 files and ~2.5k lines of jest-tested CommonJS: the cases that need real exploring (evals/cases).
+  {
+    name: 'ts-app-medium',
+    summary: 'A billing service: invoices, customers, payments, notifications and reports over a shared layer, with a legacy decoy and an event bus.',
+    covers: ['investigate: a flow that crosses the event bus', 'plan: reuse of shared validation and money', 'name decoys'],
+    ...MATH_PROJECT,
+    steps: appSteps(),
+  },
+  {
+    name: 'ts-app-medium-refund-bug',
+    summary: 'ts-app-medium with a committed refund defect that spans payments/service and payments/repository; the existing tests pass over it.',
+    covers: ['task: a fix across two files', 'task: project error type and test factory', 'existing tests kept'],
+    ...MATH_PROJECT,
+    steps: appSteps({ overrides: APP_REFUND_BUG, dropTests: APP_REFUND_BUG_DROPPED_TESTS }),
+  },
+  {
+    name: 'ts-app-medium-money-change',
+    summary: 'ts-app-medium with an uncommitted change to money.round whose breakage is in callers outside the diff, plus a bare Error.',
+    covers: ['review: a defect in an unchanged caller', 'review: a convention violation'],
+    ...MATH_PROJECT,
+    steps: appSteps({ uncommitted: APP_MONEY_CHANGE }),
   },
   {
     name: 'eval-rules-contributing',
