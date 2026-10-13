@@ -63,12 +63,19 @@ In the target repository, start or restart Claude Code and run:
    module) through `ambicode context write`, within `context.maxTotalTokens`
    and `context.maxFileTokens`.
 3. Meanwhile the skill reads the manifests to fill in each project's
-   ecosystem, commands and checks, then picks the `policies/*.yaml` packs
-   whose `appliesTo` matches into `packs` and merges the free-text `rules` (the
-   scout's conventions, and unless `--auto` a web search and one confirmation
-   question; at most 10 per project).
-4. It writes `.ambicode/config.yaml` once and runs
-   `ambicode config validate`; errors get one corrective write.
+   ecosystem, commands and checks.
+4. It writes `.ambicode/config.yaml` once. `ambicode config packs` then copies the
+   built-in packs whose `detect` marker and `appliesTo` match the repository to
+   `.ambicode/policies/<folder>/<id>.yaml` (with `replaces: builtin/<id>`, listed in
+   `policyFiles`) so you can read and edit them, and lists each pack it skipped
+   with the reason (a missing marker).
+   An existing copy is never overwritten. `.ambicode/` is gitignored, so the
+   copies are per-user unless the team un-ignores `.ambicode/policies/`. `ambicode config
+   validate` follows; errors get one corrective write.
+5. Candidate rules (the scout's conventions, and unless `--auto` a web search and
+   the user's own) are drafted into `.ambicode/policies/drafts/` and handed to
+   the `/ambicode:rules` route, where the user applies them. Init writes no rule
+   into the config.
 
 Run it again to refresh: the scaffold leaves an existing config untouched, and
 the skill asks whether to refresh or abort (`--auto` refreshes). Edit

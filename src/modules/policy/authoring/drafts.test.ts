@@ -7,7 +7,11 @@ import { openWorkspace } from '#modules/config/workspace';
 import { initConfig } from '#testing/fixtures/init-config';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { checkDrafts } from './drafts.ts';
-import { DRAFTS_DIR } from '#types/modules/policy';
+import { DRAFTS_DIR, PolicyPack } from '#types/modules/policy';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { parse as parseYaml } from 'yaml';
+import { REPO_ROOT } from '#testing/paths';
 
 const QUOTE = 'Services must never call the transport layer directly.';
 const GUIDE = `# Contributing\n\nWe keep layers apart.\n${QUOTE}\nTests live beside the code.\n`;
@@ -100,6 +104,45 @@ describe('09-Q3: quotes are verified', () => {
   });
 });
 
+describe('one rule is stated once', () => {
+  const preset = PolicyPack.parse(parseYaml(readFileSync(path.join(REPO_ROOT, 'policies', 'common', 'common-design.yaml'), 'utf8'))).rules[0]!;
+
+  it('a draft that restates an enabled preset instruction, in other case, spacing and punctuation, is rejected and blocks its pack', async () => {
+    const reworded = preset.instruction.replace(/\s+/g, '  ').toUpperCase().replace(/\.?\s*$/, '!!');
+    const d = await drafted({ 'a.yaml': pack([rule('my-own-id', reworded, QUOTE)]) });
+    try {
+      const check = await d.check();
+      const found = check.diagnostics.find((diagnostic) => diagnostic.code === 'pack-rule-duplicate');
+      assert.ok(found !== undefined && found.message.includes(`common-design/${preset.id}`), JSON.stringify(check.diagnostics));
+      assert.equal(check.ok, false);
+    } finally {
+      await d.repo.dispose();
+    }
+  });
+
+  it('a draft rule that reuses an enabled rule id is rejected even with new wording', async () => {
+    const d = await drafted({ 'a.yaml': pack([rule(preset.id, 'Something this project states in its own words.', QUOTE)]) });
+    try {
+      assert.ok(codes(await d.check()).includes('pack-rule-duplicate'));
+    } finally {
+      await d.repo.dispose();
+    }
+  });
+
+  it('a web rule with inherited authority passes with its URL flagged unchecked', async () => {
+    const url = 'https://example.invalid/practice';
+    const web = pack([rule('web-practice', 'Prefer small, named exports from a module.', 'Prefer small named exports from modules.', url)]).replace('authority: team', 'authority: inherited');
+    const d = await drafted({ 'a.yaml': web });
+    try {
+      const check = await d.check();
+      assert.ok(codes(check).includes('pack-quote-unchecked'));
+      assert.equal(check.ok, true, JSON.stringify(check.diagnostics));
+    } finally {
+      await d.repo.dispose();
+    }
+  });
+});
+
 describe('09-Q2: policy check --drafts', () => {
   it('09-Q2: positional files with --drafts are refused as bad-argument', async () => {
     const d = await drafted({});
@@ -128,12 +171,12 @@ describe('09-Q2: policy check --drafts', () => {
   });
 
   it('09-Q2: a draft that repeats an already-enabled pack id is reported before it is applied', async () => {
-    const commonQuality = (rules: readonly string[]): string =>
-      ['schemaVersion: 1', 'id: common-quality', 'authority: team', 'appliesTo:', '  - "src/**"', 'activities: [review]', 'source:', '  location: CONTRIBUTING.md', 'rules:', ...rules, ''].join('\n');
-    const d = await drafted({ 'a.yaml': commonQuality([rule('one', 'First rule.', QUOTE)]) });
+    const commonDesign = (rules: readonly string[]): string =>
+      ['schemaVersion: 1', 'id: common-design', 'authority: team', 'appliesTo:', '  - "src/**"', 'activities: [review]', 'source:', '  location: CONTRIBUTING.md', 'rules:', ...rules, ''].join('\n');
+    const d = await drafted({ 'a.yaml': commonDesign([rule('one', 'First rule.', QUOTE)]) });
     try {
       const project = d.workspace.config.projects.find((candidate) => candidate.id === 'app' || d.workspace.config.projects.length === 1)!;
-      assert.ok(project.packs.includes('builtin/common-quality'), 'the fixture must already enable this built-in');
+      assert.ok(project.packs.includes('builtin/common-design'), 'the fixture must already enable this built-in');
       const check = await checkDrafts(d.runtime, d.workspace, { project: project.id });
       assert.ok(codes(check).includes('pack-duplicate-id'), JSON.stringify(check.diagnostics));
       assert.equal(check.ok, false);
@@ -143,11 +186,11 @@ describe('09-Q2: policy check --drafts', () => {
   });
 
   it('09-Q2: a draft that replaces the enabled built-in of the same id is accepted', async () => {
-    const replacement = pack([rule('one', 'First rule.', QUOTE)]).replace('id: team-a', 'id: common-quality\nreplaces: builtin/common-quality');
+    const replacement = pack([rule('one', 'First rule.', QUOTE)]).replace('id: team-a', 'id: common-design\nreplaces: builtin/common-design');
     const d = await drafted({ 'a.yaml': replacement });
     try {
       const project = d.workspace.config.projects[0]!;
-      assert.ok(project.packs.includes('builtin/common-quality'), 'the fixture must already enable this built-in');
+      assert.ok(project.packs.includes('builtin/common-design'), 'the fixture must already enable this built-in');
       const check = await checkDrafts(d.runtime, d.workspace, { project: project.id });
       assert.ok(!codes(check).includes('pack-duplicate-id'), JSON.stringify(check.diagnostics));
       assert.equal(check.ok, true);

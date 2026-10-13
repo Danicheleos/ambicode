@@ -4,6 +4,8 @@ authority: inherited
 appliesTo:
   - "**/*.ts"
 activities: [review, task, plan]
+detect:
+  - { file: package.json, contains: '"@angular/core"' }
 
 source:
   location: >-
@@ -12,11 +14,12 @@ source:
     prefix policy, and feature-slice migration. Those are selectable conventions
     rather than defects, so this pack asks whether the project's own convention
     was followed instead of naming a particular one.
-  externalVersion: "angular-v1"
+  externalVersion: "angular-v2"
 
 rules:
   - id: follow-declared-structure
     category: architecture
+    activities: [plan, task, review]
     instruction: >-
       Place new files according to the structure the project already uses. Where
       a change introduces a different grouping from its neighbours, that is a
@@ -29,6 +32,7 @@ rules:
 
   - id: shared-code-placement
     category: architecture
+    activities: [plan, task, review]
     instruction: >-
       Code that carries a feature's domain knowledge belongs with that feature.
       A shared or utility location is for context-free behaviour with more than
@@ -36,16 +40,6 @@ rules:
     check:
       kind: reviewer
       explanation: Requires identifying the actual consumers in the snapshot.
-
-  - id: no-unrequested-migration
-    category: workflow
-    instruction: >-
-      Approving a target structure does not authorize moving unrelated existing
-      code into it. Restructuring outside the change's stated scope belongs in
-      its own change.
-    check:
-      kind: reviewer
-      explanation: Judged from the stated scope against the files the change touches.
 
 prompts: []
 commandPolicy: []

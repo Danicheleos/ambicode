@@ -19,6 +19,7 @@ const TABLE: Record<string, readonly string[]> = {
   'note promote': ['task'],
   report: ['task'],
   'config validate': [],
+  'config packs': [],
   'context list': [],
   'context write': [],
   version: [],

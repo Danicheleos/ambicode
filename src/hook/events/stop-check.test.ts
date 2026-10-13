@@ -20,7 +20,7 @@ steps:
   - id: write
     actor: model
     instruction: "## Confirmed facts\\nWrite the note."
-    produces: ["note{investigation}"]
+    produces: ["note{notes}"]
 `;
 
 interface Stopper { fx: RouteFixture; say(text: string): Promise<void>; stop(extra?: Record<string, unknown>): Promise<{ decision?: string; reason?: string }>; limits(): Promise<string[]>; dispose(): Promise<void> }

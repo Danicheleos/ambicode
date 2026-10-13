@@ -14,6 +14,7 @@ import { taskFixture } from '#testing/fixtures/task-fixture';
 import { reviewRouteFixture } from '#testing/fixtures/review-route-fixture';
 import { reviewCommand } from './handlers.ts';
 import { SESSION_A } from '#testing/fixtures/ids';
+import { runHook } from '#hook/events/run-hook';
 import { REPO_ROOT } from '#testing/paths';
 import { ROUTE_START_OPTIONS } from '#types/cli';
 import type { Handler } from '#types/harness';
@@ -180,6 +181,8 @@ describe('review route: the estimate gate (08-R4, 08-R5, S12, S14)', () => {
       assert.equal(run.position, 'review-run');
       assert.match(run.text, /## review\.command\nreview --task ord-7/);
       assert.match(run.text, /First run the ones that cover the change[\s\S]*run the review command/);
+      // The first line is over 160 characters but holds a backtick, so `Now:` carries it whole; the body must not print it again.
+      assert.equal(run.text.split('First run the ones that cover the change').length - 1, 1);
       const print = (await prints(t, 'estimate'))[0]!;
       const preanswer = (await t.kinds('preanswer'))[0]!;
       assert.deepEqual((await t.kinds('acceptance')).map((entry) => [entry['gate'], entry['answer'], entry['via'], entry['instance'], entry['preanswer']]), [['estimate', 'run', 'prompt', print.id, preanswer.id]]);
@@ -221,6 +224,48 @@ describe('review route: the estimate gate (08-R4, 08-R5, S12, S14)', () => {
       assert.equal((await t.kinds('exit')).length, 0);
       await t.fx.engine.stopHook({ hook_event_name: 'Stop', session_id: SESSION_A, cwd: t.fx.repo.root, scratchpad_dir: t.fx.scratchpad });
       assert.equal((await t.kinds('exit')).at(-1)?.['reason'], 'done');
+    });
+  });
+
+  describe('SubagentStop captures the reviewer answer', () => {
+    const answer = '```json\n{"findings":[],"coverageNotes":[]}\n```';
+    const stopSub = (t: Fixture, extra: Record<string, unknown> = {}) =>
+      runHook(t.fx.runtime, JSON.stringify({ hook_event_name: 'SubagentStop', session_id: SESSION_A, cwd: t.fx.repo.root, scratchpad_dir: t.fx.scratchpad, agent_id: 'sub-1', agent_type: 'ambicode:reviewer', last_assistant_message: answer, ...extra }), { pointer: t.fx.pointer, load: async () => ({ engine: t.fx.engine, routes: t.fx.routes, pointer: t.fx.pointer }) });
+    const file = (t: Fixture): string => path.join(t.dir, 'reviewer-answer.txt');
+    const pendingReview = async (t: Fixture) => {
+      await t.start();
+      await t.hook('estimate', 'run');
+      await t.synthetic([], { stage: 'pending' });
+    };
+
+    it('the reviewer subagent\'s final message is written beside the pending review, byte for byte, and the hook answers {}', async () => {
+      await withReview(async (t) => {
+        await pendingReview(t);
+        assert.deepEqual(await stopSub(t), {});
+        assert.equal(await readFile(file(t), 'utf8'), answer);
+      });
+    });
+
+    it('another subagent, a reviewer with no message, and a reviewer with no pending review capture nothing', async () => {
+      await withReview(async (t) => {
+        await t.start();
+        assert.deepEqual(await stopSub(t), {}, 'no pending review yet');
+        await t.hook('estimate', 'run');
+        await t.synthetic([], { stage: 'pending' });
+        await stopSub(t, { agent_type: 'Explore' });
+        await stopSub(t, { agent_type: 'reviewer-extra' });
+        await stopSub(t, { last_assistant_message: '  ' });
+        await assert.rejects(readFile(file(t), 'utf8'), { code: 'ENOENT' });
+      });
+    });
+
+    it('once the review is recorded a later SubagentStop writes nothing', async () => {
+      await withReview(async (t) => {
+        await pendingReview(t);
+        await t.append({ kind: 'review', reviewId: 'r-1', result: path.join('.ambicode', 'reviews', CHECK_TASK, 'result.json'), status: 'partial', stage: 'recorded', reviewerRan: true, findings: 0 });
+        await stopSub(t);
+        await assert.rejects(readFile(file(t), 'utf8'), { code: 'ENOENT' });
+      });
     });
   });
 
@@ -284,7 +329,8 @@ describe('review route: step texts, ceilings and the ignore warning (08-R6, 08-B
     const text = await read('review/agent');
     assert.match(text, /`ambicode:reviewer` subagent/);
     assert.match(text, /Review the change in <diff path>\. Read <brief path> first\. The code is in the checkout\. Answer with the JSON block only\./);
-    assert.match(text, /review record --task ord-7 <<'EOF'/);
+    assert.match(text, /review record --task ord-7` with no input: the SubagentStop hook saved/);
+    assert.match(text, /paste the subagent's JSON block, unchanged, on stdin/);
     assert.match(text, /Do not edit, filter/);
     assert.doesNotMatch(text, /route next|view --review/);
   });

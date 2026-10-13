@@ -10,8 +10,13 @@ import type { AmbicodeConfig, ProjectConfig } from '#types/modules/config';
 import { listContext, renderListing } from '#modules/context/context';
 import { Activity } from '#types/primitives';
 import { policyStage } from '#modules/policy/stage';
+import { loadPacksForProject } from '#modules/policy/packs/load';
+import { builtinPoliciesDirectory } from '#util/plugin-root';
 import { envelopeSources, normalizeEnvelope } from '#modules/requirements/envelope/envelope';
 import { AmbicodeError } from '#util/errors';
+import { touchedSet } from '#modules/checks/workspace/baseline';
+import { normalizeRelative, toProjectRelative } from '#util/paths';
+import type { BaselineEntryFields } from '#types/modules/checks';
 import { latestBound } from '#harness/engine/fold';
 import { onGatePrint } from '#harness/gates/gates';
 import type { Runtime } from '#types/composition';
@@ -28,6 +33,7 @@ onGatePrint('project-ambiguous', async ({ task, chain }) => {
 
 const MAX_SOURCE_CHARS = 2500;
 const MAX_TOTAL_CHARS = 4500;
+const LISTED_CHARS = 80;
 
 export async function configOf(input: HandlerInput): Promise<AmbicodeConfig> {
   return (await loadConfig(input.runtime.fs, input.dir.repositoryRoot)).config;
@@ -73,6 +79,20 @@ export async function projectOf(input: HandlerInput, config: AmbicodeConfig): Pr
     throw error;
   }
 }
+export const baselineIn = (chain: readonly LedgerEntry[]): BaselineEntryFields | null => {
+  const entry = chain.findLast((candidate) => candidate.kind === 'baseline');
+  return entry === undefined ? null : { head: (entry['head'] as string | null) ?? null, dirty: (entry['dirty'] as BaselineEntryFields['dirty']) ?? [] };
+};
+
+/** The files the stage's rules are scoped to: the task's touched files once there are any, else the map's top candidates; empty means no scoping. */
+async function stagePaths(input: HandlerInput, project: ProjectConfig, chain: readonly LedgerEntry[]): Promise<string[]> {
+  const baseline = baselineIn(chain);
+  const touched = baseline === null ? [] : (await touchedSet(input.runtime as Runtime, baseline)).touched;
+  const mapped = (chain.findLast((entry) => entry.kind === 'map')?.['paths'] as string[] | undefined) ?? [];
+  const root = normalizeRelative(project.root);
+  return (touched.length > 0 ? touched : mapped).filter((file) => toProjectRelative(root, file) !== null);
+}
+
 export const isResult = (value: ProjectConfig | HandlerResult): value is HandlerResult => 'state' in value;
 
 function renderSources(sources: readonly EnvelopeSource[]): string {
@@ -124,15 +144,31 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
     }
   },
 
+  'policy.enabled': async (input) => {
+    const config = await configOf(input);
+    const projects = config.projects.filter((project) => !input.args.project || project.id === input.args.project);
+    const seen = new Map<string, string>();
+    for (const project of projects) {
+      const { packs } = await loadPacksForProject({ fs: input.runtime.fs, project, builtinDirectory: builtinPoliciesDirectory(input.runtime.pluginRoot), repositoryRoot: input.dir.repositoryRoot });
+      for (const { pack } of packs) for (const rule of pack.rules) seen.set(`${pack.id}/${rule.id}`, rule.instruction.replace(/\s+/g, ' ').trim());
+    }
+    if (seen.size === 0) return { state: 'ok', payload: null };
+    // The first words identify a rule; drafts.ts compares the full text, so this list only saves the model a wasted draft.
+    const lines = [...seen].map(([id, text]) => `- ${id}: ${text.length > LISTED_CHARS ? `${text.slice(0, LISTED_CHARS)}…` : text}`);
+    return { state: 'ok', payload: `Rules already in force; a draft that restates one is rejected:\n${lines.join('\n')}` };
+  },
+
   'policy.stage': async (input) => {
     const stage = input.params[0];
     if (stage !== 'before-work' && stage !== 'before-checks' && stage !== 'before-report') return { state: 'failed', code: 'internal', message: `policy.stage takes before-work, before-checks or before-report, not "${stage ?? ''}".`, recoverable: false };
     const config = await configOf(input);
     const project = await projectOf(input, config);
     if (isResult(project)) return project;
-    const activity = Activity.safeParse(input.view.skill);
+    // The second param names the activity when the route's own differs: the task route's reviewer brief needs review rules.
+    const named = Activity.safeParse(input.params[1] ?? input.view.skill);
+    if (input.params[1] !== undefined && !named.success) return { state: 'failed', code: 'internal', message: `policy.stage's activity must be one of ${Activity.options.join(', ')}, not "${input.params[1]}".`, recoverable: false };
     try {
-      const payload = await policyStage({ runtime: input.runtime as Runtime, project, activity: activity.success ? activity.data : 'task', paths: [], stage, show: false });
+      const payload = await policyStage({ runtime: input.runtime as Runtime, project, activity: named.success ? named.data : 'task', paths: await stagePaths(input, project, await chainEntries(input)), stage, show: false });
       await input.ledger.append({ kind: 'policy', route: input.view.routeId, ...payload.entry });
       return { state: 'ok', payload: payload.text.trim() === '' ? null : payload.text };
     } catch (error) {

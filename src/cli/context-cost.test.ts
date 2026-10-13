@@ -16,10 +16,10 @@ const repositoryRoot = REPO_ROOT;
 // `references/` files carry no ceiling: they are read on demand, not on every call.
 const MAX_SKILL_BYTES: Record<string, number> = {
   'init/SKILL.md': 4_200,
-  'investigate/SKILL.md': 2_048,
-  'plan/SKILL.md': 9_900,
-  'review/SKILL.md': 2_048,
-  'task/SKILL.md': 10_650,
+  'investigate/SKILL.md': 900,
+  'plan/SKILL.md': 1_800,
+  'review/SKILL.md': 1_000,
+  'task/SKILL.md': 1_700,
   // A setup-time skill, never on a per-call path: this ceiling is about discipline, not per-call cost.
   'rules/SKILL.md': 10_000,
 };

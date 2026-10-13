@@ -17,14 +17,15 @@ async function filesUnder(directory: string): Promise<string[]> {
 }
 
 describe('review skill (08-K)', () => {
-  it('08-K1: SKILL.md is at most 2,048 bytes', async () => {
-    assert.ok(Buffer.byteLength(await readFile(SKILL, 'utf8')) <= 2048);
+  it('08-K1: SKILL.md is at most 1,000 bytes', async () => {
+    assert.ok(Buffer.byteLength(await readFile(SKILL, 'utf8')) <= 1000);
   });
 
-  it('08-K1: the body states the four reporting rules', async () => {
-    const text = await readFile(SKILL, 'utf8');
-    assert.match(text, /route start review/);
+  it('08-K1: the body starts the route and the read-back step, which is delivered, states the four reporting rules once', async () => {
+    assert.match(await readFile(SKILL, 'utf8'), /route start review/);
+    const text = await readFile(path.join(REPO_ROOT, 'routes', 'review', 'readback.md'), 'utf8');
     for (const rule of [/empty finding list is not a clean/i, /failed reviewer is not a clean/i, /skipped check is not a pass/i, /one unverifiable location voids/i]) assert.match(text, rule);
+    assert.doesNotMatch(await readFile(SKILL, 'utf8'), /is not a clean/i);
   });
 
   it('08-K2: front matter sets disable-model-invocation: true', async () => {

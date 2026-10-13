@@ -6,6 +6,7 @@ const input = JSON.parse(readFileSync(0, 'utf8'));
 const root = input.repositoryRoot;
 // 40 paths is a screenful; the rest are counted so nothing is silently dropped.
 const MAX_PATHS = 40;
+const DRAFTS = '.ambicode/policies/drafts';
 // One level only: a docs tree of thousands of pages is a source the user names, not one to list.
 const md = (dir) => { try { return readdirSync(path.join(root, dir)).filter((name) => name.endsWith('.md')).map((name) => `${dir}/${name}`).sort(); } catch { return []; } };
 const candidates = [
@@ -17,8 +18,10 @@ const candidates = [
 const words = [input.args?.text ?? '', ...(input.revise?.args?.source ?? [])].join(' ').split(/[\s,]+/).filter(Boolean);
 const urls = words.filter((word) => word.startsWith('https://'));
 const named = words.filter((word) => !word.startsWith('https://') && !path.isAbsolute(word) && !word.split('/').includes('..') && existsSync(path.join(root, word)));
+const drafted = (() => { try { return readdirSync(path.join(root, DRAFTS)).filter((name) => name.endsWith('.yaml')).sort(); } catch { return []; } })();
 const payload = [
   `Rule sources found: ${candidates.slice(0, MAX_PATHS).join(', ') || 'none'}${candidates.length > MAX_PATHS ? ` (+${candidates.length - MAX_PATHS} more)` : ''}`,
+  ...(drafted.length === 0 ? [] : [`Drafts already in ${DRAFTS}/ (written by init): ${drafted.join(', ')}. Keep them, check them, add to them; do not rewrite them from other sources.`]),
   ...(named.length === 0 ? [] : [`Named in the request: ${named.join(', ')}`]),
   ...(urls.length === 0 ? [] : [`Pages named in the request: ${urls.join(', ')}. Read each with the Atlassian MCP tools you can see; a rule from a page cites its https URL as \`location\`.`]),
 ].join('\n');

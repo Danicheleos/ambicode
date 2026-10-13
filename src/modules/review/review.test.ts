@@ -201,7 +201,7 @@ describe('U17 location validation', () => {
         ['src/orders.ts', 'export function total(amounts: number[]) {\n  return amounts.reduce((a, b) => a + b, 0);\n}\n'],
       ]),
       maxFindings: 7,
-      knownRuleIds: new Set(['common-quality/reuse-before-reimplementing']),
+      knownRuleIds: new Set(['common-design/reuse-before-reimplementing']),
       knownRequirementIds: new Set(['ORD-17']),
       ...overrides,
     });
@@ -309,7 +309,7 @@ describe('U17 location validation', () => {
       run([
         {
           ...candidate({ oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'new', line: 2 }),
-          ruleRefs: ['invented/rule', 'common-quality/reuse-before-reimplementing'],
+          ruleRefs: ['invented/rule', 'common-design/reuse-before-reimplementing'],
           requirementRefs: ['NOPE-1'],
         },
       ]),
@@ -323,12 +323,12 @@ describe('U17 location validation', () => {
       run([
         {
           ...candidate({ oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'new', line: 2 }),
-          ruleRefs: ['common-quality/reuse-before-reimplementing'],
+          ruleRefs: ['common-design/reuse-before-reimplementing'],
           requirementRefs: ['ORD-17'],
         },
       ]),
     );
-    assert.deepEqual(findings[0]?.ruleRefs, ['common-quality/reuse-before-reimplementing']);
+    assert.deepEqual(findings[0]?.ruleRefs, ['common-design/reuse-before-reimplementing']);
     assert.deepEqual(findings[0]?.requirementRefs, ['ORD-17']);
   });
 

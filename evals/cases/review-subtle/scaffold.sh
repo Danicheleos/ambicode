@@ -1,4 +1,4 @@
 #!/bin/sh
 # Synthetic fixture from fixtures/definitions.mjs; the case keeps no copy of it.
 set -e
-node "$(cd "$(dirname "$0")/../../.." && pwd)/fixtures/materialize.mjs" ts-app-medium-money-change "$PWD/repo" --ambicode-init
+node "$(cd "$(dirname "$0")/../../.." && pwd)/fixtures/materialize.mjs" ts-app-medium-money-change "$PWD/repo" --ambicode-init --context

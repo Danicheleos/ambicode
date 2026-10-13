@@ -46,7 +46,7 @@ if (failed) {
     code: 'citations-failed',
     message: `${badCount} bad citations.`,
     recoverable: true,
-    revise: { args: { 'Citation check failed': bad.map((line) => `bad citation: ${line}`) }, lastRound: 'This is the last revision. Save the corrected note again with the same command; the answer then goes to the user as it is.' },
+    revise: { args: { 'Citation check failed': bad.map((line) => `bad citation: ${line}`) }, lastRound: 'This is the last revision. Give the corrected answer as your final message again; it then goes to the user as it is.' },
   };
 }
 process.stdout.write(JSON.stringify(out));

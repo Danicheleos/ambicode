@@ -17,6 +17,9 @@ export const blockingProblem = (check: DraftsCheck, root: string, file: string):
 
 const collapse = (text: string): string => text.replace(/\s+/g, ' ').trim();
 
+/** Wording that differs only in case, spacing or a final stop is the same instruction. */
+const normalized = (text: string): string => collapse(text).toLowerCase().replace(/[.!?;:,\s]+$/, '');
+
 /** Why a file quote is not verified, or null when it is: the quote appears in the file, whitespace collapsed. */
 async function quoteProblem(runtime: Runtime, root: string, source: { quote: string; location: string }): Promise<string | null> {
   const absolute = path.resolve(root, source.location.replace(/#.*$/, '').replace(/:\d+(?:-\d+)?$/, ''));
@@ -39,6 +42,7 @@ export async function checkDrafts(runtime: Runtime, workspace: Workspace, option
   const diagnostics: Diagnostic[] = [];
   const result: DraftsCheck = { files: [], diagnostics, rulesBySource: {}, notMigrated: [], aggregateHash: '', ok: true, rules: [] };
   const packs: PackWithPrompts[] = [];
+  const enabled = project === null ? [] : (await loadPacksForProject({ fs: runtime.fs, project, builtinDirectory: builtinPoliciesDirectory(runtime.pluginRoot), repositoryRoot: root })).packs;
   const names = (await runtime.fs.readdir(path.join(root, DRAFTS_DIR)).catch(() => [])).filter((entry) => entry.isFile() && entry.name.endsWith('.yaml')).map((entry) => entry.name).sort();
   for (const name of names) {
     const relative = `${DRAFTS_DIR}/${name}`;
@@ -51,7 +55,11 @@ export async function checkDrafts(runtime: Runtime, workspace: Workspace, option
     packs.push(validated.pack);
     const pack = validated.pack.pack;
     const error = (code: string, message: string): number => diagnostics.push({ severity: 'error', code, message: `${relative}: ${message}`, where: filePath });
+    // A draft that replaces a built-in takes its place, so that pack's rules are no longer in force to overlap.
+    const inForce = enabled.filter((candidate) => candidate.reference !== pack.replaces).flatMap((candidate) => candidate.pack.rules.map((rule) => ({ pack: candidate.pack.id, rule, instruction: normalized(rule.instruction) })));
     for (const rule of pack.rules) {
+      const covered = inForce.find((entry) => entry.rule.id === rule.id || entry.instruction === normalized(rule.instruction));
+      if (covered !== undefined) error('pack-rule-duplicate', `rule "${rule.id}" repeats ${covered.pack}/${covered.rule.id}, which is already in force. Drop it, or use "replaces" to supersede the whole pack.`);
       const qualified = `${pack.id}/${rule.id}`;
       result.rules.push(qualified);
       if (rule.source === undefined) { error('pack-invalid', `rule "${rule.id}" has no source {quote, location}.`); continue; }
@@ -64,11 +72,10 @@ export async function checkDrafts(runtime: Runtime, workspace: Workspace, option
       error('pack-quote-missing', `rule "${rule.id}": the quote is not verified (${problem}). Fix the quote or drop the rule.`);
       result.notMigrated.push({ rule: qualified, reason: `pack-quote-missing: ${problem}` });
     }
-    for (const glob of project === null ? [] : pack.appliesTo) {
+    for (const glob of project === null ? [] : new Set([...pack.appliesTo, ...pack.rules.flatMap((rule) => rule.appliesTo ?? [])])) {
       if ((await matchedFiles(runtime, path.join(root, project!.root), glob)) === 0) diagnostics.push({ severity: 'warning', code: 'pack-glob-matches-nothing', message: `${relative}: appliesTo glob "${glob}" matches no file under project "${project!.id}" today.`, where: filePath });
     }
   }
-  const enabled = project === null ? [] : (await loadPacksForProject({ fs: runtime.fs, project, builtinDirectory: builtinPoliciesDirectory(runtime.pluginRoot), repositoryRoot: root })).packs;
   diagnostics.push(...validatePackSet([...enabled, ...packs]).diagnostics.filter((diagnostic) => diagnostic.code === 'pack-duplicate-id'));
   if (names.length === 0) diagnostics.push({ severity: 'error', code: 'drafts-empty', message: `No *.yaml draft under ${DRAFTS_DIR}.`, where: path.join(root, DRAFTS_DIR) });
   result.aggregateHash = contentHash(result.files.map((file) => `${file.path} ${file.contentHash}`).join('\n'));

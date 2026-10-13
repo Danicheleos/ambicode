@@ -110,13 +110,13 @@ current transcript.
 
 ## Hooks
 
-The plugin ships one hook manifest, `hooks/hooks.json`, registering seven
-events with thirteen handler entries: `PostToolUse` (matchers `mcp__.*`, `WebFetch`
+The plugin ships one hook manifest, `hooks/hooks.json`, registering eight
+events with fourteen handler entries: `PostToolUse` (matchers `mcp__.*`, `WebFetch`
 and `AskUserQuestion`), `PreToolUse` (all routed to
 `${CLAUDE_PLUGIN_ROOT}/scripts/guard.mjs`: `Bash` with the `if` rows `git *`,
 `glab mr*`, `*.ambicode/*` and `*ambicode.mjs*`, then `Write|Edit|MultiEdit|NotebookEdit`),
 `SessionStart` (matcher `startup|resume|clear|fork`), `UserPromptSubmit`,
-`Stop`, `PostCompact` and `SessionEnd`. Every entry except `PreToolUse` runs in
+`Stop`, `SubagentStop` (matcher `(ambicode:)?reviewer`), `PostCompact` and `SessionEnd`. Every entry except `PreToolUse` runs in
 exec form through command `node` with arguments
 `${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs`, `hook`. This avoids shell parsing
 and works when the plugin path contains spaces or the host has no POSIX shell.
@@ -129,7 +129,11 @@ not been re-measured against this manifest.
 `ambicode hook` reads a hook invocation's JSON payload from stdin (fields
 confirmed against 2.1.272: `session_id`, `agent_id` (present only for a
 subagent invocation, absent for the main agent), `cwd`, `scratchpad_dir`,
-`hook_event_name`, `tool_name`, `tool_input.file_path`). It replies with
+`hook_event_name`, `tool_name`, `tool_input.file_path`). A `SubagentStop` input
+adds `agent_id`, `agent_type` (the matcher field), `agent_transcript_path`,
+`stop_hook_active` and `last_assistant_message`, the subagent's final text;
+read from the 2.1.296 binary's hook-input builder, not yet from a live
+payload, so `ambicode hook` ignores a `SubagentStop` that lacks the message. It replies with
 `{"hookSpecificOutput": {"hookEventName": "<event>", "additionalContext":
 "…"}}` — the documented contract for surfacing text back into the
 conversation from a hook, never a permission decision or a blocking exit

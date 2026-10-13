@@ -34,6 +34,10 @@ rule can produce a finding on its own.
 The exact wording the reviewer and the authoring skills operate under is in
 `prompts/shared-operating-contract.md`.
 
+The authority follows where the rule came from: a project document that states
+it is `team`; a convention inferred from the code is `observed`; a practice taken
+from the web or a built-in baseline is `inherited`.
+
 The practical consequence: labelling a convention `team` when it is really just
 how the code currently looks turns every legitimate alternative into a reported
 defect, and the finding will cite your pack as its authority. Labelling an
@@ -59,8 +63,8 @@ applied.
 When you want your own pack instead of a built-in, say so:
 
 ```yaml
-id: common-quality
-replaces: builtin/common-quality
+id: common-design
+replaces: builtin/common-design
 ```
 
 Then:
@@ -71,10 +75,48 @@ Then:
 
 Use it when you genuinely want to own that whole area. If you only want to add
 to a built-in, do not use `replaces` — add a **second** pack with its own id. To
-remove a built-in you do not want, take it out of that project's `packs` list;
-there is no need to replace a pack in order to disable it.
+remove a built-in you do not want, take it out of that project's `packs` list, or
+delete its copy from `policyFiles`; there is no need to replace a pack in order to
+disable it. `config packs` writes such copies for you.
 
 A `replaces` for a built-in the project does not enable does nothing.
+
+## A rule narrows its pack
+
+A pack's `activities` and `appliesTo` apply to every rule in it. A rule may carry
+its own `activities` and `appliesTo` to narrow them; absent, it takes the pack's.
+A rule cannot list an activity its pack does not carry, and the pack-level globs
+still decide whether the pack applies to a file at all. The shipped
+`common-design` uses this: the pack carries `[review, task, plan]`, and a rule such
+as `need` narrows to `[plan, review]`, so each stage carries only its own. When a
+stage knows the files at hand (the task's touched files, else the search map's top
+candidates), a rule whose `appliesTo` matches none of them is left out; with no
+known file nothing is filtered.
+
+## One rule, one place
+
+Every rule is a pack rule. There is no rule list in `config.yaml`; a config that
+has one is refused. Rules that init drafts go through `/ambicode:rules`, and
+`policy check --drafts` rejects a draft rule whose `id` or instruction (case,
+spacing and final punctuation ignored) equals a rule already in force.
+
+## Choosing built-in packs
+
+A built-in pack may declare `detect: [{ file: package.json, contains: '"express"' }]`:
+any one marker matching (a file of that name within two directories of the project
+root, containing the text when given) selects it. `ambicode config packs` copies
+every pack whose marker and `appliesTo` match to `.ambicode/policies/<group>/<id>.yaml`
+(the built-in's text plus `replaces: builtin/<id>`, comments included), adds the
+copy to the project's `policyFiles`, and reports the ones it skipped with the
+reason. A pack whose commands the project does not declare is still copied: those
+commands count as unavailable.
+
+The copy is yours to edit. A later run never overwrites an existing copy; when the
+built-in's `source.externalVersion` differs from the copy's it prints
+`builtin/<id> is <new>, your copy is <old>` and leaves the merge to you. A
+`packs: [builtin/<id>]` reference still loads, and next to a copy of the same pack
+the copy wins. `.ambicode/` is gitignored by init, so copies are per-user unless
+the team un-ignores `.ambicode/policies/`.
 
 ## Two smaller things worth knowing
 
@@ -86,5 +128,7 @@ wrong base matches nothing and the rule never applies.
 
 **A `command` check must name a declared command.** `check: { kind: command,
 command: lint }` requires `lint` in that project's command catalog — as `null`
-if it is not configured yet. An undeclared command id is an error rather than a
-check that silently never runs. The same applies to every `commandPolicy` entry.
+if it is not configured yet. In a hand-written project pack without `replaces`, an
+undeclared command id is an error rather than a check that silently never runs;
+the same applies to every `commandPolicy` entry. A built-in pack or its copy
+(`replaces`) naming an undeclared command is treated as unavailable instead.

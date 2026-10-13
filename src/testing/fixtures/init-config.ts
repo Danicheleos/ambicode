@@ -12,7 +12,7 @@ export const FIXTURE_CONFIG = [
   '    ecosystem: { languages: [typescript], frameworks: [], packageManager: null }',
   '    include: ["**/*.ts"]',
   '    exclude: ["**/*.{spec,test,cy,stories}.*", "**/*.d.ts"]',
-  '    packs: [builtin/common-quality, builtin/common-checks]',
+  '    packs: [builtin/common-design, builtin/common-code, builtin/common-errors, builtin/common-security, builtin/common-verification, builtin/common-checks]',
   '    commands: {}',
   '    checks: { lint: { all: null, file: null }, unit: { all: null, file: null }, typecheck: { all: null, file: null }, e2e: { all: null, file: null } }',
   '',

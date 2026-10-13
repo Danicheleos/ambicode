@@ -7,7 +7,7 @@ import type { Activity, PromptStage } from '#types/primitives';
 import { applicablePrepareStages } from './packs/resolve.ts';
 import type { Runtime } from '#types/composition';
 
-export const STAGE_LIMITS: Record<PromptStage, number> = { 'before-work': 4096, 'before-report': 1536, 'before-checks': 1536, 'before-review': 2048 };
+export const STAGE_LIMITS: Record<Exclude<PromptStage, 'before-review'>, number> = { 'before-work': 4096, 'before-report': 1536, 'before-checks': 1536 };
 
 export const renderRule = (rule: ResolvedRule): string => `${rule.qualifiedId} (${rule.authority}): ${rule.instruction}`;
 
@@ -37,17 +37,17 @@ export async function policyStage(input: {
   const carried = input.stage === 'before-work' ? policy.rules : [];
   const show = `policy --activity ${input.activity} --stage ${input.stage} --show`;
   if (carried.length > 0) lines.push('Rules:', ...carried.map(renderRule));
-  const own = input.stage === 'before-work' ? input.project.rules : [];
-  if (own.length > 0) lines.push(carried.length > 0 ? 'Project rules:' : 'Rules:', ...own.map((entry) => `- ${entry.rule}`));
 
   const limit = STAGE_LIMITS[input.stage];
   let kept = lines;
   let text = kept.join('\n');
-  if (!input.show && Buffer.byteLength(text) > limit) {
+  // Review rules go to brief.md for the reviewer subagent, which has no Bash to run the `--show` pointer a cut leaves.
+  const capped = !input.show && input.activity !== 'review';
+  if (capped && Buffer.byteLength(text) > limit) {
     const rest = (count: number): string => `${count} more: \`${show}\``;
     while (kept.length > 1 && Buffer.byteLength(`${kept.join('\n')}\n${rest(lines.length - kept.length)}`) > limit) kept = kept.slice(0, -1);
     text = `${kept.join('\n')}\n${rest(lines.length - kept.length)}`;
   }
   const bytes = Buffer.byteLength(text);
-  return { stage: input.stage, text, bytes, entry: { stage: input.stage, packs: policy.packs.map((pack) => pack.reference), rules: carried.length + own.length, bytes } };
+  return { stage: input.stage, text, bytes, entry: { stage: input.stage, packs: policy.packs.map((pack) => pack.reference), rules: carried.length, bytes } };
 }

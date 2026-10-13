@@ -98,6 +98,33 @@ describe('review record', () => {
     assert.match(out.result.reviewer!.rejections[0]!, /not JSON/);
   });
 
+  const capture = (t: Awaited<ReturnType<typeof pending>>, text: string) => writeFile(path.join(path.dirname(t.reviewed.resultPath), 'reviewer-answer.txt'), text);
+
+  it('the answer the SubagentStop hook captured is recorded with nothing on stdin, and wins over a pasted one', async () => {
+    const t = await pending();
+    await capture(t, `\`\`\`json\n${JSON.stringify({ findings: [t.finding(t.line)], coverageNotes: [] })}\n\`\`\``);
+    const out = await t.record('');
+    assert.deepEqual([out.result.findings.length, out.result.reviewer?.status], [1, 'ok']);
+    const again = await pending();
+    await capture(again, JSON.stringify({ findings: [], coverageNotes: ['captured'] }));
+    assert.deepEqual((await again.record(JSON.stringify({ findings: [again.finding(again.line)], coverageNotes: [] }))).result.findings, []);
+  });
+
+  it('a captured answer that fails validation is a failed review with its text kept, as a pasted one is', async () => {
+    const t = await pending();
+    await capture(t, JSON.stringify({ findings: [t.finding(9999)], coverageNotes: [] }));
+    const out = await t.record('');
+    assert.deepEqual([out.result.status, out.result.reviewer?.status], ['error', 'failed']);
+    assert.match(await readFile(path.join(path.dirname(out.resultPath), 'rejected-output.txt'), 'utf8'), /9999/);
+  });
+
+  it('no captured answer and nothing on stdin records nothing and leaves the review pending for a paste', async () => {
+    const t = await pending();
+    await assert.rejects(t.record('  \n'), { code: 'review-answer-missing' });
+    assert.equal((await t.ledger()).findLast((candidate) => candidate.kind === 'review')!['stage'], 'pending');
+    assert.equal((await t.record('none')).result.reviewer?.status, 'failed', 'pasting none is the exit for a reviewer that returned nothing');
+  });
+
   it('a review with no check recorded is partial, and says so in part 3', async () => {
     const t = await pending();
     const out = await t.record(JSON.stringify({ findings: [], coverageNotes: [] }));

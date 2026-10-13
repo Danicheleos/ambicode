@@ -52,9 +52,11 @@ Each finding needs a primary location that exists in the diff: a path, a side (`
 a line number from the ranges the brief lists for that file. One location that cannot be verified
 makes the whole review invalid: every finding is discarded, not only that one.
 
-The explanation says what goes wrong and for whom. The suggested comment is what a human might post
-on the merge request: one or two sentences, specific, written to the author. No praise, no
-restating the code, no asking the author to resolve a thread, block a merge or open a ticket.
+A problem that recurs is one finding at its clearest location; the explanation names the other
+places. The explanation says what goes wrong and for whom, and words a judgement as a judgement and
+a fact as a fact. The suggested comment is what a human might post on the merge request: one or two
+sentences, specific, written to the author. No praise, no restating the code, no asking the author
+to resolve a thread, block a merge or open a ticket.
 
 `risk` is impact if the finding is real; `confidence` is whether it is real. Both are one of
 `low`, `medium`, `high`. If you are below `medium` on both, do not report it.

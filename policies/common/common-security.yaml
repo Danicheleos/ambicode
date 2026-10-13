@@ -1,0 +1,48 @@
+schemaVersion: 1
+id: common-security
+authority: inherited
+appliesTo:
+  - "**/*"
+activities: [review, plan]
+
+source:
+  location: >-
+    AMBICODE common baseline, security: validating data at its boundary, not exposing secrets and allowlisting untrusted input; distilled from the grahpt common rule packs.
+  externalVersion: "common-v3"
+
+rules:
+  - id: data-boundary
+    category: security
+    instruction: >-
+      Validate untrusted data once where it enters, and map between transport,
+      domain, and presentation shapes explicitly when their invariants differ.
+      A static type is a compile-time assertion, not runtime validation.
+    check:
+      kind: reviewer
+      explanation: Assessed from the entry points the change adds or moves.
+
+  - id: no-secret-exposure
+    category: security
+    activities: [review]
+    instruction: >-
+      Never log or return credentials, tokens, authorization headers, raw
+      request bodies, stack traces, or an upstream provider's raw error payload.
+      A catch block is exactly where dumping the whole object is tempting.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed logging and response construction.
+
+  - id: untrusted-input-allowlist
+    category: security
+    activities: [review]
+    instruction: >-
+      Never let untrusted input choose a field name, operator, sort key, page
+      size, shell argument, or file path without an allowlist. Interpolating it
+      into a query, command, or path is injection, whatever the store or shell.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed query, command, and path construction.
+
+prompts: []
+
+commandPolicy: []

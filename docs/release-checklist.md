@@ -24,9 +24,9 @@ against evidence that already exists, not as open-ended advice.
   ordinary `claude plugin list` and
   `claude plugin details ambicode@ambicode-team` report all six
   skills (`init`, `review`, `investigate`, `plan`, `task`, `rules`) and the
-  hooks of `hooks/hooks.json` (seven events, thirteen handler entries:
+  hooks of `hooks/hooks.json` (eight events, fourteen handler entries:
   `PostToolUse`, `PreToolUse`, `SessionStart`, `UserPromptSubmit`, `Stop`,
-  `PostCompact`, `SessionEnd`; record the count the CLI prints) before relying
+  `SubagentStop`, `PostCompact`, `SessionEnd`; record the count the CLI prints) before relying
   on it.
 - [ ] Run `npm run smoke:install-local` (doc 04 P2.2 correction A, and the
   failure-safety rewrite of doc 04 P2.3 correction A): proves install,

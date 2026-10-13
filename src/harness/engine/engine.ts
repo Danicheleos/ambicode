@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { loadConfig } from '#modules/config/load';
 import { hasRequirement, requirementsServer } from '#modules/requirements/capture/has-requirement';
 import { withLedgerLock } from '#platform/ledger/ledger-lock';
+import { saveNote } from '#modules/evidence/notes';
 import { mintTaskSlug } from '#modules/evidence/task/slug';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
 import { dirKindFor } from '#types/defaults';
@@ -308,7 +309,13 @@ export function createEngine(deps: EngineDeps): Engine {
     });
   }
 
-  const stopPorts = { runtime, routes, pointer, closeFinal };
+  /** What `note save --kind investigation` then its command tail do, for a final message the Stop hook was handed. */
+  async function answerNote(task: string, session: string, routeId: string, body: string, scratchpadDir?: string): Promise<StepMessage> {
+    await saveNote({ runtime, session, context }, { task, kind: 'investigation', body, from: null, iteration: null, route: routeId });
+    return advance({ task, session, cause: 'note save', ...(scratchpadDir === undefined ? {} : { scratchpadDir }) });
+  }
+
+  const stopPorts = { runtime, routes, pointer, closeFinal, answerNote };
 
   return {
     start: (input) => inside.run(true, () => start(input)),

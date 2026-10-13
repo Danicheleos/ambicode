@@ -32,21 +32,22 @@ test('U01 an unknown field is an error rather than being ignored', () => {
   );
 });
 
-test('v4: rules are capped at 10 and carry a source', () => {
-  const rules = (n: number): string => `[${Array.from({ length: n }, (_, i) => `{ source: manual, rule: "r${i}" }`).join(', ')}]`;
-  const body = (n: number): string => `  - { id: app, root: ".", paths: [], ${ECO}, rules: ${rules(n)} }`;
-  assert.equal(parseConfig(withProjects(body(10))).projects[0]?.rules.length, 10);
-  assert.throws(() => parseConfig(withProjects(body(11))), (error: Error & { code?: string }) => error.code === 'config-invalid');
+test('v5: a project that still carries rules is rejected with a pointer to /ambicode:rules', () => {
+  const body = `  - { id: app, root: ".", paths: [], ${ECO}, rules: [{ source: manual, rule: "r" }] }`;
+  assert.throws(
+    () => parseConfig(withProjects(body)),
+    (error: Error & { code?: string; details?: string[] }) => error.code === 'config-invalid' && /projects\.app\.rules.*\/ambicode:rules/.test((error.details ?? []).join(' ')),
+  );
 });
 
 test('older and newer schema versions: one config-invalid asking for init again, or too-new', () => {
-  for (const version of [1, 2, 3]) {
+  for (const version of [1, 2, 3, 4]) {
     assert.throws(
-      () => parseConfig(withProjects(ONE).replace('schemaVersion: 4', `schemaVersion: ${version}`)),
+      () => parseConfig(withProjects(ONE).replace('schemaVersion: 5', `schemaVersion: ${version}`)),
       (error: Error & { code?: string; details?: string[] }) => error.code === 'config-invalid' && /run \/ambicode:init again/.test(`${error.message} ${(error.details ?? []).join(' ')}`),
     );
   }
-  assert.throws(() => parseConfig(withProjects(ONE).replace('schemaVersion: 4', 'schemaVersion: 5')), (error: Error & { code?: string }) => error.code === 'config-schema-too-new');
+  assert.throws(() => parseConfig(withProjects(ONE).replace('schemaVersion: 5', 'schemaVersion: 6')), (error: Error & { code?: string }) => error.code === 'config-schema-too-new');
 });
 
 test('U01 an invalid field reports its path and expected shape without echoing the value', () => {
@@ -97,7 +98,7 @@ test('path normalization keeps repository-relative form', () => {
 });
 
 test('a stale config fails with one config-invalid error, and loading never writes the file', async (t) => {
-  const stale = withProjects(ONE).replace('schemaVersion: 4', 'schemaVersion: 3');
+  const stale = withProjects(ONE).replace('schemaVersion: 5', 'schemaVersion: 3');
   const directory = await sandbox(t);
   await mkdir(path.join(directory, '.ambicode'), { recursive: true });
   const file = path.join(directory, '.ambicode', 'config.yaml');

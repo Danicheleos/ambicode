@@ -42,11 +42,11 @@ function git(args, cwd) {
 
 const RUN = 'model: sonnet, effort: medium, timeoutMinutes: 15';
 const CONFIG = [
-  'schemaVersion: 4',
+  'schemaVersion: 5',
   'id: app',
   'context: { maxTotalTokens: 24000, maxFileTokens: 2500 }',
   'skills:',
-  `  init: { ${RUN}, scout: { ${RUN} }, ruleSources: [presets, scout, manual, web] }`,
+  `  init: { ${RUN}, scout: { ${RUN} } }`,
   `  review: { ${RUN}, maxFindings: null, maxChangedFiles: null, maxChangedLines: null, maxContextBytes: null, excludePaths: [] }`,
   `  task: { ${RUN}, checkTimeoutSeconds: 120 }`,
   `  plan: { ${RUN} }`,
@@ -163,6 +163,7 @@ describe('built-artifact regression: ambicode hook (P2.4 correction G/H)', () =>
       'SessionEnd',
       'SessionStart',
       'Stop',
+      'SubagentStop',
       'UserPromptSubmit',
     ]);
     for (const event of events) {

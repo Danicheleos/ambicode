@@ -1,0 +1,30 @@
+schemaVersion: 1
+id: angular-style
+authority: inherited
+appliesTo:
+  - "**/*.ts"
+activities: [review, task]
+detect:
+  - { file: package.json, contains: '"@angular/core"' }
+
+source:
+  location: >-
+    AMBICODE Angular baseline, adapted from grahpt angular-typescript-style.
+    The original's interface prefix, explicit access modifiers, member ordering,
+    and import grouping are optional approved style, left to the project's
+    configured lint rules; only the type-honesty concern is carried over.
+  externalVersion: "angular-v2"
+
+rules:
+  - id: honest-types
+    category: correctness
+    instruction: >-
+      Use the narrowest honest type. `any`, a broad cast, or optional chaining
+      used in place of checking a value that can be absent moves the failure to
+      runtime without removing it.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed declarations.
+
+prompts: []
+commandPolicy: []

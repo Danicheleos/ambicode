@@ -3,7 +3,7 @@ import { contentHash } from '#util/hash';
 import { promptsDirectory } from '#util/plugin-root';
 import type { FileSystem } from '#types/platform/ports';
 
-/** Read only via `readSharedOperatingContract`; reviewer-only rules belong in `reviewer-role.md`. */
+/** Read only via `readSharedOperatingContract`. */
 const SHARED_OPERATING_CONTRACT_FILE = 'shared-operating-contract.md';
 const SHARED_OPERATING_CONTRACT_REFERENCE = `builtin/prompts/${SHARED_OPERATING_CONTRACT_FILE}`;
 

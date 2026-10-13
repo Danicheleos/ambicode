@@ -86,7 +86,21 @@ export async function validatePack(
     }
   }
 
-  if (constraints.commands !== null) {
+  for (const rule of pack.rules) {
+    const outside = (rule.activities ?? []).filter((activity) => !pack.activities.includes(activity));
+    if (outside.length > 0) {
+      diagnostics.push({
+        severity: 'error',
+        code: 'pack-invalid',
+        message: `${reference}: rule "${rule.id}" lists activities ${outside.join(', ')} that the pack does not carry; a rule only narrows its pack.`,
+        where: filePath,
+      });
+    }
+  }
+
+  // No catalog of command ids exists, so a built-in or its copy (`replaces`) naming an undeclared
+  // command is unavailable, like null; only a hand-written pack's typo is worth an error.
+  if (constraints.commands !== null && origin === 'project' && pack.replaces === undefined) {
     const commands = constraints.commands;
     const owner = constraints.projectId ?? 'this project';
     for (const decision of pack.commandPolicy) {
@@ -122,9 +136,23 @@ interface PackSetValidation {
   diagnostics: Diagnostic[];
 }
 
-/** A project pack with `replaces: builtin/<id>` takes that built-in's place; two enabled packs with one id are an error. */
-export function validatePackSet(packs: readonly PackWithPrompts[]): PackSetValidation {
+/**
+ * A project pack with `replaces: builtin/<id>` takes that built-in's place; two enabled packs with one id are an error.
+ * With `builtinIds`, a `replaces` naming a built-in this release lacks is an error too: an old copy would otherwise load beside the packs that replaced it.
+ */
+export function validatePackSet(packs: readonly PackWithPrompts[], builtinIds?: ReadonlySet<string>): PackSetValidation {
   const diagnostics: Diagnostic[] = [];
+  for (const pack of packs) {
+    const target = pack.origin === 'project' ? pack.pack.replaces : undefined;
+    if (target !== undefined && builtinIds !== undefined && !builtinIds.has(target.slice('builtin/'.length))) {
+      diagnostics.push({
+        severity: 'error',
+        code: 'pack-replaces-missing',
+        message: `${pack.reference} replaces "${target}", which this AMBICODE release does not have. Remove the file from policyFiles or re-copy the packs that replaced it; see docs/rule-migration.md.`,
+        where: pack.filePath,
+      });
+    }
+  }
   const replaced = new Set(packs.filter((pack) => pack.origin === 'project' && pack.pack.replaces !== undefined).map((pack) => pack.pack.replaces));
   const kept: PackWithPrompts[] = [];
   const seenIds = new Map<string, PackWithPrompts>();

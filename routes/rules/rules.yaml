@@ -3,7 +3,7 @@ version: 3
 steps:
   - id: discover
     actor: code
-    run: ["script(discover)"]
+    run: ["script(discover)", policy.enabled]
   - id: sources
     actor: human
     gate:
@@ -18,7 +18,7 @@ steps:
   - id: draft
     actor: model
     instruction: "file:routes/rules/draft.md"
-    payload: ["script:discover"]
+    payload: ["script:discover", policy.enabled]
     produces: ["policy{drafts}"]
     repeat: 3
   - id: rules-table

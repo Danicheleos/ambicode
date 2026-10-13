@@ -5,6 +5,7 @@ import { formatJsonOutput } from '#util/json-output';
 import { parseArgs } from '#util/args';
 import { taskWorkingDirectory } from '#modules/evidence/task/task-dir';
 import { configValidateCommand } from './commands/config/validate.ts';
+import { configPacksCommand } from './commands/config/packs.ts';
 import { contextListCommand, contextWriteCommand } from './commands/context/context.ts';
 import { rulesApplyCommand } from './commands/policy/rules.ts';
 import { checkCommand } from './commands/checks/check.ts';
@@ -78,7 +79,7 @@ const versionCommand: CliCommand = {
 };
 
 const COMMANDS: ReadonlyMap<string, CliCommand> = new Map([
-  configValidateCommand, rulesApplyCommand, policyCheckCommand, noteSaveCommand, notePromoteCommand,
+  configValidateCommand, configPacksCommand, rulesApplyCommand, policyCheckCommand, noteSaveCommand, notePromoteCommand,
   checkCommand, formatCommand, reportCommand, routeStartCommand, routeNextCommand, routeStopCommand, mapCommand, refsCommand,
   requirementsNormalizeCommand, reviewCommand, reviewRecordCommand, versionCommand, contextListCommand, contextWriteCommand,
 ].map((entry) => [entry.name, entry]));

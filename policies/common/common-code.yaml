@@ -1,0 +1,70 @@
+schemaVersion: 1
+id: common-code
+authority: inherited
+appliesTo:
+  - "**/*"
+activities: [review, task]
+
+source:
+  location: >-
+    AMBICODE common baseline, code hygiene: dead code, naming, side effects, comments and caller updates; distilled from the grahpt common rule packs.
+  externalVersion: "common-v3"
+
+rules:
+  - id: dead-surface
+    category: correctness
+    instruction: >-
+      Remove code, members, and work that the change leaves unreachable or
+      unused.
+    check:
+      kind: reviewer
+      explanation: >-
+        Only report a symbol as unused after searching the snapshot. Note when
+        the snapshot does not contain the whole repository.
+
+  - id: naming
+    category: code-style
+    instruction: >-
+      Use one clear domain term per concept and name booleans as the question
+      they answer. Leave formatting and casing to the project's configured
+      tools.
+    check:
+      kind: command
+      command: lint
+      explanation: >-
+        The configured linter proves only the conventions it implements;
+        everything else here is a reviewer judgement.
+
+  - id: effects
+    category: correctness
+    instruction: >-
+      Make mutation, subscriptions, and side effects locally visible and
+      bounded. Treat inputs as read-only unless the contract says otherwise.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed code and the lifetimes it creates.
+
+  - id: comment-reasons
+    category: code-style
+    instruction: >-
+      Default to no comment. Add one only for a reason, invariant or
+      constraint the code does not show, in the fewest words that carry it,
+      and state a recurring one once rather than in every file that shares
+      it. A comment that restates the syntax, or outruns the code it
+      explains, is maintenance without information.
+    check:
+      kind: reviewer
+      explanation: Judged from the comments the change adds, against the file's own density.
+
+  - id: callers
+    category: correctness
+    instruction: >-
+      When a change removes, renames, or alters the signature or meaning of a
+      name, find every caller and update it in the same change.
+    check:
+      kind: reviewer
+      explanation: Only report a missed caller after searching the snapshot for the old name.
+
+prompts: []
+
+commandPolicy: []

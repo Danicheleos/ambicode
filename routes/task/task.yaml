@@ -41,7 +41,7 @@ steps:
   - id: brief
     actor: code
     when: gate.review-offer.is(run)
-    run: ["policy.stage(before-work)", script(brief)]
+    run: ["policy.stage(before-work, review)", script(brief)]
   - id: review-agent
     actor: model
     when: gate.review-offer.is(run)

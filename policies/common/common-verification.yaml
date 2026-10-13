@@ -1,0 +1,63 @@
+schemaVersion: 1
+id: common-verification
+authority: inherited
+appliesTo:
+  - "**/*"
+activities: [review, task]
+
+source:
+  location: >-
+    AMBICODE common baseline, verification: behavioural and deterministic tests, not evading checks and recording verification gaps; distilled from the grahpt common rule packs.
+  externalVersion: "common-v3"
+
+rules:
+  - id: test-behavior
+    category: correctness
+    instruction: >-
+      Test the observable outcome rather than private implementation, and add a
+      regression test at the fix point for a real defect.
+    check:
+      kind: command
+      command: unit
+      explanation: >-
+        The configured unit command proves only that the selected tests ran and
+        what they returned. Whether coverage is meaningful is a reviewer
+        judgement.
+
+  - id: test-determinism
+    category: correctness
+    instruction: >-
+      Control the clock, network, and ordering a test depends on. A test that
+      asserts a mock returns its own configured value proves nothing.
+    check:
+      kind: reviewer
+      explanation: Assessed from the changed tests.
+
+  - id: no-check-evasion
+    category: workflow
+    instruction: >-
+      Make a failing check pass by fixing its cause. Suppressing it, loosening
+      its configuration, skipping a test, or reshaping code so the tool no
+      longer sees the problem hides the failure; when the cause is out of
+      reach, report the check as failing.
+    check:
+      kind: reviewer
+      explanation: >-
+        Look for suppression comments, disabled or skipped tests, and loosened
+        check configuration in the diff.
+
+  - id: honest-gaps
+    category: workflow
+    activities: [review]
+    instruction: >-
+      Record a genuine verification gap rather than describing coverage that
+      does not exist.
+    check:
+      kind: reviewer
+      explanation: >-
+        Compare the claims in the change description against the tests and
+        check evidence actually present.
+
+prompts: []
+
+commandPolicy: []

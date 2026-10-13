@@ -3,14 +3,19 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import type { ProjectConfig } from '#types/modules/config';
 import { loadPacksForProject } from './packs/load.ts';
+import { selectPacks } from './packs/select.ts';
+import { listBuiltinPackFiles } from './packs/builtin.ts';
 import { decisionFor, explainRefusal, resolvePolicy } from './packs/resolve.ts';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { toPosix } from '#util/glob';
 import { REPO_ROOT } from '#testing/paths';
 
 const BUILTIN_DIRECTORY = path.join(REPO_ROOT, 'policies');
+const COMMON_PACKS = ['common-design', 'common-code', 'common-errors', 'common-security', 'common-verification'];
+const COMMON_REFERENCES = COMMON_PACKS.map((id) => `builtin/${id}`);
 
 function project(overrides: Partial<ProjectConfig> = {}): ProjectConfig {
   return {
@@ -20,7 +25,6 @@ function project(overrides: Partial<ProjectConfig> = {}): ProjectConfig {
     ecosystem: { languages: ['typescript'], frameworks: [], packageManager: null },
     include: [],
     exclude: [],
-    rules: [],
     packs: [],
     policyFiles: [],
     commands: { lint: 'lint', unit: 'unit', e2e: 'e2e' },
@@ -38,39 +42,38 @@ async function sandbox(t: { after(fn: () => unknown): void }): Promise<string> {
 test('U03 built-in packs parse, keep authority and provenance, and qualify rule ids', async () => {
   const { packs, diagnostics } = await loadPacksForProject({
     fs: nodeFileSystem,
-    project: project({ packs: ['builtin/common-quality'] }),
+    project: project({ packs: COMMON_REFERENCES }),
     builtinDirectory: BUILTIN_DIRECTORY,
     repositoryRoot: '/nowhere',
   });
 
   assert.deepEqual(diagnostics, []);
-  assert.equal(packs.length, 1);
-  assert.equal(packs[0]?.pack.authority, 'inherited');
-  assert.ok(packs[0]?.pack.source.location.includes('grahpt'));
+  assert.equal(packs.length, COMMON_PACKS.length);
+  for (const loaded of packs) {
+    assert.equal(loaded.pack.authority, 'inherited', loaded.pack.id);
+    assert.ok(loaded.pack.source.location.includes('grahpt'), loaded.pack.id);
+  }
 
   const resolved = resolvePolicy({
     activity: 'review',
-    project: project({ packs: ['builtin/common-quality'] }),
+    project: project({ packs: COMMON_REFERENCES }),
     packs,
     paths: ['apps/web/src/a.ts'],
   });
-  assert.ok(resolved.rules.every((rule) => rule.qualifiedId.startsWith('common-quality/')));
-  assert.ok(resolved.rules.some((rule) => rule.qualifiedId === 'common-quality/reuse-before-reimplementing'));
-  assert.equal(resolved.prompts.length, 1);
-  // `absolutePath` is a host path, so it keeps the platform's separator; the
-  // assertion normalizes to compare rather than reshaping production.
-  assert.ok(toPosix(resolved.prompts[0]?.absolutePath ?? '').endsWith('policies/prompts/review-smells.md'));
+  assert.ok(resolved.rules.every((rule) => COMMON_PACKS.some((id) => rule.qualifiedId.startsWith(`${id}/`))));
+  assert.ok(resolved.rules.some((rule) => rule.qualifiedId === 'common-design/reuse-before-reimplementing'));
+  assert.equal(resolved.prompts.length, 0, 'the common packs carry no prompt: before-review is never delivered');
 });
 
 test('comment-reasons defaults to no comment, bounds its length, and refuses the same reason in several places', async () => {
   const { packs } = await loadPacksForProject({
     fs: nodeFileSystem,
-    project: project({ packs: ['builtin/common-quality'] }),
+    project: project({ packs: COMMON_REFERENCES }),
     builtinDirectory: BUILTIN_DIRECTORY,
     repositoryRoot: '/nowhere',
   });
-  const rule = packs[0]?.pack.rules.find((candidate) => candidate.id === 'comment-reasons');
-  assert.ok(rule, 'common-quality must still declare comment-reasons');
+  const rule = packs.flatMap((loaded) => loaded.pack.rules).find((candidate) => candidate.id === 'comment-reasons');
+  assert.ok(rule, 'the common packs must still declare comment-reasons');
   const instruction = rule.instruction.replace(/\s+/g, ' ');
   assert.match(instruction, /default to no comment/i, 'must make no comment the default');
   assert.match(instruction, /fewest words|shortest/i, 'must bound how long a comment may be');
@@ -83,9 +86,9 @@ test('comment-reasons defaults to no comment, bounds its length, and refuses the
 
 test('U26 every built-in pack loads and its referenced prompt files exist', async () => {
   const ids = [
-    'common-quality', 'common-checks', 'python-quality',
+    ...COMMON_PACKS, 'common-checks', 'python-quality',
     'angular-components', 'angular-architecture', 'angular-state', 'angular-http', 'angular-style',
-    'express-http', 'express-persistence', 'express-errors', 'express-style',
+    'express-http', 'express-persistence', 'express-errors',
   ];
   const { packs, diagnostics } = await loadPacksForProject({
     fs: nodeFileSystem,
@@ -339,6 +342,34 @@ test('U05 replacement is explicit and whole-pack, and an implicit duplicate fail
   assert.ok(second.diagnostics.some((d) => d.code === 'pack-duplicate-id'));
 });
 
+test('a policy file replacing a built-in this release lacks is an error pointing at the migration guide, and so is naming that built-in in packs', async (t) => {
+  const directory = await sandbox(t);
+  await mkdir(path.join(directory, '.ambicode', 'policies'), { recursive: true });
+  await writeFile(path.join(directory, '.ambicode', 'policies', 'old.yaml'), ['schemaVersion: 1', 'id: common-quality', 'replaces: builtin/common-quality', 'authority: team', 'appliesTo: ["**/*"]', 'activities: [review]', 'source: { location: "old copy" }'].join('\n'));
+  const loaded = await loadPacksForProject({ fs: nodeFileSystem, project: project({ packs: ['builtin/common-quality'], policyFiles: ['.ambicode/policies/old.yaml'] }), builtinDirectory: BUILTIN_DIRECTORY, repositoryRoot: directory });
+  const replaced = loaded.diagnostics.find((d) => d.code === 'pack-replaces-missing');
+  assert.match(replaced?.message ?? '', /builtin\/common-quality.*docs\/rule-migration\.md/);
+  assert.match(loaded.diagnostics.find((d) => d.code === 'pack-missing')?.message ?? '', /docs\/rule-migration\.md/);
+});
+
+test('two built-in packs with one id are refused', async (t) => {
+  const directory = await sandbox(t);
+  await mkdir(path.join(directory, 'group'));
+  await writeFile(path.join(directory, 'one.yaml'), '');
+  await writeFile(path.join(directory, 'group', 'one.yaml'), '');
+  await assert.rejects(listBuiltinPackFiles(nodeFileSystem, directory), (error: { code?: string }) => error.code === 'builtin-pack-duplicate');
+});
+
+test('express packs match JavaScript files and feature-folder layouts, not only .ts suffixes', async () => {
+  const api = project({ id: 'api', root: 'services/api', packs: ['builtin/express-http', 'builtin/express-persistence', 'builtin/express-errors'] });
+  const { packs } = await loadPacksForProject({ fs: nodeFileSystem, project: api, builtinDirectory: BUILTIN_DIRECTORY, repositoryRoot: '/nowhere' });
+  const ids = (file: string) => resolvePolicy({ activity: 'review', project: api, packs, paths: [`services/api/${file}`] }).rules.map((rule) => rule.qualifiedId);
+  for (const file of ['src/orders.routes.js', 'src/invoices/routes.js', 'src/routes/orders.mjs', 'src/orders/controller.ts']) assert.ok(ids(file).includes('express-http/single-response'), file);
+  for (const file of ['src/orders/service.ts', 'src/orders/orders.repository.ts', 'src/orders/repository.js', 'src/orders.service.cjs']) assert.ok(ids(file).includes('express-persistence/bounded-reads'), file);
+  assert.ok(ids('src/orders/handler.js').includes('express-errors/classified-errors'));
+  assert.ok(!ids('src/util/strings.js').some((id) => id.startsWith('express-http/')));
+});
+
 test('U06 framework packs stay in their own scope', async () => {
   const angular = project({
     id: 'web',
@@ -399,8 +430,8 @@ test('U06 activity filtering keeps read-only work out of check decisions', async
 });
 
 test('U06 output ordering is deterministic and independent of declaration order', async () => {
-  const forward = project({ packs: ['builtin/common-quality', 'builtin/python-quality'] });
-  const reverse = project({ packs: ['builtin/python-quality', 'builtin/common-quality'] });
+  const forward = project({ packs: [...COMMON_REFERENCES, 'builtin/python-quality'] });
+  const reverse = project({ packs: ['builtin/python-quality', ...COMMON_REFERENCES.toReversed()] });
 
   const a = await loadPacksForProject({ fs: nodeFileSystem, project: forward, builtinDirectory: BUILTIN_DIRECTORY, repositoryRoot: '/x' });
   const b = await loadPacksForProject({ fs: nodeFileSystem, project: reverse, builtinDirectory: BUILTIN_DIRECTORY, repositoryRoot: '/x' });
@@ -436,4 +467,99 @@ test('B6/B7 an invalid pack whose applicability cannot be established keeps bloc
       `activity "${activity}" must still be blocked by an unparsable pack`,
     );
   }
+});
+
+async function writePack(directory: string, name: string, lines: string[]): Promise<void> {
+  await mkdir(path.join(directory, '.ambicode', 'policies'), { recursive: true });
+  await writeFile(path.join(directory, '.ambicode', 'policies', name), [...lines, ''].join('\n'));
+}
+
+const SCOPED_PACK = [
+  'schemaVersion: 1', 'id: scoped', 'authority: team', 'appliesTo: ["**/*"]', 'activities: [review, task, plan]', 'source: { location: "test" }', 'rules:',
+  '  - { id: any, category: architecture, instruction: Applies everywhere., check: { kind: reviewer, explanation: x } }',
+  '  - { id: plan-only, category: architecture, instruction: Plan only., activities: [plan], check: { kind: reviewer, explanation: x } }',
+  '  - { id: python-only, category: correctness, instruction: Python only., appliesTo: ["**/*.py"], check: { kind: reviewer, explanation: x } }',
+];
+
+test('a rule narrows its pack: per-rule activities and appliesTo resolve, and absent ones keep the pack values', async (t) => {
+  const directory = await sandbox(t);
+  await writePack(directory, 'scoped.yaml', SCOPED_PACK);
+  const scoped = project({ root: '.', policyFiles: ['.ambicode/policies/scoped.yaml'] });
+  const { packs, diagnostics } = await loadPacksForProject({ fs: nodeFileSystem, project: scoped, builtinDirectory: BUILTIN_DIRECTORY, repositoryRoot: directory });
+  assert.deepEqual(diagnostics, []);
+  const ids = (activity: 'plan' | 'task', paths: string[]): string[] => resolvePolicy({ activity, project: scoped, packs, paths }).rules.map((rule) => rule.qualifiedId);
+  assert.deepEqual(ids('plan', ['src/a.ts']), ['scoped/any', 'scoped/plan-only']);
+  assert.deepEqual(ids('task', ['src/a.ts']), ['scoped/any']);
+  assert.deepEqual(ids('task', ['src/a.ts', 'tool/b.py']), ['scoped/any', 'scoped/python-only']);
+  assert.deepEqual(ids('task', []), ['scoped/any', 'scoped/python-only'], 'no known path keeps the pack-level behaviour: no glob filter');
+});
+
+test('a rule that lists an activity its pack does not carry is a pack error', async (t) => {
+  const directory = await sandbox(t);
+  await writePack(directory, 'wide.yaml', SCOPED_PACK.map((line) => line.replace('activities: [review, task, plan]', 'activities: [review]').replace('activities: [plan],', 'activities: [plan, task],')));
+  const { diagnostics } = await loadPacksForProject({ fs: nodeFileSystem, project: project({ root: '.', policyFiles: ['.ambicode/policies/wide.yaml'] }), builtinDirectory: BUILTIN_DIRECTORY, repositoryRoot: directory });
+  assert.ok(diagnostics.some((diagnostic) => diagnostic.code === 'pack-invalid' && /plan-only/.test(diagnostic.message)), JSON.stringify(diagnostics));
+});
+
+test('the 24 common rules each name their activities; only fix-the-cause and reuse-before-reimplementing sit in both plan and task, the review-only rules never reach plan or task', async () => {
+  const config = project({ packs: COMMON_REFERENCES });
+  const { packs } = await loadPacksForProject({ fs: nodeFileSystem, project: config, builtinDirectory: BUILTIN_DIRECTORY, repositoryRoot: '/nowhere' });
+  const ruleIds = (activity: 'plan' | 'task' | 'review') => resolvePolicy({ activity, project: config, packs, paths: ['apps/web/src/a.ts'] }).rules.map((rule) => rule.qualifiedId.split('/')[1]!);
+  const plan = ruleIds('plan');
+  const task = ruleIds('task');
+  const review = ruleIds('review');
+  assert.equal(packs.flatMap((loaded) => loaded.pack.rules).length, 24);
+  assert.equal(review.length, 24, 'every rule reaches review');
+  const reviewOnly = ['honest-gaps', 'no-secret-exposure', 'untrusted-input-allowlist', 'outbound-timeouts', 'configured-logger'];
+  for (const id of reviewOnly) assert.ok(!plan.includes(id) && !task.includes(id), id);
+  assert.deepEqual(plan.filter((id) => task.includes(id)).sort(), ['fix-the-cause', 'reuse-before-reimplementing']);
+  assert.ok(plan.includes('scope') && !task.includes('scope'));
+  for (const id of ['callers', 'no-check-evasion', 'unobserved-async']) assert.ok(task.includes(id) && !plan.includes(id), id);
+  assert.equal(plan.length + task.length, 21);
+});
+
+test('two built-in files with one id, in different folders, are refused', async (t) => {
+  const directory = await sandbox(t);
+  for (const folder of ['one', 'two']) {
+    await mkdir(path.join(directory, folder), { recursive: true });
+    await writeFile(path.join(directory, folder, 'same.yaml'), 'id: same\n');
+  }
+  await assert.rejects(
+    loadPacksForProject({ fs: nodeFileSystem, project: project({ packs: ['builtin/same'] }), builtinDirectory: directory, repositoryRoot: '/nowhere' }),
+    /share the id "same"/,
+  );
+  assert.deepEqual((await listBuiltinPackFiles(nodeFileSystem, BUILTIN_DIRECTORY)).map((file) => file.id).filter((id, index, all) => all.indexOf(id) !== index), [], 'the shipped policies have unique ids');
+});
+
+test('pack selection: a marker the repository shows picks the pack, and an undeclared command does not skip it', async (t) => {
+  const directory = await sandbox(t);
+  await writeFile(path.join(directory, 'package.json'), '{"dependencies":{"@angular/core":"^20.0.0"}}\n');
+  const files = ['package.json', 'src/app/a.service.ts', 'src/app/a.component.ts', 'node_modules/x/package.json'];
+  const select = (overrides: Partial<ProjectConfig>) => selectPacks({ fs: nodeFileSystem, builtinDirectory: BUILTIN_DIRECTORY, repositoryRoot: directory, project: project({ root: '.', ...overrides }), files });
+  const chosen = await select({});
+  const byRef = new Map(chosen.map((choice) => [choice.reference, choice]));
+  assert.equal(byRef.get('builtin/angular-http')?.enabled, true);
+  assert.match(byRef.get('builtin/angular-http')!.reason, /package\.json has "@angular\/core"/);
+  assert.equal(byRef.get('builtin/express-http')?.enabled, false);
+  assert.match(byRef.get('builtin/express-http')!.reason, /no marker/);
+  assert.equal(byRef.get('builtin/python-quality')?.enabled, false);
+  assert.match(byRef.get('builtin/python-quality')!.reason, /no file matches/);
+  for (const reference of COMMON_REFERENCES) assert.equal(byRef.get(reference)?.enabled, true, reference);
+  const vendored = await selectPacks({ fs: nodeFileSystem, builtinDirectory: BUILTIN_DIRECTORY, repositoryRoot: directory, project: project({ root: '.' }), files: ['node_modules/x/package.json', 'src/a.service.ts'] });
+  assert.equal(vendored.find((choice) => choice.reference === 'builtin/angular-http')?.enabled, false, 'a vendored manifest is not evidence');
+  const withoutE2e = await select({ commands: { lint: 'lint', unit: 'unit' } });
+  assert.equal(withoutE2e.find((choice) => choice.reference === 'builtin/common-checks')?.enabled, true, 'an undeclared command is unavailable, not a reason to skip the pack');
+});
+
+test('U03 a project declaring no commands still selects and loads the command-naming built-ins, and runs nothing', async (t) => {
+  const directory = await sandbox(t);
+  await writeFile(path.join(directory, 'package.json'), '{"name":"x"}\n');
+  const bare = project({ root: '.', commands: {}, checks: {} });
+  const chosen = await selectPacks({ fs: nodeFileSystem, builtinDirectory: BUILTIN_DIRECTORY, repositoryRoot: directory, project: bare, files: ['package.json', 'src/a.ts'] });
+  for (const reference of [...COMMON_REFERENCES, 'builtin/common-checks']) {
+    assert.equal(chosen.find((choice) => choice.reference === reference)?.enabled, true, reference);
+  }
+  const { packs, diagnostics } = await loadPacksForProject({ fs: nodeFileSystem, project: { ...bare, packs: [...COMMON_REFERENCES, 'builtin/common-checks'] }, builtinDirectory: BUILTIN_DIRECTORY, repositoryRoot: directory });
+  assert.deepEqual(diagnostics, []);
+  assert.equal(packs.length, COMMON_PACKS.length + 1);
 });

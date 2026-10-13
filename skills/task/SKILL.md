@@ -8,16 +8,8 @@ allowed-tools: Read, Grep, Glob, Agent, Edit(**), Write(**), Bash(node *ambicode
 
 # Implement a change
 
-A route grounds the change in the code and hands you one step at a time: the smallest change with its
-tests, format, an independent review offered, then the report. Do what each step says; the output of the command
-it ends with brings the next step.
-
-## Judgments the route leaves to you
-
-- **Smallest coherent change** that satisfies the request, or the one plan iteration the route names — not a later one.
-- **Reuse before adding:** look for the existing model, helper, adapter or dependency first, and say when you reused one.
-- **Never weaken a test:** no loosened assertion, no test rewritten to keep the defect, no snapshot updated for a green run.
-- **Ask when a finding expands scope:** a review finding outside the brief is the user's call, never implemented silently.
+A route hands you one step at a time: the change with its tests, format, an independent review
+offered, then the report. Do what each step says; the output of the command it ends with brings the next step.
 
 ## Git boundary
 
@@ -25,12 +17,6 @@ Edit files only. Never commit, push, create a merge request, publish a comment, 
 ticket: those are the user's decisions, and the review and the report describe uncommitted work. Never stash,
 reset, checkout or clean: files changed before the task belong to the user, and the route's baseline keeps them
 out of this task's review.
-
-## Report
-
-Your final message has two prose parts — **Done** (what changed and why, with `path:line`) and **Remaining**
-(findings not fixed, gaps, decisions still needed) — then the generated Evidence and Not verified sections,
-exactly as the report step prints them. Never say tests pass unless Evidence shows a green check with a test count.
 
 If no step message appeared, start the route yourself with the arguments unchanged (they begin `$0`):
 

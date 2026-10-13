@@ -60,6 +60,7 @@ export const HANDLER_NAMES = [
   'requirements.normalize',
   'search.map',
   'policy.stage',
+  'policy.enabled',
   'evidence.navigationLine',
   'context.list',
   'evidence.notes.save',

@@ -231,3 +231,22 @@ describe('07-R9: Not verified for the task route', () => {
     assert.doesNotMatch(absent.text, /not formatted|green/);
   });
 });
+
+describe('report compaction', () => {
+  it('a recorded review replaces the pending entry of the same id, so Not verified no longer says the reviewer did not run', () => {
+    const report = buildReport([
+      entry('review', { reviewId: 'local_1', status: 'partial', reviewerRan: false, omissions: 1 }),
+      entry('review', { reviewId: 'local_1', status: 'complete', reviewerRan: true, findings: 1, omissions: 0 }),
+      entry('review', { reviewId: 'local_2', status: 'partial', reviewerRan: false, omissions: 1 }),
+    ]);
+    assert.equal(report.evidence.match(/Review: (.*)/)?.[1], 'local_1 complete, 1 findings; local_2 partial');
+    assert.equal(report.notVerified, 'Not verified\n  Review local_2: the reviewer did not run, status partial, 1 omissions');
+  });
+
+  it('an acceptance that consumed a preanswer lists the decision once; an unconsumed preanswer stays', () => {
+    const pre = entry('preanswer', { gate: 'review-offer', option: 'run', via: 'prompt', trusted: true });
+    const lone = entry('preanswer', { gate: 'other', option: 'x', via: 'prompt', trusted: true });
+    const report = buildReport([pre, lone, entry('acceptance', { route: 'r', gate: 'review-offer', instance: 'i', answer: 'run', via: 'prompt', preanswer: pre.id })]);
+    assert.equal(report.evidence.match(/Decisions: (.*)/)?.[1], 'other "x" (preanswer); review-offer "run" (via prompt)');
+  });
+});

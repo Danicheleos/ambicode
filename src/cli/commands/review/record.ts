@@ -5,6 +5,7 @@ import { openWorkspace } from '#modules/config/workspace';
 import { combineDiff } from '#platform/git/diff';
 import { appendLedger } from '#platform/ledger/ledger';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
+import { pendingReview, REVIEWER_ANSWER_FILE } from '#modules/review/answer/captured';
 import { validateFindings } from '#modules/review/findings/validate';
 import { applyStatus } from '#modules/review/findings/status';
 import { renderReport } from '#modules/review/findings/report';
@@ -57,10 +58,8 @@ async function checkoutText(runtime: Runtime, root: string, result: ReviewResult
 }
 
 function locate(entries: readonly LedgerEntry[], task: string, wanted: string | null): LedgerEntry {
-  // One review has a pending entry and, once recorded, a later recorded one: only the newest per id says where it stands.
-  const newest = new Map(entries.filter((entry) => entry.kind === 'review').map((entry) => [String(entry['reviewId']), entry]));
-  const entry = wanted === null ? [...newest.values()].findLast((candidate) => candidate['stage'] === 'pending') : newest.get(wanted);
-  if (entry === undefined || entry['stage'] !== 'pending') {
+  const entry = pendingReview(entries, wanted);
+  if (entry === undefined) {
     throw new AmbicodeError('review-not-found', wanted === null ? `Task ${task} has no review waiting for its reviewer.` : `Task ${task} has no review ${wanted} waiting for its reviewer (missing, or its answer is already recorded).`, {
       details: [`Release: run \`review --task ${task}\` first; it prints the diff and brief the reviewer reads.`],
     });
@@ -68,13 +67,28 @@ function locate(entries: readonly LedgerEntry[], task: string, wanted: string | 
   return entry;
 }
 
+/** The answer the SubagentStop hook captured wins over stdin: the model never re-types it, so it cannot edit it. */
+async function readAnswer(runtime: Runtime, reviewDirectory: string): Promise<string> {
+  try {
+    return await runtime.fs.readText(path.join(reviewDirectory, REVIEWER_ANSWER_FILE));
+  } catch {
+    return (await runtime.stdin.read(MAX_EVIDENCE_BYTES)) ?? '';
+  }
+}
+
 export async function runReviewRecord(runtime: Runtime, args: ParsedArgs): Promise<RecordOutput> {
   const task = taskOf('review record', args);
-  const raw = (await runtime.stdin.read(MAX_EVIDENCE_BYTES)) ?? '';
   const workspace = await openWorkspace(runtime);
   const pending = locate(await readEntries(runtime, task), task, args.value('review'));
   const resultPath = path.join(workspace.repositoryRoot, String(pending['result']));
   const reviewDirectory = path.dirname(resultPath);
+  const raw = await readAnswer(runtime, reviewDirectory);
+  // Nothing recorded: a failed review written now would leave the pending review gone, and the pasted answer with nowhere to go.
+  if (raw.trim() === '') {
+    throw new AmbicodeError('review-answer-missing', `Task ${task}: no reviewer answer was captured by the SubagentStop hook and none came on standard input. Nothing was recorded.`, {
+      details: ['Release: paste the subagent\'s answer on stdin (a heredoc); if it returned nothing, paste the word none, which records a failed review.'],
+    });
+  }
   const parsedResult = ReviewResult.safeParse(JSON.parse(await runtime.fs.readText(resultPath)));
   if (!parsedResult.success) throw new AmbicodeError('review-unreadable', `${resultPath} is not a review result.`, { details: [parsedResult.error.issues[0]?.message ?? ''] });
   const result = parsedResult.data;
@@ -139,7 +153,7 @@ export function renderRecord(output: RecordOutput): string {
 
 export const reviewRecordCommand: CliCommand = {
   name: 'review record',
-  summary: "Record the reviewer's JSON answer from stdin (--task).",
+  summary: "Record the reviewer's JSON answer, captured by the SubagentStop hook or else from stdin (--task).",
   options: REVIEW_RECORD_OPTIONS,
   run: async (runtime, args) => {
     const output = await runReviewRecord(runtime, args);

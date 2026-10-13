@@ -5,11 +5,11 @@ import { ReviewResult } from '#types/modules/review';
 import { estimateReview, renderEstimate } from '#modules/review/bundle/estimate';
 import { buildChain, currentIn } from '#harness/engine/fold';
 import { onGatePrint } from '#harness/gates/gates';
-import { chainEntries, configOf, isResult, projectOf } from '../common.ts';
+import { baselineIn, chainEntries, configOf, isResult, projectOf } from '../common.ts';
 import { briefOf } from '../brief.ts';
 import { isAmbicodeError } from '#util/errors';
 import { buildReport } from '#modules/evidence/report/report';
-import type { BaselineEntryFields, ReviewEntry } from '#types/modules/checks';
+import type { ReviewEntry } from '#types/modules/checks';
 import type { LedgerEntry } from '#types/modules/evidence';
 import type { Handler, HandlerInput, HandlerResult } from '#types/harness';
 
@@ -29,11 +29,6 @@ async function readResult(input: HandlerInput, review: LedgerEntry): Promise<Rev
   const parsed = text === null ? null : ReviewResult.safeParse(JSON.parse(text));
   return parsed?.success === true ? parsed.data : null;
 }
-
-const baselineIn = (chain: readonly LedgerEntry[]): BaselineEntryFields | null => {
-  const entry = chain.findLast((candidate) => candidate.kind === 'baseline');
-  return entry === undefined ? null : { head: (entry['head'] as string | null) ?? null, dirty: (entry['dirty'] as BaselineEntryFields['dirty']) ?? [] };
-};
 
 export const TASK_HANDLERS: Readonly<Record<string, Handler>> = {
   'task.start': async (input) => {

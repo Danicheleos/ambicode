@@ -1,4 +1,4 @@
-Make the smallest change the brief needs.
+Make the smallest change the brief needs (one plan iteration, never a later one).
 - Say in one line that files already changed before this task (the baseline) stay out of its review.
 - Reuse before adding: extend the code the map and callers point at.
 - A `collides` caller → verify its import before editing it.

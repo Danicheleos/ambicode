@@ -24,12 +24,12 @@ const RUN = 'model: sonnet, effort: medium, timeoutMinutes: 15';
 
 /** Everything above `projects:`; the review limits are the ones tests assert against. */
 export const CONFIG_HEAD = [
-  'schemaVersion: 4',
+  'schemaVersion: 5',
   'id: repo',
   'baseline: origin/main',
   'context: { maxTotalTokens: 24000, maxFileTokens: 2500 }',
   'skills:',
-  `  init: { ${RUN}, scout: { ${RUN} }, ruleSources: [presets, scout, manual, web] }`,
+  `  init: { ${RUN}, scout: { ${RUN} } }`,
   `  review: { ${RUN}, maxFindings: 7, maxChangedFiles: 50, maxChangedLines: 2000, maxContextBytes: 524288, excludePaths: [] }`,
   `  task: { ${RUN}, checkTimeoutSeconds: 120 }`,
   `  plan: { ${RUN} }`,

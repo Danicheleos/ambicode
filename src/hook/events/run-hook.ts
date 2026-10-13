@@ -13,6 +13,7 @@ import { taskDirFor } from '#modules/evidence/task/task-dir';
 import { answerGates } from './gate-answer.ts';
 import { launchRoute, reinjectRoute } from './prompt-launch.ts';
 import { stopCheck } from './stop-check.ts';
+import { captureReviewerAnswer } from './subagent-stop.ts';
 import { readSessionContract } from '#modules/policy/packs/shared-contract';
 import { cleanupSessionState, deliverOnce, hookStateBaseDir, resetDelivered } from '#platform/claude/hook-state';
 import type { Runtime } from '#types/composition';
@@ -78,6 +79,9 @@ export async function runHook(runtime: Runtime, rawStdin: string, injected?: Hoo
       }
       case 'Stop':
         return (await stopCheck(input, await deps.load())) ?? EMPTY_HOOK_OUTPUT;
+      case 'SubagentStop':
+        await captureReviewerAnswer(runtime, input, await deps.load());
+        return EMPTY_HOOK_OUTPUT;
       case 'SessionEnd': {
         const base = stateDir(runtime, input);
         await cleanupSessionState(runtime.fs, base);

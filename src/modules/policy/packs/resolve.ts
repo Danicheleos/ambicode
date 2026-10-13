@@ -58,6 +58,8 @@ export function resolvePolicy(options: ResolveOptions): ResolvedPolicy {
     });
 
     for (const rule of pack.rules) {
+      if (rule.activities !== undefined && !rule.activities.includes(activity)) continue;
+      if (pathsSupplied && rule.appliesTo !== undefined && !matchedPaths.some((value) => matchesAnyGlob(value, rule.appliesTo!))) continue;
       rules.push({
         qualifiedId: `${pack.id}/${rule.id}`,
         packId: pack.id,
@@ -118,9 +120,9 @@ export function resolvePolicy(options: ResolveOptions): ResolvedPolicy {
 }
 
 /**
- * `review` builds its own prompt and never calls `prepare`. `before-review`
- * belongs only to the isolated reviewer prompt; `task` alone adds `before-checks`
- * because it runs checks.
+ * `review` builds its own prompt and never calls `prepare`. A pack may declare
+ * `before-review` prompts, but no code path delivers them; `task` alone adds
+ * `before-checks` because it runs checks.
  */
 const PREPARE_PROMPT_STAGES: Readonly<Partial<Record<Activity, readonly PromptStage[]>>> = {
   investigate: ['before-work', 'before-report'],

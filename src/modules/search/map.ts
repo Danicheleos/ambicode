@@ -46,6 +46,9 @@ export interface MapResult {
   entry: Record<string, unknown>;
 }
 
+/** Top-ranked paths the ledger keeps so a later policy stage can scope rules to where the work is likely to land. */
+const STAGE_PATHS = 8;
+
 export function resolveLayers(mode: 'prompt' | 'context'): { layers: string[]; source: 'default' } {
   return { layers: [...SEARCH_LAYER_DEFAULTS[mode]], source: 'default' };
 }
@@ -223,7 +226,7 @@ export async function buildMap(runtime: Runtime, input: MapInput): Promise<MapRe
   const reported = ordered.length === kept.length ? limitations : [...limitations, `${ordered.length - kept.length} lower-ranked candidate(s) cut to fit ${MAP_LIMIT_BYTES} bytes`];
   return {
     mode, layers, layersSource: input.layersSource ?? 'default', terms: { pass1, pass2 }, candidates: kept, symbols, collisions, limitations: reported, omitted: ordered.length - kept.length, text, bytes,
-    entry: { mode, layers, layersSource: input.layersSource ?? 'default', terms: { pass1, pass2 }, candidates: ordered.length, limitations: reported, bytes, ...(collisions.length === 0 ? {} : { collisions }) },
+    entry: { mode, layers, layersSource: input.layersSource ?? 'default', terms: { pass1, pass2 }, candidates: ordered.length, paths: kept.slice(0, STAGE_PATHS).map((candidate) => candidate.path), limitations: reported, bytes, ...(collisions.length === 0 ? {} : { collisions }) },
   };
 }
 

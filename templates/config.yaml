@@ -1,6 +1,6 @@
 # AMBICODE configuration. Written by /ambicode:init; edit freely, then run:
 #   node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" config validate
-schemaVersion: 4
+schemaVersion: 5
 id: __PROJECT_ID__
 baseline: origin/main            # branch review needs it or --base
 context:                         # limits for .ambicode/context (tokens = chars / 4)
@@ -12,7 +12,6 @@ skills:                          # every skill: model, effort, timeoutMinutes, p
     effort: medium
     timeoutMinutes: 20
     scout: { model: sonnet, effort: medium, timeoutMinutes: 10 }
-    ruleSources: [scout, manual, web]
   review:
     model: sonnet
     effort: medium
@@ -38,10 +37,8 @@ requirements:
 #     ecosystem: { languages: [typescript], frameworks: [react], packageManager: pnpm }
 #     include: ["src/**"]        # globs agents may read and edit
 #     exclude: ["**/*.test.*"]   # globs agents ignore
-#     rules:                     # at most 10, deduplicated
-#       - { source: scout, rule: "..." }   # source: scout | manual | web
-#     packs: [angular-http]      # ids of policies/*.yaml packs whose appliesTo matches
-#     policyFiles: []
+#     packs: []                  # builtin/<id> still loads; `config packs` copies built-ins instead
+#     policyFiles: [.ambicode/policies/angular/angular-http.yaml]   # editable copies (replaces: builtin/<id>) and packs from /ambicode:rules
 #     commands: { dev: "pnpm dev" }
 #     checks:                    # {file} is replaced for single-file runs
 #       test: { all: "pnpm vitest run", file: "pnpm vitest run {file}" }
@@ -52,7 +49,6 @@ projects:
     ecosystem: { languages: [], frameworks: [], packageManager: null }
     include: []
     exclude: []
-    rules: []
     packs: []
     policyFiles: []
     commands: {}

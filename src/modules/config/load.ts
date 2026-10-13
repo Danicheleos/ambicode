@@ -38,12 +38,20 @@ export function parseConfig(raw: string): AmbicodeConfig {
   if (declared !== SUPPORTED_SCHEMA_VERSION) {
     throw new AmbicodeError('config-invalid', `${CONFIG_FILE} is schemaVersion ${String(declared)}, not ${SUPPORTED_SCHEMA_VERSION}: run /ambicode:init again.`, { field: 'schemaVersion' });
   }
+  // The strict schema would only say "unrecognized key"; the remedy is a different skill.
+  const stale = projectsOf(document).filter((project) => 'rules' in project).map((project) => `projects.${String(project['id'])}.rules: no longer a config field; run /ambicode:rules to turn rules into policy packs`);
+  if (stale.length > 0) throw new AmbicodeError('config-invalid', `${CONFIG_FILE} is not a valid AMBICODE configuration.`, { field: CONFIG_FILE, details: stale });
   const parsed = AmbicodeConfig.safeParse(document);
   if (!parsed.success) {
     throw new AmbicodeError('config-invalid', `${CONFIG_FILE} is not a valid AMBICODE configuration.`, { field: CONFIG_FILE, details: describeIssues(parsed.error) });
   }
   validateCrossFieldRules(parsed.data);
   return parsed.data;
+}
+
+function projectsOf(document: unknown): Record<string, unknown>[] {
+  const projects = document !== null && typeof document === 'object' ? (document as Record<string, unknown>)['projects'] : undefined;
+  return Array.isArray(projects) ? projects.filter((entry): entry is Record<string, unknown> => entry !== null && typeof entry === 'object') : [];
 }
 
 /** Reports the field and the expected shape, never the offending value. */

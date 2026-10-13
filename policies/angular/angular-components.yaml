@@ -5,6 +5,8 @@ appliesTo:
   - "**/*.component.ts"
   - "**/*.directive.ts"
 activities: [review, task, plan]
+detect:
+  - { file: package.json, contains: '"@angular/core"' }
 
 source:
   location: >-
@@ -13,11 +15,12 @@ source:
     bindings, new control flow, OnPush) were not carried over as rules: they
     depend on the Angular version a project runs and on the project adopting
     them. Adopt them by adding a project pack once both are established.
-  externalVersion: "angular-v1"
+  externalVersion: "angular-v2"
 
 rules:
   - id: component-responsibility
     category: architecture
+    activities: [plan, review]
     instruction: >-
       A component owns rendering, local UI state, and user interaction. Transport
       concerns and long-lived application state belong to the project's approved
@@ -30,6 +33,7 @@ rules:
 
   - id: component-size
     category: architecture
+    activities: [plan, review]
     instruction: >-
       Where a component has grown to cover several independent interactions,
       say which part would move to a sub-component, a directive, or a service,
@@ -41,6 +45,7 @@ rules:
 
   - id: template-duplication
     category: architecture
+    activities: [task, review]
     instruction: >-
       Repeated markup and repeated view logic across components are a reuse
       question before they are a style question.

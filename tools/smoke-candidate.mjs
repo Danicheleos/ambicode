@@ -9,11 +9,11 @@ const bundle = path.resolve(candidateDir, 'scripts/ambicode.mjs');
 
 const RUN = 'model: sonnet, effort: medium, timeoutMinutes: 15';
 const CONFIG = [
-  'schemaVersion: 4',
+  'schemaVersion: 5',
   'id: app',
   'context: { maxTotalTokens: 24000, maxFileTokens: 2500 }',
   'skills:',
-  `  init: { ${RUN}, scout: { ${RUN} }, ruleSources: [presets, scout, manual, web] }`,
+  `  init: { ${RUN}, scout: { ${RUN} } }`,
   `  review: { ${RUN}, maxFindings: null, maxChangedFiles: null, maxChangedLines: null, maxContextBytes: null, excludePaths: [] }`,
   `  task: { ${RUN}, checkTimeoutSeconds: 120 }`,
   `  plan: { ${RUN} }`,
@@ -69,7 +69,7 @@ async function checkPoliciesAndPromptsResolve() {
     execFileSync('git', ['commit', '--quiet', '-m', 'seed'], { cwd });
 
     await mkdir(path.join(cwd, '.ambicode'), { recursive: true });
-    await writeFile(path.join(cwd, '.ambicode', 'config.yaml'), CONFIG.replace('PACKS', 'builtin/common-quality, builtin/common-checks').replace('POLICY', ''));
+    await writeFile(path.join(cwd, '.ambicode', 'config.yaml'), CONFIG.replace('PACKS', 'builtin/common-design, builtin/common-code, builtin/common-errors, builtin/common-security, builtin/common-verification, builtin/common-checks').replace('POLICY', ''));
     const validateOutput = run(['config', 'validate'], { cwd });
     if (!/^ok/m.test(validateOutput)) throw new Error(`config validate did not accept the v4 config:\n${validateOutput}`);
 

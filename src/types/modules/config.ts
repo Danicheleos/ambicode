@@ -17,14 +17,6 @@ const Limit = PositiveInt.nullable();
 export const Effort = z.enum(['low', 'medium', 'high']);
 const Run = { model: Name, effort: Effort, timeoutMinutes: PositiveInt };
 
-export const RuleSource = z.enum(['preset', 'scout', 'manual', 'web']);
-/** Where init may look for rules; `presets` names the shipped rule files, `preset` marks a rule that came from one. */
-export const RuleSourceKind = z.enum(['presets', 'scout', 'manual', 'web']);
-export const Rule = z.strictObject({ source: RuleSource, rule: z.string().min(1) });
-export type Rule = z.infer<typeof Rule>;
-
-export const MAX_RULES = 10;
-
 /** `file` runs one file: it must say where the file goes. `null` is an intentionally missing form. */
 export const CheckSpec = z.strictObject({
   all: z.string().min(1).nullable(),
@@ -45,14 +37,13 @@ export const ProjectConfig = z.strictObject({
   exclude: z.array(Glob).default([]),
   packs: z.array(Name).default([]),
   policyFiles: z.array(RelativePath).default([]),
-  rules: z.array(Rule).max(MAX_RULES).default([]),
   commands: z.record(Name, z.string().min(1)).default({}),
   checks: z.record(Name, CheckSpec).default({}),
 });
 export type ProjectConfig = z.infer<typeof ProjectConfig>;
 
 export const AmbicodeConfig = z.strictObject({
-  schemaVersion: z.literal(4),
+  schemaVersion: z.literal(5),
   id: Name,
   /** Absent means "no baseline recorded"; branch review then needs --base. */
   baseline: z.string().min(1).optional(),
@@ -61,7 +52,6 @@ export const AmbicodeConfig = z.strictObject({
     init: z.strictObject({
       ...Run,
       scout: z.strictObject(Run),
-      ruleSources: z.array(RuleSourceKind),
     }),
     review: z.strictObject({
       ...Run,
@@ -90,6 +80,6 @@ export const AmbicodeConfig = z.strictObject({
 });
 export type AmbicodeConfig = z.infer<typeof AmbicodeConfig>;
 
-export const SUPPORTED_SCHEMA_VERSION = 4;
+export const SUPPORTED_SCHEMA_VERSION = 5;
 
 export interface ApplyDeps { runtime: Runtime; session: string | null; context: CommandContext | null }

@@ -29,6 +29,8 @@ export const HookInput = z.looseObject({
   /** Stop: the text of the last assistant message; Claude Code sends it so no transcript is read. */
   last_assistant_message: z.string().optional(),
   stop_hook_active: z.boolean().optional(),
+  /** SubagentStop (2.1.296): the subagent's type, e.g. `ambicode:reviewer`; `last_assistant_message` above is its final message. */
+  agent_type: z.string().optional(),
 });
 export type HookInput = z.infer<typeof HookInput>;
 
@@ -57,9 +59,9 @@ export interface StopHookOutput {
 /** AskUserQuestion's `tool_response` as observed: `answers` maps each question text to the chosen label or free text; `questions` and `annotations` are ignored. */
 export const AskUserQuestionResponse = z.looseObject({ answers: z.record(z.string(), z.string()).optional() });
 
-/** The events `hooks/hooks.json` registers (seven events, thirteen handler entries); a test computes both from the manifest. */
-export const REGISTERED_HOOK_EVENTS = ['PostToolUse', 'PreToolUse', 'SessionStart', 'UserPromptSubmit', 'Stop', 'PostCompact', 'SessionEnd'] as const;
-export const REGISTERED_HOOK_ENTRIES = 13;
+/** The events `hooks/hooks.json` registers (eight events, fourteen handler entries); a test computes both from the manifest. */
+export const REGISTERED_HOOK_EVENTS = ['PostToolUse', 'PreToolUse', 'SessionStart', 'UserPromptSubmit', 'Stop', 'SubagentStop', 'PostCompact', 'SessionEnd'] as const;
+export const REGISTERED_HOOK_ENTRIES = 14;
 
 export interface RouteHookDeps { engine: Engine; routes: RouteRegistry; pointer: ActiveRoutePointer }
 

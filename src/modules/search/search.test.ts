@@ -10,7 +10,7 @@ import { harvest } from './harvest.ts';
 import { buildMap, pathsCitedIn, symbolsCitedIn } from './map.ts';
 import { refs, REFS_LIMIT_BYTES } from './refs.ts';
 
-const project = { id: 'app', root: '.', paths: [], ecosystem: { languages: ['typescript'], frameworks: [], packageManager: null }, include: [], exclude: [], rules: [], commands: {}, packs: [], checks: {}, policyFiles: [] } as never;
+const project = { id: 'app', root: '.', paths: [], ecosystem: { languages: ['typescript'], frameworks: [], packageManager: null }, include: [], exclude: [], commands: {}, packs: [], checks: {}, policyFiles: [] } as never;
 
 async function repo(extra: Record<string, string> = {}): Promise<RouteFixture> {
   const fx = await routeFixture({ routes: {} });

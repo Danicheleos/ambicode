@@ -86,8 +86,8 @@ export const CASES = [
     name: 'investigate-how',
     description: 'A how-does-it-work question whose answer spans a service and a route, with keyword decoys in the repository.',
     tags: ['investigate'],
-    fixture: 'ts-feature-boundary', flags: '--ambicode-init',
-    version: 3,
+    fixture: 'ts-feature-boundary', flags: '--ambicode-init --context',
+    version: 4,
     metrics: { source: 'files-section', relevant: ['src/invoices/service.ts', 'src/routes/invoices.ts'], allowed: ['src/invoices/model.ts', 'tests/invoices.test.ts'] },
     prompt: `/ambicode:investigate --task inv-how How is an invoice total computed, and where is it exposed over HTTP? ${CITE} ${FILES_ANSWER} ${REPO}`,
     bare: `How is an invoice total computed, and where is it exposed over HTTP? ${CITE} ${FILES_ANSWER} ${REPO}`,
@@ -110,8 +110,8 @@ FAIL otherwise, including when the answer invents an HTTP framework, a database 
     name: 'investigate-files',
     description: 'A which-files-would-change question; the right answer is the invoice boundary, not the decoys.',
     tags: ['investigate'],
-    fixture: 'ts-feature-boundary', flags: '--ambicode-init',
-    version: 4,
+    fixture: 'ts-feature-boundary', flags: '--ambicode-init --context',
+    version: 5,
     metrics: { source: 'files-section', relevant: ['src/invoices/model.ts', 'src/routes/invoices.ts'], allowed: ['src/invoices/service.ts', 'tests/invoices.test.ts'] },
     prompt: `/ambicode:investigate --task inv-files Which files would change to add a dueDate field to invoices and return it from the invoices route? ${FILES_SECTION} ${REPO}`,
     bare: `Which files would change to add a dueDate field to invoices and return it from the invoices route? ${FILES_SECTION} ${REPO}`,
@@ -131,7 +131,7 @@ FAIL if either is missing or any decoy is listed as a file to change.`)),
     name: 'investigate-nomatch',
     description: 'A question about code that does not exist: the scope gate must be raised and nothing invented.',
     tags: ['investigate', 'gate'],
-    fixture: 'ts-feature-boundary', flags: '--ambicode-init',
+    fixture: 'ts-feature-boundary', version: 2, flags: '--ambicode-init --context',
     // Nothing is relevant: any file cited as the implementation is an extra, so precision falls below 1.
     metrics: { source: 'citations', relevant: [], allowed: [] },
     prompt: `/ambicode:investigate --task inv-none Where is the WebSocket reconnect backoff implemented, and what is its maximum delay? ${REPO}`,
@@ -149,8 +149,8 @@ FAIL if it names a file, function or delay value as the implementation, or answe
     name: 'investigate-trace',
     description: 'A flow that reaches its last step only through the event bus, in a repository with a frozen legacy copy of that step.',
     tags: ['investigate'],
-    fixture: 'ts-app-medium', flags: '--ambicode-init',
-    version: 2,
+    fixture: 'ts-app-medium', flags: '--ambicode-init --context',
+    version: 3,
     // A 7-file chain in a 120-file repository; plugin investigate-how already used 11 of 12 turns on 6 files. Unmeasured here.
     limits: { max_turns: 20, timeout_seconds: 600 },
     // The files the answer must walk through; the rest of what a thorough answer cites is allowed.
@@ -214,10 +214,10 @@ FAIL otherwise, including when the answer says the payment service sends the not
   // ---------------------------------------------------------------- plan
   {
     name: 'plan-accept',
-    version: 4,
+    version: 5,
     description: 'A plan that the user accepts headlessly: draft written, anchors checked, promoted, no code touched.',
     tags: ['plan', 'gate'],
-    fixture: 'ts-feature-boundary', flags: '--ambicode-init',
+    fixture: 'ts-feature-boundary', flags: '--ambicode-init --context',
     prompt: `/ambicode:plan --task plan-due --headless --answer plan-accept=Accept Add a dueDate field to invoices: the model carries it, total() is unchanged, the invoices route returns it, and creating an invoice with a dueDate in the past is rejected. ${REPO}`,
     bare: `Write an implementation plan for this change, in iterations that can each be reviewed alone; do not implement it. Add a dueDate field to invoices: the model carries it, total() is unchanged, the invoices route returns it, and creating an invoice with a dueDate in the past is rejected. ${REPO}`,
     graders: [
@@ -239,7 +239,7 @@ FAIL otherwise, including when the answer says the payment service sends the not
     name: 'plan-draft',
     description: 'No gate answer: the plan stays a draft and the message must not call it accepted.',
     tags: ['plan', 'gate'],
-    fixture: 'ts-feature-boundary', flags: '--ambicode-init',
+    fixture: 'ts-feature-boundary', version: 2, flags: '--ambicode-init --context',
     prompt: `/ambicode:plan --task plan-draft Add a dueDate field to invoices and return it from the invoices route. ${REPO}`,
     bare: null,
     graders: [
@@ -254,10 +254,10 @@ FAIL if it calls the plan accepted, final or approved, or starts implementing.`)
   },
   {
     name: 'plan-reuse',
-    version: 1,
+    version: 2,
     description: 'A plan for a feature the existing shared validators, money helpers and reports module already carry: it must reuse them, not rebuild them, and leave the legacy copy alone.',
     tags: ['plan', 'gate'],
-    fixture: 'ts-app-medium', flags: '--ambicode-init',
+    fixture: 'ts-app-medium', flags: '--ambicode-init --context',
     prompt: `/ambicode:plan --task plan-overdue --headless --answer plan-accept=Accept Add a due date to invoices: an invoice carries a dueDate, creating one with a dueDate before its issue date is rejected, and there is a report of the overdue invoices with the amount still outstanding on each. ${REPO}`,
     bare: `Write an implementation plan for this change, in iterations that can each be reviewed alone; do not implement it. Add a due date to invoices: an invoice carries a dueDate, creating one with a dueDate before its issue date is rejected, and there is a report of the overdue invoices with the amount still outstanding on each. ${REPO}`,
     graders: [
@@ -302,8 +302,8 @@ FAIL if no such test exists or an existing assertion was weakened or removed.`, 
     name: 'task-multi',
     description: 'A refund defect whose fix spans the payments service and repository, in a project with an error hierarchy and a test factory it must use.',
     tags: ['task', 'review'],
-    version: 2,
-    fixture: 'ts-app-medium-refund-bug', flags: '--ambicode-init --install',
+    version: 3,
+    fixture: 'ts-app-medium-refund-bug', flags: '--ambicode-init --context --install',
     prompt: `/ambicode:task --task fix-refund --headless --answer review-offer=run Refunds are broken: after a partial refund on a fully paid invoice, the invoice still shows as paid, and refunding more than was paid crashes the API. Put the regression test in tests/payments/payments.test.js. ${REPO}`,
     bare: `Refunds are broken: after a partial refund on a fully paid invoice, the invoice still shows as paid, and refunding more than was paid crashes the API. Put the regression test in tests/payments/payments.test.js. ${REPO}`,
     graders: [
@@ -415,8 +415,8 @@ FAIL if the change is called clean, the finding is missing, or a check is report
     name: 'review-subtle',
     description: 'An uncommitted change to a shared helper whose breakage is in callers outside the diff, plus a convention violation inside it.',
     tags: ['review'],
-    version: 1,
-    fixture: 'ts-app-medium-money-change', flags: '--ambicode-init',
+    version: 2,
+    fixture: 'ts-app-medium-money-change', flags: '--ambicode-init --context',
     prompt: `/ambicode:review --task rev-money --headless --answer estimate=run ${CITE} ${REPO}`,
     bare: `Review the uncommitted change in the repository at \`repo/\`. ${CITE}`,
     graders: [
@@ -484,6 +484,7 @@ FAIL otherwise.`),
     name: 'init-auto',
     description: '/ambicode:init --auto on an uninitialised TypeScript repository with jest and eslint installed: config, context and validation.',
     tags: ['init'],
+    version: 3,
     fixture: 'ts-feature-boundary', flags: '--install', intoCwd: true,
     prompt: '/ambicode:init --auto',
     bare: null,
@@ -499,6 +500,11 @@ FAIL otherwise.`),
       regex('ecosystem-typescript', 'typescript', { file: '.ambicode/config.yaml' }),
       regex('check-wired', 'jest', { file: '.ambicode/config.yaml', weight: 2 }),
       regex('paths-set', 'paths:\\s*\\[\\s*src', { file: '.ambicode/config.yaml' }),
+      // Rules are packs since config v5: init copies the built-ins it selects and writes no config rules.
+      tool('config-packs-ran', 'Bash', 'config packs'),
+      exists('common-design-copied', '.ambicode/policies/common/common-design.yaml'),
+      regex('policy-file-listed', 'policies/common/common-design\\.yaml', { file: '.ambicode/config.yaml' }),
+      regex('no-config-rules', 'source:\\s*(scout|manual|web)', { file: '.ambicode/config.yaml', match: 'not_contains' }),
       llm('summary-complete', `
 PASS if the final message summarises the projects found, the checks found and missing, and the context files written, and reports that config validate passed (or lists its errors).
 FAIL if it reports success without naming the checks, or claims validation passed while also showing validation errors.`),
@@ -551,7 +557,7 @@ export function render(cases = CASES) {
   for (const c of cases) {
     const arms = [['cases', c.prompt, c.flags, c.graders]];
     // The bare arm gets no config: the fixture as a user without the plugin would have it.
-    if (c.bare !== null) arms.push(['bare', c.bare, c.flags.replace('--ambicode-init', '').trim(), c.graders.filter((g) => g.shared).map((g) => g.bare)]);
+    if (c.bare !== null) arms.push(['bare', c.bare, c.flags.replace('--ambicode-init', '').replace('--context', '').replace(/\s+/g, ' ').trim(), c.graders.filter((g) => g.shared).map((g) => g.bare)]);
     for (const [tree, body, flags, graders] of arms) {
       const dir = `${tree}/${c.name}`;
       files.set(`${dir}/case.yaml`, `schema_version: "1.1"\nname: ${c.name}\ncontext:\n  scaffold_script: scaffold.sh\n`);

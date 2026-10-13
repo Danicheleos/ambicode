@@ -1,5 +1,5 @@
 Read the code the question is about.
-Save the answer before giving it: `{cli} note save --task {task} --kind investigation`, on stdin, then give it.
+Give the answer once, as your final message: it is saved as the investigation note.
 - The map lists leads, not answers.
 - Cite the repository-relative `path:line` for each claim, the full path every time, never a bare file name; mark assumptions.
 - If the premise is not in the code, say so; answer from what exists.

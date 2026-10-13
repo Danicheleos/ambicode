@@ -77,6 +77,9 @@ the request inside a configured project root. Ask which project.
 **`review-not-found`.** `review record` found no review waiting for its reviewer (or none with the
 `--review` id). Run `review --task <slug>` first; it prints the diff and brief the reviewer reads.
 
+**`review-answer-missing`.** `review record` found no answer captured by the `SubagentStop` hook and nothing on
+stdin. Nothing was recorded. Paste the subagent's JSON block on stdin; if it returned nothing, paste `none`.
+
 **`conflicting-target` / `baseline-not-applicable`.** One target per run, and
 `--base` belongs to `--branch`. Ask which target the user meant.
 
@@ -86,7 +89,7 @@ working state to review. Resolve it first.
 **Faults, not decisions.** `bad-argument` is a usage error: the message
 names the flag, so correct the call once. `git-unavailable`, `git-failed`,
 `git-timeout`, `git-output-truncated`, `diff-unparsable`, `diff-mismatch`,
-`plugin-root-unresolved` and `internal` mean git or the installation is not in
+`plugin-root-unresolved`, `builtin-pack-duplicate` and `internal` mean git or the installation is not in
 the state AMBICODE relies on. Nothing was reviewed. Report the message verbatim
 and stop; retrying will not change it.
 
@@ -144,6 +147,9 @@ Nothing was drafted; start again and name a source.
 
 **`drafts-empty` / `pack-invalid` / `pack-missing`.** `policy check --drafts` found no `*.yaml` draft, or a
 draft that fails the pack schema, or a declared file that does not exist. The diagnostic names the file; fix the draft.
+
+**`pack-replaces-missing`.** A policy file says `replaces: builtin/<id>` for a built-in this release no longer has.
+Remove it from `policyFiles` or re-copy the packs that replaced it; `docs/rule-migration.md` maps old ids to new ones.
 
 **`artifact-collision`.** Nine files of the same name were already written this minute, so
 none was written. Wait for the next minute and run it again.

@@ -49,7 +49,9 @@ export function buildReport(
     return `${key}${files.length > 0 ? ` --file ${files.join(' ')}` : ''}: ${steps.join(' → ')}`;
   });
 
-  const reviews = of('review').map((entry) => {
+  // `review` prints a pending entry and `review record` a recorded one for the same id; the pending one reported a reviewer that never ran after it had (task-multi-2, 2026-10-13).
+  const latest = of('review').filter((entry, index, all) => typeof entry.reviewId !== 'string' || !all.slice(index + 1).some((later) => later.reviewId === entry.reviewId));
+  const reviews = latest.map((entry) => {
     const ran = entry.reviewerRan !== false;
     const text = `${clip(entry.reviewId)} ${clip(entry.status ?? 'unknown')}${typeof entry.findings === 'number' ? `, ${entry.findings} findings` : ''}${historical(entry)}`;
     const omitted = typeof entry.omissions === 'number' ? entry.omissions : list(entry.omissions).length;
@@ -60,7 +62,9 @@ export function buildReport(
   });
 
   const decisions: string[] = [];
-  for (const entry of of('preanswer', 'acceptance', 'declined', 'default-taken')) {
+  const answered = new Set(of('acceptance').map((entry) => entry.preanswer));
+  // An acceptance that consumed a preanswer already says so; listing both printed one decision twice.
+  for (const entry of of('preanswer', 'acceptance', 'declined', 'default-taken').filter((item) => !(item.kind === 'preanswer' && answered.has(item.id)))) {
     // A preanswer converted at the print was given before the draft it accepts existed (P42).
     const via = entry.kind === 'acceptance' && entry.via === 'prompt' && entry.gate === 'plan-accept' ? 'answered in the prompt (before the artifact existed)' : `via ${clip(entry.via)}`;
     const how = entry.kind === 'preanswer' ? `"${clip(entry.option)}" (preanswer)` : `${entry.kind === 'acceptance' ? '' : `${entry.kind} `}"${clip(entry.answer)}" (${via})`;

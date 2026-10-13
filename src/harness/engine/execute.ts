@@ -24,6 +24,9 @@ const endsWithoutCommand = (step: StepDef): boolean => step.actor === 'model' &&
 /** A final model step with nothing after it. */
 export const isClosing = (fold: Fold, step: StepDef): boolean => step.final && endsWithoutCommand(step) && fold.steps.slice(step.index + 1).every((state) => state.state === 'skipped' || state.skipsNow === true);
 
+/** A model step whose final message is the note: the Stop hook saves it, so the model writes its answer once. */
+export const answersAsNote = (step: StepDef): boolean => step.actor === 'model' && step.produces.some((produced) => produced.kind === 'note' && produced.value === 'investigation');
+
 export const quiet = (value: unknown): string => String(value ?? '');
 
 /** The header's Route line; a pending step with a condition may still be skipped. */
@@ -49,15 +52,17 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
 
   // The reviewer subagent's answer is written by `review record`; `route next` would not record it.
   const recordCommand = (run: Run, step: StepDef): string | null =>
-    step.produces.some((produced) => produced.kind === 'review' && produced.value === 'recorded') ? `${commandFor(`review record --task ${run.task}`)} (reviewer JSON on standard input)` : null;
+    step.produces.some((produced) => produced.kind === 'review' && produced.value === 'recorded') ? `${commandFor(`review record --task ${run.task}`)} (reads the reviewer's answer the SubagentStop hook captured)` : null;
 
   function producerHint(run: Run, step: StepDef): string {
+    if (answersAsNote(step)) return 'your final message, which is saved as the note';
     const note = step.produces.find((produced) => produced.kind === 'note');
     if (note?.value) return commandFor(`note save --task ${run.task} --kind ${note.value}`);
     return recordCommand(run, step) ?? checkCommand(run, step) ?? commandFor(`route next --task ${run.task}`);
   }
 
   function endingCommand(run: Run, step: StepDef): string {
+    if (answersAsNote(step)) return 'write your final message; it is saved as the note and checked';
     const note = step.produces.find((produced) => produced.kind === 'note');
     if (step.actor === 'model' && note?.value) return `${commandFor(`note save --task ${run.task} --kind ${note.value}`)} (note on standard input)`;
     return recordCommand(run, step) ?? checkCommand(run, step) ?? commandFor(`route next --task ${run.task}`);
@@ -192,8 +197,9 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     const fill = (text: string): string => text.replaceAll('{cli}', cli).replaceAll('{task}', run.task);
     const instruction = fill(step.instruction!);
     const nowLine = instruction.split('\n').find((line) => line.trim() !== '')!.replace(/^#+\s*/, '');
-    // The header's `Now:` already carries a plain first line; a heading stays, it is the shape the step asks for.
-    const body = /^\s*#/.test(instruction) || nowLine.replace(/\s+/g, ' ').trim().length > 160 ? instruction : instruction.replace(/^\s*[^\n]*\n?/, '').trimStart();
+    // `Now:` carries the first line whole unless stepHeader clips it (over 160 and no backtick); a heading stays, it is the shape the step asks for.
+    const flat = nowLine.replace(/\s+/g, ' ').trim();
+    const body = /^\s*#/.test(instruction) || (flat.length > 160 && !flat.includes('`')) ? instruction : instruction.replace(/^\s*[^\n]*\n?/, '').trimStart();
     const sections: string[] = body === '' ? [] : [body];
     const start = fold.steps[step.index]!.windowStart;
     const reviseEntry = start > 0 ? fold.chain.entries[start - 1] : undefined;

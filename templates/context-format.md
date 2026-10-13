@@ -6,7 +6,7 @@ Limits come from `context.maxFileTokens` and `context.maxTotalTokens` in `.ambic
 ## Kinds (the only paths `context write` accepts)
 - `overview.md`: purpose, stack, layout of the repository, one screen.
 - `navigation.md`: how to find things.
-- `conventions.md`: how code is written here.
+- `conventions.md`: how code is written here, as facts. A convention that became a rule (`.ambicode/policies/`) is not repeated here.
 - `modules/<name>.md`: exactly one per module, `<name>` kebab-case. A module is an immediate subdirectory of a source root that contains source files. No other files, no index file.
 
 ## Per-file structure

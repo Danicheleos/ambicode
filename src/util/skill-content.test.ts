@@ -131,7 +131,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
     }
   });
 
-  it('03b-N9: the read step answers with citations and treats the map as leads, and saves the answer as the investigation note', async () => {
+  it('03b-N9: the read step answers with citations and treats the map as leads, and has the final message saved as the investigation note by the Stop hook', async () => {
     const read = await readFile(path.join(repositoryRoot, 'routes', 'investigate', 'read.md'), 'utf8');
     assert.match(read, /`path:line`/);
     assert.match(read, /leads, not answers/);
@@ -141,7 +141,8 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.match(read, /naming that assumption/);
     assert.match(read, /similar features the request does not name/);
     assert.match(read, /not in the code, say so/, '03b-N14: a missing premise ends the search');
-    assert.match(read, /\{cli\} note save --task \{task\} --kind investigation/);
+    assert.match(read, /Give the answer once, as your final message: it is saved as the investigation note/);
+    assert.doesNotMatch(read, /note save/);
     assert.doesNotMatch(read, /route next|\{cli\} (find|refs)/);
     // 07-I1 adds one Diagnostics sentence. Raised from 700 (693 B) for the full-path citation wording (investigate x5:
     // 15/15 with it, bare-name revisions without it); to be cut back in the optimization phase.
@@ -166,12 +167,16 @@ describe('P2.2/P2.3 shipped skill content', () => {
 
   it('06-S1/06-S2: plan stays within 2,560 bytes, is user-invoked only and may write only its plan body', async () => {
     const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
-    assert.ok(Buffer.byteLength(plan) <= 2560, `${Buffer.byteLength(plan)} bytes`);
+    assert.ok(Buffer.byteLength(plan) <= 1800, `${Buffer.byteLength(plan)} bytes`);
     const fm = frontmatter(plan, 'plan/SKILL.md');
     assert.equal(fm['disable-model-invocation'], true);
     assert.equal(requiredString(fm, 'allowed-tools', 'plan/SKILL.md'), 'Read, Grep, Glob, Bash(node *ambicode.mjs*), Write(.ambicode/tasks/*/steps/plan-body.md)');
-    const normalized = plan.replace(/\s+/g, ' ');
-    for (const judgment of [/material versus routine/i, /reuse over new/i, /independently reviewable iterations/i]) assert.match(normalized, judgment);
+    // The judgments live in the step messages the route delivers; the SKILL.md body must not carry them a second time.
+    const steps = (await readFile(path.join(repositoryRoot, 'routes', 'plan', 'design.md'), 'utf8')) + (await readFile(path.join(repositoryRoot, 'routes', 'plan', 'write.md'), 'utf8'));
+    for (const judgment of [/material when/i, /reuse over new/i, /independently reviewable iterations/i]) {
+      assert.match(steps.replace(/\s+/g, ' '), judgment);
+      assert.doesNotMatch(plan, judgment);
+    }
   });
 
   it('07-R7: task\'s write step holds its single note-writing boundary, separate from investigate\'s and plan\'s', async () => {
@@ -207,12 +212,12 @@ describe('P2.2/P2.3 shipped skill content', () => {
     }
   });
 
-  it('06-S4: plan and its write step name the five iteration fields, and leave tests to the task route', async () => {
+  it('06-S4: the write step names the five iteration fields and the SKILL.md does not repeat them, and leave tests to the task route', async () => {
     const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
     const write = await readFile(path.join(repositoryRoot, 'routes', 'plan', 'write.md'), 'utf8');
     assert.ok(!write.includes('*Tests*'), 'plan-write.md still asks for *Tests*');
     for (const field of ['Goal', 'Changes', 'Accept', 'Checks', 'Leaves out']) {
-      assert.ok(plan.includes(`*${field}*`), `plan/SKILL.md lacks *${field}*`);
+      assert.ok(!plan.includes(`*${field}*`), `plan/SKILL.md repeats *${field}*, which plan-write.md delivers`);
       assert.ok(write.includes(`*${field}*`), `plan-write.md lacks *${field}*`);
     }
   });
@@ -297,9 +302,9 @@ describe('P2.3 task skill', () => {
     return readFile(path.join(SKILLS_DIR, 'task', 'SKILL.md'), 'utf8');
   }
 
-  it('07-M1 stays within 2,560 bytes, is user-invoked only and keeps its tool grant', async () => {
+  it('07-M1 stays within 1,700 bytes, is user-invoked only and keeps its tool grant', async () => {
     const raw = await task();
-    assert.ok(Buffer.byteLength(raw) <= 2560, `${Buffer.byteLength(raw)} bytes`);
+    assert.ok(Buffer.byteLength(raw) <= 1700, `${Buffer.byteLength(raw)} bytes`);
     const fm = frontmatter(raw, 'task/SKILL.md');
     assert.equal(fm['disable-model-invocation'], true);
     assert.equal(requiredString(fm, 'allowed-tools', 'task/SKILL.md'), 'Read, Grep, Glob, Agent, Edit(**), Write(**), Bash(node *ambicode.mjs*), Bash(git status*), Bash(git diff*)');
@@ -313,9 +318,13 @@ describe('P2.3 task skill', () => {
     for (const usage of [...[...content.matchAll(/```[\s\S]*?```/g)].map((match) => match[0]), hint]) assert.ok(!/--requirements\b/.test(usage), usage);
   });
 
-  it('07-M1 names the four judgments', async () => {
-    const content = (await task()).replace(/\s+/g, ' ');
-    for (const judgment of [/smallest coherent change/i, /reuse before adding/i, /never weaken a test/i, /ask when a finding expands scope/i]) assert.match(content, judgment);
+  it('07-M1 the four judgments are delivered by the change and fix steps, not repeated in the SKILL.md', async () => {
+    const steps = (await readFile(path.join(repositoryRoot, 'routes', 'task', 'change.md'), 'utf8')) + (await readFile(path.join(repositoryRoot, 'routes', 'task', 'fix.md'), 'utf8'));
+    const content = (await task()).replace(/^---[\s\S]*?\n---/, '').replace(/\s+/g, ' ');
+    for (const judgment of [/smallest change/i, /reuse before adding/i, /never weaken/i, /outside the brief is the user's call/i]) {
+      assert.match(steps, judgment);
+      assert.doesNotMatch(content, judgment);
+    }
   });
 
   it('07-M1 states the git boundary with its reason', async () => {
@@ -326,11 +335,12 @@ describe('P2.3 task skill', () => {
     assert.match(requiredString(frontmatter(await task(), 'task/SKILL.md'), 'description', 'task/SKILL.md'), /never commits, pushes, or publishes/i);
   });
 
-  it('07-M1 asks for Done and Remaining in prose and the generated sections as printed', async () => {
-    const content = (await task()).replace(/\s+/g, ' ');
-    assert.match(content, /\*\*Done\*\*/);
-    assert.match(content, /\*\*Remaining\*\*/);
-    assert.match(content, /generated Evidence and Not verified sections, exactly as the report step prints them/);
+  it('07-M1 the write step asks for Done and Remaining in prose and the generated sections as printed; the SKILL.md leaves it to the step', async () => {
+    const write = (await readFile(path.join(repositoryRoot, 'routes', 'task', 'write.md'), 'utf8')).replace(/\s+/g, ' ');
+    assert.match(write, /\*\*Done\*\*/);
+    assert.match(write, /\*\*Remaining\*\*/);
+    assert.match(write, /generated Evidence and Not verified sections below, pasted exactly as printed/);
+    assert.doesNotMatch(await task(), /\*\*Done\*\*|\*\*Remaining\*\*/);
   });
 
   it('07-M1 has the fallback start line and no LSP or prepare', async () => {
@@ -419,17 +429,21 @@ describe('F7 rules confirmation gate', () => {
 });
 
 describe('09-R3/09-W1: the init skill and the init route steps', () => {
-  it('09-R3: the init body stays within 1,536 bytes, runs the scaffold and config validate, and may write only the config', async () => {
+  it('09-R3: the init body stays within 1,536 bytes, runs the scaffold, config packs and config validate, and may write only the config and rule drafts', async () => {
     const content = await readFile(path.join(SKILLS_DIR, 'init', 'SKILL.md'), 'utf8');
     const fm = frontmatter(content, 'init/SKILL.md');
     const body = content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '');
     assert.ok(Buffer.byteLength(body) <= 1536, `${Buffer.byteLength(body)} bytes`);
     assert.match(body, /skills\/init\/scripts\/scaffold\.mjs/);
     assert.match(body, /config validate/);
+    assert.match(body, /config packs/);
+    assert.match(body, /route start rules/);
+    assert.doesNotMatch(body, /`rules` \(|ruleSources/, 'init writes no rule into the config');
     assert.equal(fm['disable-model-invocation'], true);
     const tools = requiredString(fm, 'allowed-tools', 'init/SKILL.md');
     assert.match(tools, /Write\(\.ambicode\/config\.yaml\)/);
-    assert.doesNotMatch(tools, /Edit|Write(?!\(\.ambicode\/config\.yaml\))/);
+    assert.match(tools, /Write\(\.ambicode\/policies\/drafts\/\*\*\)/);
+    assert.doesNotMatch(tools.replace(/Write\(\.ambicode\/(config\.yaml|policies\/drafts\/\*\*)\)/g, ''), /Edit|Write/);
   });
 
   it('the scout agent is internal to init and may not write files', async () => {

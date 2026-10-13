@@ -1,6 +1,7 @@
 import path from 'node:path';
 import type { ProjectConfig } from '#types/modules/config';
 import type { Diagnostic, PackWithPrompts } from '#types/modules/policy';
+import { listBuiltinPackFiles } from './builtin.ts';
 import { readPackText, validatePack, validatePackSet } from './validate.ts';
 import type { FileSystem } from '#types/platform/ports';
 
@@ -28,15 +29,16 @@ export async function loadPacksForProject(options: LoadPacksOptions): Promise<Lo
   const loaded: PackWithPrompts[] = [];
   const constraints = { commands: { ...project.commands, ...project.checks }, projectId: project.id };
 
+  const builtinFiles = project.packs.length === 0 && project.policyFiles.length === 0 ? [] : await listBuiltinPackFiles(fs, builtinDirectory);
   for (const reference of project.packs) {
     const id = reference.slice('builtin/'.length);
-    const filePath = path.join(builtinDirectory, `${id}.yaml`);
+    const filePath = builtinFiles.find((file) => file.id === id)?.filePath ?? path.join(builtinDirectory, `${id}.yaml`);
     const raw = await readPackText(fs, filePath);
     if (raw === null) {
       diagnostics.push({
         severity: 'error',
         code: 'pack-missing',
-        message: `Built-in pack "${reference}" does not exist in this AMBICODE release.`,
+        message: `Built-in pack "${reference}" does not exist in this AMBICODE release; if it was renamed or split, see docs/rule-migration.md.`,
         where: filePath,
       });
       continue;
@@ -68,6 +70,6 @@ export async function loadPacksForProject(options: LoadPacksOptions): Promise<Lo
     if (validated.pack !== null) loaded.push(validated.pack);
   }
 
-  const set = validatePackSet(loaded);
+  const set = validatePackSet(loaded, new Set(builtinFiles.map((file) => file.id)));
   return { packs: set.packs, diagnostics: [...diagnostics, ...set.diagnostics] };
 }

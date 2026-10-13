@@ -27,12 +27,17 @@ const KebabId = z
   .min(1)
   .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, { error: 'must be kebab-case' });
 
+const Globs = z.array(z.string().min(1)).min(1);
+
 export const PolicyRule = z.strictObject({
   id: KebabId,
   category: RuleCategory,
   instruction: z.string().min(1),
   check: RuleCheck,
   source: RuleSource.optional(),
+  /** Narrow the pack's own `activities` / `appliesTo` for this rule; absent means the pack's. */
+  activities: z.array(Activity).min(1).optional(),
+  appliesTo: Globs.optional(),
 });
 export type PolicyRule = z.infer<typeof PolicyRule>;
 
@@ -53,12 +58,21 @@ export const PolicyCommandDecision = z.strictObject({
 });
 export type PolicyCommandDecision = z.infer<typeof PolicyCommandDecision>;
 
+/**
+ * A marker that says a pack belongs to a repository: a file of this name sits within two
+ * directories of the project root and, when `contains` is given, its text includes it.
+ */
+export const PackMarker = z.strictObject({ file: z.string().min(1), contains: z.string().min(1).optional() });
+export type PackMarker = z.infer<typeof PackMarker>;
+
 export const PolicyPack = z.strictObject({
   schemaVersion: z.literal(1),
   id: KebabId,
   authority: Authority,
-  appliesTo: z.array(z.string().min(1)).min(1),
+  appliesTo: Globs,
   activities: z.array(Activity).min(1),
+  /** Any one marker matching selects the pack at init; absent means the pack is chosen by `appliesTo` alone. */
+  detect: z.array(PackMarker).min(1).optional(),
   source: z.strictObject({
     location: z.string().min(1),
     externalVersion: z.string().min(1).optional(),

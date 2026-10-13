@@ -118,6 +118,21 @@ describe('task route (07-R, 07-V, 07-G)', () => {
     });
   });
 
+  it('the before-work rules follow the files at hand: with no known file both rules are carried, once the task touched a .ts file the **/*.py rule is left out', async () => {
+    const pack = COMMAND_PACK.replace('rules: []', ['rules:', '  - { id: any, category: architecture, instruction: Keep it small., check: { kind: reviewer, explanation: x } }', '  - { id: py-only, category: correctness, instruction: Close files you open., appliesTo: ["**/*.py"], check: { kind: reviewer, explanation: x } }'].join('\n'));
+    await withTask(async (t) => {
+      const red = await t.start();
+      assert.match(section(red.text, 'policy:before-work'), /cmds\/py-only/, 'the map knew no file, so nothing is filtered');
+      await t.edit();
+      await t.check('green', { ran: 1, failed: 0 });
+      await t.format();
+      await t.hook('review-offer', 'run');
+      await t.review([], { reviewerRan: false });
+      const stages = (await t.kinds('policy')).filter((entry) => entry['stage'] === 'before-work').map((entry) => entry['rules']);
+      assert.deepEqual(stages, [2, 1]);
+    }, { pack });
+  });
+
   it('07-R6/D4: check{green} matches on phase alone: a red-phase check is no green evidence, and an unproven green still completes the step once formatted', async () => {
     await withTask(async (t) => {
       await t.start();
@@ -208,6 +223,18 @@ describe('task route (07-R, 07-V, 07-G)', () => {
       assert.match(fix.text, /F1 src\/orders\.ts:2/);
       assert.deepEqual((await t.kinds('review')).map((entry) => entry['stage']), ['pending', 'recorded']);
     });
+  });
+
+  it('the reviewer brief of a task carries the review rules whole, not the task rules cut at the stage cap', async () => {
+    const packs = ['code', 'design', 'errors', 'security', 'verification'].map((name) => `builtin/common-${name}`).join(', ');
+    await withTask(async (t) => {
+      await toOffer(t);
+      await t.hook('review-offer', 'run');
+      const agent = await t.review([finding({ id: 'F1' })], { reviewerRan: false });
+      const brief = await readFile(/brief: (.*brief\.md)/.exec(agent.text)![1]!, 'utf8');
+      assert.match(brief, /common-security\/no-secret-exposure/);
+      assert.doesNotMatch(brief, /more: `/);
+    }, { config: CHECK_CONFIG.replace('    policyFiles:', `    packs: [${packs}]\n    policyFiles:`) });
   });
 
   it('07-V3: an unanswered review-again holds the route: no default is taken, no reviewer runs and no revise', async () => {

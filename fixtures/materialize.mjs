@@ -1,17 +1,21 @@
 #!/usr/bin/env node
 /**
- * Usage: <name> <empty-destination> | --all <directory> | --list  [--install] [--ambicode-init]
+ * Usage: <name> <empty-destination> | --all <directory> | --list  [--install] [--ambicode-init] [--context]
  * Without --install no project script runs. --ambicode-init commits the config and ignore lines the pure writer produces
  * before the uncommitted change is replayed, keeping the config out of the reviewed change.
+ * --context (needs --ambicode-init) then writes fixtures/contexts/<fixture>.md into the gitignored .ambicode/context through
+ * the real `ambicode context write`, standing in for what /ambicode:init's scout leaves behind.
  */
 import { execFile } from 'node:child_process';
 import { access, mkdir, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { FIXTURES, fixtureByName } from './definitions.mjs';
 
 const run = promisify(execFile);
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 async function git(cwd, args) {
   await run('git', args, {
@@ -94,11 +98,11 @@ async function configFor(destination, wires) {
   const python = await access(path.join(destination, 'pyproject.toml')).then(() => true, () => false);
   const run = { model: 'sonnet', effort: 'medium', timeoutMinutes: 15 };
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     id: 'app',
     context: { maxTotalTokens: 24000, maxFileTokens: 2500 },
     skills: {
-      init: { ...run, scout: run, ruleSources: ['presets', 'scout', 'manual', 'web'] },
+      init: { ...run, scout: run },
       review: { ...run, maxFindings: null, maxChangedFiles: null, maxChangedLines: null, maxContextBytes: null, excludePaths: [] },
       task: { ...run, checkTimeoutSeconds: 120 },
       plan: run,
@@ -106,8 +110,32 @@ async function configFor(destination, wires) {
       rules: run,
     },
     requirements: { runtimes: {}, mcps: [], lsps: [], env: [] },
-    projects: [{ id: 'app', root: '.', paths: [], ecosystem: { languages: [python ? 'python' : 'typescript'], frameworks: [], packageManager: null }, include: [], exclude: [], packs: ['builtin/common-quality', 'builtin/common-checks'], policyFiles: [], rules: [], commands: {}, checks }],
+    projects: [{ id: 'app', root: '.', paths: [], ecosystem: { languages: [python ? 'python' : 'typescript'], frameworks: [], packageManager: null }, include: [], exclude: [], packs: ['builtin/common-design', 'builtin/common-code', 'builtin/common-errors', 'builtin/common-security', 'builtin/common-verification', 'builtin/common-checks'], policyFiles: [], commands: {}, checks }],
   };
+}
+
+/** A variant (ts-app-medium-refund-bug) shares its base fixture's bundle: same tree layout, so the longest bundle named as a prefix serves. */
+async function contextBundleFor(fixture) {
+  const dir = path.join(REPO_ROOT, 'fixtures', 'contexts');
+  const names = (await readdir(dir)).filter((file) => file.endsWith('.md')).map((file) => file.slice(0, -3));
+  const match = names.filter((name) => fixture.name === name || fixture.name.startsWith(`${name}-`)).sort((a, b) => b.length - a.length)[0];
+  if (match === undefined) throw new Error(`no context bundle in fixtures/contexts for ${fixture.name}`);
+  return readFile(path.join(dir, `${match}.md`), 'utf8');
+}
+
+/** Goes through the CLI so the bundle faces the same checkContext limits a scout's would; run npm run build first. */
+async function writeContext(fixture, destination) {
+  const cli = path.join(REPO_ROOT, 'scripts', 'ambicode.mjs');
+  await stat(cli).catch(() => { throw new Error(`${cli} is missing: run npm run build before materializing with --context`); });
+  const bundle = await contextBundleFor(fixture);
+  const child = run(process.execPath, [cli, 'context', 'write', '--replace'], { cwd: destination, maxBuffer: 16 * 1024 * 1024 });
+  child.child.stdin.end(bundle);
+  try {
+    const { stdout } = await child;
+    if (JSON.parse(stdout).check.problems.length > 0) throw new Error(stdout);
+  } catch (error) {
+    throw new Error(`context write failed for ${fixture.name}: ${error.stdout ?? ''}${error.stderr ?? ''}${error.message}`);
+  }
 }
 
 /** `wires` holds only after an install, so it is empty without one. */
@@ -134,7 +162,8 @@ async function commitAmbicodeInit(fixture, destination, wires) {
   await settle(destination);
 }
 
-export async function materialize(fixture, destination, { install: installing = false, ambicodeInit = false } = {}) {
+export async function materialize(fixture, destination, { install: installing = false, ambicodeInit = false, context = false } = {}) {
+  if (context && !ambicodeInit) throw new Error('--context needs --ambicode-init');
   const lastCommit = fixture.steps.findLastIndex((step) => step.commit !== undefined);
   if ((ambicodeInit || installing) && lastCommit === -1) {
     throw new Error(`fixture ${fixture.name} has no commit to install or configure on top of`);
@@ -183,6 +212,7 @@ export async function materialize(fixture, destination, { install: installing = 
       if (installing && index === lastCommit) await install(fixture, destination);
       if (ambicodeInit && index === lastCommit) {
         await commitAmbicodeInit(fixture, destination, installing ? (fixture.wires ?? []) : []);
+        if (context) await writeContext(fixture, destination);
       }
     }
     if (step.branch !== undefined) {
@@ -197,8 +227,8 @@ export async function materialize(fixture, destination, { install: installing = 
 }
 
 async function main(rawArgv) {
-  const options = { install: rawArgv.includes('--install'), ambicodeInit: rawArgv.includes('--ambicode-init') };
-  const argv = rawArgv.filter((value) => value !== '--install' && value !== '--ambicode-init');
+  const options = { install: rawArgv.includes('--install'), ambicodeInit: rawArgv.includes('--ambicode-init'), context: rawArgv.includes('--context') };
+  const argv = rawArgv.filter((value) => !['--install', '--ambicode-init', '--context'].includes(value));
   if (argv.includes('--list') || argv.length === 0) {
     for (const fixture of FIXTURES) {
       process.stdout.write(`${fixture.name.padEnd(24)} ${fixture.summary}\n`);

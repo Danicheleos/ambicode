@@ -4,7 +4,7 @@ import { routeFixture, type RouteFixture } from '#testing/fixtures/route-fixture
 import { rankTerms, buildMap, resolveLayers, MAP_LIMIT_BYTES } from './map.ts';
 
 
-const project = { id: 'app', root: '.', paths: [], ecosystem: { languages: ['typescript'], frameworks: [], packageManager: null }, include: [], exclude: [], rules: [], commands: {}, packs: [], checks: {}, policyFiles: [] } as never;
+const project = { id: 'app', root: '.', paths: [], ecosystem: { languages: ['typescript'], frameworks: [], packageManager: null }, include: [], exclude: [], commands: {}, packs: [], checks: {}, policyFiles: [] } as never;
 const PROMPT = ['shortlist', 'harvest', 'shortlist'];
 
 async function repo(extra: Record<string, string> = {}): Promise<RouteFixture> {
@@ -48,7 +48,8 @@ describe('map', () => {
       assert.ok(twice.terms.pass2.includes('settleInvoice'), twice.terms.pass2.join(','));
       assert.ok(twice.candidates.some((candidate) => candidate.path === 'src/billing/ledger.ts'));
       assert.match(twice.text.split('\n')[0]!, /^layers: shortlist → harvest → shortlist \(default\)$/);
-      assert.deepEqual(Object.keys(twice.entry).sort(), ['bytes', 'candidates', 'layers', 'layersSource', 'limitations', 'mode', 'terms']);
+      assert.deepEqual(Object.keys(twice.entry).sort(), ['bytes', 'candidates', 'layers', 'layersSource', 'limitations', 'mode', 'paths', 'terms']);
+      assert.deepEqual(twice.entry['paths'], twice.candidates.map((candidate) => candidate.path), 'the ledger keeps the ranked paths a later policy stage scopes rules to');
     } finally {
       await fx.dispose();
     }

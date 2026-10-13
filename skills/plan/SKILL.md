@@ -17,19 +17,6 @@ printed, start it with the arguments unchanged (they begin `$0`):
 node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" route start plan "<request>" [--requirement <url>]...
 ```
 
-## Judgments the route leaves to you
-
-- **Material versus routine.** A decision is material only when more than one
-  materially different solution exists; settle routine detail from policy,
-  requirements and the project's structure, and do not dress it up as a choice.
-- **Reuse over new.** A new helper where one already exists is a defect; name
-  the module or pattern the design reuses.
-- **Independently reviewable iterations.** Each lands, passes its checks and
-  can be reviewed alone, in an order that says why.
-
-Each iteration names five fields: *Goal*, *Changes* (`path:line`), *Accept*,
-*Checks* and *Leaves out*. Tests are written by the task route, not the plan.
-
 ## Draft and accepted
 
 The plan stays a draft until the human answers the route's gate with Accept.

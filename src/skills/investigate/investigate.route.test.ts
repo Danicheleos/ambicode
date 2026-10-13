@@ -11,7 +11,9 @@ import { assembleEngine, CONFIG, routeFixture , stopRoute } from '#testing/fixtu
 import { NodeProcessRunner } from '#platform/ports/node-process-runner';
 import { REPO_ROOT } from '#testing/paths';
 import { contentHash, hash12 } from '#util/hash';
+import { runHook } from '#hook/events/run-hook';
 import type { StartInput } from '#types/harness';
+import type { HookDeps } from '#types/hook';
 
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';
 const STEPS = ['investigate/fetch', 'investigate/read'];
@@ -58,7 +60,7 @@ describe('investigate route (03-I1, 03-I2)', () => {
       await save('## Files\n- src/missing.ts:3\n');
       const back = await next({ cause: 'note save' });
       assert.equal(back.position, 'read');
-      assert.match(back.text, /## Last round\n.*Save the corrected note again/);
+      assert.match(back.text, /## Last round\n.*Give the corrected answer as your final message again/);
       assert.doesNotMatch(back.text, /## map/);
       assert.match(back.text, /Inputs unchanged since the last delivery: .*payload-.*-map\.txt/);
       assert.ok(back.bytes < first.bytes, `revise ${back.bytes} bytes, first delivery ${first.bytes}`);
@@ -74,8 +76,83 @@ describe('investigate route (03-I1, 03-I2)', () => {
     }
   });
 
-  it('D4: read.md tells the model to save the note before answering, and no Stop hook saves it', async () => {
-    assert.match(await readFile(path.join(REPO_ROOT, 'routes', 'investigate', 'read.md'), 'utf8'), /\{cli\} note save --task \{task\} --kind investigation/);
+  it('read.md tells the model to answer once and run no command: the Stop hook saves the final message', async () => {
+    const text = await readFile(path.join(REPO_ROOT, 'routes', 'investigate', 'read.md'), 'utf8');
+    assert.doesNotMatch(text, /note save/);
+    assert.match(text, /final message/);
+  });
+
+  const stopAt = async (t: Awaited<ReturnType<typeof investigation>>, message: string, extra: Record<string, unknown> = {}) => {
+    const deps: HookDeps = { pointer: t.fx.pointer, load: async () => ({ engine: t.fx.engine, routes: t.fx.routes, pointer: t.fx.pointer }) };
+    return (await runHook(t.fx.runtime, JSON.stringify({ hook_event_name: 'Stop', session_id: A, cwd: t.fx.repo.root, scratchpad_dir: t.fx.scratchpad, last_assistant_message: message, ...extra }), deps)) as { decision?: string; reason?: string };
+  };
+  const shape = async (t: Awaited<ReturnType<typeof investigation>>) => ({
+    notes: (await t.fx.kinds('cart', 'note')).map((entry) => entry['note']),
+    checks: (await t.fx.kinds('cart', 'worker')).map((entry) => `${entry['worker']}:${(entry['summary'] as { failed: boolean }).failed}`),
+    exit: (await t.fx.kinds('cart', 'exit')).at(-1)?.['reason'],
+  });
+
+  it('Stop at read saves the final message as the investigation note, checks its citations and ends the route done', async () => {
+    const t = await investigation();
+    try {
+      await t.start();
+      const answer = '## Files\n- src/cart.ts:2 appends the item\n';
+      assert.deepEqual(await stopAt(t, answer), {});
+      assert.deepEqual(await shape(t), { notes: ['investigation'], checks: ['check-citations:false'], exit: 'done' });
+      const note = (await t.fx.kinds('cart', 'note'))[0]!;
+      assert.equal(await readFile(path.join(t.fx.repo.root, String(note['path'])), 'utf8'), answer);
+    } finally {
+      await t.fx.dispose();
+    }
+  });
+
+  it('Stop with a bad citation blocks with the failure list; the corrected answer completes the route', async () => {
+    const t = await investigation();
+    try {
+      await t.start();
+      const blocked = await stopAt(t, '## Files\n- src/missing.ts:3\n');
+      assert.equal(blocked.decision, 'block');
+      assert.match(blocked.reason!, /bad citation: src\/missing\.ts:3 missing-file/);
+      assert.equal((await shape(t)).exit, undefined);
+      assert.deepEqual(await stopAt(t, '## Files\n- src/cart.ts:2\n'), {});
+      const after = await shape(t);
+      assert.deepEqual(after.notes, ['investigation', 'investigation']);
+      assert.equal(after.exit, 'done');
+    } finally {
+      await t.fx.dispose();
+    }
+  });
+
+  it('Stop with a bad citation twice still lets the answer through: the revise bound is the exit, no second mechanism', async () => {
+    const t = await investigation();
+    try {
+      await t.start();
+      assert.equal((await stopAt(t, '- src/missing.ts:3')).decision, 'block');
+      assert.deepEqual(await stopAt(t, '- src/also-missing.ts:1'), {});
+      assert.equal((await shape(t)).exit, 'done');
+      assert.deepEqual((await shape(t)).checks, ['check-citations:true', 'check-citations:true']);
+    } finally {
+      await t.fx.dispose();
+    }
+  });
+
+  it('Stop saves nothing for a subagent, a route not at read, or a manual note save already made', async () => {
+    const t = await investigation();
+    try {
+      await t.start({ text: 'zzqqxx wwvvuu' });
+      assert.deepEqual(await stopAt(t, '- src/cart.ts:2'), {}, 'the scope gate is the position');
+      assert.deepEqual((await shape(t)).notes, []);
+      await t.next({ answers: [{ gate: 'scope', option: 'addToCart' }] });
+      assert.deepEqual(await stopAt(t, '- src/cart.ts:2', { agent_id: 'sub' }), {});
+      assert.deepEqual((await shape(t)).notes, []);
+      const context = commandContext({ runtime: t.fx.runtime, routes: t.fx.routes });
+      await saveNote({ runtime: t.fx.runtime, session: A, context }, { task: 'cart', kind: 'investigation', body: '- src/cart.ts:2\n', from: null, iteration: null, route: (await t.fx.kinds('cart', 'route')).at(-1)!.id });
+      await t.next({ cause: 'note save' });
+      assert.deepEqual(await stopAt(t, 'the same answer again'), {});
+      assert.deepEqual((await shape(t)).notes, ['investigation'], 'a manual note save still works and the final message adds no second note');
+    } finally {
+      await t.fx.dispose();
+    }
   });
 
   it('03-I1: with no requirement the start runs ground synchronously and delivers read with the map and stage text', async () => {
@@ -85,8 +162,8 @@ describe('investigate route (03-I1, 03-I2)', () => {
       assert.equal(first.position, 'read');
       assert.deepEqual(await rows(), ['fetch:skipped', 'ground:completed', 'scope:skipped', 'read:delivered']);
       assert.match(first.text, /Now: Read the code the question is about\./);
-      assert.match(first.text, /Then: .*note save --task cart --kind investigation/);
-      assert.match(first.text, /Save the answer before giving it: `.*note save --task cart --kind investigation`/);
+      assert.match(first.text, /Then: write your final message; it is saved as the note/);
+      assert.doesNotMatch(first.text, /note save/);
       assert.match(first.text, /never a bare file name/);
       assert.match(first.text, /## map\n/);
       assert.match(first.text, /src\/cart\.ts/);

@@ -6,29 +6,27 @@ appliesTo:
   - "**/*.schema.ts"
   - "**/*.model.ts"
   - "**/models/**/*.ts"
+  - "**/*.{service,schema,model,repository}.{js,mjs,cjs}"
+  - "**/*.repository.ts"
+  - "**/{service,repository,model}.{ts,js,mjs,cjs}"
+  - "**/models/**/*.{js,mjs,cjs}"
 activities: [review, task, plan]
+detect:
+  - { file: package.json, contains: '"express"' }
 
 source:
   location: >-
     AMBICODE persistence baseline, adapted from grahpt
     express-services-and-persistence. The original's mandatory feature-slice
-    migration and its ORM-specific expectations are not carried over; the input
-    safety, pagination, and conflict concerns are.
-  externalVersion: "express-v1"
+    migration and its ORM-specific expectations are not carried over; the
+    pagination, conflict, and shape concerns are. Query-input safety is a
+    common rule (untrusted-input-allowlist).
+  externalVersion: "express-v2"
 
 rules:
-  - id: query-input-allowlist
-    category: security
-    instruction: >-
-      Never let client input choose a field name, an operator, a sort key, or an
-      unbounded page size. Allowlist them. Treat interpolating user input into a
-      query the same way as SQL injection, whatever the data store.
-    check:
-      kind: reviewer
-      explanation: Assessed from the changed query construction.
-
   - id: bounded-reads
     category: correctness
+    activities: [task, review]
     instruction: >-
       A list query has an explicit maximum page size, and a read selects the
       fields the response needs.
@@ -38,6 +36,7 @@ rules:
 
   - id: write-conflict-behaviour
     category: correctness
+    activities: [plan, task, review]
     instruction: >-
       A write that can race on a uniqueness constraint states its conflict or
       idempotency behaviour, and translates a constraint violation into a typed
@@ -48,6 +47,7 @@ rules:
 
   - id: client-controlled-shapes
     category: security
+    activities: [plan, review]
     instruction: >-
       Model client-controlled data as explicit typed fields. An open map or blob
       for client input hides validation and compatibility decisions rather than
@@ -58,6 +58,7 @@ rules:
 
   - id: persistence-types-stay-internal
     category: architecture
+    activities: [plan, review]
     instruction: >-
       A response should not expose a raw persistence document or a
       persistence-only field. Which mapping layer performs the translation is
