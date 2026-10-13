@@ -1,7 +1,7 @@
 ---
 name: task-multi
 description: 'A refund defect whose fix spans the payments service and repository, in a project with an error hierarchy and a test factory it must use.'
-tags: ["task", "review"]
+tags: ["task"]
 runs: 1
 max_turns: 40
 timeout_seconds: 1200

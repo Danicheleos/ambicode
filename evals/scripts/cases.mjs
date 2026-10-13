@@ -278,38 +278,34 @@ FAIL if it calls the plan accepted, final or approved, or starts implementing.`)
   // ---------------------------------------------------------------- task
   {
     name: 'task-fix',
-    description: 'A one-line defect with a passing-but-incomplete test: fix, test, format, independent review, report.',
-    tags: ['task', 'review'],
-    version: 2,
+    description: 'A one-line defect with a passing-but-incomplete test: fix, test, format, report; the review offer is left to its default.',
+    tags: ['task'],
+    version: 3,
     fixture: 'eval-page-bug', flags: '--ambicode-init --install',
-    prompt: `/ambicode:task --task fix-page --headless --answer review-offer=run Fix page() in src/page.js: the last item of every page is missing, so page([1, 2, 3], 0, 2) returns [1] instead of [1, 2]. ${REPO}`,
+    prompt: `/ambicode:task --task fix-page --headless Fix page() in src/page.js: the last item of every page is missing, so page([1, 2, 3], 0, 2) returns [1] instead of [1, 2]. ${REPO}`,
     bare: `Fix page() in src/page.js: the last item of every page is missing, so page([1, 2, 3], 0, 2) returns [1] instead of [1, 2]. ${REPO}`,
     graders: [
       ledger('format-recorded', '"kind":"format"', T('fix-page')),
-      tool('reviewer-invoked', 'Agent', 'ambicode:reviewer'),
-      ledger('review-recorded', '"kind":"review"[^\\n]*"stage":"recorded"', T('fix-page')),
       DONE(T('fix-page')),
       noGit,
       regex('report-sections', 'Evidence[\\s\\S]*Not verified'),
       shared(regex('existing-tests-kept', 'out of range', { file: 'repo/tests/page.test.js' })),
       shared(llm('fix-correct', PAGE_FIXED, { file: 'repo/src/page.js' })),
       shared(llm('test-added', `
-PASS if the file contains a test that would fail on the original defect: it asserts a full page such as page([1, 2, 3], 0, 2) equal to [1, 2], or a last element present. The original tests ("empty list", "out of range") are still present and unchanged in meaning.
-FAIL if no such test exists or an existing assertion was weakened or removed.`, { file: 'repo/tests/page.test.js' })),
+PASS if the file contains a test that would fail on the original defect: it asserts a full page such as page([1, 2, 3], 0, 2) equal to [1, 2], or a last element present.
+FAIL if no such test exists.`, { file: 'repo/tests/page.test.js' })),
     ],
   },
   {
     name: 'task-multi',
     description: 'A refund defect whose fix spans the payments service and repository, in a project with an error hierarchy and a test factory it must use.',
-    tags: ['task', 'review'],
-    version: 3,
+    tags: ['task'],
+    version: 4,
     fixture: 'ts-app-medium-refund-bug', flags: '--ambicode-init --context --install',
-    prompt: `/ambicode:task --task fix-refund --headless --answer review-offer=run Refunds are broken: after a partial refund on a fully paid invoice, the invoice still shows as paid, and refunding more than was paid crashes the API. Put the regression test in tests/payments/payments.test.js. ${REPO}`,
+    prompt: `/ambicode:task --task fix-refund --headless Refunds are broken: after a partial refund on a fully paid invoice, the invoice still shows as paid, and refunding more than was paid crashes the API. Put the regression test in tests/payments/payments.test.js. ${REPO}`,
     bare: `Refunds are broken: after a partial refund on a fully paid invoice, the invoice still shows as paid, and refunding more than was paid crashes the API. Put the regression test in tests/payments/payments.test.js. ${REPO}`,
     graders: [
       ledger('format-recorded', '"kind":"format"', T('fix-refund')),
-      tool('reviewer-invoked', 'Agent', 'ambicode:reviewer'),
-      ledger('review-recorded', '"kind":"review"[^\\n]*"stage":"recorded"', T('fix-refund')),
       DONE(T('fix-refund')),
       noGit,
       regex('report-sections', 'Evidence[\\s\\S]*Not verified'),
@@ -325,8 +321,8 @@ FAIL if refund() still stores the refund and emits its event without updating th
 PASS if the guard that rejects a refund above what was paid throws PaymentError, ValidationError or another subclass of AppError from src/shared/errors, so that the HTTP layer answers with a 4xx.
 FAIL if it throws a bare Error or any non-AppError, or if the guard was removed.`, { file: 'repo/src/payments/service.js' })),
       shared(llm('test-added', `
-PASS if the file contains a test that would fail on the original defect: an invoice is paid in full, part of it is refunded, and the test asserts the invoice status is partially_paid (or that the paid amount is the net). The original tests are still present and unchanged in meaning.
-FAIL if no such test exists or an existing assertion was weakened or removed.`, { file: 'repo/tests/payments/payments.test.js' })),
+PASS if the file contains a test that would fail on the original defect: an invoice is paid in full, part of it is refunded, and the test asserts the invoice status is partially_paid (or that the paid amount is the net).
+FAIL if no such test exists.`, { file: 'repo/tests/payments/payments.test.js' })),
       shared(llm('test-uses-factory', `
 PASS if every test the change added seeds its customers and invoices with makeInvoice and makePayment from tests/factory.js (imported from '../factory'). Calling payments.refund (or the payments service) directly in the test is allowed; the factory is for seeding.
 FAIL if an added test seeds them from inline object literals, calls the repository or the model directly to seed data, or imports nothing from the factory while existing tests do.`, { file: 'repo/tests/payments/payments.test.js' })),
