@@ -4,8 +4,9 @@ import type { DiffFile } from '#types/platform/git';
 
 /**
  * Reviewer output is checked against the pinned diff; nothing is repaired or re-asked.
- * One invalid location, unknown rule or requirement, or finding over the limit voids the
- * whole result: the survivors of an unverified answer are not validated output.
+ * One invalid location, unknown requirement, or finding over the limit voids the whole
+ * result. An unknown rule id is dropped from its finding and reported: models invent ids
+ * near real ones (eval C3: common-rules/callers), and the finding itself still verifies.
  */
 
 export interface ValidateOptions {
@@ -20,13 +21,15 @@ export interface ValidateOptions {
 }
 
 type ValidatedFindings =
-  | { kind: 'ok'; findings: Finding[] }
+  /** `dropped` names each unknown rule reference removed from a kept finding; the caller records them as omissions. */
+  | { kind: 'ok'; findings: Finding[]; dropped: string[] }
   /** `rejections` are persisted, because a refusal is evidence about the review. */
   | { kind: 'invalid'; reason: string; rejections: string[] };
 
 export function validateFindings(options: ValidateOptions): ValidatedFindings {
   const rejections: string[] = [];
   const findings: Finding[] = [];
+  const dropped: string[] = [];
 
   if (options.maxFindings !== null && options.output.findings.length > options.maxFindings) {
     return {
@@ -51,10 +54,10 @@ export function validateFindings(options: ValidateOptions): ValidatedFindings {
     // Excerpt taken from the checkout and the diff, never from text the model supplied.
     const evidence = snippetFor(located, options.snapshotText);
 
+    const ruleRefs: string[] = [];
     for (const ref of candidate.ruleRefs) {
-      if (!options.knownRuleIds.has(ref)) {
-        rejections.push(`${label}: cites rule "${ref}", which is not in this review's resolved policy.`);
-      }
+      if (options.knownRuleIds.has(ref)) ruleRefs.push(ref);
+      else dropped.push(`${label} cited rule "${ref}", which is not in this review's resolved policy; the reference was dropped`);
     }
     for (const ref of candidate.requirementRefs) {
       if (!options.knownRequirementIds.has(ref)) {
@@ -72,7 +75,7 @@ export function validateFindings(options: ValidateOptions): ValidatedFindings {
       evidence,
       explanation: candidate.explanation,
       suggestedComment: candidate.suggestedComment,
-      ruleRefs: [...candidate.ruleRefs],
+      ruleRefs,
       requirementRefs: [...candidate.requirementRefs],
     });
   }
@@ -86,7 +89,7 @@ export function validateFindings(options: ValidateOptions): ValidatedFindings {
     };
   }
 
-  return { kind: 'ok', findings };
+  return { kind: 'ok', findings, dropped };
 }
 
 interface Located {

@@ -210,7 +210,7 @@ describe('review route: the estimate gate (08-R4, 08-R5, S12, S14)', () => {
       const agent = await t.synthetic([], { stage: 'pending' });
       assert.equal(agent.position, 'review-agent');
       assert.match(agent.text, /ambicode:reviewer/);
-      assert.match(agent.text, /diff: .*changed\.diff/);
+      assert.doesNotMatch(agent.text, /diff:/);
       assert.match(agent.text, /brief: .*brief\.md/);
       assert.match(agent.text, /review record --task ord-7/);
       assert.doesNotMatch(agent.text, /route next/);
@@ -325,10 +325,10 @@ describe('review route: step texts, ceilings and the ignore warning (08-R6, 08-B
     assert.doesNotMatch(text, /route next/);
   });
 
-  it('08-R6: the agent step names the subagent, hands it the two payload paths (the diff and the brief) and records its JSON unedited with review record', async () => {
+  it('08-R6: the agent step names the subagent, hands it the brief path and records its JSON unedited with review record', async () => {
     const text = await read('review/agent');
     assert.match(text, /`ambicode:reviewer` subagent/);
-    assert.match(text, /Review the change in <diff path>\. Read <brief path> first\. The code is in the checkout\. Answer with the JSON block only\./);
+    assert.match(text, /Review the change described in <brief path>: it holds the whole diff with the lines a finding may name\. The code is in the checkout\. Answer with the JSON block only\./);
     assert.match(text, /review record --task ord-7` with no input: the SubagentStop hook saved/);
     assert.match(text, /paste the subagent's JSON block, unchanged, on stdin/);
     assert.match(text, /Do not edit, filter/);

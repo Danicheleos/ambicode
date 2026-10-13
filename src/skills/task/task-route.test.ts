@@ -215,7 +215,8 @@ describe('task route (07-R, 07-V, 07-G)', () => {
       const agent = await t.review([finding({ id: 'F1' })], { reviewerRan: false });
       assert.equal(agent.position, 'review-agent');
       assert.match(agent.text, /ambicode:reviewer/);
-      assert.match(agent.text, /diff: .*changed\.diff\nbrief: .*brief\.md/);
+      assert.doesNotMatch(agent.text, /diff:/);
+      assert.match(agent.text, /brief: .*brief\.md/);
       assert.match(agent.text, /review record --task ord-7/);
       assert.equal(await delivered(t, 'fix'), 0, 'a pending review has no findings to fix');
       const fix = await t.review([finding({ id: 'F1' })]);

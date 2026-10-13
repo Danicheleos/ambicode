@@ -53,6 +53,7 @@ rules:
 
   - id: reuse-before-reimplementing
     category: architecture
+    activities: [plan, task]
     instruction: >-
       Before adding a helper, look for an existing one, a framework API already
       in use, or a language built-in that covers the case. A second
@@ -68,7 +69,7 @@ rules:
 
   - id: unjustified-complexity
     category: architecture
-    activities: [plan, review]
+    activities: [plan]
     instruction: >-
       Prefer the smallest clear solution for the case at hand. Generic
       machinery, configuration surfaces, and optimizations need a demonstrated

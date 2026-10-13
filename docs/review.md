@@ -150,7 +150,7 @@ verify that Claude did.
 
 The reviewer is the plugin subagent `ambicode:reviewer`
 (`agents/reviewer.md`). It has `Read`, `Grep` and `Glob`, and nothing else: no
-command-running tool, no MCP, no way to post. Its prompt names the diff file and `brief.md`; the code is in the checkout. A
+command-running tool, no MCP, no way to post. Its prompt names only `brief.md`, which holds the whole diff; the code is in the checkout. A
 merge request is diff-only: the reviewer has no file content for it.
 
 Code, requirements and check output reach it below a heading marked
@@ -195,11 +195,14 @@ raw answer in `rejected-output.txt`. It is not a review that found nothing.
 verified, which makes the result `partial` and puts the reason in part 4.
 
 **An unverifiable claim invalidates the result.** If the reviewer named a path
-or a line the pinned change does not contain, cited a rule or requirement this
-review does not hold, or returned more findings than `skills.review.maxFindings`, the
+or a line the pinned change does not contain, cited a requirement this review
+does not hold, or returned more findings than `skills.review.maxFindings`, the
 review is an `error`: the finding list is empty and the surviving findings are
 *not* offered as validated output. Nothing is repaired and no second model call
 is made.
+
+**An unknown rule id is dropped, not fatal.** The finding is kept without that
+reference, and part 4 lists one omission per dropped reference.
 
 ## Evidence without a model
 

@@ -304,18 +304,30 @@ describe('U17 location validation', () => {
     assert.equal(findings[0]?.location.oldPath, 'src/orders.ts');
   });
 
-  it('invalidates the result rather than rewriting a reference it does not know', () => {
+  it('an unknown requirement still invalidates the result', () => {
     const result = expectInvalid(
       run([
         {
           ...candidate({ oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'new', line: 2 }),
-          ruleRefs: ['invented/rule', 'common-design/reuse-before-reimplementing'],
+          ruleRefs: ['common-design/reuse-before-reimplementing'],
           requirementRefs: ['NOPE-1'],
         },
       ]),
     );
-    assert.match(result.rejections.join('\n'), /invented\/rule/);
     assert.match(result.rejections.join('\n'), /NOPE-1/);
+  });
+
+  it('an unknown rule is dropped, the finding is kept, one omission is recorded', () => {
+    const result = run([
+      {
+        ...candidate({ oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'new', line: 2 }),
+        ruleRefs: ['invented/rule', 'common-design/reuse-before-reimplementing'],
+      },
+    ]);
+    assert.ok(result.kind === 'ok');
+    assert.deepEqual(result.findings[0]?.ruleRefs, ['common-design/reuse-before-reimplementing']);
+    assert.equal(result.dropped.length, 1);
+    assert.match(result.dropped[0] ?? '', /invented\/rule/);
   });
 
   it('keeps references the review does know', () => {

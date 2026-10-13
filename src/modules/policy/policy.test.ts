@@ -61,7 +61,7 @@ test('U03 built-in packs parse, keep authority and provenance, and qualify rule 
     paths: ['apps/web/src/a.ts'],
   });
   assert.ok(resolved.rules.every((rule) => COMMON_PACKS.some((id) => rule.qualifiedId.startsWith(`${id}/`))));
-  assert.ok(resolved.rules.some((rule) => rule.qualifiedId === 'common-design/reuse-before-reimplementing'));
+  assert.ok(resolved.rules.some((rule) => rule.qualifiedId === 'common-design/need'));
   assert.equal(resolved.prompts.length, 0, 'the common packs carry no prompt: before-review is never delivered');
 });
 
@@ -501,7 +501,7 @@ test('a rule that lists an activity its pack does not carry is a pack error', as
   assert.ok(diagnostics.some((diagnostic) => diagnostic.code === 'pack-invalid' && /plan-only/.test(diagnostic.message)), JSON.stringify(diagnostics));
 });
 
-test('the 24 common rules each name their activities; only fix-the-cause and reuse-before-reimplementing sit in both plan and task, the review-only rules never reach plan or task', async () => {
+test('the 24 common rules each name their activities; review carries 19 because the reviewer agent already covers five (deliberate); only fix-the-cause and reuse-before-reimplementing sit in both plan and task, the review-only rules never reach plan or task', async () => {
   const config = project({ packs: COMMON_REFERENCES });
   const { packs } = await loadPacksForProject({ fs: nodeFileSystem, project: config, builtinDirectory: BUILTIN_DIRECTORY, repositoryRoot: '/nowhere' });
   const ruleIds = (activity: 'plan' | 'task' | 'review') => resolvePolicy({ activity, project: config, packs, paths: ['apps/web/src/a.ts'] }).rules.map((rule) => rule.qualifiedId.split('/')[1]!);
@@ -509,7 +509,8 @@ test('the 24 common rules each name their activities; only fix-the-cause and reu
   const task = ruleIds('task');
   const review = ruleIds('review');
   assert.equal(packs.flatMap((loaded) => loaded.pack.rules).length, 24);
-  assert.equal(review.length, 24, 'every rule reaches review');
+  assert.equal(review.length, 19, 'deliberate: 24 rules minus the five the reviewer agent restates');
+  for (const id of ['reuse-before-reimplementing', 'unjustified-complexity', 'dead-surface', 'callers', 'error-honesty']) assert.ok(!review.includes(id), `${id} is absent from review`);
   const reviewOnly = ['honest-gaps', 'no-secret-exposure', 'untrusted-input-allowlist', 'outbound-timeouts', 'configured-logger'];
   for (const id of reviewOnly) assert.ok(!plan.includes(id) && !task.includes(id), id);
   assert.deepEqual(plan.filter((id) => task.includes(id)).sort(), ['fix-the-cause', 'reuse-before-reimplementing']);

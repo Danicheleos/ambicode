@@ -31,7 +31,7 @@ environment for it.
 The subagent runs inside the user's own session, so the boundary is the
 tool allowlist in the agent file and nothing stronger: the session's hooks,
 settings and managed policy still apply to it. It reads the checkout and the
-diff file its request names. It cannot run commands or post, but it can `Read`
+brief its request names. It cannot run commands or post, but it can `Read`
 any file the session can. That is a property of Claude Code's tool permissions,
 not something AMBICODE enforces.
 

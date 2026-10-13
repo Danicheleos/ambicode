@@ -163,6 +163,13 @@ Hooks: AMBICODE registers seven hook events with fourteen handler entries. The `
 hook blocks a finishing message at most once per route, naming what to fix and the
 full list in `stop-check.md` of the task directory; a second failing stop is allowed.
 
+**`invalid-output`.** Printed by `review record` when the reviewer's answer could not be verified
+(no JSON block, or a location outside the diff). It is not a clean review. Report the printed
+rejections as they are; do not retry.
+
+**`brief-failed`.** `brief.mjs` threw while building the reviewer's brief; the message carries the
+first stack lines. Nothing was reviewed. Report it verbatim and stop.
+
 **`review-unreadable`.** The review's `result.json` is missing or not a review
 result. Run `review --task <slug>` again; do not hand-edit the file.
 

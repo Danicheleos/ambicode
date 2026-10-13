@@ -62,7 +62,7 @@ Unknown fields are rejected. Step ids are unique inside a route.
 |---|---|---|
 | `requirements.normalize` | `envelope` | Builds the requirement envelope from captures (or from the request text) and records it. |
 | `search.map(prompt)` | `map` | Builds the search map for the request. The parameter picks the layer set (`prompt` or `context`). |
-| `policy.stage(<stage>[, <activity>])` | `policy:<stage>` | The resolved pack rules for the route's activity and the files it knows (touched files, else the map's top candidates) as `pack/rule (authority): instruction` under a byte cap (`before-work`); a second param names the activity when it differs from the route's (the task route's reviewer brief passes `review`, which also lifts the cap); `before-checks` and `before-report` carry nothing. |
+| `policy.stage(<stage>[, <activity>])` | `policy:<stage>` | The resolved pack rules for the route's activity and the files it knows (touched files, else the map's top candidates) as `pack/rule: instruction` grouped under `Rules (team|observed|inherited):` headers under a byte cap (`before-work`); a second param names the activity when it differs from the route's (the task route's reviewer brief passes `review`, which also lifts the cap); `before-checks` and `before-report` carry nothing. |
 | `policy.enabled` | `policy.enabled` | Every rule in force for the project (id and the first 80 characters), so a rules draft skips what a pack already states. |
 | `context.list` | `context.list` | The files under `.ambicode/context/` (path, first H1, size) or "no context: run /ambicode:init"; the step reads only the one it needs. |
 | `evidence.navigationLine` | `navigation` | The line saying which navigation calls were recorded. |

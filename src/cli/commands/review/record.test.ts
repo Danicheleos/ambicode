@@ -81,6 +81,16 @@ describe('review record', () => {
     assert.deepEqual([out.result.findings.length, out.result.reviewer?.status], [0, 'ok']);
   });
 
+  it('an invented rule id is dropped: the finding is recorded and the report, result and ledger carry one omission', async () => {
+    const t = await pending();
+    const out = await t.record(`\`\`\`json\n${JSON.stringify({ findings: [{ ...t.finding(t.line), ruleRefs: ['common-rules/callers'] }], coverageNotes: [] })}\n\`\`\``);
+    assert.deepEqual([out.result.reviewer?.status, out.result.findings.length, out.result.findings[0]!.ruleRefs], ['ok', 1, []]);
+    assert.equal(out.result.omissions.filter((line) => line.includes('common-rules/callers')).length, 1);
+    assert.match(renderRecord(out), /4\. OMISSIONS[\s\S]*cited rule "common-rules\/callers"[\s\S]*the reference was dropped/);
+    const entry = (await t.ledger()).findLast((candidate) => candidate.kind === 'review')!;
+    assert.equal(entry['omissions'], out.result.omissions.length);
+  });
+
   it('one bad line voids the whole answer: status error, no findings, the rejection printed, the entry still written', async () => {
     const t = await pending();
     const out = await t.record(`\`\`\`json\n${JSON.stringify({ findings: [t.finding(t.line), t.finding(9999)], coverageNotes: [] })}\n\`\`\``);

@@ -27,10 +27,12 @@ describe('review scripts (C7)', () => {
       await writeFile(path.join(taskDir, 'ledger.jsonl'), `${ledger()}\n`);
       await writeFile(path.join(taskDir, 'steps', 'payload-x-policy-before-work.txt'), 'RULE no-eval: never eval.');
       const out = run('brief', { repositoryRoot: root, taskDir, steps: path.join(taskDir, 'steps') });
-      assert.equal(out['payload'], `diff: ${path.join(reviewDir, 'changed.diff')}\nbrief: ${path.join(reviewDir, 'brief.md')}`);
+      assert.equal(out['payload'], `brief: ${path.join(reviewDir, 'brief.md')}`);
       const brief = await readFile(path.join(reviewDir, 'brief.md'), 'utf8');
       assert.match(brief, /### a\.ts \[modified\]\nnew-side lines: 3-6\nold-side lines: 3-5/);
       assert.match(brief, /RULE no-eval: never eval\./);
+      assert.doesNotMatch(brief, /changed\.diff/);
+      assert.match(brief, /## Project conventions\n\nSource: .*conventions\.md\n\n\(none recorded\)/);
       assert.match(brief, /### ORD-1: Totals\nSum them\./);
       assert.match(brief, /No check recorded for this task: nothing was verified by execution\. That is a gap, not a pass\./);
 
@@ -40,6 +42,12 @@ describe('review scripts (C7)', () => {
       assert.match(withChecks, /- app\/unit red: exit 1; on: a\.spec\.ts/);
       assert.match(withChecks, /- app\/unit green: exit 0; on: a\.spec\.ts/);
       assert.doesNotMatch(withChecks, /No check recorded/);
+
+      await mkdir(path.join(root, '.ambicode', 'context'), { recursive: true });
+      await writeFile(path.join(root, '.ambicode', 'context', 'conventions.md'), '## Errors\nMoney goes through toCents().');
+      run('brief', { repositoryRoot: root, taskDir, steps: path.join(taskDir, 'steps') });
+      const withConventions = await readFile(path.join(reviewDir, 'brief.md'), 'utf8');
+      assert.match(withConventions, /## Project conventions\n\nSource: .*conventions\.md\n\n#### Errors\nMoney goes through toCents\(\)\.\n\n## Requirements/, 'the file\'s headings nest under the section');
     } finally {
       await rm(root, { recursive: true, force: true });
     }

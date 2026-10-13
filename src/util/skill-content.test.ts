@@ -402,6 +402,13 @@ describe('F3 documented outcomes', () => {
   });
 });
 
+describe('review outcomes that are not AmbicodeErrors', () => {
+  it('documents invalid-output and brief-failed, which the emitted-code scan cannot see', async () => {
+    const outcomes = await readFile(path.join(SKILLS_DIR, 'review', 'references', 'outcomes.md'), 'utf8');
+    for (const code of ['invalid-output', 'brief-failed']) assert.ok(outcomes.includes(`\`${code}\``), `${code} is not documented in outcomes.md`);
+  });
+});
+
 describe('07-M2 task outcomes', () => {
   it('07-M2: review outcomes document every code the task commands add, each as a backticked code', async () => {
     const outcomes = await readFile(path.join(SKILLS_DIR, 'review', 'references', 'outcomes.md'), 'utf8');

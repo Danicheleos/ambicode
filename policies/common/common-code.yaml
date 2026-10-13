@@ -13,6 +13,7 @@ source:
 rules:
   - id: dead-surface
     category: correctness
+    activities: [task]
     instruction: >-
       Remove code, members, and work that the change leaves unreachable or
       unused.
@@ -58,6 +59,7 @@ rules:
 
   - id: callers
     category: correctness
+    activities: [task]
     instruction: >-
       When a change removes, renames, or alters the signature or meaning of a
       name, find every caller and update it in the same change.

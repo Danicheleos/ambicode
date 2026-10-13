@@ -74,7 +74,7 @@ describe('review route on ts-source-regression (08-I3)', () => {
       const done = await t.review();
       assert.equal(t.runner.calls.length, 0, 'the review ran no check');
       assert.match(done.next ?? '', /step review-agent/);
-      assert.match(done.next ?? '', /diff: .*changed\.diff/);
+      assert.doesNotMatch(done.next ?? '', /diff:/);
       const brief = (done.next ?? '').match(/brief: (.*brief\.md)/)![1]!;
       assert.match(await readFile(brief, 'utf8'), /No check recorded for this task/);
 

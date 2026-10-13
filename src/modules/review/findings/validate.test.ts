@@ -25,14 +25,29 @@ describe('validateFindings', () => {
     assert.match(result.findings[0]?.evidence ?? '', /2: export const b = 2; <---/);
   });
 
-  it('one bad location, unknown rule or unknown requirement voids the whole answer', () => {
-    const result = run([candidate(at(2)), candidate(at(99)), candidate(at(2), { ruleRefs: ['r/unknown'] }), candidate(at(2), { requirementRefs: ['REQ-9'] })], { maxFindings: 5 });
+  it('one bad location or an unknown requirement still voids the whole answer', () => {
+    const result = run([candidate(at(2)), candidate(at(99)), candidate(at(2), { requirementRefs: ['REQ-9'] })], { maxFindings: 5 });
     assert.equal(result.kind, 'invalid');
     if (result.kind !== 'invalid') return;
-    assert.equal(result.rejections.length, 3);
+    assert.equal(result.rejections.length, 2);
     assert.match(result.rejections.join('\n'), /line 99 is not present/);
-    assert.match(result.rejections.join('\n'), /rule "r\/unknown"/);
     assert.match(result.rejections.join('\n'), /requirement "REQ-9"/);
+  });
+
+  it('an unknown rule is dropped, the finding is kept, one omission is recorded', () => {
+    const result = run([candidate(at(2), { ruleRefs: ['r/known', 'r/unknown'] })]);
+    assert.ok(result.kind === 'ok');
+    assert.equal(result.findings.length, 1);
+    assert.deepEqual(result.findings[0]?.ruleRefs, ['r/known']);
+    assert.equal(result.dropped.length, 1);
+    assert.match(result.dropped[0] ?? '', /finding 1 \(src\/a\.ts:2 new\) cited rule "r\/unknown".*the reference was dropped/);
+  });
+
+  it('a finding citing only unknown rules is kept with no rule refs (C3: common-rules/callers)', () => {
+    const result = run([candidate(at(2), { ruleRefs: ['common-design/scope', 'common-rules/callers'] })], { knownRuleIds: new Set(['common-design/scope']) });
+    assert.ok(result.kind === 'ok');
+    assert.deepEqual(result.findings[0]?.ruleRefs, ['common-design/scope']);
+    assert.equal(result.dropped.length, 1);
   });
 
   it('over maxFindings voids the answer', () => {

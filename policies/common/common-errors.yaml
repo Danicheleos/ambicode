@@ -13,6 +13,7 @@ source:
 rules:
   - id: error-honesty
     category: correctness
+    activities: [task]
     instruction: >-
       Distinguish an impossible invariant breach from an expected failure. Fail
       fast for the first; handle the second at its owner. An empty catch, a

@@ -19,12 +19,12 @@ async function repo() {
 }
 
 describe('03-P policy stage', () => {
-  it('03-P2: before-work carries rules as pack/rule (authority): instruction for every activity', async () => {
+  it('03-P2: before-work carries rules as pack/rule: instruction under an authority header for every activity', async () => {
     const { temp, runtime, project } = await repo();
     try {
       for (const activity of ['investigate', 'task'] as const) {
         const payload = await policyStage({ runtime, project, activity, paths: ['src/a.ts'], stage: 'before-work', show: true });
-        if (payload.entry.rules > 0) assert.match(payload.text, /^[a-z0-9-]+\/[a-z0-9-]+ \([a-z-]+\): .+/m);
+        if (payload.entry.rules > 0) assert.match(payload.text, /^Rules \((team|observed|inherited)\):\n[a-z0-9-]+\/[a-z0-9-]+: .+/m);
         assert.doesNotMatch(payload.text, /rulesOmitted/);
       }
     } finally {
@@ -32,11 +32,12 @@ describe('03-P policy stage', () => {
     }
   });
 
-  it('a project pack rule renders as pack/rule (authority): instruction at before-work only, and is counted in the entry', async () => {
+  it('a project pack rule renders as pack/rule: instruction under its authority header at before-work only, and is counted in the entry', async () => {
     const fx = await styleRepo(1);
     try {
       const before = await policyStage({ runtime: fx.runtime, project: fx.project, activity: 'task', paths: ['src/a.ts'], stage: 'before-work', show: true });
-      assert.match(before.text, /^team\/style-0 \(team\): Style rule 0\.$/m);
+      assert.match(before.text, /^Rules \(team\):$/m);
+      assert.match(before.text, /^team\/style-0: Style rule 0\.$/m);
       assert.ok(before.entry.rules >= 1);
       const report = await policyStage({ runtime: fx.runtime, project: fx.project, activity: 'task', paths: ['src/a.ts'], stage: 'before-report', show: true });
       assert.doesNotMatch(report.text, /team\/style-0/);
@@ -50,21 +51,24 @@ describe('03-P policy stage', () => {
     try {
       const plan = await policyStage({ runtime, project, activity: 'plan', paths: ['src/a.ts'], stage: 'before-work', show: true });
       const task = await policyStage({ runtime, project, activity: 'task', paths: ['src/a.ts'], stage: 'before-work', show: true });
-      assert.match(plan.text, /common-design\/need /);
-      assert.doesNotMatch(plan.text, /common-(code|verification)\/(naming|effects|test-behavior) /);
-      assert.match(task.text, /common-code\/naming /);
-      assert.doesNotMatch(task.text, /common-(design|security)\/(need|cohesion|data-boundary) /);
+      assert.match(plan.text, /common-design\/need: /);
+      assert.doesNotMatch(plan.text, /common-(code|verification)\/(naming|effects|test-behavior): /);
+      assert.match(task.text, /common-code\/naming: /);
+      assert.doesNotMatch(task.text, /common-(design|security)\/(need|cohesion|data-boundary): /);
       const review = await policyStage({ runtime, project, activity: 'review', paths: ['src/a.ts'], stage: 'before-work', show: true });
-      assert.equal(review.entry.rules, plan.entry.rules + task.entry.rules - 2 + 5, 'review carries all 24: fix-the-cause and reuse sit in plan and task, five rules are review-only');
-      for (const id of ['honest-gaps', 'scope', 'callers', 'no-secret-exposure', 'untrusted-input-allowlist', 'outbound-timeouts', 'configured-logger']) assert.match(review.text, new RegExp(`common-[a-z]+/${id} `), id);
+      // Deliberate: the reviewer agent's own checklist covers five rules, so they no longer reach review.
+      const planTaskOnly = ['reuse-before-reimplementing', 'unjustified-complexity', 'dead-surface', 'callers', 'error-honesty'];
+      assert.equal(review.entry.rules, plan.entry.rules + task.entry.rules - 2 - planTaskOnly.length + 5, 'review carries 19 of 24: fix-the-cause sits in plan and task (-2 counts reuse too), five plan/task rules skip review, five rules are review-only');
+      for (const id of planTaskOnly) assert.doesNotMatch(review.text, new RegExp(`common-[a-z]+/${id}: `), `${id} must not reach review`);
+      for (const id of ['honest-gaps', 'scope', 'no-secret-exposure', 'untrusted-input-allowlist', 'outbound-timeouts', 'configured-logger']) assert.match(review.text, new RegExp(`common-[a-z]+/${id}: `), id);
       assert.doesNotMatch(plan.text + task.text, /honest-gaps|no-secret-exposure|untrusted-input-allowlist|outbound-timeouts|configured-logger/);
-      assert.match(plan.text, /common-design\/scope /);
-      assert.doesNotMatch(plan.text, /common-code\/callers /);
-      assert.match(task.text, /common-code\/callers /);
-      assert.doesNotMatch(task.text, /common-design\/scope /);
-      // Measured 2566 B plan / 3100 B task after scope, callers, no-check-evasion and unobserved-async (was 2441 / 2424), rounded up to 64 B.
-      assert.ok(plan.bytes <= 2624, `plan ${plan.bytes}`);
-      assert.ok(task.bytes <= 3136, `task ${task.bytes}`);
+      assert.match(plan.text, /common-design\/scope: /);
+      assert.doesNotMatch(plan.text, /common-code\/callers: /);
+      assert.match(task.text, /common-code\/callers: /);
+      assert.doesNotMatch(task.text, /common-design\/scope: /);
+      // Measured 2463 B plan / 2964 B task / 4237 B review with authority headers and five rules off review (was 2559 / 3096 / 5693), rounded up to 64 B.
+      assert.ok(plan.bytes <= 2496, `plan ${plan.bytes}`);
+      assert.ok(task.bytes <= 3008, `task ${task.bytes}`);
       for (const payload of [plan, task]) assert.ok(payload.bytes < review.bytes, `${payload.bytes} vs ${review.bytes}`);
     } finally {
       await temp.dispose();
@@ -140,7 +144,7 @@ describe('before-work carries every rule', () => {
     try {
       const work = await policyStage({ runtime: fx.runtime, project: fx.project, activity: 'task', paths: ['src/a.ts'], stage: 'before-work', show: true });
       const checks = await policyStage({ runtime: fx.runtime, project: fx.project, activity: 'task', paths: ['src/a.ts'], stage: 'before-checks', show: true });
-      assert.equal(work.text.split('\n').filter((line) => /^team\/style-\d+ /.test(line)).length, 12);
+      assert.equal(work.text.split('\n').filter((line) => /^team\/style-\d+: /.test(line)).length, 12);
       assert.match(work.text, /team\/no-secrets/);
       assert.equal(checks.entry.rules, 0);
     } finally {
@@ -154,6 +158,40 @@ describe('before-work carries every rule', () => {
       const work = await policyStage({ runtime: fx.runtime, project: fx.project, activity: 'task', paths: ['src/a.ts'], stage: 'before-work', show: false });
       assert.ok(work.bytes <= STAGE_LIMITS['before-work'], `${work.bytes}`);
       assert.match(work.text, /more: `policy --activity task --stage before-work --show`$/);
+    } finally {
+      await fx.temp.dispose();
+    }
+  });
+});
+
+describe('rules are grouped under one header per authority', () => {
+  it('team rules come before inherited ones, each under its own header, and a cut never leaves a dangling header or counts one as a rule', async () => {
+    const fx = await styleRepo(3, ` ${'x'.repeat(300)}`);
+    try {
+      const config = await fx.runtime.fs.readText(`${fx.temp.root}/.ambicode/config.yaml`);
+      await fx.temp.write('.ambicode/config.yaml', config.replace('packs: []', 'packs: [builtin/common-code]'));
+      const project = projectForRequest((await openWorkspace(fx.runtime)).config, null, []);
+      const at = (show: boolean) => policyStage({ runtime: fx.runtime, project, activity: 'task', paths: ['src/a.ts'], stage: 'before-work', show });
+      const whole = await at(true);
+      const headers = whole.text.split('\n').filter((line) => line.startsWith('Rules ('));
+      assert.deepEqual(headers, ['Rules (team):', 'Rules (inherited):']);
+      assert.ok(whole.text.indexOf('team/style-0:') < whole.text.indexOf('Rules (inherited):') && whole.text.indexOf('Rules (inherited):') < whole.text.indexOf('common-code/naming:'));
+      assert.doesNotMatch(whole.text, /^[a-z-]+\/[a-z-]+ \(/m, 'no per-line authority suffix');
+      const cut = await styleRepo(40, ` ${'x'.repeat(200)}`);
+      try {
+        const cfg = await cut.runtime.fs.readText(`${cut.temp.root}/.ambicode/config.yaml`);
+        await cut.temp.write('.ambicode/config.yaml', cfg.replace('packs: []', 'packs: [builtin/common-code]'));
+        const cutProject = projectForRequest((await openWorkspace(cut.runtime)).config, null, []);
+        const total = (await policyStage({ runtime: cut.runtime, project: cutProject, activity: 'task', paths: ['src/a.ts'], stage: 'before-work', show: true })).entry.rules;
+        const capped = await policyStage({ runtime: cut.runtime, project: cutProject, activity: 'task', paths: ['src/a.ts'], stage: 'before-work', show: false });
+        const lines = capped.text.split('\n');
+        const shown = lines.filter((line) => /^[a-z0-9-]+\/[a-z0-9-]+: /.test(line)).length;
+        assert.ok(capped.bytes <= STAGE_LIMITS['before-work']);
+        assert.ok(!lines[lines.length - 2]!.startsWith('Rules ('), 'no trailing header before the pointer');
+        assert.match(lines[lines.length - 1]!, new RegExp(`^${total - shown} more: `), 'omitted count excludes headers');
+      } finally {
+        await cut.temp.dispose();
+      }
     } finally {
       await fx.temp.dispose();
     }

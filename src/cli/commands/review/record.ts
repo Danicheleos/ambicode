@@ -117,7 +117,7 @@ export async function runReviewRecord(runtime: Runtime, args: ParsedArgs): Promi
       run.detail = `invalid-output: ${validated.reason}`;
     } else {
       result.findings = validated.findings;
-      result.omissions = [...result.omissions, ...answer.output.coverageNotes];
+      result.omissions = [...result.omissions, ...answer.output.coverageNotes, ...validated.dropped];
     }
   }
   if (!ok) {
