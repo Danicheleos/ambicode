@@ -1,4 +1,4 @@
-Write the plan once with the Write tool to `.ambicode/tasks/{task}/steps/plan-body.md`, then run `{cli} route next --task {task}`. Code saves it as the draft and checks that every `path:line` anchor exists; failures come back to you as a section here; fix them by writing it again with the Write tool, not the shell.
+Write the plan once with the Write tool to `.ambicode/tasks/{task}/steps/plan-body.md`, then run `{cli} route next --task {task}`. Code saves it as the draft and checks that every `path:line` anchor exists; failures come back to you as a section here; fix them by writing the whole file again with the Write tool, never by patching it or through the shell.
 Shape:
 - A requirement → section table: one row per requirement point (`| requirement | section |`), or the point listed under a `## Not covered` heading with the reason.
 - Ordered, independently reviewable iterations. Each one has:
@@ -8,5 +8,6 @@ Shape:
   - *Checks*: the affected checks by key, not "run the suite".
   - *Leaves out*: what a later iteration owns.
 - Assumptions, open decisions and known limitations.
+Name only files the plan changes or reuses: a file you read and ruled out goes unnamed, in any section.
 Edit nothing else: no source, tests or config.
 Learned how to navigate or write code here? Add it with `{cli} context write` (no duplicates).

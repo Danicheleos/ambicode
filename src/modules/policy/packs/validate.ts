@@ -98,13 +98,14 @@ export async function validatePack(
     }
   }
 
-  // No catalog of command ids exists, so a built-in or its copy (`replaces`) naming an undeclared
-  // command is unavailable, like null; only a hand-written pack's typo is worth an error.
-  if (constraints.commands !== null && origin === 'project' && pack.replaces === undefined) {
-    const commands = constraints.commands;
+  // A built-in naming an undeclared command is unavailable, like null. A copy (`replaces`) keeps that
+  // for the commands its built-in names; any other name in it is a typo.
+  if (constraints.commands !== null && origin === 'project') {
+    const inherited = pack.replaces === undefined ? undefined : (await constraints.builtinCommands()).get(pack.replaces.slice('builtin/'.length));
+    const declared = (name: string): boolean => Object.hasOwn(constraints.commands!, name) || inherited?.has(name) === true;
     const owner = constraints.projectId ?? 'this project';
     for (const decision of pack.commandPolicy) {
-      if (!Object.hasOwn(commands, decision.command)) {
+      if (!declared(decision.command)) {
         diagnostics.push({
           severity: 'error',
           code: 'pack-unknown-command',
@@ -114,7 +115,7 @@ export async function validatePack(
       }
     }
     for (const rule of pack.rules) {
-      if (rule.check.kind === 'command' && !Object.hasOwn(commands, rule.check.command)) {
+      if (rule.check.kind === 'command' && !declared(rule.check.command)) {
         diagnostics.push({
           severity: 'error',
           code: 'pack-unknown-command',

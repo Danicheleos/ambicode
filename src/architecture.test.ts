@@ -25,8 +25,8 @@ const RANK: Record<string, number> = {
 /** Known crossings, removed as they are fixed; an entry that no longer occurs fails too. */
 const ALLOWLIST = new Set<string>([]);
 
-// Phase 4 rewrite (structural parser, no read/glob/--task rows): 76295 B before, 26444 B built with the opaque-word rule. Cap = 26208 + 512; Phase 7 (plan check and rules discover left the CLI): 26152 B, cap lowered to match; second audit (ownership takeover branch, dead kinds): 24426 B; init redesign (no config/.gitignore rows): 24340 B.
-const GUARD_BUNDLE_MAX_BYTES = 24340 + 512;
+// Phase 4 rewrite (structural parser, no read/glob/--task rows): 76295 B before, 26444 B built with the opaque-word rule. Cap = 26208 + 512; Phase 7 (plan check and rules discover left the CLI): 26152 B, cap lowered to match; second audit (ownership takeover branch, dead kinds): 24426 B; init redesign (no config/.gitignore rows): 24340 B; head pipe deny and headless write-out hint (3 eval failures, 2026-10-13), no command rewrite: 25073 B, cap = size + 512.
+const GUARD_BUNDLE_MAX_BYTES = 25073 + 512;
 
 /** Test files (*.test.ts) are deliberately not scanned: they may import across layers. */
 function sources(directory: string): string[] {

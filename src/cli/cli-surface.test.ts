@@ -12,8 +12,7 @@ const TABLE: Record<string, readonly string[]> = {
   'policy check': ['project', 'drafts'],
   'rules apply': ['project'],
   check: ['task', 'phase', 'name', 'project', 'file', 'approve', 'decline'],
-  format: ['task'],
-  review: ['task', 'estimate'],
+  review: ['estimate'],
   'review record': ['task', 'review'],
   'note save': ['task', 'kind', 'from', 'iteration'],
   'note promote': ['task'],
@@ -73,6 +72,7 @@ describe('CLI surface (08-I1)', () => {
     assert.ok(SPECS['check']?.repeated?.includes('file'));
     assert.ok(SPECS['check']?.values?.includes('phase'));
     assert.ok(SPECS['review']?.flags?.includes('estimate'));
+    assert.ok(!declared('review').includes('task'), 'a route pins its own review; the command takes no task');
   });
 
   it('08-I1: the route and requirements --answer, --requirement options repeat as the table says', () => {

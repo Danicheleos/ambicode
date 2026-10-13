@@ -16,6 +16,8 @@ export interface Segment {
   raw: string;
   /** How many `( … )` subshells enclose the segment; a `cd` in one ends when the depth drops. */
   depth: number;
+  /** The segment reads the output of the one before it through a single `|`. */
+  piped: boolean;
   /** The lexer gave up (unterminated quote): `argv` is what was read before that. */
   unparsed?: true;
 }
@@ -34,6 +36,7 @@ interface Chunk {
   targets: Word[];
   raw: string;
   depth: number;
+  piped: boolean;
   unparsed: boolean;
 }
 
@@ -68,6 +71,13 @@ function readWord(text: string, at: number): { word: Word; end: number } | null 
     if (end !== -1) out += text.slice(from, end);
     return end;
   };
+  const backtick = (from: number): number => {
+    const end = text.indexOf('`', from + 1);
+    if (end === -1) return -1;
+    opaque = true;
+    out += text.slice(from, end + 1);
+    return end + 1;
+  };
   while (i < text.length) {
     const c = text[i]!;
     if ((c === '<' || c === '>') && text[i + 1] === '(') {
@@ -89,18 +99,15 @@ function readWord(text: string, at: number): { word: Word; end: number } | null 
         if (d === undefined) return null;
         if (d === '"') break;
         if (d === '\\' && i + 1 < text.length) {
-          out += text[i + 1] === '$' || text[i + 1] === '"' || text[i + 1] === '\\' || text[i + 1] === '`' ? text[i + 1] : `\\${text[i + 1]}`;
+          out += '$"\\`'.includes(text[i + 1]!) ? text[i + 1] : `\\${text[i + 1]}`;
           i += 2;
         } else if (d === '$') {
           const end = expansion(i);
           if (end === -1) return null;
           i = end;
         } else if (d === '`') {
-          const end = text.indexOf('`', i + 1);
-          if (end === -1) return null;
-          opaque = true;
-          out += text.slice(i, end + 1);
-          i = end + 1;
+          i = backtick(i);
+          if (i === -1) return null;
         } else out += text[i++];
       }
       i++;
@@ -112,11 +119,8 @@ function readWord(text: string, at: number): { word: Word; end: number } | null 
       if (end === -1) return null;
       i = end;
     } else if (c === '`') {
-      const end = text.indexOf('`', i + 1);
-      if (end === -1) return null;
-      opaque = true;
-      out += text.slice(i, end + 1);
-      i = end + 1;
+      i = backtick(i);
+      if (i === -1) return null;
     } else out += text[i++];
   }
   return { word: { text: out, opaque }, end: i };
@@ -132,9 +136,14 @@ function lex(text: string): Chunk[] {
   let start = 0;
   let lastEnd = -1;
   let depth = 0;
+  let piped = false;
   let i = 0;
   const flush = (end: number, unparsed = false): void => {
-    if (words.length > 0 || targets.length > 0 || unparsed) chunks.push({ words, targets, raw: text.slice(start, end).trim(), depth, unparsed });
+    if (words.length > 0 || targets.length > 0 || unparsed) {
+      chunks.push({ words, targets, raw: text.slice(start, end).trim(), depth, piped, unparsed });
+      // Only a command ends a pipeline: `a | b\ntail x` must not feed `tail`, while a line ending in `|` still continues.
+      piped = false;
+    }
     words = [];
     targets = [];
     pending = null;
@@ -165,9 +174,10 @@ function lex(text: string): Chunk[] {
       pending = 'target';
     } else if (c === ';' || c === '&' || c === '|' || c === '(' || c === ')') {
       flush(i);
+      piped = c === '|' && next !== '|';
       if (c === '(') depth++;
       else if (c === ')' && depth > 0) depth--;
-      i += (c === '&' || c === '|') && next === c ? 2 : 1;
+      i += '&|'.includes(c) && next === c ? 2 : 1;
       start = i;
     } else if ((c === '<' || c === '>') && next !== '(') {
       if (lastEnd === i && /^\d+$/.test(words.at(-1)?.text ?? '')) words.pop();
@@ -206,8 +216,8 @@ function lex(text: string): Chunk[] {
   return chunks;
 }
 
-const KEYWORDS = new Set(['{', '!', 'if', 'then', 'else', 'elif', 'do', 'while', 'until', 'time']);
-const WRAPPERS = new Set(['sudo', 'command', 'exec', 'npx']);
+const KEYWORDS = /^(?:\{|!|if|then|else|elif|do|while|until|time)$/;
+const WRAPPERS = /^(?:sudo|command|exec|npx)$/;
 const ASSIGNMENT = /^[A-Za-z_]\w*=/;
 
 const operands = (args: Word[]): Word[] => {
@@ -258,8 +268,8 @@ function toSegment(chunk: Chunk): Segment {
   let at = 0;
   while (at < words.length) {
     const text = words[at]!.text;
-    if (KEYWORDS.has(text) || ASSIGNMENT.test(text)) at++;
-    else if (text === 'env' || WRAPPERS.has(text)) {
+    if (KEYWORDS.test(text) || ASSIGNMENT.test(text)) at++;
+    else if (text === 'env' || WRAPPERS.test(text)) {
       at++;
       while (at < words.length && (words[at]!.text.startsWith('-') || ASSIGNMENT.test(words[at]!.text))) at += /^-[Cu]$/.test(words[at]!.text) ? 2 : 1;
     } else break;
@@ -273,6 +283,7 @@ function toSegment(chunk: Chunk): Segment {
     writeTargets,
     raw: chunk.raw,
     depth: chunk.depth,
+    piped: chunk.piped,
     ...(chunk.unparsed ? { unparsed: true as const } : {}),
   };
 }

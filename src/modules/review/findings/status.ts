@@ -21,7 +21,8 @@ export function applyStatus(result: ReviewResult, reviewerOk: boolean): void {
     ...(policyGaps > 0 ? [`${policyGaps} applicable policy diagnostic(s) could not be resolved`] : []),
     ...(narrowed ? ['--only or --exclude left part of the change unexamined (see section 4)'] : []),
     ...(result.checks.length === 0 ? ['no check recorded, so nothing was verified by execution'] : []),
-    ...(failing.length > 0 ? [`${failing.length} check(s) last ran green with a non-zero exit`] : []),
+    ...((result.reviewer?.rejections.length ?? 0) > 0 ? [`${result.reviewer!.rejections.length} finding(s) rejected for an unverifiable location (see section 4)`] : []),
+    ...(failing.length > 0 ? [`${failing.length} check(s) failed (non-zero exit on the latest run)`] : []),
   ];
   result.status = gaps.length === 0 ? 'complete' : 'partial';
   result.statusReason = gaps.length === 0 ? null : `The review ran, with gaps: ${gaps.join('; ')}.`;

@@ -5,6 +5,7 @@ import { pathExclusionReason } from '#util/path-classes';
 import { matchesGlob } from '#util/glob';
 import { contentHash } from '#util/hash';
 import { builtinPoliciesDirectory } from '#util/plugin-root';
+import { packConstraints } from '../packs/builtin.ts';
 import { loadPacksForProject } from '../packs/load.ts';
 import { readPackText, validatePack, validatePackSet } from '../packs/validate.ts';
 import type { Runtime, Workspace } from '#types/composition';
@@ -43,12 +44,13 @@ export async function checkDrafts(runtime: Runtime, workspace: Workspace, option
   const result: DraftsCheck = { files: [], diagnostics, rulesBySource: {}, notMigrated: [], aggregateHash: '', ok: true, rules: [] };
   const packs: PackWithPrompts[] = [];
   const enabled = project === null ? [] : (await loadPacksForProject({ fs: runtime.fs, project, builtinDirectory: builtinPoliciesDirectory(runtime.pluginRoot), repositoryRoot: root })).packs;
+  const constraints = await packConstraints(runtime.fs, builtinPoliciesDirectory(runtime.pluginRoot), project);
   const names = (await runtime.fs.readdir(path.join(root, DRAFTS_DIR)).catch(() => [])).filter((entry) => entry.isFile() && entry.name.endsWith('.yaml')).map((entry) => entry.name).sort();
   for (const name of names) {
     const relative = `${DRAFTS_DIR}/${name}`;
     const filePath = path.join(root, relative);
     const raw = (await readPackText(runtime.fs, filePath)) ?? '';
-    const validated = await validatePack(runtime.fs, { raw, filePath, reference: relative, origin: 'project' }, project === null ? { commands: null, projectId: null } : { commands: { ...project.commands, ...project.checks }, projectId: project.id });
+    const validated = await validatePack(runtime.fs, { raw, filePath, reference: relative, origin: 'project' }, constraints);
     diagnostics.push(...validated.diagnostics);
     result.files.push({ path: relative, contentHash: contentHash(raw), packId: validated.pack?.pack.id ?? null });
     if (validated.pack === null) continue;

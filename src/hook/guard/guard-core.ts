@@ -4,6 +4,7 @@ import { basename, parseCommand } from '../shell/command-parser.ts';
 import type { ActiveRoute, GuardInput, GuardState } from '../types/guard.ts';
 import { isAbsolute, normalize } from './paths.ts';
 import { CONTEXT_DIR, CONTEXT_REASON } from './rules/context.ts';
+import { cutsOutput } from './rules/output.ts';
 import { noteSaveReason, RUN_DIR } from './rules/notes.ts';
 import { PLAN_BODY, planBodyReason, planBodyRefusal } from './rules/plan-body.ts';
 import { repositoryAsk, USER_DECIDES } from './rules/repository.ts';
@@ -14,7 +15,7 @@ function decide(permissionDecision: 'ask' | 'deny', reason: string): Decision {
   return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision, permissionDecisionReason: reason } };
 }
 
-const FILE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
+const FILE_TOOLS = /^(?:Write|Edit|MultiEdit|NotebookEdit)$/;
 
 /** A word quoted in a reason, cut so a pathological command cannot make the reason megabytes long. */
 const shown = (word: string): string => (word.length > 120 ? `${word.slice(0, 120)}…` : word);
@@ -22,9 +23,15 @@ const shown = (word: string): string => (word.length > 120 ? `${word.slice(0, 12
 // Expansions are not parsed, so a command nested in one is matched by its text.
 const NESTED = /\$\(|`|<\(/;
 const DANGEROUS = /\bgit\s+(?:\S+\s+)*?(?:commit|push|stash|reset|checkout|clean|rebase|merge|branch)\b|\bglab\s+mr\b|\.ambicode\/(?:tasks|reviews)/;
-const NESTED_REASON = 'AMBICODE: cannot read a command inside $(...) or backticks; approve only if you asked for it.';
+const NESTED_REASON = 'AMBICODE: cannot read a command inside $(...) or backticks; approve only if requested.';
 
-const DIRECTORY_CHANGE = new Set(['cd', 'pushd', 'popd']);
+const NAME_PATH = 'Name the path literally (or use the Write tool) and run it again.';
+const WRITE_OUT = 'Run it again with the command written out (no variable, no eval).';
+
+const UNSURE = 'AMBICODE: cannot tell what this runs:';
+const placement = (path: string, why: string): string => `AMBICODE: cannot tell where this writes: \`${shown(path)}\` ${why}.`;
+
+const DIRECTORY_CHANGE = /^(?:cd|pushd|popd)$/;
 
 /**
  * Per segment: git/glab state changes ask; a literal write target under the task directory denies; a target only the
@@ -33,15 +40,16 @@ const DIRECTORY_CHANGE = new Set(['cd', 'pushd', 'popd']);
  * after a `cd` only the shell resolves. Heredoc bodies are never tokenised, so a `note save` body is not inspected (M12).
  */
 function bashDecision(command: string, cwd: string | undefined, pluginRoot: string, headless: boolean): Decision {
-  // Each ask maps to whether it is a placement ask: the path is unknown, so naming it literally lets the guard decide.
-  const asks = new Map<string, boolean>();
+  // An ask maps to its retry hint when it is about the command's form, not a permission: a headless route can retry it.
+  const asks = new Map<string, string | null>();
   const segments = parseCommand(command);
   let dir = cwd;
   const prior: (string | undefined)[] = [];
   let lost = false;
   const outer: { dir: string | undefined; priors: number; lost: boolean }[] = [];
   let why: string | undefined;
-  for (const segment of segments) {
+  const mentionsRunDir = command.includes('.ambicode');
+  for (const [at, segment] of segments.entries()) {
     while (outer.length < segment.depth) outer.push({ dir, priors: prior.length, lost });
     while (outer.length > segment.depth) {
       const saved = outer.pop()!;
@@ -49,29 +57,31 @@ function bashDecision(command: string, cwd: string | undefined, pluginRoot: stri
       prior.length = saved.priors;
     }
     if (segment.unparsed) {
-      if (/\.ambicode\/(?:tasks|reviews)|git/.test(segment.raw)) asks.set(`AMBICODE: cannot tell what this runs: part of the command is not closed or is beyond what the guard parses. ${USER_DECIDES}`, false);
+      if (/\.ambicode\/(?:tasks|reviews)|git/.test(segment.raw)) asks.set(`${UNSURE} part of the command is not closed or not parsed. ${USER_DECIDES}`, null);
       continue;
     }
-    if (segment.argv.some((word, at) => segment.opaque[at] && NESTED.test(word) && DANGEROUS.test(word))) asks.set(NESTED_REASON, false);
+    if (segment.argv.some((word, at) => segment.opaque[at] && NESTED.test(word) && DANGEROUS.test(word))) asks.set(NESTED_REASON, null);
     const name = basename(segment.argv[0] ?? '');
+    if (cutsOutput(segments, at, command)) return decide('deny', 'AMBICODE: nothing ran. Re-run without `| head`.');
     // A name whose last component only the shell expands (`$(which git)`, `$TOOL`) could be any command.
-    if (segment.opaque[0] === true && /[$`]/.test(name)) asks.set(`AMBICODE: cannot tell what this runs: \`${shown(segment.argv[0]!)}\` names a command only when the shell expands it. ${USER_DECIDES}`, false);
+    if (segment.opaque[0] === true && /[$`]/.test(name)) asks.set(`${UNSURE} \`${shown(segment.argv[0]!)}\` names a command only when the shell expands it.`, WRITE_OUT);
     const repository = repositoryAsk(segment, name);
-    if (repository !== null) asks.set(repository, false);
+    if (repository !== null) asks.set(repository, null);
     for (const target of segment.writeTargets) {
       const path = normalize(target.path, dir);
+      // 14 of 14 audited unresolved targets were outside .ambicode/; only text that names it can land there.
       if (target.opaque) {
-        asks.set(`AMBICODE: cannot tell where this writes: \`${shown(target.path)}\` is resolved only when the shell runs it.`, true);
+        if (mentionsRunDir) asks.set(placement(target.path, 'is resolved only when the shell runs it'), NAME_PATH);
       } else if (RUN_DIR.test(path)) {
         const slug = PLAN_BODY.exec(path)?.[2];
         // A plan-body target outranks a note-save one: it names the Write-tool fix, which the other target hides.
         if (slug !== undefined) why = planBodyReason(slug);
         else why ??= noteSaveReason(pluginRoot);
-      } else if (!isAbsolute(target.path) && (lost || prior.some((before) => RUN_DIR.test(normalize(target.path, before))))) {
-        asks.set(`AMBICODE: cannot tell where this writes: \`${shown(target.path)}\` is relative to a directory an earlier \`cd\` changed.`, true);
+      } else if (!isAbsolute(target.path) && ((lost && mentionsRunDir) || prior.some((before) => RUN_DIR.test(normalize(target.path, before))))) {
+        asks.set(placement(target.path, 'is relative to a directory an earlier `cd` changed'), NAME_PATH);
       }
     }
-    if (DIRECTORY_CHANGE.has(name)) {
+    if (DIRECTORY_CHANGE.test(name)) {
       const operands = segment.argv.slice(1).filter((word) => !/^(?:-[LP]|--)$/.test(word));
       if (operands.length === 1 && !segment.opaque.includes(true) && !/^[-+]/.test(operands[0]!)) {
         prior.push(dir);
@@ -80,12 +90,11 @@ function bashDecision(command: string, cwd: string | undefined, pluginRoot: stri
     }
   }
   if (why !== undefined && !segments.some((other) => other.unparsed)) return decide('deny', why);
-  if (why !== undefined) asks.set(why, false);
+  if (why !== undefined) asks.set(why, null);
   if (asks.size === 0) return {};
-  if (headless && [...asks.values()].every(Boolean)) {
-    return decide('deny', `${[...asks.keys()].join(' ')} Name the path literally (or write it with the Write tool) and run it again; the guard then decides on the literal path.`);
-  }
-  return decide('ask', [...asks].map(([reason, placement]) => (placement ? `${reason} ${USER_DECIDES}` : reason)).join(' '));
+  const hints = [...new Set(asks.values())];
+  if (headless && hints.length === 1 && hints[0] !== null) return decide('deny', `${[...asks.keys()].join(' ')} ${hints[0]}`);
+  return decide('ask', [...asks].map(([reason, hint]) => (hint === null ? reason : `${reason} ${USER_DECIDES}`)).join(' '));
 }
 
 function fileDecision(input: GuardInput, session: string | null, route: ActiveRoute | null, state: GuardState | undefined, pluginRoot: string): Decision {
@@ -111,7 +120,7 @@ function headlessDeny(decision: Decision): Decision {
   const reason = (decision['hookSpecificOutput'] as { permissionDecisionReason?: string }).permissionDecisionReason ?? '';
   return decide(
     'deny',
-    `${reason} This route is headless and no one can approve it, so do not run it. ` +
+    `${reason} This headless route cannot approve it, so do not run it. ` +
       'Run `route stop --task <slug> --reason blocked --detail "permission-denied: <what you needed>"`, then ' +
       'finish with a final message that says "permission-denied: <what you needed>".',
   );
@@ -120,10 +129,9 @@ function headlessDeny(decision: Decision): Decision {
 /** `pluginRoot` is the hook's `CLAUDE_PLUGIN_ROOT`, so the command in a message runs as written. */
 export function guardDecision(input: GuardInput, pluginRoot = '${CLAUDE_PLUGIN_ROOT}', state?: GuardState): Decision {
   if (input.hook_event_name !== 'PreToolUse') return {};
-  const tool = input.tool_name ?? '';
   const command = input.tool_input?.command;
-  const file = FILE_TOOLS.has(tool);
-  if (!file && !(tool === 'Bash' && typeof command === 'string')) return {};
+  const file = FILE_TOOLS.test(input.tool_name ?? '');
+  if (!file && !(input.tool_name === 'Bash' && typeof command === 'string')) return {};
   const scratchpad = nonEmpty(input.scratchpad_dir);
   const session = nonEmpty(input.session_id);
   const route = state === undefined || (scratchpad === null && session === null) ? null : state.activeRoute(scratchpad, session);

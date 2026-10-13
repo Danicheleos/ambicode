@@ -10,7 +10,6 @@ import { fixtureByName } from '../../../fixtures/definitions.mjs';
 // @ts-expect-error untyped fixture modules
 import { materialize } from '../../../fixtures/materialize.mjs';
 import { runCheckOnly } from '#modules/checks/run/check-command';
-import { runFormat } from '#modules/checks/run/format';
 import { runHook } from '#hook/events/run-hook';
 import { commandContext } from '#harness/engine/context';
 import { runCommandTail } from '#harness/engine/engine';
@@ -53,14 +52,13 @@ async function offByOne() {
   const runner = new SplitRunner(assembled.runtime.runner);
   const runtime: Runtime = { ...assembled.runtime, runner };
   const deps: CheckDeps = { runtime, session: SESSION_A, context: commandContext({ runtime, routes: assembled.routes }) };
-  const tail = (cause: 'check' | 'format', produced: string[]) =>
+  const tail = (cause: 'check', produced: string[]) =>
     runCommandTail({ engine }, { task: TASK, cause, session: { state: 'bound', session: SESSION_A } as never, produced, scratchpadDir: scratchpad });
   const check = async (phase: 'red' | 'green') => {
     const result = await runCheckOnly(deps, { task: TASK, name: 'unit', project: null, files: [SPEC], phase, approve: [], decline: [] });
     assert.equal(result.outcome, 'ran');
     return tail('check', result.outcome === 'ran' ? [result.entry.id] : []);
   };
-  const format = async () => tail('format', (await runFormat(deps, { task: TASK, paths: [] })).map((entry) => entry.id));
   const hookDeps: HookDeps = { pointer: assembled.pointer, load: async () => ({ engine, routes: assembled.routes, pointer: assembled.pointer }) };
   const stop = async (text: string) => {
     const transcript = path.join(scratchpad, 'transcript.jsonl');
@@ -69,7 +67,7 @@ async function offByOne() {
   };
   const ledger = (): Promise<LedgerEntry[]> => readLedger(nodeFileSystem, path.join(root, '.ambicode', 'tasks', TASK));
   return {
-    root, engine, runner, check, format, stop,
+    root, engine, runner, check, stop,
     start: () => engine.start({ skill: 'task', text: 'Fix the defect: `page` drops the last item of every page.', requirements: [], task: TASK, cwd: root, session: SESSION_A, channel: 'hook', scratchpadDir: scratchpad }),
     ledger,
     skip: async () => {
@@ -91,7 +89,7 @@ const trail = (ledger: readonly LedgerEntry[]): string =>
   }).join(' · ');
 
 describe('task route on ts-off-by-one (integration, test 18)', () => {
-  it('07-R4/07-C4/07-F2/07-R7/07-S1: ground → change (green) → unconfigured format → offer → skip → report', async () => {
+  it('07-R4/07-C4/07-F2/07-R7/07-S1: ground → change (green) → automatic unconfigured format → offer → skip → report', async () => {
     const t = await offByOne();
     try {
       const first = await t.start();
@@ -102,8 +100,7 @@ describe('task route on ts-off-by-one (integration, test 18)', () => {
       await t.write(SPEC, "const { page } = require('../src/page');\n\ntest('full page', () => {\n  expect(page([1, 2, 3, 4], 0, 2)).toEqual([1, 2]);\n});\n");
       await t.write('src/page.js', 'module.exports.page = (items, index, size) => items.slice(index * size, (index + 1) * size);\n');
       t.runner.out = { exitCode: 0, stdout: PASSING };
-      assert.equal((await t.check('green'))?.position, 'change', 'green also needs format');
-      const offer = await t.format();
+      const offer = await t.check('green');
       assert.equal(offer?.position, 'review-offer');
       assert.match(offer?.text ?? '', /Review estimate: working tree/);
 

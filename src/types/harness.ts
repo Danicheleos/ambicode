@@ -67,12 +67,15 @@ export const HANDLER_NAMES = [
   'evidence.notes.promote',
   'task.start',
   'task.report',
+  'task.iterations',
   'checks.baseline',
   'checks.preflight',
+  'checks.format',
+  'checks.runnable',
   'review.evaluate',
-  'review.command',
   'review.estimate',
   'review.publishList',
+  'review.pin',
 ] as const;
 
 export interface StepDef {
@@ -109,10 +112,10 @@ export interface RouteRegistry {
 export type StartChannel = 'hook' | 'cli';
 
 export type CommandName =
-  | 'requirements normalize' | 'check' | 'format' | 'review' | 'policy check --drafts' | 'rules apply'
+  | 'requirements normalize' | 'check' | 'policy check --drafts' | 'rules apply'
   | 'note save' | 'note promote' | 'review record';
 
-export type Cause = 'route-next' | 'gate-hook' | CommandName;
+export type Cause = 'route-next' | 'gate-hook' | 'review-hook' | CommandName;
 
 export type AcceptanceEntry = Extract<TypedEntry, { kind: 'acceptance' }>;
 

@@ -13,7 +13,7 @@ import type { TaskDir } from '#types/modules/evidence';
 import type { FileSystem } from '#types/platform/ports';
 
 /** Causes from a command the model ran, as opposed to a hook or a resume. */
-export const EXPLICIT: ReadonlySet<string> = new Set(['route-next', 'requirements normalize', 'check', 'format', 'review', 'rules apply', 'init --apply', 'init propose', 'note save', 'note promote']);
+export const EXPLICIT: ReadonlySet<string> = new Set(['route-next', 'requirements normalize', 'check', 'rules apply', 'init --apply', 'init propose', 'note save', 'note promote']);
 
 const MAX_TURNS = 200;
 
@@ -47,12 +47,12 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
   // e-cLRPPf: a missing check was told to produce it with `route next`; the check command is the way to produce it.
   function checkCommand(run: Run, step: StepDef): string | null {
     const check = step.produces.find((produced) => produced.kind === 'check' && produced.value !== null);
-    return check === undefined || step.produces.some((produced) => produced.kind === 'format') ? null : commandFor(`check --task ${run.task} --name <check> --file <spec> --phase ${check.value}`);
+    return check === undefined ? null : commandFor(`check --task ${run.task} --name <key> --file <file> --phase ${check.value} (key from checks.runnable)`);
   }
 
-  // The reviewer subagent's answer is written by `review record`; `route next` would not record it.
+  // The PostToolUse hook records the reviewer's answer; `review record` is the fallback, and `route next` would not record it.
   const recordCommand = (run: Run, step: StepDef): string | null =>
-    step.produces.some((produced) => produced.kind === 'review' && produced.value === 'recorded') ? `${commandFor(`review record --task ${run.task}`)} (reads the reviewer's answer the SubagentStop hook captured)` : null;
+    step.produces.some((produced) => produced.kind === 'review' && produced.value === 'recorded') ? `invoke the reviewer; the hook records its answer and prints the next step (only if nothing arrives: ${commandFor(`review record --task ${run.task}`)})` : null;
 
   function producerHint(run: Run, step: StepDef): string {
     if (answersAsNote(step)) return 'your final message, which is saved as the note';
@@ -187,12 +187,17 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     if (!run.deliverOnly && delivered && step.produces.length > 0 && EXPLICIT.has(run.cause)) {
       const again = window.filter((entry) => entry.kind === 'step' && entry['step'] === step.id && entry['status'] === 'repeated').length + 1;
       const missing = step.produces.filter((produced) => !window.some((entry) => matches(entry, produced))).map((produced) => `${produced.kind}${produced.value === null ? '' : `{${produced.value}}`}`);
-      if (again >= 3) {
-        await append(run, { kind: 'limit', which: 'missing-produces', step: step.id, count: again });
-        return null;
+      // Only route-next is the agent saying it is done; a check run mid-edit is work, not an attempt (eval ledgers: red checks burned the limit and skipped review).
+      if (run.cause === 'route-next') {
+        if (again >= 3) {
+          await append(run, { kind: 'limit', which: 'missing-produces', step: step.id, count: again });
+          return null;
+        }
+        await append(run, { kind: 'step', step: step.id, actor: 'model', status: 'repeated', cause: run.cause });
       }
-      await append(run, { kind: 'step', step: step.id, actor: 'model', status: 'repeated', cause: run.cause });
       prefix = `Not done yet: ${missing.join(', ')} is not on record. Produce it with: ${producerHint(run, step)}.\n\n`;
+      // A red check re-sent the whole step (2.2 KB in the test fixture, ~5.7 KB in eval traces) that the model already holds.
+      if (run.cause === 'check') return (await partOf(run, step, `[ambicode] ${run.def.skill} · task ${run.task} · step ${step.id} (${step.index + 1}/${run.def.steps.length})`, prefix.trimEnd())).part;
     }
     const fill = (text: string): string => text.replaceAll('{cli}', cli).replaceAll('{task}', run.task);
     const instruction = fill(step.instruction!);
@@ -299,6 +304,7 @@ export function payloadKey(call: Call): string {
     case 'task.start': return 'brief';
     case 'checks.baseline': return 'baseline';
     case 'task.report': return 'report';
+    case 'task.iterations': return 'iterations';
     default: return call.name;
   }
 }

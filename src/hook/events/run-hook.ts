@@ -13,6 +13,7 @@ import { taskDirFor } from '#modules/evidence/task/task-dir';
 import { answerGates } from './gate-answer.ts';
 import { launchRoute, reinjectRoute } from './prompt-launch.ts';
 import { stopCheck } from './stop-check.ts';
+import { recordReviewerCall } from './review-record.ts';
 import { captureReviewerAnswer } from './subagent-stop.ts';
 import { readSessionContract } from '#modules/policy/packs/shared-contract';
 import { cleanupSessionState, deliverOnce, hookStateBaseDir, resetDelivered } from '#platform/claude/hook-state';
@@ -21,13 +22,21 @@ import type { RouteArgs } from '#types/harness';
 
 export function defaultHookDeps(runtime: Runtime): HookDeps {
   const pointer = fsActiveRoutePointer(runtime.fs);
-  let loaded: Promise<RouteHookDeps> | null = null;
+  let loaded: Promise<RouteHookDeps> | undefined;
   return {
     pointer,
-    load: () =>
-      (loaded ??= createApp(runtime).then(({ routes, engine }) => ({ routes, pointer, engine }))),
+    // The hook process cwd is wherever the session started, often above the repository; the engine reads config from `cwd`.
+    load: (repositoryRoot) => {
+      loaded ??= createRuntime({ ...runtime, cwd: repositoryRoot ?? runtime.cwd }).then(createApp).then(({ routes, engine }) => ({ routes, pointer, engine }));
+      return loaded;
+    },
   };
 }
+
+const loadFor = async (runtime: Runtime, deps: HookDeps, input: HookInput): Promise<RouteHookDeps> => {
+  const found = await findSessionRepository(runtime, input.cwd ?? runtime.cwd);
+  return deps.load(typeof found === 'string' ? null : found.repositoryRoot);
+};
 
 const stateDir = (runtime: Runtime, input: HookInput): string => hookStateBaseDir(runtime.fs, input.session_id, input.scratchpad_dir);
 
@@ -78,9 +87,9 @@ export async function runHook(runtime: Runtime, rawStdin: string, injected?: Hoo
         return { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: context } };
       }
       case 'Stop':
-        return (await stopCheck(input, await deps.load())) ?? EMPTY_HOOK_OUTPUT;
+        return (await stopCheck(input, await loadFor(runtime, deps, input))) ?? EMPTY_HOOK_OUTPUT;
       case 'SubagentStop':
-        await captureReviewerAnswer(runtime, input, await deps.load());
+        await captureReviewerAnswer(runtime, input, await loadFor(runtime, deps, input));
         return EMPTY_HOOK_OUTPUT;
       case 'SessionEnd': {
         const base = stateDir(runtime, input);
@@ -121,10 +130,10 @@ async function deliverSharedContract(
 async function promptContext(runtime: Runtime, input: HookInput, deps: HookDeps): Promise<string | null> {
   const prompt = (input.prompt ?? '').trim();
   if (/^\/ambicode:\w+/.test(prompt)) {
-    return launchRoute(runtime, input, await deps.load());
+    return launchRoute(runtime, input, await loadFor(runtime, deps, input));
   }
   if (input.agent_id !== undefined || (await deps.pointer.read(input.session_id, input.scratchpad_dir)) === null) return null;
-  return reinjectRoute(runtime, input, await deps.load());
+  return reinjectRoute(runtime, input, await loadFor(runtime, deps, input));
 }
 
 /** The requirement an MCP read returned, recorded for the active route; a call with no route costs one file read (03-H6). */
@@ -135,7 +144,7 @@ async function captureForRoute(runtime: Runtime, input: HookInput, deps: HookDep
   const active = await resolveActiveRoute(runtime.fs, deps.pointer, { repositoryRoot: found.repositoryRoot, session: input.session_id, scratchpad: input.scratchpad_dir });
   if (active === null) return;
   const routeRuntime = await createRuntime({ ...runtime, cwd: found.repositoryRoot });
-  const { routes } = await deps.load();
+  const { routes } = await deps.load(found.repositoryRoot);
   const view = await openRouteView(routeRuntime, routes, active.task, active.owner);
   if (view === null) return;
   const dir = taskDirFor(found.repositoryRoot, active.task, '.', dirKindFor(active.skill));
@@ -150,7 +159,11 @@ async function captureForRoute(runtime: Runtime, input: HookInput, deps: HookDep
 
 async function handlePostToolUse(runtime: Runtime, input: HookInput, deps: HookDeps): Promise<unknown> {
   if (input.tool_name === 'AskUserQuestion') {
-    const context = await answerGates(runtime, input, await deps.load());
+    const context = await answerGates(runtime, input, await loadFor(runtime, deps, input));
+    return context === null ? EMPTY_HOOK_OUTPUT : { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: context } };
+  }
+  if (input.tool_name === 'Agent') {
+    const context = await recordReviewerCall(runtime, input, deps);
     return context === null ? EMPTY_HOOK_OUTPUT : { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: context } };
   }
   if (input.tool_name === 'WebFetch' || input.tool_name?.startsWith('mcp__')) {

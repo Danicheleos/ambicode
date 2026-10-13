@@ -1,2 +1,0 @@
-Tests are yours to choose. First run the ones that cover the change and record each with `{cli} check --task {task} --name <check> --file <file> (repeat --file per file) --phase green`. A review with no recorded check reports that as a gap, not a pass.
-Then run the review command from the payload below, unchanged. It pins the change, writes `changed.diff` and `files.txt` into the review directory, lists the checks recorded for this task, and prints the report.

@@ -10,7 +10,7 @@ import type { LedgerEntry } from '#types/modules/evidence';
 import type { AdvanceInput, StartInput, StepMessage } from '#types/harness';
 import { SESSION_A } from './ids.ts';
 
-const STEPS = ['plan/fetch', 'task/change', 'task/fix', 'task/write', 'task/review', 'review/agent'];
+const STEPS = ['plan/fetch', 'task/change', 'task/fix', 'task/write', 'review/agent'];
 
 export const ORDERS = 'export function total(amounts: number[]): number {\n  return amounts.reduce((a, b) => a + b);\n}\n';
 
@@ -44,11 +44,7 @@ export async function taskFixture(options: { config?: string; pack?: string } = 
     const entry = await append({ kind: 'check', key: 'app/unit', files: ['src/a.spec.ts'], exit, phase, ms: 3 });
     return next({ cause: 'check', produced: [entry.id] });
   };
-  const format = async (outcome: 'formatted' | 'unconfigured' = 'formatted'): Promise<StepMessage> => {
-    const entry = await append({ kind: 'format', key: 'app/format', files: [], exit: outcome === 'formatted' ? 0 : null, via: 'model', outcome });
-    return next({ cause: 'format', produced: [entry.id] });
-  };
-  /** What `review --task` leaves: the result file and the `review` entry, then the tail. */
+  /** What the route's review pin leaves: the result file and the `review` entry, then the tail. */
   const review = async (findings: Finding[], extra: { reviewerRan?: boolean } = {}): Promise<StepMessage> => {
     reviews += 1;
     const reviewId = `r-${reviews}`;
@@ -57,9 +53,9 @@ export async function taskFixture(options: { config?: string; pack?: string } = 
     await fx.repo.write(path.join('.ambicode', 'reviews', CHECK_TASK, 'changed.diff'), 'diff --git a/src/orders.ts b/src/orders.ts\n--- a/src/orders.ts\n+++ b/src/orders.ts\n@@ -1 +1 @@\n-a\n+b\n');
     const ran = extra.reviewerRan ?? true;
     const entry = await append({ kind: 'review', reviewId, result, status: 'partial', stage: ran ? 'recorded' : 'pending', reviewerRan: ran, findings: findings.length });
-    return next({ cause: ran ? 'review record' : 'review', produced: [entry.id] });
+    return next({ cause: ran ? 'review record' : 'route-next', produced: [entry.id] });
   };
   /** Edits the committed source, so `src/orders.ts` is in the touched set. */
   const edit = (): Promise<void> => fx.repo.write('src/orders.ts', ORDERS.replace('a + b)', 'a + b, 0)'));
-  return { ...base, runCheck: base.check, dir, start, next, hook, append, check, format, review, edit, ledger: () => fx.ledger(CHECK_TASK), kinds: (kind: string) => fx.kinds(CHECK_TASK, kind) };
+  return { ...base, runCheck: base.check, dir, start, next, hook, append, check, review, edit, ledger: () => fx.ledger(CHECK_TASK), kinds: (kind: string) => fx.kinds(CHECK_TASK, kind) };
 }

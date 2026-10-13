@@ -152,4 +152,11 @@ describe('evaluateConsent binding', () => {
     assert.equal(evaluateConsent({ ...base, binding: { draft: 'h1' } }).state, 'honoured');
     assert.equal(evaluateConsent({ ...base, binding: { draft: 'h2' } }).state, 'refused');
   });
+
+  it('an answer that is not an acting option is never honoured, an acting one is', () => {
+    const answered = (answer: string) => ({ window: [accept({ answer })], chain: [print], gate: 'g', acting: ['approve'] });
+    assert.deepEqual(evaluateConsent(answered('decline')), { state: 'refused', reason: 'not-accepted', source: accept({ answer: 'decline' }) });
+    assert.equal(evaluateConsent(answered('approve')).state, 'honoured');
+    assert.equal(evaluateConsent({ ...answered('Revise'), acting: [] }).state, 'honoured', 'a gate with no acting option keeps its consumer in charge');
+  });
 });

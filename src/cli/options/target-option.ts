@@ -16,7 +16,6 @@ export function resolveTargetOptions(
     target: validateTargetArgs(command, args),
     requirementUrls: args.all('requirement'),
     evidence: evidenceSource(runtime, args.value('evidence')),
-    task: args.value('task'),
     excludePaths: args.all('exclude'),
     onlyPaths: args.all('only'),
     withTests: args.flag('with-tests'),

@@ -87,3 +87,17 @@ silently → review-agent delivered with no brief path. Run 2 ran `review` first
 
 Pre-existing: 2026-10-12T22-42-07 task-multi-3 shows the same sequence (review-cmd limit, brief
 cause `format`). `src/harness` is unmodified. 3 of 14 recorded task-multi runs hit it.
+
+### Fix and rerun (raw/2026-10-13-route-fix/run.log, traces 2026-10-13T01-50-17-078Z)
+
+Changes: only `route-next` counts as an attempt at a model step; the task route's `review-cmd` model
+step is gone and `brief` pins the review in code (`review.pin`); brief.mjs fails `review-missing`
+instead of an empty payload; routes/review/agent.md requires `run_in_background: false`
+(2 of 112 traced reviewer launches ran in the background; in task-multi-1 the headless Stop closed
+the route, so SubagentStop found no route and the answer was lost).
+
+```
+task-multi ×3   score 0.944 (was 0.889)   $0.204/run (was 0.209)   13.3 turns
+route-done 3/3  review-recorded 3/3  reviewer-invoked 3/3  no missing-produces limits
+report-sections 2/3 (not shared)   test-added 2/3 (judge FAIL×3 on run 2)
+```

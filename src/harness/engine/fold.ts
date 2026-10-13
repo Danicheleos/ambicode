@@ -20,7 +20,8 @@ export function matches(entry: LedgerEntry, qualified: Qualified): boolean {
   switch (qualified.kind) {
     case 'note': return entry['note'] === qualified.value;
     case 'policy': return entry['stage'] === qualified.value;
-    case 'check': return entry['phase'] === qualified.value;
+    // A green needs exit 0 and a red a failing exit: an unproven run keeps the step open until the check limit releases it.
+    case 'check': return entry['phase'] === qualified.value && (entry['exit'] === 0) === (qualified.value === 'green');
     case 'requirement': return entry['capture'] === qualified.value;
     case 'review': return entry['stage'] === qualified.value;
     default: return true;
@@ -62,7 +63,8 @@ const ownCompletion = (window: readonly LedgerEntry[], step: StepDef): boolean =
   window.some((entry) => entry.kind === 'step' && entry['step'] === step.id && entry['status'] === 'completed');
 
 const limited = (window: readonly LedgerEntry[], step: StepDef): boolean =>
-  window.some((entry) => entry.kind === 'limit' && entry['step'] === step.id && (entry['which'] === 'missing-produces' || entry['which'] === 'identical-next'));
+  window.some((entry) => entry.kind === 'limit' && entry['step'] === step.id && (entry['which'] === 'missing-produces' || entry['which'] === 'identical-next'
+    || (entry['which'] === 'check' && step.produces.some((produced) => produced.kind === 'check' && produced.value === entry['phase']))));
 
 /** Done-ness per actor (03-F3). */
 function isDone(step: StepDef, window: readonly LedgerEntry[]): boolean {

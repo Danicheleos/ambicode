@@ -25,8 +25,9 @@ async function toReadback(t: Fixture, findings = [finding({ id: 'f-1' }), findin
   });
   assert.equal((await t.kinds('capture')).length, 1);
   assert.equal((await t.next()).position, 'estimate');
-  assert.match((await t.hook('estimate', 'run')).text, /review --task ord-7 --mr /);
-  await t.synthetic([], { stage: 'pending' });
+  // The pin is code now: the captured merge-request diff is pinned and no check runs on a checkout that is not the merge request.
+  assert.equal((await t.hook('estimate', 'run')).position, 'review-agent');
+  assert.deepEqual([(await t.kinds('review')).map((entry) => entry['stage']), await t.kinds('check')], [['pending'], []]);
   return t.synthetic(findings, { stage: 'recorded' });
 }
 

@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { navigationLine } from './navigation-line.ts';
 import { buildReport } from './report.ts';
-import { contentHash } from '#util/hash';
 import type { LedgerEntry } from '#types/modules/evidence';
 
 let counter = 0;
@@ -11,15 +10,18 @@ const check = (fields: object): LedgerEntry => entry('check', { key: 'web/unit',
 const route = (fields: object = {}): LedgerEntry => entry('route', { skill: 'task', args: 'x', mode: 'interactive', channel: 'hook', trusted: true, session: 'a1b2c3d4', epoch: 1, ...fields });
 
 describe('02-R1: the report skeleton', () => {
-  it('prints every Evidence line in order, "none recorded" for an empty one, and a hash comment', () => {
+  it('collapses every empty Evidence line into one "none recorded" line that names Map and Navigation too, and carries no hash comment', () => {
     const report = buildReport([]);
-    const names = report.evidence.split('\n').map((line) => line.trim().split(':')[0]);
-    assert.deepEqual(names, ['Evidence', 'Requirements', 'Map', 'Navigation (CLI calls)', 'Baseline', 'Checks', 'Review', 'Decisions', 'Revisions']);
-    for (const name of ['Requirements', 'Map', 'Baseline', 'Checks', 'Review', 'Decisions', 'Revisions']) assert.match(report.evidence, new RegExp(`  ${name}: none recorded`));
+    assert.equal(report.evidence, 'Evidence\n  none recorded: Requirements, Map, Navigation, Baseline, Checks, Review, Decisions, Revisions');
     assert.equal(report.notVerified, 'Not verified\n  none recorded');
-    assert.equal(report.hash, contentHash(`${report.evidence}\n${report.notVerified}`));
-    assert.ok(report.text.endsWith(`\n<!-- ambicode report ${report.hash} -->`));
-    assert.ok(report.text.startsWith(`${report.evidence}\n${report.notVerified}\n`));
+    assert.equal(report.text, `${report.evidence}\n${report.notVerified}`);
+  });
+
+  it('a map that ran and found nothing prints as 0 candidates, not as "none recorded"', () => {
+    const empty = buildReport([entry('map', { layers: [{ name: 'grep' }, { name: 'harvest' }], candidates: 0, collisions: [] })]);
+    assert.match(empty.evidence, /^ {2}Map: layers grep→harvest, 0 candidates$/m);
+    assert.doesNotMatch(empty.evidence, /none recorded: .*Map/);
+    assert.match(buildReport([]).evidence, /none recorded: Requirements, Map,/);
   });
 
   it('shows what is recorded on each line', () => {
@@ -37,6 +39,7 @@ describe('02-R1: the report skeleton', () => {
     ]);
     assert.match(report.evidence, /Requirements: 1 source\(s\) from captures \(ORD-17\) via atlassian; ORD-17 \(asked\)/);
     assert.match(report.evidence, /Map: layers shortlist→harvest, 1 colliding names/);
+    assert.match(buildReport([entry('map', { layers: [{ name: 'grep' }], candidates: 4 })]).evidence, /Map: layers grep, 0 colliding names/);
     assert.match(report.evidence, /Baseline: a1b2c3d4e5f6, dirty: README\.md/);
     assert.match(report.evidence, /Checks: web\/unit --file a\.spec\.ts: red exit 1 → green exit 0/);
     assert.match(report.evidence, /Review: local_1 complete, 2 findings/);
@@ -59,7 +62,7 @@ describe('02-R2: checks never claim more than the ledger says', () => {
 
   it('a delivery, a completion or an exit code alone is not a test result', () => {
     const report = buildReport([entry('step', { route: 'r', step: 'fix', actor: 'model', status: 'completed', cause: 'route-next' }), entry('exit', { route: 'r', reason: 'done' })]);
-    assert.match(report.evidence, /Checks: none recorded/);
+    assert.match(report.evidence, /none recorded: .*Checks/);
     assert.doesNotMatch(report.text, /\bpassed\b|green/);
   });
 
@@ -176,9 +179,9 @@ describe('03-E12: the report leads with how the route ended', () => {
     assert.equal(buildReport([route, { ...exit, detail: undefined }]).status, 'ended: blocked');
   });
 
-  it('the hash covers the evidence only: the leading line does not change it', () => {
+  it('the leading status line is not part of the evidence or Not verified blocks', () => {
     const exit = { id: 'a-2', at, kind: 'exit', route: 'a-1', reason: 'blocked' };
-    assert.equal(buildReport([route]).hash, buildReport([route, exit]).hash);
+    assert.equal(buildReport([route]).evidence, buildReport([route, exit]).evidence);
   });
 });
 
@@ -226,13 +229,38 @@ describe('07-R9: Not verified for the task route', () => {
     const failed = buildReport([check({ exit: 1 })]);
     assert.match(failed.notVerified, /web\/unit: last run exited 1/);
     const absent = buildReport([]);
-    assert.match(absent.evidence, /Checks: none recorded/);
+    assert.match(absent.evidence, /none recorded: .*Checks/);
     assert.equal(absent.notVerified, 'Not verified\n  none recorded');
     assert.doesNotMatch(absent.text, /not formatted|green/);
   });
 });
 
 describe('report compaction', () => {
+  it('identical Not verified items print once and count once', () => {
+    const limit = (): LedgerEntry => entry('limit', { route: 'r', which: 'green-unproven', count: 1, step: 'change' });
+    const report = buildReport([route(), limit(), limit()], { complete: true });
+    assert.equal(report.notVerified, 'Not verified\n  green-unproven limit (1) at change');
+    assert.equal(report.status, 'complete, 1 items not verified');
+  });
+
+  it('a green-unproven limit is dropped once a later green check passed in the same step, kept when none did or the pass came in another step', () => {
+    const limit = (): LedgerEntry => entry('limit', { route: 'r', which: 'green-unproven', count: 1, step: 'change', cause: 'nonzero-exit', key: 'web/unit', files: ['service', 'test'] });
+    const fixed = buildReport([route(), check({ exit: 1 }), limit(), check({ exit: 0, files: ['service', 'repository', 'test'] })], { complete: true });
+    assert.equal(fixed.notVerified, 'Not verified\n  none recorded');
+    assert.equal(fixed.status, 'complete');
+    assert.match(buildReport([route(), check({ exit: 1 }), limit()], { complete: true }).notVerified, /green-unproven limit/);
+    const later = buildReport([route(), check({ exit: 1 }), limit(), entry('step', { step: 'fix', status: 'delivered' }), check({ exit: 0 })], { complete: true });
+    assert.match(later.notVerified, /green-unproven limit \(1\) at change/);
+  });
+
+  it('a green-unproven limit survives a pass on a disjoint file or another check key', () => {
+    const limit = entry('limit', { route: 'r', which: 'green-unproven', count: 1, step: 'change', cause: 'nonzero-exit', key: 'web/unit', files: ['service', 'test'] });
+    const failed = check({ exit: 1, files: ['service', 'test'] });
+    assert.match(buildReport([route(), failed, limit, check({ exit: 0, files: ['other'] })], { complete: true }).notVerified, /green-unproven limit/);
+    assert.match(buildReport([route(), failed, limit, check({ exit: 0, key: 'web/lint', files: ['service', 'test'] })], { complete: true }).notVerified, /green-unproven limit/);
+    assert.match(buildReport([route(), failed, limit, check({ exit: 0, files: ['service'] })], { complete: true }).notVerified, /green-unproven limit/);
+  });
+
   it('a recorded review replaces the pending entry of the same id, so Not verified no longer says the reviewer did not run', () => {
     const report = buildReport([
       entry('review', { reviewId: 'local_1', status: 'partial', reviewerRan: false, omissions: 1 }),

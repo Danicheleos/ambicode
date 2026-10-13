@@ -54,8 +54,8 @@ defects that already existed and the change does not touch.
 ## Findings
 
 Each finding needs a primary location that exists in the diff: a path, a side (`old` or `new`), and
-a line number from the ranges the brief lists for that file. One location that cannot be verified
-makes the whole review invalid: every finding is discarded, not only that one.
+a line number from the ranges the brief lists for that file. A finding whose location cannot be
+verified is discarded and the review is marked partial; the others are kept.
 
 The explanation says what goes wrong and for whom, and words a judgement as a judgement and
 a fact as a fact. The suggested comment is what a human might post on the merge request: one or two

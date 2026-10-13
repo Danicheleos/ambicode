@@ -1,5 +1,4 @@
 import { dirKindFor } from '#types/defaults';
-import path from 'node:path';
 import { findSessionRepository } from '#platform/git/session-repository';
 import type { HookInput, StopHookOutput } from '#types/hook';
 import { endedRouteInLedger, resolveActiveRoute } from '../session/active-route.ts';
@@ -25,7 +24,6 @@ export interface StopPorts {
   answerNote(task: string, session: string, routeId: string, body: string, scratchpadDir?: string): Promise<StepMessage>;
 }
 
-const squash = (value: string): string => value.replace(/\s+/g, ' ').trim();
 const firstHeading = (instruction: string | null): string | null => instruction?.split('\n').find((line) => /^#+\s/.test(line))?.trim() ?? null;
 const firstLine = (text: string): string => text.split('\n').find((line) => line.trim() !== '')?.trim() ?? '';
 
@@ -33,20 +31,25 @@ const firstLine = (text: string): string => text.split('\n').find((line) => line
 const reportWritten = (def: RouteDef, chain: readonly LedgerEntry[]): boolean =>
   def.steps.some((step) => step.payload.includes('report') && chain.some((entry) => entry.kind === 'step' && entry['step'] === step.id));
 
-/** `generated` is the block the message's copy differs from; the stop-check file carries it. */
+/**
+ * Exact-copy of the generated block blocked 39 of 102 task runs, 36 of them on a report the grader passed; only a
+ * missing heading or a Not verified that hides recorded gaps blocks now (a replay of 132 final messages: 0 claim blocks).
+ * `generated` is the block the message lacks; the block reason carries it.
+ */
 function problemsOf(chain: readonly LedgerEntry[], def: RouteDef, text: string): { problems: string[]; generated: string | null } {
   const problems: string[] = [];
   let generated: string | null = null;
   if (/(^|\n)Evidence\b/.test(text) || /Not verified/.test(text) || reportWritten(def, chain)) {
     const report = buildReport(chain, { current: currentIn(def, buildChain(chain, chain.find((entry) => entry.kind === 'route')!)) });
-    const block = squash(text);
-    // 17_1451: a task route that ended blocked at ground never printed its report, and the model had no block to copy.
-    if (!block.includes(squash(report.evidence)) || !block.includes(squash(report.notVerified))) {
-      problems.push('The Evidence or Not verified block differs from the generated one: copy the generated block (below in the stop-check file).');
-      generated = `${report.evidence}\n${report.notVerified}\n<!-- ambicode report ${report.hash} -->`;
+    const missing = [!/^[ \t#*]*Evidence\b/m.test(text) ? 'Evidence' : null, !/^[ \t#*]*Not verified\b/m.test(text) ? 'Not verified' : null].filter((name) => name !== null);
+    for (const name of missing) problems.push(`The ${name} section is missing: copy it from below.`);
+    if (missing.length > 0) generated = `${report.evidence}\n${report.notVerified}`;
+    const gaps = report.notVerified.split('\n').filter((line, index) => index > 0 && line.trim() !== 'none recorded' && !line.endsWith(' (historical)')).length;
+    const stated = /^[ \t#*]*Not verified\b[^\n]*\n?([\s\S]*)$/m.exec(text)?.[1] ?? '';
+    if (missing.length === 0 && gaps > 0 && /^(none|nothing)?(recorded)?$/i.test(stated.replace(/[\s\-*_`.]/g, ''))) {
+      problems.push(`The Not verified section hides ${gaps} recorded gap(s): list them (the generated section is below).`);
+      generated = `${report.evidence}\n${report.notVerified}`;
     }
-    const hash = /<!-- ambicode report (\S+) -->/.exec(text)?.[1];
-    if (hash !== undefined && hash !== report.hash) problems.push('The report hash comment does not match the generated report.');
   }
   return { problems, generated };
 }
@@ -113,10 +116,10 @@ export async function stopHook(ports: StopPorts, input: HookInput): Promise<Stop
     if (!finalMessage || chain.some((entry) => entry.kind === 'limit' && entry['which'] === 'stop-block')) return { output: null, entries: entries.length };
     const { problems, generated } = problemsOf(chain, def, message);
     if (problems.length === 0) return { output: null, entries: entries.length };
-    const where = path.relative(root, dir.stopCheck);
     await runtime.fs.mkdirp(dir.root);
     await runtime.fs.writeText(dir.stopCheck, `# Stop check\n\n${problems.map((item) => `- ${item}`).join('\n')}\n${generated === null ? '' : `\n${generated}\n`}`);
-    const reason = `The text you are about to finish with has ${problems.length} problem(s). Fix them, or state them; the full list is in ${where}:${problems.map((item) => `\n- ${item}`).join('')}`;
+    // 23 of 397 runs spent an extra Read on stop-check.md for text the block can carry.
+    const reason = `The text you are about to finish with has ${problems.length} problem(s). Fix them, or state them:${problems.map((item) => `\n- ${item}`).join('')}${generated === null ? '' : `\n\n${generated}`}`;
     await ledger.append({ kind: 'limit', route: target.routeId, which: 'stop-block', count: problems.length });
     return { output: { decision: 'block', reason }, entries: entries.length };
   });

@@ -70,11 +70,11 @@ Unknown fields are rejected. Step ids are unique inside a route.
 | `script(<name>)` | `script:<name>` | Runs `skills/<skill>/scripts/<name>.mjs`; see Scripts. |
 | `review.evaluate` | `review.evaluate` | Judges the latest review: no findings proceeds; any finding goes back to `fix`, which files the ones outside the brief under Remaining. Fails the step (`onFail`) when there are findings to fix. |
 | `review.publishList` | `review.publishList` | `--mr` review: the recorded findings as a numbered list; none ends the route. |
-| `review.command` | `review.command` | Review route: prints the review command for the model to run. |
+| `review.pin` | none | Pins the change as a pending `review` entry. The review route first runs each configured check that has a file form on the changed files, as `check` entries; a check that needs approval raises the check gate and the answer revises the step. |
 
 `produces` takes any ledger kind, with an optional qualifier: `note{investigation}`, `policy{before-work}`, `check{green}`, `review{recorded}`, `envelope`, `map`, ... The qualifier is matched against the record, not checked at load.
 
-Evidence-writing commands write their ledger entry and then advance the route at their tail: `check`, `format`, `review` (writes `review{pending}`), `review record` (writes `review{recorded}` from the `ambicode:reviewer` subagent's JSON, captured by the `SubagentStop` hook or else on stdin), `note save`, `note promote`, `requirements normalize`.
+Evidence-writing commands write their ledger entry and then advance the route at their tail: `check`, `review` (writes `review{pending}`), `review record` (writes `review{recorded}` from the `ambicode:reviewer` subagent's JSON, captured by the `SubagentStop` hook or else on stdin), `note save`, `note promote`, `requirements normalize`.
 
 ### Scripts (`script(<name>)`)
 

@@ -1,7 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { RouteFixture } from '#testing/fixtures/route-fixture';
-import { checkFixture, CHECK_TASK } from '#testing/fixtures/check-fixture';
+import { checkFixture, CHECK_CONFIG, CHECK_TASK } from '#testing/fixtures/check-fixture';
+import path from 'node:path';
+import { runCheckOnly } from './check-command.ts';
 import { AmbicodeError } from '#util/errors';
 import { SESSION_A } from '#testing/fixtures/ids';
 
@@ -15,6 +17,20 @@ describe('check --name (07-C)', () => {
       await assert.rejects(check({ phase: 'blue' as never }), code('bad-argument'));
       await assert.rejects(check({ name: 'nope' }), code('bad-argument'));
       await assert.rejects(check({ project: 'web' }), code('unknown-project'));
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('an unknown check name lists every configured key and marks the ones with no command', async () => {
+    const nulls = CHECK_CONFIG.replace('unit: { all: "jest", file: "jest {file}" }', 'unit: { all: null, file: null }').replace('lint: { all: "eslint .", file: "eslint {file}" }', 'lint: { all: null, file: null }');
+    const { fx, check } = await checkFixture({ config: nulls });
+    try {
+      await assert.rejects(check({ name: 'pytest' }), (error: unknown) => {
+        assert.ok(error instanceof AmbicodeError);
+        assert.match(error.message, /configured: e2e, format, lint \(no command\), typecheck, unit \(no command\)\./);
+        return true;
+      });
     } finally {
       await fx.dispose();
     }
@@ -55,6 +71,26 @@ describe('check --name (07-C)', () => {
     }
   });
 
+  it('--file resolves against the caller cwd: from the repository parent, `repo/src/a.spec.ts` runs as `src/a.spec.ts`; a repo-relative or outside path behaves as before', async () => {
+    const { fx, start, runner, deps } = await checkFixture();
+    try {
+      await start();
+      const from = (callerCwd: string, files: string[]) => {
+        const base = deps();
+        return runCheckOnly({ ...base, runtime: { ...base.runtime, callerCwd } }, { task: CHECK_TASK, name: 'unit', project: null, files, phase: 'red', approve: [], decline: [] });
+      };
+      const parent = path.dirname(fx.repo.root);
+      await from(parent, [`${path.basename(fx.repo.root)}/src/a.spec.ts`]);
+      await from(fx.repo.root, ['src/a.spec.ts']);
+      await from(parent, ['src/a.spec.ts']);
+      assert.deepEqual(runner.calls, [["jest 'src/a.spec.ts'"], ["jest 'src/a.spec.ts'"], ["jest 'src/a.spec.ts'"]]);
+      assert.deepEqual((await kinds(fx, 'check')).map((entry) => entry['files']), [['src/a.spec.ts'], ['src/a.spec.ts'], ['src/a.spec.ts']]);
+      await assert.rejects(from(fx.repo.root, ['../elsewhere/x.test.js']), code('bad-argument'));
+    } finally {
+      await fx.dispose();
+    }
+  });
+
   it('without --file the `all` command runs', async () => {
     const { fx, start, check, runner } = await checkFixture();
     try {
@@ -76,6 +112,7 @@ describe('check --name (07-C)', () => {
       assert.ok(result.outcome === 'ran' && !result.proof.proven && result.proof.cause === 'nonzero-exit');
       const limits = await kinds(fx, 'limit');
       assert.deepEqual(limits.map((entry) => [entry['which'], entry['cause'], entry['step']]), [['green-unproven', 'nonzero-exit', 'red']]);
+      assert.deepEqual([limits[0]?.['key'], limits[0]?.['files']], ['app/unit', ['src/a.spec.ts']]);
     } finally {
       await fx.dispose();
     }
@@ -150,6 +187,18 @@ describe('check --name (07-C)', () => {
       assert.deepEqual(gate?.['values'], { key: ['app/e2e'], files: ['src/a.spec.ts'] });
       assert.equal(gate?.['raisedBy'], 'red');
       assert.match(String(gate?.['question']), /Run app\/e2e on src\/a\.spec\.ts\? \(policy: propose\)/);
+      assert.deepEqual(runner.calls, []);
+    } finally {
+      await fx.dispose();
+    }
+  });
+
+  it('raise: false reports waiting and prints no gate, so a code step raises it through the engine', async () => {
+    const { fx, start, check, runner } = await checkFixture();
+    try {
+      await start();
+      assert.deepEqual(await check({ name: 'e2e', raise: false }), { outcome: 'waiting', gate: 'check-only-unauthorized', key: 'app/e2e' });
+      assert.deepEqual(await kinds(fx, 'gate'), []);
       assert.deepEqual(runner.calls, []);
     } finally {
       await fx.dispose();

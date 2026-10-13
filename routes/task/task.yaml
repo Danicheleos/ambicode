@@ -17,14 +17,17 @@ steps:
       default: stop                               # non-acting: --from-draft records it as a preanswer
   - id: ground
     actor: code
-    run: [requirements.normalize, checks.preflight, checks.baseline, "search.map(context)", "policy.stage(before-work)", "policy.stage(before-checks)", context.list]
+    run: [requirements.normalize, checks.preflight, checks.runnable, checks.baseline, "search.map(context)", "policy.stage(before-work)", "policy.stage(before-checks)", context.list]
     produces: [baseline, map, policy]
     repeat: 2
   - id: change
     actor: model
     instruction: file:routes/task/change.md
-    payload: [brief, envelope, baseline, map, "policy:before-work", "policy:before-checks", context.list]
-    produces: ["check{green}", format]
+    payload: [brief, envelope, baseline, map, "policy:before-work", "policy:before-checks", checks.runnable, context.list]
+    produces: ["check{green}"]
+  - id: format
+    actor: code
+    run: checks.format                            # runs once the green check ends change, before the offer, so a skipped review is still formatted
   - id: review-offer
     actor: human
     gate:
@@ -32,16 +35,11 @@ steps:
       options: [run, "skip — verification incomplete"]
       default: "skip — verification incomplete"
       acting: [run]
-  - id: review-cmd
-    actor: model
-    when: gate.review-offer.is(run)
-    instruction: file:routes/task/review.md
-    produces: [review]
-    repeat: 2                                     # review-again revises it
   - id: brief
     actor: code
     when: gate.review-offer.is(run)
-    run: ["policy.stage(before-work, review)", script(brief)]
+    run: [review.pin, "policy.stage(before-work, review)", script(brief)]
+    repeat: 2                                     # review-again revises it: the post-fix change is pinned anew
   - id: review-agent
     actor: model
     when: gate.review-offer.is(run)
@@ -57,14 +55,15 @@ steps:
     actor: model
     when: revised                                 # entered only by a revise aimed at fix: review findings or an approved key
     instruction: file:routes/task/fix.md
+    payload: [checks.runnable]
     produces: ["check{green}"]
     repeat: 2
   - id: report-step
     actor: code
-    run: [review.evaluate, "policy.stage(before-report)", task.report]
+    run: [review.evaluate, "policy.stage(before-report)", task.report, task.iterations]
     onFail: revise fix                            # a fix-round review with findings; bounded by fix's repeat
   - id: write
     actor: model
     instruction: file:routes/task/write.md
     final: true
-    payload: [report, "policy:before-report"]
+    payload: [report, iterations, "policy:before-report"]

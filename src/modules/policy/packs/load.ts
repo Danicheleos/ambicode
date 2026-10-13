@@ -1,7 +1,7 @@
 import path from 'node:path';
 import type { ProjectConfig } from '#types/modules/config';
 import type { Diagnostic, PackWithPrompts } from '#types/modules/policy';
-import { listBuiltinPackFiles } from './builtin.ts';
+import { listBuiltinPackFiles, packConstraints } from './builtin.ts';
 import { readPackText, validatePack, validatePackSet } from './validate.ts';
 import type { FileSystem } from '#types/platform/ports';
 
@@ -27,7 +27,7 @@ export async function loadPacksForProject(options: LoadPacksOptions): Promise<Lo
   const { fs, project, builtinDirectory, repositoryRoot } = options;
   const diagnostics: Diagnostic[] = [];
   const loaded: PackWithPrompts[] = [];
-  const constraints = { commands: { ...project.commands, ...project.checks }, projectId: project.id };
+  const constraints = await packConstraints(fs, builtinDirectory, project);
 
   const builtinFiles = project.packs.length === 0 && project.policyFiles.length === 0 ? [] : await listBuiltinPackFiles(fs, builtinDirectory);
   for (const reference of project.packs) {

@@ -51,7 +51,7 @@ describe('03-K1 conditions', () => {
       await s.say('## Confirmed facts\nEvidence\nnothing was run');
       const blocked = await s.stop();
       assert.equal(blocked.decision, 'block');
-      assert.match(blocked.reason!, /stop-check\.md/);
+      assert.match(blocked.reason!, /Not verified section is missing[\s\S]*\nEvidence\n/);
       assert.deepEqual(await s.limits(), ['stop-block']);
       assert.deepEqual(await s.stop(), {}, 'the second failure allows');
     } finally {
@@ -89,32 +89,31 @@ describe('03-K1 conditions', () => {
 describe('03-K3 checks', () => {
   const heading = '## Confirmed facts\n';
 
-  it('a generated Evidence and Not verified block must match the report; drift blocks, the exact copy passes', async () => {
+  it('a message with both report headings passes whatever its wording; a missing Not verified blocks and the stop-check file carries the generated block', async () => {
     const s = await stopper();
     try {
       await toWrite(s);
-      const entries = await s.fx.ledger(TASK);
-      const chain = buildChain(entries, entries.find((entry) => entry.kind === 'route')!);
-      const report = buildReport(chain.entries, { current: currentIn(s.fx.routes.route('inv')!, chain) });
-      await s.say(`${heading}${report.evidence}\n${report.notVerified}\n<!-- ambicode report ${report.hash} -->`);
-      assert.deepEqual(await s.stop(), {});
+      await s.say(`${heading}Evidence\n  Requirements: ORD-99 (asked)\nNot verified\n  none recorded\n`);
+      assert.deepEqual(await s.stop(), {}, 'a paraphrased Evidence was the 36-of-39 false block');
     } finally {
       await s.dispose();
     }
-    const drift = await stopper();
+    const missing = await stopper();
     try {
-      await toWrite(drift);
-      await drift.say(`${heading}Evidence\n  Requirements: ORD-99 (asked)\nNot verified\n  none recorded\n`);
-      const blocked = await drift.stop();
-      assert.match(blocked.reason ?? '', /differs from the generated one: copy the generated block \(below in the stop-check file\)/);
-      // 17_1451: the stop-check file named the problem but not the block, and a route that ended early never printed it.
-      const file = await readFile(path.join(drift.fx.repo.root, '.ambicode', 'tasks', TASK, 'stop-check.md'), 'utf8');
-      const block = /\nEvidence\n[\s\S]*<!-- ambicode report \S+ -->/.exec(file)?.[0].trim();
+      await toWrite(missing);
+      await missing.say(`${heading}Evidence\n  Requirements: ORD-99 (asked)\n`);
+      const blocked = await missing.stop();
+      assert.equal(blocked.decision, 'block');
+      assert.match(blocked.reason ?? '', /Not verified section is missing/);
+      assert.match(blocked.reason ?? '', /\nNot verified\n  none recorded$/, 'the block reason carries the generated text');
+      const file = await readFile(path.join(missing.fx.repo.root, '.ambicode', 'tasks', TASK, 'stop-check.md'), 'utf8');
+      const block = /\nEvidence\n[\s\S]*$/.exec(file)?.[0].trim();
       assert.ok(block !== undefined, file);
-      await drift.say(`${heading}${block}`);
-      assert.deepEqual(await drift.stop(), {}, 'the block the file carries is the one that passes');
+      assert.doesNotMatch(file, /ambicode report/, 'the report carries no hash comment');
+      await missing.say(`${heading}${block}`);
+      assert.deepEqual(await missing.stop(), {}, 'the block the file carries is the one that passes');
     } finally {
-      await drift.dispose();
+      await missing.dispose();
     }
   });
 
@@ -127,7 +126,7 @@ describe('03-K3 checks', () => {
       const deps: HookDeps = { pointer: fx.pointer, load: async () => ({ engine: fx.engine, routes: fx.routes, pointer: fx.pointer }) };
       const out = (await runHook(fx.runtime, JSON.stringify({ hook_event_name: 'Stop', session_id: A, cwd: fx.repo.root, scratchpad_dir: fx.scratchpad, last_assistant_message: `${heading}Done, nothing else to add.` }), deps)) as { decision?: string; reason?: string };
       assert.equal(out.decision, 'block');
-      assert.match(out.reason!, /differs from the generated one/);
+      assert.match(out.reason!, /Evidence section is missing/);
     } finally {
       await fx.dispose();
     }
@@ -158,7 +157,7 @@ describe('07-S task stop inputs', () => {
     const entries = await s.fx.ledger(TASK);
     const chain = buildChain(entries, entries.find((entry) => entry.kind === 'route')!);
     const report = buildReport(chain.entries, { current: currentIn(s.fx.routes.route('inv')!, chain) });
-    return `${report.evidence}\n${report.notVerified}\n<!-- ambicode report ${report.hash} -->`;
+    return `${report.evidence}\n${report.notVerified}`;
   };
   const declined = { kind: 'declined', gate: 'check-only-unauthorized', instance: null, answer: 'approve', via: 'flag', reason: 'acting-needs-human', key: 'app/e2e' };
 
@@ -169,7 +168,7 @@ describe('07-S task stop inputs', () => {
       await s.say(`${heading}${stale}`);
       const blocked = await s.stop();
       assert.equal(blocked.decision, 'block');
-      assert.match(blocked.reason!, /differs from the generated one/);
+      assert.match(blocked.reason!, /Not verified section hides/);
     });
     await withStop(async (s) => {
       await append(s, [declined]);
@@ -180,11 +179,11 @@ describe('07-S task stop inputs', () => {
     });
   });
 
-  it('07-S3: a Not verified section with the declined line deleted blocks even when the hash comment is kept', async () => {
+  it('07-S3: a Not verified section with the declined line deleted blocks even though the heading is kept', async () => {
     await withStop(async (s) => {
       await append(s, [declined]);
       const fresh = await generated(s);
-      await s.say(`${heading}${fresh.replace(/ {2}check-only-unauthorized: declined[^\n]*\n/, '  none recorded\n')}`);
+      await s.say(`${heading}${fresh.replace(/ {2}check-only-unauthorized: declined[^\n]*\n?/, "  none recorded\n")}`);
       assert.equal((await s.stop()).decision, 'block');
     });
   });

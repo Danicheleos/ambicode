@@ -64,6 +64,7 @@ export function resolvePolicy(options: ResolveOptions): ResolvedPolicy {
         qualifiedId: `${pack.id}/${rule.id}`,
         packId: pack.id,
         packReference: loaded.reference,
+        packFile: loaded.filePath,
         authority: pack.authority,
         sourceLocation: pack.source.location,
         category: rule.category,

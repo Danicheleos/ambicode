@@ -28,7 +28,7 @@ const ASKED = TWO_URLS;
 const TASK = 'ORD-17';
 const SHIPPED = await readFile(path.join(REPO_ROOT, 'routes', 'review', 'review.yaml'), 'utf8');
 const STEPS: Record<string, string> = {};
-for (const name of ['review/fetch', 'review/readback', 'review/agent', 'review/run']) STEPS[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
+for (const name of ['review/fetch', 'review/readback', 'review/agent']) STEPS[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
 
 async function shipped(options: { requirements?: string[]; headless?: boolean; server?: string | null } = {}) {
   const server = options.server === undefined ? 'atlassian' : options.server;
@@ -189,8 +189,11 @@ describe('standalone review --requirement (08-Q3)', () => {
   });
 });
 
+const pinnedResult = async (s: Awaited<ReturnType<typeof shipped>>): Promise<{ requirementMode: string; requirements: { id: string }[] }> =>
+  JSON.parse(await readFile(path.join(s.fx.repo.root, String((await s.fx.kinds(s.task, 'review')).at(-1)!['result'])), 'utf8'));
+
 describe('the route envelope is the review evidence (08-PLAN-2)', () => {
-  it('08-PLAN-2: with both sources captured and run answered, review --task is requirement-based on the captured sources, with no --evidence flag', async () => {
+  it('08-PLAN-2: with both sources captured and run answered, the pinned review is requirement-based on the captured sources, with no --evidence flag', async () => {
     const s = await shipped();
     try {
       await s.capture(GET, mcp(jira('ORD-17')), { asked: ASKED });
@@ -200,9 +203,9 @@ describe('the route envelope is the review evidence (08-PLAN-2)', () => {
       const print = (await s.fx.kinds(s.task, 'gate')).findLast((entry) => entry['gate'] === 'estimate')!;
       const run = await s.next({ cause: 'gate-hook', answers: [{ gate: 'estimate', option: 'run', instance: print.id }] });
       assert.doesNotMatch(run.text, /--evidence/);
-      const output = await runReview(s.fx.runtime, parseArgs('review', ['--task', s.task], REVIEW_OPTIONS));
-      assert.equal(output.result.requirementMode, 'requirement-based');
-      assert.deepEqual(output.result.requirements.map((source) => source.id), TWO_URLS);
+      const output = await pinnedResult(s);
+      assert.equal(output.requirementMode, 'requirement-based');
+      assert.deepEqual(output.requirements.map((source) => source.id), TWO_URLS);
     } finally {
       await s.fx.dispose();
     }
@@ -213,8 +216,7 @@ describe('the route envelope is the review evidence (08-PLAN-2)', () => {
     try {
       const print = (await s.fx.kinds(s.task, 'gate')).findLast((entry) => entry['gate'] === 'estimate')!;
       await s.next({ cause: 'gate-hook', answers: [{ gate: 'estimate', option: 'run', instance: print.id }] });
-      const output = await runReview(s.fx.runtime, parseArgs('review', ['--task', s.task], REVIEW_OPTIONS));
-      assert.equal(output.result.requirementMode, 'quality-review');
+      assert.equal((await pinnedResult(s)).requirementMode, 'quality-review');
     } finally {
       await s.fx.dispose();
     }

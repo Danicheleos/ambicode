@@ -15,7 +15,7 @@ import { REPO_ROOT } from '#testing/paths';
 import { SESSION_A, SESSION_B } from '#testing/fixtures/ids';
 
 /** SHA-256 of routes/plan/plan.yaml. */
-const CONTRACT_SHA256 = '78d70f8c6e809a8c419c4ae9fbcae9755e854d5118190a7e4975fd6f64f2ff0b';
+const CONTRACT_SHA256 = '4a2933793761b48802a9ba0d3a8cee863e4aacf58ec1306dacaf2683a7507c08';
 const GOOD = '# Plan\n\n- *Changes*: `src/orders/limit.ts:1` `orderLimit`\n';
 const BAD = '# Plan\n\n- *Changes*: `src/orders/limit.ts:40` `orderLimit`\n';
 const PLATFORM = { askBinding: 'supported', answerContext: 'supported' } as const;
@@ -81,7 +81,9 @@ describe('06-R1/06-R2 the shipped plan route', () => {
     const write = await readFile(path.join(REPO_ROOT, 'routes', 'plan', 'write.md'), 'utf8');
     assert.match(write, /steps\/plan-body\.md.*route next --task \{task\}/);
     assert.match(write, /never a bare file name/);
-    assert.match(write, /writing it again with the Write tool, not the shell/);
+    // Plans that named ruled-out files failed plan-quality in 3 of 4 runs; plans that did not passed 4 of 4.
+    assert.match(write, /a file you read and ruled out goes unnamed/);
+    assert.match(write, /writing the whole file again with the Write tool, never by patching it or through the shell/);
     assert.doesNotMatch(write, /\bEdit\b(?! nothing)/);
     assert.match(await readFile(path.join(REPO_ROOT, 'routes', 'plan', 'design.md'), 'utf8'), /\[ambicode gate decision:<slug>\]/);
   });

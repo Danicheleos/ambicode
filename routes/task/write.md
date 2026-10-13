@@ -1,8 +1,12 @@
 # Task report
-Your final message starts with the heading above, then:
-- **Done**: one line per change, why and `path:line`; no restating the diff.
-- **Remaining**: one line per finding not fixed, gap or follow-up; "none" when there are none. Do not repeat what Evidence or Not verified already says.
-- The generated Evidence and Not verified sections below, pasted exactly as printed (`{cli} report --task {task}` prints them again).
+The final message is this heading, **Done**, **Remaining**, then the generated Evidence and Not verified sections below, pasted exactly as printed (`{cli} report --task {task}` prints them again). Nothing else, and nothing repeated from Evidence.
+- **Done**: one line per changed file: what and why, with `path:line`.
+- **Remaining**: one line each, or "none".
 Never say tests pass unless Evidence shows a green check with a test count.
-When the plan has more iterations, first save this report: `{cli} note save --task {task} --kind notes --iteration <n>` (report on standard input).
-Learned how to navigate or write code here? Add it with `{cli} context write` (no duplicates).
+Example:
+# Task report
+**Done**
+- src/orders/service.ext:42 refund total skips refunded lines, so partial refunds stop overcharging.
+**Remaining**
+- none
+<generated sections>

@@ -6,8 +6,10 @@ import { chainEntries } from '../common.ts';
 import { TASK_HANDLERS } from '../task/handlers.ts';
 import { isAmbicodeError } from '#util/errors';
 import { estimateReview, parseNarrow, renderEstimate } from '#modules/review/bundle/estimate';
-import { requirementSources } from '#modules/review/bundle/requirements';
-import { routeEvidence } from '#modules/requirements/envelope/envelope';
+import { assembleBundle, baselineScope, envelopeRequirements, pinAssembled, recordedChecks } from '#modules/review/bundle/bundle';
+import { runReviewChecks } from './checks.ts';
+import { GATE as CHECK_GATE } from '#types/modules/checks';
+import { baselineOf } from '#modules/checks/run/format';
 import type { LedgerEntry } from '#types/modules/evidence';
 import type { ReviewTargetArgs, RouteArgs, Handler, HandlerInput, HandlerResult } from '#types/harness';
 import type { Finding, TargetSelection } from '#types/modules/review';
@@ -19,7 +21,6 @@ const NARROW_HINT = 'give the --only/--exclude tokens as your answer';
 export const selectionOf = (target: ReviewTargetArgs | undefined): TargetSelection =>
   target === undefined ? { kind: 'working' } : target.mr !== null ? { kind: 'merge-request', url: target.mr } : { kind: 'branch', baseRef: target.base };
 
-const quote = (value: string): string => `'${value.replaceAll("'", `'\\''`)}'`;
 const narrowOf = (entry: LedgerEntry): string | null => ((entry['args'] as { narrow?: string[] } | undefined)?.narrow ?? [])[0] ?? null;
 
 /** The narrowing estimate-step last used: the latest re-entry whose tokens parsed; `narrow` and bad tokens keep it (08-E6). */
@@ -38,15 +39,6 @@ export function narrowingInForce(chain: readonly LedgerEntry[]): string | null {
   return inForce;
 }
 
-/** `review --task <slug>` with the route's target and the narrowing in force (08-R5). */
-export function reviewCommand(task: string, args: RouteArgs, chain: readonly LedgerEntry[]): string {
-  const target = args.target === undefined ? [] : args.target.mr !== null ? ['--mr', quote(args.target.mr)] : ['--branch', ...(args.target.base === null ? [] : ['--base', quote(args.target.base)])];
-  const narrowing = narrowingInForce(chain);
-  const narrowed = narrowing === null ? { onlyPaths: [], excludePaths: [] } : parseNarrow(narrowing);
-  const tokens = [...narrowed.onlyPaths.flatMap((glob) => ['--only', quote(glob)]), ...narrowed.excludePaths.flatMap((glob) => ['--exclude', quote(glob)])];
-  return ['review', '--task', task, ...target, ...tokens].join(' ');
-}
-
 /** After a fix round the review does not rerun on its own: report-step asks once whether it should, and a skip goes on with the fix as it is. */
 async function fixNotReviewed(input: HandlerInput, chain: readonly LedgerEntry[]): Promise<HandlerResult | null> {
   if (input.raisedBy !== 'report-step') return null;
@@ -59,9 +51,6 @@ async function fixNotReviewed(input: HandlerInput, chain: readonly LedgerEntry[]
 
 /** The task route's evaluation, except right after a fix round, when the review is offered again instead of rerun. */
 const evaluate: Handler = async (input) => (await fixNotReviewed(input, await chainEntries(input))) ?? TASK_HANDLERS['review.evaluate']!(input);
-
-/** The command the model runs for the review route's `review` step. */
-const command: Handler = async (input) => ({ state: 'ok', payload: reviewCommand(input.view.task, input.args, await chainEntries(input)) });
 
 const estimate: Handler = async (input) => {
   const chain = await chainEntries(input);
@@ -79,9 +68,7 @@ const estimate: Handler = async (input) => {
   const narrowing = input.revise === null ? null : narrowingInForce(chain);
   const narrowed = narrowing === null ? { onlyPaths: [], excludePaths: [] } : parseNarrow(narrowing);
   try {
-    const envelope = chain.findLast((entry) => entry.kind === 'envelope');
-    const found = envelope === undefined ? null : await routeEvidence({ runtime: input.runtime, dir: input.dir }, envelope);
-    const requirements = found === null ? [] : await requirementSources(input.runtime, { urls: found.urls, evidence: { kind: 'inline', evidence: found.evidence } });
+    const requirements = (await envelopeRequirements({ runtime: input.runtime, session: input.view.session, context: input.context }, { view: input.view, dir: input.dir })) ?? [];
     const estimated = await estimateReview(input.runtime, {
       runtime: input.runtime, target: selectionOf(input.args.target), requirements, task: input.view.task, ...narrowed,
     });
@@ -106,7 +93,36 @@ const publishList: Handler = async (input) => {
   return { state: 'ok', payload: findings.map((finding, at) => `${at + 1}. ${finding.location.newPath ?? finding.location.oldPath}:${finding.location.line} — ${finding.suggestedComment} (${finding.risk}/${finding.confidence})`).join('\n') };
 };
 
-export const REVIEW_HANDLERS: Readonly<Record<string, Handler>> = { 'review.estimate': estimate, 'review.evaluate': evaluate, 'review.command': command, 'review.publishList': publishList };
+/** Both routes pin their own review: the model never runs a pin command itself, so no step can be skipped past an absent pin. The review route also runs its checks first, since the pinned result lists them. */
+const pin: Handler = async (input) => {
+  if ((await input.context.window(input.view, input.raisedBy)).some((entry) => entry.kind === 'review')) return { state: 'ok', payload: null };
+  const { view, runtime } = input;
+  const deps = { runtime, session: view.session, context: input.context, ledger: input.ledger };
+  const routed = { view, dir: input.dir };
+  const reviewing = view.skill === 'review';
+  try {
+    const chain = await chainEntries(input);
+    const baseline = reviewing ? null : await baselineOf(deps, view.task, view.chainIds);
+    const scope = reviewing ? { preexisting: [], omissions: [] as string[], ledger: { route: view.routeId, session: view.session } } : await baselineScope(runtime, baseline, { route: view.routeId, session: view.session });
+    const requirements = (await envelopeRequirements(deps, routed)) ?? [];
+    const narrowing = reviewing ? narrowingInForce(chain) : null;
+    const assemble = { target: selectionOf(input.args.target), task: view.task, requirements, preexisting: scope.preexisting, ...(narrowing === null ? {} : parseNarrow(narrowing)) };
+    const bundle = await assembleBundle({ runtime, ...assemble });
+    if (reviewing && assemble.target.kind !== 'merge-request') {
+      const checks = await runReviewChecks(input, bundle.files, chain);
+      if (checks.waiting.length > 0) return { state: 'raise', gate: CHECK_GATE, values: { key: checks.waiting.map((entry) => entry.key), files: checks.waiting.flatMap((entry) => entry.files) } };
+      scope.omissions.push(...checks.notes);
+      bundle.result.checks = await recordedChecks(runtime, bundle.taskDirectory);
+    }
+    await pinAssembled(runtime, bundle, { omissions: scope.omissions, ledger: scope.ledger, append: (fields) => input.ledger.append(fields) });
+    return { state: 'ok', payload: null };
+  } catch (error) {
+    if (!isAmbicodeError(error)) throw error;
+    return { state: 'failed', code: error.code, message: error.message, recoverable: false };
+  }
+};
+
+export const REVIEW_HANDLERS: Readonly<Record<string, Handler>> = { 'review.pin': pin, 'review.estimate': estimate, 'review.evaluate': evaluate, 'review.publishList': publishList };
 
 onGatePrint('estimate', async ({ runtime, dir, chain }) => {
   const text = await loadPayload(runtime.fs, dir, chainKey(chain.filter((entry) => entry.kind === 'route').map((entry) => entry.id).reverse()), 'review.estimate');

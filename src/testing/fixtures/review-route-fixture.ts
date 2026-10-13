@@ -11,7 +11,7 @@ import type { LedgerEntry } from '#types/modules/evidence';
 import type { AdvanceInput, StartInput, StepMessage, Handler } from '#types/harness';
 import { SESSION_A } from './ids.ts';
 
-const STEPS = ['review/fetch', 'review/mr-fetch', 'review/readback', 'review/agent', 'review/run', 'review/publish'];
+const STEPS = ['review/fetch', 'review/mr-fetch', 'review/readback', 'review/agent', 'review/publish'];
 
 /** The shipped review route with its step texts and the real handlers, on an uncommitted change to `src/orders.ts`. */
 export async function reviewRouteFixture(options: { config?: string; pack?: string; dirty?: boolean; handlers?: Record<string, Handler> } = {}) {
@@ -38,7 +38,7 @@ export async function reviewRouteFixture(options: { config?: string; pack?: stri
   const routeId = async (): Promise<string> => (await fx.kinds(CHECK_TASK, 'route')).at(-1)!.id;
   const append = async (fields: Record<string, unknown> & { kind: string }): Promise<LedgerEntry> =>
     (await appendLedger(fx.runtime.fs, dir, fx.runtime.clock.now(), 'test-writer', { route: await routeId(), session: SESSION_A, ...fields })).entry;
-  /** What `review --task` leaves: the result file and the `review` entry, then the tail. */
+  /** What the pin step leaves: the result file and the `review` entry, then the tail. */
   const synthetic = async (findings: Finding[], extra: { stage?: 'pending' | 'recorded' } = {}): Promise<StepMessage> => {
     const stage = extra.stage ?? 'recorded';
     reviews += 1;
@@ -47,7 +47,7 @@ export async function reviewRouteFixture(options: { config?: string; pack?: stri
     await fx.repo.write(path.join('.ambicode', 'reviews', CHECK_TASK, 'changed.diff'), 'diff --git a/src/orders.ts b/src/orders.ts\n--- a/src/orders.ts\n+++ b/src/orders.ts\n@@ -1 +1 @@\n-a\n+b\n');
     await fx.repo.write(result, JSON.stringify({ ...reviewResult({ kind: 'working', findings }), reviewId, brief: path.join('.ambicode', 'reviews', CHECK_TASK, 'brief.md') }));
     const entry = await append({ kind: 'review', reviewId, result, status: 'partial', stage, reviewerRan: stage === 'recorded', findings: findings.length });
-    return next({ cause: stage === 'recorded' ? 'review record' : 'review', produced: [entry.id] });
+    return next({ cause: stage === 'recorded' ? 'review record' : 'route-next', produced: [entry.id] });
   };
   return { ...base, dir, start, next, hook, append, synthetic, ledger: () => fx.ledger(CHECK_TASK), kinds: (kind: string) => fx.kinds(CHECK_TASK, kind) };
 }

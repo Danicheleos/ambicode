@@ -138,7 +138,9 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
     try {
       const map = await buildMap(input.runtime, { project, mode, layers, layersSource: source, terms: stated, request, paths: seedable === null ? [] : pathsCitedIn(seedable, files), symbols: seedable === null ? [] : symbolsCitedIn(seedable) });
       await input.ledger.append({ kind: 'map', route: input.view.routeId, ...map.entry });
-      return { state: 'ok', payload: map.text };
+      // 0 hits in 87 of 95 task runs: an empty map with nothing to caveat is still recorded, not sent.
+      const silent = map.entry['candidates'] === 0 && map.collisions.length === 0 && map.limitations.length === 0;
+      return { state: 'ok', payload: silent ? null : map.text };
     } catch (error) {
       return failed(error);
     }
@@ -168,7 +170,7 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
     const named = Activity.safeParse(input.params[1] ?? input.view.skill);
     if (input.params[1] !== undefined && !named.success) return { state: 'failed', code: 'internal', message: `policy.stage's activity must be one of ${Activity.options.join(', ')}, not "${input.params[1]}".`, recoverable: false };
     try {
-      const payload = await policyStage({ runtime: input.runtime as Runtime, project, activity: named.success ? named.data : 'task', paths: await stagePaths(input, project, await chainEntries(input)), stage, show: false });
+      const payload = await policyStage({ runtime: input.runtime as Runtime, project, activity: named.success ? named.data : 'task', paths: await stagePaths(input, project, await chainEntries(input)), stage });
       await input.ledger.append({ kind: 'policy', route: input.view.routeId, ...payload.entry });
       return { state: 'ok', payload: payload.text.trim() === '' ? null : payload.text };
     } catch (error) {

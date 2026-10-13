@@ -35,6 +35,6 @@ export const reportCommand: CliCommand = {
   options: REPORT_OPTIONS,
   run: async (runtime, args) => {
     const output = await runReport(runtime, args);
-    return { text: renderReport(output), data: { evidence: output.evidence, notVerified: output.notVerified, hash: output.hash } };
+    return { text: renderReport(output), data: { evidence: output.evidence, notVerified: output.notVerified } };
   },
 };

@@ -4,6 +4,7 @@ import { describe, it } from 'node:test';
 import { parseArgs } from '#util/args';
 import { initConfig } from '#testing/fixtures/init-config';
 import { runReview, REVIEW_OPTIONS } from '#cli/commands/review/review';
+import { pinReview } from './bundle/bundle.ts';
 import { createRuntime } from '#composition/root';
 import { parseHunks } from '#platform/git/diff';
 import { nodeFileSystem } from '#platform/ports/filesystem';
@@ -70,6 +71,12 @@ function retrieved(url: string, id: string, content: string) {
 
 async function review(runtime: Runtime, argv: string[]) {
   return await runReview(runtime, parseArgs('review', argv, REVIEW_OPTIONS));
+}
+
+/** A review pinned under a task, as the route's pin step does: the task ledger and its recorded checks are in play. */
+async function pinnedIn(runtime: Runtime, task: string) {
+  const { bundle } = await pinReview(runtime, { assemble: { target: { kind: 'working' }, task, requirements: [], excludePaths: [], onlyPaths: [], withTests: false }, omissions: [], ledger: {} });
+  return bundle;
 }
 
 function failure(run: () => Promise<unknown>): Promise<{ code: string; details: string[] }> {
@@ -232,15 +239,14 @@ describe('U17 location validation', () => {
     assert.match(result.rejections.join('\n'), /line 99 is not present on the new side/);
   });
 
-  it('does not expose the surviving findings when one location is unverifiable', () => {
-    const result = expectInvalid(
-      run([
-        candidate({ oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'new', line: 2 }),
-        candidate({ oldPath: 'src/invented.ts', newPath: 'src/invented.ts', side: 'new', line: 1 }),
-      ]),
-    );
-    assert.equal(result.rejections.length, 1);
-    assert.ok(!('findings' in result));
+  it('keeps the surviving findings and lists the one whose location is unverifiable', () => {
+    const result = run([
+      candidate({ oldPath: 'src/orders.ts', newPath: 'src/orders.ts', side: 'new', line: 2 }),
+      candidate({ oldPath: 'src/invented.ts', newPath: 'src/invented.ts', side: 'new', line: 1 }),
+    ]);
+    assert.ok(result.kind === 'ok');
+    assert.equal(result.findings.length, 1);
+    assert.equal(result.rejected.length, 1);
   });
 
   it('rejects a side the location does not name a path for', () => {
@@ -453,7 +459,7 @@ describe('a review with no reviewer yet', () => {
       const dir = path.join(context.repo.root, '.ambicode', 'tasks', 'ORD-17');
       await nodeFileSystem.mkdirp(dir);
       await nodeFileSystem.writeText(path.join(dir, 'ledger.jsonl'), `${JSON.stringify({ id: 'L1', at: '2026-09-20T09:00:00.000Z', kind: 'check', key: 'app/unit', phase: 'green', exit: 0, files: ['src/orders.test.ts'], tail: '', ms: 5 })}\n`);
-      const inTask = await review(context.runtime, ['--task', 'ORD-17']);
+      const inTask = await pinnedIn(context.runtime, 'ORD-17');
       assert.deepEqual(inTask.result.checks, [{ key: 'app/unit', phase: 'green', exit: 0, files: ['src/orders.test.ts'] }]);
       assert.deepEqual((await review(context.runtime, [])).result.checks, []);
     } finally {
@@ -476,7 +482,7 @@ describe('a review inside a task leaves evidence in the task ledger', () => {
   it('records status and reviewerRan false, and writes none for a run with no task', async () => {
     const context = await fixture();
     try {
-      const inTask = await review(context.runtime, ['--task', 'ORD-17']);
+      const inTask = await pinnedIn(context.runtime, 'ORD-17');
       const ledger = await readLedger(nodeFileSystem, path.join(context.repo.root, '.ambicode', 'tasks', 'ORD-17'));
       assert.equal(ledger.length, 1);
       assert.equal(ledger[0]?.kind, 'review');

@@ -110,3 +110,13 @@ describe('parseCommand gives up on an unterminated quote', () => {
     assert.equal(segments[1]!.raw, 'echo "oops; git push');
   });
 });
+
+describe('parseCommand marks the segments a pipe feeds', () => {
+  const piped = (command: string) => parseCommand(command).map((segment) => segment.piped);
+  it('a | pipes; a newline ends the pipeline unless it follows a bare |', () => {
+    assert.deepEqual(piped('a | b'), [false, true]);
+    assert.deepEqual(piped('a | b\nc'), [false, true, false]);
+    assert.deepEqual(piped('a |\nb'), [false, true]);
+    assert.deepEqual(piped('a || b'), [false, false]);
+  });
+});

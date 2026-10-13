@@ -154,12 +154,12 @@ describe('the task-directory guard sends notes through note save', () => {
 
   // G14: an opaque target may or may not be the task directory; asking costs a click, denying costs a legitimate write.
   for (const command of [
-    'echo x > $OUT',
+    'OUT=.ambicode/tasks/X/n.md; echo x > $OUT',
     'd=.ambicode/tasks/X; f=$d/inv.md; cat > "$f" <<EOF\nnote\nEOF',
-    'cp a.md $DIR',
-    'tee "${TARGET}"',
+    'D=.ambicode/tasks; cp a.md $D',
+    'tee "${TARGET}" .ambicode/x',
     'echo x > "$ROOT/.ambicode/tasks/X/n.md"',
-    'cd "$D" && echo x > notes.md',
+    'cd "$D" && echo x > notes.md; ls .ambicode',
   ]) {
     it(`asks, never denies, for an opaque write target: ${JSON.stringify(command).slice(0, 60)}`, () => {
       const out = decide('Bash', { command });
@@ -167,6 +167,16 @@ describe('the task-directory guard sends notes through note save', () => {
       assert.match(out.hookSpecificOutput!.permissionDecisionReason, /cannot tell where this writes/);
     });
   }
+
+  // 14 of 14 audited unresolved targets were not under .ambicode/; each cost one or two calls.
+  for (const command of ['cd sub && echo x > out.txt', 'echo x > $TMPDIR/a', 'cd "$D" && echo x > notes.md', 'cp a.md $DIR', 'cd - && echo x > n']) {
+    it(`allows an unresolved write target when the command never mentions .ambicode: ${command}`, () => {
+      assert.deepEqual(decide('Bash', { command }), {});
+    });
+  }
+  it('still stops a variable assigned from .ambicode text', () => {
+    assert.equal(decisionOf(decide('Bash', { command: 'D=.ambicode/task; echo x > $D/ledger.jsonl' })), 'ask');
+  });
 
   for (const [tool, input] of [
     ['Write', { file_path: '/repo/src/a.ts' }],
@@ -211,9 +221,9 @@ describe('the task-directory guard sends notes through note save', () => {
   });
   for (const [command, reason] of [
     ['cd /repo/.ambicode/tasks/X; cd /tmp; echo x > n.md', /relative to a directory an earlier `cd` changed/],
-    ['cd - && echo x > n', /cannot tell where this writes/],
-    ['cd && echo x > n', /cannot tell where this writes/],
-    ['popd; echo x > n', /cannot tell where this writes/],
+    ['cd - && echo x > n; ls .ambicode', /cannot tell where this writes/],
+    ['cd && echo x > n; ls .ambicode', /cannot tell where this writes/],
+    ['popd; echo x > n; ls .ambicode', /cannot tell where this writes/],
   ] as const) {
     it(`asks for a relative target when the directory is not certain: ${command}`, () => {
       const out = decide('Bash', { command });
@@ -516,7 +526,52 @@ describe('the built guard entry', () => {
   });
 });
 
+describe('head fed by an ambicode call is denied, never rewritten', () => {
+  const S = '/p/scripts/ambicode.mjs';
+  it('denies with a reason that says nothing ran, including through a variable', () => {
+    for (const command of [
+      `node "${S}" review record --task fix-refund 2>&1 | head -30`,
+      `cd repo; S=${S}; node $S review --estimate 2>&1 | head -60`,
+      `S="${S}"; node "$S" check --task t | head -5`,
+      `python3 edit.py && node ${S} check --task t --name unit | head -40`,
+      `node ${S} check --task t | head -3; echo done`,
+    ]) {
+      const out = bash(command);
+      assert.equal(decisionOf(out), 'deny', command);
+      assert.match(out.hookSpecificOutput!.permissionDecisionReason, /nothing ran/i);
+    }
+  });
+  it('leaves unrelated pipes, tail and plain ambicode calls alone', () => {
+    for (const command of [
+      `node ${S} route next --task t 2>&1`,
+      `node ${S} route next --task t 2>&1 | tail -60`,
+      `node ${S} route next; cat x | head`,
+      `node ${S} review --json | jq .a`,
+      `node ${S} review --json | jq .a | head`,
+      `node ${S} a || head x`,
+      `cat x | head | node ${S} a`,
+      'S=other.mjs; node $S a | head',
+      `printf x | node ${S} note save --task t\ntail -5 notes.txt`,
+    ]) assert.deepEqual(bash(command), {}, command);
+  });
+  it('never answers allow or updatedInput, so no part of a command skips the permission prompt', () => {
+    for (const command of [
+      `rm -rf ~/work; node ${S} route next | head -5`,
+      `node ${S} route next | head -5 > out.txt`,
+      `node ${S} route next | tail -5`,
+      `node ${S} route next`,
+      'git status',
+      'ls | head',
+    ]) {
+      const output = bash(command).hookSpecificOutput as { permissionDecision?: string; updatedInput?: unknown } | undefined;
+      assert.notEqual(output?.permissionDecision, 'allow', command);
+      assert.equal(output?.updatedInput, undefined, command);
+    }
+  });
+});
+
 describe('an active route shapes the decision', () => {
+  const P = 'O=.ambicode/x; ';
   const route = (headless: boolean) => ({ activeRoute: () => ({ task: 'T-1', skill: 'task', ...(headless ? { headless: true } : {}) }), ledger: () => null });
   const run = (command: string, headless: boolean) =>
     guardDecision({ hook_event_name: 'PreToolUse', tool_name: 'Bash', scratchpad_dir: '/s', tool_input: { command } }, '/p', route(headless)) as Output;
@@ -528,25 +583,34 @@ describe('an active route shapes the decision', () => {
     assert.match(out.hookSpecificOutput!.permissionDecisionReason, /final message that says "permission-denied: /);
   });
   it('a placement ask in a headless route denies with a retry that names the path literally, and stops nothing', () => {
-    for (const command of ['echo x > "$OUT"', 'cd /tmp && cd - && echo x > n']) {
+    for (const command of [`${P}echo x > "$OUT"`, `cd /tmp && cd - && echo x > n; ls .ambicode`]) {
       const out = run(command, true);
       assert.equal(decisionOf(out), 'deny', command);
       assert.match(out.hookSpecificOutput!.permissionDecisionReason, /cannot tell where this writes.*literally.*Write tool.*run it again/s);
       assert.doesNotMatch(out.hookSpecificOutput!.permissionDecisionReason, /route stop/);
     }
-    assert.equal(decisionOf(run('echo x > "$OUT"', false)), 'ask');
-    assert.equal(decisionOf(run('cd - && echo x > n', false)), 'ask');
+    assert.equal(decisionOf(run(`${P}echo x > "$OUT"`, false)), 'ask');
+    assert.equal(decisionOf(run('cd - && echo x > n; ls .ambicode', false)), 'ask');
   });
   it('a placement ask beside any other ask in a headless route still stops the route', () => {
-    for (const command of ['echo x > "$OUT" && git push', 'echo x > "$OUT" && echo "oops; git push', 'echo x > "$OUT"; $TOOL a']) {
+    for (const command of [`${P}echo x > "$OUT" && git push`, `${P}echo x > "$OUT" && echo "oops; git push`, `${P}echo x > "$OUT"; $TOOL a`]) {
       assert.match(run(command, true).hookSpecificOutput!.permissionDecisionReason, /route stop/, command);
     }
+  });
+  it('an unresolvable command name in a headless route is retried written out, and stops nothing', () => {
+    const command = 'A="node /p/scripts/ambicode.mjs"; $A check --task rev-math --name unit';
+    assert.equal(decisionOf(run(command, false)), 'ask');
+    const out = run(command, true);
+    assert.equal(decisionOf(out), 'deny');
+    assert.match(out.hookSpecificOutput!.permissionDecisionReason, /again with the command written out \(no variable, no eval\)/);
+    assert.doesNotMatch(out.hookSpecificOutput!.permissionDecisionReason, /route stop/);
+    assert.match(run(`${command}; git push`, true).hookSpecificOutput!.permissionDecisionReason, /route stop/);
   });
   it('leaves a deny and an allow as they are in a headless route', () => {
     assert.match(run('echo x > .ambicode/tasks/T/a.md', true).hookSpecificOutput!.permissionDecisionReason, /note save/);
     assert.deepEqual(run('git status', true), {});
   });
-  it('never rewrites a command: no updatedInput is answered', () => {
+  it('never rewrites a command that needs no change: no updatedInput is answered', () => {
     assert.deepEqual(run('node /p/scripts/ambicode.mjs route next', false), {});
     assert.deepEqual(run('grep -rn x --include=*.ts .', false), {});
   });

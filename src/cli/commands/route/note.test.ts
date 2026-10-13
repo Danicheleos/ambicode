@@ -170,8 +170,8 @@ describe('the note and report commands', () => {
     await inRepo(async (repo) => {
       cli(repo, ['note', 'save', '--task', 'ORD-17', '--kind', 'investigation'], '# Findings');
       const report = JSON.parse(cli(repo, ['report', '--task', 'ORD-17', '--json']).stdout);
-      assert.deepEqual(Object.keys(report), ['evidence', 'notVerified', 'hash']);
-      assert.match(cli(repo, ['report', '--task', 'ORD-17']).stdout, new RegExp(`<!-- ambicode report ${report.hash} -->\n$`));
+      assert.deepEqual(Object.keys(report), ['evidence', 'notVerified']);
+      assert.doesNotMatch(cli(repo, ['report', '--task', 'ORD-17']).stdout, /ambicode report/);
     });
   });
 

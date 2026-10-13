@@ -73,6 +73,8 @@ export const PolicyPack = z.strictObject({
   activities: z.array(Activity).min(1),
   /** Any one marker matching selects the pack at init; absent means the pack is chosen by `appliesTo` alone. */
   detect: z.array(PackMarker).min(1).optional(),
+  /** Any one marker matching keeps the pack out, whatever `detect` and `appliesTo` say. */
+  unless: z.array(PackMarker).min(1).optional(),
   source: z.strictObject({
     location: z.string().min(1),
     externalVersion: z.string().min(1).optional(),
@@ -100,6 +102,8 @@ export interface ResolvedRule {
   qualifiedId: string;
   packId: string;
   packReference: string;
+  /** Absolute path of the pack file the rule is written in. */
+  packFile: string;
   authority: z.infer<typeof Authority>;
   sourceLocation: string;
   category: z.infer<typeof RuleCategory>;
@@ -180,4 +184,6 @@ export interface PackConstraints {
    */
   commands: Readonly<Record<string, unknown>> | null;
   projectId: string | null;
+  /** Command names each built-in pack (by id) itself names; a `replaces` copy may keep them undeclared. */
+  builtinCommands(): Promise<ReadonlyMap<string, ReadonlySet<string>>>;
 }

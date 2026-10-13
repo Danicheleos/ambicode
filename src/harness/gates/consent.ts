@@ -30,6 +30,8 @@ export function evaluateConsent(input: {
     return { state: 'refused', reason: earlier ? 'superseded' : 'not-accepted', source: bound };
   }
   const option = String(bound['answer']);
+  // A gate with acting options: any other answer (`decline`, `skip`) is a decline, and a decline is never consent to act.
+  if (acting.length > 0 && !acting.includes(option)) return { state: 'refused', reason: 'not-accepted', source: bound };
   if (acting.includes(option)) {
     const printed = bound['via'] === 'hook' && typeof bound['instance'] === 'string' && chain.some((entry) => entry.kind === 'gate' && entry.id === bound['instance'] && entry['gate'] === gate);
     const prompted = bound['via'] === 'prompt' && bound['trusted'] === true;

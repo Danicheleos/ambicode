@@ -18,7 +18,7 @@ async function withRefused(body: (t: Awaited<ReturnType<typeof reviewRouteFixtur
 }
 
 describe('review route: an estimate the engine refuses', () => {
-  it('headless: the route ends blocked with the refusal, and no review command is delivered', async () => {
+  it('headless: the route ends blocked with the refusal, and no brief is delivered', async () => {
     await withRefused(async (t) => {
       const started = await t.start({ headless: true, answers: [{ gate: 'estimate', option: 'run' }] });
       assert.equal(started.position, 'complete');
@@ -27,7 +27,7 @@ describe('review route: an estimate the engine refuses', () => {
       assert.deepEqual(exits.map((entry) => entry['reason']), ['blocked']);
       assert.match(String(exits[0]!['detail']), /^input-too-large:/);
       assert.equal((await t.kinds('gate')).length, 0);
-      assert.equal((await t.kinds('step')).some((entry) => entry['step'] === 'review-run' && entry['status'] === 'delivered'), false);
+      assert.equal((await t.kinds('step')).some((entry) => entry['step'] === 'brief' && entry['status'] === 'delivered'), false);
     });
   });
 

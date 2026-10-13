@@ -22,9 +22,6 @@ reviewer ran. Say which; do not widen the patterns without asking.
 
 **`baseline-missing`.** Branch review needs a baseline. AMBICODE will not guess a
 default branch name. Pass `--base <ref>`.
-Second cause: `review --task` in an open task route with no task baseline yet.
-Release: `$A route next --task <slug>` (its ground step records the baseline), then
-run the review again.
 
 **`check-only-unauthorized`.** `check --file` or `format` met a command policy of
 `forbid`, an undeclared command, or `propose` with no route on the task. Release:
@@ -37,9 +34,6 @@ narrower paths.
 
 **`check-limit`.** A sixth `check` of one phase in the current step. Release: state
 the gap in the report; `$A route next --task <slug>`.
-
-**`review-not-accepted`.** `review --task` in a task route before the user answered
-the review offer with *run*. Release: answer the review-offer question.
 
 **`format-unconfigured`.** Not an error: the project has no `commands.format`, so
 nothing was formatted; the run exits 0 and the report lists it under Not verified.
@@ -75,7 +69,8 @@ Fix the declaration; AMBICODE will not follow it anywhere else.
 the request inside a configured project root. Ask which project.
 
 **`review-not-found`.** `review record` found no review waiting for its reviewer (or none with the
-`--review` id). Run `review --task <slug>` first; it prints the diff and brief the reviewer reads.
+`--review` id). The `PostToolUse` hook on the reviewer subagent may already have recorded it: read the report it
+returned. Otherwise run `route next --task <slug>`; the route's pin step prepares the diff and brief the reviewer reads.
 
 **`review-answer-missing`.** `review record` found no answer captured by the `SubagentStop` hook and nothing on
 stdin. Nothing was recorded. Paste the subagent's JSON block on stdin; if it returned nothing, paste `none`.
@@ -159,7 +154,7 @@ and a command no pack declares is not run either — absence is not permission. 
 message names the pack and the reason. Changing it is a deliberate edit to that
 pack's `commandPolicy`, not something to work around.
 
-Hooks: AMBICODE registers seven hook events with fourteen handler entries. The `Stop`
+Hooks: AMBICODE registers eight hook events with fifteen handler entries. The `Stop`
 hook blocks a finishing message at most once per route, naming what to fix and the
 full list in `stop-check.md` of the task directory; a second failing stop is allowed.
 
@@ -170,8 +165,11 @@ rejections as they are; do not retry.
 **`brief-failed`.** `brief.mjs` threw while building the reviewer's brief; the message carries the
 first stack lines. Nothing was reviewed. Report it verbatim and stop.
 
+**`review-missing`.** The task has no review on record, so there is nothing to brief. Nothing was
+reviewed. Report it verbatim and stop.
+
 **`review-unreadable`.** The review's `result.json` is missing or not a review
-result. Run `review --task <slug>` again; do not hand-edit the file.
+result. Run `route next --task <slug>` again; do not hand-edit the file.
 
 **`script-failed` / `script-output-invalid` / `script-name-invalid`.** A route step
 `script(<name>)` runs `skills/<skill>/scripts/<name>.mjs`. `script-failed`: it exited

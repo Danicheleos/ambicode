@@ -7,7 +7,7 @@ import type { TargetSelection } from '#types/modules/review';
  * filesystem, git or provider access.
  */
 export const TARGET_OPTIONS = {
-  values: ['base', 'mr', 'evidence', 'task'],
+  values: ['base', 'mr', 'evidence'],
   repeated: ['requirement', 'exclude', 'only'],
   flags: ['json', 'branch', 'with-tests'],
 } as const;
@@ -16,8 +16,6 @@ export interface ResolvedTargetOptions {
   target: TargetSelection;
   requirementUrls: string[];
   evidence: EvidenceSource | null;
-  /** `--task <slug>`: for a run with no requirement, so its plan, investigation and reviews share one directory. */
-  task: string | null;
   /** `--exclude <glob>`: added to `review.excludePaths`. */
   excludePaths: string[];
   /** `--only <glob>`: for a dirty working tree that holds edits unrelated to the task. */

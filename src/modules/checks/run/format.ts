@@ -20,14 +20,13 @@ export async function baselineOf(deps: CheckDeps, task: string, chainIds: readon
 }
 
 /** One `format` entry per project in the touched set (07-F1 … 07-F3). */
-export async function runFormat(deps: CheckDeps, input: { task: string; paths: string[] }): Promise<FormatEntry[]> {
+export async function runFormat(deps: CheckDeps, input: { task: string; waiting: { key: string; files: string[] }[] }): Promise<FormatEntry[]> {
   const workspace = await openWorkspace(deps.runtime);
   const routed = await routedOf(deps, input.task);
   const baseline = await baselineOf(deps, input.task, routed?.view.chainIds ?? null);
   const { touched } = await touchedSet(deps.runtime, baseline ?? { head: null, dirty: [] });
-  const narrowed = input.paths.length === 0 ? touched : touched.filter((file) => input.paths.map(normalizeRelative).some((prefix) => file === prefix || file.startsWith(`${prefix.replace(/\/$/, '')}/`)));
   const groups = new Map<string, { project: ProjectConfig; files: string[] }>();
-  for (const file of narrowed) {
+  for (const file of touched) {
     const project = projectForPath(workspace.config, file);
     if (project === null) continue;
     const group = groups.get(project.id) ?? { project, files: [] };
@@ -52,8 +51,12 @@ export async function runFormat(deps: CheckDeps, input: { task: string; paths: s
       entries.push(await append({ key, files: [], exit: null, via: 'model', outcome: 'refused' }));
       continue;
     }
-    const decision = await authorizeKey(deps, routed, { policy, commandId: FORMAT_CHECK, key, files, approve: [], decline: [] });
-    if (decision === 'waiting') continue;
+    // The task route's code step prints the gate through the engine, so the questions are collected, not raised here.
+    const decision = await authorizeKey(deps, routed, { policy, commandId: FORMAT_CHECK, key, files, approve: [], decline: [], raise: false });
+    if (decision === 'waiting') {
+      input.waiting.push({ key, files });
+      continue;
+    }
     if (decision === 'declined') {
       entries.push(await append({ key, files: [], exit: null, via: 'model', outcome: 'refused' }));
       continue;

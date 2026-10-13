@@ -24,7 +24,7 @@ describe('review skill (08-K)', () => {
   it('08-K1: the body starts the route and the read-back step, which is delivered, states the four reporting rules once', async () => {
     assert.match(await readFile(SKILL, 'utf8'), /route start review/);
     const text = await readFile(path.join(REPO_ROOT, 'routes', 'review', 'readback.md'), 'utf8');
-    for (const rule of [/empty finding list is not a clean/i, /failed reviewer is not a clean/i, /skipped check is not a pass/i, /one unverifiable location voids/i]) assert.match(text, rule);
+    for (const rule of [/empty finding list is not a clean/i, /failed reviewer is not a clean/i, /skipped check is not a pass/i, /rejected for its location is listed in Part 4/i]) assert.match(text, rule);
     assert.doesNotMatch(await readFile(SKILL, 'utf8'), /is not a clean/i);
   });
 

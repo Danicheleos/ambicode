@@ -18,7 +18,7 @@ import type { FileSystem } from '#types/platform/ports';
 /** The evidence stage on its own, as the removed `bundle` command ran it: no model. */
 async function runBundle(runtime: Runtime, args: ParsedArgs) {
   const { requirementUrls, evidence, ...options } = resolveTargetOptions('bundle', runtime, args);
-  const bundle = await assembleBundle({ runtime, ...options, requirements: await requirementSources(runtime, { urls: requirementUrls, evidence }) });
+  const bundle = await assembleBundle({ runtime, task: null, ...options, requirements: await requirementSources(runtime, { urls: requirementUrls, evidence }) });
   await writeBundleArtifacts(runtime, bundle);
   return { reviewDirectory: bundle.reviewDirectory, resultPath: bundle.resultPath, measured: bundle.measured, result: bundle.result };
 }

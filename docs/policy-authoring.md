@@ -104,7 +104,9 @@ spacing and final punctuation ignored) equals a rule already in force.
 
 A built-in pack may declare `detect: [{ file: package.json, contains: '"express"' }]`:
 any one marker matching (a file of that name within two directories of the project
-root, containing the text when given) selects it. `ambicode config packs` copies
+root, containing the text when given) selects it. A pack may also declare `unless` with the same marker shape: any one
+matching keeps it out, so the express packs skip an Angular SSR app that lists
+`"express"` only as its server host. `ambicode config packs` copies
 every pack whose marker and `appliesTo` match to `.ambicode/policies/<group>/<id>.yaml`
 (the built-in's text plus `replaces: builtin/<id>`, comments included), adds the
 copy to the project's `policyFiles`, and reports the ones it skipped with the

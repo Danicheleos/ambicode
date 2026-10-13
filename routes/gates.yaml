@@ -14,7 +14,7 @@ review-again:
   options: [run, skip]
   default: skip
   acting: [run]
-  onAnswer: { run: "revise review-cmd" }
+  onAnswer: { run: "revise brief" }
   repeat: 2
 project-ambiguous:
   question: "Two projects match. Which one?"

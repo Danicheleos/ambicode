@@ -10,7 +10,6 @@ import { fixtureByName } from '../../../fixtures/definitions.mjs';
 // @ts-expect-error untyped fixture modules
 import { materialize } from '../../../fixtures/materialize.mjs';
 import { parseArgs } from '#util/args';
-import { runReview, REVIEW_OPTIONS } from '#cli/commands/review/review';
 import { runReviewRecord, REVIEW_RECORD_OPTIONS } from '#cli/commands/review/record';
 import { routeTools, runRouteStart } from '#cli/commands/route/route';
 import { createRuntime } from '#composition/root';
@@ -46,7 +45,6 @@ async function regression() {
   return {
     root, runtime, runner, ledger,
     start: (...argv: string[]) => runRouteStart(runtime, parseArgs('route start', ['review', '--task', TASK, ...argv, 'review my change'], ROUTE_START_OPTIONS)),
-    review: (...extra: string[]) => runReview(runtime, parseArgs('review', ['--task', TASK, ...extra], REVIEW_OPTIONS)),
     record: (stdin: string) => runReviewRecord({ ...runtime, stdin: { read: async () => stdin } }, parseArgs('review record', ['--task', TASK], REVIEW_RECORD_OPTIONS)),
     /** The user's answer to the latest print of `gate`, as the AskUserQuestion hook records it. */
     answer: async (gate: string, option: string) => {
@@ -58,7 +56,7 @@ async function regression() {
 }
 
 describe('review route on ts-source-regression (08-I3)', () => {
-  it('08-I3: start → estimate → run → review (runs no check) → brief → one reviewer run → readback; the report keeps part 4', async () => {
+  it('08-I3: start → estimate → run (pin and brief in code) → brief → one reviewer run → readback; the report keeps part 4', async () => {
     const t = await regression();
     try {
       const started = await t.start();
@@ -67,15 +65,11 @@ describe('review route on ts-source-regression (08-I3)', () => {
       assert.doesNotMatch(started.text, /waiting:/);
       assert.ok(Buffer.byteLength(started.text) <= 3072, `${Buffer.byteLength(started.text)}`);
 
-      const run = await t.answer('estimate', 'run');
-      assert.equal(run.position, 'review-run');
-      assert.match(run.text, /review --task src-regression/);
-
-      const done = await t.review();
-      assert.equal(t.runner.calls.length, 0, 'the review ran no check');
-      assert.match(done.next ?? '', /step review-agent/);
-      assert.doesNotMatch(done.next ?? '', /diff:/);
-      const brief = (done.next ?? '').match(/brief: (.*brief\.md)/)![1]!;
+      const done = await t.answer('estimate', 'run');
+      assert.equal(done.position, 'review-agent');
+      assert.equal(t.runner.calls.length, 0, 'the fixture configures no check with a file form, so the route runs none');
+      assert.doesNotMatch(done.text, /review --task/);
+      const brief = done.text.match(/brief: (.*brief\.md)/)![1]!;
       assert.match(await readFile(brief, 'utf8'), /No check recorded for this task/);
 
       const recorded = await t.record('```json\n{"findings":[],"coverageNotes":["read src/index.ts"]}\n```');

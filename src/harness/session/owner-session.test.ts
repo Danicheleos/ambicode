@@ -248,7 +248,7 @@ describe('03-S7/03-H4: the same Claude session resumed, and a CLI advance after 
       assert.equal((await inv.fx.kinds('cart', 'exit')).at(-1)?.['reason'], 'done');
       const stopped = (await inv.hooked.event({ hook_event_name: 'Stop', last_assistant_message: 'Evidence\nnothing was run' }, CLAUDE_1)) as { decision?: string; reason?: string };
       assert.equal(stopped.decision, 'block');
-      assert.match(stopped.reason ?? '', /stop-check\.md/);
+      assert.match(stopped.reason ?? '', /Not verified section is missing[\s\S]*\nEvidence\n/);
     } finally {
       await inv.dispose();
     }

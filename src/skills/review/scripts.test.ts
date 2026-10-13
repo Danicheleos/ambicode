@@ -52,4 +52,27 @@ describe('review scripts (C7)', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  const fixture = async (result: Record<string, unknown> | null) => {
+    const root = await mkdtemp(path.join(tmpdir(), 'ambicode-brief-'));
+    const taskDir = path.join(root, '.ambicode', 'tasks', 't');
+    const reviewDir = path.join(root, '.ambicode', 'reviews', 'r1');
+    await mkdir(path.join(taskDir, 'steps'), { recursive: true });
+    await mkdir(reviewDir, { recursive: true });
+    await writeFile(path.join(reviewDir, 'changed.diff'), 'diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n');
+    const entries = result === null ? [] : [{ kind: 'review', result: path.relative(root, path.join(reviewDir, 'result.json')) }];
+    if (result !== null) await writeFile(path.join(reviewDir, 'result.json'), JSON.stringify(result));
+    await writeFile(path.join(taskDir, 'ledger.jsonl'), entries.map((entry) => JSON.stringify(entry)).join('\n'));
+    return { root, reviewDir, input: { repositoryRoot: root, taskDir, steps: path.join(taskDir, 'steps') } };
+  };
+
+  it('brief with no review on record fails review-missing instead of delivering nothing', async () => {
+    const { root, reviewDir, input } = await fixture(null);
+    try {
+      assert.deepEqual(run('brief', input), { failed: { code: 'review-missing', message: 'no review on record for this task; nothing to brief' } });
+      await assert.rejects(readFile(path.join(reviewDir, 'brief.md')));
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });

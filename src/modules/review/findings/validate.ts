@@ -4,9 +4,10 @@ import type { DiffFile } from '#types/platform/git';
 
 /**
  * Reviewer output is checked against the pinned diff; nothing is repaired or re-asked.
- * One invalid location, unknown requirement, or finding over the limit voids the whole
- * result. An unknown rule id is dropped from its finding and reported: models invent ids
- * near real ones (eval C3: common-rules/callers), and the finding itself still verifies.
+ * An unknown requirement or a finding count over the limit voids the whole result. A finding at an
+ * invalid location is dropped and listed (one bad line voided both graded findings in 2 of 23 review-subtle
+ * runs); only an answer with no verifiable finding left is invalid. An unknown rule id is dropped from its
+ * finding and reported: models invent ids near real ones (eval C3: common-rules/callers).
  */
 
 export interface ValidateOptions {
@@ -22,7 +23,7 @@ export interface ValidateOptions {
 
 type ValidatedFindings =
   /** `dropped` names each unknown rule reference removed from a kept finding; the caller records them as omissions. */
-  | { kind: 'ok'; findings: Finding[]; dropped: string[] }
+  | { kind: 'ok'; findings: Finding[]; dropped: string[]; rejected: string[] }
   /** `rejections` are persisted, because a refusal is evidence about the review. */
   | { kind: 'invalid'; reason: string; rejections: string[] };
 
@@ -30,6 +31,7 @@ export function validateFindings(options: ValidateOptions): ValidatedFindings {
   const rejections: string[] = [];
   const findings: Finding[] = [];
   const dropped: string[] = [];
+  const rejected: string[] = [];
 
   if (options.maxFindings !== null && options.output.findings.length > options.maxFindings) {
     return {
@@ -47,7 +49,7 @@ export function validateFindings(options: ValidateOptions): ValidatedFindings {
 
     const located = resolveLocation(candidate.location, options.files);
     if (typeof located === 'string') {
-      rejections.push(`${label}: ${located}`);
+      rejected.push(`${label}: ${located}`);
       continue;
     }
 
@@ -80,16 +82,16 @@ export function validateFindings(options: ValidateOptions): ValidatedFindings {
     });
   }
 
-  if (rejections.length > 0) {
+  if (rejections.length > 0 || (findings.length === 0 && rejected.length > 0)) {
     return {
       kind: 'invalid',
       reason:
         'The reviewer returned output that could not be verified against the pinned change, so this review produced no validated findings. It is not a review that found nothing.',
-      rejections,
+      rejections: [...rejected, ...rejections],
     };
   }
 
-  return { kind: 'ok', findings, dropped };
+  return { kind: 'ok', findings, dropped, rejected };
 }
 
 interface Located {

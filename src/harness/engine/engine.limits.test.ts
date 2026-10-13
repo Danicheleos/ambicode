@@ -89,6 +89,36 @@ describe('F9 missing produces', () => {
   });
 });
 
+const CHECKED = WRITER.replace('"note{investigation}"', '"check{green}"');
+
+describe('F9 commands do not count as attempts', () => {
+  it('03-F9b: red check causes while a delivered step is unmet write no limit and no repeat', async () => {
+    const t = await make(CHECKED);
+    try {
+      await t.start();
+      for (const cause of ['check', 'check', 'check', 'check']) {
+        const message = await t.next({ cause });
+        assert.equal(message.position, 'write');
+      }
+      assert.deepEqual(await t.limits(), []);
+      assert.equal((await t.fx.kinds('t1', 'step')).filter((entry) => entry['status'] === 'repeated').length, 0);
+    } finally {
+      await t.fx.dispose();
+    }
+  });
+
+  it('03-F9c: review and check causes at a step producing review write no limit', async () => {
+    const t = await make(WRITER.replace('"note{investigation}"', '"review"'));
+    try {
+      await t.start();
+      for (const cause of ['check', 'check']) assert.equal((await t.next({ cause })).position, 'write');
+      assert.deepEqual(await t.limits(), []);
+    } finally {
+      await t.fx.dispose();
+    }
+  });
+});
+
 const BIG = `${HEAD('r')}  - id: work
     actor: code
     run: [t.work]

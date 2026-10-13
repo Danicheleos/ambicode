@@ -1,5 +1,5 @@
 // brief.md for the reviewer: the diff with the line numbers a finding may name, then policy rules, requirements and checks.
-// A finding that names any other line voids the whole answer, so the ranges come from the hunks, not from the model.
+// A finding that names any other line is dropped, so the ranges come from the hunks, not from the model.
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -7,7 +7,7 @@ const input = JSON.parse(readFileSync(0, 'utf8'));
 const read = (file) => { try { return readFileSync(file, 'utf8'); } catch { return null; } };
 const entries = (read(path.join(input.taskDir, 'ledger.jsonl')) ?? '').split('\n').filter(Boolean).flatMap((line) => { try { return [JSON.parse(line)]; } catch { return []; } });
 const entry = entries.findLast((candidate) => candidate.kind === 'review' && typeof candidate.result === 'string');
-if (entry === undefined) { process.stdout.write(JSON.stringify({ payload: null })); process.exitCode = 0; } else {
+if (entry === undefined) { process.stdout.write(JSON.stringify({ failed: { code: 'review-missing', message: 'no review on record for this task; nothing to brief' } })); } else {
   try { brief(entry); } catch (error) { process.stdout.write(JSON.stringify({ failed: { code: 'brief-failed', message: String(error?.stack ?? error).split('\n').slice(0, 3).join(' | ') } })); }
 }
 
@@ -65,12 +65,12 @@ const lines = [
   `# Review brief ${result.reviewId ?? ''}`, '',
   `Target: ${target.kind}${target.baseRef ? ` against ${target.baseRef}` : ''} (${target.snapshotId}).`,
   'The whole patch is below; the code is in the checkout.',
-  'A finding may name only a line listed below, on the side listed. Anything else voids the whole answer.', '',
+  'A finding may name only a line listed below, on the side listed. Any other line is dropped with its finding and the review stays partial.', '',
   '## Changed files', '', ...files.flat(),
   '## Policy rules', '', rules, '',
   '## Project conventions', '', `Source: ${conventionsFile}`, '', conventions?.trim() ? conventions.trim().replace(/^#/gm, '###') : '(none recorded)', '',
   '## Requirements', '', ...((result.requirements ?? []).length === 0 ? ['(none supplied: quality review)'] : result.requirements.flatMap((source) => [`### ${source.id}: ${source.title}`, source.content, ''])),
-  '## Check results', '', ...(checks.length === 0 ? ['No check recorded for this task: nothing was verified by execution. That is a gap, not a pass.'] : checks.map((check) => `- ${check.key} ${check.phase}: exit ${check.exit}${(check.files ?? []).length === 0 ? '' : `; on: ${check.files.join(' ')}`}`)), '',
+  '## Check results', '', ...(checks.length === 0 ? ['No check recorded for this task: nothing was verified by execution. That is a gap, not a pass.'] : checks.map((check) => `- ${check.key} ${check.phase}: exit ${check.exit}${(check.files ?? []).length === 0 ? '' : `; on: ${check.files.join(' ')}`}${check.exit === 0 ? '' : ` FAILED; last output:\n\`\`\`\n${String(check.tail ?? '').split('\n').slice(-12).join('\n')}\n\`\`\``}`)), '',
 ];
 writeFileSync(path.join(reviewDir, 'brief.md'), lines.join('\n'));
 process.stdout.write(JSON.stringify({ payload: `brief: ${path.join(reviewDir, 'brief.md')}` }));

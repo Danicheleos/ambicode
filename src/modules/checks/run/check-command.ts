@@ -1,4 +1,5 @@
-import { openWorkspace, projectForRequest } from '#modules/config/workspace';
+import path from 'node:path';
+import { openWorkspace, projectForRequest, toRepositoryRelative } from '#modules/config/workspace';
 import { resolvePolicyFor } from '#modules/policy/resolve-for';
 import type { ProjectConfig } from '#types/modules/config';
 import type { ResolvedPolicy } from '#types/modules/policy';
@@ -12,6 +13,7 @@ import { runOne, shellQuote } from './run.ts';
 import { GATE, type CheckDeps, type Routed, type CheckOnlyInput, type CheckOnlyOutcome, type CheckEntry } from '#types/modules/checks';
 import type { LedgerEntry, LockedLedger, NoteDeps, TaskDir } from '#types/modules/evidence';
 import type { RouteView } from '#types/harness';
+import type { Workspace } from '#types/composition';
 const CHECK_LIMIT = 5;
 const TAIL_LINES = 40;
 
@@ -36,7 +38,7 @@ export async function routedOf(deps: CheckDeps, task: string): Promise<Routed | 
 }
 
 export const withLedger = <T>(deps: NoteDeps, dir: TaskDir, body: (ledger: LockedLedger) => Promise<T>): Promise<T> =>
-  withLedgerLock(deps.runtime.fs, dir.root, () => deps.runtime.clock.now(), deps.session ?? deps.runtime.ids.writerId(), body);
+  deps.ledger !== undefined ? body(deps.ledger) : withLedgerLock(deps.runtime.fs, dir.root, () => deps.runtime.clock.now(), deps.session ?? deps.runtime.ids.writerId(), body);
 
 /** Commands run in the project root; a repository-relative path names the same file from there. */
 export const projectRelative = (project: ProjectConfig, file: string): string => {
@@ -44,6 +46,10 @@ export const projectRelative = (project: ProjectConfig, file: string): string =>
   const relative = normalizeRelative(file);
   return root === '' || root === '.' || !relative.startsWith(`${root}/`) ? relative : relative.slice(root.length + 1);
 };
+
+/** The check keys of a project, sorted; `command` is false for a key whose `all` and `file` are both null (it exists but cannot run). */
+export const checkKeys = (project: ProjectConfig): { key: string; all: boolean; file: boolean; command: boolean }[] =>
+  Object.keys(project.checks).sort().map((key) => ({ key, all: project.checks[key]!.all !== null, file: project.checks[key]!.file !== null, command: project.checks[key]!.all !== null || project.checks[key]!.file !== null }));
 
 const stepOf = (view: RouteView): string => (view.position === 'complete' ? 'complete' : view.position);
 
@@ -67,7 +73,9 @@ export async function consentForKey(
   const source = consent.source;
   const prints = (await deps.context!.entries(view.task)).filter((entry) => entry.kind === 'gate' && entry['gate'] === GATE && view.chainIds.includes(String(entry['route'])));
   const forKey = prints.filter((entry) => keyOf(entry).includes(input.key));
-  const boundDecline = source !== null && (source.kind === 'declined' || source.kind === 'default-taken') && source['reason'] !== 'acting-needs-human'
+  // The gate hook records a decline as an acceptance of the option `decline`; consent calls it not-accepted.
+  const answered = source !== null && (source.kind === 'declined' || source.kind === 'default-taken' || (source.kind === 'acceptance' && consent.reason === 'not-accepted'));
+  const boundDecline = answered && source['reason'] !== 'acting-needs-human'
     && (forKey.some((print) => print.id === source['instance']) || source['key'] === input.key);
   return withLedger(deps, dir, async (ledger) => {
     const instance = forKey.at(-1)?.id ?? null;
@@ -92,7 +100,7 @@ export async function consentForKey(
 export async function authorizeKey(
   deps: CheckDeps,
   routed: Routed | null,
-  input: { policy: ResolvedPolicy; commandId: string; key: string; files: readonly string[]; approve: readonly string[]; decline: readonly string[] },
+  input: { policy: ResolvedPolicy; commandId: string; key: string; files: readonly string[]; approve: readonly string[]; decline: readonly string[]; raise?: boolean },
 ): Promise<'allowed' | 'declined' | 'waiting'> {
   const authorization = authorizeCommand({ policy: input.policy, commandId: input.commandId, approvalKey: input.key, approvals: new Set() });
   if (authorization.kind === 'allowed') return 'allowed';
@@ -113,7 +121,7 @@ async function limitReached(deps: CheckDeps, routed: Routed, phase: string): Pro
   const runs = window.filter((entry) => entry.kind === 'check' && entry['phase'] === phase).length;
   if (runs < CHECK_LIMIT) return false;
   if (!window.some((entry) => entry.kind === 'limit' && entry['which'] === 'check')) {
-    await withLedger(deps, routed.dir, (ledger) => ledger.append({ kind: 'limit', route: view.routeId, which: 'check', count: CHECK_LIMIT, step: stepOf(view) }));
+    await withLedger(deps, routed.dir, (ledger) => ledger.append({ kind: 'limit', route: view.routeId, which: 'check', count: CHECK_LIMIT, step: stepOf(view), phase }));
   }
   return true;
 }
@@ -121,17 +129,27 @@ async function limitReached(deps: CheckDeps, routed: Routed, phase: string): Pro
 /** `{file}` becomes the quoted files, space-joined: one run, one exit, one ledger entry for the whole selection. */
 export const commandFor = (template: string, files: readonly string[]): string => template.replaceAll('{file}', files.map(shellQuote).join(' '));
 
+/** The model's cwd may be the repository's parent: a path that exists from the caller's cwd wins, else it is already repository-relative. */
+async function repositoryFile(workspace: Workspace, file: string): Promise<string> {
+  const { runtime } = workspace;
+  const fromCaller = path.resolve(runtime.callerCwd ?? runtime.cwd, file);
+  const found = (await runtime.fs.exists(fromCaller)) || path.isAbsolute(file) ? await toRepositoryRelative(workspace, fromCaller) : normalizeRelative(file);
+  if (found === '' || found === '..' || found.startsWith('../')) throw badArgument(`--file ${file} is outside the repository.`, 'file');
+  return found;
+}
+
 export async function runCheckOnly(deps: CheckDeps, input: CheckOnlyInput): Promise<CheckOnlyOutcome> {
   if (input.phase !== 'red' && input.phase !== 'green') throw badArgument('"check" needs --phase red|green.', 'phase');
 
   const workspace = await openWorkspace(deps.runtime);
-  const project = projectForRequest(workspace.config, input.project, input.files);
+  const files = await Promise.all(input.files.map((file) => repositoryFile(workspace, file)));
+  const project = projectForRequest(workspace.config, input.project, files);
   const spec = project.checks[input.name];
-  const runnable = Object.keys(project.checks).filter((id) => project.checks[id]!.all !== null || project.checks[id]!.file !== null).sort().join(', ') || 'none';
-  if (spec === undefined) throw badArgument(`Project "${project.id}" has no check "${input.name}"; configured: ${runnable}.`, 'name');
-  const template = input.files.length > 0 ? spec.file : spec.all;
+  const configured = checkKeys(project).map((entry) => (entry.command ? entry.key : `${entry.key} (no command)`)).join(', ') || 'none';
+  if (spec === undefined) throw badArgument(`Project "${project.id}" has no check "${input.name}"; configured: ${configured}.`, 'name');
+  const template = files.length > 0 ? spec.file : spec.all;
   if (template === null) {
-    throw badArgument(`Project "${project.id}" check "${input.name}" has no ${input.files.length > 0 ? '`file`' : '`all`'} command, so it cannot run${input.files.length > 0 ? ' on --file' : ' without --file'}.`, input.files.length > 0 ? 'file' : 'name');
+    throw badArgument(`Project "${project.id}" check "${input.name}" has no ${files.length > 0 ? '`file`' : '`all`'} command, so it cannot run${files.length > 0 ? ' on --file' : ' without --file'}.`, files.length > 0 ? 'file' : 'name');
   }
   const routed = await routedOf(deps, input.task);
   if (routed !== null && (await limitReached(deps, routed, input.phase))) {
@@ -142,20 +160,21 @@ export async function runCheckOnly(deps: CheckDeps, input: CheckOnlyInput): Prom
 
   // The pack's commandPolicy names the check by its config name (`unit`, `e2e`), so the check name is the command id.
   const key = checkApprovalKey(project.id, input.name);
-  const policy = await resolvePolicyFor({ workspace, project, activity: 'task', paths: input.files });
-  const decision = await authorizeKey(deps, routed, { policy, commandId: input.name, key, files: input.files, approve: input.approve, decline: input.decline });
+  const policy = await resolvePolicyFor({ workspace, project, activity: 'task', paths: files });
+  const decision = await authorizeKey(deps, routed, { policy, commandId: input.name, key, files, approve: input.approve, decline: input.decline, ...(input.raise === undefined ? {} : { raise: input.raise }) });
   if (decision === 'waiting') return { outcome: 'waiting', gate: GATE, key };
   if (decision === 'declined') return { outcome: 'declined', key };
 
   const dir = routed?.dir ?? (await resolveTaskDir(deps.runtime, input.task));
   const result = await runOne({
     runner: deps.runtime.runner, clock: deps.runtime.clock, repositoryRoot: workspace.repositoryRoot, project, policy, commandId: input.name, key,
-    command: commandFor(template, input.files.map((file) => projectRelative(project, file))), timeoutSeconds: workspace.config.skills.task.checkTimeoutSeconds,
+    command: commandFor(template, files.map((file) => projectRelative(project, file))), timeoutSeconds: workspace.config.skills.task.checkTimeoutSeconds,
   });
   const step = routed === null ? null : stepOf(routed.view);
   const route = routed === null ? {} : { route: routed.view.routeId };
+  // key and files let the report drop this gap only for a later pass of the same check that covers these files.
   const unproven = (which: string, cause: string) =>
-    routed === null ? Promise.resolve() : withLedger(deps, dir, (ledger) => ledger.append({ kind: 'limit', ...route, which, count: 1, step, cause }).then(() => undefined));
+    routed === null ? Promise.resolve() : withLedger(deps, dir, (ledger) => ledger.append({ kind: 'limit', ...route, which, count: 1, step, cause, key, files }).then(() => undefined));
 
   if (result.exitCode === null) {
     await unproven(`${input.phase}-unproven`, 'not-run');
@@ -163,7 +182,7 @@ export async function runCheckOnly(deps: CheckDeps, input: CheckOnlyInput): Prom
   }
 
   const entry = await withLedger(deps, dir, (ledger) => ledger.append({
-    kind: 'check', ...route, key, files: input.files, exit: result.exitCode, phase: input.phase,
+    kind: 'check', ...route, key, files, exit: result.exitCode, phase: input.phase,
     tail: tailOf(result.output), ms: result.ms, ...(deps.session === null ? {} : { session: deps.session }),
   })) as CheckEntry;
   // Red is exit != 0 and green is exit 0; the other combination is recorded as a gap, never as proof.

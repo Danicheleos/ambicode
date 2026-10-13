@@ -27,7 +27,7 @@ steps:
     repeat: 3
   - id: plan-check
     actor: code
-    run: ["evidence.notes.save(plan-draft, from: steps/plan-body.md)", "script(plan-check)"]
+    run: ["script(plan-check, resolve)", "evidence.notes.save(plan-draft, from: steps/plan-body.md)", "script(plan-check)"]
     produces: ["note{plan-draft}", worker]
     onFail: revise plan-write                     # a failed anchor or an unmapped acceptance id; the failures come back as a section
   - id: plan-accept

@@ -10,7 +10,7 @@ import { TempRepo } from '#testing/fixtures/temp-repo';
 import { taskFixture } from '#testing/fixtures/task-fixture';
 import { AmbicodeError } from '#util/errors';
 import { parseNarrow, refusalSuggestions, renderEstimate } from './estimate.ts';
-import { narrowingInForce, reviewCommand } from '#skills/review/handlers';
+import { narrowingInForce } from '#skills/review/handlers';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import type { Runtime } from '#types/composition';
 import type { LedgerEntry } from '#types/modules/evidence';
@@ -75,7 +75,6 @@ describe('review estimate (07-E)', () => {
       await t.start();
       await t.edit();
       await t.check('green', { ran: 1, failed: 0 });
-      await t.format();
       const print = (await t.kinds('gate')).findLast((entry) => entry['gate'] === 'review-offer');
       const question = String((print?.['question'] ?? (print?.['values'] as { question?: unknown } | undefined)?.question) ?? '');
       assert.match(question, /Review estimate:/);
@@ -147,14 +146,6 @@ describe('review estimate (08-E)', () => {
       assert.equal(narrowingInForce([revise('1', '--only a'), revise('2', '--exclude b')]), '--exclude b');
       assert.equal(narrowingInForce([revise('1', '--only a'), revise('2', 'narrow'), revise('3', 'garbage'), revise('4', '--only z', 'other')]), '--only a');
       assert.equal(narrowingInForce([revise('1', 'narrow'), revise('2', 'junk')]), null);
-    });
-
-    it('08-R5: reviewCommand orders task, target, then quoted narrowing, and carries no --approve', () => {
-      const args = { text: '', requirements: [], project: null, plan: null, fromDraft: null, answers: [], headless: false, hasRequirement: false, hash: 'h', target: { branch: true, base: "ma'in", mr: null } };
-      const chain = [revise('1', `--only "src/**" --exclude x`)];
-      assert.equal(reviewCommand('t1', args, chain), `review --task t1 --branch --base 'ma'\\''in' --only 'src/**' --exclude 'x'`);
-      assert.equal(reviewCommand('t1', { ...args, target: { branch: false, base: null, mr: 'https://h/mr/1' } }, []), `review --task t1 --mr 'https://h/mr/1'`);
-      assert.equal(reviewCommand('t1', { ...args, target: undefined }, []), 'review --task t1');
     });
   });
 });

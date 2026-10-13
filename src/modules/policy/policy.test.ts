@@ -134,6 +134,23 @@ test('U03 a missing prompt file and an unknown command id are diagnosed, not ign
   assert.ok(diagnostics.some((d) => d.code === 'pack-unknown-command'));
 });
 
+test('a replaces copy may name the commands its built-in names, and a typo in any other is still an error', async (t) => {
+  const directory = await sandbox(t);
+  const packDirectory = path.join(directory, '.ambicode', 'policies');
+  await mkdir(packDirectory, { recursive: true });
+  const copy = (command: string): string => [
+    'schemaVersion: 1', 'id: common-code', 'replaces: builtin/common-code', 'authority: team', 'appliesTo: ["**/*"]', 'activities: [review]',
+    'source: { location: "copy" }', 'rules:', '  - id: lint-rule', '    category: correctness', '    instruction: "Lint."', `    check: { kind: command, command: ${command}, explanation: "x" }`,
+  ].join('\n');
+  const load = async (command: string) => {
+    await writeFile(path.join(packDirectory, 'copy.yaml'), copy(command), 'utf8');
+    return loadPacksForProject({ fs: nodeFileSystem, project: project({ commands: {}, checks: {}, policyFiles: ['.ambicode/policies/copy.yaml'] }), builtinDirectory: BUILTIN_DIRECTORY, repositoryRoot: directory });
+  };
+  assert.deepEqual((await load('lint')).diagnostics, [], 'the built-in names lint, so the copy may');
+  const typo = (await load('lnt')).diagnostics;
+  assert.ok(typo.some((d) => d.code === 'pack-unknown-command' && /"lnt"/.test(d.message)), JSON.stringify(typo));
+});
+
 test('U03 an unsupported prompt stage is a configuration error', async (t) => {
   const directory = await sandbox(t);
   await mkdir(path.join(directory, '.ambicode', 'policies'), { recursive: true });
@@ -550,6 +567,24 @@ test('pack selection: a marker the repository shows picks the pack, and an undec
   assert.equal(vendored.find((choice) => choice.reference === 'builtin/angular-http')?.enabled, false, 'a vendored manifest is not evidence');
   const withoutE2e = await select({ commands: { lint: 'lint', unit: 'unit' } });
   assert.equal(withoutE2e.find((choice) => choice.reference === 'builtin/common-checks')?.enabled, true, 'an undeclared command is unavailable, not a reason to skip the pack');
+});
+
+test('pack selection: an `unless` marker keeps the express packs out of an Angular SSR app, and an express-only repo still gets them', async (t) => {
+  const select = async (manifest: string) => {
+    const directory = await sandbox(t);
+    await writeFile(path.join(directory, 'package.json'), manifest);
+    const files = ['package.json', 'src/app/app.routes.ts', 'src/app/x.service.ts'];
+    const chosen = await selectPacks({ fs: nodeFileSystem, builtinDirectory: BUILTIN_DIRECTORY, repositoryRoot: directory, project: project({ root: '.' }), files });
+    return new Map(chosen.map((choice) => [choice.reference, choice]));
+  };
+  const ssr = await select('{"dependencies":{"@angular/core":"^20.0.0","@angular/ssr":"^20.0.0","express":"^5.0.0"}}\n');
+  for (const id of ['express-errors', 'express-http', 'express-persistence']) {
+    assert.equal(ssr.get(`builtin/${id}`)?.enabled, false, id);
+    assert.match(ssr.get(`builtin/${id}`)!.reason, /unless marker: package\.json has "@angular\/ssr"/, id);
+  }
+  assert.equal(ssr.get('builtin/angular-http')?.enabled, true);
+  const plain = await select('{"dependencies":{"express":"^5.0.0"}}\n');
+  for (const id of ['express-errors', 'express-http', 'express-persistence']) assert.equal(plain.get(`builtin/${id}`)?.enabled, true, id);
 });
 
 test('U03 a project declaring no commands still selects and loads the command-naming built-ins, and runs nothing', async (t) => {

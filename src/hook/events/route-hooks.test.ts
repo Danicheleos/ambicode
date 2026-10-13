@@ -19,19 +19,19 @@ const prompt = (plan: PlanFixture, text: string, extra: Record<string, unknown> 
 const context = (output: { hookSpecificOutput?: { additionalContext: string } }): string => output.hookSpecificOutput?.additionalContext ?? '';
 
 describe('03-H1/03-H8 the hook matrix', () => {
-  it('registers eight events and fourteen handler entries, and the docs say so', async () => {
+  it('registers eight events and fifteen handler entries, and the docs say so', async () => {
     const manifest = JSON.parse(await readFile(path.join(REPO_ROOT, 'hooks', 'hooks.json'), 'utf8')) as { hooks: Record<string, { matcher?: string; hooks: unknown[] }[]> };
     assert.deepEqual(Object.keys(manifest.hooks), [...REGISTERED_HOOK_EVENTS]);
     const entries = Object.values(manifest.hooks).flatMap((groups) => groups.flatMap((group) => group.hooks));
     assert.equal(entries.length, REGISTERED_HOOK_ENTRIES);
-    assert.deepEqual(manifest.hooks['PostToolUse']!.map((group) => group.matcher), ['mcp__.*', 'WebFetch', 'AskUserQuestion']);
+    assert.deepEqual(manifest.hooks['PostToolUse']!.map((group) => group.matcher), ['mcp__.*', 'WebFetch', 'AskUserQuestion', 'Agent']);
     assert.deepEqual(manifest.hooks['PreToolUse']!.map((group) => group.matcher), ['Bash', 'Write|Edit|MultiEdit|NotebookEdit']);
     assert.ok(manifest.hooks['Stop'] !== undefined);
     assert.deepEqual(manifest.hooks['SubagentStop']!.map((group) => group.matcher), ['(ambicode:)?reviewer']);
     for (const doc of ['docs/compatibility.md', 'docs/release-checklist.md']) {
       const text = (await readFile(path.join(REPO_ROOT, doc), 'utf8')).replace(/\s+/g, ' ');
       assert.match(text, /eight events/, doc);
-      assert.match(text, /fourteen handler entries/, doc);
+      assert.match(text, /fifteen handler entries/, doc);
     }
   });
 });
@@ -348,6 +348,21 @@ describe('03-H7 SessionEnd', () => {
       await stopRoute(plan.fx, PLAN_TASK, SESSION_A, 'blocked', 'x');
       await hook(plan, { hook_event_name: 'SessionEnd' });
       assert.equal(await plan.fx.pointer.read(SESSION_A, plan.fx.scratchpad), null);
+    } finally {
+      await plan.dispose();
+    }
+  });
+});
+
+describe('Agent PostToolUse', () => {
+  it('does not load the engine for a subagent that is not the reviewer', async () => {
+    const plan = await planFixture();
+    try {
+      let loads = 0;
+      const counting: HookDeps = { pointer: plan.fx.pointer, load: async (...args) => (loads += 1, deps(plan).load(...args)) };
+      const event = { hook_event_name: 'PostToolUse', session_id: SESSION_A, cwd: plan.fx.repo.root, scratchpad_dir: plan.fx.scratchpad, tool_name: 'Agent', tool_input: { subagent_type: 'Explore' }, tool_response: { status: 'completed', content: [] } };
+      assert.deepEqual(await runHook(plan.fx.runtime, JSON.stringify(event), counting), {});
+      assert.equal(loads, 0);
     } finally {
       await plan.dispose();
     }

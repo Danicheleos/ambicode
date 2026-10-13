@@ -180,8 +180,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
   });
 
   it('07-R7: task\'s write step holds its single note-writing boundary, separate from investigate\'s and plan\'s', async () => {
-    const write = await readFile(path.join(repositoryRoot, 'routes', 'task', 'write.md'), 'utf8');
-    assert.match(write, /note save --task \{task\} --kind notes --iteration <n>/);
+    assert.doesNotMatch(await readFile(path.join(repositoryRoot, 'routes', 'task', 'write.md'), 'utf8'), /note save/);
     assert.doesNotMatch(await readFile(path.join(SKILLS_DIR, 'task', 'SKILL.md'), 'utf8'), /note save/);
   });
 
@@ -403,9 +402,9 @@ describe('F3 documented outcomes', () => {
 });
 
 describe('review outcomes that are not AmbicodeErrors', () => {
-  it('documents invalid-output and brief-failed, which the emitted-code scan cannot see', async () => {
+  it('documents invalid-output, brief-failed and review-missing, which the emitted-code scan cannot see', async () => {
     const outcomes = await readFile(path.join(SKILLS_DIR, 'review', 'references', 'outcomes.md'), 'utf8');
-    for (const code of ['invalid-output', 'brief-failed']) assert.ok(outcomes.includes(`\`${code}\``), `${code} is not documented in outcomes.md`);
+    for (const code of ['invalid-output', 'brief-failed', 'review-missing']) assert.ok(outcomes.includes(`\`${code}\``), `${code} is not documented in outcomes.md`);
   });
 });
 
@@ -413,7 +412,7 @@ describe('07-M2 task outcomes', () => {
   it('07-M2: review outcomes document every code the task commands add, each as a backticked code', async () => {
     const outcomes = await readFile(path.join(SKILLS_DIR, 'review', 'references', 'outcomes.md'), 'utf8');
     const emitted = await emittedErrorCodes();
-    for (const code of ['check-limit', 'check-only-unauthorized', 'baseline-missing', 'review-not-accepted', 'format-unconfigured', 'ambiguous-project', 'bad-argument']) {
+    for (const code of ['check-limit', 'check-only-unauthorized', 'baseline-missing', 'format-unconfigured', 'ambiguous-project', 'bad-argument']) {
       assert.ok(outcomes.includes(`\`${code}\``), `${code} is not documented in outcomes.md`);
       // format-unconfigured is printed with exit 0, not raised.
       if (code !== 'format-unconfigured') assert.ok(emitted.has(code), `${code} is no longer raised by the CLI`);

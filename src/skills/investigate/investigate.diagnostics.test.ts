@@ -21,7 +21,7 @@ async function investigate() {
 describe('investigate diagnostics (07-I1)', () => {
   it('07-I1: the shipped read step names the red-phase check command and says decline means do not run, inconclusive', async () => {
     const text = await readFile(path.join(REPO_ROOT, 'routes', 'investigate', 'read.md'), 'utf8');
-    assert.match(text, /check --task \{task\} --name <check> --file <spec> --phase red/);
+    assert.match(text, /check --task \{task\} --name <key> --file <file> --phase red/);
     assert.match(text, /don't run — inconclusive/);
   });
 

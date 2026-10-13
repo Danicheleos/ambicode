@@ -39,7 +39,7 @@ export function rowsOf(result, { arm = 'plugin', model = 'unknown', effort = 'un
       errors: runs.filter((run) => run.error).length,
       score: round(mean(runs.map((run) => run.score ?? 0))),
       passed: runs.length > 0 && runs.every((run) => run.passed === true),
-      costUsd: round(mean(runs.map((run) => (run.costUsd ?? 0) + (run.judgeCostUsd ?? 0))), 4),
+      costUsd: round(mean(runs.map((run) => run.costUsd ?? 0)), 4),
       turns: round(mean(runs.map((run) => run.turns ?? 0)), 1),
       seconds: round(mean(runs.map((run) => run.durationSeconds ?? 0)), 0),
       // Main-session tokens per model call (context.mjs); null when no trace was kept.
@@ -60,7 +60,7 @@ export function rowsOf(result, { arm = 'plugin', model = 'unknown', effort = 'un
       } : {}),
       // One entry per run, for the drift between runs of the same case.
       perRun: runs.map((run) => ({
-        score: round(run.score ?? 0, 2), turns: run.turns ?? null, seconds: run.durationSeconds ?? null, costUsd: round((run.costUsd ?? 0) + (run.judgeCostUsd ?? 0), 4),
+        score: round(run.score ?? 0, 2), turns: run.turns ?? null, seconds: run.durationSeconds ?? null, costUsd: round(run.costUsd ?? 0, 4),
         contextPeak: run.context?.peak ?? null, modelCalls: run.context?.calls ?? null, toolCalls: run.context?.tools ?? null, error: run.error ?? null, trace: run.trace ?? null,
         failing: (run.graders ?? []).filter((grader) => !grader.passed).map((grader) => grader.name),
         ...(run.metrics ? { recall: run.metrics.recall, precision: run.metrics.precision, f1: run.metrics.f1, missed: run.metrics.missed, extra: run.metrics.extra, contract: run.metrics.contract } : {}),
@@ -112,13 +112,13 @@ export function summary(history, { shared = sharedGraders, version = versionOf }
     '',
     '`plugin` is the full case score; `outcome` is its shared graders only (answer, code, boundary); `bare` is the same',
     'shared graders with no plugin loaded; `lift` = outcome − bare, shown only when both rows ran the same model, effort and case version.',
-    '`calls/tools` are the distinct model calls and tool calls of the main session (the harness turn count is about tool calls + 1), plugin · bare.',
+    '`model calls/tools` are the distinct model calls and tool calls of the main session, plugin · bare. The harness `turns` counts every tool result, so parallel reads inflate it; the rows keep it, the tables do not show it.',
     '`context` is the largest main-session context of the run in thousands of tokens (input + cache), plugin / bare.',
     'Brackets: change against the previous row of the same arm. Failing graders are the latest plugin run\'s.',
     '',
   );
   for (const skill of [...new Set(names.map((name) => name.split('-')[0]))].sort()) {
-    lines.push(`## ${skill}`, '', '| case | plugin | outcome | bare | lift | plugin $ | bare $ | calls/tools | context k | failing graders |', '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |');
+    lines.push(`## ${skill}`, '', '| case | plugin | outcome | bare | lift | plugin $ | bare $ | model calls/tools | context k | failing graders |', '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |');
     for (const name of names.filter((n) => n.split('-')[0] === skill)) {
       const now = latest('plugin', name);
       const bare = latest('bare', name);
@@ -176,7 +176,7 @@ function main(argv) {
   const rows = rowsOf(result, { arm: option('--arm', 'plugin'), model: option('--model', 'unknown'), effort: option('--effort', 'unknown'), plugin });
   appendFileSync(history, rows.map((row) => `${JSON.stringify(row)}\n`).join(''));
   writeFileSync(option('--summary', 'evals/history.md'), summary(readHistory(history)));
-  for (const row of rows) console.log(`${row.arm.padEnd(6)} ${row.case.padEnd(24)} score ${row.score}  $${row.costUsd}  ${row.turns} turns${row.errors ? `  ${row.errors} errored` : ''}`);
+  for (const row of rows) console.log(`${row.arm.padEnd(6)} ${row.case.padEnd(24)} score ${row.score}  $${row.costUsd}  ${row.modelCalls ?? '—'} model calls (${row.turns} turns)${row.errors ? `  ${row.errors} errored` : ''}`);
   console.log(`${rows.length} row(s) appended to ${history}${result.partial ? ' (partial result: the cost ceiling was hit)' : ''}`);
   return 0;
 }

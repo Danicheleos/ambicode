@@ -21,7 +21,7 @@ steps:
   - id: review-run
     actor: model
     instruction: "Review."
-  - id: review-cmd
+  - id: brief
     actor: model
     instruction: "Review again."
 `;

@@ -3,6 +3,8 @@ import { DRAFTS_DIR, type Diagnostic } from '#types/modules/policy';
 import { openWorkspace, projectById, toRepositoryRelative } from '#modules/config/workspace';
 import { checkDrafts } from '#modules/policy/authoring/drafts';
 import { readPackText, validatePack } from '#modules/policy/packs/validate';
+import { builtinPoliciesDirectory } from '#util/plugin-root';
+import { packConstraints } from '#modules/policy/packs/builtin';
 import { AmbicodeError } from '#util/errors';
 import { COMMAND_SPECS } from '#skills/rules/commands';
 import { runCommandTail } from '#harness/engine/engine';
@@ -68,7 +70,7 @@ export async function runPolicyCheck(runtime: Runtime, args: ParsedArgs): Promis
   const workspace = await openWorkspace(runtime);
   const requested = args.value('project');
   const project = requested !== null ? projectById(workspace.config, requested) : workspace.config.projects.length === 1 ? workspace.config.projects[0]! : null;
-  const constraints = project === null ? { commands: null, projectId: null } : { commands: { ...project.commands, ...project.checks }, projectId: project.id };
+  const constraints = await packConstraints(runtime.fs, builtinPoliciesDirectory(runtime.pluginRoot), project);
   const diagnostics: Diagnostic[] = [];
   const files: PolicyCheckOutput['files'] = [];
   for (const operand of args.positionals) {

@@ -1,10 +1,16 @@
 import path from 'node:path';
+import { REVIEWER_ANSWER_FILE } from '#modules/review/answer/captured';
 import { REVIEWS_DIR } from '#types/defaults';
 import { appendLedger, readLedger } from '#platform/ledger/ledger';
 import { resolveTaskDir, taskDirFor } from '#modules/evidence/task/task-dir';
 import { reviewName, taskSlugFor } from './review-name.ts';
 import { openWorkspace, projectForPath } from '#modules/config/workspace';
 import { resolvePolicyFor } from '#modules/policy/resolve-for';
+import { baselineOf } from '#modules/checks/run/format';
+import { touchedSet } from '#modules/checks/workspace/baseline';
+import { routeEvidence } from '#modules/requirements/envelope/envelope';
+import { renderReport } from '../findings/report.ts';
+import { requirementSources } from './requirements.ts';
 import { REVIEW_SCHEMA_VERSION, type RecordedCheck, type ReviewResult, type ReviewBundle, type AssembleOptions } from '#types/modules/review';
 import { describeExclusion, isExcludedFromReview } from '#util/path-classes';
 import { byteLength, enforceReviewInputLimits, measureInput, partitionChange } from '../snapshot/change.ts';
@@ -13,10 +19,11 @@ import { AmbicodeError } from '#util/errors';
 import { normalizeRelative } from '#util/paths';
 import type { ProjectConfig } from '#types/modules/config';
 import type { ResolvedPolicy } from '#types/modules/policy';
-import type { ChangedPath } from '#types/modules/checks';
+import type { ChangedPath, CheckDeps, Routed } from '#types/modules/checks';
 import type { Runtime, Workspace } from '#types/composition';
 import type { LedgerEntry } from '#types/modules/evidence';
 import type { DiffFile } from '#types/platform/git';
+import type { RequirementSource } from '#types/modules/requirements';
 import type { TargetResolution } from '../types/snapshot.ts';
 
 type Policies = { project: ProjectConfig; policy: ResolvedPolicy }[];
@@ -71,7 +78,7 @@ async function resolveTarget(workspace: Workspace, options: AssembleOptions): Pr
 }
 
 /** The task's `check` entries, newest last: what the model chose to run and recorded with `check --task`. */
-async function recordedChecks(runtime: Runtime, taskDirectory: string | null): Promise<RecordedCheck[]> {
+export async function recordedChecks(runtime: Runtime, taskDirectory: string | null): Promise<RecordedCheck[]> {
   if (taskDirectory === null) return [];
   return (await readLedger(runtime.fs, taskDirectory)).flatMap((entry) =>
     entry.kind === 'check' && typeof entry['key'] === 'string' && typeof entry['exit'] === 'number' && (entry['phase'] === 'red' || entry['phase'] === 'green')
@@ -167,15 +174,22 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
   };
 }
 
-/** `ledger` adds fields to the `review` entry (route, session, baseline, preexisting); the entry is returned. */
-export async function writeBundleArtifacts(runtime: Runtime, bundle: ReviewBundle, ledger: Readonly<Record<string, unknown>> = {}): Promise<LedgerEntry | null> {
+export type AppendEntry = (fields: Record<string, unknown> & { kind: string }) => Promise<LedgerEntry>;
+
+/** Appends under the task ledger's own lock: for callers that do not already hold it. */
+const lockedAppend = (runtime: Runtime, taskDirectory: string): AppendEntry => async (fields) =>
+  (await appendLedger(runtime.fs, taskDirectory, runtime.clock.now(), runtime.ids.writerId(), fields)).entry;
+
+/** `ledger` adds fields to the `review` entry (route, session, baseline, preexisting); a route step already holding the lock passes its own `append`. */
+export async function writeBundleArtifacts(runtime: Runtime, bundle: ReviewBundle, ledger: Readonly<Record<string, unknown>> = {}, append?: AppendEntry): Promise<LedgerEntry | null> {
   const { result } = bundle;
   result.brief = path.relative(bundle.workspace.repositoryRoot, path.join(bundle.reviewDirectory, 'brief.md'));
   await runtime.fs.writeText(bundle.resultPath, `${JSON.stringify(result, null, 2)}\n`);
   await runtime.fs.writeText(path.join(bundle.reviewDirectory, 'changed.diff'), bundle.patch);
   await runtime.fs.writeText(path.join(bundle.reviewDirectory, 'files.txt'), `${bundle.files.map((file) => file.newPath ?? file.oldPath ?? '').join('\n')}\n`);
   if (bundle.taskDirectory === null) return null;
-  return (await appendLedger(runtime.fs, bundle.taskDirectory, runtime.clock.now(), runtime.ids.writerId(), {
+  const write = append ?? lockedAppend(runtime, bundle.taskDirectory);
+  return write({
     ...ledger,
     kind: 'review',
     reviewId: bundle.reviewId,
@@ -186,5 +200,49 @@ export async function writeBundleArtifacts(runtime: Runtime, bundle: ReviewBundl
     reviewerRan: result.reviewer !== null,
     findings: result.findings.length,
     omissions: result.omissions.length,
-  })).entry;
+  });
+}
+
+/** What a task route adds to a review: the baseline scope and the ledger fields of the `review` entry. */
+export interface BaselineScope { preexisting: string[]; omissions: string[]; ledger: Record<string, unknown> }
+
+/** The route's requirement envelope as sources, for a review that names none (requirement-based review on a route). */
+export async function envelopeRequirements(deps: CheckDeps, routed: Routed): Promise<RequirementSource[] | null> {
+  const chain = (await deps.context!.entries(routed.view.task)).filter((entry) => routed.view.chainIds.includes(String(entry.kind === 'route' ? entry.id : entry['route'])));
+  const envelope = chain.findLast((entry) => entry.kind === 'envelope');
+  const head = chain.find((entry) => entry.kind === 'route' && entry.id === routed.view.routeId);
+  if (envelope === undefined || head === undefined) return null;
+  const found = await routeEvidence({ runtime: deps.runtime, dir: routed.dir }, envelope);
+  return found === null ? null : requirementSources(deps.runtime, { urls: found.urls, evidence: { kind: 'inline', evidence: found.evidence } });
+}
+
+/** Separates this task's changes from the ones that were there before it: baseline → touched set → ledger fields. */
+export async function baselineScope(runtime: Runtime, baseline: Awaited<ReturnType<typeof baselineOf>>, ledger: Record<string, unknown>): Promise<BaselineScope> {
+  if (baseline === null) return { preexisting: [], omissions: ['no task baseline: pre-existing changes included'], ledger: { ...ledger, baseline: null, preexisting: [] } };
+  const touched = await touchedSet(runtime, baseline);
+  return {
+    preexisting: touched.preexisting,
+    omissions: touched.headMoved ? ['HEAD moved since the task baseline'] : [],
+    ledger: { ...ledger, baseline: baseline.id, preexisting: touched.preexisting },
+  };
+}
+
+export interface PinnedReview { bundle: ReviewBundle; entry: LedgerEntry | null; reportPath: string }
+
+/** Assembles the bundle and writes its artifacts, report and `review` entry; the reviewer is offered the evidence next. */
+export async function pinReview(runtime: Runtime, input: { assemble: Omit<AssembleOptions, 'runtime'>; omissions: readonly string[]; ledger: Record<string, unknown>; append?: AppendEntry }): Promise<PinnedReview> {
+  return pinAssembled(runtime, await assembleBundle({ runtime, ...input.assemble }), input);
+}
+
+/** For a caller that needed the bundle's files first (the route runs its checks on them): assembly costs about 76 ms and was done 3 times per pin. */
+export async function pinAssembled(runtime: Runtime, bundle: ReviewBundle, input: { omissions: readonly string[]; ledger: Record<string, unknown>; append?: AppendEntry }): Promise<PinnedReview> {
+  bundle.result.omissions = [...bundle.result.omissions, ...input.omissions];
+  bundle.result.status = 'partial';
+  bundle.result.statusReason = 'reviewer pending: run the ambicode:reviewer subagent, then `review record`';
+  // One directory per task: a previous round's captured answer would otherwise be recorded as this round's.
+  await runtime.fs.remove(path.join(bundle.reviewDirectory, REVIEWER_ANSWER_FILE));
+  const entry = await writeBundleArtifacts(runtime, bundle, input.ledger, input.append);
+  const reportPath = path.join(bundle.reviewDirectory, 'report.txt');
+  await runtime.fs.writeText(reportPath, `${renderReport({ result: bundle.result, resultPath: bundle.resultPath })}\n`);
+  return { bundle, entry, reportPath };
 }

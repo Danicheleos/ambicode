@@ -25,12 +25,25 @@ describe('validateFindings', () => {
     assert.match(result.findings[0]?.evidence ?? '', /2: export const b = 2; <---/);
   });
 
-  it('one bad location or an unknown requirement still voids the whole answer', () => {
-    const result = run([candidate(at(2)), candidate(at(99)), candidate(at(2), { requirementRefs: ['REQ-9'] })], { maxFindings: 5 });
+  it('a bad location drops only that finding and lists it; the rest is kept', () => {
+    const result = run([candidate(at(2)), candidate(at(99)), candidate(at(3))], { maxFindings: 5 });
+    assert.ok(result.kind === 'ok');
+    assert.deepEqual(result.findings.map((finding) => finding.id), ['f1', 'f2']);
+    assert.equal(result.rejected.length, 1);
+    assert.match(result.rejected[0] ?? '', /finding 2 \(src\/a\.ts:99 new\): line 99 is not present/);
+  });
+
+  it('an answer whose findings are all at bad locations is invalid, not clean', () => {
+    const result = run([candidate(at(98)), candidate(at(99))], { maxFindings: 5 });
     assert.equal(result.kind, 'invalid');
     if (result.kind !== 'invalid') return;
     assert.equal(result.rejections.length, 2);
-    assert.match(result.rejections.join('\n'), /line 99 is not present/);
+  });
+
+  it('an unknown requirement still voids the whole answer', () => {
+    const result = run([candidate(at(2)), candidate(at(2), { requirementRefs: ['REQ-9'] })], { maxFindings: 5 });
+    assert.equal(result.kind, 'invalid');
+    if (result.kind !== 'invalid') return;
     assert.match(result.rejections.join('\n'), /requirement "REQ-9"/);
   });
 

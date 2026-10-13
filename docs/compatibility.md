@@ -111,8 +111,8 @@ current transcript.
 ## Hooks
 
 The plugin ships one hook manifest, `hooks/hooks.json`, registering eight
-events with fourteen handler entries: `PostToolUse` (matchers `mcp__.*`, `WebFetch`
-and `AskUserQuestion`), `PreToolUse` (all routed to
+events with fifteen handler entries: `PostToolUse` (matchers `mcp__.*`, `WebFetch`,
+`AskUserQuestion` and `Agent`), `PreToolUse` (all routed to
 `${CLAUDE_PLUGIN_ROOT}/scripts/guard.mjs`: `Bash` with the `if` rows `git *`,
 `glab mr*`, `*.ambicode/*` and `*ambicode.mjs*`, then `Write|Edit|MultiEdit|NotebookEdit`),
 `SessionStart` (matcher `startup|resume|clear|fork`), `UserPromptSubmit`,
@@ -269,7 +269,7 @@ Recorded per plan/11. No new runtime dependency was added for these.
 
 | Capability | Component | Evidence |
 |---|---|---|
-| CLI arguments | Node 24 `util.parseArgs` | Strict mode, positionals, `multiple` for repeatable `--requirement`, and `--` handled by the platform. Parsed once in `main` before `createRuntime`, so a rejected argument reaches no process or file (U27). Combination rules (`--branch` versus `--mr`, `--base` only with `--branch`) are applied in `main` immediately after parsing and still before `createRuntime`. Only commands that declare `positionals` (`route`, `check`, `format`, `policy check`) accept an operand; every other command rejects one. |
+| CLI arguments | Node 24 `util.parseArgs` | Strict mode, positionals, `multiple` for repeatable `--requirement`, and `--` handled by the platform. Parsed once in `main` before `createRuntime`, so a rejected argument reaches no process or file (U27). Combination rules (`--branch` versus `--mr`, `--base` only with `--branch`) are applied in `main` immediately after parsing and still before `createRuntime`. Only commands that declare `positionals` (`route`, `check`, `policy check`) accept an operand; every other command rejects one. |
 | Temporary directories | `FileSystem.temporaryDirectory` | The adapter owns the host location; no domain module calls `tmpdir()`. |
 | Process execution | `execa` behind `ProcessRunner` | See the dependency record below. |
 | Binary content | `isbinaryfile` on bytes | See the dependency record below. |

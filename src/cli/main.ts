@@ -9,7 +9,6 @@ import { configPacksCommand } from './commands/config/packs.ts';
 import { contextListCommand, contextWriteCommand } from './commands/context/context.ts';
 import { rulesApplyCommand } from './commands/policy/rules.ts';
 import { checkCommand } from './commands/checks/check.ts';
-import { formatCommand } from './commands/checks/format.ts';
 import { policyCheckCommand } from './commands/policy/policy-check.ts';
 import { notePromoteCommand, noteSaveCommand } from './commands/route/note.ts';
 import { reportCommand } from './commands/route/report.ts';
@@ -80,7 +79,7 @@ const versionCommand: CliCommand = {
 
 const COMMANDS: ReadonlyMap<string, CliCommand> = new Map([
   configValidateCommand, configPacksCommand, rulesApplyCommand, policyCheckCommand, noteSaveCommand, notePromoteCommand,
-  checkCommand, formatCommand, reportCommand, routeStartCommand, routeNextCommand, routeStopCommand, mapCommand, refsCommand,
+  checkCommand, reportCommand, routeStartCommand, routeNextCommand, routeStopCommand, mapCommand, refsCommand,
   requirementsNormalizeCommand, reviewCommand, reviewRecordCommand, versionCommand, contextListCommand, contextWriteCommand,
 ].map((entry) => [entry.name, entry]));
 
@@ -97,7 +96,7 @@ async function dispatch(command: CliCommand, args: ParsedArgs): Promise<Rendered
   const shell = await createRuntime();
   const task = args.value('task');
   const cwd = task === null ? shell.cwd : await taskWorkingDirectory(shell, task);
-  const runtime = cwd === shell.cwd ? shell : await createRuntime({ cwd });
+  const runtime = cwd === shell.cwd ? shell : await createRuntime({ cwd, callerCwd: shell.cwd });
   const rendered = await command.run(runtime, args);
   const notices = runtime.notices ?? [];
   return notices.length === 0 ? rendered : { ...rendered, warnings: [...notices, ...(rendered.warnings ?? [])] };

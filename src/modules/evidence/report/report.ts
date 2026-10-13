@@ -1,4 +1,3 @@
-import { contentHash } from '#util/hash';
 import { navigationLine } from './navigation-line.ts';
 import { isBoundAnswer } from '#modules/evidence/ledger-chain';
 import type { LedgerEntry } from '#types/modules/evidence';
@@ -16,10 +15,9 @@ const list = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
 export function buildReport(
   entries: readonly LedgerEntry[],
   options: { current?: (entry: LedgerEntry) => boolean; complete?: boolean } = {},
-): { status: string | null; evidence: string; notVerified: string; hash: string; text: string } {
+): { status: string | null; evidence: string; notVerified: string; text: string } {
   const historical = (entry: LedgerEntry): string => (options.current === undefined || options.current(entry) ? '' : ' (historical)');
   const of = (...kinds: string[]): LedgerEntry[] => entries.filter((entry) => kinds.includes(entry.kind));
-  const line = (name: string, parts: string[]): string => `  ${name}: ${parts.length === 0 ? 'none recorded' : parts.join('; ')}`;
 
   const origins = of('envelope').map((entry) => {
     const keys = list(entry.sources).map((source) => clip((source as { key?: unknown } | null)?.key, 40));
@@ -31,9 +29,11 @@ export function buildReport(
   });
   const requirements = [...origins, ...of('requirement').map((entry) => `${clip(entry.key)} (${clip(entry.relation)})${historical(entry)}`)];
 
+  // A map that found nothing said "0 colliding names" (task-multi-3) and was dropped, so the report listed Map as not run.
   const maps = of('map').map((entry) => {
     const layers = list(entry.layers).map((layer) => clip((layer as { name?: unknown } | null)?.name)).join('→');
-    return `${layers === '' ? 'map' : `layers ${layers}`}, ${list(entry.collisions).length} colliding names${historical(entry)}`;
+    const found = Number(entry.candidates) > 0 || list(entry.collisions).length > 0;
+    return `${layers === '' ? 'map' : `layers ${layers}`}, ${found ? `${list(entry.collisions).length} colliding names` : '0 candidates'}${historical(entry)}`;
   });
 
   const baselines = of('baseline').map((entry) => `${clip(entry.head ?? 'unknown', 12)}, dirty: ${list(entry.dirty).map((item) => (typeof item === 'string' ? item : clip((item as { path?: unknown } | null)?.path))).join(', ') || 'none'}${historical(entry)}`);
@@ -79,7 +79,20 @@ export function buildReport(
   const revisions = new Map<string, LedgerEntry[]>();
   for (const entry of of('revise')) revisions.set(String(entry.from), [...(revisions.get(String(entry.from)) ?? []), entry]);
 
-  for (const entry of of('limit')) {
+  // task-multi 3/3: a failed run on [service, test] then a pass on [service, repository, test] is no gap; a pass on other files or another key is.
+  const proven = (limit: LedgerEntry): boolean => {
+    const phase = String(limit.which).replace(/-unproven$/, '');
+    if (phase === String(limit.which) || typeof limit.key !== 'string') return false;
+    const failed = list(limit.files);
+    for (const later of entries.slice(entries.indexOf(limit) + 1)) {
+      if (later.kind === 'step' && later.step !== limit.step) return false;
+      if (later.kind !== 'check' || later.phase !== phase || later.key !== limit.key || (phase === 'green' ? later.exit !== 0 : later.exit === 0)) continue;
+      const covered = list(later.files);
+      if (covered.length === 0 || failed.every((file) => covered.includes(file))) return true;
+    }
+    return false;
+  };
+  for (const entry of of('limit').filter((limit) => !proven(limit))) {
     if (entry.which === 'read-bytes') notVerified.push(`read-bytes limit: ${clip(entry.bytes)} B read in the route, soft cap ${clip(entry.cap)}${historical(entry)}`);
     else notVerified.push(`${clip(entry.which)} limit (${entry.count})${typeof entry.step === 'string' ? ` at ${entry.step}` : ''}${historical(entry)}`);
   }
@@ -88,22 +101,23 @@ export function buildReport(
     if (entry.mode === 'headless' && entry.channel === 'cli') notVerified.push(`Route ${entry.id}: headless set by an untrusted start (channel cli)${historical(entry)}`);
   }
 
-  const evidence = [
-    'Evidence',
-    line('Requirements', requirements),
-    line('Map', maps),
-    `  ${navigationLine(entries)}`,
-    line('Baseline', baselines),
-    line('Checks', checks),
-    line('Review', reviews),
-    line('Decisions', decisions),
-    line('Revisions', [...revisions].map(([from, runs]) => `${clip(from)} ×${runs.length} (last: ${clip(runs.at(-1)?.reason, 60)})${historical(runs.at(-1)!)}`)),
-  ].join('\n');
-  const unverified = `Not verified\n${notVerified.length === 0 ? '  none recorded' : notVerified.map((item) => `  ${item}`).join('\n')}`;
-  const hash = contentHash(`${evidence}\n${unverified}`);
-  const status = statusOf(entries, notVerified.filter((item) => !item.endsWith(' (historical)')).length, options.complete === true);
-  const body = `${evidence}\n${unverified}\n<!-- ambicode report ${hash} -->`;
-  return { status, evidence, notVerified: unverified, hash, text: status === null ? body : `${status}\n${body}` };
+  const revised = [...revisions].map(([from, runs]) => `${clip(from)} ×${runs.length} (last: ${clip(runs.at(-1)?.reason, 60)})${historical(runs.at(-1)!)}`);
+  const navigated = of('search').length > 0;
+  const printed: string[] = [];
+  const empty: string[] = [];
+  const add = (name: string, parts: string[]): void => void (parts.length === 0 ? empty.push(name) : printed.push(`  ${name}: ${parts.join('; ')}`));
+  add('Requirements', requirements);
+  add('Map', maps);
+  if (navigated) printed.push(`  ${navigationLine(entries)}`);
+  else empty.push('Navigation');
+  for (const [name, parts] of [['Baseline', baselines], ['Checks', checks], ['Review', reviews], ['Decisions', decisions], ['Revisions', revised]] as const) add(name, [...parts]);
+  const evidence = ['Evidence', ...printed, ...(empty.length === 0 ? [] : [`  none recorded: ${empty.join(', ')}`])].join('\n');
+  // The same gap reached the report twice (green-unproven at change, task-multi-3); one line says it once.
+  const unique = [...new Set(notVerified)];
+  const unverified = `Not verified\n${unique.length === 0 ? '  none recorded' : unique.map((item) => `  ${item}`).join('\n')}`;
+  const status = statusOf(entries, unique.filter((item) => !item.endsWith(' (historical)')).length, options.complete === true);
+  const body = `${evidence}\n${unverified}`;
+  return { status, evidence, notVerified: unverified, text: status === null ? body : `${status}\n${body}` };
 }
 
 /** The report's first line: how the route ended, or `complete` with what was not verified (03-E12). */

@@ -6,6 +6,9 @@ appliesTo:
 activities: [review, task, plan]
 detect:
   - { file: package.json, contains: '"express"' }
+unless:
+  - { file: package.json, contains: '"@angular/ssr"' }
+  - { file: package.json, contains: '"@nguniversal/express-engine"' }
 
 source:
   location: >-

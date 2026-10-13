@@ -13,24 +13,29 @@ import { combineDiff, addressableLines } from '#platform/git/diff';
 import { ReviewResult } from '#types/modules/review';
 import { nodeFileSystem } from '#platform/ports/filesystem';
 import { readLedger } from '#platform/ledger/ledger';
-import { runReview, REVIEW_OPTIONS } from './review.ts';
-import { runReviewRecord, renderRecord, REVIEW_RECORD_OPTIONS } from './record.ts';
+import { pinReview } from '#modules/review/bundle/bundle';
+import { runReviewRecord, REVIEW_RECORD_OPTIONS } from './record.ts';
+import { renderRecord } from '#skills/review/record-answer';
 import type { Runtime } from '#types/composition';
 
 const TASK = 'src-regression';
+const pin = async (runtime: Runtime) => {
+  const { bundle } = await pinReview(runtime, { assemble: { target: { kind: 'working' }, task: TASK, requirements: [], excludePaths: [], onlyPaths: [], withTests: false }, omissions: [], ledger: {} });
+  return bundle;
+};
 const scratches: string[] = [];
 afterEach(async () => {
   for (const scratch of scratches.splice(0)) await rm(scratch, { recursive: true, force: true });
 });
 
-/** A real `review --task` on the ts-source-regression fixture, leaving a pending review; `record` feeds the reviewer's answer on stdin. */
+/** A task-scoped review pinned in process on the ts-source-regression fixture, leaving it pending; `record` feeds the reviewer's answer on stdin. */
 async function pending() {
   const scratch = await mkdtemp(path.join(tmpdir(), 'ambicode-record-'));
   scratches.push(scratch);
   const root = path.join(scratch, 'repo');
   await materialize(fixtureByName('ts-source-regression'), root, { ambicodeInit: true });
   const runtime = await createRuntime({ cwd: root });
-  const reviewed = await runReview(runtime, parseArgs('review', ['--task', TASK], REVIEW_OPTIONS));
+  const reviewed = await pin(runtime);
   const file = reviewed.result.changedFiles.find((entry) => entry.exclusionReason === null)!;
   const diff = combineDiff([{ oldPath: file.oldPath, newPath: file.newPath, changeKind: file.changeKind, oldMode: '', newMode: '' }], await readFile(path.join(reviewed.reviewDirectory, 'changed.diff'), 'utf8'))[0]!;
   const line = [...addressableLines(diff, 'new')][0]!;
@@ -91,14 +96,21 @@ describe('review record', () => {
     assert.equal(entry['omissions'], out.result.omissions.length);
   });
 
-  it('one bad line voids the whole answer: status error, no findings, the rejection printed, the entry still written', async () => {
+  it('one bad line drops only that finding: it stays partial and part 4 lists the rejected finding with its reason', async () => {
     const t = await pending();
     const out = await t.record(`\`\`\`json\n${JSON.stringify({ findings: [t.finding(t.line), t.finding(9999)], coverageNotes: [] })}\n\`\`\``);
-    assert.deepEqual([out.result.status, out.result.findings.length, out.result.reviewer?.status], ['error', 0, 'failed']);
-    assert.match(out.result.reviewer!.rejections.join('\n'), /line 9999 is not present on the new side/);
-    assert.match(renderRecord(out), /No finding list was produced[\s\S]*line 9999/);
+    assert.deepEqual([out.result.status, out.result.findings.length, out.result.reviewer?.status], ['partial', 1, 'ok']);
+    assert.match(out.result.statusReason!, /1 finding\(s\) rejected/);
+    assert.match(renderRecord(out), /4\. OMISSIONS[\s\S]*finding 2 \(.*:9999 new\): line 9999 is not present on the new side/);
     const entry = (await t.ledger()).findLast((candidate) => candidate.kind === 'review')!;
-    assert.deepEqual([entry['stage'], entry['status'], entry['findings']], ['recorded', 'error', 0]);
+    assert.deepEqual([entry['stage'], entry['status'], entry['findings']], ['recorded', 'partial', 1]);
+  });
+
+  it('an answer whose every finding is at a bad line is a failed review: status error, no findings, the rejection printed', async () => {
+    const t = await pending();
+    const out = await t.record(`\`\`\`json\n${JSON.stringify({ findings: [t.finding(9998), t.finding(9999)], coverageNotes: [] })}\n\`\`\``);
+    assert.deepEqual([out.result.status, out.result.findings.length, out.result.reviewer?.status], ['error', 0, 'failed']);
+    assert.match(renderRecord(out), /No finding list was produced[\s\S]*line 9998[\s\S]*line 9999/);
   });
 
   it('an answer that is not JSON is a failed review, not a clean one', async () => {
@@ -118,6 +130,16 @@ describe('review record', () => {
     const again = await pending();
     await capture(again, JSON.stringify({ findings: [], coverageNotes: ['captured'] }));
     assert.deepEqual((await again.record(JSON.stringify({ findings: [again.finding(again.line)], coverageNotes: [] }))).result.findings, []);
+  });
+
+  it('a second review round in the same task does not record the first round\'s captured answer', async () => {
+    const t = await pending();
+    await capture(t, JSON.stringify({ findings: [], coverageNotes: ['round one'] }));
+    await t.record('');
+    const runtime = await createRuntime({ cwd: t.root });
+    await pin(runtime);
+    const out = await t.record(JSON.stringify({ findings: [], coverageNotes: ['round two'] }));
+    assert.deepEqual([out.result.omissions.includes('round one'), out.result.omissions.includes('round two')], [false, true]);
   });
 
   it('a captured answer that fails validation is a failed review with its text kept, as a pasted one is', async () => {

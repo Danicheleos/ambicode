@@ -14,7 +14,7 @@ interface CheckOutput { command: 'check'; task: string; name: string; result: Ch
 export async function runCheckCommand(runtime: Runtime, args: ParsedArgs): Promise<CheckOutput> {
   const task = taskOf('check', args);
   const name = args.value('name');
-  if (name === null) throw new AmbicodeError('bad-argument', '"check" needs --name <check>.', { field: 'name' });
+  if (name === null) throw new AmbicodeError('bad-argument', '"check" needs --name <key>.', { field: 'name' });
   const phase = args.value('phase');
   if (phase !== 'red' && phase !== 'green') throw new AmbicodeError('bad-argument', '"check" needs --phase red|green.', { field: 'phase' });
   const tools = await routeTools(runtime, task);

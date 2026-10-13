@@ -9,9 +9,9 @@ import { pendingReview, REVIEWER_AGENT_TYPE, REVIEWER_ANSWER_FILE } from '#modul
 import type { Runtime } from '#types/composition';
 
 /**
- * The reviewer's final message goes to the review directory as it was sent, so `review record` reads it and the main
- * model need not re-type it (about 700 output tokens and 3-4 s per review). Recording, validation and rejection stay in
- * `review record`: a hook that records would show the main model nothing when the answer is refused.
+ * The reviewer's final message goes to the review directory as it was sent, so the recording that follows reads it and
+ * the main model need not re-type it (about 700 output tokens and 3-4 s per review). Recording happens in the
+ * PostToolUse hook on Agent (`review-record.ts`), which can show the main model a refusal; SubagentStop cannot.
  */
 export async function captureReviewerAnswer(runtime: Runtime, input: HookInput, deps: RouteHookDeps): Promise<void> {
   if (!REVIEWER_AGENT_TYPE.test(input.agent_type ?? '')) return;

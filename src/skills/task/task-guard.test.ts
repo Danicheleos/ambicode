@@ -19,7 +19,7 @@ describe('07-R1 guard: a denied headless guard ask in the task route', () => {
       const ledger = await t.ledger();
       const report = buildReport(buildChain(ledger, ledger.find((entry) => entry.kind === 'route')!).entries);
       assert.equal(report.status, 'ended: blocked (permission-denied: npx jest src/a.spec.ts)');
-      assert.match(report.text, /Checks: none recorded/);
+      assert.match(report.text, /none recorded: .*Checks/);
     } finally {
       await t.fx.dispose();
     }
