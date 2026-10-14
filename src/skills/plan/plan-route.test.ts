@@ -94,6 +94,7 @@ describe('06-R1/06-R2 the shipped plan route', () => {
       const first = await plan.start();
       assert.equal(first.position, 'design');
       assert.ok(first.bytes <= 4096, `start ${first.bytes}`);
+      assert.match(first.text, /Read the notes of the modules the change touches and of modules whose helpers other code reuses/);
       const write = await plan.next();
       assert.equal(write.position, 'plan-write');
       assert.ok(write.bytes <= 3072, `plan-write ${write.bytes}`);
@@ -203,7 +204,12 @@ describe('06-R4/06-R5/06-R6 the plan-accept gate', () => {
       const stray = await plan.hook('plan-accept', 'Accept', '99');
       assert.equal(stray.position, 'plan-accept');
       assert.equal((await notes(plan, 'plan')).length, 0);
-      assert.equal((await plan.hook('plan-accept', 'Accept', (await lastPrint(plan)).id)).position, 'complete');
+      const done = await plan.hook('plan-accept', 'Accept', (await lastPrint(plan)).id);
+      assert.equal(done.position, 'complete');
+      const promoted = (await notes(plan, 'plan'))[0]!;
+      assert.match(done.text, /Recorded: plan-accept: Accept; plan saved at \S+/);
+      assert.ok(done.text.includes(String(promoted['path'])));
+      assert.doesNotMatch(done.text, /plan-draft saved/);
       assert.equal((await notes(plan, 'plan')).length, 1);
       assert.equal((await readdir(taskDir(plan))).filter((name) => name.startsWith('plan_')).length, 1);
     } finally {

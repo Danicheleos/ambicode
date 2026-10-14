@@ -20,7 +20,12 @@ const TRACE = [
 
 describe('evals context size', () => {
   it('peak and final are the main session context per call (input + cache), each call counted once, subagents left out', () => {
-    assert.deepEqual(contextOf(TRACE), { peak: 21502, final: 20101, calls: 3, tools: 3 });
+    assert.deepEqual(contextOf(TRACE), { peak: 21502, final: 20101, calls: 3, tools: 3, session: null, api: null });
+  });
+
+  it('session and model time come from the result event; a trace without them reports null, not zero', () => {
+    const timed = `${TRACE}\n${JSON.stringify({ type: 'result', duration_ms: 16311, duration_api_ms: 6575 })}`;
+    assert.deepEqual(contextOf(timed), { peak: 21502, final: 20101, calls: 3, tools: 3, session: 16.3, api: 6.6 });
   });
 
   it('a trace with no main-session call has no context, not a zero one', () => {

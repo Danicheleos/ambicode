@@ -53,7 +53,7 @@ describe('review route: shape and start (08-R1, 08-R2, 08-R3)', () => {
     assert.deepEqual([gate['options'], gate['acting'], gate['default']], [['run', 'narrow', 'skip'], ['run'], 'skip']);
     const brief = route.steps.find((step) => step.id === 'brief') as unknown as { when: string; run: string[]; repeat?: number };
     // Pin and checks run in code; a check answer revises this step, so it may run twice.
-    assert.deepEqual([brief.when, brief.run, brief.repeat], ['gate.estimate.is(run)', ['review.pin', 'policy.stage(before-work, review)', 'script(brief)'], 2]);
+    assert.deepEqual([brief.when, brief.run, brief.repeat], ['gate.estimate.is(run)', ['review.pin', 'policy.stage(before-work, review)', 'review.callers', 'script(brief)'], 2]);
     assert.ok((await loadRouteRegistry(REPO_ROOT, nodeFileSystem)).route('review') !== null);
     assert.match(await readFile(path.join(REPO_ROOT, 'tools', 'package-candidate.mjs'), 'utf8'), /from: 'routes', extensions: \['\.yaml', '\.md'\]/);
     const agent = route.steps.find((step) => step.id === 'review-agent') as unknown as { when: string; produces: string[]; instruction: string };
@@ -414,6 +414,16 @@ describe('review route: the estimate gate (08-R4, 08-R5, S12, S14)', () => {
       });
     });
 
+    it('an answer with two fenced blocks, the first invalid, is recorded from the last valid one', async () => {
+      await withReview(async (t) => {
+        await pendingReview(t);
+        const text = `Draft:\n\`\`\`json\n{"findings": [oops}\n\`\`\`\nFinal:\n${answer}`;
+        const output = await agentDone(t, { tool_response: { status: 'completed', content: [{ type: 'text', text }] } });
+        assert.match(output.hookSpecificOutput!.additionalContext, /read only the diff/);
+        assert.notEqual((await lastReview(t))['status'], 'error');
+      });
+    });
+
     it('an answer that cannot be read names `review record` as the fallback and records nothing', async () => {
       await withReview(async (t) => {
         await pendingReview(t);
@@ -500,6 +510,7 @@ describe('review route: step texts, ceilings and the ignore warning (08-R6, 08-B
     const text = await read('review/readback');
     assert.match(text, /One line: what was reviewed/);
     assert.match(text, /Findings, one line each: `path:line`, risk, one sentence/);
+    assert.match(text, /every `path:line` the finding names exactly as printed/);
     assert.match(text, /Part 3 \(verification\) in one or two lines/);
     assert.match(text, /in one fenced code block/);
     assert.match(text, /Part 4 copied verbatim/);

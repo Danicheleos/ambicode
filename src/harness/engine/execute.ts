@@ -9,7 +9,7 @@ import type { Runtime } from '#types/composition';
 import type { CommandContext, GateDef, Handler, HandlerRegistry, RouteArgs, RouteRegistry, StepDef, StepMessage } from '#types/harness';
 import type { Composed, DeliveryChannel, Part, Run } from '../types/engine.ts';
 import type { Call } from '../definition/routes.ts';
-import type { TaskDir } from '#types/modules/evidence';
+import type { LedgerEntry, TaskDir } from '#types/modules/evidence';
 import type { FileSystem } from '#types/platform/ports';
 
 /** Causes from a command the model ran, as opposed to a hook or a resume. */
@@ -79,6 +79,17 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
   }
 
 
+  // Without the recorded answers the model may call an accepted plan a draft; state what the ledger holds.
+  function recordedLine(entries: readonly LedgerEntry[]): string {
+    const answers = new Map<string, string>();
+    for (const entry of entries) if (entry.kind === 'acceptance' && entry['unbound'] !== true) answers.set(String(entry['gate']), String(entry['answer']));
+    const notes = new Map<string, string>();
+    for (const entry of entries) if (entry.kind === 'note') notes.set(String(entry['note']), String(entry['path']));
+    if (notes.has('plan')) notes.delete('plan-draft');
+    const parts = [...[...answers].map(([gate, answer]) => `${gate}: ${answer}`), ...[...notes].map(([kind, file]) => `${kind} saved at ${file}`)];
+    return parts.length === 0 ? '' : ` Recorded: ${parts.join('; ')}.`;
+  }
+
   async function finish(run: Run): Promise<Part> {
     const chain = chainOf(run);
     let status: string;
@@ -97,7 +108,7 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     const closing = last?.actor === 'code' && ended === null ? (await Promise.all(last.run.map((call) => loadPayload(run.runtime.fs, run.dir, chainKey([...chain.ids]), payloadKey(call))))).filter((text) => text !== null && text.trim() !== '').join('\n\n') : '';
     // be-vs-6140-task: after `ended: human (no-check)` the model went on editing; the end says what is left to do.
     const after = 'Make no more edits or route calls; write your final message';
-    const body = status.startsWith('ended') ? `The route has ended. ${after}, saying why it ended.` : `The route is complete. ${after}.`;
+    const body = status.startsWith('ended') ? `The route has ended. ${after}, saying why it ended.` : `The route is complete.${recordedLine(chain.entries)} ${after}.`;
     return (await partOf(run, null, header, closing !== '' ? closing : body)).part;
   }
 

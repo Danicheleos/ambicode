@@ -107,7 +107,7 @@ function renderSources(sources: readonly EnvelopeSource[]): string {
 }
 
 export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
-  'context.list': async (input) => ({ state: 'ok', payload: `${renderListing(await listContext(input.runtime.fs, input.dir.repositoryRoot), (await configOf(input)).context)}\nRead only the one file you need.` }),
+  'context.list': async (input) => ({ state: 'ok', payload: `${renderListing(await listContext(input.runtime.fs, input.dir.repositoryRoot), (await configOf(input)).context)}\nRead the notes of the modules the change touches and of modules whose helpers other code reuses (shared, common).` }),
 
   'requirements.normalize': async (input) => {
     const result = await normalizeEnvelope({ runtime: input.runtime, dir: input.dir, ledger: input.ledger, view: input.view, args: input.args });

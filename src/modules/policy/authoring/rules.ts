@@ -58,7 +58,7 @@ export async function applyRules(deps: ApplyDeps, input: { task: string; project
 
   const root = workspace.repositoryRoot;
   const skipped: { file: string; reason: string }[] = [];
-  const plan: { id: string; draft: string; live: string; text: string; rules: number }[] = [];
+  const plan: { id: string; draft: string; live: string; text: string; rules: number; lines: string[] }[] = [];
   for (const file of check.files) {
     const blocking = blockingProblem(check, root, file.path);
     if (file.packId === null || blocking !== undefined) { skipped.push({ file: file.path, reason: blocking?.code ?? 'pack-invalid' }); continue; }
@@ -66,7 +66,9 @@ export async function applyRules(deps: ApplyDeps, input: { task: string; project
     const rules = parseDocument(text).get('rules');
     const count = isSeq(rules) ? rules.items.length : 0;
     if (count === 0) { skipped.push({ file: file.path, reason: 'no rules' }); continue; }
-    plan.push({ id: file.packId, draft: file.path, live: `${LIVE_DIR}/${path.posix.basename(file.path)}`, text, rules: count });
+    // The applied message carried rule ids alone; the instruction text is what the user judges.
+    const lines = isSeq(rules) ? rules.items.map((rule) => (isMap(rule) ? `- ${file.packId}/${String(rule.get('id'))}: ${String(rule.get('instruction') ?? '').replace(/\s+/g, ' ').trim()}` : '')).filter((line) => line !== '') : [];
+    plan.push({ id: file.packId, draft: file.path, live: `${LIVE_DIR}/${path.posix.basename(file.path)}`, text, rules: count, lines });
   }
   for (const pack of plan) {
     if (await runtime.fs.exists(path.join(root, pack.live))) throw new AmbicodeError('bad-argument', `${pack.live} already exists; a live pack is never overwritten. Rename the draft or remove the live pack first.`, { field: 'rules apply' });
@@ -87,6 +89,8 @@ export async function applyRules(deps: ApplyDeps, input: { task: string; project
       '|---|---|---|',
       ...packs.map((pack) => `| ${pack.id} | ${pack.path} | ${pack.rules} |`),
       ...skipped.map((entry) => `skipped: ${entry.file} (${entry.reason})`),
+      '',
+      ...plan.flatMap((pack) => pack.lines),
     ].join('\n');
     const text = `${table}\n<!-- ambicode rules ${contentHash(table)} -->\n`;
     await runtime.fs.mkdirp(dir.steps);

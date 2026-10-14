@@ -226,9 +226,8 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.match(plan, /\bdraft\b/i);
     assert.match(plan, /\baccepted\b/i);
     assert.ok(
-      /never call a plan accepted merely because it was generated/i.test(plan) ||
-        /generated draft.*is not accepted/i.test(plan),
-      'plan/SKILL.md must state that generation alone never counts as acceptance',
+      /accepted means the route recorded Accept/i.test(plan) || /generated draft.*is not accepted/i.test(plan),
+      'plan/SKILL.md must state that only a recorded Accept counts as acceptance',
     );
   });
 

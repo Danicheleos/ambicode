@@ -42,6 +42,9 @@ export function rowsOf(result, { arm = 'plugin', model = 'unknown', effort = 'un
       costUsd: round(mean(runs.map((run) => run.costUsd ?? 0)), 4),
       turns: round(mean(runs.map((run) => run.turns ?? 0)), 1),
       seconds: round(mean(runs.map((run) => run.durationSeconds ?? 0)), 0),
+      // What a user waits: the session alone, and its model calls (context.mjs); `seconds` above also counts case setup and graders.
+      sessionSeconds: round(mean(numbers(context.map((c) => c.session))), 1),
+      apiSeconds: round(mean(numbers(context.map((c) => c.api))), 1),
       // Main-session tokens per model call (context.mjs); null when no trace was kept.
       contextPeak: round(mean(context.map((c) => c.peak)), 0),
       contextFinal: round(mean(context.map((c) => c.final)), 0),
@@ -60,7 +63,7 @@ export function rowsOf(result, { arm = 'plugin', model = 'unknown', effort = 'un
       } : {}),
       // One entry per run, for the drift between runs of the same case.
       perRun: runs.map((run) => ({
-        score: round(run.score ?? 0, 2), turns: run.turns ?? null, seconds: run.durationSeconds ?? null, costUsd: round(run.costUsd ?? 0, 4),
+        score: round(run.score ?? 0, 2), turns: run.turns ?? null, seconds: run.durationSeconds ?? null, sessionSeconds: run.context?.session ?? null, apiSeconds: run.context?.api ?? null, costUsd: round(run.costUsd ?? 0, 4),
         contextPeak: run.context?.peak ?? null, modelCalls: run.context?.calls ?? null, toolCalls: run.context?.tools ?? null, error: run.error ?? null, trace: run.trace ?? null,
         failing: (run.graders ?? []).filter((grader) => !grader.passed).map((grader) => grader.name),
         ...(run.metrics ? { recall: run.metrics.recall, precision: run.metrics.precision, f1: run.metrics.f1, missed: run.metrics.missed, extra: run.metrics.extra, contract: run.metrics.contract } : {}),
@@ -113,12 +116,13 @@ export function summary(history, { shared = sharedGraders, version = versionOf }
     '`plugin` is the full case score; `outcome` is its shared graders only (answer, code, boundary); `bare` is the same',
     'shared graders with no plugin loaded; `lift` = outcome − bare, shown only when both rows ran the same model, effort and case version.',
     '`model calls/tools` are the distinct model calls and tool calls of the main session, plugin · bare. The harness `turns` counts every tool result, so parallel reads inflate it; the rows keep it, the tables do not show it.',
+    '`session s` is how long the session ran, plugin / bare, without the harness setup and graders that the rows\' `seconds` also count.',
     '`context` is the largest main-session context of the run in thousands of tokens (input + cache), plugin / bare.',
     'Brackets: change against the previous row of the same arm. Failing graders are the latest plugin run\'s.',
     '',
   );
   for (const skill of [...new Set(names.map((name) => name.split('-')[0]))].sort()) {
-    lines.push(`## ${skill}`, '', '| case | plugin | outcome | bare | lift | plugin $ | bare $ | model calls/tools | context k | failing graders |', '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |');
+    lines.push(`## ${skill}`, '', '| case | plugin | outcome | bare | lift | plugin $ | bare $ | session s | model calls/tools | context k | failing graders |', '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |');
     for (const name of names.filter((n) => n.split('-')[0] === skill)) {
       const now = latest('plugin', name);
       const bare = latest('bare', name);
@@ -126,7 +130,7 @@ export function summary(history, { shared = sharedGraders, version = versionOf }
       const current = (row) => (row.version ?? 1) === version(name);
       const lift = now !== undefined && bare !== undefined && outcome !== null && setting(now) === setting(bare) && current(now) && current(bare) ? signed(outcome - bare.score) : '';
       const failing = now === undefined ? [] : Object.entries(now.graders).filter(([, rate]) => rate < 1).map(([grader, rate]) => (now.runs > 1 ? `${grader} ${rate}` : grader));
-      lines.push(`| ${name} | ${now ? `${now.score}${delta(now.score, previous('plugin', name)?.score)}` : '—'} | ${outcome ?? '—'} | ${bare ? `${bare.score}${delta(bare.score, previous('bare', name)?.score)}` : '—'} | ${lift || '—'} | ${now?.costUsd ?? '—'} | ${bare?.costUsd ?? '—'} | ${callsOf(now)}${bare ? ` · ${callsOf(bare)}` : ''} | ${kilo(now?.contextPeak)}${bare ? ` / ${kilo(bare.contextPeak)}` : ''} | ${failing.join(', ') || '—'} |`);
+      lines.push(`| ${name} | ${now ? `${now.score}${delta(now.score, previous('plugin', name)?.score)}` : '—'} | ${outcome ?? '—'} | ${bare ? `${bare.score}${delta(bare.score, previous('bare', name)?.score)}` : '—'} | ${lift || '—'} | ${now?.costUsd ?? '—'} | ${bare?.costUsd ?? '—'} | ${now?.sessionSeconds ?? '—'}${bare ? ` / ${bare.sessionSeconds ?? '—'}` : ''} | ${callsOf(now)}${bare ? ` · ${callsOf(bare)}` : ''} | ${kilo(now?.contextPeak)}${bare ? ` / ${kilo(bare.contextPeak)}` : ''} | ${failing.join(', ') || '—'} |`);
     }
     lines.push('');
   }

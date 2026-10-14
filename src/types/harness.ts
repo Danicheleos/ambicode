@@ -76,6 +76,7 @@ export const HANDLER_NAMES = [
   'review.estimate',
   'review.publishList',
   'review.pin',
+  'review.callers',
 ] as const;
 
 export interface StepDef {

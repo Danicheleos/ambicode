@@ -42,9 +42,10 @@ write it. A glob that matches nothing is reported and the pack is skipped.
 
 ## Rules this skill follows
 
-- Do not migrate everything. A choice that is one team's structure rather than a
-  defect is asked about first, with its cost.
-- Skip a rule the enabled built-in packs already cover.
+- Draft every rule a source states; the user decides at the rules table what
+  goes live.
+- Migrate a rule a source states even when a built-in pack covers it: the team's
+  rule outranks a built-in template. Skip only an identical one.
 - One instruction per rule; three phrasings of one idea are one rule.
 - Drop a rule tied to one framework or API version; it rots as the dependency moves.
 - Never invent a rule the sources do not state. A vague source is quoted back

@@ -11,7 +11,7 @@ Init writes no rule into `config.yaml`. A candidate is drafted into `.ambicode/p
 
 Each rule needs `source.quote`, 20 or more characters copied verbatim from that location. A rule you cannot quote is dropped, not paraphrased.
 
-Skip a candidate a pack in force already states: the check rejects a rule whose id or instruction (case, spacing and final punctuation ignored) equals one, and `config.yaml`'s `packs` and `policyFiles` (built-in copies included) show what is in force. A convention that became a rule is not repeated in `context/conventions.md`.
+Draft a rule a project document states even when a built-in pack covers it: the team's rule outranks a built-in template. Skip only a candidate identical to a rule in force: the check rejects a rule whose id or instruction (case, spacing and final punctuation ignored) equals one, and `config.yaml`'s `packs` and `policyFiles` (built-in copies included) show what is in force. A convention that became a rule is not repeated in `context/conventions.md`.
 
 ```yaml
 schemaVersion: 1

@@ -180,6 +180,7 @@ describe('09-T5: the walk-through on ts-feature-boundary', () => {
       assert.equal((applied.packs as unknown[]).length, 1);
       assert.deepEqual((applied.packs as { id: string; path: string; rules: number }[])[0], { id: 'team-services', path: `${policies}/team-services.yaml`, rules: 2 });
       assert.match(applied.text, /team-services/);
+      assert.match(applied.text, /^- team-services\/no-direct-transport: \S.*$/m, 'each applied rule is listed with its instruction');
       assert.equal(await w.position(), 'complete');
       assert.equal(await w.exists(`${policies}/team-services.yaml`), true);
       assert.equal(await w.exists(`${policies}/drafts/team-services.yaml`), false);

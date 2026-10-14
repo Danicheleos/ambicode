@@ -6,7 +6,7 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-const run = (score, graders, extra = {}) => ({ score, passed: score === 1, turns: 7, costUsd: 0.4, judgeCostUsd: 0.01, durationSeconds: 30, error: null, context: { peak: 20000, final: 19000, calls: 7, tools: 6 }, graders, ...extra });
+const run = (score, graders, extra = {}) => ({ score, passed: score === 1, turns: 7, costUsd: 0.4, judgeCostUsd: 0.01, durationSeconds: 30, error: null, context: { peak: 20000, final: 19000, calls: 7, tools: 6, session: 12, api: 8 }, graders, ...extra });
 const grader = (name, passed) => ({ name, passed });
 
 const RESULT_JSON = {
@@ -36,6 +36,9 @@ describe('evals history', () => {
     assert.equal(rows[1].errors, 1);
     assert.equal(task.contextPeak, 20000);
     assert.equal(task.contextFinal, 19000);
+    assert.equal(task.sessionSeconds, 12, 'the time the session ran, without the harness setup and graders');
+    assert.equal(task.apiSeconds, 8);
+    assert.equal(task.seconds, 30, 'the harness time stays');
     assert.equal(task.turns, 7, 'the raw harness value stays');
     assert.equal(task.modelCalls, 7);
     assert.equal(task.toolCalls, 6);
@@ -62,10 +65,10 @@ describe('evals history', () => {
 
   it('the summary puts the plugin outcome beside the bare score and shows the lift only for the same model and effort', () => {
     const plugin = rowsOf(RESULT_JSON, { arm: 'plugin', model: 'm', effort: 'low', plugin: '0.5.1' });
-    const bare = rowsOf({ ...RESULT_JSON, cases: [{ name: 'task-fix', arms: { with: [run(0.25, [grader('fix-correct', false)], { context: { peak: 12345, final: 1, calls: 2, tools: 1 } })] } }] }, { arm: 'bare', model: 'm', effort: 'low' });
+    const bare = rowsOf({ ...RESULT_JSON, cases: [{ name: 'task-fix', arms: { with: [run(0.25, [grader('fix-correct', false)], { context: { peak: 12345, final: 1, calls: 2, tools: 1, session: 5.5, api: 5 } })] } }] }, { arm: 'bare', model: 'm', effort: 'low' });
     const text = summary([...plugin, ...bare], { shared });
-    assert.match(text, /\| model calls\/tools \|/);
-    assert.match(text, /\| task-fix \| 0\.75 \| 0\.5 \| 0\.25 \| \+0\.25 \| 0\.4 \| 0\.4 \| 7\/6 · 2\/1 \| 20.0 \/ 12\.3 \| fix-correct 0\.5 \|/);
+    assert.match(text, /\| session s \| model calls\/tools \|/);
+    assert.match(text, /\| task-fix \| 0\.75 \| 0\.5 \| 0\.25 \| \+0\.25 \| 0\.4 \| 0\.4 \| 12 \/ 5\.5 \| 7\/6 · 2\/1 \| 20.0 \/ 12\.3 \| fix-correct 0\.5 \|/);
     assert.match(text, /\*\*bare\*\* \[longest run, turn by turn\]\(chains\/bare-longest\.md\) · latest run .* m\/low/);
     const mismatched = summary([...plugin, ...bare.map((row) => ({ ...row, effort: 'high' }))], { shared });
     assert.match(mismatched, /\| task-fix \| 0\.75 \| 0\.5 \| 0\.25 \| — \|/);

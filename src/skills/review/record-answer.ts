@@ -14,23 +14,33 @@ import { AmbicodeError, messageOf } from '#util/errors';
 import type { Runtime } from '#types/composition';
 import type { LedgerEntry } from '#types/modules/evidence';
 
-/** The subagent's answer is one fenced block; a bare object is accepted so a replay by hand works. */
-const FENCE = /```(?:json)?[ \t]*\r?\n([\s\S]*?)```/;
+/** The subagent's answer is a fenced block, the last one that parses winning; a bare object is accepted so a replay by hand works. */
+const FENCE = /```(?:json)?[ \t]*\r?\n([\s\S]*?)```/g;
 const REJECTED_FILE = 'rejected-output.txt';
 
 export interface RecordedReview { task: string; reviewId: string; resultPath: string; reportPath: string; result: ReviewResult; entryId: string }
 
-const unfenced = (raw: string): string => FENCE.exec(raw)?.[1]?.trim() ?? raw.trim();
+// A reviewer may send a draft block before its final one.
+const candidates = (raw: string): string[] => {
+  const blocks = [...raw.matchAll(FENCE)].map((match) => match[1]!.trim()).reverse();
+  return blocks.length === 0 ? [raw.trim()] : blocks;
+};
 
 function parseOutput(raw: string): { ok: true; output: ReviewerOutput } | { ok: false; reason: string } {
-  let json: unknown;
-  try {
-    json = JSON.parse(unfenced(raw));
-  } catch (error) {
-    return { ok: false, reason: `the reviewer's answer is not JSON: ${messageOf(error)}` };
+  let reason = '';
+  for (const text of candidates(raw)) {
+    let json: unknown;
+    try {
+      json = JSON.parse(text);
+    } catch (error) {
+      reason ||= `the reviewer's answer is not JSON: ${messageOf(error)}`;
+      continue;
+    }
+    const parsed = ReviewerOutput.safeParse(json);
+    if (parsed.success) return { ok: true, output: parsed.data };
+    reason ||= `the reviewer's answer does not match the findings shape: ${parsed.error.issues.slice(0, 3).map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`).join('; ')}`;
   }
-  const parsed = ReviewerOutput.safeParse(json);
-  return parsed.success ? { ok: true, output: parsed.data } : { ok: false, reason: `the reviewer's answer does not match the findings shape: ${parsed.error.issues.slice(0, 3).map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`).join('; ')}` };
+  return { ok: false, reason };
 }
 
 /** The checkout text of each file a `new`-side finding names, size-bounded; a merge request has no checkout to read, so its snippets come from the diff. */

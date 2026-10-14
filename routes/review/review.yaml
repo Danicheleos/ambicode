@@ -14,7 +14,7 @@ steps:
       acting: [run]
       default: skip
       onAnswer: { narrow: revise estimate-step --narrow $answer, "*": revise estimate-step --narrow $answer }
-  - { id: brief, actor: code, when: gate.estimate.is(run), run: [review.pin, "policy.stage(before-work, review)", script(brief)], repeat: 2 }   # a check answer revises it; checks that ran are not run again
+  - { id: brief, actor: code, when: gate.estimate.is(run), run: [review.pin, "policy.stage(before-work, review)", review.callers, script(brief)], repeat: 2 }   # a check answer revises it; checks that ran are not run again
   - { id: review-agent, actor: model, when: gate.estimate.is(run), instruction: file:routes/review/agent.md, payload: ["script:brief"], produces: ["review{recorded}"] }
   - { id: readback, actor: model, when: gate.estimate.is(run), instruction: file:routes/review/readback.md, final: true }
   - { id: publish-list, actor: code, when: args.hasMergeRequest, run: review.publishList }

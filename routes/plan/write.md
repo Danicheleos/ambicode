@@ -10,4 +10,3 @@ Shape:
 - Assumptions, open decisions and known limitations.
 Name only files the plan changes or reuses: a file you read and ruled out goes unnamed, in any section.
 Edit nothing else: no source, tests or config.
-Learned how to navigate or write code here? Add it with `{cli} context write` (no duplicates).

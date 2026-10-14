@@ -20,7 +20,7 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" route start plan "<request>" [
 ## Draft and accepted
 
 The plan stays a draft until the human answers the route's gate with Accept.
-Never call a plan accepted merely because it was generated.
+Accepted means the route recorded Accept (named in its closing line).
 
 ## Boundary
 

@@ -57,6 +57,13 @@ try {
   if (text !== '') rules = text;
 } catch { /* no steps directory: no policy text */ }
 
+// The saved payload of the review.callers step; empty when no changed declaration is used elsewhere.
+let callers = '';
+try {
+  const saved = readdirSync(input.steps).filter((name) => name.endsWith('-review-callers.txt')).sort();
+  callers = saved.length === 0 ? '' : (read(path.join(input.steps, saved.at(-1))) ?? '').trim();
+} catch { /* no steps directory: no callers block */ }
+
 const conventionsFile = path.join(input.repositoryRoot, '.ambicode', 'context', 'conventions.md');
 const conventions = read(conventionsFile);
 const target = result.target ?? {};
@@ -67,6 +74,7 @@ const lines = [
   'The whole patch is below; the code is in the checkout.',
   'A finding may name only a line listed below, on the side listed. Any other line is dropped with its finding and the review stays partial.', '',
   '## Changed files', '', ...files.flat(),
+  ...(callers === '' ? [] : ['## Callers outside the diff', '', 'Where the changed declarations are used elsewhere (by name; check each still holds):', callers, '']),
   '## Policy rules', '', rules, '',
   '## Project conventions', '', `Source: ${conventionsFile}`, '', conventions?.trim() ? conventions.trim().replace(/^#/gm, '###') : '(none recorded)', '',
   '## Requirements', '', ...((result.requirements ?? []).length === 0 ? ['(none supplied: quality review)'] : result.requirements.flatMap((source) => [`### ${source.id}: ${source.title}`, source.content, ''])),

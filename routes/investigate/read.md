@@ -6,4 +6,3 @@ Give the answer once, as your final message: it is saved as the investigation no
 - Files question: answer for the whole request as written. List each file it edits (types, schema, DTO, mocks, routes and tests included) and any file its requirements may need, naming that assumption. Skip files that only explain, and similar features the request does not name.
 Diagnostics (reproduce, print a value) run only as `{cli} check --task {task} --name <key> --file <file> --phase red`, after the user is asked; decline means don't run — inconclusive.
 Edit nothing.
-Learned how to navigate or write code here? Add it with `{cli} context write` (no duplicates).
