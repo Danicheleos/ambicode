@@ -1,6 +1,5 @@
 skill: plan
 version: 3
-revisable: [design]                               # the model may `route next --revise design`
 steps:
   - id: fetch
     actor: model
@@ -15,12 +14,11 @@ steps:
     actor: model
     instruction: file:routes/plan/design.md
     payload: [map, "policy:before-work", context.list]
-    repeat: 3                                     # the design pass, then up to two rewrites after failed anchors
   - id: plan-check
     actor: code
     run: ["script(plan-check, resolve)", "evidence.notes.save(plan-draft, from: steps/plan-body.md)", "script(plan-check)"]
     produces: ["note{plan-draft}", worker]
-    onFail: revise design                         # a failed anchor or an unmapped acceptance id; the failures come back as a section
+    onFail: record                                # a failed anchor is shown at plan-accept and listed as not verified; only a human Revise returns to design
   - id: plan-accept
     actor: human
     gate:

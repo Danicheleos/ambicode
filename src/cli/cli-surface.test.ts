@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { readdirSync, readFileSync } from 'node:fs';
 import { SPECS, USAGE } from './main.ts';
+import { STEP_PRINTING } from '../hook/guard/rules/output.ts';
 
 const TABLE: Record<string, readonly string[]> = {
   'route start': ['task', 'headless', 'project', 'answer', 'fresh'],
@@ -93,5 +95,20 @@ describe('CLI surface (08-I1)', () => {
     assert.deepEqual(extra, []);
     const unlisted = Object.keys(SPECS).filter((command) => !known.has(command));
     assert.deepEqual(unlisted, []);
+  });
+});
+
+describe('the guard knows which commands print a route step', () => {
+  const dir = new URL('./commands/', import.meta.url);
+  const sources = readdirSync(dir, { recursive: true, encoding: 'utf8' }).filter((name) => name.endsWith('.ts') && !name.endsWith('.test.ts'));
+  const text = sources.map((name) => readFileSync(new URL(name, dir), 'utf8')).join('\n');
+
+  it('lists every command that runs a command tail, plus route start and next', () => {
+    const causes = [...text.matchAll(/cause: '([^']+)'/g)].map((match) => match[1]!).filter((cause) => cause !== 'route-next');
+    assert.ok(causes.length >= 6, `found ${causes.length} command tails`);
+    assert.deepEqual([...STEP_PRINTING].sort(), [...new Set([...causes, 'route start', 'route next'])].sort());
+  });
+  it('names only registered commands', () => {
+    for (const name of STEP_PRINTING) assert.ok(name.replace(' --drafts', '') in SPECS, name);
   });
 });

@@ -112,7 +112,7 @@ async function normalizeStep(file: string, raw: z.infer<typeof RawStep>, index: 
     produces: (raw.produces ?? []).map((text) => parseQualified(file, `${where}.produces`, text, kinds)),
     when: raw.when === undefined ? null : parseWhen(file, `${where}.when`, raw.when),
     gate,
-    onFail: raw.onFail === undefined ? null : parseRevise(file, `${where}.onFail`, raw.onFail),
+    onFail: raw.onFail === undefined ? null : raw.onFail.trim() === 'record' ? 'record' : parseRevise(file, `${where}.onFail`, raw.onFail),
     onError: raw.onError === undefined ? { kind: 'default' } : parseOnError(file, `${where}.onError`, raw.onError),
     repeat: gate?.repeat ?? raw.repeat ?? 1,
     final: raw.final ?? false,
@@ -138,7 +138,7 @@ function validateRoute(file: string, route: RouteDef, registry: readonly GateDef
     const checkTarget = (revise: Revise, field: string): void => {
       if (revise.target !== RAISED_BY && !byId.has(revise.target)) throw invalid(file, `${where}.${field}`, `"${revise.target}" is not a step of this route`);
     };
-    if (step.onFail !== null) checkTarget(step.onFail, 'onFail');
+    if (step.onFail !== null && step.onFail !== 'record') checkTarget(step.onFail, 'onFail');
     if (step.gate !== null) for (const [option, revise] of Object.entries(step.gate.onAnswer)) checkTarget(revise, `gate.onAnswer.${option}`);
   }
 }

@@ -2,7 +2,7 @@ import path from 'node:path';
 import { buildReport } from '#modules/evidence/report/report';
 import { AmbicodeError } from '#util/errors';
 import { exitRoute, reviseTo, serviceGate } from '../gates/answers.ts';
-import { currentIn, executions, exitOf, foldRoute, humanRevisesLeft, matches, windowOf } from './fold.ts';
+import { currentIn, exitOf, foldRoute, humanRevisesLeft, matches, windowOf } from './fold.ts';
 import { gatePrintText, gateThen, raiseGate, raisedAnswerHandler } from '../gates/gates.ts';
 import { append, chainOf, gateFor, viewFor } from './run-context.ts';
 import type { Runtime } from '#types/composition';
@@ -97,14 +97,15 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
   async function finish(run: Run): Promise<Part> {
     const chain = chainOf(run);
     let status: string;
+    let gaps: string[] = [];
     const ended = exitOf(chain);
     if (ended !== null && ended['complete'] !== true) {
       status = `ended: ${ended['reason']}${ended['detail'] === undefined ? '' : ` (${quiet(ended['detail'])})`}`;
     } else {
       // An unverified completion still exits.
-      const items = buildReport(chain.entries, { current: currentIn(run.def, chain) }).notVerified.split('\n').filter((line, index) => index > 0 && line.trim() !== 'none recorded' && line.trim() !== '' && !line.endsWith(' (historical)')).length;
-      if (ended === null) await exitRoute(run, 'done', undefined, { complete: true, unverified: items });
-      status = items === 0 ? 'complete' : `complete, ${items} items not verified`;
+      gaps = buildReport(chain.entries, { current: currentIn(run.def, chain) }).notVerified.split('\n').filter((line, index) => index > 0 && line.trim() !== 'none recorded' && line.trim() !== '' && !line.endsWith(' (historical)')).map((line) => line.trim().replace(/^- /, ''));
+      if (ended === null) await exitRoute(run, 'done', undefined, { complete: true, unverified: gaps.length });
+      status = gaps.length === 0 ? 'complete' : `complete, ${gaps.length} items not verified`;
     }
     const header = `[ambicode] ${run.def.skill} · task ${run.task} · ${status}`;
     // A route that ends on a code step (init, rules) closes with that step's text.
@@ -112,7 +113,7 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     const closing = last?.actor === 'code' && ended === null ? (await Promise.all(last.run.map((call) => loadPayload(run.runtime.fs, run.dir, chainKey([...chain.ids]), payloadKey(call))))).filter((text) => text !== null && text.trim() !== '').join('\n\n') : '';
     // After `ended: human (no-check)` the model went on editing; the end says what is left to do.
     const after = 'Make no more edits or route calls; write your final message';
-    const body = status.startsWith('ended') ? `The route has ended. ${after}, saying why it ended.` : `The route is complete.${recordedLine(chain.entries)} ${after}.`;
+    const body = status.startsWith('ended') ? `The route has ended. ${after}, saying why it ended.` : `The route is complete.${recordedLine(chain.entries)}${gaps.length === 0 ? '' : ` Not verified: ${gaps.join('; ')}. Name each in your final message.`} ${after}.`;
     return (await partOf(run, null, header, closing !== '' ? closing : body)).part;
   }
 
@@ -174,15 +175,20 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     return null;
   }
 
-  async function failure(run: Run, step: StepDef, result: { code: string; message: string; recoverable: boolean; revise?: { args: Readonly<Record<string, readonly string[]>>; lastRound?: string } }): Promise<Part | null> {
-    const target = step.onFail === null ? undefined : run.def.steps.find((candidate) => candidate.id === step.onFail!.target);
-    const last = result.revise?.lastRound !== undefined && target !== undefined && executions(chainOf(run).entries, target) + (target.id === step.id ? 2 : 1) === target.repeat;
-    const args = step.onFail === null ? {} : { ...step.onFail.args, ...result.revise?.args, ...(last ? { 'Last round': [result.revise!.lastRound!] } : {}) };
-    await append(run, { kind: 'step', step: step.id, actor: 'code', status: 'failed', cause: run.cause, code: result.code, message: result.message.slice(0, 300), ...(step.onFail === null ? {} : { revise: args }) });
-    if (step.onFail !== null) {
+  async function failure(run: Run, step: StepDef, result: { code: string; message: string; recoverable: boolean; revise?: { args: Readonly<Record<string, readonly string[]>> } }): Promise<Part | null> {
+    // A crash is not a result to record: the step has produced nothing, so it would run again forever.
+    const record = step.onFail === 'record' && result.recoverable;
+    const onFail = step.onFail === 'record' ? null : step.onFail;
+    const args = onFail === null ? {} : { ...onFail.args, ...result.revise?.args };
+    await append(run, { kind: 'step', step: step.id, actor: 'code', status: 'failed', cause: run.cause, code: result.code, message: result.message.slice(0, 300), ...(onFail === null ? {} : { revise: args }), ...(record ? { recorded: true } : {}) });
+    if (record) {
+      await append(run, { kind: 'step', step: step.id, actor: 'code', status: 'completed', cause: run.cause, failed: true });
+      return null;
+    }
+    if (onFail !== null) {
       // The step ran and its result is on record; the failure is what the route wants redone (S4).
       await append(run, { kind: 'step', step: step.id, actor: 'code', status: 'completed', cause: run.cause, failed: true });
-      await reviseTo(run, { target: step.onFail.target, args }, 'code', { reason: `${step.id}: ${result.code}`, raisedBy: step.id });
+      await reviseTo(run, { target: onFail.target, args }, 'code', { reason: `${step.id}: ${result.code}`, raisedBy: step.id });
       return null;
     }
     const error = step.onError;

@@ -4,7 +4,7 @@ import { basename, parseCommand } from '../shell/command-parser.ts';
 import type { ActiveRoute, GuardInput, GuardState } from '../types/guard.ts';
 import { isAbsolute, normalize } from './paths.ts';
 import { CONTEXT_DIR, CONTEXT_REASON } from './rules/context.ts';
-import { cutsOutput } from './rules/output.ts';
+import { cutsOutput, withoutCuts } from './rules/output.ts';
 import { noteSaveReason, RUN_DIR } from './rules/notes.ts';
 import { PLAN_BODY, planBodyReason, planBodyRefusal } from './rules/plan-body.ts';
 import { repositoryAsk, USER_DECIDES } from './rules/repository.ts';
@@ -39,7 +39,7 @@ const DIRECTORY_CHANGE = /^(?:cd|pushd|popd)$/;
  * relative target asks when it would be under the task directory from a directory before a `cd` (which may fail), or
  * after a `cd` only the shell resolves. Heredoc bodies are never tokenised, so a `note save` body is not inspected (M12).
  */
-function bashDecision(command: string, cwd: string | undefined, pluginRoot: string, headless: boolean): Decision {
+function bashDecision(command: string, cwd: string | undefined, pluginRoot: string, headless: boolean, toolInput: object): Decision {
   // An ask maps to its retry hint when it is about the command's form, not a permission: a headless route can retry it.
   const asks = new Map<string, string | null>();
   const segments = parseCommand(command);
@@ -48,6 +48,7 @@ function bashDecision(command: string, cwd: string | undefined, pluginRoot: stri
   let lost = false;
   const outer: { dir: string | undefined; priors: number; lost: boolean }[] = [];
   let why: string | undefined;
+  const cuts: number[] = [];
   const mentionsRunDir = command.includes('.ambicode');
   for (const [at, segment] of segments.entries()) {
     while (outer.length < segment.depth) outer.push({ dir, priors: prior.length, lost });
@@ -62,7 +63,7 @@ function bashDecision(command: string, cwd: string | undefined, pluginRoot: stri
     }
     if (segment.argv.some((word, at) => segment.opaque[at] && NESTED.test(word) && DANGEROUS.test(word))) asks.set(NESTED_REASON, null);
     const name = basename(segment.argv[0] ?? '');
-    if (cutsOutput(segments, at)) return decide('deny', 'AMBICODE: nothing ran. Re-run without `| head`.');
+    if (cutsOutput(segments, at)) cuts.push(at);
     // A name whose last component only the shell expands (`$(which git)`, `$TOOL`) could be any command.
     if (segment.opaque[0] === true && /[$`]/.test(name)) asks.set(`${UNSURE} \`${shown(segment.argv[0]!)}\` names a command only when the shell expands it.`, WRITE_OUT);
     const repository = repositoryAsk(segment, name);
@@ -91,6 +92,12 @@ function bashDecision(command: string, cwd: string | undefined, pluginRoot: stri
   }
   if (why !== undefined && !segments.some((other) => other.unparsed)) return decide('deny', why);
   if (why !== undefined) asks.set(why, null);
+  // Precedence: deny > ask > rewrite; an ask from another rule keeps the cut, which that rule's prompt then covers.
+  if (asks.size === 0 && cuts.length > 0) {
+    const rewritten = withoutCuts(command, segments, cuts);
+    if (rewritten === null) return decide('deny', 'AMBICODE: nothing ran. Re-run without `| head`.');
+    return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', updatedInput: { ...toolInput, command: rewritten } } };
+  }
   if (asks.size === 0) return {};
   const hints = [...new Set(asks.values())];
   if (headless && hints.length === 1 && hints[0] !== null) return decide('deny', `${[...asks.keys()].join(' ')} ${hints[0]}`);
@@ -136,7 +143,7 @@ export function guardDecision(input: GuardInput, pluginRoot = '${CLAUDE_PLUGIN_R
   const session = nonEmpty(input.session_id);
   const route = state === undefined || (scratchpad === null && session === null) ? null : state.activeRoute(scratchpad, session);
   const headless = route?.headless === true;
-  const decision = file ? fileDecision(input, session, route, state, pluginRoot) : bashDecision(command as string, nonEmpty(input.cwd) ?? undefined, pluginRoot, headless);
+  const decision = file ? fileDecision(input, session, route, state, pluginRoot) : bashDecision(command as string, nonEmpty(input.cwd) ?? undefined, pluginRoot, headless, input.tool_input ?? {});
   const asked = (decision['hookSpecificOutput'] as { permissionDecision?: string } | undefined)?.permissionDecision === 'ask';
   return asked && headless ? headlessDeny(decision) : decision;
 }

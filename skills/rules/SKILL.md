@@ -23,7 +23,7 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" route start rules
 
 1. The route lists the rule sources it found. The user picks them or stops.
 2. The draft step says how to write the drafts to `.ambicode/policies/drafts/<id>.yaml`. Nothing in `drafts/` is in force.
-3. `policy check --drafts` confirms each quote is in its source; fix what it reports and run it again.
+3. `policy check --drafts` runs once and confirms each quote is in its source; what it reports goes to the user at the table, not into a fix loop.
 4. The user answers the rules table: Apply all, Apply with changes, or Discard
    drafts. Only Apply all writes anything, and only through `rules apply`.
 

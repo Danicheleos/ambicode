@@ -5,6 +5,7 @@ import path from 'node:path';
 import { describe, it } from 'node:test';
 import YAML from 'yaml';
 import { parseArgs } from '#util/args';
+import { buildReport } from '#modules/evidence/report/report';
 import { runPolicyCheck, POLICY_CHECK_OPTIONS } from '#cli/commands/policy/policy-check';
 import { routeTools } from '#cli/commands/route/route';
 import { runRulesApply, RULES_APPLY_OPTIONS } from '#cli/commands/policy/rules';
@@ -149,7 +150,7 @@ describe('09-T1: the rules route', () => {
 });
 
 describe('09-T5: the walk-through on ts-feature-boundary', () => {
-  it('09-T1: 09-T5: 09-T6: discover, a bad quote fails the check, the fix passes, Apply all wires the pack', async () => {
+  it('09-T1: 09-T5: 09-T6: discover, a bad quote is shown at the table, Apply with changes reruns the draft, the fix passes, Apply all wires the pack', async () => {
     const w = await world();
     try {
       await atDraft(w);
@@ -158,10 +159,13 @@ describe('09-T5: the walk-through on ts-feature-boundary', () => {
       const failed = await w.check();
       assert.equal(failed.ok, false);
       assert.ok(failed.diagnostics.some((diagnostic) => diagnostic.code === 'pack-quote-missing'));
-      assert.equal(failed.next, undefined, 'a failing check records nothing and runs no tail');
+      assert.match(failed.next ?? '', /team-services\/tests-beside: not migrated: pack skipped \(pack-quote-missing\)/, 'the failing check is recorded once and its failures reach the table');
       assert.deepEqual(failed.drafts?.notMigrated.map((entry) => entry.rule), ['team-services/tests-beside']);
-      assert.equal(await w.position(), 'draft');
+      assert.equal(await w.position(), 'rules-table');
+      assert.match(buildReport(await w.ledger()).notVerified, /rules drafts: 1 check errors/);
+      assert.equal((await w.kinds('step')).filter((entry) => entry['step'] === 'draft' && entry['status'] === 'delivered').length, 1, 'no automatic second draft');
 
+      assert.equal((await w.answer('rules-table', 'Apply with changes')).position, 'draft');
       await w.draft('team-services.yaml', GOOD);
       const passed = await w.check();
       assert.equal(passed.ok, true);
@@ -194,7 +198,7 @@ describe('09-T5: the walk-through on ts-feature-boundary', () => {
       assert.match(note, /<!-- ambicode rules sha256:[0-9a-f]+ -->/);
 
       const entries = await w.ledger();
-      assert.equal(entries.filter((entry) => entry.kind === 'policy' && entry['stage'] === 'drafts').length, 1, 'only the clean check is recorded');
+      assert.equal(entries.filter((entry) => entry.kind === 'policy' && entry['stage'] === 'drafts').length, 2, 'the red check and the clean one after the human answer');
       assert.equal(entries.filter((entry) => entry.kind === 'policy' && entry['stage'] === 'apply').length, 1);
     } finally {
       await w.dispose();
@@ -304,23 +308,24 @@ describe('09-T4: the object the answer consented to', () => {
   });
 });
 
-describe('09-T3: a permanently bad quote', () => {
-  it('09-T3: exactly 3 draft deliveries, then the table lists the rule as not migrated and Apply all is refused', async () => {
+describe('09-T3: a bad quote', () => {
+  it('09-T3: the check runs once, the table lists the pack as not migrated, and Apply all wires nothing from it', async () => {
     const w = await world();
     try {
       await atDraft(w);
       await w.draft('team-services.yaml', pack('team-services', [rule('no-direct-transport', 'Keep services apart from the transport layer.', QUOTE), rule('tests-beside', 'Pair every service function with a test.', BAD)]));
-      assert.equal((await w.check()).ok, false);
-      let table = '';
-      for (let attempt = 0; attempt < 3; attempt += 1) table = (await w.engine.advance({ task: TASK, session: SESSION, cause: 'route-next', scratchpadDir: w.scratchpad })).text;
+      const checked = await w.check();
+      assert.equal(checked.ok, false);
+      const table = checked.next ?? '';
       const delivered = (await w.kinds('step')).filter((entry) => entry['step'] === 'draft' && ['delivered', 'repeated'].includes(String(entry['status'])));
-      assert.equal(delivered.length, 3);
-      assert.ok((await w.kinds('limit')).some((entry) => entry['step'] === 'draft'));
+      assert.equal(delivered.length, 1);
+      assert.equal((await w.kinds('limit')).length, 0);
       assert.equal(await w.position(), 'rules-table');
-      assert.match(table, /team-services\/tests-beside: not migrated: pack-quote-missing: not in file/);
-      assert.match(table, /team-services\/no-direct-transport: applied/);
+      assert.match(table, /team-services\/tests-beside: not migrated: pack skipped \(pack-quote-missing\)/);
+      assert.match(table, /team-services\/no-direct-transport: not migrated: pack skipped \(pack-quote-missing\)/);
       await w.answer('rules-table', 'Apply all');
-      assert.equal((await codeOf(w.apply())).code, 'rules-apply-unconfirmed', 'no clean check was recorded, so there is nothing the answer consented to');
+      const applied = await w.apply();
+      assert.deepEqual(applied.skipped, [{ file: '.ambicode/policies/drafts/team-services.yaml', reason: 'pack-quote-missing' }]);
       assert.equal(await w.exists('.ambicode/policies/team-services.yaml'), false);
     } finally {
       await w.dispose();

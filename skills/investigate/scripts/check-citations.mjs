@@ -8,7 +8,7 @@ const root = path.resolve(input.repositoryRoot);
 const ledger = readFileSync(path.join(input.taskDir, 'ledger.jsonl'), 'utf8').split('\n').filter((line) => line !== '').map((line) => JSON.parse(line));
 const note = ledger.findLast((entry) => entry.kind === 'note' && entry.note === 'investigation');
 const body = note === undefined ? '' : readFileSync(path.resolve(root, note.path), 'utf8');
-// The first ten bad citations are listed to the model; the count is exact. Ten fit one revise section.
+// The first ten bad citations are listed in the summary; the count is exact.
 const LISTED = 10;
 
 const PATH = '[\\w@./\\\\-]+\\.[A-Za-z0-9]+';
@@ -42,11 +42,6 @@ const failed = badCount > 0;
 const summary = { failed, anchorsBad: badCount, ...(bad.length === 0 ? {} : { anchors: bad }) };
 const out = { entries: [{ kind: 'worker', worker: 'check-citations', outcome: 'ran', ms: Date.now() - started, artifact: null, summary }] };
 if (failed) {
-  out.failed = {
-    code: 'citations-failed',
-    message: `${badCount} bad citations.`,
-    recoverable: true,
-    revise: { args: { 'Citation check failed': bad.map((line) => `bad citation: ${line}`) }, lastRound: 'This is the last revision. Give the corrected answer as your final message again; it then goes to the user as it is.' },
-  };
+  out.failed = { code: 'citations-failed', message: `${badCount} bad citations: ${bad.slice(0, 3).join('; ')}`, recoverable: true };
 }
 process.stdout.write(JSON.stringify(out));

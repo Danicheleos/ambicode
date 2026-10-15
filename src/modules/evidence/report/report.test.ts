@@ -60,6 +60,17 @@ describe('02-R2: checks never claim more than the ledger says', () => {
     assert.doesNotMatch(report.evidence, /passed/);
   });
 
+  it('a recorded step failure and drafts that failed their check are not verified; a failed step with no record is not', () => {
+    const report = buildReport([
+      entry('step', { route: 'r', step: 'plan-check', actor: 'code', status: 'failed', cause: 'route-next', recorded: true, code: 'plan-check-failed', message: '1 bad anchors: a.ts:9 missing-file' }),
+      entry('step', { route: 'r', step: 'scan', actor: 'code', status: 'failed', cause: 'route-next', code: 'script-failed', message: 'crashed' }),
+      entry('policy', { route: 'r', stage: 'drafts', path: 'd', contentHash: 'h', drafts: [], errors: 2 }),
+    ]);
+    assert.match(report.notVerified, /plan-check: 1 bad anchors: a\.ts:9 missing-file/);
+    assert.match(report.notVerified, /rules drafts: 2 check errors/);
+    assert.doesNotMatch(report.notVerified, /scan|crashed/);
+  });
+
   it('a delivery, a completion or an exit code alone is not a test result', () => {
     const report = buildReport([entry('step', { route: 'r', step: 'fix', actor: 'model', status: 'completed', cause: 'route-next' }), entry('exit', { route: 'r', reason: 'done' })]);
     assert.match(report.evidence, /none recorded: .*Checks/);

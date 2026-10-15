@@ -526,18 +526,61 @@ describe('the built guard entry', () => {
   });
 });
 
-describe('head fed by a literal ambicode call is denied, never rewritten', () => {
+describe('head fed by a literal ambicode call', () => {
   const S = '/p/scripts/ambicode.mjs';
-  it('denies with a reason that says nothing ran', () => {
+  type Full = { hookSpecificOutput?: { permissionDecision: string; updatedInput?: Record<string, unknown> } };
+  const withFields = (command: string): Full =>
+    guardDecision({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command, description: 'd', timeout: 5000, run_in_background: false } }) as Full;
+
+  it('lets a command that prints no step run as written', () => {
     for (const command of [
-      `node "${S}" review record --task fix-refund 2>&1 | head -30`,
+      `node ${S} refs --declarations Foo --task t 2>&1 | head -8`,
+      `node "${S}" context --help | head -20`,
+      `node ${S} --help | head`,
+      `node ${S} help | head`,
+      `node ${S} policy check .ambicode/policies/x.yaml | head -5`,
+      `node ${S} config packs | head -5`,
+      `cd repo; for n in a b; do node "${S}" refs --declarations $n --task t 2>&1 | head -8; done; cat x`,
+    ]) assert.deepEqual(bash(command), {}, command);
+  });
+  it('removes the head pipe of a step-printing call and keeps every other input field', () => {
+    for (const [command, rewritten] of [
+      [`node "${S}" review record --task fix-refund 2>&1 | head -30`, `node "${S}" review record --task fix-refund 2>&1`],
+      [`node ${S} route next --task t | head -20`, `node ${S} route next --task t`],
+      [`node ${S} policy check --drafts --task t | head -3`, `node ${S} policy check --drafts --task t`],
+      [`cd repo; node ${S} route next --task t 2>&1 | head -5; cat a`, `cd repo; node ${S} route next --task t 2>&1; cat a`],
+      [`node ${S} check --task t --name unit |\n  head -3\necho done`, `node ${S} check --task t --name unit\necho done`],
+      [`node ${S} route next --task t | head -2; node ${S} check --task t | head -4`, `node ${S} route next --task t; node ${S} check --task t`],
+    ] as const) {
+      const out = withFields(command).hookSpecificOutput!;
+      assert.equal(out.permissionDecision, 'allow', command);
+      assert.deepEqual(out.updatedInput, { command: rewritten, description: 'd', timeout: 5000, run_in_background: false }, command);
+    }
+  });
+  it('is deterministic, so parallel guard processes agree', () => {
+    const command = `cd r; node ${S} route next --task t | head -5`;
+    assert.deepEqual(withFields(command), withFields(command));
+  });
+  it('denies with a reason that says nothing ran when the span cannot be cut safely', () => {
+    for (const command of [
       `python3 edit.py && node ${S} check --task t --name unit | head -40`,
-      `node ${S} check --task t | head -3; echo done`,
+      `rm -rf ~/work; node ${S} route next | head -5`,
+      `node ${S} route next | head -5 > out.txt`,
+      `echo $(date); node ${S} route next --task t | head -5`,
+      `cat <<EOF\nx\nEOF\nnode ${S} route next | head -5`,
     ]) {
       const out = bash(command);
       assert.equal(decisionOf(out), 'deny', command);
       assert.match(out.hookSpecificOutput!.permissionDecisionReason, /nothing ran/i);
     }
+  });
+  it('lets another rule decide first: a deny or an ask is never replaced by a rewrite', () => {
+    const git = bash(`git push; node ${S} route next --task t | head -5`);
+    assert.equal(decisionOf(git), 'ask');
+    assert.doesNotMatch(git.hookSpecificOutput!.permissionDecisionReason, /nothing ran/);
+    const note = bash(`echo x > .ambicode/tasks/T/notes.md; node ${S} route next --task t | head -5`);
+    assert.equal(decisionOf(note), 'deny');
+    assert.doesNotMatch(note.hookSpecificOutput!.permissionDecisionReason, /nothing ran/);
   });
   it('leaves unrelated pipes, tail and plain ambicode calls alone', () => {
     for (const command of [
@@ -552,11 +595,9 @@ describe('head fed by a literal ambicode call is denied, never rewritten', () =>
       `printf x | node ${S} note save --task t\ntail -5 notes.txt`,
     ]) assert.deepEqual(bash(command), {}, command);
   });
-  it('never answers allow or updatedInput, so no part of a command skips the permission prompt', () => {
+  it('answers allow only with a rewrite, never for a command that has nothing to cut', () => {
     for (const command of [
-      `rm -rf ~/work; node ${S} route next | head -5`,
-      `node ${S} route next | head -5 > out.txt`,
-      `node ${S} route next | tail -5`,
+      `node ${S} route next --task t | tail -5`,
       `node ${S} route next`,
       'git status',
       'ls | head',

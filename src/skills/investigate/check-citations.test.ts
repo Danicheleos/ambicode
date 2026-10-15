@@ -20,7 +20,7 @@ async function check(root: string, body: string) {
     stdin: JSON.stringify({ task: 't', skill: 'investigate', repositoryRoot: root, taskDir, steps: path.join(taskDir, 'steps'), args: {}, params: [], revise: null, raisedBy: null, headless: false }),
   });
   assert.equal(outcome.exitCode, 0, outcome.stderr);
-  return JSON.parse(outcome.stdout) as { entries: { summary: { anchorsBad: number; anchors?: string[] } }[]; failed?: { code: string; revise: { args: Record<string, string[]> } } };
+  return JSON.parse(outcome.stdout) as { entries: { summary: { anchorsBad: number; anchors?: string[] } }[]; failed?: { code: string; message: string; revise?: unknown } };
 }
 
 describe('skills/investigate/scripts/check-citations.mjs', () => {
@@ -33,7 +33,8 @@ describe('skills/investigate/scripts/check-citations.mjs', () => {
       const bad = await check(root, '`src/invoices/service.ts:900` `src/nope.ts:1` `../outside.ts:1`\n\n```\nsrc/ignored.ts:1\n```\n');
       assert.equal(bad.failed?.code, 'citations-failed');
       assert.equal(bad.entries[0]!.summary.anchorsBad, 3);
-      assert.equal(bad.failed?.revise.args['Citation check failed']?.length, 3);
+      assert.match(bad.failed!.message, /^3 bad citations: src\/invoices\/service\.ts:900 line-out-of-range.*src\/nope\.ts:1 missing-file.*\.\.\/outside\.ts:1 outside-repository$/);
+      assert.equal(bad.failed?.revise, undefined);
     } finally {
       await rm(path.dirname(root), { recursive: true, force: true });
     }

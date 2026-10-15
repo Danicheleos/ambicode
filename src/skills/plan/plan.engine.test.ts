@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
-import { PLAN_TASK, planFixture } from '#testing/fixtures/plan-fixture';
+import { PLAN, PLAN_TASK, planFixture } from '#testing/fixtures/plan-fixture';
 
 const lastPrint = async (plan: Awaited<ReturnType<typeof planFixture>>) => (await plan.prints()).at(-1)!;
 const planFiles = async (plan: Awaited<ReturnType<typeof planFixture>>, prefix: string) =>
@@ -105,6 +105,38 @@ describe('S5 model revise vs human Revise', () => {
       await plan.hook('plan-accept', 'Revise', print.id);
       const human = (await plan.fx.kinds(PLAN_TASK, 'revise')).at(-1)!;
       assert.deepEqual([human['via'], human['from']], ['gate', 'design']);
+    } finally {
+      await plan.dispose();
+    }
+  });
+});
+
+describe('onFail: record', () => {
+  const recording = PLAN.replace('onFail: revise plan-write', 'onFail: record');
+
+  it('keeps a recoverable failure on the ledger as a gap and goes on to the gate without returning to the model', async () => {
+    const plan = await planFixture({ extra: { plan: recording } });
+    try {
+      plan.state.checkOk = false;
+      const gate = await plan.toGate();
+      assert.equal(gate.position, 'plan-accept');
+      const check = (await plan.fx.kinds(PLAN_TASK, 'step')).filter((entry) => entry['step'] === 'plan-check');
+      assert.deepEqual(check.map((entry) => [entry['status'], entry['recorded'] ?? entry['failed']]), [['failed', true], ['completed', true]]);
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'revise')).length, 0);
+      assert.equal(plan.state.checks, 1);
+    } finally {
+      await plan.dispose();
+    }
+  });
+
+  it('does not swallow an unrecoverable failure: it raises, as a step without onFail does', async () => {
+    const plan = await planFixture({
+      extra: { plan: recording },
+      handlers: { 't.check': async () => ({ state: 'failed', code: 'script-failed', message: 'crashed', recoverable: false }) },
+    });
+    try {
+      await assert.rejects(plan.toGate(), /crashed/);
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'step')).some((entry) => entry['recorded'] === true), false);
     } finally {
       await plan.dispose();
     }

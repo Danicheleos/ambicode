@@ -96,6 +96,8 @@ export function buildReport(
     if (entry.which === 'read-bytes') notVerified.push(`read-bytes limit: ${clip(entry.bytes)} B read in the route, soft cap ${clip(entry.cap)}${historical(entry)}`);
     else notVerified.push(`${clip(entry.which)} limit (${entry.count})${typeof entry.step === 'string' ? ` at ${entry.step}` : ''}${historical(entry)}`);
   }
+  for (const entry of of('step').filter((step) => step.recorded === true)) notVerified.push(`${clip(entry.step)}: ${clip(entry.message, 160)}${historical(entry)}`);
+  for (const entry of of('policy').filter((policy) => policy.stage === 'drafts' && Number(policy.errors) > 0)) notVerified.push(`rules drafts: ${entry.errors} check errors${historical(entry)}`);
   for (const entry of of('envelope')) for (const missing of list(entry.missingAsked)) notVerified.push(`Requirement not captured: ${clip(missing)}${historical(entry)}`);
   for (const entry of of('route')) {
     if (entry.mode === 'headless' && entry.channel === 'cli') notVerified.push(`Route ${entry.id}: headless set by an untrusted start (channel cli)${historical(entry)}`);

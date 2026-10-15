@@ -20,7 +20,7 @@ async function check(root: string, body: string, params: string[] = []) {
     stdin: JSON.stringify({ task: 't', skill: 'plan', repositoryRoot: root, taskDir: path.join(root, '.ambicode/tasks/t'), steps, args: {}, params, revise: null, raisedBy: null, headless: false }),
   });
   assert.equal(outcome.exitCode, 0, outcome.stderr);
-  return JSON.parse(outcome.stdout) as { entries: { summary: { failed: boolean; anchorsBad: number; anchors?: string[] } }[]; failed?: { code: string; revise: { args: Record<string, string[]> } } };
+  return JSON.parse(outcome.stdout) as { entries: { summary: { failed: boolean; anchorsBad: number; anchors?: string[] } }[]; failed?: { code: string; message: string; revise?: unknown } };
 }
 
 describe('skills/plan/scripts/plan-check.mjs', () => {
@@ -33,7 +33,8 @@ describe('skills/plan/scripts/plan-check.mjs', () => {
       const bad = await check(root, '# Plan\n\n`src/invoices/service.ts:900` `src/nope.ts:1` `../outside.ts:1`\n\n```\nsrc/ignored.ts:1\n```\n');
       assert.equal(bad.failed?.code, 'plan-check-failed');
       assert.equal(bad.entries[0]!.summary.anchorsBad, 3);
-      assert.equal(bad.failed?.revise.args['Plan check failed']?.length, 3);
+      assert.match(bad.failed!.message, /^3 bad anchors: src\/invoices\/service\.ts:900 line-out-of-range.*src\/nope\.ts:1 missing-file.*\.\.\/outside\.ts:1 outside-repository$/);
+      assert.equal(bad.failed?.revise, undefined);
     } finally {
       await rm(path.dirname(root), { recursive: true, force: true });
     }
@@ -79,13 +80,13 @@ describe('skills/plan/scripts/plan-check.mjs', () => {
     }
   });
 
-  it('runs as the plan-check step: the failure comes back to design and the record stays', async () => {
+  it('runs as the plan-check step: the failure is recorded and the route goes on to plan-accept', async () => {
     const plan = await planFixture({ shipped: true });
     try {
       await plan.start();
       await plan.body('# Plan\n\n`src/orders/limit.ts:99`\n');
-      const back = await plan.next();
-      assert.equal(back.position, 'design');
+      const gate = await plan.next();
+      assert.equal(gate.position, 'plan-accept');
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'worker')).length, 1);
     } finally {
       await plan.dispose();

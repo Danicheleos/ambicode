@@ -87,6 +87,7 @@ test('03-R6: revision targets are earlier steps, the firing step, $raisedBy or t
   for (const fine of [steps('    repeat: 2\n', '    onFail: revise a\n'), steps('', '    onFail: revise b\n    repeat: 2\n'), steps('', '    onFail: "revise $raisedBy"\n')]) {
     await validateRouteFiles(await root(t, { 'routes/demo/demo.yaml': fine }), { handlers: HANDLERS });
   }
+  await validateRouteFiles(await root(t, { 'routes/demo/demo.yaml': steps('', '    onFail: record\n') }), { handlers: HANDLERS });
   const withGate = (target: string, repeat = ''): string =>
     `${BASE.head}  - id: a\n    actor: code\n    run: code.one\n${repeat}  - id: ask\n    actor: human\n    gate:\n      question: Q\n      options: [Go, Back]\n      default: Go\n      onAnswer: { Back: "revise ${target}" }\n`;
   await validateRouteFiles(await root(t, { 'routes/demo/demo.yaml': withGate('a') }), { handlers: HANDLERS });

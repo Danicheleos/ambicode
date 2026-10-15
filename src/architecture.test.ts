@@ -26,7 +26,7 @@ const RANK: Record<string, number> = {
 const ALLOWLIST = new Set<string>([]);
 
 // Cap = built size + 512 B headroom.
-const GUARD_BUNDLE_MAX_BYTES = 24864 + 512;
+const GUARD_BUNDLE_MAX_BYTES = 26818 + 512;
 
 /** Test files (*.test.ts) are deliberately not scanned: they may import across layers. */
 function sources(directory: string): string[] {

@@ -127,9 +127,9 @@ export async function planFixture(options: { extra?: Record<string, string>; han
     promote: (session = SESSION_A) => promotePlan({ runtime: fx.runtime, session, context: commandContext({ runtime: fx.runtime, routes: fx.routes }) }, PLAN_TASK),
     async toGate(input = {}) {
       await start(input);
-      await next();
       await body('# Plan\n\n1. Do it.\n');
-      return next();
+      const first = await next();
+      return first.position === 'plan-accept' ? first : next();
     },
     prints: (task = PLAN_TASK) => fx.kinds(task, 'gate'),
     dispose: () => fx.dispose(),

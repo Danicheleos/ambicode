@@ -87,7 +87,8 @@ export interface StepDef {
   produces: readonly Qualified[];
   when: When | null;
   gate: GateDef | null;
-  onFail: Revise | null;
+  /** `record`: the failure is kept on the ledger as a gap and the route goes on. */
+  onFail: Revise | 'record' | null;
   onError: OnError;
   repeat: number;
   /** The model's final message is this step's work; the next prompt closes the route. */
@@ -248,7 +249,7 @@ export interface HandlerInput {
  */
 export type HandlerResult =
   | { state: 'ok'; payload: string | null; record?: Readonly<Record<string, unknown>>; exit?: string; exitDetail?: string }
-  | { state: 'failed'; code: string; message: string; recoverable: boolean; revise?: { args: Readonly<Record<string, readonly string[]>>; lastRound?: string } }
+  | { state: 'failed'; code: string; message: string; recoverable: boolean; revise?: { args: Readonly<Record<string, readonly string[]>> } }
   | { state: 'raise'; gate: string; values: Readonly<Record<string, readonly string[]>>; raisedBy?: string };
 
 export type Handler = (input: HandlerInput) => Promise<HandlerResult>;

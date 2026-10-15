@@ -12,9 +12,9 @@ import type { Runtime, Workspace } from '#types/composition';
 
 const MIN_QUOTE_CHARS = 20;
 
-/** A pack-level problem that keeps a draft from being applied (09-T5); a rule-level quote failure does not. */
+/** A problem that keeps a draft from being applied (09-T5). A red check now reaches the table, so an unverified quote must not go live. */
 export const blockingProblem = (check: DraftsCheck, root: string, file: string): Diagnostic | undefined =>
-  check.diagnostics.find((diagnostic) => diagnostic.where === path.join(root, file) && ((diagnostic.severity === 'error' && diagnostic.code !== 'pack-quote-missing') || diagnostic.code === 'pack-glob-matches-nothing'));
+  check.diagnostics.find((diagnostic) => diagnostic.where === path.join(root, file) && (diagnostic.severity === 'error' || diagnostic.code === 'pack-glob-matches-nothing'));
 
 const collapse = (text: string): string => text.replace(/\s+/g, ' ').trim();
 

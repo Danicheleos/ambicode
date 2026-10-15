@@ -3,7 +3,7 @@ Design the change, then write the plan.
 - Weigh real alternatives: cost, risk, one recommendation. Cite `path:line` for facts; name assumptions.
 - A decision is material when alternatives change code, contracts or behaviour a reviewer would notice; routine (never asked) when policy, the requirement or the structure settles it.
 - Ask each material decision in its own `AskUserQuestion`, ending with `[ambicode gate decision:<slug>]`. An unanswered one stays open: continue; the plan stays a draft.
-Write the plan once with Write to `.ambicode/tasks/{task}/steps/plan-body.md`. Code checks anchors; failures return here: rewrite the whole file with Write, never patch or use the shell.
+Write the plan once with Write to `.ambicode/tasks/{task}/steps/plan-body.md`. Anchors are checked once. If sent back: rewrite the whole file with Write, never patch or use the shell.
 Shape:
 - A `| requirement | section |` table, a row per point, or under `## Not covered` with the reason.
 - Ordered, independently reviewable iterations, each with:

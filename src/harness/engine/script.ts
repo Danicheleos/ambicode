@@ -10,7 +10,7 @@ interface ScriptOutput {
   payload?: string | null;
   record?: Record<string, unknown>;
   entries?: Record<string, unknown>[];
-  failed?: { code: string; message: string; recoverable?: boolean; revise?: { args: Record<string, readonly string[]>; lastRound?: string } };
+  failed?: { code: string; message: string; recoverable?: boolean; revise?: { args: Record<string, readonly string[]> } };
   raise?: { gate: string; values: Record<string, readonly string[]> };
   exit?: string;
   exitDetail?: string;

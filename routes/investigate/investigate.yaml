@@ -24,9 +24,8 @@ steps:
     instruction: "file:routes/investigate/read.md"
     payload: [envelope, map, context.list]
     produces: ["note{investigation}"]
-    repeat: 2
   - id: check-citations
     actor: code
     run: ["script(check-citations)"]
     produces: [worker]
-    onFail: revise read                           # a bad path:line citation; the list comes back as a section
+    onFail: record                                # a bad path:line citation is listed as not verified; no second read

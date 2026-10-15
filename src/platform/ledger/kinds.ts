@@ -33,7 +33,7 @@ const schemas = [
   entry('step', {
     route: text, step: text, actor: z.enum(['code', 'model', 'human']), status: z.enum(['delivered', 'completed', 'skipped', 'failed', 'repeated']), cause: text,
     channel: text.optional(), bytes: count.optional(), file: text.optional(),
-    revise: z.union([text, z.looseObject({})]).optional(), exit: text.optional(),
+    revise: z.union([text, z.looseObject({})]).optional(), exit: text.optional(), recorded: z.boolean().optional(),
   }),
   entry('gate', {
     route: text, gate: text, class: z.enum(['declared', 'raised', 'decision']), question: text, print: z.number().int().min(1),

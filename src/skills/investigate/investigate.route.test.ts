@@ -7,6 +7,7 @@ import { commandContext } from '#harness/engine/context';
 import { loadPayload } from '#harness/engine/execute';
 import { skillHandlers } from '#skills/handlers';
 import { saveNote } from '#modules/evidence/notes';
+import { buildReport } from '#modules/evidence/report/report';
 import { assembleEngine, CONFIG, routeFixture , stopRoute } from '#testing/fixtures/route-fixture';
 import { NodeProcessRunner } from '#platform/ports/node-process-runner';
 import { REPO_ROOT } from '#testing/paths';
@@ -34,43 +35,23 @@ async function investigation() {
 }
 
 describe('investigate route (03-I1, 03-I2)', () => {
-  it('D4: a note with a bad citation sends the route back to read once, then lets the corrected note complete it', async () => {
+  it('D4: a note with a bad citation completes the route once, with the citation listed as not verified and no second read', async () => {
     const { fx, start, next } = await investigation();
     try {
       const first = await start();
       const context = commandContext({ runtime: fx.runtime, routes: fx.routes });
-      const save = (body: string) => saveNote({ runtime: fx.runtime, session: A, context }, { task: 'cart', kind: 'investigation', body, from: null, iteration: null, route: first.routeId });
-      await save('## Files\n- src/missing.ts:3\n');
-      const back = await next({ cause: 'note save' });
-      assert.equal(back.position, 'read');
-      assert.match(back.text, /bad citation: src\/missing\.ts:3 missing-file/);
-      await save('## Files\n- src/cart.ts:2\n');
-      assert.equal((await next({ cause: 'note save' })).position, 'complete');
-    } finally {
-      await fx.dispose();
-    }
-  });
-
-  it('D4: the last round asks for the save and re-sends no inputs; a second bad note still completes the route with the failed check on record', async () => {
-    const { fx, start, next } = await investigation();
-    try {
-      const first = await start();
-      const context = commandContext({ runtime: fx.runtime, routes: fx.routes });
-      const save = (body: string) => saveNote({ runtime: fx.runtime, session: A, context }, { task: 'cart', kind: 'investigation', body, from: null, iteration: null, route: first.routeId });
-      await save('## Files\n- src/missing.ts:3\n');
-      const back = await next({ cause: 'note save' });
-      assert.equal(back.position, 'read');
-      assert.match(back.text, /## Last round\n.*Give the corrected answer as your final message again/);
-      assert.doesNotMatch(back.text, /## map/);
-      assert.match(back.text, /Inputs unchanged since the last delivery: .*payload-.*-map\.txt/);
-      assert.ok(back.bytes < first.bytes, `revise ${back.bytes} bytes, first delivery ${first.bytes}`);
-      await save('## Files\n- src/also-missing.ts:1\n');
-      const end = await next({ cause: 'note save' });
-      assert.equal(end.position, 'complete');
-      assert.equal((await fx.kinds('cart', 'exit')).at(-1)?.['reason'], 'done');
-      const checks = (await fx.ledger('cart')).filter((entry) => entry.kind === 'step' && entry['step'] === 'check-citations');
-      assert.deepEqual(checks.map((entry) => entry['status']), ['failed', 'completed', 'failed', 'completed']);
-      assert.ok((await fx.kinds('cart', 'limit')).some((entry) => entry['which'] === 'repeat' && entry['step'] === 'read'));
+      await saveNote({ runtime: fx.runtime, session: A, context }, { task: 'cart', kind: 'investigation', body: '## Files\n- src/missing.ts:3\n', from: null, iteration: null, route: first.routeId });
+      const done = await next({ cause: 'note save' });
+      assert.equal(done.position, 'complete');
+      assert.match(done.text, /Not verified: check-citations: 1 bad citations: src\/missing\.ts:3 missing-file\. Name each in your final message\./, 'a count alone left the model unable to name the gap');
+      const ledger = await fx.ledger('cart');
+      const checks = ledger.filter((entry) => entry.kind === 'step' && entry['step'] === 'check-citations');
+      assert.deepEqual(checks.map((entry) => entry['status']), ['failed', 'completed']);
+      assert.equal(ledger.filter((entry) => entry.kind === 'revise' || entry.kind === 'limit').length, 0);
+      assert.equal(ledger.filter((entry) => entry.kind === 'step' && entry['step'] === 'read' && entry['status'] === 'delivered').length, 1);
+      const exit = (await fx.kinds('cart', 'exit')).at(-1)!;
+      assert.deepEqual([exit['reason'], exit['complete'], exit['unverified']], ['done', true, 1]);
+      assert.match(buildReport(ledger).notVerified, /check-citations: 1 bad citations: src\/missing\.ts:3 missing-file/);
     } finally {
       await fx.dispose();
     }
@@ -106,31 +87,16 @@ describe('investigate route (03-I1, 03-I2)', () => {
     }
   });
 
-  it('Stop with a bad citation blocks with the failure list; the corrected answer completes the route', async () => {
+  it('Stop with a bad citation ends the route done with the failed check on record; no corrected answer is asked for', async () => {
     const t = await investigation();
     try {
       await t.start();
-      const blocked = await stopAt(t, '## Files\n- src/missing.ts:3\n');
-      assert.equal(blocked.decision, 'block');
-      assert.match(blocked.reason!, /bad citation: src\/missing\.ts:3 missing-file/);
-      assert.equal((await shape(t)).exit, undefined);
-      assert.deepEqual(await stopAt(t, '## Files\n- src/cart.ts:2\n'), {});
-      const after = await shape(t);
-      assert.deepEqual(after.notes, ['investigation', 'investigation']);
-      assert.equal(after.exit, 'done');
-    } finally {
-      await t.fx.dispose();
-    }
-  });
-
-  it('Stop with a bad citation twice still lets the answer through: the revise bound is the exit, no second mechanism', async () => {
-    const t = await investigation();
-    try {
-      await t.start();
-      assert.equal((await stopAt(t, '- src/missing.ts:3')).decision, 'block');
-      assert.deepEqual(await stopAt(t, '- src/also-missing.ts:1'), {});
+      const answer = '## Files\n- src/missing.ts:3\n';
+      assert.deepEqual(await stopAt(t, answer), {});
+      assert.deepEqual((await shape(t)).checks, ['check-citations:true']);
       assert.equal((await shape(t)).exit, 'done');
-      assert.deepEqual((await shape(t)).checks, ['check-citations:true', 'check-citations:true']);
+      assert.deepEqual((await shape(t)).notes, ['investigation']);
+      assert.match(buildReport(await t.fx.ledger('cart')).notVerified, /check-citations: 1 bad citations/);
     } finally {
       await t.fx.dispose();
     }

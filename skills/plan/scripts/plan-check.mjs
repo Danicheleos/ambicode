@@ -1,6 +1,6 @@
 // The mechanical part of reviewing a plan draft: every path:line anchor exists.
 // With the `resolve` param it runs before the draft is saved and completes a partial path that names exactly one
-// tracked file: a bare `service.ts:4` cost a revise round, and the model patched the body instead of rewriting it.
+// tracked file: a bare `service.ts:4` failed the check, and the model patched the body instead of rewriting it.
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -9,7 +9,7 @@ const started = Date.now();
 const input = JSON.parse(readFileSync(0, 'utf8'));
 const root = path.resolve(input.repositoryRoot);
 const body = readFileSync(path.join(input.steps, 'plan-body.md'), 'utf8');
-// The first ten bad anchors are listed to the model; the count is exact. Ten fit one revise section.
+// The first ten bad anchors are listed at the gate; the count is exact.
 const LISTED = 10;
 
 const PATH = '[\\w@./\\\\-]+\\.[A-Za-z0-9]+';
@@ -78,12 +78,6 @@ const failed = anchorsBad > 0;
 const summary = { failed, anchorsBad, ...(badAnchors.length === 0 ? {} : { anchors: badAnchors }) };
 const out = { entries: [{ kind: 'worker', worker: 'plan-check', outcome: 'ran', ms: Date.now() - started, artifact: null, summary }] };
 if (failed) {
-  const lines = badAnchors.map((line) => `bad anchor: ${line}`);
-  out.failed = {
-    code: 'plan-check-failed',
-    message: `${anchorsBad} bad anchors.`,
-    recoverable: true,
-    revise: { args: { 'Plan check failed': lines }, lastRound: 'This is the last revision. Save the corrected draft the same way; it then goes to the user as it is, with the failures listed.' },
-  };
+  out.failed = { code: 'plan-check-failed', message: `${anchorsBad} bad anchors: ${badAnchors.slice(0, 3).join('; ')}`, recoverable: true };
 }
 process.stdout.write(JSON.stringify(out));

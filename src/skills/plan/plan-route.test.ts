@@ -15,7 +15,7 @@ import { REPO_ROOT } from '#testing/paths';
 import { SESSION_A, SESSION_B } from '#testing/fixtures/ids';
 
 /** SHA-256 of routes/plan/plan.yaml. */
-const CONTRACT_SHA256 = '4ee0a6da5f9b118b768d65ce9cf2828e6cf3de2f69d0c9b0940eea2f4a77749c';
+const CONTRACT_SHA256 = 'f313ef1b2d4a84dc25f7167a637152de7cdef8227c0c7ca4951eb86e7895e7ba';
 const GOOD = '# Plan\n\n- *Changes*: `src/orders/limit.ts:1` `orderLimit`\n';
 const BAD = '# Plan\n\n- *Changes*: `src/orders/limit.ts:40` `orderLimit`\n';
 const PLATFORM = { askBinding: 'supported', answerContext: 'supported' } as const;
@@ -129,17 +129,21 @@ describe('06-P5/06-P6/06-P7 write and check', () => {
     }
   });
 
-  it('S4 06-P6: a failing check is recorded and the bad anchors come back to design as a section; the draft stays', async () => {
+  it('S4 06-P6: a failing check is recorded once and the route goes on to plan-accept with the bad anchors printed; design is not re-delivered', async () => {
     const plan = await shipped();
     try {
       await toDesign(plan);
       const failed = await planCheck(plan, BAD);
-      assert.equal(failed.position, 'design');
-      assert.match(failed.text, /## Plan check failed/);
-      assert.match(failed.text, /bad anchor: src\/orders\/limit\.ts:40 line-out-of-range/);
+      assert.equal(failed.position, 'plan-accept');
+      assert.match(failed.text, /Plan check FAILED: 1 bad anchors\.\nsrc\/orders\/limit\.ts:40 line-out-of-range/);
+      assert.match(failed.text, /Accept \(/);
+      assert.match(failed.text, /Revise \(/);
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'worker')).length, 1);
       assert.equal((await notes(plan, 'plan-draft')).length, 1, '06-P9: the failed draft stays');
-      assert.equal((await planCheck(plan, GOOD)).position, 'plan-accept');
+      assert.equal((await steps(plan, 'design', 'delivered')).length, 1);
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'revise')).length, 0);
+      const gap = buildReport(await plan.fx.ledger(PLAN_TASK)).notVerified;
+      assert.match(gap, /plan-check: 1 bad anchors: src\/orders\/limit\.ts:40 line-out-of-range/);
     } finally {
       await plan.dispose();
     }
@@ -214,21 +218,18 @@ describe('06-R4/06-R5/06-R6 the plan-accept gate', () => {
     }
   });
 
-  it('S5 06-R5: a model revise uses design\'s repeat; a human Revise resets the counters; a flag Revise is declined', async () => {
+  it('S5 06-R5: the model cannot send the plan back; a human Revise reruns design with its repeat intact; a flag Revise is declined', async () => {
     const plan = await shipped();
     try {
       await plan.start();
-      await plan.next({ revise: 'design' });
-      const modelRevise = (await plan.fx.kinds(PLAN_TASK, 'revise')).at(-1)!;
-      assert.equal(modelRevise['via'], 'model');
+      await assert.rejects(plan.next({ revise: 'design' }), /not revisable/);
       await plan.body('# Plan\n\n1. Do it.\n');
       await plan.next();
       await plan.hook('plan-accept', 'Revise', (await lastPrint(plan)).id);
       const human = (await plan.fx.kinds(PLAN_TASK, 'revise')).at(-1)!;
       assert.equal(human['via'], 'gate');
-      assert.equal((await steps(plan, 'design', 'completed')).length, 2);
-      await plan.next({ revise: 'design' });
-      assert.equal((await plan.fx.kinds(PLAN_TASK, 'limit')).length, 0, 'design has its repeat back after the human cycle');
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'revise')).length, 1);
+      assert.equal((await plan.fx.kinds(PLAN_TASK, 'limit')).length, 0);
       await plan.body('# Plan\n\n1. Again.\n');
       await plan.next();
       const revises = (await plan.fx.kinds(PLAN_TASK, 'revise')).length;
@@ -268,7 +269,6 @@ describe('06-R8/06-R9/06-H4 acting authority', () => {
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'preanswer')).length, 0);
       const declined = (await plan.fx.kinds(PLAN_TASK, 'declined')).at(-1)!;
       assert.deepEqual([declined['reason'], declined['via']], ['acting-needs-human', 'flag']);
-      await plan.next();
       await plan.body(GOOD);
       await plan.next();
       const taken = (await plan.fx.kinds(PLAN_TASK, 'default-taken')).at(-1)!;
@@ -279,24 +279,25 @@ describe('06-R8/06-R9/06-H4 acting authority', () => {
     }
   });
 
-  it('S14 06-R9/06-H4: a failed check never reaches the gate, so a trusted Accept preanswer promotes nothing', async () => {
+  it('S14 06-R9/06-H4: a failed check reaches the gate and a trusted Accept preanswer promotes that first draft, with the failure under Not verified', async () => {
     const plan = await shipped();
     try {
       await toDesign(plan, { answers: [{ gate: 'plan-accept', option: 'Accept' }] });
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'preanswer')).length, 1);
-      assert.equal((await planCheck(plan, BAD)).position, 'design');
-      assert.equal((await notes(plan, 'plan')).length, 0);
+      await planCheck(plan, BAD);
+      assert.equal((await notes(plan, 'plan')).length, 1);
+      assert.equal((await steps(plan, 'design', 'delivered')).length, 1);
+      assert.match(buildReport(await plan.fx.ledger(PLAN_TASK)).notVerified, /plan-check: 1 bad anchors/);
     } finally {
       await plan.dispose();
     }
   });
 
-  it('a user-set headless run whose check keeps failing hands the last draft to the gate with the failure and no Revise', async () => {
+  it('a user-set headless run whose check fails hands the first draft to the gate with the failure and no Revise', async () => {
     const plan = await shipped();
     try {
       await toDesign(plan, { headless: true, answers: [{ gate: 'plan-accept', option: 'Accept' }] });
-      let message = await planCheck(plan, BAD);
-      for (let round = 0; round < 3 && message.position === 'design'; round += 1) message = await planCheck(plan, BAD);
+      await planCheck(plan, BAD);
       const print = (await plan.fx.kinds(PLAN_TASK, 'gate')).findLast((entry) => entry['gate'] === 'plan-accept')!;
       assert.deepEqual(print['options'], ['Accept', 'Reject']);
       assert.match(String(print['question']), /Plan check FAILED: 1 bad anchors\..*Headless: this draft is accepted or rejected as it is, never revised\./s);

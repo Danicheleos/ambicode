@@ -6,7 +6,8 @@ export interface GuardInput {
   cwd?: unknown;
   scratchpad_dir?: unknown;
   tool_name?: string;
-  tool_input?: { command?: unknown; file_path?: unknown; notebook_path?: unknown };
+  /** Every field of the incoming input is kept: `updatedInput` replaces the whole tool input. */
+  tool_input?: { command?: unknown; file_path?: unknown; notebook_path?: unknown; [field: string]: unknown };
 }
 
 /** The session's cached pointer to its active route (30 §2). A pointer alone never authorizes a write. */

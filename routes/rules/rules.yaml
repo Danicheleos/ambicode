@@ -20,7 +20,6 @@ steps:
     instruction: "file:routes/rules/draft.md"
     payload: ["script:discover", policy.enabled]
     produces: ["policy{drafts}"]
-    repeat: 3
   - id: rules-table
     actor: human
     gate:

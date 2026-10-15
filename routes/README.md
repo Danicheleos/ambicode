@@ -52,7 +52,7 @@ Unknown fields are rejected. Step ids are unique inside a route.
 | `produces` | list of `kind` or `kind{value}` | Records the step must leave in the ledger. A code step that does not write them fails with `route-produces-missing`. A model step stays open ("Not done yet") until they exist. |
 | `when` | condition | Run the step only if true; otherwise it is recorded as skipped. Conditions below. |
 | `gate` | gate object | **Human steps only** (required there). See Gates. |
-| `onFail` | `revise <step> [--name value]` | Code step that finishes but reports a failed result: return to that step instead of stopping. The target must be a step of this route. |
+| `onFail` | `revise <step> [--name value]` or `record` | Code step that finishes but reports a failed result. `revise`: return to that step instead of stopping; the target must be a step of this route. `record`: keep the failure on the ledger as a Not verified line and continue, with no return; use it for a check whose first result must stay visible. |
 | `onError` | `stop:<exit>` | What an error in the step does. Default: show the error to the model (a second identical error adds a stop hint). `stop:` ends the route with that exit. |
 | `repeat` | integer >= 1 | How many times the step may run (revises included). Default 1; there is no table by id, so every revised step states its own. On a human step it is the gate's `repeat`. |
 
@@ -84,7 +84,7 @@ Evidence-writing commands write their ledger entry and then advance the route at
 
 ### Scripts (`script(<name>)`)
 
-A skill-local script is a plain ESM file (`skills/<skill>/scripts/<name>.mjs`, no imports from `src/`, no npm packages) run with `node`. It reads one JSON object on stdin: `{task, skill, repositoryRoot, taskDir, steps, args, params, revise, raisedBy, headless}` (`params` are the arguments after the name; `steps` is the task's steps directory). It prints one JSON object on stdout, every key optional: `payload` (text for the model, saved as `script:<name>`), `record` (fields merged into the step's completion entry), `entries` (ledger entries, each with a `kind`, appended before any `failed`), `failed: {code, message, recoverable?, revise?: {args, lastRound?}}`, `raise: {gate, values}`, `exit` and `exitDetail`. A non-zero exit, a timeout (60 s) or output that is not JSON fails the step with `script-failed` or `script-output-invalid`. A script never writes the ledger itself.
+A skill-local script is a plain ESM file (`skills/<skill>/scripts/<name>.mjs`, no imports from `src/`, no npm packages) run with `node`. It reads one JSON object on stdin: `{task, skill, repositoryRoot, taskDir, steps, args, params, revise, raisedBy, headless}` (`params` are the arguments after the name; `steps` is the task's steps directory). It prints one JSON object on stdout, every key optional: `payload` (text for the model, saved as `script:<name>`), `record` (fields merged into the step's completion entry), `entries` (ledger entries, each with a `kind`, appended before any `failed`), `failed: {code, message, recoverable?, revise?: {args}}`, `raise: {gate, values}`, `exit` and `exitDetail`. A non-zero exit, a timeout (60 s) or output that is not JSON fails the step with `script-failed` or `script-output-invalid`. A script never writes the ledger itself.
 
 ### Conditions (`when`)
 

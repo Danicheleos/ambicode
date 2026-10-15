@@ -68,9 +68,9 @@ const REUSE_QUALITY = (where) => `
 ${where} PASS only if all hold:
 - The dueDate check reuses validateDate and validateRange from src/shared/validation (for example validateRange(dueDate, { min: issuedAt }, 'dueDate')) and ValidationError through them; it does not add a new date comparison, a new validator module or a bare Error.
 - The report extends the existing src/reports/ module (service.js, routes.js, repository.js, aging.js) and reuses what it has: invoices.outstanding or the unpaidInvoices query, and, if the plan computes days overdue, daysBetween from src/reports/aging.js, and, if it computes a grand total, money.sum or reports.total; the overdue filter itself may compare dates (dueDate before the as-of date). It does not add a parallel reporting module or recompute totals by hand.
-- Invoice changes extend src/invoices/model.js, service.js and routes.js, and money stays integer cents through src/shared/money.
+- Invoice changes stay within src/invoices/ (model.js, service.js, routes.js, as needed), and money stays integer cents through src/shared/money.
 - It names no file under src/legacy/ as something to change or reuse (src/legacy/invoice-total.js is a frozen floating-point copy), and does not treat the dueDate of src/payments/installments.js, which belongs to a payment plan, as an existing invoice due date.
-- The work is split into iterations that can each be reviewed alone, and the existing files it names exist in the repository; new files are allowed (for example new tests).
+- The work is split into iterations that can each be reviewed alone; new files are allowed (for example new tests).
 FAIL otherwise.`;
 
 /**
@@ -254,7 +254,7 @@ FAIL if it calls the plan accepted, final or approved, or starts implementing.`)
   },
   {
     name: 'plan-reuse',
-    version: 2,
+    version: 3,
     description: 'A plan for a feature the existing shared validators, money helpers and reports module already carry: it must reuse them, not rebuild them, and leave the legacy copy alone.',
     tags: ['plan', 'gate'],
     fixture: 'ts-app-medium', flags: '--ambicode-init --context',
