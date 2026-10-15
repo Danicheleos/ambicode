@@ -65,7 +65,11 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     if (answersAsNote(step)) return 'write your final message; it is saved as the note and checked';
     const note = step.produces.find((produced) => produced.kind === 'note');
     if (step.actor === 'model' && note?.value) return `${commandFor(`note save --task ${run.task} --kind ${note.value}`)} (note on standard input)`;
-    return recordCommand(run, step) ?? checkCommand(run, step) ?? commandFor(`route next --task ${run.task}`);
+    const fallback = recordCommand(run, step) ?? checkCommand(run, step);
+    if (fallback !== null) return fallback;
+    // The command that records the last step's product completes the route, so `route next` after it fails.
+    if (step.index === run.def.steps.length - 1 && step.produces.length > 0) return 'write your final message; no route command is needed';
+    return commandFor(`route next --task ${run.task}`);
   }
 
   function messageOf(run: Run, part: Part): StepMessage {

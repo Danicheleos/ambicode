@@ -55,11 +55,11 @@ const body = (anchor: string): string =>
   ].join('\n');
 
 describe('06-H1/06-H2 plan route integration on ts-feature-boundary', () => {
-  it('06-H2/06-P10: under the real ledger lock, start → design → decision → write → failing check → fixed check → Accept promotes, with 3 + N ceremony calls and one work command per write', async () => {
+  it('06-H2/06-P10: under the real ledger lock, start → design → decision → failing check → fixed check → Accept promotes, with 2 + N ceremony calls and one work command per write', async () => {
     const root = await materialized();
     try {
       const step: Record<string, string> = {};
-      for (const name of ['plan/fetch', 'plan/design', 'plan/write']) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
+      for (const name of ['plan/fetch', 'plan/design']) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
       const assembled = await assembleEngine({ root, routes: { plan: await readFile(path.join(REPO_ROOT, 'routes', 'plan', 'plan.yaml'), 'utf8') }, step });
       const engine = assembled.build(skillHandlers());
       const scratchpad = await assembled.runtime.fs.temporaryDirectory('ambicode-scratch-');
@@ -83,13 +83,9 @@ describe('06-H1/06-H2 plan route integration on ts-feature-boundary', () => {
       assert.match(design.text, /src\/invoices\/service\.ts/);
 
       await hook('Apply the discount before or after tax? [ambicode gate decision:discount-order]', 'Before tax', ['Before tax', 'After tax']);
-      ceremony += 1;
-      const write = await engine.advance({ task: TASK, session: A, cause: 'route-next', scratchpadDir: scratchpad });
-      assert.equal(write.position, 'plan-write');
-      assert.ok(write.bytes <= 3072, `plan-write delivery ${write.bytes}`);
 
       const failing = await check(body('src/invoices/service.ts:30'));
-      assert.equal(failing.position, 'plan-write');
+      assert.equal(failing.position, 'design');
       assert.match(failing.text, /bad anchor: src\/invoices\/service\.ts:30 line-out-of-range/);
       const passing = await check(body('src/invoices/service.ts:3-6'));
       assert.equal(passing.position, 'plan-accept');
@@ -110,7 +106,7 @@ describe('06-H1/06-H2 plan route integration on ts-feature-boundary', () => {
 
       const decisions = 1;
       const writes = 2;
-      assert.equal(ceremony, 3 + decisions);
+      assert.equal(ceremony, 2 + decisions);
       assert.equal(work, writes);
       assert.equal(entries.filter((entry) => entry.kind === 'worker').length, writes);
       await rm(scratchpad, { recursive: true, force: true });

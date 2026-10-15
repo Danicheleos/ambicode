@@ -174,6 +174,8 @@ describe('09-T5: the walk-through on ts-feature-boundary', () => {
       const accepted = await w.answer('rules-table', 'Apply all');
       assert.equal(accepted.position, 'apply');
       assert.match(accepted.text, /rules apply --task rules-1/);
+      assert.doesNotMatch(accepted.text, /route next/, 'route next after rules apply fails with route-not-open');
+      assert.match(accepted.text, /no route command is needed/);
       assert.doesNotMatch(await w.config(), /team-services/, 'the answer alone wires nothing');
 
       const applied = await w.apply();

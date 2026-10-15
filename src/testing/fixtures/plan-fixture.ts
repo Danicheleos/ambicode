@@ -87,7 +87,7 @@ export interface PlanFixture {
 /** The shipped `routes/plan/plan.yaml` with its step texts and the real handlers; `state` is then left untouched. */
 async function shippedRoute(): Promise<{ plan: string; step: Record<string, string>; handlers: Record<string, Handler> }> {
   const step: Record<string, string> = {};
-  for (const name of ['plan/fetch', 'plan/design', 'plan/write']) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
+  for (const name of ['plan/fetch', 'plan/design']) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
   return { plan: await readFile(path.join(REPO_ROOT, 'routes', 'plan', 'plan.yaml'), 'utf8'), step, handlers: skillHandlers() };
 }
 

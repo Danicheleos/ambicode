@@ -65,6 +65,30 @@ The A+B+C+D+E part is committed as 777ef6b. B6 is uncommitted. Mean score went f
 | task-multi | 1.0 → 1.0 | 0.183 → 0.115 | 10 → 4.7 calls |
 | others | unchanged | flat or lower | |
 
+Two fixes followed (uncommitted): the design.md last line now says "continue the route", and a last step that has a product no longer prints `route next` (`endingCommand`, test at rules-route.test.ts:177). The ×3 rerun:
+- plan-draft: 1.0, $0.134, 7.3 calls. All 3 runs wrote the body.
+- rules-migrate: 0.926, $0.101, 5.7 calls. `route-not-open` appeared in 0/3 runs, down from 2/3. The one failure is judge noise again: the final message meets all three grader conditions and the votes were FAIL FAIL PASS. Whether to reword `rules-faithful` is the user's call.
+
+### Design and write merged into one plan step (2026-10-15, uncommitted, rollback copies in raw/patches/merge-plan.before/)
+
+The merged ×3, compared with the previous ×3:
+
+| case | score | $ | calls | session s |
+|---|---|---|---|---|
+| plan-accept | 1.0 → 0.939 | 0.134 → 0.113 | 7.7 → 5.7 | 37.0 → 27.6 |
+| plan-draft | 1.0 → 1.0 | 0.134 → 0.115 | 7.3 → 6.3 | 29.2 → 29.8 |
+| plan-reuse | 0.939 → 1.0 | 0.231 → 0.193 | 10 → 7.3 | 58.6 → 43.7 |
+
+- plan-accept failed because a plan named ruled-out files under Assumptions.
+  - Restoring "in any section" did not help. The rerun scored 0.879 at $0.161, again naming legacy/reports files in Assumptions; one of its two failures was judge noise.
+  - What fixed it: the Assumptions line itself now says "A file read and ruled out goes unnamed here too, even as unaffected." The step text is 1499 characters.
+  - The ×3 after that fix: 1.0, $0.116, 6.3 calls, 29.1 s, 0 forbidden names.
+  - Final text, ×3 each:
+    - plan-draft: 1.0, $0.112, 7.0 calls, 27.9 s.
+    - plan-reuse: 0.939, $0.205, 7.3 calls, 46.8 s. Its one failure is the known reuse miss: a new `validateNotBefore` instead of `validateRange`. No forbidden name.
+  - **Kept.** Quality matches the pre-merge runs on all three cases. Cost is down 11–17%, with 1.4–2.7 fewer calls. `npm run verify` is green: 1121 tests, 1120 pass, 0 fail, 1 skipped.
+- The rules-faithful grader was reworded (case version 2). rules-migrate scored 1.0 ×3 after it.
+
 ## Next
 
 1. Batch A report: verify must be green, plus the $0 checks.

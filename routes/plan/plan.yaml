@@ -15,16 +15,12 @@ steps:
     actor: model
     instruction: file:routes/plan/design.md
     payload: [map, "policy:before-work", context.list]
-    repeat: 2
-  - id: plan-write
-    actor: model
-    instruction: file:routes/plan/write.md
-    repeat: 3
+    repeat: 3                                     # the design pass, then up to two rewrites after failed anchors
   - id: plan-check
     actor: code
     run: ["script(plan-check, resolve)", "evidence.notes.save(plan-draft, from: steps/plan-body.md)", "script(plan-check)"]
     produces: ["note{plan-draft}", worker]
-    onFail: revise plan-write                     # a failed anchor or an unmapped acceptance id; the failures come back as a section
+    onFail: revise design                         # a failed anchor or an unmapped acceptance id; the failures come back as a section
   - id: plan-accept
     actor: human
     gate:
@@ -33,7 +29,7 @@ steps:
       options: [Accept, Revise, Reject]
       acting: [Accept, Revise]                    # 01-contracts §5; a revision too needs the user's own answer
       default: Reject                             # non-acting: the draft stays a draft
-      onAnswer: { Revise: revise design }         # a human cycle: resets design/plan-write repeats
+      onAnswer: { Revise: revise design }         # a human cycle: resets the design repeats
   - id: promote
     actor: code
     when: gate.plan-accept.is(Accept)             # the latest answer in this step's window

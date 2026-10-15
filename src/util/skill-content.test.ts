@@ -167,7 +167,7 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.equal(fm['disable-model-invocation'], true);
     assert.equal(requiredString(fm, 'allowed-tools', 'plan/SKILL.md'), 'Read, Grep, Glob, Bash(node *ambicode.mjs*), Write(.ambicode/tasks/*/steps/plan-body.md)');
     // The judgments live in the step messages the route delivers; the SKILL.md body must not carry them a second time.
-    const steps = (await readFile(path.join(repositoryRoot, 'routes', 'plan', 'design.md'), 'utf8')) + (await readFile(path.join(repositoryRoot, 'routes', 'plan', 'write.md'), 'utf8'));
+    const steps = await readFile(path.join(repositoryRoot, 'routes', 'plan', 'design.md'), 'utf8');
     for (const judgment of [/material when/i, /reuse over new/i, /independently reviewable iterations/i]) {
       assert.match(steps.replace(/\s+/g, ' '), judgment);
       assert.doesNotMatch(plan, judgment);
@@ -206,13 +206,13 @@ describe('P2.2/P2.3 shipped skill content', () => {
     }
   });
 
-  it('06-S4: the write step names the five iteration fields and the SKILL.md does not repeat them, and leave tests to the task route', async () => {
+  it('06-S4: the design step names the five iteration fields and the SKILL.md does not repeat them, and leave tests to the task route', async () => {
     const plan = await readFile(path.join(SKILLS_DIR, 'plan', 'SKILL.md'), 'utf8');
-    const write = await readFile(path.join(repositoryRoot, 'routes', 'plan', 'write.md'), 'utf8');
-    assert.ok(!write.includes('*Tests*'), 'plan-write.md still asks for *Tests*');
+    const write = await readFile(path.join(repositoryRoot, 'routes', 'plan', 'design.md'), 'utf8');
+    assert.ok(!write.includes('*Tests*'), 'plan/design.md still asks for *Tests*');
     for (const field of ['Goal', 'Changes', 'Accept', 'Checks', 'Leaves out']) {
-      assert.ok(!plan.includes(`*${field}*`), `plan/SKILL.md repeats *${field}*, which plan-write.md delivers`);
-      assert.ok(write.includes(`*${field}*`), `plan-write.md lacks *${field}*`);
+      assert.ok(!plan.includes(`*${field}*`), `plan/SKILL.md repeats *${field}*, which plan/design.md delivers`);
+      assert.ok(write.includes(`*${field}*`), `plan/design.md lacks *${field}*`);
     }
   });
 

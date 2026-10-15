@@ -1,5 +1,16 @@
-Design the change, then continue the route.
-- Reuse sweep first: for each piece the change needs, look for an existing one with `{cli} refs --declarations <name> --task {task}` and read the matches. Reuse over new; a new helper beside an existing one is a defect.
-- Write down the design and its real alternatives, with the cost and risk of each and one recommendation. Cite `path:line` for facts; name assumptions.
-- A decision is material when the alternatives lead to different code, contracts or behaviour a reviewer would notice; it is routine when policy, the requirement or the project's structure already settles it. Never ask about a routine one.
-- Ask the user each material decision with one `AskUserQuestion`, one question per decision, ending the question with `[ambicode gate decision:<slug>]` (a short kebab slug per decision). An unanswered decision stays open and the plan stays a draft.
+Design the change, then write the plan.
+- Reuse sweep first: per needed piece, run `{cli} refs --declarations <name> --task {task}`, read matches. Reuse over new: a new helper beside an existing one is a defect.
+- Weigh real alternatives: cost, risk, one recommendation. Cite `path:line` for facts; name assumptions.
+- A decision is material when alternatives change code, contracts or behaviour a reviewer would notice; routine (never asked) when policy, the requirement or the structure settles it.
+- Ask each material decision in its own `AskUserQuestion`, ending with `[ambicode gate decision:<slug>]`. An unanswered one stays open: continue; the plan stays a draft.
+Write the plan once with Write to `.ambicode/tasks/{task}/steps/plan-body.md`. Code checks anchors; failures return here: rewrite the whole file with Write, never patch or use the shell.
+Shape:
+- A `| requirement | section |` table, a row per point, or under `## Not covered` with the reason.
+- Ordered, independently reviewable iterations, each with:
+  - *Goal*: behaviour once landed, why this order.
+  - *Changes*: full repo-relative `path:line` (`path:N-M`), never a bare name; approach and reused code. A new file has no line.
+  - *Accept*: observable criteria.
+  - *Checks*: affected checks by key.
+  - *Leaves out*: what a later iteration owns.
+- Assumptions, open decisions, limitations. A file read and ruled out goes unnamed here too, even as unaffected.
+Name only files the plan changes or reuses. Edit nothing else.

@@ -79,14 +79,13 @@ describe('skills/plan/scripts/plan-check.mjs', () => {
     }
   });
 
-  it('runs as the plan-check step: the failure comes back to plan-write and the record stays', async () => {
+  it('runs as the plan-check step: the failure comes back to design and the record stays', async () => {
     const plan = await planFixture({ shipped: true });
     try {
       await plan.start();
-      await plan.next();
       await plan.body('# Plan\n\n`src/orders/limit.ts:99`\n');
       const back = await plan.next();
-      assert.equal(back.position, 'plan-write');
+      assert.equal(back.position, 'design');
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'worker')).length, 1);
     } finally {
       await plan.dispose();

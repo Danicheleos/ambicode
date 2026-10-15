@@ -1,6 +1,6 @@
 # Skill coverage history
 
-- **plugin** [longest run, turn by turn](chains/plugin-longest.md) · latest run 2026-10-14T23:04:41.104Z · claude-sonnet-5-5/low · Claude Code 2.1.296 · plugin 0.6.0 · 17 case(s) · mean score 0.97 · cost $5.02
+- **plugin** [longest run, turn by turn](chains/plugin-longest.md) · latest run 2026-10-15T06:21:21.196Z · claude-sonnet-5-5/low · Claude Code 2.1.296 · plugin 0.6.0 · 17 case(s) · mean score 0.98 · cost $4.91
 - **bare** [longest run, turn by turn](chains/bare-longest.md) · latest run 2026-10-12T23:34:20.594Z · claude-sonnet-5-5/low · Claude Code 2.1.296 · 12 case(s) · mean score 0.84 · cost $2.87
 
 `plugin` is the full case score; `outcome` is its shared graders only (answer, code, boundary); `bare` is the same
@@ -30,9 +30,9 @@ Brackets: change against the previous row of the same arm. Failing graders are t
 
 | case | plugin | outcome | bare | lift | plugin $ | bare $ | session s | model calls/tools | context k | failing graders |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| plan-accept | 1 | 1 | 0.867 (-0.05) | +0.13 | 0.1335 | 0.0663 | 37 / — | 7.7/7.7 · 3/2 | 26.4 / 17.5 | — |
-| plan-draft | 0.905 (-0.09) | 1 | — | — | 0.1036 | — | 24.4 | 6.3/6.3 | 23.6 | accept-gate-printed 0.67, plan-body-written 0.67 |
-| plan-reuse | 0.939 (+0.06) | 0.868 | 0.6 (-0.16) | +0.27 | 0.2307 | 0.1216 | 58.6 / — | 10/12.3 · 4.7/4 | 39.6 / 27.0 | plan-quality 0.67 |
+| plan-accept | 1 (+0.12) | 1 | 0.867 (-0.05) | +0.13 | 0.1157 | 0.0663 | 29.1 / — | 6.3/6.3 · 3/2 | 25.2 / 17.5 | — |
+| plan-draft | 1 | 1 | — | — | 0.1117 | — | 27.9 | 7/7 | 25.0 | — |
+| plan-reuse | 0.939 (-0.06) | 0.868 | 0.6 (-0.16) | +0.27 | 0.2046 | 0.1216 | 46.8 / — | 7.3/9.7 · 4.7/4 | 39.4 / 27.0 | plan-quality 0.67 |
 
 ## review
 
@@ -48,7 +48,7 @@ Brackets: change against the previous row of the same arm. Failing graders are t
 
 | case | plugin | outcome | bare | lift | plugin $ | bare $ | session s | model calls/tools | context k | failing graders |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| rules-migrate | 0.926 (-0.07) | — | — | — | 0.1073 | — | 20.4 | 6.7/6.3 | 24.9 | rules-faithful 0.67 |
+| rules-migrate | 1 (+0.07) | — | — | — | 0.1041 | — | 20.9 | 6/5 | 24.5 | — |
 
 ## task
 
@@ -156,14 +156,14 @@ recall 1.00 ± 0.00 · precision 0.94 ± 0.06 · F1 0.97 ± 0.03
 | 3 | 0.88 | 1 | 0.88 | 0.93 | 5 | 4 | 24.7 | 0.1 | — | src/legacy/payment-hooks.js, src/notifications/queue.js | files-skip-legacy |
 | spread | 0.96 ± 0.07 |  |  |  | 4.33 ± 0.58 | 3.67 ± 0.58 |  |  |  |  |  |
 
-### plan-accept · plugin · 3 run(s) · 2026-10-14T23:04
+### plan-accept · plugin · 3 run(s) · 2026-10-15T06:18
 
 | run | score | calls | tools | context k | $ | failing graders |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | 1 | 9 | 9 | 26.7 | 0.13 | — |
-| 2 | 1 | 7 | 7 | 26.4 | 0.13 | — |
-| 3 | 1 | 7 | 7 | 26.2 | 0.13 | — |
-| spread | 1.00 ± 0.00 | 7.67 ± 1.16 | 7.67 ± 1.16 |  |  |  |
+| 1 | 1 | 7 | 7 | 24.8 | 0.12 | — |
+| 2 | 1 | 7 | 7 | 26.3 | 0.12 | — |
+| 3 | 1 | 5 | 5 | 24.5 | 0.11 | — |
+| spread | 1.00 ± 0.00 | 6.33 ± 1.16 | 6.33 ± 1.16 |  |  |  |
 
 ### plan-accept · bare · 3 run(s) · 2026-10-12T23:32
 
@@ -174,23 +174,23 @@ recall 1.00 ± 0.00 · precision 0.94 ± 0.06 · F1 0.97 ± 0.03
 | 3 | 1 | 3 | 2 | 17.6 | 0.07 | — |
 | spread | 0.87 ± 0.23 | 3.00 ± 0.00 | 2.00 ± 0.00 |  |  |  |
 
-### plan-draft · plugin · 3 run(s) · 2026-10-14T23:04
+### plan-draft · plugin · 3 run(s) · 2026-10-15T06:20
 
 | run | score | calls | tools | context k | $ | failing graders |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | 0.71 | 4 | 4 | 21.7 | 0.08 | accept-gate-printed, plan-body-written |
-| 2 | 1 | 8 | 8 | 23.9 | 0.11 | — |
-| 3 | 1 | 7 | 7 | 25.3 | 0.12 | — |
-| spread | 0.90 ± 0.17 | 6.33 ± 2.08 | 6.33 ± 2.08 |  |  |  |
+| 1 | 1 | 5 | 6 | 24.0 | 0.1 | — |
+| 2 | 1 | 7 | 7 | 24.2 | 0.11 | — |
+| 3 | 1 | 9 | 8 | 26.8 | 0.13 | — |
+| spread | 1.00 ± 0.00 | 7.00 ± 2.00 | 7.00 ± 1.00 |  |  |  |
 
-### plan-reuse · plugin · 3 run(s) · 2026-10-14T23:04
+### plan-reuse · plugin · 3 run(s) · 2026-10-15T06:21
 
 | run | score | calls | tools | context k | $ | failing graders |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | 1 | 11 | 10 | 39.0 | 0.23 | — |
-| 2 | 1 | 10 | 11 | 38.0 | 0.22 | — |
-| 3 | 0.82 | 9 | 16 | 41.9 | 0.24 | plan-quality |
-| spread | 0.94 ± 0.10 | 10.00 ± 1.00 | 12.33 ± 3.21 |  |  |  |
+| 1 | 1 | 8 | 7 | 38.1 | 0.2 | — |
+| 2 | 1 | 6 | 6 | 37.9 | 0.18 | — |
+| 3 | 0.82 | 8 | 16 | 42.1 | 0.22 | plan-quality |
+| spread | 0.94 ± 0.10 | 7.33 ± 1.16 | 9.67 ± 5.51 |  |  |  |
 
 ### plan-reuse · bare · 3 run(s) · 2026-10-12T23:32
 
@@ -288,14 +288,14 @@ recall 1.00 ± 0.00 · precision 0.94 ± 0.06 · F1 0.97 ± 0.03
 | 3 | 0.78 | 4 | 4 | 21.5 | 0.09 | convention-finding |
 | spread | 0.71 ± 0.13 | 4.33 ± 0.58 | 4.00 ± 0.00 |  |  |  |
 
-### rules-migrate · plugin · 3 run(s) · 2026-10-14T23:04
+### rules-migrate · plugin · 3 run(s) · 2026-10-15T01:46
 
 | run | score | calls | tools | context k | $ | failing graders |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | 1 | 7 | 7 | 25.4 | 0.11 | — |
-| 2 | 1 | 8 | 7 | 25.2 | 0.11 | — |
-| 3 | 0.78 | 5 | 5 | 23.9 | 0.09 | rules-faithful |
-| spread | 0.93 ± 0.13 | 6.67 ± 1.53 | 6.33 ± 1.16 |  |  |  |
+| 1 | 1 | 5 | 4 | 24.3 | 0.1 | — |
+| 2 | 1 | 6 | 5 | 24.2 | 0.1 | — |
+| 3 | 1 | 7 | 6 | 25.1 | 0.11 | — |
+| spread | 1.00 ± 0.00 | 6.00 ± 1.00 | 5.00 ± 1.00 |  |  |  |
 
 ### task-fix · plugin · 3 run(s) · 2026-10-14T23:04
 
