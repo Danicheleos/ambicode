@@ -7,6 +7,8 @@ import path from 'node:path';
 
 const started = Date.now();
 const input = JSON.parse(readFileSync(0, 'utf8'));
+// The line after the last one is an append point: 9 of 14 bad anchors in eval plans were exactly that.
+const inRange = (from, to, count) => from >= 1 && from <= to && to <= count + 1;
 const root = path.resolve(input.repositoryRoot);
 const body = readFileSync(path.join(input.steps, 'plan-body.md'), 'utf8');
 // The first ten bad anchors are listed at the gate; the count is exact.
@@ -32,7 +34,7 @@ if (input.params?.[0] === 'resolve') {
     if (fenced || /^\s*```/.test(line)) return line;
     return line.replace(ANCHOR, (whole, file, spec) => {
       const [from, to = from] = spec.replace(/\s/g, '').split(/[-–]/).map(Number);
-      const fits = (count) => count !== null && from >= 1 && from <= to && to <= count;
+      const fits = (count) => count !== null && inRange(from, to, count);
       // 9 of 10 failed checks were this form, not a missing file: an absolute path or a `<repo-dir>/` prefix.
       const slashed = file.replace(/\\/g, '/');
       const rooted = path.isAbsolute(file) ? path.relative(root, file).replace(/\\/g, '/') : slashed.startsWith(`${path.basename(root)}/`) && lineCount(path.resolve(root, file)) === null ? slashed.slice(path.basename(root).length + 1) : null;
@@ -67,7 +69,7 @@ for (const line of body.split('\n')) {
     const [from, to = from] = spec.replace(/\s/g, '').split(/[-–]/).map(Number);
     const abs = path.resolve(root, file);
     const count = (path.isAbsolute(file) || file.split(/[\\/]/).includes('..') || !(abs + path.sep).startsWith(root + path.sep)) ? undefined : lineCount(abs);
-    const reason = count === undefined ? 'outside-repository' : count === null ? 'missing-file' : from >= 1 && from <= to && to <= count ? null : `line-out-of-range (file has ${count} lines)`;
+    const reason = count === undefined ? 'outside-repository' : count === null ? 'missing-file' : inRange(from, to, count) ? null : `line-out-of-range (file has ${count} lines)`;
     if (reason === null) continue;
     anchorsBad += 1;
     if (badAnchors.length < LISTED) badAnchors.push(`${file}:${spec} ${reason}`);

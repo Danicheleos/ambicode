@@ -76,7 +76,7 @@ function bashDecision(command: string, cwd: string | undefined, pluginRoot: stri
       } else if (RUN_DIR.test(path)) {
         const slug = PLAN_BODY.exec(path)?.[2];
         // A plan-body target outranks a note-save one: it names the Write-tool fix, which the other target hides.
-        if (slug !== undefined) why = planBodyReason(slug);
+        if (slug !== undefined) why = planBodyReason(slug, pluginRoot);
         else why ??= noteSaveReason(pluginRoot);
       } else if (!isAbsolute(target.path) && ((lost && mentionsRunDir) || prior.some((before) => RUN_DIR.test(normalize(target.path, before))))) {
         asks.set(placement(target.path, 'is relative to a directory an earlier `cd` changed'), NAME_PATH);
@@ -111,8 +111,9 @@ function fileDecision(input: GuardInput, session: string | null, route: ActiveRo
   if (RUN_DIR.test(target)) {
     const body = PLAN_BODY.exec(target);
     if (body !== null && !RUN_DIR.test(body[1] ?? '')) {
-      const refusal = planBodyRefusal(session, route, state, `${body[1] ?? ''}.ambicode/tasks/${body[2]!}`, body[2]!);
-      return refusal === null ? {} : decide('deny', refusal);
+      const refusal = planBodyRefusal(session, route, state, `${body[1] ?? ''}.ambicode/tasks/${body[2]!}`, body[2]!, pluginRoot);
+      // The plan is one Write; a patch to the owner's file is refused with the same next step.
+      return refusal !== null ? decide('deny', refusal) : input.tool_name === 'Write' ? {} : decide('deny', planBodyReason(body[2]!, pluginRoot));
     }
     return decide('deny', noteSaveReason(pluginRoot));
   }

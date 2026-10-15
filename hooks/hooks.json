@@ -14,6 +14,10 @@
         "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs", "hook"] }]
       },
       {
+        "matcher": "Glob",
+        "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs", "hook"] }]
+      },
+      {
         "matcher": "Agent",
         "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs", "hook"] }]
       }

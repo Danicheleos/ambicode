@@ -26,6 +26,7 @@ function project(overrides: Partial<ProjectConfig> = {}): ProjectConfig {
     ecosystem: { languages: ['typescript'], frameworks: [], packageManager: null },
     include: [],
     exclude: [],
+    ignored: [],
     packs: [],
     policyFiles: [],
     commands: { lint: 'lint', unit: 'unit', e2e: 'e2e' },

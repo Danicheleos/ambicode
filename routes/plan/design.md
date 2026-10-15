@@ -1,9 +1,9 @@
 Design the change, then write the plan.
-- Reuse sweep first: per needed piece, run `{cli} refs --declarations <name> --task {task}`, read matches. Reuse over new: a new helper beside an existing one is a defect.
-- Weigh real alternatives: cost, risk, one recommendation. Cite `path:line` for facts; name assumptions.
+- Reuse sweep first: per needed piece, run `{cli} refs --declarations <name> --task {task}`, read matches. Reuse over new: a helper beside an existing one is a defect.
+- Weigh alternatives: cost, risk, one recommendation. Cite `path:line` for facts; name assumptions.
 - A decision is material when alternatives change code, contracts or behaviour a reviewer would notice; routine (never asked) when policy, the requirement or the structure settles it.
 - Ask each material decision in its own `AskUserQuestion`, ending with `[ambicode gate decision:<slug>]`. An unanswered one stays open: continue; the plan stays a draft.
-Write the plan once with Write to `.ambicode/tasks/{task}/steps/plan-body.md`. Anchors are checked once. If sent back: rewrite the whole file with Write, never patch or use the shell.
+Write the plan once with Write to `.ambicode/tasks/{task}/steps/plan-body.md`. If sent back: rewrite the whole file with Write, never patch or use the shell.
 Shape:
 - A `| requirement | section |` table, a row per point, or under `## Not covered` with the reason.
 - Ordered, independently reviewable iterations, each with:
@@ -12,5 +12,5 @@ Shape:
   - *Accept*: observable criteria.
   - *Checks*: affected checks by key.
   - *Leaves out*: what a later iteration owns.
-- Assumptions, open decisions, limitations. A file read and ruled out goes unnamed here too, even as unaffected.
+- Assumptions, open decisions, limitations. A file read and ruled out goes unnamed here too, even as unaffected (no "`x` is not changed" line).
 Name only files the plan changes or reuses. Edit nothing else.

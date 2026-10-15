@@ -98,12 +98,14 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     const chain = chainOf(run);
     let status: string;
     let gaps: string[] = [];
+    let report: ReturnType<typeof buildReport> | null = null;
     const ended = exitOf(chain);
     if (ended !== null && ended['complete'] !== true) {
       status = `ended: ${ended['reason']}${ended['detail'] === undefined ? '' : ` (${quiet(ended['detail'])})`}`;
     } else {
       // An unverified completion still exits.
-      gaps = buildReport(chain.entries, { current: currentIn(run.def, chain) }).notVerified.split('\n').filter((line, index) => index > 0 && line.trim() !== 'none recorded' && line.trim() !== '' && !line.endsWith(' (historical)')).map((line) => line.trim().replace(/^- /, ''));
+      report = buildReport(chain.entries, { current: currentIn(run.def, chain) });
+      gaps = report.notVerified.split('\n').filter((line, index) => index > 0 && line.trim() !== 'none recorded' && line.trim() !== '' && !line.endsWith(' (historical)'));
       if (ended === null) await exitRoute(run, 'done', undefined, { complete: true, unverified: gaps.length });
       status = gaps.length === 0 ? 'complete' : `complete, ${gaps.length} items not verified`;
     }
@@ -113,7 +115,7 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     const closing = last?.actor === 'code' && ended === null ? (await Promise.all(last.run.map((call) => loadPayload(run.runtime.fs, run.dir, chainKey([...chain.ids]), payloadKey(call))))).filter((text) => text !== null && text.trim() !== '').join('\n\n') : '';
     // After `ended: human (no-check)` the model went on editing; the end says what is left to do.
     const after = 'Make no more edits or route calls; write your final message';
-    const body = status.startsWith('ended') ? `The route has ended. ${after}, saying why it ended.` : `The route is complete.${recordedLine(chain.entries)}${gaps.length === 0 ? '' : ` Not verified: ${gaps.join('; ')}. Name each in your final message.`} ${after}.`;
+    const body = status.startsWith('ended') ? `The route has ended. ${after}, saying why it ended.` : `The route is complete.${recordedLine(chain.entries)}${report === null || gaps.length === 0 ? '' : `\n\nThe Stop hook checks the final message for these two sections; a message that names a gap without them is blocked once. End yours with them, copied:\n\n${report.evidence}\n${report.notVerified}\n\n`}${after}.`;
     return (await partOf(run, null, header, closing !== '' ? closing : body)).part;
   }
 

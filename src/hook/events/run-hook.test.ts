@@ -72,6 +72,25 @@ describe('G/H: ambicode hook', () => {
     }
   });
 
+  it('PostToolUse on Glob drops git-ignored results under the configured entries, from a cwd above the repository', async () => {
+    const { repo, dispose } = await fixtureWithPack();
+    try {
+      const configPath = path.join(repo.root, '.ambicode', 'config.yaml');
+      await nodeFileSystem.writeText(configPath, (await nodeFileSystem.readText(configPath)).replace(/^    root: \.$/m, '    root: .\n    ignored: ["node_modules/"]'));
+      const runtime = await createRuntime({ cwd: repo.root });
+      const response = { filenames: ['src/a.test.js', 'node_modules/x/b.test.js'], durationMs: 2, numFiles: 2, truncated: false, totalMatches: 2, countIsComplete: true };
+      const glob = (cwd: string, filenames: string[], pattern = '**/*.test.js') =>
+        runHook(runtime, JSON.stringify({ hook_event_name: 'PostToolUse', session_id: randomUUID(), cwd, tool_name: 'Glob', tool_input: { pattern }, tool_response: { ...response, filenames } }));
+      assert.deepEqual(await glob(repo.root, response.filenames), {
+        hookSpecificOutput: { hookEventName: 'PostToolUse', updatedToolOutput: { ...response, filenames: ['src/a.test.js'], numFiles: 1, totalMatches: 1 } },
+      });
+      assert.deepEqual(await glob(repo.root, ['src/a.test.js']), {});
+      assert.deepEqual(await glob(repo.root, response.filenames, 'node_modules/**/*.js'), {});
+    } finally {
+      await dispose();
+    }
+  });
+
   it('SessionStart and a plain prompt deliver nothing: the operating contract rides only with a route', async () => {
     const { repo, dispose } = await fixtureWithPack();
     try {

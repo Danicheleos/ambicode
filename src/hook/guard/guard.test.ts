@@ -234,7 +234,7 @@ describe('the task-directory guard sends notes through note save', () => {
   it('the plan-body message wins over the note-save message within one command', () => {
     const out = decide('Bash', { command: 'mkdir -p .ambicode/tasks/S/steps && cat > .ambicode/tasks/S/steps/plan-body.md <<EOF\nx\nEOF' });
     assert.equal(decisionOf(out), 'deny');
-    assert.match(out.hookSpecificOutput!.permissionDecisionReason, /Write it with the Write tool/);
+    assert.match(out.hookSpecificOutput!.permissionDecisionReason, /written once, with the Write tool/);
   });
   for (const command of ['cd /tmp && echo x > /tmp/notes.md', 'cd /tmp && echo x > /dev/null']) {
     it(`leaves an absolute target after a cd alone: ${command}`, () => assert.deepEqual(decide('Bash', { command }), {}));
@@ -330,9 +330,15 @@ function fixture(ledger: LedgerEntry[] | string | null, pointers: Record<string,
 const onPlanT = { task: 'T', skill: 'plan' };
 
 describe('plan-body writes: allowed only to the session that owns the live plan chain', () => {
-  it('the owning session writes steps/plan-body.md with Write, Edit and MultiEdit', () => {
+  it('the owning session writes steps/plan-body.md with Write only; Edit and MultiEdit are denied with the next command', () => {
     const { write } = fixture([planRoute('a-1', 'A')], { A: onPlanT });
-    for (const tool of ['Write', 'Edit', 'MultiEdit']) assert.deepEqual(write('A', undefined, tool), {});
+    assert.deepEqual(write('A', undefined, 'Write'), {});
+    for (const tool of ['Edit', 'MultiEdit', 'NotebookEdit']) {
+      const out = write('A', undefined, tool);
+      assert.equal(decisionOf(out), 'deny');
+      assert.match(out.hookSpecificOutput!.permissionDecisionReason, /written once, with the Write tool.*route next --task T`.*rewrite the whole file with Write/s);
+      assert.match(out.hookSpecificOutput!.permissionDecisionReason, /node "\/p\/scripts\/ambicode\.mjs" route next --task T/);
+    }
   });
 
   it('after another session --fresh, the former owner is denied naming the new owner', () => {

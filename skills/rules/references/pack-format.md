@@ -10,6 +10,8 @@ The field-by-field reference for `.ambicode/policies/<id>.yaml`. The worked exam
   reviewer acts on it: an `observed` or `inherited` rule is never reported as a
   violation on the strength of the label alone, a `team` rule is. Getting this
   wrong changes review output. **When in doubt, `observed` — and say so.**
+- **`source`** — required on the pack (not only on rules): `location`, one line saying where the pack's
+  rules come from, e.g. `CONTRIBUTING.md`.
 - **`appliesTo`** — globs derived from the real file layout.
 - **`activities`** — which of `review`, `task`, `plan`, `investigate` the rule
   is content for. How code should be written is `review` and `task`; how work
@@ -26,6 +28,35 @@ The field-by-field reference for `.ambicode/policies/<id>.yaml`. The worked exam
   of the project's **already declared** commands proves it (an undeclared
   command id makes a hand-written pack an error), `none` when nothing verifies it. All
   three need an `explanation`.
+
+## Which keys go where
+
+Pack level: `schemaVersion: 1`, `id`, `authority`, `appliesTo`, `activities`, `source`, `rules`
+(optional `description`, `replaces`). Rule level: only `id`, `category`, `instruction`, `check`,
+`source` and an optional `activities`. A key on the wrong level is an error that skips the pack.
+
+Double-quote every `quote` and `instruction` value: a source line with `: ` in it breaks unquoted YAML.
+
+```yaml
+schemaVersion: 1
+id: service-conventions
+authority: team
+description: Conventions from CONTRIBUTING.md.
+appliesTo: ["src/**/*.ext"]
+activities: [review, task]
+source:
+  location: CONTRIBUTING.md
+rules:
+  - id: name-the-operation
+    category: code-style
+    instruction: "Error messages name the operation that failed and its input id."
+    source:
+      quote: "Errors: an error message names the operation that failed"
+      location: CONTRIBUTING.md
+    check:
+      kind: reviewer
+      explanation: Look for error messages that omit the operation or the id.
+```
 
 ## Provenance on every drafted rule
 

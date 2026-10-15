@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { openWorkspace, projectForRequest, toRepositoryRelative } from '#modules/config/workspace';
 import { resolvePolicyFor } from '#modules/policy/resolve-for';
 import type { ProjectConfig } from '#types/modules/config';
@@ -135,7 +136,13 @@ async function limitReached(deps: CheckDeps, routed: Routed, phase: string): Pro
 export const commandFor = (template: string, files: readonly string[]): string => template.replaceAll('{file}', files.map(shellQuote).join(' '));
 
 async function repositoryFile(workspace: Workspace, file: string): Promise<string> {
-  const found = await toRepositoryRelative(workspace, file);
+  let found = await toRepositoryRelative(workspace, file);
+  const { runtime, repositoryRoot } = workspace;
+  // `cwd` moves into the task's repository, so a path typed from the shell's directory (`repo/src/a.js`) is read from there.
+  if (runtime.invokedFrom !== undefined && !(await runtime.fs.exists(path.join(repositoryRoot, found)))) {
+    const typed = await toRepositoryRelative({ ...workspace, runtime: { ...runtime, cwd: runtime.invokedFrom } }, file);
+    if (await runtime.fs.exists(path.join(repositoryRoot, typed))) found = typed;
+  }
   if (found === '' || found === '..' || found.startsWith('../')) throw badArgument(`--file ${file} is outside the repository.`, 'file');
   return found;
 }

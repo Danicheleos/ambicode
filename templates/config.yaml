@@ -37,6 +37,7 @@ requirements:
 #     ecosystem: { languages: [typescript], frameworks: [react], packageManager: pnpm }
 #     include: ["src/**"]        # globs agents may read and edit
 #     exclude: ["**/*.test.*"]   # globs agents ignore
+#     ignored: [node_modules/]   # git-ignored, hidden from Glob results; init fills it
 #     packs: []                  # builtin/<id> from `config packs --list`; `config packs` copies each into policyFiles
 #     policyFiles: [.ambicode/policies/angular/angular-http.yaml]   # editable copies (replaces: builtin/<id>) and packs from /ambicode:rules
 #     commands: { dev: "pnpm dev" }
@@ -49,6 +50,7 @@ projects:
     ecosystem: { languages: [], frameworks: [], packageManager: null }
     include: []
     exclude: []
+    ignored: []                  # git-ignored, hidden from Glob results; init fills it
     packs: []
     policyFiles: []
     commands: {}

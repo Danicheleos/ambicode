@@ -83,7 +83,13 @@ async function install(fixture, destination) {
 }
 
 /** Stands in for the model's judgment: one root project; a wired slot gets the installed tool that serves it, found by looking for the binary. */
+async function ignoredFor(destination) {
+  const { stdout } = await run('git', ['ls-files', '-o', '-i', '--exclude-standard', '--directory'], { cwd: destination });
+  return stdout.split('\n').map((line) => line.trim()).filter((line) => line !== '' && !line.startsWith('.ambicode/')).sort();
+}
+
 async function configFor(destination, wires) {
+  const ignored = await ignoredFor(destination);
   const tools = {
     lint: [['node_modules/.bin/eslint', '{file}'], ['.venv/bin/ruff', 'check {file}']],
     unit: [['node_modules/.bin/jest', '--findRelatedTests {file}'], ['.venv/bin/python', '-m pytest {file}']],
@@ -111,7 +117,7 @@ async function configFor(destination, wires) {
       rules: run,
     },
     requirements: { runtimes: {}, mcps: [], lsps: [], env: [] },
-    projects: [{ id: 'app', root: '.', paths: [], ecosystem: { languages: [python ? 'python' : 'typescript'], frameworks: [], packageManager: null }, include: [], exclude: [], packs: ['builtin/common-design', 'builtin/common-code', 'builtin/common-errors', 'builtin/common-security', 'builtin/common-verification', 'builtin/common-checks'], policyFiles: [], commands: {}, checks }],
+    projects: [{ id: 'app', root: '.', paths: [], ecosystem: { languages: [python ? 'python' : 'typescript'], frameworks: [], packageManager: null }, include: [], exclude: [], ignored, packs: ['builtin/common-design', 'builtin/common-code', 'builtin/common-errors', 'builtin/common-security', 'builtin/common-verification', 'builtin/common-checks'], policyFiles: [], commands: {}, checks }],
   };
 }
 

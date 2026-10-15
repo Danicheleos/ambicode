@@ -14,6 +14,8 @@ import { answerGates } from './gate-answer.ts';
 import { launchRoute, reinjectRoute } from './prompt-launch.ts';
 import { stopCheck } from './stop-check.ts';
 import { recordReviewerCall } from './review-record.ts';
+import { loadConfig } from '#modules/config/load';
+import { dropIgnoredGlobResults, type GlobResponse } from '#modules/search/glob-ignored';
 import { readSessionContract } from '#modules/policy/packs/shared-contract';
 import { cleanupSessionState, deliverOnce, hookStateBaseDir, resetDelivered } from '#platform/claude/hook-state';
 import type { Runtime } from '#types/composition';
@@ -160,9 +162,29 @@ async function handlePostToolUse(runtime: Runtime, input: HookInput, deps: HookD
     const context = await recordReviewerCall(runtime, input, deps);
     return context === null ? EMPTY_HOOK_OUTPUT : { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: context } };
   }
+  if (input.tool_name === 'Glob') return await filterGlob(runtime, input);
   if (input.tool_name === 'WebFetch' || input.tool_name?.startsWith('mcp__')) {
     await captureForRoute(runtime, input, deps);
     return EMPTY_HOOK_OUTPUT;
   }
   return EMPTY_HOOK_OUTPUT;
+}
+
+async function filterGlob(runtime: Runtime, input: HookInput): Promise<unknown> {
+  const response = input.tool_response as GlobResponse | undefined;
+  if (!Array.isArray(response?.filenames)) return EMPTY_HOOK_OUTPUT;
+  const found = await findSessionRepository(runtime, input.cwd ?? runtime.cwd);
+  if (typeof found === 'string') return EMPTY_HOOK_OUTPUT;
+  // Git reports the real root; macOS reaches /tmp and /var through symlinks, so a lexical relative path would climb out.
+  const cwd = await runtime.fs.realpath(input.cwd ?? runtime.cwd);
+  const { config } = await loadConfig(runtime.fs, found.repositoryRoot);
+  const toolInput = input.tool_input as { pattern?: unknown; path?: unknown } | undefined;
+  const filtered = dropIgnoredGlobResults(response, {
+    cwd,
+    repositoryRoot: await runtime.fs.realpath(found.repositoryRoot),
+    projects: config.projects,
+    ...(typeof toolInput?.pattern === 'string' ? { pattern: toolInput.pattern } : {}),
+    ...(typeof toolInput?.path === 'string' ? { searchPath: toolInput.path } : {}),
+  });
+  return filtered === null ? EMPTY_HOOK_OUTPUT : { hookSpecificOutput: { hookEventName: 'PostToolUse', updatedToolOutput: filtered } };
 }

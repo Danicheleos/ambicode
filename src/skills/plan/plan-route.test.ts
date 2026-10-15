@@ -129,6 +129,27 @@ describe('06-P5/06-P6/06-P7 write and check', () => {
     }
   });
 
+  it('06-P6: the line after the last one is an append point and passes; two past the end fails', async () => {
+    const plan = await shipped();
+    try {
+      await toDesign(plan);
+      const append = await planCheck(plan, '# Plan\n\n- *Changes*: `src/orders/limit.ts:3-4` `orderLimit`\n');
+      assert.doesNotMatch(append.text, /Plan check FAILED/);
+      const worker = (await plan.fx.kinds(PLAN_TASK, 'worker')).at(-1)!;
+      assert.equal((worker['summary'] as { failed: boolean }).failed, false);
+    } finally {
+      await plan.dispose();
+    }
+    const past = await shipped();
+    try {
+      await toDesign(past);
+      const failed = await planCheck(past, '# Plan\n\n- *Changes*: `src/orders/limit.ts:5` `orderLimit`\n');
+      assert.match(failed.text, /src\/orders\/limit\.ts:5 line-out-of-range \(file has 3 lines\)/);
+    } finally {
+      await past.dispose();
+    }
+  });
+
   it('S4 06-P6: a failing check is recorded once and the route goes on to plan-accept with the bad anchors printed; design is not re-delivered', async () => {
     const plan = await shipped();
     try {

@@ -6,7 +6,7 @@ import { FakeProcessRunner } from '#testing/fakes/fake-process-runner';
 import { runOne, shellArgv, shellQuote } from './run.ts';
 import { commandFor } from './check-command.ts';
 
-const project = { id: 'web', root: 'apps/web', paths: [], ecosystem: { languages: [], frameworks: [], packageManager: null }, include: [], exclude: [], packs: [], policyFiles: [], commands: {}, checks: {} } as ProjectConfig;
+const project = { id: 'web', root: 'apps/web', paths: [], ecosystem: { languages: [], frameworks: [], packageManager: null }, include: [], exclude: [], ignored: [], packs: [], policyFiles: [], commands: {}, checks: {} } as ProjectConfig;
 const clock = { now: () => new Date(0), elapsed: () => 0 };
 
 const policy = (action: 'run' | 'propose' | 'forbid', reason?: string): ResolvedPolicy => ({

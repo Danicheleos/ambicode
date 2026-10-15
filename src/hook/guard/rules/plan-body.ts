@@ -6,8 +6,8 @@ import { isAbsolute } from '../paths.ts';
 
 export const PLAN_BODY = /^(.*\/)?\.ambicode\/tasks\/([^/]+)\/steps\/plan-body\.md$/;
 
-export function planBodyReason(slug: string): string {
-  return `AMBICODE: the plan body is not written with the shell. Write it with the Write tool to .ambicode/tasks/${slug}/steps/plan-body.md, then run route next: the route saves it as the draft and checks it.`;
+export function planBodyReason(slug: string, pluginRoot: string): string {
+  return `AMBICODE: the plan body is written once, with the Write tool (no shell, no Edit) to .ambicode/tasks/${slug}/steps/plan-body.md. Run \`node "${pluginRoot}/scripts/ambicode.mjs" route next --task ${slug}\`: the route saves it as the draft and checks it. After a revise, rewrite the whole file with Write.`;
 }
 
 /** Why this session may not write the plan body of `slug`; `null` when it may. */
@@ -17,9 +17,10 @@ export function planBodyRefusal(
   state: GuardState | undefined,
   taskDirectory: string,
   slug: string,
+  pluginRoot: string,
 ): string | null {
   const refuse = (why: string): string =>
-    `AMBICODE: steps/plan-body.md is written only by the session that owns the task's live plan route; ${why}. ${planBodyReason(slug)}`;
+    `AMBICODE: steps/plan-body.md is written only by the session that owns the task's live plan route; ${why}. ${planBodyReason(slug, pluginRoot)}`;
   if (session === null) return refuse('the hook named no session');
   if (!isAbsolute(taskDirectory)) return refuse('the hook gave no absolute path for it');
   if (route === null) return refuse('no active route is on record for this session');

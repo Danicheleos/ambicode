@@ -12,6 +12,8 @@ export interface Runtime {
   clock: Clock;
   ids: IdSource;
   cwd: string;
+  /** The directory the shell ran in when `cwd` was moved into a task's repository. */
+  invokedFrom?: string;
   pluginRoot: string;
   stdin: StandardInput;
   env: Readonly<Record<string, string | undefined>>;

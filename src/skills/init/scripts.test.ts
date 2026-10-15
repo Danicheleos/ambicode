@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
+import { parseConfig } from '#modules/config/load';
 import { REPO_ROOT } from '#testing/paths';
 
 const SCAFFOLD = path.join(REPO_ROOT, 'skills', 'init', 'scripts', 'scaffold.mjs');
@@ -43,6 +44,17 @@ describe('init scaffold', () => {
     await writeFile(path.join(root, '.ambicode/config.yaml'), 'mine\n');
     run(root);
     assert.equal(await readFile(path.join(root, '.ambicode/config.yaml'), 'utf8'), 'mine\n');
+  });
+
+  it('records git-ignored paths in the config, never .ambicode/', async (t) => {
+    const root = await repo(t, 'app');
+    await writeFile(path.join(root, '.gitignore'), 'node_modules/\n.ambicode/\n');
+    await mkdir(path.join(root, 'node_modules', 'x'), { recursive: true });
+    await writeFile(path.join(root, 'node_modules', 'x', 'i.js'), '');
+    const out = JSON.parse(run(root).stdout);
+    assert.deepEqual(out.ignored, ['node_modules/']);
+    const config = parseConfig(await readFile(path.join(root, '.ambicode/config.yaml'), 'utf8'));
+    assert.deepEqual(config.projects[0]?.ignored, ['node_modules/']);
   });
 
   it('exits 2 with a JSON error outside a git root', async (t) => {

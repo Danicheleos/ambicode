@@ -81,10 +81,12 @@ export async function toRepositoryRelative(workspace: Workspace, value: string):
   return normalizeRelative(path.relative(workspace.repositoryRoot, resolved));
 }
 
+/** A missing leaf keeps its real parent: a lexical `/var/...` against git's `/private/var/...` root reads as outside the repository. */
 async function realpathIfExists(fs: FileSystem, absolute: string): Promise<string> {
   try {
     return await fs.realpath(absolute);
   } catch {
-    return absolute;
+    const parent = path.dirname(absolute);
+    return parent === absolute ? absolute : path.join(await realpathIfExists(fs, parent), path.basename(absolute));
   }
 }

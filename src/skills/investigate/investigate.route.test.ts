@@ -43,7 +43,7 @@ describe('investigate route (03-I1, 03-I2)', () => {
       await saveNote({ runtime: fx.runtime, session: A, context }, { task: 'cart', kind: 'investigation', body: '## Files\n- src/missing.ts:3\n', from: null, iteration: null, route: first.routeId });
       const done = await next({ cause: 'note save' });
       assert.equal(done.position, 'complete');
-      assert.match(done.text, /Not verified: check-citations: 1 bad citations: src\/missing\.ts:3 missing-file\. Name each in your final message\./, 'a count alone left the model unable to name the gap');
+      assert.match(done.text, /\nNot verified\b[\s\S]*check-citations: 1 bad citations: src\/missing\.ts:3 missing-file/, 'a count alone left the model unable to name the gap');
       const ledger = await fx.ledger('cart');
       const checks = ledger.filter((entry) => entry.kind === 'step' && entry['step'] === 'check-citations');
       assert.deepEqual(checks.map((entry) => entry['status']), ['failed', 'completed']);

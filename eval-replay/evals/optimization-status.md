@@ -145,6 +145,31 @@ Cost now excludes the judge, and session seconds are recorded. Each case is list
   - plan-accept run 3 failed anchors on its first attempt (2 line-out-of-range), was accepted, and closed as "complete, 1 items not verified". The final message could not name the gap because the end print gave only the count. Fixed: the end print now lists the gaps.
   - plan-accept run 1: the first Write went to the sandbox cwd, not `repo/`, so plan-check crashed on the missing plan-body.md (script-failed). That is a sandbox artifact and was not acted on.
 
+### Unattended tuning rounds (2026-10-15, $15 budget, $10.59 spent)
+
+Each round: paid run, then a $0 investigator, then a fix with its test.
+
+- **Sweep 1 (all 17 ×3, $5.07)** after the one-attempt commit.
+  - The end-print "Name each…" text set off the Stop-hook section check, costing review-skipped one extra call in 3 of 3 runs. Fix: the end print carries the same Evidence and Not verified sections the hook checks.
+  - The rules drafts were invalid on the first attempt. Fix: pack-format.md now has the pack-level `source`, a line on which keys go on the pack and which on a rule, and an example draft (unrelated to the fixture).
+  - plan-draft patched its own plan with Edit. Fix: the plan-body guard rule allows Write only and prints the exact `route next` command.
+- **Round 1 ($1.62).** review-skipped back to 1 call. rules-migrate 0.593: all 3 runs had an unquoted YAML `quote:` containing `: `, so the pack failed to parse (`pack-unparsable`). Fix: the example quotes every `quote` and `instruction` value, with one line saying why.
+- **Round 2 ($1.28).** rules-migrate 1.0. plan-accept 1.0 after plan-check accepted the line after the last one as an append point (9 of 14 historical bad anchors were exactly that; +2 past the end still fails). plan-reuse 0.939, with judge noise on plan-quality.
+- **Round 3 ($0.89).** `check --file repo/x` typed from the directory above the repo used to resolve to `repo/repo/x`, giving "No tests found" in 3 of 9 task runs. Fix: the CLI keeps the shell's directory as `invokedFrom` and retries the path against it. task-fix, task-review-skipped and task-multi were all 1.0, with 0 "No tests found".
+- **Injected-bytes audit ($0).** All safe trims together save about 0.55 KB per run (~$0.0003), so none were applied. The cost gap is extra calls (refs sweep, test and check, report) and cache writes, which buy the quality lift.
+- **Sweep 2 (all 17 ×3, $4.89).** Everything is at 1.0 except init-auto (check-wired, not to be raised), plan-accept 0.879, plan-reuse 0.939 and review-subtle 0.933. Lowest cost so far: review-skipped $0.044/2.4 s, rules-migrate $0.091, task-multi $0.115/28.4 s.
+  - plan-accept: 2 of 3 plans named ruled-out files ("`src/legacy/…` is not changed"). Fix: a counter-example in design.md, `(no "x is not changed" line)`.
+- **Round 5 ($1.91).** plan-accept ×5 1.0, with 2 of 5 plans still having one ruled-out line, which the judge accepted. plan-reuse ×5 0.927 (plan-quality 3/5; the plans name installments.js as unrelated). plan-draft ×3 1.0. The 95 s run spent 53 s on a model `find /` and is noise.
+- **Infrastructure.** The harness refuses an eval directory with more than 20,000 entries. The 129 pre-10-15 trace directories were moved to `../ambicode-evals-assets/archive/eval-traces/plugin/`, and the 4 all-errored history rows were dropped.
+
+### Cost drivers and the ignored-directory line (2026-10-16)
+
+- Analyses: `analysis/2026-10-16-cost-drivers-plan-task.md` and `analysis/2026-10-16-cost-drivers-review-investigate.md`. The delta is mostly cache writes of new tokens (56-67%), not turns. What remains (quality-buying reads, the test and check, the plan file, the reviewer) is accepted by the user as the baseline. The other cuts were judged not worth it at 1-10% each with quality risk.
+- Probe ($0.004): Claude Code's Glob does not skip git-ignored directories, even inside a git repo.
+- Tried: `context.list` gained the line "Ignored by git; Glob does not skip them, so scope patterns away: …", computed with `git ls-files -o -i --exclude-standard --directory`. Ran task-fix, task-review-skipped and task-multi ×3 ($0.93). The line was delivered, but the model still globbed `repo/**/*.test.js` in 6 of 6 task-fix and task-review-skipped runs. No effect, so it was rolled back; git.ts and common.ts are identical to HEAD again.
+
+- Second try (user: "init sets files & folders from gitignore, then the list is used to ignore"; "not global, per project"): `projects[].ignored`, filled by init's scaffold from `git ls-files -o -i --exclude-standard --directory`, and a PostToolUse Glob hook that replaces the result through `updatedToolOutput` (a $0.003 probe confirmed the model sees the replaced output). Task ×3 ($0.79): every Glob returned only repo files. task-fix $0.1034 → $0.0747, review-skipped $0.0817 → $0.0754, multi $0.1182 → $0.1122 (no Glob in multi, so ±5% is noise). Scores 1.0. Kept. Caveat: `truncated` stays true, so Claude Code still prints "Showing the first 2 files; there are more than 2 matches"; no extra narrowing calls were seen.
+
 ## Next
 
 1. Batch A report: verify must be green, plus the $0 checks.

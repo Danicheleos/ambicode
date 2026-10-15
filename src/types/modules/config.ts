@@ -35,6 +35,8 @@ export const ProjectConfig = z.strictObject({
   }),
   include: z.array(Glob).default([]),
   exclude: z.array(Glob).default([]),
+  /** Git-ignored paths relative to `root`, a directory ends with `/`; the Glob hook drops results under them. */
+  ignored: z.array(RelativePath).default([]),
   packs: z.array(Name).default([]),
   policyFiles: z.array(RelativePath).default([]),
   commands: z.record(Name, z.string().min(1)).default({}),

@@ -85,6 +85,23 @@ describe('check --name (07-C)', () => {
     }
   });
 
+  it('--file typed from the shell directory above the repository names the repo file; a path that exists nowhere stays as typed', async () => {
+    const { fx, start, deps, runner } = await checkFixture();
+    try {
+      await start();
+      const above = { ...deps(), runtime: { ...deps().runtime, invokedFrom: path.dirname(fx.repo.root) } };
+      const typed = path.join(path.basename(fx.repo.root), 'src', 'a.spec.ts');
+      const run = (file: string) => runCheckOnly(above, { task: CHECK_TASK, name: 'unit', project: null, files: [file], phase: 'red', approve: [], decline: [] });
+      await run(typed);
+      await run('src/nope.spec.ts');
+      assert.deepEqual(runner.calls[0], ["jest 'src/a.spec.ts'"]);
+      assert.deepEqual((await kinds(fx, 'check'))[0]?.['files'], ['src/a.spec.ts']);
+      assert.deepEqual(runner.calls[1], ["jest 'src/nope.spec.ts'"]);
+    } finally {
+      await fx.dispose();
+    }
+  });
+
   it('without --file the `all` command runs', async () => {
     const { fx, start, check, runner } = await checkFixture();
     try {

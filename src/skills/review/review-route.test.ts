@@ -141,7 +141,10 @@ describe('review route: the estimate gate (08-R4, 08-R5, S12, S14)', () => {
 
   it('08-R4/S14: a headless start takes the default skip, starts no reviewer and the report carries default-taken', async () => {
     await withReview(async (t) => {
-      assert.equal((await t.start({ headless: true })).position, 'complete');
+      const ended = await t.start({ headless: true });
+      assert.equal(ended.position, 'complete');
+      assert.doesNotMatch(ended.text, /Name each/, 'prose naming gaps arms the Stop check without the sections it demands');
+      assert.match(ended.text, /\nEvidence\b[\s\S]*\nNot verified\b[\s\S]*estimate: default taken, "skip" \(headless\)/, 'the end print carries the sections the Stop hook checks');
       assert.deepEqual((await t.kinds('default-taken')).map((entry) => [entry['gate'], entry['answer'], entry['via']]), [['estimate', 'skip', 'headless']]);
       assert.equal((await t.kinds('review')).length, 0);
       assert.match(buildReport(await t.ledger()).text, /estimate: default taken, "skip" \(headless\)/);
