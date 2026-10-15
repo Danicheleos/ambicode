@@ -21,7 +21,7 @@ describe('format (07-F)', () => {
       await env.start();
       await env.fx.repo.write('src/b.ts', 'x\n');
       const [entry] = await format(env);
-      assert.deepEqual([entry?.key, entry?.outcome, entry?.exit, entry?.via, entry?.files], ['app/format', 'unconfigured', null, 'model', []]);
+      assert.deepEqual([entry?.key, entry?.outcome, entry?.exit, entry?.files], ['app/format', 'unconfigured', null, []]);
       assert.deepEqual(env.runner.calls, []);
     } finally {
       await env.fx.dispose();

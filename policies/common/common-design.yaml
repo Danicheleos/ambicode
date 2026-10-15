@@ -1,6 +1,7 @@
 schemaVersion: 1
 id: common-design
 authority: inherited
+description: "Any project: build what was asked, fix the cause, cohesion, reuse, simplicity, scope."
 appliesTo:
   - "**/*"
 activities: [review, task, plan]
@@ -115,6 +116,5 @@ rules:
       kind: reviewer
       explanation: Judged from the stated scope against the files the change touches.
 
-prompts: []
 
 commandPolicy: []

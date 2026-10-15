@@ -20,9 +20,9 @@ function contextOf(recorded: RecordedReview, next?: string): string {
 const answerText = (input: HookInput): string => (AgentToolResponse.safeParse(input.tool_response).data?.content ?? []).map((part) => part.text ?? '').join('\n');
 
 /**
- * PostToolUse on Agent: the reviewer subagent returned, so record its answer and hand the model the report and the next
- * step in this turn. A background launch has no answer yet (`async_launched`); SubagentStop captured it later, and the
- * fallback command in the step text records it. Null means this call is not a pending review's answer.
+ * PostToolUse on Agent: the reviewer returned, so record its answer and hand the model the report and the next step.
+ * A background launch has no answer yet (`async_launched`); `review record` takes it on stdin.
+ * Null means this call is not a pending review's answer.
  */
 export async function recordReviewerCall(runtime: Runtime, input: HookInput, deps: HookDeps): Promise<string | null> {
   if (input.agent_id !== undefined || input.tool_name !== 'Agent' || !REVIEWER_AGENT_TYPE.test(input.tool_input?.subagent_type ?? '')) return null;

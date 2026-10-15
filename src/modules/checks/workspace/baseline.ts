@@ -2,7 +2,8 @@ import { AMBICODE_DIR } from '#types/defaults';
 import { openRepository } from '#platform/git/open';
 import { splitNul } from '#platform/git/git';
 import { fingerprintWorkspace } from './mutations.ts';
-import type { BaselineEntryFields } from '#types/modules/checks';
+import type { BaselineEntryFields, CheckDeps } from '#types/modules/checks';
+import type { LedgerEntry } from '#types/modules/evidence';
 import type { Runtime } from '#types/composition';
 
 /** Porcelain `-z` puts a rename or copy's origin in the next NUL field; both sides count as changed. */
@@ -48,4 +49,14 @@ export async function touchedSet(
     for (const [path, hash] of before) if (fileHashes.get(path) !== hash) touched.add(path);
   }
   return { touched: [...touched].sort(), preexisting: preexisting.sort(), headMoved: now.head !== baseline.head };
+}
+
+export const baselineIn = (entries: readonly LedgerEntry[]): (BaselineEntryFields & { id: string }) | null => {
+  const entry = entries.findLast((candidate) => candidate.kind === 'baseline');
+  return entry === undefined ? null : { id: entry.id, head: (entry['head'] as string | null) ?? null, dirty: (entry['dirty'] as BaselineEntryFields['dirty']) ?? [] };
+};
+
+/** The task's baseline in this route's chain (or the latest one standalone); none means everything changed against HEAD. */
+export async function baselineOf(deps: CheckDeps, task: string, chainIds: readonly string[] | null): Promise<(BaselineEntryFields & { id: string }) | null> {
+  return baselineIn((await deps.context!.entries(task)).filter((entry) => entry.kind === 'baseline' && (chainIds === null || chainIds.includes(String(entry['route'])))));
 }

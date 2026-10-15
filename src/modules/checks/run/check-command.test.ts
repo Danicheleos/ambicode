@@ -71,21 +71,15 @@ describe('check --name (07-C)', () => {
     }
   });
 
-  it('--file resolves against the caller cwd: from the repository parent, `repo/src/a.spec.ts` runs as `src/a.spec.ts`; a repo-relative or outside path behaves as before', async () => {
-    const { fx, start, runner, deps } = await checkFixture();
+  it('--file resolves against the repository: a relative or absolute path inside runs as `src/a.spec.ts`; a path outside is refused', async () => {
+    const { fx, start, check, runner } = await checkFixture();
     try {
       await start();
-      const from = (callerCwd: string, files: string[]) => {
-        const base = deps();
-        return runCheckOnly({ ...base, runtime: { ...base.runtime, callerCwd } }, { task: CHECK_TASK, name: 'unit', project: null, files, phase: 'red', approve: [], decline: [] });
-      };
-      const parent = path.dirname(fx.repo.root);
-      await from(parent, [`${path.basename(fx.repo.root)}/src/a.spec.ts`]);
-      await from(fx.repo.root, ['src/a.spec.ts']);
-      await from(parent, ['src/a.spec.ts']);
-      assert.deepEqual(runner.calls, [["jest 'src/a.spec.ts'"], ["jest 'src/a.spec.ts'"], ["jest 'src/a.spec.ts'"]]);
-      assert.deepEqual((await kinds(fx, 'check')).map((entry) => entry['files']), [['src/a.spec.ts'], ['src/a.spec.ts'], ['src/a.spec.ts']]);
-      await assert.rejects(from(fx.repo.root, ['../elsewhere/x.test.js']), code('bad-argument'));
+      await check({ files: ['src/a.spec.ts'] });
+      await check({ files: [path.join(fx.repo.root, 'src/a.spec.ts')] });
+      assert.deepEqual(runner.calls, [["jest 'src/a.spec.ts'"], ["jest 'src/a.spec.ts'"]]);
+      assert.deepEqual((await kinds(fx, 'check')).map((entry) => entry['files']), [['src/a.spec.ts'], ['src/a.spec.ts']]);
+      await assert.rejects(check({ files: ['../elsewhere/x.test.js'] }), code('bad-argument'));
     } finally {
       await fx.dispose();
     }

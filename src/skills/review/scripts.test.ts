@@ -38,13 +38,6 @@ describe('review scripts (C7)', () => {
 
       await writeFile(path.join(taskDir, 'ledger.jsonl'), `${ledger({ kind: 'check', key: 'app/unit', phase: 'red', exit: 1, files: ['a.spec.ts'] }, { kind: 'check', key: 'app/unit', phase: 'green', exit: 0, files: ['a.spec.ts'] })}\n`);
       run('brief', { repositoryRoot: root, taskDir, steps: path.join(taskDir, 'steps') });
-      assert.doesNotMatch(brief, /Callers outside the diff/, 'no callers payload, no block');
-      await writeFile(path.join(taskDir, 'steps', 'payload-x-review-callers.txt'), '- total: invoices/service.js:55');
-      run('brief', { repositoryRoot: root, taskDir, steps: path.join(taskDir, 'steps') });
-      assert.match(await readFile(path.join(reviewDir, 'brief.md'), 'utf8'), /## Callers outside the diff\n\n.*\n- total: invoices\/service\.js:55\n\n## Policy rules/);
-      await rm(path.join(taskDir, 'steps', 'payload-x-review-callers.txt'));
-      run('brief', { repositoryRoot: root, taskDir, steps: path.join(taskDir, 'steps') });
-
       const withChecks = await readFile(path.join(reviewDir, 'brief.md'), 'utf8');
       assert.match(withChecks, /- app\/unit red: exit 1; on: a\.spec\.ts/);
       assert.match(withChecks, /- app\/unit green: exit 0; on: a\.spec\.ts/);

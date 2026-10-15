@@ -83,7 +83,7 @@ describe('command tail', () => {
         't.step': async ({ ledger }) => {
           flag = insideEngine();
           nested = await runCommandTail({ engine: plan0!.fx.engine }, { task: PLAN_TASK, cause: 'note save', session: hookBinding(SESSION_A) }).catch((error: unknown) => error);
-          await ledger.append({ kind: 'policy', stage: 'before-report', packs: [], rules: 0, omitted: 0, bytes: 1 });
+          await ledger.append({ kind: 'policy', stage: 'before-work', packs: [], rules: 0, omitted: 0, bytes: 1 });
           return { state: 'ok', payload: null };
         },
       },

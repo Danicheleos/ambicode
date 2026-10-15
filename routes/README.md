@@ -10,7 +10,7 @@ This directory is developer documentation plus the route files; this README is n
 |---|---|
 | `<skill>/<skill>.yaml` | One route. The folder and file name must equal its `skill`. |
 | `gates.yaml` | The gate registry: gates a route can raise from code (not declared on a step). |
-| `<skill>/<step>.md` | Instruction text of the route's model steps, referenced as `file:routes/<skill>/<step>.md`. A route may reference another route's text (task uses `plan/fetch.md`). |
+| `<skill>/<step>.md` | Instruction text of the route's model steps, referenced as `file:routes/<skill>/<step>.md`. A route may reference another route's text (task uses `investigate/fetch.md`). |
 
 Routes are checked by `npm run build`, `npm run verify` and the package build. A mistake fails with
 `route-invalid: <file>: <where>: <what is wrong>`.
@@ -62,20 +62,25 @@ Unknown fields are rejected. Step ids are unique inside a route.
 |---|---|---|
 | `requirements.normalize` | `envelope` | Builds the requirement envelope from captures (or from the request text) and records it. |
 | `search.map(prompt)` | `map` | Builds the search map for the request. The parameter picks the layer set (`prompt` or `context`). |
-| `policy.stage(<stage>[, <activity>])` | `policy:<stage>` | The resolved pack rules for the route's activity and the files it knows (touched files, else the map's top candidates) as `pack/rule: instruction` grouped under `Rules (team|observed|inherited):` headers under a byte cap (`before-work`); a second param names the activity when it differs from the route's (the task route's reviewer brief passes `review`, which also lifts the cap); `before-checks` and `before-report` carry nothing. |
+| `policy.stage(before-work[, <activity>])` | `policy:before-work` | The resolved pack rules for the route's activity and the files it knows (touched files, else the map's top candidates) as `pack/rule: instruction` grouped under `Rules (team|observed|inherited):` headers under a byte cap; a second param names the activity when it differs from the route's (the task route's reviewer brief passes `review`, which also lifts the cap). |
 | `policy.enabled` | `policy.enabled` | Every rule in force for the project (id and the first 80 characters), so a rules draft does not restate one word for word. |
 | `context.list` | `context.list` | The files under `.ambicode/context/` (path, first H1, size) or "no context: run /ambicode:init"; the step reads the notes of the modules the change touches and of shared ones. |
-| `evidence.navigationLine` | `navigation` | The line saying which navigation calls were recorded. |
 | `evidence.notes.save(<kind>)`, `evidence.notes.promote` | none | Save a note / promote a plan draft. |
 | `script(<name>)` | `script:<name>` | Runs `skills/<skill>/scripts/<name>.mjs`; see Scripts. |
 | `review.evaluate` | `review.evaluate` | Judges the latest review: no findings proceeds; any finding goes back to `fix`, which files the ones outside the brief under Remaining. Fails the step (`onFail`) when there are findings to fix. |
 | `review.publishList` | `review.publishList` | `--mr` review: the recorded findings as a numbered list; none ends the route. |
+| `task.start` | `brief` | The task's brief: iteration and plan path, then the plan's current iteration or the request. Exits `iterations-complete` when every iteration is done. |
+| `task.report`, `task.iterations` | `report`, `iterations` | The evidence report cut to a byte cap; the instruction to save this iteration's notes (only when the plan has more than one iteration). |
+| `checks.preflight` | none | Exits `blocked` (`no-check`) when no check has a configured command. |
+| `checks.runnable` | `checks.runnable` | Per project, the checks with a command and the forms they take (all or `--file`). |
+| `checks.baseline` | `baseline` | Records HEAD and the files already changed, once per task. |
+| `checks.format` | none | Runs the configured format check on the touched files; one that needs approval raises the check gate and the answer re-runs the step. |
+| `review.estimate` | `review.estimate` | Sizes the review (files, lines, refusal) for the estimate gate, with any `--narrow` in force. |
 | `review.pin` | none | Pins the change as a pending `review` entry. The review route first runs each configured check that has a file form on the changed files, as `check` entries; a check that needs approval raises the check gate and the answer revises the step. |
-| `review.callers` | `review.callers` | The brief's "Callers outside the diff" block: for each changed hunk the nearest declaration name above it, then where that name is used outside the changed lines (`refs`); `script(brief)` reads it, and it is empty when nothing is found. |
 
 `produces` takes any ledger kind, with an optional qualifier: `note{investigation}`, `policy{before-work}`, `check{green}`, `review{recorded}`, `envelope`, `map`, ... The qualifier is matched against the record, not checked at load.
 
-Evidence-writing commands write their ledger entry and then advance the route at their tail: `check`, `review` (writes `review{pending}`), `review record` (writes `review{recorded}` from the `ambicode:reviewer` subagent's JSON, captured by the `SubagentStop` hook or else on stdin), `note save`, `note promote`, `requirements normalize`.
+Evidence-writing commands write their ledger entry and then advance the route at their tail: `check`, `review` (writes `review{pending}`), `review record` (writes `review{recorded}` from the `ambicode:reviewer` subagent's JSON, read from the PostToolUse hook's tool response or else on stdin), `note save`, `note promote`, `requirements normalize`.
 
 ### Scripts (`script(<name>)`)
 
@@ -89,6 +94,7 @@ A skill-local script is a plain ESM file (`skills/<skill>/scripts/<name>.mjs`, n
 | `args.hasMergeRequest` | The review route was started with `--mr <url>`. |
 | `map.empty` | The search map found nothing. |
 | `plan.isDraft` | The plan is still a draft. |
+| `revised` | The step is entered by a revise (review findings or an approved key), not in the normal walk. |
 | `gate.<id>.is(<option>)` / `gate.<id>.isnt(<option>)` | The gate's answer is that option / is any other answer, free text included. |
 
 ## Gates
@@ -122,12 +128,12 @@ Special answers: `stop` and `pause` end the route. The exit is `human` for the `
 
 Gates are asked with AskUserQuestion; the printed line `[ambicode gate <id> <instance>]` must stay verbatim in the question so the hook can bind the answer.
 
-`gates.yaml` entries have the same fields, keyed by gate id. They are raised by handler code (for example requirement capture) or by `onError: ask <id>`. The `decision:*` entry is the template for plan decisions.
+`gates.yaml` entries have the same fields, keyed by gate id. They are raised by handler code (for example requirement capture). The `decision:*` entry is the template for plan decisions.
 
 ## Adding or changing a route
 
 1. Write or edit `routes/<skill>/<skill>.yaml`; the folder and file name equal `skill`.
 2. Put model instruction text longer than a few lines in `routes/<skill>/<step>.md`.
-3. Every `run` name must be a registered handler; new handlers live in `src/route/handlers*.ts`.
-4. Check the route: `npm run build` (validates every file). Add a walk test in `src/route/` named after the rule it covers.
+3. Every `run` name must be a registered handler; new handlers live in `src/skills/<skill>/handlers.ts`.
+4. Check the route: `npm run build` (validates every file). Add a walk test in `src/skills/<skill>/` named after the rule it covers.
 5. The validator checks what would break a route at load: unique step ids, registered handlers, an instruction on every model step and a gate on every human step, `when` gate references and revise targets that exist, and a default that is an option and never acting. Whether a revised step has enough `repeat` is yours to state; a revise past it writes a `limit` entry at run time.

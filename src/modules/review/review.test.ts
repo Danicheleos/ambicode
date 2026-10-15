@@ -379,7 +379,7 @@ describe('B8 an applicable policy diagnostic becomes an explicit coverage omissi
           'appliesTo: ["**/*"]',
           'activities: [review]',
           'source: { location: "test" }',
-          'prompts: [{ stage: before-review, file: "./missing.md" }]',
+          'unknownKey: true',
         ].join('\n') + '\n',
       );
       const configPath = path.join(context.repo.root, '.ambicode', 'config.yaml');
@@ -393,8 +393,8 @@ describe('B8 an applicable policy diagnostic becomes an explicit coverage omissi
             const output = await review(context.runtime, []);
 
       assert.ok(
-        output.result.omissions.some((entry) => entry.includes('path-missing')),
-        `expected an omission naming the unreadable prompt; got: ${JSON.stringify(output.result.omissions)}`,
+        output.result.omissions.some((entry) => entry.includes('pack-invalid')),
+        `expected an omission naming the invalid pack; got: ${JSON.stringify(output.result.omissions)}`,
       );
       assert.equal(output.result.status, 'partial');
     } finally {
@@ -414,7 +414,7 @@ describe('B8 an applicable policy diagnostic becomes an explicit coverage omissi
           'appliesTo: ["**/*"]',
           'activities: [plan]',
           'source: { location: "test" }',
-          'prompts: [{ stage: before-work, file: "./missing.md" }]',
+          'unknownKey: true',
         ].join('\n') + '\n',
       );
       const configPath = path.join(context.repo.root, '.ambicode', 'config.yaml');
@@ -426,7 +426,7 @@ describe('B8 an applicable policy diagnostic becomes an explicit coverage omissi
 
             const output = await review(context.runtime, []);
 
-      assert.ok(output.result.omissions.some((entry) => entry.includes('path-missing')), JSON.stringify(output.result.omissions));
+      assert.ok(output.result.omissions.some((entry) => entry.includes('pack-invalid')), JSON.stringify(output.result.omissions));
     } finally {
       await context.dispose();
     }

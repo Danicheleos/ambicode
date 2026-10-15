@@ -2,6 +2,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { SUPPORTED_SCHEMA_VERSION } from '../src/types/modules/config.ts';
 
 const packageVersion = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version;
 const candidateDir = path.resolve(process.argv[2] ?? path.join('dist', `ambicode-${packageVersion}`));
@@ -9,7 +10,7 @@ const bundle = path.resolve(candidateDir, 'scripts/ambicode.mjs');
 
 const RUN = 'model: sonnet, effort: medium, timeoutMinutes: 15';
 const CONFIG = [
-  'schemaVersion: 5',
+  `schemaVersion: ${SUPPORTED_SCHEMA_VERSION}`,
   'id: app',
   'context: { maxTotalTokens: 24000, maxFileTokens: 2500 }',
   'skills:',
@@ -71,9 +72,9 @@ async function checkPoliciesAndPromptsResolve() {
     await mkdir(path.join(cwd, '.ambicode'), { recursive: true });
     await writeFile(path.join(cwd, '.ambicode', 'config.yaml'), CONFIG.replace('PACKS', 'builtin/common-design, builtin/common-code, builtin/common-errors, builtin/common-security, builtin/common-verification, builtin/common-checks').replace('POLICY', ''));
     const validateOutput = run(['config', 'validate'], { cwd });
-    if (!/^ok/m.test(validateOutput)) throw new Error(`config validate did not accept the v4 config:\n${validateOutput}`);
+    if (!/^ok/m.test(validateOutput)) throw new Error(`config validate did not accept the config:\n${validateOutput}`);
 
-    console.log('OK: `ambicode config validate` accepts the installed candidate\'s v4 config with built-in packs.');
+    console.log('OK: `ambicode config validate` accepts the installed candidate\'s config with built-in packs.');
 
     // Through the bundle: a subcommand dispatched only in `src/cli/main.ts` would pass unit
     // tests and be unreachable in the shipped bundle.

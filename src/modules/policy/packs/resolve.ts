@@ -3,23 +3,21 @@ import {
   COMMAND_ACTION_PRECEDENCE,
   type Activity,
   type CommandAction,
-  type PromptStage,
 } from '#types/primitives';
 import type {
   Diagnostic,
   ResolvedCommandDecision,
   ResolvedPolicy,
-  ResolvedPromptRef,
   ResolvedRule,
 } from '#types/modules/policy';
 import { matchesAnyGlob } from '#util/glob';
 import { normalizeRelative, toProjectRelative } from '#util/paths';
-import type { PackWithPrompts } from './load.ts';
+import type { LoadedPack } from './load.ts';
 
 interface ResolveOptions {
   activity: Activity;
   project: ProjectConfig;
-  packs: readonly PackWithPrompts[];
+  packs: readonly LoadedPack[];
   paths: readonly string[];
   diagnostics?: readonly Diagnostic[];
 }
@@ -35,7 +33,6 @@ export function resolvePolicy(options: ResolveOptions): ResolvedPolicy {
 
   const packEntries: ResolvedPolicy['packs'] = [];
   const rules: ResolvedRule[] = [];
-  const prompts: ResolvedPromptRef[] = [];
   const decisionsByCommand = new Map<string, ResolvedCommandDecision>();
 
   for (const loaded of packs) {
@@ -59,7 +56,6 @@ export function resolvePolicy(options: ResolveOptions): ResolvedPolicy {
 
     for (const rule of pack.rules) {
       if (rule.activities !== undefined && !rule.activities.includes(activity)) continue;
-      if (pathsSupplied && rule.appliesTo !== undefined && !matchedPaths.some((value) => matchesAnyGlob(value, rule.appliesTo!))) continue;
       rules.push({
         qualifiedId: `${pack.id}/${rule.id}`,
         packId: pack.id,
@@ -72,8 +68,6 @@ export function resolvePolicy(options: ResolveOptions): ResolvedPolicy {
         check: rule.check,
       });
     }
-
-    prompts.push(...loaded.resolvedPrompts);
 
     for (const decision of pack.commandPolicy) {
       const existing = decisionsByCommand.get(decision.command);
@@ -99,9 +93,6 @@ export function resolvePolicy(options: ResolveOptions): ResolvedPolicy {
   // Sorting is presentation, never precedence.
   packEntries.sort((a, b) => a.id.localeCompare(b.id));
   rules.sort((a, b) => a.qualifiedId.localeCompare(b.qualifiedId));
-  prompts.sort(
-    (a, b) => a.stage.localeCompare(b.stage) || a.packId.localeCompare(b.packId) || a.declaredPath.localeCompare(b.declaredPath),
-  );
   const commandDecisions = [...decisionsByCommand.values()].sort((a, b) =>
     a.command.localeCompare(b.command),
   );
@@ -114,25 +105,9 @@ export function resolvePolicy(options: ResolveOptions): ResolvedPolicy {
     projectId: project.id,
     packs: packEntries,
     rules: dedupeBy(rules, (rule) => rule.qualifiedId),
-    prompts: dedupeBy(prompts, (prompt) => `${prompt.stage}::${prompt.absolutePath}`),
     commandDecisions,
     diagnostics: [...(options.diagnostics ?? [])],
   };
-}
-
-/**
- * `review` builds its own prompt and never calls `prepare`. A pack may declare
- * `before-review` prompts, but no code path delivers them; `task` alone adds
- * `before-checks` because it runs checks.
- */
-const PREPARE_PROMPT_STAGES: Readonly<Partial<Record<Activity, readonly PromptStage[]>>> = {
-  investigate: ['before-work', 'before-report'],
-  plan: ['before-work', 'before-report'],
-  task: ['before-work', 'before-checks', 'before-report'],
-};
-
-export function applicablePrepareStages(activity: Activity): readonly PromptStage[] {
-  return PREPARE_PROMPT_STAGES[activity] ?? [];
 }
 
 function strongerAction(a: CommandAction, b: CommandAction): CommandAction {

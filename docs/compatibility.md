@@ -110,13 +110,13 @@ current transcript.
 
 ## Hooks
 
-The plugin ships one hook manifest, `hooks/hooks.json`, registering eight
-events with fifteen handler entries: `PostToolUse` (matchers `mcp__.*`, `WebFetch`,
+The plugin ships one hook manifest, `hooks/hooks.json`, registering seven
+events with fourteen handler entries: `PostToolUse` (matchers `mcp__.*`, `WebFetch`,
 `AskUserQuestion` and `Agent`), `PreToolUse` (all routed to
 `${CLAUDE_PLUGIN_ROOT}/scripts/guard.mjs`: `Bash` with the `if` rows `git *`,
 `glab mr*`, `*.ambicode/*` and `*ambicode.mjs*`, then `Write|Edit|MultiEdit|NotebookEdit`),
 `SessionStart` (matcher `startup|resume|clear|fork`), `UserPromptSubmit`,
-`Stop`, `SubagentStop` (matcher `(ambicode:)?reviewer`), `PostCompact` and `SessionEnd`. Every entry except `PreToolUse` runs in
+`Stop`, `PostCompact` and `SessionEnd`. Every entry except `PreToolUse` runs in
 exec form through command `node` with arguments
 `${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs`, `hook`. This avoids shell parsing
 and works when the plugin path contains spaces or the host has no POSIX shell.
@@ -129,18 +129,14 @@ not been re-measured against this manifest.
 `ambicode hook` reads a hook invocation's JSON payload from stdin (fields
 confirmed against 2.1.272: `session_id`, `agent_id` (present only for a
 subagent invocation, absent for the main agent), `cwd`, `scratchpad_dir`,
-`hook_event_name`, `tool_name`, `tool_input.file_path`). A `SubagentStop` input
-adds `agent_id`, `agent_type` (the matcher field), `agent_transcript_path`,
-`stop_hook_active` and `last_assistant_message`, the subagent's final text;
-read from the 2.1.296 binary's hook-input builder, not yet from a live
-payload, so `ambicode hook` ignores a `SubagentStop` that lacks the message. It replies with
+`hook_event_name`, `tool_name`, `tool_input.file_path`). It replies with
 `{"hookSpecificOutput": {"hookEventName": "<event>", "additionalContext":
 "…"}}` — the documented contract for surfacing text back into the
 conversation from a hook, never a permission decision or a blocking exit
 code. The operating contract and the active route step are delivered once per
-context: one `delivered/<kind>` marker per session holds the last value
-delivered, and `SessionStart` and `PostCompact` clear them so both arrive again
-after a compaction or a fresh session.
+context, with a route launch or re-injection only: one `delivered/<kind>` marker
+per session holds the last value delivered, and `SessionStart` and `PostCompact`
+clear them so both arrive again after a compaction or a fresh session.
 
 A probe on 2026-10-05 (Claude Code 2.1.289, interactive dialog,
 `plan/migration-v6-reports/step-03/probe-p2-p48.md`) observed that a
@@ -154,7 +150,7 @@ subagent askers, and any other Claude Code version.
 A probe on 2026-10-06 (Claude Code 2.1.289, one `claude -p`, P17) blocked `Stop` once with both
 `reason` and `hookSpecificOutput.additionalContext`: the output validated, the reason reached the
 model as a "Stop hook feedback" user message, and `additionalContext` as a system reminder. `Stop`
-keeps its bounded reason plus `stop-check.md`; the list does not also go to `additionalContext`,
+keeps its bounded reason; the list does not also go to `additionalContext`,
 which would only repeat it. Record: `plan/migration-v6-reports/step-07/probe-p17.md`.
 
 One hook contract is relied on without being observed (probe postponed on 2026-10-07; the guard no longer rewrites input with `updatedInput`):
@@ -174,8 +170,7 @@ names are `PreToolUse`, `UserPromptSubmit`, `UserPromptExpansion`,
 `PermissionRequest`, `CwdChanged`, `FileChanged`, `MessageDisplay`,
 `Elicitation`, `ElicitationResult`, `WorktreeCreate`). Returning one from
 `PostCompact` is a hard validation failure the user sees on every compaction,
-not a silent no-op. So `PostCompact` resets and returns `{}`, `SessionStart`
-resets and delivers, and `UserPromptSubmit` delivers when the current epoch
+not a silent no-op. So `PostCompact` and `SessionStart` reset and return `{}`, and `UserPromptSubmit` delivers when the current epoch
 has not had it yet — which is what puts the contract back after a compaction.
 The marker dedup means it is sent once per epoch, not once per prompt, but the
 hook process itself does start on every user message (~190ms on the reference
@@ -331,7 +326,7 @@ None recorded.
 |---|---|
 | A GitLab MCP server and a sandbox project | Merge-request capture and posting are covered by unit fixtures only. Prerequisite: a private test GitLab project with a merge request carrying added, renamed and deleted lines, and an authorized MCP server. |
 | Jira / Confluence MCP | Live requirement retrieval cannot be verified here. The normalization, provenance, failure and contradiction behaviour is unit-tested against fake evidence; that is not a live-MCP test and is not reported as one. |
-| Authorized model access | The native eval cases and the adjudication rubric exist under `evals/` and load. No arm has been run in this environment, so no finding has been scored. |
+| Authorized model access | The native eval cases and the adjudication rubric exist under `evals/` and load. Runs of both arms are recorded in `evals/history.jsonl` and summarised in `evals/history.md`; the adjudication rubric has not been scored against them. |
 | A live reviewer subagent | `review record` is exercised against pasted answers (unit tests, fixtures), which proves validation, not model output quality. |
 
 These are recorded as missing, not substituted with estimates.

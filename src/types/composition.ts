@@ -12,8 +12,6 @@ export interface Runtime {
   clock: Clock;
   ids: IdSource;
   cwd: string;
-  /** Where the shell invoked the CLI; `cwd` becomes the task's repository when `--task` is given. */
-  callerCwd?: string;
   pluginRoot: string;
   stdin: StandardInput;
   env: Readonly<Record<string, string | undefined>>;

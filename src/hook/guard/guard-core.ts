@@ -62,14 +62,14 @@ function bashDecision(command: string, cwd: string | undefined, pluginRoot: stri
     }
     if (segment.argv.some((word, at) => segment.opaque[at] && NESTED.test(word) && DANGEROUS.test(word))) asks.set(NESTED_REASON, null);
     const name = basename(segment.argv[0] ?? '');
-    if (cutsOutput(segments, at, command)) return decide('deny', 'AMBICODE: nothing ran. Re-run without `| head`.');
+    if (cutsOutput(segments, at)) return decide('deny', 'AMBICODE: nothing ran. Re-run without `| head`.');
     // A name whose last component only the shell expands (`$(which git)`, `$TOOL`) could be any command.
     if (segment.opaque[0] === true && /[$`]/.test(name)) asks.set(`${UNSURE} \`${shown(segment.argv[0]!)}\` names a command only when the shell expands it.`, WRITE_OUT);
     const repository = repositoryAsk(segment, name);
     if (repository !== null) asks.set(repository, null);
     for (const target of segment.writeTargets) {
       const path = normalize(target.path, dir);
-      // 14 of 14 audited unresolved targets were outside .ambicode/; only text that names it can land there.
+      // An unresolved target can only land in .ambicode/ if the command text names it.
       if (target.opaque) {
         if (mentionsRunDir) asks.set(placement(target.path, 'is resolved only when the shell runs it'), NAME_PATH);
       } else if (RUN_DIR.test(path)) {

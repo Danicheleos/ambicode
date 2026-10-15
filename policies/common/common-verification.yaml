@@ -1,6 +1,7 @@
 schemaVersion: 1
 id: common-verification
 authority: inherited
+description: "Any project: behavioural deterministic tests, no evading checks, record verification gaps."
 appliesTo:
   - "**/*"
 activities: [review, task]
@@ -58,6 +59,5 @@ rules:
         Compare the claims in the change description against the tests and
         check evidence actually present.
 
-prompts: []
 
 commandPolicy: []

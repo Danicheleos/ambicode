@@ -1,12 +1,11 @@
 schemaVersion: 1
 id: angular-components
 authority: inherited
+description: "Angular components: responsibility, size, template duplication."
 appliesTo:
   - "**/*.component.ts"
   - "**/*.directive.ts"
 activities: [review, task, plan]
-detect:
-  - { file: package.json, contains: '"@angular/core"' }
 
 source:
   location: >-
@@ -53,5 +52,4 @@ rules:
       kind: reviewer
       explanation: Requires locating the other occurrence in the snapshot.
 
-prompts: []
 commandPolicy: []

@@ -5,6 +5,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { contextTokens, events, mean } from './trace.mjs';
 
 // $/Mtok of claude-sonnet-5-5, fitted to total_cost_usd of 113 bare and 152 plugin traces without a subagent: max error 7e-16.
 // Cache writes are priced at 4 here; a subagent's 5-minute writes are cheaper (2.5), so costs split below are approximate for subagents.
@@ -14,18 +15,9 @@ const WORK_VERBS = new Set(['check']);
 const MARKER = /\[ambicode\] [\w-]+ · task [\w-]+ · (?:step ([\w-]+)|(complete))/;
 
 const bytes = (text) => Buffer.byteLength(text ?? '');
-const events = (text) => text.split('\n').flatMap((line) => {
-  if (!line.trim()) return [];
-  try {
-    return [JSON.parse(line)];
-  } catch {
-    return [];
-  }
-});
 const textOf = (content) => (typeof content === 'string' ? content : (content ?? []).map((part) => part.text ?? (typeof part.content === 'string' ? part.content : '')).join('\n'));
 
 export const priceOf = (usage) => ((usage.input_tokens ?? 0) * PRICE.input + (usage.output_tokens ?? 0) * PRICE.output + (usage.cache_read_input_tokens ?? 0) * PRICE.cacheRead + (usage.cache_creation_input_tokens ?? 0) * PRICE.cacheWrite) / 1e6;
-const inputOf = (usage) => (usage.input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0);
 
 /** `route next`, `review record`, `format`...: the CLI verb of a Bash command that runs ambicode.mjs, or null for any other command. */
 export function verbOf(command) {
@@ -138,7 +130,7 @@ export function breakdownOf(traceText, { ledgerText = null, skillBytes = null } 
   return {
     modelCalls: main.size,
     toolCalls,
-    inputTokens: sum(main, inputOf),
+    inputTokens: sum(main, contextTokens),
     // The streamed snapshots under-report output; the result line's usage is the main session's final count.
     outputTokens: usage?.output_tokens ?? sum(main, (u) => u.output_tokens ?? 0),
     seconds: result?.duration_ms == null ? null : result.duration_ms / 1000,
@@ -164,7 +156,7 @@ export function breakdownOf(traceText, { ledgerText = null, skillBytes = null } 
     },
     subagent: {
       calls: sub.size,
-      inputTokens: sum(sub, inputOf),
+      inputTokens: sum(sub, contextTokens),
       outputTokens: sum(sub, (u) => u.output_tokens ?? 0),
       reportedTotalTokens: subTotalTokens,
       spawned: result?.subagent_stats?.spawned ?? 0,
@@ -205,7 +197,6 @@ export function latestByCase(armDir) {
   return Object.fromEntries([...found].sort(([a], [b]) => a.localeCompare(b)));
 }
 
-const mean = (values) => (values.length === 0 ? null : values.reduce((total, v) => total + v, 0) / values.length);
 
 /** Mean of every numeric field, and of every key of `steps`, `verbs`, over runs. */
 export function meanOf(runs) {

@@ -10,10 +10,8 @@ export interface BuiltinPackFile {
   filePath: string;
 }
 
-/**
- * Built-in packs sit at the policies root or one folder below it (folders group by ecosystem and are
- * not part of the id), so ids must be unique across all of them.
- */
+/** Built-in packs sit at the policies root or one folder below it (the folder is not part of the id), so ids must be
+ * unique across all of them. */
 export async function listBuiltinPackFiles(fs: FileSystem, builtinDirectory: string): Promise<BuiltinPackFile[]> {
   const found: BuiltinPackFile[] = [];
   const collect = async (directory: string, descend: boolean): Promise<void> => {

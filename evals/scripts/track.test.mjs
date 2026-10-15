@@ -21,7 +21,7 @@ const SHARED = { 'task-fix': [{ name: 'fix-correct', weight: 2 }, { name: 'test-
 const shared = (name) => SHARED[name] ?? [];
 
 describe('evals history', () => {
-  it('one row per case: arm, effort, mean score, cost (judge included), per-grader pass share, errored runs counted', () => {
+  it('one row per case: arm, effort, mean score, session cost without the judge, per-grader pass share, errored runs counted', () => {
     const rows = rowsOf(RESULT_JSON, { arm: 'plugin', model: 'm', effort: 'low', plugin: '0.5.1' });
     assert.equal(rows.length, 2);
     const task = rows[0];
@@ -31,7 +31,8 @@ describe('evals history', () => {
     assert.equal(task.runs, 2);
     assert.equal(task.score, 0.75);
     assert.equal(task.passed, false);
-    assert.equal(task.costUsd, 0.4);
+    assert.equal(task.costUsd, 0.39, 'no trace cost: the harness cost minus the judge');
+    assert.equal(task.judgeCostUsd, 0.01);
     assert.deepEqual(task.graders, { 'red-before-green': 1, 'fix-correct': 0.5 });
     assert.equal(rows[1].errors, 1);
     assert.equal(task.contextPeak, 20000);
@@ -51,10 +52,11 @@ describe('evals history', () => {
     assert.equal(rowsOf(RESULT_JSON, { arm: 'bare' })[0].plugin, null);
   });
 
-  it('costUsd already includes the judge, so a run costing 0.19 with a 0.002 judge records 0.19', () => {
-    const row = rowsOf({ cases: [{ name: 'x-y', arms: { with: [run(1, [], { costUsd: 0.19, judgeCostUsd: 0.002 })] } }] })[0];
-    assert.equal(row.costUsd, 0.19);
-    assert.equal(row.perRun[0].costUsd, 0.19);
+  it('costUsd is the trace total (subagents in, judge out); without a trace it is the harness cost minus the judge', () => {
+    const traced = run(1, [], { costUsd: 0.19, judgeCostUsd: 0.002, context: { calls: 3, tools: 2, peak: 1, final: 1, costUsd: 0.17 } });
+    const row = rowsOf({ cases: [{ name: 'x-y', arms: { with: [traced, run(1, [], { costUsd: 0.19, judgeCostUsd: 0.002, context: undefined })] } }] })[0];
+    assert.equal(row.perRun[0].costUsd, 0.17);
+    assert.equal(row.perRun[1].costUsd, 0.188);
   });
 
   it('the outcome score is the weighted share of the shared graders the row ran; none ran is null, not zero', () => {
@@ -68,7 +70,8 @@ describe('evals history', () => {
     const bare = rowsOf({ ...RESULT_JSON, cases: [{ name: 'task-fix', arms: { with: [run(0.25, [grader('fix-correct', false)], { context: { peak: 12345, final: 1, calls: 2, tools: 1, session: 5.5, api: 5 } })] } }] }, { arm: 'bare', model: 'm', effort: 'low' });
     const text = summary([...plugin, ...bare], { shared });
     assert.match(text, /\| session s \| model calls\/tools \|/);
-    assert.match(text, /\| task-fix \| 0\.75 \| 0\.5 \| 0\.25 \| \+0\.25 \| 0\.4 \| 0\.4 \| 12 \/ 5\.5 \| 7\/6 · 2\/1 \| 20.0 \/ 12\.3 \| fix-correct 0\.5 \|/);
+    assert.match(text, /without the judge votes/);
+    assert.match(text, /\| task-fix \| 0\.75 \| 0\.5 \| 0\.25 \| \+0\.25 \| 0\.39 \| 0\.39 \| 12 \/ 5\.5 \| 7\/6 · 2\/1 \| 20.0 \/ 12\.3 \| fix-correct 0\.5 \|/);
     assert.match(text, /\*\*bare\*\* \[longest run, turn by turn\]\(chains\/bare-longest\.md\) · latest run .* m\/low/);
     const mismatched = summary([...plugin, ...bare.map((row) => ({ ...row, effort: 'high' }))], { shared });
     assert.match(mismatched, /\| task-fix \| 0\.75 \| 0\.5 \| 0\.25 \| — \|/);
@@ -109,7 +112,7 @@ describe('evals drift', () => {
     const text = summary(rowsOf(RESULT, { arm: 'plugin', model: 'm', effort: 'low', version }), { shared: () => [], version });
     assert.match(text, /### investigate-files · plugin · 3 run\(s\)/);
     assert.match(text, /recall 0\.50 ± 0\.50 · precision 0\.75 ± 0\.35 · F1 0\.50 ± 0\.50 · 1 run\(s\) without the Files section/);
-    assert.match(text, /\| 2 \| 0\.5 \| 0\.5 \| 0\.5 \| 0\.5 \| 7 \| 6 \| 20\.0 \| 0\.4 \| tests\/a\.test\.ts \| docs\/glossary\.md \| files-complete \|/);
+    assert.match(text, /\| 2 \| 0\.5 \| 0\.5 \| 0\.5 \| 0\.5 \| 7 \| 6 \| 20\.0 \| 0\.39 \| tests\/a\.test\.ts \| docs\/glossary\.md \| files-complete \|/);
     assert.match(text, /\| 3 \| 0 \| 0 \| — \| 0 \| .* \| no Files section \|/);
   });
 

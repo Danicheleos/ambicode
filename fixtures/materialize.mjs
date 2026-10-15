@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Usage: <name> <empty-destination> | --all <directory> | --list  [--install] [--ambicode-init] [--context]
+ * Usage: <name> <empty-destination>  [--install] [--ambicode-init] [--context]
  * Without --install no project script runs. --ambicode-init commits the config and ignore lines the pure writer produces
  * before the uncommitted change is replayed, keeping the config out of the reviewed change.
  * --context (needs --ambicode-init) then writes fixtures/contexts/<fixture>.md into the gitignored .ambicode/context through
@@ -12,7 +12,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
-import { FIXTURES, fixtureByName } from './definitions.mjs';
+import { SUPPORTED_SCHEMA_VERSION } from '../src/types/modules/config.ts';
+import { fixtureByName } from './definitions.mjs';
 
 const run = promisify(execFile);
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -98,7 +99,7 @@ async function configFor(destination, wires) {
   const python = await access(path.join(destination, 'pyproject.toml')).then(() => true, () => false);
   const run = { model: 'sonnet', effort: 'medium', timeoutMinutes: 15 };
   return {
-    schemaVersion: 5,
+    schemaVersion: SUPPORTED_SCHEMA_VERSION,
     id: 'app',
     context: { maxTotalTokens: 24000, maxFileTokens: 2500 },
     skills: {
@@ -229,32 +230,10 @@ export async function materialize(fixture, destination, { install: installing = 
 async function main(rawArgv) {
   const options = { install: rawArgv.includes('--install'), ambicodeInit: rawArgv.includes('--ambicode-init'), context: rawArgv.includes('--context') };
   const argv = rawArgv.filter((value) => !['--install', '--ambicode-init', '--context'].includes(value));
-  if (argv.includes('--list') || argv.length === 0) {
-    for (const fixture of FIXTURES) {
-      process.stdout.write(`${fixture.name.padEnd(24)} ${fixture.summary}\n`);
-      process.stdout.write(`${''.padEnd(24)} covers: ${fixture.covers.join(', ')}\n`);
-    }
-    return 0;
-  }
-
-  if (argv[0] === '--all') {
-    const root = argv[1];
-    if (root === undefined) {
-      process.stderr.write('--all needs a destination directory\n');
-      return 2;
-    }
-    for (const fixture of FIXTURES) {
-      const destination = path.resolve(root, fixture.name);
-      await materialize(fixture, destination, options);
-      process.stdout.write(`${fixture.name}\t${destination}\n`);
-    }
-    return 0;
-  }
-
   const [name, destination] = argv;
   const fixture = name === undefined ? null : fixtureByName(name);
   if (fixture === null) {
-    process.stderr.write(`unknown fixture "${name ?? ''}"; run with --list\n`);
+    process.stderr.write(`unknown fixture "${name ?? ''}"\n`);
     return 2;
   }
   if (destination === undefined) {

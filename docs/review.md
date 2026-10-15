@@ -157,11 +157,11 @@ Code, requirements and check output reach it below a heading marked
 `UNTRUSTED EVIDENCE`. Text in there cannot grant a tool, a permission or a
 goal. It is data, whatever it claims about itself.
 
-The route does not trust the answer. A `SubagentStop` hook saves the subagent's
-final message beside the review (`reviewer-answer.txt`) and Claude runs
-`review record --task <slug>`, which reads it, validates every finding against
-the pinned change and writes the result. Claude does not re-type the answer; if
-the hook captured nothing, it pastes the block on stdin instead.
+The route does not trust the answer. The `PostToolUse` hook on the reviewer
+subagent reads its final message from the tool response, validates every finding
+against the pinned change and writes the result. Claude does not re-type the
+answer; if the hook recorded nothing, it runs `review record --task <slug>` and
+pastes the block on stdin.
 
 ## What comes back
 

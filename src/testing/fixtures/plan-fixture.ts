@@ -23,7 +23,7 @@ steps:
   - id: plan-step
     actor: code
     run: [t.step]
-    produces: ["policy{before-report}"]
+    produces: ["policy{before-work}"]
   - id: plan-write
     actor: model
     instruction: "Write steps/plan-body.md once."
@@ -57,7 +57,7 @@ export function planHandlers(state: PlanState): Record<string, Handler> {
     ...EVIDENCE_HANDLERS,
     't.step': async ({ ledger }) => {
       state.steps += 1;
-      await ledger.append({ kind: 'policy', stage: 'before-report', packs: [], rules: 0, omitted: 0, bytes: 1 });
+      await ledger.append({ kind: 'policy', stage: 'before-work', packs: [], rules: 0, omitted: 0, bytes: 1 });
       return { state: 'ok', payload: null };
     },
     't.check': async ({ ledger }) => {

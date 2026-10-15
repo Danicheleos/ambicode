@@ -89,7 +89,7 @@ describe('03-K1 conditions', () => {
 describe('03-K3 checks', () => {
   const heading = '## Confirmed facts\n';
 
-  it('a message with both report headings passes whatever its wording; a missing Not verified blocks and the stop-check file carries the generated block', async () => {
+  it('a message with both report headings passes whatever its wording; a missing Not verified blocks and the block reason carries the generated block', async () => {
     const s = await stopper();
     try {
       await toWrite(s);
@@ -106,12 +106,12 @@ describe('03-K3 checks', () => {
       assert.equal(blocked.decision, 'block');
       assert.match(blocked.reason ?? '', /Not verified section is missing/);
       assert.match(blocked.reason ?? '', /\nNot verified\n  none recorded$/, 'the block reason carries the generated text');
-      const file = await readFile(path.join(missing.fx.repo.root, '.ambicode', 'tasks', TASK, 'stop-check.md'), 'utf8');
-      const block = /\nEvidence\n[\s\S]*$/.exec(file)?.[0].trim();
-      assert.ok(block !== undefined, file);
-      assert.doesNotMatch(file, /ambicode report/, 'the report carries no hash comment');
+      const reason = blocked.reason ?? '';
+      const block = /\nEvidence\n[\s\S]*$/.exec(reason)?.[0].trim();
+      assert.ok(block !== undefined, reason);
+      assert.doesNotMatch(reason, /ambicode report/, 'the report carries no hash comment');
       await missing.say(`${heading}${block}`);
-      assert.deepEqual(await missing.stop(), {}, 'the block the file carries is the one that passes');
+      assert.deepEqual(await missing.stop(), {}, 'the block the reason carries is the one that passes');
     } finally {
       await missing.dispose();
     }

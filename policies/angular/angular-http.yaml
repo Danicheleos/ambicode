@@ -1,12 +1,11 @@
 schemaVersion: 1
 id: angular-http
 authority: inherited
+description: "Angular HTTP access: duplicate requests, cross-cutting concerns such as interceptors."
 appliesTo:
   - "**/*.service.ts"
   - "**/*.interceptor.ts"
 activities: [review, task, plan]
-detect:
-  - { file: package.json, contains: '"@angular/core"' }
 
 source:
   location: >-
@@ -38,5 +37,4 @@ rules:
       kind: reviewer
       explanation: Requires locating the existing interceptor in the snapshot.
 
-prompts: []
 commandPolicy: []

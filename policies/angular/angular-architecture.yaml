@@ -1,11 +1,10 @@
 schemaVersion: 1
 id: angular-architecture
 authority: inherited
+description: "Angular app structure: follow the declared layout, where shared code lives."
 appliesTo:
   - "**/*.ts"
 activities: [review, task, plan]
-detect:
-  - { file: package.json, contains: '"@angular/core"' }
 
 source:
   location: >-
@@ -41,5 +40,4 @@ rules:
       kind: reviewer
       explanation: Requires identifying the actual consumers in the snapshot.
 
-prompts: []
 commandPolicy: []

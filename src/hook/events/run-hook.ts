@@ -1,6 +1,6 @@
 import { dirKindFor } from '#types/defaults';
 import { createRuntime } from '#composition/root';
-import { EMPTY_HOOK_OUTPUT, HookInput, type AdditionalContextEvent, type AdditionalContextHookOutput, type RouteHookDeps, type HookDeps } from '#types/hook';
+import { EMPTY_HOOK_OUTPUT, HookInput, type AdditionalContextHookOutput, type RouteHookDeps, type HookDeps } from '#types/hook';
 import { askedKeys } from '#modules/requirements/envelope/envelope';
 import { captureRequirement } from '#modules/requirements/capture/capture';
 import { captureMrDiff } from '#modules/review/snapshot/mr-capture';
@@ -14,7 +14,6 @@ import { answerGates } from './gate-answer.ts';
 import { launchRoute, reinjectRoute } from './prompt-launch.ts';
 import { stopCheck } from './stop-check.ts';
 import { recordReviewerCall } from './review-record.ts';
-import { captureReviewerAnswer } from './subagent-stop.ts';
 import { readSessionContract } from '#modules/policy/packs/shared-contract';
 import { cleanupSessionState, deliverOnce, hookStateBaseDir, resetDelivered } from '#platform/claude/hook-state';
 import type { Runtime } from '#types/composition';
@@ -42,8 +41,7 @@ const stateDir = (runtime: Runtime, input: HookInput): string => hookStateBaseDi
 
 /**
  * Never throws: any failure is a no-op, because a hook is advisory and must never block or alter the tool call that
- * already happened. The reason goes to stderr: 3 of 36 investigate runs ended with no Stop-hook ledger entry and nothing
- * in the trace said why.
+ * already happened. The reason goes to stderr, so a silent no-op leaves a trace.
  */
 export async function runHook(runtime: Runtime, rawStdin: string, injected?: HookDeps): Promise<unknown> {
   const deps = injected ?? defaultHookDeps(runtime);
@@ -66,7 +64,7 @@ export async function runHook(runtime: Runtime, rawStdin: string, injected?: Hoo
       case 'SessionStart': {
         const base = stateDir(runtime, input);
         await resetDelivered(runtime.fs, base);
-        return await deliverSharedContract(runtime, input, base, 'SessionStart');
+        return EMPTY_HOOK_OUTPUT;
       }
       case 'PostCompact': {
         // A compaction invalidates earlier deliveries, but this event has no
@@ -78,19 +76,16 @@ export async function runHook(runtime: Runtime, rawStdin: string, injected?: Hoo
       }
       case 'UserPromptSubmit': {
         const base = stateDir(runtime, input);
-        const contract = (await deliverSharedContract(runtime, input, base, 'UserPromptSubmit')) as {
+        const routed = await promptContext(runtime, input, deps);
+        if (routed === null) return EMPTY_HOOK_OUTPUT;
+        const contract = (await deliverSharedContract(runtime, input, base)) as {
           hookSpecificOutput?: { additionalContext: string };
         };
-        const routed = await promptContext(runtime, input, deps);
-        if (routed === null) return contract;
         const context = [contract.hookSpecificOutput?.additionalContext, routed].filter(Boolean).join('\n\n');
         return { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: context } };
       }
       case 'Stop':
         return (await stopCheck(input, await loadFor(runtime, deps, input))) ?? EMPTY_HOOK_OUTPUT;
-      case 'SubagentStop':
-        await captureReviewerAnswer(runtime, input, await loadFor(runtime, deps, input));
-        return EMPTY_HOOK_OUTPUT;
       case 'SessionEnd': {
         const base = stateDir(runtime, input);
         await cleanupSessionState(runtime.fs, base);
@@ -111,7 +106,6 @@ async function deliverSharedContract(
   runtime: Runtime,
   input: HookInput,
   baseDir: string,
-  event: AdditionalContextEvent,
 ): Promise<unknown> {
   const contract = await readSessionContract(runtime.fs, runtime.pluginRoot);
   // Still consulted after a reset: two events can reach it together (a `SessionStart` matcher firing alongside a resume).
@@ -119,7 +113,7 @@ async function deliverSharedContract(
 
   const output: AdditionalContextHookOutput = {
     hookSpecificOutput: {
-      hookEventName: event,
+      hookEventName: 'UserPromptSubmit',
       additionalContext: contract.content.trimEnd(),
     },
   };

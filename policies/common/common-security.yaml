@@ -1,6 +1,7 @@
 schemaVersion: 1
 id: common-security
 authority: inherited
+description: "Any project: validate data at its boundary, keep secrets out, allowlist untrusted input."
 appliesTo:
   - "**/*"
 activities: [review, plan]
@@ -43,6 +44,5 @@ rules:
       kind: reviewer
       explanation: Assessed from the changed query, command, and path construction.
 
-prompts: []
 
 commandPolicy: []

@@ -215,7 +215,7 @@ describe('07-R9: Not verified for the task route', () => {
   });
 
   it('07-R9: a format entry that is not formatted lists the key and outcome; formatted does not', () => {
-    const format = (outcome: string): LedgerEntry => entry('format', { key: 'app/format', files: [], exit: null, via: 'model', outcome });
+    const format = (outcome: string): LedgerEntry => entry('format', { key: 'app/format', files: [], exit: null, outcome });
     for (const outcome of ['unconfigured', 'failed', 'refused']) assert.match(buildReport([format(outcome)]).notVerified, new RegExp(`  not formatted: app/format \\(${outcome}\\)`));
     assert.equal(buildReport([format('formatted')]).notVerified, 'Not verified\n  none recorded');
   });

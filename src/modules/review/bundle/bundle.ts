@@ -1,12 +1,11 @@
 import path from 'node:path';
-import { REVIEWER_ANSWER_FILE } from '#modules/review/answer/captured';
 import { REVIEWS_DIR } from '#types/defaults';
 import { appendLedger, readLedger } from '#platform/ledger/ledger';
 import { resolveTaskDir, taskDirFor } from '#modules/evidence/task/task-dir';
 import { reviewName, taskSlugFor } from './review-name.ts';
 import { openWorkspace, projectForPath } from '#modules/config/workspace';
 import { resolvePolicyFor } from '#modules/policy/resolve-for';
-import { baselineOf } from '#modules/checks/run/format';
+import { baselineOf } from '#modules/checks/workspace/baseline';
 import { touchedSet } from '#modules/checks/workspace/baseline';
 import { routeEvidence } from '#modules/requirements/envelope/envelope';
 import { renderReport } from '../findings/report.ts';
@@ -174,7 +173,7 @@ export async function assembleBundle(options: AssembleOptions): Promise<ReviewBu
   };
 }
 
-export type AppendEntry = (fields: Record<string, unknown> & { kind: string }) => Promise<LedgerEntry>;
+type AppendEntry = (fields: Record<string, unknown> & { kind: string }) => Promise<LedgerEntry>;
 
 /** Appends under the task ledger's own lock: for callers that do not already hold it. */
 const lockedAppend = (runtime: Runtime, taskDirectory: string): AppendEntry => async (fields) =>
@@ -204,7 +203,7 @@ export async function writeBundleArtifacts(runtime: Runtime, bundle: ReviewBundl
 }
 
 /** What a task route adds to a review: the baseline scope and the ledger fields of the `review` entry. */
-export interface BaselineScope { preexisting: string[]; omissions: string[]; ledger: Record<string, unknown> }
+interface BaselineScope { preexisting: string[]; omissions: string[]; ledger: Record<string, unknown> }
 
 /** The route's requirement envelope as sources, for a review that names none (requirement-based review on a route). */
 export async function envelopeRequirements(deps: CheckDeps, routed: Routed): Promise<RequirementSource[] | null> {
@@ -227,20 +226,18 @@ export async function baselineScope(runtime: Runtime, baseline: Awaited<ReturnTy
   };
 }
 
-export interface PinnedReview { bundle: ReviewBundle; entry: LedgerEntry | null; reportPath: string }
+interface PinnedReview { bundle: ReviewBundle; entry: LedgerEntry | null; reportPath: string }
 
 /** Assembles the bundle and writes its artifacts, report and `review` entry; the reviewer is offered the evidence next. */
 export async function pinReview(runtime: Runtime, input: { assemble: Omit<AssembleOptions, 'runtime'>; omissions: readonly string[]; ledger: Record<string, unknown>; append?: AppendEntry }): Promise<PinnedReview> {
   return pinAssembled(runtime, await assembleBundle({ runtime, ...input.assemble }), input);
 }
 
-/** For a caller that needed the bundle's files first (the route runs its checks on them): assembly costs about 76 ms and was done 3 times per pin. */
+/** For a caller that needed the bundle's files first (the route runs its checks on them), so assembly runs once per pin. */
 export async function pinAssembled(runtime: Runtime, bundle: ReviewBundle, input: { omissions: readonly string[]; ledger: Record<string, unknown>; append?: AppendEntry }): Promise<PinnedReview> {
   bundle.result.omissions = [...bundle.result.omissions, ...input.omissions];
   bundle.result.status = 'partial';
   bundle.result.statusReason = 'reviewer pending: run the ambicode:reviewer subagent, then `review record`';
-  // One directory per task: a previous round's captured answer would otherwise be recorded as this round's.
-  await runtime.fs.remove(path.join(bundle.reviewDirectory, REVIEWER_ANSWER_FILE));
   const entry = await writeBundleArtifacts(runtime, bundle, input.ledger, input.append);
   const reportPath = path.join(bundle.reviewDirectory, 'report.txt');
   await runtime.fs.writeText(reportPath, `${renderReport({ result: bundle.result, resultPath: bundle.resultPath })}\n`);

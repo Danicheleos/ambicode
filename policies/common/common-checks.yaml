@@ -1,6 +1,7 @@
 schemaVersion: 1
 id: common-checks
 authority: team
+description: "Any project: permission to run the project's own configured checks."
 appliesTo:
   - "**/*"
 activities: [review, task]
@@ -9,7 +10,6 @@ source:
   location: "AMBICODE built-in: permission to run the project's own configured checks."
 
 rules: []
-prompts: []
 
 # A command configured as null stays unavailable regardless of the decision
 # below, and a read-only activity never runs these just because one exists.

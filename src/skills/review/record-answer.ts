@@ -5,7 +5,7 @@ import { openWorkspace } from '#modules/config/workspace';
 import { combineDiff } from '#platform/git/diff';
 import { appendLedger } from '#platform/ledger/ledger';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
-import { pendingReview, REVIEWER_ANSWER_FILE } from '#modules/review/answer/captured';
+import { pendingReview } from '#modules/review/answer/captured';
 import { validateFindings } from '#modules/review/findings/validate';
 import { applyStatus } from '#modules/review/findings/status';
 import { renderReport } from '#modules/review/findings/report';
@@ -71,15 +71,6 @@ function locate(entries: readonly LedgerEntry[], task: string, wanted: string | 
   return entry;
 }
 
-/** The answer the SubagentStop hook captured wins over `fallback`: the model never re-types it, so it cannot edit it. */
-async function readAnswer(runtime: Runtime, reviewDirectory: string, fallback: () => Promise<string>): Promise<string> {
-  try {
-    return await runtime.fs.readText(path.join(reviewDirectory, REVIEWER_ANSWER_FILE));
-  } catch {
-    return fallback();
-  }
-}
-
 /** Everything up to the ledger append and report.txt; the caller advances the route and prints. */
 export async function recordReviewerAnswer(runtime: Runtime, input: { task: string; wanted: string | null; fallback: () => Promise<string> }): Promise<RecordedReview> {
   const { task } = input;
@@ -87,10 +78,10 @@ export async function recordReviewerAnswer(runtime: Runtime, input: { task: stri
   const pending = locate(await readEntries(runtime, task), task, input.wanted);
   const resultPath = path.join(workspace.repositoryRoot, String(pending['result']));
   const reviewDirectory = path.dirname(resultPath);
-  const raw = await readAnswer(runtime, reviewDirectory, input.fallback);
+  const raw = await input.fallback();
   // Nothing recorded: a failed review written now would leave the pending review gone, and the pasted answer with nowhere to go.
   if (raw.trim() === '') {
-    throw new AmbicodeError('review-answer-missing', `Task ${task}: no reviewer answer was captured by the SubagentStop hook and none came on standard input. Nothing was recorded.`, {
+    throw new AmbicodeError('review-answer-missing', `Task ${task}: no reviewer answer came from the hook or on standard input. Nothing was recorded.`, {
       details: ['Release: paste the subagent\'s answer on stdin (a heredoc); if it returned nothing, paste the word none, which records a failed review.'],
     });
   }

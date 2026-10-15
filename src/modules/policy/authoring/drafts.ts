@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { projectById } from '#modules/config/workspace';
-import { DRAFTS_DIR, type Diagnostic, type PackWithPrompts, type DraftsCheck } from '#types/modules/policy';
+import { DRAFTS_DIR, type Diagnostic, type LoadedPack, type DraftsCheck } from '#types/modules/policy';
 import { pathExclusionReason } from '#util/path-classes';
 import { matchesGlob } from '#util/glob';
 import { contentHash } from '#util/hash';
@@ -42,7 +42,7 @@ export async function checkDrafts(runtime: Runtime, workspace: Workspace, option
   const project = options.project !== null ? projectById(workspace.config, options.project) : workspace.config.projects.length === 1 ? workspace.config.projects[0]! : null;
   const diagnostics: Diagnostic[] = [];
   const result: DraftsCheck = { files: [], diagnostics, rulesBySource: {}, notMigrated: [], aggregateHash: '', ok: true, rules: [] };
-  const packs: PackWithPrompts[] = [];
+  const packs: LoadedPack[] = [];
   const enabled = project === null ? [] : (await loadPacksForProject({ fs: runtime.fs, project, builtinDirectory: builtinPoliciesDirectory(runtime.pluginRoot), repositoryRoot: root })).packs;
   const constraints = await packConstraints(runtime.fs, builtinPoliciesDirectory(runtime.pluginRoot), project);
   const names = (await runtime.fs.readdir(path.join(root, DRAFTS_DIR)).catch(() => [])).filter((entry) => entry.isFile() && entry.name.endsWith('.yaml')).map((entry) => entry.name).sort();
@@ -74,7 +74,7 @@ export async function checkDrafts(runtime: Runtime, workspace: Workspace, option
       error('pack-quote-missing', `rule "${rule.id}": the quote is not verified (${problem}). Fix the quote or drop the rule.`);
       result.notMigrated.push({ rule: qualified, reason: `pack-quote-missing: ${problem}` });
     }
-    for (const glob of project === null ? [] : new Set([...pack.appliesTo, ...pack.rules.flatMap((rule) => rule.appliesTo ?? [])])) {
+    for (const glob of project === null ? [] : pack.appliesTo) {
       if ((await matchedFiles(runtime, path.join(root, project!.root), glob)) === 0) diagnostics.push({ severity: 'warning', code: 'pack-glob-matches-nothing', message: `${relative}: appliesTo glob "${glob}" matches no file under project "${project!.id}" today.`, where: filePath });
     }
   }

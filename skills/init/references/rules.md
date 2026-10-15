@@ -17,15 +17,15 @@ Draft a rule a project document states even when a built-in pack covers it: the 
 schemaVersion: 1
 id: observed-conventions
 authority: observed
-appliesTo: ["src/**/*.ts"]
+appliesTo: ["src/**"]
 activities: [review, task]
 source: { location: "scout inference" }
 rules:
-  - id: named-exports
-    category: code-style
-    instruction: Export named symbols; do not use default exports.
+  - id: config-read-once
+    category: architecture
+    instruction: Read configuration in one module and pass the values down.
     check: { kind: reviewer, explanation: Judged from the diff. }
-    source: { quote: "export function parseConfig(", location: "src/config.ts:12" }
+    source: { quote: "config = load_config(environment)", location: "src/main:9" }
 ```
 
-A rule may narrow its pack with `activities` (plan, task, review) and `appliesTo`; omit them to take the pack's.
+A rule may narrow its pack with `activities` (plan, task, review); omit it to take the pack's.

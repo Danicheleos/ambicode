@@ -3,18 +3,12 @@
 // - `files-section`: the paths under a `## Files` heading (the case's prompt asks for that section);
 // - `citations`: every `path:line` citation.
 import path from 'node:path';
+import { events } from './trace.mjs';
 
 /** The main session's last text: the answer the user reads. */
 export function finalTextOf(traceText) {
   let last = '';
-  for (const line of traceText.split('\n')) {
-    if (!line.trim()) continue;
-    let event;
-    try {
-      event = JSON.parse(line);
-    } catch {
-      continue;
-    }
+  for (const event of events(traceText)) {
     if (event.type !== 'assistant' || event.parent_tool_use_id) continue;
     const text = (event.message?.content ?? []).filter((part) => part.type === 'text').map((part) => part.text).join('\n').trim();
     if (text) last = text;

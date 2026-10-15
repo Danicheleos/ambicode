@@ -1,6 +1,7 @@
 schemaVersion: 1
 id: express-persistence
 authority: inherited
+description: "Express services: bounded reads, write conflicts, client-controlled shapes, persistence types kept internal."
 appliesTo:
   - "**/*.service.ts"
   - "**/*.schema.ts"
@@ -11,11 +12,6 @@ appliesTo:
   - "**/{service,repository,model}.{ts,js,mjs,cjs}"
   - "**/models/**/*.{js,mjs,cjs}"
 activities: [review, task, plan]
-detect:
-  - { file: package.json, contains: '"express"' }
-unless:
-  - { file: package.json, contains: '"@angular/ssr"' }
-  - { file: package.json, contains: '"@nguniversal/express-engine"' }
 
 source:
   location: >-
@@ -70,5 +66,4 @@ rules:
       kind: reviewer
       explanation: Assessed from the changed response shape.
 
-prompts: []
 commandPolicy: []

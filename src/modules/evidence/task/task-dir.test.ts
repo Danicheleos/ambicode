@@ -31,7 +31,6 @@ describe('02-D1: the task directory', () => {
       planBody: '/repo/.ambicode/tasks/ORD-17/steps/plan-body.md',
       requirements: '/repo/.ambicode/tasks/ORD-17/requirements',
       workers: '/repo/.ambicode/tasks/ORD-17/workers',
-      stopCheck: '/repo/.ambicode/tasks/ORD-17/stop-check.md',
       answerBlocked: '/repo/.ambicode/tasks/ORD-17/answer-blocked.md',
     });
     assert.equal(taskDirFor('/repo', 'x').where, '.');

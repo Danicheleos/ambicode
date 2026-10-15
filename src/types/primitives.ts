@@ -43,14 +43,6 @@ export type RuleCategory = z.infer<typeof RuleCategory>;
 export const Activity = z.enum(['review', 'task', 'plan', 'investigate']);
 export type Activity = z.infer<typeof Activity>;
 
-export const PromptStage = z.enum([
-  'before-work',
-  'before-checks',
-  'before-review',
-  'before-report',
-]);
-export type PromptStage = z.infer<typeof PromptStage>;
-
 export const CommandAction = z.enum(['run', 'propose', 'forbid']);
 export type CommandAction = z.infer<typeof CommandAction>;
 

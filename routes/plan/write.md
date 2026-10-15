@@ -1,4 +1,4 @@
-Write the plan once with the Write tool to `.ambicode/tasks/{task}/steps/plan-body.md`, then run `{cli} route next --task {task}`. Code saves it as the draft and checks that every `path:line` anchor exists; failures come back to you as a section here; fix them by writing the whole file again with the Write tool, never by patching it or through the shell.
+Write the plan once with the Write tool to `.ambicode/tasks/{task}/steps/plan-body.md`. Code saves it as the draft and checks that every `path:line` anchor exists; failures come back to you as a section here; fix them by writing the whole file again with the Write tool, never by patching it or through the shell.
 Shape:
 - A requirement → section table: one row per requirement point (`| requirement | section |`), or the point listed under a `## Not covered` heading with the reason.
 - Ordered, independently reviewable iterations. Each one has:

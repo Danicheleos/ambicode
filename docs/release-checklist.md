@@ -24,9 +24,9 @@ against evidence that already exists, not as open-ended advice.
   ordinary `claude plugin list` and
   `claude plugin details ambicode@ambicode-team` report all six
   skills (`init`, `review`, `investigate`, `plan`, `task`, `rules`) and the
-  hooks of `hooks/hooks.json` (eight events, fifteen handler entries:
+  hooks of `hooks/hooks.json` (seven events, fourteen handler entries:
   `PostToolUse`, `PreToolUse`, `SessionStart`, `UserPromptSubmit`, `Stop`,
-  `SubagentStop`, `PostCompact`, `SessionEnd`; record the count the CLI prints) before relying
+  `PostCompact`, `SessionEnd`; record the count the CLI prints) before relying
   on it.
 - [ ] Run `npm run smoke:install-local` (doc 04 P2.2 correction A, and the
   failure-safety rewrite of doc 04 P2.3 correction A): proves install,
@@ -121,7 +121,7 @@ have.
 | I01–I08 (P2.1 fixed investigation cases) | Authorized model access; I02–I05/I07 additionally need a connected Jira/Confluence MCP server; I08 needs a configured diagnostic command | Follow doc 07's "P2.1 fixed investigation cases" table |
 | PL01–PL10 (P2.2 fixed plan cases) | Authorized model access; PL02–PL05 additionally need a connected Jira/Confluence MCP server; PL06 needs a prior investigation (note or same-session) | Follow doc 07's "P2.2 fixed plan cases" table |
 | T01–T11 (P2.3 fixed task cases) | Authorized model access with a fixture project whose configured checks actually run; T03 needs a previously accepted plan; T05 needs a fixture with no configured reproduction mechanism; T06 needs a configured `propose` command or an over-limit selection; T09 needs a deliberately planted finding outside the brief (it must end under Remaining, not as a gate) | Follow doc 07's "P2.3 fixed task cases" table |
-| E02 (one authorized eval smoke case) | Authorized, budgeted model access for `claude plugin eval` | `claude plugin eval . --scaffold --allow-tools Bash --runs 1 --max-cost-usd <budget>` on one case; inspect the trace for skill routing *and* the packaged helper actually running, per doc 07. The suite now has 18 cases (12 Phase-1 plus the 6 P2.4 correction-I cases); the zero-cost load check covers all 18 across both arms, but no case has actually been run with model access. |
+| E02 (one authorized eval smoke case) | Authorized, budgeted model access for `claude plugin eval` | `claude plugin eval . --scaffold --allow-tools Bash --runs 1 --max-cost-usd <budget>` on one case; inspect the trace for skill routing *and* the packaged helper actually running, per doc 07. The suite has 17 cases (`evals/cases`; the bare arm runs 12 of them); the zero-cost load check (`npm run evals:dry`) covers both arms, and `evals/history.md` records the runs made so far. |
 | A live authenticated Claude Code session confirming a disabled plugin's skills are unavailable (doc 04 P2.4, "Disable / re-enable" in `docs/installation.md`) | A developer's own authenticated Claude Code session (the isolated sandbox used for this candidate has no credentials in it deliberately) | Disable the plugin (`claude plugin disable ambicode@ambicode-team -s user`) in a real session and confirm no `/ambicode:*` skill is offered |
 | AskUserQuestion gate answers beyond the one probe run (free-text and "Chat about this" answers, multi-question and multi-select calls, resume or compact between ask and answer, subagent askers, other Claude Code versions) | A developer's own interactive Claude Code session on the current 2.1 minor | Repeat the probe in `plan/migration-v6-reports/step-03/probe-p2-p48.md` for each case and record the observed `PostToolUse` payload; single-select answers in the interactive dialog and `additionalContext` delivery were observed on 2026-10-05 (Claude Code 2.1.289) |
 | The comparative evaluation / value gate | Two pilot repositories, pilot owner, authorized model access at pilot scale | See "Pilot owner checklist" above |

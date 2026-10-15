@@ -10,7 +10,7 @@ const project = { id: 'web', root: 'apps/web', paths: [], ecosystem: { languages
 const clock = { now: () => new Date(0), elapsed: () => 0 };
 
 const policy = (action: 'run' | 'propose' | 'forbid', reason?: string): ResolvedPolicy => ({
-  activity: 'task', projectId: 'web', packs: [], rules: [], prompts: [], diagnostics: [],
+  activity: 'task', projectId: 'web', packs: [], rules: [], diagnostics: [],
   commandDecisions: [{ command: 'unit', action, sources: [{ packId: 't', packReference: 't', action, ...(reason === undefined ? {} : { reason }) }] }],
 });
 

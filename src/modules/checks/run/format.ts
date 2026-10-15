@@ -5,19 +5,12 @@ import type { ProjectConfig } from '#types/modules/config';
 import { normalizeRelative } from '#util/paths';
 import { resolvePolicyFor } from '#modules/policy/resolve-for';
 import { authorizeCommand } from '../selection/authorize.ts';
-import { authorizeKey, commandFor, projectRelative, routedOf, withLedger } from './check-command.ts';
+import { authorizeKey, commandFor, FORMAT_CHECK, projectRelative, routedOf, withLedger } from './check-command.ts';
 import { shellArgv } from './run.ts';
 import { fingerprintWorkspace } from '../workspace/mutations.ts';
-import { touchedSet } from '../workspace/baseline.ts';
+import { baselineOf, touchedSet } from '../workspace/baseline.ts';
 import { resolveTaskDir } from '#modules/evidence/task/task-dir';
-import type { CheckDeps, BaselineEntryFields, FormatEntry } from '#types/modules/checks';
-const FORMAT_CHECK = 'format';
-
-/** The task's baseline in this route's chain (or the latest one standalone); none → everything changed against HEAD. */
-export async function baselineOf(deps: CheckDeps, task: string, chainIds: readonly string[] | null): Promise<(BaselineEntryFields & { id: string }) | null> {
-  const entry = (await deps.context!.entries(task)).findLast((candidate) => candidate.kind === 'baseline' && (chainIds === null || chainIds.includes(String(candidate['route']))));
-  return entry === undefined ? null : { id: entry.id, head: (entry['head'] as string | null) ?? null, dirty: (entry['dirty'] as BaselineEntryFields['dirty']) ?? [] };
-}
+import type { CheckDeps, FormatEntry } from '#types/modules/checks';
 
 /** One `format` entry per project in the touched set (07-F1 … 07-F3). */
 export async function runFormat(deps: CheckDeps, input: { task: string; waiting: { key: string; files: string[] }[] }): Promise<FormatEntry[]> {
@@ -43,12 +36,12 @@ export async function runFormat(deps: CheckDeps, input: { task: string; waiting:
     const key = `${project.id}/format`;
     const template = project.checks[FORMAT_CHECK]?.file ?? null;
     if (template === null) {
-      entries.push(await append({ key, files: [], exit: null, via: 'model', outcome: 'unconfigured' }));
+      entries.push(await append({ key, files: [], exit: null, outcome: 'unconfigured' }));
       continue;
     }
     const policy = await resolvePolicyFor({ workspace, project, activity: 'task', paths: files });
     if (authorizeCommand({ policy, commandId: FORMAT_CHECK, approvalKey: key, approvals: new Set() }).kind === 'refused') {
-      entries.push(await append({ key, files: [], exit: null, via: 'model', outcome: 'refused' }));
+      entries.push(await append({ key, files: [], exit: null, outcome: 'refused' }));
       continue;
     }
     // The task route's code step prints the gate through the engine, so the questions are collected, not raised here.
@@ -58,7 +51,7 @@ export async function runFormat(deps: CheckDeps, input: { task: string; waiting:
       continue;
     }
     if (decision === 'declined') {
-      entries.push(await append({ key, files: [], exit: null, via: 'model', outcome: 'refused' }));
+      entries.push(await append({ key, files: [], exit: null, outcome: 'refused' }));
       continue;
     }
     const relative = files.map((file) => projectRelative(project, file));
@@ -73,7 +66,7 @@ export async function runFormat(deps: CheckDeps, input: { task: string; waiting:
     });
     const after = await hashes();
     const changed = files.filter((file) => before.get(file) !== after.get(file));
-    entries.push(await append({ key, files: changed, exit: outcome.exitCode, via: 'model', outcome: outcome.exitCode === 0 ? 'formatted' : 'failed' }));
+    entries.push(await append({ key, files: changed, exit: outcome.exitCode, outcome: outcome.exitCode === 0 ? 'formatted' : 'failed' }));
   }
   return entries;
 }

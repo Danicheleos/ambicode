@@ -1,6 +1,7 @@
 schemaVersion: 1
 id: python-quality
 authority: inherited
+description: "Python: exception specificity, resource lifetime, mutable defaults, blocking calls in async code, import side effects."
 appliesTo:
   - "**/*.py"
 activities: [review, task, plan]
@@ -68,5 +69,4 @@ rules:
       kind: reviewer
       explanation: Assessed from the changed module level statements.
 
-prompts: []
 commandPolicy: []

@@ -1,16 +1,15 @@
 # Review outcomes and refusals
 
-Every outcome id `ambicode review` emits, with what to do about each. Owned
-here so `SKILL.md` stays within its per-call budget; read this when a run
-ends in anything but a completed review.
+Every outcome id `ambicode review` emits, with what to do about each. Read this
+when a run ends in anything but a completed review.
 
-**`requirements-not-retrieved` / `requirements-unavailable`.** A requirement URL
+**`requirements-not-retrieved`.** A requirement URL
 has no usable evidence. Fix the access or the envelope; do not fall back.
 
 **`requirements-unreadable` / `requirements-unparsable` / `requirements-invalid`.**
 The envelope on `--evidence -` is empty, over the size limit, not JSON, or not
-the envelope shape (the details name the field). Rebuild it as the
-requirements reference describes and pipe it again; do not hand-edit retrieved content into it.
+the envelope shape (the details name the field). Rebuild it
+and pipe it again; do not hand-edit retrieved content into it.
 
 **`input-too-large`.** The change exceeds the configured limits. The error names
 the largest contributors. Usually something uncommitted and generated — a
@@ -23,7 +22,7 @@ reviewer ran. Say which; do not widen the patterns without asking.
 **`baseline-missing`.** Branch review needs a baseline. AMBICODE will not guess a
 default branch name. Pass `--base <ref>`.
 
-**`check-only-unauthorized`.** `check --file` or `format` met a command policy of
+**`check-only-unauthorized`.** `check --file` met a command policy of
 `forbid`, an undeclared command, or `propose` with no route on the task. Release:
 configure the check's policy, or run it inside `/ambicode:task`. Inside a task route
 a `propose` check asks the user instead; only the user's own answer approves it.
@@ -33,10 +32,7 @@ none was named. Refuse to guess: ask which project, then pass `--project <id>` o
 narrower paths.
 
 **`check-limit`.** A sixth `check` of one phase in the current step. Release: state
-the gap in the report; `$A route next --task <slug>`.
-
-**`format-unconfigured`.** Not an error: the project has no `commands.format`, so
-nothing was formatted; the run exits 0 and the report lists it under Not verified.
+the gap in the report; `route next --task <slug>`.
 
 **`baseline-unresolvable` / `no-merge-base`.** The `--base` ref names no commit,
 or shares no history with HEAD. Fetch it or correct the name. AMBICODE will not
@@ -46,7 +42,7 @@ substitute `HEAD~1`, and neither should you.
 repository has no commit yet. Run from the checkout, or make the first commit.
 
 **`config-missing` / `config-invalid` / `config-schema-too-new`.**
-`.ambicode/config.yaml` is absent, fails the schemaVersion 4 schema (an older
+`.ambicode/config.yaml` is absent, fails the current config schema (an older
 version included; `config validate` names the field) or was written by a
 newer AMBICODE. Offer `/ambicode:init` for the first; show the user the error
 for the others. For a too-new schema, upgrade the plugin rather than editing
@@ -72,7 +68,7 @@ the request inside a configured project root. Ask which project.
 `--review` id). The `PostToolUse` hook on the reviewer subagent may already have recorded it: read the report it
 returned. Otherwise run `route next --task <slug>`; the route's pin step prepares the diff and brief the reviewer reads.
 
-**`review-answer-missing`.** `review record` found no answer captured by the `SubagentStop` hook and nothing on
+**`review-answer-missing`.** `review record` found no answer from the hook and nothing on
 stdin. Nothing was recorded. Paste the subagent's JSON block on stdin; if it returned nothing, paste `none`.
 
 **`conflicting-target` / `baseline-not-applicable`.** One target per run, and
@@ -154,9 +150,8 @@ and a command no pack declares is not run either — absence is not permission. 
 message names the pack and the reason. Changing it is a deliberate edit to that
 pack's `commandPolicy`, not something to work around.
 
-Hooks: AMBICODE registers eight hook events with fifteen handler entries. The `Stop`
-hook blocks a finishing message at most once per route, naming what to fix and the
-full list in `stop-check.md` of the task directory; a second failing stop is allowed.
+The `Stop` hook blocks a finishing message at most once per route, naming what to fix;
+a second failing stop is allowed.
 
 **`invalid-output`.** Printed by `review record` when the reviewer's answer could not be verified
 (no JSON block, or a location outside the diff). It is not a clean review. Report the printed
@@ -179,8 +174,7 @@ lines. `script-output-invalid`: it printed no JSON object, or an entry without a
 stop; the scripts ship with the plugin, so retrying will not change it.
 
 **`mr-diff-missing`.** `review --mr` has no captured merge-request diff. Make the diff call
-the route step names on the GitLab MCP server, then `route next`; see
-`merge-request.md`.
+the route step names on the GitLab MCP server, then `route next`.
 
 **`review-findings`.** The task route's review step found findings to fix. They come back
 in the step's `Findings` section; fix them, do not discard them.

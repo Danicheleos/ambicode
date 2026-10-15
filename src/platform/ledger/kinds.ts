@@ -58,7 +58,7 @@ const schemas = [
   }),
   entry('search', { command: z.enum(['refs']), names: z.array(text), hits: count, bytes: count, truncated: count.optional() }),
   entry('policy', {
-    stage: z.enum(['before-work', 'before-checks', 'before-report', 'drafts', 'apply']), packs: optionalList, rules: count.optional(), omitted: count.optional(), bytes: count.optional(),
+    stage: z.enum(['before-work', 'drafts', 'apply']), packs: optionalList, rules: count.optional(), omitted: count.optional(), bytes: count.optional(),
     path: text.optional(), contentHash: text.optional(), drafts: optionalList, errors: count.optional(),
   }).superRefine((value, context) => {
     const required = { drafts: ['path', 'contentHash', 'drafts', 'errors'], apply: ['packs'] }[value.stage as string] ?? ['packs', 'rules', 'bytes'];
@@ -70,7 +70,7 @@ const schemas = [
     tail: z.string().optional(), ms: z.number(), mutations: z.unknown().optional(),
   }),
   entry('format', {
-    key: text, files: z.array(text), exit: z.number().int().nullable(), via: z.literal('model'), outcome: z.enum(['formatted', 'unconfigured', 'failed', 'refused']),
+    key: text, files: z.array(text), exit: z.number().int().nullable(), outcome: z.enum(['formatted', 'unconfigured', 'failed', 'refused']),
   }),
   entry('review', {
     reviewId: text, status: text.optional(), statusReason: text.nullable().optional(), reviewerRan: z.boolean().optional(), stage: z.enum(['pending', 'recorded']).optional(),

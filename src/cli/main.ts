@@ -96,7 +96,7 @@ async function dispatch(command: CliCommand, args: ParsedArgs): Promise<Rendered
   const shell = await createRuntime();
   const task = args.value('task');
   const cwd = task === null ? shell.cwd : await taskWorkingDirectory(shell, task);
-  const runtime = cwd === shell.cwd ? shell : await createRuntime({ cwd, callerCwd: shell.cwd });
+  const runtime = cwd === shell.cwd ? shell : await createRuntime({ cwd });
   const rendered = await command.run(runtime, args);
   const notices = runtime.notices ?? [];
   return notices.length === 0 ? rendered : { ...rendered, warnings: [...notices, ...(rendered.warnings ?? [])] };

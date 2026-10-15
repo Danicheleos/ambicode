@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { SUPPORTED_SCHEMA_VERSION } from '../src/types/modules/config.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BUNDLE = path.join(ROOT, 'scripts', 'ambicode.mjs');
@@ -42,7 +43,7 @@ function git(args, cwd) {
 
 const RUN = 'model: sonnet, effort: medium, timeoutMinutes: 15';
 const CONFIG = [
-  'schemaVersion: 5',
+  `schemaVersion: ${SUPPORTED_SCHEMA_VERSION}`,
   'id: app',
   'context: { maxTotalTokens: 24000, maxFileTokens: 2500 }',
   'skills:',
@@ -111,43 +112,21 @@ describe('built-artifact regression: ambicode hook (P2.4 correction G/H)', () =>
     assert.ok((await assertBundleBuilt(BUNDLE)) > 0, `${BUNDLE} is empty`);
   });
 
-  it('delivers the contract once, suppresses a repeat, and redelivers after a context reset', async () => {
-    // The Edit/Write reminder branch (and its rule-content redelivery) is gone: it had no matcher in hooks.json
-    // (cutting-down audit, wave 1). What the delivered/<kind> marker still guards is the operating contract.
+  it('delivers the contract with a route launch only, suppresses a repeat, and redelivers after a context reset', async () => {
     const repo = await makeFixtureRepo();
     const sessionId = randomUUID();
-    const prompt = () => JSON.parse(runHookCli({ hook_event_name: 'UserPromptSubmit', session_id: sessionId, cwd: repo }));
+    const send = (prompt) => JSON.parse(runHookCli({ hook_event_name: 'UserPromptSubmit', session_id: sessionId, cwd: repo, prompt }));
+    const launch = '/ambicode:investigate how does the order service work --task hook-art';
     try {
-      const first = prompt();
+      assert.deepEqual(JSON.parse(runHookCli({ hook_event_name: 'SessionStart', session_id: sessionId, cwd: repo })), {}, 'a session start delivers nothing');
+      assert.deepEqual(send('rename the helper'), {}, 'a plain prompt delivers nothing');
+      const first = send(launch);
       assert.equal(first.hookSpecificOutput?.hookEventName, 'UserPromptSubmit');
-      assert.match(first.hookSpecificOutput?.additionalContext ?? '', /# AMBICODE operating contract/);
-      assert.deepEqual(prompt(), {}, 'a repeated prompt in the same context must not repeat the contract');
+      assert.match(first.hookSpecificOutput?.additionalContext ?? '', /# AMBICODE operating contract[\s\S]*\[ambicode\] investigate/);
+      assert.doesNotMatch(send('and the tests?').hookSpecificOutput?.additionalContext ?? '', /operating contract/, 'the contract is in context for this epoch');
 
       assert.deepEqual(JSON.parse(runHookCli({ hook_event_name: 'PostCompact', session_id: sessionId })), {});
-      const afterReset = prompt();
-      assert.match(afterReset.hookSpecificOutput?.additionalContext ?? '', /# AMBICODE operating contract/, 'a context reset must redeliver');
-    } finally {
-      await rm(repo, { recursive: true, force: true });
-    }
-  });
-
-  it('PostCompact returns nothing, and the next UserPromptSubmit carries the contract', async () => {
-    // Claude Code's hook schema has no `hookSpecificOutput` variant for PostCompact;
-    // returning one is a validation error the user sees on every compaction.
-    const repo = await makeFixtureRepo();
-    const sessionId = randomUUID();
-    try {
-      const start = JSON.parse(runHookCli({ hook_event_name: 'SessionStart', session_id: sessionId }));
-      assert.equal(start.hookSpecificOutput?.hookEventName, 'SessionStart');
-
-      const compacted = JSON.parse(runHookCli({ hook_event_name: 'PostCompact', session_id: sessionId }));
-      assert.deepEqual(compacted, {}, 'PostCompact must carry no hookSpecificOutput');
-
-      const prompt = JSON.parse(
-        runHookCli({ hook_event_name: 'UserPromptSubmit', session_id: sessionId, cwd: repo }),
-      );
-      assert.equal(prompt.hookSpecificOutput?.hookEventName, 'UserPromptSubmit');
-      assert.match(prompt.hookSpecificOutput?.additionalContext ?? '', /# AMBICODE operating contract/);
+      assert.match(send('continue').hookSpecificOutput?.additionalContext ?? '', /# AMBICODE operating contract/, 'a context reset must redeliver to an active route');
     } finally {
       await rm(repo, { recursive: true, force: true });
     }
@@ -163,7 +142,6 @@ describe('built-artifact regression: ambicode hook (P2.4 correction G/H)', () =>
       'SessionEnd',
       'SessionStart',
       'Stop',
-      'SubagentStop',
       'UserPromptSubmit',
     ]);
     for (const event of events) {

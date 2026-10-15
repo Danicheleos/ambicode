@@ -49,12 +49,6 @@
         "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs", "hook"] }]
       }
     ],
-    "SubagentStop": [
-      {
-        "matcher": "(ambicode:)?reviewer",
-        "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs", "hook"] }]
-      }
-    ],
     "PostCompact": [
       {
         "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs", "hook"] }]

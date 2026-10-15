@@ -22,7 +22,7 @@ export async function runReviewRecord(runtime: Runtime, args: ParsedArgs): Promi
 
 export const reviewRecordCommand: CliCommand = {
   name: 'review record',
-  summary: "Record the reviewer's JSON answer, captured by the SubagentStop hook or else from stdin (--task).",
+  summary: "Record the reviewer's JSON answer, from stdin (--task).",
   options: REVIEW_RECORD_OPTIONS,
   run: async (runtime, args) => {
     const output = await runReviewRecord(runtime, args);

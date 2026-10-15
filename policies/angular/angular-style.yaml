@@ -1,11 +1,10 @@
 schemaVersion: 1
 id: angular-style
 authority: inherited
+description: "Angular TypeScript style: honest types."
 appliesTo:
   - "**/*.ts"
 activities: [review, task]
-detect:
-  - { file: package.json, contains: '"@angular/core"' }
 
 source:
   location: >-
@@ -26,5 +25,4 @@ rules:
       kind: reviewer
       explanation: Assessed from the changed declarations.
 
-prompts: []
 commandPolicy: []

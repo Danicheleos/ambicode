@@ -42,7 +42,6 @@ appliesTo: ["**/*"]
 activities: [review, task]
 source: { location: "test" }
 rules: []
-prompts: []
 commandPolicy:
   - { command: unit, action: run, reason: "unit" }
   - { command: e2e, action: propose, reason: "e2e" }

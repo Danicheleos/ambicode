@@ -53,7 +53,7 @@ describe('review route: shape and start (08-R1, 08-R2, 08-R3)', () => {
     assert.deepEqual([gate['options'], gate['acting'], gate['default']], [['run', 'narrow', 'skip'], ['run'], 'skip']);
     const brief = route.steps.find((step) => step.id === 'brief') as unknown as { when: string; run: string[]; repeat?: number };
     // Pin and checks run in code; a check answer revises this step, so it may run twice.
-    assert.deepEqual([brief.when, brief.run, brief.repeat], ['gate.estimate.is(run)', ['review.pin', 'policy.stage(before-work, review)', 'review.callers', 'script(brief)'], 2]);
+    assert.deepEqual([brief.when, brief.run, brief.repeat], ['gate.estimate.is(run)', ['review.pin', 'policy.stage(before-work, review)', 'script(brief)'], 2]);
     assert.ok((await loadRouteRegistry(REPO_ROOT, nodeFileSystem)).route('review') !== null);
     assert.match(await readFile(path.join(REPO_ROOT, 'tools', 'package-candidate.mjs'), 'utf8'), /from: 'routes', extensions: \['\.yaml', '\.md'\]/);
     const agent = route.steps.find((step) => step.id === 'review-agent') as unknown as { when: string; produces: string[]; instruction: string };
@@ -314,46 +314,6 @@ describe('review route: the estimate gate (08-R4, 08-R5, S12, S14)', () => {
     });
   });
 
-  describe('SubagentStop captures the reviewer answer', () => {
-    const answer = '```json\n{"findings":[],"coverageNotes":[]}\n```';
-    const stopSub = (t: Fixture, extra: Record<string, unknown> = {}) =>
-      runHook(t.fx.runtime, JSON.stringify({ hook_event_name: 'SubagentStop', session_id: SESSION_A, cwd: t.fx.repo.root, scratchpad_dir: t.fx.scratchpad, agent_id: 'sub-1', agent_type: 'ambicode:reviewer', last_assistant_message: answer, ...extra }), { pointer: t.fx.pointer, load: async () => ({ engine: t.fx.engine, routes: t.fx.routes, pointer: t.fx.pointer }) });
-    const file = (t: Fixture): string => path.join(t.dir, 'reviewer-answer.txt');
-    const pendingReview = async (t: Fixture) => {
-      await t.start();
-      await t.hook('estimate', 'run');
-    };
-
-    it('the reviewer subagent\'s final message is written beside the pending review, byte for byte, and the hook answers {}', async () => {
-      await withReview(async (t) => {
-        await pendingReview(t);
-        assert.deepEqual(await stopSub(t), {});
-        assert.equal(await readFile(file(t), 'utf8'), answer);
-      });
-    });
-
-    it('another subagent, a reviewer with no message, and a reviewer with no pending review capture nothing', async () => {
-      await withReview(async (t) => {
-        await t.start();
-        assert.deepEqual(await stopSub(t), {}, 'no pending review yet');
-        await t.hook('estimate', 'run');
-        await stopSub(t, { agent_type: 'Explore' });
-        await stopSub(t, { agent_type: 'reviewer-extra' });
-        await stopSub(t, { last_assistant_message: '  ' });
-        await assert.rejects(readFile(file(t), 'utf8'), { code: 'ENOENT' });
-      });
-    });
-
-    it('once the review is recorded a later SubagentStop writes nothing', async () => {
-      await withReview(async (t) => {
-        await pendingReview(t);
-        await t.append({ kind: 'review', reviewId: String((await t.kinds('review'))[0]!['reviewId']), result: path.join('.ambicode', 'reviews', CHECK_TASK, 'result.json'), status: 'partial', stage: 'recorded', reviewerRan: true, findings: 0 });
-        await stopSub(t);
-        await assert.rejects(readFile(file(t), 'utf8'), { code: 'ENOENT' });
-      });
-    });
-  });
-
   describe('PostToolUse on Agent records the reviewer answer', () => {
     const answer = '```json\n{"findings":[],"coverageNotes":["read only the diff"]}\n```';
     const agentDone = (t: Fixture, extra: Record<string, unknown> = {}, engine = t.fx.engine) =>
@@ -375,16 +335,6 @@ describe('review route: the estimate gate (08-R4, 08-R5, S12, S14)', () => {
         assert.match(text, /\[ambicode\] review · task ord-7 · step readback/);
         assert.equal((await lastReview(t))['stage'], 'recorded');
         assert.equal((await steps(t, 'delivered')).at(-1), 'readback');
-      });
-    });
-
-    it('the answer SubagentStop captured wins over the text in the tool response', async () => {
-      await withReview(async (t) => {
-        await pendingReview(t);
-        await runHook(t.fx.runtime, JSON.stringify({ hook_event_name: 'SubagentStop', session_id: SESSION_A, cwd: t.fx.repo.root, scratchpad_dir: t.fx.scratchpad, agent_id: 'sub-1', agent_type: 'ambicode:reviewer', last_assistant_message: answer }), { pointer: t.fx.pointer, load: async () => ({ engine: t.fx.engine, routes: t.fx.routes, pointer: t.fx.pointer }) });
-        const output = await agentDone(t, { tool_response: { status: 'completed', content: [{ type: 'text', text: 'not json at all' }] } });
-        assert.match(output.hookSpecificOutput!.additionalContext, /read only the diff/);
-        assert.equal((await lastReview(t))['status'] === 'error', false);
       });
     });
 
@@ -501,11 +451,6 @@ describe('review route: step texts, ceilings and the ignore warning (08-R6, 08-B
     for (const name of ['review/fetch', 'review/mr-fetch', 'review/readback', 'review/agent', 'review/publish']) assert.ok((await read(name)).length <= 1500, name);
   });
 
-  it('08-R6: readback points an --mr review to references/merge-request.md, which ships beside the review skill', async () => {
-    assert.match(await read('review/readback'), /\(`--mr`\), read `references\/merge-request\.md` beside the review skill's SKILL\.md/);
-    assert.ok((await readFile(path.join(REPO_ROOT, 'skills', 'review', 'references', 'merge-request.md'), 'utf8')).length > 0);
-  });
-
   it('08-R6: readback asks for a one-line summary, one line per finding and part 3 in a line or two, copies part 4 verbatim in one fence and names references/outcomes.md', async () => {
     const text = await read('review/readback');
     assert.match(text, /One line: what was reviewed/);
@@ -518,17 +463,15 @@ describe('review route: step texts, ceilings and the ignore warning (08-R6, 08-B
     assert.doesNotMatch(text, /route next/);
   });
 
-  it('08-R6: the agent step names the subagent, hands it the brief path and records its JSON unedited with review record', async () => {
+  it('08-R6: the agent step names the subagent, hands it the brief path and leaves its JSON unedited for the hook to record', async () => {
     const text = await read('review/agent');
     assert.match(text, /`ambicode:reviewer` subagent/);
     // 2 of 112 traced reviewer launches ran in the background; the headless Stop closed the route and the answer was lost.
     assert.match(text, /`run_in_background: false`/);
     assert.match(text, /Review the change described in <brief path>: it holds the whole diff with the lines a finding may name\. The code is in the checkout\. Answer with the JSON block only\./);
     assert.match(text, /The hook records the subagent's answer when it returns and prints the report and the next step/);
-    assert.match(text, /Only if no ambicode text arrives with the subagent's result, run `[^`]*review record --task ord-7` with no input/);
-    assert.match(text, /paste the subagent's JSON block, unchanged, on stdin/);
     assert.match(text, /Do not edit, filter/);
-    assert.doesNotMatch(text, /route next|view --review/);
+    assert.doesNotMatch(text, /route next|view --review|review record/);
   });
 
   it('08-B1: the route start output is at most 3,072 bytes and the printed estimate at most 2,048', async () => {

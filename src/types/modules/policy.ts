@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Activity, Authority, CommandAction, PromptStage, RuleCategory } from '../primitives.ts';
+import { Activity, Authority, CommandAction, RuleCategory } from '../primitives.ts';
 
 export const RuleCheck = z.discriminatedUnion('kind', [
   z.strictObject({
@@ -35,21 +35,14 @@ export const PolicyRule = z.strictObject({
   instruction: z.string().min(1),
   check: RuleCheck,
   source: RuleSource.optional(),
-  /** Narrow the pack's own `activities` / `appliesTo` for this rule; absent means the pack's. */
+  /** Narrow the pack's own `activities` for this rule; absent means the pack's. */
   activities: z.array(Activity).min(1).optional(),
-  appliesTo: Globs.optional(),
 });
 export type PolicyRule = z.infer<typeof PolicyRule>;
 
 /** A rule in `.ambicode/policies/drafts/`: it must say where it came from. */
 export const DraftPolicyRule = PolicyRule.extend({ source: RuleSource });
 export type DraftPolicyRule = z.infer<typeof DraftPolicyRule>;
-
-export const PolicyPromptRef = z.strictObject({
-  stage: PromptStage,
-  file: z.string().min(1),
-});
-export type PolicyPromptRef = z.infer<typeof PolicyPromptRef>;
 
 export const PolicyCommandDecision = z.strictObject({
   command: z.string().min(1),
@@ -58,29 +51,19 @@ export const PolicyCommandDecision = z.strictObject({
 });
 export type PolicyCommandDecision = z.infer<typeof PolicyCommandDecision>;
 
-/**
- * A marker that says a pack belongs to a repository: a file of this name sits within two
- * directories of the project root and, when `contains` is given, its text includes it.
- */
-export const PackMarker = z.strictObject({ file: z.string().min(1), contains: z.string().min(1).optional() });
-export type PackMarker = z.infer<typeof PackMarker>;
-
 export const PolicyPack = z.strictObject({
   schemaVersion: z.literal(1),
   id: KebabId,
   authority: Authority,
   appliesTo: Globs,
   activities: z.array(Activity).min(1),
-  /** Any one marker matching selects the pack at init; absent means the pack is chosen by `appliesTo` alone. */
-  detect: z.array(PackMarker).min(1).optional(),
-  /** Any one marker matching keeps the pack out, whatever `detect` and `appliesTo` say. */
-  unless: z.array(PackMarker).min(1).optional(),
+  /** One line saying what the pack covers; init shows it so the model can choose built-ins. */
+  description: z.string().min(1).optional(),
   source: z.strictObject({
     location: z.string().min(1),
     externalVersion: z.string().min(1).optional(),
   }),
   rules: z.array(PolicyRule).default([]),
-  prompts: z.array(PolicyPromptRef).default([]),
   commandPolicy: z.array(PolicyCommandDecision).default([]),
   /** Only a project pack may declare this. */
   replaces: z
@@ -111,16 +94,6 @@ export interface ResolvedRule {
   check: RuleCheck;
 }
 
-export interface ResolvedPromptRef {
-  packId: string;
-  packReference: string;
-  authority: z.infer<typeof Authority>;
-  stage: z.infer<typeof PromptStage>;
-  /** Absolute path, already proven to sit inside the pack directory. */
-  absolutePath: string;
-  declaredPath: string;
-}
-
 export interface ResolvedCommandDecision {
   command: string;
   action: z.infer<typeof CommandAction>;
@@ -147,17 +120,16 @@ export interface ResolvedPolicy {
     matchedPaths: string[];
   }>;
   rules: ResolvedRule[];
-  prompts: ResolvedPromptRef[];
   commandDecisions: ResolvedCommandDecision[];
   diagnostics: Diagnostic[];
 }
 
 export interface StagePayload {
-  stage: PromptStage;
+  stage: 'before-work';
   text: string;
   bytes: number;
   /** The `policy` ledger entry's fields. */
-  entry: { stage: PromptStage; packs: string[]; rules: number; bytes: number };
+  entry: { stage: 'before-work'; packs: string[]; rules: number; bytes: number };
 }
 
 export const DRAFTS_DIR = '.ambicode/policies/drafts';
@@ -171,10 +143,6 @@ export interface DraftsCheck {
   ok: boolean;
   /** Every draft rule as `<pack>/<rule>`. */
   rules: string[];
-}
-
-export interface PackWithPrompts extends LoadedPack {
-  resolvedPrompts: ResolvedPromptRef[];
 }
 
 export interface PackConstraints {

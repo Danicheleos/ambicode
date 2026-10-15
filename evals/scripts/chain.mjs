@@ -4,6 +4,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { contextTokens, events } from './trace.mjs';
 
 // A gap this long between two events is flagged: a run at effort low spends 2–10 s per call (2026-10-12 runs).
 export const SLOW_SECONDS = 30;
@@ -32,14 +33,8 @@ const resultText = (content) => (Array.isArray(content) ? content.map((part) => 
 
 /** The chain as lines; `turns` counts model calls of the main session. */
 export function chainOf(traceText) {
-  const events = traceText.split('\n').filter((line) => line.trim()).flatMap((line) => {
-    try {
-      return [JSON.parse(line)];
-    } catch {
-      return [];
-    }
-  });
-  const stamped = events.map((event) => Date.parse(event.timestamp ?? '')).filter(Number.isFinite);
+  const all = events(traceText);
+  const stamped = all.map((event) => Date.parse(event.timestamp ?? '')).filter(Number.isFinite);
   const start = stamped.length === 0 ? null : Math.min(...stamped);
   const lines = [];
   const calls = new Map(); // tool_use id → {at, line index}
@@ -55,7 +50,7 @@ export function chainOf(traceText) {
     previous = at;
     return { at, label: `${`+${Math.round((at - start) / 1000)}s`.padStart(5)}${gap >= SLOW_SECONDS ? ` ⏱ ${Math.round(gap)}s gap` : ''}` };
   };
-  for (const event of events) {
+  for (const event of all) {
     if (event.type === 'system' && event.subtype === 'hook_response') {
       const output = clip(event.output ?? event.stdout ?? '', 120);
       if (output) lines.push(`        hook ${event.hook_event ?? event.hook_name}: ${output}`);
@@ -67,7 +62,7 @@ export function chainOf(traceText) {
       if (id && !seenMessages.has(`${id}|${event.parent_tool_use_id}`)) {
         seenMessages.add(`${id}|${event.parent_tool_use_id}`);
         const usage = event.message.usage ?? {};
-        const context = (usage.input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0);
+        const context = contextTokens(usage);
         if (!event.parent_tool_use_id) turn += 1;
         pending = `${event.parent_tool_use_id ? '  ·' : `#${turn}`.padStart(3)} ${clock(event).label} ctx ${(context / 1000).toFixed(1)}k`;
       }
@@ -106,14 +101,14 @@ export function chainOf(traceText) {
   return { turns: turn, lines };
 }
 
-/** The run with the most main-session turns (then the longest), among runs whose trace was kept. */
+/** The run with the most main-session model calls (then the longest session), among runs whose trace was kept. */
 export function longestRun(result) {
   let best = null;
   for (const evalCase of result.cases ?? []) {
     for (const runs of Object.values(evalCase.arms ?? {})) {
       (runs ?? []).forEach((run, index) => {
         if (!run.trace) return;
-        const key = [run.turns ?? 0, run.durationSeconds ?? 0];
+        const key = [run.context?.calls ?? 0, run.context?.session ?? 0];
         if (best === null || key[0] > best.key[0] || (key[0] === best.key[0] && key[1] > best.key[1])) best = { key, name: evalCase.name, index, run };
       });
     }
@@ -131,7 +126,7 @@ export function longestReport(result, arm) {
   return [
     `# Longest ${arm} run: ${name} (run ${index + 1})`,
     '',
-    `score ${Number((run.score ?? 0).toFixed(2))} · ${run.turns} turns · ${run.durationSeconds}s · $${(run.costUsd ?? 0).toFixed(4)} · peak context ${run.context ? `${(run.context.peak / 1000).toFixed(1)}k` : '—'} · failing: ${failing.join(', ') || 'none'}`,
+    `score ${Number((run.score ?? 0).toFixed(2))} · ${run.context?.calls ?? '—'} model calls · ${run.context?.session ?? '—'}s session · $${(run.costUsd ?? 0).toFixed(4)} · peak context ${run.context ? `${(run.context.peak / 1000).toFixed(1)}k` : '—'} · failing: ${failing.join(', ') || 'none'}`,
     `trace: ${run.trace}`,
     '',
     `\`#n\` is a main-session model call, \`·\` a subagent call, \`→\` the tool result with the time it took; ⏱ marks ${SLOW_SECONDS}s or more.`,

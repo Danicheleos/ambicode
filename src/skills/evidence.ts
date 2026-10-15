@@ -1,5 +1,4 @@
 import { AmbicodeError } from '#util/errors';
-import { navigationLine } from '#modules/evidence/report/navigation-line';
 import { promotePlan, saveNote } from '#modules/evidence/notes';
 import type { Handler, HandlerResult } from '#types/harness';
 import type { SaveKind } from '#types/modules/evidence';
@@ -11,11 +10,6 @@ const failedWith = (error: unknown): HandlerResult => {
 
 /** `evidence.*` adapters over step 02's writers; they take the ledger the engine already holds. */
 export const EVIDENCE_HANDLERS: Readonly<Record<string, Handler>> = {
-  'evidence.navigationLine': async ({ ledger, view }) => {
-    const read = await ledger.read();
-    const entries = read.state === 'ok' ? read.entries.filter((entry) => view.chainIds.includes(String((entry as { route?: unknown }).route ?? entry.id))) : [];
-    return { state: 'ok', payload: navigationLine(entries) };
-  },
   'evidence.notes.save': async ({ params, ledger, runtime, view, context, produced, raisedBy }) => {
     const kind = params[0] as SaveKind | undefined;
     const from = params.find((param) => param.startsWith('from:'))?.slice('from:'.length).trim() ?? null;

@@ -51,6 +51,20 @@ Beat bare on every case on quality, cost and speed. Bare is Sonnet 5.5 at effort
    6. The review brief gets a "Callers outside the diff" block: nearest declaration, then `refs`. In 4/34 runs the reviewer never searched callers; bare does in 9/9.
    7. The `context.list` line becomes "read the notes of touched modules and of shared helpers". The failing plan-reuse run read only "the one file you need".
 
+### Cleanup A–E + B6 ×3, all 17 cases (2026-10-15, run 2026-10-14T23-04-41-104Z)
+
+The A+B+C+D+E part is committed as 777ef6b. B6 is uncommitted. Mean score went from 0.968 to 0.970, and total cost per pass from $1.773 to $1.676. The baselines are each case's previous ×3, dated 10-12 to 10-14.
+
+| case | score before → after | $ before → after | note |
+|---|---|---|---|
+| review-subtle | 0.711 → 0.889 | 0.101 → 0.088 | callers-block revert fixed it |
+| plan-reuse | 0.879 → 0.939 | 0.193 → 0.231 | 1 of 3 plan-quality fail, as before |
+| plan-draft | 1.0 → 0.905 | 0.111 → 0.104 | run 1 stopped at design: the body now ends on "the plan stays a draft" (B2 removed its Then line) |
+| rules-migrate | 1.0 → 0.926 | 0.103 → 0.107 | run 3 judge noise (the final meets every condition); 2 of 3 runs ran the printed `route next` after `rules apply` had completed the route |
+| init-auto | 0.926 → 0.889 | 0.155 → 0.179 | check-wired 0/3 (known) |
+| task-multi | 1.0 → 1.0 | 0.183 → 0.115 | 10 → 4.7 calls |
+| others | unchanged | flat or lower | |
+
 ## Next
 
 1. Batch A report: verify must be green, plus the $0 checks.

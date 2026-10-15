@@ -202,7 +202,7 @@ describe('investigate route (03-I1, 03-I2)', () => {
       const dir = path.join(fx.repo.root, '.ambicode', 'tasks', 'cart');
       const chain = (await fx.kinds('cart', 'route'))[0]!.id;
       assert.equal(await loadPayload(fx.runtime.fs, { steps: path.join(dir, 'steps') } as never, chain, 'envelope'), '', 'envelope: an empty payload is saved, so no earlier one is delivered');
-      assert.deepEqual((await fx.kinds('cart', 'policy')).map((entry) => entry['stage']), ['before-report'], 'investigate edits nothing: no code-writing policy is staged');
+      assert.deepEqual(await fx.kinds('cart', 'policy'), [], 'investigate stages no policy');
       assert.equal((await fx.kinds('cart', 'envelope')).length, 1, 'the envelope is still recorded');
     } finally {
       await fx.dispose();

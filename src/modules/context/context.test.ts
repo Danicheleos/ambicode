@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import { nodeFileSystem } from '#platform/ports/filesystem';
+import { REPO_ROOT } from '#testing/paths';
 import { listContext, parseBundle, renderListing, tokensOf, writeContext } from './context.ts';
 
 const LIMITS = { maxTotalTokens: 200, maxFileTokens: 50 };
@@ -74,5 +75,13 @@ describe('context write', () => {
     assert.throws(() => parseBundle('=== a.md\n=== a.md\n'));
     assert.throws(() => parseBundle(''));
     assert.equal(tokensOf('abcdefghi'), 3);
+  });
+
+  it('accepts a module note whose Key files bullets carry a name, parameters and a purpose, and the spec and scout ask for that shape', async (t) => {
+    const root = await sandbox(t);
+    const note = '# Dates module\n## Purpose\n- date helpers\n## Key files\n- src/dates - addDays(date, n): the date n days later\n- src/dates - parse(text): a date from ISO text\n';
+    const out = await writeContext(nodeFileSystem, root, bundle(['modules/dates.md', note]), { maxTotalTokens: 200, maxFileTokens: 100 }, false);
+    assert.deepEqual(out.check.problems, []);
+    for (const file of ['templates/context-format.md', 'agents/scout.md']) assert.match(await readFile(path.join(REPO_ROOT, file), 'utf8'), /<path> - <name>\(args\): /, file);
   });
 });

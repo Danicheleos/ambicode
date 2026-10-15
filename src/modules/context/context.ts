@@ -48,7 +48,7 @@ export function checkContext(files: ReadonlyMap<string, string>, limits: Context
     if (!ALLOWED.test(name)) { bad('path', 'only overview.md, navigation.md, conventions.md and modules/<kebab-name>.md are accepted', name); continue; }
     const tokens = tokensOf(text);
     if (tokens > limits.maxFileTokens) bad('file-too-large', `~${tokens} tokens > maxFileTokens ${limits.maxFileTokens}`, name);
-    if (text.split('\n').some((line) => FENCE.test(line))) bad('code-fence', 'code fences are not allowed; names only', name);
+    if (text.split('\n').some((line) => FENCE.test(line))) bad('code-fence', 'code fences are not allowed; write a signature as one line in a bullet', name);
     const h1s = headings(text, 1);
     if (h1s.length !== 1) bad('h1', `needs exactly one H1 (the file's purpose), found ${h1s.length}`, name);
     else if (h1Owner.has(h1s[0]!)) bad('duplicate-h1', `H1 "${h1s[0]}" is also the H1 of ${h1Owner.get(h1s[0]!)}`, name);

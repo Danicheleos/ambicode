@@ -2,11 +2,9 @@ import path from 'node:path';
 import { openRepository } from './open.ts';
 import type { Runtime } from '#types/composition';
 
-/**
- * The repository the skill is about: the session's own when it carries a configuration, else the one
- * configured repository directly below it. The eval sandbox's home directory is itself a git work
- * tree holding the case's `repo/`, so "the session is inside a repository" alone picks the wrong one.
- */
+/** The repository the skill is about: the session's own when it carries a configuration, else the one
+ * configured repository directly below it (a session started in a git work tree that merely contains it
+ * would otherwise pick the wrong one). */
 export async function findSessionRepository(runtime: Runtime, directory: string): Promise<{ repositoryRoot: string; where: string } | string> {
   const { fs } = runtime;
   const isRepository = (candidate: string): Promise<string | null> =>

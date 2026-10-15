@@ -37,7 +37,7 @@ requirements:
 #     ecosystem: { languages: [typescript], frameworks: [react], packageManager: pnpm }
 #     include: ["src/**"]        # globs agents may read and edit
 #     exclude: ["**/*.test.*"]   # globs agents ignore
-#     packs: []                  # builtin/<id> still loads; `config packs` copies built-ins instead
+#     packs: []                  # builtin/<id> from `config packs --list`; `config packs` copies each into policyFiles
 #     policyFiles: [.ambicode/policies/angular/angular-http.yaml]   # editable copies (replaces: builtin/<id>) and packs from /ambicode:rules
 #     commands: { dev: "pnpm dev" }
 #     checks:                    # {file} is replaced for single-file runs

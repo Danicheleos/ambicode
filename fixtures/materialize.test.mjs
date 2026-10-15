@@ -5,13 +5,14 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 import { checkContext } from '../src/modules/context/context.ts';
+import { SUPPORTED_SCHEMA_VERSION } from '../src/types/modules/config.ts';
 import { materialize } from './materialize.mjs';
 import { fixtureByName } from './definitions.mjs';
 
 const IGNORE_LINES = ['.ambicode/'];
 
 describe('fixtures materialize', () => {
-  for (const name of ['ts-staged-unstaged', 'ts-branch-divergence']) {
+  for (const name of ['ts-off-by-one']) {
     it(`09-M4: --ambicode-init commits a config and the ignore lines (${name})`, async () => {
       const parent = await mkdtemp(path.join(tmpdir(), 'ambicode-materialize-'));
       const destination = path.join(parent, 'repo');
@@ -22,7 +23,7 @@ describe('fixtures materialize', () => {
         const committed = show('--name-only', '--format=', commit);
         assert.match(committed, /^\.ambicode\/config\.yaml$/m);
         assert.match(committed, /^\.gitignore$/m);
-        assert.match(show(`${commit}:.ambicode/config.yaml`), /schemaVersion: 5/);
+        assert.match(show(`${commit}:.ambicode/config.yaml`), new RegExp(`schemaVersion: ${SUPPORTED_SCHEMA_VERSION}`));
         const ignored = show(`${commit}:.gitignore`).split('\n');
         for (const line of IGNORE_LINES) assert.ok(ignored.includes(line), line);
       } finally {

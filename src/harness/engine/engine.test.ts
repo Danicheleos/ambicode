@@ -38,7 +38,7 @@ export const INVESTIGATE = `${HEAD('inv')}  - id: template
   - id: report-step
     actor: code
     run: [t.report]
-    produces: ["policy{before-report}"]
+    produces: ["policy{before-work}"]
   - id: write
     actor: model
     instruction: "Write the note."
@@ -64,7 +64,7 @@ export function investigateHandlers(state: { candidates: number; payload?: strin
     },
     't.report': async ({ ledger }) => {
       counts.report += 1;
-      await ledger.append({ kind: 'policy', stage: 'before-report', packs: [], rules: 0, omitted: 0, bytes: 10 });
+      await ledger.append({ kind: 'policy', stage: 'before-work', packs: [], rules: 0, omitted: 0, bytes: 10 });
       return { state: 'ok', payload: null };
     },
   };

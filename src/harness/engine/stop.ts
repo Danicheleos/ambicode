@@ -32,9 +32,8 @@ const reportWritten = (def: RouteDef, chain: readonly LedgerEntry[]): boolean =>
   def.steps.some((step) => step.payload.includes('report') && chain.some((entry) => entry.kind === 'step' && entry['step'] === step.id));
 
 /**
- * Exact-copy of the generated block blocked 39 of 102 task runs, 36 of them on a report the grader passed; only a
- * missing heading or a Not verified that hides recorded gaps blocks now (a replay of 132 final messages: 0 claim blocks).
- * `generated` is the block the message lacks; the block reason carries it.
+ * Only a missing heading or a Not verified that hides recorded gaps blocks: demanding an exact copy of the generated
+ * block rejected reports that were right. `generated` is the block the message lacks; the block reason carries it.
  */
 function problemsOf(chain: readonly LedgerEntry[], def: RouteDef, text: string): { problems: string[]; generated: string | null } {
   const problems: string[] = [];
@@ -60,10 +59,8 @@ function skipped(reason: string): null {
   return null;
 }
 
-/**
- * At a step that asks for the answer as a note, the final message is that note: saved here, then the code steps run as
- * `route next` would. Writing it to `note save` first and again as the message cost about 700 output tokens and 4 s a run.
- */
+/** At a step that asks for the answer as a note, the final message is that note: saved here, then the code steps run as
+ * `route next` would, so the model does not write it twice (about 700 output tokens and 4 s). */
 async function saveAnswer(ports: StopPorts, at: { root: string; session: string; scratchpad: string | undefined }, active: { task: string; skill: string; routeId: string; owner: string }, message: string): Promise<StepMessage | null> {
   const def = ports.routes.route(active.skill);
   const entries = await readLedger(ports.runtime.fs, taskDirFor(at.root, active.task, '.', dirKindFor(active.skill)).root).catch(() => []);
@@ -116,9 +113,6 @@ export async function stopHook(ports: StopPorts, input: HookInput): Promise<Stop
     if (!finalMessage || chain.some((entry) => entry.kind === 'limit' && entry['which'] === 'stop-block')) return { output: null, entries: entries.length };
     const { problems, generated } = problemsOf(chain, def, message);
     if (problems.length === 0) return { output: null, entries: entries.length };
-    await runtime.fs.mkdirp(dir.root);
-    await runtime.fs.writeText(dir.stopCheck, `# Stop check\n\n${problems.map((item) => `- ${item}`).join('\n')}\n${generated === null ? '' : `\n${generated}\n`}`);
-    // 23 of 397 runs spent an extra Read on stop-check.md for text the block can carry.
     const reason = `The text you are about to finish with has ${problems.length} problem(s). Fix them, or state them:${problems.map((item) => `\n- ${item}`).join('')}${generated === null ? '' : `\n\n${generated}`}`;
     await ledger.append({ kind: 'limit', route: target.routeId, which: 'stop-block', count: problems.length });
     return { output: { decision: 'block', reason }, entries: entries.length };

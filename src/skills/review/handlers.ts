@@ -2,15 +2,14 @@ import path from 'node:path';
 import { chainKey, loadPayload } from '#harness/engine/execute';
 import { isBoundAnswer } from '#harness/engine/fold';
 import { onGatePrint } from '#harness/gates/gates';
-import { chainEntries, configOf, isResult, projectOf } from '../common.ts';
+import { chainEntries } from '../common.ts';
 import { TASK_HANDLERS } from '../task/handlers.ts';
 import { isAmbicodeError } from '#util/errors';
 import { estimateReview, parseNarrow, renderEstimate } from '#modules/review/bundle/estimate';
 import { assembleBundle, baselineScope, envelopeRequirements, pinAssembled, recordedChecks } from '#modules/review/bundle/bundle';
-import { callersBlock } from '#modules/review/bundle/callers';
 import { runReviewChecks } from './checks.ts';
 import { GATE as CHECK_GATE } from '#types/modules/checks';
-import { baselineOf } from '#modules/checks/run/format';
+import { baselineOf } from '#modules/checks/workspace/baseline';
 import type { LedgerEntry } from '#types/modules/evidence';
 import type { ReviewTargetArgs, RouteArgs, Handler, HandlerInput, HandlerResult } from '#types/harness';
 import type { Finding, TargetSelection } from '#types/modules/review';
@@ -123,22 +122,7 @@ const pin: Handler = async (input) => {
   }
 };
 
-/** The brief's callers block, saved as this step's payload for `script(brief)`; a search that cannot run leaves the block out rather than failing the review. */
-const callers: Handler = async (input) => {
-  try {
-    const result = (await chainEntries(input)).findLast((entry) => entry.kind === 'review' && typeof entry['result'] === 'string')?.['result'];
-    if (typeof result !== 'string') return { state: 'ok', payload: null };
-    const project = await projectOf(input, await configOf(input));
-    if (isResult(project)) return { state: 'ok', payload: null };
-    const patch = await input.runtime.fs.readText(path.join(input.dir.repositoryRoot, path.dirname(result), 'changed.diff'));
-    return { state: 'ok', payload: (await callersBlock(input.runtime, { patch, project })) || null };
-  } catch (error) {
-    if (!isAmbicodeError(error)) throw error;
-    return { state: 'ok', payload: null };
-  }
-};
-
-export const REVIEW_HANDLERS: Readonly<Record<string, Handler>> = { 'review.pin': pin, 'review.callers': callers, 'review.estimate': estimate, 'review.evaluate': evaluate, 'review.publishList': publishList };
+export const REVIEW_HANDLERS: Readonly<Record<string, Handler>> = { 'review.pin': pin, 'review.estimate': estimate, 'review.evaluate': evaluate, 'review.publishList': publishList };
 
 onGatePrint('estimate', async ({ runtime, dir, chain }) => {
   const text = await loadPayload(runtime.fs, dir, chainKey(chain.filter((entry) => entry.kind === 'route').map((entry) => entry.id).reverse()), 'review.estimate');

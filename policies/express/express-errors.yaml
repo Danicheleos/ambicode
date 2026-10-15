@@ -1,14 +1,10 @@
 schemaVersion: 1
 id: express-errors
 authority: inherited
+description: "Express services: classified errors, no synchronous I/O on the request path."
 appliesTo:
   - "**/*.{ts,js,mjs,cjs}"
 activities: [review, task, plan]
-detect:
-  - { file: package.json, contains: '"express"' }
-unless:
-  - { file: package.json, contains: '"@angular/ssr"' }
-  - { file: package.json, contains: '"@nguniversal/express-engine"' }
 
 source:
   location: >-
@@ -41,5 +37,4 @@ rules:
       kind: reviewer
       explanation: Assessed from the changed request path.
 
-prompts: []
 commandPolicy: []

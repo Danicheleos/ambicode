@@ -31,6 +31,7 @@
     "evals:dry": "node evals/scripts/run.mjs --dry-run && node evals/scripts/run.mjs --bare --dry-run",
     "evals:generate": "node evals/scripts/cases.mjs",
     "evals:track": "node evals/scripts/track.mjs",
+    "evals:breakdown": "node evals/scripts/breakdown.mjs",
     "version": "node tools/sync-plugin-version.mjs",
     "bump": "npm version patch --no-git-tag-version",
     "package:candidate": "node tools/package-candidate.mjs",

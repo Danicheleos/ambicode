@@ -32,15 +32,13 @@ describe('03-P policy stage', () => {
     }
   });
 
-  it('a project pack rule renders as pack/rule: instruction under its authority header at before-work only, and is counted in the entry', async () => {
+  it('a project pack rule renders as pack/rule: instruction under its authority header and is counted in the entry', async () => {
     const fx = await styleRepo(1);
     try {
       const before = await policyStage({ runtime: fx.runtime, project: fx.project, activity: 'task', paths: ['src/a.ts'], stage: 'before-work' });
       assert.match(before.text, /^Rules \(team\):$/m);
       assert.match(before.text, /^team\/style-0: Style rule 0\.$/m);
       assert.ok(before.entry.rules >= 1);
-      const report = await policyStage({ runtime: fx.runtime, project: fx.project, activity: 'task', paths: ['src/a.ts'], stage: 'before-report' });
-      assert.doesNotMatch(report.text, /team\/style-0/);
     } finally {
       await fx.temp.dispose();
     }
@@ -81,30 +79,22 @@ describe('03-P policy stage', () => {
       const review = await policyStage({ runtime, project, activity: 'review', paths: ['src/a.ts'], stage: 'before-work' });
       assert.ok(review.bytes > STAGE_LIMITS['before-work'], `review ${review.bytes}: the whole set is over the cap, so this proves it is not cut`);
       assert.doesNotMatch(review.text, /\d+ more, in /);
-      for (const stage of ['before-work', 'before-report'] as const) {
-        const payload = await policyStage({ runtime, project, activity: 'task', paths: ['src/a.ts'], stage });
-        assert.ok(payload.bytes <= STAGE_LIMITS[stage], `${stage}: ${payload.bytes}`);
-        assert.deepEqual(Object.keys(payload.entry).sort(), ['bytes', 'packs', 'rules', 'stage']);
-        assert.equal(payload.entry.bytes, payload.bytes);
-        assert.equal(payload.entry.stage, stage);
-      }
+      const payload = await policyStage({ runtime, project, activity: 'task', paths: ['src/a.ts'], stage: 'before-work' });
+      assert.ok(payload.bytes <= STAGE_LIMITS['before-work'], `before-work: ${payload.bytes}`);
+      assert.deepEqual(Object.keys(payload.entry).sort(), ['bytes', 'packs', 'rules', 'stage']);
+      assert.equal(payload.entry.bytes, payload.bytes);
       assert.equal(STAGE_LIMITS['before-work'], 4096);
-      assert.equal(STAGE_LIMITS['before-report'], 1536);
     } finally {
       await temp.dispose();
     }
   });
 
-  it('11 §2: before-report carries no rule; before-work carries the built-in rules within its cap, uncut', async () => {
+  it('11 §2: before-work carries the built-in rules within its cap, uncut', async () => {
     const { temp, runtime, project } = await repo();
     try {
-      const report = await policyStage({ runtime, project, activity: 'task', paths: ['src/a.ts'], stage: 'before-report' });
-      assert.equal(report.entry.rules, 0);
       const work = await policyStage({ runtime, project, activity: 'task', paths: ['src/a.ts'], stage: 'before-work' });
       assert.ok(work.entry.rules > 0 && work.bytes <= STAGE_LIMITS['before-work']);
       assert.doesNotMatch(work.text, /\d+ more, in /);
-      const checks = await policyStage({ runtime, project, activity: 'task', paths: ['src/a.ts'], stage: 'before-checks' });
-      assert.equal(checks.entry.rules, 0, 'few code-style rules go before work, so none are left for the checks');
     } finally {
       await temp.dispose();
     }
@@ -123,10 +113,10 @@ async function styleRepo(count: number, filler = ''): Promise<{ temp: TempRepo; 
 }
 
 describe('rules follow the files at hand', () => {
-  it('a rule scoped to **/*.py is absent for .ts paths, present for a .py path, and kept when no path is known', async () => {
+  it('a pack scoped to **/*.py is absent for .ts paths, present for a .py path, and kept when no path is known', async () => {
     const fx = await styleRepo(0);
     try {
-      await fx.temp.write('.ambicode/policies/team.yaml', ['schemaVersion: 1', 'id: team', 'authority: team', 'appliesTo: ["**/*"]', 'activities: [task]', 'source: { location: "fixture" }', 'rules:', '  - id: py-only', '    category: correctness', '    instruction: Close files you open.', '    appliesTo: ["**/*.py"]', '    check: { kind: reviewer, explanation: x }', ''].join('\n'));
+      await fx.temp.write('.ambicode/policies/team.yaml', ['schemaVersion: 1', 'id: team', 'authority: team', 'appliesTo: ["**/*.py"]', 'activities: [task]', 'source: { location: "fixture" }', 'rules:', '  - id: py-only', '    category: correctness', '    instruction: Close files you open.', '    check: { kind: reviewer, explanation: x }', ''].join('\n'));
       const at = async (paths: string[]) => (await policyStage({ runtime: fx.runtime, project: fx.project, activity: 'task', paths, stage: 'before-work' })).text;
       assert.doesNotMatch(await at(['src/a.ts']), /team\/py-only/);
       assert.match(await at(['tools/x.py']), /team\/py-only/);
@@ -138,14 +128,12 @@ describe('rules follow the files at hand', () => {
 });
 
 describe('before-work carries every rule', () => {
-  it('code-style rules stay in before-work whatever their number, and before-checks carries none', async () => {
+  it('code-style rules stay in before-work whatever their number', async () => {
     const fx = await styleRepo(12);
     try {
       const work = await policyStage({ runtime: fx.runtime, project: fx.project, activity: 'task', paths: ['src/a.ts'], stage: 'before-work' });
-      const checks = await policyStage({ runtime: fx.runtime, project: fx.project, activity: 'task', paths: ['src/a.ts'], stage: 'before-checks' });
       assert.equal(work.text.split('\n').filter((line) => /^team\/style-\d+: /.test(line)).length, 12);
       assert.match(work.text, /team\/no-secrets/);
-      assert.equal(checks.entry.rules, 0);
     } finally {
       await fx.temp.dispose();
     }

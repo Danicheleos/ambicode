@@ -1,6 +1,7 @@
 schemaVersion: 1
 id: express-http
 authority: inherited
+description: "Express HTTP layer: route authorization, single response, middleware order, handler responsibility."
 appliesTo:
   - "**/*.router.ts"
   - "**/*.routes.ts"
@@ -10,11 +11,6 @@ appliesTo:
   - "**/{routes,router,controller}.{ts,js,mjs,cjs}"
   - "**/{routes,controllers}/**/*.{ts,js,mjs,cjs}"
 activities: [review, task, plan]
-detect:
-  - { file: package.json, contains: '"express"' }
-unless:
-  - { file: package.json, contains: '"@angular/ssr"' }
-  - { file: package.json, contains: '"@nguniversal/express-engine"' }
 
 source:
   location: >-
@@ -73,5 +69,4 @@ rules:
         Assess against the project's declared structure; state the question when
         none is declared.
 
-prompts: []
 commandPolicy: []

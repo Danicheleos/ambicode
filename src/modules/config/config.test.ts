@@ -32,11 +32,11 @@ test('U01 an unknown field is an error rather than being ignored', () => {
   );
 });
 
-test('v5: a project that still carries rules is rejected with a pointer to /ambicode:rules', () => {
+test('v5: a project that still carries rules is rejected as an unrecognized key', () => {
   const body = `  - { id: app, root: ".", paths: [], ${ECO}, rules: [{ source: manual, rule: "r" }] }`;
   assert.throws(
     () => parseConfig(withProjects(body)),
-    (error: Error & { code?: string; details?: string[] }) => error.code === 'config-invalid' && /projects\.app\.rules.*\/ambicode:rules/.test((error.details ?? []).join(' ')),
+    (error: Error & { code?: string; details?: string[] }) => error.code === 'config-invalid' && /rules/.test((error.details ?? []).join(' ')),
   );
 });
 

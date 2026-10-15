@@ -1,4 +1,5 @@
 import { navigationLine } from './navigation-line.ts';
+import { newestReviews } from '#modules/review/answer/captured';
 import { isBoundAnswer } from '#modules/evidence/ledger-chain';
 import type { LedgerEntry } from '#types/modules/evidence';
 
@@ -29,7 +30,7 @@ export function buildReport(
   });
   const requirements = [...origins, ...of('requirement').map((entry) => `${clip(entry.key)} (${clip(entry.relation)})${historical(entry)}`)];
 
-  // A map that found nothing said "0 colliding names" (task-multi-3) and was dropped, so the report listed Map as not run.
+  // A map that found nothing still said "0 colliding names" and was dropped, so the report listed Map as not run.
   const maps = of('map').map((entry) => {
     const layers = list(entry.layers).map((layer) => clip((layer as { name?: unknown } | null)?.name)).join('→');
     const found = Number(entry.candidates) > 0 || list(entry.collisions).length > 0;
@@ -49,9 +50,8 @@ export function buildReport(
     return `${key}${files.length > 0 ? ` --file ${files.join(' ')}` : ''}: ${steps.join(' → ')}`;
   });
 
-  // `review` prints a pending entry and `review record` a recorded one for the same id; the pending one reported a reviewer that never ran after it had (task-multi-2, 2026-10-13).
-  const latest = of('review').filter((entry, index, all) => typeof entry.reviewId !== 'string' || !all.slice(index + 1).some((later) => later.reviewId === entry.reviewId));
-  const reviews = latest.map((entry) => {
+  // A pending entry and its recorded one share an id; the pending one would report a reviewer that never ran after it had.
+  const reviews = [...newestReviews(entries).values()].map((entry) => {
     const ran = entry.reviewerRan !== false;
     const text = `${clip(entry.reviewId)} ${clip(entry.status ?? 'unknown')}${typeof entry.findings === 'number' ? `, ${entry.findings} findings` : ''}${historical(entry)}`;
     const omitted = typeof entry.omissions === 'number' ? entry.omissions : list(entry.omissions).length;
@@ -79,7 +79,7 @@ export function buildReport(
   const revisions = new Map<string, LedgerEntry[]>();
   for (const entry of of('revise')) revisions.set(String(entry.from), [...(revisions.get(String(entry.from)) ?? []), entry]);
 
-  // task-multi 3/3: a failed run on [service, test] then a pass on [service, repository, test] is no gap; a pass on other files or another key is.
+  // A failed run on [service, test] then a pass on [service, repository, test] is no gap; a pass on other files or another key is.
   const proven = (limit: LedgerEntry): boolean => {
     const phase = String(limit.which).replace(/-unproven$/, '');
     if (phase === String(limit.which) || typeof limit.key !== 'string') return false;
@@ -112,7 +112,7 @@ export function buildReport(
   else empty.push('Navigation');
   for (const [name, parts] of [['Baseline', baselines], ['Checks', checks], ['Review', reviews], ['Decisions', decisions], ['Revisions', revised]] as const) add(name, [...parts]);
   const evidence = ['Evidence', ...printed, ...(empty.length === 0 ? [] : [`  none recorded: ${empty.join(', ')}`])].join('\n');
-  // The same gap reached the report twice (green-unproven at change, task-multi-3); one line says it once.
+  // The same gap can arrive twice (green-unproven at change); one line says it once.
   const unique = [...new Set(notVerified)];
   const unverified = `Not verified\n${unique.length === 0 ? '  none recorded' : unique.map((item) => `  ${item}`).join('\n')}`;
   const status = statusOf(entries, unique.filter((item) => !item.endsWith(' (historical)')).length, options.complete === true);

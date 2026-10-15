@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { describeIssues } from '#modules/config/load';
-import { PolicyPack, type Diagnostic, type ResolvedPromptRef, type PackWithPrompts, type PackConstraints } from '#types/modules/policy';
+import { PolicyPack, type Diagnostic, type LoadedPack, type PackConstraints } from '#types/modules/policy';
 import { AmbicodeError, messageOf } from '#util/errors';
 import { resolveInsideBoundary } from '#util/paths';
 import type { FileSystem } from '#types/platform/ports';
@@ -14,7 +14,7 @@ interface PackSource {
 }
 
 interface PackValidation {
-  pack: PackWithPrompts | null;
+  pack: LoadedPack | null;
   diagnostics: Diagnostic[];
 }
 
@@ -57,34 +57,6 @@ export async function validatePack(
 
   const pack = parsed.data;
   const packDirectory = path.dirname(filePath);
-  const resolvedPrompts: ResolvedPromptRef[] = [];
-
-  for (const promptRef of pack.prompts) {
-    try {
-      const absolutePath = await resolveInsideBoundary(
-        fs,
-        packDirectory,
-        promptRef.file,
-        `prompt "${promptRef.file}" referenced by ${reference}`,
-      );
-      await fs.readText(absolutePath);
-      resolvedPrompts.push({
-        packId: pack.id,
-        packReference: reference,
-        authority: pack.authority,
-        stage: promptRef.stage,
-        absolutePath,
-        declaredPath: promptRef.file,
-      });
-    } catch (error) {
-      diagnostics.push({
-        severity: 'error',
-        code: error instanceof AmbicodeError ? error.code : 'prompt-unreadable',
-        message: `${reference}: ${messageOf(error)}`,
-        where: filePath,
-      });
-    }
-  }
 
   for (const rule of pack.rules) {
     const outside = (rule.activities ?? []).filter((activity) => !pack.activities.includes(activity));
@@ -127,21 +99,20 @@ export async function validatePack(
   }
 
   return {
-    pack: { pack, reference, origin, filePath, resolvedPrompts },
+    pack: { pack, reference, origin, filePath },
     diagnostics,
   };
 }
 
 interface PackSetValidation {
-  packs: PackWithPrompts[];
+  packs: LoadedPack[];
   diagnostics: Diagnostic[];
 }
 
-/**
- * A project pack with `replaces: builtin/<id>` takes that built-in's place; two enabled packs with one id are an error.
- * With `builtinIds`, a `replaces` naming a built-in this release lacks is an error too: an old copy would otherwise load beside the packs that replaced it.
- */
-export function validatePackSet(packs: readonly PackWithPrompts[], builtinIds?: ReadonlySet<string>): PackSetValidation {
+/** A project pack with `replaces: builtin/<id>` takes that built-in's place; two enabled packs with one id are an
+ * error. With `builtinIds`, a `replaces` naming a built-in this release lacks is an error too (an old copy would
+ * otherwise load beside its replacements). */
+export function validatePackSet(packs: readonly LoadedPack[], builtinIds?: ReadonlySet<string>): PackSetValidation {
   const diagnostics: Diagnostic[] = [];
   for (const pack of packs) {
     const target = pack.origin === 'project' ? pack.pack.replaces : undefined;
@@ -155,8 +126,8 @@ export function validatePackSet(packs: readonly PackWithPrompts[], builtinIds?: 
     }
   }
   const replaced = new Set(packs.filter((pack) => pack.origin === 'project' && pack.pack.replaces !== undefined).map((pack) => pack.pack.replaces));
-  const kept: PackWithPrompts[] = [];
-  const seenIds = new Map<string, PackWithPrompts>();
+  const kept: LoadedPack[] = [];
+  const seenIds = new Map<string, LoadedPack>();
   for (const pack of packs) {
     if (pack.origin === 'builtin' && replaced.has(pack.reference)) continue;
     const existing = seenIds.get(pack.pack.id);

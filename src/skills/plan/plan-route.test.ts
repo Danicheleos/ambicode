@@ -15,7 +15,7 @@ import { REPO_ROOT } from '#testing/paths';
 import { SESSION_A, SESSION_B } from '#testing/fixtures/ids';
 
 /** SHA-256 of routes/plan/plan.yaml. */
-const CONTRACT_SHA256 = '4a2933793761b48802a9ba0d3a8cee863e4aacf58ec1306dacaf2683a7507c08';
+const CONTRACT_SHA256 = '25ff2f8a0a681335957e19b74befa481ad7112b544ae7f84f6822d373e415c03';
 const GOOD = '# Plan\n\n- *Changes*: `src/orders/limit.ts:1` `orderLimit`\n';
 const BAD = '# Plan\n\n- *Changes*: `src/orders/limit.ts:40` `orderLimit`\n';
 const PLATFORM = { askBinding: 'supported', answerContext: 'supported' } as const;
@@ -65,21 +65,21 @@ describe('06-R1/06-R2 the shipped plan route', () => {
     assert.equal(createHash('sha256').update(text).digest('hex'), CONTRACT_SHA256);
     assert.deepEqual(YAML.parseDocument(text).errors, []);
     const route = YAML.parse(text) as { steps: { id: string; gate?: { acting?: string[] } }[] };
-    assert.deepEqual(route.steps.map((step) => step.id), ['fetch', 'ground', 'design', 'plan-step', 'plan-write', 'plan-check', 'plan-accept', 'promote']);
+    assert.deepEqual(route.steps.map((step) => step.id), ['fetch', 'ground', 'design', 'plan-write', 'plan-check', 'plan-accept', 'promote']);
     assert.deepEqual(route.steps.find((step) => step.id === 'plan-accept')?.gate?.acting, ['Accept', 'Revise']);
     assert.match(await readFile(path.join(REPO_ROOT, 'tools', 'package-candidate.mjs'), 'utf8'), /from: 'routes', extensions: \['\.yaml', '\.md'\]/);
     const plan = await shipped();
     await plan.dispose();
   });
 
-  it('06-R2: each step text is at most 1,500 characters and names --task', async () => {
+  it('06-R2: each step text is at most 1,500 characters and leaves the Then command to the step header', async () => {
     for (const name of ['plan/fetch', 'plan/design', 'plan/write']) {
       const text = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
       assert.ok(text.length <= 1500, `${name}: ${text.length}`);
-      assert.match(text, /--task \{task\}/, name);
+      assert.doesNotMatch(text, /route next/, name);
     }
     const write = await readFile(path.join(REPO_ROOT, 'routes', 'plan', 'write.md'), 'utf8');
-    assert.match(write, /steps\/plan-body\.md.*route next --task \{task\}/);
+    assert.match(write, /steps\/plan-body\.md/);
     assert.match(write, /never a bare file name/);
     // Plans that named ruled-out files failed plan-quality in 3 of 4 runs; plans that did not passed 4 of 4.
     assert.match(write, /a file you read and ruled out goes unnamed/);
@@ -231,7 +231,7 @@ describe('06-R4/06-R5/06-R6 the plan-accept gate', () => {
       const human = (await plan.fx.kinds(PLAN_TASK, 'revise')).at(-1)!;
       assert.equal(human['via'], 'gate');
       await plan.next();
-      assert.equal((await steps(plan, 'plan-step', 'completed')).length, 2);
+      assert.equal((await steps(plan, 'design', 'completed')).length, 3);
       await plan.next({ revise: 'design' });
       assert.equal((await plan.fx.kinds(PLAN_TASK, 'limit')).length, 0, 'design has its repeat back after the human cycle');
       await plan.next();

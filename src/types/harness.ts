@@ -61,7 +61,6 @@ export const HANDLER_NAMES = [
   'search.map',
   'policy.stage',
   'policy.enabled',
-  'evidence.navigationLine',
   'context.list',
   'evidence.notes.save',
   'evidence.notes.promote',
@@ -76,7 +75,6 @@ export const HANDLER_NAMES = [
   'review.estimate',
   'review.publishList',
   'review.pin',
-  'review.callers',
 ] as const;
 
 export interface StepDef {

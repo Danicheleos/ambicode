@@ -13,7 +13,6 @@ interface RuntimeOverrides {
   clock?: Clock;
   ids?: IdSource;
   cwd?: string;
-  callerCwd?: string;
   pluginRoot?: string;
   stdin?: StandardInput;
   env?: Readonly<Record<string, string | undefined>>;
@@ -30,7 +29,6 @@ export async function createRuntime(overrides: RuntimeOverrides = {}): Promise<R
     clock: overrides.clock ?? systemClock,
     ids: overrides.ids ?? systemIds,
     cwd,
-    ...(overrides.callerCwd === undefined ? {} : { callerCwd: overrides.callerCwd }),
     pluginRoot: overrides.pluginRoot ?? (await resolvePluginRoot(fs, env)),
     stdin: overrides.stdin ?? processStandardInput,
     env,

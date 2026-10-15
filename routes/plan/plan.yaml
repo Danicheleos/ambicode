@@ -16,14 +16,9 @@ steps:
     instruction: file:routes/plan/design.md
     payload: [map, "policy:before-work", context.list]
     repeat: 2
-  - id: plan-step
-    actor: code
-    run: ["policy.stage(before-report)", evidence.navigationLine]
-    produces: ["policy{before-report}"]           # qualified: a before-work policy entry is already in the window
   - id: plan-write
     actor: model
     instruction: file:routes/plan/write.md
-    payload: ["policy:before-report"]
     repeat: 3
   - id: plan-check
     actor: code

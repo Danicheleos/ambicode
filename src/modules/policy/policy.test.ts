@@ -6,7 +6,8 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import type { ProjectConfig } from '#types/modules/config';
 import { loadPacksForProject } from './packs/load.ts';
-import { selectPacks } from './packs/select.ts';
+import { parse as parseYaml } from 'yaml';
+import { PolicyPack } from '#types/modules/policy';
 import { listBuiltinPackFiles } from './packs/builtin.ts';
 import { decisionFor, explainRefusal, resolvePolicy } from './packs/resolve.ts';
 import { nodeFileSystem } from '#platform/ports/filesystem';
@@ -62,7 +63,6 @@ test('U03 built-in packs parse, keep authority and provenance, and qualify rule 
   });
   assert.ok(resolved.rules.every((rule) => COMMON_PACKS.some((id) => rule.qualifiedId.startsWith(`${id}/`))));
   assert.ok(resolved.rules.some((rule) => rule.qualifiedId === 'common-design/need'));
-  assert.equal(resolved.prompts.length, 0, 'the common packs carry no prompt: before-review is never delivered');
 });
 
 test('comment-reasons defaults to no comment, bounds its length, and refuses the same reason in several places', async () => {
@@ -84,7 +84,7 @@ test('comment-reasons defaults to no comment, bounds its length, and refuses the
   );
 });
 
-test('U26 every built-in pack loads and its referenced prompt files exist', async () => {
+test('U26 every built-in pack loads', async () => {
   const ids = [
     ...COMMON_PACKS, 'common-checks', 'python-quality',
     'angular-components', 'angular-architecture', 'angular-state', 'angular-http', 'angular-style',
@@ -103,7 +103,7 @@ test('U26 every built-in pack loads and its referenced prompt files exist', asyn
   assert.equal(packs.length, ids.length);
 });
 
-test('U03 a missing prompt file and an unknown command id are diagnosed, not ignored', async (t) => {
+test('U03 an unknown command id is diagnosed, not ignored', async (t) => {
   const directory = await sandbox(t);
   const packDirectory = path.join(directory, '.ambicode', 'policies');
   await mkdir(packDirectory, { recursive: true });
@@ -116,7 +116,6 @@ test('U03 a missing prompt file and an unknown command id are diagnosed, not ign
       'appliesTo: ["**/*"]',
       'activities: [review]',
       'source: { location: "test" }',
-      'prompts: [{ stage: before-review, file: "./missing.md" }]',
       'commandPolicy: [{ command: not-declared, action: run }]',
     ].join('\n'),
     'utf8',
@@ -130,7 +129,6 @@ test('U03 a missing prompt file and an unknown command id are diagnosed, not ign
   });
 
   assert.equal(packs.length, 1);
-  assert.ok(diagnostics.some((d) => d.code === 'path-missing'));
   assert.ok(diagnostics.some((d) => d.code === 'pack-unknown-command'));
 });
 
@@ -151,7 +149,7 @@ test('a replaces copy may name the commands its built-in names, and a typo in an
   assert.ok(typo.some((d) => d.code === 'pack-unknown-command' && /"lnt"/.test(d.message)), JSON.stringify(typo));
 });
 
-test('U03 an unsupported prompt stage is a configuration error', async (t) => {
+test('a pack declaring `prompts` is rejected: the field no longer exists', async (t) => {
   const directory = await sandbox(t);
   await mkdir(path.join(directory, '.ambicode', 'policies'), { recursive: true });
   await writeFile(
@@ -163,7 +161,7 @@ test('U03 an unsupported prompt stage is a configuration error', async (t) => {
       'appliesTo: ["**/*"]',
       'activities: [review]',
       'source: { location: "test" }',
-      'prompts: [{ stage: whenever, file: "./x.md" }]',
+      'prompts: []',
     ].join('\n'),
     'utf8',
   );
@@ -176,39 +174,6 @@ test('U03 an unsupported prompt stage is a configuration error', async (t) => {
   });
   assert.equal(packs.length, 0);
   assert.ok(diagnostics.some((d) => d.code === 'pack-invalid' && d.message.includes('prompts')));
-});
-
-test('U07 a prompt reference that leaves the pack directory through a link is rejected', async (t) => {
-  const directory = await sandbox(t);
-  const packDirectory = path.join(directory, '.ambicode', 'policies');
-  await mkdir(packDirectory, { recursive: true });
-  await writeFile(path.join(directory, 'outside.md'), 'secret guidance', 'utf8');
-  await symlink(path.join(directory, 'outside.md'), path.join(packDirectory, 'linked.md'));
-  await writeFile(
-    path.join(packDirectory, 'escape.yaml'),
-    [
-      'schemaVersion: 1',
-      'id: escape',
-      'authority: team',
-      'appliesTo: ["**/*"]',
-      'activities: [review]',
-      'source: { location: "test" }',
-      'prompts:',
-      '  - { stage: before-review, file: "./linked.md" }',
-      '  - { stage: before-review, file: "../../outside.md" }',
-    ].join('\n'),
-    'utf8',
-  );
-
-  const { packs, diagnostics } = await loadPacksForProject({
-    fs: nodeFileSystem,
-    project: project({ policyFiles: ['.ambicode/policies/escape.yaml'] }),
-    builtinDirectory: BUILTIN_DIRECTORY,
-    repositoryRoot: directory,
-  });
-
-  assert.equal(packs[0]?.resolvedPrompts.length, 0);
-  assert.equal(diagnostics.filter((d) => d.code === 'path-escape').length, 2);
 });
 
 test('U04 command precedence is forbid over propose over run, and silence is not permission', async (t) => {
@@ -495,10 +460,9 @@ const SCOPED_PACK = [
   'schemaVersion: 1', 'id: scoped', 'authority: team', 'appliesTo: ["**/*"]', 'activities: [review, task, plan]', 'source: { location: "test" }', 'rules:',
   '  - { id: any, category: architecture, instruction: Applies everywhere., check: { kind: reviewer, explanation: x } }',
   '  - { id: plan-only, category: architecture, instruction: Plan only., activities: [plan], check: { kind: reviewer, explanation: x } }',
-  '  - { id: python-only, category: correctness, instruction: Python only., appliesTo: ["**/*.py"], check: { kind: reviewer, explanation: x } }',
 ];
 
-test('a rule narrows its pack: per-rule activities and appliesTo resolve, and absent ones keep the pack values', async (t) => {
+test('a rule narrows its pack: per-rule activities resolve, and an absent one keeps the pack value', async (t) => {
   const directory = await sandbox(t);
   await writePack(directory, 'scoped.yaml', SCOPED_PACK);
   const scoped = project({ root: '.', policyFiles: ['.ambicode/policies/scoped.yaml'] });
@@ -507,8 +471,7 @@ test('a rule narrows its pack: per-rule activities and appliesTo resolve, and ab
   const ids = (activity: 'plan' | 'task', paths: string[]): string[] => resolvePolicy({ activity, project: scoped, packs, paths }).rules.map((rule) => rule.qualifiedId);
   assert.deepEqual(ids('plan', ['src/a.ts']), ['scoped/any', 'scoped/plan-only']);
   assert.deepEqual(ids('task', ['src/a.ts']), ['scoped/any']);
-  assert.deepEqual(ids('task', ['src/a.ts', 'tool/b.py']), ['scoped/any', 'scoped/python-only']);
-  assert.deepEqual(ids('task', []), ['scoped/any', 'scoped/python-only'], 'no known path keeps the pack-level behaviour: no glob filter');
+  assert.deepEqual(ids('task', []), ['scoped/any']);
 });
 
 test('a rule that lists an activity its pack does not carry is a pack error', async (t) => {
@@ -549,52 +512,19 @@ test('two built-in files with one id, in different folders, are refused', async 
   assert.deepEqual((await listBuiltinPackFiles(nodeFileSystem, BUILTIN_DIRECTORY)).map((file) => file.id).filter((id, index, all) => all.indexOf(id) !== index), [], 'the shipped policies have unique ids');
 });
 
-test('pack selection: a marker the repository shows picks the pack, and an undeclared command does not skip it', async (t) => {
-  const directory = await sandbox(t);
-  await writeFile(path.join(directory, 'package.json'), '{"dependencies":{"@angular/core":"^20.0.0"}}\n');
-  const files = ['package.json', 'src/app/a.service.ts', 'src/app/a.component.ts', 'node_modules/x/package.json'];
-  const select = (overrides: Partial<ProjectConfig>) => selectPacks({ fs: nodeFileSystem, builtinDirectory: BUILTIN_DIRECTORY, repositoryRoot: directory, project: project({ root: '.', ...overrides }), files });
-  const chosen = await select({});
-  const byRef = new Map(chosen.map((choice) => [choice.reference, choice]));
-  assert.equal(byRef.get('builtin/angular-http')?.enabled, true);
-  assert.match(byRef.get('builtin/angular-http')!.reason, /package\.json has "@angular\/core"/);
-  assert.equal(byRef.get('builtin/express-http')?.enabled, false);
-  assert.match(byRef.get('builtin/express-http')!.reason, /no marker/);
-  assert.equal(byRef.get('builtin/python-quality')?.enabled, false);
-  assert.match(byRef.get('builtin/python-quality')!.reason, /no file matches/);
-  for (const reference of COMMON_REFERENCES) assert.equal(byRef.get(reference)?.enabled, true, reference);
-  const vendored = await selectPacks({ fs: nodeFileSystem, builtinDirectory: BUILTIN_DIRECTORY, repositoryRoot: directory, project: project({ root: '.' }), files: ['node_modules/x/package.json', 'src/a.service.ts'] });
-  assert.equal(vendored.find((choice) => choice.reference === 'builtin/angular-http')?.enabled, false, 'a vendored manifest is not evidence');
-  const withoutE2e = await select({ commands: { lint: 'lint', unit: 'unit' } });
-  assert.equal(withoutE2e.find((choice) => choice.reference === 'builtin/common-checks')?.enabled, true, 'an undeclared command is unavailable, not a reason to skip the pack');
-});
-
-test('pack selection: an `unless` marker keeps the express packs out of an Angular SSR app, and an express-only repo still gets them', async (t) => {
-  const select = async (manifest: string) => {
-    const directory = await sandbox(t);
-    await writeFile(path.join(directory, 'package.json'), manifest);
-    const files = ['package.json', 'src/app/app.routes.ts', 'src/app/x.service.ts'];
-    const chosen = await selectPacks({ fs: nodeFileSystem, builtinDirectory: BUILTIN_DIRECTORY, repositoryRoot: directory, project: project({ root: '.' }), files });
-    return new Map(chosen.map((choice) => [choice.reference, choice]));
-  };
-  const ssr = await select('{"dependencies":{"@angular/core":"^20.0.0","@angular/ssr":"^20.0.0","express":"^5.0.0"}}\n');
-  for (const id of ['express-errors', 'express-http', 'express-persistence']) {
-    assert.equal(ssr.get(`builtin/${id}`)?.enabled, false, id);
-    assert.match(ssr.get(`builtin/${id}`)!.reason, /unless marker: package\.json has "@angular\/ssr"/, id);
+test('every built-in pack carries a one-line description, and no pack marker key is accepted', async () => {
+  for (const file of await listBuiltinPackFiles(nodeFileSystem, BUILTIN_DIRECTORY)) {
+    const parsed = PolicyPack.parse(parseYaml(await nodeFileSystem.readText(file.filePath)));
+    assert.ok(parsed.description !== undefined && !parsed.description.includes('\n'), `${file.id} needs a one-line description`);
   }
-  assert.equal(ssr.get('builtin/angular-http')?.enabled, true);
-  const plain = await select('{"dependencies":{"express":"^5.0.0"}}\n');
-  for (const id of ['express-errors', 'express-http', 'express-persistence']) assert.equal(plain.get(`builtin/${id}`)?.enabled, true, id);
+  const text = await nodeFileSystem.readText(path.join(BUILTIN_DIRECTORY, 'common', 'common-checks.yaml'));
+  for (const key of ['detect', 'unless']) assert.equal(PolicyPack.safeParse({ ...parseYaml(text), [key]: [{ file: 'manifest' }] }).success, false, key);
 });
 
-test('U03 a project declaring no commands still selects and loads the command-naming built-ins, and runs nothing', async (t) => {
+test('U03 a project declaring no commands still loads the command-naming built-ins, and runs nothing', async (t) => {
   const directory = await sandbox(t);
   await writeFile(path.join(directory, 'package.json'), '{"name":"x"}\n');
   const bare = project({ root: '.', commands: {}, checks: {} });
-  const chosen = await selectPacks({ fs: nodeFileSystem, builtinDirectory: BUILTIN_DIRECTORY, repositoryRoot: directory, project: bare, files: ['package.json', 'src/a.ts'] });
-  for (const reference of [...COMMON_REFERENCES, 'builtin/common-checks']) {
-    assert.equal(chosen.find((choice) => choice.reference === reference)?.enabled, true, reference);
-  }
   const { packs, diagnostics } = await loadPacksForProject({ fs: nodeFileSystem, project: { ...bare, packs: [...COMMON_REFERENCES, 'builtin/common-checks'] }, builtinDirectory: BUILTIN_DIRECTORY, repositoryRoot: directory });
   assert.deepEqual(diagnostics, []);
   assert.equal(packs.length, COMMON_PACKS.length + 1);

@@ -99,18 +99,13 @@ describe('P2.2/P2.3 shipped skill content', () => {
     }
   });
 
-  it('03-I4: no skill, reference or doc names the deleted shared resources, and each requirements body carries the envelope inline', async () => {
+  it('03-I4: no skill, reference or doc names the deleted shared resources', async () => {
     await assert.rejects(readFile(path.join(SKILLS_DIR, 'shared', 'requirements-mcp.md'), 'utf8'));
     await assert.rejects(readFile(path.join(SKILLS_DIR, 'shared', 'prepare-output.md'), 'utf8'));
-    const bodies = ['task/SKILL.md', 'review/SKILL.md', 'plan/SKILL.md', 'investigate/SKILL.md', 'rules/SKILL.md', 'review/references/requirements.md'];
+    const bodies = ['task/SKILL.md', 'review/SKILL.md', 'plan/SKILL.md', 'investigate/SKILL.md', 'rules/SKILL.md'];
     for (const relative of bodies) {
       const content = await readFile(path.join(SKILLS_DIR, relative), 'utf8');
       assert.doesNotMatch(content, /skills\/shared|requirements-mcp|prepare-output|shared file/, `${relative} still points at a deleted shared file`);
-    }
-    for (const relative of ['review/references/requirements.md']) {
-      const content = await readFile(path.join(SKILLS_DIR, relative), 'utf8');
-      assert.match(content, /requirements\.mcps/, `${relative} binds the server list inline`);
-      assert.match(content, /--evidence -/, `${relative} pipes the envelope`);
     }
   });
 
@@ -263,28 +258,13 @@ describe('P2.2/P2.3 shipped skill content', () => {
     assert.ok(plan.includes('node "${CLAUDE_PLUGIN_ROOT}/scripts/ambicode.mjs" route start plan "<request>" [--requirement <url>]...'));
   });
 
-  it('the canonical shared operating contract states the three-way authority distinction, and never conflates "observed" with "team" (doc 04 P2.4 correction A5)', async () => {
-    const content = await readFile(
-      path.join(repositoryRoot, 'prompts', 'shared-operating-contract.md'),
-      'utf8',
-    );
-    assert.match(content, /`team`.*approved (project )?requirement/is, 'must state that "team" is an approved requirement');
-    assert.match(
-      content,
-      /`observed`.*evidence of existing project practice/is,
-      'must state that "observed" is evidence of existing practice, not an approved requirement',
-    );
-    assert.match(content, /`inherited`.*(baseline )?guidance/is, 'must state that "inherited" is guidance');
-    assert.match(
-      content,
-      /never.*(report|treat).*`observed`.*or.*`inherited`.*(content|guidance|rule).*(as a )?(policy )?violation/is,
-      'must say observed/inherited guidance is never itself a policy violation',
-    );
-    assert.ok(
-      !/`team`\/`observed`/.test(content),
-      'must not conflate "team" and "observed" as if both were approved requirements',
-    );
-    assert.ok(!/suggestedComment|coverageNotes/i.test(content), 'must not carry reviewer-only finding/output vocabulary');
+  it('the reviewer role states the three-way authority distinction, and never conflates "observed" with "team" (doc 04 P2.4 correction A5)', async () => {
+    const content = (await readFile(path.join(repositoryRoot, 'agents', 'reviewer.md'), 'utf8')).replace(/\s+/g, ' ');
+    assert.match(content, /`team` is an approved (project )?requirement/, 'must state that "team" is an approved requirement');
+    assert.match(content, /`observed` is evidence of existing practice, not itself a requirement/, 'must state that "observed" is evidence of existing practice, not an approved requirement');
+    assert.match(content, /`inherited` is (baseline )?guidance/, 'must state that "inherited" is guidance');
+    assert.match(content, /Report an `observed` or `inherited` rule as a violation only when independent .*evidence/, 'must say observed/inherited guidance is never itself a policy violation');
+    assert.ok(!/`team`\/`observed`/.test(content), 'must not conflate "team" and "observed" as if both were approved requirements');
   });
 
   it('points authoring skills at the inline shortlist, not at a second locate call', async () => {
@@ -411,10 +391,9 @@ describe('07-M2 task outcomes', () => {
   it('07-M2: review outcomes document every code the task commands add, each as a backticked code', async () => {
     const outcomes = await readFile(path.join(SKILLS_DIR, 'review', 'references', 'outcomes.md'), 'utf8');
     const emitted = await emittedErrorCodes();
-    for (const code of ['check-limit', 'check-only-unauthorized', 'baseline-missing', 'format-unconfigured', 'ambiguous-project', 'bad-argument']) {
+    for (const code of ['check-limit', 'check-only-unauthorized', 'baseline-missing', 'ambiguous-project', 'bad-argument']) {
       assert.ok(outcomes.includes(`\`${code}\``), `${code} is not documented in outcomes.md`);
-      // format-unconfigured is printed with exit 0, not raised.
-      if (code !== 'format-unconfigured') assert.ok(emitted.has(code), `${code} is no longer raised by the CLI`);
+      assert.ok(emitted.has(code), `${code} is no longer raised by the CLI`);
     }
   });
 });

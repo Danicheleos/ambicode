@@ -178,9 +178,8 @@ from `policyFiles` and run `ambicode config packs`.
 ## How to change any of this
 
 Packs are YAML in `policies/` (built-in) and `.ambicode/policies/` (yours). `ambicode
-config packs` copies each built-in a project needs (by its `detect` marker and the
-files its `appliesTo` matches; a command the project does not declare counts as
-unavailable) to `.ambicode/policies/<folder>/<id>.yaml` and lists it in `policyFiles`, so
+config packs` copies each built-in a project names in `packs` (a command the project
+does not declare counts as unavailable) to `.ambicode/policies/<folder>/<id>.yaml` and lists it in `policyFiles`, so
 the built-in rules are yours to read and edit. Editing a rule, adding one, or disabling a pack
 for a project needs no TypeScript change and no rebuild. A project can replace a
 built-in pack wholesale with `replaces: builtin/<id>`; replacement is explicit

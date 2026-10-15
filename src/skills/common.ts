@@ -14,9 +14,8 @@ import { loadPacksForProject } from '#modules/policy/packs/load';
 import { builtinPoliciesDirectory } from '#util/plugin-root';
 import { envelopeSources, normalizeEnvelope } from '#modules/requirements/envelope/envelope';
 import { AmbicodeError } from '#util/errors';
-import { touchedSet } from '#modules/checks/workspace/baseline';
+import { baselineIn, touchedSet } from '#modules/checks/workspace/baseline';
 import { normalizeRelative, toProjectRelative } from '#util/paths';
-import type { BaselineEntryFields } from '#types/modules/checks';
 import { latestBound } from '#harness/engine/fold';
 import { onGatePrint } from '#harness/gates/gates';
 import type { Runtime } from '#types/composition';
@@ -79,10 +78,6 @@ export async function projectOf(input: HandlerInput, config: AmbicodeConfig): Pr
     throw error;
   }
 }
-export const baselineIn = (chain: readonly LedgerEntry[]): BaselineEntryFields | null => {
-  const entry = chain.findLast((candidate) => candidate.kind === 'baseline');
-  return entry === undefined ? null : { head: (entry['head'] as string | null) ?? null, dirty: (entry['dirty'] as BaselineEntryFields['dirty']) ?? [] };
-};
 
 /** The files the stage's rules are scoped to: the task's touched files once there are any, else the map's top candidates; empty means no scoping. */
 async function stagePaths(input: HandlerInput, project: ProjectConfig, chain: readonly LedgerEntry[]): Promise<string[]> {
@@ -138,7 +133,7 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
     try {
       const map = await buildMap(input.runtime, { project, mode, layers, layersSource: source, terms: stated, request, paths: seedable === null ? [] : pathsCitedIn(seedable, files), symbols: seedable === null ? [] : symbolsCitedIn(seedable) });
       await input.ledger.append({ kind: 'map', route: input.view.routeId, ...map.entry });
-      // 0 hits in 87 of 95 task runs: an empty map with nothing to caveat is still recorded, not sent.
+      // An empty map with nothing to caveat is still recorded, not sent.
       const silent = map.entry['candidates'] === 0 && map.collisions.length === 0 && map.limitations.length === 0;
       return { state: 'ok', payload: silent ? null : map.text };
     } catch (error) {
@@ -162,7 +157,7 @@ export const MODULE_HANDLERS: Readonly<Record<string, Handler>> = {
 
   'policy.stage': async (input) => {
     const stage = input.params[0];
-    if (stage !== 'before-work' && stage !== 'before-checks' && stage !== 'before-report') return { state: 'failed', code: 'internal', message: `policy.stage takes before-work, before-checks or before-report, not "${stage ?? ''}".`, recoverable: false };
+    if (stage !== 'before-work') return { state: 'failed', code: 'internal', message: `policy.stage takes before-work, not "${stage ?? ''}".`, recoverable: false };
     const config = await configOf(input);
     const project = await projectOf(input, config);
     if (isResult(project)) return project;

@@ -11,7 +11,8 @@ import { FIXTURE_CONFIG, initConfig } from '#testing/fixtures/init-config';
 import { TempRepo } from '#testing/fixtures/temp-repo';
 import { configPacksCommand } from './packs.ts';
 
-const NO_PACKS = FIXTURE_CONFIG.replace('packs: [builtin/common-design, builtin/common-code, builtin/common-errors, builtin/common-security, builtin/common-verification, builtin/common-checks]', 'packs: []').replace(', e2e: { all: null, file: null }', '');
+const NAMED = ['builtin/angular-http', 'builtin/common-design', 'builtin/common-code', 'builtin/common-verification', 'builtin/common-checks'];
+const NAMING_PACKS = FIXTURE_CONFIG.replace('packs: [builtin/common-design, builtin/common-code, builtin/common-errors, builtin/common-security, builtin/common-verification, builtin/common-checks]', `packs: [${NAMED.join(', ')}]`).replace(', e2e: { all: null, file: null }', '');
 
 async function angularRepo() {
   const repo = await TempRepo.create();
@@ -19,20 +20,20 @@ async function angularRepo() {
   await repo.write('src/app/a.service.ts', 'export class A {}\n');
   await repo.commitAll('base');
   const runtime = await createRuntime({ cwd: repo.root });
-  const config = await initConfig(runtime, `# kept\n${NO_PACKS}`);
+  const config = await initConfig(runtime, `# kept\n${NAMING_PACKS.replace('builtin/common-checks]', 'builtin/common-checks, builtin/no-such-pack]')}`);
   const run = () => configPacksCommand.run(runtime, parseArgs('config packs', [], configPacksCommand.options));
   return { repo, runtime, config, run };
 }
 
 describe('config packs', () => {
-  it('copies each matched built-in to .ambicode/policies with replaces, lists it in policyFiles, keeps the config comments, reports a skipped pack with its reason, and the copies load clean', async () => {
+  it('copies each built-in the config names to .ambicode/policies with replaces, lists it in policyFiles, keeps the config comments, copies nothing else, reports a name that is no built-in, and the copies load clean', async () => {
     const { repo, runtime, config, run } = await angularRepo();
     try {
       const out = await run();
       const written = await runtime.fs.readText(config);
       assert.match(written, /^# kept/);
       const project = parseConfig(written).projects[0]!;
-      assert.deepEqual(project.packs, [], 'no builtin/<id> reference is written');
+      assert.deepEqual(project.packs, [...NAMED, 'builtin/no-such-pack'], 'the named packs are left as written');
       for (const file of ['angular/angular-http', 'common/common-design', 'common/common-verification', 'common/common-checks']) assert.ok(project.policyFiles.includes(`.ambicode/policies/${file}.yaml`), project.policyFiles.join(','));
       assert.ok(!project.policyFiles.some((file) => /express|python/.test(file)));
       const builtin = await runtime.fs.readText(path.join(builtinPoliciesDirectory(runtime.pluginRoot), 'angular', 'angular-http.yaml'));
@@ -40,12 +41,12 @@ describe('config packs', () => {
       assert.equal(copy, builtin.replace(/^id: .*$/m, (line) => `${line}\nreplaces: builtin/angular-http`), 'the built-in text verbatim plus the replaces line');
       assert.match(out.text, /\+ builtin\/angular-http: \.ambicode\/policies\/angular\/angular-http\.yaml written/);
       assert.match(out.text, /\+ builtin\/common-checks: \.ambicode\/policies\/common\/common-checks\.yaml written/, 'a project declaring no commands still gets the command-naming packs');
-      assert.match(out.text, /- builtin\/express-http: no marker/);
+      assert.match(out.text, /- builtin\/no-such-pack: not a built-in pack/);
+      assert.ok(!(await runtime.fs.exists(path.join(repo.root, '.ambicode/policies/express'))), 'a pack the config does not name is not copied');
       const loaded = await loadPacksForProject({ fs: runtime.fs, project, builtinDirectory: builtinPoliciesDirectory(runtime.pluginRoot), repositoryRoot: repo.root });
-      assert.deepEqual(loaded.diagnostics, []);
+      assert.deepEqual(loaded.diagnostics.map((entry) => entry.code), ['pack-missing'], 'only the unknown name is reported');
       const quality = loaded.packs.find((pack) => pack.pack.id === 'common-design')!;
       assert.equal(quality.origin, 'project');
-      assert.equal(quality.resolvedPrompts.length, 0);
     } finally {
       await repo.dispose();
     }
@@ -123,7 +124,7 @@ describe('config packs', () => {
       const builtin = await runtime.fs.readText(path.join(builtinPoliciesDirectory(runtime.pluginRoot), 'angular', 'angular-http.yaml'));
       await repo.write('.ambicode/policies/angular-http.yaml', builtin.replace(/^id: .*$/m, (line) => `${line}\nreplaces: builtin/angular-http`));
       await repo.commitAll('base');
-      const config = await initConfig(runtime, NO_PACKS);
+      const config = await initConfig(runtime, NAMING_PACKS);
       const document = parseDocument(await runtime.fs.readText(config));
       document.setIn(['projects', 0, 'policyFiles'], document.createNode(['.ambicode/policies/angular-http.yaml']));
       await runtime.fs.writeText(config, document.toString());
@@ -133,6 +134,20 @@ describe('config packs', () => {
       const project = parseConfig(await runtime.fs.readText(config)).projects[0]!;
       const loaded = await loadPacksForProject({ fs: runtime.fs, project, builtinDirectory: builtinPoliciesDirectory(runtime.pluginRoot), repositoryRoot: repo.root });
       assert.deepEqual(loaded.diagnostics, []);
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it('--list shows every built-in with its description and writes nothing', async () => {
+    const { repo, runtime, config } = await angularRepo();
+    try {
+      const before = await runtime.fs.readText(config);
+      const out = await configPacksCommand.run(runtime, parseArgs('config packs', ['--list'], configPacksCommand.options));
+      assert.match(out.text, /^builtin\/angular-http - Angular HTTP access/m);
+      assert.match(out.text, /^builtin\/common-design - Any project/m);
+      assert.equal(await runtime.fs.readText(config), before);
+      assert.ok(!(await runtime.fs.exists(path.join(repo.root, '.ambicode/policies'))));
     } finally {
       await repo.dispose();
     }

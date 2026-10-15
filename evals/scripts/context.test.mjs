@@ -20,12 +20,12 @@ const TRACE = [
 
 describe('evals context size', () => {
   it('peak and final are the main session context per call (input + cache), each call counted once, subagents left out', () => {
-    assert.deepEqual(contextOf(TRACE), { peak: 21502, final: 20101, calls: 3, tools: 3, session: null, api: null });
+    assert.deepEqual(contextOf(TRACE), { peak: 21502, final: 20101, calls: 3, tools: 3, session: null, api: null, costUsd: null });
   });
 
   it('session and model time come from the result event; a trace without them reports null, not zero', () => {
-    const timed = `${TRACE}\n${JSON.stringify({ type: 'result', duration_ms: 16311, duration_api_ms: 6575 })}`;
-    assert.deepEqual(contextOf(timed), { peak: 21502, final: 20101, calls: 3, tools: 3, session: 16.3, api: 6.6 });
+    const timed = `${TRACE}\n${JSON.stringify({ type: 'result', duration_ms: 16311, duration_api_ms: 6575, total_cost_usd: 0.1234 })}`;
+    assert.deepEqual(contextOf(timed), { peak: 21502, final: 20101, calls: 3, tools: 3, session: 16.3, api: 6.6, costUsd: 0.1234 });
   });
 
   it('a trace with no main-session call has no context, not a zero one', () => {
@@ -81,10 +81,11 @@ describe('evals chain', async () => {
     assert.match(lines[4], /end: success, stop end_turn, 2 turns, 41s, 1 permission denial/);
   });
 
-  it('the longest run is the one with most turns, then the longest, among runs with a kept trace', () => {
+  it('the longest run is the one with most model calls, not harness turns, then the longest session, among runs with a kept trace', () => {
     const result = { cases: [
-      { name: 'a', arms: { with: [{ turns: 9, durationSeconds: 10, trace: 'a' }, { turns: 12, durationSeconds: 5 }] } },
-      { name: 'b', arms: { with: [{ turns: 9, durationSeconds: 30, trace: 'b' }] } },
+      { name: 'a', arms: { with: [{ turns: 30, context: { calls: 9, session: 10 }, trace: 'a' }, { turns: 12, context: { calls: 20, session: 5 } }] } },
+      { name: 'b', arms: { with: [{ turns: 9, context: { calls: 9, session: 30 }, trace: 'b' }] } },
+      { name: 'c', arms: { with: [{ turns: 99, trace: 'c' }] } },
     ] };
     assert.equal(longestRun(result).name, 'b');
     assert.equal(longestRun({ cases: [] }), null);

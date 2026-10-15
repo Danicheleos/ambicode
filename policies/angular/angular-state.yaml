@@ -1,14 +1,13 @@
 schemaVersion: 1
 id: angular-state
 authority: inherited
+description: "Angular state and data flow: single state owner, representation conversions."
 appliesTo:
   - "**/*.facade.ts"
   - "**/*.service.ts"
   - "**/*.store.ts"
   - "**/*.component.ts"
 activities: [review, task, plan]
-detect:
-  - { file: package.json, contains: '"@angular/core"' }
 
 source:
   location: >-
@@ -41,5 +40,4 @@ rules:
       kind: reviewer
       explanation: Assessed from the changed data path.
 
-prompts: []
 commandPolicy: []

@@ -25,7 +25,6 @@ export function taskDirFor(repositoryRoot: string, slug: string, where = '.', ki
     planBody: path.join(steps, 'plan-body.md'),
     requirements: path.join(root, 'requirements'),
     workers: path.join(root, 'workers'),
-    stopCheck: path.join(root, 'stop-check.md'),
     answerBlocked: path.join(root, 'answer-blocked.md'),
   };
 }

@@ -1,14 +1,14 @@
 import path from 'node:path';
-import { touchedSet, captureBaseline } from '#modules/checks/workspace/baseline';
+import { baselineIn, touchedSet, captureBaseline } from '#modules/checks/workspace/baseline';
 import { evaluateReview } from '#modules/checks/review-evaluation';
 import { ReviewResult } from '#types/modules/review';
 import { estimateReview, renderEstimate } from '#modules/review/bundle/estimate';
 import { buildChain, currentIn } from '#harness/engine/fold';
 import { onGatePrint } from '#harness/gates/gates';
-import { baselineIn, chainEntries, configOf, isResult, projectOf } from '../common.ts';
+import { chainEntries, configOf, isResult, projectOf } from '../common.ts';
 import { briefOf } from '../brief.ts';
 import { isAmbicodeError } from '#util/errors';
-import { checkKeys } from '#modules/checks/run/check-command';
+import { runnableKeys } from '#modules/checks/run/check-command';
 import { runFormat } from '#modules/checks/run/format';
 import { buildReport } from '#modules/evidence/report/report';
 import { GATE as CHECK_GATE, type ReviewEntry } from '#types/modules/checks';
@@ -50,11 +50,11 @@ export const TASK_HANDLERS: Readonly<Record<string, Handler>> = {
     return { state: 'ok', payload: `Baseline: HEAD ${baseline.head?.slice(0, 12) ?? 'none (unborn branch)'}.${dirty}` };
   },
 
-  /** e-cLRPPf: with every check null, no check run can be recorded and the model edited production code before the route ended. */
+  /** With every check null, no check run can be recorded, so the route stops before the model edits production code. */
   'checks.preflight': async (input) => {
     const project = await projectOf(input, await configOf(input));
     if (isResult(project)) return project;
-    const runnable = checkKeys(project).some((entry) => entry.command && entry.key !== 'format');
+    const runnable = runnableKeys(project).length > 0;
     if (runnable) return { state: 'ok', payload: null };
     const detail = `no-check: project "${project.id}" has no check with a configured command, so no check run can be recorded`;
     return { state: 'ok', payload: `${detail}. Configure one in .ambicode/config.yaml, then start the task again.`, exit: 'blocked', exitDetail: detail };
@@ -64,7 +64,7 @@ export const TASK_HANDLERS: Readonly<Record<string, Handler>> = {
     // Every project, never `projectOf`: a review spans the repository, and a project question here stopped multi-project reviews.
     const forms = (entry: { all: boolean; file: boolean }): string => (entry.all && entry.file ? 'all or --file' : entry.all ? 'all only' : '--file only');
     const lines = (await configOf(input)).projects.flatMap((project) => {
-      const runnable = checkKeys(project).filter((entry) => entry.command && entry.key !== 'format');
+      const runnable = runnableKeys(project);
       return runnable.length === 0 ? [] : [`Project ${project.id}: ${runnable.map((entry) => `${entry.key} (${forms(entry)})`).join(', ')}.`];
     });
     return { state: 'ok', payload: lines.length === 0 ? 'No check has a command configured: run no tests; the report states that nothing was verified by execution.' : lines.join('\n') };

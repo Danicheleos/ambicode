@@ -31,9 +31,6 @@ rule can produce a finding on its own.
 | `observed` | Evidence of existing practice, possibly legacy. | Raise it as context or a question. **Never** as a violation on the strength of the label. |
 | `inherited` | Baseline guidance, which is what every built-in pack carries. | Same as `observed`: guidance, not an approved requirement. |
 
-The exact wording the reviewer and the authoring skills operate under is in
-`prompts/shared-operating-contract.md`.
-
 The authority follows where the rule came from: a project document that states
 it is `team`; a convention inferred from the code is `observed`; a practice taken
 from the web or a built-in baseline is `inherited`.
@@ -69,7 +66,7 @@ replaces: builtin/common-design
 
 Then:
 
-- the built-in is dropped **whole**. None of its rules, prompts, or command
+- the built-in is dropped **whole**. None of its rules or command
   decisions survive — you are taking over the entire pack, not editing it;
 - only a project pack may declare it, and only as `builtin/<id>`.
 
@@ -84,13 +81,13 @@ A `replaces` for a built-in the project does not enable does nothing.
 ## A rule narrows its pack
 
 A pack's `activities` and `appliesTo` apply to every rule in it. A rule may carry
-its own `activities` and `appliesTo` to narrow them; absent, it takes the pack's.
-A rule cannot list an activity its pack does not carry, and the pack-level globs
-still decide whether the pack applies to a file at all. The shipped
+its own `activities` to narrow them; absent, it takes the pack's. A rule cannot
+list an activity its pack does not carry, and the pack-level globs decide whether
+the pack applies to a file at all. The shipped
 `common-design` uses this: the pack carries `[review, task, plan]`, and a rule such
 as `need` narrows to `[plan, review]`, so each stage carries only its own. When a
 stage knows the files at hand (the task's touched files, else the search map's top
-candidates), a rule whose `appliesTo` matches none of them is left out; with no
+candidates), a pack whose `appliesTo` matches none of them is left out; with no
 known file nothing is filtered.
 
 ## One rule, one place
@@ -102,16 +99,14 @@ spacing and final punctuation ignored) equals a rule already in force.
 
 ## Choosing built-in packs
 
-A built-in pack may declare `detect: [{ file: package.json, contains: '"express"' }]`:
-any one marker matching (a file of that name within two directories of the project
-root, containing the text when given) selects it. A pack may also declare `unless` with the same marker shape: any one
-matching keeps it out, so the express packs skip an Angular SSR app that lists
-`"express"` only as its server host. `ambicode config packs` copies
-every pack whose marker and `appliesTo` match to `.ambicode/policies/<group>/<id>.yaml`
+Packs are chosen, not detected: init picks each project's `packs: [builtin/<id>]` from
+`ambicode config packs --list` (every built-in's id and its one-line `description`)
+by what the scout found in that project. `ambicode config packs` copies
+every built-in a project names to `.ambicode/policies/<group>/<id>.yaml`
 (the built-in's text plus `replaces: builtin/<id>`, comments included), adds the
-copy to the project's `policyFiles`, and reports the ones it skipped with the
-reason. A pack whose commands the project does not declare is still copied: those
-commands count as unavailable.
+copy to the project's `policyFiles`, and reports a name that is no built-in. A pack
+whose commands the project does not declare is still copied: those commands count
+as unavailable.
 
 The copy is yours to edit. A later run never overwrites an existing copy; when the
 built-in's `source.externalVersion` differs from the copy's it prints

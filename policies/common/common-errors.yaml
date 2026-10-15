@@ -1,6 +1,7 @@
 schemaVersion: 1
 id: common-errors
 authority: inherited
+description: "Any project: honest failures, awaited async work, outbound timeouts, logging."
 appliesTo:
   - "**/*"
 activities: [review, task]
@@ -54,6 +55,5 @@ rules:
       kind: reviewer
       explanation: Requires identifying the project's configured logger.
 
-prompts: []
 
 commandPolicy: []

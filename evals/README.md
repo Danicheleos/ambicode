@@ -12,9 +12,11 @@ evals/
   bare/<case>/            no-plugin arm, generated: same request in plain words, shared graders only
   scripts/run.mjs         runs one arm through `claude plugin eval`, then tracks the result
   scripts/track.mjs       appends one row per case to history.jsonl and rewrites history.md
-  scripts/context.mjs     reads the context size from each run's trace
+  scripts/context.mjs     reads context size, session and model seconds, and session cost from each run's trace
+  scripts/trace.mjs       trace parsing and `mean`, shared by the scripts below
   scripts/metrics.mjs     recall, precision and F1 of the files an answer lists (cases that declare `metrics`)
-  scripts/chain.mjs       turn-by-turn chain of a run; after each run, of the longest one (chains/<arm>-longest.md)
+  scripts/chain.mjs       turn-by-turn chain of a run; after each run, of the one with the most model calls (chains/<arm>-longest.md)
+  scripts/breakdown.mjs   where a run's calls, tokens, seconds and injected bytes go (`npm run evals:breakdown -- <trace.jsonl | dir>`)
   cases/results/          raw output of the last run per arm, and traces/<arm>/<case>-<n>.jsonl (gitignored)
   history.jsonl           every run, one row per case, in git
   history.md              latest plugin row and latest bare row per case, with the lift
@@ -37,7 +39,7 @@ Defaults: Sonnet 5.5, effort low, 1 run per case, 4 runs in parallel, a $15 cap 
 `CLAUDE_CODE_EFFORT_LEVEL` in the environment. A probe showed the variable inside the run. It does not prove the
 model honoured it.
 
-Each run also writes `evals/chains/<arm>-longest.md`, linked from `history.md`: the turn-by-turn chain of the run with the most turns.
+Each run also writes `evals/chains/<arm>-longest.md`, linked from `history.md`: the turn-by-turn chain of the run with the most model calls.
 Each line shows the time since the start, the context, the tool call and its result with the time it took. A gap of
 30 s or more is marked ⏱. `node evals/scripts/chain.mjs evals/cases/results/traces/<arm>/<run time>/<case>-1.jsonl` prints the
 chain of any other run.
@@ -53,7 +55,7 @@ A case with `metrics` in `cases.mjs` is scored on the files its answer lists. Th
 A run with no Files section scores recall 0 and F1 0, and is counted separately.
 
 With `--runs N`, the `Runs` section of `history.md` lists every run of the latest row: score, recall, precision, F1,
-turns, context, cost, and the files missed and extra. A spread line under it gives mean ± sample standard deviation.
+calls, tools, context, cost, and the files missed and extra. A spread line under it gives mean ± sample standard deviation.
 That section is where drift on one task shows.
 
 Raise a case's `version` whenever its prompt or graders change. A lift is shown only between rows of the current
@@ -65,7 +67,8 @@ exits 1 whenever any case scores below 1.0.
 ## How a case works
 
 1. **Scaffold.** `scaffold.sh` replays a fixture into `repo/`, a fresh git repository with known history. The
-   plugin arm also commits `.ambicode/config.yaml`. `--install` fixtures run `npm ci`, so jest and eslint are real.
+   plugin arm also commits `.ambicode/config.yaml`. `--install` fixtures run `npm ci`, so jest and eslint are real. `--context` also writes
+   `fixtures/contexts/<fixture>.md` into the gitignored `.ambicode/context`, standing in for the scout (8 of the 17 cases).
 2. **Prompt.** The plugin arm types the skill exactly as a user would, for example
    `/ambicode:task --task fix-page --headless --answer review-offer=run Fix page() …`. `--task` fixes the slug so
    graders can find the ledger. `--answer` pre-answers a gate. A case with no answer tests the gate's default. The
@@ -87,7 +90,7 @@ Graders come in two kinds:
 - **Plugin-only graders** check what only AMBICODE writes: ledger entries, the reviewer subagent, report sections.
   They run in the plugin arm only.
 
-`history.md` shows four numbers per case:
+`history.md` shows per case:
 
 | Column | Meaning |
 | --- | --- |
@@ -95,7 +98,9 @@ Graders come in two kinds:
 | outcome | Shared graders only, in the plugin arm. |
 | bare | Shared graders in the bare arm. |
 | lift | outcome − bare. Shown only when both rows ran the same model and effort. |
-| turns | Model turns, plugin / bare. |
+| plugin $, bare $ | Session cost from the trace's `total_cost_usd`: subagents included, the Haiku judge excluded (`history.jsonl` keeps it as `judgeCostUsd`). |
+| session s | Seconds the session ran, plugin / bare, from the trace's result event. `history.jsonl` also keeps `apiSeconds` (model time) and `seconds` (the harness's, which counts scaffold and graders). |
+| model calls/tools | Distinct main-session model calls and tool calls, plugin · bare. The harness `turns` counts every tool result, so parallel reads inflate it; rows keep it, the table does not show it. |
 | context k | Largest context the main session sent the model in one call, in thousands of tokens (input plus cache), plugin / bare. `history.jsonl` also keeps `contextFinal`, the last call's context. Subagent calls are left out, because the trace records only some of them. |
 
 Five cases have no bare arm because what they test belongs to the plugin: a gate default (`plan-draft`,

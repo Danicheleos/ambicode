@@ -13,4 +13,3 @@ Verification: unit check green, 14 tests.
 <part 4 as printed>
 ```
 For an error code, read `references/outcomes.md` beside the review skill's SKILL.md and say what it means and how to release it.
-For a merge request (`--mr`), read `references/merge-request.md` beside the review skill's SKILL.md.

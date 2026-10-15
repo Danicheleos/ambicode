@@ -35,7 +35,7 @@ export async function runReview(runtime: Runtime, args: ParsedArgs): Promise<Rev
   return { command: 'review', reviewId: bundle.reviewId, reviewDirectory: bundle.reviewDirectory, resultPath: bundle.resultPath, reportPath: pinned.reportPath, result: bundle.result };
 }
 
-export function renderReview(output: ReviewOutput): string {
+function renderReview(output: ReviewOutput): string {
   return renderReport({ result: output.result, resultPath: output.resultPath });
 }
 

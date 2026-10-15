@@ -100,7 +100,6 @@ describe('R3 ambicode policy check', () => {
           'appliesTo: ["**/*"]',
           'activities: [review]',
           'source: { location: "CLAUDE.md" }',
-          'prompts: [{ stage: before-review, file: "./missing.md" }]',
           'commandPolicy: [{ command: not-declared, action: run }]',
           'rules: []',
         ]),
@@ -118,7 +117,7 @@ describe('R3 ambicode policy check', () => {
 
       assert.equal(output.ok, false);
       const found = new Set(codes(output.diagnostics, 'error'));
-      for (const expected of ['path-missing', 'pack-unknown-command', 'pack-invalid', 'pack-unparsable', 'pack-missing']) {
+      for (const expected of ['pack-unknown-command', 'pack-invalid', 'pack-unparsable', 'pack-missing']) {
         assert.ok(found.has(expected), `expected a ${expected} diagnostic, got ${[...found].join(', ')}`);
       }
       assert.deepEqual(
@@ -143,7 +142,6 @@ describe('R3 ambicode policy check', () => {
           'appliesTo: ["**/*"]',
           'activities: [review]',
           'source: { location: "CLAUDE.md" }',
-          'prompts: [{ stage: before-review, file: "./nowhere.md" }]',
           'commandPolicy: [{ command: never-declared, action: run }]',
           'rules:',
           '  - id: verify',
@@ -165,7 +163,7 @@ describe('R3 ambicode policy check', () => {
       });
 
       assert.deepEqual(codes(fromCommand.diagnostics, 'error'), codes(fromLoader.diagnostics, 'error'));
-      assert.ok(codes(fromLoader.diagnostics, 'error').length >= 3);
+      assert.ok(codes(fromLoader.diagnostics, 'error').length >= 2);
     } finally {
       await repo.dispose();
     }
@@ -361,16 +359,6 @@ describe('R3 no runtime path reads a Markdown rule source', () => {
       [],
       'a rule source belongs to the setup-time /ambicode:rules skill; the runtime resolves policy from YAML packs only',
     );
-  });
-
-  it('resolves prompt Markdown only from a path a pack declared', async () => {
-    const { readFile } = await import('node:fs/promises');
-    const repositoryRoot = REPO_ROOT;
-    // The single place a pack's Markdown is opened: a `prompts[].file` the pack
-    // declared, after `resolveInsideBoundary`.
-    const validate = await readFile(path.join(repositoryRoot, 'src', 'modules', 'policy', 'packs', 'validate.ts'), 'utf8');
-    assert.match(validate, /resolveInsideBoundary\(/);
-    assert.equal((validate.match(/fs\.readText\(/g) ?? []).length, 2, 'the pack file and its declared prompts, nothing else');
   });
 });
 

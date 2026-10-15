@@ -7,7 +7,6 @@ import { launchRoute } from '#hook/events/prompt-launch';
 import { runHook } from '#hook/events/run-hook';
 import { createRuntime } from '#composition/root';
 import { buildReport } from '#modules/evidence/report/report';
-import { STAGE_LIMITS } from '#modules/policy/stage';
 import { stepHeader } from '#harness/engine/execute';
 import { COMMAND_PACK, CHECK_CONFIG, CHECK_TASK } from '#testing/fixtures/check-fixture';
 import { finding } from '#testing/fixtures/review-fixture';
@@ -114,23 +113,10 @@ describe('task route (07-R, 07-V, 07-G)', () => {
       const red = await t.start();
       const order = (await t.ledger()).map((entry) => (entry.kind === 'policy' ? `policy:${entry['stage']}` : entry.kind === 'step' ? `step:${entry['step']}` : entry.kind));
       const at = (name: string): number => order.indexOf(name);
-      assert.ok(at('baseline') < at('map') && at('map') < at('policy:before-work') && at('policy:before-work') < at('policy:before-checks') && at('policy:before-checks') < at('step:ground'), order.join(' '));
+      assert.ok(at('baseline') < at('map') && at('map') < at('policy:before-work') && at('policy:before-work') < at('step:ground'), order.join(' '));
       assert.doesNotMatch(red.text, /git grep|Callers/);
       assert.ok(Buffer.byteLength(red.text) <= 9 * 1024, `${Buffer.byteLength(red.text)} bytes`);
     });
-  });
-
-  it('the before-work rules follow the files at hand: with no known file both rules are carried, once the task touched a .ts file the **/*.py rule is left out', async () => {
-    const pack = COMMAND_PACK.replace('rules: []', ['rules:', '  - { id: any, category: architecture, instruction: Keep it small., check: { kind: reviewer, explanation: x } }', '  - { id: py-only, category: correctness, instruction: Close files you open., appliesTo: ["**/*.py"], check: { kind: reviewer, explanation: x } }'].join('\n'));
-    await withTask(async (t) => {
-      const red = await t.start();
-      assert.match(section(red.text, 'policy:before-work'), /cmds\/py-only/, 'the map knew no file, so nothing is filtered');
-      await t.edit();
-      await t.check('green', { ran: 1, failed: 0 });
-      await t.hook('review-offer', 'run');
-      const stages = (await t.kinds('policy')).filter((entry) => entry['stage'] === 'before-work').map((entry) => entry['rules']);
-      assert.deepEqual(stages, [2, 1]);
-    }, { pack });
   });
 
   it('07-R6/D4: a red-phase check is no green evidence; a green-phase check with exit 0 ends change and format runs itself', async () => {
@@ -399,12 +385,11 @@ describe('task route (07-R, 07-V, 07-G)', () => {
     }
   });
 
-  it('B9: before-work and before-checks both reach change, before-report reaches write', async () => {
+  it('B9: before-work reaches change', async () => {
     await withTask(async (t) => {
       const def = t.fx.routes.route('task')!;
       const payloadOf = (id: string): readonly string[] => def.steps.find((step) => step.id === id)!.payload;
-      assert.ok(payloadOf('change').includes('policy:before-work') && payloadOf('change').includes('policy:before-checks'));
-      assert.ok(payloadOf('write').includes('policy:before-report'));
+      assert.ok(payloadOf('change').includes('policy:before-work'));
     });
   });
 
@@ -426,20 +411,18 @@ describe('task route (07-R, 07-V, 07-G)', () => {
     }, { pack: COMMAND_PACK.replace('{ command: unit, action: run, reason: "unit" }', '{ command: unit, action: propose, reason: "unit" }') });
   });
 
-  it('07-R8: every task step text is at most 1,500 characters after inclusion; start ≤ 4 KiB, report ≤ 3 KiB, before-checks ≤ 1.5 KiB', async () => {
+  it('07-R8: every task step text is at most 1,500 characters after inclusion; start ≤ 4 KiB, report ≤ 3 KiB', async () => {
     const cli = `node "${REPO_ROOT}/scripts/ambicode.mjs"`;
     for (const name of ['task/change', 'task/fix', 'task/write']) {
       const text = (await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8')).replaceAll('{cli}', cli).replaceAll('{task}', CHECK_TASK);
       assert.ok(text.length <= 1500, `${name}: ${text.length}`);
     }
-    assert.equal(STAGE_LIMITS['before-checks'], 1536);
     await withTask(async (t) => {
       await t.fx.repo.write('docs/plan.md', `# Plan\n\n${'Seed the reduce with zero. '.repeat(400)}\n`);
       const red = await t.start({ plan: 'docs/plan.md' });
       const brief = section(red.text, 'brief');
       assert.ok(Buffer.byteLength(brief) <= 4096, `${Buffer.byteLength(brief)}`);
       assert.match(brief, /\[cut: read docs\/plan\.md\]$/);
-      assert.ok((await t.kinds('policy')).every((entry) => entry['stage'] !== 'before-checks' || Number(entry['bytes']) <= 1536));
       await t.edit();
       await t.check('green', { ran: 1, failed: 0 });
       const write = await t.hook('review-offer', 'skip — verification incomplete');

@@ -1,4 +1,3 @@
-import path from 'node:path';
 import { openWorkspace, projectForRequest, toRepositoryRelative } from '#modules/config/workspace';
 import { resolvePolicyFor } from '#modules/policy/resolve-for';
 import type { ProjectConfig } from '#types/modules/config';
@@ -50,6 +49,12 @@ export const projectRelative = (project: ProjectConfig, file: string): string =>
 /** The check keys of a project, sorted; `command` is false for a key whose `all` and `file` are both null (it exists but cannot run). */
 export const checkKeys = (project: ProjectConfig): { key: string; all: boolean; file: boolean; command: boolean }[] =>
   Object.keys(project.checks).sort().map((key) => ({ key, all: project.checks[key]!.all !== null, file: project.checks[key]!.file !== null, command: project.checks[key]!.all !== null || project.checks[key]!.file !== null }));
+
+/** The key whose command changes files: formatting is not verification, so it never counts as a runnable check. */
+export const FORMAT_CHECK = 'format';
+
+/** The checks a model may run: those with a command (or, with `form`, with that file/all form), formatting left out. */
+export const runnableKeys = (project: ProjectConfig, form: 'command' | 'file' = 'command'): ReturnType<typeof checkKeys> => checkKeys(project).filter((entry) => entry[form] && entry.key !== FORMAT_CHECK);
 
 const stepOf = (view: RouteView): string => (view.position === 'complete' ? 'complete' : view.position);
 
@@ -129,11 +134,8 @@ async function limitReached(deps: CheckDeps, routed: Routed, phase: string): Pro
 /** `{file}` becomes the quoted files, space-joined: one run, one exit, one ledger entry for the whole selection. */
 export const commandFor = (template: string, files: readonly string[]): string => template.replaceAll('{file}', files.map(shellQuote).join(' '));
 
-/** The model's cwd may be the repository's parent: a path that exists from the caller's cwd wins, else it is already repository-relative. */
 async function repositoryFile(workspace: Workspace, file: string): Promise<string> {
-  const { runtime } = workspace;
-  const fromCaller = path.resolve(runtime.callerCwd ?? runtime.cwd, file);
-  const found = (await runtime.fs.exists(fromCaller)) || path.isAbsolute(file) ? await toRepositoryRelative(workspace, fromCaller) : normalizeRelative(file);
+  const found = await toRepositoryRelative(workspace, file);
   if (found === '' || found === '..' || found.startsWith('../')) throw badArgument(`--file ${file} is outside the repository.`, 'file');
   return found;
 }
@@ -154,7 +156,7 @@ export async function runCheckOnly(deps: CheckDeps, input: CheckOnlyInput): Prom
   const routed = await routedOf(deps, input.task);
   if (routed !== null && (await limitReached(deps, routed, input.phase))) {
     throw new AmbicodeError('check-limit', `${CHECK_LIMIT} ${input.phase} checks already ran in this step; nothing was run.`, {
-      details: [`Release: state the gap in the report; $A route next --task ${input.task}`],
+      details: [`Release: state the gap in the report; route next --task ${input.task}`],
     });
   }
 

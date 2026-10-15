@@ -3,11 +3,8 @@ import { addressableLines, lineAt } from '#platform/git/diff';
 import type { DiffFile } from '#types/platform/git';
 
 /**
- * Reviewer output is checked against the pinned diff; nothing is repaired or re-asked.
- * An unknown requirement or a finding count over the limit voids the whole result. A finding at an
- * invalid location is dropped and listed (one bad line voided both graded findings in 2 of 23 review-subtle
- * runs); only an answer with no verifiable finding left is invalid. An unknown rule id is dropped from its
- * finding and reported: models invent ids near real ones (eval C3: common-rules/callers).
+ * Reviewer output is checked against the pinned diff; nothing is repaired or re-asked. An unknown requirement or too
+ * many findings voids the result; a finding at an invalid location, or an unknown rule id, is dropped and reported.
  */
 
 export interface ValidateOptions {

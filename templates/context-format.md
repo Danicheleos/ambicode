@@ -15,10 +15,10 @@ Limits come from `context.maxFileTokens` and `context.maxTotalTokens` in `.ambic
   - `overview.md`: `## Purpose` (1-2 bullets), `## Projects` (`- <id> - <path> - <what it is>`), `## Stack` (`- <tool>: <role>`).
   - `navigation.md`: `## How to read` (one bullet: list, open one file, Grep the name, Read with offset/limit; never Read whole large files), `## Entry points` (`- <path> - <role>`), `## Where things live` (`- <thing>: <path or glob>`), `## Naming`, `## Grep patterns` (`- <what>: <pattern>`).
   - `conventions.md`: `## Code`, `## Errors`, `## Tests`, `## Imports`; one convention per bullet.
-  - `modules/<name>.md`: `## Purpose` (1-2 bullets), `## Key files` (`- <path> - <purpose> - items: NameA, NameB`, at most 8 names, skip test files), `## Depends on`, `## Gotchas`.
+  - `modules/<name>.md`: `## Purpose` (1-2 bullets), `## Key files` (`- <path> - <name>(args): <what it does>`, one bullet per exported name, at most 8 per file, skip test files; the signature alone when the name already says what it does), `## Depends on`, `## Gotchas`.
 - Bullets sorted by path or name. Same repo state gives the same file.
 - No hedging ("probably", "seems"), no dates, no drifting counts.
-- Names only, no code: code fences are refused. Paths over prose.
+- No code bodies: code fences are refused; a signature is one line inside a bullet. Paths over prose.
 - One fact in one file; point to another by relative path.
 
 ## Bundle format for `context write`

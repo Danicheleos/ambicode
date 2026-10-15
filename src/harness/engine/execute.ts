@@ -44,7 +44,7 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
   const { routes, handlers, context, cli } = scope;
   const commandFor = (tail: string): string => `${cli} ${tail}`;
 
-  // e-cLRPPf: a missing check was told to produce it with `route next`; the check command is the way to produce it.
+  // A missing check is produced by the check command, not by `route next`.
   function checkCommand(run: Run, step: StepDef): string | null {
     const check = step.produces.find((produced) => produced.kind === 'check' && produced.value !== null);
     return check === undefined ? null : commandFor(`check --task ${run.task} --name <key> --file <file> --phase ${check.value} (key from checks.runnable)`);
@@ -106,7 +106,7 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     // A route that ends on a code step (init, rules) closes with that step's text.
     const last = run.def.steps.at(-1);
     const closing = last?.actor === 'code' && ended === null ? (await Promise.all(last.run.map((call) => loadPayload(run.runtime.fs, run.dir, chainKey([...chain.ids]), payloadKey(call))))).filter((text) => text !== null && text.trim() !== '').join('\n\n') : '';
-    // be-vs-6140-task: after `ended: human (no-check)` the model went on editing; the end says what is left to do.
+    // After `ended: human (no-check)` the model went on editing; the end says what is left to do.
     const after = 'Make no more edits or route calls; write your final message';
     const body = status.startsWith('ended') ? `The route has ended. ${after}, saying why it ended.` : `The route is complete.${recordedLine(chain.entries)} ${after}.`;
     return (await partOf(run, null, header, closing !== '' ? closing : body)).part;
@@ -198,7 +198,7 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     if (!run.deliverOnly && delivered && step.produces.length > 0 && EXPLICIT.has(run.cause)) {
       const again = window.filter((entry) => entry.kind === 'step' && entry['step'] === step.id && entry['status'] === 'repeated').length + 1;
       const missing = step.produces.filter((produced) => !window.some((entry) => matches(entry, produced))).map((produced) => `${produced.kind}${produced.value === null ? '' : `{${produced.value}}`}`);
-      // Only route-next is the agent saying it is done; a check run mid-edit is work, not an attempt (eval ledgers: red checks burned the limit and skipped review).
+      // Only route-next is the agent saying it is done; a check run mid-edit is work, not an attempt, and must not burn the repeat limit.
       if (run.cause === 'route-next') {
         if (again >= 3) {
           await append(run, { kind: 'limit', which: 'missing-produces', step: step.id, count: again });
@@ -207,7 +207,7 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
         await append(run, { kind: 'step', step: step.id, actor: 'model', status: 'repeated', cause: run.cause });
       }
       prefix = `Not done yet: ${missing.join(', ')} is not on record. Produce it with: ${producerHint(run, step)}.\n\n`;
-      // A red check re-sent the whole step (2.2 KB in the test fixture, ~5.7 KB in eval traces) that the model already holds.
+      // A red check would re-send the whole step, which the model already holds.
       if (run.cause === 'check') return (await partOf(run, step, `[ambicode] ${run.def.skill} · task ${run.task} · step ${step.id} (${step.index + 1}/${run.def.steps.length})`, prefix.trimEnd())).part;
     }
     const fill = (text: string): string => text.replaceAll('{cli}', cli).replaceAll('{task}', run.task);
@@ -311,7 +311,6 @@ export function payloadKey(call: Call): string {
     case 'search.map': return 'map';
     case 'policy.stage': return `policy:${call.params[0] ?? ''}`;
     case 'requirements.normalize': return 'envelope';
-    case 'evidence.navigationLine': return 'navigation';
     case 'task.start': return 'brief';
     case 'checks.baseline': return 'baseline';
     case 'task.report': return 'report';

@@ -1,6 +1,7 @@
 schemaVersion: 1
 id: common-code
 authority: inherited
+description: "Any project: code hygiene, dead code, naming, side effects, comments, caller updates."
 appliesTo:
   - "**/*"
 activities: [review, task]
@@ -67,6 +68,5 @@ rules:
       kind: reviewer
       explanation: Only report a missed caller after searching the snapshot for the old name.
 
-prompts: []
 
 commandPolicy: []
