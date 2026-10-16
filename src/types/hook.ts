@@ -62,9 +62,9 @@ export const AskUserQuestionResponse = z.looseObject({ answers: z.record(z.strin
 /** Agent's `tool_response` as observed on 2.1.296: a foreground call is `completed` with the subagent's final text in `content`; a background launch is `async_launched` with none. */
 export const AgentToolResponse = z.looseObject({ status: z.string().optional(), content: z.array(z.looseObject({ type: z.string().optional(), text: z.string().optional() })).optional() });
 
-/** The events `hooks/hooks.json` registers (seven events, fourteen handler entries); a test computes both from the manifest. */
+/** The events `hooks/hooks.json` registers (seven events, fifteen handler entries); a test computes both from the manifest. */
 export const REGISTERED_HOOK_EVENTS = ['PostToolUse', 'PreToolUse', 'SessionStart', 'UserPromptSubmit', 'Stop', 'PostCompact', 'SessionEnd'] as const;
-export const REGISTERED_HOOK_ENTRIES = 14;
+export const REGISTERED_HOOK_ENTRIES = 15;
 
 export interface RouteHookDeps { engine: Engine; routes: RouteRegistry; pointer: ActiveRoutePointer }
 

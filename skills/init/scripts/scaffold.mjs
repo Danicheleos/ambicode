@@ -14,10 +14,6 @@ try { top = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: root, e
 const same = (a, b) => realpathSync(a) === realpathSync(b);
 if (!same(top, root)) fail(`not the git root (root is ${top})`);
 
-// -o -i lists only untracked ignored paths; --directory keeps node_modules/ as one entry instead of thousands of files.
-const ignored = execFileSync('git', ['ls-files', '-o', '-i', '--exclude-standard', '--directory'], { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
-  .split('\n').map((line) => line.trim()).filter((line) => line !== '' && line !== '.ambicode/' && !line.startsWith('.ambicode/')).sort();
-
 const created = [];
 const existing = [];
 for (const dir of ['.ambicode/tasks', '.ambicode/reviews', '.ambicode/context']) {
@@ -31,7 +27,7 @@ const configExisted = existsSync(configPath);
 if (!configExisted) {
   const id = path.basename(root).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'project';
   const template = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'templates', 'config.yaml'), 'utf8');
-  writeFileSync(configPath, template.replaceAll('__PROJECT_ID__', id).replace(/^    ignored: \[\]/m, `    ignored: ${JSON.stringify(ignored)}`));
+  writeFileSync(configPath, template.replaceAll('__PROJECT_ID__', id));
   created.push('.ambicode/config.yaml');
 }
 
@@ -45,4 +41,4 @@ else {
     gitignore = 'added';
   }
 }
-console.log(JSON.stringify({ created, existing, gitignore, configExisted, ignored }));
+console.log(JSON.stringify({ created, existing, gitignore, configExisted }));

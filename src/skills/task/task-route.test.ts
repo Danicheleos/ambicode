@@ -1,13 +1,17 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { launchRoute } from '#hook/events/prompt-launch';
 import { runHook } from '#hook/events/run-hook';
 import { createRuntime } from '#composition/root';
 import { buildReport } from '#modules/evidence/report/report';
-import { stepHeader } from '#harness/engine/execute';
+import { HOOK_LIMIT, stepHeader } from '#harness/engine/execute';
+import { delegatedStepOf, buildChain } from '#harness/engine/fold';
+import { runCheckCommand, renderCheck, CHECK_OPTIONS } from '#cli/commands/checks/check';
+import { parseArgs } from '#util/args';
+import { shellQuote } from '#modules/checks/run/run';
 import { COMMAND_PACK, CHECK_CONFIG, CHECK_TASK } from '#testing/fixtures/check-fixture';
 import { finding } from '#testing/fixtures/review-fixture';
 import { taskFixture } from '#testing/fixtures/task-fixture';
@@ -16,6 +20,11 @@ import { REPO_ROOT } from '#testing/paths';
 import { SESSION_A } from '#testing/fixtures/ids';
 
 type Fixture = Awaited<ReturnType<typeof taskFixture>>;
+
+const RULE_PACKS = ['code', 'design', 'errors', 'security', 'verification'].map((name) => `builtin/common-${name}`).join(', ');
+/** The task fixture with the common packs on, so the before-work policy is a real payload and not an empty string. */
+const WITH_RULES = { config: CHECK_CONFIG.replace('    policyFiles:', `    packs: [${RULE_PACKS}]\n    policyFiles:`) };
+const ruleIds = (text: string): string[] => [...new Set(text.match(/common-[a-z]+\/[a-z0-9-]+/g) ?? [])].sort();
 
 const OTHER = { oldPath: 'src/other.ts', newPath: 'src/other.ts', side: 'new' as const, line: 1 };
 
@@ -78,8 +87,10 @@ describe('task route (07-R, 07-V, 07-G)', () => {
       await t.fx.repo.write(plan, '# Plan\n\n## Iteration 1\nAdd the guard.\n\n## Iteration 2\nSeed the reduce.\n');
       await note(t, 1);
       const red = await t.start({ plan });
-      assert.match(red.text, /iteration 2 of 2 · plan: \.ambicode\/tasks\/ord-7\/plan\.md\n\n## Iteration 2\nSeed the reduce\./);
-      assert.doesNotMatch(red.text, /Add the guard/);
+      const work = await t.work();
+      assert.match(work, /iteration 2 of 2 · plan: \.ambicode\/tasks\/ord-7\/plan\.md\n\n## Iteration 2\nSeed the reduce\./);
+      assert.doesNotMatch(work, /Add the guard/);
+      assert.doesNotMatch(red.text, /Seed the reduce/);
       const record = (await t.kinds('step')).find((entry) => entry['step'] === 'start');
       assert.deepEqual([record?.['planPath'], record?.['iteration'], record?.['iterations']], [plan, 2, 2]);
     });
@@ -146,7 +157,7 @@ describe('task route (07-R, 07-V, 07-G)', () => {
       assert.doesNotMatch(failed.text, /<check>|<spec>/);
       assert.ok(failed.bytes < first.bytes / 2, `${failed.bytes} B after a red check vs ${first.bytes} B for the step`);
       assert.doesNotMatch(failed.text, /## checks\.runnable/);
-      assert.equal((await t.next({ cause: 'route-next' })).text.includes('## checks.runnable'), true, 'route next still re-delivers the full step');
+      assert.match(await t.work(), /## checks\.runnable/, 'the work file still carries the runnable checks');
     });
   });
 
@@ -163,19 +174,43 @@ describe('task route (07-R, 07-V, 07-G)', () => {
     });
   });
 
+  it('the change step only launches the implementer on the work file: no payload, no policy text, the brief and rules in the file', async () => {
+    await withTask(async (t) => {
+      const change = await t.start();
+      const work = await t.work();
+      assert.match(change.text, /`ambicode:implementer` subagent with the Agent tool and `run_in_background: false`/);
+      const launched = /Implement the work described in (.+work-change\.md)\./.exec(change.text)?.[1] ?? '';
+      assert.ok(path.isAbsolute(launched), `the launch names the work file by an absolute path: ${launched}`);
+      assert.equal(await realpath(launched), await realpath(path.join(t.dir, 'steps', 'work-change.md')));
+      assert.doesNotMatch(change.text, /## (brief|envelope|baseline|map|policy|checks|context)|Rules \(|smallest change/);
+      assert.match(work, /^<!-- ambicode work: task\/change[\s\S]*# Work brief[\s\S]*smallest change[\s\S]*## brief\n/);
+      assert.match(section(work, 'brief'), /plan: none \(the request is the brief\)$/, 'a plan-less brief is its header; the request has its own section');
+      assert.match(section(work, 'request'), /^fix `total` for an empty list$/);
+      assert.match(work, /--phase green`/);
+      assert.doesNotMatch(work, /--phase green -/, 'no flag follows the phase');
+      assert.ok(change.bytes < work.length, `${change.bytes} B message vs ${work.length} B work file`);
+      const policy = await readdir(path.join(t.dir, 'steps')).then((names) => names.find((name) => name.endsWith('-policy-before-work.txt')));
+      const rules = policy === undefined ? '' : (await readFile(path.join(t.dir, 'steps', policy), 'utf8')).trim();
+      assert.notEqual(rules, '', 'the rules fixture staged a policy');
+      assert.ok(work.includes(rules) && !change.text.includes(rules));
+    }, WITH_RULES);
+  });
+
   it('change and fix carry the runnable check keys, and their texts tell the model to use one of them', async () => {
     await withTask(async (t) => {
       const change = await t.start();
       const runnable = /## checks\.runnable\nProject app: e2e \(--file only\), lint \(all or --file\), typecheck \(all only\), unit \(all or --file\)\./;
-      assert.match(change.text, runnable);
-      assert.match(change.text, /key listed under `checks\.runnable`/);
+      assert.match(await t.work(), runnable);
+      assert.match(await t.work(), /key listed under `checks\.runnable`/);
+      assert.doesNotMatch(change.text, /## checks\.runnable/);
       await t.edit();
       await t.check('green', null);
       await t.hook('review-offer', 'run');
       const fix = await t.review([finding({ id: 'F1' })]);
       assert.equal(fix.position, 'fix');
-      assert.match(fix.text, runnable);
-      assert.match(fix.text, /key listed under `checks\.runnable`/);
+      assert.match(await t.work('fix'), runnable);
+      assert.match(await t.work('fix'), /key listed under `checks\.runnable`/);
+      assert.doesNotMatch(fix.text, /## checks\.runnable/);
     });
   });
 
@@ -247,7 +282,8 @@ describe('task route (07-R, 07-V, 07-G)', () => {
       assert.equal((await t.hook('review-offer', 'run')).position, 'review-agent');
       const fix = await t.review([finding({ id: 'F1' })]);
       assert.equal(fix.position, 'fix');
-      assert.match(fix.text, /F1 src\/orders\.ts:2/);
+      assert.match(await t.work('fix'), /F1 src\/orders\.ts:2/);
+      assert.doesNotMatch(fix.text, /F1 src\/orders/);
       const ask = await t.check('green', { ran: 1, failed: 0 });
       assert.equal(ask.position, 'report-step');
       assert.equal((await prints(t, 'review-again')).length, 1);
@@ -276,7 +312,7 @@ describe('task route (07-R, 07-V, 07-G)', () => {
       assert.equal(await delivered(t, 'fix'), 0, 'a pending review has no findings to fix');
       const fix = await t.review([finding({ id: 'F1' })]);
       assert.equal(fix.position, 'fix');
-      assert.match(fix.text, /F1 src\/orders\.ts:2/);
+      assert.match(await t.work('fix'), /F1 src\/orders\.ts:2/);
       assert.deepEqual((await t.kinds('review')).map((entry) => entry['stage']), ['pending', 'recorded']);
     });
   });
@@ -311,7 +347,7 @@ describe('task route (07-R, 07-V, 07-G)', () => {
       await t.hook('review-offer', 'run');
       const fix = await t.review([finding({ id: 'F1', location: OTHER })]);
       assert.equal(fix.position, 'fix');
-      assert.match(fix.text, /F1 src\/other\.ts:1/);
+      assert.match(await t.work('fix'), /F1 src\/other\.ts:1/);
       assert.equal((await prints(t, 'scope-expanding')).length, 0);
     });
   });
@@ -413,14 +449,14 @@ describe('task route (07-R, 07-V, 07-G)', () => {
 
   it('07-R8: every task step text is at most 1,500 characters after inclusion; start ≤ 4 KiB, report ≤ 3 KiB', async () => {
     const cli = `node "${REPO_ROOT}/scripts/ambicode.mjs"`;
-    for (const name of ['task/change', 'task/fix', 'task/write']) {
+    for (const name of ['task/change', 'task/change-work', 'task/fix', 'task/fix-work', 'task/write']) {
       const text = (await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8')).replaceAll('{cli}', cli).replaceAll('{task}', CHECK_TASK);
       assert.ok(text.length <= 1500, `${name}: ${text.length}`);
     }
     await withTask(async (t) => {
       await t.fx.repo.write('docs/plan.md', `# Plan\n\n${'Seed the reduce with zero. '.repeat(400)}\n`);
       const red = await t.start({ plan: 'docs/plan.md' });
-      const brief = section(red.text, 'brief');
+      const brief = section(await t.work(), 'brief');
       assert.ok(Buffer.byteLength(brief) <= 4096, `${Buffer.byteLength(brief)}`);
       assert.match(brief, /\[cut: read docs\/plan\.md\]$/);
       await t.edit();
@@ -432,24 +468,100 @@ describe('task route (07-R, 07-V, 07-G)', () => {
   });
 });
 
+describe('task route: the implementer returns (PostToolUse on Agent)', () => {
+  type Output = { hookSpecificOutput?: { hookEventName: string; additionalContext: string } };
+  const returned = (t: Fixture, extra: Record<string, unknown> = {}, toolInput: Record<string, unknown> = { subagent_type: 'ambicode:implementer', prompt: 'Implement it' }) =>
+    runHook(t.fx.runtime, JSON.stringify({ hook_event_name: 'PostToolUse', session_id: SESSION_A, cwd: t.fx.repo.root, scratchpad_dir: t.fx.scratchpad, tool_name: 'Agent', tool_input: toolInput, tool_response: { status: 'completed', content: [{ type: 'text', text: 'Changed:\n- src/orders.ts:2 seed the reduce' }] }, ...extra }), { pointer: t.fx.pointer, load: async () => ({ engine: t.fx.engine, routes: t.fx.routes, pointer: t.fx.pointer }) }) as Promise<Output>;
+
+  it('with a held green check it advances the route, formats after the hook, lists the touched files and prints the gate', async () => {
+    await withTask(async (t) => {
+      await t.start();
+      await t.edit();
+      await t.held('green');
+      assert.equal((await t.kinds('format')).length, 0, 'the held check did not run format');
+      const text = (await returned(t)).hookSpecificOutput?.additionalContext ?? '';
+      assert.match(text, /The implementer returned\. Touched files \(1\): src\/orders\.ts\./);
+      assert.match(text, /Run the independent review of this change\?/);
+      assert.match(text, /\[ambicode gate review-offer /);
+      assert.doesNotMatch(text, /no green check/);
+      const kinds = (await t.ledger()).map((entry) => entry.kind);
+      assert.ok(kinds.lastIndexOf('check') < kinds.indexOf('format'), 'format ran after the check');
+      assert.equal((await t.kinds('step')).find((entry) => entry['step'] === 'format')?.['cause'], 'implementer-hook');
+    });
+  });
+
+  it('a second return after the route moved on prints nothing', async () => {
+    await withTask(async (t) => {
+      await t.start();
+      await t.edit();
+      await t.held('green');
+      assert.notEqual((await returned(t)).hookSpecificOutput?.additionalContext ?? '', '');
+      assert.deepEqual(await returned(t), {});
+    });
+  });
+
+  it('without a green check it says so and points at the same work file, never at the gate', async () => {
+    await withTask(async (t) => {
+      await t.start();
+      await t.edit();
+      await t.check('green', null, 1);
+      const text = (await returned(t)).hookSpecificOutput?.additionalContext ?? '';
+      assert.match(text, /returned without a green check \(attempt 1 of 3\)\. Touched files \(1\): src\/orders\.ts\./);
+      assert.match(text, /Launch `ambicode:implementer` again with the same work file/);
+      assert.match(text, /work-change\.md/);
+      assert.doesNotMatch(text, /Run the independent review/);
+    });
+  });
+
+  it('a fix round is covered the same way', async () => {
+    await withTask(async (t) => {
+      await toOffer(t);
+      await t.hook('review-offer', 'run');
+      await t.review([finding({ id: 'F1' })]);
+      const text = (await returned(t)).hookSpecificOutput?.additionalContext ?? '';
+      assert.match(text, /returned without a green check \(attempt 1 of 3\)/);
+      assert.match(text, /work-fix\.md/);
+    });
+  });
+
+  it('leaves other subagents, a subagent\'s own call and a route not at a delegated step alone', async () => {
+    await withTask(async (t) => {
+      await t.start();
+      assert.deepEqual(await returned(t, {}, { subagent_type: 'Explore' }), {});
+      assert.deepEqual(await returned(t, { agent_id: 'sub-1' }), {});
+      assert.deepEqual(await returned(t, { session_id: 'someone-else' }), {});
+    });
+    await withTask(async (t) => {
+      const fresh = await taskFixture();
+      try {
+        assert.deepEqual(await returned(fresh), {}, 'no route, no output');
+      } finally {
+        await fresh.fx.dispose();
+      }
+    });
+  });
+});
+
 describe('task route: text the model has no use for is not sent', () => {
   it('an empty map is recorded but not delivered; a map with candidates still is', async () => {
     await withTask(async (t) => {
       const red = await t.start();
       assert.equal(Number((await t.kinds('map')).at(-1)?.['candidates']), 0);
-      assert.doesNotMatch(red.text, /## map/);
+      assert.doesNotMatch(await t.work(), /## map/);
     });
     await withTask(async (t) => {
       await t.fx.repo.write('src/seeded/reducer.ts', 'export function reduceTotals(): number {\n  return 1;\n}\n');
       await t.fx.repo.commitAll('seeded file');
       await t.fx.repo.write('docs/plan.md', '# Plan\n\n## Iteration 1\nChange `reduceTotals` in src/seeded/reducer.ts:1.\n');
-      assert.match((await t.start({ plan: 'docs/plan.md' })).text, /## map\nlayers:[\s\S]*src\/seeded\/reducer\.ts/);
+      await t.start({ plan: 'docs/plan.md' });
+      assert.match(await t.work(), /## map\nlayers:[\s\S]*src\/seeded\/reducer\.ts/);
     });
   });
 
   it('the change step does not tell the model to say the baseline stays out of review', async () => {
     await withTask(async (t) => {
-      assert.doesNotMatch((await t.start()).text, /\(the baseline\) stay out/);
+      await t.start();
+      assert.doesNotMatch(await t.work(), /\(the baseline\) stay out/);
     });
   });
 
@@ -569,5 +681,343 @@ describe('step header (round-2 N9)', () => {
     const prose = stepHeader({ skill: 'task', task, step: 'change', position: 6, total: 12, now: 'word '.repeat(60), then: 'next' }).split('\n')[1]!;
     assert.equal(prose.length, 'Now: '.length + 158);
     assert.ok(prose.endsWith('…'));
+  });
+});
+
+describe('task route: the implementer invariants', () => {
+  type Output = { hookSpecificOutput?: { hookEventName: string; additionalContext: string } };
+  const returned = (t: Fixture, extra: Record<string, unknown> = {}, toolInput: Record<string, unknown> = { subagent_type: 'ambicode:implementer', prompt: 'Implement it' }) =>
+    runHook(t.fx.runtime, JSON.stringify({ hook_event_name: 'PostToolUse', session_id: SESSION_A, cwd: t.fx.repo.root, scratchpad_dir: t.fx.scratchpad, tool_name: 'Agent', tool_input: toolInput, tool_response: { status: 'completed', content: [{ type: 'text', text: 'Changed:' }] }, ...extra }), { pointer: t.fx.pointer, load: async () => ({ engine: t.fx.engine, routes: t.fx.routes, pointer: t.fx.pointer }) }) as Promise<Output>;
+  const textOf = (output: Output): string => output.hookSpecificOutput?.additionalContext ?? '';
+  const PROPOSE = COMMAND_PACK.replace('{ command: unit, action: run, reason: "unit" }', '{ command: unit, action: propose, reason: "unit" }');
+  const ROUTE_TEXT = /\[ambicode\]|Then:|Route:|\[ambicode gate /;
+
+  it('I2/I3/risk 5: three returns without a green check say attempt n of 3, then release the step as a gap; none is empty', async () => {
+    await withTask(async (t) => {
+      await t.start();
+      await t.edit();
+      const first = textOf(await returned(t));
+      assert.match(first, /attempt 1 of 3/);
+      assert.match(first, /Launch `ambicode:implementer` again/);
+      const second = textOf(await returned(t));
+      assert.match(second, /attempt 2 of 3/);
+      const third = textOf(await returned(t));
+      assert.notEqual(third, '', 'the limit return still prints the next step');
+      assert.doesNotMatch(third, /Launch `ambicode:implementer` again|attempt \d of 3/);
+      assert.match(third, /green was never reached/);
+      assert.deepEqual((await t.kinds('limit')).map((entry) => [entry['which'], entry['step']]), [['missing-produces', 'change']]);
+      assert.match(buildReport(await t.ledger()).notVerified, /missing-produces limit \(3\) at change/);
+    });
+  });
+
+  it('I3 under a declined check: the returns count and the third releases the step', async () => {
+    await withTask(async (t) => {
+      await t.start();
+      await t.edit();
+      await t.runCheck({ phase: 'green' });
+      await t.hook('check-only-unauthorized', 'decline');
+      for (let attempt = 1; attempt <= 2; attempt += 1) assert.match(textOf(await returned(t)), new RegExp(`attempt ${attempt} of 3`));
+      assert.match(textOf(await returned(t)), /green was never reached/);
+      assert.deepEqual((await t.kinds('limit')).map((entry) => entry['which']), ['missing-produces']);
+    }, { pack: PROPOSE });
+  });
+
+  it('risk 6: a check that waits for approval leads with the approval, never with a relaunch or route next', async () => {
+    await withTask(async (t) => {
+      await t.start();
+      assert.equal((await t.runCheck({ phase: 'green' })).outcome, 'waiting');
+      const text = textOf(await returned(t));
+      assert.match(text, /^\[ambicode\] The implementer stopped for the user's approval: ask the user first\./);
+      assert.match(text, /\[ambicode gate check-only-unauthorized /);
+      assert.doesNotMatch(text, /Launch `ambicode:implementer` again|route next|relaunch|attempt \d of 3/);
+      assert.deepEqual(await t.kinds('limit'), [], 'a stop for approval is not an attempt');
+    }, { pack: PROPOSE });
+  });
+
+  it('a check released by the check limit says green was never reached', async () => {
+    await withTask(async (t) => {
+      await t.start();
+      await t.edit();
+      for (let i = 0; i < 5; i += 1) await t.held('green', 1);
+      await assert.rejects(t.runCheck({ phase: 'green' }), /check-limit|already ran/);
+      assert.match(textOf(await returned(t)), /green was never reached/);
+    });
+  });
+
+  it('after a fix the route\'s own review-again question is the next step, not an approval the implementer stopped for', async () => {
+    await withTask(async (t) => {
+      await t.start();
+      await t.edit();
+      await t.check('green', null);
+      await t.hook('review-offer', 'run');
+      await t.review([finding({ id: 'F1' })]);
+      await t.held('green');
+      const text = textOf(await returned(t));
+      assert.match(text, /^\[ambicode\] The implementer returned\. Touched files/);
+      assert.match(text, /\[ambicode gate review-again /);
+    });
+  });
+
+  it('a failing run followed by a green one is no release: the return is a plain return', async () => {
+    await withTask(async (t) => {
+      await t.start();
+      await t.edit();
+      await t.runCheck({ phase: 'green' });
+      assert.ok((await t.kinds('limit')).some((entry) => entry['which'] === 'green-unproven'), 'the failing run left its unproven limit');
+      t.runner.out = { exitCode: 0, stdout: 'Tests:       1 passed, 1 total\n' };
+      await t.runCheck({ phase: 'green' });
+      const text = textOf(await returned(t));
+      assert.match(text, /^\[ambicode\] The implementer returned\. Touched files/);
+      assert.doesNotMatch(text, /never reached/);
+    });
+  });
+
+  it('a subagent that advanced the route itself still gets the current step printed to the main session, writing nothing', async () => {
+    await withTask(async (t) => {
+      await t.start();
+      await t.edit();
+      await t.check('green', null);
+      const before = await t.ledger();
+      const text = textOf(await returned(t));
+      assert.match(text, /\[ambicode gate review-offer /);
+      assert.deepEqual((await t.ledger()).map((entry) => entry.id), before.map((entry) => entry.id), 'printing it recorded nothing');
+    });
+  });
+
+  it('only the namespaced implementer is the implementer; background launches get a wait notice', async () => {
+    await withTask(async (t) => {
+      await t.start();
+      assert.deepEqual(await returned(t, {}, { subagent_type: 'implementer' }), {});
+      assert.equal(textOf(await returned(t, { tool_response: { status: 'async_launched' } })), 'The implementer runs in the background: wait for its result, then run `route next` (no hook fires when a background agent finishes).');
+      await t.edit();
+      await t.check('green', null);
+      assert.deepEqual(await returned(t, { tool_response: { status: 'async_launched' } }), {}, 'a route past the delegated step has nothing to wait for');
+    });
+  });
+
+  it('I5: a long touched list gives way, never the step text: the output stays within HOOK_LIMIT with the gate marker and options', async () => {
+    await withTask(async (t) => {
+      await t.start();
+      await t.edit();
+      for (let i = 0; i < 45; i += 1) await t.fx.repo.write(`src/${'d'.repeat(120)}/${'f'.repeat(90)}${i}.ts`, 'x\n');
+      await t.held('green');
+      const text = textOf(await returned(t));
+      assert.ok(text.length <= HOOK_LIMIT, `${text.length} > ${HOOK_LIMIT}`);
+      assert.match(text, /\[ambicode gate review-offer \S+\]/);
+      assert.match(text, /Options:\n {2}- run/);
+    });
+  });
+
+  it('route next at a delegated step re-delivers the launch only, and the work file keeps the brief and the runnable checks', async () => {
+    await withTask(async (t) => {
+      await t.start();
+      const again = await t.next({ cause: 'route-next' });
+      assert.match(again.text, /Not done yet: check\{green\} is not on record/);
+      assert.match(again.text, /Implement the work described in .+work-change\.md\./);
+      assert.doesNotMatch(again.text, /## (checks\.runnable|brief)/);
+      assert.match(await t.work(), /## brief\n[\s\S]*## checks\.runnable/);
+    });
+  });
+
+  it('bug 1: an approval during fix keeps the findings in the work file', async () => {
+    await withTask(async (t) => {
+      await t.start();
+      await t.edit();
+      await t.check('green', null);
+      await t.hook('review-offer', 'run');
+      assert.equal((await t.review([finding({ id: 'F1' })])).position, 'fix');
+      assert.equal((await t.runCheck({ phase: 'green' })).outcome, 'waiting');
+      await t.hook('check-only-unauthorized', 'approve');
+      assert.match(await t.work('fix'), /F1 src\/orders\.ts:2/);
+    }, { pack: PROPOSE });
+  });
+
+  it('bug 1: after a second review round with a code revise the work file still names the latest findings', async () => {
+    await withTask(async (t) => {
+      await t.start();
+      await t.edit();
+      await t.check('green', null);
+      await t.hook('review-offer', 'run');
+      await t.review([finding({ id: 'F1' })]);
+      await t.held('green');
+      await returned(t);
+      await t.hook('review-again', 'run');
+      await t.review([finding({ id: 'F2' })]);
+      const work = await t.work('fix');
+      assert.match(work, /F2 /);
+      assert.doesNotMatch(work, /F1 /, 'the earlier round is not the latest findings');
+    });
+  });
+
+  it('bug 2/I4: fix carries the brief, the request, the envelope and the before-work policy that change carries, and the runnable checks', async () => {
+    await withTask(async (t) => {
+      await t.start();
+      const change = await t.work();
+      await t.edit();
+      await t.check('green', null);
+      await t.hook('review-offer', 'run');
+      await t.review([finding({ id: 'F1' })]);
+      const fix = await t.work('fix');
+      for (const key of ['brief', 'request', 'envelope', 'policy:before-work']) assert.equal(fix.includes(`## ${key}\n`), change.includes(`## ${key}\n`), `fix and change agree on ## ${key}`);
+      assert.match(fix, /## brief\n/);
+      assert.match(fix, /## request\nfix `total` for an empty list/);
+      assert.match(fix, /## checks\.runnable\n/);
+      assert.notEqual(section(change, 'policy:before-work'), '', 'the rules fixture staged a policy, so the equality is not between two empties');
+      assert.equal(section(fix, 'policy:before-work'), section(change, 'policy:before-work'));
+    }, WITH_RULES);
+  });
+
+  it('risk 1: the reviewer brief stages its own rules; the fix work file still carries the task rules change carried, not the review ones', async () => {
+    await withTask(async (t) => {
+      const def = t.fx.routes.route('task')!;
+      assert.deepEqual(def.steps.find((step) => step.id === 'fix')!.payload, ['brief', 'envelope', 'policy:before-work', 'checks.runnable']);
+      await t.start();
+      const change = ruleIds(section(await t.work(), 'policy:before-work'));
+      assert.ok(change.includes('common-code/callers') && change.includes('common-design/reuse-before-reimplementing'), change.join(' '));
+      await t.edit();
+      await t.check('green', null);
+      await t.hook('review-offer', 'run');
+      await t.review([finding({ id: 'F1' })]);
+      const fix = ruleIds(section(await t.work('fix'), 'policy:before-work'));
+      assert.deepEqual(fix, change, 'fix carries the rules change carried');
+      assert.ok(!fix.includes('common-security/no-secret-exposure'), 'a review-only rule is not a coding rule');
+    }, WITH_RULES);
+  });
+
+  it('risk 7/I4: the request has its own section in the work file, whole, with or without a plan', async () => {
+    await withTask(async (t) => {
+      const long = `fix \`total\` for an empty list. ${'Details that matter. '.repeat(400)}END`;
+      await t.start({ text: long });
+      const work = await t.work();
+      assert.ok(section(work, 'request').trimEnd().endsWith('END'), 'the whole request is in the file');
+      assert.doesNotMatch(section(work, 'brief'), /Details that matter/);
+    });
+    await withTask(async (t) => {
+      await t.fx.repo.write('.ambicode/tasks/ord-7/plan.md', '# Plan\n\n## Iteration 1\nAdd the guard.\n\n## Iteration 2\nSeed the reduce.\n');
+      await appendLedger(t.fx.runtime.fs, t.dir, t.fx.runtime.clock.now(), 'test-writer', { kind: 'note', note: 'notes', path: 'notes-1.md', contentHash: 'sha256:0', iteration: 1 });
+      await t.start({ plan: '.ambicode/tasks/ord-7/plan.md' });
+      const work = await t.work();
+      assert.match(work, /## request\nfix `total` for an empty list[\s\S]*## brief\nTask ord-7 · iteration 2 of 2[^\n]*\n\n## Iteration 2\nSeed the reduce\./);
+      assert.doesNotMatch(work, /Add the guard/);
+    });
+  });
+
+  it('windows: the repository line is the platform-quoted command', async () => {
+    await withTask(async (t) => {
+      await t.start();
+      const quoted = /Run commands from the repository: cd (.+)\n/.exec(await t.work())?.[1] ?? '';
+      const at = quoted.slice(1, -1);
+      assert.equal(quoted, shellQuote(at), 'quoted by the check runner\'s own helper');
+      assert.ok(path.isAbsolute(at) && (await realpath(at)) === (await realpath(t.fx.repo.root)), at);
+    });
+  });
+});
+
+describe('task route: the implementer hold and return, second review', () => {
+  type Output = { hookSpecificOutput?: { hookEventName: string; additionalContext: string } };
+  const call = (t: Fixture, options: { runtime?: Fixture['fx']['runtime']; engine?: Fixture['fx']['engine'] } = {}) =>
+    runHook(options.runtime ?? t.fx.runtime, JSON.stringify({ hook_event_name: 'PostToolUse', session_id: SESSION_A, cwd: t.fx.repo.root, scratchpad_dir: t.fx.scratchpad, tool_name: 'Agent', tool_input: { subagent_type: 'ambicode:implementer', prompt: 'x' }, tool_response: { status: 'completed', content: [{ type: 'text', text: 'Changed:' }] } }), { pointer: t.fx.pointer, load: async () => ({ engine: options.engine ?? t.fx.engine, routes: t.fx.routes, pointer: t.fx.pointer }) }) as Promise<Output>;
+  const textOf = (output: Output): string => output.hookSpecificOutput?.additionalContext ?? '';
+  const atFix = async (t: Fixture): Promise<void> => {
+    await t.start();
+    await t.edit();
+    await t.check('green', null);
+    await t.hook('review-offer', 'run');
+    await t.review([finding({ id: 'F1' })]);
+  };
+  const check = (t: Fixture) => runCheckCommand(t.fx.runtime, parseArgs('check', ['--task', 'ord-7', '--name', 'unit', '--file', 'src/a.spec.ts', '--phase', 'green'], CHECK_OPTIONS));
+  const chainOf = async (t: Fixture) => buildChain(await t.ledger(), (await t.ledger()).find((entry) => entry.kind === 'route')!);
+
+  it('item 1: a subagent that ran route next after an earlier no-green return still gets the current step printed, not silence', async () => {
+    await withTask(async (t) => {
+      await t.start();
+      await t.edit();
+      assert.match(textOf(await call(t)), /attempt 1 of 3/);
+      await t.held('green');
+      assert.equal((await t.next({ cause: 'route-next' })).position, 'review-offer', 'the relaunched subagent advanced the route itself');
+      const text = textOf(await call(t));
+      assert.match(text, /\[ambicode gate review-offer \S+\]/);
+      assert.deepEqual(await call(t), await call(t), 'printing it twice writes nothing');
+    });
+  });
+
+  it('item 3: a check is held at a delegated step, even after its green, and no longer once the route asked its own next question', async () => {
+    await withTask(async (t) => {
+      await atFix(t);
+      await t.held('green');
+      assert.equal((await check(t)).next, undefined, 'the subagent is still in flight at fix');
+      await t.next({ cause: 'implementer-hook' });
+      assert.equal((await t.kinds('gate')).at(-1)?.['gate'], 'review-again');
+      assert.notEqual((await check(t)).next, undefined, 'at review-again the main session is in charge: the check advances the route');
+    });
+  });
+
+  it('item 3 (c): another route chain stepping in the same task ledger does not release the hold, and the hook still advances this one', async () => {
+    await withTask(async (t) => {
+      await t.start();
+      await t.edit();
+      await t.held('green');
+      await t.append({ kind: 'step', route: 'another-route', step: 'format', actor: 'code', status: 'completed', cause: 'check' });
+      assert.equal(delegatedStepOf(t.fx.routes.route('task')!, await chainOf(t))?.id, 'change');
+      assert.equal((await check(t)).next, undefined, 'held by this chain\'s position, not by the ledger\'s last line');
+      const text = textOf(await call(t));
+      assert.match(text, /^\[ambicode\] The implementer returned\. Touched files/);
+      assert.match(text, /\[ambicode gate review-offer /);
+    });
+  });
+
+  it('item 3 (a): the held check ends with one neutral line and no route text', async () => {
+    await withTask(async (t) => {
+      await t.start();
+      const out = await check(t);
+      assert.equal(out.next, undefined);
+      const text = renderCheck(out);
+      assert.ok(text.endsWith('\n\nRecorded. The route moves on when the implementer returns.'), text);
+      assert.doesNotMatch(text, /route next|Then:|Route:|\[ambicode/);
+    });
+  });
+
+  it('item 4: the touched line gives way to the step text, and the step text to nothing but itself, within HOOK_LIMIT', async () => {
+    await withTask(async (t) => {
+      await t.start();
+      await t.edit();
+      await t.held('green');
+      const padded = (to: (text: string) => number) => ({ ...t.fx.engine, advance: async (input: Parameters<typeof t.fx.engine.advance>[0]) => { const message = await t.fx.engine.advance(input); return { ...message, text: `${message.text}\n${'x'.repeat(to(message.text) - message.text.length - 1)}` }; } }) as Fixture['fx']['engine'];
+      const full = textOf(await call(t, { engine: padded(() => HOOK_LIMIT) }));
+      assert.ok(full.length <= HOOK_LIMIT, `step text at the cap: ${full.length} > ${HOOK_LIMIT}`);
+      assert.match(full, /\[ambicode gate review-offer \S+\]/, 'the step text is whole');
+    });
+    await withTask(async (t) => {
+      await t.start();
+      await t.edit();
+      await t.held('green');
+      const engine = { ...t.fx.engine, advance: async (input: Parameters<typeof t.fx.engine.advance>[0]) => { const message = await t.fx.engine.advance(input); return { ...message, text: `${message.text}\n${'x'.repeat(HOOK_LIMIT - 60 - message.text.length - 1)}` }; } } as Fixture['fx']['engine'];
+      const text = textOf(await call(t, { engine }));
+      assert.ok(text.length <= HOOK_LIMIT, `${text.length} > ${HOOK_LIMIT}`);
+      assert.match(text, /^\[ambicode\] The implementer returned\.\n\n/, 'the lead stays, the touched line that did not fit is dropped whole');
+    });
+  });
+
+  it('nit: a git status that fails reads as unknown, never as no touched files', async () => {
+    await withTask(async (t) => {
+      await t.start();
+      await t.edit();
+      await t.held('green');
+      const real = t.fx.runtime.runner;
+      const runner = { run: (request: Parameters<typeof real.run>[0]) => (request.argv.includes('status') ? Promise.resolve({ kind: 'exited' as const, exitCode: 128, stdout: '', stderr: 'fatal: index.lock', truncated: false, durationMs: 0, failure: null }) : real.run(request)) };
+      const text = textOf(await call(t, { runtime: { ...t.fx.runtime, runner } }));
+      assert.match(text, /^\[ambicode\] The implementer returned\. Touched files: unknown \(git failed\)\./);
+      assert.match(text, /\[ambicode gate review-offer /, 'the route still advanced');
+    });
+  });
+
+  it('nit: an approval revise into change keeps no findings an earlier revise aimed at fix left', async () => {
+    await withTask(async (t) => {
+      await t.start();
+      await t.append({ kind: 'revise', from: 'fix', via: 'code', cycle: 1, reason: 'review-findings', args: { findings: ['F9 old finding'] } });
+      await t.append({ kind: 'revise', from: 'change', via: 'gate', cycle: 1, reason: 'approved' });
+      await t.next({ cause: 'route-next' });
+      assert.doesNotMatch(await t.work(), /F9 old finding/);
+    });
   });
 });

@@ -13,6 +13,7 @@ import { taskDirFor } from '#modules/evidence/task/task-dir';
 import { answerGates } from './gate-answer.ts';
 import { launchRoute, reinjectRoute } from './prompt-launch.ts';
 import { stopCheck } from './stop-check.ts';
+import { implementerReturned } from './implementer-return.ts';
 import { recordReviewerCall } from './review-record.ts';
 import { loadConfig } from '#modules/config/load';
 import { dropIgnoredGlobResults, type GlobResponse } from '#modules/search/glob-ignored';
@@ -159,7 +160,7 @@ async function handlePostToolUse(runtime: Runtime, input: HookInput, deps: HookD
     return context === null ? EMPTY_HOOK_OUTPUT : { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: context } };
   }
   if (input.tool_name === 'Agent') {
-    const context = await recordReviewerCall(runtime, input, deps);
+    const context = (await recordReviewerCall(runtime, input, deps)) ?? (await implementerReturned(runtime, input, deps));
     return context === null ? EMPTY_HOOK_OUTPUT : { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: context } };
   }
   if (input.tool_name === 'Glob') return await filterGlob(runtime, input);

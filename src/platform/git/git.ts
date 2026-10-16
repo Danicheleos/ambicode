@@ -111,8 +111,9 @@ export class Git {
     return (await this.status()).trim() !== '';
   }
 
-  async status(): Promise<string> {
-    return await this.exec(['status', '--porcelain', '-z', '--untracked-files=all'], true);
+  /** `strict` makes a failing git an error: the default reads it as a clean tree, which a caller that reports the files must not. */
+  async status(strict = false): Promise<string> {
+    return await this.exec(['status', '--porcelain', '-z', '--untracked-files=all'], !strict);
   }
 
   async isRepository(): Promise<boolean> {
@@ -201,6 +202,11 @@ export class Git {
       ...(pathspec === null ? [] : [pathspec]),
     ]);
     return [...new Set(splitNul(output))];
+  }
+
+  /** `--directory` keeps node_modules/ as one entry instead of thousands of files; paths are relative to the repository root, and a lone ignored file stays a file entry for the caller to drop. */
+  async listIgnored(): Promise<string[]> {
+    return splitNul(await this.exec(['ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--directory']));
   }
 
   /**

@@ -228,7 +228,7 @@ export function createEngine(deps: EngineDeps): Engine {
       if (ended !== null) {
         throw new AmbicodeError('route-not-open', `The route on task ${input.task} ended (${quiet(ended['reason'])}).`, { details: [`Start one: route start ${def.skill} --task ${input.task}`] });
       }
-      const run = newRun({ runtime, def, task: input.task, dir, ledger, entries, head, session: input.session, stateKey: harnessOf(head) ?? input.session, cause: input.cause, channel: input.cause === 'gate-hook' ? 'hook' : 'cli', ...scratchOf(head, input.scratchpadDir) });
+      const run = newRun({ runtime, def, task: input.task, dir, ledger, entries, head, session: input.session, stateKey: harnessOf(head) ?? input.session, cause: input.cause, channel: input.cause === 'gate-hook' || input.cause === 'implementer-hook' ? 'hook' : 'cli', ...scratchOf(head, input.scratchpadDir) });
       if (input.produced !== undefined) run.produced = input.produced;
       const position = foldRoute(def, chain).position;
       if (position?.actor === 'model' && position.produces.length === 0 && EXPLICIT.has(input.cause)) {

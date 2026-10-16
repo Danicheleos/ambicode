@@ -23,6 +23,7 @@ steps:
   - id: change
     actor: model
     instruction: file:routes/task/change.md
+    work: file:routes/task/change-work.md
     payload: [brief, envelope, baseline, map, "policy:before-work", checks.runnable, context.list]
     produces: ["check{green}"]
   - id: format
@@ -55,7 +56,8 @@ steps:
     actor: model
     when: revised                                 # entered only by a revise aimed at fix: review findings or an approved key
     instruction: file:routes/task/fix.md
-    payload: [checks.runnable]
+    work: file:routes/task/fix-work.md
+    payload: [brief, envelope, "policy:before-work", checks.runnable]
     produces: ["check{green}"]
     repeat: 2
   - id: report-step

@@ -45,4 +45,9 @@ describe('dropIgnoredGlobResults', () => {
     const only = [{ root: 'packages/web', ignored: ['node_modules/'] }];
     assert.equal(dropIgnoredGlobResults(response(['node_modules/a.js']), { cwd: root, repositoryRoot: root, projects: only }), null);
   });
+
+  it('a root written as ./ is the repository root, owning its own and unowned paths', () => {
+    const out = dropIgnoredGlobResults(response(['node_modules/a.js', 'src/a.js', 'packages/web/dist/x.js']), { cwd: root, repositoryRoot: root, projects: [{ root: './', ignored: ['node_modules/'] }, { root: 'packages/web', ignored: ['dist/'] }] });
+    assert.deepEqual(out?.filenames, ['src/a.js']);
+  });
 });

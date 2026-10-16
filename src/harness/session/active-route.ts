@@ -49,7 +49,7 @@ const openRouteOf = (entries: readonly LedgerEntry[], harness: string): { head: 
   return head !== null && owner !== null && exitOf(buildChain(entries, head)) === null ? { head, owner } : null;
 };
 
-interface ActiveRoute { task: string; skill: string; routeId: string; owner: string }
+export interface ActiveRoute { task: string; skill: string; routeId: string; owner: string }
 
 /**
  * The open route of this Claude session: the pointer when the ledger confirms it, otherwise a scan of the task ledgers.

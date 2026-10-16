@@ -85,7 +85,7 @@ async function install(fixture, destination) {
 /** Stands in for the model's judgment: one root project; a wired slot gets the installed tool that serves it, found by looking for the binary. */
 async function ignoredFor(destination) {
   const { stdout } = await run('git', ['ls-files', '-o', '-i', '--exclude-standard', '--directory'], { cwd: destination });
-  return stdout.split('\n').map((line) => line.trim()).filter((line) => line !== '' && !line.startsWith('.ambicode/')).sort();
+  return stdout.split('\n').map((line) => line.trim()).filter((line) => line.endsWith('/') && !line.startsWith('.ambicode/')).sort();
 }
 
 async function configFor(destination, wires) {

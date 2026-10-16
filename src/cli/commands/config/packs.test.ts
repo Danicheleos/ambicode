@@ -152,4 +152,108 @@ describe('config packs', () => {
       await repo.dispose();
     }
   });
+
+  it('sets each project ignored from one git call: directories only, relative to the project root, assigned to the longest containing root, never under .ambicode/', async () => {
+    const repo = await TempRepo.create();
+    try {
+      await repo.write('.gitignore', 'node_modules/\ndist/\n.ambicode/\n.env\n*.log\n');
+      await repo.write('src/a.ts', 'export const a = 1;\n');
+      await repo.write('packages/web/src/b.ts', 'export const b = 1;\n');
+      await repo.commitAll('base');
+      await repo.write('node_modules/x/i.js', '');
+      await repo.write('packages/web/dist/o.js', '');
+      await repo.write('.env', '');
+      await repo.write('packages/web/debug.log', '');
+      const runtime = await createRuntime({ cwd: repo.root });
+      const web = ['  - id: web', '    root: packages/web', '    paths: [src/]', '    ecosystem: { languages: [typescript], frameworks: [], packageManager: null }', '    packs: []', ''].join('\n');
+      const config = await initConfig(runtime, `${FIXTURE_CONFIG}${web}`);
+      const out = await configPacksCommand.run(runtime, parseArgs('config packs', [], configPacksCommand.options));
+      const projects = parseConfig(await runtime.fs.readText(config)).projects;
+      assert.deepEqual(projects.map((project) => [project.id, project.ignored]), [['app', ['node_modules/']], ['web', ['dist/']]]);
+      assert.match(out.text, /^ {2}ignored: dist\/$/m);
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it('I6: a project root that does not exist yet gets ignored [] and a line, never a throw', async () => {
+    const repo = await TempRepo.create();
+    try {
+      await repo.write('src/a.ts', 'x\n');
+      await repo.commitAll('base');
+      const runtime = await createRuntime({ cwd: repo.root });
+      const web = ['  - id: web', '    root: packages/web', '    paths: [src/]', '    ecosystem: { languages: [typescript], frameworks: [], packageManager: null }', '    packs: []', ''].join('\n');
+      const config = await initConfig(runtime, `${FIXTURE_CONFIG}${web}`);
+      const out = await configPacksCommand.run(runtime, parseArgs('config packs', [], configPacksCommand.options));
+      assert.deepEqual(parseConfig(await runtime.fs.readText(config)).projects.find((project) => project.id === 'web')?.ignored, []);
+      assert.match(out.text, /^ {2}ignored: none \(project root packages\/web does not exist\)$/m);
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it('I6: git failing on the ignored listing gives ignored [] and a line, never a throw', async () => {
+    const repo = await TempRepo.create();
+    try {
+      await repo.write('.gitignore', 'node_modules/\n');
+      await repo.write('src/a.ts', 'x\n');
+      await repo.commitAll('base');
+      await repo.write('node_modules/x/i.js', '');
+      const real = (await createRuntime({ cwd: repo.root })).runner;
+      const runner = { run: (request: Parameters<typeof real.run>[0]) => (request.argv.includes('--ignored') ? Promise.resolve({ kind: 'exited' as const, exitCode: 128, stdout: '', stderr: 'fatal: boom', truncated: false, durationMs: 0, failure: null }) : real.run(request)) };
+      const runtime = await createRuntime({ cwd: repo.root, runner });
+      const config = await initConfig(runtime, FIXTURE_CONFIG);
+      const out = await configPacksCommand.run(runtime, parseArgs('config packs', [], configPacksCommand.options));
+      assert.deepEqual(parseConfig(await runtime.fs.readText(config)).projects[0]?.ignored, []);
+      assert.match(out.text, /^ {2}ignored: none \(git could not list them: /m);
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it('a project root written as ./ owns the repository-level ignored directories like .', async () => {
+    const repo = await TempRepo.create();
+    try {
+      await repo.write('.gitignore', 'node_modules/\ndist/\n');
+      await repo.write('src/a.ts', 'x\n');
+      await repo.write('packages/web/src/b.ts', 'x\n');
+      await repo.write('packages/web-admin/src/c.ts', 'x\n');
+      await repo.commitAll('base');
+      for (const file of ['node_modules/x/i.js', 'packages/web/dist/o.js', 'packages/web-admin/dist/o.js']) await repo.write(file, '');
+      const runtime = await createRuntime({ cwd: repo.root });
+      const project = (id: string, root: string) => [`  - id: ${id}`, `    root: ${root}`, '    paths: [src/]', '    ecosystem: { languages: [typescript], frameworks: [], packageManager: null }', '    packs: []', ''].join('\n');
+      assert.match(FIXTURE_CONFIG, /root: \.\n/);
+      const config = await initConfig(runtime, `${FIXTURE_CONFIG.replace(/root: \.\n/, 'root: ./\n')}${project('web', 'packages/web')}${project('admin', 'packages/web-admin')}`);
+      await configPacksCommand.run(runtime, parseArgs('config packs', [], configPacksCommand.options));
+      assert.deepEqual(parseConfig(await runtime.fs.readText(config)).projects.map((entry) => [entry.id, entry.ignored]), [['app', ['node_modules/']], ['web', ['dist/']], ['admin', ['dist/']]]);
+    } finally {
+      await repo.dispose();
+    }
+  });
+
+  it('risk 4: a project root that is missing, or a git listing that fails, keeps the ignored entries already in the config', async () => {
+    const repo = await TempRepo.create();
+    try {
+      await repo.write('.gitignore', 'node_modules/\n');
+      await repo.write('src/a.ts', 'x\n');
+      await repo.commitAll('base');
+      await repo.write('node_modules/x/i.js', '');
+      const web = ['  - id: web', '    root: packages/web', '    paths: [src/]', '    ecosystem: { languages: [typescript], frameworks: [], packageManager: null }', '    packs: []', '    ignored: [kept-web/]', ''].join('\n');
+      const seeded = `${FIXTURE_CONFIG.replace(/root: \.\n/, 'root: .\n    ignored: [kept-app/]\n')}${web}`;
+      const ignored = async (runtime: Awaited<ReturnType<typeof createRuntime>>, config: string) => parseConfig(await runtime.fs.readText(config)).projects.map((entry) => [entry.id, entry.ignored]);
+      let runtime = await createRuntime({ cwd: repo.root });
+      let config = await initConfig(runtime, seeded);
+      await configPacksCommand.run(runtime, parseArgs('config packs', [], configPacksCommand.options));
+      assert.deepEqual(await ignored(runtime, config), [['app', ['node_modules/']], ['web', ['kept-web/']]], 'the missing root keeps its entries; the listed project is refreshed');
+
+      const real = runtime.runner;
+      const runner = { run: (request: Parameters<typeof real.run>[0]) => (request.argv.includes('--ignored') ? Promise.resolve({ kind: 'exited' as const, exitCode: 128, stdout: '', stderr: 'fatal: boom', truncated: false, durationMs: 0, failure: null }) : real.run(request)) };
+      runtime = await createRuntime({ cwd: repo.root, runner });
+      config = await initConfig(runtime, seeded);
+      await configPacksCommand.run(runtime, parseArgs('config packs', [], configPacksCommand.options));
+      assert.deepEqual(await ignored(runtime, config), [['app', ['kept-app/']], ['web', ['kept-web/']]]);
+    } finally {
+      await repo.dispose();
+    }
+  });
 });

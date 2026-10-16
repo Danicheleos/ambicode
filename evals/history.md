@@ -1,6 +1,6 @@
 # Skill coverage history
 
-- **plugin** [longest run, turn by turn](chains/plugin-longest.md) · latest run 2026-10-15T17:51:30.667Z · claude-sonnet-5-5/low · Claude Code 2.1.300 · plugin 0.6.0 · 17 case(s) · mean score 0.99 · cost $5.33
+- **plugin** [longest run, turn by turn](chains/plugin-longest.md) · latest run 2026-10-16T16:14:15.133Z · claude-sonnet-5-5/low · Claude Code 2.1.300 · plugin 0.6.0 · 17 case(s) · mean score 0.99 · cost $5.57
 - **bare** [longest run, turn by turn](chains/bare-longest.md) · latest run 2026-10-15T06:55:42.563Z · claude-sonnet-5-5/low · Claude Code 2.1.296 · 12 case(s) · mean score 0.82 · cost $2.41
 
 `plugin` is the full case score; `outcome` is its shared graders only (answer, code, boundary); `bare` is the same
@@ -54,9 +54,9 @@ Brackets: change against the previous row of the same arm. Failing graders are t
 
 | case | plugin | outcome | bare | lift | plugin $ | bare $ | session s | model calls/tools | context k | failing graders |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| task-fix | 1 | 1 | 0.667 | +0.33 | 0.0747 | 0.0444 | 13.7 / 4.7 | 4.7/6 · 3/2 | 21.1 / 16.6 | — |
-| task-multi | 1 | 1 | 1 | 0.00 | 0.1122 | 0.1095 | 22.5 / 27.4 | 5/4 · 9.7/9 | 27.9 / 24.4 | — |
-| task-review-skipped | 1 | 1 | — | — | 0.0754 | — | 13.4 | 5/6 | 21.2 | — |
+| task-fix | 1 (+0.04) | 1 | 0.667 | +0.33 | 0.1007 | 0.0444 | 17.3 / 4.7 | 2/1 · 3/2 | 19.3 / 16.6 | — |
+| task-multi | 1 (+0.25) | 1 | 1 | 0.00 | 0.1504 | 0.1095 | 40.2 / 27.4 | 2/1 · 9.7/9 | 19.5 / 24.4 | — |
+| task-review-skipped | 1 | 1 | — | — | 0.0921 | — | 17.5 | 2/1 | 19.3 | — |
 
 ## Runs
 
@@ -295,14 +295,14 @@ recall 0.91 ± 0.08 · precision 0.98 ± 0.03 · F1 0.94 ± 0.03
 | 3 | 1 | 5 | 5 | 23.9 | 0.1 | — |
 | spread | 1.00 ± 0.00 | 4.33 ± 0.58 | 3.67 ± 1.16 |  |  |  |
 
-### task-fix · plugin · 3 run(s) · 2026-10-15T17:51
+### task-fix · plugin · 3 run(s) · 2026-10-16T16:14
 
 | run | score | calls | tools | context k | $ | failing graders |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | 1 | 4 | 6 | 21.2 | 0.07 | — |
-| 2 | 1 | 5 | 6 | 21.2 | 0.08 | — |
-| 3 | 1 | 5 | 6 | 21.1 | 0.08 | — |
-| spread | 1.00 ± 0.00 | 4.67 ± 0.58 | 6.00 ± 0.00 |  |  |  |
+| 1 | 1 | 2 | 1 | 19.2 | 0.09 | — |
+| 2 | 1 | 2 | 1 | 19.3 | 0.11 | — |
+| 3 | 1 | 2 | 1 | 19.3 | 0.11 | — |
+| spread | 1.00 ± 0.00 | 2.00 ± 0.00 | 1.00 ± 0.00 |  |  |  |
 
 ### task-fix · bare · 3 run(s) · 2026-10-15T06:55
 
@@ -313,14 +313,14 @@ recall 0.91 ± 0.08 · precision 0.98 ± 0.03 · F1 0.94 ± 0.03
 | 3 | 0.67 | 3 | 2 | 16.5 | 0.04 | test-added |
 | spread | 0.67 ± 0.00 | 3.00 ± 0.00 | 2.00 ± 0.00 |  |  |  |
 
-### task-multi · plugin · 3 run(s) · 2026-10-15T17:51
+### task-multi · plugin · 3 run(s) · 2026-10-16T16:14
 
 | run | score | calls | tools | context k | $ | failing graders |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | 1 | 4 | 3 | 28.6 | 0.11 | — |
-| 2 | 1 | 7 | 6 | 27.9 | 0.12 | — |
-| 3 | 1 | 4 | 3 | 27.2 | 0.11 | — |
-| spread | 1.00 ± 0.00 | 5.00 ± 1.73 | 4.00 ± 1.73 |  |  |  |
+| 1 | 1 | 2 | 1 | 19.6 | 0.15 | — |
+| 2 | 1 | 2 | 1 | 19.5 | 0.15 | — |
+| 3 | 1 | 2 | 1 | 19.5 | 0.15 | — |
+| spread | 1.00 ± 0.00 | 2.00 ± 0.00 | 1.00 ± 0.00 |  |  |  |
 
 ### task-multi · bare · 3 run(s) · 2026-10-15T06:55
 
@@ -331,11 +331,11 @@ recall 0.91 ± 0.08 · precision 0.98 ± 0.03 · F1 0.94 ± 0.03
 | 3 | 1 | 11 | 11 | 26.0 | 0.12 | — |
 | spread | 1.00 ± 0.00 | 9.67 ± 1.16 | 9.00 ± 1.73 |  |  |  |
 
-### task-review-skipped · plugin · 3 run(s) · 2026-10-15T17:51
+### task-review-skipped · plugin · 3 run(s) · 2026-10-16T16:14
 
 | run | score | calls | tools | context k | $ | failing graders |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | 1 | 5 | 6 | 21.2 | 0.08 | — |
-| 2 | 1 | 5 | 6 | 21.1 | 0.08 | — |
-| 3 | 1 | 5 | 6 | 21.2 | 0.08 | — |
-| spread | 1.00 ± 0.00 | 5.00 ± 0.00 | 6.00 ± 0.00 |  |  |  |
+| 1 | 1 | 2 | 1 | 19.4 | 0.09 | — |
+| 2 | 1 | 2 | 1 | 19.3 | 0.09 | — |
+| 3 | 1 | 2 | 1 | 19.3 | 0.09 | — |
+| spread | 1.00 ± 0.00 | 2.00 ± 0.00 | 1.00 ± 0.00 |  |  |  |

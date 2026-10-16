@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { normalizeRelative } from '#util/paths';
 
 export interface GlobResponse {
   filenames: string[];
@@ -24,12 +25,12 @@ export function dropIgnoredGlobResults(
 ): GlobResponse | null {
   const named = posix(`${options.pattern ?? ''}\n${options.searchPath ?? ''}`);
   const projects = options.projects
-    .map((project) => ({ root: project.root === '.' ? '' : project.root.replace(/\/$/, ''), entries: project.ignored.filter((entry) => !named.includes(entry.replace(/\/$/, ''))) }))
+    .map((project) => ({ root: normalizeRelative(project.root), entries: project.ignored.filter((entry) => !named.includes(entry.replace(/\/$/, ''))) }))
     .filter((project) => project.entries.length > 0);
   if (projects.length === 0) return null;
   const owner = (relative: string) =>
     options.projects
-      .map((project) => (project.root === '.' ? '' : project.root.replace(/\/$/, '')))
+      .map((project) => normalizeRelative(project.root))
       .filter((root) => root === '' || relative.startsWith(`${root}/`))
       .sort((a, b) => b.length - a.length)[0] ?? '';
   const kept = response.filenames.filter((filename) => {

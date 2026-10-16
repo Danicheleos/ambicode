@@ -45,7 +45,7 @@ async function offByOne() {
   execFileSync('git', ['-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'wire jest'], { cwd: root });
 
   const step: Record<string, string> = {};
-  for (const name of ['plan/fetch', 'task/change', 'task/fix', 'task/write']) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
+  for (const name of ['plan/fetch', 'task/change', 'task/change-work', 'task/fix', 'task/fix-work', 'task/write']) step[`routes/${name}.md`] = await readFile(path.join(REPO_ROOT, 'routes', `${name}.md`), 'utf8');
   const assembled = await assembleEngine({ root, routes: { task: await readFile(path.join(REPO_ROOT, 'routes', 'task', 'task.yaml'), 'utf8') }, step });
   const engine = assembled.build(skillHandlers());
   const scratchpad = await assembled.runtime.fs.temporaryDirectory('ambicode-scratch-');
@@ -74,6 +74,7 @@ async function offByOne() {
       const print = (await ledger()).findLast((entry) => entry.kind === 'gate' && entry['gate'] === 'review-offer');
       return engine.advance({ task: TASK, session: SESSION_A, cause: 'gate-hook', answers: [{ gate: 'review-offer', option: 'skip — verification incomplete', instance: print!.id }], scratchpadDir: scratchpad });
     },
+    work: (step = 'change') => readFile(path.join(root, '.ambicode', 'tasks', TASK, 'steps', `work-${step}.md`), 'utf8'),
     write: (file: string, text: string) => writeFile(path.join(root, file), text),
     dispose: async () => {
       await rm(path.dirname(root), { recursive: true, force: true });
@@ -94,8 +95,10 @@ describe('task route on ts-off-by-one (integration, test 18)', () => {
     try {
       const first = await t.start();
       assert.equal(first.position, 'change');
-      assert.match(first.text, /1 file\(s\) already changed stay out of this task's review/);
-      assert.doesNotMatch(first.text, /git grep|Callers/);
+      const work = await t.work();
+      assert.match(work, /1 file\(s\) already changed stay out of this task's review/);
+      assert.doesNotMatch(work, /git grep|Callers/);
+      assert.doesNotMatch(first.text, /already changed|## baseline/);
 
       await t.write(SPEC, "const { page } = require('../src/page');\n\ntest('full page', () => {\n  expect(page([1, 2, 3, 4], 0, 2)).toEqual([1, 2]);\n});\n");
       await t.write('src/page.js', 'module.exports.page = (items, index, size) => items.slice(index * size, (index + 1) * size);\n');

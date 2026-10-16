@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { buildReport } from '#modules/evidence/report/report';
+import { shellQuote } from '#modules/checks/run/run';
 import { AmbicodeError } from '#util/errors';
 import { exitRoute, reviseTo, serviceGate } from '../gates/answers.ts';
 import { currentIn, exitOf, foldRoute, humanRevisesLeft, matches, windowOf } from './fold.ts';
@@ -12,8 +13,8 @@ import type { Call } from '../definition/routes.ts';
 import type { LedgerEntry, TaskDir } from '#types/modules/evidence';
 import type { FileSystem } from '#types/platform/ports';
 
-/** Causes from a command the model ran, as opposed to a hook or a resume. */
-export const EXPLICIT: ReadonlySet<string> = new Set(['route-next', 'requirements normalize', 'check', 'rules apply', 'init --apply', 'init propose', 'note save', 'note promote']);
+/** Causes from a command the model ran, as opposed to a hook or a resume; the implementer's return stands for the model's `route next`. */
+export const EXPLICIT: ReadonlySet<string> = new Set(['route-next', 'implementer-hook', 'requirements normalize', 'check', 'rules apply', 'init --apply', 'init propose', 'note save', 'note promote']);
 
 const MAX_TURNS = 200;
 
@@ -54,18 +55,23 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
   const recordCommand = (run: Run, step: StepDef): string | null =>
     step.produces.some((produced) => produced.kind === 'review' && produced.value === 'recorded') ? `invoke the reviewer; the hook records its answer and prints the next step (only if nothing arrives: ${commandFor(`review record --task ${run.task}`)})` : null;
 
+  // The implementer's green check is recorded by the subagent; the PostToolUse hook prints the next step when it returns.
+  const delegated = (run: Run, step: StepDef): string | null =>
+    step.work === null ? null : `launch the implementer on ${workPath(run, step)}; the hook prints the touched files and the next step (only if nothing arrives: ${commandFor(`route next --task ${run.task}`)})`;
+
   function producerHint(run: Run, step: StepDef): string {
     if (answersAsNote(step)) return 'your final message, which is saved as the note';
     const note = step.produces.find((produced) => produced.kind === 'note');
     if (note?.value) return commandFor(`note save --task ${run.task} --kind ${note.value}`);
-    return recordCommand(run, step) ?? checkCommand(run, step) ?? commandFor(`route next --task ${run.task}`);
+    // A red check is run by the implementer, which needs the check command, not the launch it is already inside.
+    return (run.cause === 'check' ? null : delegated(run, step)) ?? recordCommand(run, step) ?? checkCommand(run, step) ?? commandFor(`route next --task ${run.task}`);
   }
 
   function endingCommand(run: Run, step: StepDef): string {
     if (answersAsNote(step)) return 'write your final message; it is saved as the note and checked';
     const note = step.produces.find((produced) => produced.kind === 'note');
     if (step.actor === 'model' && note?.value) return `${commandFor(`note save --task ${run.task} --kind ${note.value}`)} (note on standard input)`;
-    const fallback = recordCommand(run, step) ?? checkCommand(run, step);
+    const fallback = delegated(run, step) ?? recordCommand(run, step) ?? checkCommand(run, step);
     if (fallback !== null) return fallback;
     // The command that records the last step's product completes the route, so `route next` after it fails.
     if (step.index === run.def.steps.length - 1 && step.produces.length > 0) return 'write your final message; no route command is needed';
@@ -210,8 +216,8 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
     if (!run.deliverOnly && delivered && step.produces.length > 0 && EXPLICIT.has(run.cause)) {
       const again = window.filter((entry) => entry.kind === 'step' && entry['step'] === step.id && entry['status'] === 'repeated').length + 1;
       const missing = step.produces.filter((produced) => !window.some((entry) => matches(entry, produced))).map((produced) => `${produced.kind}${produced.value === null ? '' : `{${produced.value}}`}`);
-      // Only route-next is the agent saying it is done; a check run mid-edit is work, not an attempt, and must not burn the repeat limit.
-      if (run.cause === 'route-next') {
+      // Only route-next (or the implementer's return) is the agent saying it is done; a check run mid-edit is work, not an attempt, and must not burn the repeat limit.
+      if (run.cause === 'route-next' || run.cause === 'implementer-hook') {
         if (again >= 3) {
           await append(run, { kind: 'limit', which: 'missing-produces', step: step.id, count: again });
           return null;
@@ -222,21 +228,26 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
       // A red check would re-send the whole step, which the model already holds.
       if (run.cause === 'check') return (await partOf(run, step, `[ambicode] ${run.def.skill} · task ${run.task} · step ${step.id} (${step.index + 1}/${run.def.steps.length})`, prefix.trimEnd())).part;
     }
-    const fill = (text: string): string => text.replaceAll('{cli}', cli).replaceAll('{task}', run.task);
+    const fill = (text: string): string => text.replaceAll('{cli}', cli).replaceAll('{task}', run.task).replaceAll('{work}', workPath(run, step));
     const instruction = fill(step.instruction!);
     const nowLine = instruction.split('\n').find((line) => line.trim() !== '')!.replace(/^#+\s*/, '');
     // `Now:` carries the first line whole unless stepHeader clips it (over 160 and no backtick); a heading stays, it is the shape the step asks for.
     const flat = nowLine.replace(/\s+/g, ' ').trim();
     const body = /^\s*#/.test(instruction) || (flat.length > 160 && !flat.includes('`')) ? instruction : instruction.replace(/^\s*[^\n]*\n?/, '').trimStart();
-    const sections: string[] = body === '' ? [] : [body];
+    const launch: string[] = body === '' ? [] : [body];
+    // A delegated step's own message only launches the subagent; everything it would have carried goes to the work file.
+    const sections: string[] = step.work === null ? launch : [fill(step.work)];
     const start = fold.steps[step.index]!.windowStart;
     const reviseEntry = start > 0 ? fold.chain.entries[start - 1] : undefined;
-    const reviseArgs = reviseEntry?.kind === 'revise' ? (reviseEntry['args'] as Record<string, string[]> | undefined) : undefined;
+    const reviseArgs = reviseEntry?.kind === 'revise' ? reviseArgsOf(fold.chain.entries, start, step) : undefined;
     for (const [key, values] of Object.entries(reviseArgs ?? {})) {
       if (values.length > 0) sections.push(`## ${key}\n${values.join('\n')}`);
     }
+    // A delegated step is read from its file alone, so the request is there under its own heading, whole.
+    const request = ((run.head['args'] ?? {}) as RouteArgs).text.trim();
+    if (step.work !== null && request !== '') sections.push(`## request\n${request}`);
     // A code revise re-asks for the same inputs: the model has them, so only the revise text is new.
-    const resent = reviseEntry?.kind === 'revise' && reviseEntry['via'] === 'code' && fold.chain.entries.slice(0, start).some((entry) => entry.kind === 'step' && entry['step'] === step.id && entry['status'] === 'delivered');
+    const resent = step.work === null && reviseEntry?.kind === 'revise' && reviseEntry['via'] === 'code' && fold.chain.entries.slice(0, start).some((entry) => entry.kind === 'step' && entry['step'] === step.id && entry['status'] === 'delivered');
     const unchanged: string[] = [];
     for (const key of step.payload) {
       const chain = chainKey([...chainOf(run).ids]);
@@ -244,6 +255,11 @@ export function createExecutor(scope: EngineScope): { execute(run: Run): Promise
       if (payload === null || payload.trim() === '') continue;
       if (resent) unchanged.push(path.relative(run.dir.repositoryRoot, payloadFile(run.dir, chain, key)));
       else sections.push(`## ${key}\n${payload}`);
+    }
+    if (step.work !== null) {
+      await run.runtime.fs.mkdirp(run.dir.steps);
+      await run.runtime.fs.writeText(workPath(run, step), `<!-- ambicode work: ${run.def.skill}/${step.id}, task ${run.task} -->\nRun commands from the repository: cd ${shellQuote(run.dir.repositoryRoot)}\n\n${sections.join('\n\n')}\n`);
+      sections.splice(0, sections.length, ...launch);
     }
     if (unchanged.length > 0) sections.push(`Inputs unchanged since the last delivery: ${unchanged.join(', ')}`);
     const closing = isClosing(fold, step);
@@ -316,12 +332,25 @@ export function handlerRegistry(handlers: Readonly<Record<string, Handler>>): Ha
   return { get: (name) => handlers[name] ?? null, names: () => Object.keys(handlers) };
 }
 
+/** An approval revise into a step has no args; its findings are those of the latest revise into it, back to the first revise aimed at another step. */
+function reviseArgsOf(entries: readonly LedgerEntry[], start: number, step: StepDef): Record<string, string[]> | undefined {
+  for (let at = start - 1; at >= 0; at -= 1) {
+    const entry = entries[at]!;
+    if (entry.kind !== 'revise') continue;
+    if (entry['from'] !== step.id) return undefined;
+    const args = entry['args'] as Record<string, string[]> | undefined;
+    if (Object.values(args ?? {}).some((values) => values.length > 0)) return args;
+  }
+  return undefined;
+}
+
 /** The key a step's `payload` list names a call's output by. */
 export function payloadKey(call: Call): string {
   switch (call.name) {
     case 'script': return `script:${call.params[0] ?? ''}`;
     case 'search.map': return 'map';
-    case 'policy.stage': return `policy:${call.params[0] ?? ''}`;
+    // The activity is part of the key: the reviewer brief's stage must not overwrite the rules the task's own steps read.
+    case 'policy.stage': return call.params.length > 1 ? `policy:${call.params.join(':')}` : `policy:${call.params[0] ?? ''}`;
     case 'requirements.normalize': return 'envelope';
     case 'task.start': return 'brief';
     case 'checks.baseline': return 'baseline';
@@ -371,6 +400,8 @@ export async function writeStepFile(fs: FileSystem, composed: Composed, comment:
 }
 
 const safe = (value: string): string => value.replace(/[^A-Za-z0-9_-]/g, '-');
+/** Absolute: the subagent starts in the session's cwd, which can be a parent of the repository. */
+const workPath = (run: Run, step: StepDef): string => path.join(run.dir.steps, `work-${safe(step.id)}.md`);
 export const payloadFile = (dir: TaskDir, chain: string, key: string): string => path.join(dir.steps, `payload-${safe(chain)}-${safe(key)}.txt`);
 
 export async function savePayload(fs: FileSystem, dir: TaskDir, chain: string, key: string, text: string): Promise<void> {

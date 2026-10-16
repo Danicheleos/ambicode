@@ -52,7 +52,7 @@ const files = sections.map((section) => {
 // The saved policy payload of this step's own policy.stage call, when the route ran one.
 let rules = '(none resolved)';
 try {
-  const saved = readdirSync(input.steps).filter((name) => name.endsWith('-policy-before-work.txt')).sort();
+  const saved = readdirSync(input.steps).filter((name) => name.endsWith('-policy-before-work-review.txt')).sort();
   const text = saved.length === 0 ? '' : (read(path.join(input.steps, saved.at(-1))) ?? '').trim();
   if (text !== '') rules = text;
 } catch { /* no steps directory: no policy text */ }

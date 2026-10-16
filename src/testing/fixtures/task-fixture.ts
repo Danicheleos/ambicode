@@ -10,7 +10,7 @@ import type { LedgerEntry } from '#types/modules/evidence';
 import type { AdvanceInput, StartInput, StepMessage } from '#types/harness';
 import { SESSION_A } from './ids.ts';
 
-const STEPS = ['plan/fetch', 'task/change', 'task/fix', 'task/write', 'review/agent'];
+const STEPS = ['plan/fetch', 'task/change', 'task/change-work', 'task/fix', 'task/fix-work', 'task/write', 'review/agent'];
 
 export const ORDERS = 'export function total(amounts: number[]): number {\n  return amounts.reduce((a, b) => a + b);\n}\n';
 
@@ -44,6 +44,10 @@ export async function taskFixture(options: { config?: string; pack?: string } = 
     const entry = await append({ kind: 'check', key: 'app/unit', files: ['src/a.spec.ts'], exit, phase, ms: 3 });
     return next({ cause: 'check', produced: [entry.id] });
   };
+  /** What `check` leaves at a delegated step: the check entry and no tail, so nothing advances. */
+  const held = async (phase: 'red' | 'green', exit = phase === 'red' ? 1 : 0): Promise<void> => {
+    await append({ kind: 'check', key: 'app/unit', files: ['src/a.spec.ts'], exit, phase, ms: 3 });
+  };
   /** What the route's review pin leaves: the result file and the `review` entry, then the tail. */
   const review = async (findings: Finding[], extra: { reviewerRan?: boolean } = {}): Promise<StepMessage> => {
     reviews += 1;
@@ -57,5 +61,7 @@ export async function taskFixture(options: { config?: string; pack?: string } = 
   };
   /** Edits the committed source, so `src/orders.ts` is in the touched set. */
   const edit = (): Promise<void> => fx.repo.write('src/orders.ts', ORDERS.replace('a + b)', 'a + b, 0)'));
-  return { ...base, runCheck: base.check, dir, start, next, hook, append, check, review, edit, ledger: () => fx.ledger(CHECK_TASK), kinds: (kind: string) => fx.kinds(CHECK_TASK, kind) };
+  /** The work file a delegated step wrote for the implementer. */
+  const work = (step = 'change'): Promise<string> => readFile(path.join(dir, 'steps', `work-${step}.md`), 'utf8');
+  return { ...base, runCheck: base.check, dir, work, start, next, hook, append, check, held, review, edit, ledger: () => fx.ledger(CHECK_TASK), kinds: (kind: string) => fx.kinds(CHECK_TASK, kind) };
 }

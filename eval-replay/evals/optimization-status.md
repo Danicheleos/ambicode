@@ -233,3 +233,18 @@ Each round: paid run, then a $0 investigator, then a fix with its test.
 - `raw/tools/firststep.sh <case>` (copied from the scratchpad; edit its `S=` path before use) materializes a case and replays SessionStart and UserPromptSubmit. It prints the exact first step message.
   - `raw/tools/first.mjs <trace dir>` prints the first-call input tokens per trace.
 - `node evals/scripts/breakdown.mjs --latest evals/cases/results/traces` gives per-case calls, injected bytes and time.
+
+## Phase 4: implementer subagent (2026-10-16)
+
+`change` and `fix` run in `ambicode:implementer` (agents/implementer.md); the main session gets a launch line, the work file `steps/work-<step>.md` holds the request, rules and payload. A check at a delegated step does not advance the route; the PostToolUse Agent hook advances it on return. Two adversarial reviews (9 + 7 findings) fixed before the second paid run.
+
+```
+task ×3, Sonnet 5.5 low   inline (10-15 17:51)   implementer v1 (12:49)   implementer v2 (16:14)
+task-fix                  1.00 $0.075 29s        0.963 $0.120 45s         1.00 $0.101 34s
+task-multi                1.00 $0.112 43s        0.75  $0.138 54s         1.00 $0.150 61s
+task-review-skipped       1.00 $0.075 23s        1.00  $0.106 37s         1.00 $0.092 28s
+main context peak         21.2-27.9k             19.5-19.8k               19.3-19.5k
+main model calls          4.7-5                  2.7                      2
+```
+
+v1 → v2, per trace (scratchpad trace-sum): route text reaching the subagent 6/9 → 0/9; wasted subagent reads (missing relative path, ledger, payload files) 2-4 → 0 per run; main-session `route next` fallbacks 3 → 0. task-multi graders repository-fixed/status-synced/test-added 0.33 → 1 (the request now reaches the work file); the subagent does the whole request (16-18 calls), so task-multi cost rose. Delegation still costs +23-35% on these fixtures: the subagent pays its own prefix. Hook additionalContext is not in the trace; the ledger shows `write delivered … implementer-hook, channel hook`.

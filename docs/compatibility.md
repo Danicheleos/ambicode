@@ -21,6 +21,20 @@ Git is invoked with `LC_ALL=C` and `LANG=C`. Git is translated, and AMBICODE
 matches its own diagnostics against English text; the pinned locale keeps that
 true on a localised machine.
 
+## Implementer
+
+The task route's `change` and `fix` steps run in the plugin subagent
+`agents/implementer.md` (tools `Read, Grep, Glob, Edit, Write, Bash`). It reads
+the work file the step wrote and records its green check with the `check`
+command. Unlike the reviewer it can edit the checkout and run commands, so the
+guard and the user's permissions apply to it as to the main session. While it
+runs, `check` records without advancing the route (held while the route chain's
+latest step entry is the step's launch and no unanswered gate has been printed
+since), so no step or gate text reaches it: it cannot ask the user. Its `PostToolUse` return
+(`src/hook/events/implementer-return.ts`) advances the route, lists the touched
+files and prints the next step to the main session; a return with no green
+check counts like `route next` (three, then the step is released as a gap).
+
 ## Reviewer isolation
 
 The reviewer is a plugin subagent, `agents/reviewer.md`, with the tool list
@@ -111,8 +125,8 @@ current transcript.
 ## Hooks
 
 The plugin ships one hook manifest, `hooks/hooks.json`, registering seven
-events with fourteen handler entries: `PostToolUse` (matchers `mcp__.*`, `WebFetch`,
-`AskUserQuestion` and `Agent`), `PreToolUse` (all routed to
+events with fifteen handler entries: `PostToolUse` (matchers `mcp__.*`, `WebFetch`,
+`AskUserQuestion`, `Glob` and `Agent`), `PreToolUse` (all routed to
 `${CLAUDE_PLUGIN_ROOT}/scripts/guard.mjs`: `Bash` with the `if` rows `git *`,
 `glab mr*`, `*.ambicode/*` and `*ambicode.mjs*`, then `Write|Edit|MultiEdit|NotebookEdit`),
 `SessionStart` (matcher `startup|resume|clear|fork`), `UserPromptSubmit`,

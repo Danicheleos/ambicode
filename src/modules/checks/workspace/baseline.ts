@@ -7,9 +7,9 @@ import type { LedgerEntry } from '#types/modules/evidence';
 import type { Runtime } from '#types/composition';
 
 /** Porcelain `-z` puts a rename or copy's origin in the next NUL field; both sides count as changed. */
-async function changedPaths(runtime: Runtime): Promise<{ paths: string[]; head: string | null; hashes: ReadonlyMap<string, string | null> }> {
+async function changedPaths(runtime: Runtime, strict = false): Promise<{ paths: string[]; head: string | null; hashes: ReadonlyMap<string, string | null> }> {
   const { git, repositoryRoot } = await openRepository(runtime);
-  const fields = splitNul(await git.status());
+  const fields = splitNul(await git.status(strict));
   const found = new Set<string>();
   for (let index = 0; index < fields.length; index += 1) {
     const field = fields[index] ?? '';
@@ -34,8 +34,9 @@ export async function captureBaseline(runtime: Runtime): Promise<BaselineEntryFi
 export async function touchedSet(
   runtime: Runtime,
   baseline: BaselineEntryFields,
+  options: { strict?: boolean } = {},
 ): Promise<{ touched: string[]; preexisting: string[]; headMoved: boolean }> {
-  const now = await changedPaths(runtime);
+  const now = await changedPaths(runtime, options.strict === true);
   const before = new Map(baseline.dirty.map((entry) => [entry.path, entry.hash]));
   const touched = new Set<string>();
   const preexisting: string[] = [];

@@ -17,6 +17,7 @@ const RawStep = z.strictObject({
   actor: z.enum(['code', 'model', 'human']),
   run: list.optional(),
   instruction: z.string().optional(),
+  work: z.string().optional(),
   payload: z.array(z.string()).optional(),
   produces: z.array(z.string()).optional(),
   when: z.string().optional(),
@@ -86,17 +87,21 @@ async function normalizeStep(file: string, raw: z.infer<typeof RawStep>, index: 
   if (raw.actor === 'code' && run.length === 0) throw invalid(file, `${where}.run`, 'a code step runs at least one handler');
   if (raw.actor !== 'code' && run.length > 0) throw invalid(file, `${where}.run`, `only a code step runs handlers; this is ${raw.actor}`);
 
+  const text = async (field: 'instruction' | 'work', value: string): Promise<string> =>
+    value.startsWith('file:')
+      ? (await context.readInstruction(value.slice('file:'.length)).catch(() => {
+          throw invalid(file, `${where}.${field}`, `${value} cannot be read`);
+        })).trim()
+      : value.trim();
   let instruction: string | null = null;
   if (raw.actor === 'model') {
     if (raw.instruction === undefined) throw invalid(file, `${where}.instruction`, 'a model step has an instruction');
-    instruction = raw.instruction.startsWith('file:')
-      ? (await context.readInstruction(raw.instruction.slice('file:'.length)).catch(() => {
-          throw invalid(file, `${where}.instruction`, `${raw.instruction} cannot be read`);
-        })).trim()
-      : raw.instruction.trim();
+    instruction = await text('instruction', raw.instruction);
   } else if (raw.instruction !== undefined) {
     throw invalid(file, `${where}.instruction`, `only a model step has an instruction; this is ${raw.actor}`);
   }
+  if (raw.work !== undefined && raw.actor !== 'model') throw invalid(file, `${where}.work`, `only a model step delegates work; this is ${raw.actor}`);
+  const work = raw.work === undefined ? null : await text('work', raw.work);
 
   if (raw.actor === 'human' && raw.gate === undefined) throw invalid(file, `${where}.gate`, 'a human step declares its gate');
   if (raw.actor !== 'human' && raw.gate !== undefined) throw invalid(file, `${where}.gate`, `a gate goes on a human step; this is ${raw.actor}`);
@@ -108,6 +113,7 @@ async function normalizeStep(file: string, raw: z.infer<typeof RawStep>, index: 
     actor: raw.actor,
     run,
     instruction,
+    work,
     payload: raw.payload ?? [],
     produces: (raw.produces ?? []).map((text) => parseQualified(file, `${where}.produces`, text, kinds)),
     when: raw.when === undefined ? null : parseWhen(file, `${where}.when`, raw.when),

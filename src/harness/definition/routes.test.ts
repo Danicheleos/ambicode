@@ -142,3 +142,11 @@ test('03-R10: the shipped route files validate; build and packaging call the val
   assert.deepEqual(offenders, []);
 });
 
+
+test('a model step may delegate its work to a file; any other actor refuses a work field', async (t) => {
+  const directory = await root(t, { 'routes/demo/demo.yaml': `${BASE.head}${BASE.model}    work: file:routes/demo/work.md\n`, 'routes/demo/work.md': 'Rules.\n' });
+  const { routes } = await validateRouteFiles(directory, { handlers: HANDLERS });
+  assert.deepEqual([routes[0]!.steps[0]!.work, (await validateRouteFiles(await root(t, { 'routes/demo/demo.yaml': `${BASE.head}${BASE.model}` }), { handlers: HANDLERS })).routes[0]!.steps[0]!.work], ['Rules.', null]);
+  await refuses(t, `${BASE.head}${BASE.code}    work: Rules.\n`, /step ground\.work: only a model step delegates work; this is code/);
+  await refuses(t, `${BASE.head}${BASE.model}    work: file:routes/demo/missing.md\n`, /step read\.work: file:routes\/demo\/missing\.md cannot be read/);
+});

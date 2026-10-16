@@ -83,6 +83,8 @@ export interface StepDef {
   actor: 'code' | 'model' | 'human';
   run: readonly Call[];
   instruction: string | null;
+  /** A model step that hands its work to the implementer subagent: these rules, the revise args and the payload go to a work file, and `instruction` only launches. */
+  work: string | null;
   payload: readonly string[];
   produces: readonly Qualified[];
   when: When | null;
@@ -115,7 +117,7 @@ export type CommandName =
   | 'requirements normalize' | 'check' | 'policy check --drafts' | 'rules apply'
   | 'note save' | 'note promote' | 'review record';
 
-export type Cause = 'route-next' | 'gate-hook' | 'review-hook' | CommandName;
+export type Cause = 'route-next' | 'gate-hook' | 'review-hook' | 'implementer-hook' | CommandName;
 
 export type AcceptanceEntry = Extract<TypedEntry, { kind: 'acceptance' }>;
 

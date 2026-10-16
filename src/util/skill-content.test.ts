@@ -296,8 +296,8 @@ describe('P2.3 task skill', () => {
     for (const usage of [...[...content.matchAll(/```[\s\S]*?```/g)].map((match) => match[0]), hint]) assert.ok(!/--requirements\b/.test(usage), usage);
   });
 
-  it('07-M1 the four judgments are delivered by the change and fix steps, not repeated in the SKILL.md', async () => {
-    const steps = (await readFile(path.join(repositoryRoot, 'routes', 'task', 'change.md'), 'utf8')) + (await readFile(path.join(repositoryRoot, 'routes', 'task', 'fix.md'), 'utf8'));
+  it('07-M1 the four judgments are delivered by the change and fix work briefs, not repeated in the SKILL.md', async () => {
+    const steps = (await readFile(path.join(repositoryRoot, 'routes', 'task', 'change-work.md'), 'utf8')) + (await readFile(path.join(repositoryRoot, 'routes', 'task', 'fix-work.md'), 'utf8'));
     const content = (await task()).replace(/^---[\s\S]*?\n---/, '').replace(/\s+/g, ' ');
     for (const judgment of [/smallest change/i, /reuse before adding/i, /never weaken/i, /outside the brief is the user's call/i]) {
       assert.match(steps, judgment);
@@ -434,5 +434,16 @@ describe('09-R3/09-W1: the init skill and the init route steps', () => {
     const fm = frontmatter(await readFile(path.join(repositoryRoot, 'agents', 'scout.md'), 'utf8'), 'agents/scout.md');
     assert.equal(fm['name'], 'scout');
     assert.doesNotMatch(requiredString(fm, 'tools', 'agents/scout.md'), /Write|Edit/);
+  });
+
+  it('the implementer agent is internal to the task route, runs checks only through the check command and ends on the report format the write step reads', async () => {
+    const text = await readFile(path.join(repositoryRoot, 'agents', 'implementer.md'), 'utf8');
+    const fm = frontmatter(text, 'agents/implementer.md');
+    assert.equal(fm['name'], 'implementer');
+    assert.match(requiredString(fm, 'description', 'agents/implementer.md'), /never by a natural-language request/);
+    assert.equal(requiredString(fm, 'tools', 'agents/implementer.md'), 'Read, Grep, Glob, Edit, Write, Bash');
+    const body = text.replace(/\s+/g, ' ');
+    for (const rule of [/only through the `check` command/, /never commit, push or publish/, /never weaken or delete a test/i, /green check is your last tool call/, /do not read the ledger or any other file under `\.ambicode\/tasks\/`/, /relative to the repository root, never absolute/, /Changed:/, /Checks:/, /Gaps:/]) assert.match(body, rule);
+    assert.ok(text.length < 2500, `${text.length} bytes`);
   });
 });

@@ -161,3 +161,12 @@ export function openPrint(entries: readonly LedgerEntry[], gate: string, instanc
   if (print === undefined) return false;
   return !entries.slice(entries.indexOf(print) + 1).some((entry) => (entry.kind === 'acceptance' || entry.kind === 'declined') && entry['gate'] === gate);
 }
+
+/** The delegated step whose subagent is in flight on this chain: its launch is the chain's latest step entry and the route has asked no question of its own since. */
+export function delegatedStepOf(def: RouteDef, chain: Chain): StepDef | null {
+  const at = chain.entries.findLastIndex((entry) => entry.kind === 'step');
+  const step = def.steps.find((candidate) => candidate.id === chain.entries[at]?.['step'] && candidate.work !== null) ?? null;
+  if (step === null || foldRoute(def, chain).position === step) return step;
+  // A recorded green puts the fold past the step before the hook advances it, so the fold cannot say; a gate the route printed and nobody answered can.
+  return chain.entries.slice(at).some((entry) => entry.kind === 'gate' && openPrint(chain.entries, String(entry['gate']), entry.id)) ? null : step;
+}
